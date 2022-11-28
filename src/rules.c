@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "rules.h"
 #include "aggregate/expr/expression.h"
 #include "aggregate/expr/exprast.h"
@@ -541,6 +547,10 @@ void SchemaPrefixes_RemoveSpec(IndexSpec *spec) {
     for (int j = 0; j < array_len(node->index_specs); ++j) {
       if (node->index_specs[j] == spec) {
         array_del_fast(node->index_specs, j);
+        if (array_len(node->index_specs) == 0) {
+          // if all specs were deleted, remove the node
+          TrieMap_Delete(ScemaPrefixes_g, prefixes[i], strlen(prefixes[i]), (freeCB)SchemaPrefixNode_Free);
+        }
         break;
       }
     }

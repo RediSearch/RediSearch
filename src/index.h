@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef __INDEX_H__
 #define __INDEX_H__
 
@@ -58,7 +64,7 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
  * - purely negative queries. If the root of the query is a negative expression, we cannot process
  * it without a positive expression. So we create a wildcard iterator that basically just iterates
  * all the incremental document ids, and matches every skip within its range. */
-IndexIterator *NewWildcardIterator(t_docId maxId);
+IndexIterator *NewWildcardIterator(t_docId maxId, size_t numDocs);
 
 /* Create a new IdListIterator from a pre populated list of document ids of size num. The doc ids
  * are sorted in this function, so there is no need to sort them. They are automatically freed in

@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #pragma once
 
@@ -58,7 +64,7 @@ typedef enum {
   RP_FILTER,
   RP_PROFILE,
   RP_NETWORK,
-  RP_VECSIM,
+  RP_METRICS,
   RP_MAX,
 } ResultProcessorType;
 
@@ -194,7 +200,7 @@ ResultProcessor *RPIndexIterator_New(IndexIterator *itr, struct timespec timeout
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs);
 
-ResultProcessor *RPVecSim_New(const RLookupKey **keys, size_t nkeys);
+ResultProcessor *RPMetricsLoader_New();
 
 /** Functions abstracting the sortmap. Hides the bitwise logic */
 #define SORTASCMAP_INIT 0xFFFFFFFFFFFFFFFF
@@ -248,8 +254,10 @@ ResultProcessor *RPCounter_New();
 
 void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout);
 
-clock_t RPProfile_GetClock(ResultProcessor *rp);
+double RPProfile_GetDurationMSec(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
+
+void Profile_AddRPs(QueryIterator *qiter);
 
 // Return string for RPType
 const char *RPTypeToString(ResultProcessorType type);

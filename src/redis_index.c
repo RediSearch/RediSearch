@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "redis_index.h"
 #include "doc_table.h"
 #include "redismodule.h"
@@ -33,8 +39,8 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     IndexBlock *blk = &idx->blocks[actualSize];
     blk->firstId = RedisModule_LoadUnsigned(rdb);
     blk->lastId = RedisModule_LoadUnsigned(rdb);
-    blk->numDocs = RedisModule_LoadUnsigned(rdb);
-    if (blk->numDocs > 0) {
+    blk->numEntries = RedisModule_LoadUnsigned(rdb);
+    if (blk->numEntries > 0) {
       ++actualSize;
     }
 
@@ -68,7 +74,7 @@ void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value) {
   uint32_t readSize = 0;
   for (uint32_t i = 0; i < idx->size; i++) {
     IndexBlock *blk = &idx->blocks[i];
-    if (blk->numDocs == 0) {
+    if (blk->numEntries == 0) {
       continue;
     }
     ++readSize;
@@ -77,12 +83,12 @@ void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value) {
 
   for (uint32_t i = 0; i < idx->size; i++) {
     IndexBlock *blk = &idx->blocks[i];
-    if (blk->numDocs == 0) {
+    if (blk->numEntries == 0) {
       continue;
     }
     RedisModule_SaveUnsigned(rdb, blk->firstId);
     RedisModule_SaveUnsigned(rdb, blk->lastId);
-    RedisModule_SaveUnsigned(rdb, blk->numDocs);
+    RedisModule_SaveUnsigned(rdb, blk->numEntries);
     if (IndexBlock_DataLen(blk)) {
       RedisModule_SaveStringBuffer(rdb, IndexBlock_DataBuf(blk), IndexBlock_DataLen(blk));
     } else {
@@ -127,7 +133,7 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
 RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t len) {
   char buf_s[1024] = {"ft:"};
   size_t offset = 3;
-  size_t nameLen = strlen(ctx->spec->name);
+  size_t nameLen = ctx->spec->nameLen;
 
   char *buf, *bufDyn = NULL;
   if (nameLen + len + 10 > sizeof(buf_s)) {
@@ -204,89 +210,23 @@ void SearchCtx_Free(RedisSearchCtx *sctx) {
   }
   rm_free(sctx);
 }
-/*
- * Select a random term from the index that matches the index prefix and inveted key format.
- * It tries RANDOMKEY 10 times and returns NULL if it can't find anything.
- */
-const char *Redis_SelectRandomTermByIndex(RedisSearchCtx *ctx, size_t *tlen) {
-
-  RedisModuleString *pf = fmtRedisTermKey(ctx, "", 0);
-  size_t pflen;
-  const char *prefix = RedisModule_StringPtrLen(pf, &pflen);
-
-  for (int i = 0; i < 10; i++) {
-    RedisModuleCallReply *rep = RedisModule_Call(ctx->redisCtx, "RANDOMKEY", "");
-    if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_STRING) {
-      break;
-    }
-
-    // get the key and see if it matches the prefix
-    size_t len;
-    const char *kstr = RedisModule_CallReplyStringPtr(rep, &len);
-    if (!strncmp(kstr, prefix, pflen)) {
-      *tlen = len - pflen;
-      return kstr + pflen;
-    }
-  }
-  *tlen = 0;
-  return NULL;
-}
-
-const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
-
-  for (int i = 0; i < 5; i++) {
-    RedisModuleCallReply *rep = RedisModule_Call(ctx->redisCtx, "RANDOMKEY", "");
-    if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_STRING) {
-      break;
-    }
-
-    // get the key and see if it matches the prefix
-    size_t len;
-    RedisModuleString *krstr = RedisModule_CreateStringFromCallReply(rep);
-    char *kstr = (char *)RedisModule_StringPtrLen(krstr, &len);
-    if (!strncmp(kstr, TERM_KEY_PREFIX, strlen(TERM_KEY_PREFIX))) {
-      // check to see that the key is indeed an inverted index record
-      RedisModuleKey *k = RedisModule_OpenKey(ctx->redisCtx, krstr, REDISMODULE_READ);
-      if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
-                        RedisModule_ModuleTypeGetType(k) != InvertedIndexType)) {
-        continue;
-      }
-      RedisModule_CloseKey(k);
-      size_t offset = strlen(TERM_KEY_PREFIX);
-      char *idx = kstr + offset;
-      while (offset < len && kstr[offset] != '/') {
-        offset++;
-      }
-      if (offset < len) {
-        kstr[offset++] = '\0';
-      }
-      char *term = kstr + offset;
-      *tlen = len - offset;
-      // printf("Found index %s and term %sm len %zd\n", idx, term, *tlen);
-      IndexSpec *sp = IndexSpec_Load(ctx->redisCtx, idx, 1);
-      // printf("Spec: %p\n", sp);
-
-      if (sp == NULL) {
-        continue;
-      }
-      ctx->spec = sp;
-      return term;
-    }
-  }
-
-  return NULL;
-}
 
 static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *termKey,
-                                        int write) {
+                                        int write, bool *outIsNew) {
   KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, termKey);
   if (kdv) {
+    if (outIsNew) {
+      *outIsNew = false;
+    }
     return kdv->p;
   }
   if (!write) {
     return NULL;
   }
 
+  if (outIsNew) {
+    *outIsNew = true;
+  }
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = InvertedIndex_Free;
   kdv->p = NewInvertedIndex(ctx->spec->flags, 1);
@@ -295,7 +235,7 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *
 }
 
 InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, size_t len,
-                                         int write, RedisModuleKey **keyp) {
+                                         int write, bool *outIsNew, RedisModuleKey **keyp) {
   RedisModuleString *termKey = fmtRedisTermKey(ctx, term, len);
   InvertedIndex *idx = NULL;
 
@@ -305,6 +245,9 @@ InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, 
 
     // check that the key is empty
     if (k == NULL) {
+      if (outIsNew) {
+        *outIsNew = false;
+      }
       goto end;
     }
 
@@ -312,6 +255,9 @@ InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, 
 
     if (kType == REDISMODULE_KEYTYPE_EMPTY) {
       if (write) {
+        if (outIsNew) {
+          *outIsNew = true;
+        }
         idx = NewInvertedIndex(ctx->spec->flags, 1);
         RedisModule_ModuleTypeSetValue(k, InvertedIndexType, idx);
       }
@@ -327,7 +273,7 @@ InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, 
       }
     }
   } else {
-    idx = openIndexKeysDict(ctx, termKey, write);
+    idx = openIndexKeysDict(ctx, termKey, write, outIsNew);
   }
 end:
   RedisModule_FreeString(ctx->redisCtx, termKey);
@@ -352,7 +298,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
 
     idx = RedisModule_ModuleTypeGetValue(k);
   } else {
-    idx = openIndexKeysDict(ctx, termKey, 0);
+    idx = openIndexKeysDict(ctx, termKey, 0, NULL);
     if (!idx) {
       goto err;
     }

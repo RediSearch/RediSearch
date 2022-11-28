@@ -1,9 +1,16 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "redismodule.h"
 #include <rmr/command.h>
 #include <crc16_tags.h>
 #include "search_cluster.h"
 #include "alias.h"
 #include "minunit.h"
+#include "../rmutil/alloc.h"
 
 const char *FNVTagFunc(const char *key, size_t len, size_t k);
 // void testTagFunc() {
@@ -29,14 +36,12 @@ void testCommandMux() {
     if (i > 100) mu_fail("number of iterations exceeded");
   }
   cg.Free(cg.ctx);
+  SearchCluster_Release(&sc);
 }
 
 int main(int argc, char **argv) {
   // MU_RUN_TEST(testTagFunc);
-  RedisModule_Alloc = malloc;
-  RedisModule_Calloc = calloc;
-  RedisModule_Realloc = realloc;
-  RedisModule_Free = free;
+  RMUTil_InitAlloc();
   IndexAlias_InitGlobal();
   MU_RUN_TEST(testCommandMux);
 

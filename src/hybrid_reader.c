@@ -1,15 +1,21 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include <math.h>
 #include "hybrid_reader.h"
 #include "VecSim/vec_sim.h"
 #include "VecSim/query_results.h"
 
-#define VECTOR_RESULT(p) (p->type == RSResultType_Distance ? p : p->agg.children[0])
+#define VECTOR_RESULT(p) (p->type == RSResultType_Metric ? p : p->agg.children[0])
 
 static void prepareResults(HybridIterator *hr); // forward declaration
 
 static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata) {
   const RSIndexResult *e1 = p1, *e2 = p2;
-  double score1 = VECTOR_RESULT(e1)->dist.distance, score2 = VECTOR_RESULT(e2)->dist.distance;
+  double score1 = VECTOR_RESULT(e1)->num.value, score2 = VECTOR_RESULT(e2)->num.value;
   if (score1 < score2) {
     return -1;
   } else if (score1 > score2) {
@@ -42,8 +48,7 @@ static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
     }
     // Set the item that we skipped to it in hit.
     (*hit)->docId = id;
-    (*hit)->dist.distance = VecSimQueryResult_GetScore(res);
-    (*hit)->dist.scoreField = hr->scoreField;
+    (*hit)->num.value = VecSimQueryResult_GetScore(res);
     return INDEXREAD_OK;
   }
   return INDEXREAD_EOF;
@@ -58,8 +63,7 @@ static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
   VecSimQueryResult *res = VecSimQueryResult_IteratorNext(hr->iter);
   // Set the item that we read in the current RSIndexResult
   (*hit)->docId = VecSimQueryResult_GetId(res);
-  (*hit)->dist.distance = VecSimQueryResult_GetScore(res);
-  (*hit)->dist.scoreField = hr->scoreField;
+  (*hit)->num.value = VecSimQueryResult_GetScore(res);
   return INDEXREAD_OK;
 }
 
@@ -70,11 +74,14 @@ static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexRe
   // If we ignore the document score, hit is single node of type DISTANCE.
   if (hr->ignoreScores) {
     if (heap_count(hr->topResults) < hr->query.k) {
-      hit = NewDistanceResult();
+      hit = NewMetricResult();
     } else {
-      hit = heap_poll(hr->topResults); // Reuse the memory of the worst result and replace it.
+      // Reuse the memory of the worst result and replace it.
+      hit = heap_poll(hr->topResults);
+      IndexResult_Clear(hit);
     }
     *hit = *vec_res; // Shallow copy.
+    ResultMetrics_Concat(hit, child_res); // Pass child metrics, if there are any
   } else {
     // Otherwise, first child is the vector distance, and the second contains a subtree with
     // the terms that the scorer will use later on in the pipeline.
@@ -87,17 +94,18 @@ static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexRe
       IndexResult_Free(top_res);
     }
   }
+  ResultMetrics_Add(hit, hr->base.ownKey, RS_NumVal(vec_res->num.value));
   // Insert to heap, update the distance upper bound.
   heap_offerx(hr->topResults, hit);
   RSIndexResult *top = heap_peek(hr->topResults);
-  *upper_bound = VECTOR_RESULT(top)->dist.distance;
+  *upper_bound = VECTOR_RESULT(top)->num.value;
   // Reset the current result.
   AggregateResult_Reset(res);
 }
 
 static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *vecsim_iter,
                                double *upper_bound) {
-  RSIndexResult *cur_vec_res = NewDistanceResult();
+  RSIndexResult *cur_vec_res = NewMetricResult();
   RSIndexResult *cur_child_res;  // This will use the memory of hr->child->current.
   RSIndexResult *cur_res = hr->base.current;
 
@@ -106,7 +114,7 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
   while (IITER_HAS_NEXT(hr->child)) {
     if (cur_vec_res->docId == cur_child_res->docId) {
       // Found a match - check if it should be added to the results heap.
-      if (heap_count(hr->topResults) < hr->query.k || cur_vec_res->dist.distance < *upper_bound) {
+      if (heap_count(hr->topResults) < hr->query.k || cur_vec_res->num.value < *upper_bound) {
         // Otherwise, set the vector and child results as the children the res
         // and insert result to the heap.
         insertResultToHeap(hr, cur_res, cur_child_res, cur_vec_res, upper_bound);
@@ -140,7 +148,7 @@ void computeDistances(HybridIterator *hr) {
   double upper_bound = INFINITY;
   RSIndexResult *cur_res = hr->base.current;
   RSIndexResult *cur_child_res;  // This will use the memory of hr->child->current.
-  RSIndexResult *cur_vec_res = NewDistanceResult();
+  RSIndexResult *cur_vec_res = NewMetricResult();
   void *qvector = hr->query.vector;
 
   if (hr->indexMetric == VecSimMetric_Cosine) {
@@ -154,16 +162,15 @@ void computeDistances(HybridIterator *hr) {
       hr->list.code = VecSim_QueryResult_TimedOut;
       break;
     }
-    double dist = VecSimIndex_GetDistanceFrom(hr->index, cur_child_res->docId, qvector);
-    // If this id is not in the vector index (since it was deleted), dist will return as NaN.
-    if (isnan(dist)) {
+    double metric = VecSimIndex_GetDistanceFrom(hr->index, cur_child_res->docId, qvector);
+    // If this id is not in the vector index (since it was deleted), metric will return as NaN.
+    if (isnan(metric)) {
       continue;
     }
-    if (heap_count(hr->topResults) < hr->query.k || dist < upper_bound) {
+    if (heap_count(hr->topResults) < hr->query.k || metric < upper_bound) {
       // Populate the vector result.
       cur_vec_res->docId = cur_child_res->docId;
-      cur_vec_res->dist.distance = dist;
-      cur_vec_res->dist.scoreField = hr->scoreField;
+      cur_vec_res->num.value = metric;
       insertResultToHeap(hr, cur_res, cur_child_res, cur_vec_res, &upper_bound);
     }
   }
@@ -248,6 +255,7 @@ static void prepareResults(HybridIterator *hr) {
     VecSimQueryResult_Free(hr->list);
     if (hr->iter) {
       VecSimQueryResult_IteratorFree(hr->iter);
+      hr->iter = NULL;
     }
     // Get the next batch.
     hr->list = VecSimBatchIterator_Next(batch_it, batch_size, BY_ID);
@@ -318,6 +326,8 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
   hr->lastDocId = (*hit)->docId;
+  ResultMetrics_Reset(*hit);
+  ResultMetrics_Add(*hit, hr->base.ownKey, RS_NumVal((*hit)->num.value));
   return INDEXREAD_OK;
 }
 
@@ -380,10 +390,7 @@ void HybridIterator_Free(struct indexIterator *self) {
     heap_free(it->topResults);
   }
   if (it->returnedResults) {   // Iterator is in one of the hybrid modes.
-    for (int i = 0; i < (int)array_len(it->returnedResults); i++) {
-      IndexResult_Free(it->returnedResults[i]);
-    }
-    array_free(it->returnedResults);
+    array_free_ex(it->returnedResults, IndexResult_Free(*(RSIndexResult **)ptr));
   }
   IndexResult_Free(it->base.current);
   VecSimQueryResult_Free(it->list);
@@ -449,6 +456,9 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
 
   IndexIterator *ri = &hi->base;
   ri->ctx = hi;
+  // This will be changed later to a valid RLookupKey if there is no syntax error in the query,
+  // by the creation of the metrics loader results processor.
+  ri->ownKey = NULL;
   ri->type = HYBRID_ITERATOR;
   ri->mode = MODE_SORTED;  // Since this iterator is always the root, we currently don't return the
                            // results sorted by id as an optimization (this can be modified in the future).
@@ -463,12 +473,12 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
   ri->SkipTo = NULL; // As long as we return results by score (unsorted by id), this has no meaning.
   if (hi->searchMode == VECSIM_STANDARD_KNN) {
     ri->Read = HR_ReadKnnUnsorted;
-    ri->current = NewDistanceResult();
+    ri->current = NewMetricResult();
   } else {
     // Hybrid query - save the RSIndexResult subtree which is not the vector distance only if required.
     ri->Read = HR_ReadHybridUnsorted;
     if (hParams.ignoreDocScore) {
-      ri->current = NewDistanceResult();
+      ri->current = NewMetricResult();
     } else {
       ri->current = NewHybridResult();
     }

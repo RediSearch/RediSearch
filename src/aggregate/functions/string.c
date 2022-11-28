@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #include "util/minmax.h"
 #include "util/block_alloc.h"
@@ -307,7 +313,7 @@ int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, Que
 
   result->t = RSValue_Number;
   if (argv[0]->t != RSValue_Null) {
-    result->numval = 1;                       
+    result->numval = 1;
   } else {
     QueryError_ClearError(ctx->err);
     result->numval = 0;
@@ -322,7 +328,7 @@ static int stringfunc_startswith(ExprEval *ctx, RSValue *result, RSValue **argv,
 
   RSValue *str = RSValue_Dereference(argv[0]);
   RSValue *pref = RSValue_Dereference(argv[1]);
-  
+
   const char *p_str = (char *)RSValue_StringPtrLen(str, NULL);
   size_t n;
   const char *p_pref = (char *)RSValue_StringPtrLen(pref, &n);
@@ -359,6 +365,19 @@ static int stringfunc_contains(ExprEval *ctx, RSValue *result, RSValue **argv, s
   return EXPR_EVAL_OK;
 }
 
+static int stringfunc_strlen(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
+  VALIDATE_ARGS("strlen", 1, 1, err);
+  VALIDATE_ARG_ISSTRING("strlen", argv, 0);
+
+  RSValue *str = RSValue_Dereference(argv[0]);
+
+  size_t n;
+  const char *p_pref = (char *)RSValue_StringPtrLen(str, &n);
+  result->t = RSValue_Number;
+  result->numval = n;
+  return EXPR_EVAL_OK;
+}
+
 void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("lower", stringfunc_tolower, RSValue_String);
   RSFunctionRegistry_RegisterFunction("upper", stringfunc_toupper, RSValue_String);
@@ -371,4 +390,5 @@ void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("exists", func_exists, RSValue_Number);
   RSFunctionRegistry_RegisterFunction("startswith", stringfunc_startswith, RSValue_Number);
   RSFunctionRegistry_RegisterFunction("contains", stringfunc_contains, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("strlen", stringfunc_strlen, RSValue_Number);
 }

@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "result_processor.h"
 #include "rmr/rmr.h"
 #include "rmutil/util.h"
@@ -239,12 +245,12 @@ static void rpnetFree(ResultProcessor *rp) {
   }
 
   if (nc->it) MRIterator_Free(nc->it);
-  free(rp);
+  rm_free(rp);
 }
 
 static RPNet *RPNet_New(const MRCommand *cmd, SearchCluster *sc) {
   //  MRCommand_FPrint(stderr, &cmd);
-  RPNet *nc = calloc(1, sizeof(*nc));
+  RPNet *nc = rm_calloc(1, sizeof(*nc));
   nc->cmd = *cmd;
   nc->cg = SearchCluster_MultiplexCommand(sc, &nc->cmd);
   nc->shardsProfileIdx = 0;
@@ -278,6 +284,12 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   tmparr = array_append(tmparr, "WITHCURSOR");
   // Numeric responses are encoded as simple strings.
   tmparr = array_append(tmparr, "_NUM_SSTRING");
+
+  int dialectOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  if (dialectOffset != -1 && dialectOffset + 3 + 1 + profileArgs < argc) {
+    tmparr = array_append(tmparr, "DIALECT");
+    tmparr = array_append(tmparr, RedisModule_StringPtrLen(argv[dialectOffset + 3 + 1 + profileArgs], NULL));  // the dialect
+  }
 
   for (size_t ii = 0; ii < us->nserialized; ++ii) {
     tmparr = array_append(tmparr, us->serialized[ii]);

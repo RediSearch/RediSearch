@@ -23,7 +23,7 @@ RediSearch indexes enhance Redis by providing exact-phrase matching, fuzzy searc
 
 If you're just getting started with RediSearch, check out the [official RediSearch tutorial](https://github.com/RediSearch/redisearch-getting-started). Also, consider viewing our [RediSearch video explainer](https://www.youtube.com/watch?v=B10nHEdW3NA).
 
-The fastest way to get up and running with RediSearch is by using the [RediSearch Docker image](https://hub.docker.com/r/redislabs/redisearch/).
+The fastest way to get up and running with RediSearch is by using the [Redis Stack Docker image](https://hub.docker.com/r/redis/redis-stack/).
 
 ## Trying RediSearch
 
@@ -198,4 +198,4 @@ See [RediSearch on Redis Enterprise](https://redis.com/modules/redisearch/) for 
 
 ### License
 
- RediSearch is licensed under the [Redis Source Available License Agreement](LICENSE).
+RediSearch is licensed under the [Redis Source Available License 2.0 (RSALv2)](https://redis.com/legal/rsalv2-agreement) or the [Server Side Public License v1 (SSPLv1)](https://www.mongodb.com/licensing/server-side-public-license).

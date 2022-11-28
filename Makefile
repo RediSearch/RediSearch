@@ -55,7 +55,6 @@ ifeq ($(wildcard $(ROOT)/deps/readies/*),)
 ___:=$(shell git submodule update --init --recursive &> /dev/null)
 endif
 
-MK.pyver:=3
 include deps/readies/mk/main
 
 #----------------------------------------------------------------------------------------------
@@ -69,7 +68,6 @@ make build          # compile and link
   STATIC=1            # build as static lib
   LITE=1              # build RediSearchLight
   DEBUG=1             # build for debugging
-  STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
   NO_TESTS=1          # disable unit tests
   WHY=1               # explain CMake decisions (in /tmp/cmake-why)
   FORCE=1             # Force CMake rerun (default)
@@ -77,6 +75,9 @@ make build          # compile and link
   VG=1                # build for Valgrind
   SAN=type            # build with LLVM sanitizer (type=address|memory|leak|thread) 
   SLOW=1              # do not parallelize build (for diagnostics)
+  GCC=1               # build with GCC (default unless Sanitizer)
+  CLANG=1             # build with CLang
+  STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
@@ -219,14 +220,17 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
+# override CLang default for macOS
+ifeq ($(OS),macos)
+ifneq ($(CLANG),1)
+export GCC=1
+endif
+endif
+
 STATIC_LIBSTDCXX ?= 1
 
 ifeq ($(COV),1)
 CMAKE_COV += -DUSE_COVERAGE=ON
-endif
-
-ifneq ($(SAN),)
-CMAKE_SAN += -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 endif
 
 ifeq ($(PROFILE),1)
@@ -527,7 +531,8 @@ endif
 endif
 
 pytest: $(REJSON_SO)
-	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(_RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	$(SHOW)REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(_RLTEST_PARALLEL) \
+		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
 
@@ -656,9 +661,7 @@ COV_EXCLUDE_DIRS += \
 
 COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
-ifneq ($(REJSON_PATH),)
-export REJSON_PATH
-else
+ifeq ($(REJSON_PATH),)
 REJSON_MODULE_FILE:=$(shell mktemp /tmp/rejson.XXXX)
 endif
 

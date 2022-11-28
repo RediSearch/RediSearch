@@ -1,10 +1,15 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include <pthread.h>
 #include <assert.h>
 #include <unistd.h>
 
 #include "gc.h"
 #include "fork_gc.h"
-#include "default_gc.h"
 #include "config.h"
 #include "redismodule.h"
 #include "rmalloc.h"
@@ -30,11 +35,6 @@ GCContext* GCContext_CreateGCFromSpec(IndexSpec* sp, float initialHZ, uint64_t u
     case GCPolicy_Fork:
       ret->gcCtx = FGC_NewFromSpec(sp, uniqueId, &ret->callbacks);
       break;
-    case GCPolicy_Sync:
-    default:
-      // currently LLAPI only support FORK_GC, in the future we might allow default GC as well.
-      // This is why we pass the GC_POLICY to the function.
-      RS_LOG_ASSERT(0, "Invalid GC policy");
   }
   return ret;
 }
@@ -44,10 +44,6 @@ GCContext* GCContext_CreateGC(RedisModuleString* keyName, float initialHZ, uint6
   switch (RSGlobalConfig.gcPolicy) {
     case GCPolicy_Fork:
       ret->gcCtx = FGC_New(keyName, uniqueId, &ret->callbacks);
-      break;
-    case GCPolicy_Sync:
-    default:
-      ret->gcCtx = NewGarbageCollector(keyName, initialHZ, uniqueId, &ret->callbacks);
       break;
   }
   return ret;

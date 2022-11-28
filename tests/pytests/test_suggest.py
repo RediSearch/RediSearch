@@ -2,10 +2,7 @@
 
 import unittest
 from includes import *
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, skipOnCrdtEnv
-from time import sleep
-from RLTest import Env
-
+from common import *
 
 def testSuggestions(env):
     r = env
@@ -95,7 +92,7 @@ def testIssue_866(env):
     env.expect('ft.sugget', 'sug', '').equal(['test123', 'test456'])
 
 def testSuggestMax(env):
-    skipOnCrdtEnv(env)
+    #skipOnCrdtEnv(env)
     for i in range(10):
         env.expect('ft.sugadd', 'sug', 'test%d' % i, i + 1).equal(i + 1)
         #  for j in range(i + 1):
@@ -106,13 +103,15 @@ def testSuggestMax(env):
                   'test3', '2.8284270763397217', 'test2', '2.1213202476501465', 'test1', '1.4142135381698608',
                   'test0', '0.70710676908493042']
     for i in range(1,11):
-        env.expect('FT.SUGGET', 'sug', 'test', 'MAX', i, 'WITHSCORES').equal(expected_res[0:i*2])
-    env.expect('FT.SUGGET', 'sug', 'test', 'MAX', 10, 'WITHSCORES').equal(expected_res)
+        res = env.cmd('FT.SUGGET', 'sug', 'test', 'MAX', i, 'WITHSCORES')
+        compare_lists(env, res, expected_res[0:i*2], delta=0.0001)
+    res = env.cmd('FT.SUGGET', 'sug', 'test', 'MAX', 10, 'WITHSCORES')
+    compare_lists(env, res, expected_res, delta=0.0001)
 
 def testSuggestMax2(env):
     skipOnCrdtEnv(env)
     for i in range(10):
-        env.expect('ft.sugadd', 'sug', 'test %d' % i, 1).equal(i + 1)
+        env.expect('ft.sugadd', 'sug', 'test %d' % i, 10 - i).equal(i + 1)
 
     expected_res = ['test 0', 'test 1', 'test 2', 'test 3', 'test 4', 'test 5']
     for i in range(1,7):

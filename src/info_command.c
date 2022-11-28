@@ -1,10 +1,14 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "redismodule.h"
 #include "spec.h"
 #include "inverted_index.h"
 #include "vector_index.h"
 #include "cursor.h"
-
-#define CLOCKS_PER_MILLISEC (CLOCKS_PER_SEC / 1000)
 
 #define REPLY_KVNUM(n, k, v)                       \
   do {                                             \
@@ -101,7 +105,6 @@ static int renderIndexDefinitions(RedisModuleCtx *ctx, IndexSpec *sp) {
  *  Provide info and stats about an index
  */
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_AutoMemory(ctx);
   if (argc < 2) return RedisModule_WrongArity(ctx);
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
@@ -165,6 +168,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);
       ++nn;
     }
+    if (FieldSpec_IsUnf(fs)) {
+      RedisModule_ReplyWithSimpleString(ctx, SPEC_UNF_STR);
+      ++nn;
+    }
     if (FieldSpec_IsNoStem(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_NOSTEM_STR);
       ++nn;
@@ -210,12 +217,14 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM(n, "offset_bits_per_record_avg",
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
   REPLY_KVNUM(n, "hash_indexing_failures", sp->stats.indexingFailures);
-  REPLY_KVNUM(n, "total_indexing_time", (double)sp->stats.totalIndexTime / (double)CLOCKS_PER_MILLISEC);
+  REPLY_KVNUM(n, "total_indexing_time", sp->stats.totalIndexTime / 1000.0);
   REPLY_KVNUM(n, "indexing", !!global_spec_scanner || sp->scan_in_progress);
 
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
   double percent_indexed = IndexesScanner_IndexedPercent(scanner, sp);
   REPLY_KVNUM(n, "percent_indexed", percent_indexed);
+
+  REPLY_KVINT(n, "number_of_uses", sp->counter);
 
   if (sp->gc) {
     RedisModule_ReplyWithSimpleString(ctx, "gc_stats");

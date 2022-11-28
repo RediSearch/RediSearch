@@ -14,17 +14,20 @@ We support a simple syntax for complex queries with the following rules:
 * Exact phrases are wrapped in quotes, e.g `"hello world"`.
 * OR Unions (i.e `word1 OR word2`), are expressed with a pipe (`|`), e.g. `hello|hallo|shalom|hola`.
 * NOT negation (i.e. `word1 NOT word2`) of expressions or sub-queries. e.g. `hello -world`. As of version 0.19.3, purely negative queries (i.e. `-foo` or `-@title:(foo|bar)`) are supported.
-* Prefix matches (all terms starting with a prefix) are expressed with a `*`. For performance reasons, a minimum prefix length is enforced (2 by default, but is configurable)
+* Prefix/Infix/Suffix matches (all terms starting/containing/ending with a term) are expressed with a `*`. For performance reasons, a minimum term length is enforced (2 by default, but is configurable).
+* Wildcard pattern matches: `w'foo*bar?'`.
 * A special "wildcard query" that returns all results in the index - `*` (cannot be combined with anything else).
 * Selection of specific fields using the syntax `hello @field:world`.
 * Numeric Range matches on numeric fields with the syntax `@field:[{min} {max}]`.
-* Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`
+* Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`.
+* Range queries on vector fields (as of v2.6) with the syntax `@field:[VECTOR_RANGE {radius} $query_vec]`, where `query_vec` is given as a query parameter.
+* KNN queries on vector fields with or without pre-filtering (as of v2.4) with the syntax `{filter_query}=>[KNN {num} @field $query_vec]`.
 * Tag field filters with the syntax `@field:{tag | tag | ...}`. See the full documentation on [tag fields|/Tags].
 * Optional terms or clauses: `foo ~bar` means bar is optional but documents with bar in them will rank higher.
 * Fuzzy matching on terms (as of v1.2.0): `%hello%` means all terms with Levenshtein distance of 1 from it.
 * An expression in a query can be wrapped in parentheses to disambiguate, e.g. `(hello|hella) (world|werld)`.
-* Query attributes can be applied to individual clauses, e.g. `(foo bar) => { $weight: 2.0; $slop: 1; $inorder: false; }`
-* Combinations of the above can be used together, e.g `hello (world|foo) "bar baz" bbbb`
+* Query attributes can be applied to individual clauses, e.g. `(foo bar) => { $weight: 2.0; $slop: 1; $inorder: false; }`.
+* Combinations of the above can be used together, e.g `hello (world|foo) "bar baz" bbbb`.
 
 ## Pure negative queries
 
@@ -108,21 +111,22 @@ Radius filters can be added into the query just like numeric filters. For exampl
 
 ## Vector Similarity search in query
 
-It is possible to add vector similarity queries directly into the query language.
-The basic syntax is `"*=>[ KNN {num|$num} @vector $query_vec ]"` for running K nearest neighbors query on @vector field.
-It is also possilbe to run a Hybrid Query on filtered results.
+It is possible to add vector similarity queries directly into the query language. There are two ways of performing vector similarity search:
+1. Using a **range** query (as of v2.6.1) with the syntax of `@vector:[VECTOR_RANGE {radius} $query_vec]`, which filters the results to a given radius from a given query vector. The distance metric derives from the definition of @vector field in the index schema (e.g., Cosine, L2).
 
-A Hybrid query allows the user to specify a filter criteria that ALL results in a KNN query must satisfy. The filter criteria can only include fields with non-vector indexes (e.g. indexes created on scalar values such as TEXT, PHONETIC, NUMERIC, GEO, etc)
 
-The General syntax is `{some filter query}=>[ KNN {num|$num} @vector $query_vec]`. For example:
+2. By running a **KNN** (K Nearest Neighbors) query on @vector field. The basic syntax is `"*=>[ KNN {num|$num} @vector $query_vec ]"`.
+It is also possible to run a hybrid query on filtered results. A hybrid query allows the user to specify a filter criteria that all results in a KNN query must satisfy. The filter criteria can include any type of field (e.g., indexes created on both vectors and other values such as TEXT, PHONETIC, NUMERIC, GEO, etc.).
+The general syntax for hybrid query is `{some filter query}=>[ KNN {num|$num} @vector $query_vec]`, where `=>` separates the filter query from the vector KNN query. 
 
-* `@published_year:[2020 2021]` - Only entities published between 2020 and 2021.
 
-* `=>` - Separates filter query from vector query.
+**Examples:**
+* `*=>[KNN 10 @vector_field $query_vec]` - Return 10 nearest neighbors entities in which `query_vec` is closest to the vector stored in `@vector_field`.
+* `@published_year:[2020 2022]=>[KNN 10 @vector_field $query_vec]` - Among entities published between 2020 and 2022, return 10 "nearest neighbors" entities in which `query_vec` is closest to the vector stored in `@vector_field`.
+* `@vector_field:[VECTOR_RANGE 0.5 $query_vec]` - Return every entity for which the distance between the vector stored under its @vector_field and `query_vec` is at most 0.5, in terms of @vector_field distance metric.
 
-* `[KNN {num|$num} @vector_field $query_vec]` - Return `num` nearest neighbors entities where `query_vec` is similar to the vector stored in `@vector_field`.
 
-As of version 2.4, we allow vector similarity to be used **once** in the query. For more information on vector smilarity syntax, see [Vector Fields](/redisearch/reference/vectors/#querying-vector-fields), "Querying vector fields" section.
+As of version 2.4, the KNN vector search can be used **once** in the query, while, as of version 2.6, the vector range filter can be used **multiple** times in a query. For more information on vector similarity syntax, see [Querying vector fields](/docs/stack/search/reference/vectors/#querying-vector-fields), and [Vector search examples](/docs/stack/search/reference/vectors/#vector-search-examples) sections.
 
 ## Prefix matching
 
@@ -147,6 +151,39 @@ Will be expanded to cover `(hello|help|helm|...) world`.
 3. Prefix matching fully supports Unicode and is case insensitive.
 
 4. Currently, there is no sorting or bias based on suffix popularity, but this is on the near-term roadmap.
+
+## Infix/Suffix matching
+
+Since version v2.6.0, the dictionary can be used for infix (contains) or suffix queries by appending `*` to the token. For example:
+
+```
+*sun* *ing 
+```
+
+These queries are CPU intensive because they require iteration over the whole dictionary.
+
+Note: all notes about prefix searches also apply to infix/suffix queries.
+
+### Using a suffix trie
+
+A suffix trie maintains a list of terms which match the suffix. If you add a suffix trie to a field using the `WITHSUFFIXTRIE` keyword, you can create more efficient infix and suffix queries because it eliminates the need to iterate over the whole dictionary. However, the iteration on the union does not change. 
+
+Suffix queries create a union of the list of terms from the suffix term node. Infix queries use the suffix terms as prefixes to the trie and create a union of all terms from all matching nodes.
+
+## Wildcard matching
+
+Since version v2.6.0, the dictionary can be used for wildcard matching queries with 2 parameters.
+
+* `?` - for any single character
+* `*` - for any character repeating zero or more times
+
+An example of the syntax is `w'foo*bar?'`.
+
+### Using a Suffix Trie
+
+A suffix trie maintains a list of terms which match the suffix. If you add a suffix trie to a field using the `WITHSUFFIXTRIE` keyword, you can create more efficient wildcard matching queries because it eliminates the need to iterate over the whole dictionary. However, the iteration on the union does not change. 
+
+With a suffix trie, the wildcard pattern is broken into tokens at every `*` character. A heuristic is used to choose the token with the least terms, and each term is matched with the wildcard pattern.
 
 ## Fuzzy matching
 
@@ -181,10 +218,15 @@ The syntax is `(foo bar) => { $attribute: value; $attribute:value; ...}`, e.g:
 
 The supported attributes are:
 
-* **$weight**: determines the weight of the sub-query or token in the overall ranking on the result (default: 1.0).
+1. **$weight**: determines the weight of the sub-query or token in the overall ranking on the result (default: 1.0).
 2. **$slop**: determines the maximum allowed "slop" (space between terms) in the query clause (default: 0).
 3. **$inorder**: whether or not the terms in a query clause must appear in the same order as in the query, usually set alongside with `$slop` (default: false).
 4. **$phonetic**: whether or not to perform phonetic matching (default: true). Note: setting this attribute on for fields which were not creates as `PHONETIC` will produce an error.
+
+As of v2.6.1, the query attributes syntax supports these additional attributes:
+
+* **$yield_distance_as**: specify the distance field name for later sorting by it and/or returning it, for clauses that yield some distance metric. It is currently supported for vector queries only (both KNN and range).   
+* **vector query params**: pass optional parameters for [vector queries](/docs/stack/search/reference/vectors/#querying-vector-fields) in key-value format.
 
 ## A few query examples
 
@@ -228,13 +270,21 @@ The supported attributes are:
 
         @title:"hello world" @body:(foo bar) @category:(articles|biographies)
 
-* Prefix Queries:
+* Prefix/Infix/Suffix queries:
 
         hello worl*
 
-        hel* worl*
+        hel* *worl
 
-        hello -worl*
+        hello -*worl*
+
+* Wildcard matching queries:
+
+        w'foo??bar??baz'
+
+        w'???????'
+
+        w'hello*world'
 
 * Numeric Filtering - products named "tv" with a price range of 200-500:
 
@@ -264,4 +314,6 @@ The supported attributes are:
 
 ## Technical note
 
-The query parser is built using the Lemon Parser Generator and a Ragel based lexer. You can see the grammar definition [at the git repo](https://github.com/RediSearch/RediSearch/blob/master/src/query_parser/parser.y).
+The query parser is built using the Lemon Parser Generator and a Ragel based lexer. You can see the `dialect 2` grammar definition [at the git repo](https://github.com/RediSearch/RediSearch/blob/master/src/query_parser/v2/parser.y).
+
+You can also see the [DEFAULT_DIALECT](/docs/stack/search/configuring/#default_dialect) configuration parameter.

@@ -109,8 +109,6 @@ commands:
 
   build-steps:
     parameters:
-      platform:
-        type: string
       redis_version:
         type: string
         default: "6"
@@ -296,6 +294,7 @@ commands:
             export BENCHMARK_GLOB=<< parameters.benchmark_glob >>
             export PERF_CALLGRAPH_MODE="dwarf"
             export MAX_PROFILERS=3
+            if [[ -n $CIRCLE_BRANCH ]]; then branch="$CIRCLE_BRANCH"; else branch="$CIRCLE_TAG"; fi
             redisbench-admin run-remote \
               --module_path $(cat $ROOT/bin/REJSON_PATH) \
               --module_path $ROOT/<< parameters.module_path >> \
@@ -304,12 +303,12 @@ commands:
               --github_org $CIRCLE_PROJECT_USERNAME \
               --required-module search \
               --github_sha $CIRCLE_SHA1 \
-              --github_branch $CIRCLE_BRANCH \
+              --github_branch $branch \
               --upload_results_s3 \
               --fail_fast \
               --triggering_env << parameters.triggering_env >> \
               --push_results_redistimeseries \
-              --allowed-envs << parameters.allowed_envs >>
+              --allowed-envs << parameters.allowed_envs >> || true
 
 #----------------------------------------------------------------------------------------------------------------------------------
 
@@ -326,7 +325,6 @@ jobs:
         default: "yes"
     steps:
       - build-steps:
-          platform: bullseye
           redis_version: <<parameters.redis_version>>
       - test-steps
       - run:
@@ -336,6 +334,22 @@ jobs:
               circleci step halt
             fi
       - persist-artifacts
+
+  build-linux-arm-ubuntu:
+    machine:
+      image: ubuntu-2004:202101-01
+    resource_class: arm.medium
+    parameters:
+      redis_version:
+        type: string
+        default: "6"
+      persist:
+        type: string
+        default: "no"
+    steps:
+      - build-steps:
+          redis_version: <<parameters.redis_version>>
+      - test-steps
 
   build-platforms:
     parameters:
@@ -378,8 +392,7 @@ jobs:
       - run:
           name: Set up workspace
           command: mkdir -p ~/workspace
-      - build-steps:
-          platform: catalina
+      - build-steps
       - test-steps
       - run:
           name: Upload artifacts to S3
@@ -394,7 +407,6 @@ jobs:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
-          platform: bionic
           run_pack: false
       - benchmark-automation:
           platform: bionic
@@ -405,7 +417,6 @@ jobs:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
-          platform: bionic
           run_pack: false
       - benchmark-automation:
           platform: bionic
@@ -416,7 +427,6 @@ jobs:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
-          platform: bionic
           run_pack: false
       - benchmark-automation:
           platform: bionic
@@ -429,7 +439,6 @@ jobs:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
-          platform: bionic
           build_params: PROFILE=1
           run_pack: false
       - benchmark-automation:
@@ -444,7 +453,6 @@ jobs:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
       - build-steps:
-          platform: bionic
           build_params: PROFILE=1
           run_pack: false
       - benchmark-automation:
@@ -485,11 +493,11 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           command: make SAN=<<parameters.san-type>> build test SHOW=1
           no_output_timeout: 30m
-#      - run:
-#          name: Build & test (OSS Coordinator)
-#          shell: /bin/bash -l -eo pipefail
-#          command: make SAN=<<parameters.san-type>> COORD=oss build test SHOW=1
-#          no_output_timeout: 30m
+      - run:
+          name: Build & test (OSS Coordinator)
+          shell: /bin/bash -l -eo pipefail
+          command: make SAN=<<parameters.san-type>> COORD=oss build test SHOW=1
+          no_output_timeout: 30m
       - save-tests-logs
 
   valgrind-memcheck:
@@ -607,6 +615,13 @@ on-any-branch: &on-any-branch
     tags:
       only: /.*/
 
+always: &always
+  filters:
+    branches:
+      only: /.*/
+    tags:
+      only: /.*/
+
 never: &never
   filters:
     branches:
@@ -631,6 +646,15 @@ on-integ-branch: &on-integ-branch
         - /^perf-.*$/
     tags:
       ignore: /.*/
+
+on-integ-branch-cron: &on-integ-branch-cron
+  filters:
+    branches:
+      only:
+        - master
+        - /^\d+\.\d+.*$/
+        - /^feature-.*$/
+        - /^perf-.*$/
 
 not-on-integ-branch: &not-on-integ-branch
   filters:
@@ -677,20 +701,21 @@ workflows:
   default-flow:
     jobs:
       - build-linux-debian:
-          name: build
           <<: *not-on-integ-branch
+      - build-linux-arm-ubuntu:
+          <<: *never
       - build-platforms:
           <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
-              platform: [focal, bionic, xenial, centos7, rocky8, bullseye, jammy]
+              platform: [jammy, focal, bionic, xenial, centos7, rocky8, bullseye]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
-              platform: [bionic]
+              platform: [jammy, focal, bionic]
       - build-macos:
           context: common
           <<: *on-integ-and-version-tags
@@ -746,9 +771,7 @@ workflows:
     triggers:
       - schedule:
           cron: "20 17 * * 0,3"
-          filters:
-            branches:
-              only: master
+          <<: *on-integ-branch-cron
     jobs:
       - build-macos:
           upload: "no"
@@ -756,18 +779,13 @@ workflows:
           name: build-with-redis-<<matrix.redis_version>>
           matrix:
             parameters:
-              redis_version: ["6.0", "7", "unstable"]
+              redis_version: ["6.0", "6.2", "7", "unstable"]
 
   nightly-performance:
     triggers:
       - schedule:
           cron: "20 17 * * *"
-          filters:
-            branches:
-              only:
-                - master
-                - /^\d+\.\d+.*$/
-                - /^feature-.*$/
+          <<: *on-integ-branch-cron
 
     jobs:
       - benchmark-search-oss-standalone:

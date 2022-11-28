@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #define LOWEST                           1
 #define TEXTEXPR                         2
 #define ORX                              3
@@ -18,17 +24,15 @@
 #define COLON                           18
 #define NUMBER                          19
 #define SIZE                            20
-#define STOPWORD                        21
-#define STAR                            22
-#define TAGLIST                         23
-#define TERMLIST                        24
-#define PREFIX                          25
-#define SUFFIX                          26
-#define CONTAINS                        27
-#define PERCENT                         28
-#define ATTRIBUTE                       29
-#define VERBATIM                        30
-#define WILDCARD                        31
-#define AS_S                            32
-#define AS_T                            33
-#define SEMICOLON                       34
+#define STAR                            21
+#define TAGLIST                         22
+#define TERMLIST                        23
+#define PREFIX                          24
+#define SUFFIX                          25
+#define CONTAINS                        26
+#define PERCENT                         27
+#define ATTRIBUTE                       28
+#define VERBATIM                        29
+#define WILDCARD                        30
+#define AS_T                            31
+#define SEMICOLON                       32

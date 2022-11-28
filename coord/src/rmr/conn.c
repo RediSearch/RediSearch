@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "conn.h"
 #include "reply.h"
 #include "hiredis/adapters/libuv.h"
@@ -53,11 +59,11 @@ typedef struct {
 } MRConnPool;
 
 static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num) {
-  MRConnPool *pool = malloc(sizeof(*pool));
+  MRConnPool *pool = rm_malloc(sizeof(*pool));
   *pool = (MRConnPool){
       .num = num,
       .rr = 0,
-      .conns = calloc(num, sizeof(MRConn *)),
+      .conns = rm_calloc(num, sizeof(MRConn *)),
   };
 
   /* Create the connection */
@@ -74,8 +80,8 @@ static void MRConnPool_Free(void *p) {
     /* We stop the connections and the disconnect callback frees them */
     MRConn_Stop(pool->conns[i]);
   }
-  free(pool->conns);
-  free(pool);
+  rm_free(pool->conns);
+  rm_free(pool);
 }
 
 /* Get a connection from the connection pool. We select the next available connected connection with
@@ -101,7 +107,7 @@ void MRConnManager_Init(MRConnManager *mgr, int nodeConns) {
 }
 
 /* Free the entire connection manager */
-static void MRConnManager_Free(MRConnManager *mgr) {
+void MRConnManager_Free(MRConnManager *mgr) {
   TrieMap_Free(mgr->map, MRConnPool_Free);
 }
 
@@ -225,7 +231,7 @@ static void freeConn(MRConn *conn) {
     }
     uv_close(conn->timer, (uv_close_cb)free);
   }
-  free(conn);
+  rm_free(conn);
 }
 
 static void signalCallback(uv_timer_t *tm) {
@@ -264,7 +270,7 @@ static void signalCallback(uv_timer_t *tm) {
 /* Safely transition to current state */
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   if (!conn->timer) {
-    conn->timer = malloc(sizeof(uv_timer_t));
+    conn->timer = rm_malloc(sizeof(uv_timer_t));
     uv_timer_init(uv_default_loop(), conn->timer);
     ((uv_timer_t *)conn->timer)->data = conn;
   }
@@ -458,6 +464,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
       CONN_LOG(conn, "Error on ssl contex creation: %s", (ssl_error != 0) ? redisSSLContextGetError(ssl_error) : "Unknown error");
       detachFromConn(conn, 0);  // Free the connection as well - we have an error
       MRConn_SwitchState(conn, MRConn_Connecting);
+      if (ssl_context) SSL_CTX_free(ssl_context);
       return;
     }
     SSL *ssl = SSL_new(ssl_context);
@@ -465,8 +472,10 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
       CONN_LOG(conn, "Error on tls auth");
       detachFromConn(conn, 0);  // Free the connection as well - we have an error
       MRConn_SwitchState(conn, MRConn_Connecting);
+      if (ssl_context) SSL_CTX_free(ssl_context);
       return;
     }
+    if (ssl_context) SSL_CTX_free(ssl_context);
   }
 
 
@@ -501,7 +510,7 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
 }
 
 static MRConn *MR_NewConn(MREndpoint *ep) {
-  MRConn *conn = malloc(sizeof(MRConn));
+  MRConn *conn = rm_malloc(sizeof(MRConn));
   *conn = (MRConn){.state = MRConn_Disconnected, .conn = NULL};
   MREndpoint_Copy(&conn->ep, ep);
   return conn;

@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "minunit.h"
 #include "endpoint.h"
 #include "command.h"
@@ -38,10 +44,10 @@ void testShardingFunc() {
 
 static MRClusterTopology *getTopology(size_t numSlots, size_t numNodes,  const char **hosts){
 
-  MRClusterTopology *topo = malloc(sizeof(*topo));
+  MRClusterTopology *topo = rm_malloc(sizeof(*topo));
   topo->numShards = numNodes;
   topo->numSlots = numSlots;
-  topo->shards = calloc(numNodes, sizeof(MRClusterShard));
+  topo->shards = rm_calloc(numNodes, sizeof(MRClusterShard));
   size_t slotRange = numSlots / numNodes;
 
   MRClusterNode nodes[numNodes];
@@ -50,7 +56,7 @@ static MRClusterTopology *getTopology(size_t numSlots, size_t numNodes,  const c
       return NULL;
     }
     nodes[i].flags = MRNode_Master;
-    nodes[i].id = strdup(hosts[i]);
+    nodes[i].id = rm_strdup(hosts[i]);
   }
   int i = 0;
   for (size_t slot = 0; slot < topo->numSlots; slot += slotRange) {
@@ -58,7 +64,7 @@ static MRClusterTopology *getTopology(size_t numSlots, size_t numNodes,  const c
         .startSlot = slot, .endSlot = slot + slotRange - 1, .numNodes = 1,
 
     };
-    topo->shards[i].nodes = calloc(1, sizeof(MRClusterNode)),
+    topo->shards[i].nodes = rm_calloc(1, sizeof(MRClusterNode)),
     topo->shards[i].nodes[0] = nodes[i];
 
     i++;
@@ -91,6 +97,7 @@ void testCluster() {
     printf("%d..%d --> %s\n", sh->startSlot, sh->endSlot, sh->nodes[0].id);
   }
 
+  MRClust_Free(cl);
 }
 
 void testClusterSharding() {
@@ -109,7 +116,8 @@ void testClusterSharding() {
   mu_check(!strcmp(sh->nodes[0].id, hosts[3]));
   printf("%d..%d --> %s\n", sh->startSlot, sh->endSlot, sh->nodes[0].id);
 
-  // MRClust_Free(cl);
+  MRCommand_Free(&cmd);
+  MRClust_Free(cl);
 }
 
 int main(int argc, char **argv) {

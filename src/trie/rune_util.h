@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #pragma once
 
 #include "libnu/libnu.h"
@@ -70,8 +76,13 @@ static inline void runeBufFree(runeBuf *buf) {
 static inline void printfRune(const rune *rune, size_t len) {
   size_t newlen;
   char *str = runesToStr(rune, len, &newlen);
-  printf("%s\n", str);
+  printf("%s", str);
   rm_free(str);
+}
+
+static inline void printfRuneNL(const rune *rune, size_t len) {
+  printfRune(rune, len);
+  puts("");
 }
 
 #ifdef __cplusplus

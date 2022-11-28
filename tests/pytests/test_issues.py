@@ -255,16 +255,16 @@ def testMemAllocated(env):
   env.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT')
   assertInfoField(env, 'idx1', 'key_table_size_mb', '0')
   conn.execute_command('HSET', 'doc1', 't', 'foo bar baz')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05', delta=0.01)
   conn.execute_command('HSET', 'doc2', 't', 'hello world')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '8.296966552734375e-05')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '8.296966552734375e-05', delta=0.01)
   conn.execute_command('HSET', 'd3', 't', 'help')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '0.00013828277587890625')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '0.00013828277587890625', delta=0.01)
 
   conn.execute_command('DEL', 'd3')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '8.296966552734375e-05')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '8.296966552734375e-05', delta=0.01)
   conn.execute_command('DEL', 'doc1')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05', delta=0.01)
   conn.execute_command('DEL', 'doc2')
   assertInfoField(env, 'idx1', 'key_table_size_mb', '0')
 
@@ -272,7 +272,7 @@ def testMemAllocated(env):
   env.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT')
   for i in range(1000):
     conn.execute_command('HSET', 'doc%d' % i, 't', 'text%d' % i)
-  assertInfoField(env, 'idx2', 'key_table_size_mb', '0.027684211730957031')
+  assertInfoField(env, 'idx2', 'key_table_size_mb', '0.027684211730957031', delta=0.01)
 
   for i in range(1000):
     conn.execute_command('DEL', 'doc%d' % i)
@@ -423,39 +423,54 @@ def testOverMaxResults():
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
-  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  commands = [
+    ['FT.CONFIG', 'SET', 'MAXAGGREGATERESULTS', '25'],
+    ['FT.CONFIG', 'SET', 'MAXAGGREGATERESULTS', '20'],
+    ['FT.CONFIG', 'SET', 'MAXAGGREGATERESULTS', '15'],
+  ]
 
-  # test with number of documents lesser than MAXSEARCHRESULTS
-  for i in range(10):
-    conn.execute_command('HSET', i, 't', i)
+  for c in commands:
 
-  res = [10, '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal(res)
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '0', '10').equal(res)
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '5', '10').equal([res[0], *res[6:11]])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal([10])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([10])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
+    env.cmd(*c)
 
-  # test with number of documents equal to MAXSEARCHRESULTS
-  for i in range(10,20):
-    conn.execute_command('HSET', i, 't', i)
+    env.cmd('flushall')
 
-  res = [20, '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal(res)
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '15', '10').equal([20, *res[6:11]])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([20])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    
+    # test with number of documents lesser than MAXSEARCHRESULTS
+    for i in range(10):
+      conn.execute_command('HSET', i, 't', i)
 
-  # test with number of documents greater than MAXSEARCHRESULTS
-  for i in range(20,30):
-    conn.execute_command('HSET', i, 't', i)
+    res = [10, '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal(res)
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '0', '10').equal(res)
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '1', '20').equal([res[0], *res[2:]])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '5', '10').equal([res[0], *res[6:11]])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal([10])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([10])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
 
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal([30, *res[1:11]])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '15', '10').equal([30, *res[6:11]])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([30])
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '25', '10').equal('OFFSET exceeds maximum of 20')
-  env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
+    # test with number of documents equal to MAXSEARCHRESULTS
+    for i in range(10,20):
+      conn.execute_command('HSET', i, 't', i)
+
+    res = [20, '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal(res)
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '1', '20').equal([res[0], *[str(i) for i in range(1, 20, 1)]])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '15', '10').equal([20, *res[6:11]])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([20])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
+
+    # test with number of documents greater than MAXSEARCHRESULTS
+    for i in range(20,30):
+      conn.execute_command('HSET', i, 't', i)
+
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '1', '20').equal([30, *[str(i) for i in range(1, 20, 1)]])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal([30, *res[1:11]])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '15', '10').equal([30, *res[6:11]])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([30])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '25', '10').equal('OFFSET exceeds maximum of 20')
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
 
 
 def test_MOD_3372(env):
@@ -518,6 +533,93 @@ def test_sortby_Noexist(env):
   env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
   conn.execute_command('HSET', 'doc1', 't', '1')
   conn.execute_command('HSET', 'doc2', 'somethingelse', '2')
+  conn.execute_command('HSET', 'doc3', 't', '3')
+  conn.execute_command('HSET', 'doc4', 'somethingelse', '4')
 
-  # TODO: change behavior so docs which miss sortby field are at the end
-  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't').equal([2, 'doc2', ['somethingelse', '2'], 'doc1', ['t', '1']])
+  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '2').equal([4, 'doc1', ['t', '1'], 'doc3', ['t', '3']])
+  env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '2').equal([4, 'doc3', ['t', '3'], 'doc1', ['t', '1']])
+
+  # receive a result w/o sortby field at the end. 
+  # remove in test to support test on cluster
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '3')
+  env.assertEqual(res[0:5], [4, 'doc1', ['t', '1'], 'doc3', ['t', '3']])
+ 
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '3')
+  env.assertEqual(res[0:5], [4, 'doc3', ['t', '3'], 'doc1', ['t', '1']])
+
+  if not env.isCluster():
+    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '3').equal([4, 'doc1', ['t', '1'], 'doc3', ['t', '3'], 'doc2', ['somethingelse', '2']])
+    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '3').equal([4, 'doc3', ['t', '3'], 'doc1', ['t', '1'], 'doc4', ['somethingelse', '4']])
+
+def testDeleteIndexes(env):
+  # test cleaning of all specs from a prefix 
+  conn = getConnectionByEnv(env)
+  for i in range(10):
+    env.execute_command('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')
+    env.execute_command('FT.DROPINDEX', i)
+
+  # create an additional index
+  env.execute_command('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')
+
+def test_mod_4207(env):
+  conn = getConnectionByEnv(env)
+
+  env.cmd('FT.CREATE', 'idx1', 'FILTER', 'EXISTS(@country)', 'SCHEMA', 'business', 'TEXT', 'country', 'TEXT')
+  env.cmd('FT.CREATE', 'idx2', 'FILTER', 'EXISTS(@business)', 'SCHEMA', 'business', 'TEXT', 'country', 'TEXT')
+  conn.execute_command('HSET', 'address:1', 'business', 'foo', 'country', 'USA')
+  conn.execute_command('HSET', 'address:2', 'business', 'bar', 'country', 'Israel')
+  conn.execute_command('HSET', 'address:3', 'business', 'foo')
+  conn.execute_command('HSET', 'address:4', 'country', 'Israel')
+
+  env.expect('FT.SEARCH', 'idx1', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:4'])
+  env.expect('FT.SEARCH', 'idx2', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:3'])
+
+def test_mod_4255(env):
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
+
+  conn.execute_command('HSET', 'doc1', 'test', '1')
+  conn.execute_command('HSET', 'doc2', 'test', '2')
+
+  # test normal case
+  # get first result
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
+  env.assertEqual(res[0] ,[1, ['test', '1']])
+  cursor = res[1]
+  env.assertNotEqual(cursor ,0)
+  # get second result
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0] ,[1, ['test', '2']])
+  cursor = res[1]
+  env.assertNotEqual(cursor ,0)
+  # get empty results after cursor was exhausted
+  env.expect('FT.CURSOR', 'READ', 'idx', cursor).equal([[0], 0])
+
+
+  # Test cursor after data structure that has changed due to insert
+  res = env.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
+  cursor = res[1]
+  for i in range(3, 1001, 1):
+      conn.execute_command('HSET', 'doc%i' % i, 'test', str(i))
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0] ,[1, ['test', '2']])
+  env.assertNotEqual(cursor ,0)
+
+  # Test cursor after data structure that has changed due to insert
+  res = env.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
+  env.assertEqual(res[0] ,[1, ['test', '1']])
+  cursor = res[1]
+  env.assertNotEqual(cursor ,0)
+  for i in range(3, 1001, 1):
+    env.cmd('DEL', 'doc%i' % i, 'test', str(i))
+  forceInvokeGC(env, 'idx')
+
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(res[0] ,[1, ['test', '2']])
+  cursor = res[1]
+  env.assertNotEqual(cursor ,0)
+  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  cursor = res[1]
+  env.assertEqual(cursor ,0)

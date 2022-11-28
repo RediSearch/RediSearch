@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "redismodule.h"
 #include "redisearch.h"
 #include "search_ctx.h"
@@ -41,6 +47,8 @@ static void reeval_key(RedisModuleCtx *outctx, const RSValue *key) {
   else {
     if(key->t == RSValue_Reference) {
       key = RSValue_Dereference(key);
+    } else if (key->t == RSValue_Duo) {
+      key = RS_DUOVAL_VAL(*key);
     }
     switch (key->t) {
       case RSValue_Number:
@@ -61,6 +69,7 @@ static void reeval_key(RedisModuleCtx *outctx, const RSValue *key) {
       case RSValue_Undef:
       case RSValue_Array:
       case RSValue_Reference:
+      case RSValue_Duo:
         break;
     }
     if (rskey) {
@@ -130,7 +139,18 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
       for(; currentField < requiredFieldsCount; currentField++) {
         count++;
         const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], 0);
-        const RSValue *v = getReplyKey(rlk, r);
+        RSValue *v = (RSValue*)getReplyKey(rlk, r);
+        if (v && v->t == RSValue_Duo) {
+          // For duo value, we use the value here (not the other value)
+          v = RS_DUOVAL_VAL(*v);
+        }
+        RSValue rsv;
+        if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE) {
+          double d;
+          RSValue_ToNumber(v, &d);
+          RSValue_SetNumber(&rsv, d);
+          v = &rsv;
+        }
         reeval_key(outctx, v);
       }
   }
@@ -162,7 +182,12 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
       const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
       RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
-      RedisModule_ReplyWithStringBuffer(outctx, kk->name, strlen(kk->name));
+      if (v && v->t == RSValue_Duo && req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST) {
+        // For duo value, we use the value here (not the other value)
+        v = RS_DUOVAL_VAL(*v);
+      }
+
+      RedisModule_ReplyWithStringBuffer(outctx, kk->name, kk->name_len);
       RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
     }
   }
@@ -236,15 +261,9 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
     size_t reqLimit = arng && arng->isLimited? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited? arng->offset : 0;
     size_t resultFactor = getResultsFactor(req);
-    
-    size_t reqResults;
-    if (reqLimit + reqOffset <= RSGlobalConfig.maxSearchResults) {
-    	reqResults = req->qiter.totalResults > reqOffset ?
-                   req->qiter.totalResults - reqOffset : 0;
-    } else {
-    	reqResults = RSGlobalConfig.maxSearchResults > reqOffset ?
-                   RSGlobalConfig.maxSearchResults - reqOffset : 0;
-    }
+
+    size_t expected_res = reqLimit + reqOffset <= RSGlobalConfig.maxSearchResults ? req->qiter.totalResults : MIN(RSGlobalConfig.maxSearchResults, req->qiter.totalResults);
+    size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
 
     resultsLen = 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
   }
@@ -297,7 +316,10 @@ done:
   if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN) {
     RedisModule_ReplySetArrayLength(outctx, nelem);
   } else {
-    RS_LOG_ASSERT(resultsLen == nelem, "Precalculated number of replies must be equal to actual number");
+    if (resultsLen != nelem) {
+      RedisModule_Log(RSDummyContext, "warning", "Failed predict number of replied, prediction=%ld, actual_number=%ld.", resultsLen, nelem);
+      RS_LOG_ASSERT(0, "Precalculated number of replies must be equal to actual number");
+    }
   }
 }
 
@@ -328,7 +350,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         QueryError *status, AREQ **r) {
 
   int rc = REDISMODULE_ERR;
-  clock_t parseClock;
+  hires_clock_t parseClock;
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NULL;
   RedisModuleCtx *thctx = NULL;
@@ -368,14 +390,14 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   bool is_profile = IsProfile(*r);
   if (is_profile) {
-    parseClock = clock();
-    (*r)->parseTime = parseClock - (*r)->initClock;
+    hires_clock_get(&parseClock);
+    (*r)->parseTime += hires_clock_diff_msec(&parseClock, &(*r)->initClock);
   }
 
   rc = AREQ_BuildPipeline(*r, 0, status);
 
   if (is_profile) {
-    (*r)->pipelineBuildTime = clock() - parseClock;
+    (*r)->pipelineBuildTime = hires_clock_since_msec(&parseClock);
   }
 
 done:
@@ -408,7 +430,7 @@ static int parseProfile(AREQ *r, int withProfile, RedisModuleString **argv, int 
     if (withProfile == PROFILE_LIMITED) {
       r->reqflags |= QEXEC_F_PROFILE_LIMITED;
     }
-    r->initClock = clock();
+    hires_clock_get(&r->initClock);
   }
   return REDISMODULE_OK;
 }
@@ -548,7 +570,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   
   // reset profile clock for cursor reads except for 1st 
   if (IsProfile(req) && req->totalTime != 0) {
-    req->initClock = clock();
+    hires_clock_get(&req->initClock);
   }
 
   // update timeout for current cursor read

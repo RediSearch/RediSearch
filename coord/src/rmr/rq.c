@@ -1,8 +1,15 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #define RQ_C__
 
 #include <stdlib.h>
 #include <uv.h>
 #include "rq.h"
+#include "rmalloc.h"
 
 struct queueItem {
   void *privdata;
@@ -22,7 +29,7 @@ typedef struct MRWorkQueue {
 
 void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
   uv_mutex_lock(&q->lock);
-  struct queueItem *item = malloc(sizeof(*item));
+  struct queueItem *item = rm_malloc(sizeof(*item));
   item->cb = cb;
   item->privdata = privdata;
   item->next = NULL;
@@ -79,13 +86,13 @@ static void rqAsyncCb(uv_async_t *async) {
   struct queueItem *req;
   while (NULL != (req = rqPop(q))) {
     req->cb(req->privdata);
-    free(req);
+    rm_free(req);
   }
 }
 
 MRWorkQueue *RQ_New(size_t cap, int maxPending) {
 
-  MRWorkQueue *q = calloc(1, sizeof(*q));
+  MRWorkQueue *q = rm_calloc(1, sizeof(*q));
   q->sz = 0;
   q->head = NULL;
   q->tail = NULL;
@@ -96,4 +103,16 @@ MRWorkQueue *RQ_New(size_t cap, int maxPending) {
   uv_async_init(uv_default_loop(), &q->async, rqAsyncCb);
   q->async.data = q;
   return q;
+}
+
+void RQ_Free(MRWorkQueue *q) {
+  struct queueItem *req = NULL;
+  while (NULL != (req = rqPop(q))) {
+    rm_free(req);
+  }
+
+  uv_close((uv_handle_t *)&q->async, NULL);
+  uv_mutex_destroy(&q->lock);
+
+  rm_free(q);
 }

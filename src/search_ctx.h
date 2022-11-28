@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef __SEARCH_CTX_H
 #define __SEARCH_CTX_H
 
@@ -26,6 +32,7 @@ typedef struct RedisSearchCtx {
   int isStatic;
   uint64_t specId;  // Unique id of the spec; used when refreshing
   struct timespec timeout;
+  unsigned int apiVersion; // API Version to allow for backward compatibility / alternative functionality
 } RedisSearchCtx;
 
 #define SEARCH_CTX_STATIC(ctx, sp) \

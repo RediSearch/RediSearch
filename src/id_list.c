@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "index_result.h"
 #include "index_iterator.h"
 #include "rmalloc.h"
@@ -88,10 +94,10 @@ int IL_SkipTo(void *ctx, t_docId docId, RSIndexResult **r) {
   }
 
   t_offset top = it->size - 1, bottom = it->offset;
-  t_offset i = bottom;
+  t_offset i = 0;
 
   while (bottom <= top) {
-
+    i = (bottom + top) / 2;
     t_docId did = it->docIds[i];
 
     if (did == docId) {
@@ -103,7 +109,6 @@ int IL_SkipTo(void *ctx, t_docId docId, RSIndexResult **r) {
     } else {
       bottom = i + 1;
     }
-    i = (bottom + top) / 2;
   }
   it->offset = i + 1;
   if (it->offset >= it->size) {

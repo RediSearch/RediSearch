@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef __TRIE_H__
 #define __TRIE_H__
 
@@ -69,6 +75,7 @@ typedef struct {
 
   // the string of the current node
   rune str[];
+  // ... here come the first letters of each child childRunes[]
   // ... now come the children, to be accessed with __trieNode_children
 } TrieNode;
 #pragma pack()
@@ -86,10 +93,11 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
                         t_len numChildren, float score, int terminal, TrieSortMode sortMode);
 
 /* Get a pointer to the children array of a node. This is not an actual member
- * of the node for
- * memory saving reasons */
+ * of the node for memory saving reasons */
 #define __trieNode_children(n) \
-  ((TrieNode **)((void *)n + sizeof(TrieNode) + (n->len + 1) * sizeof(rune)))
+  ((TrieNode **)((void *)n + sizeof(TrieNode) + ((n->len + 1) + (n->numChildren)) * sizeof(rune)))
+
+#define __trieNode_childKey(n, c) (rune *)((void *)n + sizeof(TrieNode) + (n->len + 1 + c) * sizeof(rune))
 
 #define __trieNode_isTerminal(n) (n->flags & TRIENODE_TERMINAL)
 
@@ -216,8 +224,8 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *paylo
 
 TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len);
 
-typedef int(TrieRangeCallback)(const rune *, size_t, void *);
-typedef int(TrieSuffixCallback)(const char *, size_t, void *);
+typedef int(TrieRangeCallback)(const rune *, size_t, void *, void *);
+typedef int(TrieSuffixCallback)(const char *, size_t, void *, void *);
 
 /**
  * Iterate all nodes within range.

@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "forward_index.h"
 #include "index.h"
 #include "varint.h"
@@ -12,6 +18,7 @@
 #include "util/heap.h"
 #include "profile.h"
 #include "hybrid_reader.h"
+#include "metric_iterator.h"
 
 static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit);
@@ -386,11 +393,10 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
     int rc = it->SkipTo(it->ctx, nextValidId, &res);
 
     // refresh heap with iterator with updated minId
-    it->minId = res->docId;
     if (rc == INDEXREAD_EOF) {
       heap_poll(hp);
     } else {
-      RS_LOG_ASSERT(res, "should not be NULL");
+      it->minId = res->docId;
       heap_replace(hp, it);
       // after SkipTo, try test again for validity
       if (ui->quickExit && it->minId == nextValidId) {
@@ -958,9 +964,10 @@ static IndexCriteriaTester *II_GetCriteriaTester(void *ctx) {
         ic->testers[j]->Free(ic->testers[j]);
       }
       array_free(ic->testers);
+      ic->testers = NULL;
       return NULL;
     }
-    ic->testers = array_ensure_append(ic->testers, tester, 1, IndexCriteriaTester *);
+    ic->testers = array_ensure_append(ic->testers, &tester, 1, IndexCriteriaTester *);
   }
   IICriteriaTester *ict = rm_malloc(sizeof(*ict));
   ict->children = ic->testers;
@@ -1547,6 +1554,7 @@ typedef struct {
   IndexIterator base;
   t_docId topId;
   t_docId current;
+  t_docId numDocs;
 } WildcardIterator, WildcardIteratorCtx;
 
 /* Free a wildcard iterator */
@@ -1560,10 +1568,10 @@ static void WI_Free(IndexIterator *it) {
 /* Read reads the next consecutive id, unless we're at the end */
 static int WI_Read(void *ctx, RSIndexResult **hit) {
   WildcardIteratorCtx *nc = ctx;
+  CURRENT_RECORD(nc)->docId = ++nc->current;
   if (nc->current > nc->topId) {
     return INDEXREAD_EOF;
   }
-  CURRENT_RECORD(nc)->docId = nc->current++;
   if (hit) {
     *hit = CURRENT_RECORD(nc);
   }
@@ -1616,18 +1624,20 @@ static t_docId WI_LastDocId(void *ctx) {
 
 static void WI_Rewind(void *p) {
   WildcardIteratorCtx *ctx = p;
-  ctx->current = 1;
+  ctx->current = 0;
 }
 
 static size_t WI_NumEstimated(void *p) {
-  return SIZE_MAX;
+  WildcardIteratorCtx *ctx = p;
+  return ctx->numDocs;
 }
 
 /* Create a new wildcard iterator */
-IndexIterator *NewWildcardIterator(t_docId maxId) {
+IndexIterator *NewWildcardIterator(t_docId maxId, size_t numDocs) {
   WildcardIteratorCtx *c = rm_calloc(1, sizeof(*c));
-  c->current = 1;
+  c->current = 0;
   c->topId = maxId;
+  c->numDocs = numDocs;
 
   CURRENT_RECORD(c) = NewVirtualResult(1);
   CURRENT_RECORD(c)->freq = 1;
@@ -1720,29 +1730,31 @@ typedef struct {
   IndexIterator base;
   IndexIterator *child;
   size_t counter;
-  clock_t cpuTime;
+  double cpuTime;
   int eof;
 } ProfileIterator, ProfileIteratorCtx;
 
 static int PI_Read(void *ctx, RSIndexResult **e) {
   ProfileIterator *pi = ctx;
   pi->counter++;
-  clock_t begin = clock();
+  hires_clock_t t0; 
+  hires_clock_get(&t0);
   int ret = pi->child->Read(pi->child->ctx, e);
   if (ret == INDEXREAD_EOF) pi->eof = 1;
   pi->base.current = pi->child->current;
-  pi->cpuTime += clock() - begin;
+  pi->cpuTime += hires_clock_since_msec(&t0);
   return ret;
 }
 
 static int PI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   ProfileIterator *pi = ctx;
   pi->counter++;
-  clock_t begin = clock();
+  hires_clock_t t0; 
+  hires_clock_get(&t0);
   int ret = pi->child->SkipTo(pi->child->ctx, docId, hit);
   if (ret == INDEXREAD_EOF) pi->eof = 1;
   pi->base.current = pi->child->current;
-  pi->cpuTime += clock() - begin;
+  pi->cpuTime += hires_clock_since_msec(&t0);
   return ret;
 }
 
@@ -1892,6 +1904,35 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
   RedisModule_ReplySetArrayLength(ctx, nlen);
 }
 
+PRINT_PROFILE_FUNC(printMetricIt) {
+  MetricIterator *mi = (MetricIterator *)root;
+
+  size_t nlen = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+  switch (mi->type) {
+    case VECTOR_DISTANCE: {
+      printProfileType("METRIC - VECTOR DISTANCE");
+      nlen += 2;
+      break;
+    }
+    default: {
+      RS_LOG_ASSERT(0, "Invalid type for metric");
+      break;
+    }
+  }
+
+  if (PROFILE_VERBOSE) {
+    printProfileTime(cpuTime);
+    nlen += 2;
+  }
+
+  printProfileCounter(counter);
+  nlen += 2;
+
+  RedisModule_ReplySetArrayLength(ctx, (long)nlen);
+}
+
 #define PRINT_PROFILE_SINGLE(name, iterType, text, hasChild)                        \
 PRINT_PROFILE_FUNC(name) {                                                          \
   size_t nlen = 0;                                                                  \
@@ -1936,7 +1977,7 @@ PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator, "VECTOR", 1);
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
-  printIteratorProfile(ctx, pi->child, pi->counter - pi->eof, (double)pi->cpuTime / CLOCKS_PER_MILLISEC, depth, limited);
+  printIteratorProfile(ctx, pi->child, pi->counter - pi->eof, (double)pi->cpuTime, depth, limited);
 }
 
 void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t counter,
@@ -1963,6 +2004,7 @@ void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t count
     case ID_LIST_ITERATOR:    { printIdListIt(ctx, root, counter, cpuTime, depth, limited);     break; }
     case PROFILE_ITERATOR:    { printProfileIt(ctx, root, 0, 0, depth, limited);                break; }
     case HYBRID_ITERATOR:     { printHybridIt(ctx, root, counter, cpuTime, depth, limited);     break; }
+    case METRIC_ITERATOR:     { printMetricIt(ctx, root, counter, cpuTime, depth, limited);     break; }
     case MAX_ITERATOR:        { RS_LOG_ASSERT(0, "nope");   break; }
   }
 }
@@ -2002,6 +2044,7 @@ void Profile_AddIters(IndexIterator **root) {
     case READ_ITERATOR:
     case EMPTY_ITERATOR:
     case ID_LIST_ITERATOR:
+    case METRIC_ITERATOR:
       break;
     case PROFILE_ITERATOR:
     case MAX_ITERATOR:
