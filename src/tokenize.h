@@ -31,10 +31,10 @@ struct Token {
   // Token needs to be copied. Don't rely on `raw` pointer.
   uint32_t flags;
 
-  // Stem. May be NULL
-  const char *stem;
-
   char *phoneticsPrimary;
+  
+  // Stem. May be nullptr
+  const char *stem;
 
   // stem length
   uint32_t stemLen;
@@ -49,8 +49,10 @@ struct Token {
   // position in the document - this is written to the inverted index
   uint32_t pos;
 
-  Token(const char *tok = NULL, uint32_t tokLen = 0, const char *raw = NULL, uint32_t rawLen = 0, uint32_t flags = 0, char *phoneticsPrimary = NULL) :
-    tok(tok), tokLen(tokLen), flags(flags), phoneticsPrimary(phoneticsPrimary), raw(raw), rawLen(rawLen), stem(NULL), stemLen(0) {}
+  Token(
+    const char *tok = nullptr, uint32_t tokLen = 0, const char *raw = nullptr, uint32_t rawLen = 0, uint32_t flags = 0, char *phoneticsPrimary = nullptr
+  ) : tok{tok}, tokLen{tokLen}, flags{flags}, phoneticsPrimary{phoneticsPrimary}, stem{nullptr}, stemLen{0}, raw{raw}, rawLen{rawLen}, pos{0}
+  {}
 
   ~Token() {
     rm_free(phoneticsPrimary);
@@ -84,7 +86,7 @@ struct SimpleTokenizer : public Tokenizer {
   char **pos;
   Stemmer *stemmer;
 
-  SimpleTokenizer(Stemmer *stemmer = NULL, StopWordList *stopwords = NULL, uint32_t opts = 0);
+  SimpleTokenizer(Stemmer *stemmer = nullptr, StopWordList *stopwords = nullptr, uint32_t opts = 0);
 
   virtual uint32_t Next(Token *tok);
   virtual void Start(char *txt, size_t len, uint32_t options);
@@ -100,7 +102,7 @@ struct ChineseTokenizer : public Tokenizer {
   char escapebuf[CNTOKENIZE_BUF_MAX];
   size_t nescapebuf;
 
-  ChineseTokenizer(Stemmer *stemmer = NULL, StopWordList *stopwords = NULL, uint32_t opts = 0);
+  ChineseTokenizer(Stemmer *stemmer = nullptr, StopWordList *stopwords = nullptr, uint32_t opts = 0);
   virtual ~ChineseTokenizer();
 
   virtual uint32_t Next(Token *tok);

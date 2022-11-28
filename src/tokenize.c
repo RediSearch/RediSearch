@@ -77,7 +77,7 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
 
 // tokenize the text in the context
 uint32_t SimpleTokenizer::Next(Token *t) {
-  while (*pos != NULL) {
+  while (*pos != nullptr) {
     // get the next token
     size_t origLen;
     char *tok = toksep(pos, &origLen);
@@ -98,7 +98,7 @@ uint32_t SimpleTokenizer::Next(Token *t) {
 
     char *normalized = DefaultNormalize(tok, normBuf, &normLen);
     // ignore tokens that turn into nothing
-    if (normalized == NULL || normLen == 0) {
+    if (normalized == nullptr || normLen == 0) {
       continue;
     }
 
@@ -123,9 +123,9 @@ uint32_t SimpleTokenizer::Next(Token *t) {
       // VLA: eww
       if (t->phoneticsPrimary) {
         rm_free(t->phoneticsPrimary);
-        t->phoneticsPrimary = NULL;
+        t->phoneticsPrimary = nullptr;
       }
-      PhoneticManager::ExpandPhonetics(std::string_view(tok, normLen), &t->phoneticsPrimary, NULL);
+      PhoneticManager::ExpandPhonetics(std::string_view(tok, normLen), &t->phoneticsPrimary, nullptr);
     }
 
     return lastOffset;
@@ -143,7 +143,7 @@ uint32_t SimpleTokenizer::Next(Token *t) {
 //   lastOffset = 0;
 //   if (stopwords) {
 //     // Initially this function is called when we receive it from the mempool;
-//     // in which case stopwords is NULL.
+//     // in which case stopwords is nullptr.
 //     stopwords->Ref();
 //   }
 // }
@@ -155,8 +155,8 @@ SimpleTokenizer::SimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint
 
 //---------------------------------------------------------------------------------------------
 
-static mempool_t *tokpoolLatin_g = NULL;
-static mempool_t *tokpoolCn_g = NULL;
+static mempool_t *tokpoolLatin_g = nullptr;
+static mempool_t *tokpoolCn_g = nullptr;
 
 //---------------------------------------------------------------------------------------------
 
@@ -202,7 +202,7 @@ Tokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *sto
 //   // now we can just compare callback pointers
 //   if (stopwords) {
 //     stopwords->Unref();
-//     stopwords = NULL;
+//     stopwords = nullptr;
 //   }
 //   mempool_release(tokpoolLatin_g, this);
 // }

@@ -16,27 +16,20 @@
 static const char *DEFAULT_STOPWORDS[] = {
     "a",    "is",    "the",   "an",   "and",  "are", "as",  "at",   "be",   "but",  "by",   "for",
     "if",   "in",    "into",  "it",   "no",   "not", "of",  "on",   "or",   "such", "that", "their",
-    "then", "there", "these", "they", "this", "to",  "was", "will", "with", NULL};
+    "then", "there", "these", "they", "this", "to",  "was", "will", "with"};
 
-static StopWordList *default_stopwords = NULL;
 
 StopWordList *DefaultStopWordList() {
-  //@@ TODO: need to be released
-  if (default_stopwords == NULL) {
-    default_stopwords = new StopWordList(DEFAULT_STOPWORDS, sizeof(DEFAULT_STOPWORDS)/sizeof(const char *) - 1);
-  }
-  return default_stopwords;
+  // @@ Meyers Singleton. Threadsafe. Got rid of leak.
+  static StopWordList default_stopwords{DEFAULT_STOPWORDS, sizeof DEFAULT_STOPWORDS / sizeof *DEFAULT_STOPWORDS};
+  return &default_stopwords;
 }
 
 //---------------------------------------------------------------------------------------------
 
-static StopWordList *empty_stopwords = NULL;
-
 StopWordList *EmptyStopWordList() {
-  if (empty_stopwords == NULL) {
-    empty_stopwords = new StopWordList();
-  }
-  return empty_stopwords;
+  static StopWordList empty_stopwords{};
+  return &empty_stopwords;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -61,7 +54,7 @@ StopWordList::StopWordList(RedisModuleString **strs, size_t len) {
   }
   const char *cstrs[len];
   for (size_t i = 0; i < len && i < MAX_STOPWORDLIST_SIZE; i++) {
-    cstrs[i] = (char *)RedisModule_StringPtrLen(strs[i], NULL);
+    cstrs[i] = (char *)RedisModule_StringPtrLen(strs[i], nullptr);
   }
 
   ctor(cstrs, len);
@@ -78,7 +71,7 @@ void StopWordList::ctor(const char **strs, size_t len) {
 
   for (size_t i = 0; i < len; i++) {
     char *t = rm_strdup(strs[i]);
-    if (t == NULL) {
+    if (t == nullptr) {
       break;
     }
     size_t tlen = strlen(t);
@@ -90,7 +83,7 @@ void StopWordList::ctor(const char **strs, size_t len) {
       }
     }
 
-    m->Add(std::string_view{t, tlen}, NULL, NULL);
+    m->Add(std::string_view{t, tlen}, nullptr, nullptr);
     rm_free(t);
   }
 }
@@ -132,7 +125,7 @@ StopWordList::StopWordList(RedisModuleIO *rdb, int encver) {
   while (elements--) {
     size_t len;
     char *str = RedisModule_LoadStringBuffer(rdb, &len);
-    m->Add(std::string_view{str, len}, NULL, NULL);
+    m->Add(std::string_view{str, len}, nullptr, nullptr);
     RedisModule_Free(str);
   }
 }
@@ -158,7 +151,7 @@ void StopWordList::ReplyWithStopWordsList(RedisModuleCtx *ctx) const {
   RedisModule_ReplyWithSimpleString(ctx, "stopwords_list");
 
 #if 0
-  if (sl == NULL) {
+  if (sl == nullptr) {
     RedisModule_ReplyWithArray(ctx, 1);
     RedisModule_ReplyWithNull(ctx);
     return;

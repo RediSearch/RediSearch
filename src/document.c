@@ -301,7 +301,7 @@ void AddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options) {
     const DocumentField *ff = doc.fields[ii];
     if (fspecs[ii].name != "" && (ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG))) {
       size_t n;
-      RedisModule_StringPtrLen(doc.fields[ii]->text, &n);
+      RedisModule_StringPtrLen(ff->text, &n);
       totalSize += n;
     }
   }
@@ -347,7 +347,7 @@ bool FieldSpec::FulltextPreprocessor(AddDocumentCtx *aCtx, const DocumentField *
   }
 
   if (IsIndexable()) {
-    ForwardIndexTokenizer tokenizer(aCtx->fwIdx, c, &aCtx->offsetsWriter, ftId, ftWeight);
+    ForwardIndexTokenizer tokenizer{aCtx->fwIdx, c, &aCtx->offsetsWriter, ftId, ftWeight};
 
     uint32_t options = TOKENIZE_DEFAULT_OPTIONS;
     if (IsNoStem()) {

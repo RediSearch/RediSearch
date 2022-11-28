@@ -8,7 +8,7 @@ extern const char ToksepMap_g[];
 
 /**
  * Function reads string pointed to by `s` and indicates the length of the next
- * token in `tokLen`. `s` is set to NULL if this is the last token.
+ * token in `tokLen`. `s` is set to nullptr if this is the last token.
  */
 static inline char *toksep(char **s, size_t *tokLen) {
   uint8_t *pos = (uint8_t *)*s;
@@ -18,14 +18,14 @@ static inline char *toksep(char **s, size_t *tokLen) {
       *s = (char *)++pos;
       *tokLen = ((char *)pos - orig) - 1;
       if (!*pos) {
-        *s = NULL;
+        *s = nullptr;
       }
       return orig;
     }
   }
 
   // Didn't find a terminating token. Use a simpler length calculation
-  *s = NULL;
+  *s = nullptr;
   *tokLen = (char *)pos - orig;
   return orig;
 }

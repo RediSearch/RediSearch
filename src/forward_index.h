@@ -75,14 +75,16 @@ struct ForwardIndex : Object {
 //---------------------------------------------------------------------------------------------
 
 struct ForwardIndexTokenizer {
+  ForwardIndex *idx;
   const char *doc;
   VarintVectorWriter *allOffsets;
-  ForwardIndex *idx;
   t_fieldId fieldId;
   float fieldScore;
 
-  ForwardIndexTokenizer(ForwardIndex *idx, const char *doc, VarintVectorWriter *vvw, t_fieldId fieldId,
-    float score) : idx(idx), fieldId(fieldId), fieldScore(score), doc(doc), allOffsets(vvw) {}
+  ForwardIndexTokenizer(
+    ForwardIndex *idx, const char *doc, VarintVectorWriter *vvw, t_fieldId fieldId, float score
+  ) : idx{idx}, doc{doc}, allOffsets{vvw}, fieldId{fieldId}, fieldScore{score}
+  {}
 
   void tokenize(const Token &tok);
 };
