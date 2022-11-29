@@ -44,7 +44,7 @@ int Trie::InsertStringBuffer(const char *s, size_t len, double score, int incr, 
     return 0;
   }
 
-  Runes runes(s, len);
+  Runes runes{s, len};
   if (!runes || runes.len() == 0 || runes.len() >= TRIE_INITIAL_STRING_LEN) {
     return 0;
   }

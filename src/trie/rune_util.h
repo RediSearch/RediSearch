@@ -39,16 +39,17 @@ int runecmp(const rune *sa, size_t na, const rune *sb, size_t nb);
 struct Runes {
   enum class Folded { No, Yes };
 
-  Runes(const char *str = "", Folded folded = Folded::No) {
-    if (folded == Folded::No) {
-      _runes = strToRunes(str, &_len, _dynamic, _runes_s);
-    } else {
-      _runes = strToFoldedRunes(str, &_len, _dynamic, _runes_s);
-    }
-	  _nbytes = _len + 1;
-  }
+  Runes(const char *str = "", Folded folded = Folded::No)
+    : _runes{folded == Folded::No ? strToRunes(str, nullptr, _dynamic, _runes_s) : strToFoldedRunes(str, nullptr, _dynamic, _runes_s)}
+    , _len{nu_strlen(str, nu_utf8_read)}
+    , _nbytes{_len * sizeof(rune)}
+  { }
 
-  Runes(const char *str, size_t len) { copy(str, len); }
+  Runes(const char *str, size_t len)
+    : _runes{strToRunes(str, nullptr, _dynamic, _runes_s)}
+    , _len{len}
+    , _nbytes{len * sizeof(rune)}
+  { }
   Runes(const Runes &runes) { copy(runes); }
   Runes(const Runes &runes, size_t offset) { copy(runes, offset); }
 
@@ -64,7 +65,7 @@ struct Runes {
     _dynamic = nbytes > RUNE_STATIC_ALLOC_SIZE;
     _nbytes = nbytes + 1;
     if (_dynamic) {
-      _runes = (rune *) rm_malloc(_nbytes * sizeof(rune));
+      _runes = (rune *) rm_malloc(_nbytes);
     } else {
       _runes = _runes_s;
     }

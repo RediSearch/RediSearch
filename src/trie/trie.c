@@ -21,23 +21,25 @@ TriePayload::TriePayload(const char *payload, uint32_t plen) {
 // Add a child node to the parent node n, with a string str starting at offset up until len, and a
 // given score
 
-TrieNode::TrieNode(const Runes &runes, t_len offset, const char *payload, size_t payload_size,
-                   t_len numChildren, float score_, bool terminal) : _runes(runes, offset) {
+TrieNode::TrieNode(
+  const Runes &runes, t_len offset, const char *payload, size_t payload_size,
+  t_len numChildren, float score_, bool terminal
+) : _runes{runes, offset}
+  , _children{}
+  , _score{score_}
+  , _flags{terminal ? TRIENODE_TERMINAL : 0}
+  , _maxChildScore{0}
+  , _sortmode{TRIENODE_SORTED_NONE}
+  , _payload{payload && payload_size ? new TriePayload(payload, payload_size) : nullptr}
+{
   _children.reserve(numChildren);
-  _score = score_;
-  _flags = 0 | (terminal ? TRIENODE_TERMINAL : 0);
-  _maxChildScore = 0;
-  _sortmode = TRIENODE_SORTED_NONE;
-  if (payload != nullptr && payload_size > 0) {
-    _payload = new TriePayload(payload, payload_size);
-  }
 }
 
 //---------------------------------------------------------------------------------------------
 
 TrieNode *TrieNode::AddChild(const Runes &runes, t_len offset, RSPayload *payload, float score) {
   // a newly added child must be a terminal node
-  _children.emplace_back(new TrieNode(runes, offset, payload ? payload->data : nullptr,
+  _children.push_back(new TrieNode(runes, offset, payload ? payload->data : nullptr,
     payload ? payload->len : 0, 0, score, true));
   _sortmode = TRIENODE_SORTED_NONE;
   return _children.back();
