@@ -4,28 +4,23 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void FieldSpec::ctor(int idx, String field_name) {
-  index = idx;
-  name = field_name;
-  types = 0;
-  options = 0;
-  ftId = (t_fieldId)-1;
-  ftWeight = 1.0;
-  sortIdx = -1;
-  tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-  tagFlags = TAG_FIELD_DEFAULT_SEP;
-}
+FieldSpec::FieldSpec(int idx, String field_name)
+  : index{idx}
+  , name{field_name}
+  , types{0}
+  , options{0}
+  , ftId{(t_fieldId)-1}
+  , ftWeight{1.0}
+  , sortIdx{-1}
+  , tagFlags{TAG_FIELD_DEFAULT_FLAGS}
+  , tagSep{TAG_FIELD_DEFAULT_SEP}
+{}
 
 //---------------------------------------------------------------------------------------------
 
-FieldSpec::FieldSpec(int idx, String field_name) {
-  ctor(idx, field_name);
-}
-
-//---------------------------------------------------------------------------------------------
-
-FieldSpec::FieldSpec(String field_name, IndexSpec *sp, ArgsCursor *ac, QueryError *status, bool isNew) {
-  ctor(sp->fields.size(), field_name);
+FieldSpec::FieldSpec(String field_name, IndexSpec *sp, ArgsCursor *ac, QueryError *status, bool isNew)
+  : FieldSpec(sp->fields.size(), field_name)
+{
 
   if (!parseFieldSpec(ac, status)) {
     throw Error("Parsing error");

@@ -54,13 +54,14 @@ struct BlkAlloc {
   size_t num_elem;
   std::list<Vector<T>> used, avail;
 
-  T *Alloc(T &&obj) {
+  template <class... Args>
+  T *Alloc(Args&&... args) {
     if (used.empty() || used.back().size() == used.back().capacity()) {
       used.emplace_back(Vector<T>{});
       used.back().reserve(num_elem);
     }
 
-    used.back().emplace_back(std::move(obj));
+    used.back().emplace_back(std::forward<Args>(args)...);
     return &used.back().back();
   }
 

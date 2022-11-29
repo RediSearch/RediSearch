@@ -30,7 +30,7 @@ TrieMapNode::TrieMapNode(std::string_view s, tm_len_t offset, void *val,
 
 TrieMap::TrieMap() {
   cardinality = 0;
-  root = new TrieMapNode(std::string_view{""}, 0, NULL, false);
+  root = new TrieMapNode(std::string_view{""}, 0, nullptr, false);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -56,7 +56,7 @@ void TrieMapNode::Split(tm_len_t offset) {
   _children.push_back(newChild);
   _children_keys.push_back(newChild->str[0]);
   str.resize(offset);
-  value = NULL;
+  value = nullptr;
   // parent node is now non terminal and non sorted
   flags = 0;  //&= ~(TM_NODE_TERMINAL | TM_NODE_DELETED | TM_NODE_SORTED);
 }
@@ -144,7 +144,7 @@ bool TrieMapNode::Add(std::string_view str_, void *value_, TrieMapReplaceFunc cb
 // If cb is given, instead of replacing and freeing, we call the callback with
 // the old and new value, and the function should return the value to set in the
 // node, and take care of freeing any unwanted pointers. The returned value
-// can be NULL and doesn't have to be either the old or new value.
+// can be nullptr and doesn't have to be either the old or new value.
 
 bool TrieMap::Add(std::string_view str_, void *value, TrieMapReplaceFunc cb) {
   bool rc = root->Add(str_, value, cb);
@@ -216,7 +216,7 @@ void *TrieMapNode::Find(std::string_view str_) {
       // we've reached the end of the node's string but not the search string
       // let's find a child to continue to.
       tm_len_t i = 0;
-      TrieMapNode *nextChild = NULL;
+      TrieMapNode *nextChild = nullptr;
       tm_len_t nc = n->_children.size();
       while (i < nc) {
         if (str_[offset] == n->childKey(i)) {
@@ -269,7 +269,7 @@ TrieMapNode *TrieMapNode::FindNode(std::string_view str_, tm_len_t *poffset) {
       // we've reached the end of the node's string but not the search string
       // let's find a child to continue to
       tm_len_t i = 0;
-      TrieMapNode *nextChild = NULL;
+      TrieMapNode *nextChild = nullptr;
       while (i < n->_children.size()) {
         if (str_[offset] == n->childKey(i)) {
           nextChild = n->_children[i];
@@ -281,21 +281,21 @@ TrieMapNode *TrieMapNode::FindNode(std::string_view str_, tm_len_t *poffset) {
       // we couldn't find a matching child
       n = nextChild;
     } else {
-      return NULL;
+      return nullptr;
     }
   }
 
-  return NULL;
+  return nullptr;
 }
 
 //---------------------------------------------------------------------------------------------
 
 // Find the entry with a given string and length, and return its value, even if
-// that was NULL.
+// that was nullptr.
 //
 // NOTE: If the key does not exist in the trie, we return the specialch->
 // constant value TRIEMAP_NOTFOUND, so checking if the key exists is done by
-// comparing to it, becase NULL can be a valid result.
+// comparing to it, becase nullptr can be a valid result.
 
 void *TrieMap::Find(std::string_view str_) {
   return root->Find(str_);
@@ -377,7 +377,7 @@ bool TrieMapNode::Delete(std::string_view str_) {
 
           if (n->value) {
             delete n->value;
-            value = NULL;
+            value = nullptr;
           }
 
           rc = true;
@@ -387,7 +387,7 @@ bool TrieMapNode::Delete(std::string_view str_) {
     } else if (localOffset == n->str.length()) {
       // we've reached the end of the node's string but not the search string
       // let's find a child to continue to
-      TrieMapNode *nextChild = NULL;
+      TrieMapNode *nextChild = nullptr;
       for (tm_len_t i = 0; i < n->_children.size(); i++) {
         if (str[offset] == n->childKey(i)) {
           nextChild = _children[i];
@@ -592,14 +592,14 @@ void TrieMapNode::RangeIterate(const char *min, int nmin, const char *max,
     int nNextMin = nmin - child->str.length();
     if (nNextMin < 0) {
       nNextMin = 0;
-      nextMin = NULL;
+      nextMin = nullptr;
     }
 
     const char *nextMax = max + child->str.length();
     int nNextMax = nmax - child->str.length();
     if (nNextMax < 0) {
       nNextMax = 0;
-      nextMax = NULL;
+      nextMax = nullptr;
     }
 
     child->RangeIterate(nextMin, nNextMin, nextMax, nNextMax, r);
@@ -616,10 +616,10 @@ void TrieMapNode::RangeIterate(const char *min, int nmin, const char *max,
     int nNextMin = nmin - child->str.length();
     if (nNextMin < 0) {
       nNextMin = 0;
-      nextMin = NULL;
+      nextMin = nullptr;
     }
 
-    child->RangeIterate(nextMin, nNextMin, NULL, -1, r);
+    child->RangeIterate(nextMin, nNextMin, nullptr, -1, r);
   }
 
   if (nmin > 0) {
@@ -652,10 +652,10 @@ void TrieMapNode::RangeIterate(const char *min, int nmin, const char *max,
     int nNextMax = nmax - child->str.length();
     if (nNextMax < 0) {
       nNextMax = 0;
-      nextMax = NULL;
+      nextMax = nullptr;
     }
 
-    child->RangeIterate(NULL, -1, nextMax, nNextMax, r);
+    child->RangeIterate(nullptr, -1, nextMax, nNextMax, r);
   }
 
 clean_stack:
@@ -837,12 +837,12 @@ TrieMapNode *TrieMapNode::RandomWalk(int minSteps, std::string &newstr) {
 
 //---------------------------------------------------------------------------------------------
 
-// Get the value of a random element under a specific prefix. NULL if the prefix was not found
+// Get the value of a random element under a specific prefix. nullptr if the prefix was not found
 
 void *TrieMap::RandomValueByPrefix(std::string_view prefix) {
-  TrieMapNode *root_ = root->FindNode(prefix, NULL);
+  TrieMapNode *root_ = root->FindNode(prefix, nullptr);
   if (!root_) {
-    return NULL;
+    return nullptr;
   }
 
   std::string str;
@@ -850,7 +850,7 @@ void *TrieMap::RandomValueByPrefix(std::string_view prefix) {
   if (n) {
     return n->value;
   }
-  return NULL;
+  return nullptr;
 }
 
 //---------------------------------------------------------------------------------------------

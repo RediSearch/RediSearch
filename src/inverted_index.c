@@ -43,7 +43,7 @@ IndexBlock *InvertedIndex::AddBlock(t_docId firstId) {
   IndexBlock *last = blocks + (size - 1);
   memset(last, 0, sizeof(*last));  // for msan
   last->firstId = last->lastId = firstId;
-  new (&LastBlock().buf) Buffer(INDEX_BLOCK_INITIAL_CAP);
+  std::construct_at(&LastBlock().buf, INDEX_BLOCK_INITIAL_CAP);
   return &LastBlock();
 }
 

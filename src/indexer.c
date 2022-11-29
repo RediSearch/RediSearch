@@ -83,7 +83,7 @@ AddDocumentCtx *DocumentIndexer::merge(AddDocumentCtx *aCtx, AddDocumentCtx **pa
       std::string key{entry->term, entry->len};
       auto marge_it = mergeMap.find(key);
       if (marge_it == mergeMap.end()) {
-        MergeMapEntry *val = mergePool.Alloc(MergeMapEntry{entry, entry});
+        MergeMapEntry *val = mergePool.Alloc(entry, entry);
         mergeMap.emplace(key, val);
       } else {
         marge_it->second->tail->next = entry;

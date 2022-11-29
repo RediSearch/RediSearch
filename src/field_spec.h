@@ -69,7 +69,7 @@ inline RSValueType fieldTypeToValueType(FieldType ft) {
 
 //---------------------------------------------------------------------------------------------
 
-#define TAG_FIELD_DEFAULT_FLAGS (TagFieldFlags)(TagField_TrimSpace | TagField_RemoveAccents);
+#define TAG_FIELD_DEFAULT_FLAGS (TagFieldFlags)(TagField_TrimSpace | TagField_RemoveAccents)
 #define TAG_FIELD_DEFAULT_SEP ','
 
 //---------------------------------------------------------------------------------------------
@@ -105,8 +105,6 @@ struct FieldSpec {
   t_fieldId ftId;
 
   // TODO: More options here..
-
-  void ctor(int idx, String field_name);
 
   FieldSpec(int idx, String field_name = "");
   FieldSpec(String field_name, struct IndexSpec *sp, ArgsCursor *ac, QueryError *status, bool isNew);

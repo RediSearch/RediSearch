@@ -30,22 +30,22 @@ void BlkAllocBase::Clear() {
     avail = cur;
     cur = curNext;
   }
-  root = last = NULL;
+  root = last = nullptr;
 }
 
 //---------------------------------------------------------------------------------------------
 
 BlkAllocBase::Block *BlkAllocBase::getNewBlock() {
-  Block *block = NULL;
+  Block *block = nullptr;
   if (avail) {
-    Block *prev = NULL;
+    Block *prev = nullptr;
     for (Block *cur = avail; cur; cur = cur->next) {
       if (cur->capacity >= block_size) {
         block = cur;
         if (cur == avail) {
           avail = cur->next;
         } else {
-          assert(prev != NULL);
+          assert(prev != nullptr);
           prev->next = cur->next;
         }
         break;
@@ -61,7 +61,7 @@ BlkAllocBase::Block *BlkAllocBase::getNewBlock() {
   }
 
   block->numUsed = 0;
-  block->next = NULL;
+  block->next = nullptr;
   return block;
 }
 

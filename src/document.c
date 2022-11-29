@@ -110,11 +110,11 @@ bool AddDocumentCtx::SetDocument(IndexSpec *sp, Document *d, size_t oldFieldCoun
     stateFlags &= ~ACTX_F_OTHERINDEXED;
   }
 
-  if ((stateFlags & ACTX_F_SORTABLES) && sv == NULL) {
+  if ((stateFlags & ACTX_F_SORTABLES) && sv == nullptr) {
     sv = new RSSortingVector(sp->sortables->len);
   }
 
-  int empty = (sv == NULL) && !hasTextFields && !hasOtherFields;
+  int empty = (sv == nullptr) && !hasTextFields && !hasOtherFields;
   if (empty) {
     stateFlags |= ACTX_F_EMPTY;
   }
@@ -177,7 +177,7 @@ AddDocumentCtx::AddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status_)
   //   // about thready safe issues
   //   fwIdx->smap = sp->smap->GetReadOnlyCopy();
   // } else {
-  //   fwIdx->smap = NULL;
+  //   fwIdx->smap = nullptr;
   // }
 
   // tokenizer = GetTokenizer(b->language, fwIdx->stemmer, sp->stopwords);
@@ -224,11 +224,11 @@ void AddDocumentCtx::Finish() {
 
 // LCOV_EXCL_START debug
 void Document::Dump() const {
-  printf("Document Key: %s. ID=%" PRIu64 "\n", RedisModule_StringPtrLen(docKey, NULL),
+  printf("Document Key: %s. ID=%" PRIu64 "\n", RedisModule_StringPtrLen(docKey, nullptr),
          docId);
   for (size_t ii = 0; ii < NumFields(); ++ii) {
     printf("  [%lu]: %s => %s\n", ii, fields[ii]->name,
-           RedisModule_StringPtrLen(fields[ii]->text, NULL));
+           RedisModule_StringPtrLen(fields[ii]->text, nullptr));
   }
 }
 // LCOV_EXCL_STOP
@@ -290,7 +290,7 @@ void AddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options) {
   doc.MakeStringsOwner();
 
   if (IsBlockable()) {
-    client.bc = RedisModule_BlockClient(sctx->redisCtx, replyCallback, NULL, NULL, 0);
+    client.bc = RedisModule_BlockClient(sctx->redisCtx, replyCallback, nullptr, nullptr, 0);
   } else {
     client.sctx = sctx;
   }
@@ -365,7 +365,7 @@ bool FieldSpec::FulltextPreprocessor(AddDocumentCtx *aCtx, const DocumentField *
     }
 
     uint32_t lastTokPos = aCtx->tokenizer->lastOffset;
-    if (aCtx->byteOffsets != NULL) {
+    if (aCtx->byteOffsets != nullptr) {
       aCtx->byteOffsets->AddField(ftId, aCtx->totalTokens + 1, lastTokPos);
     }
     aCtx->totalTokens = lastTokPos;
@@ -415,7 +415,7 @@ bool IndexBulkData::numericIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx,
 
 bool FieldSpec::GeoPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field,
     FieldIndexerData *fdata, QueryError *status) const {
-  const char *c = RedisModule_StringPtrLen(field->text, NULL);
+  const char *c = RedisModule_StringPtrLen(field->text, nullptr);
   char *pos = strpbrk(c, " ,");
   if (!pos) {
     status->SetCode(QUERY_EGEOFORMAT);
@@ -664,7 +664,7 @@ void AddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
     // Update sortables if needed
     for (auto const &f : doc.fields) {
       const FieldSpec *fs = sctx->spec->GetField(f->name);
-      if (fs == NULL || !fs->IsSortable()) {
+      if (fs == nullptr || !fs->IsSortable()) {
         continue;
       }
 
@@ -686,7 +686,7 @@ void AddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
       switch (fs->types) {
         case INDEXFLD_T_FULLTEXT:
         case INDEXFLD_T_TAG:
-          md->sortVector->Put(idx, (void *)RedisModule_StringPtrLen(f->text, NULL), RS_SORTABLE_STR);
+          md->sortVector->Put(idx, (void *)RedisModule_StringPtrLen(f->text, nullptr), RS_SORTABLE_STR);
           break;
         case INDEXFLD_T_NUMERIC: {
           double numval;
@@ -707,14 +707,14 @@ void AddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
 //---------------------------------------------------------------------------------------------
 
 DocumentField *Document::GetField(const char *fieldName) {
-  if (!fieldName) return NULL;
+  if (!fieldName) return nullptr;
 
   for (auto const &f: fields) {
     if (!strcasecmp(f->name.c_str(), fieldName)) {
       return f;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

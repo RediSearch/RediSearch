@@ -60,11 +60,11 @@ void ForwardIndex::Reset(Document *doc, uint32_t idxFlags_) {
   hits.clear();
 
   delete smap;
-  smap = NULL;
+  smap = nullptr;
 
   if (stemmer && !stemmer->Reset(StemmerType::Snowball, doc->language)) {
     delete stemmer;
-    stemmer = NULL;
+    stemmer = nullptr;
   }
 
   if (!stemmer) {
@@ -89,27 +89,22 @@ ForwardIndex::~ForwardIndex() {
 
 //---------------------------------------------------------------------------------------------
 
-ForwardIndexEntry::ForwardIndexEntry(ForwardIndex &idx, std::string_view tok, float fieldScore,
-    t_fieldId fieldId, int options) {
-  fieldMask = 0;
-  next = NULL;
-  if (options & TOKOPT_F_COPYSTR) {
-    term = idx.terms.strncpy(tok);
-  } else {
-    term = tok.data();
-  }
-
-  len = tok.size();
-  freq = 0;
-
-  vw = idx.hasOffsets() ? idx.vvw_pool.Alloc(VarintVectorWriter()) : NULL;
-}
+ForwardIndexEntry::ForwardIndexEntry(
+  ForwardIndex &idx, std::string_view tok, float fieldScore, t_fieldId fieldId, int options
+) : next{nullptr}
+  , docId{}
+  , freq{0}
+  , fieldMask{0}
+  , term{options & TOKOPT_F_COPYSTR ? idx.terms.strncpy(tok) : tok.data()}
+  , len{tok.size()}
+  , vw{idx.hasOffsets() ? idx.vvw_pool.Alloc() : nullptr}
+{}
 
 //---------------------------------------------------------------------------------------------
 
 void ForwardIndex::HandleToken(std::string_view tok, uint32_t pos,
                                float fieldScore, t_fieldId fieldId, int options) {
-  ForwardIndexEntry *h = entries.Alloc(ForwardIndexEntry(*this, tok, fieldScore, fieldId, options));
+  ForwardIndexEntry *h = entries.Alloc(*this, tok, fieldScore, fieldId, options);
   h->fieldMask |= ((t_fieldMask)1) << fieldId;
   float score = (float)fieldScore;
 
@@ -142,7 +137,7 @@ void ForwardIndexTokenizer::tokenize(const Token &tok) {
   if (tok.flags & Token_CopyRaw) {
     options |= TOKOPT_F_COPYSTR;
   }
-  idx->HandleToken(tok.tok, tok.pos, fieldScore, fieldId, options);
+  idx->HandleToken({tok.tok, tok.tokLen}, tok.pos, fieldScore, fieldId, options);
 
   if (allOffsets) {
     allOffsets->Write(tok.raw - doc);
@@ -175,13 +170,13 @@ void ForwardIndexTokenizer::tokenize(const Token &tok) {
 //---------------------------------------------------------------------------------------------
 
 ForwardIndexIterator::ForwardIndexIterator(const ForwardIndex &idx) :
-  hitsMap(&idx.hits), hits(NULL) {
+  hitsMap(&idx.hits), hits(nullptr) {
 }
 
 //---------------------------------------------------------------------------------------------
 
 ForwardIndexEntry *ForwardIndexIterator::Next() {
-  if (hitsMap->empty()) return NULL;
+  if (hitsMap->empty()) return nullptr;
 
   if (!hits || hits->empty()) {
     for (auto it = hitsMap->begin(); it != hitsMap->end(); ++it) {
@@ -193,7 +188,7 @@ ForwardIndexEntry *ForwardIndexIterator::Next() {
     }
   }
 
-  if (!hits || hits->empty()) return NULL;
+  if (!hits || hits->empty()) return nullptr;
 
   ForwardIndexEntry *entry = hits->back();
   hits->pop_back();

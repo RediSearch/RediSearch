@@ -103,7 +103,7 @@ void Grouper::extractGroups(const RSValue **xarr, size_t xpos, size_t xlen, size
 
     // Get or create the group
     if (!groups.contains(hval)) {
-      group = groupsAlloc.Alloc(Group(*this, xarr, xlen));
+      group = groupsAlloc.Alloc(*this, xarr, xlen);
       groups.insert({ hval, group });
     } else {
       group = groups[hval];
