@@ -25,17 +25,21 @@ void testEndpoint() {
   mu_check(!strcmp(ep.host, "::0"));
   mu_assert_int_eq(6379, ep.port);
 
-  mu_assert_int_eq(REDIS_OK, MREndpoint_Parse("[fe80::8749:8fe8:f206:2ab9]:6379", &ep));
+  mu_assert_int_eq(REDIS_OK, MREndpoint_Parse("[fe80::8749:8fe8:f206:2ab9]:6380", &ep));
   mu_check(!strcmp(ep.host, "fe80::8749:8fe8:f206:2ab9"));
-  mu_assert_int_eq(6379, ep.port);
+  mu_assert_int_eq(6380, ep.port);
 
-  mu_assert_int_eq(REDIS_OK, MREndpoint_Parse("pass@[fe80::8749:8fe8:f206:2ab9]:6379", &ep));
+  mu_assert_int_eq(REDIS_OK, MREndpoint_Parse("pass@[fe80::8749:8fe8:f206:2ab9]:6380", &ep));
   mu_check(!strcmp(ep.host, "fe80::8749:8fe8:f206:2ab9"));
   mu_check(!strcmp(ep.auth, "pass"));
-  mu_assert_int_eq(6379, ep.port);
+  mu_assert_int_eq(6380, ep.port);
 
   MREndpoint_Free(&ep);
   mu_assert_int_eq(REDIS_ERR, MREndpoint_Parse("localhost", &ep));
+  MREndpoint_Free(&ep);
+  mu_assert_int_eq(REDIS_ERR, MREndpoint_Parse("[fe80::8749:8fe8:f206:2ab9]", &ep));
+  MREndpoint_Free(&ep);
+  mu_assert_int_eq(REDIS_ERR, MREndpoint_Parse("pass@[fe80::8749:8fe8:f206:2ab9]", &ep));
   MREndpoint_Free(&ep);
   mu_assert_int_eq(REDIS_ERR, MREndpoint_Parse("localhost:-1", &ep));
   MREndpoint_Free(&ep);

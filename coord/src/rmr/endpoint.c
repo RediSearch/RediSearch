@@ -23,7 +23,9 @@ int MREndpoint_Parse(const char *addr, MREndpoint *ep) {
     addr = at + 1;
   }
 
+  int has_opener = 0;
   if (addr[0] == '[') {
+      has_opener = 1;
       ++addr; // skip the ipv6 opener '['
   }
 
@@ -41,7 +43,11 @@ int MREndpoint_Parse(const char *addr, MREndpoint *ep) {
   }
 
   size_t s = colon - addr;
-  if (addr[s - 1] == ']') {
+  if (has_opener) {
+      if (addr[s - 1] != ']') {
+          MREndpoint_Free(ep);
+          return REDIS_ERR;
+      }
       --s; // skip the ipv6 closer ']'
   }
 
