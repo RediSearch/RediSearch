@@ -298,6 +298,12 @@ CMAKE_HAVE_MARCH_OPTS=$(foreach opt,$(HAVE_MARCH_OPTS),-D$(opt)=on) -DMARCH_CXX_
 
 #----------------------------------------------------------------------------------------------
 
+ifeq ($(OSNICK),monterey)
+OSX_SDK_VER=12.0
+else
+OSX_SDK_VER=10.15
+endif
+
 CMAKE_FLAGS=\
 	-Wno-dev \
 	-DGIT_SHA=$(GIT_SHA) \
@@ -306,7 +312,7 @@ CMAKE_FLAGS=\
 	-DOS=$(OS) \
 	-DOSNICK=$(OSNICK) \
 	-DARCH=$(ARCH) \
-	-DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+	-DCMAKE_OSX_DEPLOYMENT_TARGET=$(OSX_SDK_VER)
 
 ifeq ($(OS),macos)
 CMAKE_FLAGS += -DLIBSSL_DIR=$(LIBSSL_PREFIX)
