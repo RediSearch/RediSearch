@@ -191,10 +191,9 @@ TrieNode *TrieNode::Add(const Runes &runes, RSPayload *payload, float score, Tri
   }
 
   // proceed to the next child or add a new child for the current rune
-  for (auto child: _children) {
+  for (auto& child: _children) {
     if (runes[offset] == child->_runes[0]) {
-      Runes next_rune {runes, offset};
-      child = child->Add(next_rune, payload, score, op, rc);
+      child = child->Add(Runes{runes, offset}, payload, score, op, rc);
       return this;
     }
   }

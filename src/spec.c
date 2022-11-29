@@ -24,7 +24,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
+void (*IndexSpec_OnCreate)(const IndexSpec *) = nullptr;
 
 RedisModuleType *IndexSpecType;
 static uint64_t spec_unique_ids = 1;
@@ -47,13 +47,13 @@ const FieldSpec *IndexSpec::getFieldCommon(std::string_view name, bool useCase) 
       }
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 //---------------------------------------------------------------------------------------------
 
 // Get a field spec by field name. Case insensitive!
-// Return the field spec if found, NULL if not
+// Return the field spec if found, nullptr if not
 
 const FieldSpec *IndexSpec::GetField(std::string_view name) const {
   return getFieldCommon(name, false);
@@ -125,7 +125,7 @@ const FieldSpec *IndexSpec::GetFieldBySortingIndex(uint16_t idx) const {
       return &field;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -155,10 +155,10 @@ void IndexSpec::ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
 
   const char *args[argc];
   for (int i = 0; i < argc; i++) {
-    args[i] = RedisModule_StringPtrLen(argv[i], NULL);
+    args[i] = RedisModule_StringPtrLen(argv[i], nullptr);
   }
 
-  Parse(RedisModule_StringPtrLen(name, NULL), args, argc, status);
+  Parse(RedisModule_StringPtrLen(name, nullptr), args, argc, status);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -203,7 +203,7 @@ IndexSpec::IndexSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   RedisModule_FreeString(ctx, keyString);
 
   // check that the key is empty
-  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY)) {
+  if (k == nullptr || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY)) {
     if (RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
       status->SetCode(QUERY_EREDISKEYTYPE);
     } else {
@@ -357,9 +357,9 @@ void IndexSpec::Parse(const char *name, const char **argv, int argc, QueryError 
       {name: "NOSCOREIDX", type: AC_ARGTYPE_BOOLFLAG, target: &dummy},
       {name: SPEC_TEMPORARY_STR, type: AC_ARGTYPE_LLONG, target: &timeout},
       {name: SPEC_STOPWORDS_STR, type: AC_ARGTYPE_SUBARGS, target: &acStopwords},
-      {name: NULL}};
+      {name: nullptr}};
 
-  ACArgSpec *errarg = NULL;
+  ACArgSpec *errarg = nullptr;
   int rc = ac.ParseArgSpec(argopts, &errarg);
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
@@ -377,7 +377,7 @@ void IndexSpec::Parse(const char *name, const char **argv, int argc, QueryError 
     // Can't remove the global default stopwords list!
     // if (stopwords) {
     //   delete stopwords;
-    //   stopwords = NULL;
+    //   stopwords = nullptr;
     // }
     stopwords = new StopWordList((const char **)acStopwords.objs, acStopwords.argc);
     flags |= Index_HasCustomStopwords;
@@ -385,7 +385,7 @@ void IndexSpec::Parse(const char *name, const char **argv, int argc, QueryError 
 
   if (!ac.AdvanceIfMatch(SPEC_SCHEMA_STR)) {
     if (ac.NumRemaining()) {
-      const char *badarg = ac.GetStringNC(NULL);
+      const char *badarg = ac.GetStringNC(nullptr);
       status->SetErrorFmt(QUERY_EPARSEARGS, "Unknown argument `%s`", badarg);
     } else {
       status->SetError(QUERY_EPARSEARGS, "No schema found");
@@ -411,7 +411,7 @@ ScorerArgs::Stats::Stats(const IndexStats &stats)
 //---------------------------------------------------------------------------------------------
 
 int IndexSpec::AddTerm(const char *term, size_t len) {
-  int isNew = terms->InsertStringBuffer((char *)term, len, 1, 1, NULL);
+  int isNew = terms->InsertStringBuffer((char *)term, len, 1, 1, nullptr);
   if (isNew) {
     stats.numTerms++;
     stats.termsSize += len;
@@ -459,22 +459,22 @@ size_t weightedRandom(double weights[], size_t len) {
 
 // Get a random term from the index spec using weighted random. Weighted random is done by
 // sampling N terms from the index and then doing weighted random on them. A sample size of 10-20
-// should be enough. Returns NULL if the index is empty
+// should be enough. Returns nullptr if the index is empty
 
 char *IndexSpec::GetRandomTerm(size_t sampleSize) {
   if (sampleSize > terms->size) {
     sampleSize = terms->size;
   }
-  if (!sampleSize) return NULL;
+  if (!sampleSize) return nullptr;
 
   char *samples[sampleSize];
   double weights[sampleSize];
   for (int i = 0; i < sampleSize; i++) {
-    char *ret = NULL;
+    char *ret = nullptr;
     t_len len = 0;
     double d = 0;
     if (!terms->RandomKey(&ret, &len, &d) || len == 0) {
-      return NULL;
+      return nullptr;
     }
     samples[i] = ret;
     weights[i] = d;
@@ -498,9 +498,9 @@ void IndexSpec::FreeWithKey(RedisModuleCtx *ctx) {
   RedisModuleString *s = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, name);
   RedisModuleKey *kk = RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE);
   RedisModule_FreeString(ctx, s);
-  if (kk == NULL || RedisModule_KeyType(kk) != REDISMODULE_KEYTYPE_MODULE ||
+  if (kk == nullptr || RedisModule_KeyType(kk) != REDISMODULE_KEYTYPE_MODULE ||
       RedisModule_ModuleTypeGetType(kk) != IndexSpecType) {
-    if (kk != NULL) {
+    if (kk != nullptr) {
       RedisModule_CloseKey(kk);
     }
     delete this;
@@ -522,7 +522,7 @@ void IndexSpec::FreeInternals() {
   }
 
   delete terms;
-  terms = NULL;
+  terms = nullptr;
 
   if (uniqueId) {
     // If uniqueid is 0, it means the index was not initialized
@@ -534,13 +534,15 @@ void IndexSpec::FreeInternals() {
   rm_free(name);
 
   delete sortables;
-  sortables = NULL;
+  sortables = nullptr;
 
-  delete stopwords;
-  stopwords = NULL;
+  if (stopwords != DefaultStopWordList()) {
+    delete stopwords;
+    stopwords = nullptr;
+  }
 
   delete smap;
-  smap = NULL;
+  smap = nullptr;
 
   if (spcache) {
     // delete spcache;
@@ -571,7 +573,7 @@ void IndexSpec::FreeInternals() {
 
 static void IndexSpec_FreeAsync(void *data) {
   IndexSpec *spec = data;
-  RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(nullptr);
   RedisSearchCtx sctx{threadCtx, spec};
   RedisModule_AutoMemory(threadCtx);
   RedisModule_ThreadSafeContextLock(threadCtx);
@@ -585,7 +587,7 @@ static void IndexSpec_FreeAsync(void *data) {
 
 //---------------------------------------------------------------------------------------------
 
-static struct thpool_ *cleanPool = NULL;
+static struct thpool_ *cleanPool = nullptr;
 
 // Free an indexSpec. This doesn't free the spec itself as it's not allocated by the parser
 // and should be on the request's stack.
@@ -616,7 +618,7 @@ void IndexSpec::FreeSync() {
   //  Let me know what you think
 
   //   Need a context for this:
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(nullptr);
   RedisSearchCtx sctx{ctx, this};
   RedisModule_AutoMemory(ctx);
   if (!IsKeyless()) {
@@ -629,7 +631,7 @@ void IndexSpec::FreeSync() {
 //---------------------------------------------------------------------------------------------
 
 IndexSpec *IndexSpec::LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
-  IndexSpec *ret = NULL;
+  IndexSpec *ret = nullptr;
   int modeflags = REDISMODULE_READ | REDISMODULE_WRITE;
 
   if (options->flags & INDEXSPEC_LOAD_WRITEABLE) {
@@ -638,14 +640,14 @@ IndexSpec *IndexSpec::LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
 
   RedisModuleString *formatted;
   bool isKeynameOwner = false;
-  const char *ixname = NULL;
+  const char *ixname = nullptr;
 
   if (options->flags & INDEXSPEC_LOAD_KEY_FORMATTED) {
     formatted = options->rstring;
   } else {
     isKeynameOwner = true;
     if (options->flags & INDEXSPEC_LOAD_KEY_RSTRING) {
-      ixname = RedisModule_StringPtrLen(options->rstring, NULL);
+      ixname = RedisModule_StringPtrLen(options->rstring, nullptr);
     } else {
       ixname = options->cstring;
     }
@@ -654,12 +656,12 @@ IndexSpec *IndexSpec::LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
 
   options->keyp = RedisModule_OpenKey(ctx, formatted, modeflags);
   // we do not allow empty indexes when loading an existing index
-  if (options->keyp == NULL || RedisModule_KeyType(options->keyp) == REDISMODULE_KEYTYPE_EMPTY) {
+  if (options->keyp == nullptr || RedisModule_KeyType(options->keyp) == REDISMODULE_KEYTYPE_EMPTY) {
     if (options->keyp) {
       RedisModule_CloseKey(options->keyp);
-      options->keyp = NULL;
+      options->keyp = nullptr;
     }
-    if ((options->flags & INDEXSPEC_LOAD_NOALIAS) || ixname == NULL) {
+    if ((options->flags & INDEXSPEC_LOAD_NOALIAS) || ixname == nullptr) {
       goto done;  // doesn't exist.
     }
     IndexSpec *aliasTarget = ret = IndexAlias::Get(ixname);
@@ -698,7 +700,7 @@ done:
   }
   if ((options->flags & INDEXSPEC_LOAD_KEYLESS) && options->keyp) {
     RedisModule_CloseKey(options->keyp);
-    options->keyp = NULL;
+    options->keyp = nullptr;
   }
   return ret;
 }
@@ -738,13 +740,13 @@ RedisModuleString *IndexSpec::GetFormattedKey(const FieldSpec &fs, FieldType for
         break;
       case INDEXFLD_T_FULLTEXT:  // Text fields don't get a per-field index
       default:
-        ret = NULL;
+        ret = nullptr;
         abort();
         break;
     }
   }
   if (!ret) {
-    return NULL;
+    return nullptr;
   }
   indexStrs[fs.index].types[typeix] = ret;
   return ret;
@@ -755,7 +757,7 @@ RedisModuleString *IndexSpec::GetFormattedKey(const FieldSpec &fs, FieldType for
 RedisModuleString *IndexSpec::GetFormattedKeyByName(const char *s, FieldType forType) {
   const FieldSpec *fs = GetField(s);
   if (!fs) {
-    return NULL;
+    return nullptr;
   }
   return GetFormattedKey(*fs, forType);
 }
@@ -778,12 +780,12 @@ bool IndexSpec::ParseStopWords(RedisModuleString **strs, size_t len) {
   // if the index already has custom stopwords, let us free them first
   if (stopwords) {
     delete stopwords;
-    stopwords = NULL;
+    stopwords = nullptr;
   }
 
   stopwords = new StopWordList(strs, len);
   // on failure we revert to the default stopwords list
-  if (stopwords == NULL) {
+  if (stopwords == nullptr) {
     stopwords = DefaultStopWordList();
     flags &= ~Index_HasCustomStopwords;
     return false;
@@ -811,8 +813,8 @@ void IndexSpec::ctor(const char *name_) {
   name = rm_strdup(name_);
   stopwords = DefaultStopWordList();
   terms = new Trie();
-  getValue = NULL;
-  getValueCtx = NULL;
+  getValue = nullptr;
+  getValueCtx = nullptr;
   memset(&stats, 0, sizeof(stats));
 }
 
@@ -869,7 +871,7 @@ int bit(t_fieldMask id) {
 // Backwards compat version of load for rdbs with version < 8
 static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
-  f->name = RedisModule_LoadStringBuffer(rdb, NULL);
+  f->name = RedisModule_LoadStringBuffer(rdb, nullptr);
   // char *tmpName = rm_strdup(f->name);
   RedisModule_Free(f->name.c_str());
   // f->name = tmpName;
@@ -920,7 +922,7 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
     return FieldSpec_RdbLoadCompat8(rdb, f, encver);
   }
 
-  f->name = RedisModule_LoadStringBuffer(rdb, NULL);
+  f->name = RedisModule_LoadStringBuffer(rdb, nullptr);
   RedisModule_Free(f->name.c_str());
 
   f->types = RedisModule_LoadUnsigned(rdb);
@@ -983,14 +985,14 @@ void IndexStats::RdbSave(RedisModuleIO *rdb) {
 
 void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < INDEX_MIN_COMPAT_VERSION) {
-    return NULL;
+    return nullptr;
   }
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp;
   sp->sortables = new RSSortingTable();
-  sp->terms = NULL;
+  sp->terms = nullptr;
   //sp->docs = new DocTable(1000);
-  sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
+  sp->name = RedisModule_LoadStringBuffer(rdb, nullptr);
   char *tmpName = rm_strdup(sp->name);
   RedisModule_Free(sp->name);
   sp->name = tmpName;
@@ -1040,7 +1042,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   RSCursors->Add(sp->name, RSCURSORS_DEFAULT_CAPACITY);
   RedisModule_FreeString(ctx, specKey);
 
-  sp->smap = NULL;
+  sp->smap = nullptr;
   if (sp->flags & Index_HasSmap) {
     sp->smap = new SynonymMap(rdb, encver);
   }
@@ -1117,7 +1119,7 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
                                .free = IndexSpec_Free};
 
   IndexSpecType = RedisModule_CreateDataType(ctx, "ft_index0", INDEX_CURRENT_VERSION, &tm);
-  if (IndexSpecType == NULL) {
+  if (IndexSpecType == nullptr) {
     RedisModule_Log(ctx, "error", "Could not create index spec type");
     return REDISMODULE_ERR;
   }
