@@ -125,7 +125,7 @@ conserves storage space and memory by disabling highlighting support. If set, th
 </details>
 
 <details open>
-<summary><code>NOFIELD</code></summary> 
+<summary><code>NOFIELDS</code></summary> 
 
 does not store attribute bits for each term. It saves memory, but it does not allow
   filtering by specific attributes.
