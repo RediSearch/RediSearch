@@ -1,18 +1,13 @@
 ---
-syntax:
+syntax: |
+  FT.INFO index
 ---
 
 Return information and statistics on the index
 
-## Syntax
-
-{{< highlight bash >}}
-FT.INFO index
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>index</code></summary>
