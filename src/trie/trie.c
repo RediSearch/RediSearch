@@ -31,6 +31,7 @@ TrieNode::TrieNode(
   , _maxChildScore{0}
   , _sortmode{TRIENODE_SORTED_NONE}
   , _payload{payload && payload_size ? new TriePayload(payload, payload_size) : nullptr}
+  , _len{runes._len - offset}
 {
   _children.reserve(numChildren);
 }
