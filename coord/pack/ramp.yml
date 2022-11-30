@@ -23,6 +23,7 @@ capabilities:
     - hash_policy
     - intershard_tls
     - intershard_tls_pass
+    - ipv6
 exclude_commands:
     - FT.CREATE
     - FT.DROP
