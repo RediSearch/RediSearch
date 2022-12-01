@@ -44,7 +44,7 @@ struct UnionIterator : public IndexIterator {
   size_t RemoveExhausted(size_t badix);
   t_docId LastDocId() const;
 
-  int (UnionIterator::*_Read)(IndexResult **hit);
+  // int (UnionIterator::*_Read)(IndexResult **hit);
 
   virtual int Read(IndexResult **hit) { return (this->*_Read)(hit); }
   int ReadSorted(IndexResult **hit);
@@ -98,7 +98,7 @@ struct IntersectIterator : IndexIterator {
   double weight;
   size_t nexpected;
 
-  int (IntersectIterator::*_Read)(IndexResult **hit);
+  // int (IntersectIterator::*_Read)(IndexResult **hit);
 
   virtual int Read(IndexResult **hit) { return (this->*_Read)(hit); }
   int ReadSorted(IndexResult **hit);
@@ -142,7 +142,7 @@ struct NotIterator : public IndexIterator {
   size_t len;
   double weight;
 
-  int (NotIterator::*_Read)(IndexResult **hit);
+  // int (NotIterator::*_Read)(IndexResult **hit);
 
   virtual int Read(IndexResult **hit) { return (this->*_Read)(hit); }
   int ReadSorted(IndexResult **hit);
@@ -188,7 +188,7 @@ struct OptionalIterator : public IndexIterator {
   t_docId nextRealId;
   double weight;
 
-  int (OptionalIterator::*_Read)(IndexResult **hit);
+  // int (OptionalIterator::*_Read)(IndexResult **hit);
 
   virtual int Read(IndexResult **hit) { return (this->*_Read)(hit); }
   int ReadSorted(IndexResult **hit);

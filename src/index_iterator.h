@@ -72,6 +72,8 @@ public:
 
   // Read the next entry from the iterator, into hit *e
   // Returns INDEXREAD_EOF if at the end
+  using read_t = int(IndexIterator::*)(IndexResult **);
+  read_t _Read;
   virtual int Read(IndexResult **e) = 0;
 
   // Skip to a docid, potentially reading the entry into hit, if the docId matches

@@ -131,10 +131,10 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
   float score;
   RSPayload payload;
 
-  TrieSearchResult *pooledEntry = NULL;
+  TrieSearchResult *pooledEntry = nullptr;
   int dist = maxDist + 1;
   while (it.Next(it_runes, payload, score, dist)) {
-    if (pooledEntry == NULL) {
+    if (pooledEntry == nullptr) {
       pooledEntry = new TrieSearchResult();
     }
     slen = it_runes.len();
@@ -155,7 +155,7 @@ Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, in
       ent->str = it_runes.toUTF8();
       ent->payload = payload;
       pq.offerx(ent);
-      pooledEntry = NULL;
+      pooledEntry = nullptr;
 
       if (pq.size() == pq.capacity()) {
         TrieSearchResult *qe = pq.peek();
@@ -248,7 +248,7 @@ RedisModuleType *TrieType;
 
 void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver > TRIE_ENCVER_CURRENT) {
-    return NULL;
+    return nullptr;
   }
   return TrieType_GenericLoad(rdb, encver > TRIE_ENCVER_NOPAYLOADS);
 }
@@ -270,9 +270,9 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
       // load an extra space for the null terminator
       payload.len--;
     }
-    tree->InsertStringBuffer(str, len - 1, score, 0, payload.len ? &payload : NULL);
+    tree->InsertStringBuffer(str, len - 1, score, 0, payload.len ? &payload : nullptr);
     RedisModule_Free(str);
-    if (payload.data != NULL) RedisModule_Free(payload.data);
+    if (payload.data != nullptr) RedisModule_Free(payload.data);
   }
   // tree->root->Print(0, 0);
   return tree;
@@ -301,14 +301,14 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *trie, int savePayloads) {
     float score;
     RSPayload payload;
 
-    while (it.Next(runes, payload, score, NULL)) {
+    while (it.Next(runes, payload, score, nullptr)) {
       String s = runes.toUTF8();
       RedisModule_SaveStringBuffer(rdb, s.c_str(), s.length() + 1);
       RedisModule_SaveDouble(rdb, (double)score);
 
       if (savePayloads) {
         // save an extra space for the null terminator to make the payload null terminated on load
-        if (payload.data != NULL && payload.len > 0) {
+        if (payload.data != nullptr && payload.len > 0) {
           RedisModule_SaveStringBuffer(rdb, payload.data, payload.len + 1);
         } else {
           // If there's no payload - we save an empty string
@@ -350,7 +350,7 @@ int TrieType_Register(RedisModuleCtx *ctx) {
                                .free = TrieType_Free};
 
   TrieType = RedisModule_CreateDataType(ctx, "trietype0", TRIE_ENCVER_CURRENT, &tm);
-  if (TrieType == NULL) {
+  if (TrieType == nullptr) {
     return REDISMODULE_ERR;
   }
 

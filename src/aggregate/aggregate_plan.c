@@ -224,7 +224,7 @@ RLookup *AGGPlan::GetLookup(const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) c
 
 AGGPlan::~AGGPlan() {
   PLN_BaseStep *step = steps.front();
-  while (step) {
+  while (step != steps.back()) {
     PLN_BaseStep *next = step->NextStep();
     delete step;
     step = next;

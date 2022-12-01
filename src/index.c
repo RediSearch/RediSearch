@@ -94,16 +94,16 @@ UnionIterator::UnionIterator(IndexIterators &its_, DocTable *dt, int quickExit, 
   currIt = 0;
 
   mode = IndexIteratorMode::Sorted;
-  _Read = &UnionIterator::ReadSorted;
+  _Read = (read_t)&UnionIterator::ReadSorted;
 
   SyncIterList();
 
   //@@ caveat here
   for (size_t i = 0; i < origits.size(); ++i) {
     nexpected += origits[i]->NumEstimated();
-    if (its_[i]->mode == IndexIteratorMode::Unsorted) {
+    if (origits[i]->mode == IndexIteratorMode::Unsorted) {
       mode = IndexIteratorMode::Unsorted;
-      _Read = &UnionIterator::ReadUnsorted;
+      _Read = (read_t)&UnionIterator::ReadUnsorted;
     }
   }
 
@@ -124,7 +124,7 @@ UnionIterator::UnionIterator(IndexIterators &its_, DocTable *dt, int quickExit, 
     }
     if (ctSupported) {
       mode = IndexIteratorMode::Unsorted;
-      _Read = &UnionIterator::ReadUnsorted;
+      _Read = (read_t)&UnionIterator::ReadUnsorted;
     }
   }
 }
@@ -417,7 +417,7 @@ void IntersectIterator::SortChildren() {
   if (!unsortedIts.empty()) {
     if (unsortedIts.size() == its.size()) {
       mode = IndexIteratorMode::Unsorted;
-      _Read = &IntersectIterator::ReadUnsorted;
+      _Read = (read_t)&IntersectIterator::ReadUnsorted;
       its.clear();
       its.push_back(bestIt);
       // The other iterators are also stored in unsortedIts
@@ -460,6 +460,8 @@ IntersectIterator::IntersectIterator(IndexIterators its, DocTable *dt, t_fieldMa
   isValid = 1;
   current = new IntersectResult(its.size(), weight);
 
+  mode = IndexIteratorMode::Sorted;
+  _Read = (read_t)&IntersectIterator::ReadSorted;
   SortChildren();
 }
 
@@ -905,13 +907,13 @@ NotIterator::NotIterator(IndexIterator *it, t_docId maxDocId_, double weight_) {
   len = 0;
   weight = weight_;
 
-  _Read = &NotIterator::ReadSorted;
+  _Read = (read_t)&NotIterator::ReadSorted;
   mode = IndexIteratorMode::Sorted;
 
   if (child && child->mode == IndexIteratorMode::Unsorted) {
     childCT = child->GetCriteriaTester();
     if (!childCT) throw Error("childCT should not be NULL");
-    _Read = &NotIterator::ReadUnsorted;
+    _Read = (read_t)&NotIterator::ReadUnsorted;
   }
 }
 
@@ -1092,13 +1094,13 @@ OptionalIterator::OptionalIterator(IndexIterator *it, t_docId maxDocId_, double 
   weight = weight_;
   nextRealId = 0;
 
-  _Read = &OptionalIterator::ReadSorted;
+  _Read = (read_t)&OptionalIterator::ReadSorted;
   mode = IndexIteratorMode::Sorted;
 
   if (child && child->mode == IndexIteratorMode::Unsorted) {
     childCT = child->GetCriteriaTester();
     if (!childCT) throw Error("childCT should not be NULL");
-    _Read = &OptionalIterator::ReadUnsorted;
+    _Read = (read_t)&OptionalIterator::ReadUnsorted;
   }
   if (!child) {
     child = new EmptyIterator();
