@@ -297,7 +297,7 @@ typedef Vector<std::unique_ptr<OffsetIterator>> RSOffsetIterators;
 // You can read the offsets by iterating over it with OffsetVector::Iterate.
 
 struct OffsetVector {
-  OffsetVector(char *data = 0, uint32_t len = 0) : data(data), len(len) {}
+  OffsetVector(char *data = nullptr, uint32_t len = 0) : data(data), len(len) {}
 
   char *data;
   uint32_t len;

@@ -119,15 +119,9 @@ void ForwardIndex::HandleToken(std::string_view tok, uint32_t pos,
     h->vw->Write(pos);
   }
 
-  String key{tok};
-
-  if (hits.contains(key)) {
-    hits[key].push_back(h);
-  } else {
-    Vector<ForwardIndexEntry *> v;
-    v.push_back(h);
-    hits.insert({ key, v});
-  }
+  // std::unordered_map::operator[] creates a default-constructed
+  // value at key if it didn't exist. trivial to upsert.
+  hits[String{tok}].push_back(h);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -148,7 +142,7 @@ void ForwardIndexTokenizer::tokenize(const Token &tok) {
     if (tok.flags & Token_CopyStem) {
       stemopts |= TOKOPT_F_COPYSTR;
     }
-    idx->HandleToken(tok.stem, tok.pos, fieldScore, fieldId, stemopts);
+    idx->HandleToken({tok.stem, tok.stemLen}, tok.pos, fieldScore, fieldId, stemopts);
   }
 
   if (idx->smap) {

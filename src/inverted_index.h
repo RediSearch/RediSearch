@@ -171,7 +171,7 @@ struct InvertedIndex : BaseIndex {
   InvertedIndex(IndexFlags flags, int initBlock);
   ~InvertedIndex();
 
-  IndexBlock *AddBlock(t_docId firstId);
+  IndexBlock &AddBlock(t_docId firstId);
 
   // Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index
   size_t WriteForwardIndexEntry(IndexEncoder encoder, const ForwardIndexEntry &ent);

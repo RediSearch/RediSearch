@@ -21,17 +21,19 @@ size_t TrieMapNode::Sizeof() {
 
 // Create a new trie node. str is a string to be copied into the node, starting from offset up until len.
 
-TrieMapNode::TrieMapNode(std::string_view s, tm_len_t offset, void *val,
-    bool terminal) : str(s.data() + offset, s.length() - offset), value(val) {
-  flags = terminal ? TM_NODE_TERMINAL : 0;
-}
+TrieMapNode::TrieMapNode(
+  std::string_view s, tm_len_t offset, void *val, bool terminal
+) : str{s.data() + offset, s.length() - offset}
+  , value{val}
+  , flags{terminal ? TM_NODE_TERMINAL : 0}
+{ }
 
 //---------------------------------------------------------------------------------------------
 
-TrieMap::TrieMap() {
-  cardinality = 0;
-  root = new TrieMapNode(std::string_view{""}, 0, nullptr, false);
-}
+TrieMap::TrieMap()
+  : cardinality{0}
+  , root{"", 0, nullptr, false}
+{ }
 
 //---------------------------------------------------------------------------------------------
 
@@ -137,7 +139,7 @@ bool TrieMapNode::Add(std::string_view str_, void *value_, TrieMapReplaceFunc cb
 // Add a new string to a trie. Returns 1 if the key is new to the trie or 0 if
 // it already existed.
 //
-// If value is given, it is saved as a pyaload inside the trie node.
+// If value is given, it is saved as a payload inside the trie node.
 // If the key already exists, we replace the old value with the new value, using
 // free() to free the old value.
 //
@@ -147,7 +149,10 @@ bool TrieMapNode::Add(std::string_view str_, void *value_, TrieMapReplaceFunc cb
 // can be nullptr and doesn't have to be either the old or new value.
 
 bool TrieMap::Add(std::string_view str_, void *value, TrieMapReplaceFunc cb) {
-  bool rc = root->Add(str_, value, cb);
+  bool rc = root.Add(str_, value, cb);
+#ifdef DEBUG_TRIE
+  Print();
+#endif
   cardinality += rc;
   return rc;
 }
@@ -298,7 +303,7 @@ TrieMapNode *TrieMapNode::FindNode(std::string_view str_, tm_len_t *poffset) {
 // comparing to it, becase nullptr can be a valid result.
 
 void *TrieMap::Find(std::string_view str_) {
-  return root->Find(str_);
+  return root.Find(str_);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -417,7 +422,7 @@ end:
 // node. If it doesn't, we simply call free() */
 
 int TrieMap::Delete(std::string_view str) {
-  int rc = root->Delete(str);
+  int rc = root.Delete(str);
   cardinality -= rc;
   return rc;
 }
@@ -433,7 +438,7 @@ size_t TrieMapNode::MemUsage() const {
 }
 
 size_t TrieMap::MemUsage() const {
-  return root->MemUsage();
+  return root.MemUsage();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -462,7 +467,7 @@ void TrieMapIterator::Pop() {
 // prefix is not found, the first call to next will return 0 */
 
 TrieMapIterator *TrieMap::Iterate(std::string_view prefix) {
-  return new TrieMapIterator(root, prefix);
+  return new TrieMapIterator(&root, prefix);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -667,7 +672,7 @@ clean_stack:
 void TrieMap::IterateRange(const char *min, int minlen, bool includeMin,
                            const char *max, int maxlen, bool includeMax,
                            TrieMapRangeCallback callback, void *ctx) {
-  if (root->_children.empty()) {
+  if (root._children.empty()) {
     return;
   }
 
@@ -682,7 +687,7 @@ void TrieMap::IterateRange(const char *min, int minlen, bool includeMin,
     if (cmp == 0) {
       // min = max, we should just search for min and check for its existence
       if (includeMin || includeMax) {
-        void *val = root->Find(std::string_view{(char *)min, minlen});
+        void *val = root.Find(std::string_view{(char *)min, minlen});
         if (val != TRIEMAP_NOTFOUND) {
           callback(min, minlen, ctx, val);
         }
@@ -698,7 +703,7 @@ void TrieMap::IterateRange(const char *min, int minlen, bool includeMin,
       .includeMax = includeMax,
   };
   tmctx.buf = array_new(char, TRIE_INITIAL_STRING_LEN);
-  root->RangeIterate(min, minlen, max, maxlen, &tmctx);
+  root.RangeIterate(min, minlen, max, maxlen, &tmctx);
   array_free(tmctx.buf);
 }
 
@@ -788,9 +793,9 @@ bool TrieMapIterator::Next(char **ptr, tm_len_t *len, void **value) {
 
 //---------------------------------------------------------------------------------------------
 
-TrieMap::~TrieMap() {
-  delete root;
-}
+// TrieMap::~TrieMap() {
+//   delete root;
+// }
 
 //---------------------------------------------------------------------------------------------
 
@@ -840,7 +845,7 @@ TrieMapNode *TrieMapNode::RandomWalk(int minSteps, std::string &newstr) {
 // Get the value of a random element under a specific prefix. nullptr if the prefix was not found
 
 void *TrieMap::RandomValueByPrefix(std::string_view prefix) {
-  TrieMapNode *root_ = root->FindNode(prefix, nullptr);
+  TrieMapNode *root_ = root.FindNode(prefix, nullptr);
   if (!root_) {
     return nullptr;
   }
@@ -866,29 +871,29 @@ bool TrieMap::RandomKey(std::string &str, void **ptr) {
     return false;
   }
   // TODO: deduce steps from cardinality properly
-  TrieMapNode *n = root->RandomWalk((int)round(log2(1 + cardinality)), str);
+  TrieMapNode *n = root.RandomWalk((int)round(log2(1 + cardinality)), str);
   *ptr = n->value;
   return true;
 }
 
 //---------------------------------------------------------------------------------------------
 
-// void TrieMapNode::Print(int idx, int depth) const {
-//   for (int i = 0; i < depth; ++i) {
-//     printf("  ");
-//   }
-//   printf("%d) '%s' flags %d\n", idx, str.c_str(), flags);
-//   int i = 0;
-//   ++depth;
-//   for (auto const &child: _children) {
-//     child->Print(i++, depth);
-//   }
-// }
+void TrieMapNode::Print(int idx, int depth) const {
+  for (int i = 0; i < depth; ++i) {
+    printf("  ");
+  }
+  printf("%d) '%s' flags %d\n", idx, str.c_str(), flags);
+  int i = 0;
+  ++depth;
+  for (auto const &child: _children) {
+    child->Print(i++, depth);
+  }
+}
 
-// //---------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------
 
-// void TrieMap::Print() const {
-//   root->Print(0, 2);
-// }
+void TrieMap::Print() const {
+  root.Print(0, 0);
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

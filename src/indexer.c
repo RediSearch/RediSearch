@@ -68,7 +68,7 @@ AddDocumentCtx *DocumentIndexer::merge(AddDocumentCtx *aCtx, AddDocumentCtx **pa
   size_t curIdIdx = 0;
 
   AddDocumentCtx *cur = aCtx;
-  AddDocumentCtx *firstZeroId = NULL;
+  AddDocumentCtx *firstZeroId = nullptr;
 
   while (cur && ++counter < 1000 && curIdIdx < MAX_BULK_DOCS) {
     ForwardIndexIterator it = cur->fwIdx->Iterate();
@@ -90,7 +90,7 @@ AddDocumentCtx *DocumentIndexer::merge(AddDocumentCtx *aCtx, AddDocumentCtx **pa
         marge_it->second->tail = entry;
       }
 
-      entry->next = NULL;
+      entry->next = nullptr;
       entry = it.Next();
     }
 
@@ -98,7 +98,7 @@ AddDocumentCtx *DocumentIndexer::merge(AddDocumentCtx *aCtx, AddDocumentCtx **pa
     // but it means that there is no more index interaction with this specific document.
     cur->stateFlags |= ACTX_F_TEXTINDEXED;
     parentMap[curIdIdx++] = cur;
-    if (firstZeroId == NULL && cur->doc.docId == 0) {
+    if (firstZeroId == nullptr && cur->doc.docId == 0) {
       firstZeroId = cur;
     }
 
@@ -128,13 +128,13 @@ int DocumentIndexer::writeMergedEntries(AddDocumentCtx *aCtx, RedisSearchCtx *sc
       // Add the term to the prefix trie. This only needs to be done once per term.
       spec->AddTerm(fwent->term, fwent->len);
 
-      RedisModuleKey *idxKey = NULL;
+      RedisModuleKey *idxKey = nullptr;
       InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, fwent->term, fwent->len, 1, &idxKey);
-      if (invidx == NULL) {
+      if (invidx == nullptr) {
         continue;
       }
 
-      for (; fwent != NULL; fwent = fwent->next) {
+      for (; fwent != nullptr; fwent = fwent->next) {
         // Get the Doc ID for this entry.
         // Note that lookup result is cached, since accessing the parent each time causes some memory access overhead.
         // This saves about 3% overall.
@@ -160,8 +160,8 @@ int DocumentIndexer::writeMergedEntries(AddDocumentCtx *aCtx, RedisSearchCtx *sc
         RedisModule_CloseKey(idxKey);
       }
 
-      if (isBlocked && concCtx.Tick() && spec == NULL) {
-        aCtx->status.SetError(QUERY_ENOINDEX, NULL);
+      if (isBlocked && concCtx.Tick() && spec == nullptr) {
+        aCtx->status.SetError(QUERY_ENOINDEX, nullptr);
         return -1;
       }
   }
@@ -181,8 +181,8 @@ void DocumentIndexer::writeEntries(AddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   ForwardIndexEntry *entry = it.Next();
   const int isBlocked = aCtx->IsBlockable();
 
-  while (entry != NULL) {
-    RedisModuleKey *idxKey = NULL;
+  while (entry != nullptr) {
+    RedisModuleKey *idxKey = nullptr;
     spec->AddTerm(entry->term, entry->len);
 
     if (!sctx) throw Error("No search context");
@@ -198,8 +198,8 @@ void DocumentIndexer::writeEntries(AddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
     }
 
     entry = it.Next();
-    if (isBlocked && concCtx.Tick() && spec == NULL) {
-      aCtx->status.SetError(QUERY_ENOINDEX, NULL);
+    if (isBlocked && concCtx.Tick() && spec == nullptr) {
+      aCtx->status.SetError(QUERY_ENOINDEX, nullptr);
       return;
     }
   }
@@ -248,7 +248,7 @@ bool AddDocumentCtx::makeDocumentId(RedisSearchCtx *sctx, bool replace, QueryErr
 
   doc.docId = table.Put(s, n, doc.score, docFlags, doc.payload);
   if (doc.docId == 0) {
-    status->SetError(QUERY_EDOCEXISTS, NULL);
+    status->SetError(QUERY_EDOCEXISTS, nullptr);
     return false; //@@TODO: throw on error
   }
   ++spec->stats.numDocuments;
@@ -286,13 +286,13 @@ void AddDocumentCtx::doAssignIds(RedisSearchCtx *ctx) {
 
     if (cur->sv) {
       spec->docs.SetSortingVector(cur->doc.docId, cur->sv);
-      cur->sv = NULL;
+      cur->sv = nullptr;
     }
 
     if (cur->byteOffsets) {
       cur->offsetsWriter.Move(cur->byteOffsets);
       spec->docs.SetByteOffsets(cur->doc.docId, cur->byteOffsets);
-      cur->byteOffsets = NULL;
+      cur->byteOffsets = nullptr;
     }
   }
 }
@@ -301,7 +301,7 @@ void AddDocumentCtx::doAssignIds(RedisSearchCtx *ctx) {
 
 void IndexBulkData::indexBulkFields(AddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   // Traverse all fields, seeing if there may be something which can be written!
-  IndexBulkData bData[SPEC_MAX_FIELDS] = {{{NULL}}};
+  IndexBulkData bData[SPEC_MAX_FIELDS] = {{{nullptr}}};
   IndexBulkData *activeBulks[SPEC_MAX_FIELDS];
   size_t numActiveBulks = 0;
 
@@ -367,7 +367,7 @@ void DocumentIndexer::Process(AddDocumentCtx *aCtx) {
     if (firstZeroId && firstZeroId->stateFlags & ACTX_F_ERRORED) {
       // Don't treat an errored ctx as being the head of a new ID chain.
       // It's likely that subsequent entries do indeed have IDs.
-      firstZeroId = NULL;
+      firstZeroId = nullptr;
     }
   }
 
@@ -402,7 +402,7 @@ void DocumentIndexer::Process(AddDocumentCtx *aCtx) {
   // When merging multiple document IDs, the merge stage scans through the chain
   // of proposed documents and selects the first document in the chain missing an
   // ID - the subsequent documents should also all be missing IDs. If none of
-  // the documents are missing IDs then the firstZeroId document is NULL and
+  // the documents are missing IDs then the firstZeroId document is nullptr and
   // no ID assignment takes place.
   //
   // Assigning IDs in bulk speeds up indexing of smaller documents by about 10% overall.
@@ -528,7 +528,7 @@ void DocumentIndexer::Add(AddDocumentCtx *aCtx) {
 // todo: remove the withIndexThread var once we switch to threadpool
 
 DocumentIndexer::DocumentIndexer(IndexSpec &spec) :
-    redisCtx(RedisModule_GetThreadSafeContext(NULL)),
+    redisCtx(RedisModule_GetThreadSafeContext(nullptr)),
     concCtx(redisCtx),
     mergePool(TERMS_PER_BLOCK) {
   isDbSelected = false;
@@ -538,13 +538,13 @@ DocumentIndexer::DocumentIndexer(IndexSpec &spec) :
   }
 
   if (!(options & INDEXER_THREADLESS)) {
-    pthread_cond_init(&cond, NULL);
-    pthread_mutex_init(&lock, NULL);
-    pthread_create(&thr, NULL, _main, this);
+    pthread_cond_init(&cond, nullptr);
+    pthread_mutex_init(&lock, nullptr);
+    pthread_create(&thr, nullptr, _main, this);
     pthread_detach(thr);
   }
 
-  //next = NULL;
+  //next = nullptr;
   specId = spec.uniqueId;
   specKeyName = RedisModule_CreateStringPrintf(redisCtx, INDEX_SPEC_KEY_FMT, spec.name);
 }

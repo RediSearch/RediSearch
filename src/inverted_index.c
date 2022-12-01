@@ -36,26 +36,27 @@ IndexBlock &InvertedIndex::LastBlock() {
 
 // Add a new block to the index with a given document id as the initial id
 
-IndexBlock *InvertedIndex::AddBlock(t_docId firstId) {
+IndexBlock &InvertedIndex::AddBlock(t_docId firstId) {
   TotalIIBlocks++;
   size++;
   blocks = rm_realloc(blocks, size * sizeof(IndexBlock));
-  IndexBlock *last = blocks + (size - 1);
-  memset(last, 0, sizeof(*last));  // for msan
-  last->firstId = last->lastId = firstId;
-  std::construct_at(&LastBlock().buf, INDEX_BLOCK_INITIAL_CAP);
-  return &LastBlock();
+  IndexBlock &last = LastBlock();
+  memset(&last, 0, sizeof last);  // for msan
+  last.firstId = last.lastId = firstId;
+  std::construct_at(&last.buf, INDEX_BLOCK_INITIAL_CAP);
+  return last;
 }
 
 //---------------------------------------------------------------------------------------------
 
-InvertedIndex::InvertedIndex(IndexFlags flags, int initBlock) {
-  blocks = NULL;
-  size = 0;
-  lastId = 0;
-  gcMarker = 0;
-  flags = flags;
-  numDocs = 0;
+InvertedIndex::InvertedIndex(IndexFlags flags, int initBlock)
+  : blocks{nullptr}
+  , size{0}
+  , lastId{0}
+  , gcMarker{0}
+  , flags{flags}
+  , numDocs{0}
+{
   if (initBlock) {
     AddBlock(t_docId{0});
   }
@@ -84,11 +85,11 @@ void IndexReader::SetAtEnd(bool value) {
 // underlying term key. We check for changes in the underlying key, or possible deletion of it.
 
 void IndexReader::OnReopen(RedisModuleKey *k) {
-  // If the key has been deleted we'll get a NULL here, so we just mark ourselves as EOF
-  if (k == NULL || RedisModule_ModuleTypeGetType(k) != InvertedIndexType) {
+  // If the key has been deleted we'll get a nullptr here, so we just mark ourselves as EOF
+  if (k == nullptr || RedisModule_ModuleTypeGetType(k) != InvertedIndexType) {
     SetAtEnd(true);
-    idx = NULL;
-    br.buf = NULL;
+    idx = nullptr;
+    br.buf = nullptr;
     return;
   }
 
@@ -111,7 +112,7 @@ void IndexReader::OnReopen(RedisModuleKey *k) {
     lastId = CurrentBlock().firstId;
 
     // seek to the previous last id
-    IndexResult *dummy = NULL;
+    IndexResult *dummy = nullptr;
     SkipTo(lastId, &dummy);
   }
 }
@@ -396,7 +397,7 @@ IndexEncoder InvertedIndex::GetEncoder(IndexFlags flags) {
       break;
   }
 
-  return NULL;
+  return nullptr;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -408,27 +409,26 @@ size_t InvertedIndex::WriteEntryGeneric(IndexEncoder encoder, t_docId docId, con
   // this can happen with duplicate tags for example
   if (lastId && lastId == docId) return 0;
 
-  t_docId delta = t_docId{0};
-  IndexBlock *blk = &LastBlock();
+  IndexBlock &blk = LastBlock();
 
   // see if we need to grow the current block
-  if (blk->numDocs >= INDEX_BLOCK_SIZE) {
+  if (blk.numDocs >= INDEX_BLOCK_SIZE) {
     blk = AddBlock(docId);
-  } else if (blk->numDocs == 0) {
-    blk->firstId = blk->lastId = docId;
+  } else if (blk.numDocs == 0) {
+    blk.firstId = blk.lastId = docId;
   }
 
-  delta = docId - blk->lastId;
+  t_docId delta{docId - blk.lastId};
   if (delta > UINT32_MAX) {
     blk = AddBlock(docId);
     delta = 0;
   }
 
-  BufferWriter bw(&blk->buf);
+  BufferWriter bw(&blk.buf);
   size_t ret = encoder(&bw, delta, &entry);
   lastId = docId;
-  blk->lastId = docId;
-  ++blk->numDocs;
+  blk.lastId = docId;
+  ++blk.numDocs;
   ++numDocs;
 
   return ret;
@@ -438,12 +438,14 @@ size_t InvertedIndex::WriteEntryGeneric(IndexEncoder encoder, t_docId docId, con
 
 // Write a forward-index entry to the index
 size_t InvertedIndex::WriteForwardIndexEntry(IndexEncoder encoder, const ForwardIndexEntry &ent) {
-  return WriteEntryGeneric(encoder, ent.docId, ForwardIndexEntryResult(ent));
+  ForwardIndexEntryResult result{ent};
+  return WriteEntryGeneric(encoder, ent.docId, result);
 }
 
 // Write a numeric entry to the index
 size_t InvertedIndex::WriteNumericEntry(t_docId docId, double value) {
-  return WriteEntryGeneric(encodeNumeric, docId, NumericResult(docId, value));
+  NumericResult result{docId, value};
+  return WriteEntryGeneric(encodeNumeric, docId, result);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -806,7 +808,7 @@ bool NumericIndexCriteriaTester::Test(t_docId id) {
   DocTable *td = (DocTable *) &spec->docs;
   const char *externalId = td->GetKey(id, &len);
   double n;
-  int ret = spec->getValue(spec->getValueCtx, nf.fieldName, externalId, NULL, &n);
+  int ret = spec->getValue(spec->getValueCtx, nf.fieldName, externalId, nullptr, &n);
   if (ret != RSVALTYPE_DOUBLE) throw Error("RSvalue type should be a double");
   return (nf.min < n || nf.inclusiveMin && nf.min == n) &&
          (nf.max > n || nf.inclusiveMax && nf.max == n);
@@ -832,7 +834,7 @@ bool TermIndexCriteriaTester::Test(t_docId id) {
       continue;
     }
     char *s;
-    int ret = spec->getValue(spec->getValueCtx, field.name.c_str(), externalId, &s, NULL);
+    int ret = spec->getValue(spec->getValueCtx, field.name.c_str(), externalId, &s, nullptr);
     if (ret != RSVALTYPE_STRING) throw Error("RSvalue type should be a string");
     if (term == s) {
       return true;
@@ -845,7 +847,7 @@ bool TermIndexCriteriaTester::Test(t_docId id) {
 
 IndexCriteriaTester *IndexReader::GetCriteriaTester() {
   if (!sp || !sp->getValue) {
-    return NULL;  // CriteriaTester is not supported!!!
+    return nullptr;  // CriteriaTester is not supported!!!
   }
 
   if (decoder.type == decoderType::Term) {
@@ -858,7 +860,7 @@ IndexCriteriaTester *IndexReader::GetCriteriaTester() {
     return new NumericIndexCriteriaTester(this, *decoder.filter);
   }
 
-  return NULL;
+  return nullptr;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1148,7 +1150,7 @@ int IndexBlock::Repair(DocTable &dt, IndexFlags flags, IndexBlockRepair &blockre
   BufferReader br(&buf);
   BufferWriter bw(&repair);
 
-  std::unique_ptr<IndexResult> res = std::unique_ptr<IndexResult>(flags == Index_StoreNumeric ? (IndexResult*)new NumericResult() : (IndexResult*)new TermResult(NULL, 1));
+  std::unique_ptr<IndexResult> res = std::unique_ptr<IndexResult>(flags == Index_StoreNumeric ? (IndexResult*)new NumericResult() : (IndexResult*)new TermResult(nullptr, 1));
   size_t frags = 0;
   int isLastValid = 0;
 

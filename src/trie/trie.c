@@ -105,7 +105,7 @@ void TrieNode::Print(int idx, int depth) {
     printf("  ");
   }
 
-  printf("%d) \"%.*s\" Score %f, max ChildScore %f\n", idx, _runes.len(), +_runes.toUTF8(), _score, _maxChildScore);
+  printf("%d) \"%.*s\" Score %f, max ChildScore %f\n", idx, _len, +_runes.toUTF8(), _score, _maxChildScore);
 
   int i = 0;
   ++depth;

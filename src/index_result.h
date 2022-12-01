@@ -139,18 +139,20 @@ struct TermResult : public IndexResult {
   // Encoded offsets in which the term appeared in the document
   OffsetVector offsets;
 
-  TermResult(RSQueryTerm *term, double weight) :
-    IndexResult(RSResultType_Term, t_docId{0}, 0, 0, weight), term(term) {} //@@ term ownership?
+  TermResult(RSQueryTerm *term, double weight)
+    : IndexResult{RSResultType_Term, t_docId{0}, 0, 0, weight}
+    , term{term} //@@ term ownership?
+  {}
 
   TermResult(const TermResult &src);
 
-  TermResult(const ForwardIndexEntry &ent) : IndexResult(RSResultType_Term, ent.docId, ent.fieldMask, ent.freq, 0) {
+  TermResult(const ForwardIndexEntry &ent)
+    : IndexResult{RSResultType_Term, ent.docId, ent.fieldMask, ent.freq, 0}
+    , term{nullptr}
+    , offsets{ent.vw ? OffsetVector{ent.vw->GetByteData(), ent.vw->GetByteLength()}
+                     : OffsetVector{}}
+  {
     offsetsSz = ent.vw ? ent.vw->GetByteLength() : 0;
-    term = NULL;
-    if (ent.vw) {
-      offsets.data = ent.vw->GetByteData();
-      offsets.len = ent.vw->GetByteLength();
-    }
   }
 
   ~TermResult();
@@ -175,7 +177,7 @@ struct TermResult : public IndexResult {
 //---------------------------------------------------------------------------------------------
 
 struct ForwardIndexEntryResult : public TermResult {
-  ForwardIndexEntryResult(const ForwardIndexEntry &ent) : TermResult(ent) {}
+  ForwardIndexEntryResult(const ForwardIndexEntry &ent) : TermResult{ent} {}
 };
 
 //---------------------------------------------------------------------------------------------

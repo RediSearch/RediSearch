@@ -14,7 +14,7 @@ struct StopWordList {
 
   StopWordList() { ctor(); }
 
-  // Create a new stopword list from a list of NULL-terminated C strings
+  // Create a new stopword list from a list of nul-terminated C strings
   StopWordList(const char **strs, size_t len) { ctor(strs, len); }
 
   // Create a new stopword list from a list of redis strings
@@ -23,7 +23,7 @@ struct StopWordList {
   // Load a stopword list from RDB
   StopWordList(RedisModuleIO *rdb, int encver);
 
-  void ctor(const char **strs = NULL, size_t len = 0);
+  void ctor(const char **strs = nullptr, size_t len = 0);
 
   ~StopWordList();
 

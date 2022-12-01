@@ -94,7 +94,7 @@ struct TrieMapNode : public Object {
 
   static int Cmp(const void *p1, const void *p2);
 
-  // void Print(int idx = 0, int depth = 0) const;
+  void Print(int idx = 0, int depth = 0) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -137,11 +137,11 @@ struct TrieMapIterator : public Object {
 //---------------------------------------------------------------------------------------------
 
 struct TrieMap : public Object {
-  TrieMapNode *root;
+  TrieMapNode root;
   size_t cardinality;
 
   TrieMap();
-  ~TrieMap();
+  // ~TrieMap();
 
   bool Add(std::string_view str, void *value, TrieMapReplaceFunc cb);
   void *Find(std::string_view str);
@@ -155,7 +155,7 @@ struct TrieMap : public Object {
                     bool includeMax, TrieMapRangeCallback callback, void *ctx);
   TrieMapIterator *Iterate(std::string_view prefix);
 
-  // void Print() const;
+  void Print() const;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
