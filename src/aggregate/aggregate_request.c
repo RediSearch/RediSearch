@@ -494,7 +494,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         if (rv != AC_OK) {
           QERR_MKBADARGS_FMT(status, "RETURN path AS name - must be accompanied with NAME");
           return REDISMODULE_ERR;
-        } else if (!strncasecmp(name, SPEC_AS_STR, strlen(SPEC_AS_STR))) {
+        } else if (!strcasecmp(name, SPEC_AS_STR)) {
           QERR_MKBADARGS_FMT(status, "Alias for RETURN cannot be `AS`");
           return REDISMODULE_ERR;
         }
@@ -1309,7 +1309,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
             if (rv != AC_OK) {
               QERR_MKBADARGS_FMT(status, "RETURN path AS name - must be accompanied with NAME");
               return REDISMODULE_ERR;
-            } else if (!strncasecmp(name, SPEC_AS_STR, strlen(SPEC_AS_STR))) {
+            } else if (!strcasecmp(name, SPEC_AS_STR)) {
               QERR_MKBADARGS_FMT(status, "Alias for RETURN cannot be `AS`");
               return REDISMODULE_ERR;
             }

@@ -623,3 +623,22 @@ def test_mod_4255(env):
   res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
   cursor = res[1]
   env.assertEqual(cursor ,0)
+
+def test_as_startswith_as(env):
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.attr1', 'AS', 'asa', 'TEXT').equal('OK')
+    conn.execute_command('JSON.SET', 'doc2', '$', '{"attr1": "foo", "attr2": "bar"}')
+    
+    env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 1, 'asa').equal([1, 'doc2', ['asa', 'foo']])
+    env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, 'asa', 'AS', 'asa').equal([1, 'doc2', ['asa', 'foo']])
+    env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, '$.attr1', 'AS', 'asa').equal([1, 'doc2', ['asa', 'foo']])
+    env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, '$.attr1', 'AS', '$.attr2').equal([1, 'doc2', ['$.attr2', 'foo']])
+    env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, 'asa', 'AS', '$.attr2').equal([1, 'doc2', ['$.attr2', 'foo']])
+    
+    env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 1, 'asa').equal([1, ['asa', 'foo']])
+    env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, 'asa', 'AS', 'asa').equal([1, ['asa', 'foo']])
+    env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, '$.attr1', 'AS', 'asa').equal([1, ['asa', 'foo']])
+    env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, '$.attr1', 'AS', '$.attr2').equal([1, ['$.attr2', 'foo']])
+    env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, 'asa', 'AS', '$.attr2').equal([1, ['$.attr2', 'foo']])
+    
