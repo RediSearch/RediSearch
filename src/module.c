@@ -855,6 +855,18 @@ static void GetRedisVersion() {
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
+void GetFormattedRedisVersion(char *buf, size_t len) {
+    snprintf(buf, len, "%d.%d.%d - %s",
+             redisVersion.majorVersion, redisVersion.minorVersion, redisVersion.patchVersion,
+             IsEnterprise() ? (isCrdt ? "enterprise-crdt" : "enterprise") : "oss");
+}
+
+void GetFormattedRedisEnterpriseVersion(char *buf, size_t len) {
+    snprintf(buf, len, "%d.%d.%d-%d",
+             rlecVersion.majorVersion, rlecVersion.minorVersion, rlecVersion.patchVersion,
+             rlecVersion.buildVersion);
+}
+
 int IsMaster() {
   if (RedisModule_GetContextFlags(RSDummyContext) & REDISMODULE_CTX_FLAGS_MASTER) {
     return 1;
@@ -887,13 +899,12 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   GetRedisVersion();
 
-  RedisModule_Log(ctx, "notice", "Redis version found by RedisSearch : %d.%d.%d - %s",
-                  redisVersion.majorVersion, redisVersion.minorVersion, redisVersion.patchVersion,
-                  IsEnterprise() ? (isCrdt ? "enterprise-crdt" : "enterprise") : "oss");
+  char ver[64];
+  GetFormattedRedisVersion(ver, sizeof(ver));
+  RedisModule_Log(ctx, "notice", "Redis version found by RedisSearch : %s", ver);
   if (IsEnterprise()) {
-    RedisModule_Log(ctx, "notice", "Redis Enterprise version found by RedisSearch : %d.%d.%d-%d",
-                    rlecVersion.majorVersion, rlecVersion.minorVersion, rlecVersion.patchVersion,
-                    rlecVersion.buildVersion);
+    GetFormattedRedisEnterpriseVersion(ver, sizeof(ver));
+    RedisModule_Log(ctx, "notice", "Redis Enterprise version found by RedisSearch : %s", ver);
   }
 
   if (CheckSupportedVestion() != REDISMODULE_OK) {
