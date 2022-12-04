@@ -157,8 +157,8 @@ elif [[ $VG == 1 ]]; then
 	fi
 	VALGRIND_ARGS=--use-valgrind
 	if [[ $VG_LEAKS == 0 ]]; then
-		export VG_OPTIONS="--leak-check=no --track-origins=yes --suppressions=$ROOT/tests/valgrind/redis_valgrind.sup"
-		VALGRIND_ARGS+=" --vg-no-leakcheck --vg-options=\"--leak-check=no --track-origins=yes --suppressions=$ROOT/tests/valgrind/redis_valgrind.sup\" "
+		export VG_OPTIONS="--leak-check=no --track-origins=yes --suppressions=$ROOT/tests/valgrind/leakcheck.supp"
+		VALGRIND_ARGS+=" --vg-no-leakcheck --vg-options=\"--leak-check=no --track-origins=yes --suppressions=$ROOT/tests/valgrind/leakcheck.supp\" "
 	fi
 
 	# for module
