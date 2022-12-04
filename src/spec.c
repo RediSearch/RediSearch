@@ -194,8 +194,9 @@ int isRdbLoading(RedisModuleCtx *ctx) {
 
 //---------------------------------------------------------------------------------------------
 
-IndexSpec::IndexSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                     QueryError *status) {
+IndexSpec::IndexSpec(
+  RedisModuleCtx *ctx, RedisModuleString **argv, int argc, QueryError *status
+) : IndexSpec(RedisModule_StringPtrLen(argv[1], nullptr)) {
   ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
 
   RedisModuleString *keyString = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, name);
@@ -921,8 +922,10 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
     return FieldSpec_RdbLoadCompat8(rdb, f, encver);
   }
 
-  f->name = RedisModule_LoadStringBuffer(rdb, nullptr);
-  RedisModule_Free(f->name.c_str());
+  size_t nameLen;
+  const char *name = RedisModule_LoadStringBuffer(rdb, &nameLen);
+  f->name = String{name, nameLen};
+  RedisModule_Free(name);
 
   f->types = RedisModule_LoadUnsigned(rdb);
   f->options = RedisModule_LoadUnsigned(rdb);
