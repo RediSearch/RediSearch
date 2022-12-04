@@ -370,12 +370,12 @@ void TrieNode::sortChildren() {
 // Push a new trie node on the iterator's stack
 
 void TrieIterator::Push(TrieNode *node, int skipped) {
-  stack.emplace_back(StackNode{skipped, node});
+  stack.emplace_back(skipped, node);
 }
 
 //---------------------------------------------------------------------------------------------
 
-// pop a node from the iterator's stcak
+// pop a node from the iterator's stack
 
 void TrieIterator::Pop() {
   if (stack.empty()) return;
@@ -383,7 +383,7 @@ void TrieIterator::Pop() {
   StackNode &curr = current();
   if (filter) filter->StackPop(curr.stringOffset);
 
-  if (runes.len() >= curr.stringOffset) {
+  if (runes.len() < curr.stringOffset) {
     throw Error("Invalid iterator state");
   }
   runes.pop(curr.stringOffset);
@@ -444,7 +444,7 @@ TrieIterator::StepResult TrieIterator::Step(int *match) {
         // if we don't have a filter, a "match" is when we reach the end of the
         // node
 
-        if (filter) {
+        if (!filter) {
           if (curr.n->_len > 0 && curr.stringOffset == curr.n->_len &&
               curr.n->isTerminal() && !curr.n->isDeleted()) {
             matched = true;

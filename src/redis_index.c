@@ -326,7 +326,7 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *
 
 InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *sctx, const char *term, size_t len,
                                          int write, RedisModuleKey **keyp) {
-  RedisModuleString *termKey = sctx->TermKeyName(term);
+  RedisModuleString *termKey = sctx->TermKeyName({term, len});
   InvertedIndex *idx = nullptr;
 
   if (sctx->spec->keysDict.empty()) {

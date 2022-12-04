@@ -87,18 +87,16 @@ struct Runes {
   // }
 
   void append(rune r) {
-    size_t end = _nbytes;
-    fix_storage(_nbytes + 1); // sets _nbytes
-    _runes[end] = r;
-    _runes[_nbytes] = 0;
-    ++_len;
+    fix_storage(_nbytes + sizeof r); // sets _nbytes
+    _runes[_len++] = r;
+    _runes[_len] = 0;
   }
 
   void append(const Runes &runes) {
     size_t end = _nbytes;
     fix_storage(_nbytes + runes._nbytes); // sets _nbytes
     memcpy(&_runes[end], runes._runes, runes._nbytes);
-    _runes[_nbytes] = 0;
+    _runes[_len + runes._len] = 0;
     _len += runes._len;
   }
 
