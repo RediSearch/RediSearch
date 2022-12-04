@@ -247,8 +247,10 @@ struct RLookupLoadOptions {
 
   struct QueryError *status;
 
-  RLookupLoadOptions(RedisSearchCtx *sctx, DocumentMetadata *dmd, QueryError *status) :
-    sctx(sctx), dmd(dmd), status(status) {}
+  RLookupLoadOptions(
+    RedisSearchCtx *sctx, DocumentMetadata *dmd, QueryError *status
+  ) : sctx{sctx}, dmd{dmd}, status{status}, keys{nullptr}, nkeys{0}
+  {}
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -71,19 +71,19 @@ RSNumberLiteral::RSNumberLiteral(double n) {
 
 //---------------------------------------------------------------------------------------------
 
-RSExprOp::RSExprOp(unsigned char op_, RSExpr *left, RSExpr *right) {
-  op = op_;
-  left = left;
-  right = right;
-}
+RSExprOp::RSExprOp(unsigned char op_, RSExpr *left_, RSExpr *right_)
+  : op{op_}
+  , left{left_}
+  , right{right_}
+{ }
 
 //---------------------------------------------------------------------------------------------
 
-RSPredicate::RSPredicate(RSCondition cond, RSExpr *left, RSExpr *right) {
-  cond = cond;
-  left = left;
-  right = right;
-}
+RSPredicate::RSPredicate(RSCondition cond_, RSExpr *left_, RSExpr *right_)
+  : cond{cond_}
+  , left{left_}
+  , right{right_}
+{ }
 
 //---------------------------------------------------------------------------------------------
 
@@ -97,7 +97,7 @@ RSFunctionExpr::RSFunctionExpr(const char *str, size_t len, RSArgList *args, RSF
 
 RSLookupExpr::RSLookupExpr(const char *str, size_t len) {
   key = rm_strndup(str, len);
-  lookupKey = NULL;
+  lookupKey = nullptr;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -168,7 +168,7 @@ void RSInverted::Print() const {
 
 void RSFunctionExpr::Print() const {
   printf("%s(", name);
-  for (size_t i = 0; _args != NULL && i < _args->length(); i++) {
+  for (size_t i = 0; _args != nullptr && i < _args->length(); i++) {
     (*_args)[i]->Print();
     if (i < _args->length() - 1) printf(", ");
   }
@@ -201,7 +201,7 @@ void ExprAST_Print(const RSExpr *e) {
 //---------------------------------------------------------------------------------------------
 
 RSExpr *RSExpr::ParseAST(const char *e, size_t n, QueryError *status) {
-  char *errtmp = NULL;
+  char *errtmp = nullptr;
   assert(!status->HasError());
 
   RSExpr *ret = RSExpr::Parse(e, n, &errtmp);

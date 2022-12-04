@@ -30,10 +30,10 @@ void RLookupKey::ctor(RLookup *lookup, const char *name, size_t n, int flags, ui
 
 RLookupKey *RLookup::genKeyFromSpec(const char *name, int flags) {
   if (!spcache) {
-    return NULL;
+    return nullptr;
   }
 
-  const FieldSpec *fs = NULL;
+  const FieldSpec *fs = nullptr;
   IndexSpecFields &fields = *spcache.get();
   for (auto const &field : fields) {
     if (!strcmp(field.name.c_str(), name)) {
@@ -44,7 +44,7 @@ RLookupKey *RLookup::genKeyFromSpec(const char *name, int flags) {
 
   if (!fs) {
     // Field does not exist in the schema at all
-    return NULL;
+    return nullptr;
   }
 
   uint16_t idx = rowlen++;
@@ -64,13 +64,13 @@ RLookupKey *RLookup::genKeyFromSpec(const char *name, int flags) {
 //---------------------------------------------------------------------------------------------
 
 RLookupKey *RLookup::GetKey(const char *name, size_t n, int flags) {
-  RLookupKey *ret = NULL;
+  RLookupKey *ret = nullptr;
 
   for (RLookupKey *kk = head; kk; kk = kk->next) {
     size_t origlen = strlen(kk->name);
     if (origlen == n && !strncmp(kk->name, name, origlen)) {
       if (flags & RLOOKUP_F_OEXCL) {
-        return NULL;
+        return nullptr;
       }
       ret = kk;
       break;
@@ -83,7 +83,7 @@ RLookupKey *RLookup::GetKey(const char *name, size_t n, int flags) {
 
   if (!ret) {
     if (!(flags & RLOOKUP_F_OCREAT) && !(options & RLOOKUP_OPT_UNRESOLVED_OK)) {
-      return NULL;
+      return nullptr;
     } else {
       ret = new RLookupKey(this, name, n, flags, rowlen++);
       if (!(flags & RLOOKUP_F_OCREAT)) {
@@ -109,7 +109,7 @@ RLookupKey *RLookup::GetKey(const char *name, size_t n, int flags) {
  * Get a RLookup key for a given name. The behavior of this function depends on
  * the flags.
  *
- * If F_OCREAT is not used, then this function will return NULL if a key could
+ * If F_OCREAT is not used, then this function will return nullptr if a key could
  * not be found, unless OPT_UNRESOLVED_OK is set on the lookup itself. In this
  * case, the key is returned, but has the F_UNRESOLVED flag set.
  */
@@ -234,10 +234,10 @@ void RLookupRow::Wipe() {
     }
   }
   dyn.clear();
-  sv = NULL;
+  sv = nullptr;
   if (rmkey) {
     RedisModule_CloseKey(rmkey);
-    rmkey = NULL;
+    rmkey = nullptr;
   }
 }
 
@@ -250,11 +250,11 @@ void RLookupRow::Wipe() {
  * @param lookup The lookup table containing the lookup table data
  * @param key the key that contains the index
  * @param row the row data which contains the value
- * @return the value if found, NULL otherwise.
+ * @return the value if found, nullptr otherwise.
  */
 
 RSValue *RLookupRow::GetItem(const RLookupKey *key) const {
-  RSValue *ret = NULL;
+  RSValue *ret = nullptr;
   if (dyn.size() > key->dstidx) {
     ret = dyn[key->dstidx];
   }
@@ -262,8 +262,8 @@ RSValue *RLookupRow::GetItem(const RLookupKey *key) const {
     if (key->flags & RLOOKUP_F_SVSRC) {
       if (sv && sv->len > key->svidx) {
         ret = sv->values[key->svidx];
-        if (ret != NULL && ret->t == RSValue_Null) {
-          ret = NULL;
+        if (ret != nullptr && ret->t == RSValue_Null) {
+          ret = nullptr;
         }
       }
     }
@@ -379,7 +379,7 @@ static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType ot
       size_t len;
       const char *s = RedisModule_CallReplyStringPtr(rep, &len);
       if (otype == RLOOKUP_C_DBL) {
-        // Convert to double -- calling code should check if NULL
+        // Convert to double -- calling code should check if nullptr
         return RSValue_ParseNumber(s, len);
       }
       // Note, the pointer is within CallReply; we need to copy
@@ -429,9 +429,9 @@ int RLookupRow::getKeyCommon(const RLookupKey *kk, RLookupLoadOptions *options,
   }
 
   // Get the actual hash value
-  RedisModuleString *val = NULL;
-  int rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, kk->name, &val, NULL);
-  if (rc != REDISMODULE_OK || val == NULL) {
+  RedisModuleString *val = nullptr;
+  int rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, kk->name, &val, nullptr);
+  if (rc != REDISMODULE_OK || val == nullptr) {
     return REDISMODULE_OK;
   }
 
@@ -447,7 +447,7 @@ int RLookupRow::getKeyCommon(const RLookupKey *kk, RLookupLoadOptions *options,
 
 int RLookup::loadIndividualKeys(RLookupRow *dst, RLookupLoadOptions *options) {
   // Load the document from the schema. This should be simple enough...
-  RedisModuleKey *key = NULL;  // This is populated by getKeyCommon; we free it at the end
+  RedisModuleKey *key = nullptr;  // This is populated by getKeyCommon; we free it at the end
   int rc = REDISMODULE_ERR;
   if (options->nkeys) {
     for (size_t ii = 0; ii < options->nkeys; ++ii) {
@@ -487,13 +487,13 @@ done:
 int RLookup::HGETALL(RLookupRow *dst, RLookupLoadOptions *options) {
   int rc = REDISMODULE_ERR;
   size_t len;
-  RedisModuleCallReply *rep = NULL;
+  RedisModuleCallReply *rep = nullptr;
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   RedisModuleString *krstr =
     RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
 
   rep = RedisModule_Call(ctx, "HGETALL", "s", krstr);
-  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
+  if (rep == nullptr || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     goto done;
   }
 
@@ -563,7 +563,7 @@ const RLookupKey *RLookup::FindKeyWith(uint32_t f) const {
       return k;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

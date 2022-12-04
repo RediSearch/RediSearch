@@ -599,27 +599,26 @@ static int Document::EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key
     return REDISMODULE_ERR;
   }
 
-  // Try to parser the expression first, fail if we can't
-  ;
+  // Try to parse the expression first, fail if we can't
   try {
     std::unique_ptr<RSExpr> expr{RSExpr::ParseAST(exprText, strlen(exprText), status)};
     if (!expr || status->HasError()) {
       return REDISMODULE_ERR;
     }
 
-    RLookupRow row;
-    RSValue rv;
-    std::shared_ptr<IndexSpecFields> spcache = sctx->spec->GetSpecCache();
+    std::shared_ptr<IndexSpecFields> spcache{sctx->spec->GetSpecCache()};
     RLookup lookup_s{spcache};
     if (expr->GetLookupKeys(&lookup_s, status) == EXPR_EVAL_ERR) {
       return REDISMODULE_ERR;
     }
 
-     RLookupLoadOptions loadopts{sctx, dmd, status};
+    RLookupRow row;
+    RLookupLoadOptions loadopts{sctx, dmd, status};
     if (lookup_s.LoadDocument(&row, &loadopts) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
 
+    RSValue rv;
     ExprEval evaluator{status, &lookup_s, &row, expr.get()};
     if (evaluator.Eval(&rv) != EXPR_EVAL_OK) {
       return REDISMODULE_ERR;
