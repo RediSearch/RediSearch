@@ -47,15 +47,15 @@ bool DocTable::ValidateDocId(t_docId docId) const {
 
 //---------------------------------------------------------------------------------------------
 
-// Get the metadata for a doc Id from the DocTable. If docId is not inside the table, we return NULL
+// Get the metadata for a doc Id from the DocTable. If docId is not inside the table, we return nullptr
 
 DocumentMetadata *DocTable::Get(t_docId docId) const {
   if (!ValidateDocId(docId)) {
-    return NULL;
+    return nullptr;
   }
   BucketIndex bucketIndex = GetBucketIdx(docId);
   if (bucketIndex >= buckets.size()) {
-    return NULL;
+    return nullptr;
   }
 
   for (auto &dmd: buckets[bucketIndex]) {
@@ -64,7 +64,7 @@ DocumentMetadata *DocTable::Get(t_docId docId) const {
     }
   }
 
-  return NULL;
+  return nullptr;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -155,7 +155,7 @@ bool DocTable::SetPayload(t_docId docId, RSPayload *data) {
 //---------------------------------------------------------------------------------------------
 
 // Set the sorting vector for a document.
-// If the vector is NULL we mark the doc as not having a vector.
+// If the vector is nullptr we mark the doc as not having a vector.
 // Returns true on success, false if the document does not exist. No further validation is done.
 
 bool DocTable::SetSortingVector(t_docId docId, RSSortingVector *v) {
@@ -170,7 +170,7 @@ bool DocTable::SetSortingVector(t_docId docId, RSSortingVector *v) {
     if (dmd->sortVector) {
       delete dmd->sortVector;
     }
-    dmd->sortVector = NULL;
+    dmd->sortVector = nullptr;
     dmd->flags &= ~Document_HasSortVector;
     return 1;
   }*/
@@ -257,16 +257,16 @@ t_docId DocTable::Put(const char *s, size_t n, double score, u_char flags, RSPay
 //---------------------------------------------------------------------------------------------
 
 // Get the payload for a document, if any was set.
-// If no payload has been set or the document id is not found, we return NULL.
+// If no payload has been set or the document id is not found, we return nullptr.
 
 RSPayload *DocTable::GetPayload(t_docId docId) {
   DocumentMetadata *dmd = Get(docId);
-  return dmd ? dmd->payload : NULL;
+  return dmd ? dmd->payload : nullptr;
 }
 
 //---------------------------------------------------------------------------------------------
 
-// Get the "real" external key for an incremental id. Returns NULL if docId is not in the table.
+// Get the "real" external key for an incremental id. Returns nullptr if docId is not in the table.
 
 const char *DocTable::GetKey(t_docId docId, size_t *lenp) {
   size_t len_s = 0;
@@ -277,7 +277,7 @@ const char *DocTable::GetKey(t_docId docId, size_t *lenp) {
   DocumentMetadata *dmd = Get(docId);
   if (!dmd) {
     *lenp = 0;
-    return NULL;
+    return nullptr;
   }
   *lenp = sdslen(dmd->keyPtr);
   return dmd->keyPtr;
@@ -325,16 +325,16 @@ bool DocTable::Delete(const char *s, size_t n) {
 
 DocumentMetadata *DocTable::Pop(const char *s, size_t n, bool retain) {
   t_docId docId = dim.Get(s, n);
-  if (!ValidateDocId(docId)) return NULL;
+  if (!ValidateDocId(docId)) return nullptr;
 
   DocumentMetadata *dmd = Get(docId);
   if (!dmd) {
-    return NULL;
+    return nullptr;
   }
 
   dmd->flags |= Document_Deleted;
 
-  DocumentMetadata *dmd1 = NULL;
+  DocumentMetadata *dmd1 = nullptr;
   if (retain) dmd1 = new DocumentMetadata{std::move(*dmd)};
 
   Unchain(dmd);
@@ -395,7 +395,7 @@ void DocTable::RdbLoad(RedisModuleIO *rdb, int encver) {
       dim.Put(dmd.keyPtr, sdslen(dmd.keyPtr), dmd.id);
       Set(dmd.id, std::move(dmd));
       memsize += dmd.memsize();
-      sortablesSize += dmd.sortVector->memsize();
+      sortablesSize += dmd.sortVector ? dmd.sortVector->memsize() : 0;
     }
   }
   size -= deletedElements;
@@ -430,7 +430,7 @@ DocumentMetadata *DocTable::Pop(RedisModuleString *r, bool retain) {
 DocumentMetadata *DocTable::GetByKey(const char *key) {
   t_docId id = GetId(key, strlen(key));
   if (id == 0) {
-    return NULL;
+    return nullptr;
   }
   return Get(id);
 }
@@ -451,7 +451,7 @@ DocumentMetadata::DocumentMetadata(const char *key, size_t keylen, double score_
   payload = payload_;
   maxFreq = 1;
   id = docId;
-  sortVector = NULL;
+  sortVector = nullptr;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -459,9 +459,9 @@ DocumentMetadata::DocumentMetadata(const char *key, size_t keylen, double score_
 DocumentMetadata::DocumentMetadata(DocumentMetadata &&dmd) : id(dmd.id), keyPtr(dmd.keyPtr),
     score(dmd.score), maxFreq(dmd.maxFreq), len(dmd.len), flags(dmd.flags), payload(dmd.payload),
     sortVector(dmd.sortVector), byteOffsets(dmd.byteOffsets), dmd_iter(dmd.dmd_iter) {
-  dmd.payload = NULL;
-  dmd.sortVector = NULL;
-  dmd.byteOffsets = NULL;
+  dmd.payload = nullptr;
+  dmd.sortVector = nullptr;
+  dmd.byteOffsets = nullptr;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -497,16 +497,16 @@ DocumentMetadata::DocumentMetadata(t_docId id, RedisModuleIO *rdb, int encver) {
     if (!(flags & Document_Deleted)) {
       payload = new RSPayload(rdb);
     } else if (encver == INDEX_MIN_EXPIRE_VERSION) {
-      RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL)); // throw this string to garbage
+      RedisModule_Free(RedisModule_LoadStringBuffer(rdb, nullptr)); // throw this string to garbage
     }
   } else {
-    payload = NULL;
+    payload = nullptr;
   }
 
   if (flags & Document_HasSortVector) {
     sortVector = new RSSortingVector(rdb, encver);
   } else {
-    sortVector = NULL;
+    sortVector = nullptr;
   }
 
   if (flags & Document_HasOffsetVector) {

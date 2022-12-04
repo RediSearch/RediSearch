@@ -17,11 +17,11 @@ struct TrieSearchResult;
 //---------------------------------------------------------------------------------------------
 
 struct Trie {
-  TrieNode *root;
+  TrieNode root;
   size_t size;
 
   Trie();
-  ~Trie();
+  // ~Trie();
 
   bool Delete(const char *s);
   int Insert(RedisModuleString *s, double score, int incr, RSPayload *payload);

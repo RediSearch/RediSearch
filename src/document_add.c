@@ -282,7 +282,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   //BB;
 #ifdef DEBUG_TRIE
-  sp->terms->root->Print();
+  sp->terms->root.Print();
 #endif
   return REDISMODULE_OK;
 }

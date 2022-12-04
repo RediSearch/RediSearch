@@ -259,7 +259,7 @@ IndexIterator *QueryLexRangeNode::EvalNode(Query *q) {
   LexRange range(q, &opts);
   Runes rbegin(begin), rend(end);
 
-  t->root->IterateRange(rbegin, includeBegin, rend, includeEnd, rangeIterCb, &range);
+  t->root.IterateRange(rbegin, includeBegin, rend, includeEnd, rangeIterCb, &range);
   /*t->root->IterateRange(rbegin, includeBegin, rend, includeEnd, [&](const char *r, size_t n) {
       LexRange *ctx = p;
       Query *q = range.q;

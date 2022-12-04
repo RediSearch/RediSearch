@@ -18,15 +18,14 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-Trie::Trie() {
-  Runes rs{""};
-  root = new TrieNode(rs);
-  size = 0;
-}
+Trie::Trie()
+  : root{Runes{""}}
+  , size{0}
+{ }
 
-Trie::~Trie() {
-  delete root;
-}
+// Trie::~Trie() {
+//   delete root;
+// }
 
 //---------------------------------------------------------------------------------------------
 
@@ -51,10 +50,10 @@ int Trie::InsertStringBuffer(const char *s, size_t len, double score, int incr, 
 
   //BB;
   int rc;
-  root->Add(runes, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE, rc);
+  root.Add(runes, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE, rc);
   size += rc;
 #ifdef DEBUG_TRIE
-  root->Print();
+  root.Print();
 #endif
 
   return rc;
@@ -69,7 +68,7 @@ bool Trie::Delete(const char *s) {
   if (!runes || runes.len() > TRIE_INITIAL_STRING_LEN) {
     return false;
   }
-  int rc = root->Delete(runes);
+  int rc = root.Delete(runes);
   size -= rc;
   return rc > 0;
 }
@@ -225,7 +224,7 @@ bool Trie::RandomKey(char **str, t_len *len, double *score) {
 
   // TODO: deduce steps from cardinality properly
   Runes runes;
-  TrieNode *n = root->RandomWalk(2 + rand() % 8 + (int)round(logb(1 + size)), runes);
+  TrieNode *n = root.RandomWalk(2 + rand() % 8 + (int)round(logb(1 + size)), runes);
   if (!n) {
     return false;
   }
@@ -258,7 +257,7 @@ void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
 void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
 
   uint64_t elements = RedisModule_LoadUnsigned(rdb);
-  Trie *tree;
+  Trie *tree = new Trie();
 
   while (elements--) {
     size_t len;
@@ -292,11 +291,11 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *trie, int savePayloads) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   //  RedisModule_Log(ctx, "notice", "Trie: saving %zd nodes.", trie->size);
   int count = 0;
-  if (trie->root) {
+  // if (trie->root) {
 #ifdef DEBUG_TRIE
-    trie->root->Print();
+    trie->root.Print();
 #endif
-    TrieIterator it = trie->root->Iterate();
+    TrieIterator it = trie->root.Iterate();
     Runes runes;
     float score;
     RSPayload payload;
@@ -322,7 +321,7 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *trie, int savePayloads) {
       RedisModule_Log(ctx, "warning", "Trie: saving %zd nodes actually iterated only %d nodes",
                       trie->size, count);
     }
-  }
+  // }
 }
 
 //---------------------------------------------------------------------------------------------
@@ -334,10 +333,10 @@ void TrieType_Digest(RedisModuleDigest *digest, void *value) {
 //---------------------------------------------------------------------------------------------
 
 void TrieType_Free(void *value) {
-  Trie *tree = value;
-  if (tree->root) {
-    delete tree->root;
-  }
+  // Trie *tree = value;
+  // if (tree->root) {
+  //   delete tree->root;
+  // }
 }
 
 //---------------------------------------------------------------------------------------------

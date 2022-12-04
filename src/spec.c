@@ -337,8 +337,6 @@ bool IndexSpec::AddFields(ArgsCursor *ac, QueryError *status) {
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
 void IndexSpec::Parse(const char *name, const char **argv, int argc, QueryError *status) {
-  ctor(name);
-
   ArgsCursor ac;
   ArgsCursor acStopwords;
 
@@ -806,15 +804,16 @@ bool IndexSpec::IsStopWord(std::string_view term) {
 
 //---------------------------------------------------------------------------------------------
 
-void IndexSpec::ctor(const char *name_) {
+IndexSpec::IndexSpec(const char *name_)
+  : sortables{new RSSortingTable()}
+  , flags{INDEX_DEFAULT_FLAGS}
+  , name{rm_strdup(name_)}
+  , stopwords{DefaultStopWordList()}
+  , terms{new Trie()}
+  , getValue{nullptr}
+  , getValueCtx{nullptr}
+{
   fields.reserve(SPEC_MAX_FIELDS);
-  sortables = new RSSortingTable();
-  flags = INDEX_DEFAULT_FLAGS;
-  name = rm_strdup(name_);
-  stopwords = DefaultStopWordList();
-  terms = new Trie();
-  getValue = nullptr;
-  getValueCtx = nullptr;
   memset(&stats, 0, sizeof(stats));
 }
 
@@ -988,14 +987,14 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
     return nullptr;
   }
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  IndexSpec *sp;
+
+  const char *name = RedisModule_LoadStringBuffer(rdb, nullptr);
+  IndexSpec *sp = new IndexSpec(name);
+  RedisModule_Free(name);
+
   sp->sortables = new RSSortingTable();
   sp->terms = nullptr;
   //sp->docs = new DocTable(1000);
-  sp->name = RedisModule_LoadStringBuffer(rdb, nullptr);
-  char *tmpName = rm_strdup(sp->name);
-  RedisModule_Free(sp->name);
-  sp->name = tmpName;
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
   sp->keysDict.clear();
   if (encver < INDEX_MIN_NOFREQ_VERSION) {

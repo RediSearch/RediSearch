@@ -234,19 +234,19 @@ struct IndexSpec : Object {
   static IndexSpec *Load(RedisModuleCtx *ctx, const char *name, int openWrite);
   static IndexSpec *LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
 
-  void ctor(const char *name);
   void Parse(const char *name, const char **argv, int argc, QueryError *status);
   void ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
                       RedisModuleString **argv, int argc, QueryError *status);
 
-  IndexSpec(const char *name) {
-    ctor(name);
-  }
-  IndexSpec(const char *name, const char **argv, int argc, QueryError *status) {
+  IndexSpec(const char *name);
+  IndexSpec(const char *name, const char **argv, int argc, QueryError *status)
+    : IndexSpec(name) {
     Parse(name, argv, argc, status);
   }
-  IndexSpec(RedisModuleCtx *ctx, RedisModuleString *name, RedisModuleString **argv,
-            int argc, QueryError *status) {
+  IndexSpec(
+    RedisModuleCtx *ctx, RedisModuleString *name,
+    RedisModuleString **argv, int argc, QueryError *status
+  ) : IndexSpec(RedisModule_StringPtrLen(name, nullptr)) {
     ParseRedisArgs(ctx, name, argv, argc, status);
   }
   IndexSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, QueryError *status);
