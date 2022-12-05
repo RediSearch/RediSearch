@@ -20,7 +20,7 @@ int RSFunctionExpr::Eval(ExprEval &eval, RSValue *res) {
     args[ii] = RSValue();
     argspp[ii] = &args[ii];
     int res1 = _args->args[ii]->Eval(eval, &args[ii]);
-    if (res1 == EXPR_EVAL_ERR || res1 == EXPR_EVAL_NULL && Call != func_exists) {
+    if (res1 == EXPR_EVAL_ERR || res1 == EXPR_EVAL_nullptr && Call != func_exists) {
       // TODO: Free other results
       goto cleanup;
     }
@@ -64,7 +64,7 @@ int RSExprOp::Eval(ExprEval &eval, RSValue *result) {
 
   double n1, n2;
   if (!l.ToNumber(&n1) || !r.ToNumber(&n2)) {
-    eval.err->SetError(QUERY_ENOTNUMERIC, NULL);
+    eval.err->SetError(QUERY_ENOTNUMERIC, nullptr);
     rc = EXPR_EVAL_ERR;
     goto cleanup;
   }
@@ -177,7 +177,7 @@ int RSInverted::GetLookupKeys(RLookup *lookup, QueryError *err) {
 int RSPredicate::Eval(ExprEval &eval, RSValue *result) {
   result->Clear();
   int res;
-  RSValue l, r;
+  RSValue l{}, r{};
   int rc = EXPR_EVAL_ERR;
   if (left->Eval(eval, &l) != EXPR_EVAL_OK) {
     goto cleanup;
@@ -226,7 +226,7 @@ int RSLookupExpr::Eval(ExprEval &eval, RSValue *res) {
     // Note: Because this is evaluated for each row potentially, do not assume
     // that query error is present:
     if (eval.err) {
-      eval.err->SetError(QUERY_ENOPROPKEY, NULL);
+      eval.err->SetError(QUERY_ENOPROPKEY, nullptr);
     }
     return EXPR_EVAL_ERR;
   }
@@ -235,10 +235,10 @@ int RSLookupExpr::Eval(ExprEval &eval, RSValue *res) {
   RSValue *value = eval.srcrow->GetItem(lookupKey);
   if (!value) {
     if (eval.err) {
-      eval.err->SetError(QUERY_ENOPROPVAL, NULL);
+      eval.err->SetError(QUERY_ENOPROPVAL, nullptr);
     }
     res->t = RSValue_Null;
-    return EXPR_EVAL_NULL;
+    return EXPR_EVAL_nullptr;
   }
 
   res->MakeReference(value);
@@ -325,7 +325,7 @@ int RPProjector::Next(SearchResult *r) {
     return rc;
   }
   r->rowdata.WriteOwnKey(outkey, val);
-  val = NULL;
+  val = nullptr;
   return RS_RESULT_OK;
 }
 
@@ -359,7 +359,7 @@ RPEvaluator::~RPEvaluator() {
 //---------------------------------------------------------------------------------------------
 
 RPEvaluator::RPEvaluator(const char *name, const RSExpr *ast, const RLookup *lookup,
-    const RLookupKey *dstkey) : ResultProcessor(name), eval(NULL, lookup, NULL, ast) {
+    const RLookupKey *dstkey) : ResultProcessor(name), eval(nullptr, lookup, nullptr, ast) {
   outkey = dstkey;
 }
 
@@ -396,7 +396,7 @@ RPProjector::RPProjector(const RSExpr *ast, const RLookup *lookup, const RLookup
  */
 
 RPFilter::RPFilter(const RSExpr *ast, const RLookup *lookup) :
-    RPEvaluator("Filter", ast, lookup, NULL) {
+    RPEvaluator("Filter", ast, lookup, nullptr) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

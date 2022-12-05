@@ -82,8 +82,8 @@ struct RSPredicate : public RSExpr {
   RSPredicate(RSCondition cond, RSExpr *left, RSExpr *right);
   ~RSPredicate();
 
-  struct RSExpr *left;
-  struct RSExpr *right;
+  RSExpr *left;
+  RSExpr *right;
   RSCondition cond;
 
   virtual void Print() const;
@@ -196,7 +196,7 @@ struct ExprEval {
   const RSExpr *root;
   StringBlkAlloc stralloc; // Optional. YNOT?
 
-  ExprEval(QueryError *err, RLookup *lookup, RLookupRow *srcrow, RSExpr *root, SearchResult *res = NULL) :
+  ExprEval(QueryError *err, RLookup *lookup, RLookupRow *srcrow, RSExpr *root, SearchResult *res = nullptr) :
     err(err), lookup(lookup), srcrow(srcrow), root(root), res(res), stralloc(1024) {}
 
   int Eval(RSValue *result);
@@ -221,7 +221,7 @@ struct ExprEval {
 
 #define EXPR_EVAL_ERR 0
 #define EXPR_EVAL_OK 1
-#define EXPR_EVAL_NULL 2
+#define EXPR_EVAL_nullptr 2
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 

@@ -87,24 +87,24 @@ RSPredicate::RSPredicate(RSCondition cond_, RSExpr *left_, RSExpr *right_)
 
 //---------------------------------------------------------------------------------------------
 
-RSFunctionExpr::RSFunctionExpr(const char *str, size_t len, RSArgList *args, RSFunction cb) {
-  _args = args; // @@ ownership
-  name = rm_strndup(str, len);
-  Call = cb;
-}
+RSFunctionExpr::RSFunctionExpr(const char *str, size_t len, RSArgList *args, RSFunction cb)
+  : _args{args} // @@ ownership
+  , name{rm_strndup(str, len)}
+  , Call{cb}
+{ }
 
 //---------------------------------------------------------------------------------------------
 
-RSLookupExpr::RSLookupExpr(const char *str, size_t len) {
-  key = rm_strndup(str, len);
-  lookupKey = nullptr;
-}
+RSLookupExpr::RSLookupExpr(const char *str, size_t len)
+  : key{rm_strndup(str, len)}
+  , lookupKey{nullptr}
+{ }
 
 //---------------------------------------------------------------------------------------------
 
-RSInverted::RSInverted(RSExpr *child) {
-  child = child;
-}
+RSInverted::RSInverted(RSExpr *child)
+  : child{child}
+{}
 
 //---------------------------------------------------------------------------------------------
 
