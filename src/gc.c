@@ -16,7 +16,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static threadpool gcThreadpool_g = NULL;
+static threadpool gcThreadpool_g = nullptr;
 
 //---------------------------------------------------------------------------------------------
 
@@ -89,7 +89,7 @@ static void GCTask::_taskThread(GCTask *task) {
   if (gc->stopped) {
     if (bc && bc != DEADBEEF) {
       RedisModule_ThreadSafeContextLock(ctx);
-      RedisModule_UnblockClient(bc, NULL);
+      RedisModule_UnblockClient(bc, nullptr);
       RedisModule_ThreadSafeContextUnlock(ctx);
     }
     delete task;
@@ -101,7 +101,7 @@ static void GCTask::_taskThread(GCTask *task) {
   RedisModule_ThreadSafeContextLock(ctx);
   if (bc) {
     if (bc != DEADBEEF) {
-      RedisModule_UnblockClient(bc, NULL);
+      RedisModule_UnblockClient(bc, nullptr);
     }
     delete task;
     goto end;
@@ -148,7 +148,7 @@ void GCTask::_timerCallback(RedisModuleCtx* ctx, GCTask* task) {
 //---------------------------------------------------------------------------------------------
 
 void GC::Start() {
-  GCTask* task = new GCTask(this, NULL);
+  GCTask* task = new GCTask(this, nullptr);
   timerID = task->scheduleNext();
   if (timerID == 0) {
     RedisModule_Log(RSDummyContext, "warning", "GC did not schedule next collection");
@@ -172,7 +172,7 @@ void GC::Stop() {
   RedisModuleCtx* ctx = RSDummyContext;
   stopped = true;
 
-  GCTask *task = NULL;
+  GCTask *task = nullptr;
   if (RedisModule_StopTimer(ctx, timerID, (void**)&task) == REDISMODULE_OK) {
     assert(task->gc->gc == gc);
     delete task;
@@ -212,7 +212,7 @@ void GC::ForceBGInvoke() {
 //---------------------------------------------------------------------------------------------
 
 void GC::ThreadPoolStart() {
-  if (gcThreadpool_g == NULL) {
+  if (gcThreadpool_g == nullptr) {
     gcThreadpool_g = thpool_init(1);
   }
 }
@@ -220,12 +220,12 @@ void GC::ThreadPoolStart() {
 //---------------------------------------------------------------------------------------------
 
 void GC::ThreadPoolDestroy() {
-  if (gcThreadpool_g == NULL) {
+  if (gcThreadpool_g == nullptr) {
     return;
   }
   RedisModule_ThreadSafeContextUnlock(RSDummyContext);
   thpool_destroy(gcThreadpool_g);
-  gcThreadpool_g = NULL;
+  gcThreadpool_g = nullptr;
   RedisModule_ThreadSafeContextLock(RSDummyContext);
 }
 

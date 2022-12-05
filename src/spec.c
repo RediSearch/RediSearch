@@ -1008,9 +1008,8 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   sp->fields.reserve(numsFields);
   int maxSortIdx = -1;
   for (int i = 0; i < numsFields; i++) {
-    FieldSpec *fs;
+    FieldSpec *fs = new FieldSpec(i);
     FieldSpec_RdbLoad(rdb, fs, encver);
-    fs->index = i;
     if (fs->IsSortable()) {
       if (fs->sortIdx >= RS_SORTABLES_MAX) throw Error("sorting index is too large");
       sp->sortables->fields[fs->sortIdx].name = fs->name;

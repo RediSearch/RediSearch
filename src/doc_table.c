@@ -247,7 +247,7 @@ t_docId DocTable::Put(const char *s, size_t n, double score, u_char flags, RSPay
 
   t_docId docId = ++maxDocId;
 
-  DocumentMetadata &dmd = Set(docId, DocumentMetadata(s, n, score, flags, payload, docId));
+  DocumentMetadata &dmd = Set(docId, DocumentMetadata{s, n, score, flags, payload, docId});
   ++size;
   memsize += dmd.memsize();
   dim.Put(s, n, docId);
@@ -443,20 +443,20 @@ RSPayload::~RSPayload() {
 
 //---------------------------------------------------------------------------------------------
 
-DocumentMetadata::DocumentMetadata(const char *key, size_t keylen, double score_, Mask(DocumentFlags) flags_,
-    RSPayload *payload_, t_docId docId) {
-  keyPtr = sdsnewlen(key, keylen);
-  score = score_;
-  flags = flags_ | (payload ? Document_HasPayload : 0);
-  payload = payload_;
-  maxFreq = 1;
-  id = docId;
-  sortVector = nullptr;
-}
+DocumentMetadata::DocumentMetadata(
+  const char *key, size_t keylen, double score_, Mask(DocumentFlags) flags_, RSPayload *payload_, t_docId docId
+) : keyPtr{sdsnewlen(key, keylen)}
+  , score{score_}
+  , flags{flags_ | (payload_ ? Document_HasPayload : 0)}
+  , payload{payload_}
+  , maxFreq{1}
+  , id{docId}
+  , sortVector{nullptr}
+{ }
 
 //---------------------------------------------------------------------------------------------
 
-DocumentMetadata::DocumentMetadata(DocumentMetadata &&dmd) : id(dmd.id), keyPtr(dmd.keyPtr),
+DocumentMetadata::DocumentMetadata(DocumentMetadata &&dmd) : id(dmd.id), keyPtr(sdsdup(dmd.keyPtr)),
     score(dmd.score), maxFreq(dmd.maxFreq), len(dmd.len), flags(dmd.flags), payload(dmd.payload),
     sortVector(dmd.sortVector), byteOffsets(dmd.byteOffsets), dmd_iter(dmd.dmd_iter) {
   dmd.payload = nullptr;

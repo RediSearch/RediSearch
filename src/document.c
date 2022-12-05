@@ -149,8 +149,8 @@ AddDocumentCtx::AddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status_)
   , fwIdx{new ForwardIndex(&doc, sp->flags, sp->smap ? sp->smap->GetReadOnlyCopy() : nullptr)}
   , indexer{sp->indexer}, sv{}, byteOffsets{}, offsetsWriter{}, fspecs{}
   , tokenizer{GetTokenizer(b->language, fwIdx->stemmer, sp->stopwords)}
-  , oldMd{nullptr}, docFlags{0}, fdatas{}, status{}, totalTokens{0}
-  , options{}, stateFlags{0}, donecb{}, donecbData{}
+  , oldMd{nullptr}, docFlags{Document_DefaultFlags}, fdatas{}, status{}
+  , totalTokens{0}, options{}, stateFlags{0}, donecb{}, donecbData{}
 {
   // status.ClearError(); // @@ why ClearError? default ctor should be enough
   if (!sp->indexer) throw Error("No indexer");
