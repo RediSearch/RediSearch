@@ -452,6 +452,7 @@ DocumentMetadata::DocumentMetadata(
   , maxFreq{1}
   , id{docId}
   , sortVector{nullptr}
+  , byteOffsets{nullptr}
 { }
 
 //---------------------------------------------------------------------------------------------

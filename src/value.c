@@ -42,7 +42,7 @@ static void __attribute__((constructor)) initKey() {
 
 static inline mempoolThreadPool *getPoolInfo() {
   mempoolThreadPool *tp = pthread_getspecific(mempoolKey_g);
-  if (tp == NULL) {
+  if (tp == nullptr) {
     tp = rm_calloc(1, sizeof(*tp));
     tp->values = new mempool_t(0, 1000, false);
     pthread_setspecific(mempoolKey_g, tp);
@@ -87,7 +87,7 @@ const RSValue *RSValue::Dereference() const {
 
 //---------------------------------------------------------------------------------------------
 
-// Clears the underlying storage of the value, and makes it be a reference to the NULL value
+// Clears the underlying storage of the value, and makes it be a reference to the nullptr value
 
 void RSValue::Clear() {
   switch (t) {
@@ -127,13 +127,13 @@ void RSValue::Clear() {
       break;
 
     case RSValue_Null:
-      return;  // prevent changing global RS_NULL to RSValue_Undef
+      return;  // prevent changing global RS_nullptr to RSValue_Undef
 
     default:   // no free
       break;
   }
 
-  ref = NULL;
+  ref = nullptr;
   t = RSValue_Undef;
 }
 
@@ -314,7 +314,7 @@ RSValue *RSValue_ParseNumber(const char *p, size_t l) {
   double d = strtod(p, &e);
   if ((errno == ERANGE && (d == HUGE_VAL || d == -HUGE_VAL)) || (errno != 0 && d == 0) ||
       *e != '\0') {
-    return NULL;
+    return nullptr;
   }
   return RS_NumVal(d);
 }
@@ -330,7 +330,7 @@ bool RSValue::ToNumber(double *d) const {
   if (IsNull()) return false;
   const RSValue *v = Dereference();
 
-  const char *p = NULL;
+  const char *p = nullptr;
   size_t l = 0;
   switch (v->t) {
     // for numerics - just set the value and return
@@ -412,14 +412,14 @@ const char *RSValue::StringPtrLen(size_t *lenp) const {
     case RSValue_OwnRstring:
       return RedisModule_StringPtrLen(value->rstrval, lenp);
     default:
-      return NULL;
+      return nullptr;
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
 // Combines PtrLen with ToString to convert any RSValue into a string buffer.
-// Returns NULL if buf is required, but is too small
+// Returns nullptr if buf is required, but is too small
 
 const char *RSValue::ConvertStringPtrLen(size_t *lenp, char *buf, size_t buflen) const {
   auto value = Dereference();
@@ -461,7 +461,7 @@ RSValue *RS_Int64Val(int64_t dd) {
 //---------------------------------------------------------------------------------------------
 
 // Create a new array
-// @param vals the values to use for the array. If NULL, the array is allocated
+// @param vals the values to use for the array. If nullptr, the array is allocated
 // as empty, but with enough *capacity* for these values
 // @param options RSVAL_ARRAY_*
 
@@ -517,7 +517,7 @@ RSValue *RS_VStringArray(uint32_t sz, ...) {
 
 //---------------------------------------------------------------------------------------------
 
-// Wrap an array of NULL terminated C strings into an RSValue array
+// Wrap an array of nullptr terminated C strings into an RSValue array
 RSValue *RS_StringArray(char **strs, uint32_t sz) {
   RSValue **arr = rm_calloc(sz, sizeof(RSValue *));
 
@@ -540,12 +540,12 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
 
 //---------------------------------------------------------------------------------------------
 
-RSValue RS_NULL = {.t = RSValue_Null, .refcount = 1, .allocated = 0};
+RSValue RS_nullptr = {.t = RSValue_Null, .refcount = 1, .allocated = 0};
 
-// Create a new NULL RSValue
+// Create a new nullptr RSValue
 /*
 inline RSValue *RS_NullVal() {
-  return &RS_NULL;
+  return &RS_nullptr;
 }
 */
 
@@ -579,7 +579,7 @@ static inline bool convert_to_number(const RSValue *v, RSValue *vn, QueryError *
   if (!v->ToNumber(&d)) {
     if (!qerr) return false;
 
-    const char *s = v->StringPtrLen(NULL);
+    const char *s = v->StringPtrLen(nullptr);
     qerr->SetErrorFmt(QUERY_ENOTNUMERIC, "Error converting string '%s' to number", s);
     return false;
   }
@@ -681,10 +681,10 @@ static bool RSValue::Equal(const RSValue *v1, const RSValue *v2, QueryError *qer
   // if either of the arguments is a number, convert the other one to a number
   RSValue vn;
   if (v1->t == RSValue_Number) {
-    if (!convert_to_number(v2, &vn, NULL)) return 0;
+    if (!convert_to_number(v2, &vn, nullptr)) return 0;
     return cmp_numbers(v1, &vn) == 0;
   } else if (v2->t == RSValue_Number) {
-    if (!convert_to_number(v1, &vn, NULL)) return 0;
+    if (!convert_to_number(v1, &vn, nullptr)) return 0;
     return cmp_numbers(&vn, v2) == 0;
   }
 
@@ -744,7 +744,7 @@ void RSValue::Print() const {
       break;
     case RSValue_RedisString:
     case RSValue_OwnRstring:
-      fprintf(fp, "\"%s\"", RedisModule_StringPtrLen(rstrval, NULL));
+      fprintf(fp, "\"%s\"", RedisModule_StringPtrLen(rstrval, nullptr));
       break;
     case RSValue_Number: {
       char tmp[128] = {0};
@@ -753,7 +753,7 @@ void RSValue::Print() const {
       break;
     }
     case RSValue_Null:
-      fprintf(fp, "NULL");
+      fprintf(fp, "nullptr");
       break;
     case RSValue_Undef:
       fprintf(fp, "<Undefined>");
@@ -794,7 +794,7 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...) {
         if (!args[i]->IsString()) {
           goto err;
         }
-        *ptr = (char *)args[i]->StringPtrLen(NULL);
+        *ptr = (char *)args[i]->StringPtrLen(nullptr);
         break;
       }
       case 'l': {

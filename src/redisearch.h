@@ -77,6 +77,7 @@ struct QueryAST;
 struct QueryError;
 struct QueryNode;
 struct IndexSpec;
+struct RSByteOffsets;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -154,10 +155,10 @@ struct DocumentMetadata : Object {
   // Optional user payload
   RSPayload *payload;
 
-  struct RSSortingVector *sortVector;
+  RSSortingVector *sortVector;
 
   // Offsets of all terms in the document (in bytes). Used by highlighter
-  struct RSByteOffsets *byteOffsets;
+  RSByteOffsets *byteOffsets;
 
   List<DocumentMetadata>::iterator dmd_iter;
   //uint32_t ref_count;

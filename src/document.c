@@ -612,13 +612,13 @@ static int Document::EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key
       return REDISMODULE_ERR;
     }
 
-    RLookupRow row;
+    RLookupRow row{};
     RLookupLoadOptions loadopts{sctx, dmd, status};
     if (lookup_s.LoadDocument(&row, &loadopts) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
 
-    RSValue rv;
+    RSValue rv{};
     ExprEval evaluator{status, &lookup_s, &row, expr.get()};
     if (evaluator.Eval(&rv) != EXPR_EVAL_OK) {
       return REDISMODULE_ERR;

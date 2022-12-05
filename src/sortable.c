@@ -16,11 +16,13 @@
 
 // Create a sorting vector of a given length for a document
 
-RSSortingVector::RSSortingVector(int len_) {
+RSSortingVector::RSSortingVector(int len_)
+  : len{len_}
+  , values{len_}
+{
   if (len_ > RS_SORTABLES_MAX) {
     return;
   }
-  len = len_;
   // set all values to NIL
   for (int i = 0; i < len_; i++) {
     values[i] = RS_NullVal()->IncrRef();
@@ -82,7 +84,7 @@ void RSSortingVector::Put(int idx, const void *p, int type) {
   }
   if (values[idx]) {
     values[idx]->Decref();
-    values[idx] = NULL;
+    values[idx] = nullptr;
   }
   switch (type) {
     case RS_SORTABLE_NUM:
@@ -182,7 +184,7 @@ RSSortingVector::RSSortingVector(RedisModuleIO *rdb, int encver) {
 
 RSValue *RSSortingVector::Get(size_t index) {
   if (len <= index) {
-    return NULL;
+    return nullptr;
   }
   return values[index];
 }

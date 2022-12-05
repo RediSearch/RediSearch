@@ -49,8 +49,8 @@ static char *unescpeStringDup(const char *s, size_t sz) {
 
 //---------------------------------------------------------------------------------------------
 
-RSStringLiteral::RSStringLiteral(const char *str, size_t len) {
-  literal = RS_StaticValue(RSValue_String);
+RSStringLiteral::RSStringLiteral(const char *str, size_t len)
+  : RSLiteral{RS_StaticValue(RSValue_String)} {
   literal.strval.str = unescpeStringDup(str, len);
   literal.strval.len = strlen(literal.strval.str);
   literal.strval.stype = RSString_Malloc;

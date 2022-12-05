@@ -44,7 +44,7 @@ struct RSSortingKey {
 
 struct RSSortingVector {
   unsigned int len : 8;
-  RSValue *values[];
+  Vector<RSValue *>values;
 
   RSSortingVector(int len_);
   RSSortingVector(RedisModuleIO *rdb, int encver);

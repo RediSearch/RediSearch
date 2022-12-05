@@ -146,7 +146,7 @@ struct RLookup {
 // Row data for a lookup key. This abstracts the question of "where" the data comes from
 
 struct RLookupRow {
-  RLookupRow() : rmkey(NULL), sv(NULL) {}
+  RLookupRow() : rmkey(nullptr), sv(nullptr) {}
   ~RLookupRow() { Wipe(); }
 
   // Sorting vector attached to document
@@ -249,7 +249,7 @@ struct RLookupLoadOptions {
 
   RLookupLoadOptions(
     RedisSearchCtx *sctx, DocumentMetadata *dmd, QueryError *status
-  ) : sctx{sctx}, dmd{dmd}, status{status}, keys{nullptr}, nkeys{0}
+  ) : sctx{sctx}, dmd{dmd}, status{status}, keys{nullptr}, nkeys{0}, mode{}, noSortables{false}
   {}
 };
 

@@ -155,6 +155,7 @@ struct RSLookupExpr : public RSExpr {
 
 struct RSLiteral : public RSExpr {
   RSLiteral() {}
+  RSLiteral(RSValue&& value) : literal{std::exchange(value, RSValue{})} {}
   virtual ~RSLiteral();
 
   RSValue literal;
