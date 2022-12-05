@@ -1008,8 +1008,8 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   sp->fields.reserve(numsFields);
   int maxSortIdx = -1;
   for (int i = 0; i < numsFields; i++) {
-    FieldSpec *fs = new FieldSpec(i);
-    FieldSpec_RdbLoad(rdb, fs, encver);
+    auto fs = std::make_unique<FieldSpec>(i);
+    FieldSpec_RdbLoad(rdb, fs.get(), encver);
     if (fs->IsSortable()) {
       if (fs->sortIdx >= RS_SORTABLES_MAX) throw Error("sorting index is too large");
       sp->sortables->fields[fs->sortIdx].name = fs->name;
