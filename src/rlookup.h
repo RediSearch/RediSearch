@@ -84,11 +84,8 @@ struct RLookupKey : public Object {
   // Pointer to next field in the list
   struct RLookupKey *next;
 
-  void ctor(RLookup *lookup, const char *name, size_t n, int flags, uint16_t idx);
 
-  RLookupKey(RLookup *lookup, const char *name, size_t n, int flags, uint16_t idx) {
-    ctor(lookup, name, n, flags, idx);
-  }
+  RLookupKey(RLookup *lookup, const char *name, size_t n, int flags, uint16_t idx);
 
   ~RLookupKey();
 };

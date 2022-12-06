@@ -7,23 +7,18 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void RLookupKey::ctor(RLookup *lookup, const char *name, size_t n, int flags, uint16_t idx) {
-  flags = (flags & (~RLOOKUP_TRANSIENT_FLAGS));
-  dstidx = idx;
-  refcnt = 1;
-
-  if (flags & RLOOKUP_F_NAMEALLOC) {
-    name = rm_strndup(name, n);
-  } else {
-    name = name;
-  }
-
+RLookupKey::RLookupKey(RLookup *lookup, const char *name_, size_t n, int flags_, uint16_t idx)
+  : flags{flags_ & (~RLOOKUP_TRANSIENT_FLAGS)}
+  , dstidx{idx}
+  , refcnt{1}
+  , name{flags_ & RLOOKUP_F_NAMEALLOC ? rm_strndup(name_, n) : name_}
+{
   if (!lookup->head) {
-    lookup->head = lookup->tail = this;
+    lookup->head = this;
   } else {
     lookup->tail->next = this;
-    lookup->tail = this;
   }
+  lookup->tail = this;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -34,9 +29,8 @@ RLookupKey *RLookup::genKeyFromSpec(const char *name, int flags) {
   }
 
   const FieldSpec *fs = nullptr;
-  IndexSpecFields &fields = *spcache.get();
-  for (auto const &field : fields) {
-    if (!strcmp(field.name.c_str(), name)) {
+  for (auto const &field : *spcache) {
+    if (field.name == name) {
       fs = &field;
       break;
     }
@@ -174,6 +168,9 @@ void RLookup::Reset(std::shared_ptr<IndexSpecFields> cache) {
 
 void RLookupRow::WriteOwnKey(const RLookupKey *key, RSValue *v) {
   // Find the pointer to write to ...
+  if (dyn.size() <= key->dstidx) {
+    dyn.resize(key->dstidx + 1);
+  }
   RSValue *vptr = dyn[key->dstidx];
   if (vptr) {
     vptr->Decref();

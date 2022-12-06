@@ -145,7 +145,7 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
   int exists = !!sp->docs.GetId(name);
 
   RedisModuleCtx *ctx = redisCtx;
-  Document *doc = new Document(name, opts.score, opts.language); //@@@ TODO: doc leaks on error
+  Document doc = Document(name, opts.score, opts.language);
   uint32_t addOptions;
 
   if (exists && !(opts.options & DOCUMENT_ADD_REPLACE)) {
@@ -175,22 +175,22 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
   if (opts.payload) {
     size_t npayload = 0;
     const char *payload = RedisModule_StringPtrLen(opts.payload, &npayload);
-    doc->SetPayload(new RSPayload{payload, npayload});
+    doc.SetPayload(new RSPayload{payload, npayload});
   }
-  doc->LoadPairwiseArgs(opts.fieldsArray, opts.numFieldElems);
+  doc.LoadPairwiseArgs(opts.fieldsArray, opts.numFieldElems);
 
   if (!(opts.options & DOCUMENT_ADD_NOSAVE)) {
     int saveopts = 0;
     if (opts.options & DOCUMENT_ADD_NOCREATE) {
       saveopts |= REDIS_SAVEDOC_NOCREATE;
     }
-    if (doc->Save(this, saveopts, status) != REDISMODULE_OK) {
+    if (doc.Save(this, saveopts, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
   }
 
-  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc->docKey, nullptr), doc->NumFields());
-  AddDocumentCtx *add = new AddDocumentCtx{sp, doc, status};
+  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, nullptr), doc.NumFields());
+  AddDocumentCtx *add = new AddDocumentCtx{sp, &doc, status};
   addOptions = opts.options;
 
   if (!exists) {

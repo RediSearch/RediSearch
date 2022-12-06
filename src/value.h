@@ -93,7 +93,13 @@ struct RSValue : public Object {
     struct RSValue *ref; // reference to another value
   };
 
-  RSValue(RSValueType t = RSValue_Undef, uint32_t refcount = 0, uint8_t allocated = 0) :
+  RSValue() :
+    ref(nullptr), t(RSValue_Undef), refcount(0), allocated(0) {
+  }
+  RSValue(RSValueType t) :
+    ref(nullptr), t(t), refcount(1), allocated(1) {
+  }
+  RSValue(RSValueType t, uint32_t refcount, uint8_t allocated) :
     ref(nullptr), t(t), refcount(refcount), allocated(allocated) {
   }
 
