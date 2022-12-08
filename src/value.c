@@ -236,7 +236,7 @@ RSValue *RS_StringValFmt(const char *fmt, ...) {
 // Wrap a redis string value
 
 RSValue *RS_RedisStringVal(RedisModuleString *str) {
-  RSValue *v = new RSValue(RSValue_RedisString);
+  RSValue *v = new RSValue(RSValue_RedisString, 1, 1);
   v->rstrval = str;
   return v;
 }

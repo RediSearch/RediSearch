@@ -23,7 +23,7 @@ typedef uint16_t tm_len_t;
 #define TM_ITERSTATE_CHILDREN 1
 
 // This special pointer is returned when TrieMap::Find cannot find anything
-extern void *TRIEMAP_NOTFOUND;
+// extern void *TRIEMAP_NOTFOUND;
 typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
 //typedef void(TrieMapRangeCallback)(const char *, size_t, void *, void *);
 typedef std::function<void(const char *min, size_t minlen, void *ctx, void *val)> TrieMapRangeCallback;
@@ -66,7 +66,7 @@ struct TrieMapNode : public Object {
   TrieMapNode(std::string_view str, tm_len_t offset, void *value, bool terminal);
 
   bool Add(std::string_view str, void *value, TrieMapReplaceFunc cb);
-  void *Find(std::string_view str);
+  bool Find(std::string_view str, void **value);
   bool Delete(std::string_view str);
   TrieMapNode *RandomWalk(int minSteps, std::string &newstr);
   TrieMapNode *FindNode(std::string_view str, tm_len_t *poffset);
@@ -144,7 +144,7 @@ struct TrieMap : public Object {
   // ~TrieMap();
 
   bool Add(std::string_view str, void *value, TrieMapReplaceFunc cb);
-  void *Find(std::string_view str);
+  bool Find(std::string_view str, void **value);
   int Delete(std::string_view str);
   void Free(void (*freeCB)(void *));
   bool RandomKey(std::string &str, void **ptr);

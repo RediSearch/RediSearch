@@ -13,8 +13,9 @@ int RDCRToList::Add(const RLookupRow *srcrow) {
   if (v->t != RSValue_Array) {
     uint64_t hval = v->Hash(0);
     std::string_view hvalstr{(char *)&hval, sizeof(hval)};
-    if (data.values.Find(hvalstr) == TRIEMAP_NOTFOUND) {
-      data.values.Add(hvalstr, v->MakePersistent()->IncrRef(), NULL);
+    void *tmp = nullptr;
+    if (!data.values.Find(hvalstr, &tmp)) {
+      data.values.Add(hvalstr, v->MakePersistent()->IncrRef(), nullptr);
     }
   } else {  // For array values we add each distinct element to the list
     uint32_t len = v->ArrayLen();
@@ -22,8 +23,9 @@ int RDCRToList::Add(const RLookupRow *srcrow) {
       RSValue *av = v->ArrayItem(i);
       uint64_t hval = av->Hash(0);
       std::string_view hvalstr{(char *)&hval, sizeof(hval)};
-      if (data.values.Find(hvalstr) == TRIEMAP_NOTFOUND) {
-        data.values.Add(hvalstr, av->MakePersistent()->IncrRef(), NULL);
+      void *tmp = nullptr;
+      if (!data.values.Find(hvalstr, &tmp)) {
+        data.values.Add(hvalstr, av->MakePersistent()->IncrRef(), nullptr);
       }
     }
   }

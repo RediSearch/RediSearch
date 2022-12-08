@@ -41,7 +41,8 @@ bool StopWordList::Contains(std::string_view term) const {
     return false;
   }
 
-  return m->Find(term) != TRIEMAP_NOTFOUND;
+  void *tmp;
+  return m->Find(term, &tmp);
 }
 
 //---------------------------------------------------------------------------------------------

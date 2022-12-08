@@ -14,9 +14,9 @@ void testTrie() {
     sprintf(buf, "key%d", i);
     int *pi = malloc(sizeof(int));
     *pi = i;
-    int rc = tm->Add(buf, strlen(buf), NULL, NULL);
+    int rc = tm->Add(buf, strlen(buf), nullptr, nullptr);
     mu_check(rc);
-    rc = tm->Add(buf, strlen(buf), pi, NULL);
+    rc = tm->Add(buf, strlen(buf), pi, nullptr);
     mu_check(rc == 0);
   }
   mu_assert_int_eq(100, tm->cardinality);
@@ -24,37 +24,37 @@ void testTrie() {
   // check insertion of empty node
   int *empty = malloc(sizeof(int));
   *empty = 1337;
-  mu_check(1 == tm->Add("", 0, NULL, NULL));
+  mu_check(1 == tm->Add("", 0, nullptr, nullptr));
   mu_assert_int_eq(101, tm->cardinality);
-  mu_check(0 == tm->Add("", 0, empty, NULL));
+  mu_check(0 == tm->Add("", 0, empty, nullptr));
   mu_assert_int_eq(101, tm->cardinality);
-  void *ptr = tm->Find("", 0);
-  mu_check(ptr != TRIEMAP_NOTFOUND);
+  void *ptr = nullptr;
+  mu_check(tm->Find("", 0, &ptr));
   mu_check(*(int *)ptr == 1337);
-  mu_check(tm->Delete("", 0, NULL));
+  mu_check(tm->Delete("", 0, nullptr));
   mu_assert_int_eq(100, tm->cardinality);
 
   // check that everything was found
   for (int i = 0; i < 100; i++) {
     sprintf(buf, "key%d", i);
 
-    void *p = tm->Find(buf, strlen(buf));
-    mu_check(p != NULL);
-    mu_check(p != TRIEMAP_NOTFOUND);
+    void *p = nullptr;
+    mu_check(tm->Find(buf, strlen(buf), &p));
+    mu_check(p != nullptr);
     mu_check(*(int *)p == i);
   }
 
   for (int i = 0; i < 100; i++) {
     sprintf(buf, "key%d", i);
 
-    int rc = tm->Delete(buf, strlen(buf), NULL);
+    int rc = tm->Delete(buf, strlen(buf), nullptr);
     mu_check(rc);
-    rc = tm->Delete(buf, strlen(buf), NULL);
+    rc = tm->Delete(buf, strlen(buf), nullptr);
     mu_check(rc == 0);
     mu_check(tm->cardinality == 100 - i - 1);
   }
 
-  TrieMap_Free(tm, NULL);
+  TrieMap_Free(tm, nullptr);
 }
 
 void testTrieIterator() {
@@ -66,19 +66,19 @@ void testTrieIterator() {
     sprintf(buf, "key%d", i);
     int *pi = malloc(sizeof(int));
     *pi = i;
-    tm->Add(buf, strlen(buf), pi, NULL);
+    tm->Add(buf, strlen(buf), pi, nullptr);
   }
   mu_assert_int_eq(100, tm->cardinality);
-  mu_check(1 == tm->Add("", 0, NULL, NULL));
+  mu_check(1 == tm->Add("", 0, nullptr, nullptr));
   mu_assert_int_eq(101, tm->cardinality);
 
   TrieMapIterator *it = tm->Iterate("key1", 4);
   mu_check(it);
   int count = 0;
 
-  char *str = NULL;
+  char *str = nullptr;
   tm_len_t len = 0;
-  void *ptr = NULL;
+  void *ptr = nullptr;
 
   while (0 != it->Next(&str, &len, &ptr)) {
     mu_check(!strncmp("key1", str, 4));
@@ -97,7 +97,7 @@ void testTrieIterator() {
   mu_check(it->Next(&str, &len, &ptr));
 
   mu_check(len == 0);
-  mu_check(ptr == NULL);
+  mu_check(ptr == nullptr);
 
   count = 0;
   while (it->Next(&str, &len, &ptr)) {
@@ -110,7 +110,7 @@ void testTrieIterator() {
   mu_assert_int_eq(100, count);
   delete it;
 
-  TrieMap_Free(tm, NULL);
+  TrieMap_Free(tm, nullptr);
 }
 
 struct rmstring {
@@ -162,7 +162,7 @@ void testRandomWalk() {
   }
 
   void *p = tm->RandomValueByPrefix("x2x2x2", 6);
-  mu_check(p == NULL);
+  mu_check(p == nullptr);
 }
 
 void testRandom() {
@@ -178,20 +178,20 @@ void testRandom() {
 
     int *pi = malloc(sizeof(int));
     *pi = i + 1;
-    tm->Add(buf, n, pi, NULL);
+    tm->Add(buf, n, pi, nullptr);
     // if (i % 1000 == 0) printf("%d\n", i);
   }
   mu_assert_int_eq(N, tm->cardinality);
-  // mu_check(1 == tm->Add("", 0, NULL, NULL));
+  // mu_check(1 == tm->Add("", 0, nullptr, nullptr));
   // mu_assert_int_eq(101, tm->cardinality);
 
   TrieMapIterator *it = tm->Iterate("");
   mu_check(it);
   int count = 0;
 
-  char *str = NULL;
+  char *str = nullptr;
   tm_len_t len = 0;
-  void *ptr = NULL;
+  void *ptr = nullptr;
 
   while (0 != it->Next(&str, &len, &ptr)) {
     // mu_check(!strncmp("key1", str, 4));

@@ -555,8 +555,8 @@ DocIdMap::DocIdMap() {
 
 // Get docId from a did-map. Returns 0  if the key is not in the map
 t_docId DocIdMap::Get(const char *s, size_t n) const {
-  void *val = tm->Find(std::string_view{(char *)s, n});
-  if (val && val != TRIEMAP_NOTFOUND) {
+  void *val = nullptr;
+  if (tm->Find(std::string_view{s, n}, &val) && val != nullptr) {
     return *((t_docId *)val);
   }
   return t_docId{0};
@@ -577,7 +577,7 @@ void *_docIdMap_replace(void *oldval, void *newval) {
 void DocIdMap::Put(const char *s, size_t n, t_docId docId) {
   t_docId *pd = rm_malloc(sizeof(t_docId));
   *pd = docId;
-  tm->Add(std::string_view{(char *)s, n}, pd, _docIdMap_replace);
+  tm->Add(std::string_view{s, n}, pd, _docIdMap_replace);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -589,7 +589,7 @@ DocIdMap::~DocIdMap() {
 //---------------------------------------------------------------------------------------------
 
 int DocIdMap::Delete(const char *s, size_t n) {
-  return tm->Delete(std::string_view{(char *)s, n});
+  return tm->Delete(std::string_view{s, n});
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

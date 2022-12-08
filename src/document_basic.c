@@ -15,9 +15,15 @@
  * calling this function).
  */
 
-Document::Document(RedisModuleString *docKey, double score, RSLanguage lang) :
-  docKey(docKey), score((float) score), language(lang ? lang : DEFAULT_LANGUAGE),
-  payload(NULL) {}
+Document::Document(RedisModuleString *docKey, double score, RSLanguage lang)
+  : docKey(docKey)
+  , fields{}
+  , language(lang ? lang : DEFAULT_LANGUAGE)
+  , score((float) score)
+  , docId{}
+  , payload(nullptr)
+  , flags{}
+{}
 
 //---------------------------------------------------------------------------------------------
 
@@ -139,9 +145,9 @@ int Document::LoadSchemaFields(RedisSearchCtx *sctx) {
 
   for (size_t ii = 0; ii < sctx->spec->fields.size(); ++ii) {
     String fname = sctx->spec->fields[ii].name;
-    RedisModuleString *v = NULL;
-    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, fname.c_str(), &v, NULL);
-    if (v == NULL) {
+    RedisModuleString *v = nullptr;
+    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, fname.c_str(), &v, nullptr);
+    if (v == nullptr) {
       continue;
     }
     DocumentField* f;
@@ -164,11 +170,11 @@ done:
 
 int Document::LoadAllFields(RedisModuleCtx *ctx) {
   int rc = REDISMODULE_ERR;
-  RedisModuleCallReply *rep = NULL;
+  RedisModuleCallReply *rep = nullptr;
   size_t n = 0, len;
 
   rep = RedisModule_Call(ctx, "HGETALL", "s", docKey);
-  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
+  if (rep == nullptr || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     goto done;
   }
 
@@ -206,7 +212,7 @@ done:
 void Document::LoadPairwiseArgs(RedisModuleString **args, size_t nargs) {
   fields.reserve(nargs/2);
   for (size_t i = 0; i < nargs; i += 2) {
-    const char *name = RedisModule_StringPtrLen(args[i], NULL);
+    const char *name = RedisModule_StringPtrLen(args[i], nullptr);
     fields.push_back(new DocumentField{name, args[i + 1]});
   }
 }

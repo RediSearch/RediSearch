@@ -145,7 +145,7 @@ int RedisSearchCtx::AddDocument(RedisModuleString *name, const AddDocumentOption
   int exists = !!sp->docs.GetId(name);
 
   RedisModuleCtx *ctx = redisCtx;
-  Document doc = Document(name, opts.score, opts.language);
+  Document doc{name, opts.score, opts.language};
   uint32_t addOptions;
 
   if (exists && !(opts.options & DOCUMENT_ADD_REPLACE)) {

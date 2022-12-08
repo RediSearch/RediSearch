@@ -7,7 +7,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void *TRIEMAP_NOTFOUND = "NOT FOUND";
+// void *TRIEMAP_NOTFOUND = "NOT FOUND";
 
 //---------------------------------------------------------------------------------------------
 
@@ -192,7 +192,7 @@ void TrieMapNode::sortChildren() {
 
 //---------------------------------------------------------------------------------------------
 
-void *TrieMapNode::Find(std::string_view str_) {
+bool TrieMapNode::Find(std::string_view str_, void ** val) {
   TrieMapNode *n = this;
   auto len = str_.length();
   tm_len_t offset = 0;
@@ -213,9 +213,10 @@ void *TrieMapNode::Find(std::string_view str_) {
       if (offset == len) {
         // If this is a terminal, non deleted node
         if (n->isTerminal() && !n->isDeleted()) {
-          return n->value;
+          *val  = n->value;
+          return true;
         } else {
-          return TRIEMAP_NOTFOUND;
+          return false;
         }
       }
       // we've reached the end of the node's string but not the search string
@@ -232,11 +233,11 @@ void *TrieMapNode::Find(std::string_view str_) {
       }
       n = nextChild;
     } else {
-      return TRIEMAP_NOTFOUND;
+      return false;
     }
   }
 
-  return TRIEMAP_NOTFOUND;
+  return false;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -296,14 +297,14 @@ TrieMapNode *TrieMapNode::FindNode(std::string_view str_, tm_len_t *poffset) {
 //---------------------------------------------------------------------------------------------
 
 // Find the entry with a given string and length, and return its value, even if
-// that was nullptr.
+// that was NULL.
 //
 // NOTE: If the key does not exist in the trie, we return the specialch->
 // constant value TRIEMAP_NOTFOUND, so checking if the key exists is done by
-// comparing to it, becase nullptr can be a valid result.
+// comparing to it, becase NULL can be a valid result.
 
-void *TrieMap::Find(std::string_view str_) {
-  return root.Find(str_);
+bool TrieMap::Find(std::string_view str_, void **val) {
+  return root.Find(str_, val);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -687,8 +688,8 @@ void TrieMap::IterateRange(const char *min, int minlen, bool includeMin,
     if (cmp == 0) {
       // min = max, we should just search for min and check for its existence
       if (includeMin || includeMax) {
-        void *val = root.Find(std::string_view{(char *)min, minlen});
-        if (val != TRIEMAP_NOTFOUND) {
+        void *val = nullptr;
+        if (root.Find(std::string_view{min, minlen}, &val)) {
           callback(min, minlen, ctx, val);
         }
       }

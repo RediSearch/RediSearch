@@ -40,7 +40,7 @@ char *TagIndex::SepString(char sep, char **s, size_t *toklen) {
   if (*start == '\0') {
     // no token found
     *s = start;
-    return NULL;
+    return nullptr;
   }
 
   char *end = start;
@@ -78,7 +78,7 @@ TagIndex::Tags::Tags(char sep, TagFieldFlags flags, const DocumentField *data) {
     size_t toklen;
     char *tok = SepString(sep, &p, &toklen);
     // this means we're at the end
-    if (tok == NULL) break;
+    if (tok == nullptr) break;
     if (toklen > 0) {
       // lowercase the string (TODO: non latin lowercase)
       if (!(flags & TagField_CaseSensitive)) {
@@ -93,11 +93,11 @@ TagIndex::Tags::Tags(char sep, TagFieldFlags flags, const DocumentField *data) {
 //---------------------------------------------------------------------------------------------
 
 struct InvertedIndex *TagIndex::OpenIndex(std::string_view value, bool create) {
-  InvertedIndex *iv = values->Find(value);
-  if (iv == TRIEMAP_NOTFOUND) {
+  InvertedIndex *iv = nullptr;
+  if (!values->Find(value, &iv)) {
     if (create) {
       iv = new InvertedIndex(Index_DocIdsOnly, 1);
-      values->Add(value, iv, NULL);
+      values->Add(value, iv, nullptr);
     }
   }
   return iv;
@@ -132,10 +132,10 @@ size_t TagIndex::Index(const Tags &tags, t_docId docId) {
 //---------------------------------------------------------------------------------------------
 
 void TagConcKey::Reopen() {
-  TagIndex *idx = NULL;
+  TagIndex *idx = nullptr;
   size_t nits = its.size();
-  // If the key has been deleted we'll get a NULL here, so we just mark ourselves as EOF
-  if (key == NULL || RedisModule_ModuleTypeGetType(key) != TagIndexType ||
+  // If the key has been deleted we'll get a nullptr here, so we just mark ourselves as EOF
+  if (key == nullptr || RedisModule_ModuleTypeGetType(key) != TagIndexType ||
       (idx = RedisModule_ModuleTypeGetValue(key))->uniqueId != uid) {
     for (size_t i = 0; i < nits; ++i) {
       its[i]->Abort();
@@ -163,7 +163,7 @@ void TagConcKey::Reopen() {
       ir->lastId = 0;
 
       // seek to the previous last id
-      IndexResult *dummy = NULL;
+      IndexResult *dummy = nullptr;
       ir->SkipTo(lastId, &dummy);
     }
   }
@@ -179,12 +179,12 @@ void TagIndex::RegisterConcurrentIterators(ConcurrentSearch *conc, RedisModuleKe
 //---------------------------------------------------------------------------------------------
 
 // Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
-// Returns NULL if there is no such tag in the index.
+// Returns nullptr if there is no such tag in the index.
 
 IndexIterator *TagIndex::OpenReader(IndexSpec *sp, std::string_view value, double weight) {
-  InvertedIndex *iv = values->Find(value);
-  if (iv == TRIEMAP_NOTFOUND || !iv || iv->numDocs == 0) {
-    return NULL;
+  InvertedIndex *iv = nullptr;
+  if (!values->Find(value, &iv) || !iv || iv->numDocs == 0) {
+    return nullptr;
   }
 
   RSToken tok{value};
@@ -216,7 +216,7 @@ static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int
   }
 
   if (!openWrite) {
-    return NULL;
+    return nullptr;
   }
 
   TagIndex *val = new TagIndex();
@@ -229,9 +229,9 @@ static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int
 // Open the tag index in redis
 static TagIndex *TagIndex::Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
                                 RedisModuleKey **keyp) {
-  TagIndex *idx = NULL;
+  TagIndex *idx = nullptr;
   if (!sctx->spec->keysDict.empty()) {
-    RedisModuleKey *key_s = NULL;
+    RedisModuleKey *key_s = nullptr;
     if (!keyp) {
       keyp = &key_s;
     }
@@ -241,7 +241,7 @@ static TagIndex *TagIndex::Open(RedisSearchCtx *sctx, RedisModuleString *formatt
 
     int type = RedisModule_KeyType(*keyp);
     if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(*keyp) != TagIndexType) {
-      return NULL;
+      return nullptr;
     }
 
     // Create an empty value object if the key is currently empty
@@ -292,7 +292,7 @@ void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     char *s = RedisModule_LoadStringBuffer(rdb, &slen);
     InvertedIndex *inv = InvertedIndex_RdbLoad(rdb, INVERTED_INDEX_ENCVER);
     if (!inv) throw Error("loading inverted index from rdb failed");
-    idx->values->Add(std::string_view{s, MIN(slen, MAX_TAG_LEN)}, inv, NULL);
+    idx->values->Add(std::string_view{s, MIN(slen, MAX_TAG_LEN)}, inv, nullptr);
     RedisModule_Free(s);
   }
   return idx;
@@ -358,7 +358,7 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx) {
                                free: TagIndex_Free};
 
   TagIndexType = RedisModule_CreateDataType(ctx, "ft_tagidx", TAGIDX_CURRENT_VERSION, &tm);
-  if (TagIndexType == NULL) {
+  if (TagIndexType == nullptr) {
     RedisModule_Log(ctx, "error", "Could not create attribute index type");
     return REDISMODULE_ERR;
   }

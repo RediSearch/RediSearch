@@ -245,8 +245,7 @@ size_t GarbageCollector::CollectTagIndex(RedisModuleCtx *ctx, int *status) {
     if (!indexTag) {
       break;
     }
-    iv = indexTag->values->Find(randomKey);
-    if (iv == TRIEMAP_NOTFOUND) {
+    if (!indexTag->values->Find(randomKey, &iv)) {
       break;
     }
   }
