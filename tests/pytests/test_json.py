@@ -1071,3 +1071,69 @@ def testRedisCommands(env):
         time.sleep(0.1)
         env.expect('JSON.GET', 'doc:1', '$').equal(None)
         env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([0])
+
+def testOutOfRangeValues(env):
+    ### Test numeric min/max values ###
+
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+        '$.max', 'AS', 'max', 'NUMERIC',
+        '$.beyond_max', 'AS', 'beyond_max', 'NUMERIC',
+        '$.min', 'AS', 'min', 'NUMERIC',
+        '$.below_min', 'AS', 'below_min', 'NUMERIC'
+        ).ok()
+    waitForIndex(env, 'idx')
+
+    # Currently due to a missing API for handling u64 integers (in SelectValue interface in RedisJSON),
+    # Indexing can only support integer values up to max i64, and integer values beyond max i64 up til max u64, are indexed as max i64.
+    
+    # i64
+    doc_int = {        
+        "max": 9223372036854775807, # max i64
+        "beyond_max": 9223372036854775808, # indexed as max i64
+        "min": -9223372036854775808,
+        "below_min": -9223372036854775809, # as f64
+    }
+
+    doc_int_2 = {
+        "max": 9223372036854775809, # indexed as max i64
+    }
+    
+    # f64
+    doc_float = {
+        "beyond_max": 1.7976931348623159e+308, # cannot be set
+        "below_min": -1.7976931348623159e+308, # cannot be set
+    }
+
+    # Helper functions
+    def set_key(env, name, key, expectedOK=True):
+        # Not using json.dumps with out-of-range values (would be converted such as to 'Infinity')
+        env.assertOk(env.execute_command('JSON.SET', name, '$', '{}'))
+        for k, v in iter(key.items()):
+            if expectedOK:
+                env.assertOk(env.execute_command('JSON.SET', name, '$.{}'.format(k), '{}'.format(v)))
+            else:
+                env.expect('JSON.SET', name, '$.{}'.format(k), '{}'.format(v)).error()
+
+    def search_key(env, name, key, expecteds):
+        for i, (k,v) in enumerate(key.items()):
+            res = env.execute_command('JSON.GET', name, '$.{}'.format(k))
+            res = env.execute_command('FT.SEARCH', 'idx', '@{}:[{} {}]'.format(k, v, v), 'NOCONTENT')
+            env.assertEqual(res, expecteds[i], message="{}: {} {}".format(name, k, v))
+
+    set_key(env, 'doc_int', doc_int)
+    set_key(env, 'doc_int_2', doc_int_2)
+    set_key(env, 'doc_float', doc_float, False)
+    
+    search_key(env, 'doc_int', doc_int, [
+        [2, 'doc_int', 'doc_int_2'], # max i64
+        [1, 'doc_int'], # max i64
+        [1, 'doc_int'],
+        [1, 'doc_int']
+    ])
+
+    search_key(env, 'doc_int_2', doc_int_2, [
+        [2, 'doc_int', 'doc_int_2'], # max i64
+    ])
+
+    
