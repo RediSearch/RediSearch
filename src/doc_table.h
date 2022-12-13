@@ -114,8 +114,8 @@ public:
   bool Delete(const char *key, size_t n);
   bool Delete(RedisModuleString *r);
 
-  DocumentMetadata *Pop(const char *s, size_t n, bool retail = false);
-  DocumentMetadata *Pop(RedisModuleString *r, bool retail = false);
+  DocumentMetadata *Pop(const char *s, size_t n, bool retain = false);
+  DocumentMetadata *Pop(RedisModuleString *r, bool retain = false);
 
   void RdbSave(RedisModuleIO *rdb);
   void RdbLoad(RedisModuleIO *rdb, int encver);

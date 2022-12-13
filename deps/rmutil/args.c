@@ -35,7 +35,7 @@ int ArgsCursor::AdvanceIfMatch(const char *s) {
     return 0;
   }
 
-  int rv = GetString(&cur, NULL, AC_F_NOADVANCE);
+  int rv = GetString(&cur, nullptr, AC_F_NOADVANCE);
   assert(rv == AC_OK);
   rv = !strcasecmp(s, cur);
   if (rv) {
@@ -218,12 +218,12 @@ int ArgsCursor::GetBuffer(SimpleBuff *buf, unsigned int flags) {
 //---------------------------------------------------------------------------------------------
 
 // Gets the string (and optionally the length). If the string does not exist,
-// it returns NULL. Used when caller is sure the arg exists
+// it returns nullptr. Used when caller is sure the arg exists
 
 const char *ArgsCursor::GetStringNC(size_t *len) {
-  const char *s = NULL;
+  const char *s = nullptr;
   if (GetString(&s, len, 0) != AC_OK) {
-    return NULL;
+    return nullptr;
   }
   return s;
 }
@@ -316,12 +316,12 @@ int ArgsCursor::parseSingleSpec(ACArgSpec *spec) {
  * it requires complex processing.
  */
 int ArgsCursor::ParseArgSpec(ACArgSpec *specs, ACArgSpec **errSpec) {
-  const char *s = NULL;
+  const char *s = nullptr;
   size_t n;
   int rv;
 
   if (*errSpec) {
-    *errSpec = NULL;
+    *errSpec = nullptr;
   }
 
   while (!IsAtEnd()) {
@@ -330,7 +330,7 @@ int ArgsCursor::ParseArgSpec(ACArgSpec *specs, ACArgSpec **errSpec) {
     }
     ACArgSpec *cur = specs;
 
-    for (; cur->name != NULL; cur++) {
+    for (; cur->name != nullptr; cur++) {
       if (n != strlen(cur->name)) {
         continue;
       }
@@ -339,7 +339,7 @@ int ArgsCursor::ParseArgSpec(ACArgSpec *specs, ACArgSpec **errSpec) {
       }
     }
 
-    if (cur->name == NULL) {
+    if (cur->name == nullptr) {
       return AC_ERR_ENOENT;
     }
 

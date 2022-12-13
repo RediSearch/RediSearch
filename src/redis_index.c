@@ -174,19 +174,19 @@ void RedisSearchCtx::ctor(RedisModuleCtx *ctx, const char *indexName, bool reset
 
 //---------------------------------------------------------------------------------------------
 
-RedisSearchCtx::RedisSearchCtx(RedisModuleCtx *ctx, IndexSpecId id) {
-  redisCtx = ctx;
-  key = nullptr;
-  spec = nullptr;
-  specId = id;
-}
+RedisSearchCtx::RedisSearchCtx(RedisModuleCtx *ctx, IndexSpecId id)
+  : redisCtx {ctx}
+  , key {nullptr}
+  , spec {nullptr}
+  , specId {id}
+{ }
 
-RedisSearchCtx::RedisSearchCtx(RedisModuleCtx *ctx, const IndexSpec *spec_) {
-  redisCtx = ctx;
-  key = nullptr;
-  spec = spec_;
-  specId = spec_->uniqueId;
-}
+RedisSearchCtx::RedisSearchCtx(RedisModuleCtx *ctx, const IndexSpec *spec_)
+  : redisCtx {ctx}
+  , key {nullptr}
+  , spec {spec_}
+  , specId {spec_->uniqueId}
+{ }
 
 RedisSearchCtx::RedisSearchCtx(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
   ctor(ctx, indexName, resetTTL);

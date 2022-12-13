@@ -279,8 +279,8 @@ bool AddDocumentCtx::handlePartialUpdate(RedisSearchCtx *sctx) {
 // At this point the context will take over from the caller, and handle sending
 // the replies and so on.
 
-void AddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options) {
-  options = options;
+void AddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options_) {
+  options = options_;
   if ((options & DOCUMENT_ADD_PARTIAL) && handlePartialUpdate(sctx)) {
     return;
   }
