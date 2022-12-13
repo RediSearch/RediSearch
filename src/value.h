@@ -301,11 +301,11 @@ RSValue *RS_StringArray(char **strs, uint32_t sz);
 // Initialize all strings in the array with a given string type
 RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st);
 
-extern RSValue RS_nullptr;
+extern RSValue RS_NULL;
 
 // Create a new nullptr RSValue
 inline RSValue *RS_NullVal() {
-  return &RS_nullptr;
+  return &RS_NULL;
 }
 
 // "truth testing" for a value. for a number - not zero. For a string/array - not empty.

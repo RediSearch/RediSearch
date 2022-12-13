@@ -17,7 +17,7 @@
 
 Fragment *FragmentList::LastFragment() {
   if (frags.empty()) {
-    return NULL;
+    return nullptr;
   }
   return frags.back();
 }
@@ -59,10 +59,10 @@ Fragment *FragmentList::AddMatchingTerm(uint32_t termId, uint32_t tokPos, const 
   Fragment *curFrag = LastFragment();
   if (curFrag && tokPos - curFrag->lastMatchPos > maxDistance) {
     // There is too much distance between tokens for it to still be relevant.
-    curFrag = NULL;
+    curFrag = nullptr;
   }
 
-  if (curFrag == NULL) {
+  if (curFrag == nullptr) {
     curFrag = AddFragment();
     numToksSinceLastMatch = 0;
     curFrag->buf = tokBuf;
@@ -156,7 +156,7 @@ static void addToIov(std::string_view str, Vector<iovec> &b) {
 void Fragment::WriteIovs(std::string_view openTag, std::string_view closeTag,
                          Vector<iovec> &iovs, const char **preamble) const {
   size_t nlocs = termLocs.size();
-  const char *preamble_s = NULL;
+  const char *preamble_s = nullptr;
 
   if (!preamble) {
     preamble = &preamble_s;
@@ -295,10 +295,10 @@ static int sortByOrder(const void *pa, const void *pb) {
 
 void FragmentList::FindContext(const Fragment *frag, const char *limitBefore, const char *limitAfter,
                                size_t contextSize, struct iovec *before, struct iovec *after) const {
-  if (limitBefore == NULL) {
+  if (limitBefore == nullptr) {
     limitBefore = doc.data();
   }
-  if (limitAfter == NULL) {
+  if (limitAfter == nullptr) {
     limitAfter = doc.data() + doc.length() - 1;
   }
 
@@ -306,7 +306,7 @@ void FragmentList::FindContext(const Fragment *frag, const char *limitBefore, co
   // already inside the
   // snippet.
   if (contextSize <= frag->totalTokens - frag->numMatches) {
-    before->iov_base = after->iov_base = NULL;
+    before->iov_base = after->iov_base = nullptr;
     before->iov_len = after->iov_len = 0;
     return;
   }
@@ -421,7 +421,7 @@ void FragmentList::HighlightFragments(const HighlightTags &tags, size_t contextS
 
   int i = 0;
   for (auto &iovs: iovArrays) {
-    const char *beforeLimit = NULL, *afterLimit = NULL;
+    const char *beforeLimit = nullptr, *afterLimit = nullptr;
     const Fragment *curFrag = indexes[i];
 
     if (order & HIGHLIGHT_ORDER_POS) {
@@ -433,11 +433,11 @@ void FragmentList::HighlightFragments(const HighlightTags &tags, size_t contextS
       }
     }
 
-    struct iovec before, after;
+    iovec before, after;
     FindContext(curFrag, beforeLimit, afterLimit, contextSize, &before, &after);
-    addToIov(std::string_view(before.iov_base, before.iov_len), iovs);
-    curFrag->WriteIovs(tags.openTag, tags.closeTag, iovs, NULL);
-    addToIov(std::string_view(after.iov_base, after.iov_len), iovs);
+    addToIov(std::string_view{(const char *)before.iov_base, before.iov_len}, iovs);
+    curFrag->WriteIovs(tags.openTag, tags.closeTag, iovs, nullptr);
+    addToIov(std::string_view{(const char *)after.iov_base, after.iov_len}, iovs);
 
     ++i;
   }
@@ -468,7 +468,7 @@ void FragmentList::FragmentizeIter(std::string_view doc_, FragmentTermIterator &
 
   FragmentTerm *curTerm;
   while (iter.Next(&curTerm)) {
-    if (curTerm == NULL) {
+    if (curTerm == nullptr) {
       numToksSinceLastMatch++;
       continue;
     }
@@ -515,14 +515,14 @@ FragmentTermIterator::FragmentTermIterator(RSByteOffsetIterator &byteOffsets, Of
 //---------------------------------------------------------------------------------------------
 
 int FragmentTermIterator::Next(FragmentTerm **termInfo) {
-  if (curMatchRec == NULL || curByteOffset == RSBYTEOFFSET_EOF || curTokPos == RS_OFFSETVECTOR_EOF) {
+  if (curMatchRec == nullptr || curByteOffset == RSBYTEOFFSET_EOF || curTokPos == RS_OFFSETVECTOR_EOF) {
     return 0;
   }
 
   if (byteIter.curPos < curTokPos) {
     curByteOffset = byteIter.Next();
     // No matching term at this position.
-    *termInfo = NULL;
+    *termInfo = nullptr;
     return 1;
   }
 

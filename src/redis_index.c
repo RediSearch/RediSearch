@@ -142,8 +142,8 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
 // Format redis key for a term.
 // TODO: Add index name to it
 
-RedisModuleString *RedisSearchCtx::TermKeyName(String term) {
-  String buf = "ft:" + String(spec->name) + "/" + term;
+RedisModuleString *RedisSearchCtx::TermKeyName(const String& term) {
+  String buf = "ft:" + String{spec->name} + "/" + term;
   RedisModuleString *ret = RedisModule_CreateString(redisCtx, buf.data(), buf.length());
   return ret;
 }
@@ -324,14 +324,16 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *
 
 //---------------------------------------------------------------------------------------------
 
-InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *sctx, const char *term, size_t len,
-                                         int write, RedisModuleKey **keyp) {
+InvertedIndex *Redis_OpenInvertedIndexEx(
+  RedisSearchCtx *sctx, const char *term, size_t len, int write, RedisModuleKey **keyp
+) {
   RedisModuleString *termKey = sctx->TermKeyName({term, len});
   InvertedIndex *idx = nullptr;
 
   if (sctx->spec->keysDict.empty()) {
-    RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, termKey,
-                                            REDISMODULE_READ | (write ? REDISMODULE_WRITE : 0));
+    RedisModuleKey *k = RedisModule_OpenKey(
+      sctx->redisCtx, termKey, REDISMODULE_READ | (write ? REDISMODULE_WRITE : 0)
+    );
 
     // check that the key is empty
     if (k == nullptr) {

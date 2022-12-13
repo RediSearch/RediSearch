@@ -127,7 +127,7 @@ void RSValue::Clear() {
       break;
 
     case RSValue_Null:
-      return;  // prevent changing global RS_nullptr to RSValue_Undef
+      return;  // prevent changing global RS_NULL to RSValue_Undef
 
     default:   // no free
       break;
@@ -517,7 +517,7 @@ RSValue *RS_VStringArray(uint32_t sz, ...) {
 
 //---------------------------------------------------------------------------------------------
 
-// Wrap an array of nullptr terminated C strings into an RSValue array
+// Wrap an array of nul-terminated C strings into an RSValue array
 RSValue *RS_StringArray(char **strs, uint32_t sz) {
   RSValue **arr = rm_calloc(sz, sizeof(RSValue *));
 
@@ -540,12 +540,12 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
 
 //---------------------------------------------------------------------------------------------
 
-RSValue RS_nullptr = {.t = RSValue_Null, .refcount = 1, .allocated = 0};
+RSValue RS_NULL {RSValue_Null, 1, 0};
 
-// Create a new nullptr RSValue
+// Create a new NULL RSValue
 /*
 inline RSValue *RS_NullVal() {
-  return &RS_nullptr;
+  return &RS_NULL;
 }
 */
 

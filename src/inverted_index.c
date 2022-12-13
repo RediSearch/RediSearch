@@ -409,26 +409,26 @@ size_t InvertedIndex::WriteEntryGeneric(IndexEncoder encoder, t_docId docId, con
   // this can happen with duplicate tags for example
   if (lastId && lastId == docId) return 0;
 
-  IndexBlock &blk = LastBlock();
+  IndexBlock *blk = &LastBlock();
 
   // see if we need to grow the current block
-  if (blk.numDocs >= INDEX_BLOCK_SIZE) {
-    blk = AddBlock(docId);
-  } else if (blk.numDocs == 0) {
-    blk.firstId = blk.lastId = docId;
+  if (blk->numDocs >= INDEX_BLOCK_SIZE) {
+    blk = &AddBlock(docId);
+  } else if (blk->numDocs == 0) {
+    blk->firstId = blk->lastId = docId;
   }
 
-  t_docId delta{docId - blk.lastId};
+  t_docId delta{docId - blk->lastId};
   if (delta > UINT32_MAX) {
-    blk = AddBlock(docId);
+    blk = &AddBlock(docId);
     delta = 0;
   }
 
-  BufferWriter bw(&blk.buf);
+  BufferWriter bw(&blk->buf);
   size_t ret = encoder(&bw, delta, &entry);
   lastId = docId;
-  blk.lastId = docId;
-  ++blk.numDocs;
+  blk->lastId = docId;
+  ++blk->numDocs;
   ++numDocs;
 
   return ret;
@@ -457,8 +457,9 @@ IndexBlock &IndexReader::CurrentBlock() {
 
 void IndexReader::AdvanceBlock() {
   currentBlock++;
-  br.Set(&CurrentBlock().buf);
-  lastId = CurrentBlock().firstId;
+  auto& currentIndexBlock = CurrentBlock();
+  br.Set(&currentIndexBlock.buf);
+  lastId = currentIndexBlock.firstId;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -546,7 +547,7 @@ bool TermIndexDecoder::readFreqOffsetsFlagsWide(BufferReader *br, TermResult *re
 
   qint_decode3(br, (uint32_t *)&res->docId, &res->freq, &res->offsetsSz);
   res->fieldMask = ReadVarintFieldMask(*br);
-  res->offsets = (OffsetVector){.data = br->Current(), .len = res->offsetsSz};
+  res->offsets = OffsetVector{br->Current(), res->offsetsSz};
   br->Skip(res->offsetsSz);
   return CHECK_FLAGS(res);
 }
@@ -1052,9 +1053,9 @@ size_t IndexReader::NumDocs() const {
 IndexReader::IndexReader(
   const IndexSpec *sp, InvertedIndex *idx, IndexDecoder decoder,
   IndexResult *record, double weight
-) : IndexIterator(this), currentBlock(0), sp(sp), idx(idx)
-  , decoder(decoder), record(record), weight(weight), br()
-  , isValidP(nullptr)
+) : IndexIterator{this}, currentBlock{0}, sp{sp}, idx{idx}
+  , decoder{decoder}, record{record}, weight{weight}, br{}
+  , isValidP{nullptr}
 {
   gcMarker = idx->gcMarker;
   lastId = CurrentBlock().firstId;

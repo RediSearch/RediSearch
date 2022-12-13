@@ -36,7 +36,7 @@ struct RedisSearchCtx {
 
   void Refresh(RedisModuleString *keyName);
 
-  RedisModuleString *TermKeyName(String term);
+  RedisModuleString *TermKeyName(const String& term);
   RedisModuleString *SkipIndexKeyName(const char *term, size_t len);
   RedisModuleString *ScoreIndexKeyName(const char *term, size_t len);
   RedisModuleString *NumericIndexKey(String field);

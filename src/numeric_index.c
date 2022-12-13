@@ -65,14 +65,14 @@ size_t NumericRange::Add(t_docId docId, double value, int checkCard) {
 
 double NumericRange::Split(NumericRangeNode **lp, NumericRangeNode **rp) {
   double split = unique_sum / (double)card;
+  size_t cap = entries.numDocs / 2 + 1;
+  size_t splitCard_ = MIN(NR_MAXRANGE_CARD, 1 + splitCard * NR_EXPONENT);
 
-  *lp = new NumericRangeNode(entries.numDocs / 2 + 1, minVal, split,
-                            MIN(NR_MAXRANGE_CARD, 1 + splitCard * NR_EXPONENT));
-  *rp = new NumericRangeNode(entries.numDocs / 2 + 1, split, maxVal,
-                             MIN(NR_MAXRANGE_CARD, 1 + splitCard * NR_EXPONENT));
+  *lp = new NumericRangeNode(cap, minVal, split, splitCard_);
+  *rp = new NumericRangeNode(cap, split, maxVal, splitCard_);
 
-  NumericResult *res;
-  NumericIndexReader ir(&entries);
+  NumericResult *res = nullptr;
+  NumericIndexReader ir{&entries};
   while (INDEXREAD_OK == ir.Read(&res)) {
     auto range = res->value < split ? (*lp)->range : (*rp)->range;
     if (range) {
@@ -85,11 +85,10 @@ double NumericRange::Split(NumericRangeNode **lp, NumericRangeNode **rp) {
 
 //---------------------------------------------------------------------------------------------
 
-NumericRange::NumericRange(double min, double max, size_t splitCard) :
-  minVal(min), maxVal(max), unique_sum(0), card(0), splitCard(splitCard),
-  values(array_new(CardinalityValue, 1)),
-  entries(Index_StoreNumeric, 1) {
-}
+NumericRange::NumericRange(double min, double max, size_t splitCard_) :
+  minVal{min}, maxVal{max}, unique_sum{0}, card{0}, splitCard{splitCard_},
+  values{array_new(CardinalityValue, 1)}, entries{Index_StoreNumeric, 1}
+{ }
 
 //---------------------------------------------------------------------------------------------
 
@@ -99,14 +98,14 @@ NumericRange::~NumericRange() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-NumericRangeNode::NumericRangeNode(size_t cap, double min, double max, size_t splitCard) :
-  left(NULL), right(NULL), value(0), maxDepth(0), range(new NumericRange(min, max, splitCard)) {
-}
+NumericRangeNode::NumericRangeNode(size_t cap, double min, double max, size_t splitCard_) :
+  left{nullptr}, right{nullptr}, value{0}, maxDepth{0}, range{new NumericRange(min, max, splitCard_)}
+{ }
 
 //---------------------------------------------------------------------------------------------
 
 NRN_AddRv NumericRangeNode::Add(t_docId docId, double newval) {
-  NRN_AddRv rv;
+  NRN_AddRv rv{};
   if (!IsLeaf()) {
     // if this node has already split but retains a range, just add to the range without checking
     // anything
@@ -128,7 +127,7 @@ NRN_AddRv NumericRangeNode::Add(t_docId docId, double newval) {
       // this keeps memory footprint in check
       if (++maxDepth > NR_MAX_DEPTH && range) {
         delete range;
-        range = NULL;
+        range = nullptr;
       }
 
       // check if we need to rebalance the child.
@@ -277,8 +276,8 @@ void NumericRangeTree::Free(NumericRangeTree *p) {
 IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr, const NumericFilter *f) {
   // if this range is at either end of the filter, we need to check each record
   if (f->Match(nr->minVal) && f->Match(nr->maxVal)) {
-    // make the filter NULL so the reader will ignore it
-    f = NULL;
+    // make the filter nullptr so the reader will ignore it
+    f = nullptr;
   }
   auto ir = new NumericIndexReader(&nr->entries, sp, f);
   IndexIterator *it = ir->NewReadIterator();
@@ -295,7 +294,7 @@ static IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTre
                                      const NumericFilter *f) {
   Vector<NumericRange> v = t->Find(f->min, f->max);
   if (v.empty()) {
-    return NULL;
+    return nullptr;
   }
 
   int n = v.size();
@@ -313,12 +312,12 @@ static IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTre
     its.push_back(NewNumericRangeIterator(sp, &v[i], f));
   }
 
-  return new UnionIterator(its, NULL, 1, 1);
+  return new UnionIterator(its, nullptr, 1, 1);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-RedisModuleType *NumericIndexType = NULL;
+RedisModuleType *NumericIndexType = nullptr;
 
 //---------------------------------------------------------------------------------------------
 
@@ -330,7 +329,7 @@ RedisModuleString *RedisSearchCtx::NumericIndexKey(String field) {
 
 static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                              int write) {
-  NumericRangeTree *val = NULL;
+  NumericRangeTree *val = nullptr;
   if (ctx->spec->keysDict.contains(keyName)) {
     BaseIndex *index = ctx->spec->keysDict[keyName];
     try {
@@ -342,7 +341,7 @@ static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleStr
   }
 
   if (!write) {
-    return NULL;
+    return nullptr;
   }
 
   val = new NumericRangeTree();
@@ -355,14 +354,14 @@ static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleStr
 IndexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt, ConcurrentSearch *csx) {
   RedisModuleString *s = ctx->spec->GetFormattedKeyByName(flt->fieldName, INDEXFLD_T_NUMERIC);
   if (!s) {
-    return NULL;
+    return nullptr;
   }
-  RedisModuleKey *key = NULL;
-  NumericRangeTree *t = NULL;
+  RedisModuleKey *key = nullptr;
+  NumericRangeTree *t = nullptr;
   if (ctx->spec->keysDict.empty()) {
     key = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ);
     if (!key || RedisModule_ModuleTypeGetType(key) != NumericIndexType) {
-      return NULL;
+      return nullptr;
     }
 
     t = RedisModule_ModuleTypeGetValue(key);
@@ -371,12 +370,12 @@ IndexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter
   }
 
   if (!t) {
-    return NULL;
+    return nullptr;
   }
 
   IndexIterator *it = createNumericIterator(ctx->spec, t, flt);
   if (!it) {
-    return NULL;
+    return nullptr;
   }
 
   if (csx) {
@@ -394,7 +393,7 @@ NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyNa
     return openNumericKeysDict(ctx, keyName, 1);
   }
 
-  RedisModuleKey *key_s = NULL;
+  RedisModuleKey *key_s = nullptr;
   if (!idxKey) {
     idxKey = &key_s;
   }
@@ -404,7 +403,7 @@ NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyNa
   int type = RedisModule_KeyType(*idxKey);
   if (type != REDISMODULE_KEYTYPE_EMPTY &&
       RedisModule_ModuleTypeGetType(*idxKey) != NumericIndexType) {
-    return NULL;
+    return nullptr;
   }
 
   // Create an empty value object if the key is currently empty
@@ -450,7 +449,7 @@ int NumericIndexType_Register(RedisModuleCtx *ctx) {
                                };
 
   NumericIndexType = RedisModule_CreateDataType(ctx, "numericdx", NUMERIC_INDEX_ENCVER, &tm);
-  if (NumericIndexType == NULL) {
+  if (NumericIndexType == nullptr) {
     return REDISMODULE_ERR;
   }
 
@@ -517,17 +516,17 @@ static size_t loadV1(RedisModuleIO *rdb, NumericRangeEntry **entriespp) {
 
 void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver > NUMERIC_INDEX_ENCVER) {
-    return NULL;
+    return nullptr;
   }
 
-  NumericRangeEntry *entries = NULL;
+  NumericRangeEntry *entries = nullptr;
   size_t numEntries = 0;
   if (encver == 0) {
     numEntries = loadV0(rdb, &entries);
   } else if (encver == 1) {
     numEntries = loadV1(rdb, &entries);
   } else {
-    return NULL;  // Unknown version
+    return nullptr;  // Unknown version
   }
 
   // sort the entries by doc id, as they were not saved in this order
@@ -550,7 +549,7 @@ void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {
   t->root->Traverse([&](NumericRangeNode *n) {
     if (n->IsLeaf() && n->range) {
       NumericRange *rng = n->range;
-      NumericResult *res = NULL;
+      NumericResult *res = nullptr;
       NumericIndexReader ir(&rng->entries);
 
       while (INDEXREAD_OK == ir.Read(&res)) {
@@ -589,7 +588,7 @@ NumericRangeTreeIterator::NumericRangeTreeIterator(NumericRangeTree *t) {
 
 NumericRangeNode *NumericRangeTreeIterator::Next() {
   if (array_len(nodesStack) == 0) {
-    return NULL;
+    return nullptr;
   }
   NumericRangeNode *node = array_pop(nodesStack);
   if (!node->IsLeaf()) {
