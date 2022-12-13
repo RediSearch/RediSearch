@@ -3,7 +3,13 @@ syntax: |
   FT.CONFIG SET option value
 ---
 
-Describe configuration options
+Set the value of a RediSearch configuration parameter.
+
+Values set using `FT.CONFIG SET` do not persist after server restart.
+
+RediSearch configuration parameters are detailed [here](/docs/stack/search/configuring).
+
+Note: As detailed in the link above, not all RediSearch configuration parameters can be set at run-time.
 
 [Examples](#examples)
 
