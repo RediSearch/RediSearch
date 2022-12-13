@@ -45,6 +45,8 @@ FT.CONFIG GET OPT1
 FT.CONFIG GET *
 ```
 
+Values set using `FT.CONFIG SET` do not persist after server restart.
+
 ## RediSearch configuration parameters
 
 The following table summerizes which configuration parameters can be set at module load-time and which can be set on run-time:
