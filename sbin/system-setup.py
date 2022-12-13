@@ -27,7 +27,7 @@ class RediSearchSetup(paella.Setup):
 
     def debian_compat(self):
         self.install("libatomic1")
-        self.run("%s/bin/getgcc" % READIES)
+        self.run("%s/bin/getgcc --modern" % READIES)
         self.install("libtool m4 automake libssl-dev")
         self.install("python3-dev")
 
@@ -92,3 +92,4 @@ parser.add_argument('-n', '--nop', action="store_true", help='no operation')
 args = parser.parse_args()
 
 RediSearchSetup(args).setup()
+

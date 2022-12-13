@@ -34,8 +34,10 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 
 		REDIS_SERVER=path     Redis Server command
 		REDIS_VERBOSE=1       (legacy) Verbose ouput
+		REDIS_PORT=n          Redis server port
 		CONFIG_FILE=file      Path to config file
 		EXT|EXISTING_ENV=1    Run the tests on existing env
+		EXT_PORT=n            Port of existing env
 		RLEC_PORT=n           Port of RLEC database (default: 12000)
 
 		COV=1				  Run with coverage analysis
@@ -96,6 +98,10 @@ OP=
 [[ $NOP == 1 ]] && OP=echo
 
 RLTEST_ARGS+=" $@"
+if [[ -n $REDIS_PORT ]]; then
+	RLTEST_ARGS+="--redis-port $REDIS_PORT"
+fi
+
 if [[ -n $TEST ]]; then
 	[[ $GDB == 1 ]] && RLTEST_ARGS+=" -i"
 	[[ $LOG != 1 ]] && RLTEST_ARGS+=" -v -s"
@@ -228,8 +234,14 @@ run_tests() {
 
 		rltest_config=$(mktemp "${TMPDIR:-/tmp}/xredis_rltest.XXXXXXX")
 		rm -f $rltest_config
+		if [[ -n $EXT_PORT ]]; then
+			EXT_ENV="--existing-env-addr localhost:$EXT_PORT"
+		else
+			EXT_ENV=""
+		fi
 		cat <<-EOF > $rltest_config
 			--env existing-env
+			$EXT_ENV
 			$RLTEST_ARGS
 
 			EOF
