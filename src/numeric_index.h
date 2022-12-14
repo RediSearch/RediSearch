@@ -130,7 +130,7 @@ struct NumericRangeTree : public BaseIndex {
   uint32_t revisionId;
   uint32_t uniqueId;
 
-  static uint16_t NumericRangeTree::UniqueId;
+  static uint16_t UniqueId;
 
   NumericRangeTree();
   ~NumericRangeTree();
@@ -178,7 +178,7 @@ struct NumericUnionConcKey : ConcurrentKey {
   NumericUnion nu;
 
   void Reopen() override {
-    NumericRangeTree *t = RedisModule_ModuleTypeGetValue(key);
+    NumericRangeTree *t = static_cast<NumericRangeTree *>(RedisModule_ModuleTypeGetValue(key));
 
     // If the key has been deleted we'll get a nullptr heere, so we just mark ourselves as EOF
     // We simply abort the root iterator which is either a union of many ranges or a single range.

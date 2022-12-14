@@ -25,7 +25,7 @@ struct GCAPI {
 
 //---------------------------------------------------------------------------------------------
 
-#define DEADBEEF (void*)0xDEADBEEF
+#define DEADBEEF (RedisModuleBlockedClient*)0xDEADBEEF
 
 struct GC : public Object {
   GCAPI* gc;

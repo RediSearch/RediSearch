@@ -13,7 +13,7 @@
 
 typedef uint16_t t_len;
 
-#define TRIE_INITIAL_STRING_LEN 256
+#define TRIE_INITIAL_STRING_LEN 255
 #define TRIE_MAX_PREFIX 100
 
 #define TRIENODE_TERMINAL 0x1
@@ -80,8 +80,13 @@ struct StackNode {
   t_len childOffset;
   bool skipped;
 
-  StackNode(bool skipped, TrieNode *node) : state(ITERSTATE_SELF), n(node), childOffset(0),
-    stringOffset(0), skipped(skipped) {}
+  StackNode(bool skipped, TrieNode *node)
+    : state{ITERSTATE_SELF}
+    , n{node}
+    , stringOffset{0}
+    , childOffset{0}
+    , skipped{skipped}
+  {}
 };
 
 //---------------------------------------------------------------------------------------------

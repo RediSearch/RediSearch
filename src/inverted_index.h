@@ -309,7 +309,7 @@ struct NumericIndexCriteriaTester : IndexCriteriaTester {
   NumericFilter nf;
   const IndexSpec *spec;
 
-  NumericIndexCriteriaTester(IndexReader *ir, const NumericFilter &nf) : spec(ir->sp), nf(nf) {}
+  NumericIndexCriteriaTester(IndexReader *ir, const NumericFilter &nf) : nf(nf), spec(ir->sp) {}
 
   bool  Test(t_docId id);
 };

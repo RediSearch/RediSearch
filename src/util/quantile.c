@@ -118,14 +118,14 @@ void QuantStream::RemoveSample(Sample *sample) {
   // verifyCount();
 }
 
-static Sample *QS_NewSample(QuantStream *stream) {
-  if (stream->pool) {
-    Sample *ret = stream->pool;
-    stream->pool = ret->next;
-    memset(ret, 0, sizeof(*ret));
+Sample *QuantStream::NewSample() {
+  if (pool) {
+    Sample *ret = pool;
+    pool = ret->next;
+    memset(ret, 0, sizeof *ret);
     return ret;
   } else {
-    return rm_calloc(1, sizeof(Sample));
+    return static_cast<Sample *>(rm_calloc(1, sizeof(Sample)));
   }
 }
 
@@ -150,12 +150,11 @@ void QuantStream::Flush() {
   for (size_t ii = 0; ii < bufferLength; ++ii) {
     double curBuf = buffer[ii];
     int inserted = 0;
-    Sample *newSample = QS_NewSample(this);
+    Sample *newSample = NewSample();
     newSample->v = curBuf;
     newSample->g = 1;
 
     while (pos) {
-
       if (pos->v > curBuf) {
         newSample->d = floor(GetMaxVal(r)) - 1;
         // printf("[Is=%lu, Ip=%lu, R=%lf] Delta: %lf\n", ii, posNum++, r, newSample->d);
@@ -248,13 +247,16 @@ double QuantStream::Query(double q) {
   return prev->v;
 }
 
-QuantStream::QuantStream(const double *quantiles, size_t numQuantiles, size_t bufferLength) {
-  if ((numQuantiles = numQuantiles)) {
-    quantiles = rm_calloc(numQuantiles, sizeof(*quantiles));
-    memcpy(quantiles, quantiles, sizeof(*quantiles) * numQuantiles);
+QuantStream::QuantStream(const double *quantiles_, size_t numQuantiles_, size_t bufferLength_)
+  : buffer{static_cast<double *>(rm_malloc(bufferLength_ * sizeof *buffer))}
+  , bufferLength{bufferLength_}
+  , bufferCap{bufferLength_}
+  , numQuantiles{numQuantiles_}
+{
+  if (numQuantiles) {
+    quantiles = static_cast<double *>(rm_calloc(numQuantiles, sizeof *quantiles));
+    memcpy(quantiles, quantiles_, sizeof *quantiles * numQuantiles);
   }
-  bufferCap = bufferLength;
-  buffer = rm_malloc(bufferLength * sizeof(*buffer));
 }
 
 QuantStream::~QuantStream() {

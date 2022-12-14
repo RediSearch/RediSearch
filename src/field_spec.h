@@ -119,7 +119,7 @@ struct FieldSpec {
 
   t_fieldMask FieldBit() { return ((t_fieldMask)1) << ftId; }
 
-  bool IsFieldType(FieldType t) { return types & t; }
+  bool IsFieldType(FieldType t) const { return types & t; }
 
   bool FulltextPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field,
     FieldIndexerData *fdata, QueryError *status) const;

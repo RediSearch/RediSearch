@@ -210,8 +210,9 @@ struct RSToken {
 //---------------------------------------------------------------------------------------------
 
 struct QueryExpander : virtual Object {
-  QueryExpander(QueryAST *qast, RedisSearchCtx &sctx, RSLanguage lang, QueryError *status):
-    qast(qast), sctx(sctx), language(lang), status(status), currentNode(nullptr) {}
+  QueryExpander(QueryAST *qast_, RedisSearchCtx &sctx_, RSLanguage lang, QueryError *status_)
+    : qast{qast_}, sctx{sctx_}, status{status_}, language{lang}, currentNode{nullptr}
+  { }
   virtual ~QueryExpander() = default;
 
   QueryAST *qast;
@@ -364,21 +365,20 @@ struct IndexResult : Object {
 
   //IndexResult() {}
 
-  IndexResult(RSResultType type, t_docId docId, t_fieldMask fieldMask, uint32_t freq, double weight) :
-    type(type), docId(docId), fieldMask(fieldMask), freq(freq), weight(weight), isCopy(false) {}
+  IndexResult(RSResultType type_, t_docId docId_, t_fieldMask fieldMask_, uint32_t freq_, double weight_)
+    : docId{docId_}, freq{freq_}, fieldMask{fieldMask_}, type{type_}, isCopy{false}, weight{weight_}
+  { }
 
-  IndexResult(RSResultType type, t_docId docId) : type(type), docId(docId), isCopy(false) {}
+  IndexResult(RSResultType type_, t_docId docId_)
+    : docId{docId_}, type{type_}, isCopy(false)
+  { }
 
   // Create deep copy of results that is totall thread safe. Very slow so use with caution.
-  IndexResult(const IndexResult &src) {
-    docId = src.docId;
-    freq = src.freq;
-    fieldMask = src.fieldMask;
-    offsetsSz = src.offsetsSz;
-    type = src.type;
-    weight = src.weight;
-    isCopy = true;
-  }
+  // @@ what? this is just a shallow copy with an extra bit. not slow at all.
+  IndexResult(const IndexResult &src)
+    : docId{src.docId}, freq{src.freq}, fieldMask{src.fieldMask}, offsetsSz{src.offsetsSz}
+    , type{src.type}, isCopy{true}, weight{src.weight}
+  { }
 
   virtual ~IndexResult() {}
   virtual IndexResult *Clone() const = 0;

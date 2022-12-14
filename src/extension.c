@@ -15,8 +15,8 @@ Extensions g_ext;
 
 //---------------------------------------------------------------------------------------------
 
-int Extensions::Register(const char *name, Scorer scorer) {
-  if (scorer == NULL) {
+void Extensions::Register(const char *name, Scorer scorer) {
+  if (scorer == nullptr) {
     throw Error("Cannot register %s: null scorer", name);
   }
 
@@ -30,9 +30,9 @@ int Extensions::Register(const char *name, Scorer scorer) {
 
 //---------------------------------------------------------------------------------------------
 
-int Extensions::Register(const char *name, QueryExpander::Factory factory) {
-  if (factory == NULL) {
-    return REDISEARCH_ERR;
+void Extensions::Register(const char *name, QueryExpander::Factory factory) {
+  if (factory == nullptr) {
+    throw Error("Cannot register %s: null factory", name);
   }
 
   if (queryExpanders.find(name) != queryExpanders.end()) {
@@ -56,15 +56,15 @@ int Extensions::Load(const char *name, RS_ExtensionInit init) {
 // Dynamically load a RediSearch extension by .so file path. Returns REDISMODULE_OK or ERR
 
 int Extensions::LoadDynamic(const char *path, char **errMsg) {
-  *errMsg = NULL;
+  *errMsg = nullptr;
   void *handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-  if (handle == NULL) {
+  if (handle == nullptr) {
     FMT_ERR(errMsg, "Extension %s failed to load: %s", path, dlerror());
     return REDISMODULE_ERR;
   }
 
   RS_ExtensionInit init = reinterpret_cast<RS_ExtensionInit>(dlsym(handle, "RS_ExtensionInit"));
-  if (init == NULL) {
+  if (init == nullptr) {
     FMT_ERR(errMsg, "Extension %s does not export RS_ExtensionInit() symbol. Module not loaded.", path);
     return REDISMODULE_ERR;
   }

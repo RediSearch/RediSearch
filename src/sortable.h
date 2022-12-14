@@ -51,7 +51,7 @@ struct RSSortingVector {
   ~RSSortingVector();
 
   void Put(int idx, const void *p, int type);
-  RSValue *RSSortingVector::Get(size_t index);
+  RSValue *Get(size_t index);
   size_t memsize() const;
 
   static int Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk, QueryError *qerr);

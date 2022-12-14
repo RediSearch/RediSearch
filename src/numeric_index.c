@@ -220,14 +220,14 @@ uint16_t NumericRangeTree::UniqueId = 0;
 //---------------------------------------------------------------------------------------------
 
 // Create a new numeric range tree
-NumericRangeTree::NumericRangeTree() {
-  root = new NumericRangeNode(2, NF_NEGATIVE_INFINITY, NF_INFINITY, 2);
-  numEntries = 0;
-  numRanges = 1;
-  revisionId = 0;
-  lastDocId = 0;
-  uniqueId = UniqueId++;
-}
+NumericRangeTree::NumericRangeTree()
+  : root{new NumericRangeNode(2, NF_NEGATIVE_INFINITY, NF_INFINITY, 2)}
+  , numRanges{1}
+  , numEntries{0}
+  , lastDocId{0}
+  , revisionId{0}
+  , uniqueId{UniqueId++}
+{ }
 
 //---------------------------------------------------------------------------------------------
 

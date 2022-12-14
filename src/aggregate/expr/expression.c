@@ -20,7 +20,7 @@ int RSFunctionExpr::Eval(ExprEval &eval, RSValue *res) {
     args[ii] = RSValue();
     argspp[ii] = &args[ii];
     int res1 = _args->args[ii]->Eval(eval, &args[ii]);
-    if (res1 == EXPR_EVAL_ERR || res1 == EXPR_EVAL_nullptr && Call != func_exists) {
+    if (res1 == EXPR_EVAL_ERR || (res1 == EXPR_EVAL_NULL && Call != func_exists)) {
       // TODO: Free other results
       goto cleanup;
     }
@@ -238,7 +238,7 @@ int RSLookupExpr::Eval(ExprEval &eval, RSValue *res) {
       eval.err->SetError(QUERY_ENOPROPVAL, nullptr);
     }
     res->t = RSValue_Null;
-    return EXPR_EVAL_nullptr;
+    return EXPR_EVAL_NULL;
   }
 
   res->MakeReference(value);
@@ -358,8 +358,9 @@ RPEvaluator::~RPEvaluator() {
 
 //---------------------------------------------------------------------------------------------
 
-RPEvaluator::RPEvaluator(const char *name, const RSExpr *ast, const RLookup *lookup,
-    const RLookupKey *dstkey) : ResultProcessor(name), eval(nullptr, lookup, nullptr, ast) {
+RPEvaluator::RPEvaluator(
+  const char *name, const RSExpr *ast, const RLookup *lookup, const RLookupKey *dstkey
+) : ResultProcessor{name}, eval{nullptr, lookup, nullptr, ast} {
   outkey = dstkey;
 }
 

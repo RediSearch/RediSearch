@@ -9,8 +9,8 @@ struct Sample {
     float g;   // Number of ranks
     float d;   // Delta between ranks
 
-    struct Sample *prev;
-    struct Sample *next;
+    Sample *prev;
+    Sample *next;
 };
 
 struct QuantStream {
@@ -28,6 +28,7 @@ struct QuantStream {
     Sample *pool;
 
 private:
+    Sample *NewSample();
     void InsertSampleAt(Sample *pos, Sample *sample);
     void AppendSample(Sample *sample);
     void RemoveSample(Sample *sample);
