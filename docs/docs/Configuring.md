@@ -45,7 +45,7 @@ FT.CONFIG GET OPT1
 FT.CONFIG GET *
 ```
 
-Values set using `FT.CONFIG SET` do not persist after server restart.
+Values set using `FT.CONFIG SET` are not persisted after server restart.
 
 ## RediSearch configuration parameters
 
