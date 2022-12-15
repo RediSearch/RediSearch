@@ -5,7 +5,7 @@ syntax: |
 
 Set the value of a RediSearch configuration parameter.
 
-Values set using `FT.CONFIG SET` do not persist after server restart.
+Values set using `FT.CONFIG SET` are not persisted after server restart.
 
 RediSearch configuration parameters are detailed [here](/docs/stack/search/configuring).
 
