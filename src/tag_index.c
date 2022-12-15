@@ -198,7 +198,7 @@ IndexIterator *TagIndex::OpenReader(IndexSpec *sp, std::string_view value, doubl
 #define TAG_INDEX_KEY_FMT "tag:%s/%s"
 
 // Format the key name for a tag index
-static RedisModuleString *TagIndex::FormatName(RedisSearchCtx *sctx, String field) {
+RedisModuleString *TagIndex::FormatName(RedisSearchCtx *sctx, const String& field) {
   return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, sctx->spec->name, field.c_str());
 }
 
@@ -210,7 +210,7 @@ static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int
     try {
       TagIndex *val = dynamic_cast<TagIndex *>(index);
       return val;
-    } catch (std::bad_cast) {
+    } catch (std::bad_cast&) {
       throw Error("error: invalid index type...");
     }
   }
@@ -227,7 +227,7 @@ static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int
 //---------------------------------------------------------------------------------------------
 
 // Open the tag index in redis
-static TagIndex *TagIndex::Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
+TagIndex *TagIndex::Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
                                 RedisModuleKey **keyp) {
   TagIndex *idx = nullptr;
   if (!sctx->spec->keysDict.empty()) {
@@ -236,8 +236,9 @@ static TagIndex *TagIndex::Open(RedisSearchCtx *sctx, RedisModuleString *formatt
       keyp = &key_s;
     }
 
-    *keyp = RedisModule_OpenKey(sctx->redisCtx, formattedKey,
-                                REDISMODULE_READ | (openWrite ? REDISMODULE_WRITE : 0));
+    *keyp = static_cast<RedisModuleKey *>(
+      RedisModule_OpenKey(sctx->redisCtx, formattedKey, REDISMODULE_READ | (openWrite ? REDISMODULE_WRITE : 0))
+    );
 
     int type = RedisModule_KeyType(*keyp);
     if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(*keyp) != TagIndexType) {
@@ -251,7 +252,7 @@ static TagIndex *TagIndex::Open(RedisSearchCtx *sctx, RedisModuleString *formatt
         RedisModule_ModuleTypeSetValue(*keyp, TagIndexType, idx);
       }
     } else {
-      idx = RedisModule_ModuleTypeGetValue(*keyp);
+      idx = static_cast<TagIndex *>(RedisModule_ModuleTypeGetValue(*keyp));
     }
   } else {
     idx = openTagKeyDict(sctx, formattedKey, openWrite);
@@ -290,7 +291,7 @@ void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   while (elems--) {
     size_t slen;
     char *s = RedisModule_LoadStringBuffer(rdb, &slen);
-    InvertedIndex *inv = InvertedIndex_RdbLoad(rdb, INVERTED_INDEX_ENCVER);
+    InvertedIndex *inv = static_cast<InvertedIndex *>(InvertedIndex_RdbLoad(rdb, INVERTED_INDEX_ENCVER));
     if (!inv) throw Error("loading inverted index from rdb failed");
     idx->values->Add(std::string_view{s, MIN(slen, MAX_TAG_LEN)}, inv, nullptr);
     RedisModule_Free(s);
@@ -301,7 +302,7 @@ void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
 //---------------------------------------------------------------------------------------------
 
 void TagIndex_RdbSave(RedisModuleIO *rdb, void *value) {
-  TagIndex *idx = value;
+  TagIndex *idx = static_cast<TagIndex *>(value);
   RedisModule_SaveUnsigned(rdb, idx->values->cardinality);
   TrieMapIterator *it = idx->values->Iterate("");
 
@@ -312,7 +313,7 @@ void TagIndex_RdbSave(RedisModuleIO *rdb, void *value) {
   while (it->Next(&str, &slen, &ptr)) {
     count++;
     RedisModule_SaveStringBuffer(rdb, str, slen);
-    InvertedIndex *inv = ptr;
+    InvertedIndex *inv = static_cast<InvertedIndex *>(ptr);
     InvertedIndex_RdbSave(rdb, inv);
   }
   if (count != idx->values->cardinality) throw Error("not all inverted indexes save to rdb");
@@ -321,7 +322,7 @@ void TagIndex_RdbSave(RedisModuleIO *rdb, void *value) {
 //---------------------------------------------------------------------------------------------
 
 void TagIndex_Free(void *p) {
-  TagIndex *idx = p;
+  TagIndex *idx = static_cast<TagIndex *>(p);
   delete idx->values; // TrieMap_Free(idx->values, InvertedIndex_Free);
   rm_free(idx);
 }
@@ -329,7 +330,7 @@ void TagIndex_Free(void *p) {
 //---------------------------------------------------------------------------------------------
 
 size_t TagIndex_MemUsage(const void *value) {
-  const TagIndex *idx = value;
+  const TagIndex *idx = static_cast<const TagIndex *>(value);
   size_t sz = sizeof(*idx);
 
   TrieMapIterator *it = idx->values->Iterate("");

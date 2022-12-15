@@ -39,6 +39,7 @@ enum QueryNodeType {
 //---------------------------------------------------------------------------------------------
 
 enum QueryNodeFlags {
+  QueryNode_Default = 0x00,
   QueryNode_Verbatim = 0x01,
 };
 
@@ -60,12 +61,11 @@ struct QueryNodeOptions {
   double weight;
   int phonetic;
 
-  QueryNodeOptions(t_fieldMask fieldMask = RS_FIELDMASK_ALL,
-                   QueryNodeFlags flags = 0,
-                   int maxSlop = -1,
-                   bool inOrder = false,
-                   double weight = 1) :
-    fieldMask(fieldMask), flags(flags), maxSlop(maxSlop), inOrder(inOrder), weight(weight) {}
+  QueryNodeOptions(
+    t_fieldMask fieldMask_ = RS_FIELDMASK_ALL, QueryNodeFlags flags_ = QueryNode_Default,
+    int maxSlop_ = -1, bool inOrder_ = false, double weight_ = 1
+  ) : flags{flags_}, fieldMask{fieldMask_}, maxSlop{maxSlop_}, inOrder{inOrder_}, weight{weight_}
+  { }
 };
 
 //---------------------------------------------------------------------------------------------
@@ -132,7 +132,7 @@ struct QueryNode : Object {
   virtual void Expand(QueryExpander &expander);
   virtual bool expandChildren() const { return false; }
 
-  typedef bool (*ForEachCallback)(QueryNode *node, void *ctx);
+  using ForEachCallback = bool (*)(QueryNode *node, void *ctx);
   int ForEach(ForEachCallback callback, void *ctx, bool reverse);
 
   void SetFieldMask(t_fieldMask mask);
@@ -304,8 +304,10 @@ struct QueryGeofilterNode : QueryNode {
   QueryGeofilterNode(const GeoFilter *gf) : QueryNode(QN_GEO), gf(gf) {}
 
   sds dumpsds(sds s, const IndexSpec *spec, int depth) {
-    s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s", gf->property, gf->lon,
-                     gf->lat, gf->radius, gf->unitType.ToString());
+    s = sdscatprintf(
+      s, "GEO %s:{%f,%f --> %f %s", gf->property.c_str(),
+      gf->lon, gf->lat, gf->radius, gf->unitType.ToString()
+    );
     return s;
   }
 

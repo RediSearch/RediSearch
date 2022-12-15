@@ -9,12 +9,12 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static int mempool_t::mempoolDisable_g = -1;
+int mempool_t::mempoolDisable_g = -1;
 
 struct {
   mempool_t **pools;
   size_t numPools;
-} globalPools_g = {NULL};
+} globalPools_g = {nullptr};
 
 //---------------------------------------------------------------------------------------------
 
@@ -30,9 +30,9 @@ mempool_t::mempool_t(size_t initialCap, size_t maxCap, bool isGlobal) {
   if (mempoolDisable_g || RSGlobalConfig.noMemPool) {
     cap = 0;
     max = 0;
-    entries = NULL;
+    entries = nullptr;
   } else {
-    entries = rm_calloc(initialCap, sizeof(void *));
+    entries = static_cast<void **>(rm_calloc(initialCap, sizeof *entries));
     cap = initialCap;
     max = maxCap;
   }
@@ -40,8 +40,9 @@ mempool_t::mempool_t(size_t initialCap, size_t maxCap, bool isGlobal) {
 
   if (isGlobal) {
     globalPools_g.numPools++;
-    globalPools_g.pools =
-        rm_realloc(globalPools_g.pools, sizeof(*globalPools_g.pools) * globalPools_g.numPools);
+    globalPools_g.pools = static_cast<mempool_t **>(
+      rm_realloc(globalPools_g.pools, globalPools_g.numPools * sizeof *globalPools_g.pools)
+    );
     globalPools_g.pools[globalPools_g.numPools - 1] = this;
   }
 }
@@ -58,7 +59,7 @@ void *mempool_t::get() {
 //---------------------------------------------------------------------------------------------
 
 void mempool_t::release(void *ptr) {
-  if (entries == NULL || (max > 0 && max <= top)) {
+  if (entries == nullptr || (max > 0 && max <= top)) {
     _free(ptr);
     return;
   }
@@ -66,7 +67,7 @@ void mempool_t::release(void *ptr) {
   if (top == cap) {
     // grow the pool
     cap += cap ? MIN(cap, 1024) : 1;
-    entries = rm_realloc(entries, cap * sizeof(void *));
+    entries = static_cast<void **>(rm_realloc(entries, cap * sizeof *entries));
   }
   entries[top++] = ptr;
 }

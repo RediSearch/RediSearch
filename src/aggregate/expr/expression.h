@@ -196,8 +196,11 @@ struct ExprEval {
   const RSExpr *root;
   StringBlkAlloc stralloc; // Optional. YNOT?
 
-  ExprEval(QueryError *err, RLookup *lookup, RLookupRow *srcrow, RSExpr *root, SearchResult *res = nullptr) :
-    err(err), lookup(lookup), srcrow(srcrow), root(root), res(res), stralloc(1024) {}
+  ExprEval(
+    QueryError *err_, const RLookup *lookup_, const RLookupRow *srcrow_,
+    const RSExpr *root_, const SearchResult *res_ = nullptr
+  ) : err{err_}, lookup{lookup_}, res{res_}, srcrow{srcrow_}, root{root_}, stralloc{1024}
+  { }
 
   int Eval(RSValue *result);
 
@@ -214,14 +217,14 @@ struct ExprEval {
 
   int getPredicateBoolean(const RSValue *l, const RSValue *r, RSCondition op);
 
-  int eval(const RSExpr *e, RSValue *res) { return e->Eval(*this, res); }
+  int eval(RSExpr *e, RSValue *res) { return e->Eval(*this, res); }
 };
 
 //---------------------------------------------------------------------------------------------
 
 #define EXPR_EVAL_ERR 0
 #define EXPR_EVAL_OK 1
-#define EXPR_EVAL_nullptr 2
+#define EXPR_EVAL_NULL 2
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 

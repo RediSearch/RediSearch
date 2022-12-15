@@ -44,7 +44,7 @@ Heap<T>::Heap(int (*cmp)(const void *, const void *, const void *udata), const v
 //---------------------------------------------------------------------------------------------
 
 /**
- * @return a new heap on success; NULL otherwise */
+ * @return a new heap on success; nullptr otherwise */
 
 template <class T>
 void Heap<T>::__ensurecapacity() {
@@ -172,7 +172,7 @@ int Heap<T>::offer(T item) {
 
 template <class T>
 T Heap<T>::poll() {
-  if (empty()) return NULL;
+  if (empty()) return nullptr;
 
   T item = at(0);
 
@@ -191,7 +191,7 @@ T Heap<T>::poll() {
 
 template <class T>
 T Heap<T>::peek() const {
-  if (empty()) return NULL;
+  if (empty()) return nullptr;
   return at(0);
 }
 
@@ -216,18 +216,18 @@ int Heap<T>::__item_get_idx(const T item) const {
  * Remove item
  *
  * @param[in] item The item that is to be removed
- * @return item to be removed; NULL if item does not exist */
+ * @return item to be removed; nullptr if item does not exist */
 
 template <class T>
 T Heap<T>::remove_item(const T item) {
   int idx = __item_get_idx(item);
 
-  if (idx == -1) return NULL;
+  if (idx == -1) return nullptr;
 
   // swap the item we found with the last item on the heap
   T ret_item = _at(idx);
   _at(idx) = back();
-  back() = NULL;
+  back() = nullptr;
 
   pop_back();
 

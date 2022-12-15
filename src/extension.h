@@ -25,8 +25,8 @@ struct Extensions {
   Scorer GetScorer(const char *name);
   QueryExpander::Factory GetQueryExpander(const char *name);
 
-  int Register(const char *alias, Scorer scorer);
-  int Register(const char *name, QueryExpander::Factory factory);
+  void Register(const char *alias, Scorer scorer);
+  void Register(const char *name, QueryExpander::Factory factory);
 
   typedef struct Extension *(*RS_ExtensionInit)();
 
@@ -48,11 +48,11 @@ extern Extensions g_ext;
 //---------------------------------------------------------------------------------------------
 
 struct Extension : Object {
-  int Register(const char *alias, Scorer scorer) {
+  void Register(const char *alias, Scorer scorer) {
     g_ext.Register(alias, scorer);
   }
 
-  int Register(const char *alias, QueryExpander::Factory factory) {
+  void Register(const char *alias, QueryExpander::Factory factory) {
     g_ext.Register(alias, factory);
   }
 };

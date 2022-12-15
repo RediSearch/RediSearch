@@ -183,8 +183,8 @@ struct IndexLoadOptions {
   // name of alias lookup key to use
   const char *alookup;
 
-  IndexLoadOptions(uint32_t flags, const char *cstring) : flags(flags), cstring(cstring) {}
-  IndexLoadOptions(uint32_t flags, RedisModuleString *rstring) : flags(flags), rstring(rstring) {}
+  IndexLoadOptions(uint32_t flags_, const char *cstring_) : cstring(cstring_), flags(flags_) {}
+  IndexLoadOptions(uint32_t flags_, RedisModuleString *rstring_) : rstring(rstring_), flags(flags_) {}
 };
 
 //---------------------------------------------------------------------------------------------

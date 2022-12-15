@@ -105,7 +105,9 @@ struct stackNode {
   tm_len_t stringOffset;
   tm_len_t childOffset;
 
-  stackNode(TrieMapNode *node) : state(TM_ITERSTATE_SELF), n(node), stringOffset(0), childOffset(0) {}
+  stackNode(TrieMapNode *node)
+    : state{TM_ITERSTATE_SELF}, n{node}, stringOffset{0}, childOffset{0}
+  { }
 };
 
 #pragma pack()
@@ -122,8 +124,8 @@ struct TrieMapIterator : public Object {
   String prefix;
   int inSuffix;
 
-  TrieMapIterator(TrieMapNode *node, std::string_view prefix) :
-      bufLen(16), bufOffset(0), prefix(prefix), inSuffix(0) {
+  TrieMapIterator(TrieMapNode *node, std::string_view prefix_)
+    : bufLen{16}, bufOffset{0}, prefix{prefix_}, inSuffix{0} {
     Push(node);
   }
 

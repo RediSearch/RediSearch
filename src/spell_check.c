@@ -42,7 +42,7 @@ void RS_Suggestions::Add(char *term, size_t len, double score, int incr) {
   if (!incr) {
     if (!isExists) {
       //@@@TODO: term is coming from rule and InsertStringBuffer will convert it back to rune
-      suggestionsTrie.InsertStringBuffer(term, len, score, incr, NULL);
+      suggestionsTrie.InsertStringBuffer(term, len, score, incr, nullptr);
     }
     return;
   }
@@ -56,7 +56,7 @@ void RS_Suggestions::Add(char *term, size_t len, double score, int incr) {
   }
 
   //@@@TODO: term is coming from rule and InsertStringBuffer will convert it back to rune
-  suggestionsTrie.InsertStringBuffer(term, len, score, incr, NULL);
+  suggestionsTrie.InsertStringBuffer(term, len, score, incr, nullptr);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -65,9 +65,9 @@ void RS_Suggestions::Add(char *term, size_t len, double score, int incr) {
 // In case the suggestion should not be added return -1.
 
 double SpellChecker::GetScore(char *suggestion, size_t len, t_fieldMask fieldMask) {
-  RedisModuleKey *keyp = NULL;
-  IndexReader *reader = NULL;
-  IndexIterator *iter = NULL;
+  RedisModuleKey *keyp = nullptr;
+  IndexReader *reader = nullptr;
+  IndexIterator *iter = nullptr;
   IndexResult *r;
   double retVal = 0;
   InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, suggestion, len, 0, &keyp);
@@ -76,7 +76,7 @@ double SpellChecker::GetScore(char *suggestion, size_t len, t_fieldMask fieldMas
     goto end;
   }
 
-  reader = new TermIndexReader(invidx, NULL, fieldMask, NULL, 1);
+  reader = new TermIndexReader(invidx, nullptr, fieldMask, nullptr, 1);
   iter = reader->NewReadIterator();
   if (iter->Read(&r) != INDEXREAD_EOF) {
     // we have at least one result, the suggestion is relevant.
@@ -163,7 +163,7 @@ Vector<RS_Suggestion> RS_Suggestions::GetSuggestions() {
 
 //---------------------------------------------------------------------------------------------
 
-void RS_Suggestions::SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, uint64_t totalDocNumber) {
+void RS_Suggestions::SendReplyOnTerm(RedisModuleCtx *ctx, const char *term, size_t len, uint64_t totalDocNumber) {
 #define TERM "TERM"
   RedisModule_ReplyWithArray(ctx, 3);
   RedisModule_ReplyWithStringBuffer(ctx, TERM, strlen(TERM));
@@ -199,10 +199,10 @@ void RS_Suggestions::SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len
 
 //---------------------------------------------------------------------------------------------
 
-bool SpellChecker::ReplyTermSuggestions(char *term, size_t len, t_fieldMask fieldMask) {
+bool SpellChecker::ReplyTermSuggestions(const char *term, size_t len, t_fieldMask fieldMask) {
   // searching the term on the term trie, if its there we just return false
   // because there is no need to return suggestions on it.
-  if (SpellChecker::IsTermExistsInTrie(sctx->spec->terms, term, len, NULL)) {
+  if (SpellChecker::IsTermExistsInTrie(sctx->spec->terms, term, len, nullptr)) {
     if (fullScoreInfo) {
       // if a full score info is requested we need to send information that
       // we found the term as is on the index
@@ -220,12 +220,12 @@ bool SpellChecker::ReplyTermSuggestions(char *term, size_t len, t_fieldMask fiel
   // searching the term on the exclude list, if its there we just return false
   // because there is no need to return suggestions on it.
   for (auto dict : excludeDict) {
-    RedisModuleKey *k = NULL;
+    RedisModuleKey *k = nullptr;
     Trie *t = SpellCheck_OpenDict(sctx->redisCtx, dict, REDISMODULE_READ, &k);
-    if (t == NULL) {
+    if (t == nullptr) {
       continue;
     }
-    if (SpellChecker::IsTermExistsInTrie(t, term, len, NULL)) {
+    if (SpellChecker::IsTermExistsInTrie(t, term, len, nullptr)) {
       RedisModule_CloseKey(k);
       return false;
     }
@@ -240,10 +240,10 @@ bool SpellChecker::ReplyTermSuggestions(char *term, size_t len, t_fieldMask fiel
 
   // searching the term on the include list for more suggestions.
   for (auto dict : includeDict) {
-    RedisModuleKey *k = NULL;
+    RedisModuleKey *k = nullptr;
     Trie *t =
         SpellCheck_OpenDict(sctx->redisCtx, dict, REDISMODULE_READ, &k);
-    if (t == NULL) {
+    if (t == nullptr) {
       continue;
     }
     FindSuggestions(t, term, fieldMask, s, 0);
@@ -259,9 +259,9 @@ bool SpellChecker::ReplyTermSuggestions(char *term, size_t len, t_fieldMask fiel
 
 bool SpellChecker::CheckDictExistence(const char *dict) {
 #define BUFF_SIZE 1000
-  RedisModuleKey *k = NULL;
+  RedisModuleKey *k = nullptr;
   Trie *t = SpellCheck_OpenDict(sctx->redisCtx, dict, REDISMODULE_READ, &k);
-  if (t == NULL) {
+  if (t == nullptr) {
     char buff[BUFF_SIZE];
     snprintf(buff, BUFF_SIZE, "Dict does not exist: %s", dict);
     RedisModule_ReplyWithError(sctx->redisCtx, buff);
@@ -291,8 +291,8 @@ bool SpellChecker::CheckTermDictsExistance() {
 
 //---------------------------------------------------------------------------------------------
 
-static int forEachCallback(QueryNode *n, SpellChecker *self) {
-    if (n->type == QN_TOKEN) {
+static bool forEachCallback(QueryNode *n, SpellChecker *self) {
+  if (n->type == QN_TOKEN) {
     QueryTokenNode *tn = dynamic_cast<QueryTokenNode*>(n);
     if (self->ReplyTermSuggestions(tn->tok.str.c_str(), tn->tok.length(), tn->opts.fieldMask)) {
       self->results++;

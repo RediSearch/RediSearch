@@ -46,7 +46,9 @@ struct VarintVectorWriter {
   size_t nmemb;  // how many members we've put in
   uint32_t lastValue;
 
-  VarintVectorWriter(size_t cap = 64);
+  VarintVectorWriter(size_t cap = 64)
+    : buf{cap}, nmemb{0}, lastValue{0}
+  { }
 
   size_t GetCount() const { return nmemb; }
   size_t GetByteLength() const { return buf.offset; }

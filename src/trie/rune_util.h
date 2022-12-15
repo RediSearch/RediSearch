@@ -40,16 +40,20 @@ struct Runes {
   enum class Folded { No, Yes };
 
   Runes(const char *str = "", Folded folded = Folded::No)
-    : _runes{folded == Folded::No ? strToRunes(str, nullptr, _dynamic, _runes_s)
-                                  : strToFoldedRunes(str, nullptr, _dynamic, _runes_s)}
-    , _len{nu_strlen(str, nu_utf8_read)}
+    : _dynamic{false}
+    , _len{static_cast<size_t>(nu_strlen(str, nu_utf8_read))}
     , _nbytes{_len * sizeof(rune)}
+    , _runes_s{}
+    , _runes{folded == Folded::No ? strToRunes(str, nullptr, _dynamic, _runes_s)
+                                  : strToFoldedRunes(str, nullptr, _dynamic, _runes_s)}
   { }
 
   Runes(const char *str, size_t len)
-    : _runes{strToRunes(str, nullptr, _dynamic, _runes_s)}
+    : _dynamic{false}
     , _len{len}
     , _nbytes{len * sizeof(rune)}
+    , _runes_s{}
+    , _runes{strToRunes(str, nullptr, _dynamic, _runes_s)}
   { }
   Runes(const Runes &runes) { copy(runes); }
   Runes(const Runes &runes, size_t offset) { copy(runes, offset); }
@@ -143,7 +147,7 @@ struct Runes {
 
   bool operator==(const Runes &r) const {
     if (_nbytes != r._nbytes) return false;
-    return !memcpy(_runes, r._runes, _nbytes);
+    return memcmp(_runes, r._runes, _nbytes) == 0;
   }
 
   bool operator<(const Runes &r) const {
@@ -154,7 +158,14 @@ struct Runes {
     return runecmp(_runes, _len, r._runes, r._len) > 0;
   }
 
-  void operator=(const rune runes) { _runes = runes; } //@@ check this out
+  Runes& operator=(const Runes &runes) {
+    if (_dynamic) {
+      rm_free(_runes);
+    }
+    copy(runes);
+    return *this;
+  } //@@ check this out
+  // @@ checked out. found wanting
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

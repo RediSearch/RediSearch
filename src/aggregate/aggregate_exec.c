@@ -79,12 +79,13 @@ reeval_sortkey:
           break;
         case RSValue_String:
           /* Serialize string - by prepending "$" to it */
-          rskey = RedisModule_CreateStringPrintf(outctx, "$%s", sortkey->strval);
+          rskey = RedisModule_CreateStringPrintf(outctx, "$%s", sortkey->strval.str);
           break;
         case RSValue_RedisString:
         case RSValue_OwnRstring:
-          rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
-                                                 RedisModule_StringPtrLen(sortkey->rstrval, nullptr));
+          rskey = RedisModule_CreateStringPrintf(
+            outctx, "$%s", RedisModule_StringPtrLen(sortkey->rstrval, nullptr)
+          );
           break;
         case RSValue_Null:
         case RSValue_Undef:
@@ -194,10 +195,9 @@ void AREQ::Execute(RedisModuleCtx *outctx) {
 
 //---------------------------------------------------------------------------------------------
 
-AREQ::AREQ(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type,
-           QueryError *status) {
-  reqflags = 0;
-
+AREQ::AREQ(
+  RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, QueryError *status
+) : reqflags{0} {
   RedisModuleCtx *thctx = nullptr;
   try {
     int rc = REDISMODULE_ERR;

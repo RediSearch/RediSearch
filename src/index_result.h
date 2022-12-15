@@ -149,7 +149,7 @@ struct TermResult : public IndexResult {
   TermResult(const ForwardIndexEntry &ent)
     : IndexResult{RSResultType_Term, ent.docId, ent.fieldMask, ent.freq, 0}
     , term{nullptr}
-    , offsets{ent.vw ? OffsetVector{ent.vw->GetByteData(), ent.vw->GetByteLength()}
+    , offsets{ent.vw ? OffsetVector{ent.vw->GetByteData(), static_cast<uint32_t>(ent.vw->GetByteLength())}
                      : OffsetVector{}}
   {
     offsetsSz = ent.vw ? ent.vw->GetByteLength() : 0;

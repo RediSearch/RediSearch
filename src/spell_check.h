@@ -18,7 +18,7 @@ struct RS_Suggestion : Object {
   RS_Suggestion(Runes &runes, double score);
   ~RS_Suggestion();
 
-  int operator>(const RS_Suggestion &v) {
+  int operator>(const RS_Suggestion &v) const {
     if (score < v.score) {
       return -1;
     }
@@ -36,7 +36,7 @@ struct RS_Suggestions : Object {
 
   void Add(char *term, size_t len, double score, int incr);
   Vector<RS_Suggestion> GetSuggestions();
-  void SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, uint64_t totalDocNumber);
+  void SendReplyOnTerm(RedisModuleCtx *ctx, const char *term, size_t len, uint64_t totalDocNumber);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -49,13 +49,18 @@ struct SpellChecker {
   bool fullScoreInfo;
   size_t results;
 
-  SpellChecker(RedisSearchCtx *sctx, Vector<const char*> includeDict, Vector<const char*> excludeDict,
-    long long distance, bool fullScoreInfo) :
-      sctx(sctx), includeDict(includeDict), excludeDict(excludeDict), distance(distance),
-      fullScoreInfo(fullScoreInfo) {}
+  SpellChecker(
+    RedisSearchCtx *sctx_, Vector<const char*> includeDict_, 
+    Vector<const char*> excludeDict_, long long distance_, bool fullScoreInfo_
+  ) : sctx{sctx_}
+    , includeDict{includeDict_}
+    , excludeDict{excludeDict_}
+    , distance{distance_}
+    , fullScoreInfo{fullScoreInfo_}
+  { }
 
   void Reply(QueryAST *q);
-  bool ReplyTermSuggestions(char *term, size_t len, t_fieldMask fieldMask);
+  bool ReplyTermSuggestions(const char *term, size_t len, t_fieldMask fieldMask);
 
   void FindSuggestions(Trie *t, const char *term, t_fieldMask fieldMask, RS_Suggestions &s, int incr);
   double GetScore(char *suggestion, size_t len, t_fieldMask fieldMask);
