@@ -9,6 +9,10 @@ ifneq ($(BB),)
 SLOW:=1
 endif
 
+ifeq ($(GDB),1)
+SLOW:=1
+endif
+
 ifneq ($(filter coverage show-cov upload-cov,$(MAKECMDGOALS)),)
 COV=1
 endif

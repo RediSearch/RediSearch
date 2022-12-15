@@ -23,9 +23,10 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		BINROOT=path          Path to repo binary root dir
 
 		RLTEST_ARGS=args      Extra RLTest args
-		MODARGS=args          RediSearch module arguments
 		TEST=name             Operate in single-test mode
 		ONLY_STABLE=1         Skip unstable tests
+		MODARGS=args          RediSearch module arguments
+		GC=0                  Disable garbage collection in tests
 
 		COORD=1|oss|rlec      Test Coordinator
 		SHARDS=n              Number of OSS coordinator shards (default: 3)
@@ -120,6 +121,8 @@ SHARDS=${SHARDS:-3}
 RLEC_PORT=${RLEC_PORT:-12000}
 
 [[ $PARALLEL == 1 ]] && RLTEST_PARALLEL_ARG="--parallelism $($READIES/bin/nproc)"
+
+[[ $GC == 0 ]] && MODARGS="${MODARGS} NOGC"
 
 #---------------------------------------------------------------------------------------------- 
 
