@@ -43,10 +43,13 @@ struct DocumentField : Object {
   RedisModuleString *text;
   FieldType indexAs;
 
-  DocumentField() {}
+  DocumentField()
+    : name{}, text{nullptr}, indexAs{INDEXFLD_T_UNTYPED}
+  {}
 
-  DocumentField(String name, RedisModuleString *text) :
-    name(name), text(text) {}
+  DocumentField(const String& name_, RedisModuleString *text_)
+    : name{name_}, text{text_}, indexAs{INDEXFLD_T_UNTYPED}
+  { }
 
   bool CheckIdx(FieldType t) { return (indexAs) & (t); }
 };
@@ -57,7 +60,7 @@ struct AddDocumentCtx;
 
 struct Document : Object {
   RedisModuleString *docKey;
-  Vector<DocumentField*> fields;
+  Vector<DocumentField> fields;
   RSLanguage language;
   float score;
   t_docId docId;
@@ -88,7 +91,7 @@ struct Document : Object {
   int LoadAllFields(RedisModuleCtx *ctx);
   void LoadPairwiseArgs(RedisModuleString **args, size_t nargs);
 
-  DocumentField *addFieldCommon(const char *fieldname, uint32_t typemask);
+  DocumentField &addFieldCommon(const char *fieldname, uint32_t typemask);
 
   size_t NumFields() { return fields.size(); }
 };

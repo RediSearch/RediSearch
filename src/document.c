@@ -43,9 +43,9 @@ bool AddDocumentCtx::SetDocument(IndexSpec *sp, Document *d, size_t oldFieldCoun
   int hasOtherFields = 0;
 
   for (size_t i = 0; i < d->NumFields(); i++) {
-    DocumentField *f = d->fields[i];
-    const FieldSpec *fs = sp->GetField(f->name);
-    if (!fs || !f->text) {
+    DocumentField &f = d->fields[i];
+    const FieldSpec *fs = sp->GetField(f.name);
+    if (!fs || !f.text) {
       fspecs.emplace_back(0);
       continue;
     }
@@ -64,11 +64,11 @@ bool AddDocumentCtx::SetDocument(IndexSpec *sp, Document *d, size_t oldFieldCoun
     }
 
     // See what we want the given field indexed as:
-    if (!f->indexAs) {
-      f->indexAs = fs->types;
+    if (!f.indexAs) {
+      f.indexAs = fs->types;
     } else {
       // Verify the flags:
-      if ((f->indexAs & fs->types) != f->indexAs) {
+      if ((f.indexAs & fs->types) != f.indexAs) {
         status.SetErrorFmt(QUERY_EUNSUPPTYPE,
                            "Tried to index field %s as type not specified in schema", fs->name);
         return false;
@@ -76,17 +76,17 @@ bool AddDocumentCtx::SetDocument(IndexSpec *sp, Document *d, size_t oldFieldCoun
     }
 
     if (fs->IsIndexable()) {
-      if (f->indexAs & INDEXFLD_T_FULLTEXT) {
+      if (f.indexAs & INDEXFLD_T_FULLTEXT) {
         numTextIndexable++;
         hasTextFields = 1;
       }
 
-      if (f->indexAs != INDEXFLD_T_FULLTEXT) {
+      if (f.indexAs != INDEXFLD_T_FULLTEXT) {
         // has non-text but indexable fields
         hasOtherFields = 1;
       }
 
-      if (f->CheckIdx(INDEXFLD_T_GEO)) {
+      if (f.CheckIdx(INDEXFLD_T_GEO)) {
         docFlags = Document_HasOnDemandDeletable;
       }
     }
@@ -227,8 +227,8 @@ void Document::Dump() const {
   printf("Document Key: %s. ID=%" PRIu64 "\n", RedisModule_StringPtrLen(docKey, nullptr),
          docId);
   for (size_t ii = 0; ii < NumFields(); ++ii) {
-    printf("  [%lu]: %s => %s\n", ii, fields[ii]->name,
-           RedisModule_StringPtrLen(fields[ii]->text, nullptr));
+    printf("  [%lu]: %s => %s\n", ii, fields[ii].name,
+           RedisModule_StringPtrLen(fields[ii].text, nullptr));
   }
 }
 // LCOV_EXCL_STOP
@@ -298,10 +298,10 @@ void AddDocumentCtx::Submit(RedisSearchCtx *sctx, uint32_t options_) {
   if (!client.bc) throw Error("No blocked client");
   size_t totalSize = 0;
   for (size_t ii = 0; ii < doc.NumFields(); ++ii) {
-    const DocumentField *ff = doc.fields[ii];
-    if (fspecs[ii].name != "" && (ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG))) {
+    const DocumentField &ff = doc.fields[ii];
+    if (fspecs[ii].name != "" && (ff.indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG))) {
       size_t n;
-      RedisModule_StringPtrLen(ff->text, &n);
+      RedisModule_StringPtrLen(ff.text, &n);
       totalSize += n;
     }
   }
@@ -338,10 +338,10 @@ AddDocumentCtx::~AddDocumentCtx() {
 
 //---------------------------------------------------------------------------------------------
 
-bool FieldSpec::FulltextPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field,
+bool FieldSpec::FulltextPreprocessor(AddDocumentCtx *aCtx, const DocumentField &field,
     FieldIndexerData *fdata, QueryError *status) const {
   size_t fl;
-  const char *c = RedisModule_StringPtrLen(field->text, &fl);
+  const char *c = RedisModule_StringPtrLen(field.text, &fl);
   if (IsSortable()) {
     aCtx->sv->Put(sortIdx, (void *)c, RS_SORTABLE_STR);
   }
@@ -376,9 +376,9 @@ bool FieldSpec::FulltextPreprocessor(AddDocumentCtx *aCtx, const DocumentField *
 
 //---------------------------------------------------------------------------------------------
 
-bool FieldSpec::NumericPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field,
+bool FieldSpec::NumericPreprocessor(AddDocumentCtx *aCtx, const DocumentField &field,
     FieldIndexerData *fdata, QueryError *status) const {
-  if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
+  if (RedisModule_StringToDouble(field.text, &fdata->numeric) == REDISMODULE_ERR) {
     status->SetCode(QUERY_ENOTNUMERIC);
     return false;
   }
@@ -393,7 +393,7 @@ bool FieldSpec::NumericPreprocessor(AddDocumentCtx *aCtx, const DocumentField *f
 //---------------------------------------------------------------------------------------------
 
 bool IndexBulkData::numericIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx,
-    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
+    const DocumentField &field, const FieldSpec *fs, FieldIndexerData *fdata,
     QueryError *status) {
   NumericRangeTree *rt = indexDatas[INDEXTYPE_TO_POS(INDEXFLD_T_NUMERIC)];
   if (!rt) {
@@ -413,9 +413,9 @@ bool IndexBulkData::numericIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx,
 
 //---------------------------------------------------------------------------------------------
 
-bool FieldSpec::GeoPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field,
+bool FieldSpec::GeoPreprocessor(AddDocumentCtx *aCtx, const DocumentField &field,
     FieldIndexerData *fdata, QueryError *status) const {
-  const char *c = RedisModule_StringPtrLen(field->text, nullptr);
+  const char *c = RedisModule_StringPtrLen(field.text, nullptr);
   char *pos = strpbrk(c, " ,");
   if (!pos) {
     status->SetCode(QUERY_EGEOFORMAT);
@@ -431,7 +431,7 @@ bool FieldSpec::GeoPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field
 //---------------------------------------------------------------------------------------------
 
 bool IndexBulkData::geoIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx,
-    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
+    const DocumentField &field, const FieldSpec *fs, FieldIndexerData *fdata,
     QueryError *status) {
   GeoIndex gi(ctx, *fs);
   int rv = gi.AddStrings(aCtx->doc.docId, fdata->geoSlon, fdata->geoSlat);
@@ -445,7 +445,7 @@ bool IndexBulkData::geoIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx,
 
 //---------------------------------------------------------------------------------------------
 
-bool FieldSpec::TagPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field,
+bool FieldSpec::TagPreprocessor(AddDocumentCtx *aCtx, const DocumentField &field,
     FieldIndexerData *fdata, QueryError *status) const {
   fdata->tags = TagIndex::Tags(tagSep, tagFlags, field);
   if (!fdata->tags) {
@@ -453,7 +453,7 @@ bool FieldSpec::TagPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field
   }
   if (IsSortable()) {
     size_t fl;
-    const char *c = RedisModule_StringPtrLen(field->text, &fl);
+    const char *c = RedisModule_StringPtrLen(field.text, &fl);
     aCtx->sv->Put(sortIdx, (void *)c, RS_SORTABLE_STR);
   }
   return true;
@@ -462,7 +462,7 @@ bool FieldSpec::TagPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field
 //---------------------------------------------------------------------------------------------
 
 bool IndexBulkData::tagIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx,
-    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
+    const DocumentField &field, const FieldSpec *fs, FieldIndexerData *fdata,
     QueryError *status) {
   TagIndex *tidx = indexDatas[IXFLDPOS_TAG];
   if (!tidx) {
@@ -481,12 +481,12 @@ bool IndexBulkData::tagIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx,
 
 //---------------------------------------------------------------------------------------------
 
-bool IndexBulkData::Add(AddDocumentCtx *cur, RedisSearchCtx *sctx, const DocumentField *field,
+bool IndexBulkData::Add(AddDocumentCtx *cur, RedisSearchCtx *sctx, const DocumentField &field,
                        const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status) {
   bool rc = true;
   for (size_t i = 0; i < INDEXFLD_NUM_TYPES && rc; ++i) {
     // see which types are supported in the current field...
-    if (field->indexAs & INDEXTYPE_FROM_POS(i)) {
+    if (field.indexAs & INDEXTYPE_FROM_POS(i)) {
       switch (i) {
         case IXFLDPOS_TAG:
           rc = tagIndexer(cur, sctx, field, fs, fdata, status);
@@ -538,30 +538,30 @@ int AddDocumentCtx::AddToIndexes() {
     FieldIndexerData *fdata = &fdatas[i];
     ++i;
 
-    if (fs.name == "" || ff->indexAs == 0) {
-      LG_DEBUG("Skipping field %s not in index!", ff->name);
+    if (fs.name == "" || ff.indexAs == 0) {
+      LG_DEBUG("Skipping field %s not in index!", ff.name);
       continue;
     }
 
-    if (ff->CheckIdx(INDEXFLD_T_FULLTEXT)) {
+    if (ff.CheckIdx(INDEXFLD_T_FULLTEXT)) {
       if (!fs.FulltextPreprocessor(this, ff, fdata, &status)) {
         goto cleanup;
       }
     }
 
-    if (ff->CheckIdx(INDEXFLD_T_NUMERIC)) {
+    if (ff.CheckIdx(INDEXFLD_T_NUMERIC)) {
       if (!fs.NumericPreprocessor(this, ff, fdata, &status)) {
         goto cleanup;
       }
     }
 
-    if (ff->CheckIdx(INDEXFLD_T_GEO)) {
+    if (ff.CheckIdx(INDEXFLD_T_GEO)) {
       if (!fs.GeoPreprocessor(this, ff, fdata, &status)) {
         goto cleanup;
       }
     }
 
-    if (ff->CheckIdx(INDEXFLD_T_TAG)) {
+    if (ff.CheckIdx(INDEXFLD_T_TAG)) {
       if (!fs.TagPreprocessor(this, ff, fdata, &status)) {
         goto cleanup;
       }
@@ -662,7 +662,7 @@ void AddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
     FieldSpecDedupeArray dedupes;
     // Update sortables if needed
     for (auto const &f : doc.fields) {
-      const FieldSpec *fs = sctx->spec->GetField(f->name);
+      const FieldSpec *fs = sctx->spec->GetField(f.name);
       if (fs == nullptr || !fs->IsSortable()) {
         continue;
       }
@@ -673,7 +673,7 @@ void AddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
 
       dedupes[fs->index] = 1;
 
-      int idx = sctx->spec->GetFieldSortingIndex(f->name);
+      int idx = sctx->spec->GetFieldSortingIndex(f.name);
       if (idx < 0) continue;
 
       if (!md->sortVector) {
@@ -685,11 +685,11 @@ void AddDocumentCtx::UpdateNoIndex(RedisSearchCtx *sctx) {
       switch (fs->types) {
         case INDEXFLD_T_FULLTEXT:
         case INDEXFLD_T_TAG:
-          md->sortVector->Put(idx, (void *)RedisModule_StringPtrLen(f->text, nullptr), RS_SORTABLE_STR);
+          md->sortVector->Put(idx, (void *)RedisModule_StringPtrLen(f.text, nullptr), RS_SORTABLE_STR);
           break;
         case INDEXFLD_T_NUMERIC: {
           double numval;
-          if (RedisModule_StringToDouble(f->text, &numval) == REDISMODULE_ERR) {
+          if (RedisModule_StringToDouble(f.text, &numval) == REDISMODULE_ERR) {
             BAIL("Could not parse numeric index value");
           }
           md->sortVector->Put(idx, &numval, RS_SORTABLE_NUM);
@@ -709,8 +709,8 @@ DocumentField *Document::GetField(const char *fieldName) {
   if (!fieldName) return nullptr;
 
   for (auto const &f: fields) {
-    if (!strcasecmp(f->name.c_str(), fieldName)) {
-      return f;
+    if (!strcasecmp(f.name.c_str(), fieldName)) {
+      return &f;
     }
   }
   return nullptr;

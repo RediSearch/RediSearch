@@ -128,7 +128,7 @@ struct TagIndex : BaseIndex {
     // Preprocess a document tag field, returning a vector of all tags split from the content
     Tags() {}
     Tags(Tags &&t) : tags(std::move(t.tags)) {}
-    Tags(char sep, TagFieldFlags flags, const DocumentField *data);
+    Tags(char sep, TagFieldFlags flags, const DocumentField &data);
     ~Tags() { Clear(); }
 
     Tags &operator=(Tags &&t) { tags = std::move(t.tags); return *this; }

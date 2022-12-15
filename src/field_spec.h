@@ -8,6 +8,7 @@
 
 enum FieldType {
   // Newline
+  INDEXFLD_T_UNTYPED = 0x00,
   INDEXFLD_T_FULLTEXT = 0x01,
   INDEXFLD_T_NUMERIC = 0x02,
   INDEXFLD_T_GEO = 0x04,
@@ -121,16 +122,16 @@ struct FieldSpec {
 
   bool IsFieldType(FieldType t) const { return types & t; }
 
-  bool FulltextPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field,
+  bool FulltextPreprocessor(AddDocumentCtx *aCtx, const DocumentField &field,
     FieldIndexerData *fdata, QueryError *status) const;
 
-  bool NumericPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field,
+  bool NumericPreprocessor(AddDocumentCtx *aCtx, const DocumentField &field,
     FieldIndexerData *fdata, QueryError *status) const;
 
-  bool GeoPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field,
+  bool GeoPreprocessor(AddDocumentCtx *aCtx, const DocumentField &field,
     FieldIndexerData *fdata, QueryError *status) const;
 
-  bool TagPreprocessor(AddDocumentCtx *aCtx, const DocumentField *field,
+  bool TagPreprocessor(AddDocumentCtx *aCtx, const DocumentField &field,
     FieldIndexerData *fdata, QueryError *status) const;
 
   bool parseFieldSpec(ArgsCursor *ac, QueryError *status);

@@ -27,28 +27,30 @@ Document::Document(RedisModuleString *docKey, double score, RSLanguage lang)
 
 //---------------------------------------------------------------------------------------------
 
-DocumentField *Document::addFieldCommon(const char *fieldname, uint32_t typemask) {
-  DocumentField f;
+DocumentField &Document::addFieldCommon(const char *fieldname, uint32_t typemask) {
+  DocumentField f{};
   f.indexAs = typemask;
-  if (flags & DOCUMENT_F_OWNSTRINGS) {
-    f.name = rm_strdup(fieldname);
-  } else {
+  // @@ for String, there is no difference here, it will be copied regardless.
+  // @@ TODO fix logic?
+  // if (flags & DOCUMENT_F_OWNSTRINGS) {
+  //   f.name = rm_strdup(fieldname);
+  // } else {
     f.name = fieldname;
-  }
+  // }
 
-  fields.push_back(&f);
-  return &f;
+  fields.push_back(f);
+  return fields.back();
 }
 
 //---------------------------------------------------------------------------------------------
 
 void Document::AddField(const char *fieldname, RedisModuleString *fieldval,
                         uint32_t typemask) {
-  DocumentField *f = addFieldCommon(fieldname, typemask);
+  DocumentField& f = addFieldCommon(fieldname, typemask);
   if (flags & DOCUMENT_F_OWNSTRINGS) {
-    f->text = RedisModule_CreateStringFromString(RSDummyContext, fieldval);
+    f.text = RedisModule_CreateStringFromString(RSDummyContext, fieldval);
   } else {
-    f->text = fieldval;
+    f.text = fieldval;
   }
 }
 
@@ -59,8 +61,8 @@ void Document::AddField(const char *fieldname, RedisModuleString *fieldval,
 
 void Document::AddFieldC(const char *fieldname, const char *val, size_t vallen, uint32_t typemask) {
   if (!(flags & DOCUMENT_F_OWNSTRINGS)) throw Error("Document should own strings");
-  DocumentField *f = addFieldCommon(fieldname, typemask);
-  f->text = RedisModule_CreateString(RSDummyContext, val, vallen);
+  DocumentField& f = addFieldCommon(fieldname, typemask);
+  f.text = RedisModule_CreateString(RSDummyContext, val, vallen);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -101,10 +103,10 @@ void Document::MakeStringsOwner() {
     RedisModule_FreeString(RSDummyContext, oldDocKey);
   }
 
-  for (auto const &f : fields) {
-    if (f->text) {
-      RedisModuleString *oldText = f->text;
-      f->text = RedisModule_CreateStringFromString(RSDummyContext, oldText);
+  for (auto& f : fields) {
+    if (f.text) {
+      RedisModuleString *oldText = f.text;
+      f.text = RedisModule_CreateStringFromString(RSDummyContext, oldText);
       if (flags & DOCUMENT_F_OWNREFS) {
         RedisModule_FreeString(RSDummyContext, oldText);
       }
@@ -150,10 +152,8 @@ int Document::LoadSchemaFields(RedisSearchCtx *sctx) {
     if (v == nullptr) {
       continue;
     }
-    DocumentField* f;
-    f->name = fname;
-    f->text = v;  // HashGet gives us `v` with a refcount of 1, meaning we're the only owner
-    fields.push_back(f);
+    // HashGet gives us `v` with a refcount of 1, meaning we're the only owner
+    fields.emplace_back(fname, v);
   }
   rv = REDISMODULE_OK;
 
@@ -187,7 +187,7 @@ int Document::LoadAllFields(RedisModuleCtx *ctx) {
   MakeStringsOwner();
 
   fields.clear();
-  fields.reserve(len / 2);
+  fields.resize(len / 2);
 
   RedisModuleCallReply *k, *v;
   for (size_t i = 0; i < len; i += 2, ++n) {
@@ -195,8 +195,8 @@ int Document::LoadAllFields(RedisModuleCtx *ctx) {
     v = RedisModule_CallReplyArrayElement(rep, i + 1);
     size_t nlen = 0;
     const char *name = RedisModule_CallReplyStringPtr(k, &nlen);
-    fields[n]->name = rm_strndup(name, nlen);
-    fields[n]->text = RedisModule_CreateStringFromCallReply(v);
+    fields[n].name = String{name, nlen};
+    fields[n].text = RedisModule_CreateStringFromCallReply(v);
   }
   rc = REDISMODULE_OK;
 
@@ -213,7 +213,7 @@ void Document::LoadPairwiseArgs(RedisModuleString **args, size_t nargs) {
   fields.reserve(nargs/2);
   for (size_t i = 0; i < nargs; i += 2) {
     const char *name = RedisModule_StringPtrLen(args[i], nullptr);
-    fields.push_back(new DocumentField{name, args[i + 1]});
+    fields.emplace_back(name, args[i + 1]);
   }
 }
 
@@ -227,8 +227,8 @@ void Document::Clear() {
       if (flags & DOCUMENT_F_OWNSTRINGS) {
         //rm_free(f->name);
       }
-      if (f->text) {
-        RedisModule_FreeString(RSDummyContext, f->text);
+      if (f.text) {
+        RedisModule_FreeString(RSDummyContext, f.text);
       }
     }
   }
@@ -273,7 +273,7 @@ int Document::Save(RedisSearchCtx *ctx, int options, QueryError *status) {
   }
 
   for (auto field : fields) {
-    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, +field->name, field->text, nullptr);
+    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, field.name.c_str(), field.text, nullptr);
   }
   RedisModule_CloseKey(k);
   return REDISMODULE_OK;
@@ -286,9 +286,9 @@ int Document::Save(RedisSearchCtx *ctx, int options, QueryError *status) {
 int Document::ReplyFields(RedisModuleCtx *ctx) {
   RedisModule_ReplyWithArray(ctx, fields.size() * 2);
   for (auto const &f : fields) {
-    RedisModule_ReplyWithStringBuffer(ctx, f->name.c_str(), f->name.length());
-    if (f->text) {
-      RedisModule_ReplyWithString(ctx, f->text);
+    RedisModule_ReplyWithStringBuffer(ctx, f.name.c_str(), f.name.length());
+    if (f.text) {
+      RedisModule_ReplyWithString(ctx, f.text);
     } else {
       RedisModule_ReplyWithNull(ctx);
     }

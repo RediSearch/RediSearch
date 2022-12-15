@@ -68,9 +68,9 @@ char *strtolower(char *str);
 
 // Preprocess a document tag field, returning a vector of all tags split from the content
 
-TagIndex::Tags::Tags(char sep, TagFieldFlags flags, const DocumentField *data) {
+TagIndex::Tags::Tags(char sep, TagFieldFlags flags, const DocumentField &data) {
   size_t sz;
-  char *p = (char *)RedisModule_StringPtrLen(data->text, &sz);
+  char *p = (char *)RedisModule_StringPtrLen(data.text, &sz);
   if (!p || sz == 0) return;
   char *pp = p = rm_strndup(p, sz);
   while (p) {
@@ -84,7 +84,7 @@ TagIndex::Tags::Tags(char sep, TagFieldFlags flags, const DocumentField *data) {
       if (!(flags & TagField_CaseSensitive)) {
         tok = strtolower(tok);
       }
-	  tags.emplace_back(tok, MIN(toklen, MAX_TAG_LEN));
+	    tags.emplace_back(tok, MIN(toklen, MAX_TAG_LEN));
     }
   }
   rm_free(pp);
