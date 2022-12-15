@@ -15,7 +15,7 @@ RediSearch is a [source-available](https://github.com/RediSearch/RediSearch/blob
   - [Quick start guide](/redisearch/quick_start)
   - [Source code](https://github.com/RediSearch/RediSearch)
   - [Latest release](https://github.com/RediSearch/RediSearch/releases)
-  - [Docker image](https://hub.docker.com/r/redislabs/redisearch/)
+  - [Docker image](https://hub.docker.com/r/redis/redis-stack-server/)
 
 ## Primary features
 
