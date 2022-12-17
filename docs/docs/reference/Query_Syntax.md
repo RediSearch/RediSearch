@@ -10,7 +10,7 @@ description: >
 
 We support a simple syntax for complex queries with the following rules:
 
-* Multi-word phrases simply a list of tokens, e.g. `foo bar baz`, and imply intersection (AND) of the terms.
+* Multi-word phrases that are simply a list of tokens, e.g. `foo bar baz`, and imply intersection (AND) of the terms.
 * Exact phrases are wrapped in quotes, e.g `"hello world"`.
 * OR Unions (i.e `word1 OR word2`), are expressed with a pipe (`|`), e.g. `hello|hallo|shalom|hola`.
 * NOT negation (i.e. `word1 NOT word2`) of expressions or sub-queries. e.g. `hello -world`. As of version 0.19.3, purely negative queries (i.e. `-foo` or `-@title:(foo|bar)`) are supported.
