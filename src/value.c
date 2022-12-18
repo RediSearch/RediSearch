@@ -284,7 +284,7 @@ void RSValue::ToString(RSValue *dst) {
     case RSValue_RedisString:
     case RSValue_OwnRstring: {
       size_t sz;
-      const char *str = RedisModule_StringPtrLen(rstrval, &sz);
+      const char *str = RedisModule_StringPtrLen(rstrval, &sz); //@@ to guarentee on rstrval lifetime
       dst->SetConstString(str, sz);
       break;
     }
