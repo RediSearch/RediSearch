@@ -137,7 +137,7 @@ RSValue *HighligherDoc::summarizeField(IndexSpec *spec, const ReturnedField &fie
                            iovsArr, HIGHLIGHT_ORDER_SCOREPOS);
 
   // Buffer to store concatenated fragments
-  std::string s;
+  std::string s{};
 
   for (auto &iovs_array: iovsArr) {
     size_t lastSize = s.length();
@@ -149,7 +149,7 @@ RSValue *HighligherDoc::summarizeField(IndexSpec *spec, const ReturnedField &fie
     // Duplicate spaces for the current snippet are eliminated here. We shouldn't
     // move it to the end because the delimiter itself may contain a special kind
     // of whitespace.
-    size_t newSize = stripDuplicateSpaces(s.c_str() + lastSize, s.length() - lastSize);
+    size_t newSize = stripDuplicateSpaces(s.data() + lastSize, s.length() - lastSize);
 	  s.resize(newSize);
   	s += fieldInfo.summarizeSettings.separator;
   }
@@ -250,8 +250,9 @@ int Highlighter::Next(SearchResult *r) {
 
 //---------------------------------------------------------------------------------------------
 
-Highlighter::Highlighter(const RSSearchOptions *searchopts, const FieldList &fields,
-    const RLookup *lookup) : ResultProcessor("Highlighter"), lookup(lookup), fields(fields) {
+Highlighter::Highlighter(
+  const RSSearchOptions *searchopts, const FieldList &fields_, const RLookup *lookup_
+) : ResultProcessor{"Highlighter"}, fields{fields_}, lookup{lookup_} {
   if (searchopts->language == RS_LANG_CHINESE) {
     fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;
   }

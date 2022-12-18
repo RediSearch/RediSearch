@@ -8,8 +8,8 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 RLookupKey::RLookupKey(RLookup *lookup, const char *name_, size_t n, int flags_, uint16_t idx)
-  : flags{flags_ & (~RLOOKUP_TRANSIENT_FLAGS)}
-  , dstidx{idx}
+  : dstidx{idx}
+  , flags{static_cast<uint16_t>(flags_ & (~RLOOKUP_TRANSIENT_FLAGS))}
   , refcnt{1}
   , name{flags_ & RLOOKUP_F_NAMEALLOC ? rm_strndup(name_, n) : name_}
 {
@@ -303,7 +303,7 @@ void RLookup::MoveRow(RLookupRow *src, RLookupRow *dst) const {
 void RLookupRow::Dump() const {
   printf("Row @%p\n", this);
   if (!dyn.empty()) {
-    printf("  DYN @%p\n", dyn);
+    printf("  DYN @%p\n", dyn.data());
     for (size_t ii = 0; ii < dyn.size(); ++ii) {
       printf("  [%lu]: %p\n", ii, dyn[ii]);
       if (dyn[ii]) {
@@ -413,7 +413,7 @@ int RLookupRow::getKeyCommon(const RLookupKey *kk, RLookupLoadOptions *options,
     RedisModuleCtx *ctx = options->sctx->redisCtx;
     RedisModuleString *keyName =
         RedisModule_CreateString(ctx, options->dmd->keyPtr, strlen(options->dmd->keyPtr));
-    *keyobj = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
+    *keyobj = static_cast<RedisModuleKey *>(RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ));
     RedisModule_FreeString(ctx, keyName);
     if (!*keyobj) {
       options->status->SetCode(QUERY_ENODOC);

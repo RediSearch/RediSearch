@@ -108,7 +108,7 @@ size_t unescapen(char *s, size_t sz) {
 
 //---------------------------------------------------------------------------------------------
 
-String str_unescape(char *s, size_t len) {
+String str_unescape(const char *s, size_t len) {
     String ss;
     while (len--) {
       // unescape

@@ -200,7 +200,7 @@ IndexSpec::IndexSpec(
   ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
 
   RedisModuleString *keyString = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, name);
-  RedisModuleKey *k = RedisModule_OpenKey(ctx, keyString, REDISMODULE_READ | REDISMODULE_WRITE);
+  RedisModuleKey *k = static_cast<RedisModuleKey *>(RedisModule_OpenKey(ctx, keyString, REDISMODULE_READ | REDISMODULE_WRITE));
   RedisModule_FreeString(ctx, keyString);
 
   // check that the key is empty
@@ -258,7 +258,7 @@ bool checkPhoneticAlgorithmAndLang(const char *matcher) {
   }
 
 #define LANGUAGES_SIZE 4
-  char *languages[] = {"en", "pt", "fr", "es"};
+  const char *languages[] = {"en", "pt", "fr", "es"};
 
   bool langauge_found = false;
   for (int i = 0; i < LANGUAGES_SIZE; ++i) {
@@ -495,7 +495,7 @@ char *IndexSpec::GetRandomTerm(size_t sampleSize) {
 
 void IndexSpec::FreeWithKey(RedisModuleCtx *ctx) {
   RedisModuleString *s = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, name);
-  RedisModuleKey *kk = RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE);
+  RedisModuleKey *kk = static_cast<RedisModuleKey *>(RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE));
   RedisModule_FreeString(ctx, s);
   if (kk == nullptr || RedisModule_KeyType(kk) != REDISMODULE_KEYTYPE_MODULE ||
       RedisModule_ModuleTypeGetType(kk) != IndexSpecType) {
@@ -571,7 +571,7 @@ void IndexSpec::FreeInternals() {
 // documents themselves) are freed before this function returns.
 
 static void IndexSpec_FreeAsync(void *data) {
-  IndexSpec *spec = data;
+  IndexSpec *spec = static_cast<IndexSpec *>(data);
   RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(nullptr);
   RedisSearchCtx sctx{threadCtx, spec};
   RedisModule_AutoMemory(threadCtx);
@@ -604,7 +604,7 @@ IndexSpec::~IndexSpec() {
 }
 
 void IndexSpec_Free(void *ctx) {
-  IndexSpec *spec = ctx;
+  IndexSpec *spec = static_cast<IndexSpec *>(ctx);
   delete spec;
 }
 
@@ -653,7 +653,7 @@ IndexSpec *IndexSpec::LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     formatted = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, ixname);
   }
 
-  options->keyp = RedisModule_OpenKey(ctx, formatted, modeflags);
+  options->keyp = static_cast<RedisModuleKey *>(RedisModule_OpenKey(ctx, formatted, modeflags));
   // we do not allow empty indexes when loading an existing index
   if (options->keyp == nullptr || RedisModule_KeyType(options->keyp) == REDISMODULE_KEYTYPE_EMPTY) {
     if (options->keyp) {
@@ -670,13 +670,13 @@ IndexSpec *IndexSpec::LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
       }
       formatted = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, ret->name);
       isKeynameOwner = true;
-      options->keyp = RedisModule_OpenKey(ctx, formatted, modeflags);
+      options->keyp = static_cast<RedisModuleKey *>(RedisModule_OpenKey(ctx, formatted, modeflags));
     }
   } else {
     if (RedisModule_ModuleTypeGetType(options->keyp) != IndexSpecType) {
       goto done;
     }
-    ret = RedisModule_ModuleTypeGetValue(options->keyp);
+    ret = static_cast<IndexSpec *>(RedisModule_ModuleTypeGetValue(options->keyp));
   }
 
   if (!ret) {
@@ -687,7 +687,7 @@ IndexSpec *IndexSpec::LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     if (modeflags & REDISMODULE_WRITE) {
       RedisModule_SetExpire(options->keyp, exp);
     } else {
-      RedisModuleKey *temp = RedisModule_OpenKey(ctx, formatted, REDISMODULE_WRITE);
+      RedisModuleKey *temp = static_cast<RedisModuleKey *>(RedisModule_OpenKey(ctx, formatted, REDISMODULE_WRITE));
       RedisModule_SetExpire(temp, ret->timeout * 1000);
       RedisModule_CloseKey(temp);
     }
@@ -720,7 +720,7 @@ IndexSpec *IndexSpec::Load(RedisModuleCtx *ctx, const char *name, int openWrite)
 
 RedisModuleString *IndexSpec::GetFormattedKey(const FieldSpec &fs, FieldType forType) {
   if (!indexStrs) {
-    indexStrs = rm_calloc(SPEC_MAX_FIELDS, sizeof(*indexStrs));
+    indexStrs = static_cast<IndexSpecFmtStrings *>(rm_calloc(SPEC_MAX_FIELDS, sizeof *indexStrs));
   }
 
   size_t typeix = INDEXTYPE_TO_POS(forType);
@@ -735,7 +735,7 @@ RedisModuleString *IndexSpec::GetFormattedKey(const FieldSpec &fs, FieldType for
         ret = TagIndex::FormatName(&sctx, fs.name);
         break;
       case INDEXFLD_T_GEO:
-        ret = RedisModule_CreateStringPrintf(RSDummyContext, GEOINDEX_KEY_FMT, name, fs.name);
+        ret = RedisModule_CreateStringPrintf(RSDummyContext, GEOINDEX_KEY_FMT, name, fs.name.c_str());
         break;
       case INDEXFLD_T_FULLTEXT:  // Text fields don't get a per-field index
       default:
@@ -806,16 +806,18 @@ bool IndexSpec::IsStopWord(std::string_view term) {
 //---------------------------------------------------------------------------------------------
 
 IndexSpec::IndexSpec(const char *name_)
-  : sortables{new RSSortingTable()}
+  : name{rm_strdup(name_)}
+  , fields{}
+  , stats{}
   , flags{INDEX_DEFAULT_FLAGS}
-  , name{rm_strdup(name_)}
-  , stopwords{DefaultStopWordList()}
   , terms{new Trie()}
+  , sortables{new RSSortingTable()}
+  , stopwords{DefaultStopWordList()}
   , getValue{nullptr}
   , getValueCtx{nullptr}
 {
   fields.reserve(SPEC_MAX_FIELDS);
-  memset(&stats, 0, sizeof(stats));
+  // memset(&stats, 0, sizeof(stats));
 }
 
 //---------------------------------------------------------------------------------------------
@@ -870,11 +872,7 @@ int bit(t_fieldMask id) {
 
 // Backwards compat version of load for rdbs with version < 8
 static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
-
   f->name = RedisModule_LoadStringBuffer(rdb, nullptr);
-  // char *tmpName = rm_strdup(f->name);
-  RedisModule_Free(f->name.c_str());
-  // f->name = tmpName;
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
   if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
@@ -883,12 +881,12 @@ static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encve
     // the new version encodes just the power of 2 of the bit
     f->ftId = RedisModule_LoadUnsigned(rdb);
   }
-  f->types = RedisModule_LoadUnsigned(rdb);
+  f->types = static_cast<FieldType>(RedisModule_LoadUnsigned(rdb));
   f->ftWeight = RedisModule_LoadDouble(rdb);
   f->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
   f->tagSep = TAG_FIELD_DEFAULT_SEP;
   if (encver >= 4) {
-    f->options = RedisModule_LoadUnsigned(rdb);
+    f->options = static_cast<FieldSpecOptions>(RedisModule_LoadUnsigned(rdb));
     f->sortIdx = RedisModule_LoadSigned(rdb);
   }
 }
@@ -923,12 +921,12 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   }
 
   size_t nameLen;
-  const char *name = RedisModule_LoadStringBuffer(rdb, &nameLen);
+  char *name = RedisModule_LoadStringBuffer(rdb, &nameLen);
   f->name = String{name, nameLen};
   RedisModule_Free(name);
 
-  f->types = RedisModule_LoadUnsigned(rdb);
-  f->options = RedisModule_LoadUnsigned(rdb);
+  f->types = static_cast<FieldType>(RedisModule_LoadUnsigned(rdb));
+  f->options = static_cast<FieldSpecOptions>(RedisModule_LoadUnsigned(rdb));
   f->sortIdx = RedisModule_LoadSigned(rdb);
 
   if (encver < INDEX_MIN_MULTITYPE_VERSION) {
@@ -943,7 +941,7 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   }
   // Load tag specific options
   if (f->IsFieldType(INDEXFLD_T_TAG) || (f->options & FieldSpec_Dynamic)) {
-    f->tagFlags = RedisModule_LoadUnsigned(rdb);
+    f->tagFlags = static_cast<TagFieldFlags>(RedisModule_LoadUnsigned(rdb));
     // Load the separator
     size_t l;
     char *s = RedisModule_LoadStringBuffer(rdb, &l);
@@ -991,7 +989,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
 
-  const char *name = RedisModule_LoadStringBuffer(rdb, nullptr);
+  char *name = RedisModule_LoadStringBuffer(rdb, nullptr);
   IndexSpec *sp = new IndexSpec(name);
   RedisModule_Free(name);
 
@@ -1025,7 +1023,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   // For version 3 or up - load the generic trie
   if (encver >= 3) {
-    sp->terms = TrieType_GenericLoad(rdb, 0);
+    sp->terms = static_cast<Trie *>(TrieType_GenericLoad(rdb, 0));
   } else {
     sp->terms = new Trie();
   }
@@ -1075,7 +1073,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
 
 void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
 
-  IndexSpec *sp = value;
+  IndexSpec *sp = static_cast<IndexSpec *>(value);
   // we save the name plus the null terminator
   RedisModule_SaveStringBuffer(rdb, sp->name, strlen(sp->name) + 1);
   RedisModule_SaveUnsigned(rdb, (uint)sp->flags);

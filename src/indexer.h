@@ -30,7 +30,7 @@ struct MergeMapEntry {
   ForwardIndexEntry *head;  // First document containing the term
   ForwardIndexEntry *tail;  // Last document containing the term
 
-  size_t MergeMapEntry::countMerged() const;
+  size_t countMerged() const;
 };
 
 typedef UnorderedMap<std::string, MergeMapEntry*> MergeMap;
@@ -51,7 +51,7 @@ struct DocumentIndexerConcurrentKey : ConcurrentKey {
       return;
     }
 
-    sctx.spec = RedisModule_ModuleTypeGetValue(key);
+    sctx.spec = static_cast<IndexSpec *>(RedisModule_ModuleTypeGetValue(key));
     if (sctx.spec->uniqueId != sctx.specId) {
       sctx.spec = NULL;
     }
@@ -127,7 +127,7 @@ struct IndexBulkData {
   FieldType typemask;
   int found;
 
-  bool Add(AddDocumentCtx *cur, RedisSearchCtx *sctx, const DocumentField *field,
+  bool Add(AddDocumentCtx *cur, RedisSearchCtx *sctx, const DocumentField &field,
            const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 
   void Cleanup(RedisSearchCtx *sctx);
@@ -135,13 +135,13 @@ struct IndexBulkData {
   static void indexBulkFields(AddDocumentCtx *aCtx, RedisSearchCtx *sctx);
 
   // private:
-  bool numericIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,
+  bool numericIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField &field,
     const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 
-  bool geoIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,
+  bool geoIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField &field,
     const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 
-  bool tagIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,
+  bool tagIndexer(AddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField &field,
     const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 };
 

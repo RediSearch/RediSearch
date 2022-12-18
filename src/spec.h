@@ -59,16 +59,16 @@ extern const char *SpecTypeNames[];
 //---------------------------------------------------------------------------------------------
 
 struct IndexStats {
-  size_t numDocuments;
-  size_t numTerms;
-  size_t numRecords;
-  size_t invertedSize;
-  size_t invertedCap;
-  size_t skipIndexesSize;
-  size_t scoreIndexesSize;
-  size_t offsetVecsSize;
-  size_t offsetVecRecords;
-  size_t termsSize;
+  size_t numDocuments{};
+  size_t numTerms{};
+  size_t numRecords{};
+  size_t invertedSize{};
+  size_t invertedCap{};
+  size_t skipIndexesSize{};
+  size_t scoreIndexesSize{};
+  size_t offsetVecsSize{};
+  size_t offsetVecRecords{};
+  size_t termsSize{};
 
   IndexStats() {}
   IndexStats(RedisModuleIO *rdb) { RdbLoad(rdb); }
@@ -111,12 +111,13 @@ struct FieldSpecDedupeArray : Vector<uint16_t> {
   }
 };
 
-#define INDEX_DEFAULT_FLAGS \
-  Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
+#define INDEX_DEFAULT_FLAGS static_cast<IndexFlags>( \
+  Index_StoreFreqs | Index_StoreTermOffsets |        \
+  Index_StoreFieldFlags | Index_StoreByteOffsets)
 
-#define INDEX_STORAGE_MASK                                                                  \
-  (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
-   Index_WideSchema)
+#define INDEX_STORAGE_MASK  static_cast<IndexFlags>(                  \
+  Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | \
+  Index_StoreNumeric | Index_WideSchema)
 
 #define INDEX_CURRENT_VERSION 15
 
@@ -196,7 +197,7 @@ struct BaseIndex : Object {
 //---------------------------------------------------------------------------------------------
 
 struct IndexSpec : Object {
-  typedef IndexSpecId Id;
+  using Id = IndexSpecId;
 
   char *name;
   Vector<FieldSpec> fields;

@@ -79,10 +79,10 @@ RSValue *RSValue::Dereference() {
 }
 
 const RSValue *RSValue::Dereference() const {
-  RSValue *v = this;
+  const RSValue *v = this;
   for (; v && v->t == RSValue_Reference; v = v->ref)
     ;
-  return (RSValue *)v;
+  return v;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -169,7 +169,7 @@ void RSValue::SetString(char *str, size_t len) {
 
 RSValue *RS_NewCopiedString(const char *s, size_t n) {
   RSValue *v = new RSValue(RSValue_String);
-  char *cp = rm_malloc(n + 1);
+  char *cp = static_cast<char *>(rm_malloc(n + 1));
   cp[n] = 0;
   memcpy(cp, s, n);
   v->SetString(cp, n);
@@ -471,7 +471,7 @@ RSValue *RSValue::NewArray(RSValue **vals, size_t n, int options) {
   if (options & RSVAL_ARRAY_ALLOC) {
     list = vals;
   } else {
-    list = rm_malloc(sizeof(*list) * n);
+    list = static_cast<RSValue **>(rm_malloc(n * sizeof *list));
   }
 
   arr->arrval.vals = list;
@@ -504,7 +504,7 @@ RSValue *RSValue::NewArray(RSValue **vals, size_t n, int options) {
 //---------------------------------------------------------------------------------------------
 
 RSValue *RS_VStringArray(uint32_t sz, ...) {
-  RSValue **arr = rm_calloc(sz, sizeof(*arr));
+  RSValue **arr = static_cast<RSValue **>(rm_calloc(sz, sizeof *arr));
   va_list ap;
   va_start(ap, sz);
   for (uint32_t i = 0; i < sz; i++) {
@@ -519,7 +519,7 @@ RSValue *RS_VStringArray(uint32_t sz, ...) {
 
 // Wrap an array of nul-terminated C strings into an RSValue array
 RSValue *RS_StringArray(char **strs, uint32_t sz) {
-  RSValue **arr = rm_calloc(sz, sizeof(RSValue *));
+  RSValue **arr = static_cast<RSValue **>(rm_calloc(sz, sizeof *arr));
 
   for (uint32_t i = 0; i < sz; i++) {
     arr[i] = RS_StringValC(strs[i]);
@@ -530,7 +530,7 @@ RSValue *RS_StringArray(char **strs, uint32_t sz) {
 //---------------------------------------------------------------------------------------------
 
 RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
-  RSValue **arr = rm_calloc(sz, sizeof(RSValue *));
+  RSValue **arr = static_cast<RSValue **>(rm_calloc(sz, sizeof *arr));
 
   for (uint32_t i = 0; i < sz; i++) {
     arr[i] = RS_StringValT(strs[i], strlen(strs[i]), st);
@@ -590,7 +590,7 @@ static inline bool convert_to_number(const RSValue *v, RSValue *vn, QueryError *
 
 //---------------------------------------------------------------------------------------------
 
-static int RSValue::CmpNC(const RSValue *v1, const RSValue *v2) {
+int RSValue::CmpNC(const RSValue *v1, const RSValue *v2) {
   switch (v1->t) {
     case RSValue_Number:
       return cmp_numbers(v1, v2);
@@ -613,7 +613,7 @@ static int RSValue::CmpNC(const RSValue *v1, const RSValue *v2) {
 
 //---------------------------------------------------------------------------------------------
 
-static int RSValue::Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
+int RSValue::Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   if (!v1 || !v2) throw Error("missing RSvalue");
   v1 = v1->Dereference();
   v2 = v2->Dereference();
@@ -665,7 +665,7 @@ static int RSValue::Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) 
 
 //---------------------------------------------------------------------------------------------
 
-static bool RSValue::Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
+bool RSValue::Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   if (!v1 || !v2) throw Error("missing RSvalue");
   v1 = v1->Dereference();
   v2 = v2->Dereference();

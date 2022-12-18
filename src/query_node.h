@@ -14,6 +14,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 struct idFilter;
+struct SpellChecker;
 
 //---------------------------------------------------------------------------------------------
 
@@ -139,7 +140,7 @@ struct QueryNode : Object {
 
   sds DumpSds(sds s, const IndexSpec *spec, int depth) const;
   sds DumpChildren(sds s, const IndexSpec *spec, int depth) const;
-  virtual sds dumpsds(sds s, const IndexSpec *spec, int depth) { return sdscat(s, "<empty>"); }
+  virtual sds dumpsds(sds s, const IndexSpec *spec, int depth) const { return sdscat(s, "<empty>"); }
 
   virtual IndexIterator *EvalNode(Query *q) { return new EmptyIterator(); }
   virtual IndexIterator *EvalSingle(Query *q, TagIndex *idx, IndexIterators iterout, double weight) {
@@ -157,9 +158,9 @@ struct QueryNode : Object {
 struct QueryPhraseNode : QueryNode {
   bool exact;
 
-  QueryPhraseNode(bool exact) : QueryNode(QN_PHRASE), exact(exact) {}
+  QueryPhraseNode(bool exact_) : QueryNode{QN_PHRASE}, exact{exact_} {}
 
-  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) const {
     s = sdscatprintf(s, "%s {\n", exact ? "EXACT" : "INTERSECT");
     for (auto &child: children) {
       s = child->DumpSds(s, spec, depth + 1);
@@ -181,11 +182,11 @@ struct QueryPhraseNode : QueryNode {
 // This might happen as a result of a query containing only stopwords.
 
 struct QueryWildcardNode : QueryNode {
-  QueryWildcardNode() : QueryNode(QN_WILDCARD) {}
+  QueryWildcardNode() : QueryNode{QN_WILDCARD} {}
 
   IndexIterator *EvalNode(Query *q);
 
-  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) const {
     s = sdscat(s, "<WILDCARD>");
     return s;
   }
@@ -196,9 +197,9 @@ struct QueryWildcardNode : QueryNode {
 struct QueryTagNode : QueryNode {
   String fieldName;
 
-  QueryTagNode(const std::string_view &fieldName) : QueryNode(QN_TAG), fieldName(fieldName) {}
+  QueryTagNode(std::string_view fieldName_) : QueryNode{QN_TAG}, fieldName{fieldName_} {}
 
-  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) const {
     s = sdscatprintf(s, "TAG:@%.*s {\n", (int)fieldName.length(), fieldName.data());
     s = DumpChildren(s, spec, depth + 1);
     s = doPad(s, depth);
@@ -218,15 +219,16 @@ struct QueryTagNode : QueryNode {
 struct QueryTokenNode : QueryNode {
   RSToken tok;
 
-  QueryTokenNode(QueryParse *query, std::string_view str, uint8_t expanded = 0, RSTokenFlags flags = 0) :
-    QueryNode(QN_TOKEN), tok(str, expanded, flags) {
+  QueryTokenNode(
+    QueryParse *query, std::string_view str, uint8_t expanded = 0, RSTokenFlags flags = 0
+  ) : QueryNode{QN_TOKEN}, tok{str, expanded, flags} {
     if (query) query->numTokens++;
   }
 
   virtual void Expand(QueryExpander &expander);
 
-  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
-    s = sdscatprintf(s, "%s%s", (char *)tok.str.data(), tok.expanded ? "(expanded)" : "");
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) const {
+    s = sdscatprintf(s, "%s%s", tok.str.data(), tok.expanded ? "(expanded)" : "");
     if (opts.weight != 1) {
       s = sdscatprintf(s, " => {$weight: %g;}", opts.weight);
     }
@@ -245,12 +247,13 @@ struct QueryTokenNode : QueryNode {
 struct QueryPrefixNode : QueryNode {
   RSToken tok;
 
-  QueryPrefixNode(QueryParse *q, const std::string_view &str) :
-    QueryNode(QN_PREFX), tok(str, 0, 0) {
+  QueryPrefixNode(QueryParse *q, std::string_view str)
+    : QueryNode{QN_PREFX}, tok{str, 0, 0}
+  {
     if (q) q->numTokens++;
   }
 
-  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) const {
     s = sdscatprintf(s, "PREFIX{%s*", +tok);
     return s;
   }
@@ -265,14 +268,14 @@ struct QueryFuzzyNode : QueryNode {
   RSToken tok;
   int maxDist;
 
-  QueryFuzzyNode(QueryParse *q, const std::string_view &str, int maxDist) :
-      QueryNode(QN_FUZZY), tok(str, 0, 0), maxDist(maxDist) {
+  QueryFuzzyNode(QueryParse *q, std::string_view str, int maxDist_) :
+      QueryNode{QN_FUZZY}, tok{str, 0, 0}, maxDist{maxDist_} {
     if (q) q->numTokens++;
   }
 
   IndexIterator *EvalNode(Query *q);
 
-  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) const {
     s = sdscatprintf(s, "FUZZY{%s}\n", +tok);
     return s;
   }
@@ -285,9 +288,9 @@ struct QueryFuzzyNode : QueryNode {
 struct QueryNumericNode : QueryNode {
   const NumericFilter *nf;
 
-  QueryNumericNode(const NumericFilter *nf) : QueryNode(QN_NUMERIC), nf(nf) {}
+  QueryNumericNode(const NumericFilter *nf_) : QueryNode{QN_NUMERIC}, nf{nf_} {}
 
-  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) const {
     s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f", nf->min, nf->inclusiveMin ? "<=" : "<",
                      nf->fieldName, nf->inclusiveMax ? "<=" : "<", nf->max);
     return s;
@@ -301,9 +304,9 @@ struct QueryNumericNode : QueryNode {
 struct QueryGeofilterNode : QueryNode {
   const struct GeoFilter *gf;
 
-  QueryGeofilterNode(const GeoFilter *gf) : QueryNode(QN_GEO), gf(gf) {}
+  QueryGeofilterNode(const GeoFilter *gf_) : QueryNode{QN_GEO}, gf{gf_} {}
 
-  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) const {
     s = sdscatprintf(
       s, "GEO %s:{%f,%f --> %f %s", gf->property.c_str(),
       gf->lon, gf->lat, gf->radius, gf->unitType.ToString()
@@ -320,9 +323,9 @@ struct QueryIdFilterNode : QueryNode {
   Vector<t_docId> ids;
   size_t len;
 
-  QueryIdFilterNode(Vector<t_docId> &ids) : QueryNode(QN_IDS), ids(ids) {}
+  QueryIdFilterNode(Vector<t_docId> &ids_) : QueryNode{QN_IDS}, ids{ids_} {}
 
-  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) const {
     s = sdscat(s, "IDS { ");
     for (int i = 0; i < len; i++) {
       s = sdscatprintf(s, "%llu,", (unsigned long long)ids[i]);
@@ -341,10 +344,13 @@ struct QueryLexRangeNode : QueryNode {
   char *end;
   bool includeEnd;
 
-  QueryLexRangeNode() : QueryNode(QN_LEXRANGE), begin(nullptr), includeBegin(false), end(nullptr), includeEnd(false) {}
+  QueryLexRangeNode()
+    : QueryNode{QN_LEXRANGE}, begin{nullptr}, includeBegin{false}
+    , end{nullptr}, includeEnd{false}
+  { }
   ~QueryLexRangeNode();
 
-  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) const {
     s = sdscatprintf(s, "LEXRANGE{%s...%s", begin ? begin : "", end ? end : "");
     return s;
   }
@@ -356,11 +362,11 @@ struct QueryLexRangeNode : QueryNode {
 //---------------------------------------------------------------------------------------------
 
 struct QueryUnionNode : QueryNode {
-  QueryUnionNode() : QueryNode(QN_UNION) {}
+  QueryUnionNode() : QueryNode{QN_UNION} {}
 
   IndexIterator *EvalNode(Query *q);
 
-  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) const {
     s = sdscat(s, "UNION {\n");
     s = DumpChildren(s, spec, depth + 1);
     s = doPad(s, depth);
@@ -373,12 +379,12 @@ struct QueryUnionNode : QueryNode {
 //---------------------------------------------------------------------------------------------
 
 struct QueryNotNode : QueryNode {
-  QueryNotNode() : QueryNode(QN_NOT) {}
-  QueryNotNode(QueryNode *child) : QueryNode(QN_NOT, child) {}
+  QueryNotNode() : QueryNode{QN_NOT} {}
+  QueryNotNode(QueryNode *child) : QueryNode{QN_NOT, child} {}
 
   IndexIterator *EvalNode(Query *q);
 
-  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) const {
     s = sdscat(s, "NOT{\n");
     s = DumpChildren(s, spec, depth + 1);
     s = doPad(s, depth);
@@ -389,12 +395,12 @@ struct QueryNotNode : QueryNode {
 //---------------------------------------------------------------------------------------------
 
 struct QueryOptionalNode : QueryNode {
-  QueryOptionalNode() : QueryNode(QN_OPTIONAL) {}
-  QueryOptionalNode(QueryNode *child) : QueryNode(QN_OPTIONAL, child) {}
+  QueryOptionalNode() : QueryNode{QN_OPTIONAL} {}
+  QueryOptionalNode(QueryNode *child) : QueryNode{QN_OPTIONAL, child} {}
 
   IndexIterator *EvalNode(Query *q);
 
-  sds dumpsds(sds s, const IndexSpec *spec, int depth) {
+  sds dumpsds(sds s, const IndexSpec *spec, int depth) const {
     s = sdscat(s, "OPTIONAL{\n");
     s = DumpChildren(s, spec, depth + 1);
     s = doPad(s, depth);

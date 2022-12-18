@@ -12,8 +12,9 @@
 struct TermIndexReaderConcKey : ConcurrentKey {
   TermIndexReader *reader;
 
-  TermIndexReaderConcKey(RedisModuleKey *key, RedisModuleString *keyName, TermIndexReader *reader) :
-    ConcurrentKey(key, keyName), reader(reader) {}
+  TermIndexReaderConcKey(RedisModuleKey *key, RedisModuleString *keyName, TermIndexReader *reader_)
+    : ConcurrentKey{key, keyName}, reader{reader_}
+  { }
 
   void Reopen() override {
     reader->OnReopen(key);

@@ -874,9 +874,10 @@ ResultProcessor *AREQ::getGroupRP(PLN_GroupStep *gstp, ResultProcessor *rpUpstre
 
 #define DEFAULT_LIMIT 10
 
-ResultProcessor *AREQ::getArrangeRP(AGGPlan *pln, PLN_ArrangeStep &astp, ResultProcessor *up,
-                                    QueryError *status) {
-  ResultProcessor *rp = nullptr;
+ResultProcessor *AREQ::getArrangeRP(
+  AGGPlan *pln, PLN_ArrangeStep &astp, ResultProcessor *up, QueryError *status
+) {
+  ResultProcessor *rp{nullptr};
 
   size_t limit = astp.offset + astp.limit;
   if (!limit) {
