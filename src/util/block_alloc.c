@@ -56,7 +56,7 @@ BlkAllocBase::Block *BlkAllocBase::getNewBlock() {
   }
 
   if (!block) {
-    block = rm_malloc(sizeof(Block) + block_size);
+    block = static_cast<Block *>(rm_malloc(sizeof *block + block_size));
     block->capacity = block_size;
   }
 

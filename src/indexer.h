@@ -30,7 +30,7 @@ struct MergeMapEntry {
   ForwardIndexEntry *head;  // First document containing the term
   ForwardIndexEntry *tail;  // Last document containing the term
 
-  size_t MergeMapEntry::countMerged() const;
+  size_t countMerged() const;
 };
 
 typedef UnorderedMap<std::string, MergeMapEntry*> MergeMap;
@@ -51,7 +51,7 @@ struct DocumentIndexerConcurrentKey : ConcurrentKey {
       return;
     }
 
-    sctx.spec = RedisModule_ModuleTypeGetValue(key);
+    sctx.spec = static_cast<IndexSpec *>(RedisModule_ModuleTypeGetValue(key));
     if (sctx.spec->uniqueId != sctx.specId) {
       sctx.spec = NULL;
     }

@@ -2,6 +2,7 @@
 
 #include "redismodule.h"
 #include <limits.h>
+#include <bitset>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -73,7 +74,7 @@ typedef int (*RSGetValueCallback)(void* ctx, const char* fieldName, const void* 
 struct RSIdxOptions {
   RSGetValueCallback gvcb;
   void* gvcbData;
-  uint32_t flags;
+  std::bitset<32> flags;
   int gcPolicy;
 };
 

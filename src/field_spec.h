@@ -87,8 +87,8 @@ struct FieldSpec {
   FieldSpec() = delete;
 
   String name;
-  Mask(FieldType) types : 8;
-  Mask(FieldSpecOptions) options : 8;
+  FieldType types : 8;
+  FieldSpecOptions options : 8;
 
   // If this field is sortable, the sortable index
   int16_t sortIdx;
@@ -118,7 +118,7 @@ struct FieldSpec {
   bool IsPhonetics() const { return options & FieldSpec_Phonetics; }
   bool IsIndexable() const { return 0 == (options & FieldSpec_NotIndexable); }
 
-  t_fieldMask FieldBit() { return ((t_fieldMask)1) << ftId; }
+  t_fieldMask FieldBit() const { return ((t_fieldMask)1) << ftId; }
 
   bool IsFieldType(FieldType t) const { return types & t; }
 

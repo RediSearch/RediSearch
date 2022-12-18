@@ -125,7 +125,8 @@ struct TrieMapIterator : public Object {
   int inSuffix;
 
   TrieMapIterator(TrieMapNode *node, std::string_view prefix_)
-    : bufLen{16}, bufOffset{0}, prefix{prefix_}, inSuffix{0} {
+    : bufLen{16}, bufOffset{0}, prefix{prefix_}, inSuffix{0}
+  {
     Push(node);
   }
 
@@ -148,7 +149,7 @@ struct TrieMap : public Object {
   bool Add(std::string_view str, void *value, TrieMapReplaceFunc cb);
   bool Find(std::string_view str, void **value);
   int Delete(std::string_view str);
-  void Free(void (*freeCB)(void *));
+  // void Free(void (*freeCB)(void *));
   bool RandomKey(std::string &str, void **ptr);
   void *RandomValueByPrefix(std::string_view prefix);
   size_t MemUsage() const;

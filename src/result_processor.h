@@ -253,7 +253,7 @@ struct RPSorter : public ResultProcessor {
     uint64_t ascendMap;
   } fieldcmp;
 
-  RPSorter(size_t maxresults, Vector<RLookupKey *> keys = {}, uint64_t ascmap = 0);
+  RPSorter(uint32_t maxresults, Vector<RLookupKey *> keys = {}, uint64_t ascmap = 0);
 
   ~RPSorter();
 

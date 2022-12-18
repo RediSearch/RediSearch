@@ -136,7 +136,7 @@ void TagConcKey::Reopen() {
   size_t nits = its.size();
   // If the key has been deleted we'll get a nullptr here, so we just mark ourselves as EOF
   if (key == nullptr || RedisModule_ModuleTypeGetType(key) != TagIndexType ||
-      (idx = RedisModule_ModuleTypeGetValue(key))->uniqueId != uid) {
+      (idx = static_cast<TagIndex *>(RedisModule_ModuleTypeGetValue(key)))->uniqueId != uid) {
     for (size_t i = 0; i < nits; ++i) {
       its[i]->Abort();
     }

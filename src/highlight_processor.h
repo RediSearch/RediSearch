@@ -23,8 +23,9 @@ struct HighligherDoc {
 
   RLookupRow *row;
 
-  HighligherDoc(RSByteOffsets *byteOffsets, IndexResult *indexResult, RLookupRow *row) :
-    byteOffsets(byteOffsets), indexResult(indexResult), row(row) {}
+  HighligherDoc(const RSByteOffsets *byteOffsets_, const IndexResult *indexResult_, RLookupRow *row_)
+    : byteOffsets{byteOffsets_}, indexResult{indexResult_}, row{row_}
+  { }
 
   RSValue *summarizeField(IndexSpec *spec, const ReturnedField &field,
     std::string_view fieldName, const RSValue *value, int options);

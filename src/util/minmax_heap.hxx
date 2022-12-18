@@ -152,10 +152,10 @@ T MinMaxHeap<T>::pop_min() {
     heap_.pop_back();
     trickledown(0);
     return d;
-  }
-
-  if (size() == 1) {
+  } else if (size() == 1) {
     return at(0);
+  } else {
+    throw Error("popping from empty minmax heap");
   }
 }
 
@@ -169,21 +169,21 @@ T MinMaxHeap<T>::pop_max() {
     heap_.pop_back();
     trickledown(idx);
     return d;
-  }
-
-  if (heap_.size() == 2) {
+  } else if (heap_.size() == 2) {
     return at(1);
-  }
-
-  if (heap_.size() == 1) {
+  } else if (heap_.size() == 1) {
     return at(0);
+  } else {
+    throw Error("popping from empty minmax heap");
   }
 }
 
 template<class T>
 const T& MinMaxHeap<T>::peek_min() const {
   if (!heap_.empty()) {
-    return at(1);
+    return at(0);
+  } else {
+    throw Error("peeking into empty minmax heap");
   }
 }
 
@@ -191,11 +191,11 @@ template<class T>
 const T& MinMaxHeap<T>::peek_max() const {
   if (heap_.size() > 2) {
     return max(1, 2);
-  }
-  if (heap_.size() == 2) {
+  } else if (heap_.size() == 2) {
     return at(1);
-  }
-  if (heap_.size() == 1) {
+  } else if (heap_.size() == 1) {
     return at(0);
+  } else {
+    throw Error("peeking into empty minmax heap");
   }
 }

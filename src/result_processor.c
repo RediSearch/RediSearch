@@ -316,23 +316,23 @@ static int cmpByFields(const SearchResult *h1, const SearchResult *h2, const RPS
 //---------------------------------------------------------------------------------------------
 
 static void srDtor(void *p) {
-  SearchResult *sr = p;
   if (p) {
+    SearchResult *sr = static_cast<SearchResult *>(p);
     delete sr;
-    rm_free(p);
+    // rm_free(p);
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
-RPSorter::RPSorter(size_t maxresults, Vector<RLookupKey *> keys = {}, uint64_t ascmap = 0)
-  : ResultProcessor("Sorter")
-  , size(maxresults)
-  , offset(0)
-  , pq(maxresults, keys.empty() ? cmpByScore : (Comparator<SearchResult *>)[this](auto _1, auto _2){ return cmpByFields(_1, _2, this); })
-  , pooledResult(nullptr)
-  , accum(true)
-  , fieldcmp({.keys = keys, .ascendMap = ascmap})
+RPSorter::RPSorter(uint32_t maxresults, Vector<RLookupKey *> keys_, uint64_t ascmap)
+  : ResultProcessor{"Sorter"}
+  , size{maxresults}
+  , offset{0}
+  , pq{maxresults, keys_.empty() ? cmpByScore : (Comparator<SearchResult *>)[this](auto _1, auto _2){ return cmpByFields(_1, _2, this); }}
+  , pooledResult{nullptr}
+  , accum{true}
+  , fieldcmp{.keys = keys_, .ascendMap = ascmap}
 { }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -383,7 +383,7 @@ int ResultsLoader::Next(SearchResult *r) {
     return RS_RESULT_OK;
   }
 
-  RLookupLoadOptions loadopts(parent->sctx, r->dmd.get(), new QueryError());
+  RLookupLoadOptions loadopts{parent->sctx, r->dmd.get(), new QueryError()};
   loadopts.noSortables = true;
   loadopts.forceString = true;
   loadopts.keys = fields;
@@ -406,16 +406,19 @@ ResultsLoader::~ResultsLoader() {
 
 //---------------------------------------------------------------------------------------------
 
-ResultsLoader::ResultsLoader(RLookup *lk, const RLookupKey **keys, size_t nkeys) :
-  ResultProcessor("Loader"), nfields(nkeys), lk(lk) {
-  fields = rm_calloc(nkeys, sizeof(*fields));
-  memcpy(fields, keys, sizeof(*keys) * nkeys);
+ResultsLoader::ResultsLoader(RLookup *lk_, const RLookupKey **keys, size_t nkeys)
+  : ResultProcessor{"Loader"}
+  , lk{lk_}
+  , fields{static_cast<const RLookupKey **>(rm_calloc(nkeys, sizeof *fields))}
+  , nfields{nkeys}
+{
+  memcpy(fields, keys, nkeys * sizeof *keys);
 }
 
 //---------------------------------------------------------------------------------------------
 
 void ResultProcessor::DumpChain() const {
-  ResultProcessor *rp = this;
+  const ResultProcessor *rp = this;
   for (; rp; rp = rp->upstream) {
     printf("RP(%s) @%p\n", rp->name, rp);
     if (rp->upstream == rp) throw Error( "ResultProcessor should be different then upstream");
