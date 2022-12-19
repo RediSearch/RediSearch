@@ -1,19 +1,14 @@
 ---
-syntax: 
+syntax: |
+  FT.SYNUPDATE index synonym_group_id 
+    [SKIPINITIALSCAN] term [term ...]
 ---
 
 Update a synonym group
 
-## Syntax
-
-{{< highlight bash >}}
-FT.SYNUPDATE index synonym_group_id 
-          [SKIPINITIALSCAN] term [term ...]
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>index</code></summary>

@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #pragma once
 
 #include "redismodule.h"
@@ -84,6 +90,10 @@ typedef struct RedisJSONAPI {
   // Query a parsed JSONPath
   int (*pathIsSingle)(JSONPath);
   int (*pathHasDefinedOrder)(JSONPath);
+
+  ////////////////
+  // V3 entries //
+  ////////////////
 
   // Return JSON String representation from an iterator (without consuming the iterator)
   // The caller gains ownership of `str`

@@ -1,19 +1,14 @@
 ---
-syntax: 
+syntax: |
+  FT.DROPINDEX index 
+    [DD]
 ---
 
 Delete an index
 
-## Syntax
-
-{{< highlight bash >}}
-FT.DROPINDEX index 
-          [ DD]
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>index</code></summary>
@@ -21,21 +16,19 @@ FT.DROPINDEX index
 is full-text index name. You must first create the index using `FT.CREATE`.
 </details>
 
-## Optional parameters
+## Optional arguments
 
 <details open>
 <summary><code>DD</code></summary>
 
 drop operation that, if set, deletes the actual document hashes.
+
+By default, FT.DROPINDEX does not delete the documents associated with the index. Adding the `DD` option deletes the documents as well. 
+If an index creation is still running (`FT.CREATE` is running asynchronously), only the document hashes that have already been indexed are deleted. 
+The document hashes left to be indexed remain in the database.
+To check the completion of the indexing, use `FT.INFO`.
+
 </details>
-
-<note><b>Notes:</b> 
-
-- By default, FT.DROPINDEX does not delete the document hashes associated with the index. Adding the DD option deletes the hashes as well.
-- When using FT.DROPINDEX with the parameter `DD`, if an index creation is still running (`FT.CREATE` is running asynchronously),
-only the document hashes that have already been indexed are deleted. The document hashes left to be indexed remain in the database.
-You can use FT.INFO to check the completion of the indexing.
-</note>
 
 ## Return
 

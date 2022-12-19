@@ -1,42 +1,37 @@
 
 ---
-syntax: 
+syntax: |
+  FT.SEARCH index query 
+    [NOCONTENT] 
+    [VERBATIM] [NOSTOPWORDS] 
+    [WITHSCORES] 
+    [WITHPAYLOADS] 
+    [WITHSORTKEYS] 
+    [ FILTER numeric_field min max [ FILTER numeric_field min max ...]] 
+    [ GEOFILTER geo_field lon lat radius m | km | mi | ft [ GEOFILTER geo_field lon lat radius m | km | mi | ft ...]] 
+    [ INKEYS count key [key ...]] [ INFIELDS count field [field ...]] 
+    [ RETURN count identifier [AS property] [ identifier [AS property] ...]] 
+    [ SUMMARIZE [ FIELDS count field [field ...]] [FRAGS num] [LEN fragsize] [SEPARATOR separator]] 
+    [ HIGHLIGHT [ FIELDS count field [field ...]] [ TAGS open close]] 
+    [SLOP slop] 
+    [TIMEOUT timeout] 
+    [INORDER] 
+    [LANGUAGE language] 
+    [EXPANDER expander] 
+    [SCORER scorer] 
+    [EXPLAINSCORE] 
+    [PAYLOAD payload] 
+    [ SORTBY sortby [ ASC | DESC]] 
+    [ LIMIT offset num] 
+    [ PARAMS nargs name value [ name value ...]] 
+    [DIALECT dialect]
 ---
 
 Search the index with a textual query, returning either documents or just ids
 
-## Syntax
-
-{{< highlight bash >}}
-FT.SEARCH index query 
-          [NOCONTENT] 
-          [VERBATIM] [NOSTOPWORDS] 
-          [WITHSCORES] 
-          [WITHPAYLOADS] 
-          [WITHSORTKEYS] 
-          [ FILTER numeric_field min max [ FILTER numeric_field min max ...]] 
-          [ GEOFILTER geo_field lon lat radius m | km | mi | ft [ GEOFILTER geo_field lon lat radius m | km | mi | ft ...]] 
-          [ INKEYS count key [key ...]] [ INFIELDS count field [field ...]] 
-          [ RETURN count identifier [AS property] [ identifier [AS property] ...]] 
-          [ SUMMARIZE [ FIELDS count field [field ...]] [FRAGS num] [LEN fragsize] [SEPARATOR separator]] 
-          [ HIGHLIGHT [ FIELDS count field [field ...]] [ TAGS open close]] 
-          [SLOP slop] 
-          [TIMEOUT timeout] 
-          [INORDER] 
-          [LANGUAGE language] 
-          [EXPANDER expander] 
-          [SCORER scorer] 
-          [EXPLAINSCORE] 
-          [PAYLOAD payload] 
-          [ SORTBY sortby [ ASC | DESC]] 
-          [ LIMIT offset num] 
-          [ PARAMS nargs name value [ name value ...]] 
-          [DIALECT dialect]
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>index</code></summary>
@@ -50,7 +45,7 @@ is index name. You must first create the index using `FT.CREATE`.
 is text query to search. If it's more than a single word, put it in quotes. Refer to [Query syntax](/redisearch/reference/query_syntax) for more details.
 </details>
 
-## Optional parameters
+## Optional arguments
 
 <details open>
 <summary><code>NOCONTENT</code></summary>
@@ -79,8 +74,7 @@ retrieves optional document payloads. See `FT.CREATE`. The payloads follow the d
 <details open>
 <summary><code>WITHSORTKEYS</code></summary>
 
-returns the value of the sorting key, right after the id and score and/or payload, if requested. This is usually not needed, and
-  exists for distributed search coordination purposes. This option is relevant only if used in conjunction with `SORTBY`.
+returns the value of the sorting key, right after the id and score and/or payload, if requested. This is usually not needed, and exists for distributed search coordination purposes. This option is relevant only if used in conjunction with `SORTBY`.
 </details>
 
 <details open>
@@ -195,7 +189,7 @@ overrides the timeout parameter of the module.
 
 defines one or more value parameters. Each parameter has a name and a value. 
 
-You can reference parameters in the `query` by a `$`, followed by the parameter name, for example, `$user`. Each such reference in the search query to a parameter name is substituted by the corresponding parameter value. For example, with parameter definition `PARAMS 4 lon 29.69465 lat 34.95126`, the expression `@loc:[$lon $lat 10 km]` is evaluated to `@loc:[29.69465 34.95126 10 km]`. You cannot reference parameters in the query string where concrete values are not allowed, such as in field names, for example, `@loc`. To use `PARAMS`, set `DIALECT` to 2.
+You can reference parameters in the `query` by a `$`, followed by the parameter name, for example, `$user`. Each such reference in the search query to a parameter name is substituted by the corresponding parameter value. For example, with parameter definition `PARAMS 4 lon 29.69465 lat 34.95126`, the expression `@loc:[$lon $lat 10 km]` is evaluated to `@loc:[29.69465 34.95126 10 km]`. You cannot reference parameters in the query string where concrete values are not allowed, such as in field names, for example, `@loc`. To use `PARAMS`, set `DIALECT` to `2` or greater than `2`.
 </details>
 
 <details open>
@@ -208,10 +202,54 @@ selects the dialect version under which to execute the query. If not specified, 
 
 FT.SEARCH returns an array reply, where the first element is an integer reply of the total number of results, and then array reply pairs of document ids, and array replies of attribute/value pairs.
 
-<note><b>Notes:</b> 
+{{% alert title="Notes" color="warning" %}}
+ 
 - If `NOCONTENT` is given, an array is returned where the first element is the total number of results, and the rest of the members are document ids.
 - If a hash expires after the query process starts, the hash is counted in the total number of results, but the key name and content return as null.
-</note>
+
+{{% /alert %}}
+
+### Return multiple values
+
+When the index is defined `ON JSON`, a reply for a single attribute or a single JSONPath may return multiple values when the JSONPath matches multiple values, or when the JSONPath matches an array.
+
+Prior to RediSearch v2.6, only the first of the matched values was returned.
+Starting with RediSearch v2.6, all values are returned, wrapped with a top-level array.
+
+In order to maintain backward compatibility, the default behavior with RediSearch v2.6 is to return only the first value.
+
+To return all the values, use `DIALECT` 3 (or greater, when available).
+
+The `DIALECT` can be specified as a parameter in the FT.SEARCH command. If it is not specified, the `DEFAULT_DIALECT` is used, which can be set using `FT.CONFIG SET` or by passing it as an argument to the `redisearch` module when it is loaded.
+
+For example, with the following document and index:
+
+
+```sh
+127.0.0.1:6379> JSON.SET doc:1 $ '[{"arr": [1, 2, 3]}, {"val": "hello"}, {"val": "world"}]'
+OK
+127.0.0.1:6379> FT.CREATE idx ON JSON PREFIX 1 doc: SCHEMA $..arr AS arr NUMERIC $..val AS val TEXT
+OK
+```
+Notice the different replies, with and without `DIALECT 3`:
+
+```sh
+127.0.0.1:6379> FT.SEARCH idx * RETURN 2 arr val
+1) (integer) 1
+2) "doc:1"
+3) 1) "arr"
+   2) "[1,2,3]"
+   3) "val"
+   4) "hello"
+
+127.0.0.1:6379> FT.SEARCH idx * RETURN 2 arr val DIALECT 3
+1) (integer) 1
+2) "doc:1"
+3) 1) "arr"
+   2) "[[1,2,3]]"
+   3) "val"
+   4) "[\"hello\",\"world\"]"
+```
 
 ## Complexity
 

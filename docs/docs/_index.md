@@ -15,7 +15,7 @@ RediSearch is a [source-available](https://github.com/RediSearch/RediSearch/blob
   - [Quick start guide](/redisearch/quick_start)
   - [Source code](https://github.com/RediSearch/RediSearch)
   - [Latest release](https://github.com/RediSearch/RediSearch/releases)
-  - [Docker image](https://hub.docker.com/r/redislabs/redisearch/)
+  - [Docker image](https://hub.docker.com/r/redis/redis-stack-server/)
 
 ## Primary features
 
@@ -95,4 +95,4 @@ Got questions? Feel free to ask at the [RediSearch forum](https://forum.redis.co
 
 ## License
 
-Redis Source Available License Agreement - see [LICENSE](https://raw.githubusercontent.com/RediSearch/RediSearch/master/LICENSE)
+Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1) - see [LICENSE](https://raw.githubusercontent.com/RediSearch/RediSearch/master/LICENSE.txt)

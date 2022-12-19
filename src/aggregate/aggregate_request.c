@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "aggregate.h"
 #include "reducer.h"
 
@@ -492,7 +498,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         if (rv != AC_OK) {
           QERR_MKBADARGS_FMT(status, "RETURN path AS name - must be accompanied with NAME");
           return REDISMODULE_ERR;
-        } else if (!strncasecmp(name, SPEC_AS_STR, strlen(SPEC_AS_STR))) {
+        } else if (!strcasecmp(name, SPEC_AS_STR)) {
           QERR_MKBADARGS_FMT(status, "Alias for RETURN cannot be `AS`");
           return REDISMODULE_ERR;
         }
@@ -1034,6 +1040,15 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     limit = DEFAULT_LIMIT;
   }
 
+  if ((req->reqflags & QEXEC_F_IS_SEARCH) && RSGlobalConfig.maxSearchResults != UINT64_MAX) {
+    limit = MIN(limit, RSGlobalConfig.maxSearchResults);
+  }
+
+  if (!(req->reqflags & QEXEC_F_IS_SEARCH) && RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
+    limit = MIN(limit, RSGlobalConfig.maxAggregateResults);
+
+  }
+
   if (astp->sortKeys) {
     size_t nkeys = array_len(astp->sortKeys);
     astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
@@ -1298,7 +1313,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
             if (rv != AC_OK) {
               QERR_MKBADARGS_FMT(status, "RETURN path AS name - must be accompanied with NAME");
               return REDISMODULE_ERR;
-            } else if (!strncasecmp(name, SPEC_AS_STR, strlen(SPEC_AS_STR))) {
+            } else if (!strcasecmp(name, SPEC_AS_STR)) {
               QERR_MKBADARGS_FMT(status, "Alias for RETURN cannot be `AS`");
               return REDISMODULE_ERR;
             }

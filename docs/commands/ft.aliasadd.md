@@ -1,18 +1,13 @@
 ---
-syntax: 
+syntax: |
+  FT.ALIASADD alias index
 ---
 
 Add an alias to an index
 
-## Syntax
-
-{{< highlight bash >}}
-FT.ALIASADD alias index
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>alias index</code></summary>
