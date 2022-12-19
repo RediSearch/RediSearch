@@ -93,7 +93,7 @@ struct Document : Object {
 
   DocumentField &addFieldCommon(const char *fieldname, uint32_t typemask);
 
-  size_t NumFields() { return fields.size(); }
+  size_t NumFields() const { return fields.size(); }
 };
 
 //---------------------------------------------------------------------------------------------

@@ -25,7 +25,7 @@ enum FieldType {
   (T == INDEXFLD_T_GEO        ? 2 : \
   (T == INDEXFLD_T_TAG        ? 3 : -1))))
 
-#define INDEXTYPE_FROM_POS(P) (1<<(P))
+#define INDEXTYPE_FROM_POS(P) static_cast<FieldType>(1<<(P))
 // clang-format on
 
 #define IXFLDPOS_FULLTEXT INDEXTYPE_TO_POS(INDEXFLD_T_FULLTEXT)

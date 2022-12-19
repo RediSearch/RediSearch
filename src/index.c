@@ -110,7 +110,7 @@ UnionIterator::UnionIterator(IndexIterators &its_, DocTable *dt, int quickExit, 
   const size_t maxresultsSorted = RSGlobalConfig.maxResultsToUnsortedMode;
   // this code is normally (and should be) dead.
   // i.e. the deepest-most IndexIterator does not have a CT
-  //      so it will always eventually return NULL CT
+  //      so it will always eventually return nullptr CT
   if (mode == IndexIteratorMode::Sorted && nexpected >= maxresultsSorted) {
     // make sure all the children support CriteriaTester
     bool ctSupported = true;
@@ -148,7 +148,7 @@ IndexCriteriaTester *UnionIterator::GetCriteriaTester() {
     IndexCriteriaTester *tester = origits[i]->GetCriteriaTester();
     if (!tester) {
       delete tester;
-      return NULL;
+      return nullptr;
     }
 	  testers[i] = tester;
   }
@@ -169,7 +169,7 @@ size_t UnionIterator::NumEstimated() const {
 //---------------------------------------------------------------------------------------------
 
 int UnionIterator::ReadUnsorted(IndexResult **hit) {
-  IndexResult *res = NULL;
+  IndexResult *res = nullptr;
   while (currIt < origits.size()) {
     int rc = origits[currIt]->Read(&res);
     if (rc == INDEXREAD_OK) {
@@ -196,7 +196,7 @@ int UnionIterator::ReadSorted(IndexResult **hit) {
   do {
     // find the minimal iterator
     t_docId minDocId = t_docId{UINT64_MAX};
-    IndexIterator *minIt = NULL;
+    IndexIterator *minIt = nullptr;
     numActive = 0;
     int rc = INDEXREAD_EOF;
     unsigned nits = its.size();
@@ -272,17 +272,16 @@ int UnionIterator::SkipTo(t_docId docId, IndexResult **hit) {
   int numActive = 0;
   int found = 0;
   int rc = INDEXREAD_EOF;
-  const int quickExit = quickExit;
   t_docId minDocId1 = t_docId{UINT32_MAX};
   IndexIterator *it;
   IndexResult *res;
-  IndexResult *minResult = NULL;
+  IndexResult *minResult = nullptr;
   // skip all iterators to docId
   unsigned xnum = its.size();
   for (unsigned i = 0; i < xnum; i++) {
     it = its[i];
     // this happens for non existent words
-    res = NULL;
+    res = nullptr;
     // If the requested docId is larger than the last read id from the iterator,
     // we need to read an entry from the iterator, seeking to this docId
     if (it->minId < docId) {
@@ -383,8 +382,8 @@ void IntersectIterator::Rewind() {
 
 void IntersectIterator::SortChildren() {
 
-  // 1. Go through all the iterators, ensuring none of them is NULL
-  //    (replace with empty if indeed NULL)
+  // 1. Go through all the iterators, ensuring none of them is nullptr
+  //    (replace with empty if indeed nullptr)
   // 2. If all the iterators are unsorted then set the mode to UNSORTED
   // 3. If all or any of the iterators are sorted, then remove the
   //    unsorted iterators from the equation, simply adding them to the tester list
@@ -397,7 +396,7 @@ void IntersectIterator::SortChildren() {
     if (!curit) {
       // If the current iterator is empty, then the entire
       // query will fail; just free all the iterators and call it good
-      bestIt = NULL;
+      bestIt = nullptr;
       return;
     }
 
@@ -434,10 +433,10 @@ void IntersectIterator::SortChildren() {
       delete cur;
     }
   } else {
-    bestIt = NULL;
+    bestIt = nullptr;
   }
 
-  delete &its;
+  its.clear();
   its = sortedIts;
 }
 
@@ -536,7 +535,7 @@ int IntersectIterator::SkipTo(t_docId docId, IndexResult **hit) {
 
 int IntersectIterator::ReadUnsorted(IndexResult **hit) {
   int rc = INDEXREAD_OK;
-  IndexResult *res = NULL;
+  IndexResult *res = nullptr;
   for (;;) {
     rc = bestIt->Read(&res);
     if (rc == INDEXREAD_EOF) {
@@ -578,13 +577,13 @@ bool IntersectIterator::CriteriaTester::Test(t_docId id) {
 
 IndexCriteriaTester *IntersectIterator::GetCriteriaTester() {
   for (auto &it: its) {
-    IndexCriteriaTester *tester = NULL;
+    IndexCriteriaTester *tester = nullptr;
     if (it) {
       tester = it->GetCriteriaTester();
     }
     if (!tester) {
       testers.clear();
-      return NULL;
+      return nullptr;
     }
     testers.push_back(tester);
   }
@@ -645,7 +644,7 @@ int IntersectIterator::ReadSorted(IndexResult **hit) {
 
     if (nh == its.size()) {
       // sum up all hits
-      if (hit != NULL) {
+      if (hit != nullptr) {
         *hit = current;
       }
 
@@ -792,11 +791,11 @@ NI_CriteriaTester::~NI_CriteriaTester() {
 
 IndexCriteriaTester *NotIterator::GetCriteriaTester() {
   if (!child) {
-    return NULL;
+    return nullptr;
   }
   IndexCriteriaTester *ct = child->GetCriteriaTester();
   if (!ct) {
-    return NULL;
+    return nullptr;
   }
   return new NI_CriteriaTester(ct);
 }
@@ -829,12 +828,12 @@ int NotIterator::ReadUnsorted(IndexResult **hit) {
 int NotIterator::ReadSorted(IndexResult **hit) {
   if (lastDocId > maxDocId) return INDEXREAD_EOF;
 
-  IndexResult *cr = NULL;
+  IndexResult *cr = nullptr;
   // if we have a child, get the latest result from the child
   if (child) {
     cr = IITER_CURRENT_RECORD(child);
 
-    if (cr == NULL || cr->docId == 0) {
+    if (cr == nullptr || cr->docId == 0) {
       child->Read(&cr);
     }
   }
@@ -845,7 +844,7 @@ int NotIterator::ReadSorted(IndexResult **hit) {
   // If we don't have a child result, or the child result is ahead of the current counter,
   // we just increment our virtual result's id until we hit the child result's
   // in which case we'll read from the child and bypass it by one.
-  if (cr == NULL || cr->docId > current->docId) {
+  if (cr == nullptr || cr->docId > current->docId) {
     goto ok;
   }
 
@@ -901,7 +900,7 @@ NotIterator::NotIterator(IndexIterator *it, t_docId maxDocId_, double weight_) {
   current->docId = 0;
 
   child = it; //@@ ownership?
-  childCT = NULL;
+  childCT = nullptr;
   lastDocId = 0;
   maxDocId = maxDocId_;
   len = 0;
@@ -912,7 +911,7 @@ NotIterator::NotIterator(IndexIterator *it, t_docId maxDocId_, double weight_) {
 
   if (child && child->mode == IndexIteratorMode::Unsorted) {
     childCT = child->GetCriteriaTester();
-    if (!childCT) throw Error("childCT should not be NULL");
+    if (!childCT) throw Error("childCT should not be nullptr");
     _Read = (read_t)&NotIterator::ReadUnsorted;
   }
 }
@@ -1088,7 +1087,7 @@ OptionalIterator::OptionalIterator(IndexIterator *it, t_docId maxDocId_, double 
   virt->freq = 1;
   current = virt;
   child = it;
-  childCT = NULL;
+  childCT = nullptr;
   lastDocId = 0;
   maxDocId = maxDocId_;
   weight = weight_;
@@ -1099,7 +1098,7 @@ OptionalIterator::OptionalIterator(IndexIterator *it, t_docId maxDocId_, double 
 
   if (child && child->mode == IndexIteratorMode::Unsorted) {
     childCT = child->GetCriteriaTester();
-    if (!childCT) throw Error("childCT should not be NULL");
+    if (!childCT) throw Error("childCT should not be nullptr");
     _Read = (read_t)&OptionalIterator::ReadUnsorted;
   }
   if (!child) {

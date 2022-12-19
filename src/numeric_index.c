@@ -85,9 +85,9 @@ double NumericRange::Split(NumericRangeNode **lp, NumericRangeNode **rp) {
 
 //---------------------------------------------------------------------------------------------
 
-NumericRange::NumericRange(double min, double max, size_t splitCard_) :
-  minVal{min}, maxVal{max}, unique_sum{0}, card{0}, splitCard{splitCard_},
-  values{array_new(CardinalityValue, 1)}, entries{Index_StoreNumeric, 1}
+NumericRange::NumericRange(double min, double max, uint32_t splitCard_)
+  : minVal{min}, maxVal{max}, unique_sum{0}, card{0}, splitCard{splitCard_}
+  , values{array_new(CardinalityValue, 1)}, entries{Index_StoreNumeric, 1}
 { }
 
 //---------------------------------------------------------------------------------------------
@@ -98,8 +98,9 @@ NumericRange::~NumericRange() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-NumericRangeNode::NumericRangeNode(size_t cap, double min, double max, size_t splitCard_) :
-  left{nullptr}, right{nullptr}, value{0}, maxDepth{0}, range{new NumericRange(min, max, splitCard_)}
+NumericRangeNode::NumericRangeNode(size_t cap, double min, double max, uint32_t splitCard_)
+  : value{0}, maxDepth{0}, left{nullptr}, right{nullptr}
+  , range{new NumericRange(min, max, splitCard_)}
 { }
 
 //---------------------------------------------------------------------------------------------
@@ -327,24 +328,23 @@ RedisModuleString *RedisSearchCtx::NumericIndexKey(String field) {
 
 //---------------------------------------------------------------------------------------------
 
-static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
-                                             int write) {
-  NumericRangeTree *val = nullptr;
+static NumericRangeTree *openNumericKeysDict(
+  RedisSearchCtx *ctx, RedisModuleString *keyName, int write
+) {
   if (ctx->spec->keysDict.contains(keyName)) {
     BaseIndex *index = ctx->spec->keysDict[keyName];
     try {
-      val = dynamic_cast<NumericRangeTree*>(index);
-    } catch (std::bad_cast) {
+      return dynamic_cast<NumericRangeTree*>(index);
+    } catch (std::bad_cast&) {
       throw Error("error: invalid index type...");
     }
-    return val;
   }
 
   if (!write) {
     return nullptr;
   }
 
-  val = new NumericRangeTree();
+  NumericRangeTree *val = new NumericRangeTree();
   ctx->spec->keysDict.insert({keyName, val});
   return val;
 }
@@ -356,15 +356,15 @@ IndexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter
   if (!s) {
     return nullptr;
   }
-  RedisModuleKey *key = nullptr;
-  NumericRangeTree *t = nullptr;
+  RedisModuleKey *key{};
+  NumericRangeTree *t{};
   if (ctx->spec->keysDict.empty()) {
     key = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ);
     if (!key || RedisModule_ModuleTypeGetType(key) != NumericIndexType) {
       return nullptr;
     }
 
-    t = RedisModule_ModuleTypeGetValue(key);
+    t = static_cast<NumericRangeTree*>(RedisModule_ModuleTypeGetValue(key));
   } else {
     t = openNumericKeysDict(ctx, s, 0);
   }
@@ -387,8 +387,9 @@ IndexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
-                                   RedisModuleKey **idxKey) {
+NumericRangeTree *OpenNumericIndex(
+  RedisSearchCtx *ctx, RedisModuleString *keyName, RedisModuleKey **idxKey
+) {
   if (!ctx->spec->keysDict.empty()) {
     return openNumericKeysDict(ctx, keyName, 1);
   }
@@ -407,12 +408,12 @@ NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyNa
   }
 
   // Create an empty value object if the key is currently empty
-  NumericRangeTree *t;
+  NumericRangeTree *t{};
   if (type == REDISMODULE_KEYTYPE_EMPTY) {
     t = new NumericRangeTree();
-    RedisModule_ModuleTypeSetValue((*idxKey), NumericIndexType, t);
+    RedisModule_ModuleTypeSetValue(*idxKey, NumericIndexType, t);
   } else {
-    t = RedisModule_ModuleTypeGetValue(*idxKey);
+    t = static_cast<NumericRangeTree*>(RedisModule_ModuleTypeGetValue(*idxKey));
   }
   return t;
 }
@@ -420,7 +421,7 @@ NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyNa
 //---------------------------------------------------------------------------------------------
 
 unsigned long NumericIndexType_MemUsage(const void *value) {
-  const NumericRangeTree *t = value;
+  const NumericRangeTree *t = static_cast<const NumericRangeTree*>(value);
   unsigned long size = sizeof(NumericRangeTree);
   t->root->Traverse([&](NumericRangeNode *n) {
       size += sizeof(NumericRangeNode);
@@ -467,11 +468,8 @@ struct NumericRangeEntry {
 
 //---------------------------------------------------------------------------------------------
 
-static int cmpdocId(const void *p1, const void *p2) {
-  NumericRangeEntry *e1 = (NumericRangeEntry *)p1;
-  NumericRangeEntry *e2 = (NumericRangeEntry *)p2;
-
-  return (int)e1->docId - (int)e2->docId;
+static int cmpdocId(const NumericRangeEntry& p1, const NumericRangeEntry& p2) {
+  return (int)p1.docId - (int)p2.docId;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -530,8 +528,8 @@ void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
 
   // sort the entries by doc id, as they were not saved in this order
-  qsort(entries, numEntries, sizeof(NumericRangeEntry), cmpdocId);
-  NumericRangeTree *t;
+  std::sort(entries, entries + numEntries, cmpdocId);
+  NumericRangeTree *t = new NumericRangeTree{};
 
   // now push them in order into the tree
   for (size_t i = 0; i < numEntries; i++) {
@@ -544,7 +542,7 @@ void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
 //---------------------------------------------------------------------------------------------
 
 void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {
-  NumericRangeTree *t = value;
+  NumericRangeTree *t = static_cast<NumericRangeTree*>(value);
 
   t->root->Traverse([&](NumericRangeNode *n) {
     if (n->IsLeaf() && n->range) {
@@ -571,7 +569,7 @@ void NumericIndexType_Digest(RedisModuleDigest *digest, void *value) {
 //---------------------------------------------------------------------------------------------
 
 void NumericIndexType_Free(void *value) {
-  NumericRangeTree *t = value;
+  NumericRangeTree *t = static_cast<NumericRangeTree*>(value);
   delete t;
 }
 

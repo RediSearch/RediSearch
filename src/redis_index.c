@@ -269,7 +269,7 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
     char *kstr = (char *)RedisModule_StringPtrLen(krstr, &len);
     if (!strncmp(kstr, TERM_KEY_PREFIX, strlen(TERM_KEY_PREFIX))) {
       // check to see that the key is indeed an inverted index record
-      RedisModuleKey *k = static_cast<RedisModuleKey *>(RedisModule_OpenKey(ctx->redisCtx, krstr, REDISMODULE_READ));
+      RedisModuleKey *k = RedisModule_OpenKey(ctx->redisCtx, krstr, REDISMODULE_READ);
       if (k == nullptr || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
                         RedisModule_ModuleTypeGetType(k) != InvertedIndexType)) {
         continue;
@@ -328,9 +328,9 @@ InvertedIndex *Redis_OpenInvertedIndexEx(
   InvertedIndex *idx = nullptr;
 
   if (sctx->spec->keysDict.empty()) {
-    RedisModuleKey *k = static_cast<RedisModuleKey *>(RedisModule_OpenKey(
+    RedisModuleKey *k = RedisModule_OpenKey(
       sctx->redisCtx, termKey, REDISMODULE_READ | (write ? REDISMODULE_WRITE : 0)
-    ));
+    );
 
     // check that the key is empty
     if (k == nullptr) {
@@ -374,7 +374,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *sctx, RSQueryTerm *term, DocTable 
   TermIndexReader *reader = nullptr;
 
   if (sctx->spec->keysDict.empty()) {
-    k = static_cast<RedisModuleKey *>(RedisModule_OpenKey(sctx->redisCtx, termKey, REDISMODULE_READ));
+    k = RedisModule_OpenKey(sctx->redisCtx, termKey, REDISMODULE_READ);
 
     // we do not allow empty indexes when loading an existing index
     if (k == nullptr || RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY ||
@@ -490,7 +490,7 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
 //---------------------------------------------------------------------------------------------
 
 static bool Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
-  RedisModuleKey *k = static_cast<RedisModuleKey *>(RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE));
+  RedisModuleKey *k = RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE);
   if (k != nullptr) {
     RedisModule_DeleteKey(k);
     RedisModule_CloseKey(k);

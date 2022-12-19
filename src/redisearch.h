@@ -197,8 +197,9 @@ struct RSToken {
   uint8_t expanded; // Is this token an expansion?
   RSTokenFlags flags; // Extension set token flags - up to 31 bits
 
-  RSToken(const std::string_view &str, uint8_t expanded = 1, RSTokenFlags flags = 31) :
-    str(str), expanded(expanded), flags(flags) {}
+  RSToken(std::string_view str_, uint8_t expanded_ = 1, RSTokenFlags flags_ = 31)
+    : str{str_}, expanded{expanded_}, flags{flags_}
+  { }
 
   RSToken(const Runes &r);
   RSToken(const rune *r, size_t n);

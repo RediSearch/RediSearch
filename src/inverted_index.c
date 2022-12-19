@@ -670,35 +670,35 @@ void IndexDecoder::ctor(uint32_t flags) {
   switch (flags & INDEX_STORAGE_MASK) {
     // (freqs)
     case Index_StoreFreqs:
-      decoder = &readFreqs;
+      decoder = &IndexDecoder::readFreqs;
       seeker = nullptr;
       break;
 
     // (fields)
     case Index_StoreFieldFlags:
-      decoder = &readFlags;
+      decoder = &IndexDecoder::readFlags;
       seeker = nullptr;
       break;
 
     case Index_StoreFieldFlags | Index_WideSchema:
-      decoder = &readFlagsWide;
+      decoder = &IndexDecoder::readFlagsWide;
       seeker = nullptr;
       break;
 
     // ()
     case Index_DocIdsOnly:
-      decoder = &readDocIdsOnly;
+      decoder = &IndexDecoder::readDocIdsOnly;
       seeker = nullptr;
       break;
 
     // (freqs, fields)
     case Index_StoreFreqs | Index_StoreFieldFlags:
-      decoder = &readFreqsFlags;
+      decoder = &IndexDecoder::readFreqsFlags;
       seeker = nullptr;
       break;
 
     case Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema:
-      decoder = &readFreqsFlagsWide;
+      decoder = &IndexDecoder::readFreqsFlagsWide;
       seeker = nullptr;
       break;
 
@@ -716,35 +716,35 @@ void TermIndexDecoder::ctor(uint32_t flags) {
   switch (flags & INDEX_STORAGE_MASK) {
     // (freqs, fields, offset)
     case Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets:
-      decoder = (decoder_t)&readFreqOffsetsFlags;
-      seeker = (seeker_t)&seekFreqOffsetsFlags;
+      decoder = (decoder_t)&TermIndexDecoder::readFreqOffsetsFlags;
+      seeker = (seeker_t)&TermIndexDecoder::seekFreqOffsetsFlags;
       break;
 
     case Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
-      decoder = (decoder_t)&readFreqOffsetsFlagsWide;
+      decoder = (decoder_t)&TermIndexDecoder::readFreqOffsetsFlagsWide;
       seeker = nullptr;
       break;
 
     // (fields, offsets)
     case Index_StoreFieldFlags | Index_StoreTermOffsets:
-      decoder = (decoder_t)&readFlagsOffsets;
+      decoder = (decoder_t)&TermIndexDecoder::readFlagsOffsets;
       seeker = nullptr;
       break;
 
     case Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
-      decoder = (decoder_t)&readFlagsOffsetsWide;
+      decoder = (decoder_t)&TermIndexDecoder::readFlagsOffsetsWide;
       seeker = nullptr;
       break;
 
     // (offsets)
     case Index_StoreTermOffsets:
-      decoder = (decoder_t)&readOffsets;
+      decoder = (decoder_t)&TermIndexDecoder::readOffsets;
       seeker = nullptr;
       break;
 
     // (freqs, offsets)
     case Index_StoreFreqs | Index_StoreTermOffsets:
-      decoder = (decoder_t)&readFreqsOffsets;
+      decoder = (decoder_t)&TermIndexDecoder::readFreqsOffsets;
       seeker = nullptr;
       break;
 
@@ -761,7 +761,7 @@ void TermIndexDecoder::ctor(uint32_t flags) {
 void NumericIndexDecoder::ctor(uint32_t flags) {
   switch (flags & INDEX_STORAGE_MASK) {
     case Index_StoreNumeric:
-      decoder = (decoder_t)&readNumeric;
+      decoder = (decoder_t)&NumericIndexDecoder::readNumeric;
       seeker = nullptr;
       break;
 
@@ -811,17 +811,17 @@ bool NumericIndexCriteriaTester::Test(t_docId id) {
   double n;
   int ret = spec->getValue(spec->getValueCtx, nf.fieldName, externalId, nullptr, &n);
   if (ret != RSVALTYPE_DOUBLE) throw Error("RSvalue type should be a double");
-  return (nf.min < n || nf.inclusiveMin && nf.min == n) &&
-         (nf.max > n || nf.inclusiveMax && nf.max == n);
+  return (nf.min < n || (nf.inclusiveMin && nf.min == n)) &&
+         (nf.max > n || (nf.inclusiveMax && nf.max == n));
 }
 
 //---------------------------------------------------------------------------------------------
 
-TermIndexCriteriaTester::TermIndexCriteriaTester(IndexReader *ir) {
-  spec = ir->sp;
-  term = ir->record->term->str;
-  fieldMask = ir->decoder.mask;
-}
+TermIndexCriteriaTester::TermIndexCriteriaTester(IndexReader *ir)
+  : term{ir->record->term->str}
+  , fieldMask{ir->decoder.mask}
+  , spec{ir->sp}
+{ }
 
 //---------------------------------------------------------------------------------------------
 
@@ -924,7 +924,6 @@ eof:
 
 int IndexReader::SkipToBlock(t_docId docId) {
   int rc = 0;
-  InvertedIndex *idx = idx;
 
   // the current block doesn't match and it's the last one - no point in searching
   if (currentBlock + 1 == idx->size) {
@@ -1051,17 +1050,12 @@ size_t IndexReader::NumDocs() const {
 //---------------------------------------------------------------------------------------------
 
 IndexReader::IndexReader(
-  const IndexSpec *sp, InvertedIndex *idx, IndexDecoder decoder,
-  IndexResult *record, double weight
-) : IndexIterator{this}, currentBlock{0}, sp{sp}, idx{idx}
-  , decoder{decoder}, record{record}, weight{weight}, br{}
-  , isValidP{nullptr}
+  const IndexSpec *sp_, InvertedIndex *idx_, IndexDecoder decoder_, IndexResult *record_, double weight_
+) : IndexIterator{this}, sp{sp_}, br{}, idx{idx_}
+  , lastId{idx_->blocks[0].firstId}, currentBlock{0}
+  , decoder{decoder_}, len{0}, record{reinterpret_cast<TermResult*>(record_)}
+  , isValidP{nullptr}, gcMarker{idx_->gcMarker}, weight{weight_}
 {
-  gcMarker = idx->gcMarker;
-  lastId = CurrentBlock().firstId;
-
-  currentBlock = 0;
-  len = 0;
   br.Set(&CurrentBlock().buf, 0);
   SetAtEnd(false);
 }
@@ -1147,17 +1141,20 @@ int IndexBlock::Repair(DocTable &dt, IndexFlags flags, IndexBlockRepair &blockre
 
   t_docId oldFirstBlock = lastId;
   lastId = firstId = 0;
-  Buffer repair;
-  BufferReader br(&buf);
-  BufferWriter bw(&repair);
+  Buffer repair{};
+  BufferReader br{&buf};
+  BufferWriter bw{&repair};
 
-  std::unique_ptr<IndexResult> res = std::unique_ptr<IndexResult>(flags == Index_StoreNumeric ? (IndexResult*)new NumericResult() : (IndexResult*)new TermResult(nullptr, 1));
+  auto res = std::unique_ptr<IndexResult>(
+    flags == Index_StoreNumeric ? dynamic_cast<IndexResult*>(new NumericResult())
+                                : dynamic_cast<IndexResult*>(new TermResult(nullptr, 1))
+  );
   size_t frags = 0;
   int isLastValid = 0;
 
   uint32_t readFlags = flags & INDEX_STORAGE_MASK;
-  IndexDecoder decoder(readFlags);
-  IndexEncoder encoder(readFlags);
+  IndexDecoder decoder{readFlags};
+  IndexEncoder encoder{InvertedIndex::GetEncoder(readFlags)};
 
   if (!encoder || decoder.decoder == nullptr) {
     fprintf(stderr, "Could not get decoder/encoder for index\n");
@@ -1219,7 +1216,6 @@ int IndexBlock::Repair(DocTable &dt, IndexFlags flags, IndexBlockRepair &blockre
     // If we deleted stuff from this block, we need to change the number of docs and the data
     // pointer
     numDocs -= frags;
-    delete &buf;
     buf = repair;
     buf.ShrinkToSize();
   }
@@ -1274,17 +1270,17 @@ int InvertedIndex::Repair(DocTable &dt, uint32_t startBlock, IndexBlockRepair &b
 // }
 
 IndexIterator::IndexIterator()
-  : ir (nullptr)
-  , mode (IndexIteratorMode::Sorted)
-  , isValid (false)
-  , current (nullptr)
+  : isValid{false}
+  , ir{nullptr}
+  , current{nullptr}
+  , mode{IndexIteratorMode::Sorted}
 {}
 
 IndexIterator::IndexIterator(IndexReader *ir_)
-  : ir (ir_)
-  , mode (IndexIteratorMode::Sorted)
-  , isValid (!ir_->atEnd)
-  , current (ir_->record)
+  : isValid{!ir_->atEnd}
+  , ir{ir_}
+  , current{ir_->record}
+  , mode{IndexIteratorMode::Sorted}
 {}
 
 IndexIterator::~IndexIterator() {

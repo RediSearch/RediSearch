@@ -236,9 +236,7 @@ TagIndex *TagIndex::Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, 
       keyp = &key_s;
     }
 
-    *keyp = static_cast<RedisModuleKey *>(
-      RedisModule_OpenKey(sctx->redisCtx, formattedKey, REDISMODULE_READ | (openWrite ? REDISMODULE_WRITE : 0))
-    );
+    *keyp = RedisModule_OpenKey(sctx->redisCtx, formattedKey, REDISMODULE_READ | (openWrite ? REDISMODULE_WRITE : 0));
 
     int type = RedisModule_KeyType(*keyp);
     if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(*keyp) != TagIndexType) {

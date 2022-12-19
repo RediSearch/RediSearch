@@ -200,7 +200,7 @@ IndexSpec::IndexSpec(
   ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
 
   RedisModuleString *keyString = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, name);
-  RedisModuleKey *k = static_cast<RedisModuleKey *>(RedisModule_OpenKey(ctx, keyString, REDISMODULE_READ | REDISMODULE_WRITE));
+  RedisModuleKey *k = RedisModule_OpenKey(ctx, keyString, REDISMODULE_READ | REDISMODULE_WRITE);
   RedisModule_FreeString(ctx, keyString);
 
   // check that the key is empty
@@ -495,7 +495,7 @@ char *IndexSpec::GetRandomTerm(size_t sampleSize) {
 
 void IndexSpec::FreeWithKey(RedisModuleCtx *ctx) {
   RedisModuleString *s = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, name);
-  RedisModuleKey *kk = static_cast<RedisModuleKey *>(RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE));
+  RedisModuleKey *kk = RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE);
   RedisModule_FreeString(ctx, s);
   if (kk == nullptr || RedisModule_KeyType(kk) != REDISMODULE_KEYTYPE_MODULE ||
       RedisModule_ModuleTypeGetType(kk) != IndexSpecType) {
@@ -653,7 +653,7 @@ IndexSpec *IndexSpec::LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     formatted = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, ixname);
   }
 
-  options->keyp = static_cast<RedisModuleKey *>(RedisModule_OpenKey(ctx, formatted, modeflags));
+  options->keyp = RedisModule_OpenKey(ctx, formatted, modeflags);
   // we do not allow empty indexes when loading an existing index
   if (options->keyp == nullptr || RedisModule_KeyType(options->keyp) == REDISMODULE_KEYTYPE_EMPTY) {
     if (options->keyp) {
@@ -670,7 +670,7 @@ IndexSpec *IndexSpec::LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
       }
       formatted = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, ret->name);
       isKeynameOwner = true;
-      options->keyp = static_cast<RedisModuleKey *>(RedisModule_OpenKey(ctx, formatted, modeflags));
+      options->keyp = RedisModule_OpenKey(ctx, formatted, modeflags);
     }
   } else {
     if (RedisModule_ModuleTypeGetType(options->keyp) != IndexSpecType) {
@@ -687,7 +687,7 @@ IndexSpec *IndexSpec::LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     if (modeflags & REDISMODULE_WRITE) {
       RedisModule_SetExpire(options->keyp, exp);
     } else {
-      RedisModuleKey *temp = static_cast<RedisModuleKey *>(RedisModule_OpenKey(ctx, formatted, REDISMODULE_WRITE));
+      RedisModuleKey *temp = RedisModule_OpenKey(ctx, formatted, REDISMODULE_WRITE);
       RedisModule_SetExpire(temp, ret->timeout * 1000);
       RedisModule_CloseKey(temp);
     }

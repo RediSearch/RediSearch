@@ -52,11 +52,11 @@ int NumericFilter::parseDoubleRange(const char *s, bool &inclusive, double &targ
  */
 
 NumericFilter::NumericFilter(ArgsCursor *ac, QueryError *status) 
-  : min(0)
-  , max(0)
-  , fieldName(nullptr)
-  , inclusiveMax(true)
-  , inclusiveMin(true)
+  : fieldName{nullptr}
+  , min{0}
+  , max{0}
+  , inclusiveMin{true}
+  , inclusiveMax{true}
 {
   if (ac->NumRemaining() < 3) {
     QERR_MKBADARGS_FMT(status, "FILTER requires 3 arguments");

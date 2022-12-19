@@ -413,7 +413,7 @@ int RLookupRow::getKeyCommon(const RLookupKey *kk, RLookupLoadOptions *options,
     RedisModuleCtx *ctx = options->sctx->redisCtx;
     RedisModuleString *keyName =
         RedisModule_CreateString(ctx, options->dmd->keyPtr, strlen(options->dmd->keyPtr));
-    *keyobj = static_cast<RedisModuleKey *>(RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ));
+    *keyobj = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
     RedisModule_FreeString(ctx, keyName);
     if (!*keyobj) {
       options->status->SetCode(QUERY_ENODOC);

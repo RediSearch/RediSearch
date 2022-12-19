@@ -322,7 +322,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     // If needed - delete the actual doc
     if (delDoc) {
-      RedisModuleKey *dk = static_cast<RedisModuleKey *>(RedisModule_OpenKey(ctx, argv[2], REDISMODULE_WRITE));
+      RedisModuleKey *dk = RedisModule_OpenKey(ctx, argv[2], REDISMODULE_WRITE);
       if (dk && RedisModule_KeyType(dk) == REDISMODULE_KEYTYPE_HASH) {
         RedisModule_DeleteKey(dk);
       } else {

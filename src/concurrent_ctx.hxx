@@ -38,7 +38,7 @@ inline void ConcurrentSearch::CloseKeys() {
 
 inline void ConcurrentSearch::ReopenKeys() {
   for (auto &ckey: concKeys) {
-    ckey->key = static_cast<RedisModuleKey*>(RedisModule_OpenKey(ctx, ckey->keyName, ckey->keyFlags));
+    ckey->key = RedisModule_OpenKey(ctx, ckey->keyName, ckey->keyFlags);
     ckey->Reopen();
   }
 }

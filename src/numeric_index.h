@@ -44,12 +44,12 @@ struct NumericRange {
 
   double unique_sum;
 
-  u_int16_t card;
+  uint16_t card;
   uint32_t splitCard;
   arrayof(CardinalityValue) values;
   InvertedIndex entries;
 
-  NumericRange(double min, double max, size_t splitCard);
+  NumericRange(double min, double max, uint32_t splitCard);
   ~NumericRange();
 
   // Add an entry to a numeric range node. Returns the cardinality of the range after the inserstion.
@@ -78,7 +78,7 @@ struct NRN_AddRv {
 
 struct NumericRangeNode : public Object {
   // Create a new range node with the given capacity, minimum and maximum values
-  NumericRangeNode(size_t cap, double min, double max, size_t splitCard);
+  NumericRangeNode(size_t cap, double min, double max, uint32_t splitCard);
   ~NumericRangeNode(); // Recursively free a node and its children
 
   double value;

@@ -58,7 +58,7 @@ struct IndexBlockRepair {
 
 // An index encoder is a callback that writes records to the index.
 // It accepts a pre-calculated delta for encoding.
-typedef size_t (*IndexEncoder)(BufferWriter *bw, uint32_t delta, const IndexResult *record);
+using IndexEncoder = size_t (*)(BufferWriter *bw, uint32_t delta, const IndexResult *record);
 
 enum decoderType {Base, Term, Numeric};
 

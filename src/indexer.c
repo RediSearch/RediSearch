@@ -480,8 +480,8 @@ void DocumentIndexer::main() {
 
 //---------------------------------------------------------------------------------------------
 
-static void *DocumentIndexer::_main(void *self_) {
-  auto self = (DocumentIndexer *)self_;
+void *DocumentIndexer::_main(void *self_) {
+  auto self = static_cast<DocumentIndexer *>(self_);
   try {
     self->main();
   } catch (Error &x) {
@@ -489,6 +489,7 @@ static void *DocumentIndexer::_main(void *self_) {
   } catch (...) {
     throw Error("DocumentIndexer thread exception");
   }
+  return nullptr;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -527,12 +528,13 @@ void DocumentIndexer::Add(AddDocumentCtx *aCtx) {
 // thread. This does not insert it into the list of threads, though
 // todo: remove the withIndexThread var once we switch to threadpool
 
-DocumentIndexer::DocumentIndexer(IndexSpec &spec) :
-    redisCtx(RedisModule_GetThreadSafeContext(nullptr)),
-    concCtx(redisCtx),
-    mergePool(TERMS_PER_BLOCK) {
-  isDbSelected = false;
-  options = 0;
+DocumentIndexer::DocumentIndexer(IndexSpec &spec)
+  : redisCtx{RedisModule_GetThreadSafeContext(nullptr)}
+  , concCtx{redisCtx}
+  , mergePool{TERMS_PER_BLOCK}
+  , options{0}
+  , isDbSelected{false}
+{
   if (!!(spec.flags & Index_Temporary) || !RSGlobalConfig.concurrentMode) {
     options |= INDEXER_THREADLESS;
   }

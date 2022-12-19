@@ -32,8 +32,11 @@ struct SummarizeSettings {
   uint16_t numFrags;
   String separator;
 
-  SummarizeSettings() : contextLen(SUMMARIZE_FRAGSIZE_DEFAULT),
-    numFrags(SUMMARIZE_FRAGCOUNT_DEFAULT), separator(SUMMARIZE_DEFAULT_SEPARATOR) {}
+  SummarizeSettings()
+    : contextLen{SUMMARIZE_FRAGSIZE_DEFAULT}
+    , numFrags{SUMMARIZE_FRAGCOUNT_DEFAULT}
+    , separator{SUMMARIZE_DEFAULT_SEPARATOR}
+  { }
 
   SummarizeSettings &operator=(const SummarizeSettings &settings);
 };
@@ -44,7 +47,10 @@ struct HighlightSettings {
   String openTag;
   String closeTag;
 
-  HighlightSettings() : openTag(SUMMARIZE_DEFAULT_OPEN_TAG), closeTag(SUMMARIZE_DEFAULT_CLOSE_TAG) {}
+  HighlightSettings()
+    : openTag{SUMMARIZE_DEFAULT_OPEN_TAG}
+    , closeTag{SUMMARIZE_DEFAULT_CLOSE_TAG}
+  { }
 
   HighlightSettings &operator=(const HighlightSettings &settings);
 };
@@ -60,8 +66,12 @@ struct ReturnedField {
   SummarizeMode mode;
   bool explicitReturn; // Whether this field was explicitly requested by `RETURN`
 
-  ReturnedField() : lookupKey(NULL), mode(SummarizeMode_None), explicitReturn(false) {}
-  ReturnedField(const char *name) : name(name), lookupKey(NULL), mode(SummarizeMode_None), explicitReturn(false) {}
+  ReturnedField(const char *name_ = "")
+    : name{name_}
+    , lookupKey{nullptr}
+    , mode{SummarizeMode_None}
+    , explicitReturn{false}
+  { }
   ~ReturnedField();
 
   void set(const ReturnedField &field, bool isHighlight);
@@ -137,13 +147,13 @@ struct RSSearchOptions {
       for (auto filter: filters) {
         delete filter;
       }
-      gf = NULL;
+      gf = nullptr;
     }
   } legacy;
 
   RSSearchOptions() {
-    expanderName = NULL;
-    scorerName = NULL;
+    expanderName = nullptr;
+    scorerName = nullptr;
     language = RS_LANG_ENGLISH;
     flags = 0;
     slop = -1;

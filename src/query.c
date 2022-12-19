@@ -32,15 +32,15 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-RSToken::RSToken(const rune *r, size_t n) {
-  str = runesToStr(r, n);
-}
+RSToken::RSToken(const rune *r, size_t n)
+  : str{runesToStr(r, n)}
+{ }
 
 //---------------------------------------------------------------------------------------------
 
-RSToken::RSToken(const Runes &r) {
-  str = r.toUTF8();
-}
+RSToken::RSToken(const Runes &r)
+  : str{r.toUTF8()}
+{ }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -148,7 +148,7 @@ IndexIterator *QueryTokenNode::EvalNode(Query *q) {
 
 void QueryTokenNode::Expand(QueryExpander &expander) {
   // Do not expand verbatim nodes
-  if (opts.flags & QueryNode_Verbatim) return this;
+  if (opts.flags & QueryNode_Verbatim) return;
 
   expander.currentNode = this;
   expander.Expand(&tok);
@@ -218,11 +218,13 @@ void LexRange::rangeItersAddIterator(IndexReader *ir) {
 //---------------------------------------------------------------------------------------------
 
 static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
-  LexRange *ctx = p;
+  LexRange *ctx = static_cast<LexRange*>(p);
   Query *q = ctx->q;
   RSToken tok{r, n};
   RSQueryTerm *term = new RSQueryTerm(tok, ctx->q->tokenId++);
-  IndexReader *ir = new TermIndexReader(invidx, q->sctx->spec, RS_FIELDMASK_ALL, term, ctx->weight);
+  IndexReader *ir = new TermIndexReader(
+    static_cast<InvertedIndex*>(invidx), q->sctx->spec, RS_FIELDMASK_ALL, term, ctx->weight
+  );
   if (!ir) {
     delete term;
     return;
@@ -234,12 +236,13 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
 //---------------------------------------------------------------------------------------------
 
 static void rangeIterCb(const rune *r, size_t n, void *p)  {
-  LexRange *ctx = p;
+  LexRange *ctx = static_cast<LexRange*>(p);
   Query *q = ctx->q;
   RSToken tok{r, n};
   RSQueryTerm *term = new RSQueryTerm(tok, q->tokenId++);
-  IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
-                                     q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
+  IndexReader *ir = Redis_OpenReader(
+    q->sctx, term, &q->sctx->spec->docs, 0, q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1
+  );
   if (!ir) {
     delete term;
     return;
@@ -338,7 +341,7 @@ IndexIterator *QueryWildcardNode::EvalNode(Query *q) {
 //---------------------------------------------------------------------------------------------
 
 IndexIterator *QueryPhraseNode::EvalSingle(Query *q, TagIndex *idx, IndexIterators iterout, double weight) {
-  char *terms[NumChildren()];
+  const char *terms[NumChildren()];
   for (size_t i = 0; i < NumChildren(); ++i) {
     if (children[i]->type == QN_TOKEN) {
       TermResult *res = dynamic_cast<TermResult*>(children[i]);
@@ -573,8 +576,9 @@ QueryParse::QueryParse(char *query, size_t nquery, const RedisSearchCtx &sctx_,
  * @param status error details set here.
  */
 
-QueryAST::QueryAST(const RedisSearchCtx &sctx, const RSSearchOptions &opts,
-                   std::string_view query, QueryError *status) : query(query) {
+QueryAST::QueryAST(
+  const RedisSearchCtx &sctx, const RSSearchOptions &opts, std::string_view query_, QueryError *status
+) : query{query_} {
   QueryParse qp(query.data(), query.length(), sctx, opts, status);
 
   root = qp.ParseRaw();
@@ -595,8 +599,9 @@ QueryAST::QueryAST(const RedisSearchCtx &sctx, const RSSearchOptions &opts,
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-Query::Query(size_t numTokens, const RSSearchOptions *opts, RedisSearchCtx *sctx, ConcurrentSearch *conc) :
-  conc(conc), opts(opts), numTokens(numTokens), docTable(&sctx->spec->docs), sctx(sctx), tokenId(0) {}
+Query::Query(size_t numTokens_, const RSSearchOptions *opts_, RedisSearchCtx *sctx_, ConcurrentSearch *conc_)
+  : conc{conc_}, sctx{sctx_}, opts{opts_}, numTokens{numTokens_}, tokenId{0}, docTable{&sctx_->spec->docs}
+{ }
 
 //---------------------------------------------------------------------------------------------
 

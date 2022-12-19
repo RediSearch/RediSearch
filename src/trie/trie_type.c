@@ -100,7 +100,7 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
 // Otherwise we return an iterator to all strings within maxDist Levenshtein distance.
 
 TrieIterator Trie::Iterate(const char *prefix, int maxDist, bool prefixMode) {
-  Runes runes(prefix);
+  Runes runes{prefix};
   if (!runes || runes.len() > TRIE_MAX_PREFIX) {
     return TrieIterator{new DFAFilter{Runes{}, maxDist, prefixMode}};
   }
@@ -110,34 +110,34 @@ TrieIterator Trie::Iterate(const char *prefix, int maxDist, bool prefixMode) {
 
 //---------------------------------------------------------------------------------------------
 
-Vector<TrieSearchResult*> Trie::Search(const char *s, size_t len, size_t num, int maxDist, int prefixMode,
-                                       int trim, int optimize) {
-
+Vector<TrieSearchResult*> Trie::Search(
+  const char *s, size_t len, size_t num, int maxDist, bool prefixMode, int trim, int optimize
+) {
   if (len > TRIE_MAX_PREFIX * sizeof(rune)) {
-    return Vector<TrieSearchResult *>();
+    return Vector<TrieSearchResult *>{};
   }
 
-  Runes runes(s, Runes::Folded::Yes);
+  Runes runes{s, Runes::Folded::Yes};
   // make sure query length does not overflow
   if (!runes || runes.len() >= TRIE_MAX_PREFIX) {
-    return Vector<TrieSearchResult *>();
+    return Vector<TrieSearchResult *>{};
   }
 
-  Heap<TrieSearchResult*> pq(cmpEntries, num);
+  Heap<TrieSearchResult*> pq{cmpEntries, num};
   TrieIterator it{new DFAFilter{runes, maxDist, prefixMode}};
-  Runes it_runes;
-  t_len slen;
-  float score;
-  RSPayload payload;
+  Runes it_runes{};
+  t_len slen{};
+  float score{};
+  RSPayload payload{};
 
-  TrieSearchResult *pooledEntry = nullptr;
-  int dist = maxDist + 1;
-  while (it.Next(it_runes, payload, score, dist)) {
+  TrieSearchResult *pooledEntry{nullptr};
+  int dist{maxDist + 1};
+  while (it.Next(it_runes, payload, score, &dist)) {
     if (pooledEntry == nullptr) {
       pooledEntry = new TrieSearchResult();
     }
     slen = it_runes.len();
-    TrieSearchResult *ent = pooledEntry;
+    TrieSearchResult *ent{pooledEntry};
 
     ent->score = !slen && runes == it_runes ? INT_MAX : score;
 
