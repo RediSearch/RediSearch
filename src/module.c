@@ -189,6 +189,9 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
 
+  SET_DIALECT(sctx->spec->used_dialects, dialect);
+  SET_DIALECT(RSGlobalConfig.used_dialects, dialect);
+
   bool fullScoreInfo = false;
   if (RMUtil_ArgExists("FULLSCOREINFO", argv, argc, 0)) {
     fullScoreInfo = true;
