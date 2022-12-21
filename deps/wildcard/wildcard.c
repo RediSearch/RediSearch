@@ -56,9 +56,7 @@ match_t Wildcard_MatchRune(const rune *pattern, size_t p_len, const rune *str, s
 
   const rune *np_itr = NULL;
   const rune *ns_itr = NULL;
-  int i = 0;
-  while (++i) {
-    //printf("%d ", i);
+  while (1) {
     if (pattern_end != pattern_itr) {
       const rune c = *pattern_itr;
       if ((str_end != str_itr) && (c == *str_itr || c == '?')) {
