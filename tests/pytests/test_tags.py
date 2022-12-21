@@ -364,3 +364,22 @@ def testEmptyTagLeak(env):
         pl.execute()
     forceInvokeGC(env, 'idx')
     env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
+
+def testTagSpaces(env):
+    r = env
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TAG').ok()
+    content = 'It is great tasting'
+    env.expect('HSET', 'doc1', 't', content).equal(1)
+    env.expect('HSET', 'doc2', 't', ' {}'.format(content)).equal(1)
+    env.expect('HSET', 'doc3', 't', '{} '.format(content)).equal(1)
+    env.expect('HSET', 'doc4', 't', ' {} '.format(content)).equal(1)
+    env.expect('HSET', 'doc5', 't', '   {}  '.format(content)).equal(1)
+    
+    # Prior to RediSearch 2.6 DIALECT 2 - need to escape spaces to avoid syntax error with stopwords
+    # content = content.replace(' ', '\ ')
+    
+    env.expect('FT.SEARCH', 'idx', '@t:{{{}}}'.format(content),     'NOCONTENT', 'DIALECT', '2').equal([1, 'doc1'])
+    env.expect('FT.SEARCH', 'idx', '@t:{{ {}}}'.format(content),    'NOCONTENT', 'DIALECT', '2').equal([1, 'doc2'])
+    env.expect('FT.SEARCH', 'idx', '@t:{{{} }}'.format(content),    'NOCONTENT', 'DIALECT', '2').equal([1, 'doc3'])
+    env.expect('FT.SEARCH', 'idx', '@t:{{ {} }}'.format(content),   'NOCONTENT', 'DIALECT', '2').equal([1, 'doc4'])
+    env.expect('FT.SEARCH', 'idx', '@t:{{   {}  }}'.format(content),'NOCONTENT', 'DIALECT', '2').equal([1, 'doc5'])
