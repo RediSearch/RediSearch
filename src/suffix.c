@@ -113,6 +113,7 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   // iterate all matching terms and remove word
   for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
     TrieNode *node = TrieNode_Get(trie->root, runes + j, rlen - j, 1, NULL);
+    if (!node) continue;
     suffixData *data = Suffix_GetData(node);
     RS_LOG_ASSERT(data, "all suffixes must exist");
     // suffixData *data = TrieMap_Find(trie, str + j, len - j);
@@ -399,6 +400,7 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
   // iterate all matching terms and remove word
   for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
     suffixData *data = TrieMap_Find(trie, str + j, len - j);
+    if (!data) continue;
     RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
     if (j == 0) {
       // keep pointer to word string to free after it was found in al sub tokens.
