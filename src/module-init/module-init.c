@@ -132,6 +132,9 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   // Fields statistics
   FieldsGlobalStats_AddToInfo(ctx);
 
+  // Dialect statistics
+  DialectsGlobalStats_AddToInfo(ctx);
+
   // Run time configuration
   RSConfig_AddToInfo(ctx);
 
