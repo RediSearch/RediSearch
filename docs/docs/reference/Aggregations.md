@@ -373,7 +373,7 @@ Note that these operators apply only to numeric values and numeric sub expressio
 
 | Function | Description                                                  | Example            |
 | -------- | ------------------------------------------------------------ | ------------------ |
-| log(x)   | Return the logarithm of a number, property or sub-expression | `log(@foo)`        |
+| log(x)   | Return the logarithm of a number, property or subexpression | `log(@foo)`        |
 | abs(x)   | Return the absolute number of a numeric expression           | `abs(@foo-@bar)`   |
 | ceil(x)  | Round to the smallest value not less than x                  | `ceil(@foo/3.14)`  |
 | floor(x) | Round to largest value not greater than x                    | `floor(@foo/3.14)` |
