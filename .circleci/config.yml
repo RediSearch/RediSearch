@@ -71,8 +71,10 @@ commands:
       - setup-automation
       - run:
           name: System setup
+          no_output_timeout: 30m
           shell: /bin/bash -l -eo pipefail
           command: |
+            export PYTHONUNBUFFERED=1
             ./sbin/system-setup.py
             python3 -m pip list
       - run:
