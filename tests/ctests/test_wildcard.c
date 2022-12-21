@@ -201,6 +201,8 @@ int test_match() {
   _testMatch("*oo", "fo", PARTIAL_MATCH);
   _testMatch("*oo", "fooo", FULL_MATCH);
   _testMatch("*oo", "bar", PARTIAL_MATCH);
+  _testMatch("*", "bar", FULL_MATCH);
+  _testMatch("*", "", FULL_MATCH);
 
   // mix
   _testMatch("f?o*bar", "foobar", FULL_MATCH);
