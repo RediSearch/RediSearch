@@ -696,6 +696,12 @@ on-perf-and-version-tags: &on-perf-and-version-tags
     tags:
       only: /^v[0-9].*/
 
+on-fix: &on-fix
+  filters:
+    branches:
+      only:
+        - /^fix.*$/
+
 #----------------------------------------------------------------------------------------------------------------------------------
 
 workflows:
@@ -721,6 +727,9 @@ workflows:
       - build-macos:
           context: common
           <<: *on-integ-and-version-tags
+      - build-macos:
+          context: common
+          <<: *on-fix
       - coverage:
           <<: *on-any-branch
       - sanitize:
