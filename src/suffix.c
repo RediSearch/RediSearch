@@ -114,6 +114,9 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
     TrieNode *node = TrieNode_Get(trie->root, runes + j, rlen - j, 1, NULL);
     suffixData *data = Suffix_GetData(node);
+    // suffix trie is shared between all text fields in index, even if they don't use it.
+    // if the trie is owned by other fields and not any one containing this suffix,
+    // then failure to find the suffix is not an error. just move along.
     if (!data) continue;
     // RS_LOG_ASSERT(data, "all suffixes must exist");
     // suffixData *data = TrieMap_Find(trie, str + j, len - j);
@@ -400,6 +403,9 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
   // iterate all matching terms and remove word
   for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
     suffixData *data = TrieMap_Find(trie, str + j, len - j);
+    // suffix trie is shared between all tag fields in index, even if they don't use it.
+    // if the trie is owned by other fields and not any one containing this suffix,
+    // then failure to find the suffix is not an error. just move along.
     if (data == TRIEMAP_NOTFOUND) continue;
     // RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
     if (j == 0) {
