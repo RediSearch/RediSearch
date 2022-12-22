@@ -404,6 +404,22 @@ jobs:
             fi
       - persist-artifacts
 
+  build-macos-fix:
+    macos:
+      xcode: 11.7.0
+    resource_class: macos.x86.medium.gen2
+    parameters:
+      upload:
+        type: string
+        default: "yes"
+    steps:
+      - early-returns
+      - run:
+          name: Set up workspace
+          command: mkdir -p ~/workspace
+      - build-steps
+      - test-steps
+
   benchmark-search-oss-standalone:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
