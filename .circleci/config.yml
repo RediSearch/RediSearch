@@ -727,7 +727,7 @@ workflows:
       - build-macos:
           context: common
           <<: *on-integ-and-version-tags
-      - build-macos:
+      - build-macos-fix:
           context: common
           <<: *on-fix
       - coverage:
