@@ -60,6 +60,9 @@ def testSanity(env):
     env.expect('ft.search', index, "w'*234'", 'LIMIT', 0 , 0).equal([40])
     env.expect('ft.search', index, "w'*13'", 'LIMIT', 0 , 0).equal([400])
 
+    # all
+    env.expect('ft.search', index, r"@t:(w'*')", 'LIMIT', 0 , 0).equal([4*item_qty])
+
   # test timeout
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
   env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'RETURN').ok()
@@ -136,6 +139,9 @@ def testSanityTag(env):
     env.expect('ft.search', index, "@t:{w'*oo23?4'}", 'LIMIT', 0 , 0).equal([30])
     env.expect('ft.search', index, "@t:{w'*23?4'}", 'LIMIT', 0 , 0).equal([40])
     env.expect('ft.search', index, "@t:{w'*1?3'}", 'LIMIT', 0 , 0).equal([400])
+
+    # all
+    env.expect('ft.search', index, r"@t:{w'*'}", 'LIMIT', 0 , 0).equal([4*item_qty])
 
   # test timeout
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
