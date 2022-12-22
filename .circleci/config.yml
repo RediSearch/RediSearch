@@ -406,7 +406,7 @@ jobs:
 
   build-macos-fix:
     macos:
-      xcode: 11.7.0
+      xcode: 14.1.0
     resource_class: macos.x86.medium.gen2
     parameters:
       upload:
