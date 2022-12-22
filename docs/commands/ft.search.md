@@ -22,7 +22,8 @@ syntax: |
     [EXPLAINSCORE] 
     [PAYLOAD payload] 
     [ SORTBY sortby [ ASC | DESC]] 
-    [ LIMIT offset num] 
+    [ LIMIT offset num]
+    [ NOPARTIALRESULTS]
     [ PARAMS nargs name value [ name value ...]] 
     [DIALECT dialect]
 ---
@@ -183,6 +184,13 @@ limits the results to the offset and number of results given. Note that the offs
 
 overrides the timeout parameter of the module.
 </details>
+
+<details open>
+<summary><code>NOPARTIALRESULTS</code></summary>
+
+Fail to return results when indexing is still in progress to avoid partial results.
+</details>
+
 
 <details open>
 <summary><code>PARAMS {nargs} {name} {value}</code></summary>

@@ -246,12 +246,13 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
     req->reqflags |= QEXEC_F_REQUIRED_FIELDS;
-  }
-    else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
+  } else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
     if (parseDialect(&req->dialectVersion, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-  } else {
+  } else if(AC_AdvanceIfMatch(ac, "NOPARTIALRESULTS")) {
+    req->reqflags |= QEXEC_F_NO_PARTIAL_RESULTS;
+    } else {
     return ARG_UNKNOWN;
   }
 
@@ -886,6 +887,13 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   if (QAST_CheckIsValid(ast, req->sctx->spec, opts, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
+  }
+
+  if (req->reqflags & QEXEC_F_NO_PARTIAL_RESULTS) {
+    if (!!global_spec_scanner || index->scan_in_progress){
+      QueryError_SetError(status, QUERY_EPARTIALRESULT,NULL);
+    return REDISMODULE_ERR;
+    }
   }
 
   if (!(opts->flags & Search_Verbatim)) {

@@ -642,3 +642,49 @@ def test_as_startswith_as(env):
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, '$.attr1', 'AS', '$.attr2').equal([1, ['$.attr2', 'foo']])
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, 'asa', 'AS', '$.attr2').equal([1, ['$.attr2', 'foo']])
     
+def test_MOD_4105(env):
+  ''' Test failing on partial results (when indexing is still in progress)'''
+
+  conn = getConnectionByEnv(env)
+  num_keys = 5000
+  for i in range(1, num_keys + 1):
+    conn.execute_command('HSET', 'doc%i' % i, 't', '%i' % i)
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()  
+  
+  # Allow partial results by default
+  res = env.execute_command('FT.SEARCH', 'idx', '@t:1', 'NOCONTENT')
+  env.assertTrue(res[0] == 1 or res[0] == 0)  
+  res = env.execute_command('FT.AGGREGATE', 'idx', '@t:1', 'NOCONTENT')
+  env.assertTrue(res[0] == 1 or res[0] == 0)  
+  #res = env.expect('FT.SPELLCHECK', 'idx', '1')
+  #env.assertTrue(res.noError)  
+  # Check indexing is still in progress
+  env.assertEqual(int(index_info(env, 'idx')['indexing']), 1)
+  
+  env.flush()
+
+  for i in range(1, num_keys + 1):
+    conn.execute_command('HSET', 'doc%i' % i, 't', '%i' % i)
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+  
+  # Fail with partial results with `NOPARTIALRESULTS` argument
+  env.expect('FT.SEARCH', 'idx', '@t:1', 'NOCONTENT', 'NOPARTIALRESULTS').error().contains('indexing is in progress')
+  env.expect('FT.AGGREGATE', 'idx', '@t:1', 'NOCONTENT', 'NOPARTIALRESULTS').error().contains('indexing is in progress')
+  #env.expect('FT.SPELLCHECK', 'idx', '1', 'NOCONTENT', 'NOPARTIALRESULTS').error().contains('indexing is in progress')
+  # Check indexing is still in progress
+  env.assertEqual(int(index_info(env, 'idx')['indexing']), 1)
+  
+  # Get non-partial results when indexing is done even with `NOPARTIALRESULTS` argument
+  waitForIndex(env, 'idx')
+  env.assertEqual(int(index_info(env, 'idx')['indexing']), 0)
+  res = env.execute_command('FT.SEARCH', 'idx', '@t:1', 'NOCONTENT', 'NOPARTIALRESULTS')
+  env.assertEqual(res[0], 1)
+  res = env.execute_command('FT.AGGREGATE', 'idx', '@t:1', 'NOCONTENT', 'NOPARTIALRESULTS')
+  env.assertEqual(res[0], 1)
+  #res = env.expect('FT.SPELLCHECK', 'idx', '1', 'NOPARTIALRESULTS')
+  #env.assertTrue(res.noError)
+
+
+
+  
+   

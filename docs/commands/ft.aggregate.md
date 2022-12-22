@@ -13,6 +13,7 @@ syntax: |
     [ LIMIT offset num] 
     [FILTER filter] 
     [ WITHCURSOR [COUNT read_size] [MAXIDLE idle_time]] 
+    [ NOPARTIALRESULTS]
     [ PARAMS nargs name value [ name value ...]] 
     [DIALECT dialect]
 ---
@@ -114,6 +115,12 @@ See [Cursor API](/redisearch/reference/aggregations/#cursor-api) for more detail
 <summary><code>TIMEOUT {milliseconds}</code></summary> 
 
 if set, overrides the timeout parameter of the module.
+</details>
+
+<details open>
+<summary><code>NOPARTIALRESULTS</code></summary>
+
+Fail to return results when indexing is still in progress to avoid partial results.
 </details>
 
 <details open>

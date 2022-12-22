@@ -60,6 +60,9 @@ typedef enum {
   /* FT.AGGREGATE load all fields */
   QEXEC_AGG_LOAD_ALL = 0x20000,
 
+  /* Disallow partial results (while indexing is still in progress) */
+  QEXEC_F_NO_PARTIAL_RESULTS = 0x40000,
+
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
