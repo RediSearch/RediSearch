@@ -72,6 +72,7 @@ commands:
       - run:
           name: System setup
           shell: /bin/bash -l -eo pipefail
+          no_output_timeout: 30m
           command: |
             ./sbin/system-setup.py
             python3 -m pip list
