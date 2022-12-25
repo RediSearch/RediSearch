@@ -1,5 +1,13 @@
 version: 2.1
 
+parameters:
+  run_default_flow:
+    default: true
+    type: boolean
+  run_benchmark_flow_label:
+    default: false
+    type: boolean
+
 commands:
   early-returns:
     steps:
@@ -54,6 +62,7 @@ commands:
     steps:
       - run:
           name: Setup automation
+          no_output_timeout: 30m
           command: |
             git submodule update --init deps/readies
             ./deps/readies/bin/getpy3
@@ -72,6 +81,7 @@ commands:
       - run:
           name: System setup
           shell: /bin/bash -l -eo pipefail
+          no_output_timeout: 30m
           command: |
             ./sbin/system-setup.py
             python3 -m pip list
@@ -643,7 +653,6 @@ on-integ-branch: &on-integ-branch
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
-        - /^perf-.*$/
     tags:
       ignore: /.*/
 
@@ -654,7 +663,6 @@ on-integ-branch-cron: &on-integ-branch-cron
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
-        - /^perf-.*$/
 
 not-on-integ-branch: &not-on-integ-branch
   filters:
@@ -663,7 +671,6 @@ not-on-integ-branch: &not-on-integ-branch
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
-        - /^perf-.*$/
     tags:
       ignore: /.*/
 
@@ -684,21 +691,13 @@ on-integ-and-version-tags: &on-integ-and-version-tags
     tags:
       only: /^v[0-9].*/
 
-on-perf-and-version-tags: &on-perf-and-version-tags
-  filters:
-    branches:
-      only:
-        - master
-        - /^\d+\.\d+.*$/
-        - /^perf.*$/
-    tags:
-      only: /^v[0-9].*/
-
 #----------------------------------------------------------------------------------------------------------------------------------
 
 workflows:
   version: 2
   default-flow:
+    when:
+      << pipeline.parameters.run_default_flow >>
     jobs:
       - build-linux-debian:
           <<: *not-on-integ-branch
@@ -731,19 +730,19 @@ workflows:
           <<: *never
       - benchmark-search-oss-standalone:
           context: common
-          <<: *on-perf-and-version-tags
+          <<: *on-integ-and-version-tags
       - benchmark-vecsim-oss-standalone:
           context: common
-          <<: *on-perf-and-version-tags
+          <<: *on-integ-and-version-tags
       - benchmark-search-oss-cluster:
           context: common
-          <<: *on-perf-and-version-tags
+          <<: *on-integ-and-version-tags
       - benchmark-search-oss-standalone-profiler:
           context: common
-          <<: *on-perf-and-version-tags
+          <<: *on-integ-and-version-tags
       - benchmark-vecsim-oss-standalone-profiler:
           context: common
-          <<: *on-perf-and-version-tags
+          <<: *on-integ-and-version-tags
       - upload-artifacts:
           name: upload-artifacts-to-staging-lab
           staging-lab: "1"
@@ -767,6 +766,23 @@ workflows:
           requires:
             - upload-release-artifacts
 
+  benchmark_flow_label:
+    when:
+      << pipeline.parameters.run_benchmark_flow_label >>
+    jobs:
+      - benchmark-search-oss-standalone:
+          context: common
+          <<: *on-any-branch
+      - benchmark-vecsim-oss-standalone:
+          context: common
+          <<: *on-any-branch
+      - benchmark-vecsim-oss-standalone-profiler:
+          context: common
+          <<: *on-any-branch
+      - benchmark-search-oss-standalone-profiler:
+          context: common
+          <<: *on-any-branch
+
   nightly:
     triggers:
       - schedule:
@@ -784,8 +800,10 @@ workflows:
   nightly-performance:
     triggers:
       - schedule:
-          cron: "20 17 * * *"
-          <<: *on-integ-branch-cron
+          cron: "0 7 * * 1"
+          filters:
+            branches:
+              only: master
 
     jobs:
       - benchmark-search-oss-standalone:
