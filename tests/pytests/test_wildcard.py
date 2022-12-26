@@ -360,3 +360,13 @@ def testBasic():
 
   env.expect('FT.AGGREGATE', 'idx', "w'he*'", 'LOAD', 1, '@t', 'SORTBY', 1, '@t')     \
         .equal([5, ['t', 'heal'], ['t', 'helen'], ['t', 'hell'], ['t', 'hello'], ['t', 'help']])
+
+def testSuffixCleanup(env):
+  conn = getConnectionByEnv(env)
+  env.expect(('_' if env.isCluster() else '') + 'FT.CONFIG SET FORK_GC_CLEAN_THRESHOLD 0').ok()
+
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'WITHSUFFIXTRIE', 't2', 'TEXT')
+  conn.execute_command('HSET', 'doc', 't1', 'foo', 't2', 'bar')
+  conn.execute_command('DEL', 'doc')
+
+  forceInvokeGC(env, 'idx')
