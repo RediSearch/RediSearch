@@ -55,6 +55,12 @@ else
 	[[ $os == linux ]] && os=Linux
 	[[ $arch == x64 ]] && arch=x86_64
 
+	if [[ $os == macos ]]; then
+		if [[ $nick == "bigsur" ]]; then
+			nick="catalina"
+		fi
+	fi
+
 	if [[ $dist == "ubuntu" ]]; then
 		if [[ $nick == "jammy" ]]; then
 			nick="ubuntu22.04"
