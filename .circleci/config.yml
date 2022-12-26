@@ -388,7 +388,7 @@ jobs:
 
   build-macos:
     macos:
-      xcode: 11.7.0
+      xcode: 12.5.1
     resource_class: macos.x86.medium.gen2
     parameters:
       upload:
@@ -717,7 +717,8 @@ workflows:
               platform: [jammy, focal, bionic]
       - build-macos:
           context: common
-          <<: *on-integ-and-version-tags
+          #@@<<: *on-integ-and-version-tags
+          <<: *always
       - coverage:
           <<: *on-any-branch
       - sanitize:
