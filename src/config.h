@@ -76,6 +76,9 @@ typedef struct {
   size_t indexPoolSize;
   int poolSizeNoAuto;  // Don't auto-detect pool size
 
+  size_t numWorkerThreads;
+  int threadsEnabled;
+
   size_t gcScanSize;
 
   size_t minPhoneticTermLen;
@@ -199,22 +202,23 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 
 // default configuration
-#define RS_DEFAULT_CONFIG                                                                         \
-  {                                                                                               \
-    .concurrentMode = 0, .extLoad = NULL, .enableGC = 1, .minTermPrefix = 2,                      \
-    .maxPrefixExpansions = 200, .queryTimeoutMS = 500, .timeoutPolicy = TimeoutPolicy_Return,     \
-    .cursorReadSize = 1000, .cursorMaxIdle = 300000, .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,   \
-    .searchPoolSize = CONCURRENT_SEARCH_POOL_DEFAULT_SIZE,                                        \
-    .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE, .poolSizeNoAuto = 0,                     \
-    .gcScanSize = GC_SCANSIZE, .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,               \
-    .gcPolicy = GCPolicy_Fork, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,              \
-    .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
-    .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,   \
-    .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
-    .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
-    .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
-    .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1,\
-    .vssMaxResize = 0, .multiTextOffsetDelta = 100, .used_dialects = 0                            \
+#define RS_DEFAULT_CONFIG                                                                          \
+  {                                                                                                \
+    .concurrentMode = 0, .extLoad = NULL, .enableGC = 1, .minTermPrefix = 2,                       \
+    .maxPrefixExpansions = 200, .queryTimeoutMS = 500, .timeoutPolicy = TimeoutPolicy_Return,      \
+    .cursorReadSize = 1000, .cursorMaxIdle = 300000, .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,    \
+    .searchPoolSize = CONCURRENT_SEARCH_POOL_DEFAULT_SIZE,                                         \
+    .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE, .poolSizeNoAuto = 0,                      \
+    .numWorkerThreads = 0, .threadsEnabled = 0, .gcScanSize = GC_SCANSIZE,                         \
+    .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN, .gcPolicy = GCPolicy_Fork,                \
+    .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL, .forkGcSleepBeforeExit = 0,              \
+    .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, .forkGcRetryInterval = 5,    \
+    .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,                              \
+    .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                     \
+    .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,               \
+    .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                                \
+    .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1, \
+    .vssMaxResize = 0, .multiTextOffsetDelta = 100, .used_dialects = 0                             \
   }
 
 #define REDIS_ARRAY_LIMIT 7
