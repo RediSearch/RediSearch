@@ -1,18 +1,13 @@
 ---
-syntax: 
+syntax: |
+  FT.DICTDUMP dict
 ---
 
 Dump all terms in the given dictionary
 
-## Syntax
-
-{{< highlight bash >}}
-FT.DICTDUMP dict
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required argumemts
 
 <details open>
 <summary><code>dict</code></summary>

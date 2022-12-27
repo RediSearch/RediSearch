@@ -1,18 +1,13 @@
 ---
-syntax: 
+syntax: |
+  FT.SUGDEL key string
 ---
 
 Delete a string from a suggestion index
 
-## Syntax
-
-{{< highlight bash >}}
-FT.SUGDEL key string
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>key</code></summary>
