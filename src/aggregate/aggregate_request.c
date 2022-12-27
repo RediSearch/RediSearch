@@ -230,6 +230,10 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
+    if (req->reqflags & QEXEC_F_IS_SEARCH) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "WITHCURSOR is not supported on SEARCH");
+      return ARG_ERROR;
+    }
     if (parseCursorSettings(req, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }

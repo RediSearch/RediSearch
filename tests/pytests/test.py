@@ -2599,6 +2599,7 @@ def testCursorBadArgument(env):
     env.expect('ft.aggregate', 'idx', '*',
                'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0',
                'WITHCURSOR', 'COUNT', 'BAD').error()
+    env.expect('ft.search', 'idx', '*', 'WITHCURSOR').error()
 
 def testLimitBadArgument(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
