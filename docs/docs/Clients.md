@@ -34,6 +34,7 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 | Ruby on Rails | [redi_search_rails][redi_search_rails-url] | [Dmitry Polyakovsky][redi_search_rails-author] | MIT | [![redi_search_rails-stars]][redi_search_rails-url]|
 | Ruby | [redisearch-rb][redisearch-rb-url] | [Victor Ruiz][redisearch-rb-author] | MIT | [![redisearch-rb-stars]][redisearch-rb-url]|
 | Ruby | [redi_search][redi_search-url] | [Nick Pezza][redi_search-author] | MIT | [![redi_search-stars]][redi_search-url] |
+| Rust | [rustis][rustis-url] | [Dahomey Technologies][rustis-author] | MIT | [![rustis-stars]][rustis-url] |
 
 [redis-py-url]: https://github.com/redis/redis-py
 [redis-py-author]: https://redis.com
@@ -114,6 +115,10 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 [redis-om-dotnet-url]: https://github.com/redis/redis-om-dotnet
 [redis-om-dotnet-author]: https://redis.com
 [redis-om-dotnet-stars]: https://img.shields.io/github/stars/redis/redis-om-dotnet.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+[rustis-url]: https://github.com/dahomey-technologies/rustis
+[rustis-author]: https://github.com/dahomey-technologies
+[rustis-stars]: https://img.shields.io/github/stars/dahomey-technologies/rustis.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 ## Other available Libraries
 
