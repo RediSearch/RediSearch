@@ -83,6 +83,7 @@ You can use any standard Redis client library to run RediSearch commands, but it
 | PHP | [redisearch-php][redisearch-php-url] | [Ethan Hann][redisearch-php-author] | MIT | [![redisearch-php-stars]][redisearch-php-url] |
 | PHP | [php-redisearch][php-redisearch-url] | [MacFJA][php-redisearch-author] | MIT | [![php-redisearch-stars]][php-redisearch-url] |
 | Rust | [redisearch-api-rs][redisearch-api-rs-url] | [Redis][redisearch-api-rs-author] | BSD | [![redisearch-api-rs-stars]][redisearch-api-rs-url] |
+| Rust | [rustis][rustis-url] | [Dahomey Technologies][rustis-author] | MIT | [![rustis-stars]][rustis-url] | [Documentation](https://docs.rs/rustis/latest/rustis/commands/trait.SearchCommands.html) |
 | Ruby on Rails | [redi_search_rails][redi_search_rails-url] | [Dmitry Polyakovsky][redi_search_rails-author] | MIT | [![redi_search_rails-stars]][redi_search_rails-url]|
 | Ruby | [redisearch-rb][redisearch-rb-url] | [Victor Ruiz][redisearch-rb-author] | MIT | [![redisearch-rb-stars]][redisearch-rb-url]|
 | Ruby | [redi_search][redi_search-url] | [Nick Pezza][redi_search-author] | MIT | [![redi_search-stars]][redi_search-url] |
@@ -170,6 +171,10 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [redisearch-api-rs-url]: https://github.com/RediSearch/redisearch-api-rs
 [redisearch-api-rs-author]: https://redis.com
 [redisearch-api-rs-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-api-rs.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+[rustis-url]: https://github.com/dahomey-technologies/rustis
+[rustis-author]: https://github.com/dahomey-technologies
+[rustis-stars]: https://img.shields.io/github/stars/dahomey-technologies/rustis.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 ## RediSearch features
 
