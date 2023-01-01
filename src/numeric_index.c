@@ -636,7 +636,7 @@ NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyNa
       t = RedisModule_ModuleTypeGetValue(*idxKey);
     }
   } else {
-    t = openNumericKeysDict(ctx, keyName, 1);
+    t = openNumericKeysDict(ctx->spec, keyName, 1);
   }
   return t;
 }
