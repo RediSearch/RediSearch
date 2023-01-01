@@ -46,9 +46,10 @@ bool addDocument(RedisModuleCtx *ctx, IndexSpec *sp, const char *docid, Ts... ar
   options.options = DOCUMENT_ADD_REPLACE;
 
   QueryError status = {QueryErrorCode(0)};
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp, RS_CTX_READWRITE);
   int rv = RS_AddDocument(&sctx, RMCK::RString(docid), &options, &status);
   RedisModule_FreeString(ctx, options.keyStr);
+  SearchCtx_CleanUp(&sctx);
   RWLOCK_RELEASE();
   return rv == REDISMODULE_OK;
 }

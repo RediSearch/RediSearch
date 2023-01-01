@@ -624,7 +624,7 @@ TEST_F(QueryTest, testVectorHybridQuery) {
                                "TYPE", "FLOAT32", "DIM", "5", "DISTANCE_METRIC", "L2"};
   QueryError err = {QueryErrorCode(0)};
   IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
-  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec, RS_CTX_READONLY);
   QASTCXX ast;
   ast.setContext(&ctx);
   int ver = 2;
@@ -655,6 +655,7 @@ TEST_F(QueryTest, testVectorHybridQuery) {
   ASSERT_EQ(ast.root->children[0]->opts.fieldMask, 0x01);
 
   IndexSpec_Free(ctx.spec);
+  SearchCtx_CleanUp(&ctx);
 }
 
 TEST_F(QueryTest, testPureNegative) {
@@ -663,7 +664,7 @@ TEST_F(QueryTest, testPureNegative) {
                                "text",   "weight", "2.0",  "bar",    "numeric"};
   QueryError err = {QueryErrorCode(0)};
   IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
-  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec, RS_CTX_READONLY);
   for (size_t i = 0; qs[i] != NULL; i++) {
     QASTCXX ast;
     ast.setContext(&ctx);
@@ -674,13 +675,15 @@ TEST_F(QueryTest, testPureNegative) {
     ASSERT_TRUE(QueryNode_GetChild(n, 0) != NULL);
   }
   IndexSpec_Free(ctx.spec);
+  SearchCtx_CleanUp(&ctx);
+
 }
 
 TEST_F(QueryTest, testGeoQuery_v1) {
   static const char *args[] = {"SCHEMA", "title", "text", "loc", "geo"};
   QueryError err = {QueryErrorCode(0)};
   IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
-  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec, RS_CTX_READONLY);
   const char *qt = "@title:hello world @loc:[31.52 32.1342 10.01 km]";
   QASTCXX ast;
   ast.setContext(&ctx);
@@ -698,13 +701,14 @@ TEST_F(QueryTest, testGeoQuery_v1) {
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);
   ASSERT_EQ(gn->gn.gf->radius, 10.01);
   IndexSpec_Free(ctx.spec);
+  SearchCtx_CleanUp(&ctx);
 }
 
 TEST_F(QueryTest, testGeoQuery_v2) {
   static const char *args[] = {"SCHEMA", "title", "text", "loc", "geo"};
   QueryError err = {QueryErrorCode(0)};
   IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
-  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec, RS_CTX_READONLY);
   const char *qt = "@title:hello world @loc:[31.52 32.1342 10.01 km]";
   QASTCXX ast;
   ast.setContext(&ctx);
@@ -724,6 +728,8 @@ TEST_F(QueryTest, testGeoQuery_v2) {
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);
   ASSERT_EQ(gn->gn.gf->radius, 10.01);
   IndexSpec_Free(ctx.spec);
+  SearchCtx_CleanUp(&ctx);
+
 }
 
 TEST_F(QueryTest, testFieldSpec_v1) {
@@ -731,7 +737,7 @@ TEST_F(QueryTest, testFieldSpec_v1) {
                                "text",   "weight", "2.0",  "bar",    "numeric"};
   QueryError err = {QUERY_OK};
   IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
-  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec, RS_CTX_READONLY);
   const char *qt = "@title:hello world";
   QASTCXX ast(ctx);
   ASSERT_TRUE(ast.parse(qt)) << ast.getError();
@@ -779,6 +785,7 @@ TEST_F(QueryTest, testFieldSpec_v1) {
   ASSERT_EQ(n->nn.nf->inclusiveMin, 1);
   ASSERT_EQ(n->nn.nf->inclusiveMax, 0);
   IndexSpec_Free(ctx.spec);
+  SearchCtx_CleanUp(&ctx);
 }
 
 TEST_F(QueryTest, testFieldSpec_v2) {
@@ -786,7 +793,7 @@ TEST_F(QueryTest, testFieldSpec_v2) {
                                "text",   "weight", "2.0",  "bar",    "numeric"};
   QueryError err = {QUERY_OK};
   IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
-  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec, RS_CTX_READONLY);
   const char *qt = "@title:hello world";
   QASTCXX ast(ctx);
   int ver = 2;
@@ -836,13 +843,14 @@ TEST_F(QueryTest, testFieldSpec_v2) {
   ASSERT_EQ(n->nn.nf->inclusiveMin, 1);
   ASSERT_EQ(n->nn.nf->inclusiveMax, 0);
   IndexSpec_Free(ctx.spec);
+  SearchCtx_CleanUp(&ctx);
 }
 
 TEST_F(QueryTest, testAttributes) {
   static const char *args[] = {"SCHEMA", "title", "text", "body", "text"};
   QueryError err = {QUERY_OK};
   IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
-  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec, RS_CTX_READONLY);
 
   const char *qt =
       "(@title:(foo bar) => {$weight: 0.5} @body:lol => {$weight: 0.2}) => "
@@ -859,13 +867,14 @@ TEST_F(QueryTest, testAttributes) {
   ASSERT_EQ(0.5, n->children[0]->opts.weight);
   ASSERT_EQ(0.2, n->children[1]->opts.weight);
   IndexSpec_Free(ctx.spec);
+  SearchCtx_CleanUp(&ctx);
 }
 
 TEST_F(QueryTest, testTags) {
   static const char *args[] = {"SCHEMA", "title", "text", "tags", "tag", "separator", ";"};
   QueryError err = {QUERY_OK};
   IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
-  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec, RS_CTX_READONLY);
 
   const char *qt = "@tags:{hello world  |foo| שלום|  lorem\\ ipsum    }";
   QASTCXX ast(ctx);
@@ -887,13 +896,14 @@ TEST_F(QueryTest, testTags) {
   ASSERT_EQ(QN_TOKEN, n->children[3]->type);
   ASSERT_STREQ("lorem\\ ipsum", n->children[3]->tn.str);
   IndexSpec_Free(ctx.spec);
+  SearchCtx_CleanUp(&ctx);
 }
 
 TEST_F(QueryTest, testWildcard) {
   static const char *args[] = {"SCHEMA", "title", "text"};
   QueryError err = {QUERY_OK};
   IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
-  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec, RS_CTX_READONLY);
 
   const char *qt = "w'hello world'";
   QASTCXX ast(ctx);
@@ -911,4 +921,5 @@ TEST_F(QueryTest, testWildcard) {
   ASSERT_STREQ("?*?*?", n->verb.tok.str);
 
   IndexSpec_Free(ctx.spec);
+  SearchCtx_CleanUp(&ctx);
 }

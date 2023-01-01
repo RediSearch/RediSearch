@@ -20,7 +20,7 @@
 #define DEBUG_COMMAND(name) static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
 #define GET_SEARCH_CTX(name)                                        \
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true, RS_CTX_READONLY);             \
   if (!sctx) {                                                      \
     RedisModule_ReplyWithError(ctx, "Can not create a search ctx"); \
     return REDISMODULE_OK;                                          \

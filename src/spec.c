@@ -1275,6 +1275,8 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   } else {
     thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeUnlinkedData, spec);
   }
+
+  pthread_rwlock_destroy(&spec->rwlock);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1501,6 +1503,19 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->used_dialects = 0;
 
   memset(&sp->stats, 0, sizeof(sp->stats));
+  
+  int res = 0;
+  pthread_rwlockattr_t attr;
+	res = pthread_rwlockattr_init(&attr) ;
+  RedisModule_Assert(res == 0);
+#if !defined(__APPLE__) && !defined(__FreeBSD__)
+	int pref = PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP ;
+	res = pthread_rwlockattr_setkind_np(&attr, pref) ;
+	RedisModule_Assert(res == 0);
+#endif
+
+	RedisModule_Assert(res == 0);
+  pthread_rwlock_init(&sp->rwlock, &attr);
   return sp;
 }
 
@@ -2050,7 +2065,7 @@ void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp) {
 }
 
 void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
-  RedisSearchCtx ctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(RSDummyContext, sp, RS_CTX_READWRITE);
 
   rune *rstr = NULL;
   t_len slen = 0;
@@ -2085,6 +2100,8 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
       RedisModule_CreateStringPrintf(ctx.redisCtx, INDEX_SPEC_KEY_FMT, ctx.spec->name);
   Redis_DeleteKey(ctx.redisCtx, str);
   RedisModule_FreeString(ctx.redisCtx, str);
+  SearchCtx_CleanUp(&ctx);
+
 }
 
 void Indexes_UpgradeLegacyIndexes() {
@@ -2519,7 +2536,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   hires_clock_t t0;
   hires_clock_get(&t0);
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec, RS_CTX_READWRITE);
   Document doc = {0};
   Document_Init(&doc, key, DEFAULT_SCORE, DEFAULT_LANGUAGE, type);
   // if a key does not exit, is not a hash or has no fields in index schema
@@ -2554,7 +2571,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   Document_Free(&doc);
 
   spec->stats.totalIndexTime += hires_clock_since_usec(&t0);
-
+  SearchCtx_CleanUp(&sctx);
   return REDISMODULE_OK;
 }
 

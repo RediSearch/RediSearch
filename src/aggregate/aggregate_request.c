@@ -1404,7 +1404,7 @@ void AREQ_Free(AREQ *req) {
       thctx = req->sctx->redisCtx;
       req->sctx->redisCtx = NULL;
     }
-    SearchCtx_Decref(req->sctx);
+    SearchCtx_Free(req->sctx);
   }
   for (size_t ii = 0; ii < req->nargs; ++ii) {
     sdsfree(req->args[ii]);
