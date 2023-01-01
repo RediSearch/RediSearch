@@ -164,9 +164,8 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   if (!actxPool_g) {
     mempool_options mopts = {.initialCap = 16,
                              .alloc = allocDocumentContext,
-                             .free = freeDocumentContext,
-                             .isGlobal = 1};
-    actxPool_g = mempool_new(&mopts);
+                             .free = freeDocumentContext};
+    mempool_test_set_global(&actxPool_g, &mopts);
   }
 
   // Get a new context
@@ -660,7 +659,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     case FLD_VAR_T_NUM:
       RS_LOG_ASSERT(0, "Oops");
   }
-  
+
   const char *str = NULL;
   if (str_count == 1) {
     fdata->isMulti = 0;
