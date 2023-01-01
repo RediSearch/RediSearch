@@ -23,6 +23,7 @@
 #include "util/dict.h"
 #include "redisearch_api.h"
 #include "rules.h"
+#include <pthread.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -292,6 +293,9 @@ typedef struct IndexSpec {
 
   // Count the number of times the index was used
   long long counter;
+
+  // read write lock
+  pthread_rwlock_t rwlock;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;

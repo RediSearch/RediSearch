@@ -68,13 +68,13 @@ static void FGC_unlock(ForkGC *gc, RedisModuleCtx *ctx) {
   }
 }
 
-static RedisSearchCtx *FGC_getSctx(ForkGC *gc, RedisModuleCtx *ctx) {
+static RedisSearchCtx *FGC_getSctx(ForkGC *gc, RedisModuleCtx *ctx, RSContextFlags flags) {
   RedisSearchCtx *sctx = NULL;
   if (gc->type == FGC_TYPE_NOKEYSPACE) {
     sctx = rm_malloc(sizeof(*sctx));
-    *sctx = (RedisSearchCtx)SEARCH_CTX_STATIC(ctx, gc->sp);
+    *sctx = SEARCH_CTX_STATIC(ctx, gc->sp, flags);
   } else if (gc->type == FGC_TYPE_INKEYSPACE) {
-    sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName, false);
+    sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName, false, flags);
   }
   return sctx;
 }
@@ -534,7 +534,7 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
 }
 
 static void FGC_childScanIndexes(ForkGC *gc) {
-  RedisSearchCtx *sctx = FGC_getSctx(gc, gc->ctx);
+  RedisSearchCtx *sctx = FGC_getSctx(gc, gc->ctx, RS_CTX_READONLY);
   if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
     // write log here
     return;
@@ -767,7 +767,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
   }
 
   hasLock = 1;
-  sctx = FGC_getSctx(gc, rctx);
+  sctx = FGC_getSctx(gc, rctx, RS_CTX_READWRITE);
   if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
     status = FGC_PARENT_ERROR;
     goto cleanup;
@@ -940,7 +940,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     }
 
     hasLock = 1;
-    sctx = FGC_getSctx(gc, rctx);
+    sctx = FGC_getSctx(gc, rctx, RS_CTX_READWRITE);
     if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
       status = FGC_PARENT_ERROR;
       goto loop_cleanup;
@@ -1050,7 +1050,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
     }
 
     hasLock = 1;
-    sctx = FGC_getSctx(gc, rctx);
+    sctx = FGC_getSctx(gc, rctx, RS_CTX_READWRITE);
     if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
       status = FGC_PARENT_ERROR;
       goto loop_cleanup;

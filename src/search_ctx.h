@@ -23,43 +23,41 @@ extern "C" {
 #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
 #endif
 
+typedef enum {
+  RS_CTX_READONLY = 0,
+  RS_CTX_READWRITE = 1,
+} RSContextFlags;
+
+
 /** Context passed to all redis related search handling functions. */
 typedef struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
   RedisModuleKey *key_;
   IndexSpec *spec;
-  uint32_t refcount;
-  int isStatic;
   uint64_t specId;  // Unique id of the spec; used when refreshing
   struct timespec timeout;
   unsigned int apiVersion; // API Version to allow for backward compatibility / alternative functionality
+  RSContextFlags flags;
+  bool isLocked;
 } RedisSearchCtx;
-
-#define SEARCH_CTX_STATIC(ctx, sp) \
-  { ctx, NULL, sp, 0, 1, 0, {0, 0} }
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
 // Create a string context on the heap
-RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL);
-RedisSearchCtx *NewSearchCtxDefault(RedisModuleCtx *ctx);
-
-RedisSearchCtx *SearchCtx_Refresh(RedisSearchCtx *sctx, RedisModuleString *keyName);
+RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL, RSContextFlags flags);
 
 // Same as above, only from c string (null terminated)
-RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL);
+RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL, RSContextFlags flads);
 
-#define SearchCtx_Incref(sctx) \
-  ({                           \
-    (sctx)->refcount++;        \
-    sctx;                      \
-  })
+RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *sp, RSContextFlags flags);
 
-#define SearchCtx_Decref(sctx) \
-  if (!--((sctx)->refcount)) { \
-    SearchCtx_Free(sctx);      \
-  }
+void SearchCtx_CleanUp(RedisSearchCtx * sctx);
 
 void SearchCtx_Free(RedisSearchCtx *sctx);
+
+void RedisSearchCtx_LockSpec(RedisSearchCtx *sctx);
+
+void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx);
+
 #ifdef __cplusplus
 }
 #endif
