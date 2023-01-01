@@ -87,7 +87,7 @@ TEST_F(DocumentTest, testLoadSchema) {
   RMCK::hset(ctx, "doc1", "t1", "Hello World");
   RMCK::hset(ctx, "doc1", "t2", "foobar");
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec, RS_CTX_READONLY);
   rv = Document_LoadSchemaFieldHash(&d, &sctx);
   ASSERT_EQ(REDISMODULE_OK, rv);
   ASSERT_EQ(2, d.numFields);  // Only a single field
@@ -106,6 +106,7 @@ TEST_F(DocumentTest, testLoadSchema) {
   ASSERT_EQ(DOCUMENT_F_OWNSTRINGS, d.flags);
   Document_Free(&d);
   IndexSpec_Free(spec);
+  SearchCtx_CleanUp(&sctx);
 }
 
 #endif // HAVE_RM_SCANCURSOR_CREATE

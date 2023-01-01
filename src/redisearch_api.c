@@ -547,7 +547,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
    * Avoid rehashing the terms dictionary */
   dictPauseRehashing(sp->keysDict);
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp, RS_CTX_READONLY);
   RSSearchOptions options = {0};
   QueryError status = {0};
   RSSearchOptions_Init(&options);
@@ -593,6 +593,7 @@ end:
     }
   }
   QueryError_ClearError(&status);
+  SearchCtx_CleanUp(&sctx);
   return it;
 }
 

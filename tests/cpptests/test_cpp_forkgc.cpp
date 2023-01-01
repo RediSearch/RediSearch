@@ -119,12 +119,11 @@ TEST_F(FGCTest, testRemoveLastBlock) {
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
 }
 
-static InvertedIndex *getTagInvidx(RedisModuleCtx *ctx, IndexSpec *sp, const char *field,
+static InvertedIndex *getTagInvidx(RedisSearchCtx* sctx, const char *field,
                                    const char *value) {
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   RedisModuleKey *keyp = NULL;
-  RedisModuleString *fmtkey = IndexSpec_GetFormattedKeyByName(sp, "f1", INDEXFLD_T_TAG);
-  auto tix = TagIndex_Open(&sctx, fmtkey, 1, &keyp);
+  RedisModuleString *fmtkey = IndexSpec_GetFormattedKeyByName(sctx->spec, "f1", INDEXFLD_T_TAG);
+  auto tix = TagIndex_Open(sctx, fmtkey, 1, &keyp);
   auto iv = TagIndex_OpenIndex(tix, "hello", strlen("hello"), 1);
   return iv;
 }
@@ -142,7 +141,8 @@ static std::string numToDocid(unsigned id) {
 TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
   // Delete the first block:
   unsigned curId = 0;
-  auto iv = getTagInvidx(ctx, sp, "f1", "hello");
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp, RS_CTX_READWRITE);
+  auto iv = getTagInvidx(&sctx,  "f1", "hello");
   while (iv->size < 3) {
     char buf[1024];
     size_t n = sprintf(buf, "doc%u", curId++);
@@ -177,6 +177,7 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
   ASSERT_EQ(2, iv->size);
+  SearchCtx_CleanUp(&sctx);
 }
 
 /**
@@ -185,7 +186,8 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
 TEST_F(FGCTest, testRepairLastBlock) {
   // Delete the first block:
   unsigned curId = 0;
-  auto iv = getTagInvidx(ctx, sp, "f1", "hello");
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp, RS_CTX_READWRITE);
+  auto iv = getTagInvidx(&sctx, "f1", "hello");
   while (iv->size < 2) {
     char buf[1024];
     size_t n = sprintf(buf, "doc%u", curId++);
@@ -213,6 +215,7 @@ TEST_F(FGCTest, testRepairLastBlock) {
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
   ASSERT_EQ(2, iv->size);
+  SearchCtx_CleanUp(&sctx);
 }
 
 /**
@@ -222,7 +225,8 @@ TEST_F(FGCTest, testRepairLastBlock) {
 TEST_F(FGCTest, testRepairMiddleRemoveLast) {
   // Delete the first block:
   unsigned curId = 0;
-  auto iv = getTagInvidx(ctx, sp, "f1", "hello");
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp, RS_CTX_READWRITE);
+  auto iv = getTagInvidx(&sctx, "f1", "hello");
   while (iv->size < 3) {
     char buf[1024];
     size_t n = sprintf(buf, "doc%u", curId++);
@@ -252,6 +256,7 @@ TEST_F(FGCTest, testRepairMiddleRemoveLast) {
 
   FGC_WaitClear(fgc);
   ASSERT_EQ(2, iv->size);
+  SearchCtx_CleanUp(&sctx);
 }
 
 /**
@@ -261,7 +266,8 @@ TEST_F(FGCTest, testRepairMiddleRemoveLast) {
 TEST_F(FGCTest, testRemoveMiddleBlock) {
   // Delete the first block:
   unsigned curId = 0;
-  InvertedIndex *iv = getTagInvidx(ctx, sp, "f1", "hello");
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp, RS_CTX_READWRITE);
+  InvertedIndex *iv = getTagInvidx(&sctx, "f1", "hello");
 
   while (iv->size < 2) {
     RS::addDocument(ctx, sp, numToDocid(++curId).c_str(), "f1", "hello");
@@ -308,4 +314,5 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   ASSERT_NE(ss.end(), ss.find(numToDocid(newLastBlockId - 1)));
   ASSERT_NE(ss.end(), ss.find(numToDocid(lastLastBlockId)));
   ASSERT_EQ(0, fgc->stats.gcBlocksDenied);
+  SearchCtx_CleanUp(&sctx);
 }
