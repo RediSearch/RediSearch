@@ -107,6 +107,8 @@ inline void mempool_release(mempool_t *p, void *ptr) {
   pthread_mutex_unlock(&p->lock);
 }
 
+// TODO: guyav-multi-threaded: make sure we don't call this on a pool that is in use.
+// Assumes that the pool is not in use and its lock is not locked
 void mempool_destroy(mempool_t *p) {
   for (size_t i = 0; i < p->top; i++) {
     p->free(p->entries[i]);
