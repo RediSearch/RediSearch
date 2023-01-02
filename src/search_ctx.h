@@ -39,7 +39,6 @@ typedef struct RedisSearchCtx {
   struct timespec timeout;
   unsigned int apiVersion; // API Version to allow for backward compatibility / alternative functionality
   RSContextFlags flags;
-  bool isLocked;
 } RedisSearchCtx;
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)

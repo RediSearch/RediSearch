@@ -164,16 +164,14 @@ RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, 
 }
 
 void RedisSearchCtx_LockSpecRead(RedisSearchCtx *ctx) {
-  RedisModule_Assert(ctx->flags == RS_CTX_UNSET && ctx->isLocked == false);
+  RedisModule_Assert(ctx->flags == RS_CTX_UNSET);
   pthread_rwlock_rdlock(&ctx->spec->rwlock);
-  ctx->isLocked = true;
   ctx->flags = RS_CTX_READONLY;
 }
 
 void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
-  RedisModule_Assert(ctx->flags == RS_CTX_UNSET && ctx->isLocked == false);
+  RedisModule_Assert(ctx->flags == RS_CTX_UNSET);
   pthread_rwlock_wrlock(&ctx->spec->rwlock);
-  ctx->isLocked = true;
   ctx->flags = RS_CTX_READWRITE;
 }
 
@@ -207,11 +205,10 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, 
 }
 
 void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
-  if(!sctx->isLocked) {
+  if (sctx->flags == RS_CTX_UNSET) {
     return;
   }
   pthread_rwlock_unlock(&sctx->spec->rwlock);
-  sctx->isLocked = false;
   sctx->flags = RS_CTX_UNSET;
 }
 
