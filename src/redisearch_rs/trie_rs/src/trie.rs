@@ -114,7 +114,7 @@ impl<Data> Node<Data> {
             return data.map(|v| {
                 (
                     v,
-                    self.children.as_ref().map(|v| v.len() == 0).unwrap_or(true),
+                    self.children.as_ref().map(|v| v.is_empty()).unwrap_or(true),
                 )
             });
         }
@@ -168,7 +168,7 @@ pub struct Trie<Data> {
 }
 
 impl<Data> Trie<Data> {
-    pub fn new() -> Trie<Data> {
+    pub fn new() -> Self {
         Trie { root: None, len: 0 }
     }
 
@@ -238,7 +238,7 @@ impl<Data> Trie<Data> {
         self.root
             .as_ref()
             .map(|v| v.find(key, Vec::new()))
-            .unwrap_or(SubTrieIterator::empty())
+            .unwrap_or_else(SubTrieIterator::empty)
     }
 
     pub fn find_str<'trie>(&'trie mut self, key: &'trie str) -> SubTrieIterator<'trie, Data> {
@@ -257,5 +257,11 @@ impl<Data> Trie<Data> {
         key: &'trie str,
     ) -> MatchesPrefixesIterator<'trie, Data> {
         self.find_matches_prefixes(key.as_bytes())
+    }
+}
+
+impl<Data> Default for Trie<Data> {
+    fn default() -> Self {
+        Self::new()
     }
 }

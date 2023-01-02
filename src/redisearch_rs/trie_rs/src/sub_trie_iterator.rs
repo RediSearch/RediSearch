@@ -36,8 +36,11 @@ pub struct SubTrieRustIterator<'trie, Data> {
     inner_iter: SubTrieIterator<'trie, Data>,
 }
 
-impl<'trie, Data> SubTrieIterator<'trie, Data> {
-    pub fn into_iter(self) -> SubTrieRustIterator<'trie, Data> {
+impl<'trie, Data> IntoIterator for SubTrieIterator<'trie, Data> {
+    type Item = (Vec<u8>, &'trie Data);
+    type IntoIter = SubTrieRustIterator<'trie, Data>;
+
+    fn into_iter(self) -> Self::IntoIter {
         SubTrieRustIterator { inner_iter: self }
     }
 }
@@ -67,7 +70,7 @@ impl<'trie, Data> TrieIterator for SubTrieIterator<'trie, Data> {
                             let values = v.values();
                             Box::new(values)
                         })
-                        .unwrap_or(Box::new(Vec::new().into_iter())),
+                        .unwrap_or_else(|| Box::new(Vec::new().into_iter())),
                 );
                 self.processed_nodes.push(curr_node);
                 if let Some(data) = curr_node.data.as_ref() {

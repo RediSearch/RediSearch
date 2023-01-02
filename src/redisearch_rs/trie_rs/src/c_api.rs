@@ -30,7 +30,7 @@ pub extern "C" fn RS_TrieMap_Add(
 ) -> *mut c_void {
     let t = unsafe { &mut *t };
     let key = unsafe { slice::from_raw_parts(str as *const u8, len) };
-    t.add(key, data).unwrap_or(std::ptr::null_mut())
+    t.add(key, data).unwrap_or_else(std::ptr::null_mut)
 }
 
 #[no_mangle]
@@ -41,7 +41,7 @@ pub extern "C" fn RS_TrieMap_Delete(
 ) -> *mut c_void {
     let t = unsafe { &mut *t };
     let key = unsafe { slice::from_raw_parts(str as *const u8, len) };
-    t.del(key).unwrap_or(std::ptr::null_mut())
+    t.del(key).unwrap_or_else(std::ptr::null_mut)
 }
 
 #[no_mangle]
@@ -52,7 +52,7 @@ pub extern "C" fn RS_TrieMap_Get(
 ) -> *mut c_void {
     let t = unsafe { &mut *t };
     let key = unsafe { slice::from_raw_parts(str as *const u8, len) };
-    t.get(key).map(|v| *v).unwrap_or(std::ptr::null_mut())
+    t.get(key).copied().unwrap_or_else(std::ptr::null_mut)
 }
 
 #[no_mangle]
