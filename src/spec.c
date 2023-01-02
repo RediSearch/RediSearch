@@ -2065,7 +2065,7 @@ void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp) {
 }
 
 void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
-  RedisSearchCtx ctx = SEARCH_CTX_STATIC(RSDummyContext, sp, RS_CTX_READWRITE);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
 
   rune *rstr = NULL;
   t_len slen = 0;
@@ -2100,8 +2100,6 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
       RedisModule_CreateStringPrintf(ctx.redisCtx, INDEX_SPEC_KEY_FMT, ctx.spec->name);
   Redis_DeleteKey(ctx.redisCtx, str);
   RedisModule_FreeString(ctx.redisCtx, str);
-  SearchCtx_CleanUp(&ctx);
-
 }
 
 void Indexes_UpgradeLegacyIndexes() {
@@ -2536,7 +2534,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   hires_clock_t t0;
   hires_clock_get(&t0);
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec, RS_CTX_READWRITE);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   Document doc = {0};
   Document_Init(&doc, key, DEFAULT_SCORE, DEFAULT_LANGUAGE, type);
   // if a key does not exit, is not a hash or has no fields in index schema
@@ -2571,7 +2569,6 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   Document_Free(&doc);
 
   spec->stats.totalIndexTime += hires_clock_since_usec(&t0);
-  SearchCtx_CleanUp(&sctx);
   return REDISMODULE_OK;
 }
 

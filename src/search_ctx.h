@@ -24,8 +24,9 @@ extern "C" {
 #endif
 
 typedef enum {
-  RS_CTX_READONLY = 0,
-  RS_CTX_READWRITE = 1,
+  RS_CTX_UNSET,
+  RS_CTX_READONLY,
+  RS_CTX_READWRITE
 } RSContextFlags;
 
 
@@ -43,18 +44,20 @@ typedef struct RedisSearchCtx {
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
 // Create a string context on the heap
-RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL, RSContextFlags flags);
+RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL);
 
 // Same as above, only from c string (null terminated)
-RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL, RSContextFlags flads);
+RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL);
 
-RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *sp, RSContextFlags flags);
+RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *sp);
 
 void SearchCtx_CleanUp(RedisSearchCtx * sctx);
 
 void SearchCtx_Free(RedisSearchCtx *sctx);
 
-void RedisSearchCtx_LockSpec(RedisSearchCtx *sctx);
+void RedisSearchCtx_LockSpecRead(RedisSearchCtx *sctx);
+
+void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *sctx);
 
 void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx);
 
