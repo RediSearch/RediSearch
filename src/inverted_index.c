@@ -104,7 +104,7 @@ static void IR_SetAtEnd(IndexReader *r, int value) {
 void IndexReader_OnReopen(void *privdata) {
 
   IndexReader *ir = privdata;
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, (IndexSpec *)ir->sp, RS_CTX_READONLY);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, (IndexSpec *)ir->sp);
   if (ir->record->type == RSResultType_Term) {
     // we need to reopen the inverted index to make sure its stil valid.
     // the GC might have deleted it by now.
@@ -140,7 +140,6 @@ void IndexReader_OnReopen(void *privdata) {
     RSIndexResult *dummy = NULL;
     IR_SkipTo(ir, lastId, &dummy);
   }
-  SearchCtx_CleanUp(&sctx);
 }
 
 /******************************************************************************
