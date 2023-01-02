@@ -356,7 +356,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     ctx = thctx = newctx;  // In case of error!
   }
 
-  sctx = NewSearchCtxC(ctx, indexname, true, true);
+  sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
     QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "%s: no such index", indexname);
     goto done;
