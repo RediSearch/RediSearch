@@ -116,6 +116,12 @@ set(FINAL_OBJECTS
 if (RS_BUILD_COORDINATOR)
     if (RS_BUILD_COORD_OSS)
         add_library(redisearch-oss STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
+        
+        # compiling and linking to libtrie_rs
+    	target_link_libraries(redisearch-oss 
+    		debug ${PROJECT_SOURCE_DIR}/src/redisearch_rs/target/debug/libtrie_rs.a
+    		optimized ${PROJECT_SOURCE_DIR}/src/redisearch_rs/target/release/libtrie_rs.a)
+        
         target_compile_definitions(redisearch-oss PRIVATE RS_NO_ONLOAD RS_NO_RMAPI RS_CLUSTER_OSS)
         set_target_properties(redisearch-oss PROPERTIES OUTPUT_NAME "redisearch-oss")
         if (APPLE)
@@ -124,6 +130,12 @@ if (RS_BUILD_COORDINATOR)
 
     elseif (RS_BUILD_COORD_RLEC)
         add_library(redisearch-enterprise STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
+        
+        # compiling and linking to libtrie_rs
+    	target_link_libraries(redisearch-enterprise 
+    		debug ${PROJECT_SOURCE_DIR}/src/redisearch_rs/target/debug/libtrie_rs.a
+    		optimized ${PROJECT_SOURCE_DIR}/src/redisearch_rs/target/release/libtrie_rs.a)
+        
         target_compile_definitions(redisearch-enterprise PRIVATE RS_NO_ONLOAD RS_NO_RMAPI RS_CLUSTER_ENTERPRISE)
         set_target_properties(redisearch-enterprise PROPERTIES OUTPUT_NAME "redisearch-enterprise")
         if (APPLE)
