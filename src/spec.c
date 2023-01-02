@@ -1503,18 +1503,18 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->used_dialects = 0;
 
   memset(&sp->stats, 0, sizeof(sp->stats));
-  
+
   int res = 0;
   pthread_rwlockattr_t attr;
-	res = pthread_rwlockattr_init(&attr) ;
+  res = pthread_rwlockattr_init(&attr);
   RedisModule_Assert(res == 0);
 #if !defined(__APPLE__) && !defined(__FreeBSD__)
-	int pref = PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP ;
-	res = pthread_rwlockattr_setkind_np(&attr, pref) ;
-	RedisModule_Assert(res == 0);
+  int pref = PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP;
+  res = pthread_rwlockattr_setkind_np(&attr, pref);
+  RedisModule_Assert(res == 0);
 #endif
 
-	RedisModule_Assert(res == 0);
+  RedisModule_Assert(res == 0);
   pthread_rwlock_init(&sp->rwlock, &attr);
   return sp;
 }
