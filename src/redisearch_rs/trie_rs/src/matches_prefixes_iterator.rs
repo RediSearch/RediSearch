@@ -25,8 +25,11 @@ pub struct MatchesPrefixesRustIterator<'trie, Data> {
     inner_iter: MatchesPrefixesIterator<'trie, Data>,
 }
 
-impl<'trie, Data> MatchesPrefixesIterator<'trie, Data> {
-    pub fn into_iter(self) -> MatchesPrefixesRustIterator<'trie, Data> {
+impl<'trie, Data> IntoIterator for MatchesPrefixesIterator<'trie, Data> {
+    type Item = (Vec<u8>, &'trie Data);
+    type IntoIter = MatchesPrefixesRustIterator<'trie, Data>;
+
+    fn into_iter(self) -> Self::IntoIter {
         MatchesPrefixesRustIterator { inner_iter: self }
     }
 }
@@ -43,14 +46,14 @@ impl<'trie, Data> Iterator for MatchesPrefixesRustIterator<'trie, Data> {
 impl<'trie, Data> TrieIterator for MatchesPrefixesIterator<'trie, Data> {
     type Item<'a> = (&'a [u8], &'trie Data) where Self: 'a;
 
-    fn next<'a>(&'a mut self) -> Option<Self::Item<'a>> {
+    fn next(&mut self) -> Option<Self::Item<'_>> {
         loop {
             let curr_node = self.curr_node?;
             if self.curr_term.starts_with(&curr_node.val) {
                 // node matches, we should try to progress
                 self.curr_prefix.extend(&curr_node.val);
                 self.curr_term = &self.curr_term[curr_node.val.len()..];
-                self.curr_node = match self.curr_term.get(0) {
+                self.curr_node = match self.curr_term.first() {
                     Some(c) => curr_node
                         .children
                         .as_ref()

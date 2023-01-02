@@ -3,5 +3,5 @@ pub(crate) trait TrieIterator {
     where
         Self: 'a;
 
-    fn next<'a>(&'a mut self) -> Option<Self::Item<'a>>;
+    fn next(&mut self) -> Option<Self::Item<'_>>;
 }
