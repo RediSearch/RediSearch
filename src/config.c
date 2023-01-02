@@ -232,6 +232,22 @@ CONFIG_GETTER(getSearchThreads) {
   return sdscatprintf(ss, "%lu", config->searchPoolSize);
 }
 
+// WORKER_THREADS
+CONFIG_SETTER(setWorkThreads) {
+  int acrc = AC_GetSize(ac, &config->numWorkerThreads, AC_F_GE1);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getWorkThreads) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->numWorkerThreads);
+}
+
+// ENABLE_THREADS
+CONFIG_BOOLEAN_SETTER(setThreadsEnabled, threadsEnabled)
+
+CONFIG_BOOLEAN_GETTER(getThreadsEnabled, threadsEnabled, 0)
+
 // FRISOINI
 CONFIG_SETTER(setFrisoINI) {
   int acrc = AC_GetString(ac, &config->frisoIni, NULL, 0);
@@ -638,13 +654,24 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setIndexThreads,
          .getValue = getIndexthreads,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
-        {
-            .name = "SEARCH_THREADS",
-            .helpText = "Create at must this number of search threads (not, will not "
-                        "necessarily parallelize search)",
-            .setValue = setSearchThreads,
-            .getValue = getSearchThreads,
-            .flags = RSCONFIGVAR_F_IMMUTABLE,
+        {.name = "SEARCH_THREADS",
+         .helpText = "Create at must this number of search threads (not, will not "
+                     "necessarily parallelize search)",
+         .setValue = setSearchThreads,
+         .getValue = getSearchThreads,
+         .flags = RSCONFIGVAR_F_IMMUTABLE,
+        },
+        {.name = "WORKER_THREADS",
+         .helpText = "Create at most this number of search threads",
+         .setValue = setWorkThreads,
+         .getValue = getWorkThreads,
+         .flags = RSCONFIGVAR_F_IMMUTABLE,
+        },
+        {.name = "ENABLE_THREADS",
+         .helpText = "Enables or disables multi-threaded search and indexing",
+         .setValue = setThreadsEnabled,
+         .getValue = getThreadsEnabled,
+         .flags = RSCONFIGVAR_F_FLAG,
         },
         {.name = "FRISOINI",
          .helpText = "Path to Chinese dictionary configuration file (for Chinese tokenization)",
