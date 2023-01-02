@@ -163,40 +163,31 @@ RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, 
                                         (int)len, term);
 }
 
-static void SearchCtx_LockRead(RedisSearchCtx *ctx) {
-  RedisModule_Assert(ctx->flags & RS_CTX_READONLY);
-  if (ctx->isLocked) {
-    return;
-  }
+void RedisSearchCtx_LockSpecRead(RedisSearchCtx *ctx) {
+  RedisModule_Assert(ctx->flags == RS_CTX_UNSET && ctx->isLocked == false);
   pthread_rwlock_rdlock(&ctx->spec->rwlock);
   ctx->isLocked = true;
+  ctx->flags = RS_CTX_READONLY;
 }
 
-static void SearchCtx_LockWrite(RedisSearchCtx *ctx) {
-  RedisModule_Assert(ctx->flags & RS_CTX_READWRITE);
-  if (ctx->isLocked) {
-    return;
-  }
+void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
+  RedisModule_Assert(ctx->flags == RS_CTX_UNSET && ctx->isLocked == false);
   pthread_rwlock_wrlock(&ctx->spec->rwlock);
   ctx->isLocked = true;
+  ctx->flags = RS_CTX_READWRITE;
 }
 
-RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *sp, RSContextFlags flags) {
+RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *sp) {
   RedisSearchCtx sctx = {.spec = sp,
                          .redisCtx = ctx,
                          .key_ = NULL,
                          .timeout = { 0, 0 },
-                         .flags = flags, };
-  if(sctx.flags == RS_CTX_READONLY) {
-    SearchCtx_LockRead(&sctx);
-  } else {
-    SearchCtx_LockWrite(&sctx);
-  }
+                         .flags = RS_CTX_UNSET, };
   return sctx;
 }
 
 
-RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL, RSContextFlags flags) {
+RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
   IndexLoadOptions loadOpts = {.name = {.cstring = indexName}};
   IndexSpec *sp = IndexSpec_LoadEx(ctx, &loadOpts);
 
@@ -205,26 +196,15 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
   }
 
   RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
-  *sctx = SEARCH_CTX_STATIC(ctx, sp, flags);
+  *sctx = SEARCH_CTX_STATIC(ctx, sp);
   sctx->key_ = loadOpts.keyp;
   return sctx;
 }
 
-RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL, RSContextFlags flags) {
+RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL) {
 
-  return NewSearchCtxC(ctx, RedisModule_StringPtrLen(indexName, NULL), resetTTL, flags);
+  return NewSearchCtxC(ctx, RedisModule_StringPtrLen(indexName, NULL), resetTTL);
 }
-
-void RedisSearchCtx_LockSpec(RedisSearchCtx *sctx){
-  if(sctx->isLocked) {
-    return;
-  }
-  if(sctx->flags & RS_CTX_READONLY) {
-    SearchCtx_LockRead(sctx);
-  } else {
-    SearchCtx_LockWrite(sctx);
-  }
- }
 
 void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
   if(!sctx->isLocked) {
@@ -232,6 +212,7 @@ void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
   }
   pthread_rwlock_unlock(&sctx->spec->rwlock);
   sctx->isLocked = false;
+  sctx->flags = RS_CTX_UNSET;
 }
 
 void SearchCtx_CleanUp(RedisSearchCtx * sctx) {

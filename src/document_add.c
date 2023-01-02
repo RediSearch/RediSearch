@@ -191,9 +191,8 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
     }
   }
 
-  RedisSearchCtx sctx_s = SEARCH_CTX_STATIC(sctx->redisCtx, sp, RS_CTX_READWRITE);
+  RedisSearchCtx sctx_s = SEARCH_CTX_STATIC(sctx->redisCtx, sp);
   rc = Redis_SaveDocument(&sctx_s, opts, status);
-  SearchCtx_CleanUp(&sctx_s);
 
 done:
   return rc;
