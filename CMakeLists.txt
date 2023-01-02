@@ -149,6 +149,12 @@ elseif (RS_BUILD_STATIC)
 else() # OSS RediSearch
     add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
     target_link_libraries(redisearch VectorSimilarity dl m)
+    
+    # compiling and linking to libtrie_rs
+    target_link_libraries(redisearch 
+    	debug ${PROJECT_SOURCE_DIR}/src/redisearch_rs/target/debug/libtrie_rs.a
+    	optimized ${PROJECT_SOURCE_DIR}/src/redisearch_rs/target/release/libtrie_rs.a)
+    
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     set_target_properties(redisearch PROPERTIES PREFIX "")
     set_target_properties(redisearch PROPERTIES SUFFIX ".so")

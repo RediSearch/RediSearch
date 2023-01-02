@@ -5,15 +5,16 @@
  */
 
 #include <aggregate/reducer.h>
+#include "redisearch_rs/trie_rs/src/triemap.h"
 
 typedef struct {
-  TrieMap *values;
+  RS_TrieMap *values;
   const RLookupKey *srckey;
 } tolistCtx;
 
 static void *tolistNewInstance(Reducer *rbase) {
   tolistCtx *ctx = Reducer_BlkAlloc(rbase, sizeof(*ctx), 100 * sizeof(*ctx));
-  ctx->values = NewTrieMap();
+  ctx->values = RS_NewTrieMap();
   ctx->srckey = rbase->srckey;
   return ctx;
 }
@@ -28,20 +29,18 @@ static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   // for non array values we simply add the value to the list */
   if (v->t != RSValue_Array) {
     uint64_t hval = RSValue_Hash(v, 0);
-    if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
+    if (RS_TrieMap_Get(tlc->values, (char *)&hval, sizeof(hval)) == NULL) {
 
-      TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval),
-                  RSValue_IncrRef(RSValue_MakePersistent(v)), NULL);
+      RS_TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval), RSValue_IncrRef(RSValue_MakePersistent(v)));
     }
   } else {  // For array values we add each distinct element to the list
     uint32_t len = RSValue_ArrayLen(v);
     for (uint32_t i = 0; i < len; i++) {
       RSValue *av = RSValue_ArrayItem(v, i);
       uint64_t hval = RSValue_Hash(av, 0);
-      if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
+      if (RS_TrieMap_Get(tlc->values, (char *)&hval, sizeof(hval)) == NULL) {
 
-        TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval),
-                    RSValue_IncrRef(RSValue_MakePersistent(av)), NULL);
+          RS_TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval), RSValue_IncrRef(RSValue_MakePersistent(av)));
       }
     }
   }
@@ -50,20 +49,20 @@ static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
 
 static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
   tolistCtx *tlc = ctx;
-  TrieMapIterator *it = TrieMap_Iterate(tlc->values, "", 0);
+  RS_SubTrieIterator *it = RS_TrieMap_Find(tlc->values, "", 0);
   char *c;
-  tm_len_t l;
+  size_t l;
   void *ptr;
-  RSValue **arr = rm_calloc(tlc->values->cardinality, sizeof(RSValue));
+  RSValue **arr = rm_calloc(RS_TrieMap_Size(tlc->values), sizeof(RSValue));
   size_t i = 0;
-  while (TrieMapIterator_Next(it, &c, &l, &ptr)) {
+  while (RS_SubTrieIterator_Next(it, &c, &l, &ptr)) {
     if (ptr) {
       arr[i++] = ptr;
     }
   }
 
   RSValue *ret = RSValue_NewArrayEx(arr, i, RSVAL_ARRAY_ALLOC);
-  TrieMapIterator_Free(it);
+  RS_SubTrieIterator_Free(it);
   return ret;
 }
 
@@ -73,7 +72,8 @@ static void freeValues(void *ptr) {
 
 static void tolistFreeInstance(Reducer *parent, void *p) {
   tolistCtx *tlc = p;
-  TrieMap_Free(tlc->values, freeValues);
+  // todo: free values (currently leaking)
+  RS_TrieMap_Free(tlc->values);
 }
 
 Reducer *RDCRToList_New(const ReducerOptions *opts) {

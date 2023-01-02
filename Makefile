@@ -327,7 +327,7 @@ ifneq ($(MISSING_DEPS),)
 DEPS=1
 endif
 
-DEPENDENCIES=libuv hiredis
+DEPENDENCIES=libuv hiredis redisearch_rs
 
 ifneq ($(filter all deps $(DEPENDENCIES) pack,$(MAKECMDGOALS)),)
 DEPS=1
@@ -362,7 +362,7 @@ endif
 	$(SHOW)mkdir -p $(BINROOT)
 	$(SHOW)cd $(BINDIR) && cmake $(CMAKE_DIR) $(CMAKE_FLAGS)
 
-$(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile
+$(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile redisearch_rs
 	@echo Building $(TARGET) ...
 ifneq ($(DRY_RUN),1)
 	$(SHOW)$(MAKE) -C $(BINDIR) $(MAKE_J)
@@ -403,6 +403,10 @@ ifeq ($(DEPS),1)
 deps: $(LIBUV) $(HIREDIS)
 
 libuv: $(LIBUV)
+
+redisearch_rs:
+	@echo Building redisearch_rs
+	$(SHOW) cd src/redisearch_rs/; cargo build; cargo build --release
 
 $(LIBUV):
 	@echo Building libuv...
