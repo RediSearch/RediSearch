@@ -86,7 +86,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   }
 
   RSIndexResult *r;
-  RSDocumentMetadata *dmd;
+  const RSDocumentMetadata *dmd;
   int rc;
 
   // Read from the root filter until we have a valid result
@@ -107,6 +107,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
 
     dmd = DocTable_Get(&RP_SPEC(base)->docs, r->docId);
     if (!dmd || (dmd->flags & Document_Deleted)) {
+      DMD_Decref(dmd);
       continue;
     }
     if (isTrimming && RedisModule_ShardingGetKeySlot) {
@@ -116,6 +117,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
       int firstSlot, lastSlot;
       RedisModule_ShardingGetSlotRange(&firstSlot, &lastSlot);
       if (firstSlot > slot || lastSlot < slot) {
+        DMD_Decref(dmd);
         continue;
       }
     }
@@ -131,7 +133,6 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   res->score = 0;
   res->dmd = dmd;
   res->rowdata.sv = dmd->sortVector;
-  DMD_Incref(dmd);
   return RS_RESULT_OK;
 }
 

@@ -465,12 +465,13 @@ DEBUG_COMMAND(IdToDocId) {
     RedisModule_ReplyWithError(sctx->redisCtx, "bad id given");
     goto end;
   }
-  RSDocumentMetadata *doc = DocTable_Get(&sctx->spec->docs, id);
+  const RSDocumentMetadata *doc = DocTable_Get(&sctx->spec->docs, id);
   if (!doc || (doc->flags & Document_Deleted)) {
     RedisModule_ReplyWithError(sctx->redisCtx, "document was removed");
   } else {
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, doc->keyPtr, strlen(doc->keyPtr));
   }
+  DMD_Decref(doc);
 end:
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -824,7 +825,7 @@ DEBUG_COMMAND(DocInfo) {
   RedisModule_ReplyWithLongLong(ctx, dmd->maxFreq);
   nelem += 2;
   RedisModule_ReplyWithSimpleString(ctx, "refcount");
-  RedisModule_ReplyWithLongLong(ctx, dmd->ref_count);
+  RedisModule_ReplyWithLongLong(ctx, dmd->ref_count - 1); // TODO: should include the refcount of the command call?
   nelem += 2;
   if (dmd->sortVector) {
     RedisModule_ReplyWithSimpleString(ctx, "sortables");
@@ -832,6 +833,7 @@ DEBUG_COMMAND(DocInfo) {
     nelem += 2;
   }
   RedisModule_ReplySetArrayLength(ctx, nelem);
+  DMD_Decref(dmd);
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }

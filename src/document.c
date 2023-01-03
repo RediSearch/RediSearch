@@ -179,6 +179,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->specFlags = sp->flags;
   aCtx->indexer = sp->indexer;
   aCtx->spec = sp;
+  aCtx->oldMd = NULL;
   if (aCtx->specFlags & Index_Async) {
     size_t len = sp->nameLen + 1;
     if (aCtx->specName == NULL) {
@@ -846,22 +847,17 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
                             int *result, QueryError *status) {
 
   int rc = REDISMODULE_ERR;
+  RSExpr *e = NULL;
   const RSDocumentMetadata *dmd = DocTable_GetByKeyR(&sctx->spec->docs, key);
   if (!dmd) {
     // We don't know the document...
     QueryError_SetError(status, QUERY_ENODOC, "");
-    return REDISMODULE_ERR;
+    goto done;
   }
 
   // Try to parser the expression first, fail if we can't
-  RSExpr *e = ExprAST_Parse(expr, strlen(expr), status);
-  if (!e) {
-    return REDISMODULE_ERR;
-  }
-
-  if (QueryError_HasError(status)) {
-    RSExpr_Free(e);
-    return REDISMODULE_ERR;
+  if (!(e = ExprAST_Parse(expr, strlen(expr), status)) || QueryError_HasError(status)) {
+    goto done;
   }
 
   RLookup lookup_s;
@@ -869,31 +865,30 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
   RLookup_Init(&lookup_s, spcache);
   if (ExprAST_GetLookupKeys(e, &lookup_s, status) == EXPR_EVAL_ERR) {
-    goto done;
+    goto CleanUp;
   }
 
   RLookupLoadOptions loadopts = {.sctx = sctx, .dmd = dmd, .status = status};
   if (RLookup_LoadDocument(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
-    goto done;
+    goto CleanUp;
   }
 
   ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
   RSValue rv = RSVALUE_STATIC;
   if (ExprEval_Eval(&evaluator, &rv) != EXPR_EVAL_OK) {
-    goto done;
+    goto CleanUp;
   }
 
   *result = RSValue_BoolTest(&rv);
   RSValue_Clear(&rv);
   rc = REDISMODULE_OK;
 
-// Clean up:
-done:
-  if (e) {
-    ExprAST_Free(e);
-  }
+CleanUp:
   RLookupRow_Cleanup(&row);
   RLookup_Cleanup(&lookup_s);
+done:
+  ExprAST_Free(e);
+  DMD_Decref(dmd);
   return rc;
 }
 
@@ -904,12 +899,14 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
     goto done;                                             \
   } while (0);
 
+  RSDocumentMetadata *md = NULL;
   Document *doc = aCtx->doc;
   t_docId docId = DocTable_GetIdR(&sctx->spec->docs, doc->docKey);
   if (docId == 0) {
     BAIL("Couldn't load old document");
   }
-  RSDocumentMetadata *md = DocTable_Get(&sctx->spec->docs, docId);
+  // Assumes we are under write lock
+  md = (RSDocumentMetadata *)DocTable_Get(&sctx->spec->docs, docId);
   if (!md) {
     BAIL("Couldn't load document metadata");
   }
@@ -969,6 +966,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   }
 
 done:
+  DMD_Decref(md);
   if (aCtx->donecb) {
     aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
   }

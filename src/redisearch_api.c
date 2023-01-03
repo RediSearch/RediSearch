@@ -628,8 +628,10 @@ const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, IndexSpec* sp, size
   while (iter->internal->Read(iter->internal->ctx, &iter->res) != INDEXREAD_EOF) {
     const RSDocumentMetadata* md = DocTable_Get(&sp->docs, iter->res->docId);
     if (md == NULL || ((md)->flags & Document_Deleted)) {
+      DMD_Decref(md);
       continue;
     }
+    DMD_Decref(iter->lastmd);
     iter->lastmd = md;
     if (len) {
       *len = sdslen(md->keyPtr);
