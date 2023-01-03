@@ -120,7 +120,7 @@ class MyEnvironment : public ::testing::Environment {
 void simpleTest() {
     ProfileMode withProfile = NO_PROFILE;
     RedisModuleCtx *ctx = RMCK::Context();
-    RMCK::ArgvList argv(ctx, "idx", "*");
+    RMCK::ArgvList argv(ctx, "FT.SEARCH", "idx", "*");
     const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
     AREQ *r = AREQ_New();
     QueryError status = {.code = QUERY_OK, .detail=NULL};
