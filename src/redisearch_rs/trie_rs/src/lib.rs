@@ -157,4 +157,17 @@ mod trie_tests {
         res.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
         assert_eq!(res, vec![("foo3".to_string(), 3), ("fo".to_string(), 4)]);
     }
+
+    #[test]
+    fn test_trie_into_iter() {
+        let mut trie: Trie<i64> = Trie::new();
+        trie.add_str("fo", 4);
+        trie.add_str("foo1", 1);
+        trie.add_str("foo11", 2);
+        trie.add_str("foo3", 3);
+
+        let mut data: Vec<i64> = trie.into_iter().collect();
+        data.sort();
+        assert_eq!(data, vec![1, 2, 3, 4]);
+    }
 }

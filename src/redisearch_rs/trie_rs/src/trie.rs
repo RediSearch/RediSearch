@@ -287,10 +287,10 @@ impl<Data> Iterator for TrieDataIterator<Data> {
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(n) = self.nodes.pop() {
             if let Some(children) = n.children {
-                self.nodes.extend(children.into_iter().map(|(_, v)| v));
-                if let Some(data) = n.data {
-                    return Some(data);
-                }
+                self.nodes.append(&mut children.into_iter().map(|(_, v)| v).collect());
+            }
+            if let Some(data) = n.data {
+                return Some(data);
             }
         }
         None
