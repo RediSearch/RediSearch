@@ -9,7 +9,7 @@ pub struct MatchesPrefixesIterator<'trie, Data> {
 }
 
 impl<'trie, Data> MatchesPrefixesIterator<'trie, Data> {
-    pub(crate) fn from_trie(
+    pub(crate) const fn from_trie(
         t: &'trie Trie<Data>,
         term: &'trie [u8],
     ) -> MatchesPrefixesIterator<'trie, Data> {
@@ -53,14 +53,10 @@ impl<'trie, Data> TrieIterator for MatchesPrefixesIterator<'trie, Data> {
                 // node matches, we should try to progress
                 self.curr_prefix.extend(&curr_node.val);
                 self.curr_term = &self.curr_term[curr_node.val.len()..];
-                self.curr_node = match self.curr_term.first() {
-                    Some(c) => curr_node
-                        .children
-                        .as_ref()
-                        .map(|v| v.get(c))
-                        .unwrap_or(None),
-                    None => None,
-                };
+                self.curr_node = self
+                    .curr_term
+                    .first()
+                    .and_then(|c| curr_node.children.as_ref().and_then(|v| v.get(c)));
                 if let Some(data) = &curr_node.data {
                     return Some((self.curr_prefix.as_ref(), data));
                 }

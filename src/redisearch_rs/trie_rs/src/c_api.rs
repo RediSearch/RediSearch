@@ -1,6 +1,6 @@
 use crate::{
     matches_prefixes_iterator::MatchesPrefixesIterator, sub_trie_iterator::SubTrieIterator,
-    trie::Trie, trie::Node, trie_iter::TrieIterator,
+    trie::Node, trie::Trie, trie_iter::TrieIterator,
 };
 use core::slice;
 use std::ffi::{c_char, c_void};
@@ -32,7 +32,7 @@ pub extern "C" fn RS_TrieMap_Add(
     data: *mut c_void,
 ) -> *mut c_void {
     let t = unsafe { &mut *t };
-    let key = unsafe { slice::from_raw_parts(str as *const u8, len) };
+    let key = unsafe { slice::from_raw_parts(str.cast::<u8>(), len) };
     t.add(key, data).unwrap_or_else(std::ptr::null_mut)
 }
 
@@ -43,7 +43,7 @@ pub extern "C" fn RS_TrieMap_Delete(
     len: usize,
 ) -> *mut c_void {
     let t = unsafe { &mut *t };
-    let key = unsafe { slice::from_raw_parts(str as *const u8, len) };
+    let key = unsafe { slice::from_raw_parts(str.cast::<u8>(), len) };
     t.del(key).unwrap_or_else(std::ptr::null_mut)
 }
 
@@ -54,7 +54,7 @@ pub extern "C" fn RS_TrieMap_Get(
     len: usize,
 ) -> *mut c_void {
     let t = unsafe { &mut *t };
-    let key = unsafe { slice::from_raw_parts(str as *const u8, len) };
+    let key = unsafe { slice::from_raw_parts(str.cast::<u8>(), len) };
     t.get(key).copied().unwrap_or_else(std::ptr::null_mut)
 }
 
@@ -65,7 +65,7 @@ pub extern "C" fn RS_TrieMap_Find(
     len: usize,
 ) -> *mut SubTrieIterator<'static, *mut c_void> {
     let t = unsafe { &mut *t };
-    let key = unsafe { slice::from_raw_parts(str as *const u8, len) };
+    let key = unsafe { slice::from_raw_parts(str.cast::<u8>(), len) };
     Box::into_raw(Box::new(t.find(key)))
 }
 
@@ -81,7 +81,7 @@ pub extern "C" fn RS_SubTrieIterator_Next(
         Some(v) => v,
         None => return false,
     };
-    unsafe { *key = k.as_ptr() as *const i8 };
+    unsafe { *key = k.as_ptr().cast::<i8>() };
     unsafe { *size = k.len() };
     unsafe { *data = *v };
     true
@@ -99,7 +99,7 @@ pub extern "C" fn RS_TrieMap_FindPrefixes(
     len: usize,
 ) -> *mut MatchesPrefixesIterator<'static, *mut c_void> {
     let t = unsafe { &mut *t };
-    let key = unsafe { slice::from_raw_parts(str as *const u8, len) };
+    let key = unsafe { slice::from_raw_parts(str.cast::<u8>(), len) };
     Box::into_raw(Box::new(t.find_matches_prefixes(key)))
 }
 
@@ -115,7 +115,7 @@ pub extern "C" fn RS_MatchesPrefixesIterator_Next(
         Some(v) => v,
         None => return false,
     };
-    unsafe { *key = k.as_ptr() as *const i8 };
+    unsafe { *key = k.as_ptr().cast::<i8>() };
     unsafe { *size = k.len() };
     unsafe { *data = *v };
     true
@@ -132,5 +132,6 @@ pub extern "C" fn RS_MatchesPrefixesIterator_Free(
 pub extern "C" fn RS_TrieMap_MemUsage(t: *mut Trie<*mut c_void>) -> usize {
     // todo: come up with better esstimation.
     let t = unsafe { &mut *t };
-    std::mem::size_of::<Trie<*mut c_void>>() + t.n_nodes() * std::mem::size_of::<Node<*mut c_void>>()
+    std::mem::size_of::<Trie<*mut c_void>>()
+        + t.n_nodes() * std::mem::size_of::<Node<*mut c_void>>()
 }

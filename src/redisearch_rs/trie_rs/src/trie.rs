@@ -6,7 +6,7 @@ use std::collections::HashMap;
 pub(crate) struct Node<Data> {
     pub(crate) val: Vec<u8>,
     pub(crate) children: Option<HashMap<u8, Node<Data>>>,
-    pub(crate) data: Option<Data>, // only termina nodes will have data
+    pub(crate) data: Option<Data>, // only terminal nodes will have data
 }
 
 impl<Data> Node<Data> {
@@ -15,7 +15,7 @@ impl<Data> Node<Data> {
         let mut new_children = HashMap::new();
         new_children.insert(
             second_val[0],
-            Node {
+            Self {
                 val: second_val,
                 children: self.children.take(),
                 data: self.data.take(),
@@ -38,7 +38,7 @@ impl<Data> Node<Data> {
             self.split(val.len());
             let mut res = self.add(val, data);
             res.1 += 1; // we splited one node here so we must have add one node.
-            return res
+            return res;
         }
 
         if val.starts_with(&self.val) {
@@ -56,7 +56,7 @@ impl<Data> Node<Data> {
             });
             let mut res = child.add(val, data);
             res.1 += n_nodes_added;
-            return res
+            return res;
         }
 
         let mut common_prefix_index = 0;
@@ -70,7 +70,7 @@ impl<Data> Node<Data> {
         self.split(common_prefix_index);
         let mut res = self.add(val, data);
         res.1 += 1; // we splited one node here so we must have add one node.
-        return res
+        return res;
     }
 
     fn get(&self, val: &[u8]) -> Option<&Data> {
@@ -126,8 +126,8 @@ impl<Data> Node<Data> {
             return data.map(|v| {
                 (
                     v,
-                    self.children.as_ref().map(|v| v.is_empty()).unwrap_or(true),
-                    if node_deleted {1} else {0},
+                    self.children.as_ref().map_or(true, HashMap::is_empty),
+                    node_deleted as usize,
                 )
             });
         }
@@ -140,12 +140,16 @@ impl<Data> Node<Data> {
             if should_delete {
                 children.remove(&val[0]); // one child deleted
                 n_nodes_deleted += 1;
-                n_nodes_deleted += if self.try_join_with_single_child() {1} else {0};
+                n_nodes_deleted += if self.try_join_with_single_child() {
+                    1
+                } else {
+                    0
+                };
             };
             return Some((
                 data,
-                self.children.as_ref().map(|v| v.len()).unwrap_or(0) == 0,
-                n_nodes_deleted
+                self.children.as_ref().map_or(0, HashMap::len) == 0,
+                n_nodes_deleted,
             ));
         }
 
@@ -184,8 +188,13 @@ pub struct Trie<Data> {
 }
 
 impl<Data> Trie<Data> {
-    pub fn new() -> Self {
-        Trie { root: None, len: 0, n_nodes: 0 }
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            root: None,
+            len: 0,
+            n_nodes: 0,
+        }
     }
 
     pub fn add(&mut self, key: &[u8], data: Data) -> Option<Data> {
@@ -249,7 +258,7 @@ impl<Data> Trie<Data> {
         self.del(key.as_bytes())
     }
 
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.len
     }
 
@@ -257,15 +266,14 @@ impl<Data> Trie<Data> {
         self.n_nodes
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     pub fn find<'trie>(&'trie mut self, key: &'trie [u8]) -> SubTrieIterator<'trie, Data> {
         self.root
             .as_ref()
-            .map(|v| v.find(key, Vec::new()))
-            .unwrap_or_else(SubTrieIterator::empty)
+            .map_or_else(SubTrieIterator::empty, |v| v.find(key, Vec::new()))
     }
 
     pub fn find_str<'trie>(&'trie mut self, key: &'trie str) -> SubTrieIterator<'trie, Data> {
@@ -314,7 +322,8 @@ impl<Data> Iterator for TrieDataIterator<Data> {
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(n) = self.nodes.pop() {
             if let Some(children) = n.children {
-                self.nodes.append(&mut children.into_iter().map(|(_, v)| v).collect());
+                self.nodes
+                    .append(&mut children.into_iter().map(|(_, v)| v).collect());
             }
             if let Some(data) = n.data {
                 return Some(data);
