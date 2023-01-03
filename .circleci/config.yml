@@ -717,8 +717,7 @@ workflows:
               platform: [jammy, focal, bionic]
       - build-macos:
           context: common
-          #@@<<: *on-integ-and-version-tags
-          <<: *always
+          <<: *on-integ-and-version-tags
       - coverage:
           <<: *on-any-branch
       - sanitize:
