@@ -82,7 +82,8 @@ typedef struct {
  * and we set the pointer to NULL.
  * Make sure to check the return value of this macro when you are using it in a function
  */
-#define DMD_Incref(md) ({                                                       \
+#define DMD_Incref(md)                                                          \
+  ({                                                                            \
     if (md) {                                                                   \
       uint16_t count = __atomic_fetch_add(&md->ref_count, 1, __ATOMIC_RELAXED); \
       RS_LOG_ASSERT(count < (1 << 16) - 1, "overflow of dmd ref_count");        \
