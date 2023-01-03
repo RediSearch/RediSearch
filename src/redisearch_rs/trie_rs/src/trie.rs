@@ -11,7 +11,6 @@ pub(crate) struct Node<Data> {
 
 impl<Data> Node<Data> {
     fn split(&mut self, index: usize) {
-        let first_val = self.val[0..index].to_vec();
         let second_val = self.val[index..].to_vec();
         let mut new_children = HashMap::new();
         new_children.insert(
@@ -22,7 +21,7 @@ impl<Data> Node<Data> {
                 data: self.data.take(),
             },
         );
-        self.val = first_val;
+        self.val.truncate(index);
         self.children = Some(new_children);
         self.data = None;
     }
