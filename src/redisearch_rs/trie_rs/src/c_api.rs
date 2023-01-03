@@ -5,7 +5,7 @@ use crate::{
 use core::slice;
 use std::ffi::{c_char, c_void};
 
-type FreeFunc = extern "C" fn(*mut c_void);
+type FreeFunc = Option<extern "C" fn(*mut c_void)>;
 
 #[no_mangle]
 pub extern "C" fn RS_NewTrieMap() -> *mut Trie<*mut c_void> {
@@ -15,7 +15,9 @@ pub extern "C" fn RS_NewTrieMap() -> *mut Trie<*mut c_void> {
 #[no_mangle]
 pub extern "C" fn RS_TrieMap_Free(t: *mut Trie<*mut c_void>, free_func: FreeFunc) {
     let t = unsafe { Box::from_raw(t) };
-    t.into_iter().for_each(|d| free_func(d));
+    if let Some(free_func) = free_func {
+        t.into_iter().for_each(|d| free_func(d));
+    }
 }
 
 #[no_mangle]

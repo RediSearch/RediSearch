@@ -6,7 +6,7 @@
 
 #define __REDISEARCH_STOPORWORDS_C__
 #include "stopwords.h"
-#include "triemap/triemap.h"
+#include "redisearch_rs/trie_rs/src/triemap.h"
 #include "rmalloc.h"
 #include "util/strconv.h"
 #include "rmutil/rm_assert.h"
@@ -16,7 +16,7 @@
 #define MAX_STOPWORDLIST_SIZE 1024
 
 typedef struct StopWordList {
-  TrieMap *m;
+  RS_TrieMap *m;
   size_t refcount;
 } StopWordList;
 
@@ -49,7 +49,7 @@ int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) 
   }
 
   strtolower(lowStr);
-  int ret = TrieMap_Find(sl->m, (char *)lowStr, len) != TRIEMAP_NOTFOUND;
+  int ret = RS_TrieMap_Get(sl->m, (char *)lowStr, len) != NULL;
 
   // free memory if allocated
   if (len >= 32) rm_free(lowStr);
@@ -80,7 +80,7 @@ StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
   }
   StopWordList *sl = rm_malloc(sizeof(*sl));
   sl->refcount = 1;
-  sl->m = NewTrieMap();
+  sl->m = RS_NewTrieMap();
 
   for (size_t i = 0; i < len; i++) {
 
@@ -97,7 +97,7 @@ StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
       }
     }
     // printf("Adding stopword %s\n", t);
-    TrieMap_Add(sl->m, t, tlen, NULL, NULL);
+    RS_TrieMap_Add(sl->m, t, tlen, (void*)1);
     rm_free(t);
   }
   if (len == 0) {
@@ -112,7 +112,7 @@ void StopWordList_Ref(StopWordList *sl) {
 
 static void StopWordList_FreeInternal(StopWordList *sl) {
   if (sl) {
-    TrieMap_Free(sl->m, NULL);
+    RS_TrieMap_Free(sl->m, NULL);
     rm_free(sl);
   }
 }
@@ -146,13 +146,13 @@ StopWordList *StopWordList_RdbLoad(RedisModuleIO *rdb, int encver) {
   StopWordList *sl = NULL;
   uint64_t elements = LoadUnsigned_IOError(rdb, goto cleanup);
   sl = rm_malloc(sizeof(*sl));
-  sl->m = NewTrieMap();
+  sl->m = RS_NewTrieMap();
   sl->refcount = 1;
 
   while (elements--) {
     size_t len;
     char *str = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
-    TrieMap_Add(sl->m, str, len, NULL, NULL);
+    RS_TrieMap_Add(sl->m, str, len, (void*)1);
     RedisModule_Free(str);
   }
 
@@ -168,16 +168,16 @@ cleanup:
 /* Save a stopword list to RDB */
 void StopWordList_RdbSave(RedisModuleIO *rdb, StopWordList *sl) {
 
-  RedisModule_SaveUnsigned(rdb, sl->m->cardinality);
-  TrieMapIterator *it = TrieMap_Iterate(sl->m, "", 0);
+  RedisModule_SaveUnsigned(rdb, RS_TrieMap_Size(sl->m));
+  RS_SubTrieIterator *it = RS_TrieMap_Find(sl->m, "", 0);
   char *str;
-  tm_len_t len;
+  size_t len;
   void *ptr;
 
-  while (TrieMapIterator_Next(it, &str, &len, &ptr)) {
+  while (RS_SubTrieIterator_Next(it, &str, &len, &ptr)) {
     RedisModule_SaveStringBuffer(rdb, str, len);
   }
-  TrieMapIterator_Free(it);
+  RS_SubTrieIterator_Free(it);
 }
 
 void ReplyWithStopWordsList(RedisModuleCtx *ctx, struct StopWordList *sl) {
@@ -189,19 +189,19 @@ void ReplyWithStopWordsList(RedisModuleCtx *ctx, struct StopWordList *sl) {
     return;
   }
 
-  TrieMapIterator *it = TrieMap_Iterate(sl->m, "", 0);
+  RS_SubTrieIterator *it = RS_TrieMap_Find(sl->m, "", 0);
   char *str;
-  tm_len_t len;
+  size_t len;
   void *ptr;
   size_t i = 0;
 
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  while (TrieMapIterator_Next(it, &str, &len, &ptr)) {
+  while (RS_SubTrieIterator_Next(it, &str, &len, &ptr)) {
     RedisModule_ReplyWithStringBuffer(ctx, str, len);
     ++i;
   }
   RedisModule_ReplySetArrayLength(ctx, i);
-  TrieMapIterator_Free(it);
+  RS_SubTrieIterator_Free(it);
 }
 
 #ifdef FTINFO_FOR_INFO_MODULES
@@ -229,24 +229,24 @@ void AddStopWordsListToInfo(RedisModuleInfoCtx *ctx, struct StopWordList *sl) {
 #endif
 
 char **GetStopWordsList(struct StopWordList *sl, size_t *size) {
-  *size = sl->m->cardinality;
+  *size = RS_TrieMap_Size(sl->m);
   if (*size == 0) {
     return NULL;
   }
 
   char **list = rm_malloc((*size) * sizeof(*list));
 
-  TrieMapIterator *it = TrieMap_Iterate(sl->m, "", 0);
+  RS_SubTrieIterator *it = RS_TrieMap_Find(sl->m, "", 0);
   char *str;
-  tm_len_t len;
+  size_t len;
   void *ptr;
   size_t i = 0;
 
-  while (TrieMapIterator_Next(it, &str, &len, &ptr)) {
+  while (RS_SubTrieIterator_Next(it, &str, &len, &ptr)) {
     list[i++] = rm_strndup(str, len);
   }
 
-  TrieMapIterator_Free(it);
+  RS_SubTrieIterator_Free(it);
   RS_LOG_ASSERT(i == *size, "actual size must equal expected size");
 
   return list;
