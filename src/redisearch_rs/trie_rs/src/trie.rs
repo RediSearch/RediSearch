@@ -265,3 +265,34 @@ impl<Data> Default for Trie<Data> {
         Self::new()
     }
 }
+
+impl<Data> IntoIterator for Trie<Data> {
+    type Item = Data;
+    type IntoIter = TrieDataIterator<Data>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        TrieDataIterator {
+            nodes: self.root.map(|v| vec![v]).unwrap_or_else(Vec::new),
+        }
+    }
+}
+
+pub struct TrieDataIterator<Data> {
+    nodes: Vec<Node<Data>>,
+}
+
+impl<Data> Iterator for TrieDataIterator<Data> {
+    type Item = Data;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(n) = self.nodes.pop() {
+            if let Some(children) = n.children {
+                self.nodes.extend(children.into_iter().map(|(_, v)| v));
+                if let Some(data) = n.data {
+                    return Some(data);
+                }
+            }
+        }
+        None
+    }
+}

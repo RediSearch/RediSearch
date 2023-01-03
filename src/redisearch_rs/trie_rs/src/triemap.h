@@ -12,7 +12,7 @@ typedef struct RS_MatchesPrefixesIterator RS_MatchesPrefixesIterator;
 RS_TrieMap *RS_NewTrieMap();
 void* RS_TrieMap_Add(RS_TrieMap *t, const char *str, size_t len, void *value);
 void* RS_TrieMap_Delete(RS_TrieMap *t, const char *str, size_t len);
-void RS_TrieMap_Free(RS_TrieMap *t);
+void RS_TrieMap_Free(RS_TrieMap *t, void(*free_func)(void*));
 void* RS_TrieMap_Get(RS_TrieMap *t, const char *str, size_t len);
 size_t RS_TrieMap_Size(RS_TrieMap *t);
 

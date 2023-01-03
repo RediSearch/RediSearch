@@ -72,8 +72,7 @@ static void freeValues(void *ptr) {
 
 static void tolistFreeInstance(Reducer *parent, void *p) {
   tolistCtx *tlc = p;
-  // todo: free values (currently leaking)
-  RS_TrieMap_Free(tlc->values);
+  RS_TrieMap_Free(tlc->values, freeValues);
 }
 
 Reducer *RDCRToList_New(const ReducerOptions *opts) {
