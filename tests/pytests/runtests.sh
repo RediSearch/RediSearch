@@ -8,6 +8,8 @@ ROOT=$(cd $HERE/../.. && pwd)
 READIES=$ROOT/deps/readies
 . $READIES/shibumi/defs
 
+export PYTHONUNBUFFERED=1
+
 VALGRIND_REDIS_VER=6.2
 SAN_REDIS_VER=6.2
 
@@ -23,50 +25,52 @@ help() {
 
 		Argument variables:
 		MODULE=path           Path to RediSearch module .so
-		BINROOT=path          Path to repo binary root dir
-
-		TEST=name             Operate in single-test mode
-		UNSTABLE=1            Do not skip unstable tests (default: 0)
-
-		RLTEST=path|'view'    Take RLTest from repo path or from local view
-		RLTEST_ARGS=args      Extra RLTest args
 		MODARGS=args          RediSearch module arguments
-
-		TEST=name             Operate in single-test mode
-		TESTFILE=file         Run tests listed in `file`
-		FAILEDFILE=file       Write failed tests into `file`
-		ONLY_STABLE=1         Skip unstable tests
+		BINROOT=path          Path to repo binary root dir
 
 		COORD=1|oss|rlec      Test Coordinator
 		SHARDS=n              Number of OSS coordinator shards (default: 3)
 		QUICK=1               Perform only one test variant
-		PARALLEL=1            Runs RLTest tests in parallel
-		UNIX=1                Use unix sockets
-		RANDPORTS=1           Use randomized ports
+
+		TEST=name             Run specific test (e.g. test.py:test_name)
+		TESTFILE=file         Run tests listed in `file`
+		FAILEDFILE=file       Write failed tests into `file`
+
+		UNSTABLE=1            Do not skip unstable tests (default: 0)
+		ONLY_STABLE=1         Skip unstable tests
 
 		REJSON=0|1|get        Also load RedisJSON module (get: force download from S3)
 		REJSON_BRANCH=branch  Use a snapshot of given branch name
 		REJSON_PATH=path      RedisJSON module path
 		REJSON_MODARGS=args   RedisJSON module arguments
 
-		REDIS_SERVER=path     Redis Server command
+		REDIS_SERVER=path     Location of redis-server
 		REDIS_VERBOSE=1       (legacy) Verbose ouput
+		REDIS_PORT=n          Redis server port
 		CONFIG_FILE=file      Path to config file
 
 		EXISTING_ENV=1        Test on existing env (like EXT=1)
 		EXT=1|run             Test on existing env (1=running; run=start redis-server)
-		EXT_HOST=addr         Address if existing env (default: 127.0.0.1)
+		EXT_HOST=addr         Address of existing env (default: 127.0.0.1)
 		EXT_PORT=n            Port of existing env
 
 		RLEC=0|1              General tests on RLEC
 		DOCKER_HOST=addr      Address of Docker server (default: localhost)
-		RLEC_PORT=n           Port of RLEC database (default: 12000)
+		RLEC_PORT=port        Port of RLEC database (default: 12000)
 
 		COV=1				  Run with coverage analysis
-		VG=1                  Use valgrind
+		VG=1                  Run with Valgrind
 		VG_LEAKS=0            Do not detect leaks
 		SAN=type              Use LLVM sanitizer (type=address|memory|leak|thread) 
 		GDB=1                 Enable interactive gdb debugging (in single-test mode)
+
+		RLTEST=path|'view'    Take RLTest from repo path or from local view
+		RLTEST_ARGS=args      Extra RLTest args
+
+		PARALLEL=1            Runs tests in parallel
+		SLOW=1                Do not test in parallel
+		UNIX=1                Use unix sockets
+		RANDPORTS=1           Use randomized ports
 
 		PLATFORM_MODE=1       Implies NOFAIL & COLLECT_LOGS into STATFILE
 		COLLECT_LOGS=1        Collect logs into .tar file
@@ -78,23 +82,11 @@ help() {
 		VERBOSE=1             Print commands and Redis output
 		LOG=1                 Send results to log (even on single-test mode)
 		KEEP=1                Do not remove intermediate files
-		IGNERR=1              Do not abort on error
 		NOP=1                 Dry run
 		HELP=1                Show help
 
-
 	END
-	exit 0
 }
-
-#----------------------------------------------------------------------------------------------
-
-if [[ $PLATFORM_MODE == 1 ]]; then
-	CLEAR_LOGS=0
-	COLLECT_LOGS=1
-	NOFAIL=1
-	STATFILE=$ROOT/bin/artifacts/tests/status
-fi
 
 #---------------------------------------------------------------------------------------------- 
 
@@ -128,7 +120,7 @@ setup_clang_sanitizer() {
 		echo "fun:THPIsEnabled" >> /build/redis.blacklist
 	fi
 
-	# for module
+	# for RediSearch module
 	export RS_GLOBAL_DTORS=1
 
 	# for RLTest
@@ -136,7 +128,7 @@ setup_clang_sanitizer() {
 	export SHORT_READ_BYTES_DELTA=512
 	
 	# --no-output-catch --exit-on-failure --check-exitcode
-	RLTEST_SAN_ARGS="--unix --sanitizer $SAN"
+	RLTEST_SAN_ARGS="--sanitizer $SAN"
 
 	if [[ -n $REJSON && $REJSON != 0 ]]; then
 		if [[ -z $REJSON_PATH ]]; then
@@ -171,8 +163,8 @@ setup_clang_sanitizer() {
 				--suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
 		fi
 
-		export ASAN_OPTIONS=detect_odr_violation=0
-		# :detect_leaks=0
+		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1"
+		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp"
 
 	elif [[ $SAN == mem || $SAN == memory ]]; then
 		REDIS_SERVER=${REDIS_SERVER:-redis-server-msan-$SAN_REDIS_VER}
@@ -190,6 +182,20 @@ clang_sanitizer_summary() {
 		echo
 		echo "${LIGHTRED}Sanitizer: leaks detected:${RED}"
 		grep -l "leaked in" logs/*.asan.log*
+		echo "${NOCOLOR}"
+		E=1
+	fi
+	if grep -l "dynamic-stack-buffer-overflow" logs/*.asan.log* &> /dev/null; then
+		echo
+		echo "${LIGHTRED}Sanitizer: buffer overflow detected:${RED}"
+		grep -l "dynamic-stack-buffer-overflow" logs/*.asan.log*
+		echo "${NOCOLOR}"
+		E=1
+	fi
+	if grep -l "stack-use-after-scope" logs/*.asan.log* &> /dev/null; then
+		echo
+		echo "${LIGHTRED}Sanitizer: stack use after scope detected:${RED}"
+		grep -l "stack-use-after-scope" logs/*.asan.log*
 		echo "${NOCOLOR}"
 		E=1
 	fi
@@ -215,14 +221,14 @@ setup_valgrind() {
 		$READIES/bin/getredis -v $VALGRIND_REDIS_VER --valgrind --suffix vg
 	fi
 
-	RLTEST_VALGRIND_ARGS=--use-valgrind
+	RLTEST_VG_ARGS=--use-valgrind
 	if [[ $VG_LEAKS == 0 ]]; then
 		VALGRIND_SUPRESSIONS=$ROOT/tests/valgrind/redis_valgrind.sup
 		export VG_OPTIONS="\
 			--leak-check=no \
 			--track-origins=yes \
 			--suppressions=$ROOT/tests/valgrind/redis_valgrind.sup"
-		RLTEST_VALGRIND_ARGS+=" --vg-no-leakcheck --vg-options=\"--leak-check=no --track-origins=yes --suppressions=$ROOT/tests/valgrind/redis_valgrind.sup\" "
+		RLTEST_VG_ARGS+=" --vg-no-leakcheck --vg-options=\"--leak-check=no --track-origins=yes --suppressions=$ROOT/tests/valgrind/redis_valgrind.sup\" "
 	fi
 
 	# for module
@@ -322,7 +328,7 @@ run_tests() {
 				$RLTEST_ARGS
 				$RLTEST_PARALLEL_ARG
 				$RLTEST_REJSON_ARGS
-				$RLTEST_VALGRIND_ARGS
+				$RLTEST_VG_ARGS
 				$RLTEST_SAN_ARGS
 				$RLTEST_COV_ARGS
 
@@ -330,7 +336,7 @@ run_tests() {
 		else
 			cat <<-EOF > $rltest_config
 				$RLTEST_ARGS
-				$RLTEST_VALGRIND_ARGS
+				$RLTEST_VG_ARGS
 
 				EOF
 		fi
@@ -408,11 +414,14 @@ run_tests() {
 	return $E
 }
 
-#----------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------ Arguments
 
-[[ $1 == --help || $1 == help || $HELP == 1 ]] && { help; exit 0; }
+if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
+	help
+	exit 0
+fi
 
-OP=
+OP=""
 [[ $NOP == 1 ]] && OP=echo
 
 if [[ $RLEC != 1 ]]; then
@@ -422,6 +431,13 @@ if [[ $RLEC != 1 ]]; then
 		echo "Module not found at ${MODULE}. Aborting."
 		exit 1
 	fi
+fi
+
+if [[ $PLATFORM_MODE == 1 ]]; then
+	CLEAR_LOGS=0
+	COLLECT_LOGS=1
+	NOFAIL=1
+	STATFILE=$ROOT/bin/artifacts/tests/status
 fi
 
 if [[ $REDIS_VERBOSE == 1 || $VERBOSE == 1 ]]; then
@@ -454,6 +470,10 @@ RLTEST_ARGS+=" $@"
 #if [[ $CLEAR_LOGS != 0 ]]; then
 #	RLTEST_ARGS+=" --clear-logs"
 #fi
+
+if [[ -n $REDIS_PORT ]]; then
+	RLTEST_ARGS+="--redis-port $REDIS_PORT"
+fi
 
 if [[ -n $TEST ]]; then
 	[[ $GDB == 1 ]] && RLTEST_ARGS+=" -i"
@@ -489,6 +509,7 @@ RLEC_PORT=${RLEC_PORT:-12000}
 #----------------------------------------------------------------------------------------------
 
 setup_rltest
+
 if [[ -n $SAN ]]; then
 	setup_clang_sanitizer
 fi
@@ -502,7 +523,7 @@ if [[ $RLEC != 1 ]]; then
 	setup_redis_server
 fi
 
-#----------------------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------- Running tests
 
 if [[ $CLEAR_LOGS != 0 ]]; then
 	rm -rf $HERE/logs
@@ -573,10 +594,16 @@ elif [[ $COORD == rlec ]]; then
 	   run_tests "tests on RLEC"); (( E |= $? )); } || true
 fi
 
-#---------------------------------------------------------------------------------------------- 
+#-------------------------------------------------------------------------------------- Summary
+
+if [[ $NO_SUMMARY != 1 ]]; then
+	exit 0
+fi
 
 if [[ $NOP != 1 && -n $SAN ]]; then
-	clang_sanitizer_summary
+	if [[ -n $SAN || $VG == 1 ]]; then
+		{ FLOW=1 $ROOT/sbin/memcheck-summary.sh; (( E |= $? )); } || true
+	fi
 fi
 
 if [[ $COLLECT_LOGS == 1 ]]; then

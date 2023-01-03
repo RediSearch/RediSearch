@@ -44,7 +44,7 @@ make pytest        # run python tests (tests/pytests)
   COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=name          # e.g. TEST=test:testSearch
   RLTEST_ARGS=...    # pass args to RLTest
-  REJSON=1|0         # also load RedisJSON module (default: 1)
+  REJSON=1|0|get     # also load RedisJSON module (default: 1)
   REJSON_PATH=path   # use RedisJSON module at `path`
   EXT=1              # External (existing) environment
   GDB=1              # RLTest interactive debugging
