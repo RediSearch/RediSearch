@@ -303,7 +303,7 @@ impl<Data> IntoIterator for Trie<Data> {
 
     fn into_iter(self) -> Self::IntoIter {
         TrieDataIterator {
-            nodes: self.root.map(|v| vec![v]).unwrap_or_else(Vec::new),
+            nodes: self.root.map_or_else(Vec::new, |v| vec![v]),
         }
     }
 }
@@ -318,8 +318,7 @@ impl<Data> Iterator for TrieDataIterator<Data> {
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(n) = self.nodes.pop() {
             if let Some(children) = n.children {
-                self.nodes
-                    .append(&mut children.into_values().collect());
+                self.nodes.append(&mut children.into_values().collect());
             }
             if let Some(data) = n.data {
                 return Some(data);
