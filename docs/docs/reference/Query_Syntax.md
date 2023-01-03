@@ -46,7 +46,7 @@ If a field modifier precedes multiple words or expressions, it applies only to t
 
 If a field modifier precedes an expression in parentheses, it applies only to the expression inside the parentheses. The expression should be valid for the specified field, otherwise it is skipped.
 
-To create complex filtering on several fields, you can combine multiple modifiers. For example, if you have an index of car models, with a vehicle class, country of origin. and engine type, you can search for SUVs made in Korea with hybrid or diesel engines using the following query:
+To create complex filtering on several fields, you can combine multiple modifiers. For example, if you have an index of car models, with a vehicle class, country of origin, and engine type, you can search for SUVs made in Korea with hybrid or diesel engines using the following query:
 
 ```
 FT.SEARCH cars "@country:korea @engine:(diesel|hybrid) @class:suv"
