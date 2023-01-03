@@ -26,29 +26,37 @@ impl<Data> Node<Data> {
         self.data = None;
     }
 
-    fn add(&mut self, val: &[u8], data: Data) -> Option<Data> {
+    fn add(&mut self, val: &[u8], data: Data) -> (Option<Data>, usize) {
         if self.val == val {
             // todo: add to current
             let ret = self.data.take();
             self.data = Some(data);
-            return ret;
+            return (ret, 0);
         }
 
         if self.val.starts_with(val) {
             self.split(val.len());
-            return self.add(val, data);
+            let mut res = self.add(val, data);
+            res.1 += 1; // we splited one node here so we must have add one node.
+            return res
         }
 
         if val.starts_with(&self.val) {
             let val = &val[self.val.len()..];
             // find children to progress with or create one if no children exists
+            let mut n_nodes_added = 0;
             let children = self.children.get_or_insert(HashMap::new());
-            let child = children.entry(val[0]).or_insert(Node {
-                val: val.to_vec(),
-                children: None,
-                data: None,
+            let child = children.entry(val[0]).or_insert_with(|| {
+                n_nodes_added = 1;
+                Node {
+                    val: val.to_vec(),
+                    children: None,
+                    data: None,
+                }
             });
-            return child.add(val, data);
+            let mut res = child.add(val, data);
+            res.1 += n_nodes_added;
+            return res
         }
 
         let mut common_prefix_index = 0;
@@ -60,7 +68,9 @@ impl<Data> Node<Data> {
         }
 
         self.split(common_prefix_index);
-        self.add(val, data)
+        let mut res = self.add(val, data);
+        res.1 += 1; // we splited one node here so we must have add one node.
+        return res
     }
 
     fn get(&self, val: &[u8]) -> Option<&Data> {
@@ -91,10 +101,10 @@ impl<Data> Node<Data> {
         None
     }
 
-    fn try_join_with_single_child(&mut self) {
+    fn try_join_with_single_child(&mut self) -> bool {
         let children = self.children.as_mut();
         if children.is_none() {
-            return;
+            return false;
         }
         let children = children.unwrap();
         if children.len() == 1 && self.data.is_none() {
@@ -103,17 +113,21 @@ impl<Data> Node<Data> {
             self.data = child.data.take();
             self.children = child.children.take();
             self.val.append(&mut child.val);
+            true
+        } else {
+            false
         }
     }
 
-    fn del(&mut self, val: &[u8]) -> Option<(Data, bool)> {
+    fn del(&mut self, val: &[u8]) -> Option<(Data, bool, usize)> {
         if val == self.val {
             let data = self.data.take();
-            self.try_join_with_single_child();
+            let node_deleted = self.try_join_with_single_child();
             return data.map(|v| {
                 (
                     v,
                     self.children.as_ref().map(|v| v.is_empty()).unwrap_or(true),
+                    if node_deleted {1} else {0},
                 )
             });
         }
@@ -122,14 +136,16 @@ impl<Data> Node<Data> {
             let val = &val[self.val.len()..];
             let children = self.children.as_mut()?;
             let child = children.get_mut(&val[0])?;
-            let (data, should_delete) = child.del(val)?;
+            let (data, should_delete, mut n_nodes_deleted) = child.del(val)?;
             if should_delete {
-                children.remove(&val[0]);
-                self.try_join_with_single_child();
+                children.remove(&val[0]); // one child deleted
+                n_nodes_deleted += 1;
+                n_nodes_deleted += if self.try_join_with_single_child() {1} else {0};
             };
             return Some((
                 data,
                 self.children.as_ref().map(|v| v.len()).unwrap_or(0) == 0,
+                n_nodes_deleted
             ));
         }
 
@@ -164,22 +180,28 @@ impl<Data> Node<Data> {
 pub struct Trie<Data> {
     pub(crate) root: Option<Node<Data>>,
     len: usize,
+    n_nodes: usize,
 }
 
 impl<Data> Trie<Data> {
     pub fn new() -> Self {
-        Trie { root: None, len: 0 }
+        Trie { root: None, len: 0, n_nodes: 0 }
     }
 
     pub fn add(&mut self, key: &[u8], data: Data) -> Option<Data> {
         let res = match self.root.as_mut() {
-            Some(root) => root.add(key, data),
+            Some(root) => {
+                let (old_data, nodes_added) = root.add(key, data);
+                self.n_nodes += nodes_added;
+                old_data
+            }
             None => {
                 self.root = Some(Node {
                     val: key.to_vec(),
                     children: None,
                     data: Some(data),
                 });
+                self.n_nodes += 1;
                 None
             }
         };
@@ -212,12 +234,14 @@ impl<Data> Trie<Data> {
 
     pub fn del(&mut self, key: &[u8]) -> Option<Data> {
         let root = self.root.as_mut()?;
-        let (data, should_delete) = root.del(key)?;
+        let (data, should_delete, mut n_nodes_deleted) = root.del(key)?;
         if should_delete && root.data.is_none() {
             self.root = None;
+            n_nodes_deleted += 1;
         }
         // something was actually deleted
         self.len -= 1;
+        self.n_nodes -= n_nodes_deleted;
         Some(data)
     }
 
@@ -227,6 +251,10 @@ impl<Data> Trie<Data> {
 
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    pub fn n_nodes(&self) -> usize {
+        self.n_nodes
     }
 
     pub fn is_empty(&self) -> bool {

@@ -1,6 +1,6 @@
 use crate::{
     matches_prefixes_iterator::MatchesPrefixesIterator, sub_trie_iterator::SubTrieIterator,
-    trie::Trie, trie_iter::TrieIterator,
+    trie::Trie, trie::Node, trie_iter::TrieIterator,
 };
 use core::slice;
 use std::ffi::{c_char, c_void};
@@ -126,4 +126,11 @@ pub extern "C" fn RS_MatchesPrefixesIterator_Free(
     iter: *mut MatchesPrefixesIterator<'static, *mut c_void>,
 ) {
     unsafe { Box::from_raw(iter) };
+}
+
+#[no_mangle]
+pub extern "C" fn RS_TrieMap_MemUsage(t: *mut Trie<*mut c_void>) -> usize {
+    // todo: come up with better esstimation.
+    let t = unsafe { &mut *t };
+    std::mem::size_of::<Trie<*mut c_void>>() + t.n_nodes() * std::mem::size_of::<Node<*mut c_void>>()
 }

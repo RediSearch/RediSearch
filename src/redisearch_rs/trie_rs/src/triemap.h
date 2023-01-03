@@ -24,6 +24,8 @@ RS_MatchesPrefixesIterator* RS_TrieMap_FindPrefixes(RS_TrieMap *t, const char *s
 int RS_MatchesPrefixesIterator_Next(RS_MatchesPrefixesIterator* iter, char **str, size_t *len, void **data);
 void RS_MatchesPrefixesIterator_Free(RS_MatchesPrefixesIterator* iter);
 
+size_t RS_TrieMap_MemUsage(RS_TrieMap *t);
+
 #ifdef __cplusplus
 }
 #endif

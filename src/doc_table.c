@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include "redismodule.h"
 #include "util/fnv.h"
-#include "triemap/triemap.h"
+#include "redisearch_rs/trie_rs/src/triemap.h"
 #include "sortable.h"
 #include "rmalloc.h"
 #include "spec.h"
@@ -597,14 +597,14 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
 
 DocIdMap NewDocIdMap() {
 
-  TrieMap *m = NewTrieMap();
+  RS_TrieMap *m = RS_NewTrieMap();
   return (DocIdMap){m};
 }
 
 t_docId DocIdMap_Get(const DocIdMap *m, const char *s, size_t n) {
 
-  void *val = TrieMap_Find(m->tm, (char *)s, n);
-  if (val && val != TRIEMAP_NOTFOUND) {
+  void *val = RS_TrieMap_Get(m->tm, (char *)s, n);
+  if (val) {
     return *((t_docId *)val);
   }
   return 0;
@@ -621,13 +621,16 @@ void DocIdMap_Put(DocIdMap *m, const char *s, size_t n, t_docId docId) {
 
   t_docId *pd = rm_malloc(sizeof(t_docId));
   *pd = docId;
-  TrieMap_Add(m->tm, (char *)s, n, pd, _docIdMap_replace);
+  void *old_val = RS_TrieMap_Add(m->tm, (char *)s, n, pd);
+  if (old_val) rm_free(old_val);
 }
 
 void DocIdMap_Free(DocIdMap *m) {
-  TrieMap_Free(m->tm, rm_free);
+  RS_TrieMap_Free(m->tm, rm_free);
 }
 
 int DocIdMap_Delete(DocIdMap *m, const char *s, size_t n) {
-  return TrieMap_Delete(m->tm, (char *)s, n, rm_free);
+  void *val = RS_TrieMap_Delete(m->tm, (char *)s, n);
+  if (val) rm_free(val);
+  return val? 1 : 0;
 }

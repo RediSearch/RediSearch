@@ -16,6 +16,7 @@ mod trie_tests {
         trie.add_str("foo", 1);
         assert_eq!(*trie.get_str("foo").unwrap(), 1);
         assert_eq!(trie.len(), 1);
+        assert_eq!(trie.n_nodes(), 1);
     }
 
     #[test]
@@ -26,6 +27,7 @@ mod trie_tests {
         assert_eq!(*trie.get_str("foo1").unwrap(), 1);
         assert_eq!(*trie.get_str("foo2").unwrap(), 2);
         assert_eq!(trie.len(), 2);
+        assert_eq!(trie.n_nodes(), 3);
     }
 
     #[test]
@@ -36,16 +38,19 @@ mod trie_tests {
         assert_eq!(*trie.get_str("foo1").unwrap(), 1);
         assert_eq!(*trie.get_str("foo2").unwrap(), 2);
         assert_eq!(trie.len(), 2);
+        assert_eq!(trie.n_nodes(), 3);
 
         trie.del_str("foo1");
         assert_eq!(trie.get_str("foo1"), None);
         assert_eq!(*trie.get_str("foo2").unwrap(), 2);
         assert_eq!(trie.len(), 1);
+        assert_eq!(trie.n_nodes(), 1);
 
         trie.del_str("foo2");
         assert_eq!(trie.get_str("foo1"), None);
         assert_eq!(trie.get_str("foo2"), None);
         assert_eq!(trie.len(), 0);
+        assert_eq!(trie.n_nodes(), 0);
     }
 
     #[test]
@@ -56,16 +61,19 @@ mod trie_tests {
         assert_eq!(*trie.get_str("foo1").unwrap(), 1);
         assert_eq!(*trie.get_str("foo").unwrap(), 2);
         assert_eq!(trie.len(), 2);
+        assert_eq!(trie.n_nodes(), 2);
 
         trie.del_str("foo");
         assert_eq!(trie.get_str("foo"), None);
         assert_eq!(*trie.get_str("foo1").unwrap(), 1);
         assert_eq!(trie.len(), 1);
+        assert_eq!(trie.n_nodes(), 1);
 
         trie.del_str("foo1");
         assert_eq!(trie.get_str("foo1"), None);
         assert_eq!(trie.get_str("foo2"), None);
         assert_eq!(trie.len(), 0);
+        assert_eq!(trie.n_nodes(), 0);
     }
 
     #[test]
@@ -75,6 +83,8 @@ mod trie_tests {
         trie.add_str("foo1", 1);
         trie.add_str("foo2", 2);
         trie.add_str("foo3", 3);
+        assert_eq!(trie.len(), 4);
+        assert_eq!(trie.n_nodes(), 6);
 
         assert_eq!(trie.find_str("bar").next(), None);
 
@@ -133,6 +143,8 @@ mod trie_tests {
         trie.add_str("foo1", 1);
         trie.add_str("foo11", 2);
         trie.add_str("foo3", 3);
+        assert_eq!(trie.len(), 4);
+        assert_eq!(trie.n_nodes(), 5);
 
         let mut res: Vec<(String, i64)> = trie
             .find_matches_prefixes_str("foo112")
@@ -165,6 +177,8 @@ mod trie_tests {
         trie.add_str("foo1", 1);
         trie.add_str("foo11", 2);
         trie.add_str("foo3", 3);
+        assert_eq!(trie.len(), 4);
+        assert_eq!(trie.n_nodes(), 5);
 
         let mut data: Vec<i64> = trie.into_iter().collect();
         data.sort();

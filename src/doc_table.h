@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "redismodule.h"
-#include "triemap/triemap.h"
+#include "redisearch_rs/trie_rs/src/triemap.h"
 #include "redisearch.h"
 #include "sortable.h"
 #include "byte_offsets.h"
@@ -36,7 +36,7 @@ static inline RedisModuleString *DMD_CreateKeyString(const RSDocumentMetadata *d
 
 /* Map between external id an incremental id */
 typedef struct {
-  TrieMap *tm;
+  RS_TrieMap *tm;
 } DocIdMap;
 
 DocIdMap NewDocIdMap();

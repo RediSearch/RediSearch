@@ -22,6 +22,7 @@
 #include "rwlock.h"
 #include "fork_gc.h"
 #include "module.h"
+#include "redisearch_rs/trie_rs/src/triemap.h"
 
 int RediSearch_GetCApiVersion() {
   return REDISEARCH_CAPI_VERSION;
@@ -818,7 +819,7 @@ int RediSearch_IndexInfo(RSIndex* sp, RSIdxInfo *info) {
   info->maxDocId = sp->docs.maxDocId;
   info->docTableSize = sp->docs.memsize;
   info->sortablesSize = sp->docs.sortablesSize;
-  info->docTrieSize = TrieMap_MemUsage(sp->docs.dim.tm);
+  info->docTrieSize = RS_TrieMap_MemUsage(sp->docs.dim.tm);
   info->numTerms = sp->stats.numTerms;
   info->numRecords = sp->stats.numRecords;
   info->invertedSize = sp->stats.invertedSize;
@@ -850,7 +851,7 @@ size_t RediSearch_MemUsage(RSIndex* sp) {
   size_t res = 0;
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;
-  res += TrieMap_MemUsage(sp->docs.dim.tm);
+  res += RS_TrieMap_MemUsage(sp->docs.dim.tm);
   res += sp->stats.invertedSize;
   res += sp->stats.skipIndexesSize;
   res += sp->stats.scoreIndexesSize;
