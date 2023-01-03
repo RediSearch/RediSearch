@@ -90,6 +90,39 @@ help() {
 
 #---------------------------------------------------------------------------------------------- 
 
+traps() {
+	local func="$1"
+	shift
+	local sig
+	for sig in "$@"; do
+		trap "$func $sig" "$sig"
+	done
+}
+
+linux_stop() {
+	local pgid=$(cat /proc/$PID/status | grep pgid | awk '{print $2}')
+	kill -9 -- -$pgid
+}
+
+macos_stop() {
+	local pgid=$(ps -o pid,pgid -p $PID | awk "/$PID/"'{ print $2 }' | tail -1)
+	pkill -9 -g $pgid
+}
+
+stop() {
+	trap - SIGINT
+	if [[ $OS == linux ]]; then
+		linux_stop
+	elif [[ $OS == macos ]]; then
+		macos_stop
+	fi
+	exit 1
+}
+
+traps 'stop' SIGINT
+
+#---------------------------------------------------------------------------------------------- 
+
 setup_rltest() {
 	if [[ $RLTEST == view ]]; then
 		if [[ ! -d $ROOT/../RLTest ]]; then
