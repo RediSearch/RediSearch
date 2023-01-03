@@ -1342,6 +1342,7 @@ TEST_F(IndexTest, testDocTable) {
     size_t nkey = sprintf(buf, "doc_%d", i);
     RSDocumentMetadata *dmd = DocTable_Put(&dt, buf, nkey, (double)i, Document_DefaultFlags, buf, strlen(buf), DocumentType_Hash);
     t_docId nd = dmd->id;
+    DMD_Decref(dmd);
     ASSERT_EQ(did + 1, nd);
     did = nd;
   }
@@ -1359,8 +1360,7 @@ TEST_F(IndexTest, testDocTable) {
     float score = DocTable_GetScore(&dt, i + 1);
     ASSERT_EQ((int)score, i);
 
-    RSDocumentMetadata *dmd = DocTable_Get(&dt, i + 1);
-    DMD_Incref(dmd);
+    const RSDocumentMetadata *dmd = DocTable_Get(&dt, i + 1);
     ASSERT_TRUE(dmd != NULL);
     ASSERT_TRUE(dmd->flags & Document_HasPayload);
     ASSERT_STREQ(dmd->keyPtr, buf);
@@ -1394,12 +1394,14 @@ TEST_F(IndexTest, testDocTable) {
   static const char binBuf[] = {"Hello\x00World"};
   const size_t binBufLen = 11;
   ASSERT_FALSE(DocIdMap_Get(&dt.dim, binBuf, binBufLen));
+  DMD_Decref(dmd);
   dmd = DocTable_Put(&dt, binBuf, binBufLen, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   ASSERT_TRUE(dmd);
   ASSERT_EQ(148, (int)dt.memsize);
   ASSERT_NE(dmd->id, strDocId);
   ASSERT_EQ(dmd->id, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
   ASSERT_EQ(strDocId, DocIdMap_Get(&dt.dim, "Hello", 5));
+  DMD_Decref(dmd);
   DocTable_Free(&dt);
 }
 
