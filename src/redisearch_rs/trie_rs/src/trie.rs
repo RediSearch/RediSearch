@@ -48,7 +48,7 @@ impl<Data> Node<Data> {
             let children = self.children.get_or_insert(HashMap::new());
             let child = children.entry(val[0]).or_insert_with(|| {
                 n_nodes_added = 1;
-                Node {
+                Self {
                     val: val.to_vec(),
                     children: None,
                     data: None,
@@ -70,7 +70,7 @@ impl<Data> Node<Data> {
         self.split(common_prefix_index);
         let mut res = self.add(val, data);
         res.1 += 1; // we splited one node here so we must have add one node.
-        return res;
+        res
     }
 
     fn get(&self, val: &[u8]) -> Option<&Data> {
@@ -127,7 +127,7 @@ impl<Data> Node<Data> {
                 (
                     v,
                     self.children.as_ref().map_or(true, HashMap::is_empty),
-                    node_deleted as usize,
+                    usize::from(node_deleted),
                 )
             });
         }
@@ -140,11 +140,7 @@ impl<Data> Node<Data> {
             if should_delete {
                 children.remove(&val[0]); // one child deleted
                 n_nodes_deleted += 1;
-                n_nodes_deleted += if self.try_join_with_single_child() {
-                    1
-                } else {
-                    0
-                };
+                n_nodes_deleted += usize::from(self.try_join_with_single_child());
             };
             return Some((
                 data,
@@ -262,7 +258,7 @@ impl<Data> Trie<Data> {
         self.len
     }
 
-    pub fn n_nodes(&self) -> usize {
+    pub const fn n_nodes(&self) -> usize {
         self.n_nodes
     }
 
@@ -323,7 +319,7 @@ impl<Data> Iterator for TrieDataIterator<Data> {
         while let Some(n) = self.nodes.pop() {
             if let Some(children) = n.children {
                 self.nodes
-                    .append(&mut children.into_iter().map(|(_, v)| v).collect());
+                    .append(&mut children.into_values().collect());
             }
             if let Some(data) = n.data {
                 return Some(data);
