@@ -184,4 +184,25 @@ mod trie_tests {
         data.sort();
         assert_eq!(data, vec![1, 2, 3, 4]);
     }
+
+    #[test]
+    fn test_lots_of_values() {
+        let mut trie: Trie<usize> = Trie::new();
+        let docs:Vec<String> = (0 .. 21).into_iter().map(|i| format!("doc{i}")).collect();
+        for (index, doc) in docs.iter().enumerate() {
+            trie.add_str(doc.as_str(), index);
+        }
+        assert_eq!(trie.len(), 21);
+        assert_eq!(trie.n_nodes(), 22);
+
+        for (index, doc) in docs.iter().enumerate() {
+            assert_eq!(trie.del_str(doc.as_str()).unwrap(), index);
+        }
+
+    }
+
+    #[test]
+    fn test_1() {
+        println!("{}", std::mem::size_of::<crate::trie::Node<*mut std::ffi::c_void>>());
+    }
 }

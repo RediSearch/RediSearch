@@ -132,5 +132,5 @@ pub extern "C" fn RS_MatchesPrefixesIterator_Free(
 pub extern "C" fn RS_TrieMap_MemUsage(t: *mut Trie<*mut c_void>) -> usize {
     // todo: come up with better esstimation.
     let t = unsafe { &mut *t };
-    std::mem::size_of::<Trie<*mut c_void>>() + t.n_nodes() * std::mem::size_of::<Node<*mut c_void>>()
+    t.n_nodes() * std::mem::size_of::<Node<*mut c_void>>()
 }

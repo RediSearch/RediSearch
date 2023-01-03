@@ -126,7 +126,7 @@ impl<Data> Node<Data> {
             return data.map(|v| {
                 (
                     v,
-                    self.children.as_ref().map(|v| v.is_empty()).unwrap_or(true),
+                    self.children.as_ref().map(|v| v.is_empty()).unwrap_or(true) && self.data.is_none(),
                     if node_deleted {1} else {0},
                 )
             });
@@ -144,7 +144,7 @@ impl<Data> Node<Data> {
             };
             return Some((
                 data,
-                self.children.as_ref().map(|v| v.len()).unwrap_or(0) == 0,
+                self.children.as_ref().map(|v| v.len()).unwrap_or(0) == 0 && self.data.is_none(),
                 n_nodes_deleted
             ));
         }
