@@ -39,7 +39,7 @@ static inline int DocTable_ValidateDocId(const DocTable *t, t_docId docId) {
   return docId != 0 && docId <= t->maxDocId;
 }
 
-RSDocumentMetadata *DocTable_Get(const DocTable *t, t_docId docId) {
+const RSDocumentMetadata *DocTable_Get(const DocTable *t, t_docId docId) {
   if (!DocTable_ValidateDocId(t, docId)) {
     return NULL;
   }
@@ -47,14 +47,24 @@ RSDocumentMetadata *DocTable_Get(const DocTable *t, t_docId docId) {
   if (bucketIndex >= t->cap) {
     return NULL;
   }
+  // While we iterate over the chain, we have locked the index spec (R/W), so we can safely
+  // iterate over the chain without a lock and increment the ref count of the document metadata when
+  // we find it.
   DMDChain *dmdChain = &t->buckets[bucketIndex];
   DLLIST2_FOREACH(it, &dmdChain->lroot) {
     RSDocumentMetadata *dmd = DLLIST2_ITEM(it, RSDocumentMetadata, llnode);
     if (dmd->id == docId) {
-      return dmd;
+      return DMD_Incref(dmd);
     }
   }
   return NULL;
+}
+
+static RSDocumentMetadata *DocTable_GetOwn(const DocTable *t, t_docId docId) {
+  RSDocumentMetadata *dmd = (RSDocumentMetadata *)DocTable_Get(t, docId);
+  // `DocTable_Get` increments the ref count, so we need to decrement it
+  DMD_Decref(dmd);
+  return dmd;
 }
 
 int DocTable_Exists(const DocTable *t, t_docId docId) {
@@ -78,7 +88,7 @@ int DocTable_Exists(const DocTable *t, t_docId docId) {
   return 0;
 }
 
-RSDocumentMetadata *DocTable_GetByKeyR(const DocTable *t, RedisModuleString *s) {
+const RSDocumentMetadata *DocTable_GetByKeyR(const DocTable *t, RedisModuleString *s) {
   const char *kstr;
   size_t klen;
   kstr = RedisModule_StringPtrLen(s, &klen);
@@ -99,14 +109,14 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
     t->cap = MIN(t->cap, t->maxSize);  // make sure we do not excised maxSize
     t->cap = MAX(t->cap, bucket + 1);  // docs[bucket] needs to be valid, so t->cap > bucket
     t->buckets = rm_realloc(t->buckets, t->cap * sizeof(DMDChain));
-    
+
     // We clear new extra allocation to Null all list pointers
     size_t memsetSize = (t->cap - oldcap) * sizeof(DMDChain);
     memset(&t->buckets[oldcap], 0, memsetSize);
   }
 
   DMDChain *chain = &t->buckets[bucket];
-  DMD_Incref(dmd);
+  dmd->ref_count = 1; // Index reference
 
   // Adding the dmd to the chain
   dllist2_append(&chain->lroot, &dmd->llnode);
@@ -188,13 +198,13 @@ int DocTable_SetByteOffsets(DocTable *t, RSDocumentMetadata *dmd, RSByteOffsets 
  * table.
  *
  * Return 0 if the document is already in the index  */
-RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double score, RSDocumentFlags flags, 
+RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double score, RSDocumentFlags flags,
                                  const char *payload, size_t payloadSize, DocumentType type) {
 
   t_docId xid = DocIdMap_Get(&t->dim, s, n);
   // if the document is already in the index, return 0
   if (xid) {
-    return DocTable_Get(t, xid);
+    return (RSDocumentMetadata *)DocTable_Get(t, xid);
   }
   t_docId docId = ++t->maxDocId;
 
@@ -233,11 +243,11 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
   ++t->size;
   t->memsize += sdsAllocSize(keyPtr);
   DocIdMap_Put(&t->dim, s, n, docId);
-  return dmd;
+  return DMD_Incref(dmd); // Reference for the caller
 }
 
 RSPayload *DocTable_GetPayload(DocTable *t, t_docId docId) {
-  RSDocumentMetadata *dmd = DocTable_Get(t, docId);
+  RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
   return (dmd && hasPayload(dmd->flags)) ? dmd->payload : NULL;
 }
 
@@ -249,7 +259,7 @@ const char *DocTable_GetKey(DocTable *t, t_docId docId, size_t *lenp) {
     lenp = &len_s;
   }
 
-  RSDocumentMetadata *dmd = DocTable_Get(t, docId);
+  RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
   if (!dmd) {
     *lenp = 0;
     return NULL;
@@ -260,11 +270,12 @@ const char *DocTable_GetKey(DocTable *t, t_docId docId, size_t *lenp) {
 
 /* Get the score for a document from the table. Returns 0 if docId is not in the table. */
 inline float DocTable_GetScore(DocTable *t, t_docId docId) {
-  RSDocumentMetadata *dmd = DocTable_Get(t, docId);
+  RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
   return dmd ? dmd->score : 0;
 }
 
-void DMD_Free(RSDocumentMetadata *md) {
+void DMD_Free(const RSDocumentMetadata *cmd) {
+  RSDocumentMetadata * md = (RSDocumentMetadata *)cmd;
   if (hasPayload(md->flags)) {
     rm_free(md->payload->data);
     rm_free(md->payload);
@@ -295,7 +306,7 @@ void DocTable_Free(DocTable *t) {
     while (nn) {
       RSDocumentMetadata *md = DLLIST2_ITEM(nn, RSDocumentMetadata, llnode);
       nn = nn->next;
-      DMD_Free(md);
+      DMD_Decref(md);
     }
   }
   rm_free(t->buckets);
@@ -322,11 +333,12 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
 
   if (docId && docId <= t->maxDocId) {
 
-    RSDocumentMetadata *md = DocTable_Get(t, docId);
+    RSDocumentMetadata *md = (RSDocumentMetadata *)DocTable_Get(t, docId);
     if (!md) {
       return NULL;
     }
-
+    // Assuming we already locked the spec for write, and we don't have multiple writers,
+    // all the next operations don't need to be atomic
     md->flags |= Document_Deleted;
 
     t->memsize -= sdsAllocSize(md->keyPtr);
@@ -343,6 +355,7 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
     DocTable_DmdUnchain(t, md);
     DocIdMap_Delete(&t->dim, s, n);
     --t->size;
+    DMD_Decref(md); // Index ref. The caller gets a ref from the `Get` call
 
     return md;
   }
@@ -357,7 +370,7 @@ int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const c
   }
   DocIdMap_Delete(&t->dim, from_str, from_len);
   DocIdMap_Put(&t->dim, to_str, to_len, id);
-  RSDocumentMetadata *dmd = DocTable_Get(t, id);
+  RSDocumentMetadata *dmd = DocTable_GetOwn(t, id);
   sdsfree(dmd->keyPtr);
   dmd->keyPtr = sdsnewlen(to_str, to_len);
   return REDISMODULE_OK;

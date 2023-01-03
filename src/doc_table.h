@@ -77,11 +77,19 @@ typedef struct {
 } DocTable;
 
 /* increasing the ref count of the given dmd */
-#define DMD_Incref(md)                                                       \
-  if (md) {                                                                  \
-    RS_LOG_ASSERT(md->ref_count < (1 << 16), "overflow of dmd ref_count");   \
-    ++md->ref_count;                                                         \
-  }
+/*
+ * If the ref_count was 0 before we increased it, someone else already freed it,
+ * and we set the pointer to NULL.
+ * Make sure to check the return value of this macro when you are using it in a function
+ */
+#define DMD_Incref(md) ({                                                       \
+    if (md) {                                                                   \
+      uint16_t count = __atomic_fetch_add(&md->ref_count, 1, __ATOMIC_RELAXED); \
+      RS_LOG_ASSERT(count < (1 << 16) - 1, "overflow of dmd ref_count");        \
+      md = count ? md : NULL;                                                   \
+    }                                                                           \
+    md;                                                                         \
+  })
 
 #define DOCTABLE_FOREACH(dt, code)                                           \
   for (size_t i = 0; i < dt->cap; ++i) {                                     \
@@ -102,17 +110,18 @@ DocTable NewDocTable(size_t cap, size_t max_size);
 
 /* Get the metadata for a doc Id from the DocTable.
  *  If docId is not inside the table, we return NULL */
-RSDocumentMetadata *DocTable_Get(const DocTable *t, t_docId docId);
+const RSDocumentMetadata *DocTable_Get(const DocTable *t, t_docId docId);
 
-RSDocumentMetadata *DocTable_GetByKeyR(const DocTable *r, RedisModuleString *s);
+const RSDocumentMetadata *DocTable_GetByKeyR(const DocTable *r, RedisModuleString *s);
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
  * table.
  *
  * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of the
  * same key. This may result in document duplication in results  */
-RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double score, RSDocumentFlags flags,
-                                 const char *payload, size_t payloadSize, DocumentType type);
+RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double score,
+                                 RSDocumentFlags flags, const char *payload, size_t payloadSize,
+                                 DocumentType type);
 
 /* Get the "real" external key for an incremental i
  * If the document ID is not in the table, the returned key's `str` member will
@@ -169,7 +178,7 @@ static inline RSDocumentMetadata *DocTable_PopR(DocTable *t, RedisModuleString *
   return DocTable_Pop(t, s, n);
 }
 
-static inline RSDocumentMetadata *DocTable_GetByKey(DocTable *dt, const char *key) {
+static inline const RSDocumentMetadata *DocTable_GetByKey(DocTable *dt, const char *key) {
   t_docId id = DocTable_GetId(dt, key, strlen(key));
   if (id == 0) {
     return NULL;
@@ -182,11 +191,12 @@ int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const c
                      size_t to_len);
 
 /* don't use this function directly. Use DMD_Decref */
-void DMD_Free(RSDocumentMetadata *);
+void DMD_Free(const RSDocumentMetadata *);
 
 /* Decrement the refcount of the DMD object, freeing it if we're the last reference */
-static inline void DMD_Decref(RSDocumentMetadata *dmd) {
-  if (dmd && !--dmd->ref_count) {
+static inline void DMD_Decref(const RSDocumentMetadata *cdmd) {
+  RSDocumentMetadata *dmd = (RSDocumentMetadata *)cdmd;
+  if (dmd && !__atomic_sub_fetch(&dmd->ref_count, 1, __ATOMIC_RELAXED)) {
     DMD_Free(dmd);
   }
 }
