@@ -11,21 +11,21 @@
 #include "rmalloc.h"
 #include "redismodule.h"
 #include "index_result.h"
-#include "triemap/triemap.h"
+#include "redisearch_rs/trie_rs/src/triemap.h"
 #include "query.h"
 #include <err.h>
 
 /* The registry for query expanders. Initialized by Extensions_Init() */
-static TrieMap *queryExpanders_g = NULL;
+static RS_TrieMap *queryExpanders_g = NULL;
 
 /* The registry for scorers. Initialized by Extensions_Init() */
-static TrieMap *scorers_g = NULL;
+static RS_TrieMap *scorers_g = NULL;
 
 /* Init the extension system - currently just create the regsistries */
 void Extensions_Init() {
   if (!queryExpanders_g) {
-    queryExpanders_g = NewTrieMap();
-    scorers_g = NewTrieMap();
+    queryExpanders_g = RS_NewTrieMap();
+    scorers_g = RS_NewTrieMap();
   }
 }
 
@@ -39,11 +39,11 @@ static void freeScorerCb(void *p) {
 
 void Extensions_Free() {
   if (queryExpanders_g) {
-    TrieMap_Free(queryExpanders_g, freeExpanderCb);
+    RS_TrieMap_Free(queryExpanders_g, freeExpanderCb);
     queryExpanders_g = NULL;
   }
   if (scorers_g) {
-    TrieMap_Free(scorers_g, freeScorerCb);
+    RS_TrieMap_Free(scorers_g, freeScorerCb);
     scorers_g = NULL;
   }
 }
@@ -61,12 +61,12 @@ int Ext_RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFre
   ctx->sf = func;
 
   /* Make sure that two scorers are never registered under the same name */
-  if (TrieMap_Find(scorers_g, (char *)alias, strlen(alias)) != TRIEMAP_NOTFOUND) {
+  if (RS_TrieMap_Get(scorers_g, (char *)alias, strlen(alias)) != NULL) {
     rm_free(ctx);
     return REDISEARCH_ERR;
   }
 
-  TrieMap_Add(scorers_g, (char *)alias, strlen(alias), ctx, NULL);
+  RS_TrieMap_Add(scorers_g, (char *)alias, strlen(alias), ctx);
   return REDISEARCH_OK;
 }
 
@@ -82,11 +82,11 @@ int Ext_RegisterQueryExpander(const char *alias, RSQueryTokenExpander exp, RSFre
   ctx->exp = exp;
 
   /* Make sure there are no two query expanders under the same name */
-  if (TrieMap_Find(queryExpanders_g, (char *)alias, strlen(alias)) != TRIEMAP_NOTFOUND) {
+  if (RS_TrieMap_Get(queryExpanders_g, (char *)alias, strlen(alias)) != NULL) {
     rm_free(ctx);
     return REDISEARCH_ERR;
   }
-  TrieMap_Add(queryExpanders_g, (char *)alias, strlen(alias), ctx, NULL);
+  RS_TrieMap_Add(queryExpanders_g, (char *)alias, strlen(alias), ctx);
   return REDISEARCH_OK;
 }
 
@@ -135,7 +135,7 @@ ExtScoringFunctionCtx *Extensions_GetScoringFunction(ScoringFunctionArgs *fnargs
   if (!scorers_g) return NULL;
 
   /* lookup the scorer by name (case sensitive) */
-  ExtScoringFunctionCtx *p = TrieMap_Find(scorers_g, (char *)name, strlen(name));
+  ExtScoringFunctionCtx *p = RS_TrieMap_Get(scorers_g, (char *)name, strlen(name));
   if (p && (void *)p != TRIEMAP_NOTFOUND) {
     /* if no ctx was given, we just return the scorer */
     if (fnargs) {
@@ -219,7 +219,7 @@ ExtQueryExpanderCtx *Extensions_GetQueryExpander(RSQueryExpanderCtx *ctx, const 
 
   if (!queryExpanders_g) return NULL;
 
-  ExtQueryExpanderCtx *p = TrieMap_Find(queryExpanders_g, (char *)name, strlen(name));
+  ExtQueryExpanderCtx *p = RS_TrieMap_Get(queryExpanders_g, (char *)name, strlen(name));
 
   if (p && (void *)p != TRIEMAP_NOTFOUND) {
     ctx->ExpandToken = Ext_ExpandToken;

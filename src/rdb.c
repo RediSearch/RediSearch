@@ -9,7 +9,7 @@
 #include "rdb.h"
 
 dict *specDict_g_bkup;
-TrieMap *ScemaPrefixes_g_bkup;
+RS_TrieMap *ScemaPrefixes_g_bkup;
 AliasTable *AliasTable_g_bkup;
 
 void Backup_Globals() {
@@ -44,7 +44,7 @@ void Discard_Globals_Backup() {
   // This is a temporary fix until we change functions to get pointer to lists
   // save global to temp
   dict *specDict_g_temp = specDict_g;
-  TrieMap *ScemaPrefixes_g_temp = ScemaPrefixes_g;
+  RS_TrieMap *ScemaPrefixes_g_temp = ScemaPrefixes_g;
   AliasTable *AliasTable_g_temp = AliasTable_g;
   // set backup as globals
   specDict_g = specDict_g_bkup;

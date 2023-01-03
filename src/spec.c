@@ -2642,12 +2642,13 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
 
   size_t n;
   const char *key_p = RedisModule_StringPtrLen(key, &n);
-  arrayof(SchemaPrefixNode *) prefixes = array_new(SchemaPrefixNode *, 1);
   // collect specs that their name is prefixed by the key name
   // `prefixes` includes list of arrays of specs, one for each prefix of key name
-  int nprefixes = TrieMap_FindPrefixes(ScemaPrefixes_g, key_p, n, (arrayof(void *) *)&prefixes);
-  for (int i = 0; i < array_len(prefixes); ++i) {
-    SchemaPrefixNode *node = prefixes[i];
+  RS_MatchesPrefixesIterator *iter = RS_TrieMap_FindPrefixes(ScemaPrefixes_g, key_p, n);
+  SchemaPrefixNode *node = NULL;
+  char *trie_key = NULL;
+  size_t trie_key_len;
+  while (RS_MatchesPrefixesIterator_Next(iter, &trie_key, &trie_key_len, (void**)&node)){
     for (int j = 0; j < array_len(node->index_specs); ++j) {
       IndexSpec *spec = node->index_specs[j];
       if (!dictFind(specs, spec->name)) {
@@ -2663,7 +2664,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
       }
     }
   }
-  array_free(prefixes);
+  RS_MatchesPrefixesIterator_Free(iter);
 
   if (runFilters) {
 

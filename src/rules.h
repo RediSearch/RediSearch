@@ -8,7 +8,7 @@
 #pragma once
 
 #include "query_error.h"
-#include "triemap/triemap.h"
+#include "redisearch_rs/trie_rs/src/triemap.h"
 #include "stemmer.h"
 #include "util/arr.h"
 #include "json.h"
@@ -88,10 +88,10 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
 
 //---------------------------------------------------------------------------------------------
 
-extern TrieMap *ScemaPrefixes_g;
+extern RS_TrieMap *ScemaPrefixes_g;
 
 void SchemaPrefixes_Create();
-void SchemaPrefixes_Free(TrieMap *t);
+void SchemaPrefixes_Free(RS_TrieMap *t);
 void SchemaPrefixes_Add(const char *prefix, struct IndexSpec *index);
 void SchemaPrefixes_RemoveSpec(struct IndexSpec *spec);
 
