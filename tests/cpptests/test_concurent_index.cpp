@@ -115,9 +115,8 @@ class MyEnvironment : public ::testing::Environment {
     RediSearch_CleanupModule();
   }
 };
-
-
-void simpleTest() {
+class ConcTest : public ::testing::Test {};
+TEST_F(ConcTest, simpleTest) {
 	RMCK::Context static_ctx;
     RedisModuleCtx *ctx = (RedisModuleCtx *)static_ctx;
 	RMCK::ArgvList args(ctx, "FT.CREATE", "idx", "ON", "HASH",
@@ -157,7 +156,8 @@ void simpleTest() {
 }
 
 
-int main(int, char **) {
-  RMCK::init();
-  simpleTest();
+int main(int argc, char **argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  ::testing::AddGlobalTestEnvironment(new MyEnvironment());
+  return RUN_ALL_TESTS();
 }

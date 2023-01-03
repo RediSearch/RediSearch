@@ -778,6 +778,17 @@ static int RMCK_ExportSharedAPI(RedisModuleCtx *, const char *name, void *funcpt
 static void *RMCK_GetSharedAPI(RedisModuleCtx *, const char *name) {
   return fnregistry[name];
 }
+static void *RMCK_GetServerInfo(RedisModuleCtx *, const char *name) {
+  return NULL;
+}
+static size_t RMCK_ServerInfoGetFieldUnsigned(RedisModuleCtx *, const char *name, int *ptr) {
+  return 0;
+}
+static void RMCK_FreeServerInfo(RedisModuleCtx *, RedisModuleServerInfoData *ptr) {
+}
+static unsigned long long RMCK_DbSize(RedisModuleCtx *) {
+  return KVDB::dbs.size();
+}
 
 static void registerApis() {
   REGISTER_API(GetApi);
@@ -832,6 +843,10 @@ static void registerApis() {
   REGISTER_API(AutoMemory);
   REGISTER_API(ExportSharedAPI);
   REGISTER_API(GetSharedAPI);
+  REGISTER_API(GetServerInfo);
+  REGISTER_API(ServerInfoGetFieldUnsigned);
+  REGISTER_API(FreeServerInfo);
+  REGISTER_API(DbSize);
 
   REGISTER_API(SubscribeToKeyspaceEvents);
   REGISTER_API(SubscribeToServerEvent);
