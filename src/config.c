@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "config.h"
 #include "err.h"
 #include "rmutil/util.h"
@@ -885,6 +891,16 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldLongLong(ctx, "index_pool_size", RSGlobalConfig.indexPoolSize);
   RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcScanSize);
   RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length", RSGlobalConfig.minPhoneticTermLen);
+}
+
+void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
+  RedisModule_InfoAddSection(ctx, "dialect_statistics");
+  for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {
+    char field[16] = {0};
+    snprintf(field, sizeof field, "dialect_%d", dialect);
+    // extract the d'th bit of the dialects bitfield.
+    RedisModule_InfoAddFieldULongLong(ctx, field, GET_DIALECT(RSGlobalConfig.used_dialects, dialect));
+  }
 }
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {

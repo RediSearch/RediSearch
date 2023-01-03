@@ -475,6 +475,10 @@ if [[ -n $REDIS_PORT ]]; then
 	RLTEST_ARGS+="--redis-port $REDIS_PORT"
 fi
 
+if [[ -n $REDIS_PORT ]]; then
+	RLTEST_ARGS+="--redis-port $REDIS_PORT"
+fi
+
 if [[ -n $TEST ]]; then
 	[[ $GDB == 1 ]] && RLTEST_ARGS+=" -i"
 	[[ $LOG != 1 ]] && RLTEST_ARGS+=" -v -s"

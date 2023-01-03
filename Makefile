@@ -167,13 +167,6 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
-# override CLang default for macOS
-ifeq ($(OS),macos)
-ifneq ($(CLANG),1)
-export GCC=1
-endif
-endif
-
 STATIC_LIBSTDCXX ?= 1
 
 export OPENSSL_ROOT_DIR:=$(LIBSSL_PREFIX)

@@ -1,12 +1,5 @@
 ---
-syntax: 
----
-
-Create an index with the given specification
-
-## Syntax
-
-{{< highlight bash >}}
+syntax: |
   FT.CREATE index 
     [ON HASH | JSON] 
     [PREFIX count prefix [prefix ...]] 
@@ -26,11 +19,13 @@ Create an index with the given specification
     [SKIPINITIALSCAN]
     SCHEMA field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] 
     [NOINDEX] [ field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] [NOINDEX] ...]
-{{< / highlight >}}
+---
+
+Create an index with the given specification
 
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>index</code></summary> 
@@ -38,7 +33,7 @@ Create an index with the given specification
 is index name to create. If it exists, the old specification is overwritten.
 </details>
 
-## Optional parameters
+## Optional arguments
 
 <details open>
 <summary><code>ON {data_type}</code></summary>
@@ -97,23 +92,30 @@ is document attribute that you use as a binary safe payload string to the docume
 <details open>
 <summary><code>MAXTEXTFIELDS</code></summary> 
 
-forces RediSearch to encode indexes as if there were more than 32 text attributes, which allows you to add additional attributes (beyond 32) using `FT.ALTER`. For efficiency, RediSearch encodes indexes differently if they are
-  created with less than 32 text attributes.
+forces RediSearch to encode indexes as if there were more than 32 text attributes, which allows you to add additional attributes (beyond 32) using `FT.ALTER`. For efficiency, RediSearch encodes indexes differently if they are created with less than 32 text attributes.
 </details>
 
 <details open>
 <summary><code>NOOFFSETS</code></summary> 
 
-does not store term offsets for documents. It saves memory, but does not
-  allow exact searches or highlighting. It implies `NOHL`.
+does not store term offsets for documents. It saves memory, but does not allow exact searches or highlighting. It implies `NOHL`.
 </details>
 
 <details open>
 <summary><code>TEMPORARY</code></summary> 
 
-creates a lightweight temporary index that expires after a specified period of inactivity. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and, therefore, you should consider using `SKIPINITIALSCAN` to avoid costly scanning.
+creates a lightweight temporary index that expires after a specified period of inactivity, in seconds. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and, therefore, you should consider using `SKIPINITIALSCAN` to avoid costly scanning.
 
-When dropped, a temporary index does not delete the hashes as they may have been indexed in several indexes. Adding the `DD` flag deletes the hashes as well.
+{{% alert title="Warning" color="warning" %}}
+ 
+When temporary indexes expire, they drop all the records associated with them.
+`FT.DROPINDEX` was introduced with a default of not deleting docs and a `DD` flag that enforced deletion.
+However, for temporary indexes, documents are deleted along with the index.
+Historically, RediSearch used an FT.ADD command, which made a connection between the document and the index. Then, FT.DROP, also a hystoric command, deleted documents by default.
+In version 2.x, RediSearch indexes hashes and JSONs, and the dependency between the index and documents no longer exists. 
+
+{{% /alert %}}
+
 </details>
 
 <details open>
@@ -123,7 +125,7 @@ conserves storage space and memory by disabling highlighting support. If set, th
 </details>
 
 <details open>
-<summary><code>NOFIELD</code></summary> 
+<summary><code>NOFIELDS</code></summary> 
 
 does not store attribute bits for each term. It saves memory, but it does not allow
   filtering by specific attributes.
@@ -132,15 +134,13 @@ does not store attribute bits for each term. It saves memory, but it does not al
 <details open>
 <summary><code>NOFREQS</code></summary> 
 
-avoids saving the term frequencies in the index. It saves
-  memory, but does not allow sorting based on the frequencies of a given term within the document.
+avoids saving the term frequencies in the index. It saves memory, but does not allow sorting based on the frequencies of a given term within the document.
 </details>
 
 <details open>
 <summary><code>STOPWORDS {count}</code></summary> 
 
-sets the index with a custom stopword list, to be ignored during
-  indexing and search time. `{count}` is the number of stopwords, followed by a list of stopword arguments exactly the length of `{count}`.
+sets the index with a custom stopword list, to be ignored during indexing and search time. `{count}` is the number of stopwords, followed by a list of stopword arguments exactly the length of `{count}`.
 
 If not set, FT.CREATE takes the default list of stopwords. If `{count}` is set to 0, the index does not have stopwords.
 </details>
@@ -276,7 +276,7 @@ Index a JSON document using a JSON Path expression.
 
 ## See also
 
-`FT.ALTER`  
+`FT.ALTER` | `FT.DROPINDEX` 
 
 ## Related topics
 

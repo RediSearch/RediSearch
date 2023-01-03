@@ -1,18 +1,13 @@
 ---
-syntax: 
+syntax: |
+  FT.SUGLEN key
 ---
 
 Get the size of an auto-complete suggestion dictionary
 
-## Syntax
-
-{{< highlight bash >}}
-FT.SUGLEN key
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>key</code></summary>

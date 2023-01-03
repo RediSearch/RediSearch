@@ -1,42 +1,37 @@
 
 ---
-syntax: 
+syntax: |
+  FT.SEARCH index query 
+    [NOCONTENT] 
+    [VERBATIM] [NOSTOPWORDS] 
+    [WITHSCORES] 
+    [WITHPAYLOADS] 
+    [WITHSORTKEYS] 
+    [ FILTER numeric_field min max [ FILTER numeric_field min max ...]] 
+    [ GEOFILTER geo_field lon lat radius m | km | mi | ft [ GEOFILTER geo_field lon lat radius m | km | mi | ft ...]] 
+    [ INKEYS count key [key ...]] [ INFIELDS count field [field ...]] 
+    [ RETURN count identifier [AS property] [ identifier [AS property] ...]] 
+    [ SUMMARIZE [ FIELDS count field [field ...]] [FRAGS num] [LEN fragsize] [SEPARATOR separator]] 
+    [ HIGHLIGHT [ FIELDS count field [field ...]] [ TAGS open close]] 
+    [SLOP slop] 
+    [TIMEOUT timeout] 
+    [INORDER] 
+    [LANGUAGE language] 
+    [EXPANDER expander] 
+    [SCORER scorer] 
+    [EXPLAINSCORE] 
+    [PAYLOAD payload] 
+    [ SORTBY sortby [ ASC | DESC]] 
+    [ LIMIT offset num] 
+    [ PARAMS nargs name value [ name value ...]] 
+    [DIALECT dialect]
 ---
 
 Search the index with a textual query, returning either documents or just ids
 
-## Syntax
-
-{{< highlight bash >}}
-FT.SEARCH index query 
-          [NOCONTENT] 
-          [VERBATIM] [NOSTOPWORDS] 
-          [WITHSCORES] 
-          [WITHPAYLOADS] 
-          [WITHSORTKEYS] 
-          [ FILTER numeric_field min max [ FILTER numeric_field min max ...]] 
-          [ GEOFILTER geo_field lon lat radius m | km | mi | ft [ GEOFILTER geo_field lon lat radius m | km | mi | ft ...]] 
-          [ INKEYS count key [key ...]] [ INFIELDS count field [field ...]] 
-          [ RETURN count identifier [AS property] [ identifier [AS property] ...]] 
-          [ SUMMARIZE [ FIELDS count field [field ...]] [FRAGS num] [LEN fragsize] [SEPARATOR separator]] 
-          [ HIGHLIGHT [ FIELDS count field [field ...]] [ TAGS open close]] 
-          [SLOP slop] 
-          [TIMEOUT timeout] 
-          [INORDER] 
-          [LANGUAGE language] 
-          [EXPANDER expander] 
-          [SCORER scorer] 
-          [EXPLAINSCORE] 
-          [PAYLOAD payload] 
-          [ SORTBY sortby [ ASC | DESC]] 
-          [ LIMIT offset num] 
-          [ PARAMS nargs name value [ name value ...]] 
-          [DIALECT dialect]
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>index</code></summary>
@@ -50,7 +45,7 @@ is index name. You must first create the index using `FT.CREATE`.
 is text query to search. If it's more than a single word, put it in quotes. Refer to [Query syntax](/redisearch/reference/query_syntax) for more details.
 </details>
 
-## Optional parameters
+## Optional arguments
 
 <details open>
 <summary><code>NOCONTENT</code></summary>
@@ -79,8 +74,7 @@ retrieves optional document payloads. See `FT.CREATE`. The payloads follow the d
 <details open>
 <summary><code>WITHSORTKEYS</code></summary>
 
-returns the value of the sorting key, right after the id and score and/or payload, if requested. This is usually not needed, and
-  exists for distributed search coordination purposes. This option is relevant only if used in conjunction with `SORTBY`.
+returns the value of the sorting key, right after the id and score and/or payload, if requested. This is usually not needed, and exists for distributed search coordination purposes. This option is relevant only if used in conjunction with `SORTBY`.
 </details>
 
 <details open>
@@ -208,10 +202,12 @@ selects the dialect version under which to execute the query. If not specified, 
 
 FT.SEARCH returns an array reply, where the first element is an integer reply of the total number of results, and then array reply pairs of document ids, and array replies of attribute/value pairs.
 
-<note><b>Notes:</b> 
+{{% alert title="Notes" color="warning" %}}
+ 
 - If `NOCONTENT` is given, an array is returned where the first element is the total number of results, and the rest of the members are document ids.
 - If a hash expires after the query process starts, the hash is counted in the total number of results, but the key name and content return as null.
-</note>
+
+{{% /alert %}}
 
 ### Return multiple values
 
