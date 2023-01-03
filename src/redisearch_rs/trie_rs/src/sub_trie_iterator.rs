@@ -62,16 +62,7 @@ impl<'trie, Data> TrieIterator for SubTrieIterator<'trie, Data> {
             let last_iter = self.iters.last_mut()?;
             if let Some(curr_node) = last_iter.next() {
                 self.prefix_buffer.extend(&curr_node.val);
-                self.iters.push(
-                    curr_node
-                        .children
-                        .as_ref()
-                        .map(|v| -> Box<dyn Iterator<Item = &'trie Node<Data>>> {
-                            let values = v.values();
-                            Box::new(values)
-                        })
-                        .unwrap_or_else(|| Box::new(Vec::new().into_iter())),
-                );
+                self.iters.push(Box::new(curr_node.children.values()));
                 self.processed_nodes.push(curr_node);
                 if let Some(data) = curr_node.data.as_ref() {
                     return Some((self.prefix_buffer.as_ref(), data));

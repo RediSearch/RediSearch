@@ -1,18 +1,18 @@
 use crate::matches_prefixes_iterator::MatchesPrefixesIterator;
 use crate::sub_trie_iterator::SubTrieIterator;
-use std::collections::HashMap;
+use crate::ordered_u8_map::OrderedU8Map;
 
 #[derive(Debug)]
 pub(crate) struct Node<Data> {
     pub(crate) val: Vec<u8>,
-    pub(crate) children: Option<HashMap<u8, Node<Data>>>,
+    pub(crate) children: OrderedU8Map<Node<Data>>,
     pub(crate) data: Option<Data>, // only termina nodes will have data
 }
 
 impl<Data> Node<Data> {
     fn split(&mut self, index: usize) {
         let second_val = self.val[index..].to_vec();
-        let mut new_children = HashMap::new();
+        let mut new_children = OrderedU8Map::new();
         new_children.insert(
             second_val[0],
             Node {
@@ -22,7 +22,7 @@ impl<Data> Node<Data> {
             },
         );
         self.val.truncate(index);
-        self.children = Some(new_children);
+        self.children = new_children;
         self.data = None;
     }
 
@@ -45,14 +45,9 @@ impl<Data> Node<Data> {
             let val = &val[self.val.len()..];
             // find children to progress with or create one if no children exists
             let mut n_nodes_added = 0;
-            let children = self.children.get_or_insert(HashMap::new());
-            let child = children.entry(val[0]).or_insert_with(|| {
-                n_nodes_added = 1;
-                Node {
-                    val: val.to_vec(),
-                    children: None,
-                    data: None,
-                }
+            let child = self.children.get_or_create(val[0], || {
+                n_nodes_added += 1;
+                Node { val: val.to_vec(), children: OrderedU8Map::new(), data: None }
             });
             let mut res = child.add(val, data);
             res.1 += n_nodes_added;
@@ -80,7 +75,7 @@ impl<Data> Node<Data> {
 
         if val.starts_with(&self.val) {
             let val = &val[self.val.len()..];
-            let child = self.children.as_ref()?.get(&val[0])?;
+            let child = self.children.get(val[0])?;
             return child.get(val);
         }
 
@@ -94,7 +89,7 @@ impl<Data> Node<Data> {
 
         if val.starts_with(&self.val) {
             let val = &val[self.val.len()..];
-            let child = self.children.as_mut()?.get_mut(&val[0])?;
+            let child = self.children.get_mut(val[0])?;
             return child.get_mut(val);
         }
 
@@ -102,16 +97,14 @@ impl<Data> Node<Data> {
     }
 
     fn try_join_with_single_child(&mut self) -> bool {
-        let children = self.children.as_mut();
-        if children.is_none() {
+        if self.children.is_empty() {
             return false;
         }
-        let children = children.unwrap();
-        if children.len() == 1 && self.data.is_none() {
-            // if we have a single child and we do not hold data, join ourself with out only child.
-            let (_c, mut child) = children.drain().next().unwrap(); // the single child must exists
+        if self.children.len() == 1 && self.data.is_none() {
+            // if we have a single child and we do not hold data, join ourself with our only child.
+            let (_c, mut child) = self.children.take().into_iter().next().unwrap(); // the single child must exists
             self.data = child.data.take();
-            self.children = child.children.take();
+            self.children = child.children;
             self.val.append(&mut child.val);
             true
         } else {
@@ -126,25 +119,27 @@ impl<Data> Node<Data> {
             return data.map(|v| {
                 (
                     v,
-                    self.children.as_ref().map(|v| v.is_empty()).unwrap_or(true) && self.data.is_none(),
+                    self.children.is_empty() && self.data.is_none(),
                     if node_deleted {1} else {0},
                 )
             });
         }
 
         if val.starts_with(&self.val) {
+            if self.children.is_empty() {
+                return None;
+            }
             let val = &val[self.val.len()..];
-            let children = self.children.as_mut()?;
-            let child = children.get_mut(&val[0])?;
+            let child = self.children.get_mut(val[0])?;
             let (data, should_delete, mut n_nodes_deleted) = child.del(val)?;
             if should_delete {
-                children.remove(&val[0]); // one child deleted
+                self.children.remove(val[0]); // one child deleted
                 n_nodes_deleted += 1;
                 n_nodes_deleted += if self.try_join_with_single_child() {1} else {0};
             };
             return Some((
                 data,
-                self.children.as_ref().map(|v| v.len()).unwrap_or(0) == 0 && self.data.is_none(),
+                self.children.is_empty() && self.data.is_none(),
                 n_nodes_deleted
             ));
         }
@@ -165,10 +160,8 @@ impl<Data> Node<Data> {
 
         if val.starts_with(&self.val) {
             let val = &val[self.val.len()..];
-            if let Some(children) = self.children.as_ref() {
-                if let Some(child) = children.get(&val[0]) {
-                    return child.find(val, prefixes);
-                }
+            if let Some(child) = self.children.get(val[0]) {
+                return child.find(val, prefixes);
             }
         }
 
@@ -198,7 +191,7 @@ impl<Data> Trie<Data> {
             None => {
                 self.root = Some(Node {
                     val: key.to_vec(),
-                    children: None,
+                    children: OrderedU8Map::new(),
                     data: Some(data),
                 });
                 self.n_nodes += 1;
@@ -313,9 +306,7 @@ impl<Data> Iterator for TrieDataIterator<Data> {
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(n) = self.nodes.pop() {
-            if let Some(children) = n.children {
-                self.nodes.append(&mut children.into_iter().map(|(_, v)| v).collect());
-            }
+            self.nodes.append(&mut n.children.into_iter().map(|(_, v)| v).collect());
             if let Some(data) = n.data {
                 return Some(data);
             }

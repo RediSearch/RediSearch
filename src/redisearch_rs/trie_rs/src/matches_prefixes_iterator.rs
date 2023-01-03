@@ -54,11 +54,7 @@ impl<'trie, Data> TrieIterator for MatchesPrefixesIterator<'trie, Data> {
                 self.curr_prefix.extend(&curr_node.val);
                 self.curr_term = &self.curr_term[curr_node.val.len()..];
                 self.curr_node = match self.curr_term.first() {
-                    Some(c) => curr_node
-                        .children
-                        .as_ref()
-                        .map(|v| v.get(c))
-                        .unwrap_or(None),
+                    Some(c) => curr_node.children.get(*c),
                     None => None,
                 };
                 if let Some(data) = &curr_node.data {

@@ -3,6 +3,7 @@ pub mod matches_prefixes_iterator;
 pub mod sub_trie_iterator;
 pub mod trie;
 pub mod trie_iter;
+pub mod ordered_u8_map;
 
 #[cfg(test)]
 mod trie_tests {
