@@ -125,6 +125,12 @@ TEST_F(ConcTest, simpleTest) {
   	auto spec = IndexSpec_CreateNew(ctx, args, args.size(), &qerr);
  	ASSERT_TRUE(spec);
     ProfileMode withProfile = NO_PROFILE;
+
+	Document d = {0};
+	RMCK::RString docKey("doc1");
+	Document_Init(&d, docKey, 0, DEFAULT_LANGUAGE, DocumentType_Hash);
+
+	RMCK::hset(ctx, "doc1", "t1", "Hello World");
     RMCK::ArgvList argv(ctx, "FT.SEARCH", "idx", "*");
     const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
     AREQ *r = AREQ_New();
@@ -152,6 +158,9 @@ TEST_F(ConcTest, simpleTest) {
         }
         AREQ_Execute(r, ctx);
     }
+
+  IndexSpec_Free(spec);
+
 
 }
 
