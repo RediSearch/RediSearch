@@ -175,16 +175,6 @@ void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
   ctx->flags = RS_CTX_READWRITE;
 }
 
-RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *sp) {
-  RedisSearchCtx sctx = {.spec = sp,
-                         .redisCtx = ctx,
-                         .key_ = NULL,
-                         .timeout = { 0, 0 },
-                         .flags = RS_CTX_UNSET, };
-  return sctx;
-}
-
-
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
   IndexLoadOptions loadOpts = {.name = {.cstring = indexName}};
   IndexSpec *sp = IndexSpec_LoadEx(ctx, &loadOpts);
