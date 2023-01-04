@@ -402,7 +402,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   }
 
   if (aCtx->oldMd) {
-    DMD_Decref(aCtx->oldMd);
+    DMD_Return(aCtx->oldMd);
     aCtx->oldMd = NULL;
   }
 
@@ -848,7 +848,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 
   int rc = REDISMODULE_ERR;
   RSExpr *e = NULL;
-  const RSDocumentMetadata *dmd = DocTable_GetByKeyR(&sctx->spec->docs, key);
+  const RSDocumentMetadata *dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, key);
   if (!dmd) {
     // We don't know the document...
     QueryError_SetError(status, QUERY_ENODOC, "");
@@ -888,7 +888,7 @@ CleanUp:
   RLookup_Cleanup(&lookup_s);
 done:
   ExprAST_Free(e);
-  DMD_Decref(dmd);
+  DMD_Return(dmd);
   return rc;
 }
 
@@ -906,7 +906,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
     BAIL("Couldn't load old document");
   }
   // Assumes we are under write lock
-  md = (RSDocumentMetadata *)DocTable_Get(&sctx->spec->docs, docId);
+  md = (RSDocumentMetadata *)DocTable_Borrow(&sctx->spec->docs, docId);
   if (!md) {
     BAIL("Couldn't load document metadata");
   }
@@ -966,7 +966,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   }
 
 done:
-  DMD_Decref(md);
+  DMD_Return(md);
   if (aCtx->donecb) {
     aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
   }

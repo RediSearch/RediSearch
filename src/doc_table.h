@@ -76,22 +76,6 @@ typedef struct {
   DocIdMap dim;
 } DocTable;
 
-/* increasing the ref count of the given dmd */
-/*
- * If the ref_count was 0 before we increased it, someone else already freed it,
- * and we set the pointer to NULL.
- * Make sure to check the return value of this macro when you are using it in a function
- */
-#define DMD_Incref(md)                                                          \
-  ({                                                                            \
-    if (md) {                                                                   \
-      uint16_t count = __atomic_fetch_add(&md->ref_count, 1, __ATOMIC_RELAXED); \
-      RS_LOG_ASSERT(count < (1 << 16) - 1, "overflow of dmd ref_count");        \
-      md = count ? md : NULL;                                                   \
-    }                                                                           \
-    md;                                                                         \
-  })
-
 #define DOCTABLE_FOREACH(dt, code)                                           \
   for (size_t i = 0; i < dt->cap; ++i) {                                     \
     DMDChain *chain = &dt->buckets[i];                                       \
@@ -109,11 +93,11 @@ DocTable NewDocTable(size_t cap, size_t max_size);
 
 #define DocTable_New(cap) NewDocTable(cap, RSGlobalConfig.maxDocTableSize)
 
-/* Get the metadata for a doc Id from the DocTable.
- *  If docId is not inside the table, we return NULL */
-const RSDocumentMetadata *DocTable_Get(const DocTable *t, t_docId docId);
+/* Get a reference to the metadata for a doc Id from the DocTable.
+ * If docId is not inside the table, we return NULL */
+const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId);
 
-const RSDocumentMetadata *DocTable_GetByKeyR(const DocTable *r, RedisModuleString *s);
+const RSDocumentMetadata *DocTable_BorrowByKeyR(const DocTable *r, RedisModuleString *s);
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
  * table.
@@ -128,10 +112,7 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
  * If the document ID is not in the table, the returned key's `str` member will
  * be NULL
  */
-const char *DocTable_GetKey(DocTable *t, t_docId docId, size_t *n);
-
-/* Get the score for a document from the table. Returns 0 if docId is not in the table. */
-float DocTable_GetScore(DocTable *t, t_docId docId);
+sds DocTable_GetKey(DocTable *t, t_docId docId, size_t *n);
 
 /* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
  * document */
@@ -147,10 +128,6 @@ int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVec
  * the document. This is used for highlighting
  */
 int DocTable_SetByteOffsets(DocTable *t, RSDocumentMetadata *dmd, RSByteOffsets *offsets);
-
-/* Get the payload for a document, if any was set. If no payload has been set or the document id is
- * not found, we return NULL */
-RSPayload *DocTable_GetPayload(DocTable *t, t_docId dodcId);
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesnt */
 t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
@@ -179,23 +156,23 @@ static inline RSDocumentMetadata *DocTable_PopR(DocTable *t, RedisModuleString *
   return DocTable_Pop(t, s, n);
 }
 
-static inline const RSDocumentMetadata *DocTable_GetByKey(DocTable *dt, const char *key) {
+static inline const RSDocumentMetadata *DocTable_BorrowByKey(DocTable *dt, const char *key) {
   t_docId id = DocTable_GetId(dt, key, strlen(key));
   if (id == 0) {
     return NULL;
   }
-  return DocTable_Get(dt, id);
+  return DocTable_Borrow(dt, id);
 }
 
 /* Change name of document hash in the same spec without reindexing */
 int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const char *to_str,
                      size_t to_len);
 
-/* don't use this function directly. Use DMD_Decref */
+/* don't use this function directly. Use DMD_Return */
 void DMD_Free(const RSDocumentMetadata *);
 
 /* Decrement the refcount of the DMD object, freeing it if we're the last reference */
-static inline void DMD_Decref(const RSDocumentMetadata *cdmd) {
+static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
   RSDocumentMetadata *dmd = (RSDocumentMetadata *)cdmd;
   if (dmd && !__atomic_sub_fetch(&dmd->ref_count, 1, __ATOMIC_RELAXED)) {
     DMD_Free(dmd);

@@ -16,6 +16,17 @@
 #include "spec.h"
 #include "config.h"
 
+/* increasing the ref count of the given dmd */
+/*
+ * This macro is atomic and fits for single writer and multiple readers as it is used only
+ * used after we locked the index spec (R/W) and we either have a writer alone or multiple readers.
+ */
+#define DMD_Incref(md)                                                        \
+  ({                                                                          \
+    uint16_t count = __atomic_fetch_add(&md->ref_count, 1, __ATOMIC_RELAXED); \
+    RS_LOG_ASSERT(count < (1 << 16) - 1, "overflow of dmd ref_count");        \
+  })
+
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size) {
   DocTable ret = {
@@ -39,7 +50,7 @@ static inline int DocTable_ValidateDocId(const DocTable *t, t_docId docId) {
   return docId != 0 && docId <= t->maxDocId;
 }
 
-const RSDocumentMetadata *DocTable_Get(const DocTable *t, t_docId docId) {
+static RSDocumentMetadata *DocTable_GetOwn(const DocTable *t, t_docId docId) {
   if (!DocTable_ValidateDocId(t, docId)) {
     return NULL;
   }
@@ -54,16 +65,17 @@ const RSDocumentMetadata *DocTable_Get(const DocTable *t, t_docId docId) {
   DLLIST2_FOREACH(it, &dmdChain->lroot) {
     RSDocumentMetadata *dmd = DLLIST2_ITEM(it, RSDocumentMetadata, llnode);
     if (dmd->id == docId) {
-      return DMD_Incref(dmd);
+      return dmd;
     }
   }
   return NULL;
 }
 
-static RSDocumentMetadata *DocTable_GetOwn(const DocTable *t, t_docId docId) {
-  RSDocumentMetadata *dmd = (RSDocumentMetadata *)DocTable_Get(t, docId);
-  // `DocTable_Get` increments the ref count, so we need to decrement it
-  DMD_Decref(dmd);
+const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId) {
+  RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
+  if (dmd) {
+    DMD_Incref(dmd);
+  }
   return dmd;
 }
 
@@ -88,12 +100,12 @@ int DocTable_Exists(const DocTable *t, t_docId docId) {
   return 0;
 }
 
-const RSDocumentMetadata *DocTable_GetByKeyR(const DocTable *t, RedisModuleString *s) {
+const RSDocumentMetadata *DocTable_BorrowByKeyR(const DocTable *t, RedisModuleString *s) {
   const char *kstr;
   size_t klen;
   kstr = RedisModule_StringPtrLen(s, &klen);
   t_docId id = DocTable_GetId(t, kstr, klen);
-  return DocTable_Get(t, id);
+  return DocTable_Borrow(t, id);
 }
 
 static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *dmd) {
@@ -204,7 +216,7 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
   t_docId xid = DocIdMap_Get(&t->dim, s, n);
   // if the document is already in the index, return 0
   if (xid) {
-    return (RSDocumentMetadata *)DocTable_Get(t, xid);
+    return (RSDocumentMetadata *)DocTable_Borrow(t, xid);
   }
   t_docId docId = ++t->maxDocId;
 
@@ -243,35 +255,27 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
   ++t->size;
   t->memsize += sdsAllocSize(keyPtr);
   DocIdMap_Put(&t->dim, s, n, docId);
-  return DMD_Incref(dmd); // Reference for the caller
-}
-
-RSPayload *DocTable_GetPayload(DocTable *t, t_docId docId) {
-  RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
-  return (dmd && hasPayload(dmd->flags)) ? dmd->payload : NULL;
+  DMD_Incref(dmd); // Reference for the caller
+  return dmd;
 }
 
 /* Get the "real" external key for an incremental id. Returns NULL if docId is not in the table.
  */
-const char *DocTable_GetKey(DocTable *t, t_docId docId, size_t *lenp) {
+sds DocTable_GetKey(DocTable *t, t_docId docId, size_t *lenp) {
   size_t len_s = 0;
   if (!lenp) {
     lenp = &len_s;
   }
 
-  RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
+  RSDocumentMetadata *dmd = DocTable_Borrow(t, docId);
   if (!dmd) {
     *lenp = 0;
     return NULL;
   }
-  *lenp = sdslen(dmd->keyPtr);
-  return dmd->keyPtr;
-}
-
-/* Get the score for a document from the table. Returns 0 if docId is not in the table. */
-inline float DocTable_GetScore(DocTable *t, t_docId docId) {
-  RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
-  return dmd ? dmd->score : 0;
+  sds key = sdsdup(dmd->keyPtr);
+  DMD_Return(dmd);
+  *lenp = sdslen(key);
+  return key;
 }
 
 void DMD_Free(const RSDocumentMetadata *cmd) {
@@ -306,7 +310,7 @@ void DocTable_Free(DocTable *t) {
     while (nn) {
       RSDocumentMetadata *md = DLLIST2_ITEM(nn, RSDocumentMetadata, llnode);
       nn = nn->next;
-      DMD_Decref(md);
+      DMD_Return(md);
     }
   }
   rm_free(t->buckets);
@@ -322,7 +326,7 @@ static void DocTable_DmdUnchain(DocTable *t, RSDocumentMetadata *md) {
 int DocTable_Delete(DocTable *t, const char *s, size_t n) {
   RSDocumentMetadata *md = DocTable_Pop(t, s, n);
   if (md) {
-    DMD_Decref(md);
+    DMD_Return(md);
     return 1;
   }
   return 0;
@@ -333,7 +337,7 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
 
   if (docId && docId <= t->maxDocId) {
 
-    RSDocumentMetadata *md = (RSDocumentMetadata *)DocTable_Get(t, docId);
+    RSDocumentMetadata *md = (RSDocumentMetadata *)DocTable_Borrow(t, docId);
     if (!md) {
       return NULL;
     }
@@ -355,13 +359,14 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
     DocTable_DmdUnchain(t, md);
     DocIdMap_Delete(&t->dim, s, n);
     --t->size;
-    DMD_Decref(md); // Index ref. The caller gets a ref from the `Get` call
+    DMD_Return(md); // Index ref. The caller gets a ref from the `Get` call
 
     return md;
   }
   return NULL;
 }
 
+// Not thread safe. Assumes the caller has locked the spec for write
 int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const char *to_str,
                      size_t to_len) {
   t_docId id = DocIdMap_Get(&t->dim, from_str, from_len);

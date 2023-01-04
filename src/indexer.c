@@ -271,7 +271,7 @@ static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx
     if (dmd) {
       // decrease the number of documents in the index stats only if the document was there
       --spec->stats.numDocuments;
-      DMD_Decref(aCtx->oldMd);
+      DMD_Return(aCtx->oldMd);
       aCtx->oldMd = dmd;
       if (sctx->spec->gc) {
         GCContext_OnDelete(sctx->spec->gc);
@@ -336,7 +336,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       DocTable_SetByteOffsets(&spec->docs, md, cur->byteOffsets);
       cur->byteOffsets = NULL;
     }
-    DMD_Decref(md);
+    DMD_Return(md);
   }
 }
 

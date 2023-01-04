@@ -465,13 +465,13 @@ DEBUG_COMMAND(IdToDocId) {
     RedisModule_ReplyWithError(sctx->redisCtx, "bad id given");
     goto end;
   }
-  const RSDocumentMetadata *doc = DocTable_Get(&sctx->spec->docs, id);
+  const RSDocumentMetadata *doc = DocTable_Borrow(&sctx->spec->docs, id);
   if (!doc || (doc->flags & Document_Deleted)) {
     RedisModule_ReplyWithError(sctx->redisCtx, "document was removed");
   } else {
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, doc->keyPtr, strlen(doc->keyPtr));
   }
-  DMD_Decref(doc);
+  DMD_Return(doc);
 end:
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -801,7 +801,7 @@ DEBUG_COMMAND(DocInfo) {
   }
   GET_SEARCH_CTX(argv[0]);
 
-  const RSDocumentMetadata *dmd = DocTable_GetByKeyR(&sctx->spec->docs, argv[1]);
+  const RSDocumentMetadata *dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, argv[1]);
   if (!dmd) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Document not found in index");
@@ -833,7 +833,7 @@ DEBUG_COMMAND(DocInfo) {
     nelem += 2;
   }
   RedisModule_ReplySetArrayLength(ctx, nelem);
-  DMD_Decref(dmd);
+  DMD_Return(dmd);
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }

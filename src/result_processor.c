@@ -42,7 +42,7 @@ void SearchResult_Clear(SearchResult *r) {
 
   RLookupRow_Wipe(&r->rowdata);
   if (r->dmd) {
-    DMD_Decref(r->dmd);
+    DMD_Return(r->dmd);
     r->dmd = NULL;
   }
 }
@@ -105,9 +105,9 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
         continue;
     }
 
-    dmd = DocTable_Get(&RP_SPEC(base)->docs, r->docId);
+    dmd = DocTable_Borrow(&RP_SPEC(base)->docs, r->docId);
     if (!dmd || (dmd->flags & Document_Deleted)) {
-      DMD_Decref(dmd);
+      DMD_Return(dmd);
       continue;
     }
     if (isTrimming && RedisModule_ShardingGetKeySlot) {
@@ -117,7 +117,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
       int firstSlot, lastSlot;
       RedisModule_ShardingGetSlotRange(&firstSlot, &lastSlot);
       if (firstSlot > slot || lastSlot < slot) {
-        DMD_Decref(dmd);
+        DMD_Return(dmd);
         continue;
       }
     }
