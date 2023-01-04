@@ -810,6 +810,8 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
   }
 
   if (sp->spcache) {
+    // Assuming we locked the index spec for write and we have a single writer,
+    // we don't need atomic operations here.
     IndexSpecCache_Decref(sp->spcache);
     sp->spcache = NULL;
   }
@@ -1086,13 +1088,47 @@ void Spec_AddToDict(const IndexSpec *sp) {
   dictAdd(specDict_g, sp->name, (void *)sp);
 }
 
-IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
-  if (!spec->spcache) {
-    ((IndexSpec *)spec)->spcache = IndexSpec_BuildSpecCache(spec);
+static void IndexSpecCache_Free(IndexSpecCache *c) {
+  for (size_t ii = 0; ii < c->nfields; ++ii) {
+    if (c->fields[ii].name != c->fields[ii].path) {
+      rm_free(c->fields[ii].name);
+    }
+    rm_free(c->fields[ii].path);
+  }
+  rm_free(c->fields);
+  rm_free(c);
+}
+
+void IndexSpecCache_Decref(const IndexSpecCache *cc) {
+  IndexSpecCache *c = (IndexSpecCache *)cc;
+  if (!__atomic_sub_fetch(&c->refcount, 1, __ATOMIC_RELAXED)) {
+    IndexSpecCache_Free(c);
+  }
+}
+
+// In this function we assume that the spec is already locked with the R/W lock, so we either
+// 1) locked the spec for writing and we are the only one who can access the cache, and we don't
+//    need to worry about atomicity.
+// 2) locked the spec for reading and we might run alongside other readers, so we need atomicity but
+//    we don't need to worry about the index spec being modified and the cache being freed or invalid.
+// TODO: consider adding a lock for the cache for multi readers and writers simultaniously
+// (future proof and save redundant work on building the cache)
+const IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
+  IndexSpecCache *cache = __atomic_load_n(&((IndexSpec *)spec)->spcache, __ATOMIC_SEQ_CST);
+
+  if (!cache) {
+    IndexSpecCache *new_cache = IndexSpec_BuildSpecCache(spec);
+
+    if (__atomic_compare_exchange_n(&((IndexSpec *)spec)->spcache, &cache, new_cache,
+                                    0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
+      cache = new_cache;
+    } else {
+      IndexSpecCache_Free(new_cache);
+    }
   }
 
-  spec->spcache->refcount++;
-  return spec->spcache;
+  __atomic_fetch_add(&cache->refcount, 1, __ATOMIC_SEQ_CST);
+  return cache;
 }
 
 IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
@@ -1112,20 +1148,6 @@ IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
     }
   }
   return ret;
-}
-
-void IndexSpecCache_Decref(IndexSpecCache *c) {
-  if (--c->refcount) {
-    return;
-  }
-  for (size_t ii = 0; ii < c->nfields; ++ii) {
-    if (c->fields[ii].name != c->fields[ii].path) {
-      rm_free(c->fields[ii].name);
-    }
-    rm_free(c->fields[ii].path);
-  }
-  rm_free(c->fields);
-  rm_free(c);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1175,6 +1197,8 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   }
   // Free fields cache data
   if (spec->spcache) {
+    // Assuming we locked the index spec for write and we have a single writer,
+    // we don't need atomic operations here.
     IndexSpecCache_Decref(spec->spcache);
     spec->spcache = NULL;
   }

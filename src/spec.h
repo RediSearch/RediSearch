@@ -349,13 +349,13 @@ int CompareVestions(Version v1, Version v2);
  * Retrieves the current spec cache from the index, incrementing its
  * reference count by 1. Use IndexSpecCache_Decref to free
  */
-IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec);
+const IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec);
 
 /**
  * Decrement the reference count of the spec cache. Should be matched
  * with a previous call of GetSpecCache()
  */
-void IndexSpecCache_Decref(IndexSpecCache *cache);
+void IndexSpecCache_Decref(const IndexSpecCache *cache);
 
 /**
  * Create a new copy of the spec cache from the current index spec

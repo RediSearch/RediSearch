@@ -866,7 +866,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 
   RLookup lookup_s;
   RLookupRow row = {0};
-  IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
+  const IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
   RLookup_Init(&lookup_s, spcache);
   if (ExprAST_GetLookupKeys(e, &lookup_s, status) == EXPR_EVAL_ERR) {
     goto done;
