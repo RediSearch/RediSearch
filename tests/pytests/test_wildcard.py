@@ -60,6 +60,9 @@ def testSanity(env):
     env.expect('ft.search', index, "w'*234'", 'LIMIT', 0 , 0).equal([40])
     env.expect('ft.search', index, "w'*13'", 'LIMIT', 0 , 0).equal([400])
 
+    # all
+    env.expect('ft.search', index, r"@t:(w'*')", 'LIMIT', 0 , 0).equal([4*item_qty])
+
   # test timeout
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
   env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'RETURN').ok()
@@ -136,6 +139,9 @@ def testSanityTag(env):
     env.expect('ft.search', index, "@t:{w'*oo23?4'}", 'LIMIT', 0 , 0).equal([30])
     env.expect('ft.search', index, "@t:{w'*23?4'}", 'LIMIT', 0 , 0).equal([40])
     env.expect('ft.search', index, "@t:{w'*1?3'}", 'LIMIT', 0 , 0).equal([400])
+
+    # all
+    env.expect('ft.search', index, r"@t:{w'*'}", 'LIMIT', 0 , 0).equal([4*item_qty])
 
   # test timeout
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
@@ -354,3 +360,13 @@ def testBasic():
 
   env.expect('FT.AGGREGATE', 'idx', "w'he*'", 'LOAD', 1, '@t', 'SORTBY', 1, '@t')     \
         .equal([5, ['t', 'heal'], ['t', 'helen'], ['t', 'hell'], ['t', 'hello'], ['t', 'help']])
+
+def testSuffixCleanup(env):
+  conn = getConnectionByEnv(env)
+  env.expect(('_' if env.isCluster() else '') + 'FT.CONFIG SET FORK_GC_CLEAN_THRESHOLD 0').ok()
+
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'WITHSUFFIXTRIE', 't2', 'TEXT')
+  conn.execute_command('HSET', 'doc', 't1', 'foo', 't2', 'bar')
+  conn.execute_command('DEL', 'doc')
+
+  forceInvokeGC(env, 'idx')

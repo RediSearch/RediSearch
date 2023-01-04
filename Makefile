@@ -220,13 +220,6 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
-# override CLang default for macOS
-ifeq ($(OS),macos)
-ifneq ($(CLANG),1)
-export GCC=1
-endif
-endif
-
 STATIC_LIBSTDCXX ?= 1
 
 ifeq ($(COV),1)
