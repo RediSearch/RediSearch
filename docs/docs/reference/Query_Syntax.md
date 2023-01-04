@@ -10,12 +10,27 @@ You can use simple syntax for complex queries using these rules:
 
 * Multiword phrases are lists of tokens, for example, `foo bar baz`, and imply intersection (AND) of the terms.
 * Exact phrases are wrapped in quotes, for example, `"hello world"`.
-* `OR` unions are expressed with a pipe (`|`), for example, `hello|hallo|shalom|hola`.
-* `NOT` negation of expressions or subqueries is expressed with a subtraction symbol (`-`), for example, `hello -world`. Purely negative queries (for example, `-foo` or `-@title:(foo|bar)`) are supported **(as of v0.19.3)**.
+* `OR` unions are expressed with a pipe (`|`), for example, `hello|hallo|shalom|hola`. 
+
+  {{% alert title="Note" color="warning" %}}
+  Consider the differences in parser behavior in example `hello world | "goodbye" moon`:
+  * In DIALECT 1, this query is interpreted as searching for `(hello world | "goodbye") moon`.
+  * In DIALECT 2, this query is interpreted as searching for either `hello world` **OR** `"goodbye" moon`.
+  {{% /alert %}}
+  
+* `NOT` negation of expressions or subqueries is expressed with a subtraction symbol (`-`), for example, `hello -world`. Purely negative queries (for example, `-foo` or `-@title:(foo|bar)`) are also supported.
+
+  {{% alert title="Note" color="warning" %}}
+  Consider a simple query with negation `-hello world`:
+  * In DIALECT 1, this query is interpreted as "find values in any field that does not contain `hello` **AND** does not contain `world`". The equivalent is `-(hello world)` or `-hello -world`.
+  * In DIALECT 2, this query is interpreted `as -hello` **AND** `world` (only `hello` is negated).
+  * In DIALECT 2, You could achieve the default behavior as in dialect 1 by updating your query to `-(hello world)`.
+  {{% /alert %}}
+  
 * Prefix/infix/suffix matches (all terms starting/containing/ending with a term) are expressed with a `*`. For performance reasons, a minimum term length is enforced (default is 2), but is configurable.
 * Wildcard pattern matches are expressed as `"w'foo*bar?'"`. **Note the use of double quotes to sustain the _w_ pattern.** 
 * A special _wildcard query_ that returns all results in the index, `*` (cannot be combined with other options).
-* `DIALECT 3` returns JSON rather than scalars from multi-value attributes **(as of v2.6.1)**.
+* `DIALECT 3` returns JSON rather than scalars from multivalue attributes **(as of v2.6.1)**.
 * Selection of specific fields using the syntax `hello @field:world`.
 * Numeric range matches on numeric fields with the syntax `@field:[{min} {max}]`.
 * Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`.
@@ -23,7 +38,7 @@ You can use simple syntax for complex queries using these rules:
 * KNN queries on vector fields with or without pre-filtering with the syntax `{filter_query}=>[KNN {num} @field $query_vec]` **(as of v2.4)**.
 * Tag field filters with the syntax `@field:{tag | tag | ...}`. See the full documentation on [tags](../tags/).
 * Optional terms or clauses: `foo ~bar` means bar is optional but documents containing `bar` will rank higher.
-* Fuzzy matching on terms: `%hello%` means all terms with Levenshtein distance of 1 from it **(as of v1.2.0)**.
+* Fuzzy matching on terms: `%hello%` means all terms with Levenshtein distance of 1 from it.
 * An expression in a query can be wrapped in parentheses to disambiguate, for example, `(hello|hella) (world|werld)`.
 * Query attributes can be applied to individual clauses, for example, `(foo bar) => { $weight: 2.0; $slop: 1; $inorder: false; }`.
 * Combinations of the above can be used together, for example, `hello (world|foo) "bar baz" bbbb`.
@@ -38,11 +53,17 @@ Any complex expression can be negated this way, however, caution should be taken
 
 ## Field modifiers
 
-As of v0.12, you can specify field modifiers in a query, and not just by using the `INFIELDS` global keyword.
+You can specify field modifiers in a query, and not just by using the `INFIELDS` global keyword.
 
 To specify which fields the query matches, prepend the expression with the `@` symbol, the field name, and a `:` (colon) symbol, per query expression or subexpression.
 
-If a field modifier precedes multiple words or expressions, it applies only to the adjacent expression.
+If a field modifier precedes multiple words or expressions, it applies only to the adjacent expression with DIALECT 1. With DIALECT 2, you extend the query to other fields.
+
+Consider this simple query: `@name:James Brown`. Here, the field modifier `@name` is followed by two words: `James` and `Brown`.
+
+* In DIALECT 1, this query would be interpreted as "find `James Brown` in the `@name` field".
+* In DIALECT 2, this query will be interpreted as "find `James` in the `@name` field **AND** `Brown` in **ANY** text field. In other words, it would be interpreted as `(@name:James) Brown`.
+* In DIALECT 2, you can achieve the default behavior as in DIALECT 1 by updating your query to `@name:(James Brown)`.
 
 If a field modifier precedes an expression in parentheses, it applies only to the expression inside the parentheses. The expression should be valid for the specified field, otherwise it is skipped.
 
@@ -90,7 +111,11 @@ Example:
 @cities:{ New York | Los Angeles | Barcelona }
 ```
 
-Tags can have multiple words or include other punctuation marks other than the field's separator (`,` by default). Punctuation marks in tags should be escaped with a backslash (`\`). It is also recommended (but not mandatory) to escape spaces; The reason is that if a multi-word tag includes stopwords, it will create a syntax error. So tags like "to be or not to be" should be escaped as "to\ be\ or\ not\ to\ be". For good measure, you can escape all spaces within tags.
+Tags can have multiple words or include other punctuation marks other than the field's separator (`,` by default). Punctuation marks in tags should be escaped with a backslash (`\`). 
+
+{{% alert title="Note" color="warning" %}}
+Before RediSearch 2.6, it was also recommended to escape spaces. The reason was that, if a multiword tag included stopwords, a syntax error was returned. So tags, like "to be or not to be" needed be escaped as "to\ be\ or\ not\ to\ be". For good measure, you also could escape all spaces within tags. Starting with RediSearch 2.6, using `DIALECT 2` you can use spaces in a `tag` query, even with stopwords.
+{{% /alert %}}
 
 Notice that multiple tags in the same clause create a union of documents containing either tags. To create an intersection of documents containing *all* tags, you should repeat the tag filter several times, for example:
 
@@ -171,7 +196,9 @@ As of v2.6.0, the dictionary can be used for infix (contains) or suffix queries 
 
 These queries are CPU intensive because they require iteration over the whole dictionary.
 
-Note: all notes about prefix searches also apply to infix/suffix queries.
+{{% alert title="Note" color="warning" %}}
+All notes about prefix searches also apply to infix/suffix queries.
+{{% /alert %}}
 
 ### Using a suffix trie
 
