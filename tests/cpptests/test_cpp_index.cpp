@@ -1354,8 +1354,9 @@ TEST_F(IndexTest, testDocTable) {
 #endif
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
-    const char *key = DocTable_GetKey(&dt, i + 1, NULL);
+    const sds key = DocTable_GetKey(&dt, i + 1, NULL);
     ASSERT_STREQ(key, buf);
+    sdsfree(key);
 
     const RSDocumentMetadata *dmd = DocTable_Borrow(&dt, i + 1);
     ASSERT_TRUE(dmd != NULL);

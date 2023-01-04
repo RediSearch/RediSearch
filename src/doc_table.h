@@ -112,7 +112,7 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
  * If the document ID is not in the table, the returned key's `str` member will
  * be NULL
  */
-sds DocTable_GetKey(DocTable *t, t_docId docId, size_t *n);
+sds DocTable_GetKey(const DocTable *t, t_docId docId, size_t *n);
 
 /* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
  * document */

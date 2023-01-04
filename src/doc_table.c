@@ -261,13 +261,13 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
 
 /* Get the "real" external key for an incremental id. Returns NULL if docId is not in the table.
  */
-sds DocTable_GetKey(DocTable *t, t_docId docId, size_t *lenp) {
+sds DocTable_GetKey(const DocTable *t, t_docId docId, size_t *lenp) {
   size_t len_s = 0;
   if (!lenp) {
     lenp = &len_s;
   }
 
-  RSDocumentMetadata *dmd = DocTable_Borrow(t, docId);
+  const RSDocumentMetadata *dmd = DocTable_Borrow(t, docId);
   if (!dmd) {
     *lenp = 0;
     return NULL;

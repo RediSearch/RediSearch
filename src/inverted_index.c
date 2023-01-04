@@ -967,7 +967,7 @@ static int IR_TestNumeric(IndexCriteriaTester *ct, t_docId id) {
   IR_CriteriaTester *irct = (IR_CriteriaTester *)ct;
   const IndexSpec *sp = irct->spec;
   size_t len;
-  sds externalId = DocTable_GetKey((DocTable *)&sp->docs, id, &len);
+  const sds externalId = DocTable_GetKey((DocTable *)&sp->docs, id, &len);
   double doubleValue;
   int ret = sp->getValue(sp->getValueCtx, irct->nf.fieldName, externalId, NULL, &doubleValue);
   RS_LOG_ASSERT(ret == RSVALTYPE_DOUBLE, "RSvalue type should be a double");
@@ -986,7 +986,8 @@ static int IR_TestTerm(IndexCriteriaTester *ct, t_docId id) {
   IR_CriteriaTester *irct = (IR_CriteriaTester *)ct;
   const IndexSpec *sp = irct->spec;
   size_t len;
-  const char *externalId = DocTable_GetKey((DocTable *)&sp->docs, id, &len);
+  int ret = 0;
+  const sds externalId = DocTable_GetKey(&sp->docs, id, &len);
   for (int i = 0; i < sp->numFields; ++i) {
     FieldSpec *field = sp->fields + i;
     if (!(FIELD_BIT(field) & irct->tf.fieldMask)) {
@@ -997,10 +998,13 @@ static int IR_TestTerm(IndexCriteriaTester *ct, t_docId id) {
     int ret = sp->getValue(sp->getValueCtx, field->name, externalId, &strValue, NULL);
     RS_LOG_ASSERT(ret == RSVALTYPE_STRING, "RSvalue type should be a string");
     if (strcmp(irct->tf.term, strValue) == 0) {
-      return 1;
+      ret = 1;
+      break;
     }
   }
-  return 0;
+
+  sdsfree(externalId);
+  return ret;
 }
 
 static void IR_TesterFreeTerm(IndexCriteriaTester *ct) {
