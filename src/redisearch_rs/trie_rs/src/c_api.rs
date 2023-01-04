@@ -1,6 +1,6 @@
 use crate::{
     matches_prefixes_iterator::MatchesPrefixesIterator, sub_trie_iterator::SubTrieIterator,
-    trie::Trie, trie::Node, trie_iter::TrieIterator,
+    trie::Node, trie::Trie, trie_iter::TrieIterator,
 };
 use core::slice;
 use std::ffi::{c_char, c_void};

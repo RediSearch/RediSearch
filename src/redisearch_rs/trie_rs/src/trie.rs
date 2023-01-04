@@ -1,6 +1,7 @@
 use crate::matches_prefixes_iterator::MatchesPrefixesIterator;
-use crate::sub_trie_iterator::SubTrieIterator;
 use crate::ordered_u8_map::OrderedU8Map;
+use crate::range_trie_iterator::RangeTrieIterator;
+use crate::sub_trie_iterator::SubTrieIterator;
 
 #[derive(Debug)]
 pub(crate) struct Node<Data> {
@@ -38,7 +39,7 @@ impl<Data> Node<Data> {
             self.split(val.len());
             let mut res = self.add(val, data);
             res.1 += 1; // we splited one node here so we must have add one node.
-            return res
+            return res;
         }
 
         if val.starts_with(&self.val) {
@@ -47,11 +48,15 @@ impl<Data> Node<Data> {
             let mut n_nodes_added = 0;
             let child = self.children.get_or_create(val[0], || {
                 n_nodes_added += 1;
-                Node { val: val.to_vec(), children: OrderedU8Map::new(), data: None }
+                Node {
+                    val: val.to_vec(),
+                    children: OrderedU8Map::new(),
+                    data: None,
+                }
             });
             let mut res = child.add(val, data);
             res.1 += n_nodes_added;
-            return res
+            return res;
         }
 
         let mut common_prefix_index = 0;
@@ -65,7 +70,7 @@ impl<Data> Node<Data> {
         self.split(common_prefix_index);
         let mut res = self.add(val, data);
         res.1 += 1; // we splited one node here so we must have add one node.
-        return res
+        return res;
     }
 
     fn get(&self, val: &[u8]) -> Option<&Data> {
@@ -120,7 +125,7 @@ impl<Data> Node<Data> {
                 (
                     v,
                     self.children.is_empty() && self.data.is_none(),
-                    if node_deleted {1} else {0},
+                    if node_deleted { 1 } else { 0 },
                 )
             });
         }
@@ -135,12 +140,16 @@ impl<Data> Node<Data> {
             if should_delete {
                 self.children.remove(val[0]); // one child deleted
                 n_nodes_deleted += 1;
-                n_nodes_deleted += if self.try_join_with_single_child() {1} else {0};
+                n_nodes_deleted += if self.try_join_with_single_child() {
+                    1
+                } else {
+                    0
+                };
             };
             return Some((
                 data,
                 self.children.is_empty() && self.data.is_none(),
-                n_nodes_deleted
+                n_nodes_deleted,
             ));
         }
 
@@ -178,7 +187,11 @@ pub struct Trie<Data> {
 
 impl<Data> Trie<Data> {
     pub fn new() -> Self {
-        Trie { root: None, len: 0, n_nodes: 0 }
+        Trie {
+            root: None,
+            len: 0,
+            n_nodes: 0,
+        }
     }
 
     pub fn add(&mut self, key: &[u8], data: Data) -> Option<Data> {
@@ -278,6 +291,31 @@ impl<Data> Trie<Data> {
     ) -> MatchesPrefixesIterator<'trie, Data> {
         self.find_matches_prefixes(key.as_bytes())
     }
+
+    pub fn lex_range<'trie>(
+        &'trie mut self,
+        min: Option<&'trie [u8]>,
+        include_min: bool,
+        max: Option<&'trie [u8]>,
+        include_max: bool,
+    ) -> RangeTrieIterator<'trie, Data> {
+        RangeTrieIterator::new(self, min, include_min, max, include_max)
+    }
+
+    pub fn lex_range_str<'trie>(
+        &'trie mut self,
+        min: Option<&'trie str>,
+        include_min: bool,
+        max: Option<&'trie str>,
+        include_max: bool,
+    ) -> RangeTrieIterator<'trie, Data> {
+        self.lex_range(
+            min.map(|v| v.as_bytes()),
+            include_min,
+            max.map(|v| v.as_bytes()),
+            include_max,
+        )
+    }
 }
 
 impl<Data> Default for Trie<Data> {
@@ -306,7 +344,8 @@ impl<Data> Iterator for TrieDataIterator<Data> {
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(n) = self.nodes.pop() {
-            self.nodes.append(&mut n.children.into_iter().map(|(_, v)| v).collect());
+            self.nodes
+                .append(&mut n.children.into_iter().map(|(_, v)| v).collect());
             if let Some(data) = n.data {
                 return Some(data);
             }

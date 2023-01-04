@@ -1,11 +1,11 @@
 #[derive(Debug)]
-pub struct OrderedU8Map<T>{
+pub struct OrderedU8Map<T> {
     map: Option<Vec<(u8, T)>>,
 }
 
-impl<T> OrderedU8Map<T>{
+impl<T> OrderedU8Map<T> {
     pub(crate) fn new() -> OrderedU8Map<T> {
-        OrderedU8Map{ map : None}
+        OrderedU8Map { map: None }
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -31,9 +31,7 @@ impl<T> OrderedU8Map<T>{
     pub(crate) fn get_or_create<F: FnOnce() -> T>(&mut self, key: u8, create: F) -> &mut T {
         let m = self.map.get_or_insert(Vec::new());
         let index = match m.binary_search_by_key(&key, |e| e.0) {
-            Ok(index) => {
-                index
-            }
+            Ok(index) => index,
             Err(index) => {
                 let val = create();
                 m.insert(index, (key, val));
@@ -46,9 +44,7 @@ impl<T> OrderedU8Map<T>{
     pub(crate) fn insert(&mut self, key: u8, val: T) -> bool {
         let m = self.map.get_or_insert(Vec::new());
         match m.binary_search_by_key(&key, |e| e.0) {
-            Ok(_index) => {
-                false
-            }
+            Ok(_index) => false,
             Err(index) => {
                 m.insert(index, (key, val));
                 true
@@ -71,7 +67,9 @@ impl<T> OrderedU8Map<T>{
     }
 
     pub(crate) fn take(&mut self) -> OrderedU8Map<T> {
-        OrderedU8Map{ map: self.map.take() }
+        OrderedU8Map {
+            map: self.map.take(),
+        }
     }
 }
 
@@ -103,7 +101,7 @@ pub struct OrderedU8ValuesIterator<'map, T> {
 
 impl<'map, T> OrderedU8ValuesIterator<'map, T> {
     fn new(map: &'map OrderedU8Map<T>) -> OrderedU8ValuesIterator<'map, T> {
-        OrderedU8ValuesIterator{ map, index: 0 }
+        OrderedU8ValuesIterator { map, index: 0 }
     }
 }
 

@@ -1,10 +1,10 @@
 pub mod c_api;
 pub mod matches_prefixes_iterator;
+pub mod ordered_u8_map;
+pub mod range_trie_iterator;
 pub mod sub_trie_iterator;
 pub mod trie;
 pub mod trie_iter;
-pub mod ordered_u8_map;
-// pub mod range_trie_iterator;
 
 use std::alloc::{GlobalAlloc, Layout};
 use std::os::raw::c_void;
@@ -214,7 +214,7 @@ mod trie_tests {
     #[test]
     fn test_lots_of_values() {
         let mut trie: Trie<usize> = Trie::new();
-        let docs:Vec<String> = (0 .. 21).into_iter().map(|i| format!("doc{i}")).collect();
+        let docs: Vec<String> = (0..21).into_iter().map(|i| format!("doc{i}")).collect();
         for (index, doc) in docs.iter().enumerate() {
             trie.add_str(doc.as_str(), index);
         }
@@ -224,6 +224,106 @@ mod trie_tests {
         for (index, doc) in docs.iter().enumerate() {
             assert_eq!(trie.del_str(doc.as_str()).unwrap(), index);
         }
+    }
 
+    #[test]
+    fn test_lex_range() {
+        let mut trie: Trie<usize> = Trie::new();
+        trie.add_str("foo", 4);
+        trie.add_str("foo1", 1);
+        trie.add_str("bar", 2);
+        trie.add_str("bar1", 3);
+
+        let res: Vec<(String, usize)> = trie
+            .lex_range_str(None, true, None, true)
+            .into_iter()
+            .map(|(k, v)| (str::from_utf8(&k).unwrap().to_string(), *v))
+            .collect();
+        assert_eq!(
+            res,
+            vec![
+                ("bar".to_string(), 2),
+                ("bar1".to_string(), 3),
+                ("foo".to_string(), 4),
+                ("foo1".to_string(), 1)
+            ]
+        );
+
+        let res: Vec<(String, usize)> = trie
+            .lex_range_str(Some("bar"), true, Some("cc"), true)
+            .into_iter()
+            .map(|(k, v)| (str::from_utf8(&k).unwrap().to_string(), *v))
+            .collect();
+        assert_eq!(res, vec![("bar".to_string(), 2), ("bar1".to_string(), 3)]);
+
+        let res: Vec<(String, usize)> = trie
+            .lex_range_str(Some("bar"), false, Some("cc"), true)
+            .into_iter()
+            .map(|(k, v)| (str::from_utf8(&k).unwrap().to_string(), *v))
+            .collect();
+        assert_eq!(res, vec![("bar1".to_string(), 3)]);
+
+        let res: Vec<(String, usize)> = trie
+            .lex_range_str(Some("bar\0"), false, Some("cc"), true)
+            .into_iter()
+            .map(|(k, v)| (str::from_utf8(&k).unwrap().to_string(), *v))
+            .collect();
+        assert_eq!(res, vec![("bar1".to_string(), 3)]);
+
+        let res: Vec<(String, usize)> = trie
+            .lex_range_str(Some("bar\0"), true, Some("cc"), true)
+            .into_iter()
+            .map(|(k, v)| (str::from_utf8(&k).unwrap().to_string(), *v))
+            .collect();
+        assert_eq!(res, vec![("bar1".to_string(), 3)]);
+
+        let res: Vec<(String, usize)> = trie
+            .lex_range_str(Some("bar1"), true, Some("foo"), true)
+            .into_iter()
+            .map(|(k, v)| (str::from_utf8(&k).unwrap().to_string(), *v))
+            .collect();
+        assert_eq!(res, vec![("bar1".to_string(), 3), ("foo".to_string(), 4)]);
+
+        let res: Vec<(String, usize)> = trie
+            .lex_range_str(Some("bar1"), false, Some("foo"), false)
+            .into_iter()
+            .map(|(k, v)| (str::from_utf8(&k).unwrap().to_string(), *v))
+            .collect();
+        assert_eq!(res, vec![]);
+
+        let res: Vec<(String, usize)> = trie
+            .lex_range_str(Some("bar1"), false, Some("foo"), true)
+            .into_iter()
+            .map(|(k, v)| (str::from_utf8(&k).unwrap().to_string(), *v))
+            .collect();
+        assert_eq!(res, vec![("foo".to_string(), 4)]);
+
+        let res: Vec<(String, usize)> = trie
+            .lex_range_str(Some("bar"), false, Some("foo"), true)
+            .into_iter()
+            .map(|(k, v)| (str::from_utf8(&k).unwrap().to_string(), *v))
+            .collect();
+        assert_eq!(res, vec![("bar1".to_string(), 3), ("foo".to_string(), 4)]);
+
+        let res: Vec<(String, usize)> = trie
+            .lex_range_str(Some("bar"), false, Some("foo1"), false)
+            .into_iter()
+            .map(|(k, v)| (str::from_utf8(&k).unwrap().to_string(), *v))
+            .collect();
+        assert_eq!(res, vec![("bar1".to_string(), 3), ("foo".to_string(), 4)]);
+
+        let res: Vec<(String, usize)> = trie
+            .lex_range_str(Some("bar"), false, Some("foo1"), true)
+            .into_iter()
+            .map(|(k, v)| (str::from_utf8(&k).unwrap().to_string(), *v))
+            .collect();
+        assert_eq!(
+            res,
+            vec![
+                ("bar1".to_string(), 3),
+                ("foo".to_string(), 4),
+                ("foo1".to_string(), 1)
+            ]
+        );
     }
 }
