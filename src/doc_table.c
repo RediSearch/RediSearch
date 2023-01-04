@@ -47,9 +47,9 @@ const RSDocumentMetadata *DocTable_Get(const DocTable *t, t_docId docId) {
   if (bucketIndex >= t->cap) {
     return NULL;
   }
-  // While we iterate over the chain, we have locked the index spec (R/W), so we can safely
-  // iterate over the chain without a lock and increment the ref count of the document metadata when
-  // we find it.
+  // While we iterate over the chain, we have locked the index spec (R/W), so we either a writer alone or
+  // multiple readers. In any case, we can safely iterate over the chain without a lock and
+  // increment the ref count of the document metadata when we find it.
   DMDChain *dmdChain = &t->buckets[bucketIndex];
   DLLIST2_FOREACH(it, &dmdChain->lroot) {
     RSDocumentMetadata *dmd = DLLIST2_ITEM(it, RSDocumentMetadata, llnode);
