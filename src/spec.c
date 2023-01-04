@@ -1519,7 +1519,6 @@ IndexSpec *NewIndexSpec(const char *name) {
   RedisModule_Assert(res == 0);
 #endif
 
-  RedisModule_Assert(res == 0);
   pthread_rwlock_init(&sp->rwlock, &attr);
   return sp;
 }
