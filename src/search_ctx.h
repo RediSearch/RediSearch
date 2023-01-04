@@ -49,11 +49,12 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, 
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL);
 
 inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *sp) {
-  RedisSearchCtx sctx = {.spec = sp,
-                         .redisCtx = ctx,
-                         .key_ = NULL,
-                         .timeout = { 0, 0 },
-                         .flags = RS_CTX_UNSET, };
+  RedisSearchCtx sctx = {
+                          .redisCtx = ctx,
+                          .key_ = NULL,
+                          .spec = sp,
+                          .timeout = { 0, 0 },
+                          .flags = RS_CTX_UNSET, };
   return sctx;
 }
 
