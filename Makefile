@@ -364,7 +364,7 @@ endif
 
 redisearch_rs:
 	@echo Building redisearch_rs
-	$(SHOW) cd src/redisearch_rs/; cargo build; cargo build --release
+	$(SHOW) cd src/redisearch_rs/; cargo build --features redis_allocator; cargo build --release --features redis_allocator
 
 $(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile redisearch_rs
 	@echo Building $(TARGET) ...

@@ -59,7 +59,11 @@ impl<T> OrderedU8Map<T>{
     pub(crate) fn remove(&mut self, key: u8) -> Option<T> {
         let m = self.map.as_mut()?;
         let index = m.binary_search_by_key(&key, |e| e.0).ok()?;
-        Some(m.remove(index).1)
+        let res = m.remove(index).1;
+        if m.is_empty() {
+            self.map = None;
+        }
+        Some(res)
     }
 
     pub(crate) fn values(&self) -> OrderedU8ValuesIterator<'_, T> {

@@ -4,6 +4,31 @@ pub mod sub_trie_iterator;
 pub mod trie;
 pub mod trie_iter;
 pub mod ordered_u8_map;
+// pub mod range_trie_iterator;
+
+use std::alloc::{GlobalAlloc, Layout};
+use std::os::raw::c_void;
+extern "C" {
+    static RedisModule_Alloc: Option<extern "C" fn(usize) -> *mut c_void>;
+    static RedisModule_Free: Option<extern "C" fn(*mut c_void)>;
+}
+
+pub struct RedisAlloc;
+
+unsafe impl GlobalAlloc for RedisAlloc {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let size = (layout.size() + layout.align() - 1) & (!(layout.align() - 1));
+        RedisModule_Alloc.unwrap()(size).cast::<u8>()
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
+        RedisModule_Free.unwrap()(ptr.cast::<c_void>())
+    }
+}
+
+#[cfg(feature = "redis_allocator")]
+#[global_allocator]
+pub static ALLOC: RedisAlloc = RedisAlloc;
 
 #[cfg(test)]
 mod trie_tests {
@@ -200,10 +225,5 @@ mod trie_tests {
             assert_eq!(trie.del_str(doc.as_str()).unwrap(), index);
         }
 
-    }
-
-    #[test]
-    fn test_1() {
-        println!("{}", std::mem::size_of::<crate::trie::Node<*mut std::ffi::c_void>>());
     }
 }

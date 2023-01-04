@@ -8,6 +8,9 @@ license = "Redis Source Available License 2.0 (RSALv2) or the Server Side Public
 
 [dependencies]
 
+[features]
+redis_allocator = []
+
 [lib]
 crate-type = ["staticlib"]
 name = "trie_rs"
