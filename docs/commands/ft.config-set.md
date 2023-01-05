@@ -7,7 +7,7 @@ Set the value of a RediSearch configuration parameter.
 
 Values set using `FT.CONFIG SET` are not persisted after server restart.
 
-RediSearch configuration parameters are detailed [here](/docs/stack/search/configuring).
+RediSearch configuration parameters are detailed in [Configuration parameters](/docs/stack/search/configuring).
 
 Note: As detailed in the link above, not all RediSearch configuration parameters can be set at run-time.
 
