@@ -995,8 +995,8 @@ static int IR_TestTerm(IndexCriteriaTester *ct, t_docId id) {
       continue;
     }
     char *strValue;
-    int ret = sp->getValue(sp->getValueCtx, field->name, externalId, &strValue, NULL);
-    RS_LOG_ASSERT(ret == RSVALTYPE_STRING, "RSvalue type should be a string");
+    int type = sp->getValue(sp->getValueCtx, field->name, externalId, &strValue, NULL);
+    RS_LOG_ASSERT(type == RSVALTYPE_STRING, "RSvalue type should be a string");
     if (strcmp(irct->tf.term, strValue) == 0) {
       ret = 1;
       break;
