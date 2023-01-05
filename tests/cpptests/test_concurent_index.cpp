@@ -10,8 +10,6 @@
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 typedef enum { NO_PROFILE, PROFILE_FULL, PROFILE_LIMITED } ProfileMode;
 
-
-
 static int parseProfile(AREQ *r, ProfileMode withProfile, RedisModuleString **argv, int argc, QueryError *status) {
   if (withProfile != NO_PROFILE) {
 
@@ -116,6 +114,8 @@ class MyEnvironment : public ::testing::Environment {
   }
 };
 class ConcTest : public ::testing::Test {};
+
+
 TEST_F(ConcTest, simpleTest) {
 	RMCK::Context static_ctx;
     RedisModuleCtx *ctx = (RedisModuleCtx *)static_ctx;
@@ -131,8 +131,11 @@ TEST_F(ConcTest, simpleTest) {
 	Document_Init(&d, docKey, 0, DEFAULT_LANGUAGE, DocumentType_Hash);
 
 	RMCK::hset(ctx, "doc1", "t1", "Hello World");
+	RMCK::hset(ctx, "doc2", "t1", "meow");
     RMCK::ArgvList argv(ctx, "FT.SEARCH", "idx", "*");
     const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
+    RSGlobalConfig.queryTimeoutMS = 0;
+    //this one works only when updateTimeout() doesnt return for mock, otherwise we are getting timeout
     AREQ *r = AREQ_New();
     QueryError status = {.code = QUERY_OK, .detail=NULL};
     if (parseProfile(r, withProfile, argv, argv.size(), &status) != REDISMODULE_OK) {
@@ -160,6 +163,8 @@ TEST_F(ConcTest, simpleTest) {
     }
 
   IndexSpec_Free(spec);
+  Document_Free(&d);
+
 
 
 }

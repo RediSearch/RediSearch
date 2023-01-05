@@ -789,6 +789,15 @@ static void RMCK_FreeServerInfo(RedisModuleCtx *, RedisModuleServerInfoData *ptr
 static unsigned long long RMCK_DbSize(RedisModuleCtx *) {
   return KVDB::dbs.size();
 }
+static void *RMCK_ScanCursorCreate() {
+  return NULL;
+}
+static void RMCK_ScanCursorDestroy(RedisModuleScanCursor *cursor) {
+}
+static int RMCK_Scan(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanCB fn, void *privdata) {
+  return 0;
+}
+
 
 static void registerApis() {
   REGISTER_API(GetApi);
@@ -847,6 +856,11 @@ static void registerApis() {
   REGISTER_API(ServerInfoGetFieldUnsigned);
   REGISTER_API(FreeServerInfo);
   REGISTER_API(DbSize);
+  REGISTER_API(ScanCursorCreate);
+  REGISTER_API(ScanCursorDestroy);
+  REGISTER_API(Scan);
+  REGISTER_API(ReplyWithArray);
+  REGISTER_API(ReplyWithLongLong);
 
   REGISTER_API(SubscribeToKeyspaceEvents);
   REGISTER_API(SubscribeToServerEvent);
