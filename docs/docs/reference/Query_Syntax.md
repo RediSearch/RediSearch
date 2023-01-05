@@ -15,7 +15,7 @@ You can use simple syntax for complex queries using these rules:
   {{% alert title="Note" color="warning" %}}
   Consider the differences in parser behavior in example `hello world | "goodbye" moon`:
   * In DIALECT 1, this query is interpreted as searching for `(hello world | "goodbye") moon`.
-  * In DIALECT 2, this query is interpreted as searching for either `hello world` **OR** `"goodbye" moon`.
+  * In DIALECT 2 or greater, this query is interpreted as searching for either `hello world` **OR** `"goodbye" moon`.
   {{% /alert %}}
   
 * `NOT` negation of expressions or subqueries is expressed with a subtraction symbol (`-`), for example, `hello -world`. Purely negative queries (for example, `-foo` or `-@title:(foo|bar)`) are also supported.
