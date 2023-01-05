@@ -24,7 +24,7 @@ You can use simple syntax for complex queries using these rules:
   Consider a simple query with negation `-hello world`:
   * In DIALECT 1, this query is interpreted as "find values in any field that does not contain `hello` **AND** does not contain `world`". The equivalent is `-(hello world)` or `-hello -world`.
   * In DIALECT 2 or greater, this query is interpreted `as -hello` **AND** `world` (only `hello` is negated).
-  * In DIALECT 2 or greater, to achieve the default behavior of dialect 1, update your query to `-(hello world)`.
+  * In DIALECT 2 or greater, to achieve the default behavior of DIALECT 1, update your query to `-(hello world)`.
   {{% /alert %}}
   
 * Prefix/infix/suffix matches (all terms starting/containing/ending with a term) are expressed with a `*`. For performance reasons, a minimum term length is enforced (default is 2), but is configurable.
