@@ -63,7 +63,7 @@ Consider this simple query: `@name:James Brown`. Here, the field modifier `@name
 
 * In DIALECT 1, this query would be interpreted as "find `James Brown` in the `@name` field".
 * In DIALECT 2 or greater, this query will be interpreted as "find `James` in the `@name` field **AND** `Brown` in **ANY** text field. In other words, it would be interpreted as `(@name:James) Brown`.
-* In DIALECT 2 or greater, you can achieve the default behavior as in DIALECT 1 by updating your query to `@name:(James Brown)`.
+* In DIALECT 2 or greater, to achieve the default behavior of DIALECT 1, update your query to `@name:(James Brown)`.
 
 If a field modifier precedes an expression in parentheses, it applies only to the expression inside the parentheses. The expression should be valid for the specified field, otherwise it is skipped.
 
