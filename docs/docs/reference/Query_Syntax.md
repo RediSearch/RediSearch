@@ -23,8 +23,8 @@ You can use simple syntax for complex queries using these rules:
   {{% alert title="Note" color="warning" %}}
   Consider a simple query with negation `-hello world`:
   * In DIALECT 1, this query is interpreted as "find values in any field that does not contain `hello` **AND** does not contain `world`". The equivalent is `-(hello world)` or `-hello -world`.
-  * In DIALECT 2, this query is interpreted `as -hello` **AND** `world` (only `hello` is negated).
-  * In DIALECT 2, to achieve the default behavior of dialect 1, update your query to `-(hello world)`.
+  * In DIALECT 2 or greater, this query is interpreted `as -hello` **AND** `world` (only `hello` is negated).
+  * In DIALECT 2 or greater, to achieve the default behavior of dialect 1, update your query to `-(hello world)`.
   {{% /alert %}}
   
 * Prefix/infix/suffix matches (all terms starting/containing/ending with a term) are expressed with a `*`. For performance reasons, a minimum term length is enforced (default is 2), but is configurable.
@@ -57,13 +57,13 @@ You can specify field modifiers in a query, and not just by using the `INFIELDS`
 
 To specify which fields the query matches, prepend the expression with the `@` symbol, the field name, and a `:` (colon) symbol, per query expression or subexpression.
 
-If a field modifier precedes multiple words or expressions, it applies only to the adjacent expression with DIALECT 1. With DIALECT 2, you extend the query to other fields.
+If a field modifier precedes multiple words or expressions, it applies only to the adjacent expression with DIALECT 1. With DIALECT 2 or greater, you extend the query to other fields.
 
 Consider this simple query: `@name:James Brown`. Here, the field modifier `@name` is followed by two words: `James` and `Brown`.
 
 * In DIALECT 1, this query would be interpreted as "find `James Brown` in the `@name` field".
-* In DIALECT 2, this query will be interpreted as "find `James` in the `@name` field **AND** `Brown` in **ANY** text field. In other words, it would be interpreted as `(@name:James) Brown`.
-* In DIALECT 2, you can achieve the default behavior as in DIALECT 1 by updating your query to `@name:(James Brown)`.
+* In DIALECT 2 or greater, this query will be interpreted as "find `James` in the `@name` field **AND** `Brown` in **ANY** text field. In other words, it would be interpreted as `(@name:James) Brown`.
+* In DIALECT 2 or greater, you can achieve the default behavior as in DIALECT 1 by updating your query to `@name:(James Brown)`.
 
 If a field modifier precedes an expression in parentheses, it applies only to the expression inside the parentheses. The expression should be valid for the specified field, otherwise it is skipped.
 
@@ -114,7 +114,7 @@ Example:
 Tags can have multiple words or include other punctuation marks other than the field's separator (`,` by default). Punctuation marks in tags should be escaped with a backslash (`\`). 
 
 {{% alert title="Note" color="warning" %}}
-Before RediSearch 2.6, it was also recommended to escape spaces. The reason was that, if a multiword tag included stopwords, a syntax error was returned. So tags, like "to be or not to be" needed be escaped as "to\ be\ or\ not\ to\ be". For good measure, you also could escape all spaces within tags. Starting with RediSearch 2.6, using `DIALECT 2` you can use spaces in a `tag` query, even with stopwords.
+Before RediSearch 2.6, it was also recommended to escape spaces. The reason was that, if a multiword tag included stopwords, a syntax error was returned. So tags, like "to be or not to be" needed be escaped as "to\ be\ or\ not\ to\ be". For good measure, you also could escape all spaces within tags. Starting with RediSearch 2.6, using `DIALECT 2` or greater you can use spaces in a `tag` query, even with stopwords.
 {{% /alert %}}
 
 Notice that multiple tags in the same clause create a union of documents containing either tags. To create an intersection of documents containing *all* tags, you should repeat the tag filter several times, for example:
