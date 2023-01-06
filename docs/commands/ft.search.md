@@ -7,12 +7,12 @@ syntax: |
     [WITHSCORES] 
     [WITHPAYLOADS] 
     [WITHSORTKEYS] 
-    [ FILTER numeric_field min max [ FILTER numeric_field min max ...]] 
-    [ GEOFILTER geo_field lon lat radius m | km | mi | ft [ GEOFILTER geo_field lon lat radius m | km | mi | ft ...]] 
-    [ INKEYS count key [key ...]] [ INFIELDS count field [field ...]] 
-    [ RETURN count identifier [AS property] [ identifier [AS property] ...]] 
-    [ SUMMARIZE [ FIELDS count field [field ...]] [FRAGS num] [LEN fragsize] [SEPARATOR separator]] 
-    [ HIGHLIGHT [ FIELDS count field [field ...]] [ TAGS open close]] 
+    [FILTER numeric_field min max [ FILTER numeric_field min max ...]] 
+    [GEOFILTER geo_field lon lat radius m | km | mi | ft [ GEOFILTER geo_field lon lat radius m | km | mi | ft ...]] 
+    [INKEYS count key [key ...]] [ INFIELDS count field [field ...]] 
+    [RETURN count identifier [AS property] [ identifier [AS property] ...]] 
+    [SUMMARIZE [ FIELDS count field [field ...]] [FRAGS num] [LEN fragsize] [SEPARATOR separator]] 
+    [HIGHLIGHT [ FIELDS count field [field ...]] [ TAGS open close]] 
     [SLOP slop] 
     [TIMEOUT timeout] 
     [INORDER] 
@@ -21,9 +21,9 @@ syntax: |
     [SCORER scorer] 
     [EXPLAINSCORE] 
     [PAYLOAD payload] 
-    [ SORTBY sortby [ ASC | DESC]] 
-    [ LIMIT offset num] 
-    [ PARAMS nargs name value [ name value ...]] 
+    [SORTBY sortby [ ASC | DESC]] 
+    [LIMIT offset num] 
+    [PARAMS nargs name value [ name value ...]] 
     [DIALECT dialect]
 ---
 
@@ -361,7 +361,7 @@ Search for books with semantically similar title to _Planet Earth_. Return top 1
 
 ## See also
 
-`FT.SEARCH` | `FT.AGGREGATE` 
+`FT.CREATE` | `FT.AGGREGATE` 
 
 ## Related topics
 
