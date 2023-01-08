@@ -64,7 +64,6 @@ class RediSearchSetup(paella.Setup):
 
     def macos(self):
         self.install_gnu_utils()
-        self.run("%s/bin/getgcc --modern" % READIES)
         self.install("pkg-config")
         self.install("libtool m4 automake")
 
