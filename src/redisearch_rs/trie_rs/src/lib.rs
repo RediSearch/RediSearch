@@ -1,4 +1,5 @@
 pub mod c_api;
+pub mod low_memory_vec;
 pub mod matches_prefixes_iterator;
 pub mod ordered_u8_map;
 pub mod range_trie_iterator;
