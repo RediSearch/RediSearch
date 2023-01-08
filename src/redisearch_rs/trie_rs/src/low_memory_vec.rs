@@ -28,6 +28,22 @@ pub struct LowMemoryVec<S: CapType, T> {
     ptr: *mut T,
 }
 
+impl<S: CapType, T: Clone> LowMemoryVec<S, T> {
+    pub fn from_slice(s: &[T]) -> LowMemoryVec<S, T> {
+        let mut res = Self::new();
+        for t in s {
+            res.push(t.clone());
+        }
+        res
+    }
+
+    pub fn append(&mut self, other: &[T]) {
+        for v in other{
+            self.push(v.clone());
+        }
+    }
+}
+
 impl<S: CapType, T> LowMemoryVec<S, T> {
     pub fn new() -> LowMemoryVec<S, T> {
         LowMemoryVec {
@@ -50,6 +66,18 @@ impl<S: CapType, T> LowMemoryVec<S, T> {
             }
             self.cap = cap;
         }
+    }
+
+    pub fn take(&mut self) -> LowMemoryVec<S, T> {
+        let res = LowMemoryVec{
+            cap: self.cap,
+            size: self.size,
+            ptr: self.ptr,
+        };
+        self.cap = S::default();
+        self.size = S::default();
+        self.ptr = std::ptr::null_mut();
+        res
     }
 
     pub fn pop(&mut self) -> Option<T> {
@@ -117,6 +145,15 @@ impl<S: CapType, T> LowMemoryVec<S, T> {
         }
 
         Some(unsafe { &mut *self.ptr.add(i.into()) })
+    }
+
+    pub fn truncate(&mut self, len: S) {
+        if self.size <= len {
+            return;
+        }
+
+        self.size = len;
+        // todo: actually return the memory?
     }
 }
 

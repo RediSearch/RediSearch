@@ -2,16 +2,16 @@ use crate::low_memory_vec::LowMemoryVec;
 
 #[derive(Debug)]
 pub struct OrderedU8Map<T> {
-    map: Option<LowMemoryVec<u8, (u8, T)>>,
+    map: LowMemoryVec<u8, (u8, T)>,
 }
 
 impl<T> OrderedU8Map<T> {
     pub(crate) fn new() -> OrderedU8Map<T> {
-        OrderedU8Map { map: None }
+        OrderedU8Map { map: LowMemoryVec::new() }
     }
 
     pub(crate) fn len(&self) -> usize {
-        self.map.as_ref().map(|e| e.len()).unwrap_or(0)
+        self.map.len()
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -19,19 +19,19 @@ impl<T> OrderedU8Map<T> {
     }
 
     pub(crate) fn get(&self, key: u8) -> Option<&T> {
-        let m = self.map.as_ref()?;
+        let m = &self.map;
         let index = m.binary_search_by_key(&key, |e| e.0).ok()?;
         Some(&m.get(index as u8)?.1)
     }
 
     pub(crate) fn get_mut(&mut self, key: u8) -> Option<&mut T> {
-        let m = self.map.as_mut()?;
+        let m = &mut self.map;
         let index = m.binary_search_by_key(&key, |e| e.0).ok()?;
         Some(&mut m.get_mut(index as u8)?.1)
     }
 
     pub(crate) fn get_or_create<F: FnOnce() -> T>(&mut self, key: u8, create: F) -> &mut T {
-        let m = self.map.get_or_insert(LowMemoryVec::new());
+        let m = &mut self.map;
         let index = match m.binary_search_by_key(&key, |e| e.0) {
             Ok(index) => index,
             Err(index) => {
@@ -44,7 +44,7 @@ impl<T> OrderedU8Map<T> {
     }
 
     pub(crate) fn insert(&mut self, key: u8, val: T) -> bool {
-        let m = self.map.get_or_insert(LowMemoryVec::new());
+        let m = &mut self.map;
         match m.binary_search_by_key(&key, |e| e.0) {
             Ok(_index) => false,
             Err(index) => {
@@ -55,12 +55,9 @@ impl<T> OrderedU8Map<T> {
     }
 
     pub(crate) fn remove(&mut self, key: u8) -> Option<T> {
-        let m = self.map.as_mut()?;
+        let m = &mut self.map;
         let index = m.binary_search_by_key(&key, |e| e.0).ok()?;
         let res = m.remove(index as u8).1;
-        if m.is_empty() {
-            self.map = None;
-        }
         Some(res)
     }
 
@@ -70,7 +67,7 @@ impl<T> OrderedU8Map<T> {
 
     pub(crate) fn take(&mut self) -> OrderedU8Map<T> {
         OrderedU8Map {
-            map: self.map.take(),
+            map: self.map.take()
         }
     }
 }
@@ -92,7 +89,7 @@ impl<T> Iterator for OrderedU8MapIterator<T> {
     type Item = (u8, T);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.map.map.as_mut()?.pop()
+        self.map.map.pop()
     }
 }
 
@@ -111,7 +108,7 @@ impl<'map, T> Iterator for OrderedU8ValuesIterator<'map, T> {
     type Item = &'map T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let res = &self.map.map.as_ref()?.get(self.index as u8)?.1;
+        let res = &self.map.map.get(self.index as u8)?.1;
         self.index += 1;
         Some(res)
     }

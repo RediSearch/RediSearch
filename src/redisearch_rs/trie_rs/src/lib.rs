@@ -53,6 +53,7 @@ mod trie_tests {
         trie.add_str("foo2", 2);
         assert_eq!(*trie.get_str("foo1").unwrap(), 1);
         assert_eq!(*trie.get_str("foo2").unwrap(), 2);
+        assert_eq!(trie.get_str("foo2123"), None);
         assert_eq!(trie.len(), 2);
         assert_eq!(trie.n_nodes(), 3);
     }
