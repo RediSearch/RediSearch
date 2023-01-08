@@ -1744,7 +1744,7 @@ def testDoubleAdd(env):
 
 def testConcurrentErrors(env):
     # Workaround for: Can't pickle local object 'testConcurrentErrors.<locals>.thrfn'
-    if sys.version_info >= (3, 9):
+    if sys.version_info >= (3, 8):
         env.skip()
 
     from multiprocessing import Process
