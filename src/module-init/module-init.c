@@ -21,6 +21,7 @@
 #include "rwlock.h"
 #include "json.h"
 #include "VecSim/vec_sim.h"
+#include "util/workers.h"
 
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -209,6 +210,15 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   GC_ThreadPoolStart();
 
   CleanPool_ThreadPoolStart();
+  
+  // Init threadpool. 
+  // Threadpool size can only be set on load, hence it is not dependent on
+  // threadsEnabled flag.
+  if(RSGlobalConfig.numWorkerThreads){
+    ThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads); 
+    DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
+  }
+  
   // Init cursors mechanism
   CursorList_Init(&RSCursors);
 
@@ -217,7 +227,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   // Register aggregation functions
   RegisterAllFunctions();
 
-  DO_LOG("notice", "Initialized thread pool!");
+  DO_LOG("notice", "Initialized thread pools!");
 
   /* Load extensions if needed */
   if (RSGlobalConfig.extLoad != NULL) {

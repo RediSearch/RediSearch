@@ -15,7 +15,8 @@ static threadpool _workers_thpool = NULL;
 
 // set up workers' thread pool
 // returns 0 if thread pool initialized, 1 otherwise
-int ThreadPool_CreatePool(int worker_count) {
+int ThreadPool_CreatePool(size_t worker_count) {
+  assert(worker_count);
   assert(_workers_thpool == NULL);
 
   _workers_thpool = thpool_init(worker_count);
@@ -24,11 +25,11 @@ int ThreadPool_CreatePool(int worker_count) {
   return 0;
 }
 
-// return number of threads in the workers' pool
-int ThreadPool_ThreadCount(void) {
+// return number of currently working threads
+int ThreadPool_WorkingThreadCount(void) {
   assert(_workers_thpool != NULL);
 
-  return thpool_num_threads(_workers_thpool);
+  return thpool_num_threads_working(_workers_thpool);
 }
 
 // add task for worker thread
@@ -46,7 +47,5 @@ void ThreadPool_Wait(void) {
 }
 
 void ThreadPool_Destroy(void) {
-  assert(_workers_thpool != NULL);
-
   thpool_destroy(_workers_thpool);
 }
