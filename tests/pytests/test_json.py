@@ -1084,25 +1084,24 @@ def testOutOfRangeValues(env):
         ).ok()
     waitForIndex(env, 'idx')
 
-    # Currently due to a missing API for handling u64 integers (in SelectValue interface in RedisJSON),
-    # Indexing can only support integer values up to max i64, and integer values beyond max i64 up til max u64, are indexed as max i64.
-    
     # i64
     doc_int = {        
         "max": 9223372036854775807, # max i64
-        "beyond_max": 9223372036854775808, # indexed as max i64
-        "min": -9223372036854775808,
-        "below_min": -9223372036854775809, # as f64
+        "min": -9223372036854775808, # min i64
     }
 
     doc_int_2 = {
-        "max": 9223372036854775809, # indexed as max i64
+        "max": 9223372036854775808, # beyond max i64 (also beyond 2^53)
     }
-    
+
     # f64
     doc_float = {
-        "beyond_max": 1.7976931348623159e+308, # cannot be set
-        "below_min": -1.7976931348623159e+308, # cannot be set
+        "below_min": -9223372036854775809, # as f64
+    }
+
+    doc_float_2 = {
+        "beyond_max": 1.7976931348623159e+308, # cannot be set (parse error)
+        "below_min": -1.7976931348623159e+308, # cannot be set (parse error)
     }
 
     # Helper functions
@@ -1115,25 +1114,24 @@ def testOutOfRangeValues(env):
             else:
                 env.expect('JSON.SET', name, '$.{}'.format(k), '{}'.format(v)).error()
 
-    def search_key(env, name, key, expecteds):
+    def search_key(env, name, key, expecteds, epsilon=0):
         for i, (k,v) in enumerate(key.items()):
             res = env.execute_command('JSON.GET', name, '$.{}'.format(k))
+            env.assertAlmostEqual(json.loads(res)[0], v, epsilon, message="{}: {} {}".format(name, k, v))
             res = env.execute_command('FT.SEARCH', 'idx', '@{}:[{} {}]'.format(k, v, v), 'NOCONTENT')
             env.assertEqual(res, expecteds[i], message="{}: {} {}".format(name, k, v))
 
     set_key(env, 'doc_int', doc_int)
     set_key(env, 'doc_int_2', doc_int_2)
-    set_key(env, 'doc_float', doc_float, False)
+    set_key(env, 'doc_float', doc_float)
+    set_key(env, 'doc_float_2', doc_float_2, False)
     
-    search_key(env, 'doc_int', doc_int, [
-        [2, 'doc_int', 'doc_int_2'], # max i64
-        [1, 'doc_int'], # max i64
-        [1, 'doc_int'],
-        [1, 'doc_int']
-    ])
+    search_key(env, 'doc_int', doc_int, [[1, 'doc_int'],[1, 'doc_int']])
 
-    search_key(env, 'doc_int_2', doc_int_2, [
-        [2, 'doc_int', 'doc_int_2'], # max i64
-    ])
+    # PM-1166 - integers greater than 2^53 loose precision as doubles
+    # (e.g., 9223372036854775809 == 9223372036854775808)
+    search_key(env, 'doc_int_2', doc_int_2, [[1, 'doc_int']])
+    
+    search_key(env, 'doc_float', doc_float, [[1, 'doc_float'], [1, 'doc_float']], epsilon=sys.float_info.epsilon)
 
     

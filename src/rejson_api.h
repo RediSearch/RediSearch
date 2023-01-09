@@ -102,6 +102,13 @@ typedef struct RedisJSONAPI {
   // Reset the iterator to the beginning
   void (*resetIter)(JSONResultsIterator iter);
 
+  ////////////////
+  // V4 entries //
+  ////////////////
+
+  // Return unsigned int value from a Numeric field
+  int (*getUInt)(RedisJSON json, unsigned long long *uinteger);
+
 } RedisJSONAPI;
 
 #ifdef __cplusplus
