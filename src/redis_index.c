@@ -177,7 +177,7 @@ void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
 
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
   IndexLoadOptions loadOpts = {.name = {.cstring = indexName}};
-  IndexSpec *sp = IndexSpec_LoadEx(ctx, &loadOpts);
+  IndexSpec *sp = IndexSpec_GetReferenceEx(ctx, &loadOpts);
 
   if (!sp) {
     return NULL;
