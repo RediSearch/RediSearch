@@ -50,6 +50,7 @@ int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f, void *op
 int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);
 
 int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s);
+int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr);
 
 /* Drop all the index's internal keys using this scan handler */
 int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);

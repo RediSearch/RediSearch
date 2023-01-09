@@ -1455,10 +1455,12 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
 void IndexSpec_ReturnReference(IndexSpec *sp) {
   if(!sp) return;
 
+  printf("ref count %ld\n", sp->refcount);
   if(__atomic_sub_fetch(&sp->refcount, 1, __ATOMIC_SEQ_CST) == 0) {
     // if the refcount is 0 we need to free the spec
     IndexSpec_Free(sp);
   }
+  printf("ref count %ld\n", sp->refcount);
 
 }
 
