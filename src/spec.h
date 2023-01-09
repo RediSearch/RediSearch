@@ -511,12 +511,8 @@ IndexSpec *IndexSpec_GetReference(RedisModuleCtx *ctx, const char *name, int ope
  */
 IndexSpec *IndexSpec_GetReferenceEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
 
-void IndexSpec_ReturnReference(IndexSpec *sp);
 
-/*
- * Free an indexSpec.
- */
-void IndexSpec_FreeInternals(IndexSpec *spec);
+void IndexSpec_ReturnReference(IndexSpec *sp);
 
 //---------------------------------------------------------------------------------------------
 
