@@ -1449,6 +1449,16 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
   return ret;
 }
 
+void IndexSpec_ReturnReference(IndexSpec *sp) {
+  if(!sp) return;
+
+  if(__atomic_sub_fetch(&sp->refcount, 1, __ATOMIC_SEQ_CST) == 0) {
+    // if the refcount is 0 we need to free the spec
+    IndexSpec_Free(sp);
+  }
+
+}
+
 RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s,
                                                    FieldType forType) {
   const FieldSpec *fs = IndexSpec_GetField(sp, s, strlen(s));

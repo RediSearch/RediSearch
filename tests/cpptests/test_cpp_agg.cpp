@@ -82,7 +82,7 @@ TEST_F(AggTest, testBasic) {
 
   SearchResult_Destroy(&res);
   AREQ_Free(rr);
-  IndexSpec_Free(spec);
+  IndexSpec_ReturnReference(spec);
   args.clear();
   aggArgs.clear();
   RedisModule_FreeThreadSafeContext(ctx);

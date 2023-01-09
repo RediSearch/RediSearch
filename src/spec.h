@@ -516,7 +516,6 @@ void IndexSpec_ReturnReference(IndexSpec *sp);
 /*
  * Free an indexSpec.
  */
-void IndexSpec_Free(IndexSpec *spec);
 void IndexSpec_FreeInternals(IndexSpec *spec);
 
 //---------------------------------------------------------------------------------------------
