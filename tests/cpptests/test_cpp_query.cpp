@@ -126,7 +126,7 @@ TEST_F(QueryTest, testParser_delta) {
   assertInvalidQuery_v(1, "*=>[KNN $K @vec_field $BLOB EF $ef foo bar x 5 AS score]");
   assertInvalidQuery_v(1, "*=>[KNN $K @vec_field $BLOB foo bar x 5]");
 
-  IndexSpec_Free(ctx.spec);
+  IndexSpec_ReturnReference(ctx.spec);
 }
 
 TEST_F(QueryTest, testParser_v1) {
@@ -317,7 +317,7 @@ TEST_F(QueryTest, testParser_v1) {
   ASSERT_EQ(_n->children[1]->type, QN_PREFIX);
   ASSERT_STREQ("boo", _n->children[1]->pfx.tok.str);
   QAST_Destroy(&ast);
-  IndexSpec_Free(ctx.spec);
+  IndexSpec_ReturnReference(ctx.spec);
 }
 
 TEST_F(QueryTest, testParser_v2) {
@@ -616,7 +616,7 @@ TEST_F(QueryTest, testParser_v2) {
   ASSERT_EQ(_n->children[1]->type, QN_PREFIX);
   ASSERT_STREQ("boo", _n->children[1]->pfx.tok.str);
   QAST_Destroy(&ast);
-  IndexSpec_Free(ctx.spec);
+  IndexSpec_ReturnReference(ctx.spec);
 }
 
 TEST_F(QueryTest, testVectorHybridQuery) {
@@ -654,7 +654,7 @@ TEST_F(QueryTest, testVectorHybridQuery) {
   ASSERT_EQ(ast.root->children[0]->type, QN_TOKEN);
   ASSERT_EQ(ast.root->children[0]->opts.fieldMask, 0x01);
 
-  IndexSpec_Free(ctx.spec);
+  IndexSpec_ReturnReference(ctx.spec);
 }
 
 TEST_F(QueryTest, testPureNegative) {
@@ -673,7 +673,7 @@ TEST_F(QueryTest, testPureNegative) {
     ASSERT_EQ(n->type, QN_NOT);
     ASSERT_TRUE(QueryNode_GetChild(n, 0) != NULL);
   }
-  IndexSpec_Free(ctx.spec);
+  IndexSpec_ReturnReference(ctx.spec);
 }
 
 TEST_F(QueryTest, testGeoQuery_v1) {
@@ -697,7 +697,7 @@ TEST_F(QueryTest, testGeoQuery_v1) {
   ASSERT_EQ(gn->gn.gf->lon, 31.52);
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);
   ASSERT_EQ(gn->gn.gf->radius, 10.01);
-  IndexSpec_Free(ctx.spec);
+  IndexSpec_ReturnReference(ctx.spec);
 }
 
 TEST_F(QueryTest, testGeoQuery_v2) {
@@ -723,7 +723,7 @@ TEST_F(QueryTest, testGeoQuery_v2) {
   ASSERT_EQ(gn->gn.gf->lon, 31.52);
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);
   ASSERT_EQ(gn->gn.gf->radius, 10.01);
-  IndexSpec_Free(ctx.spec);
+  IndexSpec_ReturnReference(ctx.spec);
 }
 
 TEST_F(QueryTest, testFieldSpec_v1) {
@@ -778,7 +778,7 @@ TEST_F(QueryTest, testFieldSpec_v1) {
   ASSERT_EQ(n->nn.nf->max, 500.0);
   ASSERT_EQ(n->nn.nf->inclusiveMin, 1);
   ASSERT_EQ(n->nn.nf->inclusiveMax, 0);
-  IndexSpec_Free(ctx.spec);
+  IndexSpec_ReturnReference(ctx.spec);
 }
 
 TEST_F(QueryTest, testFieldSpec_v2) {
@@ -835,7 +835,7 @@ TEST_F(QueryTest, testFieldSpec_v2) {
   ASSERT_EQ(n->nn.nf->max, 500.0);
   ASSERT_EQ(n->nn.nf->inclusiveMin, 1);
   ASSERT_EQ(n->nn.nf->inclusiveMax, 0);
-  IndexSpec_Free(ctx.spec);
+  IndexSpec_ReturnReference(ctx.spec);
 }
 
 TEST_F(QueryTest, testAttributes) {
@@ -858,7 +858,7 @@ TEST_F(QueryTest, testAttributes) {
   ASSERT_EQ(QueryNode_NumChildren(n), 2);
   ASSERT_EQ(0.5, n->children[0]->opts.weight);
   ASSERT_EQ(0.2, n->children[1]->opts.weight);
-  IndexSpec_Free(ctx.spec);
+  IndexSpec_ReturnReference(ctx.spec);
 }
 
 TEST_F(QueryTest, testTags) {
@@ -886,7 +886,7 @@ TEST_F(QueryTest, testTags) {
 
   ASSERT_EQ(QN_TOKEN, n->children[3]->type);
   ASSERT_STREQ("lorem\\ ipsum", n->children[3]->tn.str);
-  IndexSpec_Free(ctx.spec);
+  IndexSpec_ReturnReference(ctx.spec);
 }
 
 TEST_F(QueryTest, testWildcard) {
@@ -910,5 +910,5 @@ TEST_F(QueryTest, testWildcard) {
   ASSERT_EQ(5, n->verb.tok.len);
   ASSERT_STREQ("?*?*?", n->verb.tok.str);
 
-  IndexSpec_Free(ctx.spec);
+  IndexSpec_ReturnReference(ctx.spec);
 }

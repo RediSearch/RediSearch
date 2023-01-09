@@ -1167,7 +1167,7 @@ TEST_F(IndexTest, testIndexSpec) {
   rc = IndexSpec_GetFieldSortingIndex(s, title, strlen(title));
   ASSERT_EQ(-1, rc);
 
-  IndexSpec_Free(s);
+  IndexSpec_ReturnReference(s);
 
   QueryError_ClearError(&err);
   const char *args2[] = {
@@ -1180,7 +1180,7 @@ TEST_F(IndexTest, testIndexSpec) {
 
   ASSERT_TRUE(!(s->flags & Index_StoreFieldFlags));
   ASSERT_TRUE(!(s->flags & Index_StoreTermOffsets));
-  IndexSpec_Free(s);
+  IndexSpec_ReturnReference(s);
 
   // User-reported bug
   const char *args3[] = {"SCHEMA", "ha", "NUMERIC", "hb", "TEXT", "WEIGHT", "1", "NOSTEM"};
@@ -1189,7 +1189,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(FieldSpec_IsNoStem(s->fields + 1));
-  IndexSpec_Free(s);
+  IndexSpec_ReturnReference(s);
 }
 
 static void fillSchema(std::vector<char *> &args, size_t nfields) {
@@ -1236,7 +1236,7 @@ TEST_F(IndexTest, testHugeSpec) {
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == N);
-  IndexSpec_Free(s);
+  IndexSpec_ReturnReference(s);
   freeSchemaArgs(args);
 
   // test too big a schema
