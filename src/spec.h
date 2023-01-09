@@ -296,6 +296,9 @@ typedef struct IndexSpec {
 
   // read write lock
   pthread_rwlock_t rwlock;
+
+  // Atomic reference counter.
+  size_t refcount;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -459,8 +462,6 @@ int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, Query
 
 //---------------------------------------------------------------------------------------------
 
-IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
-
 /** Load the index as writeable */
 #define INDEXSPEC_LOAD_WRITEABLE 0x01
 /** Don't consult the alias table when retrieving the index */
@@ -495,15 +496,22 @@ typedef struct {
   const char *alookup;
 } IndexLoadOptions;
 
+//---------------------------------------------------------------------------------------------
+
 /**
  * Find and load the index using the specified parameters.
  * @return the index spec, or NULL if the index does not exist
  */
-IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
 
-//---------------------------------------------------------------------------------------------
+IndexSpec *IndexSpec_GetReference(RedisModuleCtx *ctx, const char *name, int openWrite);
 
-int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
+/**
+ * Find and load the index using the specified parameters.
+ * @return the index spec, or NULL if the index does not exist
+ */
+IndexSpec *IndexSpec_GetReferenceEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
+
+void IndexSpec_ReturnReference(IndexSpec *sp);
 
 /*
  * Free an indexSpec.
@@ -511,11 +519,9 @@ int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 void IndexSpec_Free(IndexSpec *spec);
 void IndexSpec_FreeInternals(IndexSpec *spec);
 
-/**
- * Free the index synchronously. Any keys associated with the index (but not the
- * documents themselves) are freed before this function returns.
- */
-void IndexSpec_FreeSync(IndexSpec *spec);
+//---------------------------------------------------------------------------------------------
+
+int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
 /* Parse a new stopword list and set it. If the parsing fails we revert to the default stopword
  * list, and return 0 */

@@ -1356,9 +1356,23 @@ void Indexes_Free(dict *d) {
   array_free(specs);
 }
 
+
+//---------------------------------------- atomic updates ---------------------------------------
+
+// atomic update of the refcount
+inline static void IndexSpec_IncreasRef(IndexSpec *sp) {
+  __atomic_fetch_add(&sp->refcount , 1, __ATOMIC_SEQ_CST);
+}
+
+// atomic update of usage counter
+inline static void IndexSpec_IncreasCounter(IndexSpec *sp) {
+  __atomic_fetch_add(&sp->counter , 1, __ATOMIC_SEQ_CST);
+}
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
+IndexSpec *IndexSpec_GetReferenceEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
   const char *ixname = NULL;
   if (options->flags & INDEXSPEC_LOAD_KEY_RSTRING) {
     ixname = RedisModule_StringPtrLen(options->name.rstring, NULL);
@@ -1376,9 +1390,10 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     }
   }
 
+  IndexSpec_IncreasRef(sp);
+
   // Increament the number of uses.
-  // When we move to multi readers this counter needs to be atomic.
-  ++sp->counter;
+  IndexSpec_IncreasCounter(sp);
 
   if ((sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
     if (sp->isTimerSet) {
@@ -1391,11 +1406,11 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
 }
 
 /* Load the spec from the saved version */
-IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite) {
+IndexSpec *IndexSpec_GetReference(RedisModuleCtx *ctx, const char *name, int openWrite) {
   IndexLoadOptions lopts = {.flags = openWrite ? INDEXSPEC_LOAD_WRITEABLE : 0,
                             .name = {.cstring = name}};
   lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
-  return IndexSpec_LoadEx(ctx, &lopts);
+  return IndexSpec_GetReferenceEx(ctx, &lopts);
 }
 
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
@@ -1528,6 +1543,7 @@ IndexSpec *NewIndexSpec(const char *name) {
 #endif
 
   pthread_rwlock_init(&sp->rwlock, &attr);
+  sp->refcount = 1;
   return sp;
 }
 
