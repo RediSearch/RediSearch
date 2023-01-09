@@ -240,6 +240,14 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     n += 2;
   }
 
+  RedisModule_ReplyWithSimpleString(ctx, "dialect_stats");
+  RedisModule_ReplyWithArray(ctx, 2 * (MAX_DIALECT_VERSION - MIN_DIALECT_VERSION + 1));
+  for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {
+    RedisModule_ReplyWithPrintf(ctx, "dialect_%d", dialect);
+    RedisModule_ReplyWithLongLong(ctx, GET_DIALECT(sp->used_dialects, dialect));
+  }
+  n += 2;
+
   RedisModule_ReplySetArrayLength(ctx, n);
   return REDISMODULE_OK;
 }

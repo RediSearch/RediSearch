@@ -54,6 +54,7 @@ commands:
     steps:
       - run:
           name: Setup automation
+          no_output_timeout: 30m
           command: |
             git submodule update --init deps/readies
             ./deps/readies/bin/getpy3
@@ -72,6 +73,7 @@ commands:
       - run:
           name: System setup
           shell: /bin/bash -l -eo pipefail
+          no_output_timeout: 30m
           command: |
             ./sbin/system-setup.py
             python3 -m pip list

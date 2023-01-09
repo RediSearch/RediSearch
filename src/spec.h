@@ -283,6 +283,9 @@ typedef struct IndexSpec {
   RedisModuleTimerID timerId;
   bool isTimerSet;
 
+  // bitarray of dialects used by this index
+  uint_least8_t used_dialects;
+
   // For criteria tester
   RSGetValueCallback getValue;
   void *getValueCtx;
