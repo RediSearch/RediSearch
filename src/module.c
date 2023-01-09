@@ -424,6 +424,9 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
+  // Decrease the reference counter. From now on, the last one that calls IndexSpec_ReturnReference will actually
+  // free the IndexSpec.
+  IndexSpec_ReturnReference(sp);
 
   int delDocs;
   if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
@@ -444,8 +447,14 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     keepDocs = 1;
   }
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  Redis_DropIndex(&sctx, (delDocs || sp->flags & Index_Temporary) && !keepDocs);
+  SchemaPrefixes_RemoveSpec(sp);
+
+  if((delDocs || sp->flags & Index_Temporary) && !keepDocs) {
+    DocTable *dt = &sp->docs;
+    DOCTABLE_FOREACH(dt, Redis_DeleteKeyC(ctx, dmd->keyPtr));
+  }
+  
+  IndexSpec_ReturnReference(sp);
 
   RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "sc", argv[1], "_FORCEKEEPDOCS");
 
