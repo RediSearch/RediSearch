@@ -89,6 +89,9 @@ static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, 
   return NULL;
 }
 
+// Deceleration
+void IndexSpec_Free(IndexSpec *spec);
+
 /*
  * Get a field spec by field name. Case sensetive!
  * Return the field spec if found, NULL if not
