@@ -807,7 +807,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
           ++aCtx->spec->stats.indexingFailures;
         } else {
           RedisModule_ThreadSafeContextLock(RSDummyContext);
-          IndexSpec *spec = IndexSpec_Load(RSDummyContext, aCtx->specName, 0);
+          IndexSpec *spec = IndexSpec_GetReference(RSDummyContext, aCtx->specName, 0);
           if (spec && aCtx->specId == spec->uniqueId) {
             ++spec->stats.indexingFailures;
           }

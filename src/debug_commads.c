@@ -528,7 +528,7 @@ DEBUG_COMMAND(GCForceInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  IndexSpec *sp = IndexSpec_GetReference(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     return REDISMODULE_OK;
@@ -543,7 +543,7 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  IndexSpec *sp = IndexSpec_GetReference(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     return REDISMODULE_OK;
@@ -592,7 +592,7 @@ DEBUG_COMMAND(ttl) {
   IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
                             .name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
   lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
-  IndexSpec *sp = IndexSpec_LoadEx(ctx, &lopts);
+  IndexSpec *sp = IndexSpec_GetReferenceEx(ctx, &lopts);
 
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
