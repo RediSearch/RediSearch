@@ -449,16 +449,6 @@ else
 _RLTEST_PARALLEL=1
 endif
 
-#test: $(REJSON_SO)
-#ifneq ($(TEST),)
-#	$(SHOW) $(CTEST_DEFS) TEST=$(TEST) $(ROOT)/sbin/ctest
-#else
-#	$(SHOW)$(CTEST_DEFS) $(ROOT)/sbin/ctest
-#ifeq ($(COORD),oss)
-#	$(SHOW)$(FLOW_TESTS_DEFS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
-#endif
-#endif
-
 test: unit-tests pytest
 
 unit-tests:

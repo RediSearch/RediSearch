@@ -45,11 +45,9 @@ help() {
 		REJSON_MODARGS=args   RedisJSON module arguments
 
 		REDIS_SERVER=path     Location of redis-server
-		REDIS_VERBOSE=1       (legacy) Verbose ouput
 		REDIS_PORT=n          Redis server port
 		CONFIG_FILE=file      Path to config file
 
-		EXISTING_ENV=1        Test on existing env (like EXT=1)
 		EXT=1|run             Test on existing env (1=running; run=start redis-server)
 		EXT_HOST=addr         Address of existing env (default: 127.0.0.1)
 		EXT_PORT=n            Port of existing env
@@ -144,13 +142,24 @@ setup_rltest() {
 			echo "PYTHONPATH=$PYTHONPATH"
 		fi
 	fi
+	
+	if [[ $RLTEST_VERBOSE == 1 ]]; then
+		RLTEST_ARGS+=" -v"
+	fi
+	if [[ -n $RLTEST_LOG && $RLTEST_LOG != 1 ]]; then
+		RLTEST_ARGS+=" -s"
+	fi
+	if [[ $RLTEST_CONSOLE == 1 ]]; then
+		RLTEST_ARGS+=" -i"
+	fi
 }
 
 #----------------------------------------------------------------------------------------------
 
 setup_clang_sanitizer() {
-	if ! grep THPIsEnabled /build/redis.blacklist &> /dev/null; then
-		echo "fun:THPIsEnabled" >> /build/redis.blacklist
+	local ignorelist=$ROOT/tests/memcheck/redis.san-ignorelist
+	if ! grep THPIsEnabled $ignorelist &> /dev/null; then
+		echo "fun:THPIsEnabled" >> $ignorelist
 	fi
 
 	# for RediSearch module
@@ -193,11 +202,11 @@ setup_clang_sanitizer() {
 		if ! command -v $REDIS_SERVER > /dev/null; then
 			echo Building Redis for clang-asan ...
 			$READIES/bin/getredis --force -v $SAN_REDIS_VER --own-openssl --no-run \
-				--suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
+				--suffix asan --clang-asan --clang-san-blacklist $ignorelist
 		fi
 
 		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1"
-		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp"
+		export LSAN_OPTIONS="verbosity=1:log_threads=1:suppressions=$ROOT/tests/memcheck/asan.supp"
 
 	elif [[ $SAN == mem || $SAN == memory ]]; then
 		REDIS_SERVER=${REDIS_SERVER:-redis-server-msan-$SAN_REDIS_VER}
@@ -205,32 +214,8 @@ setup_clang_sanitizer() {
 			echo Building Redis for clang-msan ...
 			$READIES/bin/getredis --force -v $SAN_REDIS_VER  --no-run --own-openssl \
 				--suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan \
-				--clang-san-blacklist /build/redis.blacklist
+				--clang-san-blacklist $ignorelist
 		fi
-	fi
-}
-
-clang_sanitizer_summary() {
-	if grep -l "leaked in" logs/*.asan.log* &> /dev/null; then
-		echo
-		echo "${LIGHTRED}Sanitizer: leaks detected:${RED}"
-		grep -l "leaked in" logs/*.asan.log*
-		echo "${NOCOLOR}"
-		E=1
-	fi
-	if grep -l "dynamic-stack-buffer-overflow" logs/*.asan.log* &> /dev/null; then
-		echo
-		echo "${LIGHTRED}Sanitizer: buffer overflow detected:${RED}"
-		grep -l "dynamic-stack-buffer-overflow" logs/*.asan.log*
-		echo "${NOCOLOR}"
-		E=1
-	fi
-	if grep -l "stack-use-after-scope" logs/*.asan.log* &> /dev/null; then
-		echo
-		echo "${LIGHTRED}Sanitizer: stack use after scope detected:${RED}"
-		grep -l "stack-use-after-scope" logs/*.asan.log*
-		echo "${NOCOLOR}"
-		E=1
 	fi
 }
 
@@ -254,52 +239,39 @@ setup_valgrind() {
 		$READIES/bin/getredis -v $VALGRIND_REDIS_VER --valgrind --suffix vg
 	fi
 
-	RLTEST_VG_ARGS=--use-valgrind
 	if [[ $VG_LEAKS == 0 ]]; then
-		VALGRIND_SUPRESSIONS=$ROOT/tests/valgrind/redis_valgrind.sup
-		export VG_OPTIONS="\
-			--leak-check=no \
-			--track-origins=yes \
-			--suppressions=$ROOT/tests/valgrind/redis_valgrind.sup"
-		RLTEST_VG_ARGS+=" --vg-no-leakcheck --vg-options=\"--leak-check=no --track-origins=yes --suppressions=$ROOT/tests/valgrind/redis_valgrind.sup\" "
+		VG_LEAK_CHECK=no
+		RLTEST_VG_NOLEAKS="--vg-no-leakcheck"
+	else
+		VG_LEAK_CHECK=full
+		RLTEST_VG_NOLEAKS=""
 	fi
+	# RLTest reads this
+	VG_OPTIONS="\
+		-q \
+		--leak-check=$VG_LEAK_CHECK \
+		--show-reachable=no \
+		--track-origins=yes \
+		--show-possibly-lost=no"
+
+	VALGRIND_SUPRESSIONS=$ROOT/tests/memcheck/valgrind.supp
+
+	RLTEST_VG_ARGS+="\
+		--use-valgrind \
+		--vg-verbose \
+		$RLTEST_VG_NOLEAKS \
+		--vg-no-fail-on-errors \
+		--vg-suppressions $VALGRIND_SUPRESSIONS"
+
 
 	# for module
 	export RS_GLOBAL_DTORS=1
 
 	# for RLTest
 	export SHORT_READ_BYTES_DELTA=512
-}
-
-valgrind_config() {
-	export VG_OPTIONS="\
-		-q \
-		--leak-check=full \
-		--show-reachable=no \
-		--track-origins=yes \
-		--show-possibly-lost=no"
-
-	VALGRIND_SUPRESSIONS=$ROOT/tests/redis_valgrind.sup
-
-	RLTEST_ARGS+="\
-		--use-valgrind \
-		--vg-suppressions $VALGRIND_SUPRESSIONS"
-
 	export VALGRIND=1
-}
-
-valgrind_summary() {
-	# Collect name of each flow log that contains leaks
-	FILES_WITH_LEAKS=$(grep -l "definitely lost" logs/*.valgrind.log)
-	if [[ ! -z $FILES_WITH_LEAKS ]]; then
-		echo "Memory leaks introduced in flow tests."
-		echo $FILES_WITH_LEAKS
-		# Print the full Valgrind output for each leaking file
-		echo $FILES_WITH_LEAKS | xargs cat
-		exit 1
-	else
-		echo Valgrind test ok
-	fi
+	export VG_OPTIONS
+	export RLTEST_VG_ARGS
 }
 
 #----------------------------------------------------------------------------------------------
@@ -350,7 +322,7 @@ run_tests() {
 		fi
 	fi
 
-	if [[ $EXISTING_ENV != 1 ]]; then
+	if [[ $EXT != 1 ]]; then
 		rltest_config=$(mktemp "${TMPDIR:-/tmp}/rltest.XXXXXXX")
 		rm -f $rltest_config
 		if [[ $RLEC != 1 ]]; then
@@ -359,6 +331,7 @@ run_tests() {
 				--module $MODULE
 				--module-args '$MODARGS'
 				$RLTEST_ARGS
+				$RLTEST_TEST_ARGS
 				$RLTEST_PARALLEL_ARG
 				$RLTEST_REJSON_ARGS
 				$RLTEST_VG_ARGS
@@ -369,6 +342,7 @@ run_tests() {
 		else
 			cat <<-EOF > $rltest_config
 				$RLTEST_ARGS
+				$RLTEST_TEST_ARGS
 				$RLTEST_VG_ARGS
 
 				EOF
@@ -391,6 +365,7 @@ run_tests() {
 			cat <<-EOF > $rltest_config
 				--env existing-env
 				$RLTEST_ARGS
+				$RLTEST_TEST_ARGS
 
 				EOF
 
@@ -410,6 +385,7 @@ run_tests() {
 				--env existing-env
 				--existing-env-addr $EXT_HOST:$EXT_PORT
 				$RLTEST_ARGS
+				$RLTEST_TEST_ARGS
 
 				EOF
 		fi
@@ -420,9 +396,10 @@ run_tests() {
 		cat $CONFIG_FILE >> $rltest_config
 	fi
 
-	if [[ $VERBOSE == 1 ]]; then
+	if [[ $VERBOSE == 1 || $NOP == 1 ]]; then
 		echo "RLTest configuration:"
 		cat $rltest_config
+		[[ -n $VG_OPTIONS ]] && { echo "VG_OPTIONS: $VG_OPTIONS"; echo; }
 	fi
 
 	[[ $RLEC == 1 ]] && export RLEC_CLUSTER=1
@@ -457,14 +434,66 @@ fi
 OP=""
 [[ $NOP == 1 ]] && OP=echo
 
+#--------------------------------------------------------------------------------- Environments
+
+DOCKER_HOST=${DOCKER_HOST:-127.0.0.1}
+RLEC_PORT=${RLEC_PORT:-12000}
+
+EXT_HOST=${EXT_HOST:-127.0.0.1}
+EXT_PORT=${EXT_PORT:-6379}
+
+PID=$$
+OS=$($READIES/bin/platform --os)
+
+#---------------------------------------------------------------------------------- Tests scope
+
+[[ $COORD == 1 ]] && COORD=oss
+
+RLEC=${RLEC:-0}
+
 if [[ $RLEC != 1 ]]; then
 	MODULE="${MODULE:-$1}"
 	shift
-	if [[ -z $MODULE || ! -f $MODULE ]]; then
-		echo "Module not found at ${MODULE}. Aborting."
-		exit 1
+
+	if [[ -z $MODULE ]]; then
+		if [[ -n $BINROOT ]]; then
+			if [[ -z $COORD ]]; then
+				MODULE=$BINROOT/search/redisearch.so
+			elif [[ $COORD == oss ]]; then
+				MODULE=$BINROOT/oss-coord/module-oss.so
+			fi
+		fi
+		if [[ -z $MODULE || ! -f $MODULE ]]; then
+			echo "Module not found at ${MODULE}. Aborting."
+			exit 1
+		fi
 	fi
 fi
+
+SHARDS=${SHARDS:-3}
+
+#------------------------------------------------------------------------------------ Debugging
+
+VG_LEAKS=${VG_LEAKS:-1}
+VG_ACCESS=${VG_ACCESS:-1}
+
+GDB=${GDB:-0}
+
+if [[ $GDB == 1 ]]; then
+	[[ $LOG != 1 ]] && RLTEST_LOG=0
+	RLTEST_CONSOLE=1
+fi
+
+[[ $SAN == addr ]] && SAN=address
+[[ $SAN == mem ]] && SAN=memory
+
+if [[ -n $TEST ]]; then
+	[[ $LOG != 1 ]] && RLTEST_LOG=0
+	export BB=${BB:-1}
+	export RUST_BACKTRACE=1
+fi
+
+#-------------------------------------------------------------------------------- Platform Mode
 
 if [[ $PLATFORM_MODE == 1 ]]; then
 	CLEAR_LOGS=0
@@ -473,30 +502,51 @@ if [[ $PLATFORM_MODE == 1 ]]; then
 	STATFILE=$ROOT/bin/artifacts/tests/status
 fi
 
-if [[ $REDIS_VERBOSE == 1 || $VERBOSE == 1 ]]; then
-	if [[ $LOG != 1 ]]; then
-		RLTEST_ARGS+=" -s -v"
+#---------------------------------------------------------------------------------- Parallelism
+
+PARALLEL=${PARALLEL:-1}
+
+# due to Python "Can't pickle local object" problem in RLTest
+[[ $OS == macos ]] && PARALLEL=0
+
+[[ $EXT == 1 || $EXT == run || $BB == 1 || $GDB == 1 ]] && PARALLEL=0
+
+if [[ -n $PARALLEL && $PARALLEL != 0 ]]; then
+	if [[ $PARALLEL == 1 ]]; then
+		parallel="$($READIES/bin/nproc)"
+	else
+		parallel="$PARALLEL"
 	fi
+	RLTEST_PARALLEL_ARG="--parallelism $parallel"
 fi
+
+#------------------------------------------------------------------------------- Test selection
+
+if [[ -n $TEST ]]; then
+	RLTEST_TEST_ARGS+=$(echo -n " "; echo "$TEST" | awk 'BEGIN { RS=" "; ORS=" " } { print "--test " $1 }')
+fi
+
+[[ -n $TESTFILE ]] && RLTEST_TEST_ARGS+=" -f $TESTFILE"
+[[ -n $FAILEDFILE ]] && RLTEST_TEST_ARGS+=" -F $FAILEDFILE"
+
+if [[ $LIST == 1 ]]; then
+	NO_SUMMARY=1
+	RLTEST_ARGS+=" --collect-only"
+fi
+
+#---------------------------------------------------------------------------------------- Setup
+
+if [[ $VERBOSE == 1 ]]; then
+	RLTEST_VERBOSE=1
+fi
+
+RLTEST_LOG=${RLTEST_LOG:-$LOG}
 
 if [[ $COV == 1 ]]; then
 	setup_coverage
 fi
 
 setup_redisjson
-
-[[ $EXT == 1 || $EXT == run ]] && EXISTING_ENV=1
-[[ $COORD == 1 ]] && COORD=oss
-
-if [[ -z $MODULE ]]; then
-	if [[ -n $BINROOT ]]; then
-		if [[ -z $COORD ]]; then
-			MODULE=$BINROOT/search/redisearch.so
-		elif [[ $COORD == oss ]]; then
-			MODULE=$BINROOT/oss-coord/module-oss.so
-		fi
-	fi
-fi
 
 RLTEST_ARGS+=" $@"
 
@@ -507,38 +557,6 @@ RLTEST_ARGS+=" $@"
 if [[ -n $REDIS_PORT ]]; then
 	RLTEST_ARGS+="--redis-port $REDIS_PORT"
 fi
-
-if [[ -n $REDIS_PORT ]]; then
-	RLTEST_ARGS+="--redis-port $REDIS_PORT"
-fi
-
-if [[ -n $TEST ]]; then
-	[[ $GDB == 1 ]] && RLTEST_ARGS+=" -i"
-	[[ $LOG != 1 ]] && RLTEST_ARGS+=" -v -s"
-	RLTEST_ARGS+=" --test $TEST"
-	export RUST_BACKTRACE=1
-fi
-
-[[ -n $TESTFILE ]] && RLTEST_ARGS+=" -f $TESTFILE"
-[[ -n $FAILEDFILE ]] && RLTEST_ARGS+=" -F $FAILEDFILE"
-
-if [[ $LIST == 1 ]]; then
-	RLTEST_ARGS+=" --collect-only"
-fi
-
-SHARDS=${SHARDS:-3}
-
-[[ $SAN == addr ]] && SAN=address
-[[ $SAN == mem ]] && SAN=memory
-
-EXT_HOST=${EXT_HOST:-127.0.0.1}
-EXT_PORT=${EXT_PORT:-6379}
-
-RLEC_PORT=${RLEC_PORT:-12000}
-
-[[ $EXT == 1 || $EXT == run || $EXISTING_ENV == 1 || $BB == 1 ]] && PARALLEL=0
-
-[[ $PARALLEL == 1 ]] && RLTEST_PARALLEL_ARG="--parallelism $($READIES/bin/nproc)"
 
 [[ $UNIX == 1 ]] && RLTEST_ARGS+=" --unix"
 [[ $RANDPORTS == 1 ]] && RLTEST_ARGS+=" --randomize-ports"
@@ -633,7 +651,7 @@ fi
 
 #-------------------------------------------------------------------------------------- Summary
 
-if [[ $NO_SUMMARY != 1 ]]; then
+if [[ $NO_SUMMARY == 1 ]]; then
 	exit 0
 fi
 
@@ -648,8 +666,11 @@ if [[ $COLLECT_LOGS == 1 ]]; then
 	OSNICK=$($READIES/bin/platform --osnick)
 	cd $ROOT
 	mkdir -p bin/artifacts/tests
-	rm -f bin/artifacts/tests/tests-pytests-logs-${ARCH}-${OSNICK}.tgz
-	find tests/pytests/logs -name "*.log" | tar -czf bin/artifacts/tests/tests-pytests-logs-${ARCH}-${OSNICK}.tgz -T -
+	test_tar="bin/artifacts/tests/tests-pytests-logs-${ARCH}-${OSNICK}.tgz"
+	rm -f "$test_tar"
+	find tests/pytests/logs -name "*.log" | tar -czf "$test_tar" -T -
+	echo "Test logs:"
+	du -ah --apparent-size bin/artifacts/tests
 fi
 
 if [[ -n $STATFILE ]]; then
