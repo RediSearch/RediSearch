@@ -61,7 +61,7 @@ impl<'trie, Data> TrieIterator for SubTrieIterator<'trie, Data> {
         loop {
             let last_iter = self.iters.last_mut()?;
             if let Some(curr_node) = last_iter.next() {
-                self.prefix_buffer.extend(&curr_node.val);
+                self.prefix_buffer.extend(curr_node.val.iter());
                 self.iters.push(Box::new(curr_node.children.values()));
                 self.processed_nodes.push(curr_node);
                 if let Some(data) = curr_node.data.as_ref() {

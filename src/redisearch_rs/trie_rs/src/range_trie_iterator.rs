@@ -144,7 +144,7 @@ impl<'trie, Data> TrieIterator for RangeTrieIterator<'trie, Data> {
         loop {
             let last_iter = self.iters.last_mut()?;
             if let Some((curr_node, range)) = last_iter.next() {
-                self.prefix_buffer.extend(&curr_node.val);
+                self.prefix_buffer.extend(curr_node.val.iter());
                 match range.compare(self.prefix_buffer.as_slice()) {
                     CompareResult::Inside((min_bound, max_bound)) => {
                         // still in range, lets continue

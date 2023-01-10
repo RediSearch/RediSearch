@@ -51,7 +51,7 @@ impl<'trie, Data> TrieIterator for MatchesPrefixesIterator<'trie, Data> {
             let curr_node = self.curr_node?;
             if self.curr_term.starts_with(&curr_node.val) {
                 // node matches, we should try to progress
-                self.curr_prefix.extend(&curr_node.val);
+                self.curr_prefix.extend(curr_node.val.iter());
                 self.curr_term = &self.curr_term[curr_node.val.len()..];
                 self.curr_node = match self.curr_term.first() {
                     Some(c) => curr_node.children.get(*c),

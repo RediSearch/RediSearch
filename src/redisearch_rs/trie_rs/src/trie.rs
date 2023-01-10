@@ -2,17 +2,25 @@ use crate::matches_prefixes_iterator::MatchesPrefixesIterator;
 use crate::ordered_u8_map::OrderedU8Map;
 use crate::range_trie_iterator::RangeTrieIterator;
 use crate::sub_trie_iterator::SubTrieIterator;
+use crate::low_memory_vec::LowMemoryVec;
+use crate::ordered_u8_map::FirstCharGetter;
 
 #[derive(Debug)]
 pub(crate) struct Node<Data> {
-    pub(crate) val: Vec<u8>,
+    pub(crate) val: LowMemoryVec<u8>,
     pub(crate) children: OrderedU8Map<Node<Data>>,
-    pub(crate) data: Option<Data>, // only termina nodes will have data
+    pub(crate) data: Option<Data>, // only terminal nodes will have data
+}
+
+impl<Data> FirstCharGetter for Node<Data> {
+    fn get_first_char(&self) -> u8 {
+        self.val[0]
+    }
 }
 
 impl<Data> Node<Data> {
     fn split(&mut self, index: usize) {
-        let second_val = self.val[index..].to_vec();
+        let second_val = LowMemoryVec::from_slice(&self.val[index..]);
         let mut new_children = OrderedU8Map::new();
         new_children.insert(
             second_val[0],
@@ -22,13 +30,13 @@ impl<Data> Node<Data> {
                 data: self.data.take(),
             },
         );
-        self.val.truncate(index);
+        self.val.truncate(index as u32);
         self.children = new_children;
         self.data = None;
     }
 
     fn add(&mut self, val: &[u8], data: Data) -> (Option<Data>, usize) {
-        if self.val == val {
+        if &*self.val == val {
             // todo: add to current
             let ret = self.data.take();
             self.data = Some(data);
@@ -49,7 +57,7 @@ impl<Data> Node<Data> {
             let child = self.children.get_or_create(val[0], || {
                 n_nodes_added += 1;
                 Node {
-                    val: val.to_vec(),
+                    val: LowMemoryVec::from_slice(val),
                     children: OrderedU8Map::new(),
                     data: None,
                 }
@@ -74,7 +82,7 @@ impl<Data> Node<Data> {
     }
 
     fn get(&self, val: &[u8]) -> Option<&Data> {
-        if val == self.val {
+        if val == &*self.val {
             return self.data.as_ref();
         }
 
@@ -88,7 +96,7 @@ impl<Data> Node<Data> {
     }
 
     fn get_mut(&mut self, val: &[u8]) -> Option<&mut Data> {
-        if val == self.val {
+        if val == &*self.val {
             return self.data.as_mut();
         }
 
@@ -118,7 +126,7 @@ impl<Data> Node<Data> {
     }
 
     fn del(&mut self, val: &[u8]) -> Option<(Data, bool, usize)> {
-        if val == self.val {
+        if val == &*self.val {
             let data = self.data.take();
             let node_deleted = self.try_join_with_single_child();
             return data.map(|v| {
@@ -203,7 +211,7 @@ impl<Data> Trie<Data> {
             }
             None => {
                 self.root = Some(Node {
-                    val: key.to_vec(),
+                    val: LowMemoryVec::from_slice(key),
                     children: OrderedU8Map::new(),
                     data: Some(data),
                 });
