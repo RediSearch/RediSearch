@@ -206,7 +206,8 @@ setup_clang_sanitizer() {
 		fi
 
 		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1"
-		export LSAN_OPTIONS="verbosity=1:log_threads=1:suppressions=$ROOT/tests/memcheck/asan.supp"
+		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp"
+		# verbosity=1:log_threads=1:
 
 	elif [[ $SAN == mem || $SAN == memory ]]; then
 		REDIS_SERVER=${REDIS_SERVER:-redis-server-msan-$SAN_REDIS_VER}
@@ -638,7 +639,7 @@ elif [[ $COORD == oss ]]; then
 			PASSPHRASE=0
 		fi
 
-		PASSPHRASE=$PASSPHRASE $ROOT/sbin/gen-test-certs.sh
+		PASSPHRASE=$PASSPHRASE $ROOT/sbin/gen-test-certs
 		{ (RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} ${tls_args}" \
 		   run_tests "OSS cluster tests TLS"); (( E |= $? )); } || true
 	fi # QUICK
@@ -657,7 +658,7 @@ fi
 
 if [[ $NOP != 1 && -n $SAN ]]; then
 	if [[ -n $SAN || $VG == 1 ]]; then
-		{ FLOW=1 $ROOT/sbin/memcheck-summary.sh; (( E |= $? )); } || true
+		{ FLOW=1 $ROOT/sbin/memcheck-summary; (( E |= $? )); } || true
 	fi
 fi
 

@@ -99,8 +99,14 @@ commands:
           command: |
             rm -f tests/pytests/logs/*.{aof,rdb}
           when: always
+      - run:
+          name: Pack logs
+          command: |
+            tar -cvzf tests-pytests-logs.tgz tests/pytests/logs/*
       - store_artifacts:
-          path: tests/pytests/logs
+          path: tests-pytests-logs.tgz
+          destination: tests-pytests-logs
+          # path: tests/pytests/logs
 
   persist-artifacts:
     steps:
@@ -176,12 +182,12 @@ commands:
           name: Test (Search)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: make test PLATFORM_MODE=1 SHOW=1
+          command: make test PLATFORM_MODE=1 SHOW=1 <<parameters.test_params>>
       - run:
           name: Test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: make test COORD=oss PLATFORM_MODE=1 SHOW=1
+          command: make test COORD=oss PLATFORM_MODE=1 SHOW=1 <<parameters.test_params>>
       - save-tests-logs
 
   build-platforms-steps:
@@ -346,7 +352,8 @@ jobs:
     steps:
       - build-steps:
           redis_version: <<parameters.redis_version>>
-      - test-steps
+      - test-steps:
+          test_params: QUICK=1
       - run:
           name: Persist artifacts?
           command: |
@@ -369,7 +376,8 @@ jobs:
     steps:
       - build-steps:
           redis_version: <<parameters.redis_version>>
-      - test-steps
+      - test-steps:
+          test_params: QUICK=1
 
   build-platforms:
     parameters:
@@ -413,7 +421,8 @@ jobs:
           name: Set up workspace
           command: mkdir -p ~/workspace
       - build-steps
-      - test-steps
+      - test-steps:
+          test_params: QUICK=1
       - run:
           name: Persist artifacts?
           command: |

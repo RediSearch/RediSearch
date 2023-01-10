@@ -38,8 +38,8 @@ RUN set -e ;\
 {% endif %}
 
 {% if TEST == "1" %}
-RUN TEST='' make test PLATFORM_MODE=1
-RUN TEST='' make test COORD=oss PLATFORM_MODE=1
+RUN TEST='' make test PLATFORM_MODE=1 QUICK=1
+RUN TEST='' make test COORD=oss PLATFORM_MODE=1 QUICK=1
 {% endif %}
 
 #----------------------------------------------------------------------------------------------
