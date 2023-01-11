@@ -11,11 +11,21 @@
 #include "cursor.h"
 #include "rmutil/util.h"
 #include "util/timeout.h"
+#include "util/workers.h"
 #include "score_explain.h"
 #include "commands.h"
 #include "profile.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
+
+// Multi threading data structures and functions
+typedef struct { AREQ *r; RedisModuleBlockedClient *bc; } blockingClientReqCtx;
+
+void AREQ_Execute_threadSafe(blockingClientReqCtx *BCRctx);
+static blockingClientReqCtx *blockingClientReqCtx_New(AREQ *r, RedisModuleBlockedClient *bc);
+static void blockingClientReqCtx_destroy(blockingClientReqCtx *);
+static RedisModuleCtx *blockingClientReqCtx_getRedisctx(const blockingClientReqCtx *BCRctx);
+
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
 
 /**
@@ -328,6 +338,37 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
   AREQ_Free(req);
 }
 
+
+void AREQ_Execute_threadSafe(blockingClientReqCtx *BCRctx_) {
+blockingClientReqCtx *BCRctx = (blockingClientReqCtx *)BCRctx_;
+// lockspec
+RedisSearchCtx_LockSpecRead(BCRctx->r->sctx);
+AREQ_Execute(BCRctx->r, blockingClientReqCtx_getRedisctx(BCRctx));
+// No need to unlock spec as AREQ_Execute calls ctx cleanup.
+
+if(RedisModule_BlockedClientMeasureTimeEnd) {
+    // report block client end time
+    RedisModule_BlockedClientMeasureTimeEnd(BCRctx->bc);
+  }
+  blockingClientReqCtx_destroy(BCRctx);
+}
+
+blockingClientReqCtx *blockingClientReqCtx_New(AREQ *r, RedisModuleBlockedClient *bc) {
+  blockingClientReqCtx *ret = rm_malloc(sizeof(blockingClientReqCtx));
+  ret->r = r;
+  ret->bc = bc;
+  return ret;
+}
+
+RedisModuleCtx *blockingClientReqCtx_getRedisctx(const blockingClientReqCtx *BCRctx){
+  return BCRctx->r->sctx->redisCtx;
+}
+
+void blockingClientReqCtx_destroy(blockingClientReqCtx *BCRctx) {
+  RedisModule_UnblockClient(BCRctx->bc, NULL);
+  rm_free(BCRctx);
+}
+
 static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int type,
                         QueryError *status, AREQ **r) {
 
@@ -352,6 +393,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // Prepare the query.. this is where the context is applied.
   if ((*r)->reqflags & QEXEC_F_IS_CURSOR) {
     RedisModuleCtx *newctx = RedisModule_GetThreadSafeContext(NULL);
+    (*r)->reqflags |= QEXEC_F_HAS_THCTX;
     RedisModule_SelectDb(newctx, RedisModule_GetSelectedDb(ctx));
     ctx = thctx = newctx;  // In case of error!
   }
@@ -443,8 +485,16 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     if (rc != REDISMODULE_OK) {
       goto error;
     }
-  } else if (RunInThread(r) && 0 /* Temporary disabled */) {
-    // run in a thread
+  } else if (RunInThread(r)) {
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+      // report block client start time
+      if(RedisModule_BlockedClientMeasureTimeStart){
+        RedisModule_BlockedClientMeasureTimeStart(bc);
+      }
+    r->sctx->redisCtx = RedisModule_GetThreadSafeContext(bc);
+    r->reqflags |= QEXEC_F_HAS_THCTX;
+    blockingClientReqCtx* BCRctx = blockingClientReqCtx_New(r, bc);
+    ThreadPool_AddWork((thpool_proc)AREQ_Execute_threadSafe, BCRctx);
   } else {
     if (IsProfile(r)) {
       RedisModule_ReplyWithArray(ctx, 2);
