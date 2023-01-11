@@ -810,6 +810,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
           IndexSpec *spec = IndexSpec_GetReference(RSDummyContext, aCtx->specName, 0);
           if (spec && aCtx->specId == spec->uniqueId) {
             ++spec->stats.indexingFailures;
+            IndexSpec_ReturnReference(spec);
           }
           RedisModule_ThreadSafeContextUnlock(RSDummyContext);
         }

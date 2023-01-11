@@ -261,6 +261,9 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
 cleanup:
+  if(sp) {
+    IndexSpec_ReturnReference(sp);
+  }
   QueryError_ClearError(&status);
   return REDISMODULE_OK;
 }

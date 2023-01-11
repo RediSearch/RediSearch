@@ -1327,7 +1327,7 @@ void IndexSpec_Free(IndexSpec *spec) {
       RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
       spec->isTimerSet = false;
     }
-    printf("Freeing  index %s\n", spec->name);
+    printf("Freeing  index %s\n in the background\n", spec->name);
     thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeTask, rm_strdup(spec->name));
     return;
   }
@@ -1364,7 +1364,7 @@ void Indexes_Free(dict *d) {
 //---------------------------------------- atomic updates ---------------------------------------
 
 // atomic update of the refcount
-inline static void IndexSpec_IncreaseRef(IndexSpec *sp) {
+void IndexSpec_IncreaseRef(IndexSpec *sp) {
   __atomic_fetch_add(&sp->refcount , 1, __ATOMIC_SEQ_CST);
 }
 
@@ -1455,7 +1455,8 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
 
 void IndexSpec_ReturnReference(IndexSpec *sp) {
   if(!sp) return;
-    if(__atomic_sub_fetch(&sp->refcount, 1, __ATOMIC_SEQ_CST) == 0) {
+  assert(sp->refcount > 0);
+  if(__atomic_sub_fetch(&sp->refcount, 1, __ATOMIC_SEQ_CST) == 0) {
     // if the refcount is 0 we need to free the spec
     IndexSpec_FreeInternals(sp);
   }
@@ -2183,6 +2184,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   IndexSpec_MakeKeyless(sp);
 
+  sp->refcount = 1;
   sp->sortables = NewSortingTable();
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->name = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
@@ -2307,6 +2309,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
+  sp->refcount = 1;
   IndexSpec_MakeKeyless(sp);
   sp->sortables = NewSortingTable();
   sp->terms = NULL;

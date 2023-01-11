@@ -536,6 +536,7 @@ DEBUG_COMMAND(GCForceInvoke) {
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(
       ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, INVOKATION_TIMEOUT);
   GCContext_ForceInvoke(sp->gc, bc);
+  IndexSpec_ReturnReference(sp);
   return REDISMODULE_OK;
 }
 
@@ -549,6 +550,7 @@ DEBUG_COMMAND(GCForceBGInvoke) {
     return REDISMODULE_OK;
   }
   GCContext_ForceBGInvoke(sp->gc);
+  IndexSpec_ReturnReference(sp);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;
 }
@@ -610,6 +612,7 @@ DEBUG_COMMAND(ttl) {
                                             // gone be free each moment. lets return 0 timeout.
     return REDISMODULE_OK;
   }
+  IndexSpec_ReturnReference(sp);
   RedisModule_ReplyWithLongLong(ctx, remaining / 1000);  // return the results in seconds
   return REDISMODULE_OK;
 }
