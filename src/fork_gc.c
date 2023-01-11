@@ -71,8 +71,7 @@ static void FGC_unlock(ForkGC *gc, RedisModuleCtx *ctx) {
 static RedisSearchCtx *FGC_getSctx(ForkGC *gc, RedisModuleCtx *ctx) {
   RedisSearchCtx *sctx = NULL;
   if (gc->type == FGC_TYPE_NOKEYSPACE) {
-    sctx = rm_malloc(sizeof(*sctx));
-    *sctx = SEARCH_CTX_STATIC(ctx, gc->sp);
+    sctx = NewSearchCtxFromSpec(ctx, gc->sp);
   } else if (gc->type == FGC_TYPE_INKEYSPACE) {
     sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName, false);
   }

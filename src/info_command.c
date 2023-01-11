@@ -249,5 +249,6 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   n += 2;
 
   RedisModule_ReplySetArrayLength(ctx, n);
+  IndexSpec_ReturnReference(sp);
   return REDISMODULE_OK;
 }

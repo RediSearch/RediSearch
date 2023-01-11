@@ -514,6 +514,8 @@ IndexSpec *IndexSpec_GetReferenceEx(RedisModuleCtx *ctx, IndexLoadOptions *optio
 
 void IndexSpec_ReturnReference(IndexSpec *sp);
 
+void IndexSpec_IncreaseRef(IndexSpec *sp);
+
 //---------------------------------------------------------------------------------------------
 
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
