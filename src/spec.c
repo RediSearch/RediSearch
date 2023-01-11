@@ -1322,11 +1322,12 @@ void IndexSpec_LegacyFree(void *spec) {
 }
 
 void IndexSpec_Free(IndexSpec *spec) {
-  if (spec->flags & Index_Temporary) {
+  if (!RS_IsMock && (spec->flags & Index_Temporary)) {
     if (spec->isTimerSet) {
       RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
       spec->isTimerSet = false;
     }
+    printf("Freeing  index %s\n", spec->name);
     thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeTask, rm_strdup(spec->name));
     return;
   }
@@ -1363,7 +1364,7 @@ void Indexes_Free(dict *d) {
 //---------------------------------------- atomic updates ---------------------------------------
 
 // atomic update of the refcount
-inline static void IndexSpec_IncreasRef(IndexSpec *sp) {
+inline static void IndexSpec_IncreaseRef(IndexSpec *sp) {
   __atomic_fetch_add(&sp->refcount , 1, __ATOMIC_SEQ_CST);
 }
 
@@ -1393,12 +1394,12 @@ IndexSpec *IndexSpec_GetReferenceEx(RedisModuleCtx *ctx, IndexLoadOptions *optio
     }
   }
 
-  IndexSpec_IncreasRef(sp);
+  IndexSpec_IncreaseRef(sp);
 
   // Increament the number of uses.
   IndexSpec_IncreasCounter(sp);
 
-  if ((sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
+  if (!RS_IsMock && (sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
     if (sp->isTimerSet) {
       RedisModule_StopTimer(RSDummyContext, sp->timerId, NULL);
     }
@@ -1454,13 +1455,10 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
 
 void IndexSpec_ReturnReference(IndexSpec *sp) {
   if(!sp) return;
-
-  printf("ref count %ld\n", sp->refcount);
-  if(__atomic_sub_fetch(&sp->refcount, 1, __ATOMIC_SEQ_CST) == 0) {
+    if(__atomic_sub_fetch(&sp->refcount, 1, __ATOMIC_SEQ_CST) == 0) {
     // if the refcount is 0 we need to free the spec
-    IndexSpec_Free(sp);
+    IndexSpec_FreeInternals(sp);
   }
-  printf("ref count %ld\n", sp->refcount);
 
 }
 

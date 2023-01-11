@@ -61,11 +61,14 @@ class FGCTest : public ::testing::Test {
     sp = createIndex(ctx);
     RSGlobalConfig.forkGcCleanThreshold = 0;
     Spec_AddToDict(sp);
+    IndexSpec_GetReference(ctx, "idx", 0);
     fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
     runGcThread(ctx, fgc, sp);
   }
 
   void TearDown() override {
+    // Return the reference
+    IndexSpec_ReturnReference(sp);
     RediSearch_DropIndex(sp);
     pthread_join(thread, NULL);
   }
