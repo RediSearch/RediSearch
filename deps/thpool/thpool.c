@@ -240,9 +240,7 @@ void thpool_resume(thpool_* thpool_p) {
 }
 
 size_t thpool_num_threads_working(thpool_* thpool_p) {
-  pthread_mutex_lock(&thpool_p->thcount_lock);
-    return thpool_p->num_threads_working;
-  pthread_mutex_unlock(&thpool_p->thcount_lock);
+  return thpool_p->num_threads_working;
 }
 
 /* ============================ THREAD ============================== */

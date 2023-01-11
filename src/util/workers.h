@@ -10,17 +10,17 @@
 #include <assert.h>
 
 // create workers thread pool
-int ThreadPool_CreatePool(size_t worker_count);
+int workersThreadPool_CreatePool(size_t worker_count);
 
 // return number of currently working threads
-int ThreadPool_WorkingThreadCount(void);
+size_t workersThreadPool_WorkingThreadCount(void);
 
 // adds a task
-int ThreadPool_AddWork(thpool_proc, void *arg_p);
+int workersThreadPool_AddWork(thpool_proc, void *arg_p);
 
 // Wait until all jobs have finished
-void ThreadPool_Wait(void);
+void workersThreadPool_Wait(void);
 
 // destroys thread pool, allows threads to exit gracefully
 // Can be called on uninitialized threadpool.
-void ThreadPool_Destroy(void);
+void workersThreadPool_Destroy(void);
