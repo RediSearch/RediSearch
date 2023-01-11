@@ -2,19 +2,20 @@
 
 from includes import *
 from common import *
+from RLTest import Env
 
 def search(env, r, *args):
     return r.execute_command('ft.search', *args)
 
-def testTagIndex(env):
-    r = env
+def testTagIndex():
+    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
     env.expect('ft.create', 'idx', 'ON', 'HASH','schema', 'title', 'text', 'tags', 'tag').ok()
     N = 10
     for n in range(N):
         env.expect('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
                                        'title', 'hello world term%d' % n, 'tags', 'foo bar,xxx,tag %d' % n).ok()
-    for _ in r.retry_with_rdb_reload():
-        waitForIndex(r, 'idx')
+    for _ in env.retry_with_rdb_reload():
+        waitForIndex(env, 'idx')
         res = env.cmd('ft.search', 'idx', 'hello world')
         env.assertEqual(10, res[0])
 

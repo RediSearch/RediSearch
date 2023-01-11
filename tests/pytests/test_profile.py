@@ -122,11 +122,11 @@ def testProfileSearchLimited(env):
                   ['Type', 'UNION', 'Query type', 'PREFIX - hel', 'Counter', 3, 'Child iterators', 'The number of iterators in the union is 4']]]
   env.assertEqual(actual_res[1][3], expected_res)
 
-def testProfileAggregate(env):
+def testProfileAggregate():
+  env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE _PRINT_PROFILE_CLOCK FALSE')
+
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
-
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
   conn.execute_command('hset', '1', 't', 'hello')
   conn.execute_command('hset', '2', 't', 'world')
@@ -210,11 +210,10 @@ def testProfileTag(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@t:{foo}', 'nocontent')
   env.assertEqual(actual_res[1][3], ['Iterators profile', ['Type', 'TAG', 'Term', 'foo', 'Counter', 2, 'Size', 2]])
 
-def testProfileVector(env):
+def testProfileVector():
+  env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE _PRINT_PROFILE_CLOCK FALSE DEFAULT_DIALECT 2')
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
-  env.cmd('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', '2')
 
   env.expect('FT.CREATE idx SCHEMA v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 t TEXT').ok()
   conn.execute_command('hset', '1', 'v', 'bababaca', 't', "hello")
