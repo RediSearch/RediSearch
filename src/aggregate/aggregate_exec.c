@@ -494,7 +494,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     r->sctx->redisCtx = RedisModule_GetThreadSafeContext(bc);
     r->reqflags |= QEXEC_F_HAS_THCTX;
     blockingClientReqCtx* BCRctx = blockingClientReqCtx_New(r, bc);
-    ThreadPool_AddWork((thpool_proc)AREQ_Execute_threadSafe, BCRctx);
+    workersThreadPool_AddWork((thpool_proc)AREQ_Execute_threadSafe, BCRctx);
   } else {
     if (IsProfile(r)) {
       RedisModule_ReplyWithArray(ctx, 2);
