@@ -84,7 +84,7 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
 
 
 def test_sanity_cosine():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKER_THREADS 1 ENABLE_THREADS TRUE')
     conn = getConnectionByEnv(env)
 
     index_types = ['FLAT', 'HNSW']

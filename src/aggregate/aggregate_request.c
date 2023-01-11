@@ -1403,6 +1403,7 @@ void AREQ_Free(AREQ *req) {
       thctx = req->sctx->redisCtx;
       req->sctx->redisCtx = NULL;
     }
+    // Here we unlock the spec
     SearchCtx_Free(req->sctx);
   }
   for (size_t ii = 0; ii < req->nargs; ++ii) {

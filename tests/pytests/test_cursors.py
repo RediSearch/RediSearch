@@ -3,6 +3,7 @@ import unittest
 from redis import ResponseError
 from includes import *
 from common import waitForIndex
+from RLTest import Env
 
 
 def to_dict(res):
@@ -38,7 +39,10 @@ def getCursorStats(env, idx='idx'):
         return {'index_total' : 0, 'global_total' : 0}
     return to_dict(info_dict)
 
-def testCursors(env):
+def testCursors():
+    # We don't support multi threaded aggregate and cursor, but we want to make sure that 
+    # they are not effected.
+    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
     loadDocs(env)
     query = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@f1', 'WITHCURSOR']
     resp = env.cmd(*query)
