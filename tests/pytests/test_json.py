@@ -1121,17 +1121,31 @@ def testOutOfRangeValues(env):
             res = env.execute_command('FT.SEARCH', 'idx', '@{}:[{} {}]'.format(k, v, v), 'NOCONTENT')
             env.assertEqual(res, expecteds[i], message="{}: {} {}".format(name, k, v))
 
+    def aggregate_key(env, name, key, expecteds):
+        for i, (k,v) in enumerate(key.items()):
+            res = env.execute_command('FT.AGGREGATE', 'idx', '@{}:[{} {}]'.format(k, v, v), 'LOAD', '1', '__key')
+            env.assertEqual(res, expecteds[i], message="{}: {} {}".format(name, k, v))
+
     set_key(env, 'doc_int', doc_int)
     set_key(env, 'doc_int_2', doc_int_2)
     set_key(env, 'doc_float', doc_float)
     set_key(env, 'doc_float_2', doc_float_2, False)
     
-    search_key(env, 'doc_int', doc_int, [[1, 'doc_int'],[1, 'doc_int']])
+    search_key(env, 'doc_int', doc_int, [
+        [2, 'doc_int', 'doc_int_2'],    # related to PM-1166 and values beyond 2^53
+        [1, 'doc_int'],
+        [1, 'doc_int']])
+    aggregate_key(env, 'doc_int', doc_int, [
+        [1, ['__key', 'doc_int'], ['__key', 'doc_int_2']],
+        [1, ['__key', 'doc_int']],
+    ])
 
     # PM-1166 - integers greater than 2^53 loose precision as doubles
     # (e.g., 9223372036854775809 == 9223372036854775808)
-    search_key(env, 'doc_int_2', doc_int_2, [[1, 'doc_int']])
+    search_key(env, 'doc_int_2', doc_int_2, [[2, 'doc_int', 'doc_int_2']])
+    aggregate_key(env, 'doc_int_2', doc_int_2, [[1, ['__key', 'doc_int'], ['__key', 'doc_int_2']]])
     
     search_key(env, 'doc_float', doc_float, [[1, 'doc_float'], [1, 'doc_float']], epsilon=sys.float_info.epsilon)
+    aggregate_key(env, 'doc_float', doc_float, [[1, ['__key', 'doc_float']]])
 
     

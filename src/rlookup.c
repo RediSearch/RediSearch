@@ -273,7 +273,7 @@ static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type) {
   }
 }
 
-static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json, unsigned int apiVersion) {
+static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
   size_t len;
   char *str;
   const char *constStr;
@@ -290,7 +290,7 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json, unsigned int
       str = rm_strndup(constStr, len);
       return RS_StringVal(str, len);
     case JSONType_Int:
-      if (japi->getInt(json, &ll) == REDISMODULE_OK || apiVersion < 4) {
+      if (japi->getInt(json, &ll) == REDISMODULE_OK || japi_ver < 4) {
         return RS_Int64Val(ll);
       }
       japi->getUInt(json, &ull);
@@ -329,7 +329,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
     if (!json) {
       goto done;
     }
-    *rsv = jsonValToValue(ctx, json, apiVersion);
+    *rsv = jsonValToValue(ctx, json);
     res = REDISMODULE_OK;
     goto done;
   }
@@ -351,7 +351,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
     }
 
     if (json) {
-      RSValue *val = jsonValToValue(ctx, json, apiVersion);
+      RSValue *val = jsonValToValue(ctx, json);
       RSValue *otherval = RS_StealRedisStringVal(serialized);
       *rsv = RS_DuoVal(val, otherval);
       res = REDISMODULE_OK;
