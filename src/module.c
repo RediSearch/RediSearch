@@ -1113,7 +1113,7 @@ void RediSearch_CleanupModule(void) {
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
-  ThreadPool_Destroy();
+  workersThreadPool_Destroy();
 
   // free global structures
   Extensions_Free();
