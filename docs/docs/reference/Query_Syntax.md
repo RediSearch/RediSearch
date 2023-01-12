@@ -10,13 +10,25 @@ description: >
 
 We support a simple syntax for complex queries with the following rules:
 
-* Multi-word phrases simply a list of tokens, e.g. `foo bar baz`, and imply intersection (AND) of the terms.
-* Exact phrases are wrapped in quotes, e.g `"hello world"`.
-* OR Unions (i.e `word1 OR word2`), are expressed with a pipe (`|`), e.g. `hello|hallo|shalom|hola`.
-* NOT negation (i.e. `word1 NOT word2`) of expressions or sub-queries. e.g. `hello -world`. As of version 0.19.3, purely negative queries (i.e. `-foo` or `-@title:(foo|bar)`) are supported.
-* Prefix/Infix/Suffix matches (all terms starting/containing/ending with a term) are expressed with a `*`. For performance reasons, a minimum term length is enforced (2 by default, but is configurable).
-* Wildcard pattern matches: `w'foo*bar?'`.
-* A special "wildcard query" that returns all results in the index - `*` (cannot be combined with anything else).
+   **Notes**:   
+   
+   Consider the differences in parser behavior in example `hello world | "goodbye" moon`:
+   * In DIALECT 1, this query is interpreted as searching for `(hello world | "goodbye") moon`.
+   * In DIALECT 2 or greater, this query is interpreted as searching for either `hello world` **OR** `"goodbye" moon`.
+   
+* `NOT` negation of expressions or subqueries is expressed with a subtraction symbol (`-`), for example, `hello -world`. Purely negative queries (for example, `-foo` or `-@title:(foo|bar)`) are also supported.
+
+   **Notes**:
+   
+   Consider a simple query with negation `-hello world`:
+   * In DIALECT 1, this query is interpreted as "find values in any field that does not contain `hello` **AND** does not contain `world`". The equivalent is `-(hello world)` or `-hello -world`.
+   * In DIALECT 2 or greater, this query is interpreted `as -hello` **AND** `world` (only `hello` is negated).
+   * In DIALECT 2 or greater, to achieve the default behavior of DIALECT 1, update your query to `-(hello world)`.
+  
+* Prefix/infix/suffix matches (all terms starting/containing/ending with a term) are expressed with a `*`. For performance reasons, a minimum term length is enforced (default is 2), but is configurable.
+* In DIALECT 2 or greater, wildcard pattern matches are expressed as `"w'foo*bar?'"`. **Note the use of double quotes to sustain the _w_ pattern.** 
+* A special _wildcard query_ that returns all results in the index, `*` (cannot be combined with other options).
+* `DIALECT 3` returns JSON rather than scalars from multivalue attributes **(as of v2.6.1)**.
 * Selection of specific fields using the syntax `hello @field:world`.
 * Numeric Range matches on numeric fields with the syntax `@field:[{min} {max}]`.
 * Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`.
