@@ -499,21 +499,42 @@ typedef struct {
 //---------------------------------------------------------------------------------------------
 
 /**
- * Find and load the index using the specified parameters.
+ * Find and load the index using the specified parameters. The call does not increase the spec reference counter.
+ * @return the index spec, or NULL if the index does not exist
+ */
+IndexSpec* IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name, int openWrite);
+
+/**
+ * Find and load the index using the specified parameters. The call does not increase the spec reference counter.
+ * @return the index spec, or NULL if the index does not exist
+ */
+IndexSpec* IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
+
+/**
+ * Find and load the index using the specified parameters.The caller is considered as borrowing the index spec.
  * @return the index spec, or NULL if the index does not exist
  */
 
 IndexSpec *IndexSpec_GetReference(RedisModuleCtx *ctx, const char *name, int openWrite);
 
 /**
- * Find and load the index using the specified parameters.
+ * Find and load the index using the specified parameters. The caller is considered as borrowing the index spec.
  * @return the index spec, or NULL if the index does not exist
  */
 IndexSpec *IndexSpec_GetReferenceEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
 
-
+/**
+ * @brief Return a reference to of the index spec. From now on the object is no longer owned by the caller.
+ * 
+ * @param sp 
+ */
 void IndexSpec_ReturnReference(IndexSpec *sp);
 
+/**
+ * @brief Increase the reference count of the index spec
+ * 
+ * @param sp 
+ */
 void IndexSpec_IncreaseRef(IndexSpec *sp);
 
 //---------------------------------------------------------------------------------------------
