@@ -4,6 +4,7 @@ use crate::range_trie_iterator::RangeTrieIterator;
 use crate::sub_trie_iterator::SubTrieIterator;
 use crate::low_memory_vec::LowMemoryVec;
 use crate::ordered_u8_map::FirstCharGetter;
+use crate::wildcard_trie_iterator::WildcardTrieIterator;
 
 #[derive(Debug)]
 pub(crate) struct Node<Data> {
@@ -308,6 +309,20 @@ impl<Data> Trie<Data> {
         include_max: bool,
     ) -> RangeTrieIterator<'trie, Data> {
         RangeTrieIterator::new(self, min, include_min, max, include_max)
+    }
+
+    pub fn wildcard_search<'trie>(
+        &'trie mut self,
+        val: &'trie [u8],
+    ) -> WildcardTrieIterator<'trie, Data> {
+        WildcardTrieIterator::new(val, self.root.as_ref())
+    }
+
+    pub fn wildcard_search_str<'trie>(
+        &'trie mut self,
+        val: &'trie str,
+    ) -> WildcardTrieIterator<'trie, Data> {
+        self.wildcard_search(val.as_bytes())
     }
 
     pub fn lex_range_str<'trie>(

@@ -24,7 +24,7 @@ static uint32_t tagUniqueId = 0;
 /* See tag_index.h for documentation  */
 TagIndex *NewTagIndex() {
   TagIndex *idx = rm_new(TagIndex);
-  idx->values = NewTrieMap();
+  idx->values = RS_NewTrieMap();
   idx->uniqueId = tagUniqueId++;
   idx->suffix = NULL;
   return idx;
@@ -124,11 +124,11 @@ char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *d
 }
 
 struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_t len, int create) {
-  InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
-  if (iv == TRIEMAP_NOTFOUND) {
+  InvertedIndex *iv = RS_TrieMap_Get(idx->values, (char *)value, len);
+  if (!iv) {
     if (create) {
       iv = NewInvertedIndex(Index_DocIdsOnly, 1);
-      TrieMap_Add(idx->values, (char *)value, len, iv, NULL);
+      RS_TrieMap_Add(idx->values, (char *)value, len, iv);
     }
   }
   return iv;
@@ -243,8 +243,8 @@ IndexIterator *TagIndex_GetReader(IndexSpec *sp, InvertedIndex *iv, const char *
 IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *value, size_t len,
                                    double weight) {
 
-  InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
-  if (iv == TRIEMAP_NOTFOUND || !iv || iv->numDocs == 0) {
+  InvertedIndex *iv = RS_TrieMap_Get(idx->values, (char *)value, len);
+  if (!iv || iv->numDocs == 0) {
     return NULL;
   }
   return TagIndex_GetReader(sp, iv, value, len, weight);
@@ -306,21 +306,21 @@ TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, i
 
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
-  TrieMapIterator *it = TrieMap_Iterate(idx->values, "", 0);
+  RS_SubTrieIterator *it = RS_TrieMap_Find(idx->values, "", 0);
 
   char *str;
-  tm_len_t slen;
+  size_t slen;
   void *ptr;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   long long count = 0;
-  while (TrieMapIterator_Next(it, &str, &slen, &ptr)) {
+  while (RS_SubTrieIterator_Next(it, &str, &slen, &ptr)) {
     ++count;
     RedisModule_ReplyWithStringBuffer(ctx, str, slen);
   }
 
   RedisModule_ReplySetArrayLength(ctx, count);
 
-  TrieMapIterator_Free(it);
+  RS_SubTrieIterator_Free(it);
 }
 
 RedisModuleType *TagIndexType;
@@ -334,33 +334,33 @@ void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     char *s = RedisModule_LoadStringBuffer(rdb, &slen);
     InvertedIndex *inv = InvertedIndex_RdbLoad(rdb, INVERTED_INDEX_ENCVER);
     RS_LOG_ASSERT(inv, "loading inverted index from rdb failed");
-    TrieMap_Add(idx->values, s, MIN(slen, MAX_TAG_LEN), inv, NULL);
+    RS_TrieMap_Add(idx->values, s, MIN(slen, MAX_TAG_LEN), inv);
     RedisModule_Free(s);
   }
   return idx;
 }
 void TagIndex_RdbSave(RedisModuleIO *rdb, void *value) {
   TagIndex *idx = value;
-  RedisModule_SaveUnsigned(rdb, idx->values->cardinality);
-  TrieMapIterator *it = TrieMap_Iterate(idx->values, "", 0);
+  RedisModule_SaveUnsigned(rdb, RS_TrieMap_Size(idx->values));
+  RS_SubTrieIterator *it = RS_TrieMap_Find(idx->values, "", 0);
 
   char *str;
-  tm_len_t slen;
+  size_t slen;
   void *ptr;
   size_t count = 0;
-  while (TrieMapIterator_Next(it, &str, &slen, &ptr)) {
+  while (RS_SubTrieIterator_Next(it, &str, &slen, &ptr)) {
     count++;
     RedisModule_SaveStringBuffer(rdb, str, slen);
     InvertedIndex *inv = ptr;
     InvertedIndex_RdbSave(rdb, inv);
   }
-  RS_LOG_ASSERT(count == idx->values->cardinality, "not all inverted indexes save to rdb");
-  TrieMapIterator_Free(it);
+  RS_LOG_ASSERT(count == RS_TrieMap_Size(idx->values), "not all inverted indexes save to rdb");
+  RS_SubTrieIterator_Free(it);
 }
 
 void TagIndex_Free(void *p) {
   TagIndex *idx = p;
-  TrieMap_Free(idx->values, InvertedIndex_Free);
+  RS_TrieMap_Free(idx->values, InvertedIndex_Free);
   TrieMap_Free(idx->suffix, suffixTrieMap_freeCallback);
   rm_free(idx);
 }
@@ -369,15 +369,15 @@ size_t TagIndex_MemUsage(const void *value) {
   const TagIndex *idx = value;
   size_t sz = sizeof(*idx);
 
-  TrieMapIterator *it = TrieMap_Iterate(idx->values, "", 0);
+  RS_SubTrieIterator *it = RS_TrieMap_Find(idx->values, "", 0);
 
   char *str;
-  tm_len_t slen;
+  size_t slen;
   void *ptr;
-  while (TrieMapIterator_Next(it, &str, &slen, &ptr)) {
+  while (RS_SubTrieIterator_Next(it, &str, &slen, &ptr)) {
     sz += slen + InvertedIndex_MemUsage((InvertedIndex *)ptr);
   }
-  TrieMapIterator_Free(it);
+  RS_SubTrieIterator_Free(it);
   return sz;
 }
 

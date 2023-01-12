@@ -6,6 +6,7 @@ pub mod range_trie_iterator;
 pub mod sub_trie_iterator;
 pub mod trie;
 pub mod trie_iter;
+pub mod wildcard_trie_iterator;
 
 use std::alloc::{GlobalAlloc, Layout};
 use std::os::raw::c_void;
@@ -325,6 +326,80 @@ mod trie_tests {
                 ("bar1".to_string(), 3),
                 ("foo".to_string(), 4),
                 ("foo1".to_string(), 1)
+            ]
+        );
+    }
+
+
+    #[test]
+    fn test_wildcard() {
+        let mut trie: Trie<usize> = Trie::new();
+        trie.add_str("afoo", 4);
+        trie.add_str("afoo1", 1);
+        trie.add_str("aboo", 2);
+        trie.add_str("aboo1", 3);
+
+        let mut res: Vec<(String, usize)> = trie.wildcard_search_str("*oo*")
+            .into_iter()
+            .map(|(k, v)| (str::from_utf8(&k).unwrap().to_string(), *v))
+            .collect();
+        
+        res.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+        assert_eq!(
+            res,
+            vec![
+                ("afoo1".to_string(), 1),
+                ("aboo".to_string(), 2),
+                ("aboo1".to_string(), 3),
+                ("afoo".to_string(), 4)
+            ]
+        );
+
+        let mut res: Vec<(String, usize)> = trie.wildcard_search_str("*foo*")
+            .into_iter()
+            .map(|(k, v)| (str::from_utf8(&k).unwrap().to_string(), *v))
+            .collect();
+        
+        res.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+        assert_eq!(
+            res,
+            vec![
+                ("afoo1".to_string(), 1),
+                ("afoo".to_string(), 4)
+            ]
+        );
+
+        let mut res: Vec<(String, usize)> = trie.wildcard_search_str("*f?o*")
+            .into_iter()
+            .map(|(k, v)| (str::from_utf8(&k).unwrap().to_string(), *v))
+            .collect();
+        
+        res.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+        assert_eq!(
+            res,
+            vec![
+                ("afoo1".to_string(), 1),
+                ("afoo".to_string(), 4)
+            ]
+        );
+
+        let mut res: Vec<(String, usize)> = trie.wildcard_search_str("*??o*")
+            .into_iter()
+            .map(|(k, v)| (str::from_utf8(&k).unwrap().to_string(), *v))
+            .collect();
+        
+        res.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+        assert_eq!(
+            res,
+            vec![
+                ("afoo1".to_string(), 1),
+                ("aboo".to_string(), 2),
+                ("aboo1".to_string(), 3),
+                ("afoo".to_string(), 4)
             ]
         );
     }

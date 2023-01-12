@@ -33,6 +33,7 @@
 #include "aggregate/aggregate.h"
 #include "suffix.h"
 #include "wildcard/wildcard.h"
+#include "redisearch_rs/trie_rs/src/triemap.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -944,7 +945,7 @@ typedef IndexIterator **IndexIteratorArray;
 
 static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
                                                 IndexIteratorArray *iterout, double weight) {
-  TrieMap *t = idx->values;
+  RS_TrieMap *t = idx->values;
   LexRangeCtx ctx = {.q = q, .opts = &qn->opts, .weight = weight};
 
   if (!t) {
@@ -958,8 +959,15 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   const char *begin = qn->lxrng.begin, *end = qn->lxrng.end;
   int nbegin = begin ? strlen(begin) : -1, nend = end ? strlen(end) : -1;
 
-  TrieMap_IterateRange(t, begin, nbegin, qn->lxrng.includeBegin, end, nend, qn->lxrng.includeEnd,
-                       rangeIterCbStrs, &ctx);
+  RS_LexRangeIterator *iter = RS_TrieMap_FindLexRange(t, begin, nbegin, qn->lxrng.includeBegin, end, nend, qn->lxrng.includeEnd);
+
+  char *str = NULL;
+  size_t len = 0;
+  void *data = NULL;
+  while(RS_LexRangeIterator_Next(iter, &str, &len, &data)) {
+      rangeIterCbStrs(str, len, data, &ctx);
+  }
+
   if (ctx.nits == 0) {
     rm_free(ctx.its);
     return NULL;
@@ -987,40 +995,62 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
 
   if (!qn->pfx.suffix || !withSuffixTrie) {    // prefix query or no suffix triemap, use bruteforce
-    TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
-    if (!it) return NULL;
-    TrieMapIterator_SetTimeout(it, q->sctx->timeout);
-    TrieMapIterator_NextFunc nextFunc = TrieMapIterator_Next;
+      //todo: handle timeout
+    if (!qn->pfx.suffix) {
+        RS_SubTrieIterator *it = RS_TrieMap_Find(idx->values, tok->str, tok->len);
+        if (!it) return NULL;
+        char *s;
+        size_t sl;
+        void *ptr;
 
-    if (qn->pfx.suffix) {
-      nextFunc = TrieMapIterator_NextContains;
-      if (qn->pfx.prefix) { // contains mode
-        it->mode = TM_CONTAINS_MODE;
-      } else {
-        it->mode = TM_SUFFIX_MODE;
-      }
+        // Find all completions of the prefix
+        while (RS_SubTrieIterator_Next(it, &s, &sl, &ptr) &&
+              (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
+          IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
+          if (!ret) continue;
+
+          // Add the reader to the iterator array
+          its[itsSz++] = ret;
+          if (itsSz == itsCap) {
+            itsCap *= 2;
+            its = rm_realloc(its, itsCap * sizeof(*its));
+          }
+        }
+        RS_SubTrieIterator_Free(it);
+    } else { // fallback to wildcard, if we will find out that this reduces performance we will have to optimize it.
+        char *data_to_search = NULL;
+        if (!qn->pfx.prefix) {
+            // only suffix
+            rm_asprintf(&data_to_search, "*%.*s", tok->len, tok->str);
+        } else {
+            // must be contains
+            rm_asprintf(&data_to_search, "*%.*s*", tok->len, tok->str);
+        }
+        RS_WildcardIterator *it = RS_TrieMap_FindWildcard(idx->values, data_to_search, strlen(data_to_search));
+        if (!it) {
+            rm_free(data_to_search);
+            return NULL;
+        }
+        char *s;
+        size_t sl;
+        void *ptr;
+
+        // Find all completions of the prefix
+        while (RS_WildcardIterator_Next(it, &s, &sl, &ptr) &&
+              (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
+          IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
+          if (!ret) continue;
+
+          // Add the reader to the iterator array
+          its[itsSz++] = ret;
+          if (itsSz == itsCap) {
+            itsCap *= 2;
+            its = rm_realloc(its, itsCap * sizeof(*its));
+          }
+        }
+        RS_WildcardIterator_Free(it);
+        rm_free(data_to_search);
     }
-
-
-    // an upper limit on the number of expansions is enforced to avoid stuff like "*"
-    char *s;
-    tm_len_t sl;
-    void *ptr;
-
-    // Find all completions of the prefix
-    while (nextFunc(it, &s, &sl, &ptr) &&
-          (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
-      IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
-      if (!ret) continue;
-
-      // Add the reader to the iterator array
-      its[itsSz++] = ret;
-      if (itsSz == itsCap) {
-        itsCap *= 2;
-        its = rm_realloc(its, itsCap * sizeof(*its));
-      }
-    }
-    TrieMapIterator_Free(it);
   } else {    // TAG field has suffix triemap
     arrayof(char**) arr = GetList_SuffixTrieMap(idx->suffix, tok->str, tok->len,
                                                 qn->pfx.prefix, q->sctx->timeout);
@@ -1109,17 +1139,17 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
 
   if (!idx->suffix || fallbackBruteForce) {
     // brute force wildcard query
-    TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
-    TrieMapIterator_SetTimeout(it, q->sctx->timeout);
+    RS_WildcardIterator *it = RS_TrieMap_FindWildcard(idx->values, tok->str, tok->len);
+    // todo: handle timeout
+//    TrieMapIterator_SetTimeout(it, q->sctx->timeout);
     // If there is no '*`, the length is known which can be used for optimization
-    it->mode = strchr(tok->str, '*') ? TM_WILDCARD_MODE : TM_WILDCARD_FIXED_LEN_MODE;
 
     char *s;
-    tm_len_t sl;
+    size_t sl;
     void *ptr;
 
     // Find all completions of the prefix
-    while (TrieMapIterator_NextWildcard(it, &s, &sl, &ptr) &&
+    while (RS_WildcardIterator_Next(it, &s, &sl, &ptr) &&
           (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
       IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
       if (!ret) continue;
@@ -1131,7 +1161,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
         its = rm_realloc(its, itsCap * sizeof(*its));
       }
     }
-    TrieMapIterator_Free(it);
+    RS_WildcardIterator_Free(it);
   } else
 
   if (itsSz == 0) {

@@ -13,6 +13,7 @@
 #include "value.h"
 #include "geo_index.h"
 #include "vector_index.h"
+#include "redisearch_rs/trie_rs/src/triemap.h"
 
 struct InvertedIndex;
 
@@ -101,7 +102,7 @@ extern "C" {
  */
 typedef struct {
   uint32_t uniqueId;
-  TrieMap *values;
+  RS_TrieMap *values;
   TrieMap *suffix;
 } TagIndex;
 

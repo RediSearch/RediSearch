@@ -24,6 +24,7 @@
 #include "module.h"
 #include "rmutil/rm_assert.h"
 #include "suffix.h"
+#include "redisearch_rs/trie_rs/src/triemap.h"
 
 #ifdef __linux__
 #include <sys/prctl.h>
@@ -506,11 +507,11 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
                              .field = tagFields[i]->name,
                              .uniqueId = tagIdx->uniqueId};
 
-      TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values, "", 0);
+      RS_SubTrieIterator *iter = RS_TrieMap_Find(tagIdx->values, "", 0);
       char *ptr;
-      tm_len_t len;
+      size_t len;
       InvertedIndex *value;
-      while (TrieMapIterator_Next(iter, &ptr, &len, (void **)&value)) {
+      while (RS_SubTrieIterator_Next(iter, &ptr, &len, (void **)&value)) {
         header.curPtr = value;
         header.tagValue = ptr;
         header.tagLen = len;
@@ -1079,7 +1080,8 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
 
     // if tag value is empty, let's remove it.
     if (idx->numDocs == 0) {
-      TrieMap_Delete(tagIdx->values, tagVal, tagValLen, InvertedIndex_Free);
+        void* val = RS_TrieMap_Delete(tagIdx->values, tagVal, tagValLen);
+        if (val) InvertedIndex_Free(val);
 
       if (tagIdx->suffix) {
         deleteSuffixTrieMap(tagIdx->suffix, tagVal, tagValLen);
