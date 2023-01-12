@@ -1376,7 +1376,15 @@ inline static void IndexSpec_IncreasCounter(IndexSpec *sp) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-IndexSpec *IndexSpec_GetReferenceEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
+IndexSpec* IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name, int openWrite) {
+  IndexLoadOptions lopts = {.flags = openWrite ? INDEXSPEC_LOAD_WRITEABLE : 0,
+                            .name = {.cstring = name}};
+  lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
+  return IndexSpec_LoadUnsafeEx(ctx, &lopts);
+}
+
+
+IndexSpec* IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
   const char *ixname = NULL;
   if (options->flags & INDEXSPEC_LOAD_KEY_RSTRING) {
     ixname = RedisModule_StringPtrLen(options->name.rstring, NULL);
@@ -1394,8 +1402,6 @@ IndexSpec *IndexSpec_GetReferenceEx(RedisModuleCtx *ctx, IndexLoadOptions *optio
     }
   }
 
-  IndexSpec_IncreaseRef(sp);
-
   // Increament the number of uses.
   IndexSpec_IncreasCounter(sp);
 
@@ -1405,16 +1411,20 @@ IndexSpec *IndexSpec_GetReferenceEx(RedisModuleCtx *ctx, IndexLoadOptions *optio
     }
     IndexSpec_SetTimeoutTimer(sp);
   }
+}
 
+
+IndexSpec *IndexSpec_GetReferenceEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
+  IndexSpec *sp = IndexSpec_LoadUnsafeEx(ctx, options);
+  IndexSpec_IncreaseRef(sp);
   return sp;
 }
 
 /* Load the spec from the saved version */
 IndexSpec *IndexSpec_GetReference(RedisModuleCtx *ctx, const char *name, int openWrite) {
-  IndexLoadOptions lopts = {.flags = openWrite ? INDEXSPEC_LOAD_WRITEABLE : 0,
-                            .name = {.cstring = name}};
-  lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
-  return IndexSpec_GetReferenceEx(ctx, &lopts);
+  IndexSpec *sp = IndexSpec_LoadUnsafe(ctx, name, openWrite);
+  IndexSpec_IncreaseRef(sp);
+  return sp;
 }
 
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
