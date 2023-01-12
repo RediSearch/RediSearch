@@ -540,7 +540,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) return RedisModule_WrongArity(ctx);
 
-  IndexSpec *sp = IndexSpec_LoadUnsafeEx(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  IndexSpec *sp = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     return REDISMODULE_OK;

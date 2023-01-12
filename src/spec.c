@@ -1411,19 +1411,25 @@ IndexSpec* IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options
     }
     IndexSpec_SetTimeoutTimer(sp);
   }
+
+  return sp;
 }
 
 
 IndexSpec *IndexSpec_GetReferenceEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
   IndexSpec *sp = IndexSpec_LoadUnsafeEx(ctx, options);
-  IndexSpec_IncreaseRef(sp);
+  if (sp) {
+    IndexSpec_IncreaseRef(sp);
+  }
   return sp;
 }
 
 /* Load the spec from the saved version */
 IndexSpec *IndexSpec_GetReference(RedisModuleCtx *ctx, const char *name, int openWrite) {
   IndexSpec *sp = IndexSpec_LoadUnsafe(ctx, name, openWrite);
-  IndexSpec_IncreaseRef(sp);
+  if (sp) {
+    IndexSpec_IncreaseRef(sp);
+  }
   return sp;
 }
 
