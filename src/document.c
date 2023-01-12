@@ -730,7 +730,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
       return -1;
     }
     if (FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
-      tidx->suffix = NewTrieMap();
+      tidx->suffix = RS_NewTrieMap();
     }
   }
 

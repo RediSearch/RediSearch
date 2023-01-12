@@ -338,6 +338,7 @@ mod trie_tests {
         trie.add_str("afoo1", 1);
         trie.add_str("aboo", 2);
         trie.add_str("aboo1", 3);
+        trie.add_str("bbbb", 3);
 
         let mut res: Vec<(String, usize)> = trie.wildcard_search_str("*oo*")
             .into_iter()

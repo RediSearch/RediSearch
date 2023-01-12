@@ -436,17 +436,17 @@ DEBUG_COMMAND(DumpSuffix) {
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     long resultSize = 0;
 
-    TrieMapIterator *it = TrieMap_Iterate(idx->suffix, "", 0);
+    RS_SubTrieIterator* it = RS_TrieMap_Find(idx->suffix, "", 0);
     char *str;
-    tm_len_t len;
+    size_t len;
     void *value;
-    while (TrieMapIterator_Next(it, &str, &len, &value)) {
+    while (RS_SubTrieIterator_Next(it, &str, &len, &value)) {
       str[len] = '\0';
       RedisModule_ReplyWithSimpleString(ctx, str);
       ++resultSize;
     }
 
-    TrieMapIterator_Free(it);
+    RS_SubTrieIterator_Free(it);
 
     RedisModule_ReplySetArrayLength(ctx, resultSize);
   }

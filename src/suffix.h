@@ -53,18 +53,18 @@ int Suffix_IterateWildcard(SuffixCtx *sufCtx);
 /***********************************************************/
 /*****************        TrieMap       ********************/
 /***********************************************************/
-void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len);
-void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len);
+void addSuffixTrieMap(RS_TrieMap *trie, const char *str, uint32_t len);
+void deleteSuffixTrieMap(RS_TrieMap *trie, const char *str, uint32_t len);
 
 void suffixTrieMap_freeCallback(void *payload);
 
 /* Return a list of list of terms which match the suffix or contains term */
-arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len,
+arrayof(char**) GetList_SuffixTrieMap(RS_TrieMap *trie, const char *str, uint32_t len,
                                         bool prefix, struct timespec timeout);
 
 /* Return a list of terms which match the wildcard pattern
  * If pattern does not match using suffix trie, return 0xBAAAAAAD */
-arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
+arrayof(char*) GetList_SuffixTrieMap_Wildcard(RS_TrieMap *trie, const char *pattern, uint32_t len,
                                                struct timespec timeout);
 
 /* Breaks wildcard at '*'s and finds the best token to get iterate the suffix trie.

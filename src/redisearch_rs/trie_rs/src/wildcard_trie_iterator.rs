@@ -47,11 +47,13 @@ impl<'trie, Data> WildcardTrieIterator<'trie, Data> {
         let res = {
             node.map(|e| -> Vec<Box<dyn Iterator<Item = (Vec<&'trie [u8]>, VirtualNode<'trie, Data>)>>> {
                 vec![
-                    Box::new(
-                        vec![
+                    if e.val.len() > 0 {
+                        Box::new(vec![
                             (wildcards, VirtualNode::new(e))
-                        ].into_iter()
-                    )
+                        ].into_iter())
+                    } else {
+                        Box::new(e.children.values().map(move|c| (wildcards.clone(), VirtualNode::new(c))))
+                    }
                 ]
             }).unwrap_or_else(Vec::new)
         };

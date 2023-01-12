@@ -362,20 +362,20 @@ void suffixTrie_freeCallback(void *payload) {
 /***********************************************************/
 
 
-void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
-  suffixData *data = TrieMap_Find(trie, (char *)str, len);
+void addSuffixTrieMap(RS_TrieMap *trie, const char *str, uint32_t len) {
+  suffixData *data = RS_TrieMap_Get(trie, (char *)str, len);
 
   // if we found a node and term exists, we already have the term in the suffix
-  if (data != TRIEMAP_NOTFOUND && data->term) {
+  if (data && data->term) {
     return;
   }
 
   char *copyStr = rm_strndup(str, len);
-  if (data == TRIEMAP_NOTFOUND) {    // node doesn't exist even as suffix of another term
+  if (!data) {    // node doesn't exist even as suffix of another term
     data = rm_calloc(1, sizeof(*data));
     data->term = copyStr;
     data->array = array_ensure_append_1(data->array, copyStr);
-    TrieMap_Add(trie, copyStr, len, data, NULL);
+    RS_TrieMap_Add(trie, copyStr, len, data);
   } else {    // node exists as suffix for other term
     RS_LOG_ASSERT(!data->term, "can't reach here");
     data->term = copyStr;
@@ -385,28 +385,28 @@ void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
   // Save string copy to all suffixes of it
   // If it exists, move to the next field
   for (int j = 1; j < len - MIN_SUFFIX + 1; ++j) {
-    data = TrieMap_Find(trie, copyStr + j, len - j);
+    data = RS_TrieMap_Get(trie, copyStr + j, len - j);
 
-    if (data == TRIEMAP_NOTFOUND) {
+    if (!data) {
       data = rm_calloc(1, sizeof(*data));
       data->array = array_ensure_append_1(data->array, copyStr);
-      TrieMap_Add(trie, copyStr + j, len - j, data, NULL);
+      RS_TrieMap_Add(trie, copyStr + j, len - j, data);
     } else {
       data->array = array_ensure_append_1(data->array, copyStr);
     }
   }
 }
 
-void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
+void deleteSuffixTrieMap(RS_TrieMap *trie, const char *str, uint32_t len) {
   char *oldTerm = NULL;
 
   // iterate all matching terms and remove word
   for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
-    suffixData *data = TrieMap_Find(trie, str + j, len - j);
+    suffixData *data = RS_TrieMap_Get(trie, str + j, len - j);
     // suffix trie is shared between all tag fields in index, even if they don't use it.
     // if the trie is owned by other fields and not any one containing this suffix,
     // then failure to find the suffix is not an error. just move along.
-    if (data == TRIEMAP_NOTFOUND) continue;
+    if (!data) continue;
     // RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
     if (j == 0) {
       // keep pointer to word string to free after it was found in al sub tokens.
@@ -418,40 +418,41 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
     // if array is empty, remove the node
     if (array_len(data->array) == 0) {
       RS_LOG_ASSERT(!data->term, "array should contain a pointer to the string");
-      TrieMap_Delete(trie, str + j, len - j, (freeCB)freeSuffixNode);
+      suffixData *node = RS_TrieMap_Delete(trie, str + j, len - j);
+      if (node) freeSuffixNode(node);
     }
   }
   rm_free(oldTerm);
 }
 
-arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len,
+arrayof(char**) GetList_SuffixTrieMap(RS_TrieMap *trie, const char *str, uint32_t len,
                                           bool prefix, struct timespec timeout) {
   arrayof(char**) arr = NULL;
   suffixData *data = NULL;
   if (!prefix) {
-    data = TrieMap_Find(trie, str, len);
-    if (data == TRIEMAP_NOTFOUND) {
+    data = RS_TrieMap_Get(trie, str, len);
+    if (!data) {
       return NULL;
     } else {
       arr = array_ensure_append_1(arr, data->array);
       return arr;
     }
   } else {
-    TrieMapIterator *it = TrieMap_Iterate(trie, str, len);
-    TrieMapIterator_SetTimeout(it, timeout);
+      RS_SubTrieIterator *it = RS_TrieMap_Find(trie, str, len);
+//    TrieMapIterator_SetTimeout(it, timeout); todo: handle timeout
     if (!it) {
       return NULL;
     }
     // an upper limit on the number of expansions is enforced to avoid stuff like "*"
     char *s;
-    tm_len_t sl;
+    size_t sl;
     //void *ptr;
 
     // Find all completions of the prefix
-    while (TrieMapIterator_Next(it, &s, &sl, (void**)&data)) {
+    while (RS_SubTrieIterator_Next(it, &s, &sl, (void**)&data)) {
       arr = array_ensure_append_1(arr, data->array);
     }
-    TrieMapIterator_Free(it);
+    RS_SubTrieIterator_Free(it);
     return arr;
   }
 }
@@ -460,13 +461,13 @@ arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t l
 /* This function iterates the suffix trie, find matches to a `token` and returns an
  * array with terms matching the pattern.
  * The 'token' address is 'pattern + tokenidx' with length of tokenlen. */
-static arrayof(char*) _getWildcardArray(TrieMapIterator *it, const char *pattern, uint32_t plen) {
+static arrayof(char*) _getWildcardArray(RS_WildcardIterator *it, const char *pattern, uint32_t plen) {
   char *s;
-  tm_len_t sl;
+  size_t sl;
   suffixData *nodeData;;
   arrayof(char*) resArray = NULL;
 
-  while (TrieMapIterator_NextWildcard(it, &s, &sl, (void **)&nodeData)) {
+  while (RS_WildcardIterator_Next(it, &s, &sl, (void **)&nodeData)) {
     for (int i = 0; i < array_len(nodeData->array); ++i) {
       if (array_len(resArray) > RSGlobalConfig.maxPrefixExpansions) {
         goto end;
@@ -478,12 +479,12 @@ static arrayof(char*) _getWildcardArray(TrieMapIterator *it, const char *pattern
   }
 
 end:
-  TrieMapIterator_Free(it);
+RS_WildcardIterator_Free(it);
 
   return resArray;
 }
 
-arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
+arrayof(char*) GetList_SuffixTrieMap_Wildcard(RS_TrieMap *trie, const char *pattern, uint32_t len,
                                               struct timespec timeout) {
   size_t idx[len];
   size_t lens[len];
@@ -498,10 +499,9 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern
   // if token end with '*', we iterate all its children
   int prefix = pattern[tokenidx + tokenlen] == '*';
 
-  TrieMapIterator *it = TrieMap_Iterate(trie, pattern + tokenidx, tokenlen + prefix);
+  RS_WildcardIterator *it = RS_TrieMap_FindWildcard(trie, pattern + tokenidx, tokenlen + prefix);
   if (!it) return NULL;
-  TrieMapIterator_SetTimeout(it, timeout);
-  it->mode = prefix ? TM_WILDCARD_MODE : TM_WILDCARD_FIXED_LEN_MODE;
+//  TrieMapIterator_SetTimeout(it, timeout); // todo: set timeout
 
   arrayof(char*) arr = _getWildcardArray(it, pattern, len);
 
