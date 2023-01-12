@@ -265,7 +265,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // allow 'DD' for back support and ignore it.
   if (argc < 3 || argc > 4) return RedisModule_WrongArity(ctx);
-  IndexSpec *sp = IndexSpec_LoadUnsafeEx(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  IndexSpec *sp = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
@@ -603,7 +603,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     return RedisModule_ReplyWithError(ctx, "Unknown action passed to ALTER SCHEMA");
   }
 
-  if (!AC_NumRemaining(&ac)) {;
+  if (!AC_NumRemaining(&ac)) {
     return RedisModule_ReplyWithError(ctx, "No fields provided");
   }
 
@@ -653,9 +653,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   if (skipIfExists && sptmp == sp) {
     return REDISMODULE_OK;
   }
-  int res =  IndexAlias_Add(alias, sptmp, 0, error);
-
-  return res;
+  return IndexAlias_Add(alias, sptmp, 0, error);
 }
 
 static int AliasAddCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -687,7 +685,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   }
   IndexLoadOptions lOpts = {.name = {.rstring = argv[1]},
                             .flags = INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
-  IndexSpec *sp = IndexSpec_LoadUnsafe(ctx, &lOpts);
+  IndexSpec *sp = IndexSpec_LoadUnsafeEx(ctx, &lOpts);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Alias does not exist");
   }
