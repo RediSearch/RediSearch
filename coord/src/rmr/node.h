@@ -9,7 +9,7 @@
 
 #include "rmr/common.h"
 #include "rmr/endpoint.h"
-#include "triemap/triemap.h"
+#include "redisearch_rs/trie_rs/src/triemap.h"
 
 typedef enum { MRNode_Master = 0x1, MRNode_Self = 0x2, MRNode_Coordinator = 0x4 } MRNodeFlags;
 
@@ -26,12 +26,12 @@ void MRNode_Free(MRClusterNode *n);
 int MRNode_IsSameHost(MRClusterNode *n, MRClusterNode *other);
 
 typedef struct MRNodeMap {
-  TrieMap *nodes;
-  TrieMap *hosts;
+  RS_TrieMap *nodes;
+  RS_TrieMap *hosts;
 } MRNodeMap;
 
 typedef struct MRNodeMapIterator {
-  TrieMapIterator *iter;
+  RS_SubTrieIterator *iter;
   MRNodeMap *m;
   MRClusterNode *excluded;
   MRClusterNode *(*Next)(struct MRNodeMapIterator *it);

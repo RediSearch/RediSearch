@@ -136,7 +136,7 @@ ExtScoringFunctionCtx *Extensions_GetScoringFunction(ScoringFunctionArgs *fnargs
 
   /* lookup the scorer by name (case sensitive) */
   ExtScoringFunctionCtx *p = RS_TrieMap_Get(scorers_g, (char *)name, strlen(name));
-  if (p && (void *)p != TRIEMAP_NOTFOUND) {
+  if (p) {
     /* if no ctx was given, we just return the scorer */
     if (fnargs) {
       fnargs->extdata = p->privdata;
@@ -221,7 +221,7 @@ ExtQueryExpanderCtx *Extensions_GetQueryExpander(RSQueryExpanderCtx *ctx, const 
 
   ExtQueryExpanderCtx *p = RS_TrieMap_Get(queryExpanders_g, (char *)name, strlen(name));
 
-  if (p && (void *)p != TRIEMAP_NOTFOUND) {
+  if (p) {
     ctx->ExpandToken = Ext_ExpandToken;
     ctx->SetPayload = Ext_SetPayload;
     ctx->ExpandTokenWithPhrase = Ext_ExpandTokenWithPhrase;

@@ -6,10 +6,11 @@
 
 #include "cluster.h"
 #include "hiredis/adapters/libuv.h"
-#include "triemap/triemap.h"
+#include "redisearch_rs/trie_rs/src/triemap.h"
 #include "crc16.h"
 #include "crc12.h"
 #include "rmutil/vector.h"
+#include "rmalloc.h"
 
 #include <stdlib.h>
 
@@ -25,15 +26,15 @@ void _MRClsuter_UpdateNodes(MRCluster *cl) {
     /* Get all the current node ids from the connection manager.  We will remove all the nodes
      * that are in the new topology, and after the update, delete all the nodes that are in this map
      * and not in the new topology */
-    TrieMap *currentNodes = NewTrieMap();
-    TrieMapIterator *it = TrieMap_Iterate(cl->mgr.map, "", 0);
+    RS_TrieMap *currentNodes = RS_NewTrieMap();
+    RS_SubTrieIterator *it = RS_TrieMap_Find(cl->mgr.map, "", 0);
     char *k;
-    tm_len_t len;
+    size_t len;
     void *p;
-    while (TrieMapIterator_Next(it, &k, &len, &p)) {
-      TrieMap_Add(currentNodes, k, len, NULL, NULL);
+    while (RS_SubTrieIterator_Next(it, &k, &len, &p)) {
+      RS_TrieMap_Add(currentNodes, k, len, (char*)1);
     }
-    TrieMapIterator_Free(it);
+    RS_SubTrieIterator_Free(it);
 
     /* Walk the topology and add all nodes in it to the connection manager */
     for (int sh = 0; sh < cl->topo->numShards; sh++) {
@@ -46,7 +47,7 @@ void _MRClsuter_UpdateNodes(MRCluster *cl) {
         MRNodeMap_Add(cl->nodeMap, node);
 
         /* Remove the node id from the current nodes ids map*/
-        TrieMap_Delete(currentNodes, (char *)node->id, strlen(node->id), NULL);
+        RS_TrieMap_Delete(currentNodes, (char *)node->id, strlen(node->id));
 
         /* See if this is us - if so we need to update the cluster's host and current id */
         if (node->flags & MRNode_Self) {
@@ -57,13 +58,13 @@ void _MRClsuter_UpdateNodes(MRCluster *cl) {
     }
 
     /* Remove all nodes that are still in the current node map and not in the new topology*/
-    it = TrieMap_Iterate(currentNodes, "", 0);
-    while (TrieMapIterator_Next(it, &k, &len, &p)) {
+    it = RS_TrieMap_Find(currentNodes, "", 0);
+    while (RS_SubTrieIterator_Next(it, &k, &len, &p)) {
       k[len] = '\0';
       MRConnManager_Disconnect(&cl->mgr, k);
     }
-    TrieMapIterator_Free(it);
-    TrieMap_Free(currentNodes, NULL);
+    RS_SubTrieIterator_Free(it);
+    RS_TrieMap_Free(currentNodes, NULL);
   }
 }
 

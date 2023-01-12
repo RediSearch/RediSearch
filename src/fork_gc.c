@@ -1070,7 +1070,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
     }
 
     InvertedIndex *idx = TagIndex_OpenIndex(tagIdx, tagVal, tagValLen, 0);
-    if (idx == TRIEMAP_NOTFOUND || idx != value) {
+    if (!idx || idx != value) {
       status = FGC_PARENT_ERROR;
       goto loop_cleanup;
     }

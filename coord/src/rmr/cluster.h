@@ -7,13 +7,13 @@
 
 #pragma once
 
-#include "triemap/triemap.h"
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
 #include "conn.h"
 #include "endpoint.h"
 #include "command.h"
 #include "node.h"
+#include "rmalloc.h"
 
 typedef uint16_t mr_slot_t;
 

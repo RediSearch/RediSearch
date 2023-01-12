@@ -74,7 +74,7 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   MRReply *err = NULL;
 
-  TrieMap *dict = NewTrieMap();
+  RS_TrieMap *dict = RS_NewTrieMap();
   int nArrs = 0;
   // Add all the array elements into the dedup dict
   for (int i = 0; i < count; i++) {
@@ -84,7 +84,7 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
         size_t sl = 0;
         char *s = MRReply_String(MRReply_ArrayElement(replies[i], j), &sl);
         if (s && sl) {
-          TrieMap_Add(dict, s, sl, NULL, NULL);
+          RS_TrieMap_Add(dict, s, sl, (void*)1);
         }
       }
     } else if (MRReply_Type(replies[i]) == MR_REPLY_ERROR && err == NULL) {
@@ -93,32 +93,32 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   // if there are no values - either reply with an empty array or an error
-  if (dict->cardinality == 0) {
+  if (RS_TrieMap_Size(dict) == 0) {
 
     if (nArrs > 0) {
       // the arrays were empty - return an empty array
       RedisModule_ReplyWithArray(ctx, 0);
     } else {
-      TrieMap_Free(dict, NULL);
+      RS_TrieMap_Free(dict, NULL);
       return RedisModule_ReplyWithError(ctx, err ? (const char *)err : "Could not perfrom query");
     }
     goto cleanup;
   }
 
   char *s;
-  tm_len_t sl;
+  size_t sl;
   void *p;
   // Iterate the dict and reply with all values
-  TrieMapIterator *it = TrieMap_Iterate(dict, "", 0);
-  RedisModule_ReplyWithArray(ctx, dict->cardinality);
-  while (TrieMapIterator_Next(it, &s, &sl, &p)) {
+  RS_SubTrieIterator *it = RS_TrieMap_Find(dict, "", 0);
+  RedisModule_ReplyWithArray(ctx, RS_TrieMap_Size(dict));
+  while (RS_SubTrieIterator_Next(it, &s, &sl, &p)) {
     RedisModule_ReplyWithStringBuffer(ctx, s, sl);
   }
 
-  TrieMapIterator_Free(it);
+  RS_SubTrieIterator_Free(it);
 
 cleanup:
-  TrieMap_Free(dict, NULL);
+  RS_TrieMap_Free(dict, NULL);
 
   return REDISMODULE_OK;
 }

@@ -12,7 +12,7 @@
 #include "hiredis/async.h"
 #include "endpoint.h"
 #include "command.h"
-#include "triemap/triemap.h"
+#include "redisearch_rs/trie_rs/src/triemap.h"
 
 #define MR_CONN_POOL_SIZE 1
 
@@ -62,7 +62,7 @@ typedef struct {
 
 /* A pool indexes connections by the node id */
 typedef struct {
-  TrieMap *map;
+  RS_TrieMap *map;
   int nodeConns;
 } MRConnManager;
 
@@ -74,7 +74,7 @@ MRConn *MRConn_Get(MRConnManager *mgr, const char *id);
 int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *privdata);
 
 /* Add a node to the connection manager */
-int MRConnManager_Add(MRConnManager *m, const char *id, MREndpoint *ep, int connect);
+void MRConnManager_Add(MRConnManager *m, const char *id, MREndpoint *ep, int connect);
 
 /* Connect all nodes to their destinations */
 int MRConnManager_ConnectAll(MRConnManager *m);

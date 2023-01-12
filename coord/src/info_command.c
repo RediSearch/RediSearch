@@ -5,6 +5,7 @@
  */
 
 #include "info_command.h"
+#include "rmalloc.h"
 
 // Type of field returned in INFO
 typedef enum {
