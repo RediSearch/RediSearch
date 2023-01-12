@@ -28,7 +28,7 @@ You can use simple syntax for complex queries using these rules:
    * In DIALECT 2 or greater, to achieve the default behavior of DIALECT 1, update your query to `-(hello world)`.
   
 * Prefix/infix/suffix matches (all terms starting/containing/ending with a term) are expressed with a `*`. For performance reasons, a minimum term length is enforced (default is 2), but is configurable.
-* Wildcard pattern matches are expressed as `"w'foo*bar?'"`. **Note the use of double quotes to sustain the _w_ pattern.** 
+* In `DIALECT 3` or greater, wildcard pattern matches are expressed as `"w'foo*bar?'"`. **Note the use of double quotes to sustain the _w_ pattern.** 
 * A special _wildcard query_ that returns all results in the index, `*` (cannot be combined with other options).
 * `DIALECT 3` returns JSON rather than scalars from multivalue attributes **(as of v2.6.1)**.
 * Selection of specific fields using the syntax `hello @field:world`.
