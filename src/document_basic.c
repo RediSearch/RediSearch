@@ -367,7 +367,7 @@ void Document_Clear(Document *d) {
             array_free(field->arrNumval);
           }
           if (field->multisv) {
-            RSValue_Free(field->multisv);            
+            RSValue_Free(field->multisv);
           }
           break;
         case FLD_VAR_T_BLOB_ARRAY:
@@ -432,6 +432,9 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   arguments = array_append(arguments, opts->keyStr);
   arguments = array_ensure_append_n(arguments, opts->fieldsArray, opts->numFieldElems);
 
+  // TODO: check if we need edit the spec in this block
+  RedisSearchCtx_LockSpecWrite(ctx);
+
   if (opts->score != DEFAULT_SCORE || (opts->options & DOCUMENT_ADD_PARTIAL)) {
     arguments = array_append(arguments, globalAddRSstrings[0]);
     arguments = array_append(arguments, opts->scoreStr);
@@ -455,6 +458,8 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
       ctx->spec->rule->payload_field = rm_strndup(UNDERSCORE_PAYLOAD, strlen(UNDERSCORE_PAYLOAD));
     }
   }
+
+  RedisSearchCtx_UnlockSpec(ctx);
 
   RedisModuleCallReply *rep = NULL;
   if (isCrdt) {

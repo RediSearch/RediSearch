@@ -831,7 +831,9 @@ cleanup:
   if (ourRv != REDISMODULE_OK) {
     // if a document did not load properly, it is deleted
     // to prevent mismatch of index and hash
-    IndexSpec_DeleteDoc(aCtx->spec, RSDummyContext, doc->docKey);
+    t_docId docId = DocTable_GetIdR(&aCtx->spec->docs, doc->docKey);
+    if (docId)
+      IndexSpec_DeleteDoc_Unsafe(aCtx->spec, RSDummyContext, doc->docKey, docId);
 
     QueryError_SetCode(&aCtx->status, QUERY_EGENERIC);
     AddDocumentCtx_Finish(aCtx);
@@ -851,6 +853,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 
   int rc = REDISMODULE_ERR;
   RSExpr *e = NULL;
+  RedisSearchCtx_LockSpecRead(sctx);
   const RSDocumentMetadata *dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, key);
   if (!dmd) {
     // We don't know the document...
@@ -892,6 +895,7 @@ CleanUp:
 done:
   ExprAST_Free(e);
   DMD_Return(dmd);
+  RedisSearchCtx_UnlockSpec(sctx);
   return rc;
 }
 
@@ -900,7 +904,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   do {                                                     \
     QueryError_SetError(&aCtx->status, QUERY_EGENERIC, s); \
     goto done;                                             \
-  } while (0);
+  } while (0)
 
   RSDocumentMetadata *md = NULL;
   Document *doc = aCtx->doc;
