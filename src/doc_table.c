@@ -259,7 +259,9 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
   return dmd;
 }
 
-/* Get the "real" external key for an incremental id. Returns NULL if docId is not in the table.
+/*
+ * Get the "real" external key for an incremental id. Returns NULL if docId is not in the table.
+ * The returned string is allocated on the heap and must be freed by the caller.
  */
 sds DocTable_GetKey(const DocTable *t, t_docId docId, size_t *lenp) {
   size_t len_s = 0;
