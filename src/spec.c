@@ -1099,6 +1099,9 @@ static void IndexSpecCache_Free(IndexSpecCache *c) {
   rm_free(c);
 }
 
+// The value of the refcount can get to 0 only if the index spec itself does not point to it anymore,
+// and at this point the refcount only gets decremented so there is no wory of some thread increasing the
+// refcount while we are freeing the cache.
 void IndexSpecCache_Decref(const IndexSpecCache *cc) {
   IndexSpecCache *c = (IndexSpecCache *)cc;
   if (!__atomic_sub_fetch(&c->refcount, 1, __ATOMIC_RELAXED)) {
@@ -1106,32 +1109,7 @@ void IndexSpecCache_Decref(const IndexSpecCache *cc) {
   }
 }
 
-// In this function we assume that the spec is already locked with the R/W lock, so we either
-// 1) locked the spec for writing and we are the only one who can access the cache, and we don't
-//    need to worry about atomicity.
-// 2) locked the spec for reading and we might run alongside other readers, so we need atomicity but
-//    we don't need to worry about the index spec being modified and the cache being freed or invalid.
-// TODO: consider adding a lock for the cache for multi readers and writers simultaniously
-// (future proof and save redundant work on building the cache)
-const IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
-  IndexSpecCache *cache = __atomic_load_n(&((IndexSpec *)spec)->spcache, __ATOMIC_SEQ_CST);
-
-  if (!cache) {
-    IndexSpecCache *new_cache = IndexSpec_BuildSpecCache(spec);
-
-    if (__atomic_compare_exchange_n(&((IndexSpec *)spec)->spcache, &cache, new_cache,
-                                    0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
-      cache = new_cache;
-    } else {
-      IndexSpecCache_Free(new_cache);
-    }
-  }
-
-  __atomic_fetch_add(&cache->refcount, 1, __ATOMIC_SEQ_CST);
-  return cache;
-}
-
-IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
+static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
   IndexSpecCache *ret = rm_calloc(1, sizeof(*ret));
   ret->nfields = spec->numFields;
   ret->fields = rm_malloc(sizeof(*ret->fields) * ret->nfields);
@@ -1148,6 +1126,18 @@ IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
     }
   }
   return ret;
+}
+
+// This function is only being called from the main-thread (at the moment) under the GIL and the spec's
+// read lock, so there is no race on setting the cache value if it is null.
+// The refcount still should be atomic as it is being accessed from other threads (for decref).
+const IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
+  if (!spec->spcache) {
+    ((IndexSpec *)spec)->spcache = IndexSpec_BuildSpecCache(spec);
+  }
+
+  __atomic_fetch_add(&spec->spcache->refcount, 1, __ATOMIC_RELAXED);
+  return spec->spcache;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

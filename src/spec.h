@@ -357,11 +357,6 @@ const IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec);
  */
 void IndexSpecCache_Decref(const IndexSpecCache *cache);
 
-/**
- * Create a new copy of the spec cache from the current index spec
- */
-IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
-
 /*
  * Get a field spec by field name. Case insensitive!
  * Return the field spec if found, NULL if not
