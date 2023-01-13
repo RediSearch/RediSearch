@@ -278,7 +278,7 @@ setup_valgrind() {
 #----------------------------------------------------------------------------------------------
 
 setup_coverage() {
-	RLTEST_COV_ARGS="--unix"
+	# RLTEST_COV_ARGS="--unix"
 
 	export CODE_COVERAGE=1
 	export RS_GLOBAL_DTORS=1

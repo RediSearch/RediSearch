@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        shell: bash -l -eo pipefail
+        shell: bash -l -eo pipefail {0}
     strategy:
       matrix:
         OS: ${{ fromJson(inputs.platforms) }}

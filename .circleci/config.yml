@@ -102,10 +102,10 @@ commands:
       - run:
           name: Pack logs
           command: |
-            tar -cvzf tests-pytests-logs.tgz tests/pytests/logs/*
+            tar -C tests/pytests/logs -cvzf tests-pytests-logs.tgz *
       - store_artifacts:
           path: tests-pytests-logs.tgz
-          destination: tests-pytests-logs
+          destination: tests-pytests-logs.tgz
           # path: tests/pytests/logs
 
   persist-artifacts:
@@ -522,12 +522,12 @@ jobs:
       - run:
           name: Build & test (Search)
           shell: /bin/bash -l -eo pipefail
-          command: make SAN=<<parameters.san-type>> build test SHOW=1
+          command: make SAN=<<parameters.san-type>> build test SHOW=1 QUICK=1
           no_output_timeout: 30m
       - run:
           name: Build & test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
-          command: make SAN=<<parameters.san-type>> COORD=oss build test SHOW=1
+          command: make SAN=<<parameters.san-type>> COORD=oss build test SHOW=1 QUICK=1
           no_output_timeout: 30m
       - save-tests-logs
 

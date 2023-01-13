@@ -1,11 +1,10 @@
 
-ifneq ($(BB),)
-SLOW:=1
-endif
-
-#----------------------------------------------------------------------------------------------
+.NOTPARALLEL:
 
 ROOT=.
+
+MK.cmake=1
+SRCDIR=.
 
 include deps/readies/mk/main
 
@@ -40,6 +39,7 @@ make run           # run redis with RediSearch
 make test          # run all tests
   COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=name          # run specified test
+
 make pytest        # run python tests (tests/pytests)
   COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=name          # e.g. TEST=test:testSearch
@@ -52,6 +52,7 @@ make pytest        # run python tests (tests/pytests)
   VG_LEAKS=0         # do not search leaks with Valgrind
   SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
   ONLY_STABLE=1      # skip unstable tests
+
 make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
 make c_tests       # run C tests (from tests/ctests)
@@ -92,31 +93,28 @@ endef
 ifeq ($(COORD),) # Standalone build
 
 	ifeq ($(STATIC),1) # Static build
-		CMAKE_DIR=$(ROOT)
 		BINDIR=$(BINROOT)/search-static
-		SRCDIR=src
+		SRCDIR=.
 		TARGET=$(BINDIR)/redisearch.a
 		PACKAGE_NAME=
-		RAMP_MODULE_NAME=
+		MODULE_NAME=
 		RAMP_YAML=
 
 	else ifneq ($(LITE),1) # OSS Search
-		CMAKE_DIR=$(ROOT)
 		BINDIR=$(BINROOT)/search
-		SRCDIR=src
+		SRCDIR=.
 		TARGET=$(BINDIR)/redisearch.so
 		PACKAGE_NAME=redisearch-oss
-		RAMP_MODULE_NAME=search
+		MODULE_NAME=search
 		RAMP_YAML=pack/ramp.yml
 		PACKAGE_S3_DIR=redisearch-oss
 
 	else # Search Lite
-		CMAKE_DIR=$(ROOT)
 		BINDIR=$(BINROOT)/search-lite
-		SRCDIR=src
+		SRCDIR=.
 		TARGET=$(BINDIR)/redisearch.so
 		PACKAGE_NAME=redisearch-light
-		RAMP_MODULE_NAME=searchlight
+		MODULE_NAME=searchlight
 		RAMP_YAML=pack/ramp-light.yml
 		PACKAGE_S3_DIR=redisearch
 	endif
@@ -132,21 +130,19 @@ else # COORD
 	endif
 
 	ifeq ($(COORD),oss) # OSS Coordinator
-		CMAKE_DIR=$(ROOT)/coord
 		BINDIR=$(BINROOT)/coord-oss
-		SRCDIR=coord/src
+		SRCDIR=coord
 		TARGET=$(BINDIR)/module-oss.so
 		PACKAGE_NAME=redisearch
-		RAMP_MODULE_NAME=search
+		MODULE_NAME=search
 		RAMP_YAML=
 
 	else ifeq ($(COORD),rlec) # RLEC Coordinator
-		CMAKE_DIR=$(ROOT)/coord
 		BINDIR=$(BINROOT)/coord-rlec
-		SRCDIR=coord/src
+		SRCDIR=coord
 		TARGET=$(BINDIR)/module-enterprise.so
 		PACKAGE_NAME=redisearch
-		RAMP_MODULE_NAME=search
+		MODULE_NAME=search
 		RAMP_YAML=coord/pack/ramp.yml
 		PACKAGE_S3_DIR=redisearch
 
@@ -167,48 +163,27 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
-STATIC_LIBSTDCXX ?= 1
+CC_C_STD=gnu99
+CC_CXX_STD=c++11
+
+CC_STATIC_LIBSTDCXX ?= 1
 
 export OPENSSL_ROOT_DIR:=$(LIBSSL_PREFIX)
 
+CC_COMMON_H=src/common.h
+
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(COV),1)
-CMAKE_COV += -DUSE_COVERAGE=ON
-endif
-
-ifeq ($(PROFILE),1)
-CMAKE_PROFILE=-DPROFILE=ON
-endif
-
-ifeq ($(STATIC_LIBSTDCXX),1)
-CMAKE_STATIC_LIBSTDCXX=-DSTATIC_LIBSTDCXX=on
-else
-CMAKE_STATIC_LIBSTDCXX=-DSTATIC_LIBSTDCXX=off
-endif
-
-ifeq ($(DEBUG),1)
-CMAKE_BUILD_TYPE=DEBUG
-else
-CMAKE_BUILD_TYPE=RelWithDebInfo
-endif
-CMAKE_DEBUG=-DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE)
-
 ifneq ($(NO_TESTS),1)
-CMAKE_TEST=-DRS_RUN_TESTS=ON
-# -DRS_VERBOSE_TESTS=ON
-endif
-
-ifeq ($(WHY),1)
-CMAKE_WHY=--trace-expand > /tmp/cmake-why 2>&1
+CMAKE_TEST=-DBUILD_TESTS=ON
 endif
 
 ifeq ($(STATIC),1)
-CMAKE_STATIC += -DRS_BUILD_STATIC=ON
+CMAKE_STATIC += -DBUILD_STATIC=ON
 endif
 
 ifneq ($(COORD),)
-CMAKE_COORD += -DRS_COORD_TYPE=$(COORD)
+CMAKE_COORD += -DCOORD_TYPE=$(COORD)
 endif
 
 CMAKE_FILES= \
@@ -232,35 +207,15 @@ CMAKE_FILES+= \
 	tests/c_utils/CMakeLists.txt
 endif
 
-ifeq ($(SAN),address)
-CMAKE_SAN=-DUSE_ASAN=ON
-else ifeq ($(SAN),memory)
-CMAKE_SAN=-DUSE_MSAN=ON -DMSAN_PREFIX=/opt/llvm-project/build-msan
-endif
-
 #----------------------------------------------------------------------------------------------
 
-HAVE_MARCH_OPTS:=$(shell $(MK)/cc-have-opts)
-CMAKE_CXX_MARCH_FLAGS=$(foreach opt,$(HAVE_MARCH_OPTS),-D$(opt))
-CMAKE_HAVE_MARCH_OPTS=$(foreach opt,$(HAVE_MARCH_OPTS),-D$(opt)=on) -DMARCH_CXX_FLAGS="$(CMAKE_CXX_MARCH_FLAGS)"
-
-#----------------------------------------------------------------------------------------------
-
-CMAKE_FLAGS=\
-	-Wno-dev \
-	-DGIT_SHA=$(GIT_SHA) \
-	-DGIT_VERSPEC=$(GIT_VERSPEC) \
-	-DRS_MODULE_NAME=$(RAMP_MODULE_NAME) \
-	-DOS=$(OS) \
-	-DOSNICK=$(OSNICK) \
-	-DARCH=$(ARCH)
+_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME)
 
 ifeq ($(OS),macos)
-CMAKE_FLAGS += -DLIBSSL_DIR=$(LIBSSL_PREFIX)
+_CMAKE_FLAGS += -DLIBSSL_DIR=$(LIBSSL_PREFIX)
 endif
 
-CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_COV) \
-	$(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE) $(CMAKE_STATIC_LIBSTDCXX)
+_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) 
 
 #----------------------------------------------------------------------------------------------
 
@@ -295,37 +250,6 @@ endif
 all: bindirs $(TARGET)
 
 include $(MK)/rules
-
-FORCE?=1
-
-ifeq ($(SLOW),1)
-MAKE_J=
-else
-MAKE_J:=-j$(shell nproc)
-endif
-
-ifeq ($(FORCE),1)
-.PHONY: __force
-
-$(BINDIR)/Makefile: __force
-else
-$(BINDIR)/Makefile : $(CMAKE_FILES)
-endif
-ifeq ($(WHY),1)
-	@echo CMake log is in /tmp/cmake-why
-endif
-	$(SHOW)mkdir -p $(BINROOT)
-	$(SHOW)cd $(BINDIR) && cmake $(CMAKE_DIR) $(CMAKE_FLAGS)
-
-$(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile
-	@echo Building $(TARGET) ...
-ifneq ($(DRY_RUN),1)
-	$(SHOW)$(MAKE) -C $(BINDIR) $(MAKE_J)
-else
-	@make -C $(BINDIR) $(MAKE_J)
-endif
-
-.PHONY: build clean run 
 
 clean:
 ifeq ($(ALL),1)
@@ -435,11 +359,8 @@ FLOW_TESTS_DEFS=\
 	BINROOT=$(BINROOT) \
 	VG=$(VALGRIND) \
 	VG_LEAKS=0 \
-	SAN=$(SAN)
-
-ifeq ($(EXT),1)
-FLOW_TESTS_DEFS += EXISTING_ENV=1
-endif
+	SAN=$(SAN) \
+	EXT=$(EXT)
 
 export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
 
@@ -506,7 +427,7 @@ ifneq ($(RAMP_YAML),)
 PACK_ARGS=\
 	VARIANT=$(RAMP_VARIANT) \
 	PACKAGE_NAME=$(PACKAGE_NAME) \
-	MODULE_NAME=$(RAMP_MODULE_NAME) \
+	MODULE_NAME=$(MODULE_NAME) \
 	RAMP_YAML=$(RAMP_YAML) \
 	RAMP_ARGS=$(RAMP_ARGS)
 

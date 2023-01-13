@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-22.04
     defaults:
       run:
-        shell: bash -l -eo pipefail
+        shell: bash -l -eo pipefail {0}
     steps:
     - uses: actions/checkout@v3
       with:
