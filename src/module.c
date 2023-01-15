@@ -625,6 +625,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     size_t fieldNameSize;
 
     int rv = AC_GetString(&ac, &fieldName, &fieldNameSize, AC_F_NOADVANCE);
+    // Reads the spec. use read lock?
     if (IndexSpec_GetField(sp, fieldName, fieldNameSize)) {
       RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, (size_t)argc - 1);
       return RedisModule_ReplyWithSimpleString(ctx, "OK");
