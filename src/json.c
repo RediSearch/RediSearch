@@ -102,6 +102,7 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
     break;
   // NUMERIC field is represented as either integer or double
   case JSONType_Int:
+  case JSONType_UInt:
   case JSONType_Double:
     if (fieldType == INDEXFLD_T_NUMERIC) {
       rv = REDISMODULE_OK;
@@ -313,6 +314,7 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentFiel
   RedisJSON el = japi->getAt(arr, 0); // We know there is at least one element in the array.
   switch (japi->getType(el)) {
     case JSONType_Int:
+    case JSONType_UInt:
     case JSONType_Double:
       return JSON_StoreSingleVectorInDocField(fs, arr, df);
     case JSONType_Array:
@@ -389,7 +391,7 @@ int JSON_StoreNumericInDocField(size_t len, JSONIterable *iterable, struct Docum
   double dval;
   while ((json = JSONIterable_Next(iterable))) {
     JSONType jsonType = japi->getType(json);
-    if (jsonType == JSONType_Double || jsonType == JSONType_Int) {
+    if (jsonType == JSONType_Double || jsonType == JSONType_Int || jsonType == JSONType_UInt) {
       JSON_getFloat64(json, &dval);
       array_ensure_append_1(arr, dval);
     } else if (jsonType == JSONType_Null) {
@@ -440,17 +442,15 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
       df->unionType = FLD_VAR_T_CSTR;
       break;
     case JSONType_Int:
-      rv = japi->getInt(json, &intval);
-      if (rv == REDISMODULE_OK || japi_ver < 4) {
-        df->numval = intval;
-        df->unionType = FLD_VAR_T_NUM;
-      } else {
-        rv = japi->getUInt(json, &uintval);
-        if (rv == REDISMODULE_OK) {
-          df->numval = uintval;
-          df->unionType = FLD_VAR_T_NUM;
-        }
-      }
+       japi->getInt(json, &intval);
+      df->numval = intval;
+      df->unionType = FLD_VAR_T_NUM;
+      break;
+    case JSONType_UInt:
+      // japi_ver >= 4
+      japi->getUInt(json, &uintval);
+      df->numval = uintval;
+      df->unionType = FLD_VAR_T_NUM;
       break;
     case JSONType_Double:
       japi->getDouble(json, &df->numval);

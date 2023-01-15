@@ -20,7 +20,11 @@ typedef enum JSONType {
   JSONType_Object = 4,
   JSONType_Array = 5,
   JSONType_Null = 6,
-  JSONType__EOF
+  JSONType__EOF = 7, // Keep here for backward compatibility
+  ///////////////
+  // V4 values //
+  ///////////////
+  JSONType_UInt = 8,
 } JSONType;
 
 typedef const void* RedisJSON;
