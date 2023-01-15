@@ -1082,7 +1082,14 @@ def testOutOfRangeValues(env):
         '$.min', 'AS', 'min', 'NUMERIC',
         '$.below_min', 'AS', 'below_min', 'NUMERIC'
         ).ok()
+    env.expect('FT.CREATE', 'idx_hash', 'SCHEMA',
+        'max', 'NUMERIC',
+        'beyond_max', 'NUMERIC',
+        'min', 'NUMERIC',
+        'below_min', 'NUMERIC'
+        ).ok()
     waitForIndex(env, 'idx')
+    waitForIndex(env, 'idx_hash')
 
     # i64
     doc_int = {        
@@ -1105,31 +1112,57 @@ def testOutOfRangeValues(env):
     }
 
     # Helper functions
-    def set_key(env, name, key, expectedOK=True):
+    def set_keys(env, name, key, expectedOK=True):
         # Not using json.dumps with out-of-range values (would be converted such as to 'Infinity')
-        env.assertOk(env.execute_command('JSON.SET', name, '$', '{}'))
+        env.assertOk(conn.execute_command('JSON.SET', name, '$', '{}'))
         for k, v in iter(key.items()):
             if expectedOK:
                 env.assertOk(env.execute_command('JSON.SET', name, '$.{}'.format(k), '{}'.format(v)))
+                env.assertEqual(conn.execute_command('HSET', '{}_h'.format(name), '{}'.format(k), '{}'.format(v)), 1)
             else:
                 env.expect('JSON.SET', name, '$.{}'.format(k), '{}'.format(v)).error()
+
+    def update_res_doc_name_to_hash(res):
+        if isinstance(res, str):
+            if not res.startswith('__'):
+                return res + '_h'
+            else:
+                return res
+        elif isinstance(res, int):
+            return res
+        else:
+            return list(map(update_res_doc_name_to_hash, res))
 
     def search_key(env, name, key, expecteds, epsilon=0):
         for i, (k,v) in enumerate(key.items()):
             res = env.execute_command('JSON.GET', name, '$.{}'.format(k))
-            env.assertAlmostEqual(json.loads(res)[0], v, epsilon, message="{}: {} {}".format(name, k, v))
+            env.assertAlmostEqual(json.loads(res)[0], v, epsilon, message="search {}: {} {}".format(name, k, v))
+            res = env.execute_command('HGET', '{}_h'.format(name), '{}'.format(k))
+            res = int(res)
+            env.assertAlmostEqual(res, v, epsilon, message="search hash {}: {} {}".format(name, k, v))
+            
             res = env.execute_command('FT.SEARCH', 'idx', '@{}:[{} {}]'.format(k, v, v), 'NOCONTENT')
-            env.assertEqual(res, expecteds[i], message="{}: {} {}".format(name, k, v))
+            env.assertEqual(res, expecteds[i], message="search {}: {} {}".format(name, k, v))
+            
+            res = env.execute_command('FT.SEARCH', 'idx_hash', '@{}:[{} {}]'.format(k, v, v), 'NOCONTENT')
+            # Adjust hashes doc names
+            expected = list(map(update_res_doc_name_to_hash, iter(expecteds[i])))
+            env.assertEqual(res, expected, message="search hash {}: {} {}".format(name, k, v))
 
     def aggregate_key(env, name, key, expecteds):
         for i, (k,v) in enumerate(key.items()):
             res = env.execute_command('FT.AGGREGATE', 'idx', '@{}:[{} {}]'.format(k, v, v), 'LOAD', '1', '__key')
-            env.assertEqual(res, expecteds[i], message="{}: {} {}".format(name, k, v))
+            env.assertEqual(res, expecteds[i], message="aggregate {}: {} {}".format(name, k, v))
 
-    set_key(env, 'doc_int', doc_int)
-    set_key(env, 'doc_int_2', doc_int_2)
-    set_key(env, 'doc_float', doc_float)
-    set_key(env, 'doc_float_2', doc_float_2, False)
+            res = env.execute_command('FT.AGGREGATE', 'idx_hash', '@{}:[{} {}]'.format(k, v, v), 'LOAD', '1', '__key')
+            # Adjust hashes doc names
+            expected = list(map(update_res_doc_name_to_hash, iter(expecteds[i])))
+            env.assertEqual(res, expected, message="aggregate hash {}: {} {}".format(name, k, v))
+
+    set_keys(env, 'doc_int', doc_int)
+    set_keys(env, 'doc_int_2', doc_int_2)
+    set_keys(env, 'doc_float', doc_float)
+    set_keys(env, 'doc_float_2', doc_float_2, False)
     
     search_key(env, 'doc_int', doc_int, [
         [2, 'doc_int', 'doc_int_2'],    # related to PM-1166 and values beyond 2^53
