@@ -303,7 +303,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
 
   size_t numIovsArr = 0;
   const FieldList *fields = hlp->fields;
-  RSDocumentMetadata *dmd = r->dmd;
+  const RSDocumentMetadata *dmd = r->dmd;
   if (!dmd) {
     return RS_RESULT_OK;
   }
