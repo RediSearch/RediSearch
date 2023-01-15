@@ -1102,8 +1102,7 @@ static void IndexSpecCache_Free(IndexSpecCache *c) {
 // The value of the refcount can get to 0 only if the index spec itself does not point to it anymore,
 // and at this point the refcount only gets decremented so there is no wory of some thread increasing the
 // refcount while we are freeing the cache.
-void IndexSpecCache_Decref(const IndexSpecCache *cc) {
-  IndexSpecCache *c = (IndexSpecCache *)cc;
+void IndexSpecCache_Decref(IndexSpecCache *c) {
   if (!__atomic_sub_fetch(&c->refcount, 1, __ATOMIC_RELAXED)) {
     IndexSpecCache_Free(c);
   }
@@ -1131,7 +1130,7 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
 // This function is only being called from the main-thread (at the moment) under the GIL and the spec's
 // read lock, so there is no race on setting the cache value if it is null.
 // The refcount still should be atomic as it is being accessed from other threads (for decref).
-const IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
+IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
   if (!spec->spcache) {
     ((IndexSpec *)spec)->spcache = IndexSpec_BuildSpecCache(spec);
   }
