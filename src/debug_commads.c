@@ -465,12 +465,13 @@ DEBUG_COMMAND(IdToDocId) {
     RedisModule_ReplyWithError(sctx->redisCtx, "bad id given");
     goto end;
   }
-  RSDocumentMetadata *doc = DocTable_Get(&sctx->spec->docs, id);
+  const RSDocumentMetadata *doc = DocTable_Borrow(&sctx->spec->docs, id);
   if (!doc || (doc->flags & Document_Deleted)) {
     RedisModule_ReplyWithError(sctx->redisCtx, "document was removed");
   } else {
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, doc->keyPtr, strlen(doc->keyPtr));
   }
+  DMD_Return(doc);
 end:
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -800,7 +801,7 @@ DEBUG_COMMAND(DocInfo) {
   }
   GET_SEARCH_CTX(argv[0]);
 
-  const RSDocumentMetadata *dmd = DocTable_GetByKeyR(&sctx->spec->docs, argv[1]);
+  const RSDocumentMetadata *dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, argv[1]);
   if (!dmd) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Document not found in index");
@@ -824,7 +825,7 @@ DEBUG_COMMAND(DocInfo) {
   RedisModule_ReplyWithLongLong(ctx, dmd->maxFreq);
   nelem += 2;
   RedisModule_ReplyWithSimpleString(ctx, "refcount");
-  RedisModule_ReplyWithLongLong(ctx, dmd->ref_count);
+  RedisModule_ReplyWithLongLong(ctx, dmd->ref_count - 1); // TODO: should include the refcount of the command call?
   nelem += 2;
   if (dmd->sortVector) {
     RedisModule_ReplyWithSimpleString(ctx, "sortables");
@@ -832,6 +833,7 @@ DEBUG_COMMAND(DocInfo) {
     nelem += 2;
   }
   RedisModule_ReplySetArrayLength(ctx, nelem);
+  DMD_Return(dmd);
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
