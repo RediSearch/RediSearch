@@ -1675,7 +1675,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp) {
 
 // Only used on new specs so it's thread safe
 void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy) {
-  sp->gc = GCContext_CreateGCFromSpec(sp, initialHZ, sp->uniqueId, gcPolicy);
+  sp->gc = GCContext_CreateGC(sp, initialHZ, sp->uniqueId, gcPolicy);
   GCContext_Start(sp->gc);
 }
 
@@ -1686,8 +1686,7 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
   RS_LOG_ASSERT(!sp->gc, "GC already exists");
   // we will not create a gc thread on temporary index
   if (RSGlobalConfig.enableGC && !(sp->flags & Index_Temporary)) {
-    RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, sp->nameLen);
-    sp->gc = GCContext_CreateGC(keyName, initialHZ, sp->uniqueId);
+    sp->gc = GCContext_CreateGC(sp, initialHZ, sp->uniqueId, RSGlobalConfig.gcPolicy);
     GCContext_Start(sp->gc);
     RedisModule_Log(ctx, "verbose", "Starting GC for index %s", sp->name);
   }
