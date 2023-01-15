@@ -972,6 +972,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
       return FGC_PARENT_ERROR;
     }
     if (!FGC_lock(gc, sctx)) {
+      SearchCtx_Free(sctx);
       return FGC_PARENT_ERROR;
     }
     if (RSGlobalConfig.forkGCCleanNumericEmptyNodes) {
@@ -980,6 +981,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
       rt->emptyLeaves = 0;
     }
     FGC_unlock(gc, sctx);
+    SearchCtx_Free(sctx);
   }
 
   return status;
