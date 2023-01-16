@@ -1066,6 +1066,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
 
 failure:  // on failure free the spec fields array and return an error
   spec->flags &= ~Index_Temporary;
+  IndexSpec_RemoveFromGlobals(spec);
   IndexSpec_Free(spec);
   return NULL;
 }
