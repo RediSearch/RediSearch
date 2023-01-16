@@ -95,14 +95,14 @@ static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, 
  * Get a field spec by field name. Case sensetive!
  * Return the field spec if found, NULL if not.
  * Assuming the spec is properly locked before calling this function.
- * TODO: verify that the spec is locked
+ * TODO: multithreaded: verify that the spec is locked
  */
 const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, size_t len) {
   return getFieldCommon(spec, name, len);
 }
 
 // Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
+// TODO: multithreaded: verify that the spec is locked
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
   const FieldSpec *fs = IndexSpec_GetField(spec, name, len);
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT) || !FieldSpec_IsIndexable(fs)) return 0;
@@ -111,7 +111,7 @@ t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len)
 }
 
 // Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
+// TODO: multithreaded: verify that the spec is locked
 int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
   if (!(sp->flags & Index_HasPhonetic)) {
     return 0;
@@ -134,7 +134,7 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
 }
 
 // Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
+// TODO: multithreaded: verify that the spec is locked
 int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, QueryError *status) {
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     if (fm & ((t_fieldMask)1 << ii)) {
@@ -150,14 +150,14 @@ int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, Qu
 }
 
 // Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
+// TODO: multithreaded: verify that the spec is locked
 int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) {
   if (!sp->sortables) return -1;
   return RSSortingTable_GetFieldIdx(sp->sortables, name);
 }
 
 // Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
+// TODO: multithreaded: verify that the spec is locked
 const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t idx) {
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
     if (sp->fields[ii].options & FieldSpec_Sortable && sp->fields[ii].sortIdx == idx) {
@@ -168,7 +168,7 @@ const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t 
 }
 
 // Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
+// TODO: multithreaded: verify that the spec is locked
 const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
     if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) &&
@@ -297,7 +297,7 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
 }
 
 // Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
+// TODO: multithreaded: verify that the spec is locked
 static void IndexSpec_SetTimeoutTimer(IndexSpec *sp, WeakRef spec_ref) {
   if (sp->isTimerSet) {
     WeakRef old_timer_ref;
@@ -311,7 +311,7 @@ static void IndexSpec_SetTimeoutTimer(IndexSpec *sp, WeakRef spec_ref) {
 }
 
 // Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
+// TODO: multithreaded: verify that the spec is locked
 static void IndexSpec_ResetTimeoutTimer(IndexSpec *sp) {
   if (sp->isTimerSet) {
     WeakRef old_timer_ref;
@@ -356,7 +356,7 @@ double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp) {
 //---------------------------------------------------------------------------------------------
 
 /* Create a new index spec from a redis command */
-// TODO: use global metadata locks to protect global data structures
+// TODO: multithreaded: use global metadata locks to protect global data structures
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                QueryError *status) {
   const char *specName = RedisModule_StringPtrLen(argv[1], NULL);
@@ -868,7 +868,7 @@ error:
 }
 
 // Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
+// TODO: multithreaded: verify that the spec is locked
 int IndexSpec_CreateTextId(const IndexSpec *sp) {
   int maxId = -1;
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
@@ -1167,7 +1167,7 @@ failure:  // on failure free the spec fields array and return an error
 
 /* Initialize some index stats that might be useful for scoring functions */
 // Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
+// TODO: multithreaded: verify that the spec is locked
 void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
   stats->numDocs = sp->stats.numDocuments;
   stats->numTerms = sp->stats.numTerms;
@@ -1176,7 +1176,7 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
 }
 
 // Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
+// TODO: multithreaded: verify that the spec is locked
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
   int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL);
   if (isNew) {
@@ -1487,7 +1487,7 @@ StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options)
 }
 
 // Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
+// TODO: multithreaded: verify that the spec is locked
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
                                              FieldType forType) {
   if (!sp->indexStrs) {
@@ -1525,7 +1525,7 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
 }
 
 // Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
+// TODO: multithreaded: verify that the spec is locked
 RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s,
                                                    FieldType forType) {
   const FieldSpec *fs = IndexSpec_GetField(sp, s, strlen(s));
@@ -1536,7 +1536,7 @@ RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s,
 }
 
 // Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
+// TODO: multithreaded: verify that the spec is locked
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc) {
   t_fieldMask ret = 0;
 
@@ -1551,7 +1551,7 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
 }
 
 // Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
+// TODO: multithreaded: verify that the spec is locked
 void IndexSpec_InitializeSynonym(IndexSpec *sp) {
   if (!sp->smap) {
     sp->smap = SynonymMap_New(false);
@@ -1560,7 +1560,7 @@ void IndexSpec_InitializeSynonym(IndexSpec *sp) {
 }
 
 // Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
+// TODO: multithreaded: verify that the spec is locked
 // TODO: consider locking internally
 int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len) {
   // if the index already has custom stopwords, let us free them first
@@ -1582,7 +1582,7 @@ int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len
 }
 
 // Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
+// TODO: multithreaded: verify that the spec is locked
 int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len) {
   if (!sp->stopwords) {
     return 0;
@@ -1633,7 +1633,7 @@ IndexSpec *NewIndexSpec(const char *name) {
 }
 
 // Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
+// TODO: multithreaded: verify that the spec is locked
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path) {
   sp->fields = rm_realloc(sp->fields, sizeof(*sp->fields) * (sp->numFields + 1));
   FieldSpec *fs = sp->fields + sp->numFields;
@@ -2191,7 +2191,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
 }
 #endif // FTINFO_FOR_INFO_MODULES
 
-// TODO: should be thread safe?
+// Assumes that the spec is in a safe state to set a scanner on it (write lock or main thread)
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef spec_ref) {
   size_t nkeys = RedisModule_DbSize(ctx);
   if (nkeys > 0) {

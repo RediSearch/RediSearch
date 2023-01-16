@@ -525,6 +525,9 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     offset = 4;
   }
 
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  RedisSearchCtx_LockSpecWrite(&sctx);
+
   IndexSpec_InitializeSynonym(sp);
 
   SynonymMap_UpdateRedisStr(sp->smap, argv + offset, argc - offset, id);
@@ -532,6 +535,8 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (initialScan) {
     IndexSpec_ScanAndReindex(ctx, ref);
   }
+
+  RedisSearchCtx_UnlockSpec(&sctx);
 
   RedisModule_ReplyWithSimpleString(ctx, "OK");
 
@@ -564,6 +569,9 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithArray(ctx, 0);
   }
 
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  RedisSearchCtx_LockSpecRead(&sctx);
+
   size_t size;
   TermData **terms_data = SynonymMap_DumpAllTerms(sp->smap, &size);
 
@@ -579,6 +587,8 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                                         strlen(t_data->groupIds[j] + 1));
     }
   }
+
+  RedisSearchCtx_UnlockSpec(&sctx);
 
   rm_free(terms_data);
   return REDISMODULE_OK;
