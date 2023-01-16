@@ -102,7 +102,9 @@ commands:
       - run:
           name: Pack logs
           command: |
-            tar -C tests/pytests/logs -cvzf tests-pytests-logs.tgz *
+            ROOT="$PWD"
+            cd tests/pytests/logs
+            tar -czf $ROOT/tests-pytests-logs.tgz *.log
       - store_artifacts:
           path: tests-pytests-logs.tgz
           destination: tests-pytests-logs.tgz
@@ -203,7 +205,7 @@ commands:
           name: Build for platform
           shell: /bin/bash -l -eo pipefail
           command: |
-            ROOT=$PWD
+            ROOT="$PWD"
             cd build/docker
             make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
             cd $ROOT
@@ -243,7 +245,7 @@ commands:
       - run:
           name: Build for platform
           command: |
-            ROOT=$PWD
+            ROOT="$PWD"
             cd build/docker
             make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
             cd $ROOT
