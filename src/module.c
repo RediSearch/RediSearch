@@ -436,6 +436,16 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     keepDocs = 1;
   }
 
+  // Remove spec from global index list
+  dictDelete(specDict_g, sp->name);
+
+  // Remove spec from global aliases list
+  if (sp->uniqueId) {
+    // If uniqueid is 0, it means the index was not initialized
+    // and is being freed now during an error.
+    IndexSpec_ClearAliases(sp);
+  }
+
   SchemaPrefixes_RemoveSpec(sp);
 
   if((delDocs || sp->flags & Index_Temporary) && !keepDocs) {
