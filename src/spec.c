@@ -1973,6 +1973,8 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
     IndexSpec *sp = StrongRef_Get(curr_run_ref);
     if (sp) {
+      // This check is performed without locking the spec, but it's ok since we locked the GIL
+      // So the main thread is not running and the GC is not touching the relevant data
       if (SchemaRule_ShouldIndex(sp, keyname, type)) {
         IndexSpec_UpdateDoc(sp, ctx, keyname, type);
       }
@@ -2665,12 +2667,8 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx);
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
-  // TODO: is this necessary?
-  RedisSearchCtx_LockSpecRead(&sctx);
-
   if (!spec->rule) {
     RedisModule_Log(ctx, "warning", "Index spec %s: no rule found", spec->name);
-    RedisSearchCtx_UnlockSpec(&sctx);
     return REDISMODULE_ERR;
   }
 
@@ -2692,8 +2690,6 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   case DocumentType_Unsupported:
     RS_LOG_ASSERT(0, "Should receieve valid type");
   }
-
-  RedisSearchCtx_UnlockSpec(&sctx);
 
   if (rv != REDISMODULE_OK) {
     // we already unlocked the spec but we can increase this value atomically
