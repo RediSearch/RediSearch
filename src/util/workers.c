@@ -6,6 +6,7 @@
 
 #include <pthread.h>
 #include "workers.h"
+#include "redismodule.h"
 
 //------------------------------------------------------------------------------
 // Thread pool
@@ -14,15 +15,14 @@
 static threadpool _workers_thpool = NULL;
 
 // set up workers' thread pool
-// returns 0 if thread pool initialized, 1 otherwise
 int workersThreadPool_CreatePool(size_t worker_count) {
   assert(worker_count);
   assert(_workers_thpool == NULL);
 
   _workers_thpool = thpool_init(worker_count);
-  if (_workers_thpool == NULL) return 1;
+  if (_workers_thpool == NULL) return REDISMODULE_ERR;
 
-  return 0;
+  return REDISMODULE_OK;
 }
 
 // return number of currently working threads
