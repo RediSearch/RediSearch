@@ -413,7 +413,8 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
-  IndexSpec *sp = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  const char* spec_name = RedisModule_StringPtrLen(argv[1], NULL);
+  IndexSpec *sp = IndexSpec_LoadUnsafe(ctx, spec_name, 0);
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
@@ -437,17 +438,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     keepDocs = 1;
   }
 
-  // Remove spec from global index list
-  dictDelete(specDict_g, sp->name);
-
-  // Remove spec from global aliases list
-  if (sp->uniqueId) {
-    // If uniqueid is 0, it means the index was not initialized
-    // and is being freed now during an error.
-    IndexSpec_ClearAliases(sp);
-  }
-
-  SchemaPrefixes_RemoveSpec(sp);
+  IndexSpec_RemoveFromGlobals(sp);
 
   if((delDocs || sp->flags & Index_Temporary) && !keepDocs) {
     DocTable *dt = &sp->docs;

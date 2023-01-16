@@ -1325,6 +1325,20 @@ void IndexSpec_Free(IndexSpec *spec) {
 
 //---------------------------------------------------------------------------------------------
 
+void IndexSpec_RemoveFromGlobals(IndexSpec *sp) {
+    // Remove spec from global index list
+  dictDelete(specDict_g, sp->name);
+
+  // Remove spec from global aliases list
+  if (sp->uniqueId) {
+    // If uniqueid is 0, it means the index was not initialized
+    // and is being freed now during an error.
+    IndexSpec_ClearAliases(sp);
+  }
+
+  SchemaPrefixes_RemoveSpec(sp);
+} 
+
 void Indexes_Free(dict *d) {
   // free the schema dictionary this way avoid iterating over it for each combination of
   // spec<-->prefix
@@ -1343,6 +1357,7 @@ void Indexes_Free(dict *d) {
   dictReleaseIterator(iter);
 
   for (size_t i = 0; i < array_len(specs); ++i) {
+    IndexSpec_RemoveFromGlobals(specs[i]);
     IndexSpec_FreeInternals(specs[i]);
   }
   array_free(specs);

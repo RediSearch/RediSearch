@@ -524,6 +524,13 @@ IndexSpec *IndexSpec_GetReference(RedisModuleCtx *ctx, const char *name, int ope
 IndexSpec *IndexSpec_GetReferenceEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
 
 /**
+ * @brief Removes the spec from the global data structures
+ * 
+ * @param sp 
+ */
+void IndexSpec_RemoveFromGlobals(IndexSpec *sp);
+
+/**
  * @brief Return a reference to of the index spec. From now on the object is no longer owned by the caller.
  * 
  * @param sp 
