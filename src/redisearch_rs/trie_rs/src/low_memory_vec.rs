@@ -52,7 +52,7 @@ impl<T> LowMemoryVec<T> {
     }
 
     fn truncate_cap(&mut self) {
-        if self.size < self.cap / 2 {
+        if self.size <= self.cap / 2 {
             self.ensure_cap_force(self.size);
             if self.cap == 0 {
                 self.ptr = std::ptr::null_mut();
@@ -62,7 +62,9 @@ impl<T> LowMemoryVec<T> {
 
     fn ensure_cap(&mut self, cap: u32) {
         if self.cap < cap {
-            self.ensure_cap_force(cap);
+            let new_cap = self.cap * 2;
+            let new_cap = if cap > new_cap {cap} else {new_cap};
+            self.ensure_cap_force(new_cap);
         }
     }
 
