@@ -1237,23 +1237,12 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
  * Other resources are freed using IndexSpec_FreeData.
  */
 void IndexSpec_FreeInternals(IndexSpec *spec) {
-  // Remove spec from global index list
-  if (spec->name && dictFetchValue(specDict_g, spec->name) == spec) {
-    dictDelete(specDict_g, spec->name);
-  }
   // Stop scanner
   if (spec->scanner) {
     spec->scanner->cancelled = true;
     spec->scanner->spec = NULL;
   }
-  // Remove spec from global aliases list
-  if (spec->uniqueId) {
-    // If uniqueid is 0, it means the index was not initialized
-    // and is being freed now during an error.
-    IndexSpec_ClearAliases(spec);
-  }
-  // Remove spec prefix from global index list
-  SchemaPrefixes_RemoveSpec(spec);
+
   // For temporary index
   if (spec->isTimerSet) {
     RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
@@ -1327,7 +1316,6 @@ void IndexSpec_Free(IndexSpec *spec) {
       RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
       spec->isTimerSet = false;
     }
-    printf("Freeing  index %s\n in the background\n", spec->name);
     thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeTask, rm_strdup(spec->name));
     return;
   }
