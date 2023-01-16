@@ -10,6 +10,7 @@
 #include <assert.h>
 
 // create workers thread pool
+// returns REDISMODULE_OK if thread pool initialized, REDISMODULE_ERR otherwise
 int workersThreadPool_CreatePool(size_t worker_count);
 
 // return number of currently working threads
