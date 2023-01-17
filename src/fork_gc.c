@@ -56,8 +56,8 @@ static void FGC_unlock(ForkGC *gc, RedisSearchCtx *sctx) {
   RedisSearchCtx_UnlockSpec(sctx);
 }
 
-static RedisSearchCtx *FGC_getSctx(ForkGC *gc, RedisModuleCtx *ctx) {
-  return NewSearchCtxFromSpec(ctx, gc->sp);
+static RedisSearchCtx *FGC_getSctx(ForkGC *gc) {
+  return NewSearchCtxFromSpec(gc->ctx, gc->sp);
 }
 
 // Assumes the spec is locked.
@@ -515,7 +515,7 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
 }
 
 static void FGC_childScanIndexes(ForkGC *gc) {
-  RedisSearchCtx *sctx = FGC_getSctx(gc, gc->ctx);
+  RedisSearchCtx *sctx = FGC_getSctx(gc);
   if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
     // write log here
     return;
@@ -720,16 +720,14 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   idx->gcMarker++;
 }
 
-static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
+static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisSearchCtx *sctx) {
   FGCError status = FGC_COLLECTED;
   size_t len;
-  int hasLock = 0;
   char *term = NULL;
   if (FGC_recvBuffer(gc, (void **)&term, &len) != REDISMODULE_OK) {
     return FGC_CHILD_ERROR;
   }
   RedisModuleKey *idxKey = NULL;
-  RedisSearchCtx *sctx = NULL;
 
   if (term == RECV_BUFFER_EMPTY) {
     return FGC_DONE;
@@ -742,16 +740,10 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
     return FGC_CHILD_ERROR;
   }
 
-  sctx = FGC_getSctx(gc, rctx);
-  if (!sctx) {
-    status = FGC_PARENT_ERROR;
-    goto cleanup;
-  }
   if (!FGC_lock(gc, sctx)) {
     status = FGC_PARENT_ERROR;
     goto cleanup;
   }
-  hasLock = 1;
 
   InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, len, 1, NULL, &idxKey);
 
@@ -785,12 +777,7 @@ cleanup:
   if (idxKey) {
     RedisModule_CloseKey(idxKey);
   }
-  if (hasLock) {
-    FGC_unlock(gc, sctx);
-  }
-  if (sctx) {
-    SearchCtx_Free(sctx);
-  }
+  FGC_unlock(gc, sctx);
   rm_free(term);
   if (status != FGC_COLLECTED) {
     freeInvIdx(&idxbufs, &info);
@@ -891,8 +878,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   resetCardinality(ninfo, currNode);
 }
 
-static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
-  int hasLock = 0;
+static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   size_t fieldNameLen;
   char *fieldName = NULL;
   uint64_t rtUniqueId;
@@ -904,7 +890,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
 
   while (status == FGC_COLLECTED) {
     NumGcInfo ninfo = {0};
-    RedisSearchCtx *sctx = NULL;
     RedisModuleKey *idxKey = NULL;
     FGCError status2 = recvNumIdx(gc, &ninfo);
     if (status2 == FGC_DONE) {
@@ -914,16 +899,10 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
       break;
     }
 
-    sctx = FGC_getSctx(gc, rctx);
-    if (!sctx) {
-      status = FGC_PARENT_ERROR;
-      goto loop_cleanup;
-    }
     if (!FGC_lock(gc, sctx)) {
       status = FGC_PARENT_ERROR;
       goto loop_cleanup;
     }
-    hasLock = 1;
 
     RedisModuleString *keyName =
         IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC);
@@ -955,24 +934,13 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
-    if (hasLock) {
-      FGC_unlock(gc, sctx);
-      hasLock = 0;
-    }
-    if (sctx) {
-      SearchCtx_Free(sctx);
-    }
+    FGC_unlock(gc, sctx);
   }
 
   rm_free(fieldName);
 
   if (rt && rt->emptyLeaves >= rt->numRanges / 2) {
-    RedisSearchCtx *sctx = FGC_getSctx(gc, rctx);
-    if (!sctx) {
-      return FGC_PARENT_ERROR;
-    }
     if (!FGC_lock(gc, sctx)) {
-      SearchCtx_Free(sctx);
       return FGC_PARENT_ERROR;
     }
     if (RSGlobalConfig.forkGCCleanNumericEmptyNodes) {
@@ -981,14 +949,12 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
       rt->emptyLeaves = 0;
     }
     FGC_unlock(gc, sctx);
-    SearchCtx_Free(sctx);
   }
 
   return status;
 }
 
-static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
-  int hasLock = 0;
+static FGCError FGC_parentHandleTags(ForkGC *gc, RedisSearchCtx *sctx) {
   size_t fieldNameLen;
   char *fieldName;
   uint64_t tagUniqueId;
@@ -998,7 +964,6 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
   while (status == FGC_COLLECTED) {
     RedisModuleString *keyName = NULL;
     RedisModuleKey *idxKey = NULL;
-    RedisSearchCtx *sctx = NULL;
     MSG_IndexInfo info = {0};
     InvIdxBuffers idxbufs = {0};
     TagIndex *tagIdx = NULL;
@@ -1026,16 +991,10 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
       goto loop_cleanup;
     }
 
-    sctx = FGC_getSctx(gc, rctx);
-    if (!sctx) {
-      status = FGC_PARENT_ERROR;
-      goto loop_cleanup;
-    }
     if (!FGC_lock(gc, sctx)) {
       status = FGC_PARENT_ERROR;
       goto loop_cleanup;
     }
-    hasLock = 1;
 
     keyName = IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_TAG);
     tagIdx = TagIndex_Open(sctx, keyName, false, &idxKey);
@@ -1067,13 +1026,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
-    if (hasLock) {
-      FGC_unlock(gc, sctx);
-      hasLock = 0;
-    }
-    if (sctx) {
-      SearchCtx_Free(sctx);
-    }
+    FGC_unlock(gc, sctx);
     if (status != FGC_COLLECTED) {
       freeInvIdx(&idxbufs, &info);
     } else {
@@ -1090,18 +1043,27 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
 
 int FGC_parentHandleFromChild(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
+  RedisSearchCtx *sctx = FGC_getSctx(gc);
+  if (!sctx) {
+    return REDISMODULE_ERR;
+  }
+  int rv = REDISMODULE_OK;
 
 #define COLLECT_FROM_CHILD(e)               \
   while ((status = (e)) == FGC_COLLECTED) { \
   }                                         \
   if (status != FGC_DONE) {                 \
-    return REDISMODULE_ERR;                 \
+    rv = REDISMODULE_ERR;                   \
+    goto cleanup;                           \
   }
 
-  COLLECT_FROM_CHILD(FGC_parentHandleTerms(gc, gc->ctx));
-  COLLECT_FROM_CHILD(FGC_parentHandleNumeric(gc, gc->ctx));
-  COLLECT_FROM_CHILD(FGC_parentHandleTags(gc, gc->ctx));
-  return REDISMODULE_OK;
+  COLLECT_FROM_CHILD(FGC_parentHandleTerms(gc, sctx));
+  COLLECT_FROM_CHILD(FGC_parentHandleNumeric(gc, sctx));
+  COLLECT_FROM_CHILD(FGC_parentHandleTags(gc, sctx));
+
+cleanup:
+  SearchCtx_Free(sctx);
+  return rv;
 }
 
 /**
