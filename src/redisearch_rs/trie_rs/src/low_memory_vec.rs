@@ -1,6 +1,6 @@
 use std::ops::{Deref};
 use std::{
-    alloc::{alloc, realloc, Layout},
+    alloc::{alloc, realloc, Layout, dealloc},
     ops::DerefMut,
 };
 
@@ -175,6 +175,13 @@ impl<T> DerefMut for LowMemoryVec<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
         unsafe { std::slice::from_raw_parts_mut(self.ptr, self.size as usize) }
+    }
+}
+
+impl<T> Drop for LowMemoryVec<T> {
+    fn drop(&mut self) {
+        let layout = Layout::array::<T>(self.cap as usize).unwrap();
+        unsafe{dealloc(self.ptr as *mut u8, layout)};
     }
 }
 
