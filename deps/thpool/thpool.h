@@ -34,7 +34,7 @@ typedef struct thpool_* threadpool;
  * @return threadpool    created threadpool on success,
  *                       NULL on error
  */
-threadpool thpool_init(int num_threads);
+threadpool thpool_init(size_t num_threads);
 
 
 /**
@@ -178,7 +178,7 @@ void thpool_destroy(threadpool);
  * @param threadpool     the threadpool of interest
  * @return integer       number of threads working
  */
-int thpool_num_threads_working(threadpool);
+size_t thpool_num_threads_working(threadpool);
 
 
 #ifdef __cplusplus
