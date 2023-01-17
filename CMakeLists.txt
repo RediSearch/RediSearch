@@ -27,6 +27,9 @@ endif()
 
 setup_cc_options()
 
+# ugly hack for cpu_features::list_cpu_features coming from VecSim
+set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
+
 add_compile_definitions(
 	"REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
 	"GIT_VERSPEC=\"${GIT_VERSPEC}\""
@@ -121,7 +124,7 @@ elseif (BUILD_STATIC)
     add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
 
 	set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
-	setup_shared_object_target(redisearch "redisearch")
+	setup_shared_object_target(redisearch "")
     target_link_libraries(redisearch VectorSimilarity ${CMAKE_LD_LIBS})
 
     set(TEST_MODULE "redisearch-static")
