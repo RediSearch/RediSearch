@@ -965,7 +965,7 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   size_t len = 0;
   void *data = NULL;
   while(RS_LexRangeIterator_Next(iter, &str, &len, &data)) {
-      rangeIterCbStrs(str, len, data, &ctx);
+      rangeIterCbStrs(str, len, &ctx, data);
   }
 
   if (ctx.nits == 0) {

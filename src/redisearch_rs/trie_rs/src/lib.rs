@@ -260,6 +260,13 @@ mod trie_tests {
         assert_eq!(res, vec![("bar".to_string(), 2), ("bar1".to_string(), 3)]);
 
         let res: Vec<(String, usize)> = trie
+            .lex_range_str(Some("BAR"), true, Some("CC"), true)
+            .into_iter()
+            .map(|(k, v)| (str::from_utf8(&k).unwrap().to_string(), *v))
+            .collect();
+        assert_eq!(res, vec![("bar".to_string(), 2), ("bar1".to_string(), 3)]);
+
+        let res: Vec<(String, usize)> = trie
             .lex_range_str(Some("bar"), false, Some("cc"), true)
             .into_iter()
             .map(|(k, v)| (str::from_utf8(&k).unwrap().to_string(), *v))

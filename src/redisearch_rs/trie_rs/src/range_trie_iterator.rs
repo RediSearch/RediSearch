@@ -33,9 +33,10 @@ impl<'trie> Comparable<'trie> for Option<Range<'trie>> {
         let range = self.unwrap();
 
         let (min_bound, in_min_range) = if let Some(min) = range.min {
-            let min_slice = min.val;
+            let min_slice = min.val.to_ascii_lowercase();
+            let val = val.to_ascii_lowercase();
             if min_slice > val {
-                if min_slice.starts_with(val) {
+                if min_slice.starts_with(&val) {
                     (Some(min), false)
                 } else {
                     return CompareResult::Outside;
@@ -55,10 +56,11 @@ impl<'trie> Comparable<'trie> for Option<Range<'trie>> {
         };
 
         let (max_bound, in_max_range) = if let Some(max) = range.max {
-            let max_slice = max.val;
+            let max_slice = max.val.to_ascii_lowercase();
+            let val = val.to_ascii_lowercase();
             if max_slice < val {
                 return CompareResult::Outside;
-            } else if max_slice.starts_with(val) {
+            } else if max_slice.starts_with(&val) {
                 let in_max_range = max.include_val;
                 (
                     Some(max),
