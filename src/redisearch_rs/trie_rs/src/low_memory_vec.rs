@@ -156,7 +156,7 @@ impl<T> LowMemoryVec<T> {
         }
 
         self.size = len;
-        if self.size < self.cap / 2 {
+        if self.size <= self.cap / 2 {
             self.ensure_cap_force(self.size);
         }
     }
