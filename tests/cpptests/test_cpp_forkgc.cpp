@@ -68,6 +68,7 @@ class FGCTest : public ::testing::Test {
 
   void TearDown() override {
     // Return the reference
+    IndexSpec_RemoveFromGlobals(sp);
     IndexSpec_ReturnReference(sp);
     RediSearch_DropIndex(sp);
     pthread_join(thread, NULL);
