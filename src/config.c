@@ -234,7 +234,7 @@ CONFIG_GETTER(getSearchThreads) {
 
 // WORKER_THREADS
 CONFIG_SETTER(setWorkThreads) {
-  int acrc = AC_GetSize(ac, &config->numWorkerThreads, AC_F_GE1);
+  int acrc = AC_GetSize(ac, &config->numWorkerThreads, AC_F_GE0);
   RETURN_STATUS(acrc);
 }
 

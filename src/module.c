@@ -23,6 +23,7 @@
 #include "rmutil/args.h"
 #include "spec.h"
 #include "util/logging.h"
+#include "util/workers.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"
@@ -1112,6 +1113,7 @@ void RediSearch_CleanupModule(void) {
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
+  workersThreadPool_Destroy();
 
   // free global structures
   Extensions_Free();
