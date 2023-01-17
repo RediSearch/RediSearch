@@ -24,3 +24,8 @@ Point const *RTDoc_MaxCorner(RTDoc const *doc) {
 bool RTDoc_IsEqual(RTDoc const *lhs, RTDoc const *rhs) {
 	return *lhs == *rhs;
 }
+
+void RTDoc_Print(RTDoc const *doc) {
+	auto p = Polygon{doc->poly_};
+	Polygon_Print(&p);
+}

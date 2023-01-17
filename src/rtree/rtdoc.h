@@ -12,10 +12,12 @@ struct RTDoc;
 
 struct RTDoc *RTDoc_New(struct Polygon const *polygon);
 struct RTDoc *RTDoc_Copy(struct RTDoc const *other);
-void RTDoc_Free(struct RTDoc *RTDoc);
+void RTDoc_Free(struct RTDoc *doc);
 struct Point const *RTDoc_MinCorner(struct RTDoc const *RTDoc);
 struct Point const *RTDoc_MaxCorner(struct RTDoc const *RTDoc);
 bool RTDoc_IsEqual(struct RTDoc const *lhs, struct RTDoc const *rhs);
+
+void RTDoc_Print(struct RTDoc const *doc);
 
 #ifdef __cplusplus
 }

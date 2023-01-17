@@ -40,3 +40,12 @@ void Polygon_Free(Polygon *polygon) {
 bool Polygon_IsEqual(Polygon const *lhs, Polygon const *rhs) {
 	return *lhs == *rhs;
 }
+
+#include <iostream>
+void Polygon_Print(Polygon const *poly) {
+	std::cout << "POLYGON ((";
+	for (auto const& point : poly->poly_.outer()) {
+		std::cout << point.get<0>() << " " << point.get<1>() << ", ";
+	}
+	std::cout << "))\n";
+}

@@ -11,20 +11,31 @@ namespace bgm = bg::model;
 
 struct RTDoc {
 	using rect_internal = bgm::box<Point::point_internal>;
+	Polygon::polygon_internal poly_;
 	rect_internal rect_;
 
-	RTDoc() : rect_{{0, 0}, {0, 0}} {}
-	RTDoc(rect_internal const& other) : rect_{other} {}
-	RTDoc(Polygon::polygon_internal const& polygon) : rect_{to_rect(polygon)} {}
+	RTDoc() : poly_{}, rect_{{0, 0}, {0, 0}} {}
+	RTDoc(rect_internal const& rect) : poly_{to_poly(rect)}, rect_{rect} {}
+	RTDoc(Polygon::polygon_internal const& poly) : poly_{poly}, rect_{to_rect(poly)} {}
 
-private:
-	rect_internal to_rect(Polygon::polygon_internal const& polygon) {
-		const auto& points = polygon.outer();
+	static rect_internal to_rect(Polygon::polygon_internal const& poly) {
+		const auto& points = poly.outer();
 		auto xs = std::ranges::transform_view(points, [] (const auto& p) { return bg::get<0>(p); });
 		auto [min_x, max_x] = std::ranges::minmax(xs);
 		auto ys = std::ranges::transform_view(points, [] (const auto& p) { return bg::get<1>(p); });
 		auto [min_y, max_y] = std::ranges::minmax(ys);
 		return {{min_x, min_y}, {max_x, max_y}};
+	}
+
+	static Polygon::polygon_internal to_poly(rect_internal const& rect) {
+		auto p_min = rect.min_corner();
+		auto p_max = rect.max_corner();
+		auto x_min = bg::get<0>(p_min);
+		auto y_min = bg::get<1>(p_min);
+		auto x_max = bg::get<0>(p_max);
+		auto y_max = bg::get<1>(p_max);
+
+		return {{p_min, {x_max, y_min}, p_max, {x_min, y_max}, p_min}};
 	}
 };
 

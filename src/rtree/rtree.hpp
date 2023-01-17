@@ -1,6 +1,7 @@
 #pragma once
 
 #include <boost/geometry.hpp>
+#include <algorithm>
 #include "rtdoc.hpp"
 #include "rtree.h"
 
@@ -18,12 +19,16 @@ struct RTree {
     RTree() : rtree_{} {}
 	
 	template <typename Predicate>
-	size_t query(Predicate p, RTDoc **results) const {
+	std::vector<RTDoc> query(Predicate p, size_t *num_results) const {
 		std::vector<RTDoc> result{};
-		size_t length = rtree_.query(p, std::back_inserter(result));
-		
-		*results = new RTDoc[length];
-		std::copy(result.begin(), result.end(), *results);
-		return length;
+		*num_results = rtree_.query(p, std::back_inserter(result));
+		return result;
 	}
+};
+
+struct RTree_QueryIterator {
+	std::vector<RTDoc> iter_;
+	size_t index_;
+
+	RTree_QueryIterator(std::vector<RTDoc>&& iter) : iter_{std::move(iter)}, index_{0} {}
 };

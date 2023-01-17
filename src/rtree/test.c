@@ -29,6 +29,12 @@ int main() {
         strcat(wkt, " ");
         snprintf(ppp, 10, "%d", i+2);
         strcat(wkt, ppp);
+        strcat(wkt, ", ");
+        snprintf(ppp, 10, "%d", i);
+        strcat(wkt, ppp);
+        strcat(wkt, " ");
+        snprintf(ppp, 10, "%d", i);
+        strcat(wkt, ppp);
         strcat(wkt, "))");
 
         struct Polygon *pg = From_WKT(wkt);
@@ -42,14 +48,17 @@ int main() {
     size_t presize = RTree_Size(rt);
     assert(presize == 10);
 
-    struct RTDoc *results = NULL;
-    struct Point *qp = Point_New(1.25, 1.25);
-    size_t num_results = RTree_Query_Contains(rt, qp, &results);
-    assert(num_results == 2);
-    RTree_Query_Free(results);
-    Point_Free(qp);
+    size_t num_results = 0;
+    struct Polygon *qpg = Polygon_NewByCoords(4, 1., 1., 1.999999, 1., 1., 1.999999, 1., 1.);
+    struct RTree_QueryIterator *iter = RTree_Query_Contains(rt, qpg, &num_results);
+    printf("num found results: %ld\n", num_results);
+    for (struct RTDoc *result = RTree_QIter_Next(iter); NULL != result; result = RTree_QIter_Next(iter)) {
+        RTDoc_Print(result);
+    }
+    RTree_QIter_Free(iter);
+    Polygon_Free(qpg);
 
-    struct Polygon *pg = Polygon_NewByCoords(3, 0., 0., 2., 1., 1., 2.);
+    struct Polygon *pg = Polygon_NewByCoords(4, 0., 0., 2., 1., 2., 2., 0., 0.);
     struct RTDoc *r = RTDoc_New(pg);
     assert(RTree_Remove(rt, r));
     RTDoc_Free(r);
