@@ -19,13 +19,11 @@ bool RTree_Remove(RTree *rtree, RTDoc const *doc) {
 	return rtree->rtree_.remove(*doc);
 }
 
-#include <iostream>
 RTree_QueryIterator *RTree_Query_Contains(RTree const *rtree, Polygon const *query_poly, size_t *num_results) {
 	auto results = rtree->query(bgi::contains(RTDoc::to_rect(query_poly->poly_)), num_results);
 	std::erase_if(results, [&](auto const& doc) {
-		return !bg::within(query_poly->poly_, doc.poly_);;
+		return !bg::within(query_poly->poly_, doc.poly_);
 	});
-	// results.resize(std::distance(results.begin(), end));
 	*num_results = results.size();
 	return new RTree_QueryIterator{std::move(results)};
 }

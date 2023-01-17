@@ -49,7 +49,7 @@ int main() {
     assert(presize == 10);
 
     size_t num_results = 0;
-    struct Polygon *qpg = Polygon_NewByCoords(4, 1., 1., 1.999999, 1., 1., 1.999999, 1., 1.);
+    struct Polygon *qpg = Polygon_NewByCoords(4, 1.001, 1.001, 1.665, 1.333, 1.333, 1.665, 1.001, 1.001);
     struct RTree_QueryIterator *iter = RTree_Query_Contains(rt, qpg, &num_results);
     printf("num found results: %ld\n", num_results);
     for (struct RTDoc *result = RTree_QIter_Next(iter); NULL != result; result = RTree_QIter_Next(iter)) {

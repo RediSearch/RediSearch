@@ -30,10 +30,10 @@ struct RTDoc {
 	static Polygon::polygon_internal to_poly(rect_internal const& rect) {
 		auto p_min = rect.min_corner();
 		auto p_max = rect.max_corner();
-		auto x_min = bg::get<0>(p_min);
-		auto y_min = bg::get<1>(p_min);
-		auto x_max = bg::get<0>(p_max);
-		auto y_max = bg::get<1>(p_max);
+		auto x_min = p_min.get<0>();
+		auto y_min = p_min.get<1>();
+		auto x_max = p_max.get<0>();
+		auto y_max = p_max.get<1>();
 
 		return {{p_min, {x_max, y_min}, p_max, {x_min, y_max}, p_min}};
 	}
