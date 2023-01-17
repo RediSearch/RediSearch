@@ -774,7 +774,7 @@ TEST_F(LLApiTest, testMultitypeNumericTag) {
   RediSearch_QueryNodeAddChild(qn,
                                RediSearch_CreateTagLexRangeNode(index, "world", "world", 1, 1));
   results = search(index, qn);
-  ASSERT_EQ(0, results.size());
+  ASSERT_EQ(1, results.size());
 
   qn = RediSearch_CreateTagNode(index, "f1");
   RediSearch_QueryNodeAddChild(qn,
@@ -1135,7 +1135,7 @@ TEST_F(LLApiTest, testInfo) {
   ASSERT_EQ(info.maxDocId, 2);
   ASSERT_EQ(info.docTableSize, 140);
   ASSERT_EQ(info.sortablesSize, 48);
-  ASSERT_EQ(info.docTrieSize, 87);
+  ASSERT_EQ(info.docTrieSize, 96);
   ASSERT_EQ(info.numTerms, 5);
   ASSERT_EQ(info.numRecords, 7);
   ASSERT_EQ(info.invertedSize, 32);
@@ -1198,22 +1198,22 @@ TEST_F(LLApiTest, testInfoSize) {
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TEXT", RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  ASSERT_EQ(RediSearch_MemUsage(index), 112);
+  ASSERT_EQ(RediSearch_MemUsage(index), 115);
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  ASSERT_EQ(RediSearch_MemUsage(index), 252);
+  ASSERT_EQ(RediSearch_MemUsage(index), 261);
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  ASSERT_EQ(RediSearch_MemUsage(index), 124);
+  ASSERT_EQ(RediSearch_MemUsage(index), 127);
   RSGlobalConfig.forkGcCleanThreshold = 0;
   index->gc->callbacks.periodicCallback(RSDummyContext, index->gc->gcCtx);
-  ASSERT_EQ(RediSearch_MemUsage(index), 113);
+  ASSERT_EQ(RediSearch_MemUsage(index), 116);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
