@@ -505,7 +505,7 @@ jobs:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
           command: |
-            make coverage PLATFORM_MODE=1 SHOW=1
+            make coverage NPROC=16 PLATFORM_MODE=1 SHOW=1
             make upload-cov SHOW=1
           no_output_timeout: 30m
       - save-tests-logs
