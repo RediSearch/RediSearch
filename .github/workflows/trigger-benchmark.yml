@@ -31,4 +31,4 @@ jobs:
           --header 'Circle-Token: ${{ secrets.CIRCLE_CI_SECRET }}' \
           --header 'content-type: application/json' \
           --data '{"branch": "${{ github.event.pull_request.head.ref }}",
-          "parameters": {"run_default_flow":false, "run_benchmark_flow_label":true}}'
+          "parameters": {"run_default_flow":true, "run_benchmark_flow_label":true}}'
