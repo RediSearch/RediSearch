@@ -4,9 +4,14 @@ from RLTest import Env
 import time
 
 def testSanity(env):
+  dotestSanity(env, 2)
+  env.cmd('FLUSHALL')
+  dotestSanity(env, 3)
+
+def dotestSanity(env, dialect):
   env.skipOnCluster()
   env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
-  env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', 2).ok()
+  env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', dialect).ok()
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 100000).ok()
   env.expect('FT.CONFIG', 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
   item_qty = 10000
@@ -78,9 +83,14 @@ def testSanity(env):
   #  .contains('Timeout limit was reached')
 
 def testSanityTag(env):
+  dotestSanityTag(env, 2)
+  env.cmd('FLUSHALL')
+  dotestSanityTag(env, 3)
+
+def dotestSanityTag(env, dialect):
   env.skipOnCluster()
   env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
-  env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', 2).ok()
+  env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', dialect).ok()
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 100000).ok()
   env.expect('FT.CONFIG', 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
   item_qty = 10000
