@@ -25,7 +25,7 @@ bool RTDoc_IsEqual(RTDoc const *lhs, RTDoc const *rhs) {
 	return *lhs == *rhs;
 }
 
+#include <iostream>
 void RTDoc_Print(RTDoc const *doc) {
-	auto p = Polygon{doc->poly_};
-	Polygon_Print(&p);
+	std::cout << bg::wkt(doc->poly_) << "\n";
 }
