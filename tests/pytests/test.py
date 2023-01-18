@@ -431,12 +431,7 @@ def testCustomStopwords(env):
     # Index with custom stopwords
     env.expect('ft.create', 'idx2', 'ON', 'HASH', 'stopwords', 2, 'hello', 'world',
                                     'schema', 'foo', 'text').ok()
-
-    res = env.cmd('ft.info', "idx2")
-    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    stop_words = d['stopwords_list']
-    stop_words.sort()
-    env.assertEqual(stop_words, ['hello', 'world'])
+    assertInfoField(env, 'idx2', 'stopwords_list', ['hello', 'world'], with_sort=True)
 
     # Index with NO stopwords
     env.expect('ft.create', 'idx3', 'ON', 'HASH', 'stopwords', 0,
