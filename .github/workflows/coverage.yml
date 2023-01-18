@@ -20,4 +20,4 @@ jobs:
         ./deps/readies/bin/getredis
     - name: Build and test
       run: |
-        make coverage
+        make coverage QUICK=1

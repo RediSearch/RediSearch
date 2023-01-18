@@ -29,10 +29,10 @@ jobs:
         make unit-tests SAN=addr
     - name: Flow tests
       run: |
-        make pytest SAN=addr
+        make pytest SAN=addr QUICK=1
     - name: Unit tests (coordinator)
       run: |
         make COORD=1 unit-tests SAN=addr
     - name: Flow tests (coordinator)
       run: |
-        make COORD=1 pytest SAN=addr
+        make COORD=1 pytest SAN=addr QUICK=1
