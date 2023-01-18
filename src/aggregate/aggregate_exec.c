@@ -368,6 +368,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
         AREQ_Execute(BCRctx->r, redis_ctx);
     }
 
+
 	// No need to unlock spec as AREQ_Execute calls ctx cleanup.
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, BCRctx->bc);
 
