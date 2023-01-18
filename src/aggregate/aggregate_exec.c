@@ -355,7 +355,9 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 }
 
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
-	// lockspec
+    BCRctx->r->sctx->redisCtx = RedisModule_GetThreadSafeContext(BCRctx->bc);
+    BCRctx->r->reqflags |= QEXEC_F_HAS_THCTX;
+    // lockspec
 	RedisSearchCtx_LockSpecRead(BCRctx->r->sctx);
     QueryError status = {0};
     RedisModuleCtx *redis_ctx = blockedClientReqCtx_getRedisctx(BCRctx);
@@ -504,8 +506,6 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
     // report block client start time
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, bc);
-    r->sctx->redisCtx = RedisModule_GetThreadSafeContext(bc);
-    r->reqflags |= QEXEC_F_HAS_THCTX;
     blockedClientReqCtx* BCRctx = blockedClientReqCtx_New(r, bc);
     workersThreadPool_AddWork((thpool_proc)AREQ_Execute_Callback, BCRctx);
   } else {
