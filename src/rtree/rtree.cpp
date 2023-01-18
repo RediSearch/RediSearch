@@ -19,21 +19,24 @@ bool RTree_Remove(RTree *rtree, RTDoc const *doc) {
 	return rtree->rtree_.remove(*doc);
 }
 
-RTree_QueryIterator *RTree_Query_Contains(RTree const *rtree, Polygon const *query_poly, size_t *num_results) {
-	auto results = rtree->query(bgi::contains(RTDoc::to_rect(query_poly->poly_)), num_results);
+QueryIterator *RTree_Query_Contains(RTree const *rtree, Polygon const *query_poly) {
+	auto results = rtree->query(bgi::contains(RTDoc::to_rect(query_poly->poly_)));
 	std::erase_if(results, [&](auto const& doc) {
 		return !bg::within(query_poly->poly_, doc.poly_);
 	});
-	*num_results = results.size();
-	return new RTree_QueryIterator{std::move(results)};
+	return new QueryIterator{std::move(results)};
 }
 
-void RTree_QIter_Free(RTree_QueryIterator *iter) {
+void QIter_Free(QueryIterator *iter) {
 	delete iter;
 }
 
-RTDoc *RTree_QIter_Next(RTree_QueryIterator *iter) {
+RTDoc *QIter_Next(QueryIterator *iter) {
 	return iter->index_ < iter->iter_.size() ? &iter->iter_[iter->index_++] : nullptr;
+}
+
+size_t QIter_Remaining(QueryIterator const *iter) {
+	return iter->iter_.size() - iter->index_;
 }
 
 RTDoc *RTree_Bounds(RTree const *rtree) {

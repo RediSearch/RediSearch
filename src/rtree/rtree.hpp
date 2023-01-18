@@ -19,16 +19,16 @@ struct RTree {
     RTree() : rtree_{} {}
 	
 	template <typename Predicate>
-	std::vector<RTDoc> query(Predicate p, size_t *num_results) const {
+	std::vector<RTDoc> query(Predicate p) const {
 		std::vector<RTDoc> result{};
-		*num_results = rtree_.query(p, std::back_inserter(result));
+		rtree_.query(p, std::back_inserter(result));
 		return result;
 	}
 };
 
-struct RTree_QueryIterator {
+struct QueryIterator {
 	std::vector<RTDoc> iter_;
 	size_t index_;
 
-	RTree_QueryIterator(std::vector<RTDoc>&& iter) : iter_{std::move(iter)}, index_{0} {}
+	QueryIterator(std::vector<RTDoc>&& iter) : iter_{std::move(iter)}, index_{0} {}
 };

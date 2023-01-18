@@ -48,14 +48,13 @@ int main() {
     size_t presize = RTree_Size(rt);
     assert(presize == 10);
 
-    size_t num_results = 0;
     struct Polygon *qpg = Polygon_NewByCoords(4, 1.001, 1.001, 1.665, 1.333, 1.333, 1.665, 1.001, 1.001);
-    struct RTree_QueryIterator *iter = RTree_Query_Contains(rt, qpg, &num_results);
-    printf("num found results: %ld\n", num_results);
-    for (struct RTDoc *result = RTree_QIter_Next(iter); NULL != result; result = RTree_QIter_Next(iter)) {
+    struct QueryIterator *iter = RTree_Query_Contains(rt, qpg);
+    printf("num found results: %ld\n", QIter_Remaining(iter));
+    for (struct RTDoc *result = QIter_Next(iter); NULL != result; result = QIter_Next(iter)) {
         RTDoc_Print(result);
     }
-    RTree_QIter_Free(iter);
+    QIter_Free(iter);
     Polygon_Free(qpg);
 
     struct Polygon *pg = Polygon_NewByCoords(4, 0., 0., 2., 1., 2., 2., 0., 0.);
