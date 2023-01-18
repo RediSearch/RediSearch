@@ -151,9 +151,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
 
 void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
   memset(lk, 0, sizeof(*lk));
-  if (spcache) {
-    lk->spcache = spcache;
-  }
+  lk->spcache = spcache;
 }
 
 void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
@@ -314,7 +312,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 
   int res = REDISMODULE_ERR;
   RedisModuleString *serialized = NULL;
-  
+
   if (apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST || japi_ver < 3) {
     // Preserve single value behavior for backward compatibility
     RedisJSON json = japi->next(iter);
@@ -332,7 +330,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
     if (japi->getJSONFromIter(iter, ctx, &serialized) == REDISMODULE_ERR) {
       goto done;
     }
-    
+
     // Second, get the first JSON value
     RedisJSON json = japi->next(iter);
     // If the value is an array, we currently try using the first element
@@ -351,7 +349,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
       RedisModule_FreeString(ctx, serialized);
     }
   }
-  
+
 done:
   return res;
 }

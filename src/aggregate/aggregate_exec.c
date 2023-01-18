@@ -19,7 +19,10 @@
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
 // Multi threading data structure
-typedef struct { AREQ *r; RedisModuleBlockedClient *bc;} blockedClientReqCtx;
+typedef struct {
+  AREQ *r;
+  RedisModuleBlockedClient *bc;
+} blockedClientReqCtx;
 
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
 
@@ -242,8 +245,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   int rc = RS_RESULT_EOF;
   ResultProcessor *rp = req->qiter.endProc;
 
-  if (!(req->reqflags & QEXEC_F_IS_CURSOR) &&
-      !(req->reqflags & QEXEC_F_IS_SEARCH)) {
+  if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !(req->reqflags & QEXEC_F_IS_SEARCH)) {
     limit = RSGlobalConfig.maxAggregateResults;
   }
 
@@ -326,14 +328,14 @@ done:
 }
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
-	if (IsProfile(req)) {
-    	RedisModule_ReplyWithArray(outctx, 2);
-    }
-	sendChunk(req, outctx, -1);
-	if (IsProfile(req)) {
-		Profile_Print(outctx, req);
-	}
-	AREQ_Free(req);
+  if (IsProfile(req)) {
+    RedisModule_ReplyWithArray(outctx, 2);
+  }
+  sendChunk(req, outctx, -1);
+  if (IsProfile(req)) {
+    Profile_Print(outctx, req);
+  }
+  AREQ_Free(req);
 }
 
 static blockedClientReqCtx *blockedClientReqCtx_New(AREQ *r, RedisModuleBlockedClient *bc) {
@@ -356,14 +358,14 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 	// lockspec
 	RedisSearchCtx_LockSpecRead(BCRctx->r->sctx);
     QueryError status = {0};
-    RedisModuleCtx *redis_ctx = BCRctx->r->sctx->redisCtx;
+    RedisModuleCtx *redis_ctx = blockedClientReqCtx_getRedisctx(BCRctx);
     if (prepareExecutionPlan(&BCRctx->r, &status) != REDISMODULE_OK) {
         if (BCRctx->r) {
           AREQ_Free(BCRctx->r);
         }
         QueryError_ReplyAndClear(redis_ctx, &status);
     } else {
-        AREQ_Execute(BCRctx->r, blockedClientReqCtx_getRedisctx(BCRctx));
+        AREQ_Execute(BCRctx->r, redis_ctx);
     }
 
 	// No need to unlock spec as AREQ_Execute calls ctx cleanup.

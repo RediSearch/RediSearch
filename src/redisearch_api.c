@@ -626,10 +626,12 @@ int RediSearch_QueryNodeType(QueryNode* qn) {
 // use only by LLAPI + unittest
 const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, IndexSpec* sp, size_t* len) {
   while (iter->internal->Read(iter->internal->ctx, &iter->res) != INDEXREAD_EOF) {
-    const RSDocumentMetadata* md = DocTable_Get(&sp->docs, iter->res->docId);
+    const RSDocumentMetadata* md = DocTable_Borrow(&sp->docs, iter->res->docId);
     if (md == NULL || ((md)->flags & Document_Deleted)) {
+      DMD_Return(md);
       continue;
     }
+    DMD_Return(iter->lastmd);
     iter->lastmd = md;
     if (len) {
       *len = sdslen(md->keyPtr);
@@ -653,6 +655,7 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
     iter->scorerFree(iter->scargs.extdata);
   }
   QAST_Destroy(&iter->qast);
+  DMD_Return(iter->lastmd);
   dictResumeRehashing(iter->sp->keysDict);
   rm_free(iter);
   RWLOCK_RELEASE();

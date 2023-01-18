@@ -241,7 +241,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
         invidx->fieldMask |= entry->fieldMask;
       }
     }
-    
+
     if (spec->suffixMask & entry->fieldMask && entry->term[0] != STEM_PREFIX
                                             && entry->term[0] != PHONETIC_PREFIX
                                             && entry->term[0] != SYNONYM_PREFIX_CHAR) {
@@ -271,6 +271,7 @@ static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx
     if (dmd) {
       // decrease the number of documents in the index stats only if the document was there
       --spec->stats.numDocuments;
+      DMD_Return(aCtx->oldMd);
       aCtx->oldMd = dmd;
       if (sctx->spec->gc) {
         GCContext_OnDelete(sctx->spec->gc);
@@ -335,6 +336,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       DocTable_SetByteOffsets(&spec->docs, md, cur->byteOffsets);
       cur->byteOffsets = NULL;
     }
+    DMD_Return(md);
   }
 }
 
