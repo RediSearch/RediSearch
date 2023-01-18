@@ -19,7 +19,7 @@
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
 // Multi threading data structure
-typedef struct { AREQ *r; RedisModuleBlockedClient *bc; } blockedClientReqCtx;
+typedef struct { AREQ *r; RedisModuleBlockedClient *bc;} blockedClientReqCtx;
 
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
 
@@ -355,22 +355,56 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 	// lockspec
 	RedisSearchCtx_LockSpecRead(BCRctx->r->sctx);
-	AREQ_Execute(BCRctx->r, blockedClientReqCtx_getRedisctx(BCRctx));
+    QueryError status = {0};
+    RedisModuleCtx *redis_ctx = BCRctx->r->sctx->redisCtx;
+    if (prepareExecutionPlan(&BCRctx->r, &status) != REDISMODULE_OK) {
+        if (BCRctx->r) {
+          AREQ_Free(BCRctx->r);
+        }
+        QueryError_ReplyAndClear(redis_ctx, &status);
+    } else {
+        AREQ_Execute(BCRctx->r, blockedClientReqCtx_getRedisctx(BCRctx));
+    }
 
 	// No need to unlock spec as AREQ_Execute calls ctx cleanup.
-  RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, BCRctx->bc);
+    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, BCRctx->bc);
 
 	blockedClientReqCtx_destroy(BCRctx);
 }
 
+int prepareExecutionPlan(AREQ **r, QueryError *status) {
+    int rc = AREQ_ApplyContext(*r, (*r)->sctx, status);
+    // ctx is always assigned after ApplyContext
+    if (rc != REDISMODULE_OK) {
+        RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
+        goto done;
+    }
+    hires_clock_t parseClock;
+    bool is_profile = IsProfile(*r);
+    if (is_profile) {
+        hires_clock_get(&parseClock);
+        (*r)->parseTime += hires_clock_diff_msec(&parseClock, &(*r)->initClock);
+    }
+
+    rc = AREQ_BuildPipeline(*r, 0, status);
+
+    if (is_profile) {
+        (*r)->pipelineBuildTime = hires_clock_since_msec(&parseClock);
+    }
+
+done:
+    if (rc != REDISMODULE_OK && *r) {
+        AREQ_Free(*r);
+        *r = NULL;
+    }
+    return rc;
+}
 
 static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int type,
                         QueryError *status, AREQ **r) {
 
   int rc = REDISMODULE_ERR;
-  hires_clock_t parseClock;
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-  RedisSearchCtx *sctx = NULL;
   RedisModuleCtx *thctx = NULL;
 
   if (type == COMMAND_SEARCH) {
@@ -393,31 +427,13 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     ctx = thctx = newctx;  // In case of error!
   }
 
-  sctx = NewSearchCtxC(ctx, indexname, true);
+  RedisSearchCtx* sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
     QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "%s: no such index", indexname);
     goto done;
   }
-
-  rc = AREQ_ApplyContext(*r, sctx, status);
-  thctx = NULL;
-  // ctx is always assigned after ApplyContext
-  if (rc != REDISMODULE_OK) {
-    RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
-    goto done;
-  }
-
-  bool is_profile = IsProfile(*r);
-  if (is_profile) {
-    hires_clock_get(&parseClock);
-    (*r)->parseTime += hires_clock_diff_msec(&parseClock, &(*r)->initClock);
-  }
-
-  rc = AREQ_BuildPipeline(*r, 0, status);
-
-  if (is_profile) {
-    (*r)->pipelineBuildTime = hires_clock_since_msec(&parseClock);
-  }
+  (*r)->sctx = sctx;
+  rc = REDISMODULE_OK;
 
 done:
   if (rc != REDISMODULE_OK && *r) {
@@ -461,7 +477,6 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_WrongArity(ctx);
   }
 
-  const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   AREQ *r = AREQ_New();
   QueryError status = {0};
   if (parseProfile(r, withProfile, argv, argc, &status) != REDISMODULE_OK) {
@@ -476,6 +491,9 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   SET_DIALECT(RSGlobalConfig.used_dialects, r->dialectVersion);
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
+    if (prepareExecutionPlan(&r, &status) != REDISMODULE_OK) {
+      goto error;
+    }
     int rc = AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status);
     if (rc != REDISMODULE_OK) {
       goto error;
@@ -489,6 +507,9 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     blockedClientReqCtx* BCRctx = blockedClientReqCtx_New(r, bc);
     workersThreadPool_AddWork((thpool_proc)AREQ_Execute_Callback, BCRctx);
   } else {
+    if (prepareExecutionPlan(&r, &status) != REDISMODULE_OK) {
+      goto error;
+    }
     AREQ_Execute(r, ctx);
   }
   return REDISMODULE_OK;
@@ -561,6 +582,9 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
                           QueryError *status) {
   AREQ *r = AREQ_New();
   if (buildRequest(ctx, argv, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
+    return NULL;
+  }
+  if (prepareExecutionPlan(&r, status) != REDISMODULE_OK) {
     return NULL;
   }
   char *ret = QAST_DumpExplain(&r->ast, r->sctx->spec);
