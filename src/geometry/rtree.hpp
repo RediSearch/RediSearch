@@ -17,6 +17,7 @@ struct RTree {
 	rtree_internal rtree_;
 
     RTree() : rtree_{} {}
+    RTree(rtree_internal const& rt) : rtree_{rt} {}
 	
 	template <typename Predicate>
 	std::vector<RTDoc> query(Predicate p) const {
