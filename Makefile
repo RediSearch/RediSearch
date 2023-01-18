@@ -52,6 +52,7 @@ make pytest        # run python tests (tests/pytests)
   VG_LEAKS=0         # do not search leaks with Valgrind
   SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
   ONLY_STABLE=1      # skip unstable tests
+  TEST_PARALLEL=n    # test parallalization
 
 make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
@@ -365,9 +366,11 @@ FLOW_TESTS_DEFS=\
 export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
 
 ifeq ($(SLOW),1)
-_RLTEST_PARALLEL=0
+_TEST_PARALLEL=0
+else ifeq ($(TEST_PARALLEL),)
+_TEST_PARALLEL=1
 else
-_RLTEST_PARALLEL=1
+_TEST_PARALLEL=$(TEST_PARALLEL)
 endif
 
 test: unit-tests pytest
@@ -379,7 +382,7 @@ pytest: $(REJSON_SO)
 ifneq ($(REJSON_PATH),)
 	@echo Testing with $(REJSON_PATH)
 endif
-	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_RLTEST_PARALLEL) \
+	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------

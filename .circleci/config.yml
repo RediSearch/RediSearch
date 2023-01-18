@@ -184,12 +184,12 @@ commands:
           name: Test (Search)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: make test NPROC=16 PLATFORM_MODE=1 SHOW=1 <<parameters.test_params>>
+          command: make test TEST_PARALLEL=16 PLATFORM_MODE=1 SHOW=1 <<parameters.test_params>>
       - run:
           name: Test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: make test NPROC=16 COORD=oss PLATFORM_MODE=1 SHOW=1 <<parameters.test_params>>
+          command: make test TEST_PARALLEL=16 COORD=oss PLATFORM_MODE=1 SHOW=1 <<parameters.test_params>>
       - save-tests-logs
 
   build-platforms-steps:
@@ -505,7 +505,7 @@ jobs:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
           command: |
-            make coverage NPROC=16 PLATFORM_MODE=1 SHOW=1
+            make coverage TEST_PARALLEL=16 PLATFORM_MODE=1 SHOW=1
             make upload-cov SHOW=1
           no_output_timeout: 30m
       - save-tests-logs
@@ -526,14 +526,14 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           command: |
             make SAN=<<parameters.san-type>> build SHOW=1
-            make SAN=<<parameters.san-type>> test NPROC=16 SHOW=1 QUICK=1
+            make SAN=<<parameters.san-type>> test TEST_PARALLEL=16 SHOW=1 QUICK=1
           no_output_timeout: 30m
       - run:
           name: Build & test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
           command: |
             make SAN=<<parameters.san-type>> COORD=oss build SHOW=1
-            make SAN=<<parameters.san-type>> COORD=oss build test NPROC=16 SHOW=1 QUICK=1
+            make SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 QUICK=1
           no_output_timeout: 30m
       - save-tests-logs
 

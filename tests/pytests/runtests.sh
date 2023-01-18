@@ -526,8 +526,19 @@ if [[ -n $TEST ]]; then
 	RLTEST_TEST_ARGS+=$(echo -n " "; echo "$TEST" | awk 'BEGIN { RS=" "; ORS=" " } { print "--test " $1 }')
 fi
 
-[[ -n $TESTFILE ]] && RLTEST_TEST_ARGS+=" -f $TESTFILE"
-[[ -n $FAILEDFILE ]] && RLTEST_TEST_ARGS+=" -F $FAILEDFILE"
+if [[ -n $TESTFILE ]]; then
+	if ! is_abspath $TESTFILE; then
+		TESTFILE="$PWD/$TESTFILE"
+	fi
+	RLTEST_TEST_ARGS+=" -f $TESTFILE"
+fi
+
+if [[ -n $FAILEDFILE ]]; then
+	if ! is_abspath $FAILEDFILE; then
+		TESTFILE="$PWD/$FAILEDFILE"
+	fi
+	RLTEST_TEST_ARGS+=" -F $FAILEDFILE"
+fi
 
 if [[ $LIST == 1 ]]; then
 	NO_SUMMARY=1
@@ -668,7 +679,7 @@ if [[ $COLLECT_LOGS == 1 ]]; then
 	mkdir -p bin/artifacts/tests
 	test_tar="bin/artifacts/tests/tests-pytests-logs-${ARCH}-${OSNICK}.tgz"
 	rm -f "$test_tar"
-	find tests/pytests/logs -name "*.log" | tar -czf "$test_tar" -T -
+	find tests/pytests/logs -name "*.log*" | tar -czf "$test_tar" -T -
 	echo "Test logs:"
 	du -ah --apparent-size bin/artifacts/tests
 fi
