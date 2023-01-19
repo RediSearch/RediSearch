@@ -175,29 +175,36 @@ void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
   ctx->flags = RS_CTX_READWRITE;
 }
 
-RedisSearchCtx *NewSearchCtxFromSpec(RedisModuleCtx *ctx, IndexSpec *sp) {
-  RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
-  IndexSpec_IncreaseRef(sp);
+RedisSearchCtx *NewSearchCtxFromSpec(RedisModuleCtx *ctx, weakIndexSpec *wsp) {
+  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
+  if (!sp) {
+    return NULL;
+  }
+  RedisSearchCtx *sctx = rm_new(RedisSearchCtx);
   *sctx = SEARCH_CTX_STATIC(ctx, sp);
+  sctx->wsp = wsp;
   return sctx;
 }
 
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
   IndexLoadOptions loadOpts = {.name = {.cstring = indexName}};
-  IndexSpec *sp = IndexSpec_GetReferenceEx(ctx, &loadOpts);
-
+  weakIndexSpec *wsp = IndexSpec_LoadUnsafeEx(ctx, &loadOpts);
+  if (!wsp) {
+    return NULL;
+  }
+  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
   if (!sp) {
+    WeakIndexSpec_ReturnWeakReference(wsp);
     return NULL;
   }
 
-  RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
+  RedisSearchCtx *sctx = rm_new(RedisSearchCtx);
   *sctx = SEARCH_CTX_STATIC(ctx, sp);
-  sctx->key_ = loadOpts.keyp;
+  sctx->wsp = wsp;
   return sctx;
 }
 
 RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL) {
-
   return NewSearchCtxC(ctx, RedisModule_StringPtrLen(indexName, NULL), resetTTL);
 }
 
@@ -215,7 +222,7 @@ void SearchCtx_CleanUp(RedisSearchCtx * sctx) {
     sctx->key_ = NULL;
   }
   RedisSearchCtx_UnlockSpec(sctx);
-  IndexSpec_ReturnReference(sctx->spec);
+  WeakIndexSpec_ReturnReferences(sctx->wsp);
 }
 
 void SearchCtx_Free(RedisSearchCtx *sctx) {

@@ -1099,9 +1099,10 @@ TEST_F(IndexTest, testIndexSpec) {
                         "2.0",       foo,      "text",  "sortable", bar,      "numeric",
                         "sortable",  name,     "text",  "nostem"};
   QueryError err = {QUERY_OK};
-  IndexSpec *s = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  weakIndexSpec *ws = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
-  ASSERT_TRUE(s);
+  ASSERT_TRUE(ws);
+  IndexSpec *s = ws->spec;
   ASSERT_TRUE(s->numFields == 5);
   ASSERT_TRUE(s->stopwords != NULL);
   ASSERT_TRUE(s->stopwords != DefaultStopWordList());
@@ -1167,29 +1168,31 @@ TEST_F(IndexTest, testIndexSpec) {
   rc = IndexSpec_GetFieldSortingIndex(s, title, strlen(title));
   ASSERT_EQ(-1, rc);
 
-  IndexSpec_ReturnReference(s);
+  WeakIndexSpec_ReturnReferences(ws);
 
   QueryError_ClearError(&err);
   const char *args2[] = {
       "NOOFFSETS", "NOFIELDS", "SCHEMA", title, "text",
   };
-  s = IndexSpec_Parse("idx", args2, sizeof(args2) / sizeof(const char *), &err);
+  ws = IndexSpec_Parse("idx", args2, sizeof(args2) / sizeof(const char *), &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
-  ASSERT_TRUE(s);
+  ASSERT_TRUE(ws);
+  s = ws->spec;
   ASSERT_TRUE(s->numFields == 1);
 
   ASSERT_TRUE(!(s->flags & Index_StoreFieldFlags));
   ASSERT_TRUE(!(s->flags & Index_StoreTermOffsets));
-  IndexSpec_ReturnReference(s);
+  WeakIndexSpec_ReturnReferences(ws);
 
   // User-reported bug
   const char *args3[] = {"SCHEMA", "ha", "NUMERIC", "hb", "TEXT", "WEIGHT", "1", "NOSTEM"};
   QueryError_ClearError(&err);
-  s = IndexSpec_Parse("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
+  ws = IndexSpec_Parse("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
-  ASSERT_TRUE(s);
+  ASSERT_TRUE(ws);
+  s = ws->spec;
   ASSERT_TRUE(FieldSpec_IsNoStem(s->fields + 1));
-  IndexSpec_ReturnReference(s);
+  WeakIndexSpec_ReturnReferences(ws);
 }
 
 static void fillSchema(std::vector<char *> &args, size_t nfields) {
@@ -1232,11 +1235,12 @@ TEST_F(IndexTest, testHugeSpec) {
   fillSchema(args, N);
 
   QueryError err = {QUERY_OK};
-  IndexSpec *s = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
+  weakIndexSpec *ws = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
-  ASSERT_TRUE(s);
+  ASSERT_TRUE(ws);
+  IndexSpec *s = ws->spec;
   ASSERT_TRUE(s->numFields == N);
-  IndexSpec_ReturnReference(s);
+  WeakIndexSpec_ReturnReferences(ws);
   freeSchemaArgs(args);
 
   // test too big a schema
@@ -1244,8 +1248,8 @@ TEST_F(IndexTest, testHugeSpec) {
   fillSchema(args, N);
 
   QueryError_ClearError(&err);
-  s = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
-  ASSERT_TRUE(s == NULL);
+  ws = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
+  ASSERT_TRUE(ws == NULL);
   ASSERT_TRUE(QueryError_HasError(&err));
 #if !defined(__arm__) && !defined(__aarch64__)
   ASSERT_STREQ("Schema is limited to 128 TEXT fields", QueryError_GetError(&err));

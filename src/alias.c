@@ -30,8 +30,8 @@ void IndexAlias_DestroyGlobal(AliasTable **t) {
   *t = NULL;
 }
 
-int AliasTable_Add(AliasTable *table, const char *alias, IndexSpec *spec, int options,
-                   QueryError *error) {
+static int AliasTable_Add(AliasTable *table, const char *alias, weakIndexSpec *wsp, IndexSpec *spec,
+                          int options, QueryError *error) {
   // look up and see if it exists:
   dictEntry *e, *existing = NULL;
   e = dictAddRaw(table->d, (void *)alias, &existing);
@@ -40,7 +40,7 @@ int AliasTable_Add(AliasTable *table, const char *alias, IndexSpec *spec, int op
     return REDISMODULE_ERR;
   }
   RS_LOG_ASSERT(e->key != alias, "Alias should be different than key");
-  e->v.val = spec;
+  e->v.val = wsp;
   if (!(options & INDEXALIAS_NO_BACKREF)) {
     char *duped = rm_strdup(alias);
     spec->aliases = array_ensure_append(spec->aliases, &duped, 1, char *);
@@ -51,7 +51,7 @@ int AliasTable_Add(AliasTable *table, const char *alias, IndexSpec *spec, int op
   return REDISMODULE_OK;
 }
 
-int AliasTable_Del(AliasTable *table, const char *alias, IndexSpec *spec, int options,
+static int AliasTable_Del(AliasTable *table, const char *alias, IndexSpec *spec, int options,
                    QueryError *error) {
   char *toFree = NULL;
   // ensure that the item exists in the list
@@ -89,7 +89,7 @@ int AliasTable_Del(AliasTable *table, const char *alias, IndexSpec *spec, int op
   return REDISMODULE_OK;
 }
 
-IndexSpec *AliasTable_Get(AliasTable *tbl, const char *alias) {
+static weakIndexSpec *AliasTable_Get(AliasTable *tbl, const char *alias) {
   dictEntry *e = dictFind(tbl->d, alias);
   if (e) {
     return e->v.val;
@@ -98,22 +98,19 @@ IndexSpec *AliasTable_Get(AliasTable *tbl, const char *alias) {
   }
 }
 
-int IndexAlias_Add(const char *alias, IndexSpec *spec, int options, QueryError *status) {
-  return AliasTable_Add(AliasTable_g, alias, spec, options, status);
+int IndexAlias_Add(const char *alias, weakIndexSpec *wsp, IndexSpec *spec, int options, QueryError *status) {
+  return AliasTable_Add(AliasTable_g, alias, wsp, spec, options, status);
 }
 
 int IndexAlias_Del(const char *alias, IndexSpec *spec, int options, QueryError *status) {
   return AliasTable_Del(AliasTable_g, alias, spec, options, status);
 }
 
-IndexSpec *IndexAlias_Get(const char *alias) {
+weakIndexSpec *IndexAlias_Get(const char *alias) {
   return AliasTable_Get(AliasTable_g, alias);
 }
 
 void IndexSpec_ClearAliases(IndexSpec *sp) {
-  if (!sp->aliases) {
-    return;
-  }
   for (size_t ii = 0; ii < array_len(sp->aliases); ++ii) {
     char **pp = sp->aliases + ii;
     QueryError e = {0};

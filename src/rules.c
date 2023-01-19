@@ -76,7 +76,7 @@ void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx) {
   legacySpecRules = NULL;
 }
 
-SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError *status) {
+SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, weakIndexSpec *wsp, QueryError *status) {
   SchemaRule *rule = rm_calloc(1, sizeof(*rule));
 
   if (DocumentType_Parse(args->type, &rule->type, status) == REDISMODULE_ERR) {
@@ -118,7 +118,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
     rule->prefixes = array_append(rule->prefixes, p);
   }
 
-  rule->spec = spec;
+  rule->spec = wsp->spec;
 
   if (rule->filter_exp_str) {
     rule->filter_exp = ExprAST_Parse(rule->filter_exp_str, strlen(rule->filter_exp_str), status);
@@ -129,7 +129,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
   }
 
   for (int i = 0; i < array_len(rule->prefixes); ++i) {
-    SchemaPrefixes_Add(rule->prefixes[i], spec);
+    SchemaPrefixes_Add(rule->prefixes[i], wsp);
   }
 
   return rule;
@@ -189,10 +189,10 @@ void SchemaRule_Free(SchemaRule *rule) {
 
 //---------------------------------------------------------------------------------------------
 
-static SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, IndexSpec *index) {
+static SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, weakIndexSpec *index) {
   SchemaPrefixNode *node = rm_calloc(1, sizeof(*node));
   node->prefix = rm_strdup(prefix);
-  node->index_specs = array_new(IndexSpec *, 1);
+  node->index_specs = array_new(weakIndexSpec *, 1);
   node->index_specs = array_append(node->index_specs, index);
   return node;
 }
@@ -348,7 +348,7 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
 
 //---------------------------------------------------------------------------------------------
 
-int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
+int SchemaRule_RdbLoad(weakIndexSpec *wsp, RedisModuleIO *rdb, int encver) {
   SchemaRuleArgs args = {0};
   size_t len;
 #define RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK 32
@@ -389,14 +389,14 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
   RSLanguage lang_default = LoadUnsigned_IOError(rdb, goto cleanup);
 
   QueryError status = {0};
-  SchemaRule *rule = SchemaRule_Create(&args, sp, &status);
+  SchemaRule *rule = SchemaRule_Create(&args, wsp, &status);
   if (!rule) {
     RedisModule_LogIOError(rdb, "warning", "%s", QueryError_GetError(&status));
     RedisModule_Assert(rule);
   } else {
     rule->score_default = score_default;
     rule->lang_default = lang_default;
-    sp->rule = rule;
+    wsp->spec->rule = rule;
   }
   SchemaRule_FilterFields(rule);
 
@@ -489,12 +489,12 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
   int ret = true;
   SchemaRule *rule = sp->rule;
   if (rule->filter_exp) {
-    EvalCtx *r = NULL;     
+    EvalCtx *r = NULL;
     // load hash only if required
     r = EvalCtx_Create();
 
     RLookup_LoadRuleFields(RSDummyContext, &r->lk, &r->row, rule, keyCstr);
- 
+
     if (EvalCtx_EvalExpr(r, rule->filter_exp) != EXPR_EVAL_OK ||
         !RSValue_BoolTest(&r->res)) {
       ret = false;
@@ -521,7 +521,7 @@ void SchemaPrefixes_Free(TrieMap *t) {
   TrieMap_Free(t, freePrefixNode);
 }
 
-void SchemaPrefixes_Add(const char *prefix, IndexSpec *spec) {
+void SchemaPrefixes_Add(const char *prefix, weakIndexSpec *spec) {
   size_t nprefix = strlen(prefix);
   void *p = TrieMap_Find(ScemaPrefixes_g, (char *)prefix, nprefix);
   if (p == TRIEMAP_NOTFOUND) {
@@ -533,10 +533,10 @@ void SchemaPrefixes_Add(const char *prefix, IndexSpec *spec) {
   }
 }
 
-void SchemaPrefixes_RemoveSpec(IndexSpec *spec) {
-  if (!spec || !spec->rule || !spec->rule->prefixes) return;
+void SchemaPrefixes_RemoveSpec(weakIndexSpec *wsp) {
+  if (!wsp || !wsp->spec || !wsp->spec->rule || !wsp->spec->rule->prefixes) return;
 
-  const char **prefixes = spec->rule->prefixes;
+  const char **prefixes = wsp->spec->rule->prefixes;
   for (int i = 0; i < array_len(prefixes); ++i) {
     // retrieve list of specs matching the prefix
     SchemaPrefixNode *node = TrieMap_Find(ScemaPrefixes_g, prefixes[i], strlen(prefixes[i]));
@@ -545,7 +545,7 @@ void SchemaPrefixes_RemoveSpec(IndexSpec *spec) {
     }
     // iterate over specs list and remove
     for (int j = 0; j < array_len(node->index_specs); ++j) {
-      if (node->index_specs[j] == spec) {
+      if (node->index_specs[j] == wsp) {
         array_del_fast(node->index_specs, j);
         if (array_len(node->index_specs) == 0) {
           // if all specs were deleted, remove the node

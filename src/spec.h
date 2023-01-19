@@ -296,16 +296,28 @@ typedef struct IndexSpec {
 
   // read write lock
   pthread_rwlock_t rwlock;
-
-  // Atomic reference counter.
-  size_t refcount;
 } IndexSpec;
+
+typedef struct weakIndexSpec {
+  IndexSpec *spec;
+  uint16_t strong_refcount;
+  uint16_t weak_refcount;
+  bool isInvalid;
+} weakIndexSpec;
+
+weakIndexSpec *WeakIndexSpec_NewWeakReference(IndexSpec *spec);
+IndexSpec *WeakIndexSpec_TryGetStrongReference(weakIndexSpec *wsp);
+weakIndexSpec *WeakIndexSpec_GetWeakReference(weakIndexSpec *wsp); // TODO: by name?
+void WeakIndexSpec_ReturnStrongReference(weakIndexSpec *wsp);
+void WeakIndexSpec_ReturnWeakReference(weakIndexSpec *wsp);
+void WeakIndexSpec_ReturnReferences(weakIndexSpec *wsp);
+void WeakIndexSpec_InvalidateSpec(weakIndexSpec *wsp);
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
 typedef enum TimerOp { TimerOp_Add, TimerOp_Del } TimerOp;
 
 typedef struct SpecOpCtx {
-  IndexSpec *spec;
+  weakIndexSpec *wsp;
   SpecOp op;
 } SpecOpCtx;
 
@@ -341,7 +353,7 @@ typedef struct IndexSpecCache {
 /**
  * For testing only
  */
-void Spec_AddToDict(const IndexSpec *spec);
+void Spec_AddToDict(const weakIndexSpec *w_spec);
 
 /**
  * Compare redis versions
@@ -406,8 +418,8 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
  *
  * The format currently is <field> <weight>, <field> <weight> ...
  */
-IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
-                                    RedisModuleString **argv, int argc, QueryError *status);
+weakIndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
+                                        RedisModuleString **argv, int argc, QueryError *status);
 
 FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type);
 int isRdbLoading(RedisModuleCtx *ctx);
@@ -423,7 +435,7 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ);
 void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy);
 
 /* Same as above but with ordinary strings, to allow unit testing */
-IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
+weakIndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
@@ -502,47 +514,25 @@ typedef struct {
  * Find and load the index using the specified parameters. The call does not increase the spec reference counter.
  * @return the index spec, or NULL if the index does not exist
  */
-IndexSpec* IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name, int openWrite);
+weakIndexSpec* IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name, int openWrite);
 
 /**
  * Find and load the index using the specified parameters. The call does not increase the spec reference counter.
  * @return the index spec, or NULL if the index does not exist
  */
-IndexSpec* IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
-
-/**
- * Find and load the index using the specified parameters.The caller is considered as borrowing the index spec.
- * @return the index spec, or NULL if the index does not exist
- */
-
-IndexSpec *IndexSpec_GetReference(RedisModuleCtx *ctx, const char *name, int openWrite);
-
-/**
- * Find and load the index using the specified parameters. The caller is considered as borrowing the index spec.
- * @return the index spec, or NULL if the index does not exist
- */
-IndexSpec *IndexSpec_GetReferenceEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
+weakIndexSpec* IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
 
 /**
  * @brief Removes the spec from the global data structures
- * 
- * @param sp 
+ *
+ * @param wsp
  */
-void IndexSpec_RemoveFromGlobals(IndexSpec *sp);
+void WeakIndexSpec_RemoveFromGlobals(weakIndexSpec *wsp);
 
-/**
- * @brief Return a reference to of the index spec. From now on the object is no longer owned by the caller.
- * 
- * @param sp 
+/*
+ * Free an indexSpec. For LLAPI
  */
-void IndexSpec_ReturnReference(IndexSpec *sp);
-
-/**
- * @brief Increase the reference count of the index spec
- * 
- * @param sp 
- */
-void IndexSpec_IncreaseRef(IndexSpec *sp);
+void IndexSpec_FreeInternals(IndexSpec *spec);
 
 //---------------------------------------------------------------------------------------------
 
