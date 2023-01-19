@@ -2058,6 +2058,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   setHiredisAllocators();
+  uv_replace_allocator(rm_malloc, rm_realloc, rm_calloc, rm_free);
 
   if (!RSDummyContext) {
     if (RedisModule_GetDetachedThreadSafeContext) {
