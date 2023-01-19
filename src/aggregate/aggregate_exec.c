@@ -378,12 +378,24 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 }
 
 int prepareExecutionPlan(AREQ **r, QueryError *status) {
-    int rc = AREQ_ApplyContext(*r, (*r)->sctx, status);
-    // ctx is always assigned after ApplyContext
-    if (rc != REDISMODULE_OK) {
-        RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
-        goto done;
+    int rc = REDISMODULE_ERR;
+    AREQ *req = *r;
+    RedisSearchCtx *sctx = req->sctx;
+    RSSearchOptions *opts = &req->searchopts;
+    QueryAST *ast = &req->ast;
+
+    ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
+    req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
+
+    TimedOut_WithStatus(&req->timeoutTime, status);
+
+    if (QueryError_HasError(status))
+        return REDISMODULE_ERR;
+    if (IsProfile(req)) {
+        // Add a Profile iterators before every iterator in the tree
+        Profile_AddIters(&req->rootiter);
     }
+
     hires_clock_t parseClock;
     bool is_profile = IsProfile(*r);
     if (is_profile) {
@@ -397,7 +409,6 @@ int prepareExecutionPlan(AREQ **r, QueryError *status) {
         (*r)->pipelineBuildTime = hires_clock_since_msec(&parseClock);
     }
 
-done:
     if (rc != REDISMODULE_OK && *r) {
         AREQ_Free(*r);
         *r = NULL;
@@ -410,6 +421,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   int rc = REDISMODULE_ERR;
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
+  RedisSearchCtx *sctx = NULL;
   RedisModuleCtx *thctx = NULL;
 
   if (type == COMMAND_SEARCH) {
@@ -432,13 +444,19 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     ctx = thctx = newctx;  // In case of error!
   }
 
-  RedisSearchCtx* sctx = NewSearchCtxC(ctx, indexname, true);
+  sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
     QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "%s: no such index", indexname);
     goto done;
   }
-  (*r)->sctx = sctx;
-  rc = REDISMODULE_OK;
+
+  rc = AREQ_ApplyContext(*r, sctx, status);
+  thctx = NULL;
+  // ctx is always assigned after ApplyContext
+  if (rc != REDISMODULE_OK) {
+    RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
+    goto done;
+  }
 
 done:
   if (rc != REDISMODULE_OK && *r) {

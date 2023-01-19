@@ -841,6 +841,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   RSSearchOptions *opts = &req->searchopts;
   sctx->timeout = req->timeoutTime;
   sctx->apiVersion = req->dialectVersion;
+  req->sctx = sctx;
 
   if ((index->flags & Index_StoreByteOffsets) == 0 && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
     QueryError_SetError(
@@ -892,19 +893,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
       return REDISMODULE_ERR;
     }
   }
-
-  ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
-  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
-
-  TimedOut_WithStatus(&req->timeoutTime, status);
-
-  if (QueryError_HasError(status))
-    return REDISMODULE_ERR;
-  if (IsProfile(req)) {
-    // Add a Profile iterators before every iterator in the tree
-    Profile_AddIters(&req->rootiter);
-  }
-
   return REDISMODULE_OK;
 }
 
