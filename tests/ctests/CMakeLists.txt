@@ -1,4 +1,3 @@
-# include(CTest)
 
 if (NOT TEST_MODULE)
     set(TEST_MODULE redisearch)
@@ -8,7 +7,6 @@ function(define_test name)
     add_executable("${name}" "${name}.c")
     target_link_libraries("${name}" ${TEST_MODULE} apistubs ${CMAKE_LD_LIBS})
     set_target_properties("${name}" PROPERTIES LINKER_LANGUAGE CXX)
-    # add_test(NAME "${name}" COMMAND "${name}" WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 endfunction()
 
 file(GLOB TEST_SOURCES "test_*.c")
