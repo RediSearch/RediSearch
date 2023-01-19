@@ -851,6 +851,8 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
     weakIndexSpec *wsp = dictGetVal(entry);
+    // Assuming we are in the main thread, we can use the global strong reference
+    // (of the dictionary) and access the name directly
     RedisModule_ReplyWithCString(ctx, wsp->spec->name);
   }
   dictReleaseIterator(iter);

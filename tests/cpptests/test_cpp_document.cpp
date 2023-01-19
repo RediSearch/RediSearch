@@ -105,7 +105,7 @@ TEST_F(DocumentTest, testLoadSchema) {
 
   ASSERT_EQ(DOCUMENT_F_OWNSTRINGS, d.flags);
   Document_Free(&d);
-  IndexSpec_ReturnReference(spec);
+  IndexSpec_Free(spec);
 }
 
 #endif // HAVE_RM_SCANCURSOR_CREATE
