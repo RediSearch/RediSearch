@@ -16,12 +16,27 @@ int main() {
     size_t presize = RTree_Size(rt);
     assert(presize == 10);
 
-    struct Polygon *qpg = Polygon_NewByCoords(4, 1.001, 1.001, 1.665, 1.333, 1.333, 1.665, 1.001, 1.001);
+    printf("searching for polygons containing\n");
+    struct Polygon *qpg = Polygon_NewByCoords(4, 1.25, 1.25, 1.5, 1.333, 1.333, 1.5, 1.25, 1.25);
+    Polygon_Print(qpg);
     struct QueryIterator *iter = RTree_Query_Contains(rt, qpg);
     printf("num found results: %ld\n", QIter_Remaining(iter));
     for (struct RTDoc *result = QIter_Next(iter); NULL != result; result = QIter_Next(iter)) {
         RTDoc_Print(result);
     }
+    puts("");
+    QIter_Free(iter);
+    Polygon_Free(qpg);
+
+    printf("searching for polygons within\n");
+    qpg = Polygon_NewByCoords(4, 7.0000004, 0., 7.0000004, 7.0000004, 0., 7.0000004, 7.0000004, 0.);
+    Polygon_Print(qpg);
+    iter = RTree_Query_Within(rt, qpg);
+    printf("num found results: %ld\n", QIter_Remaining(iter));
+    for (struct RTDoc *result = QIter_Next(iter); NULL != result; result = QIter_Next(iter)) {
+        RTDoc_Print(result);
+    }
+    puts("");
     QIter_Free(iter);
     Polygon_Free(qpg);
 

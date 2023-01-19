@@ -26,6 +26,13 @@ QueryIterator *RTree_Query_Contains(RTree const *rtree, Polygon const *query_pol
 	});
 	return new QueryIterator{std::move(results)};
 }
+QueryIterator *RTree_Query_Within(RTree const *rtree, Polygon const *query_poly) {
+	auto results = rtree->query(bgi::within(RTDoc::to_rect(query_poly->poly_)));
+	std::erase_if(results, [&](auto const& doc) {
+		return !bg::within(doc.poly_, query_poly->poly_);
+	});
+	return new QueryIterator{std::move(results)};
+}
 
 void QIter_Free(QueryIterator *iter) {
 	delete iter;
