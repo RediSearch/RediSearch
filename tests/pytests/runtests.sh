@@ -528,14 +528,14 @@ if [[ -n $TEST ]]; then
 fi
 
 if [[ -n $TESTFILE ]]; then
-	if ! is_abspath $TESTFILE; then
+	if ! is_abspath "$TESTFILE"; then
 		TESTFILE="$ROOT/$TESTFILE"
 	fi
 	RLTEST_TEST_ARGS+=" -f $TESTFILE"
 fi
 
 if [[ -n $FAILEDFILE ]]; then
-	if ! is_abspath $FAILEDFILE; then
+	if ! is_abspath "$FAILEDFILE"; then
 		TESTFILE="$ROOT/$FAILEDFILE"
 	fi
 	RLTEST_TEST_ARGS+=" -F $FAILEDFILE"
@@ -561,10 +561,6 @@ fi
 setup_redisjson
 
 RLTEST_ARGS+=" $@"
-
-#if [[ $CLEAR_LOGS != 0 ]]; then
-#	RLTEST_ARGS+=" --clear-logs"
-#fi
 
 if [[ -n $REDIS_PORT ]]; then
 	RLTEST_ARGS+="--redis-port $REDIS_PORT"
@@ -686,7 +682,7 @@ if [[ $COLLECT_LOGS == 1 ]]; then
 fi
 
 if [[ -n $STATFILE ]]; then
-	mkdir -p $(dirname $STATFILE)
+	mkdir -p "$(dirname "$STATFILE")"
 	if [[ -f $STATFILE ]]; then
 		# echo "STATFILE=$STATFILE"
 		# cat $STATFILE

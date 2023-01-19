@@ -222,8 +222,8 @@ pack_deps() {
 prepare_symbols_dep() {
 	if [[ ! -f $MODULE.debug ]]; then return 0; fi
 	echo "Preparing debug symbols dependencies ..."
-	echo $(dirname $(realpath $MODULE)) > $ARTDIR/debug.dir
-	echo $(basename $(realpath $MODULE)).debug > $ARTDIR/debug.files
+	dirname "$(realpath $MODULE)" > $ARTDIR/debug.dir
+	echo "$(basename "$(realpath $MODULE)").debug" > $ARTDIR/debug.files
 	echo "" > $ARTDIR/debug.prefix
 	pack_deps debug
 	echo "Done."
@@ -231,8 +231,8 @@ prepare_symbols_dep() {
 
 #----------------------------------------------------------------------------------------------
 
-NUMVER=$(NUMERIC=1 $SBIN/getver)
-SEMVER=$($SBIN/getver)
+NUMVER="$(NUMERIC=1 $SBIN/getver)"
+SEMVER="$($SBIN/getver)"
 
 if [[ ! -z $VARIANT ]]; then
 	VARIANT=-${VARIANT}
@@ -285,8 +285,8 @@ mkdir -p $ARTDIR
 
 if [[ $DEPS == 1 ]]; then
 	# set up `debug` dep
-	echo $(dirname $(realpath $MODULE)) > $ARTDIR/debug.dir
-	echo $(basename $(realpath $MODULE)).debug > $ARTDIR/debug.files
+	dirname "$(realpath $MODULE)" > $ARTDIR/debug.dir
+	echo "$(basename "$(realpath $MODULE)").debug" > $ARTDIR/debug.files
 	echo "" > $ARTDIR/debug.prefix
 
 	echo "Building dependencies ..."
