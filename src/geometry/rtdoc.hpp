@@ -40,7 +40,8 @@ struct RTDoc {
 };
 
 inline bool operator==(RTDoc const& lhs, RTDoc const& rhs) {
-	return boost::geometry::equals(lhs.rect_, rhs.rect_);
+	return bg::equals(lhs.rect_, rhs.rect_) && 
+		   bg::equals(lhs.poly_, rhs.poly_);
 }
 
 struct RTDoc_Indexable {
