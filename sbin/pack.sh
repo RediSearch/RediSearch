@@ -210,7 +210,7 @@ pack_deps() {
 
 	mkdir -p $ARTDIR/snapshots
 	cd $ARTDIR/snapshots
-	if [[ ! -z $BRANCH ]]; then
+	if [[ -n $BRANCH ]]; then
 		local snap_package=$stem.${BRANCH}${VARIANT}.tgz
 		ln -sf ../$fq_package $snap_package
 		ln -sf ../$fq_package.sha256 $snap_package.sha256
@@ -222,8 +222,8 @@ pack_deps() {
 prepare_symbols_dep() {
 	if [[ ! -f $MODULE.debug ]]; then return 0; fi
 	echo "Preparing debug symbols dependencies ..."
-	dirname "$(realpath $MODULE)" > $ARTDIR/debug.dir
-	echo "$(basename "$(realpath $MODULE)").debug" > $ARTDIR/debug.files
+	dirname "$(realpath "$MODULE")" > "$ARTDIR/debug.dir"
+	echo "$(basename "$(realpath "$MODULE")").debug" > "$ARTDIR/debug.files"
 	echo "" > $ARTDIR/debug.prefix
 	pack_deps debug
 	echo "Done."
@@ -234,7 +234,7 @@ prepare_symbols_dep() {
 NUMVER="$(NUMERIC=1 $SBIN/getver)"
 SEMVER="$($SBIN/getver)"
 
-if [[ ! -z $VARIANT ]]; then
+if [[ -n $VARIANT ]]; then
 	VARIANT=-${VARIANT}
 fi
 
@@ -285,8 +285,8 @@ mkdir -p $ARTDIR
 
 if [[ $DEPS == 1 ]]; then
 	# set up `debug` dep
-	dirname "$(realpath $MODULE)" > $ARTDIR/debug.dir
-	echo "$(basename "$(realpath $MODULE)").debug" > $ARTDIR/debug.files
+	dirname "$(realpath "$MODULE")" > "$ARTDIR/debug.dir"
+	echo "$(basename "$(realpath "$MODULE")").debug" > "$ARTDIR/debug.files"
 	echo "" > $ARTDIR/debug.prefix
 
 	echo "Building dependencies ..."
