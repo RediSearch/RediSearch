@@ -56,10 +56,11 @@ help() {
 		DOCKER_HOST=addr      Address of Docker server (default: localhost)
 		RLEC_PORT=port        Port of RLEC database (default: 12000)
 
-		COV=1				  Run with coverage analysis
+		COV=1                 Run with coverage analysis
 		VG=1                  Run with Valgrind
 		VG_LEAKS=0            Do not detect leaks
 		SAN=type              Use LLVM sanitizer (type=address|memory|leak|thread) 
+		BB=1                  Enable Python debugger (break using BB() in tests)
 		GDB=1                 Enable interactive gdb debugging (in single-test mode)
 
 		RLTEST=path|'view'    Take RLTest from repo path or from local view
