@@ -23,14 +23,14 @@ static timespec getTimespecCb(void *) {
 typedef struct {
   RedisModuleCtx *ctx;
   void *fgc;
-  IndexSpec *sp;
+  weakIndexSpec *wsp;
 } args_t;
 
 static pthread_t thread;
 
 void *cbWrapper(void *args) {
   args_t *fgcArgs = (args_t *)args;
-  ForkGC *fgc = reinterpret_cast<ForkGC *>(fgcArgs->sp->gc->gcCtx);
+  ForkGC *fgc = reinterpret_cast<ForkGC *>(fgcArgs->wsp->spec->gc->gcCtx);
 
   // sync thread
   while (fgc->pauseState != FGC_PAUSED_CHILD) {
@@ -38,15 +38,15 @@ void *cbWrapper(void *args) {
   }
 
   // run ForkGC
-  fgcArgs->sp->gc->callbacks.periodicCallback(fgcArgs->ctx, fgcArgs->fgc);
+  fgcArgs->wsp->spec->gc->callbacks.periodicCallback(fgcArgs->ctx, fgcArgs->fgc);
   rm_free(args);
   return NULL;
 }
 
-void runGcThread(RedisModuleCtx *ctx, void *fgc, IndexSpec *sp) {
+void runGcThread(RedisModuleCtx *ctx, void *fgc, weakIndexSpec *wsp) {
   thread = {0};
   args_t *args = (args_t *)rm_calloc(1, sizeof(*args));
-  *args = {.ctx = ctx, .fgc = fgc, .sp = sp};
+  *args = {.ctx = ctx, .fgc = fgc, .wsp = wsp};
 
   pthread_create(&thread, NULL, cbWrapper, args);
 }
@@ -54,27 +54,26 @@ void runGcThread(RedisModuleCtx *ctx, void *fgc, IndexSpec *sp) {
 class FGCTest : public ::testing::Test {
  protected:
   RMCK::Context ctx;
-  IndexSpec *sp;
+  weakIndexSpec *wsp;
   ForkGC *fgc;
 
   void SetUp() override {
-    sp = createIndex(ctx);
+    wsp = createIndex(ctx);
     RSGlobalConfig.forkGcCleanThreshold = 0;
-    Spec_AddToDict(sp);
-    IndexSpec_GetReference(ctx, "idx", 0);
-    fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
-    runGcThread(ctx, fgc, sp);
+    Spec_AddToDict(wsp);
+    WeakIndexSpec_GetWeakReference(wsp);
+    fgc = reinterpret_cast<ForkGC *>(wsp->spec->gc->gcCtx);
+    runGcThread(ctx, fgc, wsp);
   }
 
   void TearDown() override {
     // Return the reference
-    IndexSpec_RemoveFromGlobals(sp);
-    IndexSpec_ReturnReference(sp);
-    RediSearch_DropIndex(sp);
+    WeakIndexSpec_RemoveFromGlobals(wsp);
+    RediSearch_DropIndex(wsp->spec);
     pthread_join(thread, NULL);
   }
 
-  IndexSpec *createIndex(RedisModuleCtx *ctx) {
+  weakIndexSpec *createIndex(RedisModuleCtx *ctx) {
     RSIndexOptions opts = {0};
     opts.gcPolicy = GC_POLICY_FORK;
     auto sp = RediSearch_CreateIndex("idx", &opts);
@@ -92,13 +91,17 @@ class FGCTest : public ::testing::Test {
 
     QueryError status = {};
 
-    sp->rule = SchemaRule_Create(&args, sp, &status);
+    weakIndexSpec *wsp = WeakIndexSpec_NewWeakReference(sp);
+    sp->rule = SchemaRule_Create(&args, wsp, &status);
 
-    return sp;
+    return wsp;
   }
 };
 
 TEST_F(FGCTest, testRemoveLastBlock) {
+
+  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
+  ASSERT_TRUE(sp != NULL);
 
   // Add a document
   ASSERT_TRUE(RS::addDocument(ctx, sp, "doc1", "f1", "hello"));
@@ -121,6 +124,7 @@ TEST_F(FGCTest, testRemoveLastBlock) {
   FGC_WaitClear(fgc);
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
+  WeakIndexSpec_ReturnStrongReference(wsp);
 }
 
 static InvertedIndex *getTagInvidx(RedisSearchCtx* sctx, const char *field,
@@ -145,6 +149,7 @@ static std::string numToDocid(unsigned id) {
 TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
   // Delete the first block:
   unsigned curId = 0;
+  IndexSpec *sp = wsp->spec;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
   while (iv->size < 3) {
@@ -189,6 +194,7 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
 TEST_F(FGCTest, testRepairLastBlock) {
   // Delete the first block:
   unsigned curId = 0;
+  IndexSpec *sp = wsp->spec;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   auto iv = getTagInvidx(&sctx, "f1", "hello");
   while (iv->size < 2) {
@@ -227,6 +233,7 @@ TEST_F(FGCTest, testRepairLastBlock) {
 TEST_F(FGCTest, testRepairMiddleRemoveLast) {
   // Delete the first block:
   unsigned curId = 0;
+  IndexSpec *sp = wsp->spec;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   auto iv = getTagInvidx(&sctx, "f1", "hello");
   while (iv->size < 3) {
@@ -267,6 +274,7 @@ TEST_F(FGCTest, testRepairMiddleRemoveLast) {
 TEST_F(FGCTest, testRemoveMiddleBlock) {
   // Delete the first block:
   unsigned curId = 0;
+  IndexSpec *sp = wsp->spec;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   InvertedIndex *iv = getTagInvidx(&sctx, "f1", "hello");
 

@@ -528,14 +528,20 @@ DEBUG_COMMAND(GCForceInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexSpec *sp = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
-  if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
-    return REDISMODULE_OK;
+  weakIndexSpec *wsp = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  if (!wsp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
+  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
+  if (!sp) {
+    WeakIndexSpec_ReturnWeakReference(wsp);
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(
       ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, INVOKATION_TIMEOUT);
   GCContext_ForceInvoke(sp->gc, bc);
+  WeakIndexSpec_ReturnReferences(wsp);
   return REDISMODULE_OK;
 }
 
@@ -543,12 +549,17 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexSpec *sp = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  weakIndexSpec *wsp = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  if (!wsp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
   if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
-    return REDISMODULE_OK;
+    WeakIndexSpec_ReturnWeakReference(wsp);
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
   GCContext_ForceBGInvoke(sp->gc);
+  WeakIndexSpec_ReturnReferences(wsp);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;
 }
@@ -592,25 +603,31 @@ DEBUG_COMMAND(ttl) {
   IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
                             .name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
   lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
-  IndexSpec *sp = IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  weakIndexSpec *wsp = IndexSpec_LoadUnsafeEx(ctx, &lopts);
 
+  if (!wsp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
   if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
-    return REDISMODULE_OK;
+    WeakIndexSpec_ReturnWeakReference(wsp);
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
   if (!(sp->flags & Index_Temporary)) {
     RedisModule_ReplyWithError(ctx, "Index is not temporary");
-    return REDISMODULE_OK;
+    goto cleanup;
   }
 
   uint64_t remaining = 0;
   if (RedisModule_GetTimerInfo(RSDummyContext, sp->timerId, &remaining, NULL) != REDISMODULE_OK) {
     RedisModule_ReplyWithLongLong(ctx, 0);  // timer was called but free operation is async so its
                                             // gone be free each moment. lets return 0 timeout.
-    return REDISMODULE_OK;
+    goto cleanup;
   }
   RedisModule_ReplyWithLongLong(ctx, remaining / 1000);  // return the results in seconds
+cleanup:
+  WeakIndexSpec_ReturnReferences(wsp);
   return REDISMODULE_OK;
 }
 

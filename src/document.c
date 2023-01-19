@@ -806,10 +806,18 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
         if (!AddDocumentCtx_IsBlockable(aCtx)) {
           ++aCtx->spec->stats.indexingFailures;
         } else {
+          // TODO: multithreaded: consider locking the spec instead of the GIL
           RedisModule_ThreadSafeContextLock(RSDummyContext);
-          IndexSpec *spec = IndexSpec_LoadUnsafe(RSDummyContext, aCtx->specName, 0);
-          if (spec && aCtx->specId == spec->uniqueId) {
-            ++spec->stats.indexingFailures;
+          weakIndexSpec *wsp = NULL;
+          IndexSpec *sp = NULL;
+          if ((wsp = IndexSpec_LoadUnsafe(RSDummyContext, aCtx->specName, 0))) {
+            if ((sp = WeakIndexSpec_TryGetStrongReference(wsp))) {
+              if (aCtx->specId == sp->uniqueId) {
+                ++sp->stats.indexingFailures;
+              }
+              WeakIndexSpec_ReturnStrongReference(wsp);
+            }
+            WeakIndexSpec_ReturnWeakReference(wsp);
           }
           RedisModule_ThreadSafeContextUnlock(RSDummyContext);
         }
