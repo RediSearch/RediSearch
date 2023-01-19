@@ -319,8 +319,9 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, weakIndexSpec *wsp) {
 static void IndexSpec_SetTimeoutTimer(IndexSpec *sp, weakIndexSpec *wsp) {
   if (sp->isTimerSet) {
     weakIndexSpec *old_timer_wsp;
-    RedisModule_StopTimer(RSDummyContext, sp->timerId, (void **)&old_timer_wsp);
-    WeakIndexSpec_ReturnWeakReference(old_timer_wsp);
+    if (RedisModule_StopTimer(RSDummyContext, sp->timerId, (void **)&old_timer_wsp) == REDISMODULE_OK) {
+      WeakIndexSpec_ReturnWeakReference(old_timer_wsp);
+    }
   }
   weakIndexSpec *timer_wsp = WeakIndexSpec_GetWeakReference(wsp);
   sp->timerId = RedisModule_CreateTimer(RSDummyContext, sp->timeout,
@@ -331,8 +332,9 @@ static void IndexSpec_SetTimeoutTimer(IndexSpec *sp, weakIndexSpec *wsp) {
 static void IndexSpec_ResetTimeoutTimer(IndexSpec *sp) {
   if (sp->isTimerSet) {
     weakIndexSpec *old_timer_wsp;
-    RedisModule_StopTimer(RSDummyContext, sp->timerId, (void **)&old_timer_wsp);
-    WeakIndexSpec_ReturnWeakReference(old_timer_wsp);
+    if (RedisModule_StopTimer(RSDummyContext, sp->timerId, (void **)&old_timer_wsp) == REDISMODULE_OK) {
+      WeakIndexSpec_ReturnWeakReference(old_timer_wsp);
+    }
   }
   sp->timerId = 0;
   sp->isTimerSet = false;
@@ -1341,8 +1343,9 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   // For temporary index
   if (spec->isTimerSet) {
     weakIndexSpec *old_timer_wsp;
-    RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_wsp);
-    WeakIndexSpec_ReturnWeakReference(old_timer_wsp);
+    if (RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_wsp) == REDISMODULE_OK) {
+      WeakIndexSpec_ReturnWeakReference(old_timer_wsp);
+    }
     spec->isTimerSet = false;
   }
   // Stop and destroy indexer
@@ -1411,8 +1414,9 @@ void IndexSpec_Free(IndexSpec *spec) {
   if (!RS_IsMock && (spec->flags & Index_Temporary)) {
     if (spec->isTimerSet) {
       weakIndexSpec *old_timer_wsp;
-      RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_wsp);
-      WeakIndexSpec_ReturnWeakReference(old_timer_wsp);
+      if (RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_wsp) == REDISMODULE_OK) {
+        WeakIndexSpec_ReturnWeakReference(old_timer_wsp);
+      }
       spec->isTimerSet = false;
     }
     thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeTask, rm_strdup(spec->name));
@@ -1512,8 +1516,9 @@ weakIndexSpec* IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *opt
   if (!RS_IsMock && (sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
     if (sp->isTimerSet) {
       weakIndexSpec *old_timer_wsp;
-      RedisModule_StopTimer(RSDummyContext, sp->timerId, (void **)&old_timer_wsp);
-      WeakIndexSpec_ReturnWeakReference(old_timer_wsp);
+      if (RedisModule_StopTimer(RSDummyContext, sp->timerId, (void **)&old_timer_wsp) == REDISMODULE_OK) {
+        WeakIndexSpec_ReturnWeakReference(old_timer_wsp);
+      }
     }
     IndexSpec_SetTimeoutTimer(sp, wsp);
   }

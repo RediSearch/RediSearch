@@ -511,7 +511,7 @@ typedef struct {
 //---------------------------------------------------------------------------------------------
 
 /**
- * Find and load the index using the specified parameters. The call does not increase the spec reference counter.
+ * Find and load the index using the specified parameters. The call increases the weak reference counter of the spec.
  * @return the index spec, or NULL if the index does not exist
  */
 weakIndexSpec* IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name, int openWrite);
@@ -532,7 +532,7 @@ void WeakIndexSpec_RemoveFromGlobals(weakIndexSpec *wsp);
 /*
  * Free an indexSpec. For LLAPI
  */
-void IndexSpec_FreeInternals(IndexSpec *spec);
+void IndexSpec_Free(IndexSpec *spec);
 
 //---------------------------------------------------------------------------------------------
 
