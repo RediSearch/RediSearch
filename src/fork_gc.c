@@ -824,19 +824,15 @@ cleanup:
 typedef struct {
   // Node in the tree that was GC'd
   NumericRangeNode *node;
-  CardinalityValue *lastBlockDeleted;
-  CardinalityValue *restBlockDeleted;
-  size_t nlastBlockDel;
-  size_t nrestBlockDel;
   InvIdxBuffers idxbufs;
   MSG_IndexInfo info;
 
-  CardinalityValue *cardVals;
+  arrayof(CardinalityValue) cardValsArr;
   size_t numCardVals;
   double uniqueSum;
 } NumGcInfo;
 
-static int recvCardvals(ForkGC *fgc, CardinalityValue **tgt, size_t *len,
+static int recvCardvals(ForkGC *fgc, arrayof(CardinalityValue) *tgt, size_t *len,
                         double *uniqueSum) {
   if (FGC_recvFixed(fgc, len, sizeof(*len)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -845,6 +841,9 @@ static int recvCardvals(ForkGC *fgc, CardinalityValue **tgt, size_t *len,
   if (!*len) {
     *tgt = NULL;
     return REDISMODULE_OK;
+  }
+  if (*tgt) {
+    rm_free(*tgt);
   }
   *tgt = array_new(CardinalityValue, *len);
 
@@ -871,7 +870,7 @@ static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
     goto error;
   }
 
-  if (recvCardvals(gc, &ninfo->cardVals, &ninfo->numCardVals,
+  if (recvCardvals(gc, &ninfo->cardValsArr, &ninfo->numCardVals,
                        &ninfo->uniqueSum) != REDISMODULE_OK) {
     goto error;
   }
@@ -880,18 +879,17 @@ static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
 error:
   printf("Error receiving numeric index!\n");
   freeInvIdx(&ninfo->idxbufs, &ninfo->info);
-  rm_free(ninfo->lastBlockDeleted);
-  rm_free(ninfo->restBlockDeleted);
   memset(ninfo, 0, sizeof(*ninfo));
   return FGC_CHILD_ERROR;
 }
 
 static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNone) {
-  CardinalityValue *cardVals = info->cardVals;
+  arrayof(CardinalityValue) cardValsArr = info->cardValsArr;
 
   NumericRange *r = currNone->range;
   array_free(r->values);
-  r->values = cardVals ? cardVals : array_new(CardinalityValue, 1);
+  r->values = cardValsArr ? cardValsArr : array_new(CardinalityValue, 1);
+  info->cardValsArr = NULL;
 
   r->unique_sum = info->uniqueSum;
   r->card = array_len(r->values);
@@ -985,9 +983,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
       FGC_unlock(gc, rctx);
       hasLock = 0;
     }
-
-    rm_free(ninfo.restBlockDeleted);
-    rm_free(ninfo.lastBlockDeleted);
   }
 
   rm_free(fieldName);
