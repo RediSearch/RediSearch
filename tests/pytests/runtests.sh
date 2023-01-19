@@ -489,7 +489,7 @@ fi
 
 if [[ -n $TEST ]]; then
 	[[ $LOG != 1 ]] && RLTEST_LOG=0
-	export BB=${BB:-1}
+	# export BB=${BB:-1}
 	export RUST_BACKTRACE=1
 fi
 
@@ -528,14 +528,14 @@ fi
 
 if [[ -n $TESTFILE ]]; then
 	if ! is_abspath $TESTFILE; then
-		TESTFILE="$PWD/$TESTFILE"
+		TESTFILE="$ROOT/$TESTFILE"
 	fi
 	RLTEST_TEST_ARGS+=" -f $TESTFILE"
 fi
 
 if [[ -n $FAILEDFILE ]]; then
 	if ! is_abspath $FAILEDFILE; then
-		TESTFILE="$PWD/$FAILEDFILE"
+		TESTFILE="$ROOT/$FAILEDFILE"
 	fi
 	RLTEST_TEST_ARGS+=" -F $FAILEDFILE"
 fi

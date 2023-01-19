@@ -345,6 +345,12 @@ jobs:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     parameters:
+      build_params:
+        type: string
+        default: ""
+      test_params:
+        type: string
+        default: ""
       redis_version:
         type: string
         default: "6"
@@ -353,9 +359,10 @@ jobs:
         default: "yes"
     steps:
       - build-steps:
+          build_params: <<parameters.build_params>>
           redis_version: <<parameters.redis_version>>
       - test-steps:
-          test_params: QUICK=1
+          test_params: <<parameters.build_params>> <<parameters.test_params>> QUICK=1
       - run:
           name: Persist artifacts?
           command: |
@@ -729,6 +736,10 @@ workflows:
     jobs:
       - build-linux-debian:
           <<: *not-on-integ-branch
+      - build-linux-debian:
+          name: debug-build-linux-debian
+          <<: *not-on-integ-branch
+          build_params: DEBUG=1
       - build-linux-arm-ubuntu:
           <<: *never
       - build-platforms:

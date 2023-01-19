@@ -56,8 +56,8 @@ make pytest        # run python tests (tests/pytests)
 
 make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
-make c_tests       # run C tests (from tests/ctests)
-make cpp_tests     # run C++ tests (from tests/cpptests)
+make c-tests       # run C tests (from tests/ctests)
+make cpp-tests     # run C++ tests (from tests/cpptests)
 make vecsim-bench  # run VecSim micro-benchmark
 
 make callgrind     # produce a call graph

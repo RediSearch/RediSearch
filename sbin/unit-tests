@@ -66,10 +66,14 @@ mkdir -p $LOGS_DIR
 
 export EXT_TEST_PATH=${BINROOT}/search/example_extension/libexample_extension.so
 
-if [[ $CLANG == 1 ]]; then
-	GDB_CMD="lldb -o run --"
+if [[ $GDB == 1 ]]; then
+	if [[ $CLANG == 1 ]]; then
+		GDB_CMD="lldb -o run --"
+	else
+		GDB_CMD="gdb -ex r --args"
+	fi
 else
-	GDB_CMD="gdb -ex r --args"
+	GDB_CMD=""
 fi
 
 #----------------------------------------------------------------------------------------------
