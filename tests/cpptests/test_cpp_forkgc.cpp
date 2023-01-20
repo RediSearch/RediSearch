@@ -69,7 +69,7 @@ class FGCTest : public ::testing::Test {
   void TearDown() override {
     // Return the reference
     WeakIndexSpec_RemoveFromGlobals(wsp);
-    RediSearch_DropIndex(wsp->spec);
+    WeakIndexSpec_ReturnWeakReference(wsp);
     pthread_join(thread, NULL);
   }
 
