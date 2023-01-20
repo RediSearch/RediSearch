@@ -187,12 +187,13 @@ static const char *getUntaggedId(const char *id, size_t *outlen) {
 }
 
 static const char *lookupAlias(const char *orig, size_t *len) {
-  IndexSpec *sp = IndexAlias_Get(orig);
-  if (!sp) {
+  weakIndexSpec *wsp = IndexAlias_Get(orig);
+  if (!wsp) {
     *len = strlen(orig);
     return orig;
   }
-  return getUntaggedId(sp->name, len);
+  // borrowing the global reference to the spec
+  return getUntaggedId(wsp->spec->name, len);
 }
 
 int SearchCluster_RewriteCommand(SearchCluster *sc, MRCommand *cmd, int partIdx) {
@@ -220,7 +221,9 @@ int SearchCluster_RewriteCommand(SearchCluster *sc, MRCommand *cmd, int partIdx)
     const char *tag = PartitionTag(&sc->part, partId);
     if (MRCommand_GetFlags(cmd) & MRCommand_Aliased) {
       // 1:1 partition mapping
-      IndexSpec *spec = IndexAlias_Get(target);
+      // borrowing the global reference to the index spec
+      weakIndexSpec *wsp = IndexAlias_Get(target);
+      IndexSpec *spec = wsp ? wsp->spec : NULL;
       if (spec) {
         target = spec->name;
         targetLen = rindex(spec->name, '{') - target;
