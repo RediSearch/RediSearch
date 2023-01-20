@@ -20,8 +20,8 @@ typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
 // Multi threading data structure
 typedef struct {
-  AREQ *r;
-  RedisModuleBlockedClient *bc;
+  AREQ *req;
+  RedisModuleBlockedClient *blockedClient;
 } blockedClientReqCtx;
 
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
@@ -338,31 +338,32 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
   AREQ_Free(req);
 }
 
-static blockedClientReqCtx *blockedClientReqCtx_New(AREQ *r, RedisModuleBlockedClient *bc) {
+static blockedClientReqCtx *blockedClientReqCtx_New(AREQ *req,
+                                                    RedisModuleBlockedClient *blockedClient) {
   blockedClientReqCtx *ret = rm_malloc(sizeof(blockedClientReqCtx));
-  ret->r = r;
-  ret->bc = bc;
+  ret->req = req;
+  ret->blockedClient = blockedClient;
   return ret;
 }
 
 static RedisModuleCtx *blockedClientReqCtx_getRedisctx(const blockedClientReqCtx *BCRctx) {
-  return BCRctx->r->sctx->redisCtx;
+  return BCRctx->req->sctx->redisCtx;
 }
 
 static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
-  RedisModule_UnblockClient(BCRctx->bc, NULL);
+  RedisModule_UnblockClient(BCRctx->blockedClient, NULL);
   rm_free(BCRctx);
 }
 
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
-  BCRctx->r->sctx->redisCtx = RedisModule_GetThreadSafeContext(BCRctx->bc);
-  BCRctx->r->reqflags |= QEXEC_F_HAS_THCTX;
+  BCRctx->req->sctx->redisCtx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
+  BCRctx->req->reqflags |= QEXEC_F_HAS_THCTX;
   // lockspec
-  RedisSearchCtx_LockSpecRead(BCRctx->r->sctx);
-  AREQ_Execute(BCRctx->r, blockedClientReqCtx_getRedisctx(BCRctx));
+  RedisSearchCtx_LockSpecRead(BCRctx->req->sctx);
+  AREQ_Execute(BCRctx->req, blockedClientReqCtx_getRedisctx(BCRctx));
 
   // No need to unlock spec as AREQ_Execute calls ctx cleanup.
-  RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, BCRctx->bc);
+  RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, BCRctx->blockedClient);
 
   blockedClientReqCtx_destroy(BCRctx);
 }
@@ -484,10 +485,10 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       goto error;
     }
   } else if (RunInThread(r)) {
-    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+    RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
     // report block client start time
-    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, bc);
-    blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, bc);
+    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, blockedClient);
+    blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient);
     workersThreadPool_AddWork((thpool_proc)AREQ_Execute_Callback, BCRctx);
   } else {
     AREQ_Execute(r, ctx);
