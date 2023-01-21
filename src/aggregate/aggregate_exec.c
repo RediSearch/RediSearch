@@ -365,7 +365,13 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
         if (BCRctx->r) {
           AREQ_Free(BCRctx->r);
         }
-        QueryError_ReplyAndClear(redis_ctx, &status);
+        // Enrich the error message that was caught to include the fact that the query ran
+        // in a background thread.
+        QueryError detailed_status = {0};
+        QueryError_SetErrorFmt(&detailed_status, QueryError_GetCode(&status),
+                               "The following error was caught upon running the query asynchronously: %s", QueryError_GetError(&status));
+        QueryError_ClearError(&status);
+        QueryError_ReplyAndClear(redis_ctx, &detailed_status);
     } else {
         AREQ_Execute(BCRctx->r, redis_ctx);
     }
