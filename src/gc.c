@@ -140,6 +140,7 @@ void GCContext_Stop(GCContext* gc) {
   if (RS_IsMock) {
     // for fork gc debug
     RedisModule_FreeThreadSafeContext(((ForkGC *)gc->gcCtx)->ctx);
+    WeakIndexSpec_ReturnWeakReference(((ForkGC *)gc->gcCtx)->index);
     free(gc->gcCtx);
     free(gc);
     return;
