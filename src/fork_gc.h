@@ -34,7 +34,7 @@ typedef struct {
 typedef struct ForkGC {
 
   // owner of the gc
-  struct IndexSpec *sp;
+  struct weakIndexSpec *index;
 
   RedisModuleCtx *ctx;
 
@@ -55,7 +55,7 @@ typedef struct ForkGC {
   volatile size_t deletedDocsFromLastRun;
 } ForkGC;
 
-ForkGC *FGC_New(struct IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks);
+ForkGC *FGC_New(struct weakIndexSpec *wsp, uint64_t specUniqueId, GCCallbacks *callbacks);
 
 typedef enum {
   // Normal "open" state. No pausing will happen

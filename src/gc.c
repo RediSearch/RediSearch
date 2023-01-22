@@ -28,11 +28,11 @@ static GCTask *GCTaskCreate(GCContext *gc, RedisModuleBlockedClient* bClient, in
   return task;
 }
 
-GCContext* GCContext_CreateGC(IndexSpec* sp, float initialHZ, uint64_t uniqueId, uint32_t gcPolicy) {
+GCContext* GCContext_CreateGC(weakIndexSpec* wsp, float initialHZ, uint64_t uniqueId, uint32_t gcPolicy) {
   GCContext* ret = rm_calloc(1, sizeof(GCContext));
   switch (gcPolicy) {
     case GCPolicy_Fork:
-      ret->gcCtx = FGC_New(sp, uniqueId, &ret->callbacks);
+      ret->gcCtx = FGC_New(wsp, uniqueId, &ret->callbacks);
       break;
   }
   return ret;
@@ -61,7 +61,7 @@ static RedisModuleTimerID scheduleNext(GCTask *task) {
 }
 
 static void threadCallback(void* data) {
-  GCTask* task= data;
+  GCTask* task = data;
   GCContext* gc = task->gc;
   RedisModuleBlockedClient* bc = task->bClient;
   RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
