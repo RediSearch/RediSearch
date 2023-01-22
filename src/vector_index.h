@@ -99,7 +99,7 @@ typedef enum {
 } VecSimSearchMode;
 
 // TODO: remove idxKey from all OpenFooIndex functions
-VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
+VecSimIndex *OpenVectorIndex(IndexSpec *sp,
   RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
 
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it);

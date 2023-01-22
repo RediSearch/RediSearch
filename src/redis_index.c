@@ -188,13 +188,9 @@ RedisSearchCtx *NewSearchCtxFromSpec(RedisModuleCtx *ctx, weakIndexSpec *wsp) {
 
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
   IndexLoadOptions loadOpts = {.name = {.cstring = indexName}};
-  weakIndexSpec *wsp = IndexSpec_LoadUnsafeEx(ctx, &loadOpts);
-  if (!wsp) {
-    return NULL;
-  }
-  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
-  if (!sp) {
-    WeakIndexSpec_ReturnWeakReference(wsp);
+  weakIndexSpec *wsp = NULL;
+  IndexSpec *sp = NULL;
+  if (REDISMODULE_OK != IndexSpec_LoadUnsafeEx_References(ctx, &loadOpts, &wsp, &sp)) {
     return NULL;
   }
 

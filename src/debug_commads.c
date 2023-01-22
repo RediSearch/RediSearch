@@ -528,13 +528,9 @@ DEBUG_COMMAND(GCForceInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  weakIndexSpec *wsp = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
-  if (!wsp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
-  }
-  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
-  if (!sp) {
-    WeakIndexSpec_ReturnWeakReference(wsp);
+  weakIndexSpec *wsp = NULL;
+  IndexSpec *sp = NULL;
+  if (REDISMODULE_OK != IndexSpec_LoadUnsafe_References(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0, &wsp, &sp)) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
@@ -549,13 +545,9 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  weakIndexSpec *wsp = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
-  if (!wsp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
-  }
-  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
-  if (!sp) {
-    WeakIndexSpec_ReturnWeakReference(wsp);
+  weakIndexSpec *wsp = NULL;
+  IndexSpec *sp = NULL;
+  if (REDISMODULE_OK != IndexSpec_LoadUnsafe_References(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0, &wsp, &sp)) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
   GCContext_ForceBGInvoke(sp->gc);
@@ -603,14 +595,10 @@ DEBUG_COMMAND(ttl) {
   IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
                             .name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
   lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
-  weakIndexSpec *wsp = IndexSpec_LoadUnsafeEx(ctx, &lopts);
 
-  if (!wsp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
-  }
-  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
-  if (!sp) {
-    WeakIndexSpec_ReturnWeakReference(wsp);
+  weakIndexSpec *wsp = NULL;
+  IndexSpec *sp = NULL;
+  if (REDISMODULE_OK != IndexSpec_LoadUnsafeEx_References(ctx, &lopts, &wsp, &sp)) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
@@ -864,7 +852,7 @@ DEBUG_COMMAND(VecsimInfo) {
   }
   GET_SEARCH_CTX(argv[0]);
 
-  VecSimIndex *vecsimIndex = OpenVectorIndex(sctx, argv[1]);
+  VecSimIndex *vecsimIndex = OpenVectorIndex(sctx->spec, argv[1]);
   if (!vecsimIndex) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Vector index not found");

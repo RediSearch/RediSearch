@@ -511,16 +511,30 @@ typedef struct {
 //---------------------------------------------------------------------------------------------
 
 /**
- * Find and load the index using the specified parameters. The call increases the weak reference counter of the spec.
+ * Find and load the index using the specified parameters. The call does not increase the spec reference counter
+ * (only the weak reference counter).
  * @return the index spec, or NULL if the index does not exist
  */
 weakIndexSpec* IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name, int openWrite);
 
 /**
- * Find and load the index using the specified parameters. The call does not increase the spec reference counter.
+ * Same as IndexSpec_LoadUnsafe, but sets the weakIndexSpec and IndexSpec pointers and increases the reference counters.
+ * @return REDISMODULE_OK if the index was loaded, REDISMODULE_ERR otherwise
+ */
+int IndexSpec_LoadUnsafe_References(RedisModuleCtx *ctx, const char *name, int openWrite, weakIndexSpec **wspp, IndexSpec **spp);
+
+/**
+ * Find and load the index using the specified parameters. The call does not increase the spec reference counter
+ * (only the weak reference counter).
  * @return the index spec, or NULL if the index does not exist
  */
 weakIndexSpec* IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
+
+/**
+ * Same as IndexSpec_LoadUnsafe, but sets the weakIndexSpec and IndexSpec pointers and increases the reference counters.
+ * @return REDISMODULE_OK if the index was loaded, REDISMODULE_ERR otherwise
+ */
+int IndexSpec_LoadUnsafeEx_References(RedisModuleCtx *ctx, IndexLoadOptions *options, weakIndexSpec **wspp, IndexSpec **spp);
 
 /**
  * @brief Removes the spec from the global data structures
