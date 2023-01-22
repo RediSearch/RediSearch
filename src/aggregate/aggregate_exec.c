@@ -413,11 +413,6 @@ int prepareExecutionPlan(AREQ **r, QueryError *status) {
     if (is_profile) {
         (*r)->pipelineBuildTime = hires_clock_since_msec(&parseClock);
     }
-
-    if (rc != REDISMODULE_OK && *r) {
-        AREQ_Free(*r);
-        *r = NULL;
-    }
     return rc;
 }
 
@@ -611,6 +606,7 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return NULL;
   }
   if (prepareExecutionPlan(&r, status) != REDISMODULE_OK) {
+    AREQ_Free(r);
     return NULL;
   }
   char *ret = QAST_DumpExplain(&r->ast, r->sctx->spec);

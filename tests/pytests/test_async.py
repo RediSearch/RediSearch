@@ -81,4 +81,5 @@ def test_eval_node_errors_async():
                'TIMEOUT', 1).error().equal(f'{async_err_prefix}Timeout limit was reached')
     # This error is caught during building the implicit pipeline (also should occur in BG thread)
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$yield_distance_as:v}', 'timeout', 0, 'PARAMS', '2', 'b',
-               create_np_array_typed([0]*dim).tobytes()).error().contains('Property `v` already exists in schema')
+               create_np_array_typed([0]*dim).tobytes()).error()\
+        .contains(f'{async_err_prefix}Property `v` already exists in schema')
