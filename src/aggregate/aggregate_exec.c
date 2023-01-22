@@ -355,16 +355,12 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 }
 
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
-    BCRctx->r->sctx->redisCtx = RedisModule_GetThreadSafeContext(BCRctx->bc);
+    RedisModuleCtx *redis_ctx = BCRctx->r->sctx->redisCtx = RedisModule_GetThreadSafeContext(BCRctx->bc);
     BCRctx->r->reqflags |= QEXEC_F_HAS_THCTX;
     // lockspec
 	RedisSearchCtx_LockSpecRead(BCRctx->r->sctx);
     QueryError status = {0};
-    RedisModuleCtx *redis_ctx = blockedClientReqCtx_getRedisctx(BCRctx);
     if (prepareExecutionPlan(&BCRctx->r, &status) != REDISMODULE_OK) {
-        if (BCRctx->r) {
-          AREQ_Free(BCRctx->r);
-        }
         // Enrich the error message that was caught to include the fact that the query ran
         // in a background thread.
         QueryError detailed_status = {0};
@@ -372,6 +368,9 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
                                "The following error was caught upon running the query asynchronously: %s", QueryError_GetError(&status));
         QueryError_ClearError(&status);
         QueryError_ReplyAndClear(redis_ctx, &detailed_status);
+        if (BCRctx->r) {
+          AREQ_Free(BCRctx->r);
+        }
     } else {
         AREQ_Execute(BCRctx->r, redis_ctx);
     }
