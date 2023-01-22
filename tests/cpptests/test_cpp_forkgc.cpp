@@ -61,7 +61,6 @@ class FGCTest : public ::testing::Test {
     wsp = createIndex(ctx);
     RSGlobalConfig.forkGcCleanThreshold = 0;
     Spec_AddToDict(wsp);
-    WeakIndexSpec_GetWeakReference(wsp);
     fgc = reinterpret_cast<ForkGC *>(wsp->spec->gc->gcCtx);
     runGcThread(ctx, fgc, wsp);
   }
@@ -69,19 +68,18 @@ class FGCTest : public ::testing::Test {
   void TearDown() override {
     // Return the reference
     WeakIndexSpec_RemoveFromGlobals(wsp);
-    WeakIndexSpec_ReturnWeakReference(wsp);
     pthread_join(thread, NULL);
   }
 
   weakIndexSpec *createIndex(RedisModuleCtx *ctx) {
     RSIndexOptions opts = {0};
     opts.gcPolicy = GC_POLICY_FORK;
-    auto sp = RediSearch_CreateIndex("idx", &opts);
-    EXPECT_FALSE(sp == NULL);
-    EXPECT_FALSE(sp->gc == NULL);
+    auto wsp = RediSearch_CreateIndex("idx", &opts);
+    EXPECT_FALSE(wsp == NULL);
+    EXPECT_FALSE(wsp->spec->gc == NULL);
 
     // Let's use a tag field, so that there's only one entry in the tag index
-    RediSearch_CreateField(sp, "f1", RSFLDTYPE_TAG, 0);
+    RediSearch_CreateField(wsp, "f1", RSFLDTYPE_TAG, 0);
 
     const char *pref = "";
     SchemaRuleArgs args = {0};
@@ -91,8 +89,7 @@ class FGCTest : public ::testing::Test {
 
     QueryError status = {};
 
-    weakIndexSpec *wsp = WeakIndexSpec_NewWeakReference(sp);
-    sp->rule = SchemaRule_Create(&args, wsp, &status);
+    wsp->spec->rule = SchemaRule_Create(&args, wsp, &status);
 
     return wsp;
   }
@@ -100,17 +97,14 @@ class FGCTest : public ::testing::Test {
 
 TEST_F(FGCTest, testRemoveLastBlock) {
 
-  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
-  ASSERT_TRUE(sp != NULL);
-
   // Add a document
-  ASSERT_TRUE(RS::addDocument(ctx, sp, "doc1", "f1", "hello"));
+  ASSERT_TRUE(RS::addDocument(ctx, wsp, "doc1", "f1", "hello"));
   /**
    * To properly test this; we must ensure that the gc is forked AFTER
    * the deletion, but BEFORE the addition.
    */
   FGC_WaitAtFork(fgc);
-  auto rv = RS::deleteDocument(ctx, sp, "doc1");
+  auto rv = RS::deleteDocument(ctx, wsp, "doc1");
   ASSERT_TRUE(rv);
 
   /**
@@ -118,13 +112,12 @@ TEST_F(FGCTest, testRemoveLastBlock) {
    * before it begins receiving results.
    */
   FGC_WaitAtApply(fgc);
-  ASSERT_TRUE(RS::addDocument(ctx, sp, "doc2", "f1", "hello"));
+  ASSERT_TRUE(RS::addDocument(ctx, wsp, "doc2", "f1", "hello"));
 
   /** This function allows the gc to receive the results */
   FGC_WaitClear(fgc);
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
-  WeakIndexSpec_ReturnStrongReference(wsp);
 }
 
 static InvertedIndex *getTagInvidx(RedisSearchCtx* sctx, const char *field,
@@ -149,13 +142,12 @@ static std::string numToDocid(unsigned id) {
 TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
   // Delete the first block:
   unsigned curId = 0;
-  IndexSpec *sp = wsp->spec;
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, wsp->spec);
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
   while (iv->size < 3) {
     char buf[1024];
     size_t n = sprintf(buf, "doc%u", curId++);
-    ASSERT_TRUE(RS::addDocument(ctx, sp, buf, "f1", "hello"));
+    ASSERT_TRUE(RS::addDocument(ctx, wsp, buf, "f1", "hello"));
   }
 
   /**
@@ -165,23 +157,23 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
   char buf[1024];
   sprintf(buf, "doc%u", curId++);
   std::string toDel(buf);
-  RS::addDocument(ctx, sp, buf, "f1", "hello");
+  RS::addDocument(ctx, wsp, buf, "f1", "hello");
 
   FGC_WaitAtFork(fgc);
 
-  ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
-  ASSERT_TRUE(RS::deleteDocument(ctx, sp, "doc0"));
+  ASSERT_TRUE(RS::deleteDocument(ctx, wsp, buf));
+  ASSERT_TRUE(RS::deleteDocument(ctx, wsp, "doc0"));
 
   // delete an entire block
   for (int i = 1000; i < 2000; ++i) {
     sprintf(buf, "doc%u", i);
-    ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
+    ASSERT_TRUE(RS::deleteDocument(ctx, wsp, buf));
   }
   FGC_WaitAtApply(fgc);
 
   // Add a document -- this one is to keep
   sprintf(buf, "doc%u", curId);
-  RS::addDocument(ctx, sp, buf, "f1", "hello");
+  RS::addDocument(ctx, wsp, buf, "f1", "hello");
   FGC_WaitClear(fgc);
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
@@ -194,13 +186,12 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
 TEST_F(FGCTest, testRepairLastBlock) {
   // Delete the first block:
   unsigned curId = 0;
-  IndexSpec *sp = wsp->spec;
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, wsp->spec);
   auto iv = getTagInvidx(&sctx, "f1", "hello");
   while (iv->size < 2) {
     char buf[1024];
     size_t n = sprintf(buf, "doc%u", curId++);
-    ASSERT_TRUE(RS::addDocument(ctx, sp, buf, "f1", "hello"));
+    ASSERT_TRUE(RS::addDocument(ctx, wsp, buf, "f1", "hello"));
   }
 
   /**
@@ -210,16 +201,16 @@ TEST_F(FGCTest, testRepairLastBlock) {
   char buf[1024];
   sprintf(buf, "doc%u", curId++);
   std::string toDel(buf);
-  RS::addDocument(ctx, sp, buf, "f1", "hello");
+  RS::addDocument(ctx, wsp, buf, "f1", "hello");
 
   FGC_WaitAtFork(fgc);
 
-  ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
+  ASSERT_TRUE(RS::deleteDocument(ctx, wsp, buf));
   FGC_WaitAtApply(fgc);
 
   // Add a document -- this one is to keep
   sprintf(buf, "doc%u", curId);
-  RS::addDocument(ctx, sp, buf, "f1", "hello");
+  RS::addDocument(ctx, wsp, buf, "f1", "hello");
   FGC_WaitClear(fgc);
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
@@ -233,18 +224,17 @@ TEST_F(FGCTest, testRepairLastBlock) {
 TEST_F(FGCTest, testRepairMiddleRemoveLast) {
   // Delete the first block:
   unsigned curId = 0;
-  IndexSpec *sp = wsp->spec;
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, wsp->spec);
   auto iv = getTagInvidx(&sctx, "f1", "hello");
   while (iv->size < 3) {
     char buf[1024];
     size_t n = sprintf(buf, "doc%u", curId++);
-    ASSERT_TRUE(RS::addDocument(ctx, sp, buf, "f1", "hello"));
+    ASSERT_TRUE(RS::addDocument(ctx, wsp, buf, "f1", "hello"));
   }
 
   char buf[1024];
   sprintf(buf, "doc%u", curId);
-  ASSERT_TRUE(RS::addDocument(ctx, sp, buf, "f1", "hello"));
+  ASSERT_TRUE(RS::addDocument(ctx, wsp, buf, "f1", "hello"));
   unsigned next_id = curId + 1;
 
   /**
@@ -255,13 +245,13 @@ TEST_F(FGCTest, testRepairMiddleRemoveLast) {
 
   while (curId > 100) {
     sprintf(buf, "doc%u", --curId);
-    ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
+    ASSERT_TRUE(RS::deleteDocument(ctx, wsp, buf));
   }
 
   FGC_WaitAtApply(fgc);
 
   sprintf(buf, "doc%u", next_id);
-  ASSERT_TRUE(RS::addDocument(ctx, sp, buf, "f1", "hello"));
+  ASSERT_TRUE(RS::addDocument(ctx, wsp, buf, "f1", "hello"));
 
   FGC_WaitClear(fgc);
   ASSERT_EQ(2, iv->size);
@@ -274,17 +264,16 @@ TEST_F(FGCTest, testRepairMiddleRemoveLast) {
 TEST_F(FGCTest, testRemoveMiddleBlock) {
   // Delete the first block:
   unsigned curId = 0;
-  IndexSpec *sp = wsp->spec;
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, wsp->spec);
   InvertedIndex *iv = getTagInvidx(&sctx, "f1", "hello");
 
   while (iv->size < 2) {
-    RS::addDocument(ctx, sp, numToDocid(++curId).c_str(), "f1", "hello");
+    RS::addDocument(ctx, wsp, numToDocid(++curId).c_str(), "f1", "hello");
   }
 
   unsigned firstMidId = curId;
   while (iv->size < 3) {
-    RS::addDocument(ctx, sp, numToDocid(++curId).c_str(), "f1", "hello");
+    RS::addDocument(ctx, wsp, numToDocid(++curId).c_str(), "f1", "hello");
   }
   unsigned firstLastBlockId = curId;
   unsigned lastMidId = curId - 1;
@@ -293,14 +282,14 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   FGC_WaitAtFork(fgc);
 
   for (size_t ii = firstMidId; ii < lastMidId + 1; ++ii) {
-    RS::deleteDocument(ctx, sp, numToDocid(ii).c_str());
+    RS::deleteDocument(ctx, wsp, numToDocid(ii).c_str());
   }
 
   FGC_WaitAtApply(fgc);
   // Add a new document
   unsigned newLastBlockId = curId + 1;
   while (iv->size < 4) {
-    ASSERT_TRUE(RS::addDocument(ctx, sp, numToDocid(++curId).c_str(), "f1", "hello"));
+    ASSERT_TRUE(RS::addDocument(ctx, wsp, numToDocid(++curId).c_str(), "f1", "hello"));
   }
   unsigned lastLastBlockId = curId - 1;
 
@@ -317,7 +306,7 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   ASSERT_EQ(pp, gcpp);
 
   // Now search for the ID- let's be sure it exists
-  auto vv = RS::search(sp, "@f1:{hello}");
+  auto vv = RS::search(wsp, "@f1:{hello}");
   std::set<std::string> ss(vv.begin(), vv.end());
   ASSERT_NE(ss.end(), ss.find(numToDocid(newLastBlockId)));
   ASSERT_NE(ss.end(), ss.find(numToDocid(newLastBlockId - 1)));

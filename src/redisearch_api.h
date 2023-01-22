@@ -22,7 +22,7 @@ extern "C" {
 #define MODULE_API_FUNC(T, N) T N
 #endif
 
-typedef struct IndexSpec RSIndex;
+typedef struct weakIndexSpec RSIndex;
 typedef size_t RSFieldID;
 #define RSFIELD_INVALID SIZE_MAX
 

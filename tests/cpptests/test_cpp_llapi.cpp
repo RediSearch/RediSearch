@@ -194,7 +194,7 @@ TEST_F(LLApiTest, testAddDocumentGeoField) {
   ASSERT_FALSE(iter);
 
   // 90 > lat > 85
-  // we receive an EOF iterator  
+  // we receive an EOF iterator
   qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 87, 0.123455, 10, RS_GEO_DISTANCE_M);
   iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_TRUE(iter);
@@ -1212,13 +1212,13 @@ TEST_F(LLApiTest, testInfoSize) {
   ASSERT_EQ(REDISMODULE_OK, ret);
   ASSERT_EQ(RediSearch_MemUsage(index), 124);
   RSGlobalConfig.forkGcCleanThreshold = 0;
-  index->gc->callbacks.periodicCallback(RSDummyContext, index->gc->gcCtx);
+  index->spec->gc->callbacks.periodicCallback(RSDummyContext, index->spec->gc->gcCtx);
   ASSERT_EQ(RediSearch_MemUsage(index), 113);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
   ASSERT_EQ(RediSearch_MemUsage(index), 14);
-  index->gc->callbacks.periodicCallback(RSDummyContext, index->gc->gcCtx);
+  index->spec->gc->callbacks.periodicCallback(RSDummyContext, index->spec->gc->gcCtx);
   ASSERT_EQ(RediSearch_MemUsage(index), 2);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained
