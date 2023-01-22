@@ -415,14 +415,9 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   const char* spec_name = RedisModule_StringPtrLen(argv[1], NULL);
-  weakIndexSpec *wsp = IndexSpec_LoadUnsafe(ctx, spec_name, 0);
-  if (wsp == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
-  }
-  // Attempt to get a strong reference for later use
-  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
-  if (sp == NULL) {
-    WeakIndexSpec_ReturnWeakReference(wsp);
+  weakIndexSpec *wsp = NULL;
+  IndexSpec *sp = NULL; // Attempt to get a strong reference for later use
+  if (REDISMODULE_OK != IndexSpec_LoadUnsafe_References(ctx, spec_name, 0, &wsp, &sp)) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
@@ -456,7 +451,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     DOCTABLE_FOREACH(dt, Redis_DeleteKeyC(ctx, dmd->keyPtr));
   }
 
-  // Return call's reference
+  // Return call's references
   WeakIndexSpec_ReturnReferences(wsp);
 
   RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "sc", argv[1], "_FORCEKEEPDOCS");
@@ -511,13 +506,9 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   const char *id = RedisModule_StringPtrLen(argv[2], NULL);
 
-  weakIndexSpec *wsp = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
-  if (!wsp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
-  }
-  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
-  if (!sp) {
-    WeakIndexSpec_ReturnWeakReference(wsp);
+  weakIndexSpec *wsp = NULL;
+  IndexSpec *sp = NULL;
+  if (REDISMODULE_OK != IndexSpec_LoadUnsafe_References(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0, &wsp, &sp)) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
@@ -559,13 +550,9 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) return RedisModule_WrongArity(ctx);
 
-  weakIndexSpec *wsp = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
-  if (!wsp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
-  }
-  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
-  if (!sp) {
-    WeakIndexSpec_ReturnWeakReference(wsp);
+  weakIndexSpec *wsp = NULL;
+  IndexSpec *sp = NULL;
+  if (REDISMODULE_OK != IndexSpec_LoadUnsafe_References(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0, &wsp, &sp)) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
@@ -610,13 +597,9 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   QueryError status = {0};
 
   const char *ixname = AC_GetStringNC(&ac, NULL);
-  weakIndexSpec *wsp = IndexSpec_LoadUnsafe(ctx, ixname, 1);
-  if (!wsp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
-  }
-  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
-  if (!sp) {
-    WeakIndexSpec_ReturnWeakReference(wsp);
+  weakIndexSpec *wsp = NULL;
+  IndexSpec *sp = NULL;
+  if (REDISMODULE_OK != IndexSpec_LoadUnsafe_References(ctx, ixname, 1, &wsp, &sp)) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
@@ -681,17 +664,13 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   IndexLoadOptions loadOpts = {
       .name = {.rstring = argv[2]},
       .flags = INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
-  weakIndexSpec *wsp = IndexSpec_LoadUnsafeEx(ctx, &loadOpts);
-  if (!wsp) {
+  weakIndexSpec *wsp = NULL;
+  IndexSpec *sp = NULL;
+  if (REDISMODULE_OK != IndexSpec_LoadUnsafeEx_References(ctx, &loadOpts, &wsp, &sp)) {
     QueryError_SetError(error, QUERY_ENOINDEX, "Unknown index name (or name is an alias itself)");
     return REDISMODULE_ERR;
   }
-  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
-  if (!sp) {
-    QueryError_SetError(error, QUERY_ENOINDEX, "Unknown index name (or name is an alias itself)");
-    WeakIndexSpec_ReturnWeakReference(wsp);
-    return REDISMODULE_ERR;
-  }
+
   const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
   weakIndexSpec *wsp_alias = IndexAlias_Get(alias);
   int rc = REDISMODULE_OK;
@@ -731,15 +710,12 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   }
   IndexLoadOptions lOpts = {.name = {.rstring = argv[1]},
                             .flags = INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
-  weakIndexSpec *wsp = IndexSpec_LoadUnsafeEx(ctx, &lOpts);
-  if (!wsp) {
+  weakIndexSpec *wsp = NULL;
+  IndexSpec *sp = NULL;
+  if (REDISMODULE_OK != IndexSpec_LoadUnsafeEx_References(ctx, &lOpts, &wsp, &sp)) {
     return RedisModule_ReplyWithError(ctx, "Alias does not exist");
   }
-  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
-  if (!sp) {
-    WeakIndexSpec_ReturnWeakReference(wsp);
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
-  }
+
   QueryError status = {0};
   if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), sp, 0, &status) != REDISMODULE_OK) {
     QueryError_ReplyAndClear(ctx, &status);

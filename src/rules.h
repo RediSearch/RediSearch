@@ -47,7 +47,7 @@ typedef struct {
 
 typedef struct SchemaRule {
   DocumentType type;
-  struct IndexSpec *spec;
+  struct IndexSpec *spec; // TODO: back reference to the index spec - should be weak?
   arrayof(const char *) prefixes;
   char *filter_exp_str;
   struct RSExpr *filter_exp;

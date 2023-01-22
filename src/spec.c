@@ -1482,6 +1482,22 @@ inline static void IndexSpec_IncreasCounter(IndexSpec *sp) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+static int IndexSpec_GetReferences(weakIndexSpec *wsp, weakIndexSpec **wspp, IndexSpec **spp) {
+  if (!wsp) {
+    return REDISMODULE_ERR;
+  }
+
+  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
+  if (!sp) {
+    WeakIndexSpec_ReturnWeakReference(wsp);
+    return REDISMODULE_ERR;
+  }
+
+  *wspp = wsp;
+  *spp = sp;
+  return REDISMODULE_OK;
+}
+
 weakIndexSpec* IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name, int openWrite) {
   IndexLoadOptions lopts = {.flags = openWrite ? INDEXSPEC_LOAD_WRITEABLE : 0,
                             .name = {.cstring = name}};
@@ -1489,6 +1505,9 @@ weakIndexSpec* IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name, int o
   return IndexSpec_LoadUnsafeEx(ctx, &lopts);
 }
 
+int IndexSpec_LoadUnsafe_References(RedisModuleCtx *ctx, const char *name, int openWrite, weakIndexSpec **wspp, IndexSpec **spp) {
+  return IndexSpec_GetReferences(IndexSpec_LoadUnsafe(ctx, name, openWrite), wspp, spp);
+}
 
 weakIndexSpec* IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
   const char *ixname = NULL;
@@ -1524,6 +1543,10 @@ weakIndexSpec* IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *opt
   }
 
   return wsp;
+}
+
+int IndexSpec_LoadUnsafeEx_References(RedisModuleCtx *ctx, IndexLoadOptions *options, weakIndexSpec **wspp, IndexSpec **spp) {
+  return IndexSpec_GetReferences(IndexSpec_LoadUnsafeEx(ctx, options), wspp, spp);
 }
 
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,

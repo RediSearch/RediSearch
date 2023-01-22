@@ -238,13 +238,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto cleanup;
   }
 
-  wsp = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
-  if (!wsp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
-    goto cleanup;
-  }
-  sp = WeakIndexSpec_TryGetStrongReference(wsp);
-  if (!sp) {
+  if (REDISMODULE_OK != IndexSpec_LoadUnsafe_References(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0, &wsp, &sp)) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     goto cleanup;
   }
@@ -271,8 +265,6 @@ cleanup:
   QueryError_ClearError(&status);
   if (sp) {
     WeakIndexSpec_ReturnReferences(wsp);
-  } else if (wsp) {
-    WeakIndexSpec_ReturnWeakReference(wsp);
   }
   return REDISMODULE_OK;
 }
