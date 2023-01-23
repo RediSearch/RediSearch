@@ -122,9 +122,6 @@ typedef struct {
   /** Sorting vector attached to document */
   const RSSortingVector *sv;
 
-  /** Module key for data that derives directly from a Redis data type */
-  RedisModuleKey *rmkey;
-
   /** Dynamic values obtained from prior processing */
   RSValue **dyn;
 

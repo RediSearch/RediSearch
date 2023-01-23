@@ -193,10 +193,6 @@ void RLookupRow_Wipe(RLookupRow *r) {
     }
   }
   r->sv = NULL;
-  if (r->rmkey) {
-    RedisModule_CloseKey(r->rmkey);
-    r->rmkey = NULL;
-  }
 }
 
 void RLookupRow_Cleanup(RLookupRow *r) {
@@ -693,6 +689,15 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
   if (options->dmd) {
     dst->sv = options->dmd->sortVector;
   }
+
+  // TODO: Move the locking after enabling concurent reads and writes.
+  // If we are running in multi threaded mode we need to lock the GIL
+  RedisModuleCtx *ctx = options->sctx->redisCtx;
+  RedisModuleBlockedClient *bc = RedisModule_GetBlockedClientHandle(ctx);
+  if (bc) {
+  // Lock the GIL
+    RedisModule_ThreadSafeContextLock(ctx);
+  }
   if (options->mode & RLOOKUP_LOAD_ALLKEYS) {
     if (options->dmd->type == DocumentType_Hash) {
       rv = RLookup_HGETALL(it, dst, options);
@@ -705,10 +710,14 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
   // if loading the document failed b/c it does not exist, delete the document from DocTable
   // this will mark doc as deleted and reply with `(nil)`
   if (rv != REDISMODULE_OK) {
-    RedisModuleCtx *ctx = options->sctx->redisCtx;
+    //TODO: make sure we are not taking the write lock here while we are in read lock 
     RedisModuleString *rmstr = DMD_CreateKeyString(options->dmd, ctx);
     IndexSpec_DeleteDoc(options->sctx->spec, ctx, rmstr);
     RedisModule_FreeString(ctx, rmstr);
+  }
+  if (bc) {
+  // Unlock the GIL
+    RedisModule_ThreadSafeContextUnlock(ctx);
   }
   return rv;
 }
