@@ -7,11 +7,10 @@ from time import sleep
 from RLTest import Env
 import math
 
-def testCompression():
+def testCompression(env):
 	accuracy = 0.000001
 	repeat = int(math.sqrt(1 / accuracy))
 
-	env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
 	conn = getConnectionByEnv(env)
 	pl = conn.pipeline()
 	env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')

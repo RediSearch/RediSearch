@@ -73,9 +73,7 @@ def compare_asc_desc(env, query, params, msg=None):
     env.assertFalse(failed, message = query)
 
 
-def testSortby():
-    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
-
+def testSortby(env):
     repeat = 10000
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT', 'tag', 'TAG')
