@@ -31,11 +31,11 @@ setup_cc_options()
 set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
 add_compile_definitions(
-	"REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
-	"GIT_VERSPEC=\"${GIT_VERSPEC}\""
-	"GIT_SHA=\"${GIT_SHA}\""
-	REDISMODULE_EXPERIMENTAL_API
-	_GNU_SOURCE)
+    "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
+    "GIT_VERSPEC=\"${GIT_VERSPEC}\""
+    "GIT_SHA=\"${GIT_SHA}\""
+    REDISMODULE_EXPERIMENTAL_API
+    _GNU_SOURCE)
 
 if (USE_REDIS_ALLOCATOR)
     add_compile_definitions(REDIS_MODULE_TARGET)
@@ -44,10 +44,10 @@ endif()
 #----------------------------------------------------------------------------------------------
 
 include_directories(
-	${root}/src
-	${root}/deps
-	${root}/deps/VectorSimilarity/src
-	${root})
+    ${root}/src
+    ${root}/deps
+    ${root}/deps/VectorSimilarity/src
+    ${root})
 
 add_subdirectory(deps/rmutil)
 add_subdirectory(deps/rmutil/cxx)
@@ -101,30 +101,30 @@ if (BUILD_COORDINATOR)
         add_library(redisearch-oss STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c)
 
         target_compile_definitions(redisearch-oss PRIVATE
-			RS_NO_ONLOAD
-			RS_NO_RMAPI
-			RS_CLUSTER_OSS)
+            RS_NO_ONLOAD
+            RS_NO_RMAPI
+            RS_CLUSTER_OSS)
 
     elseif (BUILD_COORD_RLEC)
         add_library(redisearch-enterprise STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c)
 
         target_compile_definitions(redisearch-enterprise PRIVATE
-			RS_NO_ONLOAD
-			RS_NO_RMAPI
-			RS_CLUSTER_ENTERPRISE)
+            RS_NO_ONLOAD
+            RS_NO_RMAPI
+            RS_CLUSTER_ENTERPRISE)
     endif()
 
 elseif (BUILD_STATIC)
     add_library(redisearch-static STATIC ${FINAL_OBJECTS} src/module-init/module-init.c)
 
     target_compile_definitions(redisearch-static PRIVATE
-		RS_NO_ONLOAD
-		RS_NO_RMAPI)
+        RS_NO_ONLOAD
+        RS_NO_RMAPI)
 
     add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
 
-	set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
-	setup_shared_object_target(redisearch "")
+    set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
+    setup_shared_object_target(redisearch "")
     target_link_libraries(redisearch VectorSimilarity ${CMAKE_LD_LIBS})
 
     set(TEST_MODULE "redisearch-static")
@@ -134,10 +134,10 @@ else() # OSS RediSearch
     add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
-	setup_shared_object_target(redisearch "redisearch")
+    setup_shared_object_target(redisearch "")
     target_link_libraries(redisearch VectorSimilarity ${CMAKE_LD_LIBS})
 
-	extract_debug_symbols(redisearch)
+    extract_debug_symbols(redisearch)
     
     add_dependencies(redisearch VectorSimilarity)
 endif()

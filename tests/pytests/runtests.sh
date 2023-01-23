@@ -64,6 +64,7 @@ help() {
 		GDB=1                 Enable interactive gdb debugging (in single-test mode)
 
 		RLTEST=path|'view'    Take RLTest from repo path or from local view
+		RLTEST_DEBUG=1        Show debugging printouts from tests
 		RLTEST_ARGS=args      Extra RLTest args
 
 		PARALLEL=1            Runs tests in parallel
@@ -146,6 +147,9 @@ setup_rltest() {
 	
 	if [[ $RLTEST_VERBOSE == 1 ]]; then
 		RLTEST_ARGS+=" -v"
+	fi
+	if [[ $RLTEST_DEBUG == 1 ]]; then
+		RLTEST_ARGS+=" --debug-print"
 	fi
 	if [[ -n $RLTEST_LOG && $RLTEST_LOG != 1 ]]; then
 		RLTEST_ARGS+=" -s"
