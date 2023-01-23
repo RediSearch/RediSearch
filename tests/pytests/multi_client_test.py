@@ -122,6 +122,9 @@ def generic_runner(env, nproc, create_command, insert_data_command, query, expec
         update_data_command(env) 
     # Wait for the processes to finish
     [p.join() for p in procs]
+    # Check that all processes finished successfully
+    for p in procs:
+        env.assertEqual(p.exitcode, 0)
     # Drop the index
     env.expect('FT.DROP', 'idx').ok()
     
