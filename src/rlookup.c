@@ -707,10 +707,6 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
   } else {
     rv = loadIndividualKeys(it, dst, options);
   }
-  if (bc) {
-  // Unlock the GIL
-    RedisModule_ThreadSafeContextUnlock(ctx);
-  }
   // if loading the document failed b/c it does not exist, delete the document from DocTable
   // this will mark doc as deleted and reply with `(nil)`
   if (rv != REDISMODULE_OK) {
@@ -718,6 +714,10 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
     RedisModuleString *rmstr = DMD_CreateKeyString(options->dmd, ctx);
     IndexSpec_DeleteDoc(options->sctx->spec, ctx, rmstr);
     RedisModule_FreeString(ctx, rmstr);
+  }
+  if (bc) {
+  // Unlock the GIL
+    RedisModule_ThreadSafeContextUnlock(ctx);
   }
   return rv;
 }
