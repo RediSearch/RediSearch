@@ -441,9 +441,6 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     keepDocs = 1;
   }
 
-
-
-
   if((delDocs || sp->flags & Index_Temporary) && !keepDocs) {
     // We take a strong reference to the index, so it will not be freed
     // and we can still use it to delete the keys
