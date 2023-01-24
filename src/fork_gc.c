@@ -43,10 +43,6 @@ typedef enum {
   FGC_PARENT_ERROR
 } FGCError;
 
-static RedisSearchCtx *FGC_getSctx(ForkGC *gc) {
-  return NewSearchCtxFromSpec(gc->ctx, gc->index);
-}
-
 // Assumes the spec is locked.
 static void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx, size_t recordsRemoved, size_t bytesCollected) {
   sctx->spec->stats.numRecords -= recordsRemoved;
@@ -502,17 +498,26 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
 }
 
 static void FGC_childScanIndexes(ForkGC *gc) {
-  RedisSearchCtx *sctx = FGC_getSctx(gc);
-  if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
+  StrongRef cur_run_ref = WeakRef_Promote(gc->index);
+  IndexSpec *spec = StrongRef_Get(cur_run_ref);
+  if (!spec) {
     // write log here
     return;
   }
+  // TODO: multithreaded: is this case possible today?
+  if (spec->uniqueId != gc->specUniqueId) {
+    // write log here
+    StrongRef_Release(cur_run_ref);
+    return;
+  }
 
-  FGC_childCollectTerms(gc, sctx);
-  FGC_childCollectNumeric(gc, sctx);
-  FGC_childCollectTags(gc, sctx);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, spec);
 
-  SearchCtx_Free(sctx);
+  FGC_childCollectTerms(gc, &sctx);
+  FGC_childCollectNumeric(gc, &sctx);
+  FGC_childCollectTags(gc, &sctx);
+
+  StrongRef_Release(cur_run_ref);
 }
 
 typedef struct {
@@ -1019,11 +1024,13 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisSearchCtx *sctx) {
 
 int FGC_parentHandleFromChild(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
-  RedisSearchCtx *sctx = FGC_getSctx(gc);
-  if (!sctx) {
+  StrongRef cur_run_ref = WeakRef_Promote(gc->index);
+  IndexSpec *sp = StrongRef_Get(cur_run_ref);
+  if (!sp) {
     // Spec was deleted
     return REDISMODULE_ERR;
   }
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
   int rv = REDISMODULE_OK;
 
 #define COLLECT_FROM_CHILD(e)               \
@@ -1034,12 +1041,12 @@ int FGC_parentHandleFromChild(ForkGC *gc) {
     goto cleanup;                           \
   }
 
-  COLLECT_FROM_CHILD(FGC_parentHandleTerms(gc, sctx));
-  COLLECT_FROM_CHILD(FGC_parentHandleNumeric(gc, sctx));
-  COLLECT_FROM_CHILD(FGC_parentHandleTags(gc, sctx));
+  COLLECT_FROM_CHILD(FGC_parentHandleTerms(gc, &sctx));
+  COLLECT_FROM_CHILD(FGC_parentHandleNumeric(gc, &sctx));
+  COLLECT_FROM_CHILD(FGC_parentHandleTags(gc, &sctx));
 
 cleanup:
-  SearchCtx_Free(sctx);
+  StrongRef_Release(cur_run_ref);
   return rv;
 }
 
@@ -1065,7 +1072,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 
   // Check if RDB is loading - not needed after the first time we find out that rdb is not
   // reloading
-  if (gc->rdbPossiblyLoading && !gc->index) {
+  if (gc->rdbPossiblyLoading && !gc->index.ism) {
     RedisModule_ThreadSafeContextLock(ctx);
     if (isRdbLoading(ctx)) {
       RedisModule_Log(ctx, "notice", "RDB Loading in progress, not performing GC");
@@ -1078,12 +1085,14 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     RedisModule_ThreadSafeContextUnlock(ctx);
   }
 
-  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(gc->index);
+  StrongRef quick_check = WeakRef_Promote(gc->index);
+  IndexSpec *sp = StrongRef_Get(quick_check);
   if (!sp) {
+    // Index was deleted
     return 0;
   }
+  StrongRef_Release(quick_check);
   if (gc->deletedDocsFromLastRun < RSGlobalConfig.forkGcCleanThreshold) {
-    WeakIndexSpec_ReturnStrongReference(gc->index);
     return 1;
   }
 
@@ -1102,16 +1111,11 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   TimeSampler_Start(&ts);
   int rc = pipe(gc->pipefd);  // create the pipe
   if (rc == -1) {
-    WeakIndexSpec_ReturnStrongReference(gc->index);
     return 1;
   }
 
   // We need to acquire the GIL to use the fork api
   RedisModule_ThreadSafeContextLock(ctx);
-
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-
-  RedisSearchCtx_LockSpecWrite(&sctx);
 
   gc->execState = FGC_STATE_SCANNING;
 
@@ -1120,23 +1124,15 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   if (cpid == -1) {
     gc->retryInterval.tv_sec = RSGlobalConfig.forkGcRetryInterval;
 
-    RedisSearchCtx_UnlockSpec(&sctx);
-
     RedisModule_ThreadSafeContextUnlock(ctx);
 
     close(gc->pipefd[GC_READERFD]);
     close(gc->pipefd[GC_WRITERFD]);
 
-    WeakIndexSpec_ReturnStrongReference(gc->index);
-
     return 1;
   }
 
   gc->deletedDocsFromLastRun = 0;
-
-  RedisSearchCtx_UnlockSpec(&sctx);
-
-  WeakIndexSpec_ReturnStrongReference(gc->index);
 
   RedisModule_ThreadSafeContextUnlock(ctx);
 
@@ -1244,7 +1240,7 @@ void FGC_WaitClear(ForkGC *gc) NO_TSAN_CHECK {
 
 static void onTerminateCb(void *privdata) {
   ForkGC *gc = privdata;
-  WeakIndexSpec_ReturnWeakReference(gc->index);
+  WeakRef_Release(gc->index);
   RedisModule_FreeThreadSafeContext(gc->ctx);
   rm_free(gc);
 }
@@ -1295,12 +1291,12 @@ static struct timespec getIntervalCb(void *ctx) {
   return gc->retryInterval;
 }
 
-ForkGC *FGC_New(weakIndexSpec *wsp, uint64_t specUniqueId, GCCallbacks *callbacks) {
+ForkGC *FGC_New(StrongRef global, uint64_t specUniqueId, GCCallbacks *callbacks) {
   ForkGC *forkGc = rm_calloc(1, sizeof(*forkGc));
   *forkGc = (ForkGC){
       .rdbPossiblyLoading = 1,
       .specUniqueId = specUniqueId,
-      .index = WeakIndexSpec_GetWeakReference(wsp),
+      .index = StrongRef_Demote(global),
       .deletedDocsFromLastRun = 0,
   };
   forkGc->retryInterval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;

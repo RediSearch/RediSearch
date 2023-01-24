@@ -15,8 +15,6 @@
 extern "C" {
 #endif
 
-struct IndexSpec;
-
 typedef struct {
   // total bytes collected by the GC
   size_t totalCollected;
@@ -34,7 +32,7 @@ typedef struct {
 typedef struct ForkGC {
 
   // owner of the gc
-  struct weakIndexSpec *index;
+  WeakRef index;
 
   RedisModuleCtx *ctx;
 
@@ -55,7 +53,7 @@ typedef struct ForkGC {
   volatile size_t deletedDocsFromLastRun;
 } ForkGC;
 
-ForkGC *FGC_New(struct weakIndexSpec *wsp, uint64_t specUniqueId, GCCallbacks *callbacks);
+ForkGC *FGC_New(StrongRef global, uint64_t specUniqueId, GCCallbacks *callbacks);
 
 typedef enum {
   // Normal "open" state. No pausing will happen

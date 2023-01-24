@@ -10,13 +10,12 @@
 
 #include "redismodule.h"
 #include "util/dllist.h"
+#include "util/references.h"
 #include <time.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-struct weakIndexSpec;
 
 typedef struct GCCallbacks {
   int (*periodicCallback)(RedisModuleCtx* ctx, void* gcCtx);
@@ -43,7 +42,7 @@ typedef struct GCTask {
   int debug;
 } GCTask;
 
-GCContext* GCContext_CreateGC(struct weakIndexSpec* wsp, float initialHZ, uint64_t uniqueId, uint32_t gcPolicy);
+GCContext* GCContext_CreateGC(StrongRef global, float initialHZ, uint64_t uniqueId, uint32_t gcPolicy);
 void GCContext_Start(GCContext* gc);
 void GCContext_Stop(GCContext* gc);
 void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx);

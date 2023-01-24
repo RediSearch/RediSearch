@@ -28,11 +28,11 @@ static GCTask *GCTaskCreate(GCContext *gc, RedisModuleBlockedClient* bClient, in
   return task;
 }
 
-GCContext* GCContext_CreateGC(weakIndexSpec* wsp, float initialHZ, uint64_t uniqueId, uint32_t gcPolicy) {
+GCContext* GCContext_CreateGC(StrongRef global, float initialHZ, uint64_t uniqueId, uint32_t gcPolicy) {
   GCContext* ret = rm_calloc(1, sizeof(GCContext));
   switch (gcPolicy) {
     case GCPolicy_Fork:
-      ret->gcCtx = FGC_New(wsp, uniqueId, &ret->callbacks);
+      ret->gcCtx = FGC_New(global, uniqueId, &ret->callbacks);
       break;
   }
   return ret;
@@ -140,7 +140,7 @@ void GCContext_Stop(GCContext* gc) {
   if (RS_IsMock) {
     // for fork gc debug
     RedisModule_FreeThreadSafeContext(((ForkGC *)gc->gcCtx)->ctx);
-    WeakIndexSpec_ReturnWeakReference(((ForkGC *)gc->gcCtx)->index);
+    WeakRef_Release(((ForkGC *)gc->gcCtx)->index);
     free(gc->gcCtx);
     free(gc);
     return;
