@@ -35,9 +35,8 @@ def testMultiText(env):
     
     searchMultiTextCategory(env)
 
-def testMultiTextNested():
+def testMultiTextNested(env):
     """ test multiple TEXT values at inner level (array of strings) """
-    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
 
     conn = getConnectionByEnv(env)
     conn.execute_command('JSON.SET', 'doc:1', '$', doc1_content)

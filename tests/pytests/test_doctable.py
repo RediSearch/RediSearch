@@ -5,7 +5,7 @@ from includes import *
 # mainly this test adding and removing docs while the doc table size is 100
 # and make sure we are not crashing and not leaking memory (when runs with valgrind).
 def testDocTable():
-    env = Env(moduleArgs='MAXDOCTABLESIZE 100 WORKER_THREADS 1 ENABLE_THREADS TRUE')
+    env = Env(moduleArgs='MAXDOCTABLESIZE 100')
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     # doc table size is 100 so insearting 1000 docs should gives us 10 docs in each bucket
     for i in range(1000):
