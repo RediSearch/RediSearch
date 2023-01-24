@@ -844,9 +844,6 @@ static int recvCardvals(ForkGC *fgc, arrayof(CardinalityValue) *tgt, size_t *len
   if (*tgt) {
     rm_free(*tgt);
   }
-  if (*tgt) {
-    rm_free(*tgt);
-  }
   *tgt = array_new(CardinalityValue, *len);
 
   if (FGC_recvFixed(fgc, *tgt, *len) != REDISMODULE_OK) {
