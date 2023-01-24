@@ -1338,16 +1338,14 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
  */
 void IndexSpec_FreeInternals(IndexSpec *spec) {
   // Stop scanner
-  // TODO: multithreaded: necesary? scanner has a weak ref to the spec
-  if (spec->scanner) {
-    __atomic_store_n(&spec->scanner->cancelled, true, __ATOMIC_RELAXED);
-  }
+  // Scanner has a weak reference to the spec, so at this point it will cancel itself and free
+  // next time it will try to acquire the spec.
 
   // For temporary index
   if (spec->isTimerSet) {
-    IndexSpecManager *old_timer_ism;
-    if (RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_ism) == REDISMODULE_OK) {
-      IndexSpecManager_ReturnWeakReference(old_timer_ism);
+    WeakRef old_timer_ref;
+    if (RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_ref) == REDISMODULE_OK) {
+      WeakRef_Release(old_timer_ref);
     }
     spec->isTimerSet = false;
   }
@@ -1416,9 +1414,9 @@ void IndexSpec_LegacyFree(void *spec) {
 void IndexSpec_Free(IndexSpec *spec) {
   if (!RS_IsMock && (spec->flags & Index_Temporary)) {
     if (spec->isTimerSet) {
-      IndexSpecManager *old_timer_ism;
-      if (RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_ism) == REDISMODULE_OK) {
-        IndexSpecManager_ReturnWeakReference(old_timer_ism);
+      WeakRef old_timer_ref;
+      if (RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_ref) == REDISMODULE_OK) {
+        WeakRef_Release(old_timer_ref);
       }
       spec->isTimerSet = false;
     }
@@ -1908,20 +1906,19 @@ static IndexesScanner *IndexesScanner_New(StrongRef global_ref, bool isGlobal) {
   IndexesScanner *scanner = rm_calloc(1, sizeof(IndexesScanner));
   scanner->global = isGlobal;
   scanner->scannedKeys = 0;
-  scanner->cancelled = false;
   scanner->totalKeys = RedisModule_DbSize(RSDummyContext);
 
   if (!isGlobal) {
     scanner->spec_ref = StrongRef_Demote(global_ref);
     IndexSpec *spec = StrongRef_Get(global_ref);
+    scanner->spec_name = rm_strndup(spec->name, spec->nameLen);
     // scan already in progress?
     if (spec->scanner) {
       // cancel ongoing scan, keep on_progress indicator on
-      IndexesScanner_Cancel(spec->scanner, true);
+      IndexesScanner_Cancel(spec->scanner);
       RedisModule_Log(RSDummyContext, "notice", "Scanning index %s in background: cancelled and restarted",
                       spec->name);
     }
-    scanner->spec_name = rm_strndup(spec->name, spec->nameLen);
     spec->scanner = scanner;
     spec->scan_in_progress = true;
   } else {
@@ -1935,37 +1932,23 @@ static IndexesScanner *IndexesScanner_New(StrongRef global_ref, bool isGlobal) {
 void IndexesScanner_Free(IndexesScanner *scanner) {
   if (global_spec_scanner == scanner) {
     global_spec_scanner = NULL;
-  } else if (!scanner->cancelled) {
-    if (scanner->spec_ref.ism) {// && scanner->spec->scanner == scanner) {
-      StrongRef tmp = WeakRef_Promote(scanner->spec_ref);
-      IndexSpec *spec = StrongRef_Get(tmp);
-      if (spec) {
+  } else {
+    StrongRef tmp = WeakRef_Promote(scanner->spec_ref);
+    IndexSpec *spec = StrongRef_Get(tmp);
+    if (spec) {
+      if (spec->scanner == scanner) {
         spec->scanner = NULL;
         spec->scan_in_progress = false;
-        StrongRef_Release(tmp);
       }
-      WeakRef_Release(scanner->spec_ref);
+      StrongRef_Release(tmp);
     }
+    WeakRef_Release(scanner->spec_ref);
   }
   if (scanner->spec_name) rm_free(scanner->spec_name);
   rm_free(scanner);
 }
 
-void IndexesScanner_Cancel(IndexesScanner *scanner, bool still_in_progress) {
-  if (scanner->cancelled) {
-    return;
-  }
-  if (!scanner->global && scanner->spec_ref.ism) {
-    StrongRef ref = WeakRef_Promote(scanner->spec_ref);
-    IndexSpec *spec = StrongRef_Get(ref);
-    if (spec) {
-      spec->scan_in_progress = still_in_progress;
-      spec->scanner = NULL;
-      StrongRef_Release(ref);
-    }
-    WeakRef_Release(scanner->spec_ref);
-    scanner->spec_ref.ism = NULL;
-  }
+void IndexesScanner_Cancel(IndexesScanner *scanner) {
   scanner->cancelled = true;
 }
 
@@ -1980,6 +1963,9 @@ static void IndexSpec_DoneIndexingCallabck(struct RSAddDocumentCtx *docCtx, Redi
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
 static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
                              IndexesScanner *scanner) {
+  if (scanner->cancelled) {
+    return;
+  }
   // RMKey it is provided as best effort but in some cases it might be NULL
   bool keyOpened = false;
   if (!key) {
@@ -1997,9 +1983,6 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     RedisModule_CloseKey(key);
   }
 
-  if (scanner->cancelled) {
-    return;
-  }
   if (scanner->global) {
     Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, type, NULL);
   } else {
@@ -2011,7 +1994,8 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
       }
       StrongRef_Release(curr_run_ref);
     } else {
-      // TODO: multithreaded: should cancle itself?
+      // spec was deleted, cancel scan
+      scanner->cancelled = true;
     }
   }
   ++scanner->scannedKeys;

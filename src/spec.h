@@ -448,7 +448,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 
 #define IndexSpec_IsKeyless(sp) ((sp)->keysDict != NULL)
 
-void IndexesScanner_Cancel(struct IndexesScanner *scanner, bool still_in_progress);
+void IndexesScanner_Cancel(struct IndexesScanner *scanner);
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref);
 #ifdef FTINFO_FOR_INFO_MODULES
 /**
@@ -574,10 +574,10 @@ void Indexes_SetTempSpecsTimers(TimerOp op);
 
 typedef struct IndexesScanner {
   bool global;
+  bool cancelled;
   WeakRef spec_ref;
   char *spec_name;
   size_t scannedKeys, totalKeys;
-  bool cancelled;
 } IndexesScanner;
 
 double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp);
