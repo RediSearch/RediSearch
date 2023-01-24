@@ -19,6 +19,8 @@
             ; \
     } while(0)
 
+#define get_spec(x) __IndexSpecManager_Get_Spec(x)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -46,7 +48,7 @@ bool addDocument(RedisModuleCtx *ctx, RSIndex *index, const char *docid, Ts... a
   options.options = DOCUMENT_ADD_REPLACE;
 
   QueryError status = {QueryErrorCode(0)};
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, index->spec);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(index));
   int rv = RS_AddDocument(&sctx, RMCK::RString(docid), &options, &status);
   RedisModule_FreeString(ctx, options.keyStr);
   RWLOCK_RELEASE();

@@ -262,7 +262,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
 
 /** Assigns a document ID to a single document. */
 static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, IndexSpec *spec, int replace,
-                          QueryError *status) {
+                                          QueryError *status) {
   DocTable *table = &spec->docs;
   Document *doc = aCtx->doc;
   if (replace) {

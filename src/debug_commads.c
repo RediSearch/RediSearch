@@ -528,16 +528,15 @@ DEBUG_COMMAND(GCForceInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  weakIndexSpec *wsp = NULL;
-  IndexSpec *sp = NULL;
-  if (REDISMODULE_OK != IndexSpec_LoadUnsafe_References(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0, &wsp, &sp)) {
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(
       ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, INVOKATION_TIMEOUT);
   GCContext_ForceInvoke(sp->gc, bc);
-  WeakIndexSpec_ReturnReferences(wsp);
   return REDISMODULE_OK;
 }
 
@@ -545,13 +544,12 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  weakIndexSpec *wsp = NULL;
-  IndexSpec *sp = NULL;
-  if (REDISMODULE_OK != IndexSpec_LoadUnsafe_References(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0, &wsp, &sp)) {
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
   GCContext_ForceBGInvoke(sp->gc);
-  WeakIndexSpec_ReturnReferences(wsp);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;
 }
@@ -596,27 +594,24 @@ DEBUG_COMMAND(ttl) {
                             .name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
   lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
 
-  weakIndexSpec *wsp = NULL;
-  IndexSpec *sp = NULL;
-  if (REDISMODULE_OK != IndexSpec_LoadUnsafeEx_References(ctx, &lopts, &wsp, &sp)) {
+  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
   if (!(sp->flags & Index_Temporary)) {
-    RedisModule_ReplyWithError(ctx, "Index is not temporary");
-    goto cleanup;
+    return RedisModule_ReplyWithError(ctx, "Index is not temporary");
   }
 
   uint64_t remaining = 0;
   if (RedisModule_GetTimerInfo(RSDummyContext, sp->timerId, &remaining, NULL) != REDISMODULE_OK) {
-    RedisModule_ReplyWithLongLong(ctx, 0);  // timer was called but free operation is async so its
-                                            // gone be free each moment. lets return 0 timeout.
-    goto cleanup;
+    // timer was called but free operation is async so its gone be free each moment.
+    // lets return 0 timeout.
+    return RedisModule_ReplyWithLongLong(ctx, 0);
   }
-  RedisModule_ReplyWithLongLong(ctx, remaining / 1000);  // return the results in seconds
-cleanup:
-  WeakIndexSpec_ReturnReferences(wsp);
-  return REDISMODULE_OK;
+
+  return RedisModule_ReplyWithLongLong(ctx, remaining / 1000);  // return the results in seconds
 }
 
 DEBUG_COMMAND(GitSha) {

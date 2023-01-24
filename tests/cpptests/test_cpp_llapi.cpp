@@ -1185,6 +1185,7 @@ TEST_F(LLApiTest, testScore) {
 TEST_F(LLApiTest, testInfoSize) {
   // creating the index
   RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  GCContext *gc;
 
   // adding field to the index
   RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
@@ -1212,13 +1213,15 @@ TEST_F(LLApiTest, testInfoSize) {
   ASSERT_EQ(REDISMODULE_OK, ret);
   ASSERT_EQ(RediSearch_MemUsage(index), 124);
   RSGlobalConfig.forkGcCleanThreshold = 0;
-  index->spec->gc->callbacks.periodicCallback(RSDummyContext, index->spec->gc->gcCtx);
+  gc = __IndexSpecManager_Get_Spec(index)->gc;
+  gc->callbacks.periodicCallback(RSDummyContext, gc->gcCtx);
   ASSERT_EQ(RediSearch_MemUsage(index), 113);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
   ASSERT_EQ(RediSearch_MemUsage(index), 14);
-  index->spec->gc->callbacks.periodicCallback(RSDummyContext, index->spec->gc->gcCtx);
+  gc = __IndexSpecManager_Get_Spec(index)->gc;
+  gc->callbacks.periodicCallback(RSDummyContext, gc->gcCtx);
   ASSERT_EQ(RediSearch_MemUsage(index), 2);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained

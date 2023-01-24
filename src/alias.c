@@ -30,17 +30,17 @@ void IndexAlias_DestroyGlobal(AliasTable **t) {
   *t = NULL;
 }
 
-static int AliasTable_Add(AliasTable *table, const char *alias, weakIndexSpec *wsp, IndexSpec *spec,
-                          int options, QueryError *error) {
+static int AliasTable_Add(AliasTable *table, const char *alias, StrongRef global, int options, QueryError *error) {
   // look up and see if it exists:
   dictEntry *e, *existing = NULL;
+  IndexSpec *spec = StrongRef_Get(global);
   e = dictAddRaw(table->d, (void *)alias, &existing);
   if (existing) {
     QueryError_SetError(error, QUERY_EINDEXEXISTS, "Alias already exists");
     return REDISMODULE_ERR;
   }
   RS_LOG_ASSERT(e->key != alias, "Alias should be different than key");
-  e->v.val = wsp;
+  e->v.val = global.ism;
   if (!(options & INDEXALIAS_NO_BACKREF)) {
     char *duped = rm_strdup(alias);
     spec->aliases = array_ensure_append(spec->aliases, &duped, 1, char *);
@@ -51,8 +51,9 @@ static int AliasTable_Add(AliasTable *table, const char *alias, weakIndexSpec *w
   return REDISMODULE_OK;
 }
 
-static int AliasTable_Del(AliasTable *table, const char *alias, IndexSpec *spec, int options,
-                   QueryError *error) {
+static int AliasTable_Del(AliasTable *table, const char *alias, StrongRef global, int options,
+                          QueryError *error) {
+  IndexSpec *spec = StrongRef_Get(global);
   char *toFree = NULL;
   // ensure that the item exists in the list
   if (!spec->aliases) {
@@ -89,32 +90,33 @@ static int AliasTable_Del(AliasTable *table, const char *alias, IndexSpec *spec,
   return REDISMODULE_OK;
 }
 
-static weakIndexSpec *AliasTable_Get(AliasTable *tbl, const char *alias) {
+StrongRef AliasTable_Get(AliasTable *tbl, const char *alias) {
+  StrongRef ret = {0};
   dictEntry *e = dictFind(tbl->d, alias);
   if (e) {
-    return e->v.val;
-  } else {
-    return NULL;
+    ret.ism = e->v.val;
   }
+  return ret;
 }
 
-int IndexAlias_Add(const char *alias, weakIndexSpec *wsp, IndexSpec *spec, int options, QueryError *status) {
-  return AliasTable_Add(AliasTable_g, alias, wsp, spec, options, status);
+int IndexAlias_Add(const char *alias, StrongRef global, int options, QueryError *status) {
+  return AliasTable_Add(AliasTable_g, alias, global, options, status);
 }
 
-int IndexAlias_Del(const char *alias, IndexSpec *spec, int options, QueryError *status) {
-  return AliasTable_Del(AliasTable_g, alias, spec, options, status);
+int IndexAlias_Del(const char *alias, StrongRef global, int options, QueryError *status) {
+  return AliasTable_Del(AliasTable_g, alias, global, options, status);
 }
 
-weakIndexSpec *IndexAlias_Get(const char *alias) {
+StrongRef IndexAlias_Get(const char *alias) {
   return AliasTable_Get(AliasTable_g, alias);
 }
 
-void IndexSpec_ClearAliases(IndexSpec *sp) {
+void IndexSpec_ClearAliases(StrongRef global) {
+  IndexSpec *sp = StrongRef_Get(global);
   for (size_t ii = 0; ii < array_len(sp->aliases); ++ii) {
     char **pp = sp->aliases + ii;
     QueryError e = {0};
-    int rc = IndexAlias_Del(*pp, sp, INDEXALIAS_NO_BACKREF, &e);
+    int rc = IndexAlias_Del(*pp, global, INDEXALIAS_NO_BACKREF, &e);
     RS_LOG_ASSERT(rc == REDISMODULE_OK, "Alias delete has failed");
     rm_free(*pp);
     // set to NULL so IndexAlias_Del skips over this

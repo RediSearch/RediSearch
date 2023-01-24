@@ -34,7 +34,6 @@ typedef enum {
 typedef struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
   RedisModuleKey *key_;
-  weakIndexSpec *wsp;
   IndexSpec *spec;
   uint64_t specId;  // Unique id of the spec; used when refreshing
   struct timespec timeout;
@@ -51,13 +50,12 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, 
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL);
 
 // Returned context includes a strong reference to the spec
-RedisSearchCtx *NewSearchCtxFromSpec(RedisModuleCtx *ctx, weakIndexSpec *wsp);
+RedisSearchCtx *NewSearchCtxFromSpec(RedisModuleCtx *ctx, IndexSpec *sp);
 
 static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *sp) {
   RedisSearchCtx sctx = {
                           .redisCtx = ctx,
                           .key_ = NULL,
-                          .wsp = NULL,
                           .spec = sp,
                           .timeout = { 0, 0 },
                           .flags = RS_CTX_UNSET, };
