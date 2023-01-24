@@ -64,8 +64,16 @@ commands:
           name: Setup automation
           command: |
             git submodule update --init deps/readies
+            PYTHON=3.9.16 GLOBAL=1 ./deps/readies/bin/getpyenv
+      - run:
+          name: Setup automation
+          shell: /bin/bash -l -eo pipefail
+          no_output_timeout: 30m
+          command: |
             ./deps/readies/bin/getpy3
-            python3 -m pip install -q awscli
+            ./deps/readies/bin/getaws
+            python3 --version
+            python3 -m pip list
 
   install-prerequisites:
     parameters:
@@ -182,12 +190,12 @@ commands:
           name: Test (Search)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: make test TEST_PARALLEL=16 PLATFORM_MODE=1 SHOW=1 <<parameters.test_params>>
+          command: make test TEST_PARALLEL=16 SHOW=1 <<parameters.test_params>>
       - run:
           name: Test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: make test TEST_PARALLEL=16 COORD=oss PLATFORM_MODE=1 SHOW=1 <<parameters.test_params>>
+          command: make test TEST_PARALLEL=16 COORD=oss SHOW=1 <<parameters.test_params>>
       - save-tests-logs
 
   build-platforms-steps:
@@ -501,7 +509,7 @@ jobs:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
           command: |
-            make coverage QUICK=1 TEST_PARALLEL=16 PLATFORM_MODE=1 SHOW=1
+            make coverage QUICK=1 TEST_PARALLEL=16 SHOW=1
             make upload-cov SHOW=1
           no_output_timeout: 30m
       - save-tests-logs
@@ -589,7 +597,7 @@ jobs:
           command: |
             python3 -m pip list
             mkdir -p ~/workspace/tests
-            make test COORD=1 PLATFORM_MODE=1 SHOW=1
+            make test COORD=1 SHOW=1
       - save-tests-logs
 
   upload-artifacts:
@@ -728,19 +736,22 @@ workflows:
       - build-linux-arm-ubuntu:
           <<: *never
       - build-platforms:
-          <<: *on-integ-and-version-tags
+          #@@<<: *on-integ-and-version-tags
+          <<: *always
           context: common
           matrix:
             parameters:
               platform: [jammy, focal, bionic, xenial, centos7, rocky8, bullseye]
       - build-arm-platforms:
-          <<: *on-integ-and-version-tags
+          #@@<<: *on-integ-and-version-tags
+          <<: *always
           context: common
           matrix:
             parameters:
               platform: [jammy, focal, bionic]
       - build-macos:
-          <<: *on-integ-and-version-tags
+          #@@<<: *on-integ-and-version-tags
+          <<: *always
           context: common
       - coverage:
           <<: *on-any-branch

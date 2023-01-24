@@ -8,5 +8,7 @@ READIES=$ROOT/deps/readies
 
 export HOMEBREW_NO_AUTO_UPDATE=1
 
+PYTHON=3.9.16 GLOBAL=1 $READIES/bin/getpyenv
+. $(get_profile_d)/pyenv.sh
 $READIES/bin/getpy3
 $ROOT/sbin/system-setup.py
