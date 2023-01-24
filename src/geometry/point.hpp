@@ -13,7 +13,7 @@ struct Point {
 	point_internal point_;
 
 	Point(double x, double y) : point_{x, y} {}
-    Point(point_internal const& other) : point_{other} {}
+  Point(point_internal const& other) : point_{other} {}
 };
 
 inline bool operator==(Point const& lhs, Point const& rhs) {

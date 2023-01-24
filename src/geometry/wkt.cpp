@@ -13,17 +13,17 @@ Polygon::polygon_internal from_wkt(std::string_view wkt) {
     return pg;
 }
 
-struct Polygon *From_WKT(const char *wkt) {
+Polygon *From_WKT(const char *wkt) {
 	return new Polygon{from_wkt(wkt)};
 }
 
-struct RTree *Load_WKT_File(const char *path) {
+RTree *Load_WKT_File(RTree *rtree, const char *path) {
     auto file = std::ifstream{path};
-    RTree::rtree_internal rt{};
+    auto& rt = rtree->rtree_;
     
     for (std::string wkt{}; std::getline(file, wkt, '\n'); ) {
         rt.insert(RTDoc{from_wkt(wkt)});
     }
 
-    return new RTree{rt};
+    return rtree;
 }

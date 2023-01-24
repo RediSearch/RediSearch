@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
 struct Polygon *From_WKT(const char *wkt);
-struct RTree *Load_WKT_File(const char *path);
+struct RTree *Load_WKT_File(struct RTree *rtree, const char *path);
 
 #ifdef __cplusplus
 }
