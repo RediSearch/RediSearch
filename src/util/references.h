@@ -10,6 +10,12 @@
 extern "C" {
 #endif
 
+/**
+ * @brief This file defines a set of reference types that can be used to handle references to IndexSpecs.
+ * The API mimics some of RUST's reference types. It can be generalized to handle any struct as long as it has
+ * a method to get a weak reference and a method to get a strong reference, by passing the appropriate callbacks.
+ */
+
 typedef struct StrongRef {
   struct IndexSpecManager *ism;
 } StrongRef;

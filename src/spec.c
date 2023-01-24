@@ -63,10 +63,16 @@ size_t used_memory = 0;
 // This is a weak reference to an index spec. It is used to prevent using a spec that is being freed.
 // The spec is freed when the strong refcount is 0 and the weak refcount is 0.
 
-// Assumptions:
-// 1. The weak refcount is always >= the strong refcount
-// 2. If the strong refcount gets to 0, it will never be increased again
-// 3. If the strong refcount is 0, the weak refcount will eventually reach 0
+// Promises:
+// 1. If the strong refcount gets to 0, it will never be increased again
+
+// By using this functions through the strong and weak refcount API, we can guarantee that
+// The spec will be freed before the weak refcount reaches 0, so you better use it and not these functions directly.
+
+// The Invalidate function is being used by the drop index command to prevent using the spec after it is dropped.
+// It first remove the spec from the specDict_g, then it sets the isInvalid flag to true.
+// From that point on, any attempt to get a strong reference will fail, and we can guarantee that the weak refcount
+// will only be decreased.
 
 struct IndexSpecManager {
   IndexSpec *spec;
@@ -75,6 +81,7 @@ struct IndexSpecManager {
   bool isInvalid;
 };
 
+// For tests, LLAPI and strong/weak references only. DO NOT USE DIRECTLY
 inline IndexSpec *__IndexSpecManager_Get_Spec(IndexSpecManager *ism) {
   return ism ? ism->spec : NULL;
 }
@@ -88,18 +95,19 @@ IndexSpecManager *IndexSpecManager_New(IndexSpec *spec) {
   return ism;
 }
 
-// Returns NULL if the spec is being freed or marked as invalid
+// Returns REDISMODULE_ERR if the spec is being freed or marked as invalid,
+// otherwise increases the strong refcount and returns REDISMODULE_OK.
 // Assumes the caller has a weak reference
 int IndexSpecManager_TryGetStrongReference(IndexSpecManager *ism) {
   uint16_t cur_ref = -1;
-  // Attempt to increase the strong refcount if it is not 0
+  // Attempt to increase the strong refcount by 1 if it is not 0
   while (!__atomic_compare_exchange_n(&ism->strong_refcount, &cur_ref, cur_ref + 1, 0, 0, 0)) {
     if (cur_ref == 0) {
       // Refcount was 0, so the spec is being freed
       return REDISMODULE_ERR;
     }
   }
-
+  // We have a valid strong reference. Check if the spec is invalid before returning it
   if (__atomic_load_n(&ism->isInvalid, __ATOMIC_ACQUIRE)) {
     IndexSpecManager_ReturnStrongReference(ism);
     return REDISMODULE_ERR;
