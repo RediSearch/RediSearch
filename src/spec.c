@@ -68,72 +68,71 @@ size_t used_memory = 0;
 // 2. If the strong refcount gets to 0, it will never be increased again
 // 3. If the strong refcount is 0, the weak refcount will eventually reach 0
 
-weakIndexSpec *WeakIndexSpec_NewWeakReference(IndexSpec *spec) {
-  weakIndexSpec *wsp = rm_new(weakIndexSpec);
-  wsp->spec = spec;
-  wsp->strong_refcount = 1;
-  wsp->weak_refcount = 1;
-  wsp->isInvalid = 0;
-  return wsp;
+struct IndexSpecManager {
+  IndexSpec *spec;
+  uint16_t strong_refcount;
+  uint16_t weak_refcount;
+  bool isInvalid;
+};
+
+inline IndexSpec *__IndexSpecManager_Get_Spec(IndexSpecManager *ism) {
+  return ism ? ism->spec : NULL;
+}
+
+IndexSpecManager *IndexSpecManager_New(IndexSpec *spec) {
+  IndexSpecManager *ism = rm_new(IndexSpecManager);
+  ism->spec = spec;
+  ism->strong_refcount = 1;
+  ism->weak_refcount = 1;
+  ism->isInvalid = 0;
+  return ism;
 }
 
 // Returns NULL if the spec is being freed or marked as invalid
 // Assumes the caller has a weak reference
-IndexSpec *WeakIndexSpec_TryGetStrongReference(weakIndexSpec *wsp) {
+int IndexSpecManager_TryGetStrongReference(IndexSpecManager *ism) {
   uint16_t cur_ref = -1;
   // Attempt to increase the strong refcount if it is not 0
-  while (!__atomic_compare_exchange_n(&wsp->strong_refcount, &cur_ref, cur_ref + 1, 0, 0, 0)) {
+  while (!__atomic_compare_exchange_n(&ism->strong_refcount, &cur_ref, cur_ref + 1, 0, 0, 0)) {
     if (cur_ref == 0) {
       // Refcount was 0, so the spec is being freed
-      return NULL;
+      return REDISMODULE_ERR;
     }
   }
 
-  if (__atomic_load_n(&wsp->isInvalid, __ATOMIC_ACQUIRE)) {
-    WeakIndexSpec_ReturnStrongReference(wsp);
-    return NULL;
+  if (__atomic_load_n(&ism->isInvalid, __ATOMIC_ACQUIRE)) {
+    IndexSpecManager_ReturnStrongReference(ism);
+    return REDISMODULE_ERR;
   } else {
-    return wsp->spec;
+    return REDISMODULE_OK;
   }
 }
 
-// FIXME: this is not thread safe
-// IndexSpec *WeakIndexSpec_TryGetStrongReference(weakIndexSpec *wsp) {
-//   if (__atomic_load_n(&wsp->isInvalid, __ATOMIC_ACQUIRE)) {
-//     return NULL;
-//   } else {
-//     __atomic_add_fetch(&wsp->strong_refcount, 1, __ATOMIC_RELAXED);
-//     return wsp->spec;
-//   }
-// }
-
-// TODO: by name?
-weakIndexSpec *WeakIndexSpec_GetWeakReference(weakIndexSpec *wsp) {
-  __atomic_add_fetch(&wsp->weak_refcount, 1, __ATOMIC_RELAXED);
-  return wsp;
+void IndexSpecManager_GetWeakReference(IndexSpecManager *ism) {
+  __atomic_add_fetch(&ism->weak_refcount, 1, __ATOMIC_RELAXED);
 }
 
 void IndexSpec_FreeInternals(IndexSpec *);
-void WeakIndexSpec_ReturnStrongReference(weakIndexSpec *wsp) {
-  if (__atomic_sub_fetch(&wsp->strong_refcount, 1, __ATOMIC_RELAXED) == 0) {
-    IndexSpec_FreeInternals(wsp->spec);
+void IndexSpecManager_ReturnStrongReference(IndexSpecManager *ism) {
+  if (__atomic_sub_fetch(&ism->strong_refcount, 1, __ATOMIC_RELAXED) == 0) {
+    IndexSpec_FreeInternals(ism->spec);
   }
 }
 
-void WeakIndexSpec_ReturnWeakReference(weakIndexSpec *wsp) {
-  if (__atomic_sub_fetch(&wsp->weak_refcount, 1, __ATOMIC_RELAXED) == 0) {
-    rm_free(wsp);
+void IndexSpecManager_ReturnWeakReference(IndexSpecManager *ism) {
+  if (__atomic_sub_fetch(&ism->weak_refcount, 1, __ATOMIC_RELAXED) == 0) {
+    rm_free(ism);
   }
 }
 
-void WeakIndexSpec_ReturnReferences(weakIndexSpec *wsp) {
-  WeakIndexSpec_ReturnStrongReference(wsp);
-  WeakIndexSpec_ReturnWeakReference(wsp);
+void IndexSpecManager_ReturnReferences(IndexSpecManager *ism) {
+  IndexSpecManager_ReturnStrongReference(ism);
+  IndexSpecManager_ReturnWeakReference(ism);
 }
 
-void WeakIndexSpec_InvalidateSpec(weakIndexSpec *wsp) {
-  __atomic_store_n(&wsp->isInvalid, 1, __ATOMIC_RELEASE);
-  WeakIndexSpec_ReturnReferences(wsp);
+void IndexSpecManager_InvalidateSpec(IndexSpecManager *ism) {
+  __atomic_store_n(&ism->isInvalid, 1, __ATOMIC_RELEASE);
+  IndexSpecManager_ReturnReferences(ism);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -254,8 +253,8 @@ const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
 * The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS] [NOFREQS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
 */
-weakIndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
-                                        RedisModuleString **argv, int argc, QueryError *status) {
+StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
+                                    RedisModuleString **argv, int argc, QueryError *status) {
 
   const char *args[argc];
   for (int i = 0; i < argc; i++) {
@@ -292,13 +291,17 @@ int isRdbLoading(RedisModuleCtx *ctx) {
   return isLoading == 1;
 }
 
-static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, weakIndexSpec *wsp) {
+static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
   // we need to delete the spec from the specDict_g, as far as the user see it,
   // this spec was deleted and its memory will be freed in a background thread.
-  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
+
+  // attempt to promote the weak ref to a strong ref
+  StrongRef ref = WeakRef_Promote(w_ref);
+  WeakRef_Release(w_ref);
+
+  IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     // the spec was already deleted, nothing to do here
-    WeakIndexSpec_ReturnWeakReference(wsp);
     return;
   }
 #ifdef _DEBUG
@@ -309,31 +312,30 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, weakIndexSpec *wsp) {
   // This function will perform an index drop, and we will still have to return our references
   IndexSpec_Free(sp);
 
-  WeakIndexSpec_ReturnReferences(wsp);
+  StrongRef_Release(ref);
 
 #ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Freeing index by timer: done");
 #endif
 }
 
-static void IndexSpec_SetTimeoutTimer(IndexSpec *sp, weakIndexSpec *wsp) {
+static void IndexSpec_SetTimeoutTimer(IndexSpec *sp, WeakRef ref) {
   if (sp->isTimerSet) {
-    weakIndexSpec *old_timer_wsp;
-    if (RedisModule_StopTimer(RSDummyContext, sp->timerId, (void **)&old_timer_wsp) == REDISMODULE_OK) {
-      WeakIndexSpec_ReturnWeakReference(old_timer_wsp);
+    WeakRef old_timer_ref;
+    if (RedisModule_StopTimer(RSDummyContext, sp->timerId, (void **)&old_timer_ref) == REDISMODULE_OK) {
+      WeakRef_Release(old_timer_ref);
     }
   }
-  weakIndexSpec *timer_wsp = WeakIndexSpec_GetWeakReference(wsp);
   sp->timerId = RedisModule_CreateTimer(RSDummyContext, sp->timeout,
-                                        (RedisModuleTimerProc)IndexSpec_TimedOutProc, timer_wsp);
+                                        (RedisModuleTimerProc)IndexSpec_TimedOutProc, *(void **)&ref);
   sp->isTimerSet = true;
 }
 
 static void IndexSpec_ResetTimeoutTimer(IndexSpec *sp) {
   if (sp->isTimerSet) {
-    weakIndexSpec *old_timer_wsp;
-    if (RedisModule_StopTimer(RSDummyContext, sp->timerId, (void **)&old_timer_wsp) == REDISMODULE_OK) {
-      WeakIndexSpec_ReturnWeakReference(old_timer_wsp);
+    WeakRef old_timer_ref;
+    if (RedisModule_StopTimer(RSDummyContext, sp->timerId, (void **)&old_timer_ref) == REDISMODULE_OK) {
+      WeakRef_Release(old_timer_ref);
     }
   }
   sp->timerId = 0;
@@ -344,11 +346,12 @@ void Indexes_SetTempSpecsTimers(TimerOp op) {
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
-    weakIndexSpec *wsp = dictGetVal(entry);
-    if (wsp->spec->flags & Index_Temporary) {
+    StrongRef ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(ref);
+    if (sp->flags & Index_Temporary) {
       switch (op) {
-        case TimerOp_Add: IndexSpec_SetTimeoutTimer(wsp->spec, wsp); break;
-        case TimerOp_Del: IndexSpec_ResetTimeoutTimer(wsp->spec);    break;
+        case TimerOp_Add: IndexSpec_SetTimeoutTimer(sp, StrongRef_Demote(ref)); break;
+        case TimerOp_Del: IndexSpec_ResetTimeoutTimer(sp);    break;
       }
     }
   }
@@ -377,15 +380,15 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     QueryError_SetCode(status, QUERY_EINDEXEXISTS);
     return NULL;
   }
-  weakIndexSpec *wsp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
-  if (wsp == NULL) {
+  StrongRef ref = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (sp == NULL) {
     return NULL;
   }
-  IndexSpec *sp = wsp->spec;
 
   // Sets weak and strong references to the spec, then pass it to the spec dictionary
 
-  dictAdd(specDict_g, (char *)specName, wsp);
+  dictAdd(specDict_g, (char *)specName, ref.ism);
 
   sp->uniqueId = spec_unique_ids++;
   // Start the garbage collector
@@ -398,11 +401,11 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // set timeout for temporary index on master
   if ((sp->flags & Index_Temporary) && IsMaster()) {
-    IndexSpec_SetTimeoutTimer(sp, wsp);
+    IndexSpec_SetTimeoutTimer(sp, StrongRef_Demote(ref));
   }
 
   if (!(sp->flags & Index_SkipInitialScan)) {
-    IndexSpec_ScanAndReindex(ctx, sp);
+    IndexSpec_ScanAndReindex(ctx, ref);
   }
   return sp;
 }
@@ -1054,12 +1057,12 @@ reset:
   return 0;
 }
 
-int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
+int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
                         QueryError *status) {
   setMemoryInfo(ctx);
   int rc = IndexSpec_AddFieldsInternal(sp, ac, status, 0);
   if (rc && initialScan) {
-    IndexSpec_ScanAndReindex(ctx, sp);
+    IndexSpec_ScanAndReindex(ctx, ref);
   }
   return rc;
 }
@@ -1067,9 +1070,9 @@ int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
-weakIndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
+StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
-  weakIndexSpec *wsp = WeakIndexSpec_NewWeakReference(spec);
+  StrongRef ref = StrongRef_New(spec);
 
   IndexSpec_MakeKeyless(spec);
 
@@ -1124,7 +1127,7 @@ weakIndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, Qu
     rule_args.prefixes = empty_prefix;
   }
 
-  spec->rule = SchemaRule_Create(&rule_args, wsp, status);
+  spec->rule = SchemaRule_Create(&rule_args, ref, status);
   if (!spec->rule) {
     goto failure;
   }
@@ -1159,12 +1162,12 @@ weakIndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, Qu
     FieldsGlobalStats_UpdateStats(spec->fields + i, 1);
   }
 
-  return wsp;
+  return ref;
 
 failure:  // on failure free the spec fields array and return an error
   spec->flags &= ~Index_Temporary;
-  WeakIndexSpec_RemoveFromGlobals(wsp);
-  return NULL;
+  IndexSpec_RemoveFromGlobals(ref);
+  return (StrongRef){NULL};
 }
 
 /* Initialize some index stats that might be useful for scoring functions */
@@ -1184,8 +1187,8 @@ int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
   return isNew;
 }
 
-void Spec_AddToDict(const weakIndexSpec *wsp) {
-  dictAdd(specDict_g, wsp->spec->name, (void *)wsp);
+void Spec_AddToDict(const IndexSpecManager *ism) {
+  dictAdd(specDict_g, ism->spec->name, (void *)ism);
 }
 
 static void IndexSpecCache_Free(IndexSpecCache *c) {
@@ -1335,16 +1338,16 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
  */
 void IndexSpec_FreeInternals(IndexSpec *spec) {
   // Stop scanner
+  // TODO: multithreaded: necesary? scanner has a weak ref to the spec
   if (spec->scanner) {
-    spec->scanner->cancelled = true;
-    spec->scanner->spec = NULL;
+    __atomic_store_n(&spec->scanner->cancelled, true, __ATOMIC_RELAXED);
   }
 
   // For temporary index
   if (spec->isTimerSet) {
-    weakIndexSpec *old_timer_wsp;
-    if (RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_wsp) == REDISMODULE_OK) {
-      WeakIndexSpec_ReturnWeakReference(old_timer_wsp);
+    IndexSpecManager *old_timer_ism;
+    if (RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_ism) == REDISMODULE_OK) {
+      IndexSpecManager_ReturnWeakReference(old_timer_ism);
     }
     spec->isTimerSet = false;
   }
@@ -1413,9 +1416,9 @@ void IndexSpec_LegacyFree(void *spec) {
 void IndexSpec_Free(IndexSpec *spec) {
   if (!RS_IsMock && (spec->flags & Index_Temporary)) {
     if (spec->isTimerSet) {
-      weakIndexSpec *old_timer_wsp;
-      if (RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_wsp) == REDISMODULE_OK) {
-        WeakIndexSpec_ReturnWeakReference(old_timer_wsp);
+      IndexSpecManager *old_timer_ism;
+      if (RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_ism) == REDISMODULE_OK) {
+        IndexSpecManager_ReturnWeakReference(old_timer_ism);
       }
       spec->isTimerSet = false;
     }
@@ -1430,22 +1433,26 @@ void IndexSpec_Free(IndexSpec *spec) {
 
 // Assumes this is called from the main thread with no competing threads
 // Also assumes that the spec is existing in the global dictionary, so
-// we use the global reference as our guard and access the spec dierctly
-void WeakIndexSpec_RemoveFromGlobals(weakIndexSpec *wsp) {
+// we use the global reference as our guard and access the spec dierctly.
+// This function consumes the Strong reference it gets
+void IndexSpec_RemoveFromGlobals(StrongRef ref) {
+  IndexSpec *spec = StrongRef_Get(ref);
+
   // Remove spec from global index list
-  dictDelete(specDict_g, wsp->spec->name);
+  dictDelete(specDict_g, spec->name);
 
   // Remove spec from global aliases list
-  if (wsp->spec->uniqueId) {
+  if (spec->uniqueId) {
     // If uniqueid is 0, it means the index was not initialized
     // and is being freed now during an error.
-    IndexSpec_ClearAliases(wsp->spec);
+    IndexSpec_ClearAliases(ref);
   }
 
-  SchemaPrefixes_RemoveSpec(wsp);
+  SchemaPrefixes_RemoveSpec(ref);
 
   // mark the spec as deleted and decrement the ref counts owned by the global dictionaries
-  WeakIndexSpec_InvalidateSpec(wsp);
+  // this function consumes the strong reference
+  IndexSpecManager_InvalidateSpec(ref.ism);
 }
 
 void Indexes_Free(dict *d) {
@@ -1456,17 +1463,17 @@ void Indexes_Free(dict *d) {
   // cursor list is iterating through the list as well and consuming a lot of CPU
   CursorList_Empty(&RSCursors);
 
-  arrayof(weakIndexSpec *) specs = array_new(weakIndexSpec *, dictSize(d));
+  arrayof(StrongRef) specs = array_new(StrongRef, dictSize(d));
   dictIterator *iter = dictGetIterator(d);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
-    weakIndexSpec *wsp = dictGetVal(entry);
-    specs = array_append(specs, wsp);
+    StrongRef ref = dictGetRef(entry);
+    specs = array_append(specs, ref);
   }
   dictReleaseIterator(iter);
 
   for (size_t i = 0; i < array_len(specs); ++i) {
-    WeakIndexSpec_RemoveFromGlobals(specs[i]);
+    IndexSpec_RemoveFromGlobals(specs[i]);
   }
   array_free(specs);
 }
@@ -1482,34 +1489,14 @@ inline static void IndexSpec_IncreasCounter(IndexSpec *sp) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static int IndexSpec_GetReferences(weakIndexSpec *wsp, weakIndexSpec **wspp, IndexSpec **spp) {
-  if (!wsp) {
-    return REDISMODULE_ERR;
-  }
-
-  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
-  if (!sp) {
-    WeakIndexSpec_ReturnWeakReference(wsp);
-    return REDISMODULE_ERR;
-  }
-
-  *wspp = wsp;
-  *spp = sp;
-  return REDISMODULE_OK;
-}
-
-weakIndexSpec* IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name, int openWrite) {
+StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name, int openWrite) {
   IndexLoadOptions lopts = {.flags = openWrite ? INDEXSPEC_LOAD_WRITEABLE : 0,
                             .name = {.cstring = name}};
   lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
   return IndexSpec_LoadUnsafeEx(ctx, &lopts);
 }
 
-int IndexSpec_LoadUnsafe_References(RedisModuleCtx *ctx, const char *name, int openWrite, weakIndexSpec **wspp, IndexSpec **spp) {
-  return IndexSpec_GetReferences(IndexSpec_LoadUnsafe(ctx, name, openWrite), wspp, spp);
-}
-
-weakIndexSpec* IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
+StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
   const char *ixname = NULL;
   if (options->flags & INDEXSPEC_LOAD_KEY_RSTRING) {
     ixname = RedisModule_StringPtrLen(options->name.rstring, NULL);
@@ -1517,36 +1504,32 @@ weakIndexSpec* IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *opt
     ixname = options->name.cstring;
   }
 
-  weakIndexSpec *wsp = dictFetchValue(specDict_g, ixname);
-  if (!wsp) {
+  StrongRef ref = {dictFetchValue(specDict_g, ixname)};
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
     if (!(options->flags & INDEXSPEC_LOAD_NOALIAS)) {
-      wsp = IndexAlias_Get(ixname);
+      ref = IndexAlias_Get(ixname);
+      sp = StrongRef_Get(ref);
     }
-    if (!wsp) {
-      return NULL;
+    if (!sp) {
+      return ref;
     }
   }
-  wsp = WeakIndexSpec_GetWeakReference(wsp);
-  IndexSpec *sp = wsp->spec;
 
   // Increament the number of uses.
   IndexSpec_IncreasCounter(sp);
 
   if (!RS_IsMock && (sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
     if (sp->isTimerSet) {
-      weakIndexSpec *old_timer_wsp;
-      if (RedisModule_StopTimer(RSDummyContext, sp->timerId, (void **)&old_timer_wsp) == REDISMODULE_OK) {
-        WeakIndexSpec_ReturnWeakReference(old_timer_wsp);
+      WeakRef old_timer_ref;
+      if (RedisModule_StopTimer(RSDummyContext, sp->timerId, (void **)&old_timer_ref) == REDISMODULE_OK) {
+        WeakRef_Release(old_timer_ref);
       }
     }
-    IndexSpec_SetTimeoutTimer(sp, wsp);
+    IndexSpec_SetTimeoutTimer(sp, StrongRef_Demote(ref));
   }
 
-  return wsp;
-}
-
-int IndexSpec_LoadUnsafeEx_References(RedisModuleCtx *ctx, IndexLoadOptions *options, weakIndexSpec **wspp, IndexSpec **spp) {
-  return IndexSpec_GetReferences(IndexSpec_LoadUnsafeEx(ctx, options), wspp, spp);
+  return ref;
 }
 
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
@@ -1918,25 +1901,27 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
 
 static threadpool reindexPool = NULL;
 
-static IndexesScanner *IndexesScanner_New(IndexSpec *spec) {
-  if (!spec && global_spec_scanner) {
+static IndexesScanner *IndexesScanner_New(StrongRef global_ref, bool isGlobal) {
+  if (isGlobal && global_spec_scanner) {
     return NULL;
   }
   IndexesScanner *scanner = rm_calloc(1, sizeof(IndexesScanner));
-  scanner->global = !spec;
-  scanner->spec = spec;
+  scanner->global = isGlobal;
   scanner->scannedKeys = 0;
   scanner->cancelled = false;
   scanner->totalKeys = RedisModule_DbSize(RSDummyContext);
 
-  if (spec) {
+  if (!isGlobal) {
+    scanner->spec_ref = StrongRef_Demote(global_ref);
+    IndexSpec *spec = StrongRef_Get(global_ref);
     // scan already in progress?
     if (spec->scanner) {
       // cancel ongoing scan, keep on_progress indicator on
       IndexesScanner_Cancel(spec->scanner, true);
       RedisModule_Log(RSDummyContext, "notice", "Scanning index %s in background: cancelled and restarted",
-                  spec->name);
+                      spec->name);
     }
+    scanner->spec_name = rm_strndup(spec->name, spec->nameLen);
     spec->scanner = scanner;
     spec->scan_in_progress = true;
   } else {
@@ -1951,12 +1936,18 @@ void IndexesScanner_Free(IndexesScanner *scanner) {
   if (global_spec_scanner == scanner) {
     global_spec_scanner = NULL;
   } else if (!scanner->cancelled) {
-    if (scanner->spec && scanner->spec->scanner == scanner) {
-      scanner->spec->scanner = NULL;
-      scanner->spec->scan_in_progress = false;
+    if (scanner->spec_ref.ism) {// && scanner->spec->scanner == scanner) {
+      StrongRef tmp = WeakRef_Promote(scanner->spec_ref);
+      IndexSpec *spec = StrongRef_Get(tmp);
+      if (spec) {
+        spec->scanner = NULL;
+        spec->scan_in_progress = false;
+        StrongRef_Release(tmp);
+      }
+      WeakRef_Release(scanner->spec_ref);
     }
   }
-
+  if (scanner->spec_name) rm_free(scanner->spec_name);
   rm_free(scanner);
 }
 
@@ -1964,10 +1955,16 @@ void IndexesScanner_Cancel(IndexesScanner *scanner, bool still_in_progress) {
   if (scanner->cancelled) {
     return;
   }
-  if (!scanner->global && scanner->spec) {
-    scanner->spec->scan_in_progress = still_in_progress;
-    scanner->spec->scanner = NULL;
-    scanner->spec = NULL;
+  if (!scanner->global && scanner->spec_ref.ism) {
+    StrongRef ref = WeakRef_Promote(scanner->spec_ref);
+    IndexSpec *spec = StrongRef_Get(ref);
+    if (spec) {
+      spec->scan_in_progress = still_in_progress;
+      spec->scanner = NULL;
+      StrongRef_Release(ref);
+    }
+    WeakRef_Release(scanner->spec_ref);
+    scanner->spec_ref.ism = NULL;
   }
   scanner->cancelled = true;
 }
@@ -2006,9 +2003,15 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   if (scanner->global) {
     Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, type, NULL);
   } else {
-    IndexSpec *sp = scanner->spec;
-    if (SchemaRule_ShouldIndex(sp, keyname, type)) {
-      IndexSpec_UpdateDoc(sp, ctx, keyname, type);
+    StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
+    IndexSpec *sp = StrongRef_Get(curr_run_ref);
+    if (sp) {
+      if (SchemaRule_ShouldIndex(sp, keyname, type)) {
+        IndexSpec_UpdateDoc(sp, ctx, keyname, type);
+      }
+      StrongRef_Release(curr_run_ref);
+    } else {
+      // TODO: multithreaded: should cancle itself?
     }
   }
   ++scanner->scannedKeys;
@@ -2029,7 +2032,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   if (scanner->global) {
     RedisModule_Log(ctx, "notice", "Scanning indexes in background");
   } else {
-    RedisModule_Log(ctx, "notice", "Scanning index %s in background", scanner->spec->name);
+    RedisModule_Log(ctx, "notice", "Scanning index %s in background", scanner->spec_name);
   }
 
   while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB)Indexes_ScanProc, scanner)) {
@@ -2046,10 +2049,10 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
 
   if (scanner->global) {
     RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%ld)",
-                  scanner->totalKeys);
+                    scanner->totalKeys);
   } else {
     RedisModule_Log(ctx, "notice", "Scanning index %s in background: done (scanned=%ld)",
-                  scanner->spec->name, scanner->totalKeys);
+                    scanner->spec_name, scanner->totalKeys);
   }
 
 end:
@@ -2066,14 +2069,14 @@ end:
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexSpec_ScanAndReindexAsync(IndexSpec *sp) {
+static void IndexSpec_ScanAndReindexAsync(StrongRef ref) {
   if (!reindexPool) {
     reindexPool = thpool_init(1);
   }
 #ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Register index %s for async scan", sp->name);
 #endif
-  IndexesScanner *scanner = IndexesScanner_New(sp);
+  IndexesScanner *scanner = IndexesScanner_New(ref, false);
   thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner);
 }
 
@@ -2220,10 +2223,10 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
 }
 #endif // FTINFO_FOR_INFO_MODULES
 
-void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp) {
+void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref) {
   size_t nkeys = RedisModule_DbSize(ctx);
   if (nkeys > 0) {
-    IndexSpec_ScanAndReindexAsync(sp);
+    IndexSpec_ScanAndReindexAsync(ref);
   }
 }
 
@@ -2269,8 +2272,8 @@ void Indexes_UpgradeLegacyIndexes() {
   dictIterator *iter = dictGetIterator(legacySpecDict);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
-    weakIndexSpec *wsp = dictGetVal(entry);
-    IndexSpec *sp = wsp->spec;
+    IndexSpecManager *ism = dictGetVal(entry);
+    IndexSpec *sp = ism->spec;
     IndexSpec_DropLegacyIndexFromKeySpace(sp);
 
     // recreate the doctable
@@ -2281,7 +2284,7 @@ void Indexes_UpgradeLegacyIndexes() {
     memset(&sp->stats, 0, sizeof(sp->stats));
 
     // put the new index in the specDict_g with weak and strong references
-    dictAdd(specDict_g, sp->name, wsp);
+    dictAdd(specDict_g, sp->name, ism);
   }
   dictReleaseIterator(iter);
 }
@@ -2292,7 +2295,7 @@ void Indexes_ScanAndReindex() {
   }
 
   RedisModule_Log(NULL, "notice", "Scanning all indexes");
-  IndexesScanner *scanner = IndexesScanner_New(NULL);
+  IndexesScanner *scanner = IndexesScanner_New((StrongRef){0}, true);
   // check no global scan is in progress
   if (scanner) {
     thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner);
@@ -2301,10 +2304,10 @@ void Indexes_ScanAndReindex() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-weakIndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
+int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
                                        QueryError *status) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  weakIndexSpec *wsp = WeakIndexSpec_NewWeakReference(sp);
+  StrongRef ref = StrongRef_New(sp);
   IndexSpec_MakeKeyless(sp);
 
   sp->sortables = NewSortingTable();
@@ -2344,7 +2347,7 @@ weakIndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, 
 
   //    IndexStats_RdbLoad(rdb, &sp->stats);
 
-  if (SchemaRule_RdbLoad(wsp, rdb, encver) != REDISMODULE_OK) {
+  if (SchemaRule_RdbLoad(ref, rdb, encver) != REDISMODULE_OK) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Failed to load schema rule");
     goto cleanup;
   }
@@ -2370,9 +2373,7 @@ weakIndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, 
   sp->uniqueId = spec_unique_ids++;
 
   IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
-  RedisModuleString *specKey = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
-  RedisModule_FreeString(ctx, specKey);
 
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
@@ -2387,7 +2388,7 @@ weakIndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, 
     QueryError _status;
     size_t dummy;
     char *s = LoadStringBuffer_IOError(rdb, &dummy, goto cleanup);
-    int rc = IndexAlias_Add(s, wsp, sp, 0, &_status);
+    int rc = IndexAlias_Add(s, ref, 0, &_status);
     RedisModule_Free(s);
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(NULL, "notice", "Loading existing alias failed");
@@ -2398,29 +2399,29 @@ weakIndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, 
 
   sp->scan_in_progress = false;
 
-  weakIndexSpec *oldSpec = dictFetchValue(specDict_g, sp->name);
+  IndexSpecManager *oldSpec = dictFetchValue(specDict_g, sp->name);
   if (oldSpec) {
     // spec already exists lets just free this one
     RedisModule_Log(NULL, "notice", "Loading an already existing index, will just ignore.");
     // setting unique id to zero will make sure index will not be removed from global
     // cursor map and aliases.
     sp->uniqueId = 0;
-    WeakIndexSpec_ReturnReferences(wsp);
-    wsp = oldSpec;
+    StrongRef_Release(ref);
+    ref = (StrongRef){oldSpec};
   } else {
-    dictAdd(specDict_g, sp->name, wsp);
+    dictAdd(specDict_g, sp->name, ref.ism);
   }
 
   for (int i = 0; i < sp->numFields; i++) {
     FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
   }
 
-  return wsp;
+  return REDISMODULE_OK;
 
 cleanup:
-  WeakIndexSpec_ReturnReferences(wsp);
+  StrongRef_Release(ref);
   QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "while reading an index");
-  return NULL;
+  return REDISMODULE_ERR;
 }
 
 void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
@@ -2431,7 +2432,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  weakIndexSpec *wsp = WeakIndexSpec_NewWeakReference(sp);
+  StrongRef ref = StrongRef_New(sp);
   IndexSpec_MakeKeyless(sp);
   sp->sortables = NewSortingTable();
   sp->terms = NULL;
@@ -2490,7 +2491,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
       QueryError status;
       size_t dummy;
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
-      int rc = IndexAlias_Add(s, wsp, sp, 0, &status);
+      int rc = IndexAlias_Add(s, ref, 0, &status);
       RedisModule_Free(s);
       assert(rc == REDISMODULE_OK);
     }
@@ -2501,12 +2502,12 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (!rule_args) {
     RedisModule_LogIOError(rdb, "warning",
                            "Could not find upgrade definition for legacy index '%s'", sp->name);
-    WeakIndexSpec_ReturnReferences(wsp);
+    StrongRef_Release(ref);
     return NULL;
   }
 
   QueryError status;
-  sp->rule = SchemaRule_Create(rule_args, wsp, &status);
+  sp->rule = SchemaRule_Create(rule_args, ref, &status);
 
   dictDelete(legacySpecRules, sp->name);
   SchemaRuleArgs_Free(rule_args);
@@ -2514,7 +2515,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (!sp->rule) {
     RedisModule_LogIOError(rdb, "warning", "Failed creating rule for legacy index '%s', error='%s'",
                            sp->name, QueryError_GetError(&status));
-    WeakIndexSpec_ReturnReferences(wsp);
+    StrongRef_Release(ref);
     return NULL;
   }
 
@@ -2522,8 +2523,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   IndexSpec_StartGC(RSDummyContext, sp, GC_DEFAULT_HZ);
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
 
-  dictAdd(legacySpecDict, sp->name, wsp);
-  return wsp;
+  dictAdd(legacySpecDict, sp->name, ref.ism);
+  return ref.ism;
 }
 
 void IndexSpec_LegacyRdbSave(RedisModuleIO *rdb, void *value) {
@@ -2541,8 +2542,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   QueryError status = {0};
   for (size_t i = 0; i < nIndexes; ++i) {
-    weakIndexSpec *wsp = IndexSpec_CreateFromRdb(ctx, rdb, encver, &status);
-    if (!wsp) {
+    if (IndexSpec_CreateFromRdb(ctx, rdb, encver, &status) != REDISMODULE_OK) {
       RedisModule_Log(ctx, "error", "RDB Load: %s",
                       status.detail ? status.detail : "general failure");
       return REDISMODULE_ERR;
@@ -2561,8 +2561,8 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
-    weakIndexSpec *wsp = dictGetVal(entry);
-    IndexSpec *sp = wsp->spec;
+    StrongRef ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(ref);
     // we save the name plus the null terminator
     RedisModule_SaveStringBuffer(rdb, sp->name, sp->nameLen + 1);
     RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
@@ -2830,14 +2830,15 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   for (int i = 0; i < array_len(prefixes); ++i) {
     SchemaPrefixNode *node = prefixes[i];
     for (int j = 0; j < array_len(node->index_specs); ++j) {
-      weakIndexSpec *wsp = node->index_specs[j];
-      if (!dictFind(specs, wsp->spec->name)) {
+      StrongRef global = node->index_specs[j];
+      IndexSpec *spec = StrongRef_Get(global);
+      if (spec && !dictFind(specs, spec->name)) {
         SpecOpCtx specOp = {
-            .wsp = wsp,
+            .spec = spec,
             .op = SpecOp_Add,
         };
         res->specsOps = array_append(res->specsOps, specOp);
-        dictEntry *entry = dictAddRaw(specs, wsp->spec->name, NULL);
+        dictEntry *entry = dictAddRaw(specs, spec->name, NULL);
         // put the location on the specsOps array so we can get it
         // fast using index name
         entry->v.u64 = array_len(res->specsOps) - 1;
@@ -2851,7 +2852,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
     EvalCtx *r = NULL;
     for (size_t i = 0; i < array_len(res->specsOps); ++i) {
       SpecOpCtx *specOp = res->specsOps + i;
-      SchemaRule *rule = specOp->wsp->spec->rule;
+      SchemaRule *rule = specOp->spec->rule;
       if (!rule->filter_exp) {
         continue;
       }
@@ -2919,15 +2920,15 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
     SpecOpCtx *specOp = specs->specsOps + i;
 
     // skip if document type does not match the index type
-    if (type != specOp->wsp->spec->rule->type) {
+    if (type != specOp->spec->rule->type) {
       continue;
     }
 
-    if (!hashFields || hashFieldChanged(specOp->wsp->spec, hashFields)) {
+    if (!hashFields || hashFieldChanged(specOp->spec, hashFields)) {
       if (specOp->op == SpecOp_Add) {
-        IndexSpec_UpdateDoc(specOp->wsp->spec, ctx, key, type);
+        IndexSpec_UpdateDoc(specOp->spec, ctx, key, type);
       } else {
-        IndexSpec_DeleteDoc(specOp->wsp->spec, ctx, key);
+        IndexSpec_DeleteDoc(specOp->spec, ctx, key);
       }
     }
   }
@@ -2941,8 +2942,8 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = specs->specsOps + i;
-    if (!hashFields || hashFieldChanged(specOp->wsp->spec, hashFields)) {
-      IndexSpec_DeleteDoc(specOp->wsp->spec, ctx, key);
+    if (!hashFields || hashFieldChanged(specOp->spec, hashFields)) {
+      IndexSpec_DeleteDoc(specOp->spec, ctx, key);
     }
   }
 
@@ -2965,8 +2966,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
 
   for (size_t i = 0; i < array_len(from_specs->specsOps); ++i) {
     SpecOpCtx *specOp = from_specs->specsOps + i;
-    weakIndexSpec *wsp = specOp->wsp;
-    IndexSpec *spec = wsp->spec;
+    IndexSpec *spec = specOp->spec;
     if (specOp->op == SpecOp_Del) {
       // the document is not in the index from the first place
       continue;
@@ -2992,7 +2992,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       // on the spec from section.
       continue;
     }
-    IndexSpec_UpdateDoc(specOp->wsp->spec, ctx, to_key, type);
+    IndexSpec_UpdateDoc(specOp->spec, ctx, to_key, type);
   }
   Indexes_SpecOpsIndexingCtxFree(from_specs);
   Indexes_SpecOpsIndexingCtxFree(to_specs);

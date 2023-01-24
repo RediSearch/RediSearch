@@ -107,9 +107,9 @@ static int renderIndexDefinitions(RedisModuleCtx *ctx, IndexSpec *sp) {
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 2) return RedisModule_WrongArity(ctx);
 
-  weakIndexSpec *wsp = NULL;
-  IndexSpec *sp = NULL;
-  if (REDISMODULE_OK != IndexSpec_LoadUnsafe_References(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1, &wsp, &sp)) {
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
@@ -250,6 +250,5 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   n += 2;
 
   RedisModule_ReplySetArrayLength(ctx, n);
-  WeakIndexSpec_ReturnReferences(wsp);
   return REDISMODULE_OK;
 }

@@ -175,28 +175,23 @@ void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
   ctx->flags = RS_CTX_READWRITE;
 }
 
-RedisSearchCtx *NewSearchCtxFromSpec(RedisModuleCtx *ctx, weakIndexSpec *wsp) {
-  IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
-  if (!sp) {
-    return NULL;
-  }
+RedisSearchCtx *NewSearchCtxFromSpec(RedisModuleCtx *ctx, IndexSpec *sp) {
   RedisSearchCtx *sctx = rm_new(RedisSearchCtx);
   *sctx = SEARCH_CTX_STATIC(ctx, sp);
-  sctx->wsp = wsp;
   return sctx;
 }
 
+// DOES NOT INCREMENT REF COUNT
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
   IndexLoadOptions loadOpts = {.name = {.cstring = indexName}};
-  weakIndexSpec *wsp = NULL;
-  IndexSpec *sp = NULL;
-  if (REDISMODULE_OK != IndexSpec_LoadUnsafeEx_References(ctx, &loadOpts, &wsp, &sp)) {
+  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &loadOpts);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
     return NULL;
   }
 
   RedisSearchCtx *sctx = rm_new(RedisSearchCtx);
   *sctx = SEARCH_CTX_STATIC(ctx, sp);
-  sctx->wsp = wsp;
   return sctx;
 }
 
@@ -218,7 +213,6 @@ void SearchCtx_CleanUp(RedisSearchCtx * sctx) {
     sctx->key_ = NULL;
   }
   RedisSearchCtx_UnlockSpec(sctx);
-  WeakIndexSpec_ReturnReferences(sctx->wsp);
 }
 
 void SearchCtx_Free(RedisSearchCtx *sctx) {

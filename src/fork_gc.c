@@ -72,9 +72,7 @@ static RedisSearchCtx *FGC_getSctx(ForkGC *gc, RedisModuleCtx *ctx) {
   RedisSearchCtx *sctx = NULL;
   if (gc->type == FGC_TYPE_NOKEYSPACE) {
     // TEMPORARY
-    // Setting the spec ref to 2 and the weak ref to 1 so the weak will get freed but the spec won't
-    weakIndexSpec *wsp = WeakIndexSpec_NewWeakReference(gc->sp);
-    sctx = NewSearchCtxFromSpec(ctx, wsp);
+    sctx = NewSearchCtxFromSpec(ctx, gc->sp);
   } else if (gc->type == FGC_TYPE_INKEYSPACE) {
     sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName, false);
   }

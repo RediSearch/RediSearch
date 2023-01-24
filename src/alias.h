@@ -31,9 +31,9 @@ AliasTable *AliasTable_New(void);
 void IndexAlias_InitGlobal(void);
 void IndexAlias_DestroyGlobal(AliasTable **t);
 
-int IndexAlias_Add(const char *alias, weakIndexSpec *wsp, IndexSpec *spec, int options, QueryError *status);
-int IndexAlias_Del(const char *alias, IndexSpec *spec, int options, QueryError *status);
-weakIndexSpec *IndexAlias_Get(const char *alias);
+int IndexAlias_Add(const char *alias, StrongRef global, int options, QueryError *status);
+int IndexAlias_Del(const char *alias, StrongRef global, int options, QueryError *status);
+StrongRef IndexAlias_Get(const char *alias);
 
 #ifdef __cplusplus
 }

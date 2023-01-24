@@ -145,11 +145,10 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   dictEntry *entry;
   int count = 5;
   while (count-- && (entry = dictNext(iter))) {
-    weakIndexSpec *wsp = dictGetVal(entry);
-    IndexSpec *sp = WeakIndexSpec_TryGetStrongReference(wsp);
+    StrongRef ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(ref);
     if (sp) {
       IndexSpec_AddToInfo(ctx, sp);
-      WeakIndexSpec_ReturnStrongReference(wsp);
     }
   }
   dictReleaseIterator(iter);
