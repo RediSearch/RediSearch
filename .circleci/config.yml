@@ -65,13 +65,12 @@ commands:
           no_output_timeout: 30m
           command: |
             git submodule update --init deps/readies
-            PYTHON=3.9.16 GLOBAL=1 ./deps/readies/bin/getpyenv
+            ./deps/readies/bin/getpy3
       - run:
-          name: Setup automation
+          name: Setup automation (2)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
           command: |
-            ./deps/readies/bin/getpy3
             ./deps/readies/bin/getaws
             python3 --version
             python3 -m pip list
