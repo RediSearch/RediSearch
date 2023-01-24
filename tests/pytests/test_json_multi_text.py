@@ -87,7 +87,7 @@ def searchMultiTextCategory(env):
         q.equal([1, 'doc:1'])
 
     for idx in ['idx_category_arr', 'idx_category_arr_author_flat']:
-        env.debugPrint(idx, force=True)
+        env.debugPrint(idx, force=TEST_DEBUG)
         cond.call('FT.SEARCH', idx, '@category:(database programming)', 'NOCONTENT', 'SLOP', '98') \
         .expect_when(True,  expect_0) \
         .expect_when(False, expect_undef_order)
@@ -128,7 +128,7 @@ def searchMultiTextAuthor(env):
     env.assertEqual(int(index_info(env, 'idx_author_arr')['hash_indexing_failures']), 3)
 
     for idx in ['idx_author_flat']:
-        env.debugPrint(idx, force=True)
+        env.debugPrint(idx, force=TEST_DEBUG)
         env.expect('FT.SEARCH', idx, '@author:(Richard)', 'NOCONTENT').equal([1, 'doc:1'])
         
         # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)

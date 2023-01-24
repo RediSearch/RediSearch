@@ -23,7 +23,7 @@ class RediSearchSetup(paella.Setup):
         self.install("git gawk jq openssl rsync unzip")
 
     def linux_first(self):
-        self.install("patch")
+        self.install("patch psmisc")
 
     def debian_compat(self):
         self.install("libatomic1")
@@ -66,9 +66,7 @@ class RediSearchSetup(paella.Setup):
         self.install_gnu_utils()
         self.install("pkg-config")
         self.install("libtool m4 automake")
-
-        # for now depending on redis from brew, it's version6 with TLS.
-        self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
+        # self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
 
     def common_last(self):
         self.run("{PYTHON} {READIES}/bin/getcmake --usr".format(PYTHON=self.python, READIES=READIES),

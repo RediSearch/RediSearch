@@ -1551,7 +1551,9 @@ def test_rdb_memory_limit():
         env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
 
-def test_timeout_reached():
+def test_timeout_reached(env):
+    if CODE_COVERAGE:
+        env.skip()
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
     nshards = env.shardsCount

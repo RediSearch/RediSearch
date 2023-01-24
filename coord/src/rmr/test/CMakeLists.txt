@@ -7,7 +7,7 @@ include_directories(..)
 function(RMRTEST name)
     add_executable(${name} ${name}.c init-rm.c)
 
-    target_link_libraries("${name}" testdeps redismock ${RS_LINK_LIBS})
+    target_link_libraries("${name}" testdeps redismock ${CMAKE_LD_LIBS})
     add_test(NAME "${name}" COMMAND "${name}")
     set_target_properties("${name}" PROPERTIES COMPILE_FLAGS "-fvisibility=default")
 endfunction()
