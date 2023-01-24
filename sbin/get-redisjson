@@ -80,6 +80,9 @@ else
 		else
 			nick="rhel7"
 		fi
+	elif [[ $OSNICK == bigsur ]]; then
+		nick=catalina
+		OSS=1
 	elif [[ -n $OSNICK ]]; then
 		nick=$OSNICK
 		OSS=1
