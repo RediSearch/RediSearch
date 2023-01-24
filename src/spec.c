@@ -2074,7 +2074,7 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef ref) {
     reindexPool = thpool_init(1);
   }
 #ifdef _DEBUG
-  RedisModule_Log(NULL, "notice", "Register index %s for async scan", sp->name);
+  RedisModule_Log(NULL, "notice", "Register index %s for async scan", StrongRef_Get(ref)->name);
 #endif
   IndexesScanner *scanner = IndexesScanner_New(ref, false);
   thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner);
