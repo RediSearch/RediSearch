@@ -65,13 +65,15 @@ commands:
           no_output_timeout: 30m
           command: |
             git submodule update --init deps/readies
-            ./deps/readies/bin/getpy3
+            VERBOSE=2 ./deps/readies/bin/getpy3
       - run:
           name: Setup automation (2)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
           command: |
             ./deps/readies/bin/getaws
+            hash -r
+            echo "python3: $(command -v python3)"
             python3 --version
             python3 -m pip list
 
