@@ -1072,7 +1072,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 
   // Check if RDB is loading - not needed after the first time we find out that rdb is not
   // reloading
-  if (gc->rdbPossiblyLoading && !gc->index.ism) {
+  if (gc->rdbPossiblyLoading && !gc->index.rm) {
     RedisModule_ThreadSafeContextLock(ctx);
     if (isRdbLoading(ctx)) {
       RedisModule_Log(ctx, "notice", "RDB Loading in progress, not performing GC");

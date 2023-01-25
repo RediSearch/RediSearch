@@ -61,7 +61,7 @@ RefManager* RediSearch_CreateIndex(const char* name, const RSIndexOptions* optio
     spec->docs.maxSize = DOCID_MAX;
   }
   if (options->gcPolicy != GC_POLICY_NONE) {
-    IndexSpec_StartGCFromSpec((StrongRef){ism}, spec, GC_DEFAULT_HZ, options->gcPolicy);
+    IndexSpec_StartGCFromSpec(ref, spec, GC_DEFAULT_HZ, options->gcPolicy);
   }
   if (options->stopwordsLen != -1) {
     // replace default list which is a global so no need to free anything.
