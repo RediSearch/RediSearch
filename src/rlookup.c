@@ -710,7 +710,7 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
   // if loading the document failed b/c it does not exist, delete the document from DocTable
   // this will mark doc as deleted and reply with `(nil)`
   if (rv != REDISMODULE_OK) {
-    //TODO: make sure we are not taking the write lock here while we are in read lock
+    // TODO: multithreaded: make sure we are not taking the write lock here while we are in read lock
     RedisModuleString *rmstr = DMD_CreateKeyString(options->dmd, ctx);
     IndexSpec_DeleteDoc(options->sctx->spec, ctx, rmstr);
     RedisModule_FreeString(ctx, rmstr);
