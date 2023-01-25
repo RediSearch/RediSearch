@@ -12,6 +12,7 @@
 #include "rmutil/rm_assert.h"
 #include "rmutil/cxx/chrono-clock.h"
 #include "util/timeout.h"
+#include "util/block_alloc_fixedElemSize.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
@@ -844,4 +845,102 @@ ResultProcessor *RPCounter_New() {
   ret->base.Free = rpcountFree;
   ret->base.type = RP_COUNTER;
   return &ret->base;
+}
+
+/*******************************************************************************************************************
+ *  Buffer and Loader Results Processor
+ *
+ * This component should be added to the pipeline of the query excution, if a thread safe access to
+ *Redis keyspace is required.
+ *
+ * The buffer is responsible for buffering the document that pass the query filters and loading
+ *their feilds values from Redis keyspace.
+ *
+ *
+ *******************************************************************************************************************/
+
+typedef struct {
+  ResultProcessor base;
+  FixedSizeElementsBlocksManager bufferBlocks;
+  size_t estimatedResultsNumber;
+  size_t additionalBlockSize;
+} RPBUfferAndLoader;
+
+int rpbufferNext_loadNoValidation(ResultProcessor *rp, SearchResult *res) {
+}
+
+int rpbufferNext_ValidateAndLoad(ResultProcessor *rp, SearchResult *res) {
+}
+
+int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
+  RPBUfferAndLoader *RPBuffer = (RPBUfferAndLoader *)rp;
+
+  // Get the current index version so we can check later if any updates accured
+  // after we finish to buffer the results
+  RedisSearchCtx *spec = RPBuffer->base.parent->sctx;
+  double currentIndexVersion = IndexSpec_GetVersion(spec);
+
+  FixedSizeElementsBlocksManager *buffer = &RPBuffer->bufferBlocks;
+
+  // Allocate the first results block.
+  FixedSizeElementsBlocksManager_init(buffer, sizeof(SearchResult),
+                                      RPBuffer->estimatedResultsNumber);
+
+  // Keep fetching results from the upstream result processor until EOF is reached
+  while (1) {
+
+    size_t newBlockSize = RPBuffer->additionalBlockSize;
+
+    // Get a space for a new result.
+    SearchResult *resToBuffer = FixedSizeElementsBlocksManager_getElement(buffer, newBlockSize);
+
+    // Get the next result and save it in the buffer
+    int result_status = rp->upstream->Next(rp->upstream, resToBuffer);
+
+    // If upstream has finished stop buffering results or something went wrong
+    if (result_status != RS_RESULT_OK) {
+      if (result_status == RS_RESULT_EOF ||
+          (result_status == RS_RESULT_TIMEDOUT &&
+           RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Return)) {
+        // Break the loop and continue to the next step.
+        if (!FixedSizeElementsBlocksManager_isEmpty(buffer)) {
+          break;
+        }
+      }  // else, we got no results or something went wront, we can go downstream.
+      return result_status;
+    }
+  }
+
+  // Now we have the data of all documents that pass the query filters,
+  // let's load the feilds that require access to Redis keyspace.
+
+  // initialize this->next to the defualt value
+  rp->Next = rpbufferNext_loadNoValidation;
+
+  int lockGIL = RedisModule_ThreadSafeContextTryLock(spec->redisCtx);
+
+  // TryLock returns REDISMODULE_ERR if the GIL was already locked
+  if (lockGIL == REDISMODULE_ERR) {
+
+    // unlockspec to avoid deadlocks
+    RedisSearchCtx_UnlockSpec(spec);
+
+    // Lock GIL to gurentee safe access to Redis keyspace
+    RedisModule_ThreadSafeContextLock(spec->redisCtx);
+
+    // Lock the index for reading
+    RedisSearchCtx_LockSpecRead(spec);
+
+    // If the spec has been changed since we released the spec lock,
+    // we need to validate every buffered result
+    if (currentIndexVersion != IndexSpec_GetVersion(spec)) {
+      rp->Next = rpbufferNext_ValidateAndLoad;
+    }
+  }
+  // If we managed to lock the GIL it means that
+  // nobody held it, so we cant have a deadlock.
+  // also, we are not releasing the spec lock so it's gurnteed that
+  // no changes were applied, hence we can skip validation.
+
+  return rp->Next(rp, res);
 }

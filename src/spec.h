@@ -298,6 +298,10 @@ typedef struct IndexSpec {
 
   // read write lock
   pthread_rwlock_t rwlock;
+    
+  // Current spec version.
+  // Should be updated after acquiring the write lock.
+  size_t specVersion;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -547,6 +551,15 @@ int CompareVestions(Version v1, Version v2);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(StrongRef ref);
+
+// Return the current vesrion of the spec. 
+// The value of the version number does'nt indicate if the index
+// is newer or older, and should be only tested for inequality.
+size_t IndexSpec_GetVersion(const IndexSpec *sp);
+
+// Update the spec vesrion if we update the index.
+// This function should be called after the write lock is acquired.
+void IndexSpec_UpdateVersion(IndexSpec *sp);
 
 /*
  * Parse the field mask passed to a query, map field names to a bit mask passed down to the
