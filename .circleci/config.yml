@@ -65,8 +65,8 @@ commands:
           no_output_timeout: 30m
           command: |
             git submodule update --init deps/readies
-            ls -l /usr/local/bin/python*
-            VERBOSE=2 ./deps/readies/bin/getpy3
+            ls -l /usr/local/bin/python* || true
+            FORCE=1 VERBOSE=2 ./deps/readies/bin/getpy3
       - run:
           name: Setup automation (2)
           shell: /bin/bash -l -eo pipefail
