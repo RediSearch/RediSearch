@@ -66,6 +66,7 @@ commands:
           command: |
             git submodule update --init deps/readies
             rm -f /usr/local/bin/python3
+            brew upgrade python3
             ls -l /usr/local/bin/python* || true
             VERBOSE=2 ./deps/readies/bin/getpy3
             ls -l /usr/local/bin/python* || true
