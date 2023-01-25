@@ -1823,32 +1823,42 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
 
 static threadpool reindexPool = NULL;
 
-static IndexesScanner *IndexesScanner_New(StrongRef global_ref, bool isGlobal) {
-  if (isGlobal && global_spec_scanner) {
+static IndexesScanner *IndexesScanner_NewGlobal() {
+  if (global_spec_scanner) {
     return NULL;
   }
+
   IndexesScanner *scanner = rm_calloc(1, sizeof(IndexesScanner));
-  scanner->global = isGlobal;
+  scanner->global = true;
   scanner->scannedKeys = 0;
   scanner->totalKeys = RedisModule_DbSize(RSDummyContext);
 
-  if (!isGlobal) {
-    scanner->spec_ref = StrongRef_Demote(global_ref);
-    IndexSpec *spec = StrongRef_Get(global_ref);
-    scanner->spec_name = rm_strndup(spec->name, spec->nameLen);
-    // scan already in progress?
-    if (spec->scanner) {
-      // cancel ongoing scan, keep on_progress indicator on
-      IndexesScanner_Cancel(spec->scanner);
-      RedisModule_Log(RSDummyContext, "notice", "Scanning index %s in background: cancelled and restarted",
-                      spec->name);
-    }
-    spec->scanner = scanner;
-    spec->scan_in_progress = true;
-  } else {
-    global_spec_scanner = scanner;
-    RedisModule_Log(RSDummyContext, "notice", "Global scanner created");
+  global_spec_scanner = scanner;
+  RedisModule_Log(RSDummyContext, "notice", "Global scanner created");
+
+  return scanner;
+}
+
+static IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
+
+  IndexesScanner *scanner = rm_calloc(1, sizeof(IndexesScanner));
+  scanner->global = false;
+  scanner->scannedKeys = 0;
+  scanner->totalKeys = RedisModule_DbSize(RSDummyContext);
+
+  scanner->spec_ref = StrongRef_Demote(global_ref);
+  IndexSpec *spec = StrongRef_Get(global_ref);
+  scanner->spec_name = rm_strndup(spec->name, spec->nameLen);
+
+  // scan already in progress?
+  if (spec->scanner) {
+    // cancel ongoing scan, keep on_progress indicator on
+    IndexesScanner_Cancel(spec->scanner);
+    RedisModule_Log(RSDummyContext, "notice", "Scanning index %s in background: cancelled and restarted",
+                    spec->name);
   }
+  spec->scanner = scanner;
+  spec->scan_in_progress = true;
 
   return scanner;
 }
@@ -1984,7 +1994,7 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef ref) {
 #ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Register index %s for async scan", ((IndexSpec*)StrongRef_Get(ref))->name);
 #endif
-  IndexesScanner *scanner = IndexesScanner_New(ref, false);
+  IndexesScanner *scanner = IndexesScanner_New(ref);
   thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner);
 }
 
@@ -2203,7 +2213,7 @@ void Indexes_ScanAndReindex() {
   }
 
   RedisModule_Log(NULL, "notice", "Scanning all indexes");
-  IndexesScanner *scanner = IndexesScanner_New((StrongRef){0}, true);
+  IndexesScanner *scanner = IndexesScanner_NewGlobal();
   // check no global scan is in progress
   if (scanner) {
     thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner);
