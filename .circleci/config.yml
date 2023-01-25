@@ -66,7 +66,7 @@ commands:
           command: |
             git submodule update --init deps/readies
             ls -l /usr/local/bin/python* || true
-            FORCE=1 VERBOSE=2 ./deps/readies/bin/getpy3
+            VERBOSE=2 ./deps/readies/bin/getpy3
             ls -l /usr/local/bin/python* || true
       - run:
           name: Setup automation (2)
