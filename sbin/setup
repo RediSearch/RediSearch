@@ -8,13 +8,17 @@ READIES=$ROOT/deps/readies
 
 export HOMEBREW_NO_AUTO_UPDATE=1
 
-VERBOSE=2 $READIES/bin/getpy3
+$READIES/bin/getpy3
 pyenv="$(get_profile_d)/pyenv.sh"
 if [[ -f $pyenv ]]; then
 	. $pyenv
 fi
-python3 --version
-python3 -m pip list
+if [[ $VERBOSE == 1 ]]; then
+	python3 --version
+	python3 -m pip list
+fi
 
 $ROOT/sbin/system-setup.py
-python3 -m pip list
+if [[ $VERBOSE == 1 ]]; then
+	python3 -m pip list
+fi

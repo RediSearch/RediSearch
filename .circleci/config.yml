@@ -66,7 +66,6 @@ commands:
           command: |
             git submodule update --init deps/readies
             rm -f /usr/local/bin/python3
-            # if [[ $(./deps/readies/bin/platform --os) == macos ]]; then brew install python@3.11; fi
             ./deps/readies/bin/getpy3
       - run:
           name: Setup automation (2)
@@ -762,8 +761,7 @@ workflows:
             parameters:
               platform: [jammy, focal, bionic]
       - build-macos:
-          #@@<<: *on-integ-and-version-tags
-          <<: *always
+          <<: *on-integ-and-version-tags
           context: common
       - coverage:
           <<: *on-any-branch
