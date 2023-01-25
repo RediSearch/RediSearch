@@ -118,8 +118,6 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     rule->prefixes = array_append(rule->prefixes, p);
   }
 
-  rule->spec = StrongRef_Get(ref);
-
   if (rule->filter_exp_str) {
     rule->filter_exp = ExprAST_Parse(rule->filter_exp_str, strlen(rule->filter_exp_str), status);
     if (!rule->filter_exp) {
@@ -148,9 +146,9 @@ error:
  * At documentation, the field index is used to load required fields instead of
  * expensive comparisons.
  */
-void SchemaRule_FilterFields(SchemaRule *rule) {
+void SchemaRule_FilterFields(IndexSpec *spec) {
   char **properties = array_new(char *, 8);
-  IndexSpec *spec = rule->spec;
+  SchemaRule *rule = spec->rule;
   RSExpr_GetProperties(rule->filter_exp, &properties);
   int propLen = array_len(properties);
   if (array_len(properties) > 0) {
@@ -393,14 +391,14 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver) {
   if (!rule) {
     RedisModule_LogIOError(rdb, "warning", "%s", QueryError_GetError(&status));
     RedisModule_Assert(rule);
-  } else {
-    rule->score_default = score_default;
-    rule->lang_default = lang_default;
-    // No need to validate the reference here, since we are loading it from the RDB
-    IndexSpec *sp = StrongRef_Get(ref);
-    sp->rule = rule;
   }
-  SchemaRule_FilterFields(rule);
+  rule->score_default = score_default;
+  rule->lang_default = lang_default;
+
+  // No need to validate the reference here, since we are loading it from the RDB
+  IndexSpec *sp = StrongRef_Get(ref);
+  sp->rule = rule;
+  SchemaRule_FilterFields(sp);
 
 cleanup:
   if (args.type) {
@@ -495,7 +493,7 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
     // load hash only if required
     r = EvalCtx_Create();
 
-    RLookup_LoadRuleFields(RSDummyContext, &r->lk, &r->row, rule, keyCstr);
+    RLookup_LoadRuleFields(RSDummyContext, &r->lk, &r->row, sp, keyCstr);
 
     if (EvalCtx_EvalExpr(r, rule->filter_exp) != EXPR_EVAL_OK ||
         !RSValue_BoolTest(&r->res)) {
