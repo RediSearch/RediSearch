@@ -8,7 +8,17 @@ READIES=$ROOT/deps/readies
 
 export HOMEBREW_NO_AUTO_UPDATE=1
 
-PYTHON=3.9.16 GLOBAL=1 $READIES/bin/getpyenv
-. $(get_profile_d)/pyenv.sh
 $READIES/bin/getpy3
+pyenv="$(get_profile_d)/pyenv.sh"
+if [[ -f $pyenv ]]; then
+	. $pyenv
+fi
+if [[ $VERBOSE == 1 ]]; then
+	python3 --version
+	python3 -m pip list
+fi
+
 $ROOT/sbin/system-setup.py
+if [[ $VERBOSE == 1 ]]; then
+	python3 -m pip list
+fi
