@@ -1551,9 +1551,7 @@ def test_rdb_memory_limit():
         env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
 
-def test_timeout_reached(env):
-    if CODE_COVERAGE:
-        env.skip()
+def test_timeout_reached():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
     nshards = env.shardsCount
@@ -1563,6 +1561,11 @@ def test_timeout_reached(env):
     hybrid_modes = ['BATCHES', 'ADHOC_BF']
     dim = 10
 
+    if env.isCluster():
+        # Extend the timeout so that the cluster wouldn't think that nodes are non resposive while we index
+        # vectors in the Background.
+        for con in env.getOSSMasterNodesConnectionList():
+            con.execute_command("config", "set", "cluster-node-timeout", "60000")
     for algo, n_vec in vecsim_algorithms_and_sizes:
         for data_type in VECSIM_DATA_TYPES:
             # succeed to create indexes with no limits
