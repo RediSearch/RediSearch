@@ -12,7 +12,7 @@
 #include "rmutil/rm_assert.h"
 #include "rmutil/cxx/chrono-clock.h"
 #include "util/timeout.h"
-#include "util/block_alloc_fixedElemSize.h"
+#include "util/block_alloc_fixedSize.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
@@ -861,18 +861,70 @@ ResultProcessor *RPCounter_New() {
 
 typedef struct {
   ResultProcessor base;
-  FixedSizeElementsBlocksManager bufferBlocks;
-  size_t estimatedResultsNumber;
-  size_t additionalBlockSize;
+
+  bool ShouldLoadAll;
+  RLookup *lookup;
+  const RLookupKey **fields;
+  size_t nfields;
+
+  FixedSizeBlocksManager bufferBlocks;
+  FixedSizeBlocksIterator resultsIterator;
+  size_t BlockSize;
+
+  SearchResult *currentResult;
 } RPBUfferAndLoader;
 
-int rpbufferNext_loadNoValidation(ResultProcessor *rp, SearchResult *res) {
+static bool isResultValid(const SearchResult *res) {
+  // check if the doc is not marked deleted in the spec
+  return res->dmd->flags & Document_Deleted;
 }
 
-int rpbufferNext_ValidateAndLoad(ResultProcessor *rp, SearchResult *res) {
+static int rpbuffer_load(ResultProcessor *rp, SearchResult *buffered_result) {
+  RPBUfferAndLoader *RPLoader = (RPBUfferAndLoader *)rp;
+
+  RedisSearchCtx *sctx = RPLoader->base.parent->sctx;
+
+  QueryError status = {0};
+  RLookupLoadOptions loadopts = {.sctx = sctx,
+                                  .dmd = buffered_result->dmd,
+                                  .noSortables = 1,
+                                  .forceString = 1,
+                                  .status = &status,
+                                  .keys = RPLoader->fields,
+                                  .nkeys = RPLoader->nfields};
+  if (RPLoader->ShouldLoadAll) {
+    loadopts.mode |= RLOOKUP_LOAD_KEYLIST;
+  } else {
+    loadopts.mode |= RLOOKUP_LOAD_ALLKEYS;
+  }
+
+  // if loadinging the document has failed, we return an empty array
+  RLookup_LoadDocument(RPLoader->lk, &buffered_result->rowdata, &loadopts);
+
+  return RS_RESULT_OK;
 }
 
-int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
+static int rpbufferNext_loadNoValidation(ResultProcessor *rp, SearchResult *res) {
+  RPBUfferAndLoader *RPBuffer = (RPBUfferAndLoader *)rp;
+  RPBuffer->currentResult = FixedSizeElementsBlocksManager_getNextElement(&RPBuffer->resultsIterator);
+  
+}
+
+static int rpbufferNext_ValidateAndLoad(ResultProcessor *rp, SearchResult *res) {
+  RPBUfferAndLoader *RPBuffer = (RPBUfferAndLoader *)rp;
+  RPBuffer->currentResult = FixedSizeElementsBlocksManager_getNextElement(&RPBuffer->resultsIterator);
+  
+  // iterate the buffer.
+  while(RPBuffer->currentResult) {
+    // Skip invalid results
+    if (!isValid(RPBuffer->currentResult)) {
+      RPBuffer->currentResult = FixedSizeElementsBlocksManager_getNextElement(&RPBuffer->resultsIterator);
+    }
+  }
+  return rpbufferNext_loadNoValidation(rp, res);
+}
+
+static int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   RPBUfferAndLoader *RPBuffer = (RPBUfferAndLoader *)rp;
 
   // Get the current index version so we can check later if any updates accured
@@ -880,19 +932,17 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   RedisSearchCtx *spec = RPBuffer->base.parent->sctx;
   double currentIndexVersion = IndexSpec_GetVersion(spec);
 
-  FixedSizeElementsBlocksManager *buffer = &RPBuffer->bufferBlocks;
+  FixedSizeBlocksManager *buffer = &RPBuffer->bufferBlocks;
 
   // Allocate the first results block.
-  FixedSizeElementsBlocksManager_init(buffer, sizeof(SearchResult),
-                                      RPBuffer->estimatedResultsNumber);
+  FixedSizeBlocksManager_init(buffer, sizeof(SearchResult),
+                                      RPBuffer->BlockSize);
 
   // Keep fetching results from the upstream result processor until EOF is reached
   while (1) {
 
-    size_t newBlockSize = RPBuffer->additionalBlockSize;
-
     // Get a space for a new result.
-    SearchResult *resToBuffer = FixedSizeElementsBlocksManager_getElement(buffer, newBlockSize);
+    SearchResult *resToBuffer = FixedSizeBlocksManager_getEmptyElement(buffer);
 
     // Get the next result and save it in the buffer
     int result_status = rp->upstream->Next(rp->upstream, resToBuffer);
@@ -903,7 +953,7 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
           (result_status == RS_RESULT_TIMEDOUT &&
            RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Return)) {
         // Break the loop and continue to the next step.
-        if (!FixedSizeElementsBlocksManager_isEmpty(buffer)) {
+        if (!FixedSizeBlocksManager_isEmpty(buffer)) {
           break;
         }
       }  // else, we got no results or something went wront, we can go downstream.
@@ -941,6 +991,6 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   // nobody held it, so we cant have a deadlock.
   // also, we are not releasing the spec lock so it's gurnteed that
   // no changes were applied, hence we can skip validation.
-
+  FixedSizeElementsBlocksManager_InitIterator(buffer, &RPBuffer->resultsIterator);
   return rp->Next(rp, res);
 }
