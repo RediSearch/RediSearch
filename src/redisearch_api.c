@@ -24,6 +24,13 @@
 #include "fork_gc.h"
 #include "module.h"
 
+/**
+ * Most of the spec interaction is done through the RefManager, which is wrapped by a strong or weak reference struct.
+ * In the LLAPI we return a pointer to an RSIndex. In order to not break the API, we typedef the RSIndex to be RefManager
+ * and we return it instead of the strong reference that should wrap it. we can assume that every time we get a RefManager,
+ * we can cast it to (wrap it with) a strong reference and use it as such.
+ */
+
 int RediSearch_GetCApiVersion() {
   return REDISEARCH_CAPI_VERSION;
 }
