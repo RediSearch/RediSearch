@@ -13,4 +13,8 @@ pyenv="$(get_profile_d)/pyenv.sh"
 if [[ -f $pyenv ]]; then
 	. $pyenv
 fi
+python3 --version
+python3 -m pip list
+
 $ROOT/sbin/system-setup.py
+python3 -m pip list
