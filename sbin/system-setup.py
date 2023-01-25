@@ -66,6 +66,7 @@ class RediSearchSetup(paella.Setup):
         self.install_gnu_utils()
         self.install("pkg-config")
         self.install("libtool m4 automake")
+        self.install("numpy scipy")
         self.pip_install("gevent") # before gcc
         # self.run("%s/bin/getgcc --modern" % READIES) # required to build numpy/scipy
         # self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
