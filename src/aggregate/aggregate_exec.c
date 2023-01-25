@@ -543,7 +543,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     }
   } else if (RunInThread(r)) {
     IndexLoadOptions options = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
-                                .name = r->sctx->spec->name};
+                                .name.cstring = r->sctx->spec->name};
     StrongRef global = IndexSpec_LoadUnsafeEx(ctx, &options);
     RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
     // report block client start time
