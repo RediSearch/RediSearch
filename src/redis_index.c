@@ -172,6 +172,7 @@ void RedisSearchCtx_LockSpecRead(RedisSearchCtx *ctx) {
 void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
   RedisModule_Assert(ctx->flags == RS_CTX_UNSET);
   pthread_rwlock_wrlock(&ctx->spec->rwlock);
+  IndexSpec_UpdateVersion(ctx->spec);
   ctx->flags = RS_CTX_READWRITE;
 }
 

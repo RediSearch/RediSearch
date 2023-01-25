@@ -1623,6 +1623,8 @@ IndexSpec *NewIndexSpec(const char *name) {
 #endif
 
   pthread_rwlock_init(&sp->rwlock, &attr);
+
+  sp->specVersion = 0;
   return sp;
 }
 
@@ -1702,6 +1704,19 @@ int bit(t_fieldMask id) {
   return 0;
 }
 
+// Return the current vesrion of the spec. 
+// The value of the version number does'nt indicate if the index
+// is newer or older, and should be only tested for inequality.
+size_t IndexSpec_GetVersion(const IndexSpec *sp) {
+  return sp->specVersion;
+}
+
+// Update the spec vesrion if we update the index.
+// This function should be called after the write lock is acquired.
+// When the version number is overflowed, it will start from zero.
+void IndexSpec_UpdateVersion(IndexSpec *sp) {
+  ++sp->specVersion;
+}
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Backwards compat version of load for rdbs with version < 8
