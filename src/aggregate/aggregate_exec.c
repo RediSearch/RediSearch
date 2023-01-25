@@ -346,8 +346,8 @@ static blockedClientReqCtx *blockedClientReqCtx_New(AREQ *req,
   return ret;
 }
 
-static RedisModuleCtx *blockedClientReqCtx_getRedisctx(const blockedClientReqCtx *BCRctx) {
-  return BCRctx->req->sctx->redisCtx;
+static AREQ *blockedClientReqCtx_getRequest(const blockedClientReqCtx *BCRctx) {
+  return BCRctx->req;
 }
 
 static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
@@ -356,24 +356,25 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 }
 
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
-  RedisModuleCtx *redis_ctx = BCRctx->req->sctx->redisCtx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
-  BCRctx->req->reqflags |= QEXEC_F_HAS_THCTX;
+  AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
+  req->sctx->redisCtx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
+  req->reqflags |= QEXEC_F_HAS_THCTX;
   // lockspec
-  RedisSearchCtx_LockSpecRead(BCRctx->req->sctx);
+  RedisSearchCtx_LockSpecRead(req->sctx);
   QueryError status = {0};
-  if (prepareExecutionPlan(&BCRctx->req, &status) != REDISMODULE_OK) {
+  if (prepareExecutionPlan(req, &status) != REDISMODULE_OK) {
     // Enrich the error message that was caught to include the fact that the query ran
     // in a background thread.
     QueryError detailed_status = {0};
     QueryError_SetErrorFmt(&detailed_status, QueryError_GetCode(&status),
                            "The following error was caught upon running the query asynchronously: %s", QueryError_GetError(&status));
     QueryError_ClearError(&status);
-    QueryError_ReplyAndClear(redis_ctx, &detailed_status);
-    if (BCRctx->req) {
-      AREQ_Free(BCRctx->req);
+    QueryError_ReplyAndClear(req->sctx->redisCtx, &detailed_status);
+    if (req) {
+      AREQ_Free(req);
     }
   } else {
-    AREQ_Execute(BCRctx->req, redis_ctx);
+    AREQ_Execute(req, req->sctx->redisCtx);
   }
 
 
@@ -383,9 +384,8 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   blockedClientReqCtx_destroy(BCRctx);
 }
 
-int prepareExecutionPlan(AREQ **r, QueryError *status) {
+int prepareExecutionPlan(AREQ *req, QueryError *status) {
   int rc = REDISMODULE_ERR;
-  AREQ *req = *r;
   RedisSearchCtx *sctx = req->sctx;
   RSSearchOptions *opts = &req->searchopts;
   QueryAST *ast = &req->ast;
@@ -403,16 +403,16 @@ int prepareExecutionPlan(AREQ **r, QueryError *status) {
   }
 
   hires_clock_t parseClock;
-  bool is_profile = IsProfile(*r);
+  bool is_profile = IsProfile(req);
   if (is_profile) {
     hires_clock_get(&parseClock);
-    (*r)->parseTime += hires_clock_diff_msec(&parseClock, &(*r)->initClock);
+    req->parseTime += hires_clock_diff_msec(&parseClock, &req->initClock);
   }
 
-  rc = AREQ_BuildPipeline(*r, 0, status);
+  rc = AREQ_BuildPipeline(req, 0, status);
 
   if (is_profile) {
-    (*r)->pipelineBuildTime = hires_clock_since_msec(&parseClock);
+    req->pipelineBuildTime = hires_clock_since_msec(&parseClock);
   }
   return rc;
 }
@@ -515,7 +515,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   SET_DIALECT(RSGlobalConfig.used_dialects, r->dialectVersion);
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
-    if (prepareExecutionPlan(&r, &status) != REDISMODULE_OK) {
+    if (prepareExecutionPlan(r, &status) != REDISMODULE_OK) {
       goto error;
     }
     int rc = AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status);
@@ -529,7 +529,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient);
     workersThreadPool_AddWork((thpool_proc)AREQ_Execute_Callback, BCRctx);
   } else {
-    if (prepareExecutionPlan(&r, &status) != REDISMODULE_OK) {
+    if (prepareExecutionPlan(r, &status) != REDISMODULE_OK) {
       goto error;
     }
     AREQ_Execute(r, ctx);
@@ -606,7 +606,7 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   if (buildRequest(ctx, argv, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
     return NULL;
   }
-  if (prepareExecutionPlan(&r, status) != REDISMODULE_OK) {
+  if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
     AREQ_Free(r);
     return NULL;
   }
