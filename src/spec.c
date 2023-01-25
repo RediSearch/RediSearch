@@ -60,91 +60,6 @@ size_t used_memory = 0;
 
 //---------------------------------------------------------------------------------------------
 
-// This is a weak reference to an index spec. It is used to prevent using a spec that is being freed.
-// The spec is freed when the strong refcount is 0 and the weak refcount is 0.
-
-// Promises:
-// 1. If the strong refcount gets to 0, it will never be increased again
-
-// By using this functions through the strong and weak refcount API, we can guarantee that
-// The spec will be freed before the weak refcount reaches 0, so you better use it and not these functions directly.
-
-// The Invalidate function is being used by the drop index command to prevent using the spec after it is dropped.
-// It first remove the spec from the specDict_g, then it sets the isInvalid flag to true.
-// From that point on, any attempt to get a strong reference will fail, and we can guarantee that the weak refcount
-// will only be decreased.
-
-struct IndexSpecManager {
-  IndexSpec *spec;
-  uint16_t strong_refcount;
-  uint16_t weak_refcount;
-  bool isInvalid;
-};
-
-// For tests, LLAPI and strong/weak references only. DO NOT USE DIRECTLY
-inline IndexSpec *__IndexSpecManager_Get_Spec(IndexSpecManager *ism) {
-  return ism ? ism->spec : NULL;
-}
-
-IndexSpecManager *IndexSpecManager_New(IndexSpec *spec) {
-  IndexSpecManager *ism = rm_new(IndexSpecManager);
-  ism->spec = spec;
-  ism->strong_refcount = 1;
-  ism->weak_refcount = 1;
-  ism->isInvalid = 0;
-  return ism;
-}
-
-// Returns REDISMODULE_ERR if the spec is being freed or marked as invalid,
-// otherwise increases the strong refcount and returns REDISMODULE_OK.
-// Assumes the caller has a weak reference
-int IndexSpecManager_TryGetStrongReference(IndexSpecManager *ism) {
-  uint16_t cur_ref = -1;
-  // Attempt to increase the strong refcount by 1 if it is not 0
-  while (!__atomic_compare_exchange_n(&ism->strong_refcount, &cur_ref, cur_ref + 1, 0, 0, 0)) {
-    if (cur_ref == 0) {
-      // Refcount was 0, so the spec is being freed
-      return REDISMODULE_ERR;
-    }
-  }
-  // We have a valid strong reference. Check if the spec is invalid before returning it
-  if (__atomic_load_n(&ism->isInvalid, __ATOMIC_ACQUIRE)) {
-    IndexSpecManager_ReturnStrongReference(ism);
-    return REDISMODULE_ERR;
-  } else {
-    return REDISMODULE_OK;
-  }
-}
-
-void IndexSpecManager_GetWeakReference(IndexSpecManager *ism) {
-  __atomic_add_fetch(&ism->weak_refcount, 1, __ATOMIC_RELAXED);
-}
-
-void IndexSpec_FreeInternals(IndexSpec *);
-void IndexSpecManager_ReturnStrongReference(IndexSpecManager *ism) {
-  if (__atomic_sub_fetch(&ism->strong_refcount, 1, __ATOMIC_RELAXED) == 0) {
-    IndexSpec_FreeInternals(ism->spec);
-  }
-}
-
-void IndexSpecManager_ReturnWeakReference(IndexSpecManager *ism) {
-  if (__atomic_sub_fetch(&ism->weak_refcount, 1, __ATOMIC_RELAXED) == 0) {
-    rm_free(ism);
-  }
-}
-
-void IndexSpecManager_ReturnReferences(IndexSpecManager *ism) {
-  IndexSpecManager_ReturnStrongReference(ism);
-  IndexSpecManager_ReturnWeakReference(ism);
-}
-
-void IndexSpecManager_InvalidateSpec(IndexSpecManager *ism) {
-  __atomic_store_n(&ism->isInvalid, 1, __ATOMIC_RELEASE);
-  IndexSpecManager_ReturnReferences(ism);
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-
 static void setMemoryInfo(RedisModuleCtx *ctx) {
 #define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
   RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
@@ -396,7 +311,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // Sets weak and strong references to the spec, then pass it to the spec dictionary
 
-  dictAdd(specDict_g, (char *)specName, ref.ism);
+  dictAdd(specDict_g, (char *)specName, ref.rm);
 
   sp->uniqueId = spec_unique_ids++;
   // Start the garbage collector
@@ -1080,7 +995,7 @@ int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsC
   */
 StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
-  StrongRef ref = StrongRef_New(spec);
+  StrongRef ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
 
   IndexSpec_MakeKeyless(spec);
 
@@ -1195,8 +1110,9 @@ int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
   return isNew;
 }
 
-void Spec_AddToDict(const IndexSpecManager *ism) {
-  dictAdd(specDict_g, ism->spec->name, (void *)ism);
+// For testing purposes only
+void Spec_AddToDict(RefManager *rm) {
+  dictAdd(specDict_g, ((IndexSpec*)__RefManager_Get_Object(rm))->name, (void *)rm);
 }
 
 static void IndexSpecCache_Free(IndexSpecCache *c) {
@@ -1457,8 +1373,8 @@ void IndexSpec_RemoveFromGlobals(StrongRef ref) {
   SchemaPrefixes_RemoveSpec(ref);
 
   // mark the spec as deleted and decrement the ref counts owned by the global dictionaries
-  // this function consumes the strong reference
-  IndexSpecManager_InvalidateSpec(ref.ism);
+  StrongRef_Invalidate(ref);
+  StrongRef_Release(ref);
 }
 
 void Indexes_Free(dict *d) {
@@ -2066,7 +1982,7 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef ref) {
     reindexPool = thpool_init(1);
   }
 #ifdef _DEBUG
-  RedisModule_Log(NULL, "notice", "Register index %s for async scan", StrongRef_Get(ref)->name);
+  RedisModule_Log(NULL, "notice", "Register index %s for async scan", ((IndexSpec*)StrongRef_Get(ref))->name);
 #endif
   IndexesScanner *scanner = IndexesScanner_New(ref, false);
   thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner);
@@ -2264,8 +2180,8 @@ void Indexes_UpgradeLegacyIndexes() {
   dictIterator *iter = dictGetIterator(legacySpecDict);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
-    IndexSpecManager *ism = dictGetVal(entry);
-    IndexSpec *sp = ism->spec;
+    StrongRef ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(ref);
     IndexSpec_DropLegacyIndexFromKeySpace(sp);
 
     // recreate the doctable
@@ -2276,7 +2192,7 @@ void Indexes_UpgradeLegacyIndexes() {
     memset(&sp->stats, 0, sizeof(sp->stats));
 
     // put the new index in the specDict_g with weak and strong references
-    dictAdd(specDict_g, sp->name, ism);
+    dictAdd(specDict_g, sp->name, ref.rm);
   }
   dictReleaseIterator(iter);
 }
@@ -2299,7 +2215,7 @@ void Indexes_ScanAndReindex() {
 int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
                                        QueryError *status) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  StrongRef ref = StrongRef_New(sp);
+  StrongRef ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   IndexSpec_MakeKeyless(sp);
 
   sp->sortables = NewSortingTable();
@@ -2391,7 +2307,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
 
   sp->scan_in_progress = false;
 
-  IndexSpecManager *oldSpec = dictFetchValue(specDict_g, sp->name);
+  RefManager *oldSpec = dictFetchValue(specDict_g, sp->name);
   if (oldSpec) {
     // spec already exists lets just free this one
     RedisModule_Log(NULL, "notice", "Loading an already existing index, will just ignore.");
@@ -2401,7 +2317,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     StrongRef_Release(ref);
     ref = (StrongRef){oldSpec};
   } else {
-    dictAdd(specDict_g, sp->name, ref.ism);
+    dictAdd(specDict_g, sp->name, ref.rm);
   }
 
   for (int i = 0; i < sp->numFields; i++) {
@@ -2424,7 +2340,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  StrongRef ref = StrongRef_New(sp);
+  StrongRef ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   IndexSpec_MakeKeyless(sp);
   sp->sortables = NewSortingTable();
   sp->terms = NULL;
@@ -2515,8 +2431,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   IndexSpec_StartGC(RSDummyContext, sp, GC_DEFAULT_HZ);
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
 
-  dictAdd(legacySpecDict, sp->name, ref.ism);
-  return ref.ism;
+  dictAdd(legacySpecDict, sp->name, ref.rm);
+  return ref.rm;
 }
 
 void IndexSpec_LegacyRdbSave(RedisModuleIO *rdb, void *value) {

@@ -23,7 +23,7 @@ static timespec getTimespecCb(void *) {
 typedef struct {
   RedisModuleCtx *ctx;
   void *fgc;
-  IndexSpecManager *ism;
+  RefManager *ism;
 } args_t;
 
 static pthread_t thread;
@@ -43,7 +43,7 @@ void *cbWrapper(void *args) {
   return NULL;
 }
 
-void runGcThread(RedisModuleCtx *ctx, void *fgc, IndexSpecManager *ism) {
+void runGcThread(RedisModuleCtx *ctx, void *fgc, RefManager *ism) {
   thread = {0};
   args_t *args = (args_t *)rm_calloc(1, sizeof(*args));
   *args = {.ctx = ctx, .fgc = fgc, .ism = ism};
@@ -54,7 +54,7 @@ void runGcThread(RedisModuleCtx *ctx, void *fgc, IndexSpecManager *ism) {
 class FGCTest : public ::testing::Test {
  protected:
   RMCK::Context ctx;
-  IndexSpecManager *ism;
+  RefManager *ism;
   ForkGC *fgc;
 
   void SetUp() override {
@@ -71,7 +71,7 @@ class FGCTest : public ::testing::Test {
     pthread_join(thread, NULL);
   }
 
-  IndexSpecManager *createIndex(RedisModuleCtx *ctx) {
+  RefManager *createIndex(RedisModuleCtx *ctx) {
     RSIndexOptions opts = {0};
     opts.gcPolicy = GC_POLICY_FORK;
     auto ism = RediSearch_CreateIndex("idx", &opts);

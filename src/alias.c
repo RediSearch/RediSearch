@@ -40,7 +40,7 @@ static int AliasTable_Add(AliasTable *table, const char *alias, StrongRef global
     return REDISMODULE_ERR;
   }
   RS_LOG_ASSERT(e->key != alias, "Alias should be different than key");
-  e->v.val = global.ism;
+  e->v.val = global.rm;
   if (!(options & INDEXALIAS_NO_BACKREF)) {
     char *duped = rm_strdup(alias);
     spec->aliases = array_ensure_append(spec->aliases, &duped, 1, char *);
@@ -94,7 +94,7 @@ StrongRef AliasTable_Get(AliasTable *tbl, const char *alias) {
   StrongRef ret = {0};
   dictEntry *e = dictFind(tbl->d, alias);
   if (e) {
-    ret.ism = e->v.val;
+    ret.rm = e->v.val;
   }
   return ret;
 }

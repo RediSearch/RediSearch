@@ -397,7 +397,8 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver) {
     rule->score_default = score_default;
     rule->lang_default = lang_default;
     // No need to validate the reference here, since we are loading it from the RDB
-    StrongRef_Get(ref)->rule = rule;
+    IndexSpec *sp = StrongRef_Get(ref);
+    sp->rule = rule;
   }
   SchemaRule_FilterFields(rule);
 

@@ -19,7 +19,7 @@
             ; \
     } while(0)
 
-#define get_spec(x) __IndexSpecManager_Get_Spec(x)
+#define get_spec(x) ((IndexSpec*)__RefManager_Get_Object(x))
 
 #ifdef __cplusplus
 extern "C" {

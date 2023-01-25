@@ -300,19 +300,6 @@ typedef struct IndexSpec {
   pthread_rwlock_t rwlock;
 } IndexSpec;
 
-typedef struct IndexSpecManager IndexSpecManager;
-
-IndexSpecManager *IndexSpecManager_New(IndexSpec *spec);
-int IndexSpecManager_TryGetStrongReference(IndexSpecManager *ism);
-void IndexSpecManager_GetWeakReference(IndexSpecManager *ism);
-void IndexSpecManager_ReturnStrongReference(IndexSpecManager *ism);
-void IndexSpecManager_ReturnWeakReference(IndexSpecManager *ism);
-void IndexSpecManager_ReturnReferences(IndexSpecManager *ism);
-void IndexSpecManager_InvalidateSpec(IndexSpecManager *ism);
-
-// For LLAPI and wrappers only. DO NOT USE directly.
-IndexSpec *__IndexSpecManager_Get_Spec(IndexSpecManager *ism);
-
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
 typedef enum TimerOp { TimerOp_Add, TimerOp_Del } TimerOp;
 
@@ -353,7 +340,7 @@ typedef struct IndexSpecCache {
 /**
  * For testing only
  */
-void Spec_AddToDict(const IndexSpecManager *w_spec);
+void Spec_AddToDict(RefManager *w_spec);
 
 /**
  * Compare redis versions
