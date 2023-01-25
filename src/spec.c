@@ -1078,7 +1078,7 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
   }
 
   if (spec->rule->filter_exp) {
-    SchemaRule_FilterFields(spec->rule);
+    SchemaRule_FilterFields(spec);
   }
 
   for (int i = 0; i < spec->numFields; i++) {
@@ -2770,17 +2770,16 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
     EvalCtx *r = NULL;
     for (size_t i = 0; i < array_len(res->specsOps); ++i) {
       SpecOpCtx *specOp = res->specsOps + i;
-      SchemaRule *rule = specOp->spec->rule;
-      if (!rule->filter_exp) {
+      IndexSpec *spec = specOp->spec;
+      if (!spec->rule->filter_exp) {
         continue;
       }
 
       // load hash only if required
       if (!r) r = EvalCtx_Create();
-      RLookup_LoadRuleFields(ctx, &r->lk, &r->row, rule, key_p);
+      RLookup_LoadRuleFields(ctx, &r->lk, &r->row, spec, key_p);
 
-      if (EvalCtx_EvalExpr(r, rule->filter_exp) == EXPR_EVAL_OK) {
-        IndexSpec *spec = rule->spec;
+      if (EvalCtx_EvalExpr(r, spec->rule->filter_exp) == EXPR_EVAL_OK) {
         if (!RSValue_BoolTest(&r->res) && dictFind(specs, spec->name)) {
           specOp->op = SpecOp_Del;
         }

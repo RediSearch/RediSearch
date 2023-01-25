@@ -47,7 +47,6 @@ typedef struct {
 
 typedef struct SchemaRule {
   DocumentType type;
-  struct IndexSpec *spec; // TODO: back reference to the index spec - should be weak?
   arrayof(const char *) prefixes;
   char *filter_exp_str;
   struct RSExpr *filter_exp;
@@ -68,7 +67,7 @@ void SchemaRuleArgs_Free(SchemaRuleArgs *args);
 void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx);
 
 SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *status);
-void SchemaRule_FilterFields(SchemaRule *rule);
+void SchemaRule_FilterFields(struct IndexSpec *sp);
 void SchemaRule_Free(SchemaRule *);
 
 RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
