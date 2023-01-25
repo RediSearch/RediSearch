@@ -65,6 +65,7 @@ commands:
           no_output_timeout: 30m
           command: |
             git submodule update --init deps/readies
+            rm -f /usr/local/bin/python3
             ls -l /usr/local/bin/python* || true
             VERBOSE=2 ./deps/readies/bin/getpy3
             ls -l /usr/local/bin/python* || true
