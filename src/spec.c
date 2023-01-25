@@ -995,7 +995,7 @@ int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsC
   */
 StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
-  StrongRef ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
+  StrongRef ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_FreeInternals);
 
   IndexSpec_MakeKeyless(spec);
 
@@ -2225,7 +2225,7 @@ void Indexes_ScanAndReindex() {
 int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
                                        QueryError *status) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  StrongRef ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
+  StrongRef ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_FreeInternals);
   IndexSpec_MakeKeyless(sp);
 
   sp->sortables = NewSortingTable();
@@ -2350,7 +2350,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  StrongRef ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
+  StrongRef ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_FreeInternals);
   IndexSpec_MakeKeyless(sp);
   sp->sortables = NewSortingTable();
   sp->terms = NULL;

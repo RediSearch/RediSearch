@@ -521,7 +521,7 @@ void IndexSpec_RemoveFromGlobals(StrongRef ref);
 /*
  * Free an indexSpec. For LLAPI
  */
-void IndexSpec_Free(IndexSpec *spec);
+void IndexSpec_FreeInternals(IndexSpec *spec);
 
 //---------------------------------------------------------------------------------------------
 

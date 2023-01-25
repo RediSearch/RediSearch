@@ -41,7 +41,7 @@ RefManager* RediSearch_CreateIndex(const char* name, const RSIndexOptions* optio
     options = &opts_s;
   }
   IndexSpec* spec = NewIndexSpec(name);
-  StrongRef ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
+  StrongRef ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_FreeInternals);
   IndexSpec_MakeKeyless(spec);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
   spec->flags |= Index_FromLLAPI;
