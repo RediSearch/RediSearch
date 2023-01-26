@@ -31,6 +31,8 @@
 #include "cluster_spell_check.h"
 #include "profile.h"
 
+#include "libuv/include/uv.h"
+
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -2058,6 +2060,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   setHiredisAllocators();
+  uv_replace_allocator(rm_malloc, rm_realloc, rm_calloc, rm_free);
 
   if (!RSDummyContext) {
     if (RedisModule_GetDetachedThreadSafeContext) {
