@@ -187,13 +187,13 @@ static const char *getUntaggedId(const char *id, size_t *outlen) {
 }
 
 static const char *lookupAlias(const char *orig, size_t *len) {
+  // borrowing the global reference to the spec
   StrongRef global = IndexAlias_Get(orig);
   IndexSpec *sp = StrongRef_Get(global);
   if (!sp) {
     *len = strlen(orig);
     return orig;
   }
-  // borrowing the global reference to the spec
   return getUntaggedId(sp->name, len);
 }
 

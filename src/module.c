@@ -443,15 +443,17 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if((delDocs || sp->flags & Index_Temporary) && !keepDocs) {
     // We take a strong reference to the index, so it will not be freed
-    // and we can still use it to delete the keys
-    StrongRef oun_ref = StrongRef_Clone(global_ref);
+    // and we can still use it's doc table to delete the keys.
+    StrongRef own_ref = StrongRef_Clone(global_ref);
+    // We remove the index from the globals first, so it will not be found by the
+    // delete key notification callbacks.
     IndexSpec_RemoveFromGlobals(global_ref);
 
     DocTable *dt = &sp->docs;
     DOCTABLE_FOREACH(dt, Redis_DeleteKeyC(ctx, dmd->keyPtr));
 
     // Return call's references
-    StrongRef_Release(oun_ref);
+    StrongRef_Release(own_ref);
   } else {
     // If we don't delete the docs, we just remove the index from the global dict
     IndexSpec_RemoveFromGlobals(global_ref);

@@ -30,17 +30,18 @@ void IndexAlias_DestroyGlobal(AliasTable **t) {
   *t = NULL;
 }
 
-static int AliasTable_Add(AliasTable *table, const char *alias, StrongRef global, int options, QueryError *error) {
+static int AliasTable_Add(AliasTable *table, const char *alias, StrongRef spec_ref, int options, QueryError *error) {
   // look up and see if it exists:
   dictEntry *e, *existing = NULL;
-  IndexSpec *spec = StrongRef_Get(global);
+  IndexSpec *spec = StrongRef_Get(spec_ref);
   e = dictAddRaw(table->d, (void *)alias, &existing);
   if (existing) {
     QueryError_SetError(error, QUERY_EINDEXEXISTS, "Alias already exists");
     return REDISMODULE_ERR;
   }
   RS_LOG_ASSERT(e->key != alias, "Alias should be different than key");
-  e->v.val = global.rm;
+  // Dictionary holds a pointer tho the spec manager. Its the same reference owned by the specs dictionary.
+  e->v.val = spec_ref.rm;
   if (!(options & INDEXALIAS_NO_BACKREF)) {
     char *duped = rm_strdup(alias);
     spec->aliases = array_ensure_append(spec->aliases, &duped, 1, char *);
@@ -51,9 +52,9 @@ static int AliasTable_Add(AliasTable *table, const char *alias, StrongRef global
   return REDISMODULE_OK;
 }
 
-static int AliasTable_Del(AliasTable *table, const char *alias, StrongRef global, int options,
+static int AliasTable_Del(AliasTable *table, const char *alias, StrongRef spec_ref, int options,
                           QueryError *error) {
-  IndexSpec *spec = StrongRef_Get(global);
+  IndexSpec *spec = StrongRef_Get(spec_ref);
   char *toFree = NULL;
   // ensure that the item exists in the list
   if (!spec->aliases) {
@@ -99,24 +100,24 @@ StrongRef AliasTable_Get(AliasTable *tbl, const char *alias) {
   return ret;
 }
 
-int IndexAlias_Add(const char *alias, StrongRef global, int options, QueryError *status) {
-  return AliasTable_Add(AliasTable_g, alias, global, options, status);
+int IndexAlias_Add(const char *alias, StrongRef spec_ref, int options, QueryError *status) {
+  return AliasTable_Add(AliasTable_g, alias, spec_ref, options, status);
 }
 
-int IndexAlias_Del(const char *alias, StrongRef global, int options, QueryError *status) {
-  return AliasTable_Del(AliasTable_g, alias, global, options, status);
+int IndexAlias_Del(const char *alias, StrongRef spec_ref, int options, QueryError *status) {
+  return AliasTable_Del(AliasTable_g, alias, spec_ref, options, status);
 }
 
 StrongRef IndexAlias_Get(const char *alias) {
   return AliasTable_Get(AliasTable_g, alias);
 }
 
-void IndexSpec_ClearAliases(StrongRef global) {
-  IndexSpec *sp = StrongRef_Get(global);
+void IndexSpec_ClearAliases(StrongRef spec_ref) {
+  IndexSpec *sp = StrongRef_Get(spec_ref);
   for (size_t ii = 0; ii < array_len(sp->aliases); ++ii) {
     char **pp = sp->aliases + ii;
     QueryError e = {0};
-    int rc = IndexAlias_Del(*pp, global, INDEXALIAS_NO_BACKREF, &e);
+    int rc = IndexAlias_Del(*pp, spec_ref, INDEXALIAS_NO_BACKREF, &e);
     RS_LOG_ASSERT(rc == REDISMODULE_OK, "Alias delete has failed");
     rm_free(*pp);
     // set to NULL so IndexAlias_Del skips over this

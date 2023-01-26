@@ -15,12 +15,7 @@
 // 1. If the strong refcount gets to 0, it will never be increased again
 
 // By using this functions through the strong and weak refcount API, we can guarantee that
-// The spec will be freed before the weak refcount reaches 0.
-
-// The Invalidate function is being used by the drop index command to prevent using the spec after it is dropped.
-// It first remove the spec from the specDict_g, then it sets the isInvalid flag to true.
-// From that point on, any attempt to get a strong reference will fail, and we can guarantee that the weak refcount
-// will only be decreased.
+// The object will be freed before the weak refcount reaches 0.
 
 struct RefManager {
   void *obj;
@@ -62,7 +57,7 @@ static void RefManager_ReturnReferences(RefManager *rm) {
   RefManager_ReturnWeakReference(rm);
 }
 
-static void RefManager_InvalidateSpec(RefManager *rm) {
+static void RefManager_InvalidateObject(RefManager *rm) {
   __atomic_store_n(&rm->isInvalid, 1, __ATOMIC_RELEASE);
 }
 
@@ -70,19 +65,19 @@ static void RefManager_GetWeakReference(RefManager *rm) {
   __atomic_add_fetch(&rm->weak_refcount, 1, __ATOMIC_RELAXED);
 }
 
-// Returns false if the spec is being freed or marked as invalid,
+// Returns false if the object is being freed or marked as invalid,
 // otherwise increases the strong refcount and returns true.
-// Assumes the caller has a weak reference
 static bool RefManager_TryGetStrongReference(RefManager *rm) {
-  uint16_t cur_ref = -1;
-  // Attempt to increase the strong refcount by 1 if it is not 0
-  while (!__atomic_compare_exchange_n(&rm->strong_refcount, &cur_ref, cur_ref + 1, 0, 0, 0)) {
+  // Attempt to increase the strong refcount by 1 only if it's not 0
+  uint16_t cur_ref = __atomic_load_n(&rm->strong_refcount, __ATOMIC_RELAXED);
+  do {
     if (cur_ref == 0) {
-      // Refcount was 0, so the spec is being freed
+      // Refcount was 0, so the object is being freed
       return false;
     }
-  }
-  // We have a valid strong reference. Check if the spec is invalid before returning it
+  } while (!__atomic_compare_exchange_n(&rm->strong_refcount, &cur_ref, cur_ref + 1, 0, 0, 0));
+
+  // We have a valid strong reference. Check if the object is invalid before returning it
   if (__atomic_load_n(&rm->isInvalid, __ATOMIC_ACQUIRE)) {
     RefManager_ReturnStrongReference(rm);
     return false;
@@ -96,7 +91,9 @@ static bool RefManager_TryGetStrongReference(RefManager *rm) {
 StrongRef WeakRef_Promote(WeakRef w_ref) {
   StrongRef s_ref = {0};
   if (RefManager_TryGetStrongReference(w_ref.rm)) {
-    RefManager_GetWeakReference(w_ref.rm); // we need to keep the weak reference alive
+    // a strong reference also holds a weak reference (reference to the RefManager),
+    // so it won't be freed before the object it manages.
+    RefManager_GetWeakReference(w_ref.rm);
     s_ref.rm = w_ref.rm;
   }
   return s_ref;
@@ -121,12 +118,14 @@ WeakRef StrongRef_Demote(StrongRef s_ref) {
 StrongRef StrongRef_Clone(StrongRef ref) {
   StrongRef new_ref = {ref.rm};
   RefManager_TryGetStrongReference(ref.rm); // will succeed since we already have a strong reference
+  // a strong reference also holds a weak reference (reference to the RefManager),
+  // so it won't be freed before the object it manages.
   RefManager_GetWeakReference(ref.rm);
   return new_ref;
 }
 
 void StrongRef_Invalidate(StrongRef s_ref) {
-  RefManager_InvalidateSpec(s_ref.rm);
+  RefManager_InvalidateObject(s_ref.rm);
 }
 
 void StrongRef_Release(StrongRef s_ref) {

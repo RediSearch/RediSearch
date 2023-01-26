@@ -66,7 +66,7 @@ typedef struct SchemaRule {
 void SchemaRuleArgs_Free(SchemaRuleArgs *args);
 void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx);
 
-SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *status);
+SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef spec_ref, QueryError *status);
 void SchemaRule_FilterFields(struct IndexSpec *sp);
 void SchemaRule_Free(SchemaRule *);
 
@@ -82,7 +82,7 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
                                           RedisModuleKey *key, const char *kname);
 
 void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb);
-int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver);
+int SchemaRule_RdbLoad(StrongRef spec_ref, RedisModuleIO *rdb, int encver);
 
 bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type);
 

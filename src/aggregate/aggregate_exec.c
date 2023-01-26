@@ -340,11 +340,11 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
 }
 
 static blockedClientReqCtx *blockedClientReqCtx_New(AREQ *req,
-                                                    RedisModuleBlockedClient *blockedClient, StrongRef global) {
+                                                    RedisModuleBlockedClient *blockedClient, StrongRef spec) {
   blockedClientReqCtx *ret = rm_new(blockedClientReqCtx);
   ret->req = req;
   ret->blockedClient = blockedClient;
-  ret->spec_ref = StrongRef_Demote(global);
+  ret->spec_ref = StrongRef_Demote(spec);
   return ret;
 }
 
@@ -544,11 +544,11 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   } else if (RunInThread(r)) {
     IndexLoadOptions options = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
                                 .name.cstring = r->sctx->spec->name};
-    StrongRef global = IndexSpec_LoadUnsafeEx(ctx, &options);
+    StrongRef spec_ref = IndexSpec_LoadUnsafeEx(ctx, &options);
     RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
     // report block client start time
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, blockedClient);
-    blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, global);
+    blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     workersThreadPool_AddWork((thpool_proc)AREQ_Execute_Callback, BCRctx);
   } else {
     if (prepareExecutionPlan(r, &status) != REDISMODULE_OK) {
