@@ -70,6 +70,7 @@ static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, s
       case RP_INDEX:
       case RP_METRICS:
       case RP_LOADER:
+      case RP_BUFFER_AND_LOADER:
       case RP_SCORER:
       case RP_SORTER:
       case RP_COUNTER:
