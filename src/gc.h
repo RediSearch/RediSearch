@@ -23,9 +23,6 @@ typedef struct GCCallbacks {
   void (*renderStatsForInfo)(RedisModuleInfoCtx* ctx, void* gc);
   void (*onDelete)(void* ctx);
   void (*onTerm)(void* ctx);
-
-  // Send a "kill signal" to the GC, requesting it to terminate asynchronously
-  void (*kill)(void* ctx);
   struct timespec (*getInterval)(void* ctx);
 } GCCallbacks;
 
@@ -33,7 +30,6 @@ typedef struct GCContext {
   void* gcCtx;
   RedisModuleTimerID timerID;
   GCCallbacks callbacks;
-  int stopped;
 } GCContext;
 
 typedef struct GCTask {
