@@ -1132,7 +1132,7 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
 failure:  // on failure free the spec fields array and return an error
   spec->flags &= ~Index_Temporary;
   IndexSpec_RemoveFromGlobals(spec_ref);
-  return (StrongRef){NULL};
+  return INVALID_STRONG_REF;
 }
 
 /* Initialize some index stats that might be useful for scoring functions */

@@ -19,6 +19,8 @@ extern "C" {
 typedef void(*RefManager_Free)(void *obj);
 typedef struct RefManager RefManager;
 
+#define INVALID_STRONG_REF ((StrongRef){0})
+
 // For LLAPI and wrappers only. DO NOT USE directly.
 void *__RefManager_Get_Object(RefManager *rm);
 
