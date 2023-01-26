@@ -54,6 +54,7 @@ typedef enum {
 typedef enum {
   RP_INDEX,
   RP_LOADER,
+  RP_BUFFER_AND_LOADER,
   RP_SCORER,
   RP_SORTER,
   RP_COUNTER,
@@ -234,7 +235,15 @@ ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const Fiel
 
 void RP_DumpChain(const ResultProcessor *rp);
 
+/*******************************************************************************************************************
+ *  Buffer and Loader Results Processor
+ *
+ * The buffer is responsible for buffering the document that pass the query filters and loading
+ * fields for the results that need to be displayed to the user, from redis.
+ *
+ *******************************************************************************************************************/
 
+ResultProcessor *RPBUfferAndLoader_New(RLookup *lookup, const RLookupKey **keys, size_t nkeys);
 /*******************************************************************************************************************
  *  Profiling Processor
  *
