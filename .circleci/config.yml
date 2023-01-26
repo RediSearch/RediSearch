@@ -65,14 +65,16 @@ commands:
           no_output_timeout: 30m
           command: |
             git submodule update --init deps/readies
-            PYTHON=3.9.16 GLOBAL=1 ./deps/readies/bin/getpyenv
+            rm -f /usr/local/bin/python3
+            ./deps/readies/bin/getpy3
       - run:
-          name: Setup automation
+          name: Setup automation (2)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
           command: |
-            ./deps/readies/bin/getpy3
             ./deps/readies/bin/getaws
+            ls -l /usr/local/bin/python* || true
+            echo "python3: $(command -v python3)"
             python3 --version
             python3 -m pip list
 
@@ -747,22 +749,19 @@ workflows:
       - build-linux-arm-ubuntu:
           <<: *never
       - build-platforms:
-          #@@<<: *on-integ-and-version-tags
-          <<: *always
+          <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
               platform: [jammy, focal, bionic, xenial, centos7, rocky8, bullseye]
       - build-arm-platforms:
-          #@@<<: *on-integ-and-version-tags
-          <<: *always
+          <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
               platform: [jammy, focal, bionic]
       - build-macos:
-          #@@<<: *on-integ-and-version-tags
-          <<: *always
+          <<: *on-integ-and-version-tags
           context: common
       - coverage:
           <<: *on-any-branch

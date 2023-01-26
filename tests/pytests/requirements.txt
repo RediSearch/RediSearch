@@ -1,5 +1,4 @@
 packaging >= 20.8
-numpy >= 1.16.6
-scipy
-RLTest ~= 0.5.0
+RLTest ~= 0.5.11
 ramp-packer ~= 2.5.0
+gevent
