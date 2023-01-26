@@ -528,11 +528,12 @@ DEBUG_COMMAND(GCForceInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
-    return REDISMODULE_OK;
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
+
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(
       ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, INVOKATION_TIMEOUT);
   GCContext_ForceInvoke(sp->gc, bc);
@@ -543,10 +544,10 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
-    return REDISMODULE_OK;
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
   GCContext_ForceBGInvoke(sp->gc);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -592,26 +593,25 @@ DEBUG_COMMAND(ttl) {
   IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
                             .name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
   lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
-  IndexSpec *sp = IndexSpec_LoadEx(ctx, &lopts);
 
+  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
-    return REDISMODULE_OK;
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
   if (!(sp->flags & Index_Temporary)) {
-    RedisModule_ReplyWithError(ctx, "Index is not temporary");
-    return REDISMODULE_OK;
+    return RedisModule_ReplyWithError(ctx, "Index is not temporary");
   }
 
   uint64_t remaining = 0;
   if (RedisModule_GetTimerInfo(RSDummyContext, sp->timerId, &remaining, NULL) != REDISMODULE_OK) {
-    RedisModule_ReplyWithLongLong(ctx, 0);  // timer was called but free operation is async so its
-                                            // gone be free each moment. lets return 0 timeout.
-    return REDISMODULE_OK;
+    // timer was called but free operation is async so its gone be free each moment.
+    // lets return 0 timeout.
+    return RedisModule_ReplyWithLongLong(ctx, 0);
   }
-  RedisModule_ReplyWithLongLong(ctx, remaining / 1000);  // return the results in seconds
-  return REDISMODULE_OK;
+
+  return RedisModule_ReplyWithLongLong(ctx, remaining / 1000);  // return the results in seconds
 }
 
 DEBUG_COMMAND(GitSha) {
@@ -847,7 +847,7 @@ DEBUG_COMMAND(VecsimInfo) {
   }
   GET_SEARCH_CTX(argv[0]);
 
-  VecSimIndex *vecsimIndex = OpenVectorIndex(sctx, argv[1]);
+  VecSimIndex *vecsimIndex = OpenVectorIndex(sctx->spec, argv[1]);
   if (!vecsimIndex) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Vector index not found");

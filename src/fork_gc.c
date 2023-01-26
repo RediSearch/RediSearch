@@ -71,8 +71,8 @@ static void FGC_unlock(ForkGC *gc, RedisModuleCtx *ctx) {
 static RedisSearchCtx *FGC_getSctx(ForkGC *gc, RedisModuleCtx *ctx) {
   RedisSearchCtx *sctx = NULL;
   if (gc->type == FGC_TYPE_NOKEYSPACE) {
-    sctx = rm_malloc(sizeof(*sctx));
-    *sctx = SEARCH_CTX_STATIC(ctx, gc->sp);
+    // TEMPORARY
+    sctx = NewSearchCtxFromSpec(ctx, gc->sp);
   } else if (gc->type == FGC_TYPE_INKEYSPACE) {
     sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName, false);
   }
@@ -1001,7 +1001,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
       hasLock = 0;
     }
   }
-  
+
   return status;
 }
 
@@ -1038,7 +1038,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
     }
-    
+
     if (FGC_recvInvIdx(gc, &idxbufs, &info) != REDISMODULE_OK) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;

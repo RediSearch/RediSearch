@@ -261,9 +261,8 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
 }
 
 /** Assigns a document ID to a single document. */
-static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int replace,
-                          QueryError *status) {
-  IndexSpec *spec = sctx->spec;
+static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, IndexSpec *spec, int replace,
+                                          QueryError *status) {
   DocTable *table = &spec->docs;
   Document *doc = aCtx->doc;
   if (replace) {
@@ -273,14 +272,14 @@ static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx
       --spec->stats.numDocuments;
       DMD_Return(aCtx->oldMd);
       aCtx->oldMd = dmd;
-      if (sctx->spec->gc) {
-        GCContext_OnDelete(sctx->spec->gc);
+      if (spec->gc) {
+        GCContext_OnDelete(spec->gc);
       }
       if (spec->flags & Index_HasVecSim) {
         for (int i = 0; i < spec->numFields; ++i) {
           if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
             RedisModuleString * rmstr = RedisModule_CreateString(RSDummyContext, spec->fields[i].name, strlen(spec->fields[i].name));
-            VecSimIndex *vecsim = OpenVectorIndex(sctx, rmstr);
+            VecSimIndex *vecsim = OpenVectorIndex(spec, rmstr);
             spec->stats.vectorIndexSize += VecSimIndex_DeleteVector(vecsim, dmd->id);
             RedisModule_FreeString(RSDummyContext, rmstr);
             // TODO: use VecSimReplace instead and if successful, do not insert and remove from doc
@@ -317,7 +316,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     }
 
     RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
-    RSDocumentMetadata *md = makeDocumentId(cur, ctx, cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
+    RSDocumentMetadata *md = makeDocumentId(cur, spec, cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
     if (!md) {
       cur->stateFlags |= ACTX_F_ERRORED;
       continue;

@@ -7,6 +7,8 @@
 #include "fields_global_stats.h"
 #include "config.h"
 
+
+// TODO: Use atomic counter. Written by DvirDu
 void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd) {
   if (fs->types & INDEXFLD_T_FULLTEXT) {  // text field
     RSGlobalConfig.fieldsStats.numTextFields += toAdd;

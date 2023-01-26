@@ -21,6 +21,7 @@
 #include "query_error.h"
 #include "field_spec.h"
 #include "util/dict.h"
+#include "util/references.h"
 #include "redisearch_api.h"
 #include "rules.h"
 #include <pthread.h>
@@ -102,6 +103,7 @@ struct DocumentIndexer;
 #define SPEC_WIDEFIELD_THRESHOLD 32
 
 extern dict *specDict_g;
+#define dictGetRef(he) ((StrongRef){dictGetVal(he)})
 
 extern size_t pending_global_indexing_ops;
 extern struct IndexesScanner *global_spec_scanner;
@@ -338,7 +340,7 @@ typedef struct IndexSpecCache {
 /**
  * For testing only
  */
-void Spec_AddToDict(const IndexSpec *spec);
+void Spec_AddToDict(RefManager *w_spec);
 
 /**
  * Compare redis versions
@@ -403,8 +405,8 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
  *
  * The format currently is <field> <weight>, <field> <weight> ...
  */
-IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
-                                    RedisModuleString **argv, int argc, QueryError *status);
+StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
+                                   RedisModuleString **argv, int argc, QueryError *status);
 
 FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type);
 int isRdbLoading(RedisModuleCtx *ctx);
@@ -420,7 +422,7 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ);
 void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy);
 
 /* Same as above but with ordinary strings, to allow unit testing */
-IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
+StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
@@ -433,8 +435,8 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 
 #define IndexSpec_IsKeyless(sp) ((sp)->keysDict != NULL)
 
-void IndexesScanner_Cancel(struct IndexesScanner *scanner, bool still_in_progress);
-void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp);
+void IndexesScanner_Cancel(struct IndexesScanner *scanner);
+void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref);
 #ifdef FTINFO_FOR_INFO_MODULES
 /**
  * Exposing all the fields of the index to INFO command.
@@ -449,7 +451,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
 int IndexSpec_CreateTextId(const IndexSpec *sp);
 
 /* Add fields to a redis schema */
-int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
+int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
                         QueryError *status);
 
 /**
@@ -458,8 +460,6 @@ int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool
 int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, QueryError *status);
 
 //---------------------------------------------------------------------------------------------
-
-IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 
 /** Load the index as writeable */
 #define INDEXSPEC_LOAD_WRITEABLE 0x01
@@ -495,27 +495,37 @@ typedef struct {
   const char *alookup;
 } IndexLoadOptions;
 
+//---------------------------------------------------------------------------------------------
+
 /**
  * Find and load the index using the specified parameters.
+ * @return the strong reference to the index spec owned by RediSearch (a borrow), or NULL if the index does not exist.
+ * If an owned reference is needed, use StrongRef API to create one.
+ */
+StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name, int openWrite);
+
+/**
+ * Find and load the index using the specified parameters. The call does not increase the spec reference counter
+ * (only the weak reference counter).
  * @return the index spec, or NULL if the index does not exist
  */
-IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
+StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
+
+/**
+ * @brief Removes the spec from the global data structures
+ *
+ * @param ref a strong reference to the spec
+ */
+void IndexSpec_RemoveFromGlobals(StrongRef ref);
+
+/*
+ * Free an indexSpec. For LLAPI
+ */
+void IndexSpec_Free(IndexSpec *spec);
 
 //---------------------------------------------------------------------------------------------
 
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
-
-/*
- * Free an indexSpec.
- */
-void IndexSpec_Free(IndexSpec *spec);
-void IndexSpec_FreeInternals(IndexSpec *spec);
-
-/**
- * Free the index synchronously. Any keys associated with the index (but not the
- * documents themselves) are freed before this function returns.
- */
-void IndexSpec_FreeSync(IndexSpec *spec);
 
 /* Parse a new stopword list and set it. If the parsing fails we revert to the default stopword
  * list, and return 0 */
@@ -536,7 +546,7 @@ void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 int CompareVestions(Version v1, Version v2);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
-void IndexSpec_ClearAliases(IndexSpec *sp);
+void IndexSpec_ClearAliases(StrongRef ref);
 
 /*
  * Parse the field mask passed to a query, map field names to a bit mask passed down to the
@@ -551,9 +561,10 @@ void Indexes_SetTempSpecsTimers(TimerOp op);
 
 typedef struct IndexesScanner {
   bool global;
-  IndexSpec *spec;
-  size_t scannedKeys, totalKeys;
   bool cancelled;
+  WeakRef spec_ref;
+  char *spec_name;
+  size_t scannedKeys, totalKeys;
 } IndexesScanner;
 
 double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp);

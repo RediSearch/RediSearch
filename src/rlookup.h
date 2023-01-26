@@ -374,7 +374,7 @@ static inline const RLookupKey *RLookup_FindKeyWith(const RLookup *l, uint32_t f
 /**
  * Initialize the lookup with fields from hash.
  */
-int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, SchemaRule *rule, const char *keyptr);
+int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *sp, const char *keyptr);
 
 
 int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
