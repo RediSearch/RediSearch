@@ -33,8 +33,8 @@ static void *BlockGetNextEmptyElem(fixedSizeBlock *block, size_t ElemSize) {
 	return ret;
 }
 
-static void *BlockGetElem(fixedSizeBlock *block, size_t elemIndex, size_t ElemSize) {
-	size_t data_position = elemIndex * ElemSize;
+static void *BlockGetElem(fixedSizeBlock *block, size_t elemIndex, size_t elemSize) {
+	size_t data_position = elemIndex * elemSize;
 	if (data_position > block->usedMemory) {
 		return NULL;
 	}

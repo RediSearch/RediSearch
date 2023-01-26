@@ -723,10 +723,10 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
   return &sc->base;
 }
 
-static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Scorer",      "Sorter",
-                                     "Counter",   "Pager/Limiter", "Highlighter", "Grouper",
-                                     "Projector", "Filter",        "Profile",     "Network",
-                                     "Vector Similarity Scores Loader"};
+static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Buufer and Loader", "Scorer",
+                                     "Sorter",    "Counter",   "Pager/Limiter", "Highlighter", 
+                                     "Grouper",   "Projector", "Filter",        "Profile",     
+                                     "Network",   "Vector Similarity Scores Loader"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
@@ -851,7 +851,7 @@ ResultProcessor *RPCounter_New() {
  *  Buffer and Loader Results Processor
  *
  * This component should be added to the pipeline of the query excution, if a thread safe access to
- *Redis keyspace is required.
+ * Redis keyspace is required.
  *
  * The buffer is responsible for buffering the document that pass the query filters and loading
  *their feilds values from Redis keyspace.
@@ -871,15 +871,41 @@ typedef struct {
   FixedSizeBlocksIterator resultsIterator;
   size_t BlockSize;
 
-  SearchResult *currentResult;
 } RPBUfferAndLoader;
+
+static int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res);
+
+static void RPBUfferAndLoader_Free(ResultProcessor *base) {
+  RPBUfferAndLoader *RPbufferAndLoader = (RPBUfferAndLoader *)base;
+
+  rm_free(RPbufferAndLoader->fields);
+  rm_free(RPbufferAndLoader);
+}
+
+ResultProcessor *RPBUfferAndLoader_New(RLookup *lookup, const RLookupKey **keys, size_t nkeys) {
+  RPBUfferAndLoader *RPbufferAndLoader = rm_calloc(1, sizeof(RPBUfferAndLoader));
+  RPbufferAndLoader->nfields = nkeys;
+  RPbufferAndLoader->fields = rm_calloc(nkeys, sizeof(RLookupKey *));
+  memcpy(RPbufferAndLoader->fields, keys, sizeof(*keys) * nkeys);
+
+  RPbufferAndLoader->lookup = lookup;
+  RPbufferAndLoader->base.Next = rpbufferNext_bufferDocs;
+  RPbufferAndLoader->base.Free = RPBUfferAndLoader_Free;
+  RPbufferAndLoader->base.type = RP_BUFFER_AND_LOADER;
+  return &RPbufferAndLoader->base;
+}
+
 
 static bool isResultValid(const SearchResult *res) {
   // check if the doc is not marked deleted in the spec
   return res->dmd->flags & Document_Deleted;
 }
 
-static int rpbuffer_load(ResultProcessor *rp, SearchResult *buffered_result) {
+static void CopyFromBufferToResult(SearchResult *buffered_result,  SearchResult *output_result) {
+  *output_result = *buffered_result;
+  SearchResult_Clear(buffered_result);
+}
+static int rpbuffer_load(ResultProcessor *rp, SearchResult *buffered_result,  SearchResult *output_result) {
   RPBUfferAndLoader *RPLoader = (RPBUfferAndLoader *)rp;
 
   RedisSearchCtx *sctx = RPLoader->base.parent->sctx;
@@ -899,38 +925,45 @@ static int rpbuffer_load(ResultProcessor *rp, SearchResult *buffered_result) {
   }
 
   // if loadinging the document has failed, we return an empty array
-  RLookup_LoadDocument(RPLoader->lk, &buffered_result->rowdata, &loadopts);
+  RLookup_LoadDocument(RPLoader->lookup, &buffered_result->rowdata, &loadopts);
+  CopyFromBufferToResult(buffered_result, output_result);
 
   return RS_RESULT_OK;
 }
 
-static int rpbufferNext_loadNoValidation(ResultProcessor *rp, SearchResult *res) {
+static int rpbufferNext_loadNoValidation(ResultProcessor *rp, SearchResult *result_output) {
   RPBUfferAndLoader *RPBuffer = (RPBUfferAndLoader *)rp;
-  RPBuffer->currentResult = FixedSizeElementsBlocksManager_getNextElement(&RPBuffer->resultsIterator);
+  SearchResult *curr_res = FixedSizeBlocksManager_getNextElement(&RPBuffer->resultsIterator);
+  if(!curr_res) {
+    return RS_RESULT_EOF;
+  }
+ return rpbuffer_load(rp, curr_res, result_output);
   
 }
 
-static int rpbufferNext_ValidateAndLoad(ResultProcessor *rp, SearchResult *res) {
+static int rpbufferNext_ValidateAndLoad(ResultProcessor *rp, SearchResult *result_output) {
   RPBUfferAndLoader *RPBuffer = (RPBUfferAndLoader *)rp;
-  RPBuffer->currentResult = FixedSizeElementsBlocksManager_getNextElement(&RPBuffer->resultsIterator);
+  SearchResult *curr_res = FixedSizeBlocksManager_getNextElement(&RPBuffer->resultsIterator);
   
   // iterate the buffer.
-  while(RPBuffer->currentResult) {
+  while(curr_res) {
     // Skip invalid results
-    if (!isValid(RPBuffer->currentResult)) {
-      RPBuffer->currentResult = FixedSizeElementsBlocksManager_getNextElement(&RPBuffer->resultsIterator);
+    if (isResultValid(curr_res)) {
+      return rpbuffer_load(rp, curr_res, result_output);
     }
+    curr_res = FixedSizeBlocksManager_getNextElement(&RPBuffer->resultsIterator);
   }
-  return rpbufferNext_loadNoValidation(rp, res);
+
+  return RS_RESULT_EOF;
 }
 
-static int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
+int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   RPBUfferAndLoader *RPBuffer = (RPBUfferAndLoader *)rp;
 
   // Get the current index version so we can check later if any updates accured
   // after we finish to buffer the results
-  RedisSearchCtx *spec = RPBuffer->base.parent->sctx;
-  double currentIndexVersion = IndexSpec_GetVersion(spec);
+  RedisSearchCtx *RSctx = RPBuffer->base.parent->sctx;
+  double currentIndexVersion = IndexSpec_GetVersion(RSctx->spec);
 
   FixedSizeBlocksManager *buffer = &RPBuffer->bufferBlocks;
 
@@ -967,23 +1000,23 @@ static int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   // initialize this->next to the defualt value
   rp->Next = rpbufferNext_loadNoValidation;
 
-  int lockGIL = RedisModule_ThreadSafeContextTryLock(spec->redisCtx);
+  int lockGIL = RedisModule_ThreadSafeContextTryLock(RSctx->redisCtx);
 
   // TryLock returns REDISMODULE_ERR if the GIL was already locked
   if (lockGIL == REDISMODULE_ERR) {
 
     // unlockspec to avoid deadlocks
-    RedisSearchCtx_UnlockSpec(spec);
+    RedisSearchCtx_UnlockSpec(RSctx);
 
     // Lock GIL to gurentee safe access to Redis keyspace
-    RedisModule_ThreadSafeContextLock(spec->redisCtx);
+    RedisModule_ThreadSafeContextLock(RSctx->redisCtx);
 
     // Lock the index for reading
-    RedisSearchCtx_LockSpecRead(spec);
+    RedisSearchCtx_LockSpecRead(RSctx);
 
     // If the spec has been changed since we released the spec lock,
     // we need to validate every buffered result
-    if (currentIndexVersion != IndexSpec_GetVersion(spec)) {
+    if (currentIndexVersion != IndexSpec_GetVersion(RSctx->spec)) {
       rp->Next = rpbufferNext_ValidateAndLoad;
     }
   }
