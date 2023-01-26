@@ -175,22 +175,27 @@ void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
   ctx->flags = RS_CTX_READWRITE;
 }
 
+RedisSearchCtx *NewSearchCtxFromSpec(RedisModuleCtx *ctx, IndexSpec *sp) {
+  RedisSearchCtx *sctx = rm_new(RedisSearchCtx);
+  *sctx = SEARCH_CTX_STATIC(ctx, sp);
+  return sctx;
+}
+
+// DOES NOT INCREMENT REF COUNT
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
   IndexLoadOptions loadOpts = {.name = {.cstring = indexName}};
-  IndexSpec *sp = IndexSpec_LoadEx(ctx, &loadOpts);
-
+  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &loadOpts);
+  IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return NULL;
   }
 
-  RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
+  RedisSearchCtx *sctx = rm_new(RedisSearchCtx);
   *sctx = SEARCH_CTX_STATIC(ctx, sp);
-  sctx->key_ = loadOpts.keyp;
   return sctx;
 }
 
 RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL) {
-
   return NewSearchCtxC(ctx, RedisModule_StringPtrLen(indexName, NULL), resetTTL);
 }
 
@@ -426,19 +431,4 @@ int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr) {
   long long res = RedisModule_CallReplyInteger(rep);
   RedisModule_FreeCallReply(rep);
   return res;
-}
-
-int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
-
-  IndexSpec *spec = ctx->spec;
-
-  SchemaPrefixes_RemoveSpec(spec);
-
-  if (deleteDocuments) {
-    DocTable *dt = &spec->docs;
-    DOCTABLE_FOREACH(dt, Redis_DeleteKeyC(ctx->redisCtx, dmd->keyPtr));
-  }
-
-  IndexSpec_FreeInternals(spec);
-  return REDISMODULE_OK;
 }

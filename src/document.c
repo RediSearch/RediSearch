@@ -610,11 +610,12 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(vectorIndexer) {
+  IndexSpec *sp = ctx->spec;
   VecSimIndex *rt = bulk->indexDatas[IXFLDPOS_VECTOR];
   if (!rt) {
-    RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_VECTOR);
+    RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
     rt = bulk->indexDatas[IXFLDPOS_VECTOR] =
-        OpenVectorIndex(ctx, keyName/*, &bulk->indexKeys[IXFLDPOS_VECTOR]*/);
+        OpenVectorIndex(sp, keyName/*, &bulk->indexKeys[IXFLDPOS_VECTOR]*/);
     if (!rt) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open vector for indexing");
       return -1;
@@ -622,10 +623,10 @@ FIELD_BULK_INDEXER(vectorIndexer) {
   }
   char *curr_vec = (char *)fdata->vector;
   for (size_t i = 0; i < fdata->numVec; i++) {
-    ctx->spec->stats.vectorIndexSize +=  VecSimIndex_AddVector(rt, curr_vec, aCtx->doc->docId);
+    sp->stats.vectorIndexSize +=  VecSimIndex_AddVector(rt, curr_vec, aCtx->doc->docId);
     curr_vec += fdata->vecLen;
   }
-  ctx->spec->stats.numRecords += fdata->numVec;
+  sp->stats.numRecords += fdata->numVec;
   return 0;
 }
 
@@ -806,10 +807,12 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
         if (!AddDocumentCtx_IsBlockable(aCtx)) {
           ++aCtx->spec->stats.indexingFailures;
         } else {
+          // TODO: multithreaded: consider locking the spec instead of the GIL
           RedisModule_ThreadSafeContextLock(RSDummyContext);
-          IndexSpec *spec = IndexSpec_Load(RSDummyContext, aCtx->specName, 0);
-          if (spec && aCtx->specId == spec->uniqueId) {
-            ++spec->stats.indexingFailures;
+          StrongRef ref = IndexSpec_LoadUnsafe(RSDummyContext, aCtx->specName, 0);
+          IndexSpec *sp = StrongRef_Get(ref);
+          if (sp && sp->uniqueId == aCtx->specId) {
+            ++sp->stats.indexingFailures;
           }
           RedisModule_ThreadSafeContextUnlock(RSDummyContext);
         }

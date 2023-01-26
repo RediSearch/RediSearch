@@ -58,6 +58,8 @@ bool isTrimming = false;
 size_t memoryLimit = -1;
 size_t used_memory = 0;
 
+static threadpool cleanPool = NULL;
+
 //---------------------------------------------------------------------------------------------
 
 static void setMemoryInfo(RedisModuleCtx *ctx) {
@@ -173,7 +175,7 @@ const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
 * The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS] [NOFREQS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
 */
-IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
+StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
                                     RedisModuleString **argv, int argc, QueryError *status) {
 
   const char *args[argc];
@@ -181,8 +183,7 @@ IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name
     args[i] = RedisModule_StringPtrLen(argv[i], NULL);
   }
 
-  IndexSpec *sp = IndexSpec_Parse(RedisModule_StringPtrLen(name, NULL), args, argc, status);
-  return sp;
+  return IndexSpec_Parse(RedisModule_StringPtrLen(name, NULL), args, argc, status);
 }
 
 FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type) {
@@ -212,33 +213,93 @@ int isRdbLoading(RedisModuleCtx *ctx) {
   return isLoading == 1;
 }
 
-static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, IndexSpec *sp) {
+//---------------------------------------------------------------------------------------------
+
+// called on master shard for temporary indexes and deletes all documents by defaults
+static void IndexSpec_FreeTask(char *specName) {
+#ifdef _DEBUG
+  RedisModule_Log(NULL, "notice", "Freeing index %s in background", specName);
+#endif
+  RedisModule_ThreadSafeContextLock(RSDummyContext);
+
+  // pass FT.DROPINDEX with "DD" flag to slef.
+  RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, RS_DROP_INDEX_CMD, "cc!", specName, "DD");
+  if (rep) {
+    RedisModule_FreeCallReply(rep);
+  }
+
+  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+
+  rm_free(specName);
+}
+
+void IndexSpec_LegacyFree(void *spec) {
+  // free legacy index do nothing, it will be called only
+  // when the index key will be deleted and we keep the legacy
+  // index pointer in the legacySpecDict so we will free it when needed
+}
+
+static void IndexSpec_TimedOut_Free(IndexSpec *spec) {
+  if (RS_IsMock) {
+    IndexSpec_Free(spec);
+    return;
+  }
+  if (spec->isTimerSet) {
+    WeakRef old_timer_ref;
+    if (RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_ref) == REDISMODULE_OK) {
+      WeakRef_Release(old_timer_ref);
+    }
+    spec->isTimerSet = false;
+  }
+  thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeTask, rm_strdup(spec->name));
+}
+
+static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
   // we need to delete the spec from the specDict_g, as far as the user see it,
   // this spec was deleted and its memory will be freed in a background thread.
+
+  // attempt to promote the weak ref to a strong ref
+  StrongRef spec_ref = WeakRef_Promote(w_ref);
+  WeakRef_Release(w_ref);
+
+  IndexSpec *sp = StrongRef_Get(spec_ref);
+  if (!sp) {
+    // the spec was already deleted, nothing to do here
+    return;
+  }
 #ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Freeing index %s by timer", sp->name);
 #endif
 
   sp->isTimerSet = false;
-  IndexSpec_Free(sp);
+  // This function will perform an index drop, and we will still have to return our references
+  IndexSpec_TimedOut_Free(sp);
+
+  StrongRef_Release(spec_ref);
 
 #ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Freeing index by timer: done");
 #endif
 }
 
-static void IndexSpec_SetTimeoutTimer(IndexSpec *sp) {
+static void IndexSpec_SetTimeoutTimer(IndexSpec *sp, WeakRef spec_ref) {
   if (sp->isTimerSet) {
-    RedisModule_StopTimer(RSDummyContext, sp->timerId, NULL);
+    WeakRef old_timer_ref;
+    if (RedisModule_StopTimer(RSDummyContext, sp->timerId, (void **)&old_timer_ref) == REDISMODULE_OK) {
+      WeakRef_Release(old_timer_ref);
+    }
   }
   sp->timerId = RedisModule_CreateTimer(RSDummyContext, sp->timeout,
-                                        (RedisModuleTimerProc)IndexSpec_TimedOutProc, sp);
+                                        (RedisModuleTimerProc)IndexSpec_TimedOutProc, spec_ref.rm);
   sp->isTimerSet = true;
 }
 
 static void IndexSpec_ResetTimeoutTimer(IndexSpec *sp) {
   if (sp->isTimerSet) {
-    RedisModule_StopTimer(RSDummyContext, sp->timerId, NULL);
+    WeakRef old_timer_ref;
+    if (RedisModule_StopTimer(RSDummyContext, sp->timerId, (void **)&old_timer_ref) == REDISMODULE_OK) {
+      WeakRef_Release(old_timer_ref);
+    }
   }
   sp->timerId = 0;
   sp->isTimerSet = false;
@@ -248,16 +309,19 @@ void Indexes_SetTempSpecsTimers(TimerOp op) {
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
-    IndexSpec *sp = dictGetVal(entry);
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
     if (sp->flags & Index_Temporary) {
       switch (op) {
-        case TimerOp_Add: IndexSpec_SetTimeoutTimer(sp);    break;
-        case TimerOp_Del: IndexSpec_ResetTimeoutTimer(sp);  break;
+        case TimerOp_Add: IndexSpec_SetTimeoutTimer(sp, StrongRef_Demote(spec_ref)); break;
+        case TimerOp_Del: IndexSpec_ResetTimeoutTimer(sp);    break;
       }
     }
   }
   dictReleaseIterator(iter);
 }
+
+//---------------------------------------------------------------------------------------------
 
 double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp) {
   if (scanner || sp->scan_in_progress) {
@@ -281,12 +345,15 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     QueryError_SetCode(status, QUERY_EINDEXEXISTS);
     return NULL;
   }
-  IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
+  StrongRef spec_ref = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
+  IndexSpec *sp = StrongRef_Get(spec_ref);
   if (sp == NULL) {
     return NULL;
   }
 
-  dictAdd(specDict_g, (char *)specName, sp);
+  // Sets weak and strong references to the spec, then pass it to the spec dictionary
+
+  dictAdd(specDict_g, (char *)specName, spec_ref.rm);
 
   sp->uniqueId = spec_unique_ids++;
   // Start the garbage collector
@@ -299,11 +366,11 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // set timeout for temporary index on master
   if ((sp->flags & Index_Temporary) && IsMaster()) {
-    IndexSpec_SetTimeoutTimer(sp);
+    IndexSpec_SetTimeoutTimer(sp, StrongRef_Demote(spec_ref));
   }
 
   if (!(sp->flags & Index_SkipInitialScan)) {
-    IndexSpec_ScanAndReindex(ctx, sp);
+    IndexSpec_ScanAndReindex(ctx, spec_ref);
   }
   return sp;
 }
@@ -960,12 +1027,12 @@ reset:
   return 0;
 }
 
-int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
+int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
                         QueryError *status) {
   setMemoryInfo(ctx);
   int rc = IndexSpec_AddFieldsInternal(sp, ac, status, 0);
   if (rc && initialScan) {
-    IndexSpec_ScanAndReindex(ctx, sp);
+    IndexSpec_ScanAndReindex(ctx, spec_ref);
   }
   return rc;
 }
@@ -973,8 +1040,9 @@ int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
-IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
+StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
+  StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
 
   IndexSpec_MakeKeyless(spec);
 
@@ -1029,7 +1097,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
     rule_args.prefixes = empty_prefix;
   }
 
-  spec->rule = SchemaRule_Create(&rule_args, spec, status);
+  spec->rule = SchemaRule_Create(&rule_args, spec_ref, status);
   if (!spec->rule) {
     goto failure;
   }
@@ -1057,19 +1125,19 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   }
 
   if (spec->rule->filter_exp) {
-    SchemaRule_FilterFields(spec->rule);
+    SchemaRule_FilterFields(spec);
   }
 
   for (int i = 0; i < spec->numFields; i++) {
     FieldsGlobalStats_UpdateStats(spec->fields + i, 1);
   }
 
-  return spec;
+  return spec_ref;
 
 failure:  // on failure free the spec fields array and return an error
   spec->flags &= ~Index_Temporary;
-  IndexSpec_Free(spec);
-  return NULL;
+  IndexSpec_RemoveFromGlobals(spec_ref);
+  return INVALID_STRONG_REF;
 }
 
 /* Initialize some index stats that might be useful for scoring functions */
@@ -1089,8 +1157,9 @@ int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
   return isNew;
 }
 
-void Spec_AddToDict(const IndexSpec *sp) {
-  dictAdd(specDict_g, sp->name, (void *)sp);
+// For testing purposes only
+void Spec_AddToDict(RefManager *rm) {
+  dictAdd(specDict_g, ((IndexSpec*)__RefManager_Get_Object(rm))->name, (void *)rm);
 }
 
 static void IndexSpecCache_Free(IndexSpecCache *c) {
@@ -1145,8 +1214,6 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-static threadpool cleanPool = NULL;
 
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
@@ -1238,27 +1305,17 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
  * all struct that requires acquiring the GIL.
  * Other resources are freed using IndexSpec_FreeData.
  */
-void IndexSpec_FreeInternals(IndexSpec *spec) {
-  // Remove spec from global index list
-  if (spec->name && dictFetchValue(specDict_g, spec->name) == spec) {
-    dictDelete(specDict_g, spec->name);
-  }
+void IndexSpec_Free(IndexSpec *spec) {
   // Stop scanner
-  if (spec->scanner) {
-    spec->scanner->cancelled = true;
-    spec->scanner->spec = NULL;
-  }
-  // Remove spec from global aliases list
-  if (spec->uniqueId) {
-    // If uniqueid is 0, it means the index was not initialized
-    // and is being freed now during an error.
-    IndexSpec_ClearAliases(spec);
-  }
-  // Remove spec prefix from global index list
-  SchemaPrefixes_RemoveSpec(spec);
+  // Scanner has a weak reference to the spec, so at this point it will cancel itself and free
+  // next time it will try to acquire the spec.
+
   // For temporary index
   if (spec->isTimerSet) {
-    RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
+    WeakRef old_timer_ref;
+    if (RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_ref) == REDISMODULE_OK) {
+      WeakRef_Release(old_timer_ref);
+    }
     spec->isTimerSet = false;
   }
   // Stop and destroy indexer
@@ -1299,44 +1356,29 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
 
 //---------------------------------------------------------------------------------------------
 
-// called on master shard for temporary indexes and deletes all documents by defaults
-static void IndexSpec_FreeTask(char *specName) {
-#ifdef _DEBUG
-  RedisModule_Log(NULL, "notice", "Freeing index %s in background", specName);
-#endif
-  RedisModule_ThreadSafeContextLock(RSDummyContext);
+// Assumes this is called from the main thread with no competing threads
+// Also assumes that the spec is existing in the global dictionary, so
+// we use the global reference as our guard and access the spec dierctly.
+// This function consumes the Strong reference it gets
+void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
+  IndexSpec *spec = StrongRef_Get(spec_ref);
 
-  // pass FT.DROPINDEX with "DD" flag to slef.
-  RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, RS_DROP_INDEX_CMD, "cc!", specName, "DD");
-  if (rep) {
-    RedisModule_FreeCallReply(rep);
+  // Remove spec from global index list
+  dictDelete(specDict_g, spec->name);
+
+  // Remove spec from global aliases list
+  if (spec->uniqueId) {
+    // If uniqueid is 0, it means the index was not initialized
+    // and is being freed now during an error.
+    IndexSpec_ClearAliases(spec_ref);
   }
 
-  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+  SchemaPrefixes_RemoveSpec(spec_ref);
 
-  rm_free(specName);
+  // mark the spec as deleted and decrement the ref counts owned by the global dictionaries
+  StrongRef_Invalidate(spec_ref);
+  StrongRef_Release(spec_ref);
 }
-
-void IndexSpec_LegacyFree(void *spec) {
-  // free legacy index do nothing, it will be called only
-  // when the index key will be deleted and we keep the legacy
-  // index pointer in the legacySpecDict so we will free it when needed
-}
-
-void IndexSpec_Free(IndexSpec *spec) {
-  if (spec->flags & Index_Temporary) {
-    if (spec->isTimerSet) {
-      RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
-      spec->isTimerSet = false;
-    }
-    thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeTask, rm_strdup(spec->name));
-    return;
-  }
-
-  IndexSpec_FreeInternals(spec);
-}
-
-//---------------------------------------------------------------------------------------------
 
 void Indexes_Free(dict *d) {
   // free the schema dictionary this way avoid iterating over it for each combination of
@@ -1346,24 +1388,40 @@ void Indexes_Free(dict *d) {
   // cursor list is iterating through the list as well and consuming a lot of CPU
   CursorList_Empty(&RSCursors);
 
-  arrayof(IndexSpec *) specs = array_new(IndexSpec *, dictSize(d));
+  arrayof(StrongRef) specs = array_new(StrongRef, dictSize(d));
   dictIterator *iter = dictGetIterator(d);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
-    IndexSpec *sp = dictGetVal(entry);
-    specs = array_append(specs, sp);
+    StrongRef spec_ref = dictGetRef(entry);
+    specs = array_append(specs, spec_ref);
   }
   dictReleaseIterator(iter);
 
   for (size_t i = 0; i < array_len(specs); ++i) {
-    IndexSpec_FreeInternals(specs[i]);
+    IndexSpec_RemoveFromGlobals(specs[i]);
   }
   array_free(specs);
 }
 
+
+//---------------------------------------- atomic updates ---------------------------------------
+
+// atomic update of usage counter
+inline static void IndexSpec_IncreasCounter(IndexSpec *sp) {
+  __atomic_fetch_add(&sp->counter , 1, __ATOMIC_SEQ_CST);
+}
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
+StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name, int openWrite) {
+  IndexLoadOptions lopts = {.flags = openWrite ? INDEXSPEC_LOAD_WRITEABLE : 0,
+                            .name = {.cstring = name}};
+  lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
+  return IndexSpec_LoadUnsafeEx(ctx, &lopts);
+}
+
+StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
   const char *ixname = NULL;
   if (options->flags & INDEXSPEC_LOAD_KEY_RSTRING) {
     ixname = RedisModule_StringPtrLen(options->name.rstring, NULL);
@@ -1371,36 +1429,32 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     ixname = options->name.cstring;
   }
 
-  IndexSpec *sp = dictFetchValue(specDict_g, ixname);
+  StrongRef spec_ref = {dictFetchValue(specDict_g, ixname)};
+  IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     if (!(options->flags & INDEXSPEC_LOAD_NOALIAS)) {
-      sp = IndexAlias_Get(ixname);
+      spec_ref = IndexAlias_Get(ixname);
+      sp = StrongRef_Get(spec_ref);
     }
     if (!sp) {
-      return NULL;
+      return spec_ref;
     }
   }
 
   // Increament the number of uses.
-  // When we move to multi readers this counter needs to be atomic.
-  ++sp->counter;
+  IndexSpec_IncreasCounter(sp);
 
-  if ((sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
+  if (!RS_IsMock && (sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
     if (sp->isTimerSet) {
-      RedisModule_StopTimer(RSDummyContext, sp->timerId, NULL);
+      WeakRef old_timer_ref;
+      if (RedisModule_StopTimer(RSDummyContext, sp->timerId, (void **)&old_timer_ref) == REDISMODULE_OK) {
+        WeakRef_Release(old_timer_ref);
+      }
     }
-    IndexSpec_SetTimeoutTimer(sp);
+    IndexSpec_SetTimeoutTimer(sp, StrongRef_Demote(spec_ref));
   }
 
-  return sp;
-}
-
-/* Load the spec from the saved version */
-IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite) {
-  IndexLoadOptions lopts = {.flags = openWrite ? INDEXSPEC_LOAD_WRITEABLE : 0,
-                            .name = {.cstring = name}};
-  lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
-  return IndexSpec_LoadEx(ctx, &lopts);
+  return spec_ref;
 }
 
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
@@ -1772,31 +1826,42 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
 
 static threadpool reindexPool = NULL;
 
-static IndexesScanner *IndexesScanner_New(IndexSpec *spec) {
-  if (!spec && global_spec_scanner) {
+static IndexesScanner *IndexesScanner_NewGlobal() {
+  if (global_spec_scanner) {
     return NULL;
   }
+
   IndexesScanner *scanner = rm_calloc(1, sizeof(IndexesScanner));
-  scanner->global = !spec;
-  scanner->spec = spec;
+  scanner->global = true;
   scanner->scannedKeys = 0;
-  scanner->cancelled = false;
   scanner->totalKeys = RedisModule_DbSize(RSDummyContext);
 
-  if (spec) {
-    // scan already in progress?
-    if (spec->scanner) {
-      // cancel ongoing scan, keep on_progress indicator on
-      IndexesScanner_Cancel(spec->scanner, true);
-      RedisModule_Log(RSDummyContext, "notice", "Scanning index %s in background: cancelled and restarted",
-                  spec->name);
-    }
-    spec->scanner = scanner;
-    spec->scan_in_progress = true;
-  } else {
-    global_spec_scanner = scanner;
-    RedisModule_Log(RSDummyContext, "notice", "Global scanner created");
+  global_spec_scanner = scanner;
+  RedisModule_Log(RSDummyContext, "notice", "Global scanner created");
+
+  return scanner;
+}
+
+static IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
+
+  IndexesScanner *scanner = rm_calloc(1, sizeof(IndexesScanner));
+  scanner->global = false;
+  scanner->scannedKeys = 0;
+  scanner->totalKeys = RedisModule_DbSize(RSDummyContext);
+
+  scanner->spec_ref = StrongRef_Demote(global_ref);
+  IndexSpec *spec = StrongRef_Get(global_ref);
+  scanner->spec_name = rm_strndup(spec->name, spec->nameLen);
+
+  // scan already in progress?
+  if (spec->scanner) {
+    // cancel ongoing scan, keep on_progress indicator on
+    IndexesScanner_Cancel(spec->scanner);
+    RedisModule_Log(RSDummyContext, "notice", "Scanning index %s in background: cancelled and restarted",
+                    spec->name);
   }
+  spec->scanner = scanner;
+  spec->scan_in_progress = true;
 
   return scanner;
 }
@@ -1804,25 +1869,23 @@ static IndexesScanner *IndexesScanner_New(IndexSpec *spec) {
 void IndexesScanner_Free(IndexesScanner *scanner) {
   if (global_spec_scanner == scanner) {
     global_spec_scanner = NULL;
-  } else if (!scanner->cancelled) {
-    if (scanner->spec && scanner->spec->scanner == scanner) {
-      scanner->spec->scanner = NULL;
-      scanner->spec->scan_in_progress = false;
+  } else {
+    StrongRef tmp = WeakRef_Promote(scanner->spec_ref);
+    IndexSpec *spec = StrongRef_Get(tmp);
+    if (spec) {
+      if (spec->scanner == scanner) {
+        spec->scanner = NULL;
+        spec->scan_in_progress = false;
+      }
+      StrongRef_Release(tmp);
     }
+    WeakRef_Release(scanner->spec_ref);
   }
-
+  if (scanner->spec_name) rm_free(scanner->spec_name);
   rm_free(scanner);
 }
 
-void IndexesScanner_Cancel(IndexesScanner *scanner, bool still_in_progress) {
-  if (scanner->cancelled) {
-    return;
-  }
-  if (!scanner->global && scanner->spec) {
-    scanner->spec->scan_in_progress = still_in_progress;
-    scanner->spec->scanner = NULL;
-    scanner->spec = NULL;
-  }
+void IndexesScanner_Cancel(IndexesScanner *scanner) {
   scanner->cancelled = true;
 }
 
@@ -1837,6 +1900,9 @@ static void IndexSpec_DoneIndexingCallabck(struct RSAddDocumentCtx *docCtx, Redi
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
 static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
                              IndexesScanner *scanner) {
+  if (scanner->cancelled) {
+    return;
+  }
   // RMKey it is provided as best effort but in some cases it might be NULL
   bool keyOpened = false;
   if (!key) {
@@ -1854,15 +1920,19 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     RedisModule_CloseKey(key);
   }
 
-  if (scanner->cancelled) {
-    return;
-  }
   if (scanner->global) {
     Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, type, NULL);
   } else {
-    IndexSpec *sp = scanner->spec;
-    if (SchemaRule_ShouldIndex(sp, keyname, type)) {
-      IndexSpec_UpdateDoc(sp, ctx, keyname, type);
+    StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
+    IndexSpec *sp = StrongRef_Get(curr_run_ref);
+    if (sp) {
+      if (SchemaRule_ShouldIndex(sp, keyname, type)) {
+        IndexSpec_UpdateDoc(sp, ctx, keyname, type);
+      }
+      StrongRef_Release(curr_run_ref);
+    } else {
+      // spec was deleted, cancel scan
+      scanner->cancelled = true;
     }
   }
   ++scanner->scannedKeys;
@@ -1883,7 +1953,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   if (scanner->global) {
     RedisModule_Log(ctx, "notice", "Scanning indexes in background");
   } else {
-    RedisModule_Log(ctx, "notice", "Scanning index %s in background", scanner->spec->name);
+    RedisModule_Log(ctx, "notice", "Scanning index %s in background", scanner->spec_name);
   }
 
   while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB)Indexes_ScanProc, scanner)) {
@@ -1904,10 +1974,10 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
 
   if (scanner->global) {
     RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%ld)",
-                  scanner->totalKeys);
+                    scanner->totalKeys);
   } else {
     RedisModule_Log(ctx, "notice", "Scanning index %s in background: done (scanned=%ld)",
-                  scanner->spec->name, scanner->totalKeys);
+                    scanner->spec_name, scanner->totalKeys);
   }
 
 end:
@@ -1924,14 +1994,14 @@ end:
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexSpec_ScanAndReindexAsync(IndexSpec *sp) {
+static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   if (!reindexPool) {
     reindexPool = thpool_init(1);
   }
 #ifdef _DEBUG
-  RedisModule_Log(NULL, "notice", "Register index %s for async scan", sp->name);
+  RedisModule_Log(NULL, "notice", "Register index %s for async scan", ((IndexSpec*)StrongRef_Get(spec_ref))->name);
 #endif
-  IndexesScanner *scanner = IndexesScanner_New(sp);
+  IndexesScanner *scanner = IndexesScanner_New(spec_ref);
   thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner);
 }
 
@@ -2078,10 +2148,10 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
 }
 #endif // FTINFO_FOR_INFO_MODULES
 
-void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp) {
+void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef spec_ref) {
   size_t nkeys = RedisModule_DbSize(ctx);
   if (nkeys > 0) {
-    IndexSpec_ScanAndReindexAsync(sp);
+    IndexSpec_ScanAndReindexAsync(spec_ref);
   }
 }
 
@@ -2127,7 +2197,8 @@ void Indexes_UpgradeLegacyIndexes() {
   dictIterator *iter = dictGetIterator(legacySpecDict);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
-    IndexSpec *sp = dictGetVal(entry);
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
     IndexSpec_DropLegacyIndexFromKeySpace(sp);
 
     // recreate the doctable
@@ -2137,8 +2208,8 @@ void Indexes_UpgradeLegacyIndexes() {
     // clear index stats
     memset(&sp->stats, 0, sizeof(sp->stats));
 
-    // put the new index in the specDict_g
-    dictAdd(specDict_g, sp->name, sp);
+    // put the new index in the specDict_g with weak and strong references
+    dictAdd(specDict_g, sp->name, spec_ref.rm);
   }
   dictReleaseIterator(iter);
 }
@@ -2149,7 +2220,7 @@ void Indexes_ScanAndReindex() {
   }
 
   RedisModule_Log(NULL, "notice", "Scanning all indexes");
-  IndexesScanner *scanner = IndexesScanner_New(NULL);
+  IndexesScanner *scanner = IndexesScanner_NewGlobal();
   // check no global scan is in progress
   if (scanner) {
     thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner);
@@ -2158,9 +2229,10 @@ void Indexes_ScanAndReindex() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
-                                   QueryError *status) {
+int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
+                                       QueryError *status) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
+  StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   IndexSpec_MakeKeyless(sp);
 
   sp->sortables = NewSortingTable();
@@ -2200,7 +2272,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
   //    IndexStats_RdbLoad(rdb, &sp->stats);
 
-  if (SchemaRule_RdbLoad(sp, rdb, encver) != REDISMODULE_OK) {
+  if (SchemaRule_RdbLoad(spec_ref, rdb, encver) != REDISMODULE_OK) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Failed to load schema rule");
     goto cleanup;
   }
@@ -2226,9 +2298,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   sp->uniqueId = spec_unique_ids++;
 
   IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
-  RedisModuleString *specKey = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
-  RedisModule_FreeString(ctx, specKey);
 
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
@@ -2243,7 +2313,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     QueryError _status;
     size_t dummy;
     char *s = LoadStringBuffer_IOError(rdb, &dummy, goto cleanup);
-    int rc = IndexAlias_Add(s, sp, 0, &_status);
+    int rc = IndexAlias_Add(s, spec_ref, 0, &_status);
     RedisModule_Free(s);
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(NULL, "notice", "Loading existing alias failed");
@@ -2254,29 +2324,29 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
   sp->scan_in_progress = false;
 
-  IndexSpec *oldSpec = dictFetchValue(specDict_g, sp->name);
+  RefManager *oldSpec = dictFetchValue(specDict_g, sp->name);
   if (oldSpec) {
     // spec already exists lets just free this one
     RedisModule_Log(NULL, "notice", "Loading an already existing index, will just ignore.");
     // setting unique id to zero will make sure index will not be removed from global
     // cursor map and aliases.
     sp->uniqueId = 0;
-    IndexSpec_FreeInternals(sp);
-    sp = oldSpec;
+    StrongRef_Release(spec_ref);
+    spec_ref = (StrongRef){oldSpec};
   } else {
-    dictAdd(specDict_g, sp->name, sp);
+    dictAdd(specDict_g, sp->name, spec_ref.rm);
   }
 
   for (int i = 0; i < sp->numFields; i++) {
     FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
   }
 
-  return sp;
+  return REDISMODULE_OK;
 
 cleanup:
-  IndexSpec_Free(sp);
+  StrongRef_Release(spec_ref);
   QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "while reading an index");
-  return NULL;
+  return REDISMODULE_ERR;
 }
 
 void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
@@ -2287,6 +2357,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
+  StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   IndexSpec_MakeKeyless(sp);
   sp->sortables = NewSortingTable();
   sp->terms = NULL;
@@ -2345,7 +2416,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
       QueryError status;
       size_t dummy;
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
-      int rc = IndexAlias_Add(s, sp, 0, &status);
+      int rc = IndexAlias_Add(s, spec_ref, 0, &status);
       RedisModule_Free(s);
       assert(rc == REDISMODULE_OK);
     }
@@ -2356,12 +2427,12 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (!rule_args) {
     RedisModule_LogIOError(rdb, "warning",
                            "Could not find upgrade definition for legacy index '%s'", sp->name);
-    IndexSpec_Free(sp);
+    StrongRef_Release(spec_ref);
     return NULL;
   }
 
   QueryError status;
-  sp->rule = SchemaRule_Create(rule_args, sp, &status);
+  sp->rule = SchemaRule_Create(rule_args, spec_ref, &status);
 
   dictDelete(legacySpecRules, sp->name);
   SchemaRuleArgs_Free(rule_args);
@@ -2369,7 +2440,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (!sp->rule) {
     RedisModule_LogIOError(rdb, "warning", "Failed creating rule for legacy index '%s', error='%s'",
                            sp->name, QueryError_GetError(&status));
-    IndexSpec_Free(sp);
+    StrongRef_Release(spec_ref);
     return NULL;
   }
 
@@ -2377,8 +2448,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   IndexSpec_StartGC(RSDummyContext, sp, GC_DEFAULT_HZ);
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
 
-  dictAdd(legacySpecDict, sp->name, sp);
-  return sp;
+  dictAdd(legacySpecDict, sp->name, spec_ref.rm);
+  return spec_ref.rm;
 }
 
 void IndexSpec_LegacyRdbSave(RedisModuleIO *rdb, void *value) {
@@ -2396,8 +2467,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   QueryError status = {0};
   for (size_t i = 0; i < nIndexes; ++i) {
-    IndexSpec *sp = IndexSpec_CreateFromRdb(ctx, rdb, encver, &status);
-    if (!sp) {
+    if (IndexSpec_CreateFromRdb(ctx, rdb, encver, &status) != REDISMODULE_OK) {
       RedisModule_Log(ctx, "error", "RDB Load: %s",
                       status.detail ? status.detail : "general failure");
       return REDISMODULE_ERR;
@@ -2416,7 +2486,8 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
-    IndexSpec *sp = dictGetVal(entry);
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
     // we save the name plus the null terminator
     RedisModule_SaveStringBuffer(rdb, sp->name, sp->nameLen + 1);
     RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
@@ -2684,8 +2755,9 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   for (int i = 0; i < array_len(prefixes); ++i) {
     SchemaPrefixNode *node = prefixes[i];
     for (int j = 0; j < array_len(node->index_specs); ++j) {
-      IndexSpec *spec = node->index_specs[j];
-      if (!dictFind(specs, spec->name)) {
+      StrongRef global = node->index_specs[j];
+      IndexSpec *spec = StrongRef_Get(global);
+      if (spec && !dictFind(specs, spec->name)) {
         SpecOpCtx specOp = {
             .spec = spec,
             .op = SpecOp_Add,
@@ -2705,17 +2777,16 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
     EvalCtx *r = NULL;
     for (size_t i = 0; i < array_len(res->specsOps); ++i) {
       SpecOpCtx *specOp = res->specsOps + i;
-      SchemaRule *rule = specOp->spec->rule;
-      if (!rule->filter_exp) {
+      IndexSpec *spec = specOp->spec;
+      if (!spec->rule->filter_exp) {
         continue;
       }
 
       // load hash only if required
       if (!r) r = EvalCtx_Create();
-      RLookup_LoadRuleFields(ctx, &r->lk, &r->row, rule, key_p);
+      RLookup_LoadRuleFields(ctx, &r->lk, &r->row, spec, key_p);
 
-      if (EvalCtx_EvalExpr(r, rule->filter_exp) == EXPR_EVAL_OK) {
-        IndexSpec *spec = rule->spec;
+      if (EvalCtx_EvalExpr(r, spec->rule->filter_exp) == EXPR_EVAL_OK) {
         if (!RSValue_BoolTest(&r->res) && dictFind(specs, spec->name)) {
           specOp->op = SpecOp_Del;
         }

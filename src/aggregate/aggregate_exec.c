@@ -22,6 +22,7 @@ typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 typedef struct {
   AREQ *req;
   RedisModuleBlockedClient *blockedClient;
+  WeakRef spec_ref;
 } blockedClientReqCtx;
 
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
@@ -339,10 +340,11 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
 }
 
 static blockedClientReqCtx *blockedClientReqCtx_New(AREQ *req,
-                                                    RedisModuleBlockedClient *blockedClient) {
-  blockedClientReqCtx *ret = rm_malloc(sizeof(blockedClientReqCtx));
+                                                    RedisModuleBlockedClient *blockedClient, StrongRef spec) {
+  blockedClientReqCtx *ret = rm_new(blockedClientReqCtx);
   ret->req = req;
   ret->blockedClient = blockedClient;
+  ret->spec_ref = StrongRef_Demote(spec);
   return ret;
 }
 
@@ -350,17 +352,38 @@ static AREQ *blockedClientReqCtx_getRequest(const blockedClientReqCtx *BCRctx) {
   return BCRctx->req;
 }
 
+static void blockedClientReqCtx_setRequest(blockedClientReqCtx *BCRctx, AREQ *req) {
+  BCRctx->req = req;
+}
+
 static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
+  if (BCRctx->req) {
+    AREQ_Free(BCRctx->req);
+  }
+  RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, BCRctx->blockedClient);
   RedisModule_UnblockClient(BCRctx->blockedClient, NULL);
+  WeakRef_Release(BCRctx->spec_ref);
   rm_free(BCRctx);
 }
 
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
   req->sctx->redisCtx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
-  req->reqflags |= QEXEC_F_HAS_THCTX;
-  // lockspec
-  RedisSearchCtx_LockSpecRead(req->sctx);
+  BCRctx->req->reqflags |= QEXEC_F_HAS_THCTX;
+
+  StrongRef execution_ref = WeakRef_Promote(BCRctx->spec_ref);
+  if (!StrongRef_Get(execution_ref)) {
+    // The index was dropped while the query was in the job queue.
+    // Notify the client that the query was aborted
+    QueryError status = {0};
+    QueryError_SetError(&status, QUERY_ENOINDEX, "The index was dropped before the query could be executed");
+    QueryError_ReplyAndClear(req->sctx->redisCtx, &status);
+    blockedClientReqCtx_destroy(BCRctx);
+    return;
+  }
+
+  // lock spec
+  RedisSearchCtx_LockSpecRead(BCRctx->req->sctx);
   QueryError status = {0};
   if (prepareExecutionPlan(req, &status) != REDISMODULE_OK) {
     // Enrich the error message that was caught to include the fact that the query ran
@@ -370,17 +393,13 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
                            "The following error was caught upon running the query asynchronously: %s", QueryError_GetError(&status));
     QueryError_ClearError(&status);
     QueryError_ReplyAndClear(req->sctx->redisCtx, &detailed_status);
-    if (req) {
-      AREQ_Free(req);
-    }
   } else {
     AREQ_Execute(req, req->sctx->redisCtx);
+    blockedClientReqCtx_setRequest(BCRctx, NULL); // The request was freed by AREQ_Execute
   }
 
-
-  // No need to unlock spec as AREQ_Execute calls ctx cleanup.
-  RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, BCRctx->blockedClient);
-
+  // No need to unlock spec as it was unlocked by `AREQ_Execute` or will be unlocked by `blockedClientReqCtx_destroy`
+  StrongRef_Release(execution_ref);
   blockedClientReqCtx_destroy(BCRctx);
 }
 
@@ -523,10 +542,13 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       goto error;
     }
   } else if (RunInThread(r)) {
+    IndexLoadOptions options = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
+                                .name.cstring = r->sctx->spec->name};
+    StrongRef spec_ref = IndexSpec_LoadUnsafeEx(ctx, &options);
     RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
     // report block client start time
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, blockedClient);
-    blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient);
+    blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     workersThreadPool_AddWork((thpool_proc)AREQ_Execute_Callback, BCRctx);
   } else {
     if (prepareExecutionPlan(r, &status) != REDISMODULE_OK) {

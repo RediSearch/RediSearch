@@ -66,7 +66,7 @@ typedef enum {
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
-#define RunInThread(r) (IsSearch(r) && RSGlobalConfig.threadsEnabled && RSGlobalConfig.numWorkerThreads)
+#define RunInThread(r) (RSGlobalConfig.threadsEnabled && RSGlobalConfig.numWorkerThreads && IsSearch(r))
 
 typedef enum {
   /* Received EOF from iterator */

@@ -655,7 +655,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getIndexthreads,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "SEARCH_THREADS",
-         .helpText = "Create at must this number of search threads (not, will not "
+         .helpText = "Create at most this number of search threads (not, will not "
                      "necessarily parallelize search)",
          .setValue = setSearchThreads,
          .getValue = getSearchThreads,
