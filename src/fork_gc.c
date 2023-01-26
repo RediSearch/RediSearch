@@ -40,7 +40,9 @@ typedef enum {
   // Pipe error, child probably crashed
   FGC_CHILD_ERROR,
   // Error on the parent
-  FGC_PARENT_ERROR
+  FGC_PARENT_ERROR,
+  // The spec was deleted
+  FGC_SPEC_DELETED,
 } FGCError;
 
 // Assumes the spec is locked.
@@ -712,7 +714,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   idx->gcMarker++;
 }
 
-static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisSearchCtx *sctx) {
+static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
   size_t len;
   char *term = NULL;
@@ -731,6 +733,16 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisSearchCtx *sctx) {
     rm_free(term);
     return FGC_CHILD_ERROR;
   }
+
+  StrongRef spec_ref = WeakRef_Promote(gc->index);
+  IndexSpec *sp = StrongRef_Get(spec_ref);
+  if (!sp) {
+    rm_free(term);
+    return FGC_SPEC_DELETED;
+  }
+
+  RedisSearchCtx sctx_ = SEARCH_CTX_STATIC(gc->ctx, sp);
+  RedisSearchCtx *sctx = &sctx_;
 
   RedisSearchCtx_LockSpecWrite(sctx);
 
@@ -767,6 +779,7 @@ cleanup:
     RedisModule_CloseKey(idxKey);
   }
   RedisSearchCtx_UnlockSpec(sctx);
+  StrongRef_Release(spec_ref);
   rm_free(term);
   if (status != FGC_COLLECTED) {
     freeInvIdx(&idxbufs, &info);
@@ -867,7 +880,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   resetCardinality(ninfo, currNode);
 }
 
-static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
+static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
   size_t fieldNameLen;
   char *fieldName = NULL;
   uint64_t rtUniqueId;
@@ -887,6 +900,15 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
       status = status2;
       break;
     }
+
+    StrongRef cur_iter_spec_ref = WeakRef_Promote(gc->index);
+    IndexSpec *sp = StrongRef_Get(cur_iter_spec_ref);
+    if (!sp) {
+      status = FGC_SPEC_DELETED;
+      break;
+    }
+    RedisSearchCtx _sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
+    RedisSearchCtx *sctx = &_sctx;
 
     RedisSearchCtx_LockSpecWrite(sctx);
 
@@ -921,24 +943,32 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
       RedisModule_CloseKey(idxKey);
     }
     RedisSearchCtx_UnlockSpec(sctx);
+    StrongRef_Release(cur_iter_spec_ref);
   }
 
   rm_free(fieldName);
 
   if (rt && rt->emptyLeaves >= rt->numRanges / 2) {
-    RedisSearchCtx_LockSpecWrite(sctx);
+    StrongRef spec_ref = WeakRef_Promote(gc->index);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    if (!sp) {
+      return FGC_SPEC_DELETED;
+    }
+    RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
+    RedisSearchCtx_LockSpecWrite(&sctx);
     if (RSGlobalConfig.forkGCCleanNumericEmptyNodes) {
       NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
       rt->numRanges += rv.numRanges;
       rt->emptyLeaves = 0;
     }
-    RedisSearchCtx_UnlockSpec(sctx);
+    RedisSearchCtx_UnlockSpec(&sctx);
+    StrongRef_Release(spec_ref);
   }
 
   return status;
 }
 
-static FGCError FGC_parentHandleTags(ForkGC *gc, RedisSearchCtx *sctx) {
+static FGCError FGC_parentHandleTags(ForkGC *gc) {
   size_t fieldNameLen;
   char *fieldName;
   uint64_t tagUniqueId;
@@ -964,6 +994,15 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisSearchCtx *sctx) {
       RS_LOG_ASSERT(status == FGC_COLLECTED, "GC status is COLLECTED");
       break;
     }
+
+    StrongRef cur_iter_spec_ref = WeakRef_Promote(gc->index);
+    IndexSpec *sp = StrongRef_Get(cur_iter_spec_ref);
+    if (!sp) {
+      status = FGC_SPEC_DELETED;
+      break;
+    }
+    RedisSearchCtx _sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
+    RedisSearchCtx *sctx = &_sctx;
 
     if (FGC_recvBuffer(gc, (void **)&tagVal, &tagValLen) != REDISMODULE_OK) {
       status = FGC_CHILD_ERROR;
@@ -1008,6 +1047,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisSearchCtx *sctx) {
       RedisModule_CloseKey(idxKey);
     }
     RedisSearchCtx_UnlockSpec(sctx);
+    StrongRef_Release(cur_iter_spec_ref);
     if (status != FGC_COLLECTED) {
       freeInvIdx(&idxbufs, &info);
     } else {
@@ -1022,32 +1062,21 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisSearchCtx *sctx) {
   return status;
 }
 
-int FGC_parentHandleFromChild(ForkGC *gc) {
+FGCError FGC_parentHandleFromChild(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
-  StrongRef cur_run_ref = WeakRef_Promote(gc->index);
-  IndexSpec *sp = StrongRef_Get(cur_run_ref);
-  if (!sp) {
-    // Spec was deleted
-    return REDISMODULE_ERR;
-  }
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
-  int rv = REDISMODULE_OK;
 
 #define COLLECT_FROM_CHILD(e)               \
   while ((status = (e)) == FGC_COLLECTED) { \
   }                                         \
   if (status != FGC_DONE) {                 \
-    rv = REDISMODULE_ERR;                   \
-    goto cleanup;                           \
+    return status;                          \
   }
 
-  COLLECT_FROM_CHILD(FGC_parentHandleTerms(gc, &sctx));
-  COLLECT_FROM_CHILD(FGC_parentHandleNumeric(gc, &sctx));
-  COLLECT_FROM_CHILD(FGC_parentHandleTags(gc, &sctx));
+  COLLECT_FROM_CHILD(FGC_parentHandleTerms(gc));
+  COLLECT_FROM_CHILD(FGC_parentHandleNumeric(gc));
+  COLLECT_FROM_CHILD(FGC_parentHandleTags(gc));
 
-cleanup:
-  StrongRef_Release(cur_run_ref);
-  return rv;
+  return status;
 }
 
 /**
@@ -1085,13 +1114,13 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     RedisModule_ThreadSafeContextUnlock(ctx);
   }
 
-  StrongRef quick_check = WeakRef_Promote(gc->index);
-  IndexSpec *sp = StrongRef_Get(quick_check);
-  if (!sp) {
+  StrongRef early_check = WeakRef_Promote(gc->index);
+  if (!StrongRef_Get(early_check)) {
     // Index was deleted
     return 0;
   }
-  StrongRef_Release(quick_check);
+  StrongRef_Release(early_check);
+
   if (gc->deletedDocsFromLastRun < RSGlobalConfig.forkGcCleanThreshold) {
     return 1;
   }
@@ -1168,8 +1197,8 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     }
 
     gc->execState = FGC_STATE_APPLYING;
-    if (FGC_parentHandleFromChild(gc) == REDISMODULE_ERR) {
-      gcrv = 1;
+    if (FGC_parentHandleFromChild(gc) == FGC_SPEC_DELETED) {
+      gcrv = 0;
     }
     close(gc->pipefd[GC_READERFD]);
     if (FGC_haveRedisFork()) {
@@ -1310,7 +1339,6 @@ ForkGC *FGC_New(StrongRef global, uint64_t specUniqueId, GCCallbacks *callbacks)
   callbacks->renderStatsForInfo = statsForInfoCb;
   #endif
   callbacks->getInterval = getIntervalCb;
-  callbacks->kill = NULL;
   callbacks->onDelete = deleteCb;
 
   return forkGc;
