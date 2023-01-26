@@ -28,11 +28,11 @@ static GCTask *GCTaskCreate(GCContext *gc, RedisModuleBlockedClient* bClient, in
   return task;
 }
 
-GCContext* GCContext_CreateGC(StrongRef global, float initialHZ, uint64_t uniqueId, uint32_t gcPolicy) {
+GCContext* GCContext_CreateGC(StrongRef global, uint32_t gcPolicy) {
   GCContext* ret = rm_calloc(1, sizeof(GCContext));
   switch (gcPolicy) {
     case GCPolicy_Fork:
-      ret->gcCtx = FGC_New(global, uniqueId, &ret->callbacks);
+      ret->gcCtx = FGC_New(global, &ret->callbacks);
       break;
   }
   return ret;

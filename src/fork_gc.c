@@ -506,12 +506,6 @@ static void FGC_childScanIndexes(ForkGC *gc) {
     // write log here
     return;
   }
-  // TODO: multithreaded: is this case possible today?
-  if (spec->uniqueId != gc->specUniqueId) {
-    // write log here
-    StrongRef_Release(cur_run_ref);
-    return;
-  }
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, spec);
 
@@ -737,8 +731,8 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   StrongRef spec_ref = WeakRef_Promote(gc->index);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
-    rm_free(term);
-    return FGC_SPEC_DELETED;
+    status = FGC_SPEC_DELETED;
+    goto cleanup;
   }
 
   RedisSearchCtx sctx_ = SEARCH_CTX_STATIC(gc->ctx, sp);
@@ -779,7 +773,9 @@ cleanup:
     RedisModule_CloseKey(idxKey);
   }
   RedisSearchCtx_UnlockSpec(sctx);
-  StrongRef_Release(spec_ref);
+  if (spec_ref.rm) {
+    StrongRef_Release(spec_ref);
+  }
   rm_free(term);
   if (status != FGC_COLLECTED) {
     freeInvIdx(&idxbufs, &info);
@@ -905,7 +901,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     IndexSpec *sp = StrongRef_Get(cur_iter_spec_ref);
     if (!sp) {
       status = FGC_SPEC_DELETED;
-      break;
+      goto loop_cleanup;
     }
     RedisSearchCtx _sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
     RedisSearchCtx *sctx = &_sctx;
@@ -943,7 +939,9 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       RedisModule_CloseKey(idxKey);
     }
     RedisSearchCtx_UnlockSpec(sctx);
-    StrongRef_Release(cur_iter_spec_ref);
+    if (cur_iter_spec_ref.rm) {
+      StrongRef_Release(cur_iter_spec_ref);
+    }
   }
 
   rm_free(fieldName);
@@ -1098,21 +1096,6 @@ static int FGC_fork(ForkGC *gc, RedisModuleCtx *ctx) {
 
 static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   ForkGC *gc = privdata;
-
-  // Check if RDB is loading - not needed after the first time we find out that rdb is not
-  // reloading
-  if (gc->rdbPossiblyLoading && !gc->index.rm) {
-    RedisModule_ThreadSafeContextLock(ctx);
-    if (isRdbLoading(ctx)) {
-      RedisModule_Log(ctx, "notice", "RDB Loading in progress, not performing GC");
-      RedisModule_ThreadSafeContextUnlock(ctx);
-      return 1;
-    } else {
-      // the RDB will not load again, so it's safe to ignore the info check in the next cycles
-      gc->rdbPossiblyLoading = 0;
-    }
-    RedisModule_ThreadSafeContextUnlock(ctx);
-  }
 
   StrongRef early_check = WeakRef_Promote(gc->index);
   if (!StrongRef_Get(early_check)) {
@@ -1320,11 +1303,9 @@ static struct timespec getIntervalCb(void *ctx) {
   return gc->retryInterval;
 }
 
-ForkGC *FGC_New(StrongRef global, uint64_t specUniqueId, GCCallbacks *callbacks) {
+ForkGC *FGC_New(StrongRef global, GCCallbacks *callbacks) {
   ForkGC *forkGc = rm_calloc(1, sizeof(*forkGc));
   *forkGc = (ForkGC){
-      .rdbPossiblyLoading = 1,
-      .specUniqueId = specUniqueId,
       .index = StrongRef_Demote(global),
       .deletedDocsFromLastRun = 0,
   };

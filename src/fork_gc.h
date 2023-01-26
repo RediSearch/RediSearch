@@ -36,15 +36,9 @@ typedef struct ForkGC {
 
   RedisModuleCtx *ctx;
 
-  uint64_t specUniqueId;
-
   // statistics for reporting
   ForkGCStats stats;
 
-  // flag for rdb loading. Set to 1 initially, but once it's set to 0 we don't need to check anymore
-  int rdbPossiblyLoading;
-  // Whether the gc has been requested for deletion
-  volatile int deleting;
   int pipefd[2];
   volatile uint32_t pauseState;
   volatile uint32_t execState;
@@ -53,7 +47,7 @@ typedef struct ForkGC {
   volatile size_t deletedDocsFromLastRun;
 } ForkGC;
 
-ForkGC *FGC_New(StrongRef global, uint64_t specUniqueId, GCCallbacks *callbacks);
+ForkGC *FGC_New(StrongRef global, GCCallbacks *callbacks);
 
 typedef enum {
   // Normal "open" state. No pausing will happen

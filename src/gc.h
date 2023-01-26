@@ -38,7 +38,7 @@ typedef struct GCTask {
   int debug;
 } GCTask;
 
-GCContext* GCContext_CreateGC(StrongRef global, float initialHZ, uint64_t uniqueId, uint32_t gcPolicy);
+GCContext* GCContext_CreateGC(StrongRef global, uint32_t gcPolicy);
 void GCContext_Start(GCContext* gc);
 void GCContext_Stop(GCContext* gc);
 void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx);
