@@ -377,7 +377,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   sp->uniqueId = spec_unique_ids++;
   // Start the garbage collector
-  IndexSpec_StartGC(ctx, ref, sp);
+  IndexSpec_StartGC(ctx, spec_ref, sp);
 
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
 
@@ -2338,7 +2338,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
 
   sp->uniqueId = spec_unique_ids++;
 
-  IndexSpec_StartGC(ctx, ref, sp);
+  IndexSpec_StartGC(ctx, spec_ref, sp);
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
 
   if (sp->flags & Index_HasSmap) {
@@ -2486,7 +2486,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
 
   // start the gc and add the spec to the cursor list
-  IndexSpec_StartGC(RSDummyContext, ref, sp);
+  IndexSpec_StartGC(RSDummyContext, spec_ref, sp);
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
 
   dictAdd(legacySpecDict, sp->name, spec_ref.rm);
