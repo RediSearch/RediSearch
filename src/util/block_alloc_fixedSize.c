@@ -56,7 +56,7 @@ void FixedSizeBlocksManager_init(FixedSizeBlocksManager *BlocksManager, size_t e
 
 void *FixedSizeBlocksManager_getEmptyElement(FixedSizeBlocksManager *BlocksManager) {
 	if(isBlockFull(BlocksManager, BlocksManager->current)) {
-		BlkAllocBlock *newBlock = getNewBlock(BlocksManager);
+		fixedSizeBlock *newBlock = getNewBlock(BlocksManager);
 		BlocksManager->current->next = newBlock;
 		BlocksManager->current = newBlock;
 	}
