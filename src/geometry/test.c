@@ -19,12 +19,12 @@ int main() {
 	printf("num polygons in tree = %ld\n", size);
 
   printf("searching for polygons containing\n");
-  struct Polygon *qpg = From_WKT("POLYGON((1.25 1.25, 1.5 1.333, 1.333 1.5, 1.25 1.25))");
-  Polygon_Print(qpg);
+  struct RTDoc *qdoc = From_WKT("POLYGON((1.25 1.25, 1.5 1.333, 1.333 1.5, 1.25 1.25))");
+  RTDoc_Print(qdoc);
   size_t start = rdtsc();
-  struct QueryIterator *iter = RTree_Query_Contains(rt, qpg);
+  struct QueryIterator *iter = RTree_Query_Contains(rt, qdoc);
   size_t end = rdtsc();
-  Polygon_Free(qpg);
+  RTDoc_Free(qdoc);
   printf(
 		"num found results: %ld\n"
     "time taken: %ld clock cycles\n",
@@ -38,12 +38,12 @@ int main() {
   QIter_Free(iter);
 
   printf("searching for polygons within\n");
-  qpg = From_WKT("POLYGON((0 0, 12.0000004 0, 0 12.0000004, 0 0))");
-  Polygon_Print(qpg);
+  qdoc = From_WKT("POLYGON((0 0, 12.0000004 0, 0 12.0000004, 0 0))");
+  RTDoc_Print(qdoc);
   start = rdtsc();
-  iter = RTree_Query_Within(rt, qpg);
+  iter = RTree_Query_Within(rt, qdoc);
   end = rdtsc();
-  Polygon_Free(qpg);
+  RTDoc_Free(qdoc);
   printf(
 		"num found results: %ld\n"
     "time taken: %ld clock cycles\n",
@@ -68,11 +68,9 @@ int main() {
 	*runner++ = strtok(geos_in_buf, "\n");
 	while ((*runner++ = strtok(NULL, "\n")));
 	for (int i = 0; i < 100000; ++i) {
-		qpg = From_WKT(wkts[rand() % sizeof wkts / sizeof *wkts]);
-		struct RTDoc *r = RTDoc_New(qpg);
-		RTree_Remove(rt, r);
-		RTDoc_Free(r);
-		Polygon_Free(qpg);
+		qdoc = From_WKT(wkts[rand() % sizeof wkts / sizeof *wkts]);
+		RTree_Remove(rt, qdoc);
+		RTDoc_Free(qdoc);
 	}
 	free(geos_in_buf);
 
@@ -84,12 +82,12 @@ int main() {
 	printf("loading more polygons. new size = %ld\n", size);
 
   printf("searching for polygons containing\n");
-  qpg = From_WKT("POLYGON((1.25 1.25, 1.5 1.333, 1.333 1.5, 1.25 1.25))");
-  Polygon_Print(qpg);
+  qdoc = From_WKT("POLYGON((1.25 1.25, 1.5 1.333, 1.333 1.5, 1.25 1.25))");
+  RTDoc_Print(qdoc);
   start = rdtsc();
-  iter = RTree_Query_Contains(rt, qpg);
+  iter = RTree_Query_Contains(rt, qdoc);
   end = rdtsc();
-  Polygon_Free(qpg);
+  RTDoc_Free(qdoc);
   printf(
 		"num found results: %ld\n"
     "time taken: %ld clock cycles\n",
@@ -103,12 +101,12 @@ int main() {
   QIter_Free(iter);
 
   printf("searching for polygons within\n");
-  qpg = From_WKT("POLYGON((0 0, 12.0000004 0, 0 12.0000004, 0 0))");
-  Polygon_Print(qpg);
+  qdoc = From_WKT("POLYGON((0 0, 12.0000004 0, 0 12.0000004, 0 0))");
+  RTDoc_Print(qdoc);
   start = rdtsc();
-  iter = RTree_Query_Within(rt, qpg);
+  iter = RTree_Query_Within(rt, qdoc);
   end = rdtsc();
-  Polygon_Free(qpg);
+  RTDoc_Free(qdoc);
   printf(
 		"num found results: %ld\n"
     "time taken: %ld clock cycles\n",

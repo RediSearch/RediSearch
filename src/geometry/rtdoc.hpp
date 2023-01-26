@@ -2,6 +2,7 @@
 
 #include <boost/geometry.hpp>
 #include <ranges>
+#include "allocator.hpp"
 #include "point.hpp"
 #include "polygon.hpp"
 #include "rtdoc.h"
@@ -37,11 +38,15 @@ struct RTDoc {
 
 		return {{p_min, {x_max, y_min}, p_max, {x_min, y_max}, p_min}};
 	}
+	
+  void* operator new(std::size_t sz) { return rm_malloc(sz); }
+  void* operator new(std::size_t, void* pos) { return pos; }
+  void operator delete(void *p) { rm_free(p); }
 };
 
 inline bool operator==(RTDoc const& lhs, RTDoc const& rhs) {
 	return bg::equals(lhs.rect_, rhs.rect_) && 
-		   bg::equals(lhs.poly_, rhs.poly_);
+		  	 bg::equals(lhs.poly_, rhs.poly_);
 }
 
 struct RTDoc_Indexable {

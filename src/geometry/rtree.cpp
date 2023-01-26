@@ -19,17 +19,17 @@ bool RTree_Remove(RTree *rtree, RTDoc const *doc) {
 	return rtree->rtree_.remove(*doc);
 }
 
-QueryIterator *RTree_Query_Contains(RTree const *rtree, Polygon const *query_poly) {
-	auto results = rtree->query(bgi::contains(RTDoc::to_rect(query_poly->poly_)));
+QueryIterator *RTree_Query_Contains(RTree const *rtree, RTDoc const *query) {
+	auto results = rtree->query(bgi::contains(query->rect_));
 	std::erase_if(results, [&](auto const& doc) {
-		return !bg::within(query_poly->poly_, doc.poly_);
+		return !bg::within(query->poly_, doc.poly_);
 	});
 	return new QueryIterator{std::move(results)};
 }
-QueryIterator *RTree_Query_Within(RTree const *rtree, Polygon const *query_poly) {
-	auto results = rtree->query(bgi::within(RTDoc::to_rect(query_poly->poly_)));
+QueryIterator *RTree_Query_Within(RTree const *rtree, RTDoc const *query) {
+	auto results = rtree->query(bgi::within(query->rect_));
 	std::erase_if(results, [&](auto const& doc) {
-		return !bg::within(doc.poly_, query_poly->poly_);
+		return !bg::within(doc.poly_, query->poly_);
 	});
 	return new QueryIterator{std::move(results)};
 }

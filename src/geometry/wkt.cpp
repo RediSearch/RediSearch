@@ -13,15 +13,17 @@ Polygon::polygon_internal from_wkt(std::string_view wkt) {
     return pg;
 }
 
-Polygon *From_WKT(const char *wkt) {
-	return new Polygon{from_wkt(wkt)};
+RTDoc *From_WKT(const char *wkt) {
+	return new RTDoc{from_wkt(wkt)};
 }
 
 RTree *Load_WKT_File(RTree *rtree, const char *path) {
+    using string = std::basic_string<char, std::char_traits<char>, rm_allocator<char>>;
+
     auto file = std::ifstream{path};
     auto& rt = rtree->rtree_;
     
-    for (std::string wkt{}; std::getline(file, wkt, '\n'); ) {
+    for (string wkt{}; std::getline(file, wkt, '\n'); ) {
         rt.insert(RTDoc{from_wkt(wkt)});
     }
 
