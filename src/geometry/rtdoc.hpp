@@ -1,6 +1,8 @@
 #pragma once
 
+#define BOOST_ALLOW_DEPRECATED_HEADERS
 #include <boost/geometry.hpp>
+#undef BOOST_ALLOW_DEPRECATED_HEADERS
 #include <ranges>
 #include "allocator.hpp"
 #include "point.hpp"

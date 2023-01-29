@@ -1,5 +1,7 @@
 
+#define BOOST_ALLOW_DEPRECATED_HEADERS
 #include <boost/geometry.hpp>
+#undef BOOST_ALLOW_DEPRECATED_HEADERS
 #include <fstream>
 #include "polygon.hpp"
 #include "rtree.hpp"
