@@ -3631,7 +3631,7 @@ def test_cluster_set(env):
                '0',
                '16383',
                'ADDR',
-               'password@127.0.0.1:6379',
+               'password@127.0.0.1:22000',
                'MASTER'
             ).equal('OK')
     res = env.cmd('SEARCH.CLUSTERINFO')
@@ -3649,7 +3649,7 @@ def test_cluster_set(env):
                '0',
                '16383',
                'ADDR',
-               'password@[::1]:6379',
+               'password@[::1]:22000',
                'MASTER'
             ).equal('OK')
     res = env.cmd('SEARCH.CLUSTERINFO')
@@ -3667,7 +3667,7 @@ def test_cluster_set(env):
                '0',
                '16383',
                'ADDR',
-               'password@[2001:0db8:85a3:0000:0000:8a2e:0370:7334]:6379',
+               'password@[2001:0db8:85a3:0000:0000:8a2e:0370:7334]:22000',
                'MASTER'
             ).equal('OK')
     res = env.cmd('SEARCH.CLUSTERINFO')
