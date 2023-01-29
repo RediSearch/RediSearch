@@ -773,7 +773,7 @@ cleanup:
     RedisModule_CloseKey(idxKey);
   }
   RedisSearchCtx_UnlockSpec(sctx);
-  if (spec_ref.rm) {
+  if (sp) {
     StrongRef_Release(spec_ref);
   }
   rm_free(term);
@@ -939,7 +939,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       RedisModule_CloseKey(idxKey);
     }
     RedisSearchCtx_UnlockSpec(sctx);
-    if (cur_iter_spec_ref.rm) {
+    if (sp) {
       StrongRef_Release(cur_iter_spec_ref);
     }
   }

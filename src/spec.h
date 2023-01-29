@@ -418,8 +418,8 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
                                QueryError *status);
 
 /* Start the garbage collection loop on the index spec */
-void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef global, IndexSpec *sp);
-void IndexSpec_StartGCFromSpec(StrongRef global, IndexSpec *sp, uint32_t gcPolicy);
+void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef spec_ref, IndexSpec *sp);
+void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
 
 /* Same as above but with ordinary strings, to allow unit testing */
 StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
