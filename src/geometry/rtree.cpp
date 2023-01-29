@@ -61,3 +61,9 @@ bool RTree_IsEmpty(RTree const *rtree) {
 void RTree_Clear(RTree *rtree) {
 	rtree->rtree_.clear();
 }
+
+
+
+size_t RTree_MemUsage(struct RTree const *rtree) {
+	return rtree->rtree_.get_allocator().report();
+}

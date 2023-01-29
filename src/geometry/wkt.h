@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-struct RTDoc *From_WKT(const char *wkt);
+struct RTDoc *From_WKT(const char *wkt, docID_t id);
 struct RTree *Load_WKT_File(struct RTree *rtree, const char *path);
 
 #ifdef __cplusplus

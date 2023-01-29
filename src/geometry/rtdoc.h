@@ -9,8 +9,9 @@ extern "C" {
 #endif
 
 struct RTDoc;
+typedef size_t docID_t;
 
-struct RTDoc *RTDoc_New(struct Polygon const *polygon);
+struct RTDoc *RTDoc_New(struct Polygon const *polygon, docID_t id);
 struct RTDoc *RTDoc_Copy(struct RTDoc const *other);
 void RTDoc_Free(struct RTDoc *doc);
 struct Point const *RTDoc_MinCorner(struct RTDoc const *RTDoc);

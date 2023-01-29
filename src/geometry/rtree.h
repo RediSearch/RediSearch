@@ -20,6 +20,8 @@ bool RTree_IsEmpty(struct RTree const *rtree);
 void RTree_Clear(struct RTree *rtree);
 struct RTDoc *RTree_Bounds(struct RTree const *rtree);
 
+size_t RTree_MemUsage(struct RTree const *rtree);
+
 struct QueryIterator *RTree_Query_Contains(struct RTree const *rtree, struct RTDoc const *query);
 struct QueryIterator *RTree_Query_Within(struct RTree const *rtree, struct RTDoc const *query);
 void QIter_Free(struct QueryIterator *iter);

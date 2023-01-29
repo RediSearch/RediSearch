@@ -1,8 +1,8 @@
 
 #include "rtdoc.hpp"
 
-RTDoc *RTDoc_New(Polygon const *polygon) {
-	return new RTDoc{polygon->poly_};
+RTDoc *RTDoc_New(Polygon const *polygon, docID_t id) {
+	return new RTDoc{polygon->poly_, id};
 }
 
 RTDoc *RTDoc_Copy(RTDoc const *other) {

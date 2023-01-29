@@ -2,15 +2,16 @@
 
 #include "../rmalloc.h"
 
+static size_t used = 0;
+
 template <class T>
-class rm_allocator {
-public:
+struct rm_allocator {
   using value_type = T;
 
   /**
    * @brief Construct a new RedisModule allocator
    */
-  rm_allocator() noexcept {}
+  rm_allocator() = default;
   /**
    * @brief Constructs `a` such that `allocator<B>(a) == b` and `allocator<A>(b) == a`.
    * This implies that all allocators related by rebind maintain each other's resources.
@@ -26,7 +27,8 @@ public:
    * @param n 
    * @return value_type* 
    */
-  value_type* allocate(std::size_t n) {
+  [[nodiscard]] value_type* allocate(std::size_t n) {
+    used += n * sizeof(value_type);
     return static_cast<value_type*>(rm_malloc(n * sizeof(value_type)));
   }
 
@@ -37,8 +39,13 @@ public:
    * 
    * @param p 
    */
-  void deallocate(value_type* p, std::size_t) noexcept {
+  void deallocate(value_type* p, std::size_t n) noexcept {
+    used -= n * sizeof(value_type);
     rm_free(p);
+  }
+
+  size_t report() const {
+    return used;
   }
 };
 
@@ -51,7 +58,7 @@ public:
  * @return bool
  */
 template <class T, class U>
-bool operator==(rm_allocator<T> const& a1, rm_allocator<U> const& a2) noexcept { return true; }
+bool operator==(rm_allocator<T> const&, rm_allocator<U> const&) noexcept { return true; }
 
 /**
  * @brief Same as !(a1 == a2). 
@@ -61,4 +68,4 @@ bool operator==(rm_allocator<T> const& a1, rm_allocator<U> const& a2) noexcept {
  * @return bool
  */
 template <class T, class U>
-bool operator!=(rm_allocator<T> const& a1, rm_allocator<U> const& a2) noexcept { return !(a1 == a2); }
+bool operator!=(rm_allocator<T> const&, rm_allocator<U> const&) noexcept { return false; }

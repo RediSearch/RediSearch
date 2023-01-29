@@ -14,10 +14,11 @@ struct RTDoc {
 	using rect_internal = bgm::box<Point::point_internal>;
 	Polygon::polygon_internal poly_;
 	rect_internal rect_;
+	docID_t id_;
 
-	RTDoc() : poly_{}, rect_{{0, 0}, {0, 0}} {}
-	RTDoc(rect_internal const& rect) : poly_{to_poly(rect)}, rect_{rect} {}
-	RTDoc(Polygon::polygon_internal const& poly) : poly_{poly}, rect_{to_rect(poly)} {}
+	RTDoc() : poly_{}, rect_{{0, 0}, {0, 0}}, id_{0} {}
+	RTDoc(rect_internal const& rect) : poly_{to_poly(rect)}, rect_{rect}, id_{0} {}
+	RTDoc(Polygon::polygon_internal const& poly, docID_t id = 0) : poly_{poly}, rect_{to_rect(poly)}, id_{id} {}
 
 	static rect_internal to_rect(Polygon::polygon_internal const& poly) {
 		const auto& points = poly.outer();
@@ -45,7 +46,8 @@ struct RTDoc {
 };
 
 inline bool operator==(RTDoc const& lhs, RTDoc const& rhs) {
-	return bg::equals(lhs.rect_, rhs.rect_) && 
+	return lhs.id_ == rhs.id_ &&
+				 bg::equals(lhs.rect_, rhs.rect_) && 
 		  	 bg::equals(lhs.poly_, rhs.poly_);
 }
 

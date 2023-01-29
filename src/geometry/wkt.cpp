@@ -13,8 +13,8 @@ Polygon::polygon_internal from_wkt(std::string_view wkt) {
     return pg;
 }
 
-RTDoc *From_WKT(const char *wkt) {
-	return new RTDoc{from_wkt(wkt)};
+RTDoc *From_WKT(const char *wkt, docID_t id) {
+	return new RTDoc{from_wkt(wkt), id};
 }
 
 RTree *Load_WKT_File(RTree *rtree, const char *path) {
