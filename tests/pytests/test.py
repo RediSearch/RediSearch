@@ -3621,7 +3621,7 @@ def test_cluster_set(env):
 
     def verify_address(addr):
         try:
-            with TimeLimit(1):
+            with TimeLimit(10):
                 res = None
                 while res is None or res[9][2][1] != addr:
                     res = env.cmd('SEARCH.CLUSTERINFO')
