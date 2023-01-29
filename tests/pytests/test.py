@@ -3613,3 +3613,62 @@ def test_missing_schema(env):
     conn.execute_command('HSET', 'doc1', 'foo', 'bar')
     env.expect('FT.SEARCH', 'idx1', '*').equal([1, 'doc1', ['foo', 'bar']] )
     env.expect('FT.SEARCH', 'idx2', '*').error().equal('idx2: no such index')
+
+def test_cluster_set(env):
+    if not env.isCluster():
+        # this test is only relevant on cluster
+        env.skip()
+
+    # test ipv4
+    env.expect('SEARCH.CLUSTERSET',
+               'MYID',
+               '1',
+               'RANGES',
+               '1',
+               'SHARD',
+               '1',
+               'SLOTRANGE',
+               '0',
+               '16383',
+               'ADDR',
+               'password@127.0.0.1:6379',
+               'MASTER'
+            ).equal('OK')
+    res = env.cmd('SEARCH.CLUSTERINFO')
+    env.assertEqual(res[9][2][1], '127.0.0.1')
+
+    # test ipv6 test 1
+    env.expect('SEARCH.CLUSTERSET',
+               'MYID',
+               '1',
+               'RANGES',
+               '1',
+               'SHARD',
+               '1',
+               'SLOTRANGE',
+               '0',
+               '16383',
+               'ADDR',
+               'password@[::1]:6379',
+               'MASTER'
+            ).equal('OK')
+    res = env.cmd('SEARCH.CLUSTERINFO')
+    env.assertEqual(res[9][2][1], '::1')
+
+    # test ipv6 test 2
+    env.expect('SEARCH.CLUSTERSET',
+               'MYID',
+               '1',
+               'RANGES',
+               '1',
+               'SHARD',
+               '1',
+               'SLOTRANGE',
+               '0',
+               '16383',
+               'ADDR',
+               'password@[2001:0db8:85a3:0000:0000:8a2e:0370:7334]:6379',
+               'MASTER'
+            ).equal('OK')
+    res = env.cmd('SEARCH.CLUSTERINFO')
+    env.assertEqual(res[9][2][1], '2001:0db8:85a3:0000:0000:8a2e:0370:7334')
