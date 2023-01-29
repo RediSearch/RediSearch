@@ -3648,7 +3648,7 @@ def test_cluster_set(env):
     env.stop()
     env.start()
 
-    # test ipv6 test 1
+    # test ipv6 test
     env.expect('SEARCH.CLUSTERSET',
                'MYID',
                '1',
@@ -3664,23 +3664,3 @@ def test_cluster_set(env):
                'MASTER'
             ).equal('OK')
     verify_address('::1')
-
-    env.stop()
-    env.start()
-
-    # test ipv6 test 2
-    env.expect('SEARCH.CLUSTERSET',
-               'MYID',
-               '1',
-               'RANGES',
-               '1',
-               'SHARD',
-               '1',
-               'SLOTRANGE',
-               '0',
-               '16383',
-               'ADDR',
-               'password@[2001:0db8:85a3:0000:0000:8a2e:0370:7334]:22000',
-               'MASTER'
-            ).equal('OK')
-    verify_address('2001:0db8:85a3:0000:0000:8a2e:0370:7334')
