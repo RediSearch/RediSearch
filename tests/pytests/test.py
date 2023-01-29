@@ -3615,10 +3615,6 @@ def test_missing_schema(env):
     env.expect('FT.SEARCH', 'idx2', '*').error().equal('idx2: no such index')
 
 def test_cluster_set(env):
-    # if not env.isCluster():
-    #     # this test is only relevant on cluster
-    #     env.skip()
-
     def verify_address(addr):
         try:
             with TimeLimit(10):
