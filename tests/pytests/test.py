@@ -3619,6 +3619,15 @@ def test_cluster_set(env):
         # this test is only relevant on cluster
         env.skip()
 
+    def verify_address(addr):
+        try:
+            with TimeLimit(1):
+                res = None
+                while res is None or res[9][2][1] != addr:
+                    res = env.cmd('SEARCH.CLUSTERINFO')
+        except Exception:
+            env.assertTrue(False, message='Failed waiting cluster set command to be updated with the new IP address %s' % addr)
+
     # test ipv4
     env.expect('SEARCH.CLUSTERSET',
                'MYID',
@@ -3634,8 +3643,7 @@ def test_cluster_set(env):
                'password@127.0.0.1:22000',
                'MASTER'
             ).equal('OK')
-    res = env.cmd('SEARCH.CLUSTERINFO')
-    env.assertEqual(res[9][2][1], '127.0.0.1')
+    verify_address('127.0.0.1')
 
     # test ipv6 test 1
     env.expect('SEARCH.CLUSTERSET',
@@ -3652,8 +3660,7 @@ def test_cluster_set(env):
                'password@[::1]:22000',
                'MASTER'
             ).equal('OK')
-    res = env.cmd('SEARCH.CLUSTERINFO')
-    env.assertEqual(res[9][2][1], '::1')
+    verify_address('::1')
 
     # test ipv6 test 2
     env.expect('SEARCH.CLUSTERSET',
@@ -3670,5 +3677,4 @@ def test_cluster_set(env):
                'password@[2001:0db8:85a3:0000:0000:8a2e:0370:7334]:22000',
                'MASTER'
             ).equal('OK')
-    res = env.cmd('SEARCH.CLUSTERINFO')
-    env.assertEqual(res[9][2][1], '2001:0db8:85a3:0000:0000:8a2e:0370:7334')
+    verify_address('2001:0db8:85a3:0000:0000:8a2e:0370:7334')
