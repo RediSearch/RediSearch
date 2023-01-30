@@ -1,17 +1,17 @@
 
 #include "point.hpp"
 
-Point *Point_New(double x, double y) {
+[[nodiscard]] Point *Point_New(double x, double y) {
 	return new Point{x, y};
 }
-Point *Point_Copy(Point const *other) {
+[[nodiscard]] Point *Point_Copy(Point const *other) {
 	return new Point{other->point_};
 }
 
-void Point_Free(Point *point) {
+void Point_Free(Point *point) noexcept {
 	delete point;
 }
 
-bool Point_IsEqual(Point const *lhs, Point const *rhs) {
+[[nodiscard]] bool Point_IsEqual(Point const *lhs, Point const *rhs) {
 	return *lhs == *rhs;
 }

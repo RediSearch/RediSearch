@@ -15,13 +15,13 @@ struct Point {
 
 	point_internal point_;
 
-	Point(double x, double y) : point_{x, y} {}
-  Point(point_internal const& other) : point_{other} {}
+	Point(double x, double y) noexcept : point_{x, y} {}
+  explicit Point(point_internal const& other) noexcept : point_{other} {}
 	
-  void* operator new(std::size_t sz) { return rm_malloc(sz); }
-  void operator delete(void *p) { rm_free(p); }
+  [[nodiscard]] void* operator new(std::size_t sz) { return rm_malloc(sz); }
+  void operator delete(void *p) noexcept { rm_free(p); }
 };
 
-inline bool operator==(Point const& lhs, Point const& rhs) {
+[[nodiscard]] inline bool operator==(Point const& lhs, Point const& rhs) {
 	return bg::equals(lhs.point_, rhs.point_);
 }

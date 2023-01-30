@@ -4,7 +4,7 @@
 #include "polygon.hpp"
 
 
-Polygon *Polygon_NewByCoords(int num_points, ...) {
+[[nodiscard]] Polygon *Polygon_NewByCoords(int num_points, ...) {
 	Polygon *poly = new Polygon{};
 	std::va_list ap;
 	va_start(ap, num_points);
@@ -17,7 +17,7 @@ Polygon *Polygon_NewByCoords(int num_points, ...) {
 	return poly;
 }
 
-Polygon *Polygon_NewByPoints(int num_points, ...) {
+[[nodiscard]] Polygon *Polygon_NewByPoints(int num_points, ...) {
 	Polygon *poly = new Polygon{};
 	std::va_list ap;
 	va_start(ap, num_points);
@@ -29,15 +29,15 @@ Polygon *Polygon_NewByPoints(int num_points, ...) {
 	return poly;
 }
 
-Polygon *Polygon_Copy(Polygon const *other) {
+[[nodiscard]] Polygon *Polygon_Copy(Polygon const *other) {
 	return new Polygon{*other};
 }
 
-void Polygon_Free(Polygon *polygon) {
+void Polygon_Free(Polygon *polygon) noexcept {
 	delete polygon;
 }
 
-bool Polygon_IsEqual(Polygon const *lhs, Polygon const *rhs) {
+[[nodiscard]] bool Polygon_IsEqual(Polygon const *lhs, Polygon const *rhs) {
 	return *lhs == *rhs;
 }
 

@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include "query_iterator.h"
 #include "rtdoc.h"
 
 #ifdef __cplusplus
@@ -9,25 +10,20 @@ extern "C" {
 #endif
 
 struct RTree;
-struct QueryIterator;
 
-struct RTree *RTree_New();
-void RTree_Free(struct RTree *rtree);
+NODISCARD struct RTree *RTree_New();
+void RTree_Free(struct RTree *rtree) NOEXCEPT;
 void RTree_Insert(struct RTree *rtree, struct RTDoc const *doc);
 bool RTree_Remove(struct RTree *rtree, struct RTDoc const *doc);
-size_t RTree_Size(struct RTree const *rtree);
-bool RTree_IsEmpty(struct RTree const *rtree);
-void RTree_Clear(struct RTree *rtree);
-struct RTDoc *RTree_Bounds(struct RTree const *rtree);
+NODISCARD size_t RTree_Size(struct RTree const *rtree) NOEXCEPT;
+NODISCARD bool RTree_IsEmpty(struct RTree const *rtree) NOEXCEPT;
+void RTree_Clear(struct RTree *rtree) NOEXCEPT;
+NODISCARD struct RTDoc *RTree_Bounds(struct RTree const *rtree);
 
-size_t RTree_MemUsage(struct RTree const *rtree);
+NODISCARD struct QueryIterator *RTree_Query_Contains(struct RTree const *rtree, struct RTDoc const *query);
+NODISCARD struct QueryIterator *RTree_Query_Within(struct RTree const *rtree, struct RTDoc const *query);
 
-struct QueryIterator *RTree_Query_Contains(struct RTree const *rtree, struct RTDoc const *query);
-struct QueryIterator *RTree_Query_Within(struct RTree const *rtree, struct RTDoc const *query);
-void QIter_Free(struct QueryIterator *iter);
-struct RTDoc *QIter_Next(struct QueryIterator *iter);
-size_t QIter_Remaining(struct QueryIterator const *iter);
-
+NODISCARD size_t RTree_MemUsage(struct RTree const *rtree);
 #ifdef __cplusplus
 }
 #endif

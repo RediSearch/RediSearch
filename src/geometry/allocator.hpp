@@ -1,8 +1,9 @@
 #pragma once
 
 #include "../rmalloc.h"
+#include <atomic>
 
-static size_t used = 0;
+static std::atomic<size_t> used = 0;
 
 template <class T>
 struct rm_allocator {
@@ -44,7 +45,7 @@ struct rm_allocator {
     rm_free(p);
   }
 
-  size_t report() const {
+  [[nodiscard]] constexpr static size_t report() noexcept {
     return used;
   }
 };
@@ -58,7 +59,7 @@ struct rm_allocator {
  * @return bool
  */
 template <class T, class U>
-bool operator==(rm_allocator<T> const&, rm_allocator<U> const&) noexcept { return true; }
+[[nodiscard]] constexpr bool operator==(rm_allocator<T> const&, rm_allocator<U> const&) noexcept { return true; }
 
 /**
  * @brief Same as !(a1 == a2). 
@@ -68,4 +69,4 @@ bool operator==(rm_allocator<T> const&, rm_allocator<U> const&) noexcept { retur
  * @return bool
  */
 template <class T, class U>
-bool operator!=(rm_allocator<T> const&, rm_allocator<U> const&) noexcept { return false; }
+[[nodiscard]] constexpr bool operator!=(rm_allocator<T> const&, rm_allocator<U> const&) noexcept { return false; }

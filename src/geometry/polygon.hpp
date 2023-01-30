@@ -22,10 +22,10 @@ struct Polygon {
 	>;
 	polygon_internal poly_;
 	
-  void* operator new(std::size_t sz) { return rm_malloc(sz); }
-  void operator delete(void *p) { rm_free(p); }
+  [[nodiscard]] void* operator new(std::size_t sz) { return rm_malloc(sz); }
+  void operator delete(void *p) noexcept { rm_free(p); }
 };
 
-inline bool operator==(Polygon const& lhs, Polygon const& rhs) {
+[[nodiscard]] inline bool operator==(Polygon const& lhs, Polygon const& rhs) noexcept {
 	return boost::geometry::equals(lhs.poly_, rhs.poly_);
 }

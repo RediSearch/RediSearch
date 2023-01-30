@@ -18,11 +18,11 @@ struct RTDoc {
 	rect_internal rect_;
 	docID_t id_;
 
-	RTDoc() : poly_{}, rect_{{0, 0}, {0, 0}}, id_{0} {}
-	RTDoc(rect_internal const& rect) : poly_{to_poly(rect)}, rect_{rect}, id_{0} {}
-	RTDoc(Polygon::polygon_internal const& poly, docID_t id = 0) : poly_{poly}, rect_{to_rect(poly)}, id_{id} {}
+	RTDoc() = default;
+	explicit RTDoc(rect_internal const& rect) noexcept : poly_{to_poly(rect)}, rect_{rect}, id_{0} {}
+	explicit RTDoc(Polygon::polygon_internal const& poly, docID_t id = 0) : poly_{poly}, rect_{to_rect(poly)}, id_{id} {}
 
-	static rect_internal to_rect(Polygon::polygon_internal const& poly) {
+	[[nodiscard]] static rect_internal to_rect(Polygon::polygon_internal const& poly) {
 		const auto& points = poly.outer();
 		auto xs = std::ranges::transform_view(points, [] (const auto& p) { return bg::get<0>(p); });
 		auto [min_x, max_x] = std::ranges::minmax(xs);
@@ -31,7 +31,7 @@ struct RTDoc {
 		return {{min_x, min_y}, {max_x, max_y}};
 	}
 
-	static Polygon::polygon_internal to_poly(rect_internal const& rect) {
+	[[nodiscard]] static Polygon::polygon_internal to_poly(rect_internal const& rect) noexcept {
 		auto p_min = rect.min_corner();
 		auto p_max = rect.max_corner();
 		auto x_min = p_min.get<0>();
@@ -42,12 +42,12 @@ struct RTDoc {
 		return {{p_min, {x_max, y_min}, p_max, {x_min, y_max}, p_min}};
 	}
 	
-  void* operator new(std::size_t sz) { return rm_malloc(sz); }
-  void* operator new(std::size_t, void* pos) { return pos; }
-  void operator delete(void *p) { rm_free(p); }
+  [[nodiscard]] void* operator new(std::size_t sz) { return rm_malloc(sz); }
+  [[nodiscard]] void* operator new(std::size_t, void* pos) { return pos; }
+  void operator delete(void *p) noexcept { rm_free(p); }
 };
 
-inline bool operator==(RTDoc const& lhs, RTDoc const& rhs) {
+[[nodiscard]] inline bool operator==(RTDoc const& lhs, RTDoc const& rhs) noexcept {
 	return lhs.id_ == rhs.id_ &&
 				 bg::equals(lhs.rect_, rhs.rect_) && 
 		  	 bg::equals(lhs.poly_, rhs.poly_);
@@ -55,13 +55,13 @@ inline bool operator==(RTDoc const& lhs, RTDoc const& rhs) {
 
 struct RTDoc_Indexable {
 	using result_type = RTDoc::rect_internal;
-	result_type operator()(RTDoc const& doc) const {
+	[[nodiscard]] constexpr result_type operator()(RTDoc const& doc) const noexcept {
 		return doc.rect_;
 	}
 };
 
 struct RTDoc_EqualTo {
-	bool operator()(RTDoc const& lhs, RTDoc const& rhs) const {
+	[[nodiscard]] inline bool operator()(RTDoc const& lhs, RTDoc const& rhs) const noexcept {
 		return lhs == rhs;
 	}
 };
