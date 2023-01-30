@@ -9,7 +9,7 @@ type: docs
 [![Github](https://img.shields.io/static/v1?label=&message=repository&color=5961FF&logo=github)](https://github.com/RediSearch/RediSearch/)
 
 
-RediSearch is a [source-available](https://github.com/RediSearch/RediSearch/blob/master/LICENSE) Redis module that enables querying, secondary indexing, and full-text search for Redis. These features enable multi-field queries, [aggregation](/docs/stack/search/reference/aggregations), exact phrase matching, [numeric filtering](/docs/stack/search/reference/query_syntax/#numeric-filters-in-query), [geo filtering](/docs/stack/search/reference/query_syntax/#geo-filters-in-query) and [vector similarity semantic search](/docs/stack/search/reference/query_syntax/#vector-similarity-search-in-query) on top of text queries.
+RediSearch is a [source-available](https://raw.githubusercontent.com/RediSearch/RediSearch/master/LICENSE.txt) Redis module that enables querying, secondary indexing, and full-text search for Redis. These features enable multi-field queries, [aggregation](/docs/stack/search/reference/aggregations), exact phrase matching, [numeric filtering](/docs/stack/search/reference/query_syntax/#numeric-filters-in-query), [geo filtering](/docs/stack/search/reference/query_syntax/#geo-filters-in-query) and [vector similarity semantic search](/docs/stack/search/reference/query_syntax/#vector-similarity-search-in-query) on top of text queries.
 
 ## Quick links
   - [Quick start guide](/redisearch/quick_start)
