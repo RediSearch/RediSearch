@@ -62,11 +62,20 @@ commands:
     steps:
       - run:
           name: Setup automation
-          no_output_timeout: 30m
           command: |
             git submodule update --init deps/readies
+            if [[ $(uname -s) == Darwin ]]; then rm -f /usr/local/bin/python3; fi
             ./deps/readies/bin/getpy3
-            python3 -m pip install -q awscli
+      - run:
+          name: Setup automation (2)
+          shell: /bin/bash -l -eo pipefail
+          no_output_timeout: 30m
+          command: |
+            ./deps/readies/bin/getaws
+            ls -l /usr/local/bin/python* || true
+            echo "python3: $(command -v python3)"
+            python3 --version
+            python3 -m pip list
 
   install-prerequisites:
     parameters:
@@ -81,7 +90,6 @@ commands:
       - run:
           name: System setup
           shell: /bin/bash -l -eo pipefail
-          no_output_timeout: 30m
           command: |
             ./sbin/system-setup.py
             python3 -m pip list
@@ -99,8 +107,16 @@ commands:
           command: |
             rm -f tests/pytests/logs/*.{aof,rdb}
           when: always
+      - run:
+          name: Pack logs
+          command: |
+            ROOT="$PWD"
+            cd tests/pytests/logs
+            tar -czf $ROOT/tests-pytests-logs.tgz *.log
       - store_artifacts:
-          path: tests/pytests/logs
+          path: tests-pytests-logs.tgz
+          destination: tests-pytests-logs.tgz
+          # path: tests/pytests/logs
 
   persist-artifacts:
     steps:
@@ -176,12 +192,12 @@ commands:
           name: Test (Search)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: make test SHOW=1
+          command: make test TEST_PARALLEL=16 SHOW=1 <<parameters.test_params>>
       - run:
           name: Test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: make test COORD=oss SHOW=1
+          command: make test TEST_PARALLEL=16 COORD=oss SHOW=1 <<parameters.test_params>>
       - save-tests-logs
 
   build-platforms-steps:
@@ -195,28 +211,31 @@ commands:
       - setup-automation
       - run:
           name: Build for platform
+          shell: /bin/bash -l -eo pipefail
           command: |
-            ROOT=$PWD
+            ROOT="$PWD"
             cd build/docker
-            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1
+            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
             cd $ROOT
             mkdir -p tests/pytests/logs
-            tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
-          no_output_timeout: 30m
+            tar -xzf bin/artifacts/tests/tests-pytests-logs*.tgz
+          no_output_timeout: 60m
       - save-tests-logs
       - early-return-for-forked-pull-requests
       - run:
           name: Upload artifacts to S3
+          shell: /bin/bash -l -eo pipefail
           command: |
             if [[ -n $CIRCLE_BRANCH ]]; then
                 make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1
             fi
       - run:
           name: Publish container
+          shell: /bin/bash -l -eo pipefail
           command: |
             docker login -u redisfab -p $DOCKER_REDISFAB_PWD
             cd build/docker
-            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=1 SHOW=1
+            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=1 SHOW=1 VERBOSE=1
       - persist-artifacts
 
   vm-build-platforms-steps:
@@ -234,12 +253,12 @@ commands:
       - run:
           name: Build for platform
           command: |
-            ROOT=$PWD
+            ROOT="$PWD"
             cd build/docker
-            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1
+            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
             cd $ROOT
             mkdir -p tests/pytests/logs
-            tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
+            tar -xzf bin/artifacts/tests/tests-pytests-logs*.tgz
           no_output_timeout: 30m
       - save-tests-logs
       - early-return-for-forked-pull-requests
@@ -254,13 +273,11 @@ commands:
           command: |
             docker login -u redisfab -p $DOCKER_REDISFAB_PWD
             cd build/docker
-            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=1 SHOW=1
+            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=1 SHOW=1 VERBOSE=1
       - persist-artifacts
 
-  benchmark-automation:
+  benchmark-steps:
     parameters:
-      platform:
-        type: string
       github_actor:
         type: string
         default: $CIRCLE_USERNAME
@@ -336,20 +353,28 @@ jobs:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     parameters:
+      build_params:
+        type: string
+        default: ""
+      test_params:
+        type: string
+        default: ""
       redis_version:
         type: string
         default: "6"
-      persist:
+      upload:
         type: string
         default: "yes"
     steps:
       - build-steps:
+          build_params: <<parameters.build_params>>
           redis_version: <<parameters.redis_version>>
-      - test-steps
+      - test-steps:
+          test_params: <<parameters.build_params>> <<parameters.test_params>> QUICK=1
       - run:
           name: Persist artifacts?
           command: |
-            if [[ "<<parameters.persist>>" != "yes" ]]; then
+            if [[ "<<parameters.upload>>" != "yes" ]]; then
               circleci step halt
             fi
       - persist-artifacts
@@ -368,7 +393,8 @@ jobs:
     steps:
       - build-steps:
           redis_version: <<parameters.redis_version>>
-      - test-steps
+      - test-steps:
+          test_params: QUICK=1
 
   build-platforms:
     parameters:
@@ -397,7 +423,7 @@ jobs:
 
   build-macos:
     macos:
-      xcode: 11.7.0
+      xcode: 12.5.1
     resource_class: macos.x86.medium.gen2
     parameters:
       upload:
@@ -412,7 +438,14 @@ jobs:
           name: Set up workspace
           command: mkdir -p ~/workspace
       - build-steps
-      - test-steps
+      - test-steps:
+          test_params: QUICK=1
+      - run:
+          name: Persist artifacts?
+          command: |
+            if [[ "<<parameters.upload>>" != "yes" ]]; then
+              circleci step halt
+            fi
       - run:
           name: Upload artifacts to S3
           command: |
@@ -427,8 +460,7 @@ jobs:
     steps:
       - build-steps:
           run_pack: false
-      - benchmark-automation:
-          platform: bionic
+      - benchmark-steps:
           benchmark_glob: "search*.yml"
   
   benchmark-vecsim-oss-standalone:
@@ -437,8 +469,7 @@ jobs:
     steps:
       - build-steps:
           run_pack: false
-      - benchmark-automation:
-          platform: bionic
+      - benchmark-steps:
           benchmark_glob: "vecsim*.yml"
 
   benchmark-search-oss-cluster:
@@ -447,8 +478,7 @@ jobs:
     steps:
       - build-steps:
           run_pack: false
-      - benchmark-automation:
-          platform: bionic
+      - benchmark-steps:
           benchmark_glob: "search*.yml"
           module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
@@ -460,9 +490,8 @@ jobs:
       - build-steps:
           build_params: PROFILE=1
           run_pack: false
-      - benchmark-automation:
+      - benchmark-steps:
           profile_env: "1"
-          platform: bionic
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
           module_path: bin/linux-x64-release-profile/search/redisearch.so
           benchmark_glob: "search*.yml"
@@ -474,9 +503,8 @@ jobs:
       - build-steps:
           build_params: PROFILE=1
           run_pack: false
-      - benchmark-automation:
+      - benchmark-steps:
           profile_env: "1"
-          platform: bionic
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
           module_path: bin/linux-x64-release-profile/search/redisearch.so
           benchmark_glob: "vecsim*.yml"
@@ -492,7 +520,7 @@ jobs:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
           command: |
-            make coverage SHOW=1
+            make coverage QUICK=1 TEST_PARALLEL=16 SHOW=1
             make upload-cov SHOW=1
           no_output_timeout: 30m
       - save-tests-logs
@@ -500,6 +528,7 @@ jobs:
   sanitize:
     docker:
       - image: redisfab/clang:13-x64-bullseye
+    resource_class: large
     parameters:
       san-type:
         type: string
@@ -510,12 +539,16 @@ jobs:
       - run:
           name: Build & test (Search)
           shell: /bin/bash -l -eo pipefail
-          command: make SAN=<<parameters.san-type>> build test SHOW=1
+          command: |
+            make SAN=<<parameters.san-type>> build SHOW=1
+            make SAN=<<parameters.san-type>> test TEST_PARALLEL=16 SHOW=1 QUICK=1
           no_output_timeout: 30m
       - run:
           name: Build & test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
-          command: make SAN=<<parameters.san-type>> COORD=oss build test SHOW=1
+          command: |
+            make SAN=<<parameters.san-type>> COORD=oss build SHOW=1
+            make SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 QUICK=1
           no_output_timeout: 30m
       - save-tests-logs
 
@@ -603,7 +636,7 @@ jobs:
                 make upload-release SHOW=1 STAGING=1
             fi
 
-  release-automation:
+  release-qa-tests:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
@@ -697,6 +730,7 @@ on-integ-and-version-tags: &on-integ-and-version-tags
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
+        - /^perf-.*$/
     tags:
       only: /^v[0-9].*/
 
@@ -725,16 +759,16 @@ workflows:
             parameters:
               platform: [jammy, focal, bionic]
       - build-macos:
-          context: common
           <<: *on-integ-and-version-tags
+          context: common
       - coverage:
           <<: *on-any-branch
       - sanitize:
           name: sanitize-<< matrix.san-type >>
+          <<: *on-any-branch
           matrix:
             parameters:
               san-type: [address] # [address, memory]
-          <<: *on-any-branch
       - valgrind-memcheck:
           <<: *never
       - benchmark-search-oss-standalone:
@@ -769,9 +803,9 @@ workflows:
             - build-platforms
             - build-arm-platforms
             - build-macos
-      - release-automation:
-          <<: *on-version-tags
+      - release-qa-tests:
           context: common
+          <<: *on-version-tags
           requires:
             - upload-release-artifacts
 
@@ -806,7 +840,7 @@ workflows:
             parameters:
               redis_version: ["6.0", "6.2", "7", "unstable"]
 
-  nightly-performance:
+  nightly-benchmarks:
     triggers:
       - schedule:
           cron: "0 7 * * 1"

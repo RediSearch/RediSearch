@@ -34,7 +34,8 @@ void myFreeFunc(void *p) {
 }
 
 /* Register the default extension */
-int RS_ExtensionInit(RSExtensionCtx *ctx) {
+int __attribute__((visibility("default")))
+RS_ExtensionInit(RSExtensionCtx *ctx) {
 
   if (ctx->RegisterScoringFunction("example_scorer", myScorer, myFreeFunc, NULL) ==
       REDISEARCH_ERR) {
