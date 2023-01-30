@@ -642,3 +642,8 @@ def test_as_startswith_as(env):
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, '$.attr1', 'AS', '$.attr2').equal([1, ['$.attr2', 'foo']])
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, 'asa', 'AS', '$.attr2').equal([1, ['$.attr2', 'foo']])
     
+def test_mod4296_badexpr(env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').equal('OK')
+  env.expect('HSET', 'doc', 't', 'foo').equal(1)
+  env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1%0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
+  env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1/0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
