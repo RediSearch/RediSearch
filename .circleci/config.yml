@@ -64,7 +64,7 @@ commands:
           name: Setup automation
           command: |
             git submodule update --init deps/readies
-            rm -f /usr/local/bin/python3
+            if [[ $(uname -s) == Darwin ]]; then rm -f /usr/local/bin/python3; fi
             ./deps/readies/bin/getpy3
       - run:
           name: Setup automation (2)
