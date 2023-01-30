@@ -634,9 +634,13 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     const char *fieldName;
     size_t fieldNameSize;
 
-    int rv = AC_GetString(&ac, &fieldName, &fieldNameSize, AC_F_NOADVANCE);
-    // Reads the spec. use read lock?
-    if (IndexSpec_GetField(sp, fieldName, fieldNameSize)) {
+    AC_GetString(&ac, &fieldName, &fieldNameSize, AC_F_NOADVANCE);
+    RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+    RedisSearchCtx_LockSpecRead(&sctx);
+    const FieldSpec *field_exists = IndexSpec_GetField(sp, fieldName, fieldNameSize);
+    RedisSearchCtx_UnlockSpec(&sctx);
+
+    if (field_exists) {
       RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, (size_t)argc - 1);
       return RedisModule_ReplyWithSimpleString(ctx, "OK");
     }

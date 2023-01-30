@@ -1044,8 +1044,6 @@ reset:
   return 0;
 }
 
-// Assuming the spec is properly locked before calling this function.
-// TODO: verify that the spec is locked
 int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
                         QueryError *status) {
   setMemoryInfo(ctx);
