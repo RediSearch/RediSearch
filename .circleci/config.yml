@@ -62,7 +62,6 @@ commands:
     steps:
       - run:
           name: Setup automation
-          no_output_timeout: 30m
           command: |
             git submodule update --init deps/readies
             if [[ $(uname -s) == Darwin ]]; then rm -f /usr/local/bin/python3; fi
@@ -91,7 +90,6 @@ commands:
       - run:
           name: System setup
           shell: /bin/bash -l -eo pipefail
-          no_output_timeout: 30m
           command: |
             ./sbin/system-setup.py
             python3 -m pip list
