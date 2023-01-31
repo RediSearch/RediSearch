@@ -1048,15 +1048,11 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
                         QueryError *status) {
   setMemoryInfo(ctx);
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  RedisSearchCtx_LockSpecWrite(&sctx);
-
   int rc = IndexSpec_AddFieldsInternal(sp, ac, status, 0);
   if (rc && initialScan) {
     IndexSpec_ScanAndReindex(ctx, spec_ref);
   }
 
-  RedisSearchCtx_UnlockSpec(&sctx);
   return rc;
 }
 
@@ -2199,7 +2195,8 @@ void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef spec_ref) {
   }
 }
 
-// TODO: should be thread safe?
+// only used on "RDB load finished" event (before the server is ready to accept commands)
+// so it threadsafe
 void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
 

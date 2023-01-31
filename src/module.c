@@ -612,6 +612,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
 
   bool initialScan = true;
   if (AC_AdvanceIfMatch(&ac, SPEC_SKIPINITIALSCAN_STR)) {
@@ -635,7 +636,6 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     size_t fieldNameSize;
 
     AC_GetString(&ac, &fieldName, &fieldNameSize, AC_F_NOADVANCE);
-    RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
     RedisSearchCtx_LockSpecRead(&sctx);
     const FieldSpec *field_exists = IndexSpec_GetField(sp, fieldName, fieldNameSize);
     RedisSearchCtx_UnlockSpec(&sctx);
@@ -645,8 +645,14 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
       return RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
   }
+  RedisSearchCtx_LockSpecWrite(&sctx);
   IndexSpec_AddFields(ref, sp, ctx, &ac, initialScan, &status);
+  RedisSearchCtx_UnlockSpec(&sctx);
+
+  RedisSearchCtx_LockSpecRead(&sctx);
   FieldsGlobalStats_UpdateStats(sp->fields + (sp->numFields - 1), 1);
+  RedisSearchCtx_UnlockSpec(&sctx);
+
   if (QueryError_HasError(&status)) {
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
