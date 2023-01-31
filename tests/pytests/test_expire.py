@@ -89,6 +89,7 @@ def expireDocs(env, isSortable, expected_results):
 
     When isSortable is True the index is created with `SORTABLE` arg
     '''
+    env.skipOnCluster()
     conn = env.getConnection()
     # Use "lazy" expire (expire only when key is accessed)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
