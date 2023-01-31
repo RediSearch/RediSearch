@@ -33,7 +33,6 @@ class RediSearchSetup(paella.Setup):
 
         if self.platform.is_arm():
             if self.dist == 'ubuntu' and self.os_version[0] < 20:
-                # self.install("python3-gevent")
                 pass
             else:
                 self.install("libffi-dev")
@@ -47,10 +46,7 @@ class RediSearchSetup(paella.Setup):
         self.install("libtool m4 automake openssl-devel")
         self.install("python3-devel")
 
-        if self.platform.is_arm():
-            # self.install("python-gevent")
-            pass
-        else:
+        if not self.platform.is_arm():
             self.install_linux_gnu_tar()
 
     def archlinux(self):
@@ -66,7 +62,11 @@ class RediSearchSetup(paella.Setup):
         self.install_gnu_utils()
         self.install("pkg-config")
         self.install("libtool m4 automake")
+        self.pip_install("-r %s/tests/pytests/requirements.macos.txt" % ROOT)
         # self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
+
+    def linux_first(self):
+        self.pip_install("-r %s/tests/pytests/requirements.linux.txt" % ROOT)
 
     def common_last(self):
         self.run("{PYTHON} {READIES}/bin/getcmake --usr".format(PYTHON=self.python, READIES=READIES),
@@ -76,9 +76,6 @@ class RediSearchSetup(paella.Setup):
             self.install("lcov")
         else:
             self.install("lcov-git", aur=True)
-
-        if int(sh("{PYTHON} -c 'import gevent' 2> /dev/null; echo $?".format(PYTHON=self.python))) != 0:
-            self.pip_install("gevent")
 
         self.pip_install("-r %s/tests/pytests/requirements.txt" % ROOT)
         self.run("%s/bin/getaws" % READIES)
