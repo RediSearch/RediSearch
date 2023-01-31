@@ -2712,10 +2712,9 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   return REDISMODULE_OK;
 }
 
-int IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, t_docId id) {
+void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, t_docId id) {
 
-  int rc = DocTable_DeleteR(&spec->docs, key);
-  if (rc) {
+  if (DocTable_DeleteR(&spec->docs, key)) {
     spec->stats.numDocuments--;
 
     // Increment the index's garbage collector's scanning frequency after document deletions
@@ -2740,7 +2739,6 @@ int IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModule
       }
     }
   }
-  return REDISMODULE_OK;
 }
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
@@ -2758,9 +2756,9 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   }
 
   RedisSearchCtx_LockSpecWrite(&sctx);
-  int rv = IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, id);
+  IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, id);
   RedisSearchCtx_UnlockSpec(&sctx);
-  return rv;
+  return REDISMODULE_OK;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

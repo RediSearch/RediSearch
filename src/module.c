@@ -647,9 +647,6 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   }
   RedisSearchCtx_LockSpecWrite(&sctx);
   IndexSpec_AddFields(ref, sp, ctx, &ac, initialScan, &status);
-  RedisSearchCtx_UnlockSpec(&sctx);
-
-  RedisSearchCtx_LockSpecRead(&sctx);
   FieldsGlobalStats_UpdateStats(sp->fields + (sp->numFields - 1), 1);
   RedisSearchCtx_UnlockSpec(&sctx);
 
