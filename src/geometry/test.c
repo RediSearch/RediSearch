@@ -87,8 +87,17 @@ static void DeleteRandom(struct RTree *rt, char const *path, size_t num) {
 	free(geos_in_buf);
 }
 
+char const *QueryType_ToString(enum QueryType query) {
+  switch (query)
+  {
+  case CONTAINS: return "containing";
+  case WITHIN: return "within";
+  default: __builtin_unreachable();
+  }
+}
+
 static void Query(struct RTree const *rt, char const *wkt, enum QueryType query) {
-  printf("searching for polygons %s\n", query == WITHIN ? "within" : "containing");
+  printf("searching for polygons %s\n", QueryType_ToString(query));
   struct RTDoc *qdoc = From_WKT(wkt, 0);
   RTDoc_Print(qdoc);
   struct QueryIterator *iter;
