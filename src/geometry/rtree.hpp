@@ -18,7 +18,7 @@ struct RTree {
 
 	rtree_internal rtree_;
 
-    RTree() = default;
+    explicit RTree() = default;
     explicit RTree(rtree_internal const& rt) noexcept : rtree_{rt} {}
 	
 	template <typename Predicate>

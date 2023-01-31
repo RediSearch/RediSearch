@@ -18,7 +18,7 @@ struct RTDoc {
 	rect_internal rect_;
 	docID_t id_;
 
-	RTDoc() = default;
+	explicit RTDoc() = default;
 	explicit RTDoc(rect_internal const& rect) noexcept : poly_{to_poly(rect)}, rect_{rect}, id_{0} {}
 	explicit RTDoc(Polygon::polygon_internal const& poly, docID_t id = 0) : poly_{poly}, rect_{to_rect(poly)}, id_{id} {}
 

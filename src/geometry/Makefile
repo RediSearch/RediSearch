@@ -3,8 +3,8 @@
 CC  = gcc
 CXX = g++
 
-CFLAGS   = -Wall -Wextra -Wpedantic -Werror -std=c2x   -O3
-CXXFLAGS = -Wall -Wextra -Wpedantic -Werror -std=c++20 -O3
+CFLAGS   = -Wall -Wextra -Wpedantic -Wunreachable-code -Wshadow -Werror -std=c2x   -O3
+CXXFLAGS = -Wall -Wextra -Wpedantic -Wconversion       -Wshadow -Werror -std=c++20 -O3
 LDFLAGS = -g
 LDLIBS = 
 
@@ -22,7 +22,7 @@ test.o: test.c geometry.in
 	$(COMPILE.c) -o $@ -MMD -MQ $@ $<
 
 clean:
-	rm -rf test *.o *.d
+	rm -rf test *.o *.d *.in
 
 geometry.in: generator.cc
 	g++ generator.cc -lfmt -o generator.out

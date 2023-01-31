@@ -15,7 +15,7 @@ struct Point {
 
 	point_internal point_;
 
-	Point(double x, double y) noexcept : point_{x, y} {}
+	explicit Point(double x, double y) noexcept : point_{x, y} {}
   explicit Point(point_internal const& other) noexcept : point_{other} {}
 	
   [[nodiscard]] void* operator new(std::size_t sz) { return rm_malloc(sz); }

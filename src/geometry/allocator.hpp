@@ -12,13 +12,13 @@ struct rm_allocator {
   /**
    * @brief Construct a new RedisModule allocator
    */
-  rm_allocator() = default;
+  explicit rm_allocator() = default;
   /**
    * @brief Constructs `a` such that `allocator<B>(a) == b` and `allocator<A>(b) == a`.
    * This implies that all allocators related by rebind maintain each other's resources.
    */
   template <class U>
-  rm_allocator(rm_allocator<U> const&) noexcept {}
+  explicit rm_allocator(rm_allocator<U> const&) noexcept {}
 
   /**
    * @brief Allocates storage suitable for an array object of type T[n] and creates the array,
