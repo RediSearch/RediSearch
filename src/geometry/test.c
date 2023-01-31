@@ -88,11 +88,10 @@ static void DeleteRandom(struct RTree *rt, char const *path, size_t num) {
 }
 
 char const *QueryType_ToString(enum QueryType query) {
-  switch (query)
-  {
-  case CONTAINS: return "containing";
-  case WITHIN: return "within";
-  default: __builtin_unreachable();
+  switch (query) {
+    case CONTAINS: return "containing";
+    case WITHIN:   return "within";
+    default: __builtin_unreachable();
   }
 }
 
@@ -102,11 +101,10 @@ static void Query(struct RTree const *rt, char const *wkt, enum QueryType query)
   RTDoc_Print(qdoc);
   struct QueryIterator *iter;
   size_t start = rdtsc();
-  switch (query)
-  {
-  case CONTAINS: iter = RTree_Query_Contains(rt, qdoc); break;
-  case WITHIN: iter = RTree_Query_Within(rt, qdoc); break;
-  default: __builtin_unreachable();
+  switch (query) {
+    case CONTAINS: iter = RTree_Query_Contains(rt, qdoc); break;
+    case WITHIN:   iter = RTree_Query_Within  (rt, qdoc); break;
+    default: __builtin_unreachable();
   }
   size_t end = rdtsc();
   RTDoc_Free(qdoc);
