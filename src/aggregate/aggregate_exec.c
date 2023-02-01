@@ -15,6 +15,7 @@
 #include "score_explain.h"
 #include "commands.h"
 #include "profile.h"
+#include "util/trace_bp.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -382,8 +383,10 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     return;
   }
 
+NAMED_TRACED_BP("reader_before_spec_lock");
   // lock spec
   RedisSearchCtx_LockSpecRead(BCRctx->req->sctx);
+NAMED_TRACED_BP("reader_after_spec_lock");
   QueryError status = {0};
   if (prepareExecutionPlan(req, AREQ_BUILD_THREADSAFE_PIPELINE, &status) != REDISMODULE_OK) {
     // Enrich the error message that was caught to include the fact that the query ran
