@@ -67,13 +67,13 @@ void _MRClsuter_UpdateNodes(MRCluster *cl) {
   }
 }
 
-MRCluster *MR_NewCluster(MRClusterTopology *initialTopolgy, ShardFunc sf,
+MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, ShardFunc sf,
                          long long minTopologyUpdateInterval) {
   MRCluster *cl = rm_malloc(sizeof(MRCluster));
   cl->sf = sf;
   cl->topologyUpdateMinInterval = minTopologyUpdateInterval;
   cl->lastTopologyUpdate = 0;
-  cl->topo = initialTopolgy;
+  cl->topo = initialTopology;
   cl->nodeMap = NULL;
   cl->myNode = NULL;  // tODO: discover local ip/port
   MRConnManager_Init(&cl->mgr, MR_CONN_POOL_SIZE);

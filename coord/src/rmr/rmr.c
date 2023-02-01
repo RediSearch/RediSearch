@@ -66,7 +66,7 @@ typedef struct MRCtx {
   MRReduceFunc fn;
 } MRCtx;
 
-/* The request duration in microsecnds, relevant only on the reducer */
+/* The request duration in microseconds, relevant only on the reducer */
 int64_t MR_RequestDuration(MRCtx *ctx) {
   return ((int64_t)1000000 * ctx->endTime.tv_sec + ctx->endTime.tv_nsec / 1000) -
          ((int64_t)1000000 * ctx->startTime.tv_sec + ctx->startTime.tv_nsec / 1000);
@@ -118,7 +118,7 @@ void MRCtx_Free(MRCtx *ctx) {
 }
 
 /* Get the user stored private data from the context */
-void *MRCtx_GetPrivdata(struct MRCtx *ctx) {
+void *MRCtx_GetPrivData(struct MRCtx *ctx) {
   return ctx->privdata;
 }
 

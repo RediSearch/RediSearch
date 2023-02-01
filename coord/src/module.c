@@ -1174,10 +1174,10 @@ static void profileSearchReply(RedisModuleCtx *ctx, searchReducerCtx *rCtx,
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
-  clock_t postProccesTime;
+  clock_t postProccessTime;
   RedisModuleBlockedClient *bc = (RedisModuleBlockedClient *)MRCtx_GetRedisCtx(mc);
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
-  searchRequestCtx *req = MRCtx_GetPrivdata(mc);
+  searchRequestCtx *req = MRCtx_GetPrivData(mc);
   searchReducerCtx rCtx = {NULL};
   int profile = (req->profileArgs > 0);
 
@@ -1248,8 +1248,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   if (!profile) {
     sendSearchResults(ctx, &rCtx);
   } else {
-    postProccesTime = clock();
-    profileSearchReply(ctx, &rCtx, count, replies, req->profileClock, postProccesTime);
+    postProccessTime = clock();
+    profileSearchReply(ctx, &rCtx, count, replies, req->profileClock, postProccessTime);
   }
 
 cleanup:
