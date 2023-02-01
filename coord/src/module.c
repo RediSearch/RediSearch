@@ -1931,7 +1931,15 @@ int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       tableSize = 16384;
   }
 
-  MRCluster *cl = MR_NewCluster(initialTopology, sf, 2);
+  size_t num_connections_per_shard;
+  if (clusterConfig.connPerShard) {
+    num_connections_per_shard = clusterConfig.connPerShard;
+  } else {
+    // default
+    num_connections_per_shard = RSGlobalConfig.numWorkerThreads + 1;
+  }
+
+  MRCluster *cl = MR_NewCluster(initialTopology, num_connections_per_shard, sf, 2);
   MR_Init(cl, clusterConfig.timeoutMS);
   InitGlobalSearchCluster(clusterConfig.numPartitions, slotTable, tableSize);
 

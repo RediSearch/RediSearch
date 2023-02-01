@@ -33,7 +33,6 @@ extern int redisMajorVesion;
 static MRCluster *cluster_g = NULL;
 static MRWorkQueue *rq_g = NULL;
 
-#define MAX_CONCURRENT_REQUESTS (MR_CONN_POOL_SIZE * 50)
 /* Coordination request timeout */
 long long timeout_g = 5000;
 
@@ -240,7 +239,9 @@ void MR_Init(MRCluster *cl, long long timeoutMS) {
 
   cluster_g = cl;
   timeout_g = timeoutMS;
-  rq_g = RQ_New(8, MAX_CONCURRENT_REQUESTS);
+  // `*50` for following the previous behavior
+  // #define MAX_CONCURRENT_REQUESTS (MR_CONN_POOL_SIZE * 50)
+  rq_g = RQ_New(cl->mgr.nodeConns * 50);
 
   // MRCluster_ConnectAll(cluster_g);
   printf("Creating thread...\n");
