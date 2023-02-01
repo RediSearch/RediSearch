@@ -1303,10 +1303,10 @@ static struct timespec getIntervalCb(void *ctx) {
   return gc->retryInterval;
 }
 
-ForkGC *FGC_New(StrongRef global, GCCallbacks *callbacks) {
+ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
   ForkGC *forkGc = rm_calloc(1, sizeof(*forkGc));
   *forkGc = (ForkGC){
-      .index = StrongRef_Demote(global),
+      .index = StrongRef_Demote(spec_ref),
       .deletedDocsFromLastRun = 0,
   };
   forkGc->retryInterval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;

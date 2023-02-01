@@ -47,7 +47,7 @@ typedef struct ForkGC {
   volatile size_t deletedDocsFromLastRun;
 } ForkGC;
 
-ForkGC *FGC_New(StrongRef global, GCCallbacks *callbacks);
+ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks);
 
 typedef enum {
   // Normal "open" state. No pausing will happen
