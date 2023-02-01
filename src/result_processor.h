@@ -54,7 +54,8 @@ typedef enum {
 typedef enum {
   RP_INDEX,
   RP_LOADER,
-  RP_BUFFER_AND_LOADER,
+  RP_BUFFER_AND_LOCKER,
+  RP_UNLOCKER,
   RP_SCORER,
   RP_SORTER,
   RP_COUNTER,

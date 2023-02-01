@@ -65,6 +65,8 @@ void FixedSizeElementsBlocksManager_InitIterator(const FixedSizeBlocksManager *B
  */
 void *FixedSizeBlocksManager_getNextElement(FixedSizeBlocksIterator* resultsIterator);
 
+void FixedSizeBlocksManager_invalidateIterator(FixedSizeBlocksIterator* resultsIterator);
+
 #ifdef __cplusplus
 }
 #endif

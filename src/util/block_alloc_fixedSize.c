@@ -113,3 +113,9 @@ void *FixedSizeBlocksManager_getNextElement(FixedSizeBlocksIterator* resultsIter
 	return ret;
 
 }
+
+void FixedSizeBlocksManager_invalidateIterator(FixedSizeBlocksIterator* resultsIterator) {
+	resultsIterator->currentBlock = NULL;
+	resultsIterator->BlocksManager = NULL;
+	resultsIterator->curr_elem_index = 0;
+}

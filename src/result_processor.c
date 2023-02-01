@@ -848,109 +848,90 @@ ResultProcessor *RPCounter_New() {
 }
 
 /*******************************************************************************************************************
- *  Buffer and Loader Results Processor
+ *  Buffer and Locker Results Processor
  *
  * This component should be added to the pipeline of the query excution, if a thread safe access to
  * Redis keyspace is required.
  *
- * The buffer is responsible for buffering the document that pass the query filters and loading
- *their feilds values from Redis keyspace.
+ * The buffer is responsible for buffering the document that pass the query filters and lock the GIL
+ * to allow the downstream result processor safe access to redis keyspace.
  *
- *
+ * Unlocking the GIL should be done only by the Unlocker result processor.
  *******************************************************************************************************************/
 
 typedef struct {
   ResultProcessor base;
 
-  bool ShouldLoadAll;
-  RLookup *lookup;
-  const RLookupKey **fields;
-  size_t nfields;
-
   FixedSizeBlocksManager bufferBlocks;
   FixedSizeBlocksIterator resultsIterator;
   size_t BlockSize;
 
-} RPBUfferAndLoader;
+} RPBufferAndLocker;
 
 static int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res);
 
-static void RPBUfferAndLoader_Free(ResultProcessor *base) {
-  RPBUfferAndLoader *RPbufferAndLoader = (RPBUfferAndLoader *)base;
+static void RPBufferAndLocker_Free(ResultProcessor *base) {
+  RPBufferAndLocker *this = (RPBufferAndLocker *)base;
 
-  rm_free(RPbufferAndLoader->fields);
-  rm_free(RPbufferAndLoader);
+  // Free buffer memory blocks
+  FixedSizeBlocksManager_FreeAll(&this->bufferBlocks);
+
+  // Invalidate the iterator
+  FixedSizeBlocksManager_invalidateIterator(&this->resultsIterator);
+
+  rm_free(this);
 }
 
-ResultProcessor *RPBUfferAndLoader_New(RLookup *lookup, const RLookupKey **keys, size_t nkeys) {
-  RPBUfferAndLoader *RPbufferAndLoader = rm_calloc(1, sizeof(RPBUfferAndLoader));
-  RPbufferAndLoader->nfields = nkeys;
-  RPbufferAndLoader->fields = rm_calloc(nkeys, sizeof(RLookupKey *));
-  memcpy(RPbufferAndLoader->fields, keys, sizeof(*keys) * nkeys);
+ResultProcessor *RPBufferAndLoader_New() {
+  RPBufferAndLocker *ret = rm_calloc(1, sizeof(RPBufferAndLocker));
 
-  RPbufferAndLoader->lookup = lookup;
-  RPbufferAndLoader->base.Next = rpbufferNext_bufferDocs;
-  RPbufferAndLoader->base.Free = RPBUfferAndLoader_Free;
-  RPbufferAndLoader->base.type = RP_BUFFER_AND_LOADER;
-  return &RPbufferAndLoader->base;
+  ret->base.Next = rpbufferNext_bufferDocs;
+  ret->base.Free = RPBufferAndLocker_Free;
+  ret->base.type = RP_BUFFER_AND_LOCKER;
+  return &ret->base;
 }
-
 
 static bool isResultValid(const SearchResult *res) {
   // check if the doc is not marked deleted in the spec
   return res->dmd->flags & Document_Deleted;
 }
 
-static void CopyFromBufferToResult(SearchResult *buffered_result,  SearchResult *output_result) {
-  *output_result = *buffered_result;
-  SearchResult_Clear(buffered_result);
-}
-static int rpbuffer_load(ResultProcessor *rp, SearchResult *buffered_result,  SearchResult *output_result) {
-  RPBUfferAndLoader *RPLoader = (RPBUfferAndLoader *)rp;
+static int ReturnResult(SearchResult *buffered_result,  SearchResult *result_output) {
+  *result_output = *buffered_result;
 
-  RedisSearchCtx *sctx = RPLoader->base.parent->sctx;
-
-  QueryError status = {0};
-  RLookupLoadOptions loadopts = {.sctx = sctx,
-                                  .dmd = buffered_result->dmd,
-                                  .noSortables = 1,
-                                  .forceString = 1,
-                                  .status = &status,
-                                  .keys = RPLoader->fields,
-                                  .nkeys = RPLoader->nfields};
-  if (RPLoader->ShouldLoadAll) {
-    loadopts.mode |= RLOOKUP_LOAD_KEYLIST;
-  } else {
-    loadopts.mode |= RLOOKUP_LOAD_ALLKEYS;
-  }
-
-  // if loadinging the document has failed, we return an empty array
-  RLookup_LoadDocument(RPLoader->lookup, &buffered_result->rowdata, &loadopts);
-  CopyFromBufferToResult(buffered_result, output_result);
-
+  // Invalidate the buffered result.
+  buffered_result->indexResult = NULL;
+  buffered_result->dmd = NULL;
+  buffered_result->scoreExplain = NULL;
+  buffered_result->indexResult = NULL;
+  memset(&buffered_result->rowdata, 0, sizeof(RLookupRow));
   return RS_RESULT_OK;
 }
 
-static int rpbufferNext_loadNoValidation(ResultProcessor *rp, SearchResult *result_output) {
-  RPBUfferAndLoader *RPBuffer = (RPBUfferAndLoader *)rp;
+static int rpbufferNext_Yield(ResultProcessor *rp, SearchResult *result_output) {
+  RPBufferAndLocker *RPBuffer = (RPBufferAndLocker *)rp;
   SearchResult *curr_res = FixedSizeBlocksManager_getNextElement(&RPBuffer->resultsIterator);
+  
   if(!curr_res) {
     return RS_RESULT_EOF;
   }
- return rpbuffer_load(rp, curr_res, result_output);
+ return ReturnResult(curr_res, result_output);
   
 }
 
-static int rpbufferNext_ValidateAndLoad(ResultProcessor *rp, SearchResult *result_output) {
-  RPBUfferAndLoader *RPBuffer = (RPBUfferAndLoader *)rp;
+static int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_output) {
+  RPBufferAndLocker *RPBuffer = (RPBufferAndLocker *)rp;
   SearchResult *curr_res = FixedSizeBlocksManager_getNextElement(&RPBuffer->resultsIterator);
   
   // iterate the buffer.
   while(curr_res) {
     // Skip invalid results
     if (isResultValid(curr_res)) {
-      return rpbuffer_load(rp, curr_res, result_output);
+      return ReturnResult(curr_res, result_output);
     }
+
+    // If the result is invalid discard it.
+    SearchResult_Clear(curr_res);
     curr_res = FixedSizeBlocksManager_getNextElement(&RPBuffer->resultsIterator);
   }
 
@@ -958,7 +939,7 @@ static int rpbufferNext_ValidateAndLoad(ResultProcessor *rp, SearchResult *resul
 }
 
 int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
-  RPBUfferAndLoader *RPBuffer = (RPBUfferAndLoader *)rp;
+  RPBufferAndLocker *RPBuffer = (RPBufferAndLocker *)rp;
 
   // Get the current index version so we can check later if any updates accured
   // after we finish to buffer the results
@@ -989,16 +970,16 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
         if (!FixedSizeBlocksManager_isEmpty(buffer)) {
           break;
         }
-      }  // else, we got no results or something went wront, we can go downstream.
+      }  // else, we got no results or something went wrong, we can go downstream.
       return result_status;
     }
   }
 
   // Now we have the data of all documents that pass the query filters,
-  // let's load the feilds that require access to Redis keyspace.
-
-  // initialize this->next to the defualt value
-  rp->Next = rpbufferNext_loadNoValidation;
+  // let's lock the GIL to provide safe access to Redis keyspace 
+  
+  // initialize next function to the defualt value
+  rp->Next = rpbufferNext_Yield;
 
   int lockGIL = RedisModule_ThreadSafeContextTryLock(RSctx->redisCtx);
 
@@ -1011,19 +992,57 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
     // Lock GIL to gurentee safe access to Redis keyspace
     RedisModule_ThreadSafeContextLock(RSctx->redisCtx);
 
-    // Lock the index for reading
-    RedisSearchCtx_LockSpecRead(RSctx);
-
     // If the spec has been changed since we released the spec lock,
     // we need to validate every buffered result
     if (currentIndexVersion != IndexSpec_GetVersion(RSctx->spec)) {
-      rp->Next = rpbufferNext_ValidateAndLoad;
+      rp->Next = rpbufferNext_ValidateAndYield;
     }
   }
+
   // If we managed to lock the GIL it means that
-  // nobody held it, so we cant have a deadlock.
-  // also, we are not releasing the spec lock so it's gurnteed that
-  // no changes were applied, hence we can skip validation.
+  // nobody held it, so we can't have a deadlock.
+  // We don't lock the index lock because we assume that there 
+  // are no more access to the index down the pipeline and the data 
+  // we buffered remains valid.
   FixedSizeElementsBlocksManager_InitIterator(buffer, &RPBuffer->resultsIterator);
   return rp->Next(rp, res);
+}
+
+/*******************************************************************************************************************
+ *  UnLocker Results Processor
+ *
+ * This component should be added to the pipeline of the query excution, if a thread safe access to
+ * Redis keyspace is required.
+ *
+ * It is responsible for unlocking the GIL where no access to Redis keyspace is required.
+ *
+ *******************************************************************************************************************/
+
+typedef struct {
+  ResultProcessor base;
+} RPUnlocker;
+
+static int RPUnlocker_Next(ResultProcessor *rp, SearchResult *res) {
+  // call the next result processor
+  int result_status = rp->upstream->Next(rp->upstream, res);
+  // if EOF is returned we can safly unlock the GIL
+  if(result_status == RS_RESULT_EOF) {
+    RedisSearchCtx *RSctx = ((RPUnlocker *)rp)->base.parent->sctx;
+    RedisModule_ThreadSafeContextUnlock(RSctx->redisCtx);
+
+  }
+  return result_status;
+}
+
+static void RPUnlocker_Free(ResultProcessor *base) {
+  rm_free(base);
+}
+
+ResultProcessor *RPUnlocker_New() {
+  RPUnlocker *ret = rm_calloc(1, sizeof(RPUnlocker));
+
+  ret->base.Next = RPUnlocker_Next;
+  ret->base.Free = RPUnlocker_Free;
+  ret->base.type = RP_UNLOCKER;
+  return &ret->base;
 }
