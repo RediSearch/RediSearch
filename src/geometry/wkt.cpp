@@ -15,8 +15,8 @@ namespace bg = boost::geometry;
 	return pg;
 }
 
-[[nodiscard]] RTDoc *From_WKT(const char *wkt, docID_t id) {
-	return new RTDoc{from_wkt(wkt), id};
+[[nodiscard]] RTDoc *From_WKT(const char *wkt, size_t len, docID_t id) {
+	return new RTDoc{from_wkt({wkt, len}), id};
 }
 
 RTree *Load_WKT_File(RTree *rtree, const char *path) {

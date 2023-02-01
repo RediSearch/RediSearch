@@ -6,11 +6,6 @@
 #include <time.h>
 #include "geometry.h"
 
-enum QueryType {
-  CONTAINS,
-  WITHIN,
-};
-
 static size_t rdtsc(void);
 static void PrintStats(struct RTree const *rt);
 static void DeleteRandom(struct RTree *rt, char const *path, size_t num);
@@ -80,7 +75,8 @@ static void DeleteRandom(struct RTree *rt, char const *path, size_t num) {
 	*runner++ = strtok(geos_in_buf, "\n");
 	while ((*runner++ = strtok(NULL, "\n")));
 	for (int i = 0; i < 200000; ++i) {
-		struct RTDoc *qdoc = From_WKT(wkts[rand() % (sizeof wkts / sizeof *wkts)], 0);
+    char const *wkt = wkts[rand() % (sizeof wkts / sizeof *wkts)];
+		struct RTDoc *qdoc = From_WKT(wkt, strlen(wkt), 0);
 		RTree_Remove(rt, qdoc);
 		RTDoc_Free(qdoc);
 	}
@@ -97,15 +93,10 @@ char const *QueryType_ToString(enum QueryType query) {
 
 static void Query(struct RTree const *rt, char const *wkt, enum QueryType query) {
   printf("searching for polygons %s\n", QueryType_ToString(query));
-  struct RTDoc *qdoc = From_WKT(wkt, 0);
+  struct RTDoc *qdoc = From_WKT(wkt, strlen(wkt), 0);
   RTDoc_Print(qdoc);
-  struct QueryIterator *iter;
   size_t start = rdtsc();
-  switch (query) {
-    case CONTAINS: iter = RTree_Query_Contains(rt, qdoc); break;
-    case WITHIN:   iter = RTree_Query_Within  (rt, qdoc); break;
-    default: __builtin_unreachable();
-  }
+  struct QueryIterator *iter = RTree_Query(rt, qdoc, query);
   size_t end = rdtsc();
   RTDoc_Free(qdoc);
   printf("num found results: %ld\n", QIter_Remaining(iter));

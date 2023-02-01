@@ -4,7 +4,6 @@
 #include <boost/geometry.hpp>
 #undef BOOST_ALLOW_DEPRECATED_HEADERS
 #include "allocator.hpp"
-#include "point.h"
 
 namespace bg = boost::geometry;
 namespace bgm = bg::model;

@@ -27,7 +27,22 @@ struct RTree {
 		rtree_.query(p, std::back_inserter(result));
 		return result;
 	}
-	
+
+	[[nodiscard]] QueryIterator *contains(RTDoc const *queryDoc) const {
+		auto results = query(bgi::contains(queryDoc->rect_));
+		std::erase_if(results, [&](auto const& doc) {
+			return !bg::within(queryDoc->poly_, doc.poly_);
+		});
+		return new QueryIterator{std::move(results)};
+	}
+	[[nodiscard]] QueryIterator *within(RTDoc const *queryDoc) const {
+		auto results = query(bgi::within(queryDoc->rect_));
+		std::erase_if(results, [&](auto const& doc) {
+			return !bg::within(doc.poly_, queryDoc->poly_);
+		});
+		return new QueryIterator{std::move(results)};
+	}
+
   [[nodiscard]] void* operator new(std::size_t sz) { return rm_malloc(sz); }
   void operator delete(void *p) { rm_free(p); }
 };
