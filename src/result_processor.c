@@ -723,7 +723,7 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
   return &sc->base;
 }
 
-static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Buufer and Loader", "Scorer",
+static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Buufer and Locker", "Unlocker", "Scorer",
                                      "Sorter",    "Counter",   "Pager/Limiter", "Highlighter", 
                                      "Grouper",   "Projector", "Filter",        "Profile",     
                                      "Network",   "Vector Similarity Scores Loader"};
