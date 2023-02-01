@@ -471,6 +471,7 @@ int SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
  * Default query expander
  *
  ******************************************************************************************/
+// TODO: multithreaded: verify if this function is in use and make thread safe (IndexSpec)
 int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   int phonetic = (*(ctx->currentNode))->opts.phonetic;
   SynonymExpand(ctx, token);
