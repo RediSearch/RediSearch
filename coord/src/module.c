@@ -2029,7 +2029,7 @@ void setHiredisAllocators(){
 
 void Coordinator_CleanupModule(void) {
   MR_Destroy();
-  GlobalSearchCluser_Release();
+  GlobalSearchCluster_Release();
 }
 
 void Coordinator_ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
