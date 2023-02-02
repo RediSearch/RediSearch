@@ -882,7 +882,7 @@ static void RPBufferAndLocker_Free(ResultProcessor *base) {
   rm_free(this);
 }
 
-ResultProcessor *RPBufferAndLoader_New() {
+ResultProcessor *RPBufferAndLocker_New() {
   RPBufferAndLocker *ret = rm_calloc(1, sizeof(RPBufferAndLocker));
 
   ret->base.Next = rpbufferNext_bufferDocs;
