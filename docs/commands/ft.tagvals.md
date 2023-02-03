@@ -41,6 +41,7 @@ FT.TAGVALS returns an array reply of all distinct tags in the tag index.
 127.0.0.1:6379> FT.TAGVALS idx myTag
 1) "Hello"
 2) "World"
+{{< / highlight >}}
 </details>
 
 ## See also

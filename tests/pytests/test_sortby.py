@@ -46,8 +46,8 @@ def check_sortby(env, query, params, msg=None):
     
         if print_err:
             if (len(res)) < 100:
-                env.debugPrint(str(res), force=True)
-                env.debugPrint(str(res_list), force=True)
+                env.debugPrint(str(res), force=TEST_DEBUG)
+                env.debugPrint(str(res_list), force=TEST_DEBUG)
                 input('stop')
 
         env.assertFalse(print_err, message=err_msg)
@@ -57,14 +57,14 @@ def check_sortby(env, query, params, msg=None):
 def compare_asc_desc(env, query, params, msg=None):
     asc_res = env.cmd(*query, 'ASC', *params)[1:]
     desc_res = env.cmd(*query, 'DESC', *params)[1:]
-    #env.debugPrint(str(asc_res), force=True)
-    #env.debugPrint(str(desc_res), force=True)
+    #env.debugPrint(str(asc_res), force=TEST_DEBUG)
+    #env.debugPrint(str(desc_res), force=TEST_DEBUG)
 
     desc_res.reverse()
     cmp_res = []
     for i, j in zip(desc_res[0::2], desc_res[1::2]):
         cmp_res.extend([j, i]) 
-    #env.debugPrint(str(cmp_res), force=True)
+    #env.debugPrint(str(cmp_res), force=TEST_DEBUG)
 
     failed = False
     for i in range(1,len(asc_res),2):
