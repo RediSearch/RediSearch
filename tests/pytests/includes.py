@@ -19,7 +19,9 @@ CODE_COVERAGE = os.getenv('CODE_COVERAGE', '0') == '1'
 NO_LIBEXT = os.getenv('NO_LIBEXT', '0') == '1'
 CI = os.getenv('CI', '') != ''
 TEST_DEBUG = os.getenv('TEST_DEBUG', '0') == '1'
+DEBUG = os.getenv('DEBUG', '0') == '1'
 
 OSNICK = paella.Platform().osnick
 OS = paella.Platform().os
 ARCH = paella.Platform().arch
+BUILD_MODE = 'debug' if DEBUG else 'release'

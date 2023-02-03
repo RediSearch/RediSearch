@@ -16,6 +16,8 @@ from RLTest.env import Query
 from includes import *
 import numpy as np
 from scipy import spatial
+from os.path import *
+from redis.asyncio import Redis as AIORedis
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
@@ -370,3 +372,36 @@ class ConditionalExpected:
         if cond_val == self.cond_val:
             func(self.env.expect(*self.query))
         return self
+
+def module_path():
+    # path/to/RediSearch/tests/pytests
+    root_path =  dirname(dirname(dirname(os.path.realpath(__file__))))
+    module_file_path = join(root_path, 'bin', f'{OS}-{ARCH}-{BUILD_MODE}', 'search', 'redisearch.so' )
+    return module_file_path
+
+
+
+class SearchEnv(Env):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def async_cmd(self, *args):
+        con = self.getConnection()
+        async_cone = AIORedis(host = con.host, port = con.port, db = con.db, password = con.password)
+        return async_cone.execute_command(*args)
+        # return self.env.getAsyncConnection().send_command(*args)
+        
+
+def SearchTest(readers = 0,
+               skipOnCluster = False
+               skipCleanup = False,
+               skipOnSingleShard = False,
+               skipWithTLS = False,):
+    def wrapper(f):
+        @wraps(f)
+        def wrapped():
+
+
+        return wrapped
+    return wrapper
