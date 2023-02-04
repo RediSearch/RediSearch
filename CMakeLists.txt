@@ -15,6 +15,8 @@ option(BUILD_STATIC "Build a static library" OFF)
 option(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
 option(BUILD_TESTS "Build tests" OFF)
 
+option(BUILD_TRACE "Build with trace" OFF)
+
 #----------------------------------------------------------------------------------------------
 
 project(redisearch)
@@ -26,6 +28,11 @@ endif()
 #----------------------------------------------------------------------------------------------
 
 setup_cc_options()
+
+if(BUILD_TRACE)
+    add_compile_definitions(BUILD_TRACE)
+    message(STATUS "Building with trace" BUILD_TRACE)
+endif()
 
 # ugly hack for cpu_features::list_cpu_features coming from VecSim
 set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")

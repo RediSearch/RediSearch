@@ -189,6 +189,10 @@ ifneq ($(COORD),)
 CMAKE_COORD += -DCOORD_TYPE=$(COORD)
 endif
 
+ifeq ($(BUILD_TRACE),1)
+CMAKE_TRACE += -DBUILD_TRACE=ON
+endif
+
 CMAKE_FILES= \
 	CMakeLists.txt \
 	build/cmake/redisearch_cflags.cmake \
