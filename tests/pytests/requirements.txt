@@ -2,3 +2,4 @@ packaging >= 20.8
 RLTest ~= 0.5.12
 ramp-packer ~= 2.5.2
 gevent
+python-ptrace

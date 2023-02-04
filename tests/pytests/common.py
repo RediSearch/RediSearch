@@ -3,7 +3,11 @@ try:
     from collections.abc import Iterable
 except ImportError:
     from collections import Iterable
+from asyncio import Future, Task
+import asyncio
+from threading import Thread
 import time
+from types import coroutine
 from packaging import version
 from functools import wraps
 import signal
@@ -18,6 +22,8 @@ import numpy as np
 from scipy import spatial
 from os.path import *
 from redis.asyncio import Redis as AIORedis
+from RLTest import Env
+import ptrace.debugger
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
@@ -381,27 +387,54 @@ def module_path():
 
 
 
+class AsyncResponse:
+    def __init__(self, future: Future):
+        self.future = future
+
+    def read_response(self):
+        return self.future.result()
+
 class SearchEnv(Env):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.event_loop = asyncio.new_event_loop()
+        self.thread = Thread(target = self.event_loop.run_forever)
+        self.thread.start()
 
-    def async_cmd(self, *args):
-        con = self.getConnection()
-        async_cone = AIORedis(host = con.host, port = con.port, db = con.db, password = con.password)
-        return async_cone.execute_command(*args)
-        # return self.env.getAsyncConnection().send_command(*args)
+    def __del__(self):
+        self.event_loop.call_soon_threadsafe(self.event_loop.stop)
+        while(self.event_loop.is_running()):
+            time.sleep(0.1)
+        self.event_loop.close()
+        self.thread.join()
+
+    def getAsyncConnection(self):
+        con = self.getConnection().connection_pool.get_connection("_")
+        return AIORedis(host = con.host, port = con.port, db = con.db, password = con.password)
+
+    def async_cmd(self, *args) -> AsyncResponse:
+        async_con = self.getAsyncConnection()
+        return AsyncResponse(asyncio.run_coroutine_threadsafe(async_con.execute_command(*args), self.event_loop))
+
+    def attach_to_worker(self, worker):
+        debugger = ptrace.debugger.PtraceDebugger()
+        p = debugger.addProcess()
+        p
         
 
-def SearchTest(readers = 0,
-               skipOnCluster = False
-               skipCleanup = False,
-               skipOnSingleShard = False,
-               skipWithTLS = False,):
+
+def SearchTest(readers = 0):
     def wrapper(f):
         @wraps(f)
         def wrapped():
-
-
+            path_to_module = module_path()
+            module_args = ["DEFAULT_DIALECT", "2"]
+            if readers > 0:
+                module_args.extend(["ENABLE_THREADS", "TRUE", "WORKER_THREADS", str(readers)])
+            env = SearchEnv(testName = f.__name__, enableDebugCommand=True, module=path_to_module, moduleArgs=' '.join(module_args))
+            
+            test_args = [env]
+            f(*test_args)
         return wrapped
     return wrapper
