@@ -1,5 +1,4 @@
-redis >= 3.0.0
 packaging >= 20.8
-numpy >= 1.16.6
-RLTest ~= 0.5.0
-ramp-packer ~= 2.3.0
+RLTest ~= 0.5.11
+ramp-packer ~= 2.4.0
+gevent
