@@ -50,11 +50,11 @@ def testDeleteIndex(env):
     # time.sleep(1)
 
 
-def testClusterTimeout(env):
+def test_mod4745(env):
     conn = getConnectionByEnv(env)
     if env.isCluster():
-        # Extend the timeout so that the cluster wouldn't think that nodes are non resposive while we index
-        # vectors in the Background.
+        # Decrease the timeout so we will be able to reproduce the issue in which the cluster nodes fail to send pings
+        # while docs are being indexed in the background.
         for con in env.getOSSMasterNodesConnectionList():
             con.execute_command("config", "set", "cluster-node-timeout", "500")
     r = env
@@ -67,4 +67,6 @@ def testClusterTimeout(env):
 
     r.expect('ft.create', 'idx', 'schema', 'name', 'text', 'v', 'VECTOR', 'HNSW', '6', 'distance_metric', 'l2', 'DIM', 100,
              'type', 'float32').ok()
+    # Here we are getting a failure in cluster (with COV) due to a starvation of the main thread, which makes the
+    # cluster mark itself as fail
     waitForIndex(r, 'idx')
