@@ -1,10 +1,15 @@
 
 get_filename_component(RS_DIR ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
-message("# search root: " ${RS_DIR})
-message("# search binroot: " ${binroot})
+if(NOT DEFINED root)
+	set(root ${RS_DIR})
+endif()
+message("# RediSearch root: " ${RS_DIR})
+message("# RediSearch binroot: " ${binroot})
 
 include(build/cmake/common.cmake)
+
+#----------------------------------------------------------------------------------------------
 
 option(RS_BUILD_STATIC "Build a static library" OFF)
 # RS_BUILD_COORDINATOR
@@ -30,6 +35,7 @@ include(build/cmake/redisearch_debug.cmake)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RS_C_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RS_CXX_FLAGS}")
+
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${RS_EXE_FLAGS}")
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${RS_SO_FLAGS}")
 
@@ -127,16 +133,26 @@ else() # OSS RediSearch
     target_link_libraries(redisearch dl m)
     set_target_properties(redisearch PROPERTIES PREFIX "")
     set_target_properties(redisearch PROPERTIES SUFFIX ".so")
+    add_ldflags(redisearch "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
 
     if (APPLE)
         set_target_properties(redisearch PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
     endif()
 
-	if (NOT CMAKE_BUILD_TYPE STREQUAL DEBUG AND NOT APPLE)
-        add_custom_command(TARGET redisearch POST_BUILD
-            COMMAND objcopy --only-keep-debug $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
-            COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
-            COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>) 
+	if (NOT CMAKE_BUILD_TYPE STREQUAL DEBUG)
+		if (NOT APPLE)
+			add_custom_command(TARGET redisearch POST_BUILD
+				COMMAND cp $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
+				COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
+				COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>)
+		else()
+			add_custom_command(TARGET redisearch POST_BUILD
+				COMMAND cp $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug)
+		endif()
+#        add_custom_command(TARGET redisearch POST_BUILD
+#            COMMAND objcopy --only-keep-debug $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
+#            COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
+#            COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>)
     endif()
 endif()
 

@@ -1,5 +1,8 @@
 
-from collections import Iterable
+try:
+    from collections.abc import Iterable
+except ImportError:
+    from collections import Iterable
 import time
 from packaging import version
 from functools import wraps
@@ -8,7 +11,8 @@ import platform
 import itertools
 from redis.client import NEVER_DECODE
 import RLTest
-
+from typing import Any, Callable
+from RLTest.env import Query
 from includes import *
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'

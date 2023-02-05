@@ -18,6 +18,5 @@ target_link_libraries(rstest gtest ${RS_TEST_MODULE} ${RS_LINK_LIBS} redismock)
 set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
 set_property(TARGET rstest PROPERTY CXX_STANDARD 11)
 add_dependencies(rstest example_extension)
-
 add_test(NAME rstest COMMAND rstest)
 # set_tests_properties(rstest PROPERTIES ENVIRONMENT "EXT_TEST_PATH=$<TARGET_FILE:example_extension>")
