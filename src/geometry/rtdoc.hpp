@@ -11,28 +11,37 @@
 
 namespace bg = boost::geometry;
 namespace bgm = bg::model;
+using string = std::basic_string<char, std::char_traits<char>, rm_allocator<char>>;
 
 struct RTDoc {
-	using rect_internal = bgm::box<Point::point_internal>;
-	Polygon::polygon_internal poly_;
+	using point_type = Point::point_internal;
+	using poly_type = Polygon::polygon_internal;
+	using rect_internal = bgm::box<point_type>;
+	poly_type poly_;
 	rect_internal rect_;
 	docID_t id_;
 
 	explicit RTDoc() = default;
 	explicit RTDoc(rect_internal const& rect) noexcept : poly_{to_poly(rect)}, rect_{rect}, id_{0} {}
-	explicit RTDoc(Polygon::polygon_internal const& poly, docID_t id = 0) : poly_{poly}, rect_{to_rect(poly)}, id_{id} {}
+	explicit RTDoc(poly_type const& poly, docID_t id = 0) : poly_{poly}, rect_{to_rect(poly)}, id_{id} {}
 	explicit RTDoc(std::string_view wkt, docID_t id = 0) : poly_{Polygon::from_wkt(wkt)} , rect_{to_rect(poly_)}, id_{id} {}
 
-	[[nodiscard]] static rect_internal to_rect(Polygon::polygon_internal const& poly) {
+	[[nodiscard]] docID_t id() const noexcept {
+		return id_;
+	}
+
+	[[nodiscard]] static rect_internal to_rect(poly_type const& poly) {
 		const auto& points = poly.outer();
 		auto xs = std::ranges::transform_view(points, [] (const auto& p) { return bg::get<0>(p); });
 		auto [min_x, max_x] = std::ranges::minmax(xs);
 		auto ys = std::ranges::transform_view(points, [] (const auto& p) { return bg::get<1>(p); });
 		auto [min_y, max_y] = std::ranges::minmax(ys);
-		return {{min_x, min_y}, {max_x, max_y}};
+		return rect_internal{
+			point_type{min_x, min_y}, point_type{max_x, max_y}
+		};
 	}
 
-	[[nodiscard]] static Polygon::polygon_internal to_poly(rect_internal const& rect) noexcept {
+	[[nodiscard]] static poly_type to_poly(rect_internal const& rect) noexcept {
 		auto p_min = rect.min_corner();
 		auto p_max = rect.max_corner();
 		auto x_min = p_min.get<0>();
@@ -40,7 +49,18 @@ struct RTDoc {
 		auto x_max = p_max.get<0>();
 		auto y_max = p_max.get<1>();
 
-		return {{p_min, {x_max, y_min}, p_max, {x_min, y_max}, p_min}};
+		return poly_type{
+			poly_type::ring_type{
+				p_min, point_type{x_max, y_min}, p_max, point_type{x_min, y_max}, p_min
+			}
+		};
+	}
+
+	[[nodiscard]] string to_string() const {
+		using sstream = std::basic_stringstream<char, std::char_traits<char>, rm_allocator<char>>;
+		sstream ss{};
+		ss << bg::wkt(poly_);
+		return ss.str();
 	}
 	
   [[nodiscard]] void* operator new(std::size_t sz) { return rm_malloc(sz); }
@@ -48,10 +68,16 @@ struct RTDoc {
   void operator delete(void *p) noexcept { rm_free(p); }
 };
 
+#include <iostream>
+inline std::ostream& operator<<(std::ostream& os, RTDoc const& doc) {
+	os << bg::wkt(doc.poly_);
+	return os;
+}
+
 [[nodiscard]] inline bool operator==(RTDoc const& lhs, RTDoc const& rhs) noexcept {
 	return lhs.id_ == rhs.id_ &&
-				 bg::equals(lhs.rect_, rhs.rect_) && 
-		  	 bg::equals(lhs.poly_, rhs.poly_);
+		bg::equals(lhs.rect_, rhs.rect_) && 
+		bg::equals(lhs.poly_, rhs.poly_);
 }
 
 struct RTDoc_Indexable {

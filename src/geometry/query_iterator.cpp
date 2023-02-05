@@ -6,7 +6,7 @@ void QIter_Free(QueryIterator *iter) noexcept {
 	delete iter;
 }
 
-RTDoc *QIter_Next(QueryIterator *iter) {
+RTDoc const *QIter_Next(QueryIterator *iter) {
 	return iter->index_ < iter->iter_.size() ? &iter->iter_[iter->index_++] : nullptr;
 }
 

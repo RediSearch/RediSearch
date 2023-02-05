@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include "../redismodule.h"
 
 #ifdef __cplusplus
 #define NODISCARD [[nodiscard]]
@@ -25,6 +26,7 @@ NODISCARD docID_t RTDoc_GetID(struct RTDoc const *doc) NOEXCEPT;
 NODISCARD bool RTDoc_IsEqual(struct RTDoc const *lhs, struct RTDoc const *rhs);
 
 void RTDoc_Print(struct RTDoc const *doc);
+NODISCARD RedisModuleString *RTDoc_ToString(struct RTDoc const *doc);
 
 #ifdef __cplusplus
 }

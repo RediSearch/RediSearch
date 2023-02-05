@@ -11,8 +11,9 @@ namespace bg = boost::geometry;
 namespace bgm = bg::model;
 
 struct Polygon {
+	using point_type = Point::point_internal;
 	using polygon_internal = bgm::polygon<
-		/* point_type       */ Point::point_internal,
+		/* point_type       */ point_type,
 		/* is_clockwise     */ true,
 		/* is_closed        */ true,
 		/* points container */ std::vector,
@@ -32,7 +33,7 @@ struct Polygon {
 		for ([[maybe_unused]] auto&& _ : std::views::iota(0, num_points)) {
 			double x = va_arg(ap, double);
 			double y = va_arg(ap, double);
-			bg::append(poly_.outer(), Point::point_internal{x, y});
+			bg::append(poly_.outer(), point_type{x, y});
 		}
 		va_end(ap);
 	}

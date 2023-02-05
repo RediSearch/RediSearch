@@ -12,7 +12,6 @@ RTree *Load_WKT_File(RTree *rtree, const char *path) {
 	}
 	
 	auto file = std::ifstream{path};
-	using string = std::basic_string<char, std::char_traits<char>, rm_allocator<char>>;
 	for (string wkt{}; std::getline(file, wkt, '\n'); ) {
 		rtree->insert(RTDoc{wkt});
 	}

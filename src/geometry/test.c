@@ -4,6 +4,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
+
+#define REDISMODULE_MAIN
 #include "geometry.h"
 
 static size_t rdtsc(void);
@@ -56,16 +58,16 @@ static void PrintStats(struct RTree const *rt) {
   size_t mem = RTree_MemUsage(rt);
 	printf("num polygons in tree = %ld\n", size);
   printf("%ld bytes used\n", mem);
-  printf("%f bytes used per indexed polygon\n", (double)mem/size);
+  printf("%f bytes used per indexed polygon\n", (double)mem/(double)size);
   puts("");
 }
 
 static void DeleteRandom(struct RTree *rt, char const *path, size_t num) {
   printf("deleting up to %ld random polygons\n", num);
-  srand(time(NULL));
+  srand((unsigned)time(NULL));
 	FILE *geo_in = fopen(path, "r");
 	fseek(geo_in, 0, SEEK_END);
-	size_t len = ftell(geo_in);
+	size_t len = (size_t)ftell(geo_in);
 	fseek(geo_in, 0, SEEK_SET);
 	char *geos_in_buf = malloc(len);
 	[[maybe_unused]] size_t _ = fread(geos_in_buf, 1, len, geo_in);
@@ -76,7 +78,7 @@ static void DeleteRandom(struct RTree *rt, char const *path, size_t num) {
 	*runner++ = strtok(geos_in_buf, "\n");
 	while ((*runner++ = strtok(NULL, "\n")));
 	for (int i = 0; i < 200000; ++i) {
-    char const *wkt = wkts[rand() % (sizeof wkts / sizeof *wkts)];
+    char const *wkt = wkts[rand() % (int)(sizeof wkts / sizeof *wkts)];
 		struct RTDoc *qdoc = From_WKT(wkt, strlen(wkt), 0);
 		RTree_Remove(rt, qdoc);
 		RTDoc_Free(qdoc);
