@@ -1,11 +1,7 @@
 #pragma once
 
-#define BOOST_ALLOW_DEPRECATED_HEADERS
-#include <boost/geometry.hpp>
-#undef BOOST_ALLOW_DEPRECATED_HEADERS
 #include <ranges>
-#include "allocator.hpp"
-#include "point.hpp"
+#include <iostream>
 #include "polygon.hpp"
 #include "rtdoc.h"
 
@@ -63,12 +59,12 @@ struct RTDoc {
 		return ss.str();
 	}
 	
-  [[nodiscard]] void* operator new(std::size_t sz) { return rm_malloc(sz); }
+	using Self = RTDoc;
+  [[nodiscard]] void* operator new(std::size_t sz) { return rm_allocator<Self>().allocate(sz); }
+  void operator delete(void *p) noexcept { rm_allocator<Self>().deallocate(static_cast<Self*>(p), sizeof(Self)); }
   [[nodiscard]] void* operator new(std::size_t, void* pos) { return pos; }
-  void operator delete(void *p) noexcept { rm_free(p); }
 };
 
-#include <iostream>
 inline std::ostream& operator<<(std::ostream& os, RTDoc const& doc) {
 	os << bg::wkt(doc.poly_);
 	return os;

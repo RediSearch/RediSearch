@@ -1,10 +1,6 @@
 #pragma once
 
-#define BOOST_ALLOW_DEPRECATED_HEADERS
-#include <boost/geometry.hpp>
-#undef BOOST_ALLOW_DEPRECATED_HEADERS
 #include <cstdarg>
-#include "allocator.hpp"
 #include "point.hpp"
 
 namespace bg = boost::geometry;
@@ -22,9 +18,6 @@ struct Polygon {
 		/* rings_allocator  */ rm_allocator
 	>;
 	polygon_internal poly_;
-	
-  [[nodiscard]] void* operator new(std::size_t sz) { return rm_malloc(sz); }
-  void operator delete(void *p) noexcept { rm_free(p); }
 
 	[[nodiscard]] explicit Polygon() = default;
 	[[nodiscard]] explicit Polygon(int num_points, ...) {
@@ -43,5 +36,9 @@ struct Polygon {
 		bg::read_wkt(wkt.data(), pg);
 		return pg;
 	}
+
+	using Self = Polygon;
+  [[nodiscard]] void* operator new(std::size_t sz) { return rm_allocator<Self>().allocate(sz); }
+  void operator delete(void *p) noexcept { rm_allocator<Self>().deallocate(static_cast<Self*>(p), sizeof(Self)); }
 };
 

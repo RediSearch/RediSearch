@@ -1,11 +1,7 @@
 #pragma once
 
-#define BOOST_ALLOW_DEPRECATED_HEADERS
-#include <boost/geometry.hpp>
-#undef BOOST_ALLOW_DEPRECATED_HEADERS
 #include <vector>
 #include <algorithm>
-#include "allocator.hpp"
 #include "rtdoc.hpp"
 #include "query_iterator.h"
 
@@ -17,6 +13,7 @@ struct QueryIterator {
 	explicit QueryIterator() = default;
 	explicit QueryIterator(container&& iter) : iter_{std::move(iter)}, index_{0} {}
 
-  [[nodiscard]] void* operator new(std::size_t sz) { return rm_malloc(sz); }
-  void operator delete(void *p) { rm_free(p); }
+	using Self = QueryIterator;
+  [[nodiscard]] void* operator new(std::size_t sz) { return rm_allocator<Self>().allocate(sz); }
+  void operator delete(void *p) noexcept { rm_allocator<Self>().deallocate(static_cast<Self*>(p), sizeof(Self)); }
 };

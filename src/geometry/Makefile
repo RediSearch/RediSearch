@@ -3,8 +3,8 @@
 CC  = gcc
 CXX = g++
 
-CFLAGS   = -Wall -Wextra            -Wconversion -Wshadow -Werror -std=c2x   -O3
-CXXFLAGS = -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -std=c++20 -O3
+CFLAGS   = -Wall -Wextra            -Wconversion -Wshadow -Werror -std=c2x   -O2
+CXXFLAGS = -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -std=c++20 -O2
 LDFLAGS = -g
 LDLIBS = 
 

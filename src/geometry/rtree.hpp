@@ -1,10 +1,5 @@
 #pragma once
 
-#define BOOST_ALLOW_DEPRECATED_HEADERS
-#include <boost/geometry.hpp>
-#undef BOOST_ALLOW_DEPRECATED_HEADERS
-#include <algorithm>
-#include "allocator.hpp"
 #include "rtdoc.hpp"
 #include "query_iterator.hpp"
 #include "rtree.h"
@@ -67,6 +62,7 @@ struct RTree {
 		return results;
 	}
 
-  [[nodiscard]] void* operator new(std::size_t sz) { return rm_malloc(sz); }
-  void operator delete(void *p) { rm_free(p); }
+	using Self = RTree;
+  [[nodiscard]] void* operator new(std::size_t sz) { return rm_allocator<Self>().allocate(sz); }
+  void operator delete(void *p) noexcept { rm_allocator<Self>().deallocate(static_cast<Self*>(p), sizeof(Self)); }
 };
