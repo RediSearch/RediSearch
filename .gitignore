@@ -12,6 +12,7 @@
 *.dSYM
 /bin/
 /site/
+/tests/logs/
 /venv*/
 /srcutil/lemon
 /src/query_parser/lemon

@@ -5,7 +5,7 @@ endif()
 message("# libuv: LIBUV_BINROOT=${LIBUV_BINROOT}")
 
 find_path(LIBUV_INCLUDE_DIR uv.h
-    HINTS ${RS_DIR}/deps/libuv
+    HINTS ${root}/deps/libuv
     PATH_SUFFIXES include)
 
 find_library(LIBUV_LIBS
