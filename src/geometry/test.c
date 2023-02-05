@@ -14,9 +14,9 @@ static void Query(struct RTree const *rt, char const *wkt, enum QueryType query)
 int main() {
   struct RTree *rt = RTree_New();
   assert(RTree_IsEmpty(rt));
+  PrintStats(rt);
 
   rt = Load_WKT_File(rt, "geometry.in");
-
   assert(!RTree_IsEmpty(rt));
   PrintStats(rt);
 
@@ -69,6 +69,7 @@ static void DeleteRandom(struct RTree *rt, char const *path, size_t num) {
 	fseek(geo_in, 0, SEEK_SET);
 	char *geos_in_buf = malloc(len);
 	[[maybe_unused]] size_t _ = fread(geos_in_buf, 1, len, geo_in);
+  fclose(geo_in);
 
 	char* wkts[250000] = {NULL};
 	char** runner = wkts;
@@ -101,7 +102,7 @@ static void Query(struct RTree const *rt, char const *wkt, enum QueryType query)
   RTDoc_Free(qdoc);
   printf("num found results: %ld\n", QIter_Remaining(iter));
   printf("time taken: %ld clock cycles\n", end - start);
-  for (struct RTDoc *result = QIter_Next(iter); NULL != result; result = QIter_Next(iter)) {
+  for (struct RTDoc const *result = QIter_Next(iter); NULL != result; result = QIter_Next(iter)) {
     // RTDoc_Print(result);
   }
   puts("");

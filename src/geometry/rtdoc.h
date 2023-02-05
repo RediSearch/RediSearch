@@ -18,6 +18,7 @@ extern "C" {
 struct RTDoc;
 typedef size_t docID_t;
 
+NODISCARD struct RTDoc *From_WKT(const char *wkt, size_t len, docID_t id);
 NODISCARD struct RTDoc *RTDoc_Copy(struct RTDoc const *other);
 void RTDoc_Free(struct RTDoc *doc) NOEXCEPT;
 NODISCARD docID_t RTDoc_GetID(struct RTDoc const *doc) NOEXCEPT;

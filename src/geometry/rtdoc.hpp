@@ -21,6 +21,7 @@ struct RTDoc {
 	explicit RTDoc() = default;
 	explicit RTDoc(rect_internal const& rect) noexcept : poly_{to_poly(rect)}, rect_{rect}, id_{0} {}
 	explicit RTDoc(Polygon::polygon_internal const& poly, docID_t id = 0) : poly_{poly}, rect_{to_rect(poly)}, id_{id} {}
+	explicit RTDoc(std::string_view wkt, docID_t id = 0) : poly_{Polygon::from_wkt(wkt)} , rect_{to_rect(poly_)}, id_{id} {}
 
 	[[nodiscard]] static rect_internal to_rect(Polygon::polygon_internal const& poly) {
 		const auto& points = poly.outer();

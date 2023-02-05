@@ -11,7 +11,7 @@ extern "C" {
 struct QueryIterator;
 
 void QIter_Free(struct QueryIterator *iter) NOEXCEPT;
-struct RTDoc *QIter_Next(struct QueryIterator *iter);
+struct RTDoc const *QIter_Next(struct QueryIterator *iter);
 NODISCARD size_t QIter_Remaining(struct QueryIterator const *iter);
 void QIter_Sort(struct QueryIterator *iter);
 

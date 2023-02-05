@@ -1,6 +1,10 @@
 
 #include "rtdoc.hpp"
 
+[[nodiscard]] RTDoc *From_WKT(const char *wkt, size_t len, docID_t id) {
+	return new RTDoc{{wkt, len}, id};
+}
+
 [[nodiscard]] RTDoc *RTDoc_Copy(RTDoc const *other) {
 	return new RTDoc{*other};
 }

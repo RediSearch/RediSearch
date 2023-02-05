@@ -1,8 +1,23 @@
 
+#include <fstream>
 #include "rtree.hpp"
 
 [[nodiscard]] RTree *RTree_New() {
 	return new RTree{};
+}
+
+RTree *Load_WKT_File(RTree *rtree, const char *path) {
+	if (nullptr == rtree) {
+		rtree = RTree_New();
+	}
+	
+	auto file = std::ifstream{path};
+	using string = std::basic_string<char, std::char_traits<char>, rm_allocator<char>>;
+	for (string wkt{}; std::getline(file, wkt, '\n'); ) {
+		rtree->insert(RTDoc{wkt});
+	}
+
+	return rtree;
 }
 
 void RTree_Free(RTree *rtree) noexcept {
@@ -10,19 +25,21 @@ void RTree_Free(RTree *rtree) noexcept {
 }
 
 void RTree_Insert(RTree *rtree, RTDoc const *doc) {
-	rtree->rtree_.insert(*doc);
+	rtree->insert(*doc);
 }
 
 bool RTree_Remove(RTree *rtree, RTDoc const *doc) {
-	return rtree->rtree_.remove(*doc);
+	return rtree->remove(*doc);
 }
 
 [[nodiscard]] QueryIterator *RTree_Query(RTree const *rtree, RTDoc const *queryDoc, QueryType queryType) {
+	auto qi = new QueryIterator{};
 	switch (queryType) {
-		case QueryType::CONTAINS: return rtree->contains(queryDoc);
-		case QueryType::WITHIN  : return rtree->within  (queryDoc);
+		case QueryType::CONTAINS: qi->iter_ = std::move(rtree->contains(queryDoc)); break;
+		case QueryType::WITHIN  : qi->iter_ = std::move(rtree->within  (queryDoc)); break;
 		default: __builtin_unreachable();
 	}
+	return qi;
 }
 
 [[nodiscard]] RTDoc *RTree_Bounds(RTree const *rtree) {
@@ -30,19 +47,19 @@ bool RTree_Remove(RTree *rtree, RTDoc const *doc) {
 }
 
 [[nodiscard]] size_t RTree_Size(RTree const *rtree) noexcept {
-	return rtree->rtree_.size();
+	return rtree->size();
 }
 
 [[nodiscard]] bool RTree_IsEmpty(RTree const *rtree) noexcept {
-	return rtree->rtree_.empty();
+	return rtree->is_empty();
 }
 
 void RTree_Clear(RTree *rtree) noexcept {
-	rtree->rtree_.clear();
+	rtree->clear();
 }
 
 
 
 [[nodiscard]] size_t RTree_MemUsage(RTree const *rtree) {
-	return rtree->rtree_.get_allocator().report();
+	return rtree->report();
 }

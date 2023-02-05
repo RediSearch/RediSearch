@@ -17,6 +17,7 @@ enum QueryType {
 };
 
 NODISCARD struct RTree *RTree_New();
+struct RTree *Load_WKT_File(struct RTree *rtree, const char *path);
 void RTree_Free(struct RTree *rtree) NOEXCEPT;
 void RTree_Insert(struct RTree *rtree, struct RTDoc const *doc);
 bool RTree_Remove(struct RTree *rtree, struct RTDoc const *doc);

@@ -20,7 +20,3 @@ struct Point {
   [[nodiscard]] void* operator new(std::size_t sz) { return rm_malloc(sz); }
   void operator delete(void *p) noexcept { rm_free(p); }
 };
-
-[[nodiscard]] inline bool operator==(Point const& lhs, Point const& rhs) {
-	return bg::equals(lhs.point_, rhs.point_);
-}

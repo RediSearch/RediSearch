@@ -14,6 +14,7 @@ struct QueryIterator {
 	container iter_;
 	size_t index_;
 
+	explicit QueryIterator() = default;
 	explicit QueryIterator(container&& iter) : iter_{std::move(iter)}, index_{0} {}
 
   [[nodiscard]] void* operator new(std::size_t sz) { return rm_malloc(sz); }

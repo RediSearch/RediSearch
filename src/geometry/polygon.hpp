@@ -36,9 +36,11 @@ struct Polygon {
 		}
 		va_end(ap);
 	}
-};
 
-[[nodiscard]] inline bool operator==(Polygon const& lhs, Polygon const& rhs) noexcept {
-	return boost::geometry::equals(lhs.poly_, rhs.poly_);
-}
+	[[nodiscard]] static polygon_internal from_wkt(std::string_view wkt) {
+		polygon_internal pg{};
+		bg::read_wkt(wkt.data(), pg);
+		return pg;
+	}
+};
 
