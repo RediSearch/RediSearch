@@ -3,7 +3,7 @@ import random
 import time
 
 from includes import *
-from common import getConnectionByEnv, waitForIndex
+from common import getConnectionByEnv, waitForIndex, create_np_array_typed
 
 def testCreateIndex(env):
     conn = getConnectionByEnv(env)
@@ -48,3 +48,23 @@ def testDeleteIndex(env):
     r.expect('ft.drop', 'idx').ok()
     r.expect('ft.info', 'idx').equal('Unknown Index name')
     # time.sleep(1)
+
+
+def testClusterTimeout(env):
+    conn = getConnectionByEnv(env)
+    if env.isCluster():
+        # Extend the timeout so that the cluster wouldn't think that nodes are non resposive while we index
+        # vectors in the Background.
+        for con in env.getOSSMasterNodesConnectionList():
+            con.execute_command("config", "set", "cluster-node-timeout", "500")
+    r = env
+    N = 50000
+    for i in range(N):
+        res = conn.execute_command('hset', 'foo:%d' % i, 'name', f'some string with information to index in the '
+                                                                 f'background later on for id {i}',
+                                   'v', create_np_array_typed([i]*100).tobytes())
+        env.assertEqual(res, 2)
+
+    r.expect('ft.create', 'idx', 'schema', 'name', 'text', 'v', 'VECTOR', 'HNSW', '6', 'distance_metric', 'l2', 'DIM', 100,
+             'type', 'float32').ok()
+    waitForIndex(r, 'idx')
