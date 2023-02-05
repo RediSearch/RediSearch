@@ -623,7 +623,7 @@ if [[ -z $COORD ]]; then
 	fi
 
 elif [[ $COORD == oss ]]; then
-	oss_cluster_args="--env oss-cluster --env-reuse --shards-count $SHARDS"
+	oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
 
 	{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
 	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
