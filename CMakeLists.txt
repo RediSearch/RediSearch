@@ -1,63 +1,52 @@
+cmake_minimum_required(VERSION 3.13)
 
-get_filename_component(RS_DIR ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
+get_filename_component(root ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
+include(${root}/deps/readies/cmake/main)
+
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
-if(NOT DEFINED root)
-	set(root ${RS_DIR})
-endif()
-message("# RediSearch root: " ${RS_DIR})
-message("# RediSearch binroot: " ${binroot})
-
-include(build/cmake/common.cmake)
 
 #----------------------------------------------------------------------------------------------
 
-option(RS_BUILD_STATIC "Build a static library" OFF)
-# RS_BUILD_COORDINATOR
-# RS_BUILD_COORD_OSS
-# RS_BUILD_COORD_RLEC
+option(BUILD_STATIC "Build a static library" OFF)
+# BUILD_COORDINATOR
+# BUILD_COORD_OSS
+# BUILD_COORD_RLEC
 
 option(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
-option(USE_COVERAGE "Build with coverage" OFF)
-
-option(RS_RUN_TESTS "Build & Run RediSearch's tests" OFF)
-option(USE_ASAN "Use AddressSanitizer (clang)" OFF)
-option(USE_MSAN "Use MemorySanitizer (clang)" OFF)
-option(USE_TSAN "Use ThreadSanitizer (clang)" OFF)
+option(BUILD_TESTS "Build tests" OFF)
 
 #----------------------------------------------------------------------------------------------
 
 project(redisearch)
 
-include(build/cmake/redisearch_cflags.cmake)
-include(build/cmake/redisearch_debug.cmake)
+if (NOT MODULE_NAME)
+    set(MODULE_NAME "search")
+endif()
 
 #----------------------------------------------------------------------------------------------
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RS_C_FLAGS}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RS_CXX_FLAGS}")
+setup_cc_options()
 
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${RS_EXE_FLAGS}")
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${RS_SO_FLAGS}")
+# ugly hack for cpu_features::list_cpu_features coming from VecSim
+set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
-if (NOT RS_MODULE_NAME)
-    set(RS_MODULE_NAME "search")
-endif()
-add_definitions(-DREDISEARCH_MODULE_NAME=\\"${RS_MODULE_NAME}\\")
+add_compile_definitions(
+    "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
+    "GIT_VERSPEC=\"${GIT_VERSPEC}\""
+    "GIT_SHA=\"${GIT_SHA}\""
+    REDISMODULE_EXPERIMENTAL_API
+    _GNU_SOURCE)
 
-add_definitions(-UNDEBUG)
-add_definitions(-DGIT_VERSPEC=\\"${GIT_VERSPEC}\\")
-add_definitions(-DRS_GIT_SHA=\\"${GIT_SHA}\\")
-add_definitions(-DREDISMODULE_EXPERIMENTAL_API)
-add_definitions(-D_GNU_SOURCE)
 if (USE_REDIS_ALLOCATOR)
-    add_definitions(-DREDIS_MODULE_TARGET)
+    add_compile_definitions(REDIS_MODULE_TARGET)
 endif()
 
 #----------------------------------------------------------------------------------------------
 
-include_directories(${PROJECT_SOURCE_DIR}/src)
-include_directories(${PROJECT_SOURCE_DIR}/deps)
-include_directories(${PROJECT_SOURCE_DIR})
+include_directories(
+    ${root}/src
+    ${root}/deps
+    ${root})
 
 add_subdirectory(deps/rmutil)
 add_subdirectory(deps/friso)
@@ -66,7 +55,7 @@ add_subdirectory(deps/phonetics)
 
 #----------------------------------------------------------------------------------------------
 
-file(GLOB RS_SRC
+file(GLOB SOURCES
     "src/*.c"
     "src/aggregate/*.c"
     "src/aggregate/expr/*.c"
@@ -77,7 +66,6 @@ file(GLOB RS_SRC
     "src/query_parser/*.c"
     "src/util/*.c"
     "src/trie/*.c"
-    ${RS_DEBUG_SRC}
 
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"
@@ -86,7 +74,7 @@ file(GLOB RS_SRC
     "deps/triemap/*.c"
     "deps/geohash/*.c")
 
-add_library(rscore OBJECT ${RS_SRC})
+add_library(rscore OBJECT ${SOURCES})
 
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:rscore>
@@ -97,86 +85,69 @@ set(FINAL_OBJECTS
 
 #----------------------------------------------------------------------------------------------
 
-if (RS_BUILD_COORDINATOR)
-    if (RS_BUILD_COORD_OSS)
-        add_library(redisearch-oss STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
-        target_compile_definitions(redisearch-oss PRIVATE RS_NO_ONLOAD RS_NO_RMAPI RS_CLUSTER_OSS)
-        set_target_properties(redisearch-oss PROPERTIES OUTPUT_NAME "redisearch-oss")
-        if (APPLE)
-            set_target_properties(redisearch-oss PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
-        endif()
+if (BUILD_COORDINATOR)
+    if (BUILD_COORD_OSS)
+        add_library(redisearch-oss STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c)
 
-    elseif (RS_BUILD_COORD_RLEC)
-        add_library(redisearch-enterprise STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
-        target_compile_definitions(redisearch-enterprise PRIVATE RS_NO_ONLOAD RS_NO_RMAPI RS_CLUSTER_ENTERPRISE)
-        set_target_properties(redisearch-enterprise PROPERTIES OUTPUT_NAME "redisearch-enterprise")
-        if (APPLE)
-            set_target_properties(redisearch-enterprise PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
-        endif()
+        target_compile_definitions(redisearch-oss PRIVATE
+            RS_NO_ONLOAD
+            RS_NO_RMAPI
+            RS_CLUSTER_OSS)
+
+    elseif (BUILD_COORD_RLEC)
+        add_library(redisearch-enterprise STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c)
+
+        target_compile_definitions(redisearch-enterprise PRIVATE
+            RS_NO_ONLOAD
+            RS_NO_RMAPI
+            RS_CLUSTER_ENTERPRISE)
     endif()
 
-elseif (RS_BUILD_STATIC)
-    add_library(redisearchS STATIC ${FINAL_OBJECTS} src/module-init/module-init.c)
-    target_compile_definitions(redisearchS PRIVATE RS_NO_ONLOAD RS_NO_RMAPI)
-    set_target_properties(redisearchS PROPERTIES OUTPUT_NAME "redisearch")
+elseif (BUILD_STATIC)
+    add_library(redisearch-static STATIC ${FINAL_OBJECTS} src/module-init/module-init.c)
+
+    target_compile_definitions(redisearch-static PRIVATE
+        RS_NO_ONLOAD
+        RS_NO_RMAPI)
 
     add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
-    target_link_libraries(redisearch dl m)
-    set_target_properties(redisearch PROPERTIES PREFIX "")
-    set_target_properties(redisearch PROPERTIES SUFFIX ".so")
 
-    set(RS_TEST_MODULE redisearchS)
-    set(RS_TEST_MODULE_SO $<TARGET_FILE:redisearch>)
+    setup_shared_object_target(redisearch "")
+    target_link_libraries(redisearch ${CMAKE_LD_LIBS})
+
+    set(TEST_MODULE "redisearch-static")
+    set(TEST_MODULE_SO $<TARGET_FILE:redisearch>)
 
 else() # OSS RediSearch
     add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
-    target_link_libraries(redisearch dl m)
-    set_target_properties(redisearch PROPERTIES PREFIX "")
-    set_target_properties(redisearch PROPERTIES SUFFIX ".so")
-    add_ldflags(redisearch "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
 
-    if (APPLE)
-        set_target_properties(redisearch PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
-    endif()
+    set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
+    setup_shared_object_target(redisearch "")
+    target_link_libraries(redisearch ${CMAKE_LD_LIBS})
 
-	if (NOT CMAKE_BUILD_TYPE STREQUAL DEBUG)
-		if (NOT APPLE)
-			add_custom_command(TARGET redisearch POST_BUILD
-				COMMAND cp $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
-				COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
-				COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>)
-		else()
-			add_custom_command(TARGET redisearch POST_BUILD
-				COMMAND cp $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug)
-		endif()
-#        add_custom_command(TARGET redisearch POST_BUILD
-#            COMMAND objcopy --only-keep-debug $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
-#            COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
-#            COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>)
-    endif()
+    extract_debug_symbols(redisearch)
 endif()
 
 #----------------------------------------------------------------------------------------------
 
-if (RS_BUILD_COORDINATOR)
-    set(RS_RUN_TESTS OFF)
+if (BUILD_COORDINATOR)
+    set(BUILD_TESTS OFF)
 endif()
 
-if (RS_RUN_TESTS)
+if (BUILD_TESTS)
     enable_testing()
 endif()
 
-if (RS_RUN_TESTS AND NOT RS_BUILD_COORDINATOR AND NOT RS_BUILD_STATIC)
+if (BUILD_TESTS AND NOT BUILD_COORDINATOR AND NOT BUILD_STATIC)
     set(BUILD_GTEST ON CACHE BOOL "enable gtest" FORCE)
     set(BUILD_GMOCK OFF CACHE BOOL "disable gmock" FORCE)
 
     add_subdirectory(deps/googletest)
     add_subdirectory(tests/cpptests)
     add_subdirectory(tests/ctests)
-    add_subdirectory(tests/pytests)
     add_subdirectory(tests/c_utils)
     add_subdirectory(tests/ctests/ext-example example_extension)
-    if (RS_ENABLE_MOCK)
+    if (ENABLE_REDIS_MOCK)
         add_subdirectory(tests/cpptests/redismock)
     endif()
 endif()

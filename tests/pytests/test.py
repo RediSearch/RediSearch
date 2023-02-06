@@ -1339,45 +1339,45 @@ def testNotIter(env):
     res = env.execute_command(
         'ft.search', 'idx', '-@score:[2 4]', 'verbatim', "nocontent")
     env.assertEqual(5, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=TEST_DEBUG)
 
     res = env.execute_command(
         'ft.search', 'idx', 'hello kitty -@score:[2 4]', 'verbatim', "nocontent")
     env.assertEqual(5, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=TEST_DEBUG)
 
     # start chunk
     res = env.execute_command(
         'ft.search', 'idx', '-@score:[0 2]', 'verbatim', "nocontent")
     env.assertEqual(5, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=TEST_DEBUG)
 
     res = env.execute_command(
         'ft.search', 'idx', 'hello kitty -@score:[0 2]', 'verbatim', "nocontent")
     env.assertEqual(5, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=TEST_DEBUG)
 
     # end chunk
     res = env.execute_command(
         'ft.search', 'idx', '-@score:[5 7]', 'verbatim', "nocontent")
     env.assertEqual(5, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=TEST_DEBUG)
 
     res = env.execute_command(
         'ft.search', 'idx', 'hello kitty -@score:[5 7]', 'verbatim', "nocontent")
     env.assertEqual(5, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=TEST_DEBUG)
 
     # whole chunk
     res = env.execute_command(
         'ft.search', 'idx', '-@score:[0 7]', 'verbatim', "nocontent")
     env.assertEqual(0, res[0])
-    env.debugPrint(str(len(res)), force=True)
+    env.debugPrint(str(len(res)), force=TEST_DEBUG)
 
     res = env.execute_command(
         'ft.search', 'idx', 'hello kitty -@score:[0 7]', 'verbatim', "nocontent")
     env.assertEqual(0, res[0])
-    env.debugPrint(str(len(res)), force=True)
+    env.debugPrint(str(len(res)), force=TEST_DEBUG)
 
 def testPayload(env):
     r = env
@@ -1638,11 +1638,11 @@ def testNoStem(env):
 
 def testSortbyMissingField(env):
     # GH Issue 131
-    # 
+    #
     env.cmd('ft.create', 'ix', 'ON', 'HASH', 'schema', 'txt',
              'text', 'num', 'numeric', 'sortable')
     env.cmd('ft.add', 'ix', 'doc1', 1.0, 'fields', 'txt', 'foo', 'noexist', 3.14)
-    
+
     env.expect('ft.search', 'ix', 'foo', 'sortby', 'num')                       \
         .equal([1, 'doc1', ['txt', 'foo', 'noexist', '3.14']])
     env.expect('ft.search', 'ix', 'foo', 'sortby', 'noexist').error()           \
@@ -1696,7 +1696,7 @@ def testDoubleAdd(env):
 
 def testConcurrentErrors(env):
     # Workaround for: Can't pickle local object 'testConcurrentErrors.<locals>.thrfn'
-    if sys.version_info >= (3, 9):
+    if sys.version_info >= (3, 8):
         env.skip()
 
     from multiprocessing import Process
@@ -3466,7 +3466,7 @@ def test_free_resources_on_thread(env):
         conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'false')
 
     # ensure freeing resources on a 2nd thread is quicker
-    # than freeing it on the main thread    
+    # than freeing it on the main thread
     # (skip this check point on CI since it is not guaranteed)
     if not CI:
         env.assertLess(results[0], results[1])

@@ -5,7 +5,7 @@ import os
 import argparse
 
 HERE = os.path.abspath(os.path.dirname(__file__))
-ROOT = os.path.join(HERE, "..")
+ROOT = os.path.abspath(os.path.join(HERE, ".."))
 READIES = os.path.join(ROOT, "deps/readies")
 sys.path.insert(0, READIES)
 import paella
@@ -33,7 +33,6 @@ class RediSearchSetup(paella.Setup):
 
         if self.platform.is_arm():
             if self.dist == 'ubuntu' and self.os_version[0] < 20:
-                # self.install("python3-gevent")
                 pass
             else:
                 self.install("libffi-dev")
@@ -47,10 +46,7 @@ class RediSearchSetup(paella.Setup):
         self.install("libtool m4 automake openssl-devel")
         self.install("python3-devel")
 
-        if self.platform.is_arm():
-            # self.install("python-gevent")
-            pass
-        else:
+        if not self.platform.is_arm():
             self.install_linux_gnu_tar()
 
     def archlinux(self):
@@ -79,12 +75,10 @@ class RediSearchSetup(paella.Setup):
             self.install("lcov")
         else:
             self.install("lcov-git", aur=True)
-        self.pip_install("pudb awscli")
-
-        if int(sh("{PYTHON} -c 'import gevent' 2> /dev/null; echo $?".format(PYTHON=self.python))) != 0:
-            self.pip_install("gevent")
 
         self.pip_install("-r %s/tests/pytests/requirements.txt" % ROOT)
+        self.run("%s/bin/getaws" % READIES)
+        self.run("NO_PY2=1 %s/bin/getpudb" % READIES)
 
 #----------------------------------------------------------------------------------------------
 

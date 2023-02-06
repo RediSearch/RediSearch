@@ -472,7 +472,7 @@ def testShortReadSearch(env):
         env.skip()  # FIXME: enable coverage test
 
     env.skipOnCluster()
-    if env.env.endswith('existing-env') and os.environ.get('CI'):
+    if env.env.endswith('existing-env') and CI:
         env.skip()
 
     if OS == 'macos':
