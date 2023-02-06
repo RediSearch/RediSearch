@@ -226,7 +226,7 @@ def testProfileVector(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*=>[KNN 3 @v $vec]',
                                     'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
   expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 3]]
-  expected_vecsim_rp_res = ['Type', 'Vector Similarity Scores Loader', 'Counter', 3]
+  expected_vecsim_rp_res = ['Type', 'Additional Metrics Applier', 'Counter', 3]
   env.assertEqual(actual_res[0], [3, '4', '2', '1'])
   env.assertEqual(actual_res[1][3], expected_iterators_res)
   env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
@@ -236,7 +236,7 @@ def testProfileVector(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@v:[VECTOR_RANGE 3e36 $vec]=>{$yield_distance_as:dist}',
                                     'SORTBY', 'dist', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
   expected_iterators_res = ['Iterators profile', ['Type', 'METRIC - VECTOR DISTANCE', 'Counter', 2]]
-  expected_vecsim_rp_res = ['Type', 'Vector Similarity Scores Loader', 'Counter', 2]
+  expected_vecsim_rp_res = ['Type', 'Additional Metrics Applier', 'Counter', 2]
   env.assertEqual(actual_res[0], [2, '4', '2'])
   env.assertEqual(actual_res[1][3], expected_iterators_res)
   env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
@@ -250,7 +250,7 @@ def testProfileVector(env):
                                                  ['Type', 'INTERSECT', 'Counter', 2, 'Child iterators',
                                                  ['Type', 'TEXT', 'Term', 'world', 'Counter', 2, 'Size', 2],
                                                  ['Type', 'TEXT', 'Term', 'hello', 'Counter', 2, 'Size', 5]]]]
-  expected_vecsim_rp_res = ['Type', 'Vector Similarity Scores Loader', 'Counter', 2]
+  expected_vecsim_rp_res = ['Type', 'Additional Metrics Applier', 'Counter', 2]
   env.assertEqual(actual_res[0], [2, '4', '5'])
   env.assertEqual(actual_res[1][3], expected_iterators_res)
   env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
@@ -268,7 +268,7 @@ def testProfileVector(env):
                                                  ['Type', 'INTERSECT', 'Counter', 8, 'Child iterators',
                                                  ['Type', 'TEXT', 'Term', 'world', 'Counter', 8, 'Size', 9997],
                                                  ['Type', 'TEXT', 'Term', 'hello', 'Counter', 8, 'Size', 10000]]]]
-  expected_vecsim_rp_res = ['Type', 'Vector Similarity Scores Loader', 'Counter', 3]
+  expected_vecsim_rp_res = ['Type', 'Additional Metrics Applier', 'Counter', 3]
   env.assertEqual(actual_res[1][3], expected_iterators_res)
   env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
   env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
