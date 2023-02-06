@@ -14,9 +14,14 @@
 extern "C" {
 #endif
 
+/**
+ *  
+ * @brief This function initializes the blocks manager
+ * @param blockSize - number of elements
+ * @param elemeSize - size in bytes of each element
+*/
+
 typedef struct fixedSizeBlock fixedSizeBlock; 
-
-
 
 typedef struct {
   fixedSizeBlock *root;
