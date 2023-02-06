@@ -33,9 +33,15 @@ static void *BlockGetNextEmptyElem(fixedSizeBlock *block, size_t ElemSize) {
 	return ret;
 }
 
+static void BlockInsertElement(fixedSizeBlock *block, size_t ElemSize, void *data) {
+	void *free_space = block->data + block->usedMemory;
+	memcpy(free_space, data, ElemSize);
+	block->usedMemory += ElemSize;
+}
+
 static void *BlockGetElem(fixedSizeBlock *block, size_t elemIndex, size_t elemSize) {
 	size_t data_position = elemIndex * elemSize;
-	if (data_position > block->usedMemory) {
+	if (data_position >= block->usedMemory) {
 		return NULL;
 	}
 	return block->data + data_position;
@@ -54,14 +60,14 @@ void FixedSizeBlocksManager_init(FixedSizeBlocksManager *BlocksManager, size_t e
 
 }
 
-void *FixedSizeBlocksManager_getEmptyElement(FixedSizeBlocksManager *BlocksManager) {
+void FixedSizeBlocksManager_InsertElement(FixedSizeBlocksManager *BlocksManager, void *data) {
 	if(isBlockFull(BlocksManager, BlocksManager->current)) {
 		fixedSizeBlock *newBlock = getNewBlock(BlocksManager);
 		BlocksManager->current->next = newBlock;
 		BlocksManager->current = newBlock;
 	}
 
-	return BlockGetNextEmptyElem(BlocksManager->current, BlocksManager->elemSize);
+	BlockInsertElement(BlocksManager->current, BlocksManager->elemSize, data);
 }
 
 bool FixedSizeBlocksManager_isEmpty(const FixedSizeBlocksManager *BlocksManager) {

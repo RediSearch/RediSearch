@@ -45,10 +45,9 @@ typedef struct {
 void FixedSizeBlocksManager_init(FixedSizeBlocksManager *BlocksManager, size_t elemSize, size_t blockSize);
 
 /**
- * @brief Returns a pointer to a memory of size BlocksManager->elemSize to the current available element.
- * The returned pointer remains valid until FreeAll is called.
+ * @param data - data to copy into the next available space. data should be of elemSize.
  */
-void *FixedSizeBlocksManager_getEmptyElement(FixedSizeBlocksManager *BlocksManager);
+void FixedSizeBlocksManager_InsertElement(FixedSizeBlocksManager *BlocksManager, void *data);
 
 
 /**
