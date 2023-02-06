@@ -163,6 +163,7 @@ export PACKAGE_NAME
 #----------------------------------------------------------------------------------------------
 
 CC_C_STD=gnu99
+CC_CXX_STD=c++11
 
 CC_COMMON_H=src/common.h
 
@@ -293,8 +294,6 @@ endif # DEPS
 setup:
 	@echo Setting up system...
 	$(SHOW)./sbin/setup
-
-#----------------------------------------------------------------------------------------------
 
 fetch:
 	-git submodule update --init --recursive
