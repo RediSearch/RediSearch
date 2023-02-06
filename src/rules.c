@@ -501,7 +501,7 @@ void SchemaPrefixes_RemoveSpec(IndexSpec *spec) {
         array_del_fast(node->index_specs, j);
         if (array_len(node->index_specs) == 0) {
           // if all specs were deleted, remove the node
-          TrieMap_Delete(ScemaPrefixes_g, prefixes[i], strlen(prefixes[i]), SchemaPrefixNode_Free);
+          TrieMap_Delete(ScemaPrefixes_g, prefixes[i], strlen(prefixes[i]), (freeCB)SchemaPrefixNode_Free);
         }
         break;
       }

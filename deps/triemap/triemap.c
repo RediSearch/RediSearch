@@ -7,7 +7,7 @@
 
 void *TRIEMAP_NOTFOUND = "NOT FOUND";
 
-void TrieMapNode_Free(TrieMapNode *n, void (*freeCB)(void *));
+void TrieMapNode_Free(TrieMapNode *n, freeCB func);
 
 /* Get a pointer to the children array of a node. This is not an actual member
  * of the node for
@@ -441,7 +441,7 @@ int __trieMapNode_optimizeChildren(TrieMapNode *n, void (*freeCB)(void *)) {
   return rc;
 }
 
-int TrieMapNode_Delete(TrieMapNode *n, char *str, tm_len_t len, void (*freeCB)(void *)) {
+int TrieMapNode_Delete(TrieMapNode *n, const char *str, tm_len_t len, void (*freeCB)(void *)) {
   tm_len_t offset = 0;
   int stackCap = 8;
   TrieMapNode **stack = rm_calloc(stackCap, sizeof(TrieMapNode *));
@@ -508,8 +508,8 @@ end:
   return rc;
 }
 
-int TrieMap_Delete(TrieMap *t, char *str, tm_len_t len, void (*freeCB)(void *)) {
-  int rc = TrieMapNode_Delete(t->root, str, len, freeCB);
+int TrieMap_Delete(TrieMap *t, const char *str, tm_len_t len, freeCB func) {
+  int rc = TrieMapNode_Delete(t->root, str, len, func);
   t->size -= rc;
   int deleted = rc ? 1 : 0;
   t->cardinality -= deleted;
@@ -523,14 +523,14 @@ size_t TrieMap_MemUsage(TrieMap *t) {
                     sizeof(char *));         // == 8, string size rounded up to 8 bits due to padding
 }
 
-void TrieMapNode_Free(TrieMapNode *n, void (*freeCB)(void *)) {
+void TrieMapNode_Free(TrieMapNode *n, freeCB func) {
   for (tm_len_t i = 0; i < n->numChildren; i++) {
     TrieMapNode *child = __trieMapNode_children(n)[i];
-    TrieMapNode_Free(child, freeCB);
+    TrieMapNode_Free(child, func);
   }
   if (n->value) {
-    if (freeCB) {
-      freeCB(n->value);
+    if (func) {
+      func(n->value);
     } else {
       rm_free(n->value);
     }

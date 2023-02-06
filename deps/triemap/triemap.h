@@ -49,6 +49,8 @@ typedef struct {
   size_t size;         // number of nodes
 } TrieMap;
 
+typedef void (*freeCB)(void *);
+
 TrieMap *NewTrieMap();
 
 typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
@@ -83,11 +85,11 @@ int TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len, arrayof(void
 /* Mark a node as deleted. It also optimizes the trie by merging nodes if
  * needed. If freeCB is given, it will be used to free the value of the deleted
  * node. If it doesn't, we simply call free() */
-int TrieMap_Delete(TrieMap *t, char *str, tm_len_t len, void (*freeCB)(void *));
+int TrieMap_Delete(TrieMap *t, const char *str, tm_len_t len, freeCB func);
 
 /* Free the trie's root and all its children recursively. If freeCB is given, we
  * call it to free individual payload values. If not, free() is used instead. */
-void TrieMap_Free(TrieMap *t, void (*freeCB)(void *));
+void TrieMap_Free(TrieMap *t, freeCB func);
 
 /* Get a random key from the trie by doing a random walk down and up the tree
  * for a minimum number of steps. Returns 0 if the tree is empty and we couldn't
