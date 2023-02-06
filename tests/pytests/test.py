@@ -1387,45 +1387,45 @@ def testNotIter(env):
     res = env.execute_command(
         'ft.search', 'idx', '-@score:[2 4]', 'verbatim', "nocontent")
     env.assertEqual(5, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=TEST_DEBUG)
 
     res = env.execute_command(
         'ft.search', 'idx', 'hello kitty -@score:[2 4]', 'verbatim', "nocontent")
     env.assertEqual(5, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=TEST_DEBUG)
 
     # start chunk
     res = env.execute_command(
         'ft.search', 'idx', '-@score:[0 2]', 'verbatim', "nocontent")
     env.assertEqual(5, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=TEST_DEBUG)
 
     res = env.execute_command(
         'ft.search', 'idx', 'hello kitty -@score:[0 2]', 'verbatim', "nocontent")
     env.assertEqual(5, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=TEST_DEBUG)
 
     # end chunk
     res = env.execute_command(
         'ft.search', 'idx', '-@score:[5 7]', 'verbatim', "nocontent")
     env.assertEqual(5, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=TEST_DEBUG)
 
     res = env.execute_command(
         'ft.search', 'idx', 'hello kitty -@score:[5 7]', 'verbatim', "nocontent")
     env.assertEqual(5, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=TEST_DEBUG)
 
     # whole chunk
     res = env.execute_command(
         'ft.search', 'idx', '-@score:[0 7]', 'verbatim', "nocontent")
     env.assertEqual(0, res[0])
-    env.debugPrint(str(len(res)), force=True)
+    env.debugPrint(str(len(res)), force=TEST_DEBUG)
 
     res = env.execute_command(
         'ft.search', 'idx', 'hello kitty -@score:[0 7]', 'verbatim', "nocontent")
     env.assertEqual(0, res[0])
-    env.debugPrint(str(len(res)), force=True)
+    env.debugPrint(str(len(res)), force=TEST_DEBUG)
 
 def testPayload(env):
     r = env

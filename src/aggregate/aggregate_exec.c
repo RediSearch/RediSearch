@@ -26,7 +26,7 @@ static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
 
 /** Cached variables to avoid serializeResult retrieving these each time */
 typedef struct {
-  const RLookup *lastLk;
+  RLookup *lastLk;
   const PLN_ArrangeStep *lastAstp;
 } cachedVars;
 
@@ -127,7 +127,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
       for(; currentField < requiredFieldsCount; currentField++) {
         count++;
         const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], 0);
-        const RSValue *v = getReplyKey(rlk, r);
+        RSValue *v = (RSValue*)getReplyKey(rlk, r);
         // align field value with its type
         RSValue rsv;
         if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE) {

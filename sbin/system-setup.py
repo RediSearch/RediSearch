@@ -23,7 +23,7 @@ class RediSearchSetup(paella.Setup):
         self.install("git gawk jq openssl rsync unzip")
 
     def linux_first(self):
-        self.install("patch")
+        self.install("patch psmisc")
 
     def debian_compat(self):
         self.install("libatomic1")
@@ -33,7 +33,6 @@ class RediSearchSetup(paella.Setup):
 
         if self.platform.is_arm():
             if self.dist == 'ubuntu' and self.os_version[0] < 20:
-                # self.install("python3-gevent")
                 pass
             else:
                 self.install("libffi-dev")
@@ -47,10 +46,7 @@ class RediSearchSetup(paella.Setup):
         self.install("libtool m4 automake openssl-devel")
         self.install("python3-devel")
 
-        if self.platform.is_arm():
-            # self.install("python-gevent")
-            pass
-        else:
+        if not self.platform.is_arm():
             self.install_linux_gnu_tar()
 
     def archlinux(self):
@@ -66,9 +62,7 @@ class RediSearchSetup(paella.Setup):
         self.install_gnu_utils()
         self.install("pkg-config")
         self.install("libtool m4 automake")
-
-        # for now depending on redis from brew, it's version6 with TLS.
-        self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
+        # self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
 
     def common_last(self):
         self.run("{PYTHON} {READIES}/bin/getcmake --usr".format(PYTHON=self.python, READIES=READIES),
@@ -78,9 +72,6 @@ class RediSearchSetup(paella.Setup):
             self.install("lcov")
         else:
             self.install("lcov-git", aur=True)
-
-        if int(sh("{PYTHON} -c 'import gevent' 2> /dev/null; echo $?".format(PYTHON=self.python))) != 0:
-            self.pip_install("gevent")
 
         self.pip_install("-r %s/tests/pytests/requirements.txt" % ROOT)
         self.run("%s/bin/getaws" % READIES)

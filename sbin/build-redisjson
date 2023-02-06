@@ -64,6 +64,7 @@ $OP source /etc/profile.d/rust.sh
 
 runn BINROOT=$TARGET_DIR make SAN=$SAN
 
+echo "Created ${TARGET_DIR}/rejson.so"
 if [[ -n $MODULE_FILE ]]; then
 	echo "${TARGET_DIR}/rejson.so" > $MODULE_FILE
 fi

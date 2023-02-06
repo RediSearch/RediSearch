@@ -26,7 +26,6 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		DEPS=1              Generate dependency packages
 		RELEASE=1           Generate "release" packages (artifacts/release/)
 		SNAPSHOT=1          Generate "shapshot" packages (artifacts/snapshot/)
-		JUST_PRINT=1        Only print package names, do not generate
 
 		MODULE_NAME=name    Module name (default: redisearch)
 		PACKAGE_NAME=name   Package stem name
@@ -34,13 +33,14 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		BRANCH=name         Branch name for snapshot packages
 		VERSION=ver         Version for release packages
 		WITH_GITSHA=1       Append Git SHA to shapshot package names
-		VARIANT=name        Build variant (empty for standard packages)
+		VARIANT=name        Build variant (default: empty)
 
 		ARTDIR=dir          Directory in which packages are created (default: bin/artifacts)
 		
 		RAMP_YAML=path      RAMP configuration file path
 		RAMP_ARGS=args      Extra arguments to RAMP
 
+		JUST_PRINT=1        Only print package names, do not generate
 		VERBOSE=1           Print commands
 		IGNERR=1            Do not abort on error
 
@@ -51,10 +51,10 @@ fi
 #----------------------------------------------------------------------------------------------
 
 ARCH=$($READIES/bin/platform --arch)
-[[ $ARCH == x64 ]] && ARCH="x86_64"
+[[ $ARCH == x64 ]] && ARCH=x86_64
 
 OS=$($READIES/bin/platform --os)
-[[ $OS == linux ]] && OS="Linux"
+[[ $OS == linux ]] && OS=Linux
 
 OSNICK=$($READIES/bin/platform --osnick)
 [[ $OSNICK == trusty ]]  && OSNICK=ubuntu14.04
@@ -67,14 +67,17 @@ OSNICK=$($READIES/bin/platform --osnick)
 [[ $OSNICK == ol8 ]]     && OSNICK=rhel8
 [[ $OSNICK == rocky8 ]]  && OSNICK=rhel8
 
+[[ $OSNICK == bigsur ]]  && OSNICK=catalina
+
 PLATFORM="$OS-$OSNICK-$ARCH"
 
 #----------------------------------------------------------------------------------------------
 
-MODULE_SO="$1"
+MODULE="$1"
 
 RAMP=${RAMP:-1}
 DEPS=${DEPS:-1}
+SYM=${SYM:-1}
 
 RELEASE=${RELEASE:-1}
 SNAPSHOT=${SNAPSHOT:-1}
@@ -89,6 +92,8 @@ MODULE_NAME=${MODULE_NAME:-redisearch}
 PACKAGE_NAME=${PACKAGE_NAME:-redisearch-oss}
 
 DEP_NAMES=""
+
+RAMP_CMD="python3 -m RAMP.ramp"
 
 #----------------------------------------------------------------------------------------------
 
@@ -130,20 +135,25 @@ pack_ramp() {
 	if [[ -z $RAMP_YAML ]]; then
 		RAMP_YAML=$ROOT/ramp.yml
 	fi
-	
+
 	python3 $READIES/bin/xtx \
 		$xtx_vars \
 		-e NUMVER -e SEMVER \
 		$RAMP_YAML > /tmp/ramp.yml
 
-	local ramp="$(command -v python3) -m RAMP.ramp"
 	rm -f /tmp/ramp.fname
 	
 	# ROOT is required so ramp will detect the right git commit
 	cd $ROOT
-	$ramp pack -m /tmp/ramp.yml $RAMP_ARGS -n $MODULE_NAME --verbose --debug \
-		--packname-file /tmp/ramp.fname -o $packfile \
-		$MODULE_SO >/tmp/ramp.err 2>&1 || true
+	$RAMP_CMD pack -m /tmp/ramp.yml \
+		$RAMP_ARGS \
+		-n $MODULE_NAME \
+		--verbose \
+		--debug \
+		--packname-file /tmp/ramp.fname \
+		-o $packfile \
+		$MODULE \
+		>/tmp/ramp.err 2>&1 || true
 
 	if [[ ! -e $packfile ]]; then
 		eprint "Error generating RAMP file:"
@@ -154,10 +164,10 @@ pack_ramp() {
 		echo "Created $packname"
 	fi
 
-	if [[ -f $MODULE_SO.debug ]]; then
-		$ramp pack -m /tmp/ramp.yml $RAMP_ARGS -n $MODULE_NAME --verbose --debug \
+	if [[ -f $MODULE.debug ]]; then
+		$RAMP_CMD pack -m /tmp/ramp.yml $RAMP_ARGS -n $MODULE_NAME --verbose --debug \
 			--packname-file /tmp/ramp.fname -o $packfile_debug \
-			$MODULE_SO.debug >/tmp/ramp.err 2>&1 || true
+			$MODULE.debug >/tmp/ramp.err 2>&1 || true
 
 		if [[ ! -e $packfile_debug ]]; then
 			eprint "Error generating RAMP file:"
@@ -190,7 +200,8 @@ pack_deps() {
 	rm -f $tar_path
 	{ cd $depdir ;\
 	  cat $ARTDIR/$dep.files | \
-	  xargs tar -c --sort=name --owner=root:0 --group=root:0 --mtime='UTC 1970-01-01' --transform "s,^,$dep_prefix_dir," 2>> /tmp/pack.err | \
+	  xargs tar -c --sort=name --owner=root:0 --group=root:0 --mtime='UTC 1970-01-01' \
+	  	--transform "s,^,$dep_prefix_dir," 2>> /tmp/pack.err | \
 	  gzip -n - > $tar_path ; E=$?; } || true
 	if [[ ! -e $tar_path || -z $(tar tzf $tar_path) ]]; then
 		eprint "Count not create $tar_path. Aborting."
@@ -201,7 +212,7 @@ pack_deps() {
 
 	mkdir -p $ARTDIR/snapshots
 	cd $ARTDIR/snapshots
-	if [[ ! -z $BRANCH ]]; then
+	if [[ -n $BRANCH ]]; then
 		local snap_package=$stem.${BRANCH}${VARIANT}.tgz
 		ln -sf ../$fq_package $snap_package
 		ln -sf ../$fq_package.sha256 $snap_package.sha256
@@ -210,10 +221,22 @@ pack_deps() {
 
 #----------------------------------------------------------------------------------------------
 
-NUMVER=$(NUMERIC=1 $SBIN/getver)
-SEMVER=$($SBIN/getver)
+prepare_symbols_dep() {
+	if [[ ! -f $MODULE.debug ]]; then return 0; fi
+	echo "Preparing debug symbols dependencies ..."
+	dirname "$(realpath "$MODULE")" > "$ARTDIR/debug.dir"
+	echo "$(basename "$(realpath "$MODULE")").debug" > "$ARTDIR/debug.files"
+	echo "" > $ARTDIR/debug.prefix
+	pack_deps debug
+	echo "Done."
+}
 
-if [[ ! -z $VARIANT ]]; then
+#----------------------------------------------------------------------------------------------
+
+NUMVER="$(NUMERIC=1 $SBIN/getver)"
+SEMVER="$($SBIN/getver)"
+
+if [[ -n $VARIANT ]]; then
 	VARIANT=-${VARIANT}
 fi
 
@@ -264,11 +287,14 @@ mkdir -p $ARTDIR
 
 if [[ $DEPS == 1 ]]; then
 	# set up `debug` dep
-	echo $(dirname $(realpath $MODULE_SO)) > $ARTDIR/debug.dir
-	echo $(basename $(realpath $MODULE_SO)).debug > $ARTDIR/debug.files
+	dirname "$(realpath "$MODULE")" > "$ARTDIR/debug.dir"
+	echo "$(basename "$(realpath "$MODULE")").debug" > "$ARTDIR/debug.files"
 	echo "" > $ARTDIR/debug.prefix
 
 	echo "Building dependencies ..."
+
+	[[ $SYM == 1 ]] && prepare_symbols_dep
+
 	for dep in $DEP_NAMES; do
 		if [[ $OS != macos ]]; then
 			pack_deps $dep
@@ -289,9 +315,9 @@ if [[ $RAMP == 1 ]]; then
 
 	echo "Building RAMP files ..."
 
-	[[ -z $MODULE_SO ]] && { eprint "Nothing to pack. Aborting."; exit 1; }
-	[[ ! -f $MODULE_SO ]] && { eprint "$MODULE_SO does not exist. Aborting."; exit 1; }
-	MODULE_SO=$(realpath $MODULE_SO)
+	[[ -z $MODULE ]] && { eprint "Nothing to pack. Aborting."; exit 1; }
+	[[ ! -f $MODULE ]] && { eprint "$MODULE does not exist. Aborting."; exit 1; }
+	MODULE=$(realpath $MODULE)
 
 	[[ $RELEASE == 1 ]] && SNAPSHOT=0 pack_ramp
 	[[ $SNAPSHOT == 1 ]] && pack_ramp
