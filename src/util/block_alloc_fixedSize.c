@@ -24,7 +24,7 @@ static fixedSizeBlock *getNewBlock(const FixedSizeBlocksManager *BlocksManager) 
 }
 
 static bool isBlockFull(const FixedSizeBlocksManager *BlocksManager, const fixedSizeBlock *block) {
-	assert(BlocksManager->blockCapacity < block->usedMemory);
+	assert(block->usedMemory <= BlocksManager->blockCapacity);
 	return BlocksManager->blockCapacity == block->usedMemory;
 }
 static void *BlockGetNextEmptyElem(fixedSizeBlock *block, size_t ElemSize) {
@@ -99,23 +99,18 @@ void *FixedSizeBlocksManager_getNextElement(FixedSizeBlocksIterator* resultsIter
 	void *ret = BlockGetElem(resultsIterator->currentBlock, resultsIterator->curr_elem_index, resultsIterator->BlocksManager->elemSize);
 	// This is the end of the block
 	if(!ret) {
-		// if it's the last block, there are no more elements.
-		if(resultsIterator->currentBlock == resultsIterator->BlocksManager->current) {
-			return NULL;
-		}
 		// else get the next block
 		resultsIterator->currentBlock = resultsIterator->currentBlock->next;
 		resultsIterator->curr_elem_index = 0;
+		
+		// if it's the last block, there are no more elements.
+		if(!resultsIterator->currentBlock) {
+			return NULL;
+		}
 		return FixedSizeBlocksManager_getNextElement(resultsIterator);
 	}
 	++resultsIterator->curr_elem_index;
 
 	return ret;
 
-}
-
-void FixedSizeBlocksManager_invalidateIterator(FixedSizeBlocksIterator* resultsIterator) {
-	resultsIterator->currentBlock = NULL;
-	resultsIterator->BlocksManager = NULL;
-	resultsIterator->curr_elem_index = 0;
 }

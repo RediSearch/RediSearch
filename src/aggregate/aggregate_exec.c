@@ -541,7 +541,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     if (rc != REDISMODULE_OK) {
       goto error;
     }
-  } else if (RunInThread(r)) {
+  } else if (RunSearchInThread(r)) {
     IndexLoadOptions options = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
                                 .name.cstring = r->sctx->spec->name};
     StrongRef spec_ref = IndexSpec_LoadUnsafeEx(ctx, &options);

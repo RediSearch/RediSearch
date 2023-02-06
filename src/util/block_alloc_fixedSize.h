@@ -32,40 +32,43 @@ typedef struct {
   const FixedSizeBlocksManager *BlocksManager;
 } FixedSizeBlocksIterator;
 /**
- *  Initialize blocks manager for blocks that contains @blockSize elements of size @elemeSize.
+ *  
+ * @brief This function initializes the blocks manager
+ * @param blockSize - number of elements
+ * @param elemeSize - size in bytes of each element
 */
 void FixedSizeBlocksManager_init(FixedSizeBlocksManager *BlocksManager, size_t elemSize, size_t blockSize);
+
 /**
- * Returns a pointer to a memory of size BlocksManager->elemSize to the current available element.
+ * @brief Returns a pointer to a memory of size BlocksManager->elemSize to the current available element.
  * The returned pointer remains valid until FreeAll is called.
  */
 void *FixedSizeBlocksManager_getEmptyElement(FixedSizeBlocksManager *BlocksManager);
 
 
 /**
- * Check if all the blocks are empty
+ * @brief Check if all the blocks are empty
  */
 bool FixedSizeBlocksManager_isEmpty(const FixedSizeBlocksManager *BlocksManager);
 
 /**
- * Free all memory allocated by the allocator.
+ * @brief Free all memory allocated by the allocator.
  */
 void FixedSizeBlocksManager_FreeAll(FixedSizeBlocksManager *BlocksManager);
 
 /************ Iterator functions ************/
 
 /**
- * initialize new iterator
+ * @brief initialize new iterator starting from the first element in the first block.
+ * 
 */
 void FixedSizeElementsBlocksManager_InitIterator(const FixedSizeBlocksManager *BlocksManager, FixedSizeBlocksIterator* resultsIterator);
 
 /**
- * Returns the next element after @iter or NULL if there are no more elements
- * Updates the iterator.
+ * @brief returns the next element after @iter or NULL if there are no more elements
+ * Updates the iterator to point to the returned element.
  */
 void *FixedSizeBlocksManager_getNextElement(FixedSizeBlocksIterator* resultsIterator);
-
-void FixedSizeBlocksManager_invalidateIterator(FixedSizeBlocksIterator* resultsIterator);
 
 #ifdef __cplusplus
 }
