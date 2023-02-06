@@ -1210,21 +1210,26 @@ error:
   return REDISMODULE_ERR;
 }
 
-static void PushBefore(ResultProcessor *rp_to_place, ResultProcessor *upstream) {
-  rp_to_place->upstream = upstream->upstream;
-  upstream->upstream = rp_to_place;
-  rp_to_place->parent = upstream->parent;
+// Add rp_to_place to an existing pipeline as the upstream result proceesor of rp.
+static void PushUpStream(ResultProcessor *rp_to_place, ResultProcessor *rp) {
+  rp_to_place->upstream = rp->upstream;
+  rp->upstream = rp_to_place;
+  rp_to_place->parent = rp->parent;
 }
 
+// Add Buffer and Locker and Unlocker result processors to the pipeline.
+// The Buffer and locker rp is added as the upstream of the first result processor that might
+// access Redis keyspace.
+// The Unlocker is places so that its upstream rp will be the last to access Redis keyspace.
 int SafeRedisKeyspaceAccessPipeline(AREQ *req, ResultProcessor *first_to_access_redis,
                                     ResultProcessor *last_to_access_redis) {
   ResultProcessor *rpBufferAndLocker = RPBufferAndLocker_New();
 
   // Place buffer and locker as the upstream of the first_to_access_redis result processor.
-  PushBefore(rpBufferAndLocker, first_to_access_redis);
+  PushUpStream(rpBufferAndLocker, first_to_access_redis);
 
   // Find where to place unlocker
-  ResultProcessor *rpUnlocker = RPUnlocker_New();
+  ResultProcessor *rpUnlocker = RPUnlocker_New((RPBufferAndLocker*)rpBufferAndLocker);
 
   // Start from the end processor and iterate beackward until the next rp
   // is the last to access redis and push the unlocker between them.
@@ -1243,7 +1248,7 @@ int SafeRedisKeyspaceAccessPipeline(AREQ *req, ResultProcessor *first_to_access_
   if (curr_rp == &dummy_rp) {
     pushRP(req, rpUnlocker, req->qiter.endProc);
   } else {
-    PushBefore(rpUnlocker, curr_rp);
+    PushUpStream(rpUnlocker, curr_rp);
   }
 
   return REDISMODULE_OK;
@@ -1412,9 +1417,9 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
     }
   }
 
-  // If we are in a multi threaded context we need to buffer result and lock the GIL
+  // If we are in a multi threaded context we need to buffer results and lock the GIL
   // before we first access redis key space and unlock it when it is no longer needed.
-  if(RedisModule_GetBlockedClientHandle(req->sctx->redisCtx) && first_to_access_redis) {
+  if((options & AREQ_BUILD_THREADSAFE_PIPELINE) && first_to_access_redis) {
     if(REDISMODULE_ERR == SafeRedisKeyspaceAccessPipeline(req, first_to_access_redis, last_to_access_redis)) {
       goto error;
     }

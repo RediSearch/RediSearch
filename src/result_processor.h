@@ -247,7 +247,7 @@ void RP_DumpChain(const ResultProcessor *rp);
  *
  * Unlocking the GIL should be done only by the Unlocker result processor.
  *******************************************************************************************************************/
-
+typedef struct RPBufferAndLocker RPBufferAndLocker;
 ResultProcessor *RPBufferAndLocker_New();
 
 /*******************************************************************************************************************
@@ -256,11 +256,14 @@ ResultProcessor *RPBufferAndLocker_New();
  * This component should be added to the query's execution pipeline if a thread safe access to
  * Redis keyspace is required.
  *
+ * @param rpBufferAndLocker is a pointer to the buffer and locker result processor
+ * that locked the GIL to be released.
+ * 
  * It is responsible for unlocking the GIL when no result processor needs to access Redis keyspace.
  *
  *******************************************************************************************************************/
 
-ResultProcessor *RPUnlocker_New();
+ResultProcessor *RPUnlocker_New(RPBufferAndLocker *rpBufferAndLocker);
 
 /*******************************************************************************************************************
  *  Profiling Processor

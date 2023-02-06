@@ -68,8 +68,7 @@ typedef enum {
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 // These macro should be used only by the main thread since configuration can be changed while running in 
 // backgroud.
-#define RUN_IN_THREAD (RSGlobalConfig.threadsEnabled && RSGlobalConfig.numWorkerThreads)
-#define RunSearchInThread(r) (RUN_IN_THREAD && IsSearch(r))
+#define RunInThread(r) (RSGlobalConfig.threadsEnabled && RSGlobalConfig.numWorkerThreads && IsSearch(r))
 
 typedef enum {
   /* Received EOF from iterator */
@@ -188,6 +187,12 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
  * first step or the initial lookup table
  */
 #define AREQ_BUILDPIPELINE_NO_ROOT 0x01
+
+/**
+ * Add the ability to run the query in a multi threaded environment
+ * 
+ */
+#define AREQ_BUILD_THREADSAFE_PIPELINE 0x02
 /**
  * Constructs the pipeline objects needed to actually start processing
  * the requests. This does not yet start iterating over the objects
@@ -249,7 +254,7 @@ ResultProcessor *Grouper_GetRP(Grouper *gr);
 void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
-int prepareExecutionPlan(AREQ *req, QueryError *status);
+int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status);
 void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit);
 void AREQ_Free(AREQ *req);
 

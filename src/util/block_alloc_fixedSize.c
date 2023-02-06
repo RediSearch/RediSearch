@@ -12,7 +12,7 @@ struct fixedSizeBlock {
   	fixedSizeBlock *next;
 	// Used memory in bytes.
 	size_t usedMemory;
-  	char data[0] __attribute__((aligned(16)));
+  	char data[0];
 };
 
 static fixedSizeBlock *getNewBlock(const FixedSizeBlocksManager *BlocksManager) {
@@ -99,7 +99,7 @@ void *FixedSizeBlocksManager_getNextElement(FixedSizeBlocksIterator* resultsIter
 	void *ret = BlockGetElem(resultsIterator->currentBlock, resultsIterator->curr_elem_index, resultsIterator->BlocksManager->elemSize);
 	// This is the end of the block
 	if(!ret) {
-		// else get the next block
+		// Get the next block
 		resultsIterator->currentBlock = resultsIterator->currentBlock->next;
 		resultsIterator->curr_elem_index = 0;
 		

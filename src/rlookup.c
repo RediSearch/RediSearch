@@ -693,7 +693,7 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
       rv = RLookup_HGETALL(it, dst, options);
     } else if (options->dmd->type == DocumentType_Json) {
       rv = RLookup_JSON_GetAll(it, dst, options);
-    }  
+    }
   } else {
     rv = loadIndividualKeys(it, dst, options);
   }

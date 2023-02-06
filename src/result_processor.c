@@ -859,19 +859,28 @@ ResultProcessor *RPCounter_New() {
  * Unlocking the GIL should be done only by the Unlocker result processor.
  *******************************************************************************************************************/
 
-typedef struct {
+typedef struct RPBufferAndLocker{
   ResultProcessor base;
 
   FixedSizeBlocksManager bufferBlocks;
   FixedSizeBlocksIterator resultsIterator;
   size_t BlockSize;
 
+  // The GIL status
+  bool isGILLocked;
+
 } RPBufferAndLocker;
 
 static int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res);
 
+static bool isGILLocked(RPBufferAndLocker *bufferAndLocker) {
+  return bufferAndLocker->isGILLocked;
+}
+
 static void RPBufferAndLocker_Free(ResultProcessor *base) {
   RPBufferAndLocker *bufferAndLocker = (RPBufferAndLocker *)base;
+
+  assert(!isGILLocked(bufferAndLocker));
 
   // Free buffer memory blocks
   FixedSizeBlocksManager_FreeAll(&bufferAndLocker->bufferBlocks);
@@ -885,12 +894,14 @@ ResultProcessor *RPBufferAndLocker_New() {
   ret->base.Next = rpbufferNext_bufferDocs;
   ret->base.Free = RPBufferAndLocker_Free;
   ret->base.type = RP_BUFFER_AND_LOCKER;
+
+  ret->isGILLocked = false;
   return &ret->base;
 }
 
 static bool isResultValid(const SearchResult *res) {
   // check if the doc is not marked deleted in the spec
-  return !res->dmd->flags & Document_Deleted;
+  return !(res->dmd->flags & Document_Deleted);
 }
 static void InvalidateBufferedResult(SearchResult *buffered_result) {
   buffered_result->indexResult = NULL;
@@ -905,6 +916,12 @@ static int ReturnResult(SearchResult *buffered_result,  SearchResult *result_out
   return RS_RESULT_OK;
 }
 
+static int LockGil(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx) {
+  RedisModule_ThreadSafeContextLock(redisCtx);
+
+  rpBufferAndLocker->isGILLocked = true;
+
+}
 static int rpbufferNext_Yield(ResultProcessor *rp, SearchResult *result_output) {
   RPBufferAndLocker *RPBuffer = (RPBufferAndLocker *)rp;
   SearchResult *curr_res = FixedSizeBlocksManager_getNextElement(&RPBuffer->resultsIterator);
@@ -936,40 +953,36 @@ static int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *resu
 }
 
 int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
-  RPBufferAndLocker *RPBuffer = (RPBufferAndLocker *)rp;
+  RPBufferAndLocker *rpPufferAndLocker = (RPBufferAndLocker *)rp;
 
   // Get the current index version so we can check later if any updates accured
   // after we finish to buffer the results
-  RedisSearchCtx *RSctx = RPBuffer->base.parent->sctx;
+  RedisSearchCtx *RSctx = rpPufferAndLocker->base.parent->sctx;
   double currentIndexVersion = IndexSpec_GetVersion(RSctx->spec);
 
-  FixedSizeBlocksManager *buffer = &RPBuffer->bufferBlocks;
+  FixedSizeBlocksManager *buffer = &rpPufferAndLocker->bufferBlocks;
 
   // Allocate the first results block.
   FixedSizeBlocksManager_init(buffer, sizeof(SearchResult),
-                                      RPBuffer->BlockSize);
+                                      rpPufferAndLocker->BlockSize);
 
   // Keep fetching results from the upstream result processor until EOF is reached
-  while (1) {
-
+  int result_status;
+  do {
     // Get a space for a new result.
     SearchResult *resToBuffer = FixedSizeBlocksManager_getEmptyElement(buffer);
 
     // Get the next result and save it in the buffer
-    int result_status = rp->upstream->Next(rp->upstream, resToBuffer);
+    result_status = rp->upstream->Next(rp->upstream, resToBuffer);
+    
+  }
+  while (result_status == RS_RESULT_OK);
 
-    // If upstream has finished stop buffering results or something went wrong
-    if (result_status != RS_RESULT_OK) {
-      if (result_status == RS_RESULT_EOF ||
-          (result_status == RS_RESULT_TIMEDOUT &&
-           RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Return)) {
-        // Break the loop and continue to the next step.
-        if (!FixedSizeBlocksManager_isEmpty(buffer)) {
-          break;
-        }
-      }  // else, we got no results or something went wrong, we can go downstream.
-      return result_status;
-    }
+  // If we exit the loop because we got an error, or we have zero result, return without locking the GIL.
+  if ((result_status != RS_RESULT_EOF &&
+      !(result_status == RS_RESULT_TIMEDOUT && RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Return)) ||
+      FixedSizeBlocksManager_isEmpty(buffer)) {
+    return result_status;
   }
 
   // Now we have the data of all documents that pass the query filters,
@@ -982,7 +995,7 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   RedisSearchCtx_UnlockSpec(RSctx);
 
   // Lock GIL to gurentee safe access to Redis keyspace
-  RedisModule_ThreadSafeContextLock(RSctx->redisCtx);
+  LockGil(rpPufferAndLocker, RSctx->redisCtx);
 
   // If the spec has been changed since we released the spec lock,
   // we need to validate every buffered result
@@ -993,9 +1006,10 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   // We don't lock the index because we assume that there 
   // are no more access to the index down the pipeline and the data 
   // we buffered remains valid.
-  FixedSizeElementsBlocksManager_InitIterator(buffer, &RPBuffer->resultsIterator);
+  FixedSizeElementsBlocksManager_InitIterator(buffer, &rpPufferAndLocker->resultsIterator);
   return rp->Next(rp, res);
 }
+
 
 /*******************************************************************************************************************
  *  UnLocker Results Processor
@@ -1009,29 +1023,43 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
 
 typedef struct {
   ResultProcessor base;
+  RPBufferAndLocker* rpBufferAndLocker;
+
 } RPUnlocker;
 
 static int RPUnlocker_Next(ResultProcessor *rp, SearchResult *res) {
   // call the next result processor
   int result_status = rp->upstream->Next(rp->upstream, res);
-  // if EOF is returned we can safly unlock the GIL
-  if(result_status == RS_RESULT_EOF) {
-    RedisSearchCtx *RSctx = ((RPUnlocker *)rp)->base.parent->sctx;
-    RedisModule_ThreadSafeContextUnlock(RSctx->redisCtx);
+  
+  // Finish the search
+  if(result_status != REDISMODULE_OK) {
+    RPUnlocker *unlocker = (RPUnlocker *)rp;
+
+    // Unlock the GIL if it was locked
+    if(isGILLocked(((RPUnlocker *)rp)->rpBufferAndLocker)){
+      RedisSearchCtx *RSctx = unlocker->base.parent->sctx;
+      RedisModule_ThreadSafeContextUnlock(RSctx->redisCtx);
+    }
 
   }
   return result_status;
 }
 
 static void RPUnlocker_Free(ResultProcessor *base) {
+  RPUnlocker *unlocker = (RPUnlocker *)base;
+  assert(!isGILLocked(unlocker->rpBufferAndLocker));
+  unlocker->rpBufferAndLocker = NULL;
+
   rm_free(base);
 }
 
-ResultProcessor *RPUnlocker_New() {
+ResultProcessor *RPUnlocker_New(RPBufferAndLocker *rpBufferAndLocker) {
   RPUnlocker *ret = rm_calloc(1, sizeof(RPUnlocker));
 
   ret->base.Next = RPUnlocker_Next;
   ret->base.Free = RPUnlocker_Free;
   ret->base.type = RP_UNLOCKER;
+
+  ret->rpBufferAndLocker = rpBufferAndLocker;
   return &ret->base;
 }
