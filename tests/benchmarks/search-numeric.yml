@@ -15,6 +15,10 @@ setups:
   - oss-cluster-32-primaries
 
 dbconfig:
+  - module-configuration-parameters:
+      redisearch:
+        WORKER_THREADS: 8
+        ENABLE_THREADS: 'TRUE'
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64

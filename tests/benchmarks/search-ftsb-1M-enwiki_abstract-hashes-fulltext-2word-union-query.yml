@@ -1,7 +1,7 @@
 name: "ftsb-1M-enwiki_abstract-hashes-fulltext-2word-union-query"
 description: "
-             enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-abstract-benchmark/description.md), 
-             from English-language Wikipedia:Database page abstracts. 
+             enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-abstract-benchmark/description.md),
+             from English-language Wikipedia:Database page abstracts.
              This use case generates 3 TEXT fields per document, and focusses on full text queries performance.
              Specifically for this testcase:
                 - Type (read/write/mixed): read
@@ -27,6 +27,10 @@ setups:
   - oss-cluster-32-primaries
 
 dbconfig:
+  - module-configuration-parameters:
+      redisearch:
+        WORKER_THREADS: 8
+        ENABLE_THREADS: 'TRUE'
   - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
   - init_commands:
     - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
