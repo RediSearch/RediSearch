@@ -88,7 +88,7 @@ def testManyPrefixes(env):
         env.execute_command('ft.create', i, 'ON', 'HASH',
                             'PREFIX', '1', i,
                             'SCHEMA', 'name', 'text')
-    env.debugPrint(str(time.time() - start_time), force=True)
+    env.debugPrint(str(time.time() - start_time), force=TEST_DEBUG)
     start_time = time.time()
     conn.execute_command('FLUSHALL')
     env.assertLess(time.time() - start_time, 5)
