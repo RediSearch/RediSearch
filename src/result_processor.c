@@ -976,20 +976,16 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
 
   // Keep fetching results from the upstream result processor until EOF is reached
   int result_status;
-  do {
-    SearchResult resToBuffer = {0};
+  SearchResult resToBuffer = {0};
+  // Get the next result and save it in the buffer
+  while((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK) {
 
-    // Get the next result and save it in the buffer
-    result_status = rp->upstream->Next(rp->upstream, &resToBuffer);
-    if(result_status != RS_RESULT_OK) {
-      break;
-    }
-    
     // Buffer the result.
     FixedSizeBlocksManager_InsertElement(buffer, &resToBuffer);
+
+    memset(&resToBuffer, 0, sizeof(SearchResult));
     
   }
-  while (1);
 
   // If we exit the loop because we got an error, or we have zero result, return without locking the GIL.
   if ((result_status != RS_RESULT_EOF &&
