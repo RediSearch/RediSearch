@@ -1210,6 +1210,45 @@ error:
   return REDISMODULE_ERR;
 }
 
+static void PushBefore(ResultProcessor *rp_to_place, ResultProcessor *upstream) {
+  rp_to_place->upstream = upstream->upstream;
+  upstream->upstream = rp_to_place;
+  rp_to_place->parent = upstream->parent;
+}
+
+int SafeRedisKeyspaceAccessPipeline(AREQ *req, ResultProcessor *first_to_access_redis,
+                                    ResultProcessor *last_to_access_redis) {
+  ResultProcessor *rpBufferAndLocker = RPBufferAndLocker_New();
+
+  // Place buffer and locker as the upstream of the first_to_access_redis result processor.
+  PushBefore(rpBufferAndLocker, first_to_access_redis);
+
+  // Find where to place unlocker
+  ResultProcessor *rpUnlocker = RPUnlocker_New();
+
+  // Start from the end processor and iterate beackward until the next rp
+  // is the last to access redis and push the unlocker between them.
+
+  ResultProcessor dummy_rp = {.upstream = req->qiter.endProc};
+  ResultProcessor *curr_rp = &dummy_rp;
+
+  while (last_to_access_redis != curr_rp->upstream && curr_rp != req->qiter.rootProc) {
+    curr_rp = curr_rp->upstream;
+  }
+  // If we didn't find where to push the unlocker something went wrong...
+  if (curr_rp == req->qiter.rootProc) {
+    return REDISMODULE_ERR;
+  }
+  // Handle special case where endProc is the last.
+  if (curr_rp == &dummy_rp) {
+    pushRP(req, rpUnlocker, req->qiter.endProc);
+  } else {
+    PushBefore(rpUnlocker, curr_rp);
+  }
+
+  return REDISMODULE_OK;
+}
+
 int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
   if (!(options & AREQ_BUILDPIPELINE_NO_ROOT)) {
     buildImplicitPipeline(req, status);
@@ -1220,6 +1259,8 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
 
   AGGPlan *pln = &req->ap;
   ResultProcessor *rp = NULL, *rpUpstream = req->qiter.endProc;
+  ResultProcessor *first_to_access_redis = NULL;
+  ResultProcessor *last_to_access_redis = NULL;
 
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
@@ -1243,6 +1284,13 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
         }
         hasArrange = 1;
         rpUpstream = rp;
+        // if we have sortby, we might need to access redis keyspace and load the fields' data.
+        if (((PLN_ArrangeStep *)stp)->sortKeys) {
+          if (!first_to_access_redis) {
+            first_to_access_redis = rp;
+          }
+          last_to_access_redis = rp;
+        }
         break;
       }
 
@@ -1313,6 +1361,11 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
         }
         if (lstp->nkeys || lstp->base.flags & PLN_F_LOAD_ALL) {
           rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
+
+          if (!first_to_access_redis) {
+            first_to_access_redis = rp;
+          }
+          last_to_access_redis = rp;
           PUSH_RP();
         }
         break;
@@ -1344,6 +1397,25 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
   // document fields, handle those options in this function
   if ((req->reqflags & QEXEC_F_IS_SEARCH) && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
     if (buildOutputPipeline(req, status) != REDISMODULE_OK) {
+      goto error;
+    }
+
+    // In this case and proc is either the loader or the highlither.
+    // The highlighter doesn't need to access Redis, so we skip it in case
+    // it exists.
+    last_to_access_redis = req->qiter.endProc;
+    if(req->reqflags & QEXEC_F_SEND_HIGHLIGHT) {
+      last_to_access_redis =last_to_access_redis->upstream;
+    }
+    if(!first_to_access_redis) {
+        first_to_access_redis = last_to_access_redis;
+    }
+  }
+
+  // If we are in a multi threaded context we need to buffer result and lock the GIL
+  // before we first access redis key space and unlock it when it is no longer needed.
+  if(RedisModule_GetBlockedClientHandle(req->sctx->redisCtx) && first_to_access_redis) {
+    if(REDISMODULE_ERR == SafeRedisKeyspaceAccessPipeline(req, first_to_access_redis, last_to_access_redis)) {
       goto error;
     }
   }

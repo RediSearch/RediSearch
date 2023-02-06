@@ -723,7 +723,7 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
   return &sc->base;
 }
 
-static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Buufer and Locker", "Unlocker", "Scorer",
+static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Buffer and Locker", "Unlocker", "Scorer",
                                      "Sorter",    "Counter",   "Pager/Limiter", "Highlighter", 
                                      "Grouper",   "Projector", "Filter",        "Profile",     
                                      "Network",   "Vector Similarity Scores Loader"};
@@ -850,7 +850,7 @@ ResultProcessor *RPCounter_New() {
 /*******************************************************************************************************************
  *  Buffer and Locker Results Processor
  *
- * This component should be added to the pipeline of the query excution, if a thread safe access to
+ * This component should be added to the query's execution pipeline if a thread safe access to
  * Redis keyspace is required.
  *
  * The buffer is responsible for buffering the document that pass the query filters and lock the GIL
@@ -871,15 +871,12 @@ typedef struct {
 static int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res);
 
 static void RPBufferAndLocker_Free(ResultProcessor *base) {
-  RPBufferAndLocker *this = (RPBufferAndLocker *)base;
+  RPBufferAndLocker *bufferAndLocker = (RPBufferAndLocker *)base;
 
   // Free buffer memory blocks
-  FixedSizeBlocksManager_FreeAll(&this->bufferBlocks);
+  FixedSizeBlocksManager_FreeAll(&bufferAndLocker->bufferBlocks);
 
-  // Invalidate the iterator
-  FixedSizeBlocksManager_invalidateIterator(&this->resultsIterator);
-
-  rm_free(this);
+  rm_free(bufferAndLocker);
 }
 
 ResultProcessor *RPBufferAndLocker_New() {
@@ -893,18 +890,18 @@ ResultProcessor *RPBufferAndLocker_New() {
 
 static bool isResultValid(const SearchResult *res) {
   // check if the doc is not marked deleted in the spec
-  return res->dmd->flags & Document_Deleted;
+  return !res->dmd->flags & Document_Deleted;
 }
-
-static int ReturnResult(SearchResult *buffered_result,  SearchResult *result_output) {
-  *result_output = *buffered_result;
-
-  // Invalidate the buffered result.
+static void InvalidateBufferedResult(SearchResult *buffered_result) {
   buffered_result->indexResult = NULL;
   buffered_result->dmd = NULL;
   buffered_result->scoreExplain = NULL;
-  buffered_result->indexResult = NULL;
   memset(&buffered_result->rowdata, 0, sizeof(RLookupRow));
+}
+static int ReturnResult(SearchResult *buffered_result,  SearchResult *result_output) {
+  *result_output = *buffered_result;
+
+  InvalidateBufferedResult(buffered_result);
   return RS_RESULT_OK;
 }
 
@@ -981,27 +978,19 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   // initialize next function to the defualt value
   rp->Next = rpbufferNext_Yield;
 
-  int lockGIL = RedisModule_ThreadSafeContextTryLock(RSctx->redisCtx);
+  // unlockspec to avoid deadlocks
+  RedisSearchCtx_UnlockSpec(RSctx);
 
-  // TryLock returns REDISMODULE_ERR if the GIL was already locked
-  if (lockGIL == REDISMODULE_ERR) {
+  // Lock GIL to gurentee safe access to Redis keyspace
+  RedisModule_ThreadSafeContextLock(RSctx->redisCtx);
 
-    // unlockspec to avoid deadlocks
-    RedisSearchCtx_UnlockSpec(RSctx);
-
-    // Lock GIL to gurentee safe access to Redis keyspace
-    RedisModule_ThreadSafeContextLock(RSctx->redisCtx);
-
-    // If the spec has been changed since we released the spec lock,
-    // we need to validate every buffered result
-    if (currentIndexVersion != IndexSpec_GetVersion(RSctx->spec)) {
-      rp->Next = rpbufferNext_ValidateAndYield;
-    }
+  // If the spec has been changed since we released the spec lock,
+  // we need to validate every buffered result
+  if (currentIndexVersion != IndexSpec_GetVersion(RSctx->spec)) {
+    rp->Next = rpbufferNext_ValidateAndYield;
   }
 
-  // If we managed to lock the GIL it means that
-  // nobody held it, so we can't have a deadlock.
-  // We don't lock the index lock because we assume that there 
+  // We don't lock the index because we assume that there 
   // are no more access to the index down the pipeline and the data 
   // we buffered remains valid.
   FixedSizeElementsBlocksManager_InitIterator(buffer, &RPBuffer->resultsIterator);
@@ -1011,10 +1000,10 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
 /*******************************************************************************************************************
  *  UnLocker Results Processor
  *
- * This component should be added to the pipeline of the query excution, if a thread safe access to
+ * This component should be added to the query's execution pipeline if a thread safe access to
  * Redis keyspace is required.
  *
- * It is responsible for unlocking the GIL where no access to Redis keyspace is required.
+ * It is responsible for unlocking the GIL when no result processor needs to access Redis keyspace.
  *
  *******************************************************************************************************************/
 

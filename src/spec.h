@@ -556,8 +556,10 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(StrongRef ref);
 
-// Return the current vesrion of the spec. 
-// The value of the version number does'nt indicate if the index
+// Return the current version of the spec. 
+// Each protected writing increases the version by 1. 
+// If the version number is overflowed we restart the count to zero.
+// Hence, The value of the version number doesn't indicate if the index
 // is newer or older, and should be only tested for inequality.
 size_t IndexSpec_GetVersion(const IndexSpec *sp);
 

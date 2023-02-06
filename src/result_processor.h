@@ -237,14 +237,31 @@ ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const Fiel
 void RP_DumpChain(const ResultProcessor *rp);
 
 /*******************************************************************************************************************
- *  Buffer and Loader Results Processor
+ *  Buffer and Locker Results Processor
  *
- * The buffer is responsible for buffering the document that pass the query filters and loading
- * fields for the results that need to be displayed to the user, from redis.
+ * This component should be added to the query's execution pipeline if a thread safe access to
+ * Redis keyspace is required.
+ *
+ * The buffer is responsible for buffering the document that pass the query filters and lock the GIL
+ * to allow the downstream result processor safe access to redis keyspace.
+ *
+ * Unlocking the GIL should be done only by the Unlocker result processor.
+ *******************************************************************************************************************/
+
+ResultProcessor *RPBufferAndLocker_New();
+
+/*******************************************************************************************************************
+ *  UnLocker Results Processor
+ *
+ * This component should be added to the query's execution pipeline if a thread safe access to
+ * Redis keyspace is required.
+ *
+ * It is responsible for unlocking the GIL when no result processor needs to access Redis keyspace.
  *
  *******************************************************************************************************************/
 
-ResultProcessor *RPBUfferAndLoader_New(RLookup *lookup, const RLookupKey **keys, size_t nkeys);
+ResultProcessor *RPUnlocker_New();
+
 /*******************************************************************************************************************
  *  Profiling Processor
  *
