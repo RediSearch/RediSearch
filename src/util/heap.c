@@ -58,6 +58,14 @@ void heap_free(heap_t *h) {
   rm_free(h);
 }
 
+// Useful when you want to free all the internal data
+void heap_destroy(heap_t *h) {
+  for (size_t i = 0; i < h->count; i++) {
+    rm_free(h->array[i]);
+  }
+  heap_free(h);
+}
+
 /**
  * @return a new heap on success; NULL otherwise */
 static heap_t *__ensurecapacity(heap_t *h) {
