@@ -923,6 +923,13 @@ static int LockGil(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCt
   rpBufferAndLocker->isGILLocked = true;
 
 }
+
+static int UnLockGil(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx) {
+  RedisModule_ThreadSafeContextUnlock(redisCtx);
+
+  rpBufferAndLocker->isGILLocked = false;
+
+}
 static int rpbufferNext_Yield(ResultProcessor *rp, SearchResult *result_output) {
   RPBufferAndLocker *RPBuffer = (RPBufferAndLocker *)rp;
   SearchResult *curr_res = FixedSizeBlocksManager_getNextElement(&RPBuffer->resultsIterator);
@@ -970,14 +977,19 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   // Keep fetching results from the upstream result processor until EOF is reached
   int result_status;
   do {
-    // Get a space for a new result.
-    SearchResult *resToBuffer = FixedSizeBlocksManager_getEmptyElement(buffer);
+    SearchResult resToBuffer = {0};
 
     // Get the next result and save it in the buffer
-    result_status = rp->upstream->Next(rp->upstream, resToBuffer);
+    result_status = rp->upstream->Next(rp->upstream, &resToBuffer);
+    if(result_status != RS_RESULT_OK) {
+      break;
+    }
+    
+    // Buffer the result.
+    FixedSizeBlocksManager_InsertElement(buffer, &resToBuffer);
     
   }
-  while (result_status == RS_RESULT_OK);
+  while (1);
 
   // If we exit the loop because we got an error, or we have zero result, return without locking the GIL.
   if ((result_status != RS_RESULT_EOF &&
@@ -1038,8 +1050,7 @@ static int RPUnlocker_Next(ResultProcessor *rp, SearchResult *res) {
 
     // Unlock the GIL if it was locked
     if(isGILLocked(((RPUnlocker *)rp)->rpBufferAndLocker)){
-      RedisSearchCtx *RSctx = unlocker->base.parent->sctx;
-      RedisModule_ThreadSafeContextUnlock(RSctx->redisCtx);
+      UnLockGil(((RPUnlocker *)rp)->rpBufferAndLocker, unlocker->base.parent->sctx->redisCtx);
     }
 
   }
