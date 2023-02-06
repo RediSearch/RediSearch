@@ -888,7 +888,7 @@ static void RPBufferAndLocker_Free(ResultProcessor *base) {
   rm_free(bufferAndLocker);
 }
 
-ResultProcessor *RPBufferAndLocker_New() {
+ResultProcessor *RPBufferAndLocker_New(size_t InitialSize) {
   RPBufferAndLocker *ret = rm_calloc(1, sizeof(RPBufferAndLocker));
 
   ret->base.Next = rpbufferNext_bufferDocs;
@@ -896,6 +896,7 @@ ResultProcessor *RPBufferAndLocker_New() {
   ret->base.type = RP_BUFFER_AND_LOCKER;
 
   ret->isGILLocked = false;
+  ret->BlockSize = InitialSize;
   return &ret->base;
 }
 

@@ -248,7 +248,7 @@ void RP_DumpChain(const ResultProcessor *rp);
  * Unlocking the GIL should be done only by the Unlocker result processor.
  *******************************************************************************************************************/
 typedef struct RPBufferAndLocker RPBufferAndLocker;
-ResultProcessor *RPBufferAndLocker_New();
+ResultProcessor *RPBufferAndLocker_New(size_t InitialSize);
 
 /*******************************************************************************************************************
  *  UnLocker Results Processor
