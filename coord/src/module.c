@@ -90,6 +90,7 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
       // the arrays were empty - return an empty array
       RedisModule_ReplyWithArray(ctx, 0);
     } else {
+      TrieMap_Free(dict, NULL);
       return RedisModule_ReplyWithError(ctx, err ? (const char *)err : "Could not perfrom query");
     }
     goto cleanup;
