@@ -1223,7 +1223,9 @@ static void PushUpStream(ResultProcessor *rp_to_place, ResultProcessor *rp) {
 // The Unlocker is places so that its upstream rp will be the last to access Redis keyspace.
 int SafeRedisKeyspaceAccessPipeline(AREQ *req, ResultProcessor *first_to_access_redis,
                                     ResultProcessor *last_to_access_redis) {
-  ResultProcessor *rpBufferAndLocker = RPBufferAndLocker_New();
+  
+  // TODO: Add better estimation to the buffer initial size
+  ResultProcessor *rpBufferAndLocker = RPBufferAndLocker_New(1024);
 
   // Place buffer and locker as the upstream of the first_to_access_redis result processor.
   PushUpStream(rpBufferAndLocker, first_to_access_redis);
