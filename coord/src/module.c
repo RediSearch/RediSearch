@@ -333,8 +333,8 @@ typedef struct {
 } searchRequestCtx;
 
 void searchRequestCtx_Free(searchRequestCtx *r) {
-  free(r->queryString);
-  free(r);
+  rm_free(r->queryString);
+  rm_free(r);
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies);
@@ -362,15 +362,15 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
     return NULL;
   }
 
-  searchRequestCtx *req = malloc(sizeof(searchRequestCtx));
+  searchRequestCtx *req = rm_malloc(sizeof *req);
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
-    free(req);
+    searchRequestCtx_Free(req);
     return NULL;
   }
 
   int argvOffset = 2 + req->profileArgs;
-  req->queryString = strdup(RedisModule_StringPtrLen(argv[argvOffset++], NULL));
+  req->queryString = rm_strdup(RedisModule_StringPtrLen(argv[argvOffset++], NULL));
   req->limit = 10;
   req->offset = 0;
   // marks the user set WITHSCORES. internally it's always set
@@ -409,7 +409,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc) {
   // Parse LIMIT argument
   RMUtil_ParseArgsAfter("LIMIT", argv + argvOffset, argc - argvOffset, "ll", &req->offset, &req->limit);
   if (req->limit < 0 || req->offset < 0) {
-    free(req);
+    searchRequestCtx_Free(req);
     return NULL;
   }
 
@@ -488,7 +488,7 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
 
 searchResult *newResult(searchResult *cached, MRReply *arr, int j, int scoreOffset,
                         int payloadOffset, int fieldsOffset, int sortKeyOffset, int explainScores) {
-  searchResult *res = cached ? cached : malloc(sizeof(searchResult));
+  searchResult *res = cached ? cached : rm_malloc(sizeof *res);
   res->sortKey = NULL;
   res->sortKeyNum = HUGE_VAL;
   if (MRReply_Type(MRReply_ArrayElement(arr, j)) != MR_REPLY_STRING) {
@@ -714,7 +714,7 @@ static void sendSearchResults(RedisModuleCtx *ctx, searchReducerCtx *rCtx) {
 
   // Free the sorted results
   for (pos = 0; pos < qlen; pos++) {
-    free(results[pos]);
+    rm_free(results[pos]);
   }
 }
 
@@ -812,7 +812,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     processSearchReply(reply, &rCtx, ctx);
   }
   if (rCtx.cachedResult) {
-    free(rCtx.cachedResult);
+    rm_free(rCtx.cachedResult);
   }
   // If we didn't get any results and we got an error - return it.
   // If some shards returned results and some errors - we prefer to show the results we got an not
@@ -832,13 +832,10 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     postProccesTime = clock();
     profileSearchReply(ctx, &rCtx, count, replies, req->profileClock, postProccesTime);
   }
+
 cleanup:
   if (rCtx.pq) {
-    searchResult *res;
-    while ((res = heap_poll(rCtx.pq))) {
-      free(res);
-    }
-    heap_free(rCtx.pq);
+    heap_destroy(rCtx.pq);
   }
 
   searchRequestCtx_Free(req);
@@ -1495,13 +1492,13 @@ static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
  * cursor name, and use the real name as the entry.
  */
 static void addIndexCursor(const IndexSpec *sp) {
-  char *s = strdup(sp->name);
+  char *s = rm_strdup(sp->name);
   char *end = strchr(s, '{');
   if (end) {
     *end = '\0';
     CursorList_AddSpec(&RSCursors, s, RSCURSORS_DEFAULT_CAPACITY);
   }
-  free(s);
+  rm_free(s);
 }
 
 #define RM_TRY(expr)                                                  \
@@ -1538,6 +1535,31 @@ void setHiredisAllocators(){
   };
 
   hiredisSetAllocators(&ha);
+}
+
+
+void Coordinator_CleanupModule(void) {
+  MR_Destroy();
+  GlobalSearchCluser_Release();
+}
+
+void Coordinator_ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
+  RediSearch_CleanupModule();
+  RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
+  RedisModule_Log(ctx, "notice", "%s", "Begin releasing Coordinator resources on shutdown");
+  Coordinator_CleanupModule();
+  RedisModule_Log(ctx, "notice", "%s", "End releasing Coordinator resources");
+}
+
+void Initialize_CoordKeyspaceNotifications(RedisModuleCtx *ctx) {
+  // To be called after `Initialize_KeyspaceNotifications` as callbacks are overridden.
+  if (RedisModule_SubscribeToServerEvent && getenv("RS_GLOBAL_DTORS")) {
+    // clear resources when the server exits
+    // used only with sanitizer or valgrind
+    RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, Coordinator_ShutdownEvent);
+  }
 }
 
 int __attribute__((visibility("default")))
@@ -1588,6 +1610,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Init the aggregation thread pool
   DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(RSGlobalConfig.searchPoolSize);
+
+  Initialize_CoordKeyspaceNotifications(ctx);
 
   // suggestion commands
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.SUGADD", SafeCmd(SingleShardCommandHandler), "readonly",

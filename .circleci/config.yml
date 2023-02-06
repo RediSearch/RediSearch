@@ -544,13 +544,13 @@ jobs:
             make SAN=<<parameters.san-type>> build SHOW=1
             make SAN=<<parameters.san-type>> test TEST_PARALLEL=16 SHOW=1 QUICK=1
           no_output_timeout: 30m
-#      - run:
-#          name: Build & test (OSS Coordinator)
-#          shell: /bin/bash -l -eo pipefail
-#          command: |
-#            make SAN=<<parameters.san-type>> COORD=oss build SHOW=1
-#            make SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 QUICK=1
-#          no_output_timeout: 30m
+      - run:
+          name: Build & test (OSS Coordinator)
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make SAN=<<parameters.san-type>> COORD=oss build SHOW=1
+            make SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 QUICK=1
+          no_output_timeout: 30m
       - save-tests-logs
 
   valgrind-memcheck:
