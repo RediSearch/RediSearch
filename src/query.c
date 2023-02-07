@@ -33,6 +33,7 @@
 #include "aggregate/aggregate.h"
 #include "suffix.h"
 #include "wildcard/wildcard.h"
+#include "geometry/geometry_api.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -300,6 +301,16 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
   p->gf = NULL;
   p->params = NULL;
   rm_free(p);
+  return ret;
+}
+
+QueryNode *NewGeometryNode_FromWkt(const char *wkt, size_t len) {
+  QueryNode *ret = NewQueryNode(QN_GEOMETRY);
+  GeometryQuery *geomq = rm_calloc(1, sizeof(*geomq));
+  geomq->format = GEOMETRY_FORMAT_WKT;
+  geomq->str = wkt;
+  geomq->len = len;
+  ret->gmn.geomq = geomq;
   return ret;
 }
 
@@ -841,6 +852,21 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
   return NewGeoRangeIterator(q->sctx, node->gn.gf);
 }
 
+static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
+  
+  GeometryApi *api = GeometryApi_GetOrCreate(GEOMETRY_LIB_TYPE_BOOST_GEOMETRY, NULL);
+  const FieldSpec *fs =
+      IndexSpec_GetField(q->sctx->spec, node->gmn.geomq->attr, strlen(node->gmn.geomq->attr));
+  if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
+    return NULL;
+  }
+  // TODO: GEOMETRY - enable code
+  return NewGeometryIterator(q->sctx, node->gmn.geomq);
+  return NULL; //FIXME: implement
+}
+
+
+
 static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   if((q->reqFlags & QEXEC_F_IS_EXTENDED)) {
     QueryError_SetErrorFmt(q->status, QUERY_EAGGPLAN, "VSS is not yet supported on FT.AGGREGATE");
@@ -1319,6 +1345,8 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalWildcardNode(q, n);
     case QN_WILDCARD_QUERY:
       return Query_EvalWildcardQueryNode(q,n);
+    case QN_GEOMETRY:
+      return Query_EvalGeometryNode(q, n);
     case QN_NULL:
       return NewEmptyIterator();
   }

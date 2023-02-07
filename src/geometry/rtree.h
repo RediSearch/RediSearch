@@ -25,7 +25,7 @@ NODISCARD bool RTree_IsEmpty(struct RTree const *rtree) NOEXCEPT;
 void RTree_Clear(struct RTree *rtree) NOEXCEPT;
 NODISCARD struct RTDoc *RTree_Bounds(struct RTree const *rtree);
 
-NODISCARD struct QueryIterator *RTree_Query(struct RTree const *rtree, struct RTDoc const *queryDoc, enum QueryType queryType);
+NODISCARD struct GeometryQueryIterator *RTree_Query(struct RTree const *rtree, struct RTDoc const *queryDoc, enum QueryType queryType);
 
 NODISCARD size_t RTree_MemUsage(struct RTree const *rtree);
 #ifdef __cplusplus

@@ -8,12 +8,12 @@
 extern "C" {
 #endif
 
-struct QueryIterator;
+struct GeometryQueryIterator;
 
-void QIter_Free(struct QueryIterator *iter) NOEXCEPT;
-struct RTDoc *QIter_Next(struct QueryIterator *iter);
-NODISCARD size_t QIter_Remaining(struct QueryIterator const *iter);
-void QIter_Sort(struct QueryIterator *iter);
+void QIter_Free(struct GeometryQueryIterator *iter) NOEXCEPT;
+struct RTDoc *QIter_Next(struct GeometryQueryIterator *iter);
+NODISCARD size_t QIter_Remaining(struct GeometryQueryIterator const *iter);
+void QIter_Sort(struct GeometryQueryIterator *iter);
 
 #ifdef __cplusplus
 }

@@ -96,7 +96,7 @@ static void Query(struct RTree const *rt, char const *wkt, enum QueryType query)
   struct RTDoc *qdoc = From_WKT(wkt, strlen(wkt), 0);
   RTDoc_Print(qdoc);
   size_t start = rdtsc();
-  struct QueryIterator *iter = RTree_Query(rt, qdoc, query);
+  struct GeometryQueryIterator *iter = RTree_Query(rt, qdoc, query);
   size_t end = rdtsc();
   RTDoc_Free(qdoc);
   printf("num found results: %ld\n", QIter_Remaining(iter));

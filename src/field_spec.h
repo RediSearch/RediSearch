@@ -10,6 +10,7 @@
 #include "redisearch.h"
 #include "value.h"
 #include "VecSim/vec_sim.h"
+#include "geometry/geometry_api.h"
 
 #ifdef __cplusplus
 #define RS_ENUM_BITWISE_HELPER(T)   \
@@ -26,10 +27,11 @@ typedef enum {
   INDEXFLD_T_NUMERIC = 0x02,
   INDEXFLD_T_GEO = 0x04,
   INDEXFLD_T_TAG = 0x08,
-  INDEXFLD_T_VECTOR = 0x10
+  INDEXFLD_T_VECTOR = 0x10,
+  INDEXFLD_T_GEOMETRY = 0x20,
 } FieldType;
 
-#define INDEXFLD_NUM_TYPES 5
+#define INDEXFLD_NUM_TYPES 6
 
 // clang-format off
 // otherwise, it looks h o r r i b l e
@@ -38,7 +40,8 @@ typedef enum {
   (T == INDEXFLD_T_NUMERIC    ? 1 : \
   (T == INDEXFLD_T_GEO        ? 2 : \
   (T == INDEXFLD_T_TAG        ? 3 : \
-  (T == INDEXFLD_T_VECTOR     ? 4 : -1)))))
+  (T == INDEXFLD_T_VECTOR     ? 4 : \
+  (T == INDEXFLD_T_GEOMETRY   ? 5 : -1))))))
 
 #define INDEXTYPE_FROM_POS(P) (1<<(P))
 // clang-format on
@@ -48,6 +51,7 @@ typedef enum {
 #define IXFLDPOS_GEO INDEXTYPE_TO_POS(INDEXFLD_T_GEO)
 #define IXFLDPOS_TAG INDEXTYPE_TO_POS(INDEXFLD_T_TAG)
 #define IXFLDPOS_VECTOR INDEXTYPE_TO_POS(INDEXFLD_T_VECTOR)
+#define IXFLDPOS_GEOMETRY INDEXTYPE_TO_POS(INDEXFLD_T_GEOMETRY)
 
 RS_ENUM_BITWISE_HELPER(FieldType)
 
@@ -101,6 +105,10 @@ typedef struct FieldSpec {
       // expected size of vector blob.
       size_t expBlobSize;
     } vectorOpts;
+    struct {
+      // Geometry index parameters
+      GEOMETRY_LIB_TYPE geometryLibType;
+    } geometryOpts;
   };
 
   // weight in frequency calculations

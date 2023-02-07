@@ -9,12 +9,12 @@
 #include "rtdoc.hpp"
 #include "query_iterator.h"
 
-struct QueryIterator {
+struct GeometryQueryIterator {
 	using container = std::vector<RTDoc, rm_allocator<RTDoc>>;
 	container iter_;
 	size_t index_;
 
-	explicit QueryIterator(container&& iter) : iter_{std::move(iter)}, index_{0} {}
+	explicit GeometryQueryIterator(container&& iter) : iter_{std::move(iter)}, index_{0} {}
 
   [[nodiscard]] void* operator new(std::size_t sz) { return rm_malloc(sz); }
   void operator delete(void *p) { rm_free(p); }

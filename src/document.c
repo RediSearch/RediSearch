@@ -340,6 +340,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
     for (size_t ii = 0; ii < aCtx->doc->numFields; ++ii) {
       const DocumentField *ff = aCtx->doc->fields + ii;
       if ((ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG))) {
+        // TODO: GEOMETRY - handle geometry fields?
         size_t n;
         if (ff->unionType == FLD_VAR_T_CSTR || ff->unionType == FLD_VAR_T_RMS) {
           DocumentField_GetValueCStr(&aCtx->doc->fields[ii], &n);
@@ -557,6 +558,47 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
   return 0;
 }
 
+
+FIELD_PREPROCESSOR(geometryPreprocessor) {
+  switch (field->unionType) {
+    case FLD_VAR_T_RMS:
+      fdata->isMulti = 0;
+      // TODO: GEOMETRY - parse geometry from WKT string
+      //fdata->geometry = 
+      break;
+    case FLD_VAR_T_CSTR:
+      {
+        fdata->isMulti = 0;
+        // Parse geometry from string
+        GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
+        GEOMETRY geom = api ? api->createGeom(GEOMETRY_FORMAT_WKT, field->strval, field->strlen, NULL) : NULL;
+        if (geom)
+          fdata->geometry = geom;
+        else
+        return -1;
+        break;
+      }
+      break;
+    case FLD_VAR_T_NUM:
+    case FLD_VAR_T_NULL:
+      return 0;
+    case FLD_VAR_T_ARRAY:
+      fdata->isMulti = 1;
+      // TODO: GEOMETRY - parse geometries from string
+      //fdata->arrGeometry = 
+      break;
+    default:
+      return -1;
+  }
+
+  // TODO: GEOMETRY
+  // If this is a sortable geomtry value - copy the value to the sorting vector
+  
+
+  return 0;
+}
+
+
 FIELD_BULK_INDEXER(numericIndexer) {
   NumericRangeTree *rt = bulk->indexDatas[IXFLDPOS_NUMERIC];
   if (!rt) {
@@ -747,6 +789,7 @@ static PreprocessorFunc preprocessorMap[] = {
     [IXFLDPOS_GEO] = geoPreprocessor,
     [IXFLDPOS_TAG] = tagPreprocessor,
     [IXFLDPOS_VECTOR] = vectorPreprocessor,
+    [IXFLDPOS_GEOMETRY] = geometryPreprocessor,
     };
 
 int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *sctx,

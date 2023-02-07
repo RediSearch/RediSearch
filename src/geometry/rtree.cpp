@@ -17,7 +17,7 @@ bool RTree_Remove(RTree *rtree, RTDoc const *doc) {
 	return rtree->rtree_.remove(*doc);
 }
 
-[[nodiscard]] QueryIterator *RTree_Query(RTree const *rtree, RTDoc const *queryDoc, QueryType queryType) {
+[[nodiscard]] GeometryQueryIterator *RTree_Query(RTree const *rtree, RTDoc const *queryDoc, QueryType queryType) {
 	switch (queryType) {
 		case QueryType::CONTAINS: return rtree->contains(queryDoc);
 		case QueryType::WITHIN  : return rtree->within  (queryDoc);
