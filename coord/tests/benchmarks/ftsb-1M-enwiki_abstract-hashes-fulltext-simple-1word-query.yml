@@ -19,6 +19,10 @@ setups:
   - oss-cluster-3-primaries
 
 dbconfig:
+  - module-configuration-parameters:
+      redisearch:
+        WORKER_THREADS: 8
+        ENABLE_THREADS: 'TRUE'
   - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch_NOINDEX.rdb"
   - init_commands:
       - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'

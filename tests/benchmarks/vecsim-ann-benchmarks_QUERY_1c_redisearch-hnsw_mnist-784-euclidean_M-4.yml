@@ -13,6 +13,10 @@ setups:
   - oss-cluster-09-primaries
 
 dbconfig:
+  - module-configuration-parameters:
+      redisearch:
+        WORKER_THREADS: 8
+        ENABLE_THREADS: 'TRUE'
   tool: ann-benchmarks
   dataset_name: "hnsw__mnist-784-euclidean_M-4"
   parameters:

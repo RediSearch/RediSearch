@@ -12,6 +12,10 @@ setups:
   - oss-cluster-05-primaries
   - oss-cluster-09-primaries
 dbconfig:
+  - module-configuration-parameters:
+      redisearch:
+        WORKER_THREADS: 8
+        ENABLE_THREADS: 'TRUE'
   dataset_name: "hnsw__glove-200-angular_M-4"
 clientconfig:
   tool: ann-benchmarks

@@ -8,6 +8,10 @@ setups:
   - oss-standalone
   - oss-cluster-03-primaries
 dbconfig:
+  - module-configuration-parameters:
+      redisearch:
+        WORKER_THREADS: 8
+        ENABLE_THREADS: 'TRUE'
   - dataset_name: "ftsb-10K-multivalue-numeric-json"
   - init_commands:
     - 'FT.CREATE idx:multi ON JSON PREFIX 1 doc:multi SCHEMA $.numericIntArray AS numericIntArray NUMERIC $.numericFloatArray AS numericFloatArray NUMERIC'
