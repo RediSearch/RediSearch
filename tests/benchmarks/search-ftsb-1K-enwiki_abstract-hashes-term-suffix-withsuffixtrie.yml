@@ -8,6 +8,10 @@ setups:
   - oss-standalone
   - oss-cluster-03-primaries
 dbconfig:
+  - module-configuration-parameters:
+      redisearch:
+        WORKER_THREADS: 8
+        ENABLE_THREADS: 'TRUE'
   - dataset_name: "ftsb-1K-enwiki_abstract-hashes-withsuffixtrie"
   - init_commands:
     - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "WITHSUFFIXTRIE" "SORTABLE" "url" "text" "WITHSUFFIXTRIE" "SORTABLE" "abstract" "text" "WITHSUFFIXTRIE" "SORTABLE"'
