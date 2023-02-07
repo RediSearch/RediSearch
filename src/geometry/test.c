@@ -4,6 +4,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
+#include <sys/stat.h>
+
+#define REDISMODULE_MAIN
 #include "geometry.h"
 
 static size_t rdtsc(void);
@@ -14,9 +17,9 @@ static void Query(struct RTree const *rt, char const *wkt, enum QueryType query)
 int main() {
   struct RTree *rt = RTree_New();
   assert(RTree_IsEmpty(rt));
+  PrintStats(rt);
 
   rt = Load_WKT_File(rt, "geometry.in");
-
   assert(!RTree_IsEmpty(rt));
   PrintStats(rt);
 
@@ -35,6 +38,7 @@ int main() {
 
   RTree_Clear(rt);
   assert(RTree_IsEmpty(rt));
+  PrintStats(rt);
 
   RTree_Free(rt);
   return 0;
@@ -54,28 +58,30 @@ static inline size_t rdtsc(void) {
 static void PrintStats(struct RTree const *rt) {
   size_t size = RTree_Size(rt);
   size_t mem = RTree_MemUsage(rt);
-	printf("num polygons in tree = %ld\n", size);
-  printf("%ld bytes used\n", mem);
-  printf("%f bytes used per indexed polygon\n", (double)mem/size);
+	printf("num polygons in tree = %lu\n", size);
+  printf("%lu bytes used\n", mem);
+  printf("%f bytes used per indexed polygon\n", (double)mem/(double)size);
   puts("");
 }
 
 static void DeleteRandom(struct RTree *rt, char const *path, size_t num) {
   printf("deleting up to %ld random polygons\n", num);
-  srand(time(NULL));
+  struct stat filestat;
+  stat(path, &filestat);
+	size_t len = (size_t)filestat.st_size;
+	char *geos_in_buf = malloc(len+1);
 	FILE *geo_in = fopen(path, "r");
-	fseek(geo_in, 0, SEEK_END);
-	size_t len = ftell(geo_in);
-	fseek(geo_in, 0, SEEK_SET);
-	char *geos_in_buf = malloc(len);
-	[[maybe_unused]] size_t _ = fread(geos_in_buf, 1, len, geo_in);
+	len = fread(geos_in_buf, 1, len, geo_in);
+  geos_in_buf[len] = 0;
+  fclose(geo_in);
 
-	char* wkts[250000] = {NULL};
-	char** runner = wkts;
-	*runner++ = strtok(geos_in_buf, "\n");
-	while ((*runner++ = strtok(NULL, "\n")));
-	for (int i = 0; i < 200000; ++i) {
-    char const *wkt = wkts[rand() % (sizeof wkts / sizeof *wkts)];
+	char* wkts[250001] = {NULL};
+	wkts[0] = strtok(geos_in_buf, "\n");
+	for (int i = 1; (wkts[i] = strtok(NULL, "\n")); ++i);
+  
+  srand((unsigned)time(NULL));
+	for (unsigned i = 0; i < num; ++i) {
+    char const *wkt = wkts[rand() % (int)((sizeof wkts - 1) / sizeof *wkts)];
 		struct RTDoc *qdoc = From_WKT(wkt, strlen(wkt), 0);
 		RTree_Remove(rt, qdoc);
 		RTDoc_Free(qdoc);
@@ -101,7 +107,7 @@ static void Query(struct RTree const *rt, char const *wkt, enum QueryType query)
   RTDoc_Free(qdoc);
   printf("num found results: %ld\n", QIter_Remaining(iter));
   printf("time taken: %ld clock cycles\n", end - start);
-  for (struct RTDoc *result = QIter_Next(iter); NULL != result; result = QIter_Next(iter)) {
+  for (struct RTDoc const *result = QIter_Next(iter); NULL != result; result = QIter_Next(iter)) {
     // RTDoc_Print(result);
   }
   puts("");

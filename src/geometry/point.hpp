@@ -17,10 +17,7 @@ struct Point {
 	explicit Point(double x, double y) noexcept : point_{x, y} {}
   explicit Point(point_internal const& other) noexcept : point_{other} {}
 	
-  [[nodiscard]] void* operator new(std::size_t sz) { return rm_malloc(sz); }
-  void operator delete(void *p) noexcept { rm_free(p); }
+	using Self = Point;
+  [[nodiscard]] void* operator new(std::size_t sz) { return rm_allocator<Self>().allocate(sz); }
+  void operator delete(void *p) noexcept { rm_allocator<Self>().deallocate(static_cast<Self*>(p), sizeof(Self)); }
 };
-
-[[nodiscard]] inline bool operator==(Point const& lhs, Point const& rhs) {
-	return bg::equals(lhs.point_, rhs.point_);
-}

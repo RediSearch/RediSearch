@@ -11,7 +11,7 @@ extern "C" {
 struct GeometryQueryIterator;
 
 void QIter_Free(struct GeometryQueryIterator *iter) NOEXCEPT;
-struct RTDoc *QIter_Next(struct GeometryQueryIterator *iter);
+struct RTDoc const *QIter_Next(struct GeometryQueryIterator *iter);
 NODISCARD size_t QIter_Remaining(struct GeometryQueryIterator const *iter);
 void QIter_Sort(struct GeometryQueryIterator *iter);
 

@@ -3,17 +3,14 @@
 CC  = gcc
 CXX = g++
 
-CFLAGS   = -Wall -Wextra -Wpedantic -Wunreachable-code -Wshadow -Werror -std=c2x   -O3
-#CXXFLAGS = -Wall -Wextra -Wpedantic -Wconversion       -Wshadow -Werror -std=c++20 -O3
-CXXFLAGS = -Wall -Wextra -Wpedantic -Wconversion        				 -std=c++20 -O3
+CFLAGS   = -Wall -Wextra            -Wconversion -Wshadow -Werror -std=c2x   -O2
+CXXFLAGS = -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -std=c++20 -O2
 LDFLAGS = -g
 LDLIBS = 
 
 ifneq ($(BOOST_ROOT),)
 INC = -I$(BOOST_ROOT)
 endif
-
-INC = -I$(BOOST_ROOT)
 
 SRCS = $(wildcard *.cpp)
 OBJS = $(SRCS:.cpp=.o)

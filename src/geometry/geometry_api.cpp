@@ -6,7 +6,6 @@
 
 #include "geometry_api.h"
 #include "rmalloc.h"
-#include "geometry/wkt.h"
 #include "rtdoc.h"
 
 GeometryApi* apis[GEOMETRY_LIB_TYPE__LAST + 1] = {0};
@@ -20,10 +19,12 @@ GEOMETRY bg_createGeom(GEOMETRY_FORMAT format, const char *str, size_t len, Redi
         return (GEOMETRY)d;
       }
     case GEOMETRY_FORMAT_GEOJSON:
+      // TODO: GEOMETRY Support GEOJSON
       return NULL;
     case GEOMETRY_FORMAT_NONE:
+      RedisModule_Assert(format != GEOMETRY_FORMAT_NONE);
     default:
-      __builtin_unreachable();
+      RedisModule_Log(NULL, "error", "unknown geometry format");
   }
   return NULL;
 }

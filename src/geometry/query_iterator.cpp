@@ -6,7 +6,7 @@ void QIter_Free(GeometryQueryIterator *iter) noexcept {
 	delete iter;
 }
 
-RTDoc *QIter_Next(GeometryQueryIterator *iter) {
+RTDoc const *QIter_Next(GeometryQueryIterator *iter) {
 	return iter->index_ < iter->iter_.size() ? &iter->iter_[iter->index_++] : nullptr;
 }
 
