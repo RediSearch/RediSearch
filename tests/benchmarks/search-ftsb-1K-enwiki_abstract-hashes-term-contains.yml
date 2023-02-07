@@ -14,6 +14,10 @@ setups:
   - oss-cluster-32-primaries
 
 dbconfig:
+  - module-configuration-parameters:
+      redisearch:
+        WORKER_THREADS: 1
+        ENABLE_THREADS: 'TRUE'
   - dataset_name: "ftsb-1K-enwiki_abstract-hashes"
   - init_commands:
     - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'

@@ -1,7 +1,7 @@
 name: "ftsb-1M-enwiki_abstract-hashes-fulltext-simple-1word-query"
 description: "
-             - name: enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-abstract-benchmark/description.md), 
-                     from English-language Wikipedia:Database page abstracts. 
+             - name: enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-abstract-benchmark/description.md),
+                     from English-language Wikipedia:Database page abstracts.
                      This use case generates 3 TEXT fields per document, and focusses on full text queries performance.
                      Specifically for this testcase:
                       - Type (read/write/mixed): read
@@ -19,6 +19,10 @@ setups:
   - oss-cluster-3-primaries
 
 dbconfig:
+  - module-configuration-parameters:
+      redisearch:
+        WORKER_THREADS: 1
+        ENABLE_THREADS: 'TRUE'
   - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch_NOINDEX.rdb"
   - init_commands:
       - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
@@ -43,4 +47,3 @@ exporter:
       - "$.Tests.OverallQuantiles.allCommands.q95"
       - "$.Tests.OverallQuantiles.allCommands.q99"
       - "$.Tests.OverallQuantiles.allCommands.q999"
-
