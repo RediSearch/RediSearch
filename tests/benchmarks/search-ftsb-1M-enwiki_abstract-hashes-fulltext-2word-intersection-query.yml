@@ -30,7 +30,7 @@ clientconfig:
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64
-    - requests: 50000
+    - requests: 200000
     - reporting-period: 1s
     - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.commands.BENCH.QUERY_2word-intersection-query.csv"
 
