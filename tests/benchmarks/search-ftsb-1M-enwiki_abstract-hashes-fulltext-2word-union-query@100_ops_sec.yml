@@ -1,4 +1,4 @@
-name: "ftsb-1M-enwiki_abstract-hashes-fulltext-2word-union-query"
+name: "ftsb-1M-enwiki_abstract-hashes-fulltext-2word-union-query@100_ops_sec"
 description: "
              enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-abstract-benchmark/description.md), 
              from English-language Wikipedia:Database page abstracts. 
@@ -13,6 +13,7 @@ remote:
  - setup: redisearch-m5
 metadata:
   component: "search"
+  type: "rate-limited"
 setups:
   - oss-standalone
   - oss-cluster-03-primaries
@@ -30,6 +31,7 @@ clientconfig:
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64
-    - requests: 1000000
+    - requests: 18000
+    - max-rps: 100
     - reporting-period: 1s
     - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.commands.BENCH.QUERY_2word-union-query.csv"
