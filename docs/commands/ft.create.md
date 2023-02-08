@@ -175,9 +175,9 @@ after the SCHEMA keyword, declares which fields to index:
 
    Field options are:
 
-   - `SORTABLE`: Numeric, tag, text or geo attributes can have the optional **SORTABLE** argument. As the user [sorts the results by the value of this attribute](/redisearch/reference/sorting), the results will be available with very low latency. (this adds memory overhead so consider not to declare it on large text attributes). Notice that an attribute without the `SORTABLE` option can still be sorted by, only the latency will not be as good as when it is `SORTABLE`.
+   - `SORTABLE`: `NUMERIC`, `TAG`, `TEXT`, or `GEO` attributes can have an optional **SORTABLE** argument. As the user [sorts the results by the value of this attribute](/redisearch/reference/sorting), the results are available with very low latency. Note that his adds memory overhead, so consider not declaring it on large text attributes. You can sort an attribute without the `SORTABLE` option, but the latency is not as good as with `SORTABLE`.
 
-   - `UNF`: By default, for hashes (not with JSON) `SORTABLE` applies a normalization to the indexed value (characters set to lowercase, removal of diacritics). When using un-normalized form (UNF), you can disable the normalization and keep the original form of the value. With JSON `UNF` is implicit with `SORTABLE` (normalization is disabled)
+   - `UNF`: By default, for hashes (not with JSON) `SORTABLE` applies a normalization to the indexed value (characters set to lowercase, removal of diacritics). When using the unnormalized form (UNF), you can disable the normalization and keep the original form of the value. With JSON, `UNF` is implicit with `SORTABLE` (normalization is disabled).
 
    - `NOSTEM`: Text attributes can have the NOSTEM argument which will disable stemming when indexing its values. This may be ideal for things like proper names.
 
