@@ -46,8 +46,8 @@ static pthread_key_t __offsetIters;
 static pthread_key_t __aggregateIters;
 
 static void __attribute__((constructor)) initKeys() {
-  pthread_key_create(&__offsetIters, mempool_destroy);
-  pthread_key_create(&__aggregateIters, mempool_destroy);
+  pthread_key_create(&__offsetIters, (void(*)(void*))mempool_destroy);
+  pthread_key_create(&__aggregateIters, (void(*)(void*))mempool_destroy);
 }
 
 /* Free it */
