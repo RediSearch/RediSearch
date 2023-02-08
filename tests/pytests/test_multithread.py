@@ -6,14 +6,15 @@ from includes import *
 from common import *
 from RLTest import Env
 
-env = Env(moduleArgs='WORKER_THREADS 8 ENABLE_THREADS TRUE')
 
 def testEmptyBuffer():
+    env = Env(moduleArgs='WORKER_THREADS 8 ENABLE_THREADS TRUE')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
     env.expect('ft.search', 'idx', '*', 'sortby', 'n').equal([0])
 
 def testSimpleBuffer():
+    env = Env(moduleArgs='WORKER_THREADS 8 ENABLE_THREADS TRUE')
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
@@ -28,6 +29,8 @@ def testSimpleBuffer():
     env.expect('FT.SEARCH', 'idx', '*', 'sortby', 'n').equal(expected_res)
     
 def testMultipleBlocksBuffer():
+    env = Env(moduleArgs='WORKER_THREADS 8 ENABLE_THREADS TRUE')
+
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
