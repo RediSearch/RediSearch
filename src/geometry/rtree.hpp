@@ -43,13 +43,13 @@ struct RTree {
   }
 
   template <typename Predicate>
-  [[nodiscard]] auto query(Predicate p) const {
-    QueryIterator::container result{};
+  [[nodiscard]] GeometryQueryIterator::container query(Predicate p) const {
+    GeometryQueryIterator::container result{};
     rtree_.query(p, std::back_inserter(result));
     return result;
   }
 
-	[[nodiscard]] QueryIterator::container query(RTDoc const& queryDoc, QueryType queryType) const {
+	[[nodiscard]] GeometryQueryIterator::container query(RTDoc const& queryDoc, QueryType queryType) const {
 		switch (queryType) {
 			case QueryType::CONTAINS:
 				return contains(queryDoc);
@@ -60,18 +60,20 @@ struct RTree {
 		}
 	}
 
-  [[nodiscard]] QueryIterator::container contains(RTDoc const& queryDoc) const {
-    auto results = std::move(query(bgi::contains(queryDoc.rect_)));
-    std::erase_if(results,
-                  [&](auto const& doc) { return !bg::within(queryDoc.poly_, doc.poly_); });
-    return results;
-  }
-  [[nodiscard]] QueryIterator::container within(RTDoc const& queryDoc) const {
-    auto results = std::move(query(bgi::within(queryDoc.rect_)));
-    std::erase_if(results,
-                  [&](auto const& doc) { return !bg::within(doc.poly_, queryDoc.poly_); });
-    return results;
-  }
+	[[nodiscard]] GeometryQueryIterator::container contains(RTDoc const *queryDoc) const {
+		auto results = query(bgi::contains(queryDoc->rect_));
+		std::erase_if(results, [&](auto const& doc) {
+			return !bg::within(queryDoc->poly_, doc.poly_);
+		});
+		return results;
+	}
+	[[nodiscard]] GeometryQueryIterator::container within(RTDoc const *queryDoc) const {
+		auto results = query(bgi::within(queryDoc->rect_));
+		std::erase_if(results, [&](auto const& doc) {
+			return !bg::within(doc.poly_, queryDoc->poly_);
+		});
+		return results;
+	}
 
   using Self = RTree;
   [[nodiscard]] void* operator new(std::size_t) {

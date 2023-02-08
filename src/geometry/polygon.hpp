@@ -7,16 +7,17 @@ namespace bg = boost::geometry;
 namespace bgm = bg::model;
 
 struct Polygon {
-  using point_type = Point::point_internal;
-  using polygon_internal = bgm::polygon<
-      /* point_type       */ point_type,
-      /* is_clockwise     */ true,
-      /* is_closed        */ true,
-      /* points container */ std::vector,
-      /* rings_container  */ std::vector,
-      /* points_allocator */ rm_allocator,
-      /* rings_allocator  */ rm_allocator>;
-  polygon_internal poly_;
+	using point_type = Point::point_internal;
+	using polygon_internal = bgm::polygon<
+		/* point_type       */ point_type,
+		/* is_clockwise     */ true,		// TODO: GEOMETRY - (when) do we need to call bg::correct(poly) ?
+		/* is_closed        */ true,
+		/* points container */ std::vector,
+		/* rings_container  */ std::vector,
+		/* points_allocator */ rm_allocator,
+		/* rings_allocator  */ rm_allocator
+	>;
+	polygon_internal poly_;
 
   [[nodiscard]] explicit Polygon() = default;
   [[nodiscard]] explicit Polygon(int num_points, ...) {
