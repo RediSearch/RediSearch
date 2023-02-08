@@ -872,7 +872,6 @@ typedef struct RPBufferAndLocker{
 
   // The GIL status
   bool isGILLocked;
-
 } RPBufferAndLocker;
 /*********** Buffered and locker functions declarations ***********/ 
 
@@ -913,9 +912,8 @@ ResultProcessor *RPBufferAndLocker_New(size_t BlockSize) {
   ret->isGILLocked = false;
   ret->BlockSize = BlockSize;
 
-  ret->BufferBlocks = array_new(SearchResult *, BlockSize);
+  ret->BufferBlocks = array_new(SearchResult *, 1);
 
-  ret->curr_result_index = 0;
   ret->curr_result_index = 0;
   return &ret->base;
 }
