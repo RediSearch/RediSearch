@@ -1,4 +1,13 @@
 name: "ftsb-10K-enwiki_pages-hashes-fulltext-mixed_simple-1word-query_write_1_to_read_20.yml"
+description: "
+             enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-pages-benchmark/description.md), 
+             from English-language Wikipedia:Database page edition data. 
+             This use case generates 100K docs, with 3 TEXT fields (all sortable), 1 sortable TAG field, and 1 sortable NUMERIC fields per document.
+             Specifically for this testcase:
+                - Type (read/write/mixed): mixed
+                - Query type: simple 1 word
+                - Query sample: Lincoln
+             "
 remote:
  - type: oss-standalone
  - setup: redisearch-m5
