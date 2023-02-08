@@ -9,10 +9,8 @@ int main() {
 
     for (auto i{0}; i < N; ++i) {
       for (auto j{0}; j < N; ++j) {
-        file << fmt::format(
-          "POLYGON(({} {}, {} {}, {} {}, {} {}))\n",
-          i, j, i + 5, j + 1, i + 1, j + 5, i, j
-        );
+        file << fmt::format("POLYGON(({} {}, {} {}, {} {}, {} {}))\n", i, j, i + 5, j + 1, i + 1,
+                            j + 5, i, j);
       }
     }
   }
@@ -21,10 +19,8 @@ int main() {
 
     for (auto i{0}; i < N; ++i) {
       for (auto j{0}; j < N; ++j) {
-        file << fmt::format(
-          "POLYGON(({} {}, {} {}, {} {}, {} {}))\n",
-          i, j + 1, i + 5, j + 5, i + 1, j, i, j + 1
-        );
+        file << fmt::format("POLYGON(({} {}, {} {}, {} {}, {} {}))\n", i, j + 1, i + 5, j + 5,
+                            i + 1, j, i, j + 1);
       }
     }
   }

@@ -11,7 +11,6 @@
 #define NOEXCEPT __attribute__((__nothrow__))
 #endif
 
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -31,4 +30,3 @@ NODISCARD RedisModuleString *RTDoc_ToString(struct RTDoc const *doc);
 #ifdef __cplusplus
 }
 #endif
-
