@@ -32,8 +32,13 @@ def testMultipleBlocksBuffer():
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
     docs_count = 2500
-    print(f"docs = {docs_count}" )
     for n in range (1, docs_count + 1):
         doc_name = f'doc{n}'
         conn.execute_command('HSET', doc_name, 'n', f'{n}') 
-    print(f"res = {conn.execute_command('FT.SEARCH', 'idx', '*', 'sortby', 'n', 'NOCONTENT')}")
+    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'sortby', 'n')
+    assert res[0] == docs_count
+    i = 1
+    for elem in res[2:2:]:
+        assert(elem[1] == i)
+        i +=1
+
