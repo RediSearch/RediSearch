@@ -19,7 +19,7 @@ int workersThreadPool_CreatePool(size_t worker_count) {
   assert(worker_count);
   assert(_workers_thpool == NULL);
 
-  _workers_thpool = thpool_init(worker_count);
+  _workers_thpool = thpool_init_with_name(worker_count, "redisearch-worker");
   if (_workers_thpool == NULL) return REDISMODULE_ERR;
 
   return REDISMODULE_OK;

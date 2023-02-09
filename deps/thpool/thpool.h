@@ -36,6 +36,8 @@ typedef struct thpool_* threadpool;
  */
 threadpool thpool_init(size_t num_threads);
 
+struct thpool_* thpool_init_with_name(size_t num_threads, const char *name);
+
 
 /**
  * @brief Add work to the job queue

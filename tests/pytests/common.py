@@ -24,6 +24,7 @@ from os.path import *
 from redis.asyncio import Redis as AIORedis
 from RLTest import Env
 import ptrace.debugger
+import subprocess
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
@@ -394,6 +395,22 @@ class AsyncResponse:
     def read_response(self):
         return self.future.result()
 
+class WorkerAttacher():
+    def __init__(self, p):
+        self.p = p
+
+    def run_to_label(self, label):
+        self.p.cont()
+        while True:
+            self.p.waitSignals(signal.SIGTRAP)
+            current_label = str(self.p.readCString(self.p.getreg("rsi"), 100)[0], 'utf-8')
+            if current_label == label:
+                return
+            self.p.cont()
+
+    def detach(self):
+        self.p.detach()
+
 class SearchEnv(Env):
 
     def __init__(self, *args, **kwargs):
@@ -417,22 +434,31 @@ class SearchEnv(Env):
         async_con = self.getAsyncConnection()
         return AsyncResponse(asyncio.run_coroutine_threadsafe(async_con.execute_command(*args), self.event_loop))
 
+    def get_workers_tids(self) -> list:
+        redis_pid = self.envRunner.getPid('master')
+        res = subprocess.run(["ps", "H", "-o", "tid comm", str(redis_pid)], stdout=subprocess.PIPE)
+        if res.returncode != 0:
+            raise Exception(res.stderr)
+        res = str(res.stdout, 'utf-8').strip()
+        return sorted([int(a.strip().split(' ')[0]) for a in res.split("\n") if a.strip().split(' ')[1] == 'redisearch-work'])
+
+
     def attach_to_worker(self, worker):
+        tid = self.get_workers_tids()[worker]
         debugger = ptrace.debugger.PtraceDebugger()
-        p = debugger.addProcess()
-        p
+        p = debugger.addProcess(tid, False, is_thread=True)
+        return WorkerAttacher(p)
         
 
 
 def SearchTest(readers = 0):
     def wrapper(f):
-        @wraps(f)
         def wrapped():
             path_to_module = module_path()
             module_args = ["DEFAULT_DIALECT", "2"]
             if readers > 0:
                 module_args.extend(["ENABLE_THREADS", "TRUE", "WORKER_THREADS", str(readers)])
-            env = SearchEnv(testName = f.__name__, enableDebugCommand=True, module=path_to_module, moduleArgs=' '.join(module_args))
+            env = SearchEnv(testName = f.__name__, enableDebugCommand=True, module=path_to_module, moduleArgs=' '.join(module_args), env='oss')
             
             test_args = [env]
             f(*test_args)

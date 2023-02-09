@@ -80,6 +80,7 @@ typedef struct thpool_ {
   pthread_mutex_t thcount_lock;     /* used for thread count etc */
   pthread_cond_t threads_all_idle;  /* signal to thpool_wait     */
   jobqueue jobqueue;                /* job queue                 */
+  char *name;                       /* prefix to set for each thread */
 } thpool_;
 
 /* ========================== PROTOTYPES ============================ */
@@ -103,55 +104,60 @@ static void bsem_wait(struct bsem* bsem_p);
 
 /* ========================== THREADPOOL ============================ */
 
+struct thpool_* thpool_init_with_name(size_t num_threads, const char *name) {
+
+    threads_on_hold = 0;
+
+    /* Make new thread pool */
+    thpool_* thpool_p;
+    thpool_p = (struct thpool_*)rm_malloc(sizeof(struct thpool_));
+    if (thpool_p == NULL) {
+      err("thpool_init(): Could not allocate memory for thread pool\n");
+      return NULL;
+    }
+    thpool_p->name = rm_strdup(name);
+    thpool_p->num_threads_alive = 0;
+    thpool_p->num_threads_working = 0;
+    thpool_p->keepalive = 1;
+
+    /* Initialise the job queue */
+    if (jobqueue_init(&thpool_p->jobqueue) == -1) {
+      err("thpool_init(): Could not allocate memory for job queue\n");
+      rm_free(thpool_p);
+      return NULL;
+    }
+
+    /* Make threads in pool */
+    thpool_p->threads = (struct thread**)rm_malloc(num_threads * sizeof(struct thread*));
+    if (thpool_p->threads == NULL) {
+      err("thpool_init(): Could not allocate memory for threads\n");
+      jobqueue_destroy(&thpool_p->jobqueue);
+      rm_free(thpool_p);
+      return NULL;
+    }
+
+    pthread_mutex_init(&(thpool_p->thcount_lock), NULL);
+    pthread_cond_init(&thpool_p->threads_all_idle, NULL);
+
+    /* Thread init */
+    size_t n;
+    for (n = 0; n < num_threads; n++) {
+      thread_init(thpool_p, &thpool_p->threads[n], n);
+  #if THPOOL_DEBUG
+      printf("THPOOL_DEBUG: Created thread %d in pool \n", n);
+  #endif
+    }
+
+    /* Wait for threads to initialize */
+    while (thpool_p->num_threads_alive != num_threads) {
+    }
+
+    return thpool_p;
+}
+
 /* Initialise thread pool */
 struct thpool_* thpool_init(size_t num_threads) {
-
-  threads_on_hold = 0;
-
-  /* Make new thread pool */
-  thpool_* thpool_p;
-  thpool_p = (struct thpool_*)rm_malloc(sizeof(struct thpool_));
-  if (thpool_p == NULL) {
-    err("thpool_init(): Could not allocate memory for thread pool\n");
-    return NULL;
-  }
-  thpool_p->num_threads_alive = 0;
-  thpool_p->num_threads_working = 0;
-  thpool_p->keepalive = 1;
-
-  /* Initialise the job queue */
-  if (jobqueue_init(&thpool_p->jobqueue) == -1) {
-    err("thpool_init(): Could not allocate memory for job queue\n");
-    rm_free(thpool_p);
-    return NULL;
-  }
-
-  /* Make threads in pool */
-  thpool_p->threads = (struct thread**)rm_malloc(num_threads * sizeof(struct thread*));
-  if (thpool_p->threads == NULL) {
-    err("thpool_init(): Could not allocate memory for threads\n");
-    jobqueue_destroy(&thpool_p->jobqueue);
-    rm_free(thpool_p);
-    return NULL;
-  }
-
-  pthread_mutex_init(&(thpool_p->thcount_lock), NULL);
-  pthread_cond_init(&thpool_p->threads_all_idle, NULL);
-
-  /* Thread init */
-  size_t n;
-  for (n = 0; n < num_threads; n++) {
-    thread_init(thpool_p, &thpool_p->threads[n], n);
-#if THPOOL_DEBUG
-    printf("THPOOL_DEBUG: Created thread %d in pool \n", n);
-#endif
-  }
-
-  /* Wait for threads to initialize */
-  while (thpool_p->num_threads_alive != num_threads) {
-  }
-
-  return thpool_p;
+    return thpool_init_with_name(num_threads, "thread-pool");
 }
 
 /* Add work to the thread pool */
@@ -288,7 +294,7 @@ static void* thread_do(struct thread* thread_p) {
 
   /* Set thread name for profiling and debuging */
   char thread_name[128] = {0};
-  sprintf(thread_name, "thread-pool-%d", thread_p->id);
+  sprintf(thread_name, "%s-%d", thread_p->thpool_p->name, thread_p->id);
 
 #if defined(__linux__)
   /* Use prctl instead to prevent using _GNU_SOURCE flag and implicit declaration */

@@ -222,7 +222,7 @@ ifeq ($(OS),macos)
 _CMAKE_FLAGS += -DLIBSSL_DIR=$(LIBSSL_PREFIX)
 endif
 
-_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) 
+_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) $(CMAKE_TRACE)
 
 #----------------------------------------------------------------------------------------------
 
