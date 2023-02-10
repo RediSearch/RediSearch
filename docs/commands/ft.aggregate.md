@@ -51,7 +51,7 @@ loads document attributes from the source document.
  - `property` is the optional name used in the result. If it is not provided, the `identifier` is used. This should be avoided.
  - If `*` is used as `nargs`, all attributes in a document are loaded.
 
-Attributes needed for aggregations should be stored as `SORTABLE`, where they are available to the aggregation pipeline with very low latency. `LOAD` hurts the   performance of aggregate queries considerably because every processed record needs to execute the equivalent of `HMGET` against a Redis key, which when executed over millions of keys, amounts to high processing times.
+Attributes needed for aggregations should be stored as `SORTABLE`, where they are available to the aggregation pipeline with very low latency. `LOAD` hurts the performance of aggregate queries considerably because every processed record needs to execute the equivalent of `HMGET` against a Redis key, which when executed over millions of keys, amounts to high processing times.
 
 <details open>
 <summary><code>GROUPBY {nargs} {property}</code></summary> 
