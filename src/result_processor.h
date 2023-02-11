@@ -242,10 +242,10 @@ void RP_DumpChain(const ResultProcessor *rp);
  * This component should be added to the query's execution pipeline if a thread safe access to
  * Redis keyspace is required.
  *
- * The buffer is responsible for buffering the document that pass the query filters and lock the GIL
- * to allow the downstream result processor safe access to redis keyspace.
+ * The buffer is responsible for buffering the document that pass the query filters and lock the access
+ * to Redis keysapce to allow the downstream result processor a thread safe access to it.
  *
- * Unlocking the GIL should be done only by the Unlocker result processor.
+ * Unlocking Redis should be done only by the Unlocker result processor.
  *******************************************************************************************************************/
 typedef struct RPBufferAndLocker RPBufferAndLocker;
 ResultProcessor *RPBufferAndLocker_New(size_t BlockSize);
@@ -259,7 +259,7 @@ ResultProcessor *RPBufferAndLocker_New(size_t BlockSize);
  * @param rpBufferAndLocker is a pointer to the buffer and locker result processor
  * that locked the GIL to be released.
  * 
- * It is responsible for unlocking the GIL when no result processor needs to access Redis keyspace.
+ * It is responsible for unlocking Redis keyspace lock.
  *
  *******************************************************************************************************************/
 

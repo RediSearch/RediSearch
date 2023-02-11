@@ -853,10 +853,10 @@ ResultProcessor *RPCounter_New() {
  * This component should be added to the query's execution pipeline if a thread safe access to
  * Redis keyspace is required.
  *
- * The buffer is responsible for buffering the document that pass the query filters and lock the GIL
- * to allow the downstream result processor safe access to redis keyspace.
+ * The buffer is responsible for buffering the document that pass the query filters and lock the access
+ * to Redis keysapce to allow the downstream result processor a thread safe access to it.
  *
- * Unlocking the GIL should be done only by the Unlocker result processor.
+ * Unlocking Redis should be done only by the Unlocker result processor.
  *******************************************************************************************************************/
 
 typedef struct RPBufferAndLocker{
@@ -864,14 +864,14 @@ typedef struct RPBufferAndLocker{
 
   // Buffer management
   SearchResult **BufferBlocks;
-  size_t buffer_results_count;
   size_t BlockSize;
+  size_t buffer_results_count;
   
   // Results iterator
   size_t curr_result_index;
 
-  // The GIL status
-  bool isGILLocked;
+  // Redis's lock status
+  bool isRedisLocked;
 } RPBufferAndLocker;
 /*********** Buffered and locker functions declarations ***********/ 
 
@@ -887,9 +887,9 @@ static int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *resu
 static bool isResultValid(const SearchResult *res);
 
 // Redis lock management
-static bool isGILLocked(RPBufferAndLocker *bufferAndLocker);
-static void LockGil(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx);
-static void UnLockGil(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx);
+static bool isRedisLocked(RPBufferAndLocker *bufferAndLocker);
+static void LockRedis(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx);
+static void UnLockRedis(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx);
 
 /*********** Buffered results blocks management functions declarations ***********/ 
 static SearchResult *NewResultsBlock(RPBufferAndLocker *rpPufferAndLocker);
@@ -909,12 +909,14 @@ ResultProcessor *RPBufferAndLocker_New(size_t BlockSize) {
   ret->base.Free = RPBufferAndLocker_Free;
   ret->base.type = RP_BUFFER_AND_LOCKER;
 
-  ret->isGILLocked = false;
+  // Initialize the blocks' array to contain memory for one block pointer.
+  ret->BufferBlocks = array_new(SearchResult *, 1);
   ret->BlockSize = BlockSize;
 
-  ret->BufferBlocks = array_new(SearchResult *, 1);
-
+  ret->buffer_results_count = 0;
   ret->curr_result_index = 0;
+
+  ret->isRedisLocked = false;
   return &ret->base;
 }
 
@@ -922,7 +924,7 @@ ResultProcessor *RPBufferAndLocker_New(size_t BlockSize) {
 void RPBufferAndLocker_Free(ResultProcessor *base) {
   RPBufferAndLocker *bufferAndLocker = (RPBufferAndLocker *)base;
 
-  assert(!isGILLocked(bufferAndLocker));
+  assert(!isRedisLocked(bufferAndLocker));
 
   // Free buffer memory blocks
   array_foreach(bufferAndLocker->BufferBlocks, SearchResultsBlock, array_free(SearchResultsBlock));
@@ -953,7 +955,7 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
     
   }
 
-  // If we exit the loop because we got an error, or we have zero result, return without locking the GIL.
+  // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
   if ((result_status != RS_RESULT_EOF &&
       !(result_status == RS_RESULT_TIMEDOUT && RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Return)) ||
       IsBufferEmpty(rpPufferAndLocker)) {
@@ -961,7 +963,7 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   }
 
   // Now we have the data of all documents that pass the query filters,
-  // let's lock the GIL to provide safe access to Redis keyspace 
+  // let's lock Redis to provide safe access to Redis keyspace 
   
   // initialize next function to the defualt value
   rp->Next = rpbufferNext_Yield;
@@ -969,8 +971,8 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   // unlockspec to avoid deadlocks
   RedisSearchCtx_UnlockSpec(RSctx);
 
-  // Lock GIL to gurentee safe access to Redis keyspace
-  LockGil(rpPufferAndLocker, RSctx->redisCtx);
+  // Lock Redis to gurentee safe access to Redis keyspace
+  LockRedis(rpPufferAndLocker, RSctx->redisCtx);
 
   // If the spec has been changed since we released the spec lock,
   // we need to validate every buffered result
@@ -1003,20 +1005,20 @@ static int ReturnResult(SearchResult *buffered_result,  SearchResult *result_out
   return RS_RESULT_OK;
 }
 /*********** Redis lock management ***********/ 
-bool isGILLocked(RPBufferAndLocker *bufferAndLocker) {
-  return bufferAndLocker->isGILLocked;
+bool isRedisLocked(RPBufferAndLocker *bufferAndLocker) {
+  return bufferAndLocker->isRedisLocked;
 }
 
-void LockGil(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx) {
+void LockRedis(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx) {
   RedisModule_ThreadSafeContextLock(redisCtx);
 
-  rpBufferAndLocker->isGILLocked = true;
+  rpBufferAndLocker->isRedisLocked = true;
 }
 
-void UnLockGil(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx) {
+void UnLockRedis(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx) {
   RedisModule_ThreadSafeContextUnlock(redisCtx);
 
-  rpBufferAndLocker->isGILLocked = false;
+  rpBufferAndLocker->isRedisLocked = false;
 }
 /*********** Yeild results phase functions ***********/ 
 
@@ -1110,7 +1112,10 @@ SearchResult *GetNextResult(RPBufferAndLocker *rpPufferAndLocker) {
  * This component should be added to the query's execution pipeline if a thread safe access to
  * Redis keyspace is required.
  *
- * It is responsible for unlocking the GIL when no result processor needs to access Redis keyspace.
+ * @param rpBufferAndLocker is a pointer to the buffer and locker result processor
+ * that locked the GIL to be released.
+ * 
+ * It is responsible for unlocking Redis keyspace lock.
  *
  *******************************************************************************************************************/
 
@@ -1128,9 +1133,9 @@ static int RPUnlocker_Next(ResultProcessor *rp, SearchResult *res) {
   if(result_status != REDISMODULE_OK) {
     RPUnlocker *unlocker = (RPUnlocker *)rp;
 
-    // Unlock the GIL if it was locked
-    if(isGILLocked(((RPUnlocker *)rp)->rpBufferAndLocker)){
-      UnLockGil(((RPUnlocker *)rp)->rpBufferAndLocker, unlocker->base.parent->sctx->redisCtx);
+    // Unlock Redis if it was locked
+    if(isRedisLocked(((RPUnlocker *)rp)->rpBufferAndLocker)){
+      UnLockRedis(((RPUnlocker *)rp)->rpBufferAndLocker, unlocker->base.parent->sctx->redisCtx);
     }
 
   }
@@ -1139,7 +1144,7 @@ static int RPUnlocker_Next(ResultProcessor *rp, SearchResult *res) {
 
 static void RPUnlocker_Free(ResultProcessor *base) {
   RPUnlocker *unlocker = (RPUnlocker *)base;
-  assert(!isGILLocked(unlocker->rpBufferAndLocker));
+  assert(!isRedisLocked(unlocker->rpBufferAndLocker));
   unlocker->rpBufferAndLocker = NULL;
 
   rm_free(base);

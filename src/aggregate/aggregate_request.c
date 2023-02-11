@@ -1224,7 +1224,7 @@ static void PushUpStream(ResultProcessor *rp_to_place, ResultProcessor *rp) {
 int SafeRedisKeyspaceAccessPipeline(AREQ *req, ResultProcessor *first_to_access_redis,
                                     ResultProcessor *last_to_access_redis) {
   
-  // TODO: Add better estimation to the buffer initial size
+  // TODO: multithreaded: Add better estimation to the buffer initial size
   ResultProcessor *rpBufferAndLocker = RPBufferAndLocker_New(1024);
 
   // Place buffer and locker as the upstream of the first_to_access_redis result processor.
