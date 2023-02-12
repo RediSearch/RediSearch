@@ -14,7 +14,7 @@ extern "C" {
 /* =================================== API ======================================= */
 
 
-typedef struct thpool_* threadpool;
+typedef struct redisearch_thpool_t* redisearch_threadpool;
 
 
 /**
@@ -34,7 +34,7 @@ typedef struct thpool_* threadpool;
  * @return threadpool    created threadpool on success,
  *                       NULL on error
  */
-threadpool thpool_init(int num_threads);
+redisearch_threadpool redisearch_thpool_init(int num_threads);
 
 
 /**
@@ -64,8 +64,8 @@ threadpool thpool_init(int num_threads);
  * @param  arg_p         pointer to an argument
  * @return 0 on successs, -1 otherwise.
  */
-typedef void (*thpool_proc)(void*);
-int thpool_add_work(threadpool, thpool_proc function_p, void* arg_p);
+typedef void (*redisearch_thpool_proc)(void*);
+int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc function_p, void* arg_p);
 
 
 /**
@@ -95,7 +95,7 @@ int thpool_add_work(threadpool, thpool_proc function_p, void* arg_p);
  * @param threadpool     the threadpool to wait for
  * @return nothing
  */
-void thpool_wait(threadpool);
+void redisearch_thpool_wait(redisearch_threadpool);
 
 
 /**
@@ -119,7 +119,7 @@ void thpool_wait(threadpool);
  * @param threadpool    the threadpool where the threads should be paused
  * @return nothing
  */
-void thpool_pause(threadpool);
+void redisearch_thpool_pause(redisearch_threadpool);
 
 
 /**
@@ -135,7 +135,7 @@ void thpool_pause(threadpool);
  * @param threadpool     the threadpool where the threads should be unpaused
  * @return nothing
  */
-void thpool_resume(threadpool);
+void redisearch_thpool_resume(redisearch_threadpool);
 
 
 /**
@@ -157,7 +157,7 @@ void thpool_resume(threadpool);
  * @param threadpool     the threadpool to destroy
  * @return nothing
  */
-void thpool_destroy(threadpool);
+void redisearch_thpool_destroy(redisearch_threadpool);
 
 
 /**
@@ -178,7 +178,7 @@ void thpool_destroy(threadpool);
  * @param threadpool     the threadpool of interest
  * @return integer       number of threads working
  */
-int thpool_num_threads_working(threadpool);
+int thpool_num_threads_working(redisearch_threadpool);
 
 
 #ifdef __cplusplus
