@@ -4,56 +4,110 @@
 #include <ranges>
 #include <algorithm>
 #include "rtdoc.hpp"
-#include "query_iterator.h"
 
 struct GeometryQueryIterator {
+private:
 	using container = std::vector<t_docId, rm_allocator<t_docId>>;
 	IndexIterator base_;
 	container iter_;
 	size_t index_;
 
+public:
+	using Self = GeometryQueryIterator;
+  [[nodiscard]] void* operator new(std::size_t) { return rm_allocator<Self>().allocate(1); }
+  void operator delete(void *p) noexcept { rm_allocator<Self>().deallocate(static_cast<Self*>(p), 1); }
+
 	explicit GeometryQueryIterator() = default;
 	explicit GeometryQueryIterator(std::vector<RTDoc, rm_allocator<RTDoc>>&& docs)
-		: base_{init()}
+		: base_{init_base()}
 		, iter_{std::ranges::sort(std::ranges::transform(docs, [](auto && doc){ return doc.id(); }))}
 		, index_{0}
-	{}
+	{
+		base_.ctx = this;
+	}
 
-	explicit GeometryQueryIterator(const GeometryQueryIterator&) = delete;
-	explicit GeometryQueryIterator(GeometryQueryIterator&&) = default;
-	GeometryQueryIterator& operator=(const GeometryQueryIterator&) = delete;
-	GeometryQueryIterator& operator=(GeometryQueryIterator&&) = default;
+	GeometryQueryIterator(const Self&) = delete;
+	explicit GeometryQueryIterator(Self&&) = default;
+	Self& operator=(const Self&) = delete;
+	explicit Self& operator=(Self&&) = default;
 	~GeometryQueryIterator() { IndexResult_Free(base_.current); }
 
 	IndexIterator *base() { return &base_; }
 
+private:
+	// struct QIterCriteriaTester {
+	// 	IndexCriteriaTester base_;
 
+	// 	using Self = QIterCriteriaTester;
+	// 	[[nodiscard]] void* operator new(std::size_t) { return rm_allocator<Self>().allocate(1); }
+	// 	void operator delete(void *p) noexcept { rm_allocator<Self>().deallocate(static_cast<Self*>(p), 1); }
+
+	// 	QIterCriteriaTester(GeometryQueryIterator const* it);
+	// };
+
+	// IndexCriteriaTester *get_criteriaTester() const {
+	// 	auto ct = new QIterCriteriaTester{this};
+	// 	return ct->base();
+	// }
+	int read(RSIndexResult *& hit) {
+		if (!base_.isValid || !has_next()) {
+			return INDEXREAD_EOF;
+		}
+
+  	base_.current->docId = iter_[index_++];
+  	hit = base_.current;
+  	return INDEXREAD_OK;
+	}
+	int skip_to(t_docId docId, RSIndexResult *& hit) {
+		if (!base_.isValid || !has_next()) {
+			return INDEXREAD_EOF;
+		}
+		if (docId > iter_.back()) {
+			base_.isValid = false;
+			return INDEXREAD_EOF;
+		}
+
+		auto it = std::ranges::lower_bound(iter_.cbegin() + index_, iter_.cend(), docId);
+		index_ = std::ranges::distance(iter_.cbegin(), it + 1);
+		if (!has_next()) {
+			abort();
+		}
+
+		base_.current->docId = *it;
+		hit = base_.current;
+
+		if (*it == docId) {
+			return INDEXREAD_OK;
+		}
+		return INDEXREAD_NOTFOUND;
+	}
 	t_docId current() const {
-		return has_next() ? iter_[index_] : 0;
+		return base_.current->docId;
 	}
 	int has_next() const {
-		return index_ < iter_.size();
+		return index_ < len();
 	}
 	size_t len() const {
 		return iter_.size();
 	}
 	void abort() {
-		base_.isValid = 0;
+		base_.isValid = false;
 	}
 	void rewind() {
+		base_.isValid = true;
 		base_.current->docId = 0;
 		index_ = 0;
 	}
 
-	void init() {
+	static void init_base() {
 		return IndexIterator {
-			.ctx = this;
+			.ctx = nullptr;
 			.mode = MODE_SORTED;
-			.type = /* TODO: new iterator type */;
-			.NumEstimated = ;
-			.GetCriteriaTester = ;
-			.Read = ;
-			.SkipTo = ;
+			.type = ID_LIST_ITERATOR /* TODO: new iterator type, for now IdListIterator is similar enough and doesn't cause problems */;
+			.NumEstimated = QIter_Len;
+			.GetCriteriaTester = nullptr;
+			.Read = QIter_Read;
+			.SkipTo = QIter_SkipTo;
 			.LastDocId = QIter_LastDocId;
 			.HasNext = QIter_HasNext;
 			.Free = QIter_Free;
@@ -62,12 +116,18 @@ struct GeometryQueryIterator {
 			.Rewind = QIter_Rewind;
 		};
 	}
-
-	using Self = GeometryQueryIterator;
-  [[nodiscard]] void* operator new(std::size_t) { return rm_allocator<Self>().allocate(1); }
-  void operator delete(void *p) noexcept { rm_allocator<Self>().deallocate(static_cast<Self*>(p), 1); }
 };
 
+namespace {
+// IndexCriteriaTester *QIter_GetCriteriaTester(void *ctx) {
+// 	return static_cast<GeometryQueryIterator const*>(ctx)->get_criteriaTester();
+// }
+int QIter_Read(void *ctx, RSIndexResult **hit) {
+	return static_cast<GeometryQueryIterator*>(ctx)->read(*hit);
+}
+int QIter_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
+	return static_cast<GeometryQueryIterator*>(ctx)->skip_to(docId, *hit);
+}
 t_docId QIter_LastDocId(void *ctx) {
 	return static_cast<GeometryQueryIterator const*>(ctx)->current();
 }
@@ -87,24 +147,4 @@ void QIter_Abort(void *ctx) {
 void QIter_Rewind(void *ctx) {
 	static_cast<GeometryQueryIterator*>(ctx)->rewind();
 }
-
-
-/*
-void QIter_Free(GeometryQueryIterator *iter) noexcept {
-	delete iter;
-}
-
-RTDoc const *QIter_Next(GeometryQueryIterator *iter) {
-	return iter->index_ < iter->iter_.size() ? &iter->iter_[iter->index_++] : nullptr;
-}
-
-size_t QIter_Remaining(GeometryQueryIterator const *iter) {
-	return iter->iter_.size() - iter->index_;
-}
-
-void QIter_Sort(GeometryQueryIterator *iter) {
-	std::ranges::sort(iter->iter_, [](auto const& doc1, auto const& doc2) {
-		return doc1.id_ < doc2.id_;
-	});
-}
-*/
+} // anonymous namespace
