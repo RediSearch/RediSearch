@@ -847,11 +847,13 @@ DEBUG_COMMAND(VecsimInfo) {
   }
   GET_SEARCH_CTX(argv[0]);
 
-  VecSimIndex *vecsimIndex = OpenVectorIndex(sctx->spec, argv[1]);
-  if (!vecsimIndex) {
+  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_VECTOR);
+  if (!keyName) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Vector index not found");
   }
+  VecSimIndex *vecsimIndex = OpenVectorIndex(sctx->spec, keyName);
+
   VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(vecsimIndex);
   RedisModule_ReplyWithArray(ctx, VecSimInfoIterator_NumberOfFields(infoIter)*2);
   while(VecSimInfoIterator_HasNextField(infoIter)) {
