@@ -2,7 +2,7 @@
 #include <fstream>
 #include "rtree.hpp"
 
-[[nodiscard]] RTree *RTree_New() {
+RTree *RTree_New() {
   return new RTree{};
 }
 
@@ -27,7 +27,7 @@ void RTree_Insert(RTree *rtree, RTDoc const *doc) {
   rtree->insert(*doc);
 }
 
-int RTree_Insert_WKT(RTree *rtree, const char *wkt, size_t len, docID_t id) {
+int RTree_Insert_WKT(RTree *rtree, const char *wkt, size_t len, t_docId id) {
   try {
     rtree->insert(RTDoc{std::string_view{wkt, len}, id});
     return 0;
@@ -40,7 +40,7 @@ bool RTree_Remove(RTree *rtree, RTDoc const *doc) {
   return rtree->remove(*doc);
 }
 
-int RTree_Remove_WKT(RTree *rtree, const char *wkt, size_t len, docID_t id) {
+int RTree_Remove_WKT(RTree *rtree, const char *wkt, size_t len, t_docId id) {
   try {
     return rtree->remove(RTDoc{std::string_view{wkt, len}, id});
   } catch (...) {
@@ -48,25 +48,43 @@ int RTree_Remove_WKT(RTree *rtree, const char *wkt, size_t len, docID_t id) {
   }
 }
 
-[[nodiscard]] GeometryQueryIterator *RTree_Query(RTree const *rtree, RTDoc const *queryDoc,
-                                         QueryType queryType) {
-  return new GeometryQueryIterator{rtree->query(*queryDoc, queryType)};
+IndexIterator *RTree_Query(RTree const *rtree, RTDoc const *queryDoc, QueryType queryType) {
+  return (new GeometryQueryIterator {
+    std::ranges::transform_view(
+      rtree->query(
+        *queryDoc,
+        queryType
+      ),
+      [](auto && doc) {
+        return doc.id();
+      }
+    )
+  })->base();
 }
 
-[[nodiscard]] GeometryQueryIterator *RTree_Query_WKT(struct RTree const *rtree, const char *wkt, size_t len,
-                                             docID_t id, enum QueryType queryType) {
-  return new GeometryQueryIterator{rtree->query(RTDoc{std::string_view{wkt, len}, id}, queryType)};
+IndexIterator *RTree_Query_WKT(RTree const *rtree, const char *wkt, size_t len, t_docId id, enum QueryType queryType) {
+  return (new GeometryQueryIterator {
+    std::ranges::transform_view(
+      rtree->query(
+        RTDoc{std::string_view{wkt, len}, id},
+        queryType
+      ),
+      [](auto && doc) {
+        return doc.id();
+      }
+    )
+  })->base();
 }
 
-[[nodiscard]] RTDoc *RTree_Bounds(RTree const *rtree) {
+RTDoc *RTree_Bounds(RTree const *rtree) {
   return new RTDoc{rtree->rtree_.bounds()};
 }
 
-[[nodiscard]] size_t RTree_Size(RTree const *rtree) noexcept {
+size_t RTree_Size(RTree const *rtree) noexcept {
   return rtree->size();
 }
 
-[[nodiscard]] bool RTree_IsEmpty(RTree const *rtree) noexcept {
+bool RTree_IsEmpty(RTree const *rtree) noexcept {
   return rtree->is_empty();
 }
 
@@ -74,6 +92,6 @@ void RTree_Clear(RTree *rtree) noexcept {
   rtree->clear();
 }
 
-[[nodiscard]] size_t RTree_MemUsage(RTree const *rtree) {
+size_t RTree_MemUsage(RTree const *rtree) {
   return rtree->report();
 }

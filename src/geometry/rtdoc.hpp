@@ -15,19 +15,19 @@ struct RTDoc {
   using rect_internal = bgm::box<point_type>;
   poly_type poly_;
   rect_internal rect_;
-  docID_t id_;
+  t_docId id_;
 
   explicit RTDoc() = default;
   explicit RTDoc(rect_internal const& rect) noexcept : poly_{to_poly(rect)}, rect_{rect}, id_{0} {
   }
-  explicit RTDoc(poly_type const& poly, docID_t id = 0)
+  explicit RTDoc(poly_type const& poly, t_docId id = 0)
       : poly_{poly}, rect_{to_rect(poly)}, id_{id} {
   }
-  explicit RTDoc(std::string_view wkt, docID_t id = 0)
+  explicit RTDoc(std::string_view wkt, t_docId id = 0)
       : poly_{Polygon::from_wkt(wkt)}, rect_{to_rect(poly_)}, id_{id} {
   }
 
-  [[nodiscard]] docID_t id() const noexcept {
+  [[nodiscard]] t_docId id() const noexcept {
     return id_;
   }
 

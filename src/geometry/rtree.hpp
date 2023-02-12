@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../index.h"
 #include "rtdoc.hpp"
 #include "query_iterator.hpp"
 #include "rtree.h"
@@ -42,38 +43,38 @@ struct RTree {
     return rtree_.get_allocator().report();
   }
 
-  template <typename Predicate>
-  [[nodiscard]] GeometryQueryIterator::container query(Predicate p) const {
-    GeometryQueryIterator::container result{};
-    rtree_.query(p, std::back_inserter(result));
-    return result;
-  }
-
-	[[nodiscard]] GeometryQueryIterator::container query(RTDoc const& queryDoc, QueryType queryType) const {
+	[[nodiscard]] auto query(RTDoc const& queryDoc, QueryType queryType) const {
 		switch (queryType) {
-			case QueryType::CONTAINS:
-				return contains(queryDoc);
-			case QueryType::WITHIN:
-				return within(queryDoc);
-			default:
-				__builtin_unreachable();
+		 case QueryType::CONTAINS:
+			return contains(queryDoc);
+		 case QueryType::WITHIN:
+			return within(queryDoc);
+		 default:
+			return {};
 		}
 	}
 
-	[[nodiscard]] GeometryQueryIterator::container contains(RTDoc const *queryDoc) const {
-		auto results = query(bgi::contains(queryDoc->rect_));
+	[[nodiscard]] auto contains(RTDoc const& queryDoc) const {
+		auto results = query(bgi::contains(queryDoc.rect_));
 		std::erase_if(results, [&](auto const& doc) {
-			return !bg::within(queryDoc->poly_, doc.poly_);
+			return !bg::within(queryDoc.poly_, doc.poly_);
 		});
 		return results;
 	}
-	[[nodiscard]] GeometryQueryIterator::container within(RTDoc const *queryDoc) const {
-		auto results = query(bgi::within(queryDoc->rect_));
+	[[nodiscard]] auto within(RTDoc const& queryDoc) const {
+		auto results = query(bgi::within(queryDoc.rect_));
 		std::erase_if(results, [&](auto const& doc) {
-			return !bg::within(doc.poly_, queryDoc->poly_);
+			return !bg::within(doc.poly_, queryDoc.poly_);
 		});
 		return results;
 	}
+
+  template <typename Predicate>
+  [[nodiscard]] auto query(Predicate p) const {
+    std::vector<RTDoc, rm_allocator<RTDoc>> result{};
+    rtree_.query(p, std::back_inserter(result));
+    return result;
+  }
 
   using Self = RTree;
   [[nodiscard]] void* operator new(std::size_t) {

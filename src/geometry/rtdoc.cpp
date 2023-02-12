@@ -1,7 +1,7 @@
 
 #include "rtdoc.hpp"
 
-[[nodiscard]] RTDoc *From_WKT(const char *wkt, size_t len, docID_t id) {
+RTDoc *From_WKT(const char *wkt, size_t len, t_docId id) {
   try {
     return new RTDoc{std::string_view{wkt, len}, id};
   } catch (...) {
@@ -9,7 +9,7 @@
   }
 }
 
-[[nodiscard]] RTDoc *RTDoc_Copy(RTDoc const *other) {
+RTDoc *RTDoc_Copy(RTDoc const *other) {
   return new RTDoc{*other};
 }
 
@@ -17,15 +17,15 @@ void RTDoc_Free(RTDoc *doc) noexcept {
   delete doc;
 }
 
-[[nodiscard]] docID_t RTDoc_GetID(RTDoc const *doc) noexcept {
+t_docId RTDoc_GetID(RTDoc const *doc) noexcept {
   return doc->id();
 }
 
-[[nodiscard]] bool RTDoc_IsEqual(RTDoc const *lhs, RTDoc const *rhs) {
+bool RTDoc_IsEqual(RTDoc const *lhs, RTDoc const *rhs) {
   return *lhs == *rhs;
 }
 
-[[nodiscard]] RedisModuleString *RTDoc_ToString(struct RTDoc const *doc) {
+RedisModuleString *RTDoc_ToString(struct RTDoc const *doc) {
   if (RedisModule_CreateString) {
     string s = doc->to_string();
     return RedisModule_CreateString(nullptr, s.c_str(), s.length());

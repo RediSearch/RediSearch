@@ -6,8 +6,8 @@
 
 #pragma once
 
-#include "redismodule.h"
-#include "geometry/geometry.h"
+#include "../redismodule.h"
+#include "geometry.h"
 
 typedef void* GEOMETRY;
 
@@ -21,7 +21,7 @@ typedef enum {
   GEOMETRY_LIB_TYPE_NONE = 0,
   GEOMETRY_LIB_TYPE_BOOST_GEOMETRY = 1,
   GEOMETRY_LIB_TYPE_S2 = 2,
-  GEOMETRY_LIB_TYPE__LAST = GEOMETRY_LIB_TYPE_S2,
+  GEOMETRY_LIB_TYPE__NUM,
 } GEOMETRY_LIB_TYPE;
 
 typedef enum {
@@ -39,11 +39,5 @@ typedef struct {
     //...
 } GeometryApi;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-GeometryApi* GeometryApi_GetOrCreate(GEOMETRY_LIB_TYPE type, void *pdata);
+GeometryApi* GeometryApi_GetOrCreate(GEOMETRY_LIB_TYPE type, void *);
 void GeometryApi_Free();
-#ifdef __cplusplus
-} // extern "C"
-#endif

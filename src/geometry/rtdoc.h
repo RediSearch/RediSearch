@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include "../redismodule.h"
+#include "../redisearch.h"
 
 #ifdef __cplusplus
 #define NODISCARD [[nodiscard]]
@@ -16,12 +17,11 @@ extern "C" {
 #endif
 
 struct RTDoc;
-typedef size_t docID_t;
 
-NODISCARD struct RTDoc *From_WKT(const char *wkt, size_t len, docID_t id);
+NODISCARD struct RTDoc *From_WKT(const char *wkt, size_t len, t_docId id);
 NODISCARD struct RTDoc *RTDoc_Copy(struct RTDoc const *other);
 void RTDoc_Free(struct RTDoc *doc) NOEXCEPT;
-NODISCARD docID_t RTDoc_GetID(struct RTDoc const *doc) NOEXCEPT;
+NODISCARD t_docId RTDoc_GetID(struct RTDoc const *doc) NOEXCEPT;
 NODISCARD bool RTDoc_IsEqual(struct RTDoc const *lhs, struct RTDoc const *rhs);
 
 void RTDoc_Print(struct RTDoc const *doc);
