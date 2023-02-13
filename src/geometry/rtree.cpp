@@ -62,11 +62,11 @@ IndexIterator *RTree_Query(RTree const *rtree, RTDoc const *queryDoc, QueryType 
   })->base();
 }
 
-IndexIterator *RTree_Query_WKT(RTree const *rtree, const char *wkt, size_t len, t_docId id, enum QueryType queryType) {
+IndexIterator *RTree_Query_WKT(RTree const *rtree, const char *wkt, size_t len, enum QueryType queryType) {
   return (new GeometryQueryIterator {
     std::ranges::transform_view(
       rtree->query(
-        RTDoc{std::string_view{wkt, len}, id},
+        RTDoc{std::string_view{wkt, len}, 0},
         queryType
       ),
       [](auto && doc) {
