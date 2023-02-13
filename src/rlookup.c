@@ -429,6 +429,9 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   }
 
   if (rc == REDISMODULE_OK && val != NULL) {
+    // `val` was created by `RedisModule_HashGet` and is owned by us.
+    // This function might retain it, but it's thread-safe to free it afterwards without any locks
+    // as it will hold the only reference to it after the next line.
     rsv = hvalToValue(val, kk->fieldtype);
     RedisModule_FreeString(RSDummyContext, val);
   } else if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
@@ -576,6 +579,10 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
   if (pd->options->forceString) {
     ctype = RLOOKUP_C_STR;
   }
+  // This function will retain the value if it's a string. This is thread-safe because
+  // the value was created just before calling this callback and will be freed right after
+  // the callback returns, so this is a thread-local operation that will take ownership of
+  // the string value.
   RSValue *vptr = hvalToValue(value, ctype);
   RLookup_WriteOwnKey(rlk, pd->dst, vptr);
 }
