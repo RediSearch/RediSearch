@@ -21,6 +21,7 @@ dbconfig:
       redisearch:
         WORKER_THREADS: 8
         ENABLE_THREADS: 'TRUE'
+        TIMEOUT: 0
   - dataset_name: "ftsb-1M-enwiki_abstract-hashes-non-sortable"
   - init_commands:
     - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "url" "text" "abstract" "text"'
