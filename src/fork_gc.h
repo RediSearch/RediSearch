@@ -15,8 +15,6 @@
 extern "C" {
 #endif
 
-struct IndexSpec;
-
 typedef struct {
   // total bytes collected by the GC
   size_t totalCollected;
@@ -30,30 +28,17 @@ typedef struct {
   uint64_t gcBlocksDenied;
 } ForkGCStats;
 
-typedef enum FGCType { FGC_TYPE_INKEYSPACE, FGC_TYPE_NOKEYSPACE } FGCType;
-
 /* Internal definition of the garbage collector context (each index has one) */
 typedef struct ForkGC {
 
-  // inverted index key name for reopening the index
-  union {
-    const RedisModuleString *keyName;
-    struct IndexSpec *sp;
-  };
+  // owner of the gc
+  WeakRef index;
 
   RedisModuleCtx *ctx;
-
-  FGCType type;
-
-  uint64_t specUniqueId;
 
   // statistics for reporting
   ForkGCStats stats;
 
-  // flag for rdb loading. Set to 1 initially, but unce it's set to 0 we don't need to check anymore
-  int rdbPossiblyLoading;
-  // Whether the gc has been requested for deletion
-  volatile int deleting;
   int pipefd[2];
   volatile uint32_t pauseState;
   volatile uint32_t execState;
@@ -62,8 +47,7 @@ typedef struct ForkGC {
   volatile size_t deletedDocsFromLastRun;
 } ForkGC;
 
-ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks);
-ForkGC *FGC_NewFromSpec(struct IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks);
+ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks);
 
 typedef enum {
   // Normal "open" state. No pausing will happen

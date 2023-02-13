@@ -422,14 +422,18 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
                                QueryError *status);
 
 /* Start the garbage collection loop on the index spec */
-void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ);
-void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy);
+void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef spec_ref, IndexSpec *sp);
+void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
 
 /* Same as above but with ordinary strings, to allow unit testing */
 StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
+// This function locks the spec for writing. use it if you know the spec is not locked
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
+
+// This function does not lock the spec. use it if you know the spec is locked for writing
+void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, t_docId id);
 
 /**
  * Indicate that the index spec should use an internal dictionary,rather than

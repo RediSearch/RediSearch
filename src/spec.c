@@ -93,12 +93,16 @@ static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, 
 
 /*
  * Get a field spec by field name. Case sensetive!
- * Return the field spec if found, NULL if not
+ * Return the field spec if found, NULL if not.
+ * Assuming the spec is properly locked before calling this function.
+ * TODO: multithreaded: verify that the spec is locked
  */
 const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, size_t len) {
   return getFieldCommon(spec, name, len);
-};
+}
 
+// Assuming the spec is properly locked before calling this function.
+// TODO: multithreaded: verify that the spec is locked
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
   const FieldSpec *fs = IndexSpec_GetField(spec, name, len);
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT) || !FieldSpec_IsIndexable(fs)) return 0;
@@ -106,6 +110,8 @@ t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len)
   return FIELD_BIT(fs);
 }
 
+// Assuming the spec is properly locked before calling this function.
+// TODO: multithreaded: verify that the spec is locked
 int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
   if (!(sp->flags & Index_HasPhonetic)) {
     return 0;
@@ -127,6 +133,8 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
   return 0;
 }
 
+// Assuming the spec is properly locked before calling this function.
+// TODO: multithreaded: verify that the spec is locked
 int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, QueryError *status) {
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     if (fm & ((t_fieldMask)1 << ii)) {
@@ -141,11 +149,15 @@ int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, Qu
   return 1;
 }
 
+// Assuming the spec is properly locked before calling this function.
+// TODO: multithreaded: verify that the spec is locked
 int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) {
   if (!sp->sortables) return -1;
   return RSSortingTable_GetFieldIdx(sp->sortables, name);
 }
 
+// Assuming the spec is properly locked before calling this function.
+// TODO: multithreaded: verify that the spec is locked
 const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t idx) {
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
     if (sp->fields[ii].options & FieldSpec_Sortable && sp->fields[ii].sortIdx == idx) {
@@ -155,6 +167,8 @@ const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t 
   return NULL;
 }
 
+// Assuming the spec is properly locked before calling this function.
+// TODO: multithreaded: verify that the spec is locked
 const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
     if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) &&
@@ -282,6 +296,8 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
 #endif
 }
 
+// Assuming the spec is properly locked before calling this function.
+// TODO: multithreaded: verify that the spec is locked
 static void IndexSpec_SetTimeoutTimer(IndexSpec *sp, WeakRef spec_ref) {
   if (sp->isTimerSet) {
     WeakRef old_timer_ref;
@@ -294,6 +310,8 @@ static void IndexSpec_SetTimeoutTimer(IndexSpec *sp, WeakRef spec_ref) {
   sp->isTimerSet = true;
 }
 
+// Assuming the spec is properly locked before calling this function.
+// TODO: multithreaded: verify that the spec is locked
 static void IndexSpec_ResetTimeoutTimer(IndexSpec *sp) {
   if (sp->isTimerSet) {
     WeakRef old_timer_ref;
@@ -337,6 +355,8 @@ double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp) {
 
 //---------------------------------------------------------------------------------------------
 
+/* Create a new index spec from a redis command */
+// TODO: multithreaded: use global metadata locks to protect global data structures
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                QueryError *status) {
   const char *specName = RedisModule_StringPtrLen(argv[1], NULL);
@@ -357,7 +377,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   sp->uniqueId = spec_unique_ids++;
   // Start the garbage collector
-  IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
+  IndexSpec_StartGC(ctx, spec_ref, sp);
 
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
 
@@ -847,6 +867,8 @@ error:
   return 0;
 }
 
+// Assuming the spec is properly locked before calling this function.
+// TODO: multithreaded: verify that the spec is locked
 int IndexSpec_CreateTextId(const IndexSpec *sp) {
   int maxId = -1;
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
@@ -1025,10 +1047,12 @@ reset:
 int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
                         QueryError *status) {
   setMemoryInfo(ctx);
+
   int rc = IndexSpec_AddFieldsInternal(sp, ac, status, 0);
   if (rc && initialScan) {
     IndexSpec_ScanAndReindex(ctx, spec_ref);
   }
+
   return rc;
 }
 
@@ -1136,6 +1160,8 @@ failure:  // on failure free the spec fields array and return an error
 }
 
 /* Initialize some index stats that might be useful for scoring functions */
+// Assuming the spec is properly locked before calling this function.
+// TODO: multithreaded: verify that the spec is locked
 void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
   stats->numDocs = sp->stats.numDocuments;
   stats->numTerms = sp->stats.numTerms;
@@ -1143,6 +1169,8 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
       stats->numDocs ? (double)sp->stats.numRecords / (double)sp->stats.numDocuments : 0;
 }
 
+// Assuming the spec is properly locked before calling this function.
+// TODO: multithreaded: verify that the spec is locked
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
   int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL);
   if (isNew) {
@@ -1403,7 +1431,7 @@ void Indexes_Free(dict *d) {
 
 // atomic update of usage counter
 inline static void IndexSpec_IncreasCounter(IndexSpec *sp) {
-  __atomic_fetch_add(&sp->counter , 1, __ATOMIC_SEQ_CST);
+  __atomic_fetch_add(&sp->counter , 1, __ATOMIC_RELAXED);
 }
 
 
@@ -1452,6 +1480,8 @@ StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options)
   return spec_ref;
 }
 
+// Assuming the spec is properly locked before calling this function.
+// TODO: multithreaded: verify that the spec is locked
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
                                              FieldType forType) {
   if (!sp->indexStrs) {
@@ -1488,6 +1518,8 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
   return ret;
 }
 
+// Assuming the spec is properly locked before calling this function.
+// TODO: multithreaded: verify that the spec is locked
 RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s,
                                                    FieldType forType) {
   const FieldSpec *fs = IndexSpec_GetField(sp, s, strlen(s));
@@ -1497,6 +1529,8 @@ RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s,
   return IndexSpec_GetFormattedKey(sp, fs, forType);
 }
 
+// Assuming the spec is properly locked before calling this function.
+// TODO: multithreaded: verify that the spec is locked
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc) {
   t_fieldMask ret = 0;
 
@@ -1510,6 +1544,8 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
   return ret;
 }
 
+// Assuming the spec is properly locked before calling this function.
+// TODO: multithreaded: verify that the spec is locked
 void IndexSpec_InitializeSynonym(IndexSpec *sp) {
   if (!sp->smap) {
     sp->smap = SynonymMap_New(false);
@@ -1517,6 +1553,9 @@ void IndexSpec_InitializeSynonym(IndexSpec *sp) {
   }
 }
 
+// Assuming the spec is properly locked before calling this function.
+// TODO: multithreaded: verify that the spec is locked
+// TODO: consider locking internally
 int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len) {
   // if the index already has custom stopwords, let us free them first
   if (sp->stopwords) {
@@ -1536,6 +1575,8 @@ int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len
   return 1;
 }
 
+// Assuming the spec is properly locked before calling this function.
+// TODO: multithreaded: verify that the spec is locked
 int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len) {
   if (!sp->stopwords) {
     return 0;
@@ -1587,6 +1628,8 @@ IndexSpec *NewIndexSpec(const char *name) {
   return sp;
 }
 
+// Assuming the spec is properly locked before calling this function.
+// TODO: multithreaded: verify that the spec is locked
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path) {
   sp->fields = rm_realloc(sp->fields, sizeof(*sp->fields) * (sp->numFields + 1));
   FieldSpec *fs = sp->fields + sp->numFields;
@@ -1622,6 +1665,7 @@ static void valFreeCb(void *unused, void *p) {
   rm_free(kdv);
 }
 
+// Only used on new specs so it's thread safe
 void IndexSpec_MakeKeyless(IndexSpec *sp) {
   // Initialize only once:
   if (!invidxDictType.valDestructor) {
@@ -1631,19 +1675,20 @@ void IndexSpec_MakeKeyless(IndexSpec *sp) {
   sp->keysDict = dictCreate(&invidxDictType, NULL);
 }
 
-void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy) {
-  sp->gc = GCContext_CreateGCFromSpec(sp, initialHZ, sp->uniqueId, gcPolicy);
+// Only used on new specs so it's thread safe
+void IndexSpec_StartGCFromSpec(StrongRef global, IndexSpec *sp, uint32_t gcPolicy) {
+  sp->gc = GCContext_CreateGC(global, gcPolicy);
   GCContext_Start(sp->gc);
 }
 
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
  * index after removing documents */
-void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
+// Only used on new specs so it's thread safe
+void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef global, IndexSpec *sp) {
   RS_LOG_ASSERT(!sp->gc, "GC already exists");
   // we will not create a gc thread on temporary index
   if (RSGlobalConfig.enableGC && !(sp->flags & Index_Temporary)) {
-    RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, sp->nameLen);
-    sp->gc = GCContext_CreateGC(keyName, initialHZ, sp->uniqueId);
+    sp->gc = GCContext_CreateGC(global, RSGlobalConfig.gcPolicy);
     GCContext_Start(sp->gc);
     RedisModule_Log(ctx, "verbose", "Starting GC for index %s", sp->name);
   }
@@ -1936,6 +1981,8 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
     IndexSpec *sp = StrongRef_Get(curr_run_ref);
     if (sp) {
+      // This check is performed without locking the spec, but it's ok since we locked the GIL
+      // So the main thread is not running and the GC is not touching the relevant data
       if (SchemaRule_ShouldIndex(sp, keyname, type)) {
         IndexSpec_UpdateDoc(sp, ctx, keyname, type);
       }
@@ -2154,6 +2201,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
 }
 #endif // FTINFO_FOR_INFO_MODULES
 
+// Assumes that the spec is in a safe state to set a scanner on it (write lock or main thread)
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef spec_ref) {
   size_t nkeys = RedisModule_DbSize(ctx);
   if (nkeys > 0) {
@@ -2161,6 +2209,8 @@ void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef spec_ref) {
   }
 }
 
+// only used on "RDB load finished" event (before the server is ready to accept commands)
+// so it threadsafe
 void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
 
@@ -2303,7 +2353,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
 
   sp->uniqueId = spec_unique_ids++;
 
-  IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
+  IndexSpec_StartGC(ctx, spec_ref, sp);
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
 
   if (sp->flags & Index_HasSmap) {
@@ -2451,7 +2501,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
 
   // start the gc and add the spec to the cursor list
-  IndexSpec_StartGC(RSDummyContext, sp, GC_DEFAULT_HZ);
+  IndexSpec_StartGC(RSDummyContext, spec_ref, sp);
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
 
   dictAdd(legacySpecDict, sp->name, spec_ref.rm);
@@ -2624,6 +2674,8 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
 int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx);
 
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type) {
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+
   if (!spec->rule) {
     RedisModule_Log(ctx, "warning", "Index spec %s: no rule found", spec->name);
     return REDISMODULE_ERR;
@@ -2632,7 +2684,6 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   hires_clock_t t0;
   hires_clock_get(&t0);
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   Document doc = {0};
   Document_Init(&doc, key, DEFAULT_SCORE, DEFAULT_LANGUAGE, type);
   // if a key does not exit, is not a hash or has no fields in index schema
@@ -2650,7 +2701,8 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   }
 
   if (rv != REDISMODULE_OK) {
-    spec->stats.indexingFailures++;
+    // we already unlocked the spec but we can increase this value atomically
+    __atomic_add_fetch(&spec->stats.indexingFailures, 1, __ATOMIC_RELAXED);
 
     // if a document did not load properly, it is deleted
     // to prevent mismatch of index and hash
@@ -2658,6 +2710,8 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     Document_Free(&doc);
     return REDISMODULE_ERR;
   }
+
+  RedisSearchCtx_LockSpecWrite(&sctx);
 
   QueryError status = {0};
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
@@ -2667,20 +2721,14 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   Document_Free(&doc);
 
   spec->stats.totalIndexTime += hires_clock_since_usec(&t0);
+
+  RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }
 
-int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
+void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, t_docId id) {
 
-  // Get the doc ID
-  t_docId id = DocTable_GetIdR(&spec->docs, key);
-  if (id == 0) {
-    return REDISMODULE_ERR;
-    // ID does not exist.
-  }
-
-  int rc = DocTable_DeleteR(&spec->docs, key);
-  if (rc) {
+  if (DocTable_DeleteR(&spec->docs, key)) {
     spec->stats.numDocuments--;
 
     // Increment the index's garbage collector's scanning frequency after document deletions
@@ -2705,6 +2753,25 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
       }
     }
   }
+}
+
+int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+
+  // TODO: is this necessary?
+  RedisSearchCtx_LockSpecRead(&sctx);
+  // Get the doc ID
+  t_docId id = DocTable_GetIdR(&spec->docs, key);
+  RedisSearchCtx_UnlockSpec(&sctx);
+
+  if (id == 0) {
+    // ID does not exist.
+    return REDISMODULE_ERR;
+  }
+
+  RedisSearchCtx_LockSpecWrite(&sctx);
+  IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, id);
+  RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }
 
@@ -2854,7 +2921,7 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
       continue;
     }
 
-    if (!hashFields || hashFieldChanged(specOp->spec, hashFields)) {
+    if (hashFieldChanged(specOp->spec, hashFields)) {
       if (specOp->op == SpecOp_Add) {
         IndexSpec_UpdateDoc(specOp->spec, ctx, key, type);
       } else {
@@ -2872,7 +2939,7 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = specs->specsOps + i;
-    if (!hashFields || hashFieldChanged(specOp->spec, hashFields)) {
+    if (hashFieldChanged(specOp->spec, hashFields)) {
       IndexSpec_DeleteDoc(specOp->spec, ctx, key);
     }
   }
@@ -2903,7 +2970,10 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
     }
     dictEntry *entry = dictFind(to_specs->specs, spec->name);
     if (entry) {
+      RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+      RedisSearchCtx_LockSpecWrite(&sctx);
       DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
+      RedisSearchCtx_UnlockSpec(&sctx);
       size_t index = entry->v.u64;
       dictDelete(to_specs->specs, spec->name);
       array_del_fast(to_specs->specsOps, index);

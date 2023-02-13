@@ -441,8 +441,7 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   }
 
   // Value has a reference count of 1
-  RLookup_WriteKey(kk, dst, rsv);
-  RSValue_Decref(rsv);
+  RLookup_WriteOwnKey(kk, dst, rsv);
   return REDISMODULE_OK;
 }
 
@@ -502,8 +501,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   }
 
   // Value has a reference count of 1
-  RLookup_WriteKey(kk, dst, rsv);
-  RSValue_Decref(rsv);
+  RLookup_WriteOwnKey(kk, dst, rsv);
   return REDISMODULE_OK;
 }
 
