@@ -38,7 +38,7 @@ FT.CREATE {index_name} ON JSON SCHEMA {json_path} AS {attribute} {type}
 For example, this command creates an index that indexes the name, description, price, and image vector embedding of each JSON document that represents an inventory item:
 
 ```sql
-127.0.0.1:6379> FT.CREATE itemIdx ON JSON PREFIX 1 item: SCHEMA $.name AS name TEXT $.description as description TEXT $.price AS price NUMERIC $.embedding AS embedding VECTOR FLAT 6 DIM 4 DISTNACE_METRIC L2 TYPE FLOAT32
+127.0.0.1:6379> FT.CREATE itemIdx ON JSON PREFIX 1 item: SCHEMA $.name AS name TEXT $.description as description TEXT $.price AS price NUMERIC $.embedding AS embedding VECTOR FLAT 6 DIM 4 DISTANCE_METRIC L2 TYPE FLOAT32
 ```
 
 See [Index limitations](#index-limitations) for more details about JSON index `SCHEMA` restrictions.
@@ -144,7 +144,7 @@ Now search for Bluetooth headphones with a price less than 70:
 And lastly, search for the Bluetooth headphones that are most similar to an image whose embedding is [1.0, 1.0, 1.0, 1.0]:
 
 ```sql
-127.0.0.1:6379> FT.SEARCH itemIdx '@description:(bluetooth headphones)=>[KNN 2 @embedding $blob]' PARAMS 2 blob \x01\x01\x01\x01 DIALECT 2  
+127.0.0.1:6379> FT.SEARCH itemIdx '@description:(bluetooth headphones)=>[KNN 2 @embedding $blob]' PARAMS 2 blob \x01\x01\x01\x01 DIALECT 2
 1) "2"
 2) "item:1"
 3) 1) "__embedding_score"
@@ -227,15 +227,15 @@ Now you can do full text search for light colored headphones:
       ]
    }
    ```
-   may match values in various ordering, depending on the specific implementation of the JSONPath library being used. 
-   
+   may match values in various ordering, depending on the specific implementation of the JSONPath library being used.
+
    Since `SLOP` and `INORDER` consider relative ordering among the indexed values, and results may change in future releases, therefore an error will be returned.
 
 - When JSONPath leads to multiple values:
   - String values are indexed
   - `null` values are skipped
   - Any other value type is causing an indexing failure
-  
+
 - `SORTBY` is only sorting by the first value
 - No `HIGHLIGHT` support
 - `RETURN` of a Schema attribute, whose JSONPath leads to multiple values, returns only the first value (as a JSON String)
@@ -303,7 +303,7 @@ When JSONPath leads to multiple numerical values:
 
 Starting with RediSearch v2.6.1, search can be done on an array of geo (geographical) values or on a JSONPath leading to multiple geo values.
 
-Prior to RediSearch v2.6.1, only a single geo value was supported per GEO attribute. The geo value was specified using a comma delimited string in the form "longtitude,latitude", for example, "15.447083,78.238306".
+Prior to RediSearch v2.6.1, only a single geo value was supported per GEO attribute. The geo value was specified using a comma delimited string in the form "longitude,latitude", for example, "15.447083,78.238306".
 
 With RediSearch v2.6.1, a JSON array of such geo values is also supported.
 
@@ -325,7 +325,7 @@ OK
 
 ```
 
-And let's add some vendors with their georaphic locations:
+And let's add some vendors with their geographic locations:
 
 ```sql
 127.0.0.1:6379> JSON.SET vendor:1 $ '{"id":100, "name":"Kwik-E-Mart", "location":["35.213,31.785", "35.178,31.768", "35.827,31.984"]}'
@@ -388,7 +388,7 @@ If you want to index *multiple* numeric arrays as VECTOR, use a [JSONPath](/docs
 For example, let's assume that our JSON items include an array of vector embeddings, where each vector represent a different image of the same product. To index these vectors, specify the JSONPath `$.embeddings[*]` in the schema definition during index creation:
 
 ```sql
-127.0.0.1:6379> FT.CREATE itemIdx5 ON JSON PREFIX 1 item: SCHEMA $.embedding[*] AS embedding VECTOR FLAT 6 DIM 4 DISTNACE_METRIC L2 TYPE FLOAT32
+127.0.0.1:6379> FT.CREATE itemIdx5 ON JSON PREFIX 1 item: SCHEMA $.embedding[*] AS embedding VECTOR FLAT 6 DIM 4 DISTANCE_METRIC L2 TYPE FLOAT32
 OK
 ```
 ```sql
@@ -613,6 +613,6 @@ During index creation, you need to map the JSON elements to `SCHEMA` fields as f
 - You cannot index JSON objects. Index the individual elements as separate attributes instead.
 - `null` values are ignored.
 
-### Sortable TAG 
+### Sortable TAG
 
 If you create an index for JSON documents with a JSONPath leading to an array or to multi values, only the first value is considered by the sort
