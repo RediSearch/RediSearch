@@ -911,6 +911,8 @@ static void InvalidateBufferedResult(SearchResult *buffered_result) {
   memset(&buffered_result->rowdata, 0, sizeof(RLookupRow));
 }
 static int ReturnResult(SearchResult *buffered_result,  SearchResult *result_output) {
+  // Free the RLookup row before overriding it.
+  RLookupRow_Cleanup(&result_output->rowdata);
   *result_output = *buffered_result;
 
   InvalidateBufferedResult(buffered_result);
