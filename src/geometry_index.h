@@ -10,6 +10,8 @@
 #include "search_ctx.h"
 #include "index_iterator.h"
 
+typedef void* GeometryIndex;
+
 typedef struct GeometryQuery {
     GEOMETRY_FORMAT format;
     const char *attr;
@@ -19,4 +21,5 @@ typedef struct GeometryQuery {
 
 void GeometryQuery_Free(GeometryQuery *geomq);
 
-IndexIterator* NewGeometryIterator(RedisSearchCtx *ctx, GeometryQuery *geomq);
+GeometryIndex *OpenGeometryIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
+                                 RedisModuleKey **idxKey);

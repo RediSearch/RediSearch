@@ -20,6 +20,7 @@
 #include "rmalloc.h"
 #include "indexer.h"
 #include "tag_index.h"
+#include "geometry_index.h"
 #include "aggregate/expr/expression.h"
 #include "rmutil/rm_assert.h"
 
@@ -575,10 +576,9 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
         if (geom)
           fdata->geometry = geom;
         else
-        return -1;
+          return -1;
         break;
       }
-      break;
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_NULL:
       return 0;
@@ -597,6 +597,29 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 
   return 0;
 }
+
+FIELD_BULK_INDEXER(geometryIndexer) {
+  NumericRangeTree *rt = bulk->indexDatas[INDEXFLD_T_GEOMETRY];
+  if (!rt) {
+    RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_GEOMETRY);
+    rt = bulk->indexDatas[IXFLDPOS_GEOMETRY] =
+        OpenGeometryIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_GEOMETRY]);
+    if (!rt) {
+      QueryError_SetError(status, QUERY_EGENERIC, "Could not open geometry index for indexing");
+      return -1;
+    }
+  }
+
+  if (!fdata->isMulti) {
+    //TODO: GEOMETRY
+  } else {
+    for (uint32_t i = 0; i < array_len(fdata->arrGeometry); ++i) {
+      //TODO: GEOMETRY
+    }
+  }
+  return 0;
+}
+
 
 
 FIELD_BULK_INDEXER(numericIndexer) {
@@ -809,6 +832,9 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
           break;
         case IXFLDPOS_VECTOR:
           rc = vectorIndexer(bulk, cur, sctx, field, fs, fdata, status);
+          break;
+        case IXFLDPOS_GEOMETRY:
+          rc = geometryIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_FULLTEXT:
           break;

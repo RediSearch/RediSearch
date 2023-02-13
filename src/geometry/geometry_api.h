@@ -8,6 +8,8 @@
 
 #include "../redismodule.h"
 #include "geometry.h"
+#include "geometry_index.h"
+#include "rtree.h"
 
 typedef void* GEOMETRY;
 
@@ -34,9 +36,10 @@ typedef enum {
 typedef struct {
     GEOMETRY (*createGeom)(GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg);
     void (*freeGeom)(GEOMETRY);
-    //IndexIterator* (*query)(GEOMETRY geom, predicate t, void* params);
-    //char *(*geomAsCStr)(GEOMETRY geom, GEOMETRY_FORMAT format);
-    //...
+    GeometryIndex* (*createIndex)();
+    int (*addGeom)(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg);
+    IndexIterator*(*query)(const GeometryIndex *index, enum QueryType queryType, GEOMETRY_FORMAT format, const char *str, size_t len);
+    int (*delGeom)(GeometryIndex *index, GEOMETRY geom, void *data);
 } GeometryApi;
 
 GeometryApi* GeometryApi_GetOrCreate(GEOMETRY_LIB_TYPE type, void *);

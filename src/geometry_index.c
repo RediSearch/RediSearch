@@ -11,7 +11,7 @@ void GeometryQuery_Free(GeometryQuery *geomq) {
     rm_free(geomq);
 }
 
-IndexIterator* NewGeometryIterator(RedisSearchCtx *ctx, GeometryQuery *geomq) {
-  // TODO: GEOMETRY
-  return NULL;
+GeometryIndex *OpenGeometryIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
+                                 RedisModuleKey **idxKey) {
+  return NULL; // TODO: GEOMETRY
 }

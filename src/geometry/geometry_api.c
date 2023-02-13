@@ -32,6 +32,22 @@ void bg_freeGeom(GEOMETRY geom) {
   RTDoc_Free(geom);
 }
 
+GeometryIndex* bg_createIndex() {
+  return RTree_New();
+}
+
+IndexIterator* bg_query(const GeometryIndex index, const GEOMETRY *queryGeometry, enum QueryType queryType) {
+  // TODO: GEOMETRY
+}
+
+int bg_addGeom(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg) {
+  // TODO: GEOMETRY
+}
+
+int bg_delGeom(GeometryIndex *index, GEOMETRY geom, void *data) {
+  // TODO: GEOMETRY
+}
+
 
 GEOMETRY s2_createGeom(GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg) {
   // TODO: GEOMETRY
@@ -55,10 +71,15 @@ GeometryApi* GeometryApi_GetOrCreate(GEOMETRY_LIB_TYPE type, __attribute__((__un
    case GEOMETRY_LIB_TYPE_BOOST_GEOMETRY:
     api->createGeom = bg_createGeom;
     api->freeGeom = bg_freeGeom;
+    api->createIndex = bg_createIndex;
+    api->addGeom = bg_addGeom;
+    api->query = bg_query;
+    api->delGeom = bg_delGeom;
     break;
    case GEOMETRY_LIB_TYPE_S2:
     api->createGeom = s2_createGeom;
     api->freeGeom = s2_freeGeom;
+    // TODO: GEOMETRY
     break;
    default:
     rm_free(api);
