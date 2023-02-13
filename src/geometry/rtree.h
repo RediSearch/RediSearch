@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include "../index_iterator.h"
 #include "rtdoc.h"
 
 #ifdef __cplusplus
@@ -9,7 +10,6 @@ extern "C" {
 #endif
 
 struct RTree;
-struct IndexIterator;
 
 enum QueryType {
   CONTAINS,
@@ -28,8 +28,8 @@ NODISCARD bool RTree_IsEmpty(struct RTree const *rtree) NOEXCEPT;
 void RTree_Clear(struct RTree *rtree) NOEXCEPT;
 NODISCARD struct RTDoc *RTree_Bounds(struct RTree const *rtree);
 
-NODISCARD struct IndexIterator *RTree_Query(struct RTree const *rtree, struct RTDoc const *queryDoc, enum QueryType queryType);
-NODISCARD struct IndexIterator *RTree_Query_WKT(struct RTree const *rtree, const char *wkt, size_t len, enum QueryType queryType);
+NODISCARD IndexIterator *RTree_Query(struct RTree const *rtree, struct RTDoc const *queryDoc, enum QueryType queryType);
+NODISCARD IndexIterator *RTree_Query_WKT(struct RTree const *rtree, const char *wkt, size_t len, enum QueryType queryType);
 
 NODISCARD size_t RTree_MemUsage(struct RTree const *rtree);
 #ifdef __cplusplus

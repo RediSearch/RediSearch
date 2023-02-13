@@ -1,9 +1,8 @@
 #pragma once
 
-#include "../index.h"
 #include "rtdoc.hpp"
-#include "query_iterator.hpp"
 #include "rtree.h"
+#include "query_iterator.hpp"
 
 namespace bg = boost::geometry;
 namespace bgi = bg::index;
@@ -43,7 +42,9 @@ struct RTree {
     return rtree_.get_allocator().report();
   }
 
-	[[nodiscard]] auto query(RTDoc const& queryDoc, QueryType queryType) const {
+  using ResultsVec = std::vector<RTDoc, rm_allocator<RTDoc>>;
+
+	[[nodiscard]] ResultsVec query(RTDoc const& queryDoc, QueryType queryType) const {
 		switch (queryType) {
 		 case QueryType::CONTAINS:
 			return contains(queryDoc);
@@ -54,14 +55,14 @@ struct RTree {
 		}
 	}
 
-	[[nodiscard]] auto contains(RTDoc const& queryDoc) const {
+	[[nodiscard]] ResultsVec contains(RTDoc const& queryDoc) const {
 		auto results = query(bgi::contains(queryDoc.rect_));
 		std::erase_if(results, [&](auto const& doc) {
 			return !bg::within(queryDoc.poly_, doc.poly_);
 		});
 		return results;
 	}
-	[[nodiscard]] auto within(RTDoc const& queryDoc) const {
+	[[nodiscard]] ResultsVec within(RTDoc const& queryDoc) const {
 		auto results = query(bgi::within(queryDoc.rect_));
 		std::erase_if(results, [&](auto const& doc) {
 			return !bg::within(doc.poly_, queryDoc.poly_);
@@ -70,10 +71,10 @@ struct RTree {
 	}
 
   template <typename Predicate>
-  [[nodiscard]] auto query(Predicate p) const {
-    std::vector<RTDoc, rm_allocator<RTDoc>> result{};
-    rtree_.query(p, std::back_inserter(result));
-    return result;
+  [[nodiscard]] ResultsVec query(Predicate p) const {
+    ResultsVec results{};
+    rtree_.query(p, std::back_inserter(results));
+    return results;
   }
 
   using Self = RTree;

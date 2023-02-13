@@ -1,7 +1,6 @@
 #pragma once
 
 #include <stdbool.h>
-#include "../redismodule.h"
 #include "../redisearch.h"
 
 #ifdef __cplusplus

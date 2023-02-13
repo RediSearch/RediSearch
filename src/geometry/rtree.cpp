@@ -48,32 +48,19 @@ int RTree_Remove_WKT(RTree *rtree, const char *wkt, size_t len, t_docId id) {
   }
 }
 
+IndexIterator *generate_query_iterator(RTree::ResultsVec&& results) {
+  auto ids = GeometryQueryIterator::container(results.size());
+  std::ranges::transform(results, ids.begin(), [](auto && doc) { return doc.id(); });
+  auto gqi = new GeometryQueryIterator(std::move(ids));
+  return gqi->base();
+}
+
 IndexIterator *RTree_Query(RTree const *rtree, RTDoc const *queryDoc, QueryType queryType) {
-  return (new GeometryQueryIterator {
-    std::ranges::transform_view(
-      rtree->query(
-        *queryDoc,
-        queryType
-      ),
-      [](auto && doc) {
-        return doc.id();
-      }
-    )
-  })->base();
+  return generate_query_iterator(rtree->query(*queryDoc, queryType));
 }
 
 IndexIterator *RTree_Query_WKT(RTree const *rtree, const char *wkt, size_t len, enum QueryType queryType) {
-  return (new GeometryQueryIterator {
-    std::ranges::transform_view(
-      rtree->query(
-        RTDoc{std::string_view{wkt, len}, 0},
-        queryType
-      ),
-      [](auto && doc) {
-        return doc.id();
-      }
-    )
-  })->base();
+  return generate_query_iterator(rtree->query(RTDoc{std::string_view{wkt, len}, 0}, queryType));
 }
 
 RTDoc *RTree_Bounds(RTree const *rtree) {

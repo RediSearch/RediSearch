@@ -3,8 +3,9 @@
 CC  = gcc
 CXX = g++
 
-CFLAGS   = -Wall -Wextra            -Wconversion -Wshadow -Werror -std=c2x   -O2
-CXXFLAGS = -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -std=c++20 -O2
+CPPFLAGS = -I../../deps -I.. -I../../deps/VectorSimilarity/src -DREDISMODULE_EXPERIMENTAL_API
+CFLAGS   = -Wall -Wextra -Wconversion -Wshadow -Werror -std=c2x   -O2
+CXXFLAGS = -std=c++20 -O2
 LDFLAGS = -g
 LDLIBS = 
 
