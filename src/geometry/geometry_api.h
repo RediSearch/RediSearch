@@ -7,7 +7,6 @@
 #pragma once
 
 #include "../redismodule.h"
-#include "geometry.h"
 
 typedef void* GEOMETRY;
 

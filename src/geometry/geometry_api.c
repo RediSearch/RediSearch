@@ -5,8 +5,8 @@
  */
 
 #include "geometry_api.h"
+#include "geometry.h"
 #include "rmalloc.h"
-#include "rtdoc.h"
 
 GeometryApi* apis[GEOMETRY_LIB_TYPE__NUM] = {0};
 

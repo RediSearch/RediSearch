@@ -1,8 +1,8 @@
 #pragma once
 
 #include "rtdoc.hpp"
-#include "rtree.h"
 #include "query_iterator.hpp"
+#include "rtree.h"
 
 namespace bg = boost::geometry;
 namespace bgi = bg::index;
