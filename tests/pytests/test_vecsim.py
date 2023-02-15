@@ -1487,8 +1487,10 @@ def test_default_block_size_and_initial_capacity():
     check_algorithm_and_type_combination(False)
 
     # set memory limits and reload, to verify that we succeed to load with the new limits
+    num_indexes = len(conn.execute_command('FT._LIST'))
     set_memory_limit()
     env.dumpAndReload()
+    env.assertEqual(num_indexes, len(conn.execute_command('FT._LIST')))
 
     # Test defaults with memory limit
     check_algorithm_and_type_combination(True)
