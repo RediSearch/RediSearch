@@ -1449,7 +1449,7 @@ def test_default_block_size_and_initial_capacity():
     used_memory = None
     maxmemory = None
 
-    def set_memory_limit(data_byte_size):
+    def set_memory_limit(data_byte_size = 1):
         nonlocal used_memory, maxmemory
         used_memory = int(conn.execute_command('info', 'memory')['used_memory'])
         maxmemory = used_memory + (20 * 1024 * 1024) # 20MB
@@ -1483,11 +1483,15 @@ def test_default_block_size_and_initial_capacity():
                 # env.assertEqual(debug_info['BLOCK_SIZE'], debug_info['INITIAL_CAP'])
                 currIdx+=1
 
-    # Test defaults with memory limit
-    check_algorithm_and_type_combination(True)
-
     # Test defaults with no memory limit
     check_algorithm_and_type_combination(False)
+
+    # set memory limits and reload, to verify that we succeed to load with the new limits
+    set_memory_limit()
+    env.dumpAndReload()
+
+    # Test defaults with memory limit
+    check_algorithm_and_type_combination(True)
 
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
