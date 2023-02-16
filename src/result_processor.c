@@ -965,9 +965,6 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   // Now we have the data of all documents that pass the query filters,
   // let's lock Redis to provide safe access to Redis keyspace 
   
-  // initialize next function to the defualt value
-  rp->Next = rpbufferNext_Yield;
-
   // unlockspec to avoid deadlocks
   RedisSearchCtx_UnlockSpec(RSctx);
 
@@ -978,9 +975,11 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   // we need to validate every buffered result
   if (currentIndexVersion != IndexSpec_GetVersion(RSctx->spec)) {
     rp->Next = rpbufferNext_ValidateAndYield;
+  } else { // Else we just return the results one by one
+    rp->Next = rpbufferNext_Yield;
   }
 
-  // We don't lock the index because we assume that there 
+  // We don't lock the index spec because we assume that there 
   // are no more access to the index down the pipeline and the data 
   // we buffered remains valid.
   return rp->Next(rp, res);
@@ -996,13 +995,12 @@ static void InvalidateBufferedResult(SearchResult *buffered_result) {
   buffered_result->scoreExplain = NULL;
   memset(&buffered_result->rowdata, 0, sizeof(RLookupRow));
 }
-static int ReturnResult(SearchResult *buffered_result,  SearchResult *result_output) {
+static void SetResult(SearchResult *buffered_result,  SearchResult *result_output) {
   // Free the RLookup row before overriding it.
   RLookupRow_Cleanup(&result_output->rowdata);
   *result_output = *buffered_result;
 
   InvalidateBufferedResult(buffered_result);
-  return RS_RESULT_OK;
 }
 /*********** Redis lock management ***********/ 
 bool isRedisLocked(RPBufferAndLocker *bufferAndLocker) {
@@ -1029,19 +1027,21 @@ int rpbufferNext_Yield(ResultProcessor *rp, SearchResult *result_output) {
   if(!curr_res) {
     return RS_RESULT_EOF;
   }
- return ReturnResult(curr_res, result_output);
+ SetResult(curr_res, result_output);
+ return RS_RESULT_OK;
   
 }
 
 int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_output) {
   RPBufferAndLocker *RPBuffer = (RPBufferAndLocker *)rp;
-  SearchResult *curr_res = NULL;
+  SearchResult *curr_res;
   
   // iterate the buffer.
-  while(curr_res = GetNextResult(RPBuffer)) {
+  while((curr_res = GetNextResult(RPBuffer))) {
     // Skip invalid results
     if (isResultValid(curr_res)) {
-      return ReturnResult(curr_res, result_output);
+      SetResult(curr_res, result_output);
+      return RS_RESULT_OK;
     }
 
     // If the result is invalid discard it.
@@ -1072,6 +1072,7 @@ SearchResult *InsertResult(RPBufferAndLocker *rpPufferAndLocker, SearchResult *r
 
   }
   // append the result to the current block at rp->curr_idx_at_blocck
+  // this operation takes ownership of the result's allocated data
   CurrBlock[idx_in_curr_block] = *resToBuffer;
   ++rpPufferAndLocker->buffer_results_count;
   return CurrBlock;
@@ -1134,8 +1135,8 @@ static int RPUnlocker_Next(ResultProcessor *rp, SearchResult *res) {
     RPUnlocker *unlocker = (RPUnlocker *)rp;
 
     // Unlock Redis if it was locked
-    if(isRedisLocked(((RPUnlocker *)rp)->rpBufferAndLocker)){
-      UnLockRedis(((RPUnlocker *)rp)->rpBufferAndLocker, unlocker->base.parent->sctx->redisCtx);
+    if(isRedisLocked(unlocker->rpBufferAndLocker)){
+      UnLockRedis(unlocker->rpBufferAndLocker, unlocker->base.parent->sctx->redisCtx);
     }
 
   }
@@ -1145,7 +1146,6 @@ static int RPUnlocker_Next(ResultProcessor *rp, SearchResult *res) {
 static void RPUnlocker_Free(ResultProcessor *base) {
   RPUnlocker *unlocker = (RPUnlocker *)base;
   assert(!isRedisLocked(unlocker->rpBufferAndLocker));
-  unlocker->rpBufferAndLocker = NULL;
 
   rm_free(base);
 }

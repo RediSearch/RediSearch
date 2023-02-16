@@ -8,40 +8,38 @@ from RLTest import Env
 
 
 def testEmptyBuffer():
-    env = Env(moduleArgs='WORKER_THREADS 8 ENABLE_THREADS TRUE')
+    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
     env.expect('ft.search', 'idx', '*', 'sortby', 'n').equal([0])
 
-def testSimpleBuffer():
-    env = Env(moduleArgs='WORKER_THREADS 8 ENABLE_THREADS TRUE')
-    conn = getConnectionByEnv(env)
+def CreateAndSearchSortBy(docs_count):
+    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
+    conn = getConnectionByEnv(env)
 
-    docs_count = 10
-    expected_res = [docs_count]
     for n in range (1, docs_count + 1):
         doc_name = f'doc{n}'
-        doc_values = ['n', f'{n}']
-        expected_res.append(doc_name)
-        expected_res.append(doc_values)
-        conn.execute_command('HSET', doc_name, 'n', f'{n}') 
-    env.expect('FT.SEARCH', 'idx', '*', 'sortby', 'n').equal(expected_res)
+        conn.execute_command('HSET', doc_name, 'n', n) 
+    output = conn.execute_command('FT.SEARCH', 'idx', '*', 'sortby', 'n')
     
+    # The first element in the results array is the number of docs.
+    env.assertEqual(output[0], docs_count)
+    
+    # The results are sorted according to n
+    result_len = 2
+    for n in range(1, 2, docs_count - result_len + 1):
+        result = output[n: n + result_len]
+        # docs id starts from 1
+        # each result should contain the doc name, the field name and its value 
+        expected = [f'doc{n}', ['n', f'{n}']]
+        env.assertEqual(result, expected)
+
+def testSimpleBuffer():
+    CreateAndSearchSortBy(docs_count = 10)
+
+# In this test we have more than BlockSize docs to buffer, we want to make sure there are no leaks
+# caused by the buffer memory management.
 def testMultipleBlocksBuffer():
-    env = Env(moduleArgs='WORKER_THREADS 8 ENABLE_THREADS TRUE')
-
-    conn = getConnectionByEnv(env)
-    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
-
-    docs_count = 2500
-    for n in range (1, docs_count + 1):
-        doc_name = f'doc{n}'
-        conn.execute_command('HSET', doc_name, 'n', f'{n}') 
-    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'sortby', 'n')
-    assert res[0] == docs_count
-    i = 1
-    for elem in res[2:2:]:
-        assert(elem[1] == i)
-        i +=1
+    CreateAndSearchSortBy(docs_count = 2500)
 

@@ -245,7 +245,7 @@ void RP_DumpChain(const ResultProcessor *rp);
  * The buffer is responsible for buffering the document that pass the query filters and lock the access
  * to Redis keysapce to allow the downstream result processor a thread safe access to it.
  *
- * Unlocking Redis should be done only by the Unlocker result processor.
+ * Unlocking Redis should be done only by the Unlocker result processor that should be added as well.
  *******************************************************************************************************************/
 typedef struct RPBufferAndLocker RPBufferAndLocker;
 ResultProcessor *RPBufferAndLocker_New(size_t BlockSize);

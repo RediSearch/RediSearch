@@ -1217,12 +1217,12 @@ static void PushUpStream(ResultProcessor *rp_to_place, ResultProcessor *rp) {
   rp_to_place->parent = rp->parent;
 }
 
-// Add Buffer and Locker and Unlocker result processors to the pipeline.
-// The Buffer and locker rp is added as the upstream of the first result processor that might
+// Add Buffer-Locker and Unlocker result processors to the pipeline.
+// The Buffer-Locker rp is added as the upstream of the first result processor that might
 // access Redis keyspace.
 // The Unlocker is places so that its upstream rp will be the last to access Redis keyspace.
-int SafeRedisKeyspaceAccessPipeline(AREQ *req, ResultProcessor *first_to_access_redis,
-                                    ResultProcessor *last_to_access_redis) {
+static int SafeRedisKeyspaceAccessPipeline(AREQ *req, ResultProcessor *first_to_access_redis,
+                                    ResultProcessor *last_to_access_redis, QueryError *status) {
   
   // TODO: multithreaded: Add better estimation to the buffer initial size
   ResultProcessor *rpBufferAndLocker = RPBufferAndLocker_New(1024);
@@ -1244,6 +1244,7 @@ int SafeRedisKeyspaceAccessPipeline(AREQ *req, ResultProcessor *first_to_access_
   }
   // If we didn't find where to push the unlocker something went wrong...
   if (curr_rp == req->qiter.rootProc) {
+    QueryError_SetErrorFmt(status, QUERY_ECONSTRUCT_PIPELINE, "Can't find unlocker position in the query stream");
     return REDISMODULE_ERR;
   }
   // Handle special case where endProc is the last.
@@ -1422,7 +1423,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
   // If we are in a multi threaded context we need to buffer results and lock the GIL
   // before we first access redis key space and unlock it when it is no longer needed.
   if((options & AREQ_BUILD_THREADSAFE_PIPELINE) && first_to_access_redis) {
-    if(REDISMODULE_ERR == SafeRedisKeyspaceAccessPipeline(req, first_to_access_redis, last_to_access_redis)) {
+    if(REDISMODULE_ERR == SafeRedisKeyspaceAccessPipeline(req, first_to_access_redis, last_to_access_redis, status)) {
       goto error;
     }
   }
