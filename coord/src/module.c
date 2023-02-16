@@ -370,7 +370,7 @@ typedef struct {
   int sortAscending;
   int withSortingKeys;
   int noContent;
- 
+
   specialCaseCtx** specialCases;
   const char** requiredFields;
   // used to signal profile flag and count related args
@@ -518,7 +518,7 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
           // If SORTBY is done by the vector score field, the coordinator will do it and no special operation is needed.
           ctx->knn.shouldSort = false;
           // The requested results should be at most K
-          req->requestedResultsCount = MIN(k, requestedResultsCount);    
+          req->requestedResultsCount = MIN(k, requestedResultsCount);
         }
       }
     }
@@ -567,7 +567,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   req->withExplainScores = RMUtil_ArgExists("EXPLAINSCORE", argv, argc, argvOffset) != 0;
   req->specialCases = NULL;
   req->requiredFields = NULL;
- 
+
 
 
   req->withSortingKeys = RMUtil_ArgExists("WITHSORTKEYS", argv, argc, argvOffset) != 0;
@@ -696,13 +696,13 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
     return -1;
   } else {
     // printf("Scores are tied. Will compare ID Strings instead\n");
-    
-    // This was reversed to be more compatible with OSS version where tie breaker was changed 
-    // to return the lower doc ID to reduce sorting heap work. Doc name might not be ascending 
+
+    // This was reversed to be more compatible with OSS version where tie breaker was changed
+    // to return the lower doc ID to reduce sorting heap work. Doc name might not be ascending
     // or decending but this still may reduce heap work.
     // Our tests are usually ascending so this will create similarity between RS and RSC.
     int rv = -cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
-    
+
     // printf("ID Strings: Comparing <N=%lu> %.*s vs <N=%lu> %.*s => %d\n", r2->idLen,
     // (int)r2->idLen,
     //        r2->id, r1->idLen, (int)r1->idLen, r1->id, rv);
@@ -776,7 +776,7 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
 
   /**
    * Reply format
-   * 
+   *
    * ID
    * SCORE         ---| optional - only if WITHSCORES was given, or SORTBY section was not given.
    * Payload
@@ -784,8 +784,8 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
    * ...              | special cases - SORTBY, TOPK. Sort key is always first for backwords comptability.
    * ...           ---|
    * First field
-   * 
-   * 
+   *
+   *
    */
 
   if (ctx->withScores || !ctx->withSortby) {
@@ -816,7 +816,7 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
       {
       case SPECIAL_CASE_KNN: {
         ctx->specialCases[i]->knn.offset+=specialCaseStartOffset;
-        specialCasesMaxOffset = MAX(specialCasesMaxOffset, ctx->specialCases[i]->knn.offset);  
+        specialCasesMaxOffset = MAX(specialCasesMaxOffset, ctx->specialCases[i]->knn.offset);
         break;
       }
       case SPECIAL_CASE_SORTBY: {
@@ -878,9 +878,9 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   }
 
   searchRequestCtx *req = rCtx->searchCtx;
-  
+
   size_t len = MRReply_Length(arr);
-  
+
   int step = rCtx->offsets.step;
   specialCaseCtx* reduceSpecialCaseCtx = rCtx->reduceSpecialCaseCtx;
   int scoreOffset = reduceSpecialCaseCtx->knn.offset;
@@ -910,7 +910,7 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
     char *eptr;
     double d = strtod(score + 1, &eptr);
     RedisModule_Assert(eptr != res->sortKey + 1 && *eptr == 0);
-  
+
     // As long as we don't have k results, keep insert
     if (heap_count(reduceSpecialCaseCtx->knn.pq) < reduceSpecialCaseCtx->knn.k) {
       scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
@@ -958,7 +958,7 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
   // first element is always the total count
   rCtx->totalReplies += MRReply_Integer(MRReply_ArrayElement(arr, 0));
   size_t len = MRReply_Length(arr);
-  
+
   int step = rCtx->offsets.step;
   // fprintf(stderr, "Step %d, scoreOffset %d, fieldsOffset %d, sortKeyOffset %d\n", step,
   //         scoreOffset, fieldsOffset, sortKeyOffset);
@@ -1160,7 +1160,7 @@ static void profileSearchReply(RedisModuleCtx *ctx, searchReducerCtx *rCtx,
 
   RedisModule_ReplyWithArray(ctx, 2);
   RedisModule_ReplyWithSimpleString(ctx, "Post Proccessing time");
-  RedisModule_ReplyWithDouble(ctx, (double)(clock() - postProccesTime) / CLOCKS_PER_MILLISEC); 
+  RedisModule_ReplyWithDouble(ctx, (double)(clock() - postProccesTime) / CLOCKS_PER_MILLISEC);
   arrLen++;
 
   RedisModule_ReplySetArrayLength(ctx, arrLen);
@@ -1237,7 +1237,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     }
     goto cleanup;
   }
-  
+
   if (!profile) {
     sendSearchResults(ctx, &rCtx);
   } else {
@@ -1630,7 +1630,7 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
           req->requiredFields = array_new(const char*, 1);
         }
         req->requiredFields = array_append(req->requiredFields, ctx->knn.fieldName);
-        ctx->knn.offset = offset++; 
+        ctx->knn.offset = offset++;
         break;
       }
       default:
@@ -1730,12 +1730,8 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
-#ifdef HAVE_REDISMODULE_HOLDSTRING
-    sCmdCtx->argv[i] = RedisModule_HoldString(ctx, argv[i]);
-#else
-    sCmdCtx->argv[i] = argv[i];
-    RedisModule_RetainString(ctx, argv[i]);
-#endif
+    // We need to copy the argv because it will be freed in the callback (from another thread).
+    sCmdCtx->argv[i] = RedisModule_CreateStringFromString(ctx, argv[i]);
   }
   sCmdCtx->argc = argc;
   sCmdCtx->bc = bc;
@@ -2047,7 +2043,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   printf("RSValue size: %lu\n", sizeof(RSValue));
 
-  if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION, 
+  if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION,
                        REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
