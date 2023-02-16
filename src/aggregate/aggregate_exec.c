@@ -403,6 +403,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   blockedClientReqCtx_destroy(BCRctx);
 }
 
+// Assumes the spec is guarded (by its own lock for read or by the global lock)
 int prepareExecutionPlan(AREQ *req, QueryError *status) {
   int rc = REDISMODULE_ERR;
   RedisSearchCtx *sctx = req->sctx;

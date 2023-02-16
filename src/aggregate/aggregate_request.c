@@ -1071,6 +1071,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
   return rp;
 }
 
+// Assumes that the spec is locked
 static ResultProcessor *getScorerRP(AREQ *req) {
   const char *scorer = req->searchopts.scorerName;
   if (!scorer) {
