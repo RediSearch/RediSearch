@@ -1737,12 +1737,8 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
-#ifdef HAVE_REDISMODULE_HOLDSTRING
-    sCmdCtx->argv[i] = RedisModule_HoldString(ctx, argv[i]);
-#else
-    sCmdCtx->argv[i] = argv[i];
-    RedisModule_RetainString(ctx, argv[i]);
-#endif
+    // We need to copy the argv because it will be freed in the callback (from another thread).
+    sCmdCtx->argv[i] = RedisModule_CreateStringFromString(ctx, argv[i]);
   }
   sCmdCtx->argc = argc;
   sCmdCtx->bc = bc;
