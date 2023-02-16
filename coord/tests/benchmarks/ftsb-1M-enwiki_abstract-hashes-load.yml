@@ -16,10 +16,6 @@ setups:
   - oss-cluster-3-primaries
 
 dbconfig:
-  - module-configuration-parameters:
-      redisearch:
-        WORKER_THREADS: 8
-        ENABLE_THREADS: 'TRUE'
   - init_commands:
       - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
 
