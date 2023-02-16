@@ -1045,7 +1045,7 @@ int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_outp
     }
 
     // If the result is invalid discard it.
-    SearchResult_Clear(curr_res);
+    SearchResult_Destroy(curr_res);
   }
 
   return RS_RESULT_EOF;
