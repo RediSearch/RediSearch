@@ -121,6 +121,14 @@ void *MRCtx_GetPrivData(struct MRCtx *ctx) {
   return ctx->privdata;
 }
 
+int MRCtx_GetNumReplied(struct MRCtx *ctx) {
+  return ctx->numReplied;
+}
+
+MRReply** MRCtx_GetReplies(struct MRCtx *ctx) {
+  return ctx->replies;
+}
+
 RedisModuleCtx *MRCtx_GetRedisCtx(struct MRCtx *ctx) {
   return ctx->redisCtx;
 }
