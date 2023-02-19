@@ -296,6 +296,12 @@ commands:
       allowed_envs:
         type: string
         default: "oss-standalone"
+      benchmark_runner_group_member_id:
+        type: string
+        default: "1"
+      benchmark_runner_group_total:
+        type: string
+        default: "1"
     steps:
       - run:
           name: Prepare automation
@@ -320,6 +326,8 @@ commands:
             export PROFILE=<< parameters.profile_env >>
             export BENCHMARK_GLOB=<< parameters.benchmark_glob >>
             export PERF_CALLGRAPH_MODE="dwarf"
+            export BENCHMARK_RUNNER_GROUP_M_ID=<< parameters.benchmark_runner_group_member_id >>
+            export BENCHMARK_RUNNER_GROUP_TOTAL=<< parameters.benchmark_runner_group_total >>
             export MAX_PROFILERS=3
             if [[ -n $CIRCLE_BRANCH ]]; then branch="$CIRCLE_BRANCH"; else branch="$CIRCLE_TAG"; fi
             redisbench-admin run-remote \
@@ -454,7 +462,7 @@ jobs:
             fi
       - persist-artifacts
 
-  benchmark-search-oss-standalone:
+  benchmark-search-oss-standalone-g1:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
@@ -462,6 +470,28 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
+          benchmark_runner_group_member_id: "1"
+          benchmark_runner_group_total: "3"
+  benchmark-search-oss-standalone-g2:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          run_pack: false
+      - benchmark-steps:
+          benchmark_glob: "search*.yml"
+          benchmark_runner_group_member_id: "2"
+          benchmark_runner_group_total: "3"
+  benchmark-search-oss-standalone-g3:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          run_pack: false
+      - benchmark-steps:
+          benchmark_glob: "search*.yml"
+          benchmark_runner_group_member_id: "3"
+          benchmark_runner_group_total: "3"
   
   benchmark-vecsim-oss-standalone:
     docker:
@@ -730,7 +760,6 @@ on-integ-and-version-tags: &on-integ-and-version-tags
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
-        - /^perf-.*$/
     tags:
       only: /^v[0-9].*/
 
@@ -771,7 +800,13 @@ workflows:
               san-type: [address] # [address, memory]
       - valgrind-memcheck:
           <<: *never
-      - benchmark-search-oss-standalone:
+      - benchmark-search-oss-standalone-g1:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-search-oss-standalone-g2:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-search-oss-standalone-g3:
           context: common
           <<: *on-integ-and-version-tags
       - benchmark-vecsim-oss-standalone:
@@ -813,7 +848,13 @@ workflows:
     when:
       << pipeline.parameters.run_benchmark_flow_label >>
     jobs:
-      - benchmark-search-oss-standalone:
+      - benchmark-search-oss-standalone-g1:
+          context: common
+          <<: *on-any-branch
+      - benchmark-search-oss-standalone-g2:
+          context: common
+          <<: *on-any-branch
+      - benchmark-search-oss-standalone-g3:
           context: common
           <<: *on-any-branch
       - benchmark-vecsim-oss-standalone:
@@ -849,7 +890,11 @@ workflows:
               only: master
 
     jobs:
-      - benchmark-search-oss-standalone:
+      - benchmark-search-oss-standalone-g1:
+          context: common
+      - benchmark-search-oss-standalone-g2:
+          context: common
+      - benchmark-search-oss-standalone-g3:
           context: common
       - benchmark-vecsim-oss-standalone:
           context: common

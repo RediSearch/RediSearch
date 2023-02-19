@@ -6,7 +6,11 @@ description: "
              Specifically for this testcase:
                 - Type (read/write/mixed): read
                 - Query type: 2 Word Intersection Query
-                - Query sample: Abraham|Lincoln
+                - Query sample: Abraham Lincoln
+
+             To generate the input data use https://github.com/RediSearch/ftsb project. Within it:
+             cd scripts/datagen_redisearch/enwiki_abstract
+             python3 ftsb_generate_enwiki_abstract.py --query-choices 2word-intersection-query --doc-limit 1000000 --upload-artifacts-s3-uncompressed
              "
 remote:
  - type: oss-standalone
