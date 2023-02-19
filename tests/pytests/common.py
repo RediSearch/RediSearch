@@ -404,6 +404,7 @@ class WorkerAttacher():
         while True:
             self.p.waitSignals(signal.SIGTRAP)
             current_label = str(self.p.readCString(self.p.getreg("rsi"), 100)[0], 'utf-8')
+            print("current label is", current_label)
             if current_label == label:
                 return
             self.p.cont()
