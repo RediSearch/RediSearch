@@ -29,9 +29,10 @@ endif()
 
 setup_cc_options()
 
+message(STATUS "BUILD_TRACE " ${BUILD_TRACE})
 if(BUILD_TRACE)
     add_compile_definitions(BUILD_TRACE)
-    message(STATUS "Building with trace" BUILD_TRACE)
+    message(STATUS "Building with trace "  ${BUILD_TRACE})
 endif()
 
 # ugly hack for cpu_features::list_cpu_features coming from VecSim
