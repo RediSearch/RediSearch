@@ -493,7 +493,7 @@ jobs:
           benchmark_runner_group_member_id: "3"
           benchmark_runner_group_total: "3"
   
-  benchmark-vecsim-oss-standalone:
+  benchmark-vecsim-oss-standalone-g1:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
@@ -501,6 +501,18 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "vecsim*.yml"
+          benchmark_runner_group_member_id: "1"
+          benchmark_runner_group_total: "2"
+  benchmark-vecsim-oss-standalone-g2:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          run_pack: false
+      - benchmark-steps:
+          benchmark_glob: "vecsim*.yml"
+          benchmark_runner_group_member_id: "2"
+          benchmark_runner_group_total: "2"
 
   benchmark-search-oss-cluster:
     docker:
@@ -513,7 +525,7 @@ jobs:
           module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
 
-  benchmark-search-oss-standalone-profiler:
+  benchmark-search-oss-standalone-profiler-g1:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
@@ -525,8 +537,37 @@ jobs:
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
           module_path: bin/linux-x64-release-profile/search/redisearch.so
           benchmark_glob: "search*.yml"
-
-  benchmark-vecsim-oss-standalone-profiler:
+          benchmark_runner_group_member_id: "1"
+          benchmark_runner_group_total: "3"
+  benchmark-search-oss-standalone-profiler-g2:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          build_params: PROFILE=1
+          run_pack: false
+      - benchmark-steps:
+          profile_env: "1"
+          triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
+          module_path: bin/linux-x64-release-profile/search/redisearch.so
+          benchmark_glob: "search*.yml"
+          benchmark_runner_group_member_id: "2"
+          benchmark_runner_group_total: "3"
+  benchmark-search-oss-standalone-profiler-g3:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          build_params: PROFILE=1
+          run_pack: false
+      - benchmark-steps:
+          profile_env: "1"
+          triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
+          module_path: bin/linux-x64-release-profile/search/redisearch.so
+          benchmark_glob: "search*.yml"
+          benchmark_runner_group_member_id: "3"
+          benchmark_runner_group_total: "3"
+  benchmark-vecsim-oss-standalone-profiler-g1:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
@@ -538,6 +579,22 @@ jobs:
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
           module_path: bin/linux-x64-release-profile/search/redisearch.so
           benchmark_glob: "vecsim*.yml"
+          benchmark_runner_group_member_id: "1"
+          benchmark_runner_group_total: "2"
+  benchmark-vecsim-oss-standalone-profiler-g2:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          build_params: PROFILE=1
+          run_pack: false
+      - benchmark-steps:
+          profile_env: "1"
+          triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
+          module_path: bin/linux-x64-release-profile/search/redisearch.so
+          benchmark_glob: "vecsim*.yml"
+          benchmark_runner_group_member_id: "2"
+          benchmark_runner_group_total: "2"
 
   coverage:
     docker:
@@ -809,16 +866,28 @@ workflows:
       - benchmark-search-oss-standalone-g3:
           context: common
           <<: *on-integ-and-version-tags
-      - benchmark-vecsim-oss-standalone:
+      - benchmark-vecsim-oss-standalone-g1:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-vecsim-oss-standalone-g2:
           context: common
           <<: *on-integ-and-version-tags
       - benchmark-search-oss-cluster:
           context: common
           <<: *on-integ-and-version-tags
-      - benchmark-search-oss-standalone-profiler:
+      - benchmark-search-oss-standalone-profiler-g1:
           context: common
           <<: *on-integ-and-version-tags
-      - benchmark-vecsim-oss-standalone-profiler:
+      - benchmark-search-oss-standalone-profiler-g2:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-search-oss-standalone-profiler-g3:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-vecsim-oss-standalone-profiler-g1:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-vecsim-oss-standalone-profiler-g2:
           context: common
           <<: *on-integ-and-version-tags
       - upload-artifacts:
@@ -857,13 +926,25 @@ workflows:
       - benchmark-search-oss-standalone-g3:
           context: common
           <<: *on-any-branch
-      - benchmark-vecsim-oss-standalone:
+      - benchmark-vecsim-oss-standalone-g1:
           context: common
           <<: *on-any-branch
-      - benchmark-vecsim-oss-standalone-profiler:
+      - benchmark-vecsim-oss-standalone-g2:
           context: common
           <<: *on-any-branch
-      - benchmark-search-oss-standalone-profiler:
+      - benchmark-vecsim-oss-standalone-profiler-g1:
+          context: common
+          <<: *on-any-branch
+      - benchmark-vecsim-oss-standalone-profiler-g2:
+          context: common
+          <<: *on-any-branch
+      - benchmark-search-oss-standalone-profiler-g1:
+          context: common
+          <<: *on-any-branch
+      - benchmark-search-oss-standalone-profiler-g2:
+          context: common
+          <<: *on-any-branch
+      - benchmark-search-oss-standalone-profiler-g3:
           context: common
           <<: *on-any-branch
 
@@ -896,9 +977,17 @@ workflows:
           context: common
       - benchmark-search-oss-standalone-g3:
           context: common
-      - benchmark-vecsim-oss-standalone:
+      - benchmark-vecsim-oss-standalone-g1:
           context: common
-      - benchmark-vecsim-oss-standalone-profiler:
+      - benchmark-vecsim-oss-standalone-g2:
           context: common
-      - benchmark-search-oss-standalone-profiler:
+      - benchmark-vecsim-oss-standalone-profiler-g1:
+          context: common
+      - benchmark-vecsim-oss-standalone-profiler-g2:
+          context: common
+      - benchmark-search-oss-standalone-profiler-g1:
+          context: common
+      - benchmark-search-oss-standalone-profiler-g2:
+          context: common
+      - benchmark-search-oss-standalone-profiler-g3:
           context: common
