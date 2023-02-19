@@ -28,12 +28,14 @@ def CreateAndSearchSortBy(docs_count):
     
     # The results are sorted according to n
     result_len = 2
-    for n in range(1, 2, docs_count - result_len + 1):
-        result = output[n: n + result_len]
+    n = 1
+    for i in range(1, len(output) - result_len, result_len):
+        result = output[i: i + result_len]
         # docs id starts from 1
         # each result should contain the doc name, the field name and its value 
         expected = [f'doc{n}', ['n', f'{n}']]
         env.assertEqual(result, expected)
+        n += 1 
 
 def testSimpleBuffer():
     CreateAndSearchSortBy(docs_count = 10)

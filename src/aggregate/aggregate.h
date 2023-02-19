@@ -181,6 +181,11 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
 /**
+ * No special flags when building the pipeline
+ */
+#define AREQ_BUILDPIPELINE_NO_FLAGS 0x00
+
+/**
  * Do not create the root result processor. Only process those components
  * which process fully-formed, fully-scored results. This also means
  * that a scorer is not created. It will also not initialize the
@@ -190,7 +195,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
 /**
  * Add the ability to run the query in a multi threaded environment
- * 
  */
 #define AREQ_BUILD_THREADSAFE_PIPELINE 0x02
 /**

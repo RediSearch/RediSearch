@@ -1239,11 +1239,11 @@ static int SafeRedisKeyspaceAccessPipeline(AREQ *req, ResultProcessor *first_to_
   ResultProcessor dummy_rp = {.upstream = req->qiter.endProc};
   ResultProcessor *curr_rp = &dummy_rp;
 
-  while (last_to_access_redis != curr_rp->upstream && curr_rp != req->qiter.rootProc) {
+  while (last_to_access_redis != curr_rp->upstream &&  curr_rp->upstream != rpBufferAndLocker) {
     curr_rp = curr_rp->upstream;
   }
   // If we didn't find where to push the unlocker something went wrong...
-  if (curr_rp == req->qiter.rootProc) {
+  if (curr_rp->upstream == rpBufferAndLocker) {
     QueryError_SetErrorFmt(status, QUERY_ECONSTRUCT_PIPELINE, "Can't find unlocker position in the query stream");
     return REDISMODULE_ERR;
   }
@@ -1413,7 +1413,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
     // it exists.
     last_to_access_redis = req->qiter.endProc;
     if(req->reqflags & QEXEC_F_SEND_HIGHLIGHT) {
-      last_to_access_redis =last_to_access_redis->upstream;
+      last_to_access_redis = last_to_access_redis->upstream;
     }
     if(!first_to_access_redis) {
         first_to_access_redis = last_to_access_redis;
