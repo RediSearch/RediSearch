@@ -213,7 +213,7 @@ QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt, bool prefi
   ret->pfx.suffix = suffix;
   q->numTokens++;
   if (qt->type == QT_TERM) {
-    char *s = rm_strndupescape(qt->s, qt->len);
+    char *s = rm_strndup_unescape(qt->s, qt->len);
     ret->pfx.tok = (RSToken){.str = s, .len = strlen(s), .expanded = 0, .flags = 0};
   } else {
     assert (qt->type == QT_PARAM_TERM);

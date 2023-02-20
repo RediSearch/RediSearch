@@ -790,7 +790,12 @@ def testPrefixNodeCaseSensitive(env):
         for case in queries_expectations[mode]:
             query = queries_expectations[mode][case]["query"]
             expectation = queries_expectations[mode][case]["expectation"]
-            env.expect('FT.SEARCH', 'idx', query, 'NOCONTENT').equal(expectation)
+            res = sortedResults(env.cmd('ft.search', 'idx', query, 'NOCONTENT'))
+            # Sort to avoid coordinator reorder.
+            docs = res[1:]
+            docs.sort()
+            env.assertEqual(res[0], expectation[0])
+            env.assertEqual(docs, expectation[1:])
         env.expect('FT.DROP', 'idx').ok()
 
 
