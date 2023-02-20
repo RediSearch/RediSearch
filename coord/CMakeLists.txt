@@ -6,6 +6,8 @@ include(${root}/deps/readies/cmake/main)
 
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
 
+lists_from_env(LIBUV HIREDIS)
+
 #----------------------------------------------------------------------------------------------
 
 # COORD_TYPE=oss|rlec
@@ -48,14 +50,9 @@ add_compile_options("-fvisibility=hidden")
 
 #----------------------------------------------------------------------------------------------
 
-include(${root}/build/libuv/libuv.cmake)
-include(${root}/build/hiredis/hiredis.cmake)
-
-#----------------------------------------------------------------------------------------------
-
 include_directories(
 	${root}/coord/src
-	${LIBUV_INCLUDE_DIR}
+	${root}/deps/libuv/include
 	${root}/deps
 	${root}/src
 	${root}
@@ -110,8 +107,8 @@ macro(MODULE_TARGET TYPE)
     target_link_libraries(${_moduleName}
 		redisearch-${MODULE_NAME_SUFFIX}
 		VectorSimilarity
-		${LIBUV_LIBS}
-		${HIREDIS_LIBS}
+		${LIBUV}
+		${HIREDIS}
 		${SSL_LIBS})
 
 	setup_shared_object_target(${_moduleName} ${_moduleName})
@@ -128,11 +125,11 @@ if (BUILD_COORD_OSS)
 
 	add_library(testdeps STATIC ${FINAL_OBJECTS})
 	target_link_libraries(testdeps
-		${LIBUV_LIBS}
+		${LIBUV}
 		redisearch-oss
 		redismock
 		VectorSimilarity
-		${HIREDIS_LIBS}
+		${HIREDIS}
 		${SSL_LIBS}
 		dl)
 
