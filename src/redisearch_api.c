@@ -43,6 +43,7 @@ RefManager* RediSearch_CreateIndex(const char* name, const RSIndexOptions* optio
   IndexSpec* spec = NewIndexSpec(name);
   StrongRef ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   IndexSpec_MakeKeyless(spec);
+  spec->schema = IndexSchema_Clone(NULL); // clone an empty schema
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
   spec->flags |= Index_FromLLAPI;
   if (!spec->indexer) {
