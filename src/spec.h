@@ -360,6 +360,7 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec);
 /**
  * Decrement the reference count of the spec cache. Should be matched
  * with a previous call of GetSpecCache()
+ * Can handle NULL
  */
 void IndexSpecCache_Decref(IndexSpecCache *cache);
 
