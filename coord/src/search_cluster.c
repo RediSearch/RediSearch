@@ -41,7 +41,7 @@ void SearchCluster_Release(SearchCluster *sc) {
   rm_free(sc->shardsStartSlots);
   sc->shardsStartSlots = NULL;
 }
-void GlobalSearchCluser_Release() {
+void GlobalSearchCluster_Release() {
   SearchCluster_Release(&__searchCluster);
 }
 

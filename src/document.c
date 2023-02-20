@@ -358,6 +358,8 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   if (!concurrentSearch) {
     Document_AddToIndexes(aCtx, sctx);
   } else {
+    // Deprecated and broken - should pass `DocumentAddCtx` and not `RSAddDocumentCtx`
+    // also, we have to pass a weak ref to the spec, and handle it in the callback.
     ConcurrentSearch_ThreadPoolRun(threadCallback, aCtx, CONCURRENT_POOL_INDEX);
   }
 }
@@ -804,18 +806,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
       PreprocessorFunc pp = preprocessorMap[ii];
       if (pp(aCtx, sctx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
-        if (!AddDocumentCtx_IsBlockable(aCtx)) {
-          ++aCtx->spec->stats.indexingFailures;
-        } else {
-          // TODO: multithreaded: consider locking the spec instead of the GIL
-          RedisModule_ThreadSafeContextLock(RSDummyContext);
-          StrongRef ref = IndexSpec_LoadUnsafe(RSDummyContext, aCtx->specName, 0);
-          IndexSpec *sp = StrongRef_Get(ref);
-          if (sp && sp->uniqueId == aCtx->specId) {
-            ++sp->stats.indexingFailures;
-          }
-          RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-        }
+        ++aCtx->spec->stats.indexingFailures;
         ourRv = REDISMODULE_ERR;
         goto cleanup;
       }
@@ -941,7 +932,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
 
       dedupes[fs->index] = 1;
 
-      int idx = IndexSpec_GetFieldSortingIndex(sctx->spec, f->name, strlen(f->name));
+      int idx = RSSortingTable_GetFieldIdx(sctx->spec->sortables, f->name);
       if (idx < 0) continue;
 
       if (!md->sortVector) {

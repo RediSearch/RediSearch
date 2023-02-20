@@ -1071,6 +1071,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
   return rp;
 }
 
+// Assumes that the spec is locked
 static ResultProcessor *getScorerRP(AREQ *req) {
   const char *scorer = req->searchopts.scorerName;
   if (!scorer) {
@@ -1393,7 +1394,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
 
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
-  if (!hasArrange && (req->reqflags & QEXEC_F_IS_SEARCH)) {
+  if (!hasArrange && IsSearch(req)) {
     rp = getArrangeRP(req, pln, NULL, status, rpUpstream);
     if (!rp) {
       goto error;
@@ -1403,7 +1404,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
 
   // If this is an FT.SEARCH command which requires returning of some of the
   // document fields, handle those options in this function
-  if ((req->reqflags & QEXEC_F_IS_SEARCH) && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
+  if (IsSearch(req) && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
     if (buildOutputPipeline(req, status) != REDISMODULE_OK) {
       goto error;
     }
