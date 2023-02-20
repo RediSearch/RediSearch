@@ -71,6 +71,7 @@ commands:
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
           command: |
+            export HOMEBREW_NO_AUTO_UPDATE=1
             ./deps/readies/bin/getaws
             ls -l /usr/local/bin/python* || true
             echo "python3: $(command -v python3)"
