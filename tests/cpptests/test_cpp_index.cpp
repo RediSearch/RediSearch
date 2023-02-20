@@ -1111,9 +1111,9 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(s->flags & Index_StoreTermOffsets);
   ASSERT_TRUE(s->flags & Index_HasCustomStopwords);
 
-  ASSERT_TRUE(IndexSpec_IsStopWord(s, "hello", 5));
-  ASSERT_TRUE(IndexSpec_IsStopWord(s, "world", 5));
-  ASSERT_TRUE(!IndexSpec_IsStopWord(s, "werld", 5));
+  ASSERT_TRUE(StopWordList_Contains(s->stopwords, "hello", 5));
+  ASSERT_TRUE(StopWordList_Contains(s->stopwords, "world", 5));
+  ASSERT_TRUE(!StopWordList_Contains(s->stopwords, "werld", 5));
 
   const FieldSpec *f = IndexSpec_GetField(s, body, strlen(body));
   ASSERT_TRUE(f != NULL);
@@ -1162,11 +1162,11 @@ TEST_F(IndexTest, testIndexSpec) {
 
   ASSERT_TRUE(s->sortables != NULL);
   ASSERT_TRUE(s->sortables->len == 2);
-  int rc = IndexSpec_GetFieldSortingIndex(s, foo, strlen(foo));
+  int rc = RSSortingTable_GetFieldIdx(s->sortables, foo);
   ASSERT_EQ(0, rc);
-  rc = IndexSpec_GetFieldSortingIndex(s, bar, strlen(bar));
+  rc = RSSortingTable_GetFieldIdx(s->sortables, bar);
   ASSERT_EQ(1, rc);
-  rc = IndexSpec_GetFieldSortingIndex(s, title, strlen(title));
+  rc = RSSortingTable_GetFieldIdx(s->sortables, title);
   ASSERT_EQ(-1, rc);
 
   StrongRef_Release(ref);

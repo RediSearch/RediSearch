@@ -386,10 +386,6 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm);
  */
 int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *sp, t_fieldMask fm, QueryError *status);
 
-/* Get a sortable field's sort table index by its name. return -1 if the field was not found or is
- * not sortable */
-int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len);
-
 /**
  * Get the field spec from the sortable index
  */
@@ -531,13 +527,6 @@ void IndexSpec_Free(IndexSpec *spec);
 
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
-/* Parse a new stopword list and set it. If the parsing fails we revert to the default stopword
- * list, and return 0 */
-int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len);
-
-/* Return 1 if a term is a stopword for the specific index */
-int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len);
-
 /** Returns a string suitable for indexes. This saves on string creation/destruction */
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs, FieldType forType);
 RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s, FieldType forType);
@@ -551,12 +540,6 @@ int CompareVestions(Version v1, Version v2);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(StrongRef ref);
-
-/*
- * Parse the field mask passed to a query, map field names to a bit mask passed down to the
- * execution engine, detailing which fields the query works on. See FT.SEARCH for API details
- */
-t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc);
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
 void Indexes_SetTempSpecsTimers(TimerOp op);
