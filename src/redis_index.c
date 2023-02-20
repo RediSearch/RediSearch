@@ -196,8 +196,6 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, 
 void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
   if (sctx->flags == RS_CTX_UNSET) {
     return;
-  } else if (sctx->flags == RS_CTX_READWRITE) {
-      IndexSpec_UpdateVersion(sctx->spec);
   }
   pthread_rwlock_unlock(&sctx->spec->rwlock);
   sctx->flags = RS_CTX_UNSET;
