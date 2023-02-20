@@ -772,8 +772,6 @@ cleanup:
   if (idxKey) {
     RedisModule_CloseKey(idxKey);
   }
-  // TODO: check if this flow always yields a succeful write.
-  IndexSpec_UpdateVersion(sp);
   RedisSearchCtx_UnlockSpec(sctx);
   if (sp) {
     StrongRef_Release(spec_ref);
@@ -940,8 +938,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
-    // TODO: check if this flow always yields a succeful write.
-    IndexSpec_UpdateVersion(sp);
     RedisSearchCtx_UnlockSpec(sctx);
     if (sp) {
       StrongRef_Release(cur_iter_spec_ref);
@@ -963,8 +959,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       rt->numRanges += rv.numRanges;
       rt->emptyLeaves = 0;
     }
-    // TODO: check if this flow always yields a succeful write.
-    IndexSpec_UpdateVersion(sp);
     RedisSearchCtx_UnlockSpec(&sctx);
     StrongRef_Release(spec_ref);
   }
@@ -1050,8 +1044,6 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
-    // TODO: check if this flow always yields a succeful write.
-    IndexSpec_UpdateVersion(sp);
     RedisSearchCtx_UnlockSpec(sctx);
     StrongRef_Release(cur_iter_spec_ref);
     if (status != FGC_COLLECTED) {
