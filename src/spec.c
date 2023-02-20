@@ -885,7 +885,6 @@ int IndexSchema_CreateTextId(const IndexSchema *sc) {
   return maxId + 1;
 }
 
-static IndexSchema *IndexSchema_Clone(const IndexSchema *s);
 static void IndexSchema_Free(IndexSchema *s);
 
 /**
@@ -1199,7 +1198,7 @@ void IndexSchema_Release(const IndexSchema *cs) {
 }
 
 // Assuming the spec is properly locked before calling this function.
-static IndexSchema *IndexSchema_Clone(const IndexSchema *s) {
+IndexSchema *IndexSchema_Clone(const IndexSchema *s) {
   IndexSchema *ret = rm_calloc(1, sizeof(*ret));
   ret->refcount = 1;
   if (s) {

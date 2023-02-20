@@ -360,6 +360,11 @@ const IndexSchema *IndexSpec_GetSchema(const IndexSpec *spec);
  */
 void IndexSchema_Release(const IndexSchema *schema);
 
+/**
+ * Get a new copy of the schema. The caller is responsible for freeing it
+ */
+IndexSchema *IndexSchema_Clone(const IndexSchema *s);
+
 /*
  * Get a field spec by field name. Case insensitive!
  * Return the field spec if found, NULL if not

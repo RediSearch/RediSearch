@@ -120,13 +120,18 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
   RWLOCK_ACQUIRE_WRITE();
   IndexSpec *sp = __RefManager_Get_Object(rm);
 
+  // before we do anything, we need to clone the schema, so that we can modify it
+  IndexSchema *new_schema = IndexSchema_Clone(sp->schema);
+  IndexSchema_Release(sp->schema);
+  sp->schema = new_schema;
+
   // TODO: add a function which can take both path and name
-  FieldSpec* fs = IndexSpec_CreateField(sp, (IndexSchema *)sp->schema, name, NULL);
+  FieldSpec* fs = IndexSpec_CreateField(sp, new_schema, name, NULL);
   int numTypes = 0;
 
   if (types & RSFLDTYPE_FULLTEXT) {
     numTypes++;
-    int txtId = IndexSchema_CreateTextId(sp->schema);
+    int txtId = IndexSchema_CreateTextId(new_schema);
     if (txtId < 0) {
       RWLOCK_RELEASE();
       return RSFIELD_INVALID;
