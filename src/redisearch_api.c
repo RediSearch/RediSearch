@@ -121,12 +121,12 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
   IndexSpec *sp = __RefManager_Get_Object(rm);
 
   // TODO: add a function which can take both path and name
-  FieldSpec* fs = IndexSpec_CreateField(sp, name, NULL);
+  FieldSpec* fs = IndexSpec_CreateField(sp, (IndexSchema *)sp->schema, name, NULL);
   int numTypes = 0;
 
   if (types & RSFLDTYPE_FULLTEXT) {
     numTypes++;
-    int txtId = IndexSpec_CreateTextId(sp);
+    int txtId = IndexSchema_CreateTextId(sp->schema);
     if (txtId < 0) {
       RWLOCK_RELEASE();
       return RSFIELD_INVALID;
@@ -187,21 +187,21 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
 
 void RediSearch_TextFieldSetWeight(RefManager* rm, RSFieldID id, double w) {
   IndexSpec *sp = __RefManager_Get_Object(rm);
-  FieldSpec* fs = sp->fields + id;
+  FieldSpec* fs = sp->schema->fields + id;
   RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_FULLTEXT), "types should be INDEXFLD_T_FULLTEXT");
   fs->ftWeight = w;
 }
 
 void RediSearch_TagFieldSetSeparator(RefManager* rm, RSFieldID id, char sep) {
   IndexSpec *sp = __RefManager_Get_Object(rm);
-  FieldSpec* fs = sp->fields + id;
+  FieldSpec* fs = sp->schema->fields + id;
   RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
   fs->tagOpts.tagSep = sep;
 }
 
 void RediSearch_TagFieldSetCaseSensitive(RefManager* rm, RSFieldID id, int enable) {
   IndexSpec *sp = __RefManager_Get_Object(rm);
-  FieldSpec* fs = sp->fields + id;
+  FieldSpec* fs = sp->schema->fields + id;
   RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
   if (enable) {
     fs->tagOpts.tagFlags |= TagField_CaseSensitive;
@@ -837,10 +837,10 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
     info->lang = RSLanguage_ToString(DEFAULT_LANGUAGE);
   }
 
-  info->numFields = sp->numFields;
-  info->fields = rm_calloc(sp->numFields, sizeof(*info->fields));
+  info->numFields = sp->schema->numFields;
+  info->fields = rm_calloc(sp->schema->numFields, sizeof(*info->fields));
   for (int i = 0; i < info->numFields; ++i) {
-    RediSearch_FieldInfo(&info->fields[i], &sp->fields[i]);
+    RediSearch_FieldInfo(&info->fields[i], &sp->schema->fields[i]);
   }
 
   info->numDocuments = sp->stats.numDocuments;

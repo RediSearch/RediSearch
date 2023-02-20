@@ -149,15 +149,16 @@ error:
 void SchemaRule_FilterFields(IndexSpec *spec) {
   char **properties = array_new(char *, 8);
   SchemaRule *rule = spec->rule;
+  const IndexSchema *schema = spec->schema;
   RSExpr_GetProperties(rule->filter_exp, &properties);
   int propLen = array_len(properties);
   if (array_len(properties) > 0) {
     rule->filter_fields = properties;
     rule->filter_fields_index = rm_calloc(propLen, sizeof(int));
     for (int i = 0; i < propLen; ++i) {
-      for (int j = 0; j < spec->numFields; ++j) {
+      for (int j = 0; j < schema->numFields; ++j) {
         // a match. save the field index for fast access
-        FieldSpec *fs = spec->fields + j;
+        FieldSpec *fs = schema->fields + j;
         if (!strcmp(properties[i], fs->name) || !strcmp(properties[i], fs->path)) {
           rule->filter_fields_index[i] = j;
           break;

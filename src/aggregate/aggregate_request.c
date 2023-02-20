@@ -1115,11 +1115,10 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   req->qiter.sctx = sctx;
   req->qiter.err = Status;
 
-  IndexSpecCache *cache = IndexSpec_GetSpecCache(req->sctx->spec);
-  RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
+  const IndexSchema *schema = IndexSpec_GetSchema(req->sctx->spec);
   RLookup *first = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_FIRST);
 
-  RLookup_Init(first, cache);
+  RLookup_Init(first, schema);
 
   ResultProcessor *rp = RPIndexIterator_New(req->rootiter, req->timeoutTime);
   ResultProcessor *rpUpstream = NULL;

@@ -115,8 +115,9 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx) {
     goto done;
   }
 
-  size_t nitems = sctx->spec->numFields;
   IndexSpec *spec = sctx->spec;
+  const IndexSchema *schema = spec->schema;
+  size_t nitems = schema->numFields;
   SchemaRule *rule = spec->rule;
   assert(rule);
   RedisModuleString *payload_rms = NULL;
@@ -134,8 +135,8 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx) {
   }
 
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
-  for (size_t ii = 0; ii < spec->numFields; ++ii) {
-    FieldSpec *field = &spec->fields[ii];
+  for (size_t ii = 0; ii < schema->numFields; ++ii) {
+    FieldSpec *field = &schema->fields[ii];
     RedisModuleString *v = NULL;
     // Hash command is not related to other type such as JSON
     RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, field->path, &v, NULL);
@@ -167,9 +168,10 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
     return REDISMODULE_ERR;
   }
   IndexSpec *spec = sctx->spec;
+  const IndexSchema *schema = spec->schema;
   SchemaRule *rule = spec->rule;
   RedisModuleCtx *ctx = sctx->redisCtx;
-  size_t nitems = sctx->spec->numFields;
+  size_t nitems = schema->numFields;
   JSONResultsIterator jsonIter = NULL;
 
   RedisJSON jsonRoot = japi->openKey(ctx, doc->docKey);
@@ -185,8 +187,8 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
 
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
   size_t ii = 0;
-  for (; ii < spec->numFields; ++ii) {
-    FieldSpec *field = &spec->fields[ii];
+  for (; ii < schema->numFields; ++ii) {
+    FieldSpec *field = &schema->fields[ii];
 
     jsonIter = japi->get(jsonRoot, field->path);
     // if field does not exist or is empty (can happen after JSON.DEL)

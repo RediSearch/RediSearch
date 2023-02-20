@@ -242,13 +242,27 @@ typedef struct {
 
 //---------------------------------------------------------------------------------------------
 
+/**
+ * This lightweight object contains the schema of the actual index spec.
+ * This makes it safe for other modules to use for information such as
+ * field names, WITHOUT worrying about the index schema changing.
+ *
+ * If the index schema changes, this object is simply recreated rather
+ * than modified, making it immutable.
+ *
+ * It is freed when its reference count hits 0
+ */
+typedef struct IndexSchema {
+  FieldSpec *fields;              // Fields in the index schema
+  uint32_t numFields;             // Number of fields
+  uint32_t refcount;              // Number of references to this schema
+} IndexSchema;
 
 typedef struct IndexSpec {
   char *name;                     // Index name
   size_t nameLen;                 // Index name length
   uint64_t uniqueId;              // Id of index
-  FieldSpec *fields;              // Fields in the index schema
-  int numFields;                  // Number of fields
+  const IndexSchema *schema;      // Schema of index
 
   IndexStats stats;               // Statistics of memory used and quantities
   IndexFlags flags;               // Flags
@@ -280,7 +294,6 @@ typedef struct IndexSpec {
 
   // cached strings, corresponding to number of fields
   IndexSpecFmtStrings *indexStrs;
-  struct IndexSpecCache *spcache;
   // For index expiration
   long long timeout;
   RedisModuleTimerID timerId;
@@ -326,22 +339,6 @@ extern RedisModuleType *IndexSpecType;
 extern RedisModuleType *IndexAliasType;
 
 /**
- * This lightweight object contains a COPY of the actual index spec.
- * This makes it safe for other modules to use for information such as
- * field names, WITHOUT worrying about the index schema changing.
- *
- * If the index schema changes, this object is simply recreated rather
- * than modified, making it immutable.
- *
- * It is freed when its reference count hits 0
- */
-typedef struct IndexSpecCache {
-  FieldSpec *fields;
-  size_t nfields;
-  size_t refcount;
-} IndexSpecCache;
-
-/**
  * For testing only
  */
 void Spec_AddToDict(RefManager *w_spec);
@@ -353,15 +350,15 @@ int CompareVestions(Version v1, Version v2);
 
 /**
  * Retrieves the current spec cache from the index, incrementing its
- * reference count by 1. Use IndexSpecCache_Decref to free
+ * reference count by 1. Use IndexSchema_Release to free
  */
-IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec);
+const IndexSchema *IndexSpec_GetSchema(const IndexSpec *spec);
 
 /**
  * Decrement the reference count of the spec cache. Should be matched
  * with a previous call of GetSpecCache()
  */
-void IndexSpecCache_Decref(IndexSpecCache *cache);
+void IndexSchema_Release(const IndexSchema *schema);
 
 /*
  * Get a field spec by field name. Case insensitive!
@@ -423,7 +420,7 @@ void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPol
 
 /* Same as above but with ordinary strings, to allow unit testing */
 StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
-FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
+FieldSpec *IndexSpec_CreateField(IndexSpec *sp, IndexSchema *sc, const char *name, const char *path);
 
 // This function locks the spec for writing. use it if you know the spec is not locked
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
@@ -452,7 +449,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
  * Gets the next text id from the index. This does not currently
  * modify the index
  */
-int IndexSpec_CreateTextId(const IndexSpec *sp);
+int IndexSchema_CreateTextId(const IndexSchema *sc);
 
 /* Add fields to a redis schema */
 int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,

@@ -491,8 +491,9 @@ int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
       }
     } else {
       t_fieldMask fm = (*ctx->currentNode)->opts.fieldMask;
-      for (size_t ii = 0; ii < ctx->handle->spec->numFields; ++ii) {
-        const FieldSpec *fs = ctx->handle->spec->fields + ii;
+      const IndexSchema *s = ctx->handle->spec->schema;
+      for (size_t ii = 0; ii < s->numFields; ++ii) {
+        const FieldSpec *fs = s->fields + ii;
         if (!(fm & FIELD_BIT(fs))) {
           continue;
         }

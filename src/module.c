@@ -647,14 +647,14 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   }
   RedisSearchCtx_LockSpecWrite(&sctx);
   IndexSpec_AddFields(ref, sp, ctx, &ac, initialScan, &status);
-  
+
   // if adding the fields has failed we return without updating statistics.
   if (QueryError_HasError(&status)) {
     RedisSearchCtx_UnlockSpec(&sctx);
     return QueryError_ReplyAndClear(ctx, &status);
   }
   IndexSpec_UpdateVersion(sp);
-  FieldsGlobalStats_UpdateStats(sp->fields + (sp->numFields - 1), 1);
+  FieldsGlobalStats_UpdateStats(sp->schema->fields + (sp->schema->numFields - 1), 1);
   RedisSearchCtx_UnlockSpec(&sctx);
 
   RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, (size_t)argc - 1);

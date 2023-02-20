@@ -112,6 +112,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
+  const IndexSchema *sch = sp->schema;
 
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   int n = 0;
@@ -123,15 +124,15 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   n += renderIndexDefinitions(ctx, sp);
 
   RedisModule_ReplyWithSimpleString(ctx, "attributes");
-  RedisModule_ReplyWithArray(ctx, sp->numFields);
-  for (int i = 0; i < sp->numFields; i++) {
+  RedisModule_ReplyWithArray(ctx, sch->numFields);
+  for (int i = 0; i < sch->numFields; i++) {
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     RedisModule_ReplyWithSimpleString(ctx, "identifier");
-    RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].path);
+    RedisModule_ReplyWithSimpleString(ctx, sch->fields[i].path);
     RedisModule_ReplyWithSimpleString(ctx, "attribute");
-    RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].name);
+    RedisModule_ReplyWithSimpleString(ctx, sch->fields[i].name);
     int nn = 4;
-    const FieldSpec *fs = sp->fields + i;
+    const FieldSpec *fs = sch->fields + i;
 
     // RediSearch_api - No coverage
     if (fs->options & FieldSpec_Dynamic) {

@@ -40,15 +40,15 @@ static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int
 }
 
 static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t len, int flags) {
-  const IndexSpecCache *cc = lookup->spcache;
-  if (!cc) {
+  const IndexSchema *cs = lookup->schema;
+  if (!cs) {
     return NULL;
   }
 
   const FieldSpec *fs = NULL;
-  for (size_t ii = 0; ii < cc->nfields; ++ii) {
-    if (!strcmp(cc->fields[ii].name, name)) {
-      fs = cc->fields + ii;
+  for (size_t ii = 0; ii < cs->numFields; ++ii) {
+    if (!strcmp(cs->fields[ii].name, name)) {
+      fs = cs->fields + ii;
       break;
     }
   }
@@ -149,9 +149,9 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
   return nfields;
 }
 
-void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
+void RLookup_Init(RLookup *lk, const IndexSchema *schema) {
   memset(lk, 0, sizeof(*lk));
-  lk->spcache = spcache;
+  lk->schema = schema;
 }
 
 void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
@@ -244,7 +244,7 @@ void RLookup_Cleanup(RLookup *lk) {
     RLookupKey_FreeInternal(cur);
     cur = next;
   }
-  IndexSpecCache_Decref(lk->spcache);
+  IndexSchema_Release(lk->schema);
 
   lk->head = lk->tail = NULL;
   memset(lk, 0xff, sizeof(*lk));
@@ -714,6 +714,7 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
 
 int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *spec, const char *keyptr) {
   SchemaRule *rule = spec->rule;
+  const IndexSchema *schema = spec->schema;
 
   // create rlookupkeys
   int nkeys = array_len(rule->filter_fields);
@@ -724,7 +725,7 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
       keys[i] = createNewKey(it, rule->filter_fields[i], strlen(rule->filter_fields[i]), 0, it->rowlen++);
       continue;
     }
-    FieldSpec *fs = spec->fields + idx;
+    FieldSpec *fs = schema->fields + idx;
     keys[i] = createNewKey(it, fs->name, strlen(fs->name), 0, it->rowlen++);
     keys[i]->path = fs->path;
   }

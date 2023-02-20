@@ -276,9 +276,10 @@ static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, IndexSpec *spe
         GCContext_OnDelete(spec->gc);
       }
       if (spec->flags & Index_HasVecSim) {
-        for (int i = 0; i < spec->numFields; ++i) {
-          if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-            RedisModuleString * rmstr = RedisModule_CreateString(RSDummyContext, spec->fields[i].name, strlen(spec->fields[i].name));
+        const IndexSchema *schema = spec->schema;
+        for (int i = 0; i < schema->numFields; ++i) {
+          if (schema->fields[i].types == INDEXFLD_T_VECTOR) {
+            RedisModuleString * rmstr = RedisModule_CreateString(RSDummyContext, schema->fields[i].name, strlen(schema->fields[i].name));
             VecSimIndex *vecsim = OpenVectorIndex(spec, rmstr);
             spec->stats.vectorIndexSize += VecSimIndex_DeleteVector(vecsim, dmd->id);
             RedisModule_FreeString(RSDummyContext, rmstr);

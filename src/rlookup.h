@@ -107,7 +107,7 @@ typedef struct RLookup {
 
   // If present, then GetKey will consult this list if the value is not found in
   // the existing list of keys.
-  IndexSpecCache *spcache;
+  const IndexSchema *schema;
 } RLookup;
 
 // If the key cannot be found, do not mark it as an error, but create it and
@@ -350,10 +350,10 @@ int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *optio
 void RLookupKey_FreeInternal(RLookupKey *k);
 
 /**
- * Initialize the lookup. If cache is provided, then it will be used as an
+ * Initialize the lookup. If schema is provided, then it will be used as an
  * alternate source for lookups whose fields are absent
  */
-void RLookup_Init(RLookup *l, IndexSpecCache *cache);
+void RLookup_Init(RLookup *l, const IndexSchema *schema);
 
 /**
  * Releases any resources created by this lookup object. Note that if there are

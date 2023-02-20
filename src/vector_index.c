@@ -22,10 +22,11 @@ static VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyNa
 
   size_t fieldLen;
   const char *fieldStr = RedisModule_StringPtrLen(keyName, &fieldLen);
+  const IndexSchema *schema = spec->schema;
   FieldSpec *fieldSpec = NULL;
-  for (int i = 0; i < spec->numFields; ++i) {
-    if (!strcasecmp(fieldStr, spec->fields[i].name)) {
-      fieldSpec = &spec->fields[i];
+  for (int i = 0; i < schema->numFields; ++i) {
+    if (!strcasecmp(fieldStr, schema->fields[i].name)) {
+      fieldSpec = &schema->fields[i];
       break;
     }
   }

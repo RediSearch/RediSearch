@@ -1104,7 +1104,7 @@ TEST_F(IndexTest, testIndexSpec) {
   IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_TRUE(s);
-  ASSERT_TRUE(s->numFields == 5);
+  ASSERT_TRUE(s->schema->numFields == 5);
   ASSERT_TRUE(s->stopwords != NULL);
   ASSERT_TRUE(s->stopwords != DefaultStopWordList());
   ASSERT_TRUE(s->flags & Index_StoreFieldFlags);
@@ -1179,7 +1179,7 @@ TEST_F(IndexTest, testIndexSpec) {
   s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_TRUE(s);
-  ASSERT_TRUE(s->numFields == 1);
+  ASSERT_TRUE(s->schema->numFields == 1);
 
   ASSERT_TRUE(!(s->flags & Index_StoreFieldFlags));
   ASSERT_TRUE(!(s->flags & Index_StoreTermOffsets));
@@ -1192,7 +1192,7 @@ TEST_F(IndexTest, testIndexSpec) {
   s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_TRUE(s);
-  ASSERT_TRUE(FieldSpec_IsNoStem(s->fields + 1));
+  ASSERT_TRUE(FieldSpec_IsNoStem(s->schema->fields + 1));
   StrongRef_Release(ref);
 }
 
@@ -1240,7 +1240,7 @@ TEST_F(IndexTest, testHugeSpec) {
   IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_TRUE(s);
-  ASSERT_TRUE(s->numFields == N);
+  ASSERT_TRUE(s->schema->numFields == N);
   StrongRef_Release(ref);
   freeSchemaArgs(args);
 

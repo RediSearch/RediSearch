@@ -985,11 +985,12 @@ static void IR_TesterFreeNumeric(IndexCriteriaTester *ct) {
 static int IR_TestTerm(IndexCriteriaTester *ct, t_docId id) {
   IR_CriteriaTester *irct = (IR_CriteriaTester *)ct;
   const IndexSpec *sp = irct->spec;
+  const IndexSchema *schema = sp->schema;
   size_t len;
   int ret = 0;
   const sds externalId = DocTable_GetKey(&sp->docs, id, &len);
-  for (int i = 0; i < sp->numFields; ++i) {
-    FieldSpec *field = sp->fields + i;
+  for (int i = 0; i < schema->numFields; ++i) {
+    FieldSpec *field = schema->fields + i;
     if (!(FIELD_BIT(field) & irct->tf.fieldMask)) {
       // field is not requested, we are not checking this field!!
       continue;
