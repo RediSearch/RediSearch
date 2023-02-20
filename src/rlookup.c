@@ -39,7 +39,7 @@ static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int
   return ret;
 }
 
-static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) {
+static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t len, int flags) {
   const IndexSpecCache *cc = lookup->spcache;
   if (!cc) {
     return NULL;
@@ -60,7 +60,7 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) 
 
   uint16_t idx = lookup->rowlen++;
 
-  RLookupKey *ret = createNewKey(lookup, name, strlen(name), flags, idx);
+  RLookupKey *ret = createNewKey(lookup, name, len, flags, idx);
   if (FieldSpec_IsSortable(fs)) {
     ret->flags |= RLOOKUP_F_SVSRC;
     ret->svidx = fs->sortIdx;
@@ -89,7 +89,7 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
   }
 
   if (!ret) {
-    ret = genKeyFromSpec(lookup, name, flags);
+    ret = genKeyFromSpec(lookup, name, n, flags);
   }
 
   if (!ret) {
@@ -244,10 +244,7 @@ void RLookup_Cleanup(RLookup *lk) {
     RLookupKey_FreeInternal(cur);
     cur = next;
   }
-  if (lk->spcache) {
-    IndexSpecCache_Decref(lk->spcache);
-    lk->spcache = NULL;
-  }
+  IndexSpecCache_Decref(lk->spcache);
 
   lk->head = lk->tail = NULL;
   memset(lk, 0xff, sizeof(*lk));
