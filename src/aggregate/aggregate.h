@@ -66,6 +66,8 @@ typedef enum {
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
+// These macro should be used only by the main thread since configuration can be changed while running in 
+// backgroud.
 #define RunInThread(r) (RSGlobalConfig.threadsEnabled && RSGlobalConfig.numWorkerThreads && IsSearch(r))
 
 typedef enum {
@@ -179,12 +181,22 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
 /**
+ * No special flags when building the pipeline
+ */
+#define AREQ_BUILDPIPELINE_NO_FLAGS 0x00
+
+/**
  * Do not create the root result processor. Only process those components
  * which process fully-formed, fully-scored results. This also means
  * that a scorer is not created. It will also not initialize the
  * first step or the initial lookup table
  */
 #define AREQ_BUILDPIPELINE_NO_ROOT 0x01
+
+/**
+ * Add the ability to run the query in a multi threaded environment
+ */
+#define AREQ_BUILD_THREADSAFE_PIPELINE 0x02
 /**
  * Constructs the pipeline objects needed to actually start processing
  * the requests. This does not yet start iterating over the objects
@@ -246,7 +258,7 @@ ResultProcessor *Grouper_GetRP(Grouper *gr);
 void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
-int prepareExecutionPlan(AREQ *req, QueryError *status);
+int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status);
 void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit);
 void AREQ_Free(AREQ *req);
 

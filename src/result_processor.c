@@ -12,6 +12,7 @@
 #include "rmutil/rm_assert.h"
 #include "rmutil/cxx/chrono-clock.h"
 #include "util/timeout.h"
+#include "util/arr.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
@@ -722,10 +723,10 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
   return &sc->base;
 }
 
-static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Scorer",      "Sorter",
-                                     "Counter",   "Pager/Limiter", "Highlighter", "Grouper",
-                                     "Projector", "Filter",        "Profile",     "Network",
-                                     "Metrics Applier"};
+static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Buffer and Locker", "Unlocker", "Scorer",
+                                     "Sorter",    "Counter",   "Pager/Limiter", "Highlighter", 
+                                     "Grouper",   "Projector", "Filter",        "Profile",     
+                                     "Network",   "Vector Similarity Scores Loader"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
@@ -843,5 +844,319 @@ ResultProcessor *RPCounter_New() {
   ret->base.Next = rpcountNext;
   ret->base.Free = rpcountFree;
   ret->base.type = RP_COUNTER;
+  return &ret->base;
+}
+
+/*******************************************************************************************************************
+ *  Buffer and Locker Results Processor
+ *
+ * This component should be added to the query's execution pipeline if a thread safe access to
+ * Redis keyspace is required.
+ *
+ * The buffer is responsible for buffering the document that pass the query filters and lock the access
+ * to Redis keysapce to allow the downstream result processor a thread safe access to it.
+ *
+ * Unlocking Redis should be done only by the Unlocker result processor.
+ *******************************************************************************************************************/
+
+typedef struct RPBufferAndLocker{
+  ResultProcessor base;
+
+  // Buffer management
+  SearchResult **BufferBlocks;
+  size_t BlockSize;
+  size_t buffer_results_count;
+  
+  // Results iterator
+  size_t curr_result_index;
+
+  // Redis's lock status
+  bool isRedisLocked;
+} RPBufferAndLocker;
+/*********** Buffered and locker functions declarations ***********/ 
+
+// Destroy
+static void RPBufferAndLocker_Free(ResultProcessor *base);
+
+// Buffer phase
+static int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res);
+
+// Yeild results phase functions
+static int rpbufferNext_Yield(ResultProcessor *rp, SearchResult *result_output);
+static int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_output);
+static bool isResultValid(const SearchResult *res);
+
+// Redis lock management
+static bool isRedisLocked(RPBufferAndLocker *bufferAndLocker);
+static void LockRedis(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx);
+static void UnLockRedis(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx);
+
+/*********** Buffered results blocks management functions declarations ***********/ 
+static SearchResult *NewResultsBlock(RPBufferAndLocker *rpPufferAndLocker);
+
+// Insert result to the buffer. 
+//If @param CurrBlock is full we add a new block and return it, otherwise returns @param CurrBlock.
+static SearchResult *InsertResult(RPBufferAndLocker *rpPufferAndLocker, SearchResult *resToBuffer, SearchResult *CurrBlock);
+static bool IsBufferEmpty(RPBufferAndLocker *rpPufferAndLocker);
+
+static SearchResult *GetNextResult(RPBufferAndLocker *rpPufferAndLocker);
+/*******************************************************************************/ 
+
+ResultProcessor *RPBufferAndLocker_New(size_t BlockSize) {
+  RPBufferAndLocker *ret = rm_calloc(1, sizeof(RPBufferAndLocker));
+
+  ret->base.Next = rpbufferNext_bufferDocs;
+  ret->base.Free = RPBufferAndLocker_Free;
+  ret->base.type = RP_BUFFER_AND_LOCKER;
+
+  // Initialize the blocks' array to contain memory for one block pointer.
+  ret->BufferBlocks = array_new(SearchResult *, 1);
+  ret->BlockSize = BlockSize;
+
+  ret->buffer_results_count = 0;
+  ret->curr_result_index = 0;
+
+  ret->isRedisLocked = false;
+  return &ret->base;
+}
+
+
+void RPBufferAndLocker_Free(ResultProcessor *base) {
+  RPBufferAndLocker *bufferAndLocker = (RPBufferAndLocker *)base;
+
+  assert(!isRedisLocked(bufferAndLocker));
+
+  // Free buffer memory blocks
+  array_foreach(bufferAndLocker->BufferBlocks, SearchResultsBlock, array_free(SearchResultsBlock));
+  array_free(bufferAndLocker->BufferBlocks);
+
+  rm_free(bufferAndLocker);
+}
+
+int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
+  RPBufferAndLocker *rpPufferAndLocker = (RPBufferAndLocker *)rp;
+
+  // Get the current index version so we can check later if any updates accured
+  // after we finish to buffer the results
+  RedisSearchCtx *RSctx = rpPufferAndLocker->base.parent->sctx;
+  double currentIndexVersion = IndexSpec_GetVersion(RSctx->spec);
+
+  // Keep fetching results from the upstream result processor until EOF is reached
+  int result_status;
+  SearchResult resToBuffer = {0};
+  SearchResult *CurrBlock = NULL;
+  // Get the next result and save it in the buffer
+  while((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK) {
+
+    // Buffer the result.
+    CurrBlock = InsertResult(rpPufferAndLocker, &resToBuffer, CurrBlock);
+    
+    memset(&resToBuffer, 0, sizeof(SearchResult));
+    
+  }
+
+  // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
+  if ((result_status != RS_RESULT_EOF &&
+      !(result_status == RS_RESULT_TIMEDOUT && RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Return)) ||
+      IsBufferEmpty(rpPufferAndLocker)) {
+    return result_status;
+  }
+
+  // Now we have the data of all documents that pass the query filters,
+  // let's lock Redis to provide safe access to Redis keyspace 
+  
+  // unlockspec to avoid deadlocks
+  RedisSearchCtx_UnlockSpec(RSctx);
+
+  // Lock Redis to gurentee safe access to Redis keyspace
+  LockRedis(rpPufferAndLocker, RSctx->redisCtx);
+
+  // If the spec has been changed since we released the spec lock,
+  // we need to validate every buffered result
+  if (currentIndexVersion != IndexSpec_GetVersion(RSctx->spec)) {
+    rp->Next = rpbufferNext_ValidateAndYield;
+  } else { // Else we just return the results one by one
+    rp->Next = rpbufferNext_Yield;
+  }
+
+  // We don't lock the index spec because we assume that there 
+  // are no more access to the index down the pipeline and the data 
+  // we buffered remains valid.
+  return rp->Next(rp, res);
+}
+
+bool isResultValid(const SearchResult *res) {
+  // check if the doc is not marked deleted in the spec
+  return !(res->dmd->flags & Document_Deleted);
+}
+static void InvalidateBufferedResult(SearchResult *buffered_result) {
+  buffered_result->indexResult = NULL;
+  buffered_result->dmd = NULL;
+  buffered_result->scoreExplain = NULL;
+  memset(&buffered_result->rowdata, 0, sizeof(RLookupRow));
+}
+static void SetResult(SearchResult *buffered_result,  SearchResult *result_output) {
+  // Free the RLookup row before overriding it.
+  RLookupRow_Cleanup(&result_output->rowdata);
+  *result_output = *buffered_result;
+
+  InvalidateBufferedResult(buffered_result);
+}
+/*********** Redis lock management ***********/ 
+bool isRedisLocked(RPBufferAndLocker *bufferAndLocker) {
+  return bufferAndLocker->isRedisLocked;
+}
+
+void LockRedis(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx) {
+  RedisModule_ThreadSafeContextLock(redisCtx);
+
+  rpBufferAndLocker->isRedisLocked = true;
+}
+
+void UnLockRedis(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx) {
+  RedisModule_ThreadSafeContextUnlock(redisCtx);
+
+  rpBufferAndLocker->isRedisLocked = false;
+}
+/*********** Yeild results phase functions ***********/ 
+
+int rpbufferNext_Yield(ResultProcessor *rp, SearchResult *result_output) {
+  RPBufferAndLocker *RPBuffer = (RPBufferAndLocker *)rp;
+  SearchResult *curr_res = GetNextResult(RPBuffer);
+  
+  if(!curr_res) {
+    return RS_RESULT_EOF;
+  }
+ SetResult(curr_res, result_output);
+ return RS_RESULT_OK;
+  
+}
+
+int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_output) {
+  RPBufferAndLocker *RPBuffer = (RPBufferAndLocker *)rp;
+  SearchResult *curr_res;
+  
+  // iterate the buffer.
+  while((curr_res = GetNextResult(RPBuffer))) {
+    // Skip invalid results
+    if (isResultValid(curr_res)) {
+      SetResult(curr_res, result_output);
+      return RS_RESULT_OK;
+    }
+
+    // If the result is invalid discard it.
+    SearchResult_Destroy(curr_res);
+  }
+
+  return RS_RESULT_EOF;
+}
+
+/*********** Buffered and locker functions ***********/ 
+SearchResult *NewResultsBlock(RPBufferAndLocker *rpPufferAndLocker) {
+  // Get new results block
+  SearchResult *ret = array_new(SearchResult, rpPufferAndLocker->BlockSize);
+  // Append the block to the blocks array and update the pointer that might have benn
+  // reallocated.
+  rpPufferAndLocker->BufferBlocks = array_ensure_append_1(rpPufferAndLocker->BufferBlocks, ret);
+  return ret;
+
+}
+
+// If @param CurrBlock is full we add a new block and return it, otherwise returns @param CurrBlock.
+SearchResult *InsertResult(RPBufferAndLocker *rpPufferAndLocker, SearchResult *resToBuffer, SearchResult *CurrBlock) {
+  size_t idx_in_curr_block = rpPufferAndLocker->buffer_results_count % rpPufferAndLocker->BlockSize;
+  // if the block is full, allocate a new one
+  if(idx_in_curr_block  == 0) {
+    // alocate new block
+    CurrBlock = NewResultsBlock(rpPufferAndLocker);
+
+  }
+  // append the result to the current block at rp->curr_idx_at_blocck
+  // this operation takes ownership of the result's allocated data
+  CurrBlock[idx_in_curr_block] = *resToBuffer;
+  ++rpPufferAndLocker->buffer_results_count;
+  return CurrBlock;
+}
+
+bool IsBufferEmpty(RPBufferAndLocker *rpPufferAndLocker) {
+  return rpPufferAndLocker->buffer_results_count == 0;
+}
+
+SearchResult *GetNextResult(RPBufferAndLocker *rpPufferAndLocker) {
+  size_t curr_elem_index = rpPufferAndLocker->curr_result_index;
+  size_t blockSize = rpPufferAndLocker->BlockSize;
+
+  assert(curr_elem_index <= rpPufferAndLocker->buffer_results_count);
+
+  // if we reached to the end of the buffer return NULL
+  if(curr_elem_index == rpPufferAndLocker->buffer_results_count) {
+    return NULL;
+  }
+
+  // get current block
+  SearchResult *curr_block = rpPufferAndLocker->BufferBlocks[curr_elem_index / blockSize];
+
+  // get the result in the block
+  SearchResult* ret = curr_block + (curr_elem_index % blockSize);
+  
+
+  // Increase result's index
+  ++rpPufferAndLocker->curr_result_index;
+
+  // return result
+  return ret;
+}
+
+/*******************************************************************************************************************
+ *  UnLocker Results Processor
+ *
+ * This component should be added to the query's execution pipeline if a thread safe access to
+ * Redis keyspace is required.
+ *
+ * @param rpBufferAndLocker is a pointer to the buffer and locker result processor
+ * that locked the GIL to be released.
+ * 
+ * It is responsible for unlocking Redis keyspace lock.
+ *
+ *******************************************************************************************************************/
+
+typedef struct {
+  ResultProcessor base;
+  RPBufferAndLocker* rpBufferAndLocker;
+
+} RPUnlocker;
+
+static int RPUnlocker_Next(ResultProcessor *rp, SearchResult *res) {
+  // call the next result processor
+  int result_status = rp->upstream->Next(rp->upstream, res);
+  
+  // Finish the search
+  if(result_status != REDISMODULE_OK) {
+    RPUnlocker *unlocker = (RPUnlocker *)rp;
+
+    // Unlock Redis if it was locked
+    if(isRedisLocked(unlocker->rpBufferAndLocker)){
+      UnLockRedis(unlocker->rpBufferAndLocker, unlocker->base.parent->sctx->redisCtx);
+    }
+
+  }
+  return result_status;
+}
+
+static void RPUnlocker_Free(ResultProcessor *base) {
+  RPUnlocker *unlocker = (RPUnlocker *)base;
+  assert(!isRedisLocked(unlocker->rpBufferAndLocker));
+
+  rm_free(base);
+}
+
+ResultProcessor *RPUnlocker_New(RPBufferAndLocker *rpBufferAndLocker) {
+  RPUnlocker *ret = rm_calloc(1, sizeof(RPUnlocker));
+
+  ret->base.Next = RPUnlocker_Next;
+  ret->base.Free = RPUnlocker_Free;
+  ret->base.type = RP_UNLOCKER;
+
+  ret->rpBufferAndLocker = rpBufferAndLocker;
   return &ret->base;
 }
