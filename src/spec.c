@@ -880,14 +880,9 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     return 0;
   }
 
-  if (sp->spcache) {
-    // Assuming we locked the index spec for write and we have a single writer,
-    // we don't need atomic operations here.
-    IndexSpecCache_Decref(sp->spcache);
-    sp->spcache = NULL;
-  }
   const size_t prevNumFields = sp->numFields;
   const size_t prevSortLen = sp->sortables->len;
+  const IndexFlags prevFlags = sp->flags;
   FieldSpec *fs = NULL;
 
   while (!AC_IsAtEnd(ac)) {
@@ -1006,6 +1001,14 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     }
     fs = NULL;
   }
+  
+  // If we got here we successfully added the field, we can invalidate the spec cache.
+  if (sp->spcache) {
+    // Assuming we locked the index spec for write and we have a single writer,
+    // we don't need atomic operations here.
+    IndexSpecCache_Decref(sp->spcache);
+    sp->spcache = NULL;
+  }
   return 1;
 
 reset:
@@ -1023,6 +1026,7 @@ reset:
 
   sp->numFields = prevNumFields;
   sp->sortables->len = prevSortLen;
+  sp->flags = prevFlags;
   return 0;
 }
 
@@ -1555,6 +1559,8 @@ IndexSpec *NewIndexSpec(const char *name) {
 #endif
 
   pthread_rwlock_init(&sp->rwlock, &attr);
+
+  sp->specVersion = 0;
   return sp;
 }
 
@@ -1633,6 +1639,19 @@ int bit(t_fieldMask id) {
   return 0;
 }
 
+// Return the current vesrion of the spec. 
+// The value of the version number does'nt indicate if the index
+// is newer or older, and should be only tested for inequality.
+size_t IndexSpec_GetVersion(const IndexSpec *sp) {
+  return sp->specVersion;
+}
+
+// Update the spec vesrion if we update the index.
+// This function should be called after the write lock is acquired.
+// When the version number is overflowed, it will start from zero.
+void IndexSpec_UpdateVersion(IndexSpec *sp) {
+  ++sp->specVersion;
+}
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Backwards compat version of load for rdbs with version < 8
@@ -2637,7 +2656,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   Document_Free(&doc);
 
   spec->stats.totalIndexTime += hires_clock_since_usec(&t0);
-
+  IndexSpec_UpdateVersion(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }
@@ -2687,6 +2706,7 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   RedisSearchCtx_LockSpecWrite(&sctx);
   IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, id);
+  IndexSpec_UpdateVersion(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }
@@ -2888,7 +2908,10 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
     if (entry) {
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
       RedisSearchCtx_LockSpecWrite(&sctx);
-      DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
+      if(REDISMODULE_OK == DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len)) {
+        IndexSpec_UpdateVersion(spec);
+      }
+      
       RedisSearchCtx_UnlockSpec(&sctx);
       size_t index = entry->v.u64;
       dictDelete(to_specs->specs, spec->name);

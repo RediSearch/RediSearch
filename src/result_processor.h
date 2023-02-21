@@ -54,6 +54,8 @@ typedef enum {
 typedef enum {
   RP_INDEX,
   RP_LOADER,
+  RP_BUFFER_AND_LOCKER,
+  RP_UNLOCKER,
   RP_SCORER,
   RP_SORTER,
   RP_COUNTER,
@@ -234,6 +236,34 @@ ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const Fiel
 
 void RP_DumpChain(const ResultProcessor *rp);
 
+/*******************************************************************************************************************
+ *  Buffer and Locker Results Processor
+ *
+ * This component should be added to the query's execution pipeline if a thread safe access to
+ * Redis keyspace is required.
+ *
+ * The buffer is responsible for buffering the document that pass the query filters and lock the access
+ * to Redis keysapce to allow the downstream result processor a thread safe access to it.
+ *
+ * Unlocking Redis should be done only by the Unlocker result processor that should be added as well.
+ *******************************************************************************************************************/
+typedef struct RPBufferAndLocker RPBufferAndLocker;
+ResultProcessor *RPBufferAndLocker_New(size_t BlockSize);
+
+/*******************************************************************************************************************
+ *  UnLocker Results Processor
+ *
+ * This component should be added to the query's execution pipeline if a thread safe access to
+ * Redis keyspace is required.
+ *
+ * @param rpBufferAndLocker is a pointer to the buffer and locker result processor
+ * that locked the GIL to be released.
+ * 
+ * It is responsible for unlocking Redis keyspace lock.
+ *
+ *******************************************************************************************************************/
+
+ResultProcessor *RPUnlocker_New(RPBufferAndLocker *rpBufferAndLocker);
 
 /*******************************************************************************************************************
  *  Profiling Processor

@@ -385,7 +385,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   // lock spec
   RedisSearchCtx_LockSpecRead(BCRctx->req->sctx);
   QueryError status = {0};
-  if (prepareExecutionPlan(req, &status) != REDISMODULE_OK) {
+  if (prepareExecutionPlan(req, AREQ_BUILD_THREADSAFE_PIPELINE, &status) != REDISMODULE_OK) {
     // Enrich the error message that was caught to include the fact that the query ran
     // in a background thread.
     QueryError detailed_status = {0};
@@ -404,7 +404,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 }
 
 // Assumes the spec is guarded (by its own lock for read or by the global lock)
-int prepareExecutionPlan(AREQ *req, QueryError *status) {
+int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status) {
   int rc = REDISMODULE_ERR;
   RedisSearchCtx *sctx = req->sctx;
   RSSearchOptions *opts = &req->searchopts;
@@ -429,7 +429,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     req->parseTime += hires_clock_diff_msec(&parseClock, &req->initClock);
   }
 
-  rc = AREQ_BuildPipeline(req, 0, status);
+  rc = AREQ_BuildPipeline(req, pipeline_options, status);
 
   if (is_profile) {
     req->pipelineBuildTime = hires_clock_since_msec(&parseClock);
@@ -535,7 +535,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   SET_DIALECT(RSGlobalConfig.used_dialects, r->dialectVersion);
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
-    if (prepareExecutionPlan(r, &status) != REDISMODULE_OK) {
+    if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
       goto error;
     }
     int rc = AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status);
@@ -552,7 +552,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     workersThreadPool_AddWork((thpool_proc)AREQ_Execute_Callback, BCRctx);
   } else {
-    if (prepareExecutionPlan(r, &status) != REDISMODULE_OK) {
+    if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
       goto error;
     }
     AREQ_Execute(r, ctx);
@@ -629,7 +629,7 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   if (buildRequest(ctx, argv, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
     return NULL;
   }
-  if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
+  if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, status) != REDISMODULE_OK) {
     AREQ_Free(r);
     return NULL;
   }

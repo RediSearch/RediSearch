@@ -535,7 +535,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (initialScan) {
     IndexSpec_ScanAndReindex(ctx, ref);
   }
-
+  IndexSpec_UpdateVersion(sp);
   RedisSearchCtx_UnlockSpec(&sctx);
 
   RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -647,15 +647,19 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   }
   RedisSearchCtx_LockSpecWrite(&sctx);
   IndexSpec_AddFields(ref, sp, ctx, &ac, initialScan, &status);
+  
+  // if adding the fields has failed we return without updating statistics.
+  if (QueryError_HasError(&status)) {
+    RedisSearchCtx_UnlockSpec(&sctx);
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+  IndexSpec_UpdateVersion(sp);
   FieldsGlobalStats_UpdateStats(sp->fields + (sp->numFields - 1), 1);
   RedisSearchCtx_UnlockSpec(&sctx);
 
-  if (QueryError_HasError(&status)) {
-    return QueryError_ReplyAndClear(ctx, &status);
-  } else {
-    RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, (size_t)argc - 1);
-    return RedisModule_ReplyWithSimpleString(ctx, "OK");
-  }
+  RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, (size_t)argc - 1);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+
 }
 
 /* FT.ALTER */
