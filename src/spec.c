@@ -881,6 +881,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Fields arguments are missing");
     return 0;
   }
+
   const size_t prevNumFields = sp->numFields;
   const size_t prevSortLen = sp->sortables->len;
   const IndexFlags prevFlags = sp->flags;
@@ -1024,7 +1025,7 @@ reset:
 
   sp->numFields = prevNumFields;
   sp->sortables->len = prevSortLen;
-  sp->flags = prevFlags;
+  sp->flags = prevFlags & (sp->flags & Index_HasSuffixTrie);
   return 0;
 }
 
@@ -1259,6 +1260,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   }
   // Free fields cache data
   IndexSpecCache_Decref(spec->spcache);
+  spec->spcache = NULL;
 
   // Free fields formatted names
   if (spec->indexStrs) {
