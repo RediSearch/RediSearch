@@ -22,11 +22,11 @@ Vector similarity provides these functionalities:
 
 * K-nearest neighbors (KNN) search and range filter (from v2.6.1) supporting three distance metrics to measure the degree of similarity between two vectors $u$, $v$ $\in \mathbb{R}^n$ where $n$ is the length of the vectors:
 
-    - L2 - Euclidean distance between two vectors
+    - L2 - Squared Euclidean distance between two vectors
 
-         $d(u, v) = \sqrt{ \displaystyle\sum_{i=1}^n{(u_i - v_i)^2}}$
+         $d(u, v) = \displaystyle\sum_{i=1}^n{(u_i - v_i)^2}$
 
-    - IP - Internal product of two vectors
+    - IP - Inner product of two vectors
 
          $d(u, v) = 1 -u\cdot v$
 
