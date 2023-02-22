@@ -947,7 +947,9 @@ workflows:
       - benchmark-search-oss-standalone-profiler-g3:
           context: common
           <<: *on-any-branch
-
+      - benchmark-search-oss-cluster:
+          context: common
+          <<: *on-integ-and-version-tags
   nightly:
     triggers:
       - schedule:
