@@ -1967,7 +1967,7 @@ def test_range_query_complex_queries():
         env.assertEqual(con.execute_command('HSET', str(index_size), 't', 'unique'), 0)
 
         radius = dim * 10**2
-        expected_res = [11, str(index_size), '8' if env.isCluster() else '9']  # Todo: fix this inconsistency
+        expected_res = [11, str(index_size), '8' if env.isCluster() and env.shardsCount > 1 else '9']  # Todo: fix this inconsistency
         for i in range(index_size-10, index_size, 5):
             expected_res.extend([str(i), '2'])
         for i in sorted(set(range(index_size-10, index_size))-set(range(index_size-10, index_size+1, 5))):
