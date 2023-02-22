@@ -814,7 +814,7 @@ def test_hybrid_query_non_vector_score():
     res = env.cmd('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'TFIDF.DOCNORM', 'WITHSCORES',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10)
-    compare_lists(env, res, expected_res_3, delta=0.01)    
+    compare_lists(env, res, expected_res_3, delta=0.01)
 
     # Those scorers are scoring per shard.
     if not env.isCluster():

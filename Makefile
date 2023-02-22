@@ -235,14 +235,14 @@ MISSING_DEPS += $(LIBUV)
 endif
 
 ifeq ($(wildcard $(HIREDIS)),)
-MISSING_DEPS += $(HIREDIS)
+#@@ MISSING_DEPS += $(HIREDIS)
 endif
 
 ifneq ($(MISSING_DEPS),)
 DEPS=1
 endif
 
-DEPENDENCIES=libuv hiredis
+DEPENDENCIES=libuv #@@ hiredis
 
 ifneq ($(filter all deps $(DEPENDENCIES) pack,$(MAKECMDGOALS)),)
 DEPS=1
@@ -284,7 +284,7 @@ endif
 
 ifeq ($(DEPS),1)
 
-deps: $(LIBUV) $(HIREDIS)
+deps: $(LIBUV) #@@ $(HIREDIS)
 
 libuv: $(LIBUV)
 

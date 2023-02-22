@@ -25,7 +25,7 @@ SRCDIR=$(ROOT)/deps/libuv
 
 BINDIR=$(BINROOT)/libuv
 
-TARGET=$(BINDIR)/libuv.a
+TARGET=$(BINDIR)/libuv_a.a
 
 #----------------------------------------------------------------------------------------------
 
