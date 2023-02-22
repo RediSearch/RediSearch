@@ -86,6 +86,15 @@ endif()
 
 #----------------------------------------------------------------------------------------------
 
+set(ENABLE_SSL ON CACHE BOOL "Build hiredis with ssl")
+option(DISABLE_TESTS "If tests should be compiled or not" ON)
+
+add_subdirectory(${root}/deps/hiredis hiredis)
+
+set(HIREDIS_LIBS hiredis_static hiredis_ssl_static)
+
+#----------------------------------------------------------------------------------------------
+
 macro(MODULE_TARGET TYPE)
     if (${TYPE} STREQUAL "oss")
         set(_moduleDefs "RS_CLUSTER_OSS")
@@ -109,7 +118,7 @@ macro(MODULE_TARGET TYPE)
 		redisearch-${MODULE_NAME_SUFFIX}
 		VectorSimilarity
 		${LIBUV}
-		${HIREDIS}
+		${HIREDIS_LIBS}
 		${SSL_LIBS})
 
 	setup_shared_object_target(${_moduleName} ${_moduleName})
@@ -130,7 +139,7 @@ if (BUILD_COORD_OSS)
 		redisearch-oss
 		redismock
 		VectorSimilarity
-		${HIREDIS}
+		${HIREDIS_LIBS}
 		${SSL_LIBS}
 		dl)
 
