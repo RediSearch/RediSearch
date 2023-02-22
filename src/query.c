@@ -1539,10 +1539,15 @@ void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask) {
 void QueryNode_AddChildren(QueryNode *n, QueryNode **children, size_t nchildren) {
   if (n->type == QN_TAG) {
     for (size_t ii = 0; ii < nchildren; ++ii) {
-      if (children[ii]->type == QN_TOKEN || children[ii]->type == QN_PHRASE ||
-          children[ii]->type == QN_PREFIX || children[ii]->type == QN_LEXRANGE ||
-          children[ii]->type == QN_WILDCARD_QUERY) {
+      QueryNode *child = children[ii];
+      if (child->type == QN_TOKEN || child->type == QN_PHRASE ||
+          child->type == QN_PREFIX || child->type == QN_LEXRANGE ||
+          child->type == QN_WILDCARD_QUERY) {
         n->children = array_ensure_append(n->children, children + ii, 1, QueryNode *);
+        for(size_t jj = 0; jj < QueryNode_NumParams(child); ++jj) {
+          Param *p = child->params + jj;
+          p->type = PARAM_TERM_CASE;
+        }
       }
     }
   } else {

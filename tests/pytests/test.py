@@ -751,36 +751,60 @@ def testPrefixNodeCaseSensitive(env):
     queries_expectations = {
         "TEXT": {
             "lowercase": 
-            {  "query": "@t:(*el*)",
+            {  "query": ["@t:(*el*)"],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            },
+            "lowercase_params":
+            {  "query": ["@t:(*$p*)", "PARAMS", "2", "p", "el", "DIALECT", "2" ],
                 "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
             },
             "uppercase": 
-            {  "query": "@t:(*EL*)",
+            {  "query": ["@t:(*EL*)"],
                 "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
-            }
+            },
+            "uppercase_params":
+            {  "query": ["@t:(*$p*)", "PARAMS", "2", "p", "EL", "DIALECT", "2" ],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            },
         },
         "TAG": {
             "lowercase":
-            {  "query": "@t:{*el*}",
+            {  "query": ["@t:{*el*}"],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            },
+            "lowercase_params":
+            {  "query": ["@t:{*$p*}", "PARAMS", "2", "p", "el", "DIALECT", "2"],
                 "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
             },
             "uppercase": {
-                "query": "@t:{*EL*}",
+                "query": ["@t:{*EL*}"],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            },
+            "uppercase_params": {
+                "query": ["@t:{*$p*}", "PARAMS", "2", "p", "EL", "DIALECT", "2"],
                 "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
             }
         },
         "TAG_CASESENSITIVE": {
             "lowercase":
-            {  "query": "@t:{*el*}",
+            {  "query": ["@t:{*el*}"],
+                "expectation": [2, 'doc1', 'doc3']
+            },
+            "lowercase_params":
+            {  "query": ["@t:{*$p*}", "PARAMS", "2", "p", "el", "DIALECT", "2"],
                 "expectation": [2, 'doc1', 'doc3']
             },
             "uppercase": {
-                "query": "@t:{*EL*}",
+                "query": ["@t:{*EL*}"],
+                "expectation": [2, 'doc2', 'doc4']
+            },
+            "uppercase_params": {
+                "query": ["@t:{*$p*}", "PARAMS", "2", "p", "EL", "DIALECT", "2"],
                 "expectation": [2, 'doc2', 'doc4']
             }
         }
     }
-    
+    time.sleep(10)
     for mode in modes:
         env.expect(*create_functions[mode]).ok()
         conn.execute_command('HSET', 'doc1', 't', 'hello')
@@ -790,7 +814,7 @@ def testPrefixNodeCaseSensitive(env):
         for case in queries_expectations[mode]:
             query = queries_expectations[mode][case]["query"]
             expectation = queries_expectations[mode][case]["expectation"]
-            res = sortedResults(env.cmd('ft.search', 'idx', query, 'NOCONTENT'))
+            res = env.cmd('ft.search', 'idx', *query, 'NOCONTENT')
             # Sort to avoid coordinator reorder.
             docs = res[1:]
             docs.sort()
