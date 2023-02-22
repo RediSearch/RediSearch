@@ -52,7 +52,7 @@ add_compile_options("-fvisibility=hidden")
 
 include_directories(
 	${root}/coord/src
-	${LIBUV_INCLUDE_DIR}
+	${root}/deps/libuv/include
 	${root}/deps
 	${root}/src
 	${root}
