@@ -394,7 +394,10 @@ class AsyncResponse:
         self.future = future
 
     def read_response(self):
+        if self.future.exception():
+            return self.future.exception()
         return self.future.result()
+
 
 class WorkerAttacher():
     def __init__(self, p):
@@ -405,7 +408,6 @@ class WorkerAttacher():
         while True:
             self.p.waitSignals(signal.SIGTRAP)
             current_label = str(self.p.readCString(self.p.getreg("rsi"), 100)[0], 'utf-8')
-            print("current label is", current_label)
             if current_label == label:
                 return
             self.p.cont()
