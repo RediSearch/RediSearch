@@ -372,6 +372,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   req->sctx->redisCtx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
   BCRctx->req->reqflags |= QEXEC_F_HAS_THCTX;
 
+NAMED_TRACED_BP("reader_before_strong_ref");
   StrongRef execution_ref = WeakRef_Promote(BCRctx->spec_ref);
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the query was in the job queue.
