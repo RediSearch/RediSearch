@@ -1,12 +1,11 @@
 #!/bin/bash
 
-# [[ $VERBOSE == 1 ]] && set -x
-
 PROGNAME="${BASH_SOURCE[0]}"
 HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
 ROOT=$(cd $HERE/.. && pwd)
 export READIES=$ROOT/deps/readies
 . $READIES/shibumi/defs
+
 SBIN=$ROOT/sbin
 
 export PYTHONWARNINGS=ignore
@@ -22,8 +21,9 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		[ARGVARS...] pack.sh [--help|help] [<module-so-path>]
 
 		Argument variables:
-		RAMP=1              Generate RAMP package
-		DEPS=1              Generate dependency packages
+		RAMP=0|1            Build RAMP package
+		DEPS=0|1            Build dependencies files
+		SYM=0|1             Build debug symbols file
 		RELEASE=1           Generate "release" packages (artifacts/release/)
 		SNAPSHOT=1          Generate "shapshot" packages (artifacts/snapshot/)
 
@@ -31,9 +31,9 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		PACKAGE_NAME=name   Package stem name
 
 		BRANCH=name         Branch name for snapshot packages
-		VERSION=ver         Version for release packages
 		WITH_GITSHA=1       Append Git SHA to shapshot package names
-		VARIANT=name        Build variant (default: empty)
+		VARIANT=name        Build variant
+		RAMP_VARIANT=name   RAMP variant (e.g. ramp-{name}.yml)
 
 		ARTDIR=dir          Directory in which packages are created (default: bin/artifacts)
 		
@@ -42,13 +42,19 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 
 		JUST_PRINT=1        Only print package names, do not generate
 		VERBOSE=1           Print commands
-		IGNERR=1            Do not abort on error
+		HELP=1              Show help
+		NOP=1               Print commands, do not execute
 
 	END
 	exit 0
 fi
 
 #----------------------------------------------------------------------------------------------
+
+OP=""
+[[ $NOP == 1 ]] && OP=echo
+
+# RLEC naming conventions
 
 ARCH=$($READIES/bin/platform --arch)
 [[ $ARCH == x64 ]] && ARCH=x86_64
@@ -134,48 +140,70 @@ pack_ramp() {
 	
 	if [[ -z $RAMP_YAML ]]; then
 		RAMP_YAML=$ROOT/ramp.yml
+	elif [[ -z $RAMP_VARIANT ]]; then
+		RAMP_YAML=$ROOT/ramp.yml
+	else
+		RAMP_YAML=$ROOT/ramp${_RAMP_VARIANT}.yml
 	fi
 
 	python3 $READIES/bin/xtx \
 		$xtx_vars \
 		-e NUMVER -e SEMVER \
 		$RAMP_YAML > /tmp/ramp.yml
+	if [[ $VERBOSE == 1 ]]; then
+		echo "# ramp.yml:"
+		cat /tmp/ramp.yml
+	fi
 
-	rm -f /tmp/ramp.fname
+	runn rm -f /tmp/ramp.fname $packfile
 	
 	# ROOT is required so ramp will detect the right git commit
 	cd $ROOT
-	$RAMP_CMD pack -m /tmp/ramp.yml \
-		$RAMP_ARGS \
-		-n $MODULE_NAME \
-		--verbose \
-		--debug \
-		--packname-file /tmp/ramp.fname \
-		-o $packfile \
-		$MODULE \
-		>/tmp/ramp.err 2>&1 || true
+	runn @ <<-EOF
+		$RAMP_CMD pack -m /tmp/ramp.yml \
+			$RAMP_ARGS \
+			-n $MODULE_NAME \
+			--verbose \
+			--debug \
+			--packname-file /tmp/ramp.fname \
+			-o $packfile \
+			$MODULE \
+			>/tmp/ramp.err 2>&1 || true
+		EOF
 
-	if [[ ! -e $packfile ]]; then
-		eprint "Error generating RAMP file:"
-		>&2 cat /tmp/ramp.err
-		exit 1
-	else
-		local packname=`cat /tmp/ramp.fname`
-		echo "Created $packname"
-	fi
-
-	if [[ -f $MODULE.debug ]]; then
-		$RAMP_CMD pack -m /tmp/ramp.yml $RAMP_ARGS -n $MODULE_NAME --verbose --debug \
-			--packname-file /tmp/ramp.fname -o $packfile_debug \
-			$MODULE.debug >/tmp/ramp.err 2>&1 || true
-
-		if [[ ! -e $packfile_debug ]]; then
+	if [[ $NOP != 1 ]]; then
+		if [[ ! -e $packfile ]]; then
 			eprint "Error generating RAMP file:"
 			>&2 cat /tmp/ramp.err
 			exit 1
 		else
 			local packname=`cat /tmp/ramp.fname`
-			echo "Created $packname"
+			echo "# Created $packname"
+		fi
+	fi
+
+	if [[ -f $MODULE.debug ]]; then
+		runn @ <<-EOF
+			$RAMP_CMD pack -m /tmp/ramp.yml \
+				$RAMP_ARGS \
+				-n $MODULE_NAME \
+				--verbose \
+				--debug \
+				--packname-file /tmp/ramp.fname \
+				-o $packfile_debug \
+				$MODULE.debug \
+				>/tmp/ramp.err 2>&1 || true
+			EOF
+
+		if [[ $NOP != 1 ]]; then
+			if [[ ! -e $packfile_debug ]]; then
+				eprint "Error generating RAMP file:"
+				>&2 cat /tmp/ramp.err
+				exit 1
+			else
+				local packname=`cat /tmp/ramp.fname`
+				echo "# Created $packname"
+			fi
 		fi
 	fi
 
@@ -198,37 +226,51 @@ pack_deps() {
 	local dep_prefix_dir=$(cat $ARTDIR/$dep.prefix)
 	
 	rm -f $tar_path
-	{ cd $depdir ;\
-	  cat $ARTDIR/$dep.files | \
-	  xargs tar -c --sort=name --owner=root:0 --group=root:0 --mtime='UTC 1970-01-01' \
-	  	--transform "s,^,$dep_prefix_dir," 2>> /tmp/pack.err | \
-	  gzip -n - > $tar_path ; E=$?; } || true
-	if [[ ! -e $tar_path || -z $(tar tzf $tar_path) ]]; then
-		eprint "Count not create $tar_path. Aborting."
-		rm -f $tar_path
-		exit 1
+	if [[ $NOP != 1 ]]; then
+		{ cd $depdir ;\
+		  cat $ARTDIR/$dep.files | \
+		  xargs tar -c --sort=name --owner=root:0 --group=root:0 --mtime='UTC 1970-01-01' \
+			--transform "s,^,$dep_prefix_dir," 2> /tmp/pack.err | \
+		  gzip -n - > $tar_path ; E=$?; } || true
+		if [[ ! -e $tar_path || -z $(tar tzf $tar_path) ]]; then
+			eprint "Count not create $tar_path. Aborting."
+			rm -f $tar_path
+			exit 1
+		fi
+	else
+		runn @ <<-EOF
+			cd $depdir
+			cat $ARTDIR/$dep.files | \
+			xargs tar -c --sort=name --owner=root:0 --group=root:0 --mtime='UTC 1970-01-01' \
+				--transform "s,^,$dep_prefix_dir," 2>> /tmp/pack.err | \
+			gzip -n - > $tar_path ; E=$?; } || true
+			EOF
 	fi
-	sha256sum $tar_path | gawk '{print $1}' > $tar_path.sha256
+	runn @ <<-EOF
+		sha256sum $tar_path | gawk '{print $1}' > $tar_path.sha256
+		EOF
 
 	mkdir -p $ARTDIR/snapshots
 	cd $ARTDIR/snapshots
 	if [[ -n $BRANCH ]]; then
 		local snap_package=$stem.${BRANCH}${VARIANT}.tgz
-		ln -sf ../$fq_package $snap_package
-		ln -sf ../$fq_package.sha256 $snap_package.sha256
+		runn ln -sf ../$fq_package $snap_package
+		runn ln -sf ../$fq_package.sha256 $snap_package.sha256
 	fi
+
+	cd $ROOT
 }
 
 #----------------------------------------------------------------------------------------------
 
 prepare_symbols_dep() {
 	if [[ ! -f $MODULE.debug ]]; then return 0; fi
-	echo "Preparing debug symbols dependencies ..."
+	echo "# Preparing debug symbols dependencies ..."
 	dirname "$(realpath "$MODULE")" > "$ARTDIR/debug.dir"
 	echo "$(basename "$(realpath "$MODULE")").debug" > "$ARTDIR/debug.files"
 	echo "" > $ARTDIR/debug.prefix
 	pack_deps debug
-	echo "Done."
+	echo "# Done."
 }
 
 #----------------------------------------------------------------------------------------------
@@ -237,7 +279,10 @@ NUMVER="$(NUMERIC=1 $SBIN/getver)"
 SEMVER="$($SBIN/getver)"
 
 if [[ -n $VARIANT ]]; then
-	VARIANT=-${VARIANT}
+	_VARIANT="-${VARIANT}"
+fi
+if [[ ! -z $RAMP_VARIANT ]]; then
+	_RAMP_VARIANT="-${RAMP_VARIANT}"
 fi
 
 #----------------------------------------------------------------------------------------------
@@ -291,16 +336,17 @@ if [[ $DEPS == 1 ]]; then
 	echo "$(basename "$(realpath "$MODULE")").debug" > "$ARTDIR/debug.files"
 	echo "" > $ARTDIR/debug.prefix
 
-	echo "Building dependencies ..."
+	echo "# Building dependencies ..."
 
 	[[ $SYM == 1 ]] && prepare_symbols_dep
 
 	for dep in $DEP_NAMES; do
 		if [[ $OS != macos ]]; then
+			echo "# $dep ..."
 			pack_deps $dep
 		fi
 	done
-	echo "Done."
+	echo "# Done."
 fi
 
 #----------------------------------------------------------------------------------------------
@@ -313,7 +359,7 @@ if [[ $RAMP == 1 ]]; then
 		exit 1
 	fi
 
-	echo "Building RAMP files ..."
+	echo "# Building RAMP $RAMP_VARIANT files ..."
 
 	[[ -z $MODULE ]] && { eprint "Nothing to pack. Aborting."; exit 1; }
 	[[ ! -f $MODULE ]] && { eprint "$MODULE does not exist. Aborting."; exit 1; }
@@ -322,12 +368,12 @@ if [[ $RAMP == 1 ]]; then
 	[[ $RELEASE == 1 ]] && SNAPSHOT=0 pack_ramp
 	[[ $SNAPSHOT == 1 ]] && pack_ramp
 	
-	echo "Done."
+	echo "# Done."
 fi
 
 if [[ $VERBOSE == 1 ]]; then
-	echo "Artifacts:"
-	du -ah --apparent-size $ARTDIR
+	echo "# Artifacts:"
+	$OP du -ah --apparent-size $ARTDIR
 fi
 
 exit 0
