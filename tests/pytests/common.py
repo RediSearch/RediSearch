@@ -383,8 +383,9 @@ class ConditionalExpected:
 def module_path():
     # path/to/RediSearch/tests/pytests
     root_path =  dirname(dirname(dirname(os.path.realpath(__file__))))
-    module_file_path = join(root_path, 'bin', f'{OS}-{ARCH}-{BUILD_MODE}', 'search', 'redisearch.so' )
-    return module_file_path
+    search_file_path = join(root_path, 'bin', f'{OS}-{ARCH}-{BUILD_MODE}', 'search', 'redisearch.so' )
+    json_file_path = join(root_path, 'bin', f'{OS}-{OSNICK}-{ARCH}', 'RedisJSON', 'rejson.so' )
+    return [search_file_path, json_file_path]
 
 
 
