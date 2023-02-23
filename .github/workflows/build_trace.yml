@@ -1,0 +1,26 @@
+name: Build on Linux
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  test_concurrent_executions:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: true
+    - name: Setup
+      run: |
+        ./sbin/setup
+        ./deps/readies/bin/getredis
+    - name: Build
+      run: |
+        make DEBUG=1 BUILD_TRACE=1
+    - name: Read After Write tests
+      run: |
+        make pytest TEST=test_raw.py DEBUG=1
