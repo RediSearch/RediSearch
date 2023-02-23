@@ -6,6 +6,8 @@ include(${root}/deps/readies/cmake/main)
 
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
 
+#@@ lists_from_env(LIBUV HIREDIS)
+
 #----------------------------------------------------------------------------------------------
 
 # COORD_TYPE=oss|rlec
@@ -48,14 +50,9 @@ add_compile_options("-fvisibility=hidden")
 
 #----------------------------------------------------------------------------------------------
 
-include(${root}/build/libuv/libuv.cmake)
-include(${root}/build/hiredis/hiredis.cmake)
-
-#----------------------------------------------------------------------------------------------
-
 include_directories(
 	${root}/coord/src
-	${LIBUV_INCLUDE_DIR}
+	${root}/deps/libuv/include
 	${root}/deps
 	${root}/src
 	${root})
@@ -68,6 +65,9 @@ endif()
 add_subdirectory(${root} search)
 add_subdirectory(src/rmr)
 add_subdirectory(src)
+
+include(${root}/build/libuv/libuv.cmake)
+include(${root}/build/hiredis/hiredis.cmake)
 
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:coordinator-core>

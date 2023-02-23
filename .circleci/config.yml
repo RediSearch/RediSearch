@@ -71,6 +71,7 @@ commands:
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
           command: |
+            export HOMEBREW_NO_AUTO_UPDATE=1
             ./deps/readies/bin/getaws
             ls -l /usr/local/bin/python* || true
             echo "python3: $(command -v python3)"
@@ -113,10 +114,10 @@ commands:
             ROOT="$PWD"
             cd tests/pytests/logs
             tar -czf $ROOT/tests-pytests-logs.tgz *.log
+          when: always
       - store_artifacts:
           path: tests-pytests-logs.tgz
           destination: tests-pytests-logs.tgz
-          # path: tests/pytests/logs
 
   persist-artifacts:
     steps:
@@ -192,12 +193,12 @@ commands:
           name: Test (Search)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: make test TEST_PARALLEL=16 SHOW=1 <<parameters.test_params>>
+          command: make test TEST_PARALLEL=16 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
       - run:
           name: Test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: make test TEST_PARALLEL=16 COORD=oss SHOW=1 <<parameters.test_params>>
+          command: make test COORD=oss TEST_PARALLEL=16 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
       - save-tests-logs
 
   build-platforms-steps:
@@ -696,7 +697,6 @@ on-integ-branch: &on-integ-branch
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
-        - /^perf-.*$/
     tags:
       ignore: /.*/
 
