@@ -6,7 +6,7 @@ include(${root}/deps/readies/cmake/main)
 
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
 
-lists_from_env(LIBUV HIREDIS)
+#@@ lists_from_env(LIBUV HIREDIS)
 
 #----------------------------------------------------------------------------------------------
 
@@ -66,6 +66,9 @@ add_subdirectory(${root} search)
 add_subdirectory(src/rmr)
 add_subdirectory(src)
 
+include(${root}/build/libuv/libuv.cmake)
+include(${root}/build/hiredis/hiredis.cmake)
+
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:coordinator-core>
     $<TARGET_OBJECTS:rmutil>
@@ -102,8 +105,8 @@ macro(MODULE_TARGET TYPE)
 
     target_link_libraries(${_moduleName}
 		redisearch-${MODULE_NAME_SUFFIX}
-		${LIBUV}
-		${HIREDIS}
+		${LIBUV_LIBS}
+		${HIREDIS_LIBS}
 		${SSL_LIBS})
 
 	setup_shared_object_target(${_moduleName} ${_moduleName})
@@ -120,10 +123,10 @@ if (BUILD_COORD_OSS)
 
 	add_library(testdeps STATIC ${FINAL_OBJECTS})
 	target_link_libraries(testdeps
-		${LIBUV}
+		${LIBUV_LIBS}
 		redisearch-oss
 		redismock
-		${HIREDIS}
+		${HIREDIS_LIBS}
 		${SSL_LIBS}
 		dl)
 
