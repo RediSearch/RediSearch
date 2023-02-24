@@ -31,6 +31,8 @@
 #include "cluster_spell_check.h"
 #include "profile.h"
 
+#include "libuv/include/uv.h"
+
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -1735,12 +1737,8 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
-#ifdef HAVE_REDISMODULE_HOLDSTRING
-    sCmdCtx->argv[i] = RedisModule_HoldString(ctx, argv[i]);
-#else
-    sCmdCtx->argv[i] = argv[i];
-    RedisModule_RetainString(ctx, argv[i]);
-#endif
+    // We need to copy the argv because it will be freed in the callback (from another thread).
+    sCmdCtx->argv[i] = RedisModule_CreateStringFromString(ctx, argv[i]);
   }
   sCmdCtx->argc = argc;
   sCmdCtx->bc = bc;
@@ -2058,6 +2056,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   setHiredisAllocators();
+  uv_replace_allocator(rm_malloc, rm_realloc, rm_calloc, rm_free);
 
   if (!RSDummyContext) {
     if (RedisModule_GetDetachedThreadSafeContext) {

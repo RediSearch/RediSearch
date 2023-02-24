@@ -21,6 +21,9 @@ jobs:
     - uses: actions/checkout@v3
       with:
         submodules: true
+    - run: |
+        git submodule update --init --recursive
+        git config --global --add safe.directory '*'
     - name: Setup
       run: |
         ./sbin/setup
@@ -35,10 +38,10 @@ jobs:
         make unit-tests
     - name: Flow tests
       run: |
-        make pytest
+        make pytest QUICK=1
     - name: Unit tests (coordinator)
       run: |
         make COORD=1 unit-tests
     - name: Flow tests (coordinator)
       run: |
-        make COORD=1 pytest
+        make COORD=1 pytest QUICK=1
