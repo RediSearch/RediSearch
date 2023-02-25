@@ -138,12 +138,12 @@ pack_ramp() {
 		xtx_vars+=" -e NAME_$dep -e PATH_$dep -e SHA256_$dep"
 	done
 	
-	if [[ -z $RAMP_YAML ]]; then
-		RAMP_YAML=$ROOT/ramp.yml
+	if [[ -n $RAMP_YAML ]]; then
+		RAMP_YAML="$(realpath $RAMP_YAML)"
 	elif [[ -z $RAMP_VARIANT ]]; then
-		RAMP_YAML=$ROOT/ramp.yml
+		RAMP_YAML="$ROOT/pack/ramp.yml"
 	else
-		RAMP_YAML=$ROOT/ramp${_RAMP_VARIANT}.yml
+		RAMP_YAML="$ROOT/pack/ramp${_RAMP_VARIANT}.yml"
 	fi
 
 	python3 $READIES/bin/xtx \
@@ -178,7 +178,7 @@ pack_ramp() {
 			exit 1
 		else
 			local packname=`cat /tmp/ramp.fname`
-			echo "# Created $packname"
+			echo "# Created $(realpath $packname)"
 		fi
 	fi
 
@@ -202,7 +202,7 @@ pack_ramp() {
 				exit 1
 			else
 				local packname=`cat /tmp/ramp.fname`
-				echo "# Created $packname"
+				echo "# Created $(realpath $packname)"
 			fi
 		fi
 	fi
@@ -242,7 +242,7 @@ pack_deps() {
 			cd $depdir
 			cat $ARTDIR/$dep.files | \
 			xargs tar -c --sort=name --owner=root:0 --group=root:0 --mtime='UTC 1970-01-01' \
-				--transform "s,^,$dep_prefix_dir," 2>> /tmp/pack.err | \
+				--transform "s,^,$dep_prefix_dir," 2> /tmp/pack.err | \
 			gzip -n - > $tar_path ; E=$?; } || true
 			EOF
 	fi
