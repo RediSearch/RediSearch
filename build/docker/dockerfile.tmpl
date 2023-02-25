@@ -14,7 +14,7 @@ COPY --from=redis /usr/local/ /usr/local/
 ADD . /build
 
 RUN ./deps/readies/bin/getupdates
-RUN ./sbin/setup
+RUN VERBOSE=1 ./sbin/setup
 
 RUN make build SHOW=1
 
