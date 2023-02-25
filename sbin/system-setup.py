@@ -27,7 +27,7 @@ class RediSearchSetup(paella.Setup):
 
     def debian_compat(self):
         self.install("libatomic1")
-        self.run("%s/bin/getgcc" % READIES)
+        self.run("%s/bin/getgcc --modern" % READIES)
         self.install("libtool m4 automake libssl-dev")
         self.install("python3-dev")
 
@@ -55,7 +55,7 @@ class RediSearchSetup(paella.Setup):
 
     def fedora(self):
         self.install("libatomic")
-        self.run("%s/bin/getgcc" % READIES)
+        self.run("%s/bin/getgcc --modern" % READIES)
         self.install("openssl-devel")
 
     def macos(self):
