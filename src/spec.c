@@ -1860,15 +1860,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   gettimeofday(&start, NULL);
 
   while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB)Indexes_ScanProc, scanner)) {
-    RedisModule_Log(ctx, "notice", "Done scanning a batch");
-    gettimeofday(&now, NULL);
-    timersub(&now, &start, &sub);
-    size_t time_usec = sub.tv_sec * 1000000 + sub.tv_usec;
-    if (time_usec > 1000) {
-      RedisModule_Log(ctx, "notice", "Batch indexing took %f millis", (float)time_usec / 1000);
-    }
     RedisModule_ThreadSafeContextUnlock(ctx);
-//    sched_yield();
     usleep(1);
     RedisModule_ThreadSafeContextLock(ctx);
     gettimeofday(&start, NULL);

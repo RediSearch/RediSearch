@@ -1,6 +1,7 @@
 import unittest
 import random
 import time
+import numpy as np
 
 from includes import *
 from common import getConnectionByEnv, waitForIndex, create_np_array_typed
@@ -52,21 +53,24 @@ def testDeleteIndex(env):
 
 def test_mod4745(env):
     conn = getConnectionByEnv(env)
-    if env.isCluster():
-        # Decrease the timeout so we will be able to reproduce the issue in which the cluster nodes fail to send pings
-        # while docs are being indexed in the background.
-        for con in env.getOSSMasterNodesConnectionList():
-            con.execute_command("config", "set", "cluster-node-timeout", "500")
     r = env
-    N = 50000
+
+    # Create an index with large dim so that a single indexing operation will take a long time.
+    N = 1000
+    dim = 50000
     for i in range(N):
         res = conn.execute_command('hset', 'foo:%d' % i, 'name', f'some string with information to index in the '
                                                                  f'background later on for id {i}',
-                                   'v', create_np_array_typed([i]*100).tobytes())
+                                   'v', create_np_array_typed(np.random.random((1, dim))).tobytes())
         env.assertEqual(res, 2)
 
-    r.expect('ft.create', 'idx', 'schema', 'name', 'text', 'v', 'VECTOR', 'HNSW', '6', 'distance_metric', 'l2', 'DIM', 100,
-             'type', 'float32').ok()
-    # Here we are getting a failure in cluster (with COV) due to a starvation of the main thread, which makes the
-    # cluster mark itself as fail
+    r.expect('ft.create', 'idx', 'schema', 'name', 'text', 'v', 'VECTOR', 'HNSW', '6', 'distance_metric', 'l2', 'DIM',
+             dim, 'type', 'float32').ok()
+    # Make sure that redis server is responsive while we index in the background (responding is less than 1s)
+    for _ in range(5):
+        start = time.time()
+        conn.execute_command('PING')
+        env.assertLess(time.time()-start, 1)
+    # Make sure we are getting here without having cluster mark itself as fail since the server is not responsive and
+    # fail to send cluster PING on time before we reach cluster-node-timeout.
     waitForIndex(r, 'idx')

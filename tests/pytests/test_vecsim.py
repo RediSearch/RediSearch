@@ -1563,11 +1563,6 @@ def test_timeout_reached():
     hybrid_modes = ['BATCHES', 'ADHOC_BF']
     dim = 10
 
-    if env.isCluster():
-        # Extend the timeout so that the cluster wouldn't think that nodes are non resposive while we index
-        # vectors in the Background.
-        for con in env.getOSSMasterNodesConnectionList():
-            con.execute_command("config", "set", "cluster-node-timeout", "60000")
     for algo, n_vec in vecsim_algorithms_and_sizes:
         for data_type in VECSIM_DATA_TYPES:
             # succeed to create indexes with no limits
