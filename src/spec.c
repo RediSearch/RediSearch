@@ -8,6 +8,7 @@
 
 #include <math.h>
 #include <ctype.h>
+#include <sys/time.h>
 
 #include "util/logging.h"
 #include "util/misc.h"
@@ -1806,6 +1807,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
                              IndexesScanner *scanner) {
   // RMKey it is provided as best effort but in some cases it might be NULL
+//  RedisModule_Log(ctx, "notice", "scanning a key");
   bool keyOpened = false;
   if (!key) {
     key = RedisModule_OpenKey(ctx, keyname, REDISMODULE_READ);
@@ -1854,10 +1856,22 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_Log(ctx, "notice", "Scanning index %s in background", scanner->spec->name);
   }
 
+  struct timeval start, now, sub;
+  gettimeofday(&start, NULL);
+
   while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB)Indexes_ScanProc, scanner)) {
+    RedisModule_Log(ctx, "notice", "Done scanning a batch");
+    gettimeofday(&now, NULL);
+    timersub(&now, &start, &sub);
+    size_t time_usec = sub.tv_sec * 1000000 + sub.tv_usec;
+    if (time_usec > 1000) {
+      RedisModule_Log(ctx, "notice", "Batch indexing took %f millis", (float)time_usec / 1000);
+    }
     RedisModule_ThreadSafeContextUnlock(ctx);
-    sched_yield();
+//    sched_yield();
+    usleep(1);
     RedisModule_ThreadSafeContextLock(ctx);
+    gettimeofday(&start, NULL);
 
     if (scanner->cancelled) {
       RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%ld)",
