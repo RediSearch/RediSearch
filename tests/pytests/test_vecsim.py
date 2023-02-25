@@ -624,8 +624,6 @@ def test_memory_info():
 
 
 def test_hybrid_query_batches_mode_with_text(env):
-    if SANITIZER != '':
-        env.skipOnCluster()
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
