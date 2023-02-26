@@ -28,19 +28,8 @@ typedef struct {
   mempool_free_fn free;
   size_t initialCap;  // Initial size of the pool
   size_t maxCap;      // maxmimum size of the pool
-
-  /**
-   * if true, will be added to the list of global mempool objects which
-   * will be destroyed via mempool_free_global(). This also means you
-   * cannot call mempool_destroy() on it manually
-   */
-  int isGlobal;
 } mempool_options;
 
-#define MEMPOOOL_STATIC_ALLOCATOR(name, sz) \
-  void *name() {                            \
-    return rm_malloc(sz);                   \
-  }
 /* Create a new memory pool */
 mempool_t *mempool_new(const mempool_options *options);
 
@@ -53,8 +42,11 @@ void mempool_release(struct mempool_t *p, void *ptr);
 /* destroy the pool, releasing all entries in it and destroying its internal array */
 void mempool_destroy(struct mempool_t *p);
 
-/** Free all created memory pools */
+/* Free all created memory pools */
 void mempool_free_global(void);
+
+/* Create a new memory pool and set the global pool to it, if the global pool is uninitialized. */
+void mempool_test_set_global(mempool_t **global_p, const mempool_options *options);
 #ifdef __cplusplus
 }
 #endif
