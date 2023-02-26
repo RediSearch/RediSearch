@@ -1195,31 +1195,62 @@ def test_redis_memory_limits():
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
-def test_default_block_size():
+
+def test_default_block_size_and_initial_capacity():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
-    used_memory = int(env.cmd('info', 'memory')['used_memory'])
-    maxmemory = used_memory + 800000
-    conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
+    dim = 1024
+    default_blockSize = 1024 # default block size
     currIdx = 0
-    exp_block_size = maxmemory // 10 // (128*4) # limit * 10% / dim * size of float
+    used_memory = None
+    maxmemory = None
 
-    env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '8', 'TYPE', 'FLOAT32',
-                                        'DIM', '128', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0))
-    env.assertLessEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", currIdx, 'v'))['BLOCK_SIZE'], exp_block_size)
-    currIdx+=1
+    def set_memory_limit(data_byte_size = 1):
+        nonlocal used_memory, maxmemory
+        used_memory = int(conn.execute_command('info', 'memory')['used_memory'])
+        maxmemory = used_memory + (20 * 1024 * 1024) # 20MB
+        conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
+        return maxmemory // 10 // (dim*data_byte_size)
 
-    used_memory = int(env.cmd('info', 'memory')['used_memory'])
-    maxmemory = used_memory + 800000
-    conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
-    env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-                                        'DIM', '128', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0))
-    # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
-    # exp_block_size = maxmemory // 10 // (128*4) # limit * 10% / dim * size of float
-    # env.assertLessEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", currIdx, 'v'))['BLOCK_SIZE'], exp_block_size)
-    currIdx+=1
+    def check_algorithm_and_type_combination(with_memory_limit):
+        nonlocal currIdx
+        exp_block_size = default_blockSize
+
+        for algo in ['FLAT', 'HNSW']:
+            if with_memory_limit:
+                exp_block_size = set_memory_limit(4)
+                env.assertLess(exp_block_size, default_blockSize)
+                # Explicitly, the default values should fail:
+                env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', algo, '8', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+                            'INITIAL_CAP', default_blockSize).error().contains(
+                            f"Vector index initial capacity {default_blockSize} exceeded server limit")
+                if algo == 'FLAT': # TODO: remove condition when BLOCK_SIZE is added to FT.CREATE on HNSW
+                    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', algo, '10', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0,
+                            'BLOCK_SIZE', default_blockSize).error().contains(
+                    f"Vector index block size {default_blockSize} exceeded server limit")
+
+            env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', algo, '6',
+                                                'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2'))
+            debug_info = to_dict(conn.execute_command("FT.DEBUG", "VECSIM_INFO", currIdx, 'v'))
+            if algo == 'FLAT': # TODO: remove condition when BLOCK_SIZE is added to FT.CREATE on HNSW
+                env.assertLessEqual(debug_info['BLOCK_SIZE'], exp_block_size)
+            # TODO: if we ever add INITIAL_CAP to debug data, uncomment this
+            # env.assertEqual(debug_info['BLOCK_SIZE'], debug_info['INITIAL_CAP'])
+            currIdx+=1
+
+    # Test defaults with no memory limit
+    check_algorithm_and_type_combination(False)
+
+    # set memory limits and reload, to verify that we succeed to load with the new limits
+    num_indexes = len(conn.execute_command('FT._LIST'))
+    set_memory_limit()
+    env.dumpAndReload()
+    env.assertEqual(num_indexes, len(conn.execute_command('FT._LIST')))
+
+    # Test defaults with memory limit
+    check_algorithm_and_type_combination(True)
 
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))

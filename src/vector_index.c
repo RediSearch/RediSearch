@@ -5,12 +5,12 @@
 
 // taken from parser.c
 void unescape(char *s, size_t *sz) {
-  
+
   char *dst = s;
   char *src = dst;
   char *end = s + *sz;
   while (src < end) {
-      // unescape 
+      // unescape
       if (*src == '\\' && src + 1 < end &&
          (ispunct(*(src+1)) || isspace(*(src+1)))) {
           ++src;
@@ -240,7 +240,7 @@ int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   QueryError status = {0};
   int rv;
-  
+
   vecsimParams->algo = LoadUnsigned_IOError(rdb, goto fail);
 
   switch (vecsimParams->algo) {
@@ -267,35 +267,39 @@ int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
     size_t old_block_size = 0;
     size_t old_initial_cap = 0;
     RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: %s", QueryError_GetError(&status));
-    // We change the initial size to 0 and block size to default and try again.
-    // setting block size to 0 will later set it to default. 
+    // We change the initial size and block size to default and try again.
     switch (vecsimParams->algo) {
       case VecSimAlgo_BF:
         old_block_size = vecsimParams->bfParams.blockSize;
         old_initial_cap = vecsimParams->bfParams.initialCapacity;
         vecsimParams->bfParams.blockSize = 0;
-        vecsimParams->bfParams.initialCapacity = 0;
+        vecsimParams->bfParams.initialCapacity = SIZE_MAX;
         break;
       case VecSimAlgo_HNSWLIB:
         old_block_size = vecsimParams->hnswParams.blockSize;
         old_initial_cap = vecsimParams->hnswParams.initialCapacity;
         vecsimParams->hnswParams.blockSize = 0;
-        vecsimParams->hnswParams.initialCapacity = 0;
+        vecsimParams->hnswParams.initialCapacity = SIZE_MAX;
         break;
     }
-    // If we changed the initial capacity, log the change
-    if (old_initial_cap) {
-      RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "WARNING: changing initial capacity from %zu to 0", old_initial_cap);
-    }
-    QueryError_ClearError(&status);
     // We don't know yet what the block size will be (default value can be effected by memory limit),
     // so we first validating the new parameters.
+    QueryError_ClearError(&status);
     rv = VecSimIndex_validate_params(ctx, vecsimParams, &status);
     // Now default block size is set. we can log this change now.
-    if (VecSimAlgo_HNSWLIB == vecsimParams->algo && vecsimParams->hnswParams.blockSize != old_block_size) {
-      RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "WARNING: changing block size from %zu to %zu", old_block_size, vecsimParams->hnswParams.blockSize);
-    } else if (VecSimAlgo_BF == vecsimParams->algo && vecsimParams->bfParams.blockSize != old_block_size) {
-      RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "WARNING: changing block size from %zu to %zu", old_block_size, vecsimParams->bfParams.blockSize);
+    switch (vecsimParams->algo) {
+      case VecSimAlgo_BF:
+        if (vecsimParams->bfParams.initialCapacity != old_initial_cap)
+          RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "WARNING: changing initial capacity from %zu to %zu", old_initial_cap, vecsimParams->bfParams.initialCapacity);
+        if (vecsimParams->hnswParams.blockSize != old_block_size)
+          RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "WARNING: changing block size from %zu to %zu", old_block_size, vecsimParams->bfParams.blockSize);
+        break;
+      case VecSimAlgo_HNSWLIB:
+        if (vecsimParams->hnswParams.initialCapacity != old_initial_cap)
+          RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "WARNING: changing initial capacity from %zu to %zu", old_initial_cap, vecsimParams->hnswParams.initialCapacity);
+        if (vecsimParams->hnswParams.blockSize != old_block_size)
+          RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "WARNING: changing block size from %zu to %zu", old_block_size, vecsimParams->hnswParams.blockSize);
+        break;
     }
     // If the second validation failed, we fail.
     if (REDISMODULE_OK != rv) {
