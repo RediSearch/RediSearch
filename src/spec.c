@@ -1030,7 +1030,7 @@ reset:
 
   sp->numFields = prevNumFields;
   sp->sortables->len = prevSortLen;
-  sp->flags = prevFlags & (sp->flags & Index_HasSuffixTrie);
+  sp->flags = prevFlags | (sp->flags & Index_HasSuffixTrie);
   return 0;
 }
 
