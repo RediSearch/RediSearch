@@ -2,6 +2,7 @@ import unittest
 import random
 import time
 import numpy as np
+from RLTest import Env
 
 from includes import *
 from common import getConnectionByEnv, waitForIndex, create_np_array_typed

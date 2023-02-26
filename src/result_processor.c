@@ -726,7 +726,7 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
 static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Buffer and Locker", "Unlocker", "Scorer",
                                      "Sorter",    "Counter",   "Pager/Limiter", "Highlighter", 
                                      "Grouper",   "Projector", "Filter",        "Profile",     
-                                     "Network",   "Vector Similarity Scores Loader"};
+                                     "Network",   "Metrics Applier"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
