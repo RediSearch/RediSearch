@@ -84,6 +84,31 @@ static void bubbleup(heap_t* h, int i) {
   }
 }
 
+static inline int highest_index(heap_t* h, int i) {
+  int a = first_child(i);
+  int b = second_child(i);
+  int c = first_child(a);
+  int d = second_child(a);
+  int e = first_child(b);
+  int f = second_child(b);
+
+  if (f <= h->count) return 5;
+  if (e <= h->count) return 4;
+  if (d <= h->count) return 3;
+  if (c <= h->count) return 2;
+  if (b <= h->count) return 1;
+  if (a <= h->count) return 0;
+  return -1;
+}
+
+#define choose_from_3(fn, a, b, c) \
+  (fn(h, a, b) ? (fn(h, a, c) ? a : c) : (fn(h, b, c) ? b : c))
+
+#define choose_from_4(fn, a, b, c, d) \
+  (fn(h, a, b) ? choose_from_3(fn, a, c, d) : choose_from_3(fn, b, c, d))
+
+
+
 int index_max_child_grandchild(heap_t* h, int i) {
   int a = first_child(i);
   int b = second_child(i);
@@ -92,15 +117,22 @@ int index_max_child_grandchild(heap_t* h, int i) {
   int f = second_child(b);
   int e = first_child(b);
 
-  int min_idx = -1;
-  if (a <= h->count) min_idx = a;
-  if (b <= h->count && heap_gt(h, b, min_idx)) min_idx = b;
-  if (c <= h->count && heap_gt(h, c, min_idx)) min_idx = c;
-  if (d <= h->count && heap_gt(h, d, min_idx)) min_idx = d;
-  if (e <= h->count && heap_gt(h, e, min_idx)) min_idx = e;
-  if (f <= h->count && heap_gt(h, f, min_idx)) min_idx = f;
-
-  return min_idx;
+  switch (highest_index(h, i)) {
+    case 5:
+      return choose_from_4(heap_gt, c, d, e, f);
+    case 4:
+      return choose_from_3(heap_gt, c, d, e);
+    case 3:
+      return choose_from_3(heap_gt, c, d, b);
+    case 2:
+      return heap_gt(h, c, b) ? c : b;
+    case 1:
+      return heap_gt(h, a, b) ? a : b;
+    case 0:
+      return a;
+    default:
+      return -1;
+  }
 }
 
 int index_min_child_grandchild(heap_t* h, int i) {
@@ -111,15 +143,22 @@ int index_min_child_grandchild(heap_t* h, int i) {
   int e = first_child(b);
   int f = second_child(b);
 
-  int min_idx = -1;
-  if (a <= h->count) min_idx = a;
-  if (b <= h->count && heap_lt(h, b, min_idx)) min_idx = b;
-  if (c <= h->count && heap_lt(h, c, min_idx)) min_idx = c;
-  if (d <= h->count && heap_lt(h, d, min_idx)) min_idx = d;
-  if (e <= h->count && heap_lt(h, e, min_idx)) min_idx = e;
-  if (f <= h->count && heap_lt(h, f, min_idx)) min_idx = f;
-
-  return min_idx;
+  switch (highest_index(h, i)) {
+    case 5:
+      return choose_from_4(heap_lt, c, d, e, f);
+    case 4:
+      return choose_from_3(heap_lt, c, d, e);
+    case 3:
+      return choose_from_3(heap_lt, c, d, b);
+    case 2:
+      return heap_lt(h, c, b) ? c : b;
+    case 1:
+      return heap_lt(h, a, b) ? a : b;
+    case 0:
+      return a;
+    default:
+      return -1;
+  }
 }
 
 static void trickledown_max(heap_t* h, int i) {
