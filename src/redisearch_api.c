@@ -367,6 +367,16 @@ QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double
   return ret;
 }
 
+void RediSearch_SetNumericNode(RSQNode* node, double max, double min,
+                                        int includeMax, int includeMin) {
+  if (node->type == QN_NUMERIC) {
+    node->nn.nf->min = min;
+    node->nn.nf->max = max;
+    node->nn.nf->inclusiveMin = includeMin;
+    node->nn.nf->inclusiveMax = includeMax;
+  }
+}
+
 QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lat, double lon,
                                         double radius, RSGeoDistance unitType) {
   QueryNode* ret = NewQueryNode(QN_GEO);
@@ -470,6 +480,14 @@ QueryNode* RediSearch_CreateTagLexRangeNode(IndexSpec* sp, const char* begin,
 QueryNode* RediSearch_CreateTagNode(IndexSpec* sp, const char* field) {
   QueryNode* ret = NewQueryNode(QN_TAG);
   ret->tag.fieldName = rm_strdup(field);
+  ret->tag.len = strlen(field);
+  ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
+  return ret;
+}
+
+QueryNode* RediSearch_CreateTagNode_Owned(IndexSpec* sp, const char* field) {
+  QueryNode* ret = NewQueryNode(QN_TAG);
+  ret->tag.fieldName = field;
   ret->tag.len = strlen(field);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
   return ret;

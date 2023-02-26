@@ -262,6 +262,41 @@ TEST_F(LLApiTest, testAddDocumentNumericFieldWithMoreThenOneNode) {
   RediSearch_DropIndex(index);
 }
 
+TEST_F(LLApiTest, testAddDocumentSetNumericNode) {
+  // creating the index
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+
+  // adding text field to the index
+  RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
+
+  // adding document to the index
+  RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
+  RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 20, RSFLDTYPE_DEFAULT);
+  RediSearch_SpecAddDocument(index, d);
+
+  // searching on the index
+  RSQNode* qn = RediSearch_CreateNumericNode(index, NUMERIC_FIELD_NAME, 30, 10, 0, 0);
+  // updating the query node - not found
+  RediSearch_SetNumericNode(qn, 20, 10, 0, 1);
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);  
+  size_t len;
+  const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
+  ASSERT_STREQ(id, NULL);
+
+  RediSearch_ResultsIteratorFree(iter);
+  
+  // searching again on the index
+  qn = RediSearch_CreateNumericNode(index, NUMERIC_FIELD_NAME, 30, 10, 0, 0);
+  iter = RediSearch_GetResultsIterator(qn, index);
+
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
+  ASSERT_STREQ(id, DOCID1);
+
+  RediSearch_ResultsIteratorFree(iter);
+  RediSearch_DropIndex(index);
+}
+
+
 TEST_F(LLApiTest, testAddDocumetTagField) {
   // creating the index
   RSIndex* index = RediSearch_CreateIndex("index", NULL);
