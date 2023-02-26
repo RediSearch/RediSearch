@@ -61,4 +61,4 @@ RUN chown -R redis:redis /var/opt/redislabs
 COPY --from=builder /build/bin/artifacts/ /var/opt/redislabs/artifacts/
 {% endif %}
 
-CMD ["redis-server", "--loadmodule", "{{MODULES_DIR}}/redisearch.so", "--loadmodule", "{{MODULES_DIR}}/rejson.so"]
+CMD ["redis-server", "--loadmodule", "{{MODULES_DIR}}/redisearch.so", "ENABLE_THREADS", "TRUE", "WORKER_THREADS", $(nproc), "--loadmodule", "{{MODULES_DIR}}/rejson.so"]
