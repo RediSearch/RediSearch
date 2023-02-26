@@ -624,8 +624,6 @@ def test_memory_info():
 
 
 def test_hybrid_query_batches_mode_with_text(env):
-    if SANITIZER != '':
-        env.skipOnCluster()
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
@@ -1581,9 +1579,7 @@ def test_rdb_memory_limit():
         env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
 
-def test_timeout_reached(env):
-    if CODE_COVERAGE:
-        env.skip()
+def test_timeout_reached():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
     nshards = env.shardsCount
