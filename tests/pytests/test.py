@@ -1847,6 +1847,7 @@ def testSortbyMissingFieldSparse(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'lastName', 'text', 'SORTABLE', 'firstName', 'text', 'SORTABLE')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'lastName', 'mark')
+    waitForIndex(env, 'idx')
     res = env.cmd('ft.search', 'idx', 'mark', 'WITHSORTKEYS', "SORTBY",
                    "firstName", "ASC", "limit", 0, 100)
     # commented because we don't filter out exclusive sortby fields
