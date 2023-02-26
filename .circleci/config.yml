@@ -695,7 +695,7 @@ on-integ-branch: &on-integ-branch
       only:
         - master
         - /^\d+\.\d+.*$/
-        - /^feature-.*$/
+        - /^feature.*$/
     tags:
       ignore: /.*/
 
