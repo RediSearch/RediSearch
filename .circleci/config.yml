@@ -838,6 +838,7 @@ workflows:
               redis_version: ["6.0", "6.2", "7", "unstable"]
       - sanitize:
           name: nightly-sanitize-<< matrix.san-type >>
+          args: ""
           matrix:
             parameters:
               san-type: [address]
