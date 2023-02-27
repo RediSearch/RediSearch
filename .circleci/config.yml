@@ -112,12 +112,16 @@ commands:
           name: Pack logs
           command: |
             ROOT="$PWD"
-            mkdir -p logs
-            cd tests/pytests/logs
             if [[ -n $CIRCLE_BRANCH ]]; then CIRCLE_BRANCH_OR_TAG="$CIRCLE_BRANCH"; else CIRCLE_BRANCH_OR_TAG="$CIRCLE_TAG"; fi
             TEST_LOGFILE_PREFIX=${CIRCLE_PROJECT_REPONAME}_${CIRCLE_BRANCH_OR_TAG}_${CIRCLE_JOB}
+            mkdir -p logs
+            cd $ROOT/tests/pytests/logs
             TEST_LOGFILE=$ROOT/logs/${TEST_LOGFILE_PREFIX}_tests-pytests-logs.tgz
-            tar -czf $TEST_LOGFILE *.log*
+            cd $ROOT/tests/pytests/logs
+            tar -czf $TEST_LOGFILE *.log* || true
+            TEST_LOGFILE=$ROOT/logs/${TEST_LOGFILE_PREFIX}_tests-unit-tests-logs.tgz
+            cd $ROOT/tests/logs
+            tar -czf $TEST_LOGFILE *.log* || true
           when: always
       - store_artifacts:
           path: logs/
@@ -777,13 +781,6 @@ workflows:
           matrix:
             parameters:
               san-type: [address]
-      - sanitize:
-          name: sanitize-more-<< matrix.san-type >>
-          <<: *on-any-branch
-          args: QUICK="~1"
-          matrix:
-            parameters:
-              san-type: [address]
       - valgrind-memcheck:
           <<: *never
       - benchmark-search-oss-standalone:
@@ -854,6 +851,12 @@ workflows:
           matrix:
             parameters:
               redis_version: ["6.0", "6.2", "7", "unstable"]
+      - sanitize:
+          name: nightly-sanitize-<< matrix.san-type >>
+          args: QUICK="~1"
+          matrix:
+            parameters:
+              san-type: [address]
 
   nightly-benchmarks:
     triggers:
@@ -862,7 +865,6 @@ workflows:
           filters:
             branches:
               only: master
-
     jobs:
       - benchmark-search-oss-standalone:
           context: common
