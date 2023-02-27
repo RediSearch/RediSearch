@@ -113,11 +113,13 @@ commands:
           command: |
             ROOT="$PWD"
             cd tests/pytests/logs
-            tar -czf $ROOT/tests-pytests-logs.tgz *.log*
+            if [[ -n $CIRCLE_BRANCH ]]; then CIRCLE_BRANCH_OR_TAG="$CIRCLE_BRANCH"; else CIRCLE_BRANCH_OR_TAG="$CIRCLE_TAG"; fi
+            TEST_LOGFILE_PREFIX=${CIRCLE_PROJECT_REPONAME}_${CIRCLE_BRANCH_OR_TAG}_${CIRCLE_JOB}
+            TEST_LOGFILE=$ROOT/logs/${TEST_LOGFILE_PREFIX}_tests-pytests-logs.tgz
+            tar -czf $TEST_LOGFILE *.log*
           when: always
       - store_artifacts:
-          path: tests-pytests-logs.tgz
-          destination: tests-pytests-logs.tgz
+          path: logs/
 
   persist-artifacts:
     steps:
@@ -545,14 +547,14 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           command: |
             make SAN=<<parameters.san-type>> build SHOW=1
-            make SAN=<<parameters.san-type>> test TEST_PARALLEL=16 SHOW=1 <<parameters.args>>
+            make SAN=<<parameters.san-type>> test TEST_PARALLEL=16 SHOW=1 CLEAR_LOGS=0 <<parameters.args>>
           no_output_timeout: 30m
       - run:
           name: Build & test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
           command: |
             make SAN=<<parameters.san-type>> COORD=oss build SHOW=1
-            make SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 <<parameters.args>>
+            make SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 CLEAR_LOGS=0 <<parameters.args>>
           no_output_timeout: 30m
       - save-tests-logs
 
