@@ -104,24 +104,9 @@ commands:
   save-tests-logs:
     steps:
       - run:
-          name: Cleanup test log dir
-          command: |
-            rm -f tests/pytests/logs/*.{aof,rdb}
-          when: always
-      - run:
           name: Pack logs
-          command: |
-            ROOT="$PWD"
-            if [[ -n $CIRCLE_BRANCH ]]; then CIRCLE_BRANCH_OR_TAG="$CIRCLE_BRANCH"; else CIRCLE_BRANCH_OR_TAG="$CIRCLE_TAG"; fi
-            TEST_LOGFILE_PREFIX=${CIRCLE_PROJECT_REPONAME}_${CIRCLE_BRANCH_OR_TAG}_${CIRCLE_JOB}
-            mkdir -p logs
-            cd $ROOT/tests/pytests/logs
-            TEST_LOGFILE=$ROOT/logs/${TEST_LOGFILE_PREFIX}_tests-pytests-logs.tgz
-            cd $ROOT/tests/pytests/logs
-            tar -czf $TEST_LOGFILE *.log* || true
-            TEST_LOGFILE=$ROOT/logs/${TEST_LOGFILE_PREFIX}_tests-unit-tests-logs.tgz
-            cd $ROOT/tests/logs
-            tar -czf $TEST_LOGFILE *.log* || true
+          shell: /bin/bash -l -eo pipefail
+          command: ./sbin/circleci-pack-logs
           when: always
       - store_artifacts:
           path: logs/
