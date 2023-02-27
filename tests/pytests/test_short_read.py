@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import zipfile
 from itertools import chain
+import tempfile
 
 import gevent.queue
 import gevent.server
@@ -15,7 +16,6 @@ import gevent.socket
 from common import *
 from includes import *
 
-CREATE_INDICES_TARGET_DIR = '/tmp/test'
 
 SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '1'))
 SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
@@ -110,7 +110,8 @@ def create_indices(env, rdbFileName, idxNameStem, isHash, isJson):
 
     env.assertTrue(env.cmd('save'))
     # Copy to avoid truncation of rdb due to RLTest flush and save
-    dbCopyFilePath = os.path.join(CREATE_INDICES_TARGET_DIR, dbFileName)
+    tempdir = tempfile.TemporaryDirectory(prefix='test_')
+    dbCopyFilePath = os.path.join(tempdir, dbFileName)
     dbCopyFileDir = os.path.dirname(dbCopyFilePath)
     if not os.path.exists(dbCopyFileDir):
         os.makedirs(dbCopyFileDir)
