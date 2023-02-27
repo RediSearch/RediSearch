@@ -112,6 +112,7 @@ commands:
           name: Pack logs
           command: |
             ROOT="$PWD"
+            mkdir -p logs
             cd tests/pytests/logs
             if [[ -n $CIRCLE_BRANCH ]]; then CIRCLE_BRANCH_OR_TAG="$CIRCLE_BRANCH"; else CIRCLE_BRANCH_OR_TAG="$CIRCLE_TAG"; fi
             TEST_LOGFILE_PREFIX=${CIRCLE_PROJECT_REPONAME}_${CIRCLE_BRANCH_OR_TAG}_${CIRCLE_JOB}
