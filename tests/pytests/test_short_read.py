@@ -111,7 +111,7 @@ def create_indices(env, rdbFileName, idxNameStem, isHash, isJson):
     env.assertTrue(env.cmd('save'))
     # Copy to avoid truncation of rdb due to RLTest flush and save
     tempdir = tempfile.TemporaryDirectory(prefix='test_')
-    dbCopyFilePath = os.path.join(tempdir, dbFileName)
+    dbCopyFilePath = os.path.join(tempdir.name, dbFileName)
     dbCopyFileDir = os.path.dirname(dbCopyFilePath)
     if not os.path.exists(dbCopyFileDir):
         os.makedirs(dbCopyFileDir)
