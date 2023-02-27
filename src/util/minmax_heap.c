@@ -14,7 +14,9 @@
 
 #include "rmalloc.h"
 
-#define is_min(n) ((log2_32(n) & 1) == 0)
+// parity of the number of leading zeros, AKA parity of log32(n)
+#define is_min(n) (__builtin_clz(n) & 1)
+
 #define parent(n) (n / 2)
 #define first_child(n) (n * 2)
 #define second_child(n) ((n * 2) + 1)
@@ -24,17 +26,11 @@
 
 #define heap_max(h, x, y) (heap_gt(h, x, y) ? h->data[x] : h->data[y])
 
-static const int tab32[32] = {0, 9,  1,  10, 13, 21, 2,  29, 11, 14, 16, 18, 22, 25, 3, 30,
-                              8, 12, 20, 28, 15, 17, 24, 7,  19, 27, 23, 6,  26, 5,  4, 31};
+#define choose_from_3(fn, a, b, c) \
+  (fn(h, a, b) ? (fn(h, a, c) ? a : c) : (fn(h, b, c) ? b : c))
 
-static inline int log2_32(uint32_t value) {
-  value |= value >> 1;
-  value |= value >> 2;
-  value |= value >> 4;
-  value |= value >> 8;
-  value |= value >> 16;
-  return tab32[(uint32_t)(value * 0x07C4ACDD) >> 27];
-}
+#define choose_from_4(fn, a, b, c, d) \
+  (fn(h, a, b) ? choose_from_3(fn, a, c, d) : choose_from_3(fn, b, c, d))
 
 #define swap(h, i, j)        \
   {                          \
@@ -101,21 +97,13 @@ static inline int highest_index(heap_t* h, int i) {
   return -1;
 }
 
-#define choose_from_3(fn, a, b, c) \
-  (fn(h, a, b) ? (fn(h, a, c) ? a : c) : (fn(h, b, c) ? b : c))
-
-#define choose_from_4(fn, a, b, c, d) \
-  (fn(h, a, b) ? choose_from_3(fn, a, c, d) : choose_from_3(fn, b, c, d))
-
-
-
 int index_max_child_grandchild(heap_t* h, int i) {
   int a = first_child(i);
   int b = second_child(i);
-  int d = second_child(a);
   int c = first_child(a);
-  int f = second_child(b);
+  int d = second_child(a);
   int e = first_child(b);
+  int f = second_child(b);
 
   switch (highest_index(h, i)) {
     case 5:
@@ -197,14 +185,6 @@ static void trickledown_min(heap_t* h, int i) {
   }
 }
 
-static void trickledown(heap_t* h, int i) {
-  if (is_min(i)) {
-    trickledown_min(h, i);
-  } else {
-    trickledown_max(h, i);
-  }
-}
-
 void mmh_insert(heap_t* h, void* value) {
   assert(value != NULL);
   h->count++;
@@ -221,7 +201,7 @@ void* mmh_pop_min(heap_t* h) {
   if (h->count > 1) {
     void* d = h->data[1];
     h->data[1] = h->data[h->count--];
-    trickledown(h, 1);
+    trickledown_min(h, 1);
 
     return d;
   }
@@ -239,7 +219,7 @@ void* mmh_pop_max(heap_t* h) {
     if (heap_lt(h, 2, 3)) idx = 3;
     void* d = h->data[idx];
     h->data[idx] = h->data[h->count--];
-    trickledown(h, idx);
+    trickledown_max(h, idx);
 
     return d;
   }
