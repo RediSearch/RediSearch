@@ -113,7 +113,7 @@ commands:
           command: |
             ROOT="$PWD"
             cd tests/pytests/logs
-            tar -czf $ROOT/tests-pytests-logs.tgz *.log
+            tar -czf $ROOT/tests-pytests-logs.tgz *.log*
           when: always
       - store_artifacts:
           path: tests-pytests-logs.tgz
@@ -347,6 +347,7 @@ commands:
                   --auto-approve \
                   --pull-request ${CIRCLE_PULL_REQUEST##*/}
             fi
+
 #----------------------------------------------------------------------------------------------------------------------------------
 
 jobs:
@@ -533,6 +534,8 @@ jobs:
     parameters:
       san-type:
         type: string
+      args:
+        type: string
     steps:
       - early-returns
       - checkout-all
@@ -542,14 +545,14 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           command: |
             make SAN=<<parameters.san-type>> build SHOW=1
-            make SAN=<<parameters.san-type>> test TEST_PARALLEL=16 SHOW=1 QUICK=1
+            make SAN=<<parameters.san-type>> test TEST_PARALLEL=16 SHOW=1 <<parameters.san-type>>
           no_output_timeout: 30m
       - run:
           name: Build & test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
           command: |
             make SAN=<<parameters.san-type>> COORD=oss build SHOW=1
-            make SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 QUICK=1
+            make SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 <<parameters.san-type>>
           no_output_timeout: 30m
       - save-tests-logs
 
@@ -767,9 +770,17 @@ workflows:
       - sanitize:
           name: sanitize-<< matrix.san-type >>
           <<: *on-any-branch
+          args: QUICK=1
           matrix:
             parameters:
-              san-type: [address] # [address, memory]
+              san-type: [address]
+      - sanitize:
+          name: sanitize-more-<< matrix.san-type >>
+          <<: *on-any-branch
+          args: QUICK="~1"
+          matrix:
+            parameters:
+              san-type: [address]
       - valgrind-memcheck:
           <<: *never
       - benchmark-search-oss-standalone:
