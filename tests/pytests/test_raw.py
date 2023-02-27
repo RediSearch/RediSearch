@@ -6,7 +6,7 @@ from includes import *
 def test_sanity(searchEnv):
     if not DEBUG:
         searchEnv.skip()
-    searchEnv.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
+    searchEnv.expect('ft.create', 'idx', 'schema', 'name', 'text').ok()
     searchEnv.expect('hset', 'doc1', 'name', 'foo').equal(1)
     worker_debuger = searchEnv.attach_to_worker(0)
     async_res = searchEnv.async_cmd('FT.SEARCH', 'idx', 'foo')
@@ -19,7 +19,7 @@ def test_sanity(searchEnv):
 def test_add_doc_index_strong_ref(searchEnv):
     if not DEBUG:
         searchEnv.skip()
-    searchEnv.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
+    searchEnv.expect('ft.create', 'idx', 'schema', 'name', 'text').ok()
     searchEnv.expect('hset', 'doc1', 'name', 'foo').equal(1)
     worker_debuger = searchEnv.attach_to_worker(0)
     async_res = searchEnv.async_cmd('FT.SEARCH', 'idx', 'foo')
@@ -39,7 +39,7 @@ def test_add_doc_index_strong_ref(searchEnv):
 def test_edit_doc_index_strong_ref(searchEnv):
     if not DEBUG:
         searchEnv.skip()
-    searchEnv.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
+    searchEnv.expect('ft.create', 'idx', 'schema', 'name', 'text').ok()
     searchEnv.expect('hset', 'doc1', 'name', 'foo').equal(1)
     worker_debuger = searchEnv.attach_to_worker(0)
     async_res = searchEnv.async_cmd('FT.SEARCH', 'idx', 'bar')
@@ -59,7 +59,7 @@ def test_edit_doc_index_strong_ref(searchEnv):
 def test_drop_index_strong_ref(searchEnv):
     if not DEBUG:
         searchEnv.skip()
-    searchEnv.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
+    searchEnv.expect('ft.create', 'idx', 'schema', 'name', 'text').ok()
     searchEnv.expect('hset', 'doc1', 'name', 'foo').equal(1)
     worker_debuger = searchEnv.attach_to_worker(0)
     async_res = searchEnv.async_cmd('FT.SEARCH', 'idx', 'foo')
@@ -79,7 +79,7 @@ def test_drop_index_strong_ref(searchEnv):
 def test_drop_index_delete_docs_strong_ref(searchEnv):
     if not DEBUG:
         searchEnv.skip()
-    searchEnv.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
+    searchEnv.expect('ft.create', 'idx', 'schema', 'name', 'text').ok()
     searchEnv.expect('hset', 'doc1', 'name', 'foo').equal(1)
     worker_debuger = searchEnv.attach_to_worker(0)
     async_res = searchEnv.async_cmd('FT.SEARCH', 'idx', 'foo')
@@ -99,7 +99,7 @@ def test_drop_index_delete_docs_strong_ref(searchEnv):
 def test_drop_index_weak_ref(searchEnv):
     if not DEBUG:
         searchEnv.skip()
-    searchEnv.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
+    searchEnv.expect('ft.create', 'idx', 'schema', 'name', 'text').ok()
     searchEnv.expect('hset', 'doc1', 'name', 'foo').equal(1)
     worker_debuger = searchEnv.attach_to_worker(0)
     async_res = searchEnv.async_cmd('FT.SEARCH', 'idx', 'foo')
