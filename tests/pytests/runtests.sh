@@ -603,7 +603,7 @@ if [[ -z $COORD ]]; then
 	
 	if [[ $QUICK != "~1" ]]; then
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
-	if
+	fi
 
 	if [[ $QUICK != 1 ]]; then
 		{ (MODARGS="${MODARGS}; CONCURRENT_WRITE_MODE;" \
