@@ -14,7 +14,7 @@
 
 #include "rmalloc.h"
 
-// parity of the number of leading zeros, AKA parity of log32(n)
+// parity of the number of leading zeros, AKA parity of log2(n)
 #define is_min(n) (__builtin_clz(n) & 1)
 
 #define parent(n) (n / 2)
@@ -111,9 +111,9 @@ int index_max_child_grandchild(heap_t* h, int i) {
     case 4:
       return choose_from_3(heap_gt, c, d, e);
     case 3:
-      return choose_from_3(heap_gt, c, d, b);
+      return choose_from_3(heap_gt, b, c, d);
     case 2:
-      return heap_gt(h, c, b) ? c : b;
+      return heap_gt(h, b, c) ? b : c;
     case 1:
       return heap_gt(h, a, b) ? a : b;
     case 0:
@@ -137,9 +137,9 @@ int index_min_child_grandchild(heap_t* h, int i) {
     case 4:
       return choose_from_3(heap_lt, c, d, e);
     case 3:
-      return choose_from_3(heap_lt, c, d, b);
+      return choose_from_3(heap_lt, b, c, d);
     case 2:
-      return heap_lt(h, c, b) ? c : b;
+      return heap_lt(h, b, c) ? b : c;
     case 1:
       return heap_lt(h, a, b) ? a : b;
     case 0:
