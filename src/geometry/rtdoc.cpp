@@ -1,7 +1,7 @@
 
 #include "rtdoc.hpp"
 
-RTDoc *From_WKT(const char *wkt, size_t len, t_docId id) {
+extern "C" RTDoc *From_WKT(const char *wkt, size_t len, t_docId id) {
   try {
     return new RTDoc{std::string_view{wkt, len}, id};
   } catch (...) {
