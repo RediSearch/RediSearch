@@ -47,11 +47,11 @@ IndexIterator* bg_query(struct GeometryIndex *index, enum QueryType queryType, G
   }
 }
 
-int bg_addGeomStr(struct GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg) {
+int bg_addGeomStr(struct GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len, t_docId docId, RedisModuleString **err_msg) {
   
   switch (format) {
   case GEOMETRY_FORMAT_WKT:
-    if (!RTree_Insert_WKT((struct RTree*)index, str, len, 0)) {
+    if (!RTree_Insert_WKT((struct RTree*)index, str, len, docId)) {
       if (err_msg) {
         *err_msg = RedisModule_CreateStringPrintf(NULL, "Invalid WKT %.*s", (int)len, str);
       }

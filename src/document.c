@@ -564,33 +564,22 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
   switch (field->unionType) {
     case FLD_VAR_T_RMS:
     {
+      // From WKT RMS
       fdata->isMulti = 0;
-      // TODO: GEOMETRY - parse geometry from WKT string
-      GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
-      if (api) {
-        size_t len;
-        const char *str = RedisModule_StringPtrLen(field->text, &len);
-        GEOMETRY geom = api->createGeom(GEOMETRY_FORMAT_WKT, str, len, NULL);
-        if (geom)
-          fdata->geometry = geom;
-        else
-          return -1;
-      } else
-        return -1;
+      size_t len;
+      const char *str = RedisModule_StringPtrLen(field->text, &len);
+      fdata->str = str;
+      fdata->strlen = len;
+      fdata->format = GEOMETRY_FORMAT_WKT;
       break;
     }
     case FLD_VAR_T_CSTR:
-      {
-        fdata->isMulti = 0;
-        // Parse geometry from WKT string
-        GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
-        GEOMETRY geom = api ? api->createGeom(GEOMETRY_FORMAT_WKT, field->strval, field->strlen, NULL) : NULL;
-        if (geom)
-          fdata->geometry = geom;
-        else
-          return -1;
-        break;
-      }
+      // From WKT string
+      fdata->isMulti = 0;
+      fdata->str = field->strval;
+      fdata->strlen = field->strlen;
+      fdata->format = GEOMETRY_FORMAT_WKT;
+      break;
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_NULL:
       return 0;
@@ -628,11 +617,12 @@ FIELD_BULK_INDEXER(geometryIndexer) {
     return -1;
   }
   if (!fdata->isMulti) {
-    api->addGeom(rt, fdata->geometry);
+    //TODO: GEOMETRY - handle error (pass RMS ptr)
+    api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, NULL);
   } else {
-    for (uint32_t i = 0; i < array_len(fdata->arrGeometry); ++i) {
-      //TODO: GEOMETRY
-    }
+    // for (uint32_t i = 0; i < array_len(fdata->arrGeometry); ++i) {
+    //   //TODO: GEOMETRY
+    // }
   }
   return 0;
 }

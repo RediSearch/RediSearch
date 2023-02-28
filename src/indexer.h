@@ -29,10 +29,14 @@ typedef struct FieldIndexerData {
     // Multi value
     arrayof(double) arrNumeric;
 
-    GEOMETRY *geometry;
     struct {
-      arrayof(GEOMETRY) arrGeometry;
+      const char *str;
+      size_t strlen;
+      GEOMETRY_FORMAT format;
     };
+    // struct {
+    //   arrayof(GEOMETRY) arrGeometry;
+    // };
   };
 
 } FieldIndexerData;

@@ -137,6 +137,7 @@ IndexIterator GeometryQueryIterator::init_base() {
 	auto ii = IndexIterator {
 		.isValid = 1,
 		.ctx = nullptr,
+		.current = NewVirtualResult(0),
 		.mode = MODE_SORTED,
 		.type = ID_LIST_ITERATOR /* TODO: new iterator type, for now IdListIterator is similar enough and doesn't cause problems */,
 		.NumEstimated = QIter_Len,
