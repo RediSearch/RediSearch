@@ -40,8 +40,11 @@ def check_info_commandstats(env, cmd):
 
 def testCommandStatsOnRedis(env):
     # This test checks the total time spent on the Coordinator is greater then
-    # on a single shard 
+    # on a single shard
     SkipOnNonCluster(env)
+    if not server_version_at_least(env, "6.2.0"):
+        env.skip()
+
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
     # _FT.CREATE is not called. No option to test
@@ -74,5 +77,5 @@ def test_MOD_3540(env):
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
     for i in range(100):
         conn.execute_command('HSET', i, 't', i)
-    
+
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'MAX', '20')
