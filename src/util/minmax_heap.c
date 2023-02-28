@@ -14,23 +14,24 @@
 
 #include "rmalloc.h"
 
-// parity of the number of leading zeros, AKA parity of log2(n)
+/*
+ * `is_min` returns true if the index is a min node, false otherwise.
+ * A node is a min node if it's level (depth) is odd (and the root has a depth 1).
+ * With our array representation, a node is a min node if the log2 floor of its index is even.
+ * (log2 floor of 1 is 0 - min, log2 floor of 2 is 1 - max, log2 floor of 3 is 1 - max, log2 floor of 4 is 2 - min, etc.)
+ * A quick way to calculate the log2 floor of a number is to count the leading zeros in its binary representation:
+ * for a 32 bit number, the log2 floor is "31 - the number of leading zeros". `__builtin_clz` does exactly that (clz = count leading zeros).
+ * since we only care about the parity of the log2 floor, we can just check the LSB of the number of leading zeros:
+ * n is a min node <=> log2(n) % 2 == 0 <=> (31 - __builtin_clz(n)) % 2 == 0 <=> __builtin_clz(n) % 2 == 1
+ * So we can simply check for:
+ */
 #define is_min(n) (__builtin_clz(n) & 1)
 
 #define parent(n) (n / 2)
 #define first_child(n) (n * 2)
 #define second_child(n) ((n * 2) + 1)
 
-#define heap_gt(h, x, y) (h->cmp(h->data[x], h->data[y], h->cmp_ctx) > 0)
-#define heap_lt(h, x, y) (h->cmp(h->data[x], h->data[y], h->cmp_ctx) < 0)
-
 #define heap_max(h, x, y) (heap_gt(h, x, y) ? h->data[x] : h->data[y])
-
-#define choose_from_3(fn, a, b, c) \
-  (fn(h, a, b) ? (fn(h, a, c) ? a : c) : (fn(h, b, c) ? b : c))
-
-#define choose_from_4(fn, a, b, c, d) \
-  (fn(h, a, b) ? choose_from_3(fn, a, c, d) : choose_from_3(fn, b, c, d))
 
 #define swap(h, i, j)        \
   {                          \
@@ -38,6 +39,11 @@
     h->data[i] = h->data[j]; \
     h->data[j] = tmp;        \
   }
+
+typedef bool (*heap_order_fn)(const heap_t*, int, int);
+
+static inline bool heap_gt(const heap_t* h, int x, int y) { return (h->cmp(h->data[x], h->data[y], h->cmp_ctx) > 0); }
+static inline bool heap_lt(const heap_t* h, int x, int y) { return (h->cmp(h->data[x], h->data[y], h->cmp_ctx) < 0); }
 
 static void bubbleup_min(heap_t* h, int i) {
   int pp_idx = parent(parent(i));
@@ -80,24 +86,15 @@ static void bubbleup(heap_t* h, int i) {
   }
 }
 
-static inline int highest_index(heap_t* h, int i) {
-  int a = first_child(i);
-  int b = second_child(i);
-  int c = first_child(a);
-  int d = second_child(a);
-  int e = first_child(b);
-  int f = second_child(b);
-
-  if (f <= h->count) return 5;
-  if (e <= h->count) return 4;
-  if (d <= h->count) return 3;
-  if (c <= h->count) return 2;
-  if (b <= h->count) return 1;
-  if (a <= h->count) return 0;
-  return -1;
+static int choose_from_3(heap_order_fn fn, heap_t* h, int a, int b, int c) {
+  return (fn(h, a, b) ? (fn(h, a, c) ? a : c) : (fn(h, b, c) ? b : c));
 }
 
-int index_max_child_grandchild(heap_t* h, int i) {
+static int choose_from_4(heap_order_fn fn, heap_t* h, int a, int b, int c, int d) {
+  return (fn(h, a, b) ? choose_from_3(fn, h, a, c, d) : choose_from_3(fn, h, b, c, d));
+}
+
+static inline char highest_descendant_in_range(heap_t* h, int i) {
   int a = first_child(i);
   int b = second_child(i);
   int c = first_child(a);
@@ -105,48 +102,50 @@ int index_max_child_grandchild(heap_t* h, int i) {
   int e = first_child(b);
   int f = second_child(b);
 
-  switch (highest_index(h, i)) {
-    case 5:
-      return choose_from_4(heap_gt, c, d, e, f);
-    case 4:
-      return choose_from_3(heap_gt, c, d, e);
-    case 3:
-      return choose_from_3(heap_gt, b, c, d);
-    case 2:
-      return heap_gt(h, b, c) ? b : c;
-    case 1:
-      return heap_gt(h, a, b) ? a : b;
-    case 0:
+  if (f <= h->count) return 0xf;
+  if (e <= h->count) return 0xe;
+  if (d <= h->count) return 0xd;
+  if (c <= h->count) return 0xc;
+  if (b <= h->count) return 0xb;
+  if (a <= h->count) return 0xa;
+
+  return 0x0;
+}
+
+// basing on the min/max heap property, we can determine the best child/grandchild out of the existing
+// ones without having to compare all of them
+static inline int index_best_child_grandchild_common(heap_t* h, heap_order_fn order, int i) {
+  int a = first_child(i);
+  int b = second_child(i);
+  int c = first_child(a);
+  int d = second_child(a);
+  int e = first_child(b);
+  int f = second_child(b);
+
+  switch (highest_descendant_in_range(h, i)) {
+    case 0xf:
+      return choose_from_4(order, h, c, d, e, f);
+    case 0xe:
+      return choose_from_3(order, h, c, d, e);
+    case 0xd:
+      return choose_from_3(order, h, b, c, d);
+    case 0xc:
+      return order(h, b, c) ? b : c;
+    case 0xb:
+      return order(h, a, b) ? a : b;
+    case 0xa:
       return a;
     default:
       return -1;
   }
 }
 
-int index_min_child_grandchild(heap_t* h, int i) {
-  int a = first_child(i);
-  int b = second_child(i);
-  int c = first_child(a);
-  int d = second_child(a);
-  int e = first_child(b);
-  int f = second_child(b);
+static int index_max_child_grandchild(heap_t* h, int i) {
+  return index_best_child_grandchild_common(h, heap_gt, i);
+}
 
-  switch (highest_index(h, i)) {
-    case 5:
-      return choose_from_4(heap_lt, c, d, e, f);
-    case 4:
-      return choose_from_3(heap_lt, c, d, e);
-    case 3:
-      return choose_from_3(heap_lt, b, c, d);
-    case 2:
-      return heap_lt(h, b, c) ? b : c;
-    case 1:
-      return heap_lt(h, a, b) ? a : b;
-    case 0:
-      return a;
-    default:
-      return -1;
-  }
+static int index_min_child_grandchild(heap_t* h, int i) {
+  return index_best_child_grandchild_common(h, heap_lt, i);
 }
 
 static void trickledown_max(heap_t* h, int i) {
