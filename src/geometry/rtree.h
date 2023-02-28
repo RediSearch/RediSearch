@@ -2,19 +2,15 @@
 
 #include <stddef.h>
 #include <stdbool.h>
-#include "../index_iterator.h"
+#include "index_iterator.h"
 #include "rtdoc.h"
+#include "geometry_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 struct RTree;
-
-enum QueryType {
-  CONTAINS,
-  WITHIN,
-};
 
 NODISCARD struct RTree *RTree_New();
 struct RTree *Load_WKT_File(struct RTree *rtree, const char *path);

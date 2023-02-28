@@ -20,7 +20,7 @@
 #include "rmalloc.h"
 #include "indexer.h"
 #include "tag_index.h"
-#include "geometry_index.h"
+#include "geometry/geometry_api.h"
 #include "aggregate/expr/expression.h"
 #include "rmutil/rm_assert.h"
 
@@ -563,14 +563,26 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 FIELD_PREPROCESSOR(geometryPreprocessor) {
   switch (field->unionType) {
     case FLD_VAR_T_RMS:
+    {
       fdata->isMulti = 0;
       // TODO: GEOMETRY - parse geometry from WKT string
-      //fdata->geometry = 
+      GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
+      if (api) {
+        size_t len;
+        const char *str = RedisModule_StringPtrLen(field->text, &len);
+        GEOMETRY geom = api->createGeom(GEOMETRY_FORMAT_WKT, str, len, NULL);
+        if (geom)
+          fdata->geometry = geom;
+        else
+          return -1;
+      } else
+        return -1;
       break;
+    }
     case FLD_VAR_T_CSTR:
       {
         fdata->isMulti = 0;
-        // Parse geometry from string
+        // Parse geometry from WKT string
         GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
         GEOMETRY geom = api ? api->createGeom(GEOMETRY_FORMAT_WKT, field->strval, field->strlen, NULL) : NULL;
         if (geom)
@@ -585,7 +597,7 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
     case FLD_VAR_T_ARRAY:
       fdata->isMulti = 1;
       // TODO: GEOMETRY - parse geometries from string
-      //fdata->arrGeometry = 
+      //fdata->arrGeometry = ...
       break;
     default:
       return -1;
@@ -599,19 +611,24 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(geometryIndexer) {
-  NumericRangeTree *rt = bulk->indexDatas[INDEXFLD_T_GEOMETRY];
+  GeometryIndex rt = bulk->indexDatas[INDEXFLD_T_GEOMETRY];
   if (!rt) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_GEOMETRY);
     rt = bulk->indexDatas[IXFLDPOS_GEOMETRY] =
-        OpenGeometryIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_GEOMETRY]);
+        OpenGeometryIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_GEOMETRY], fs);
     if (!rt) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open geometry index for indexing");
       return -1;
     }
   }
 
+  GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
+  if (!api) {
+    QueryError_SetError(status, QUERY_EGENERIC, "Could not get geometry api for indexing");
+    return -1;
+  }
   if (!fdata->isMulti) {
-    //TODO: GEOMETRY
+    api->addGeom(rt, fdata->geometry);
   } else {
     for (uint32_t i = 0; i < array_len(fdata->arrGeometry); ++i) {
       //TODO: GEOMETRY

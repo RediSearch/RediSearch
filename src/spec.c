@@ -31,6 +31,7 @@
 #include "rdb.h"
 #include "commands.h"
 #include "rmutil/cxx/chrono-clock.h"
+#include "geometry_index.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -1411,6 +1412,9 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
         // NOT NECESSARY ANYMORE - used when field were in keyspace
         ret = RedisModule_CreateString(sctx.redisCtx, fs->name, strlen(fs->name));
         break;
+      case INDEXFLD_T_GEOMETRY:
+        ret = fmtRedisGeometryIndexKey(&sctx, fs->name);
+        break;
       case INDEXFLD_T_FULLTEXT:  // Text fields don't get a per-field index
       default:
         ret = NULL;
@@ -1708,6 +1712,9 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
       }
     }
   }
+  // TODO: GEOMETRY: load geometry specific options
+  // if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
+  // }
   return REDISMODULE_OK;
 
 fail:

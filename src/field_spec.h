@@ -10,7 +10,7 @@
 #include "redisearch.h"
 #include "value.h"
 #include "VecSim/vec_sim.h"
-#include "geometry/geometry_api.h"
+#include "geometry/geometry_types.h"
 
 #ifdef __cplusplus
 #define RS_ENUM_BITWISE_HELPER(T)   \

@@ -53,9 +53,9 @@ struct GeometryQueryIterator {
 			return INDEXREAD_EOF;
 		}
 
-  	base_.current->docId = iter_[index_++];
-  	hit = base_.current;
-  	return INDEXREAD_OK;
+		base_.current->docId = iter_[index_++];
+		hit = base_.current;
+		return INDEXREAD_OK;
 	}
 	int skip_to(t_docId docId, RSIndexResult *& hit) {
 		if (!base_.isValid || !has_next()) {
@@ -135,6 +135,7 @@ void QIter_Rewind(void *ctx) {
 
 IndexIterator GeometryQueryIterator::init_base() {
 	auto ii = IndexIterator {
+		.isValid = 1,
 		.ctx = nullptr,
 		.mode = MODE_SORTED,
 		.type = ID_LIST_ITERATOR /* TODO: new iterator type, for now IdListIterator is similar enough and doesn't cause problems */,
@@ -147,7 +148,7 @@ IndexIterator GeometryQueryIterator::init_base() {
 		.Free = QIter_Free,
 		.Len = QIter_Len,
 		.Abort = QIter_Abort,
-		.Rewind = QIter_Rewind
+		.Rewind = QIter_Rewind,
 	};
 	return ii;
 }

@@ -28,33 +28,58 @@ GEOMETRY bg_createGeom(GEOMETRY_FORMAT format, const char *str, size_t len, Redi
   return NULL;
 }
 
-void bg_freeGeom(GEOMETRY geom) {
-  RTDoc_Free(geom);
+void bg_freeIndex(GeometryIndex index) {
+  RTree_Free(index);
 }
 
-GeometryIndex* bg_createIndex() {
-  return RTree_New();
+struct GeometryIndex* bg_createIndex() {
+  return (struct GeometryIndex*)RTree_New();
 }
 
-IndexIterator* bg_query(const GeometryIndex index, const GEOMETRY *queryGeometry, enum QueryType queryType) {
+IndexIterator* bg_query(struct GeometryIndex *index, enum QueryType queryType, GEOMETRY_FORMAT format, const char *str, size_t len) {
+  switch (format) {
+  case GEOMETRY_FORMAT_WKT:
+    return RTree_Query_WKT((struct RTree*)index, str, len, queryType);
+  
+  case GEOMETRY_FORMAT_GEOJSON:
+  default:
+    return NULL;
+  }
+}
+
+int bg_addGeomStr(struct GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg) {
+  
+  switch (format) {
+  case GEOMETRY_FORMAT_WKT:
+    if (!RTree_Insert_WKT((struct RTree*)index, str, len, 0)) {
+      if (err_msg) {
+        *err_msg = RedisModule_CreateStringPrintf(NULL, "Invalid WKT %.*s", (int)len, str);
+      }
+    }
+    break;
+
+  default:
+  case GEOMETRY_FORMAT_GEOJSON:
+    return 1;
+
+  }
+  return 0;
+}
+
+int bg_addGeom(struct GeometryIndex *index, GEOMETRY geom) {
+  RTree_Insert((struct RTree*)index, geom);
+}
+
+int bg_delGeom(struct GeometryIndex *index, GEOMETRY geom, void *data) {
   // TODO: GEOMETRY
 }
-
-int bg_addGeom(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg) {
-  // TODO: GEOMETRY
-}
-
-int bg_delGeom(GeometryIndex *index, GEOMETRY geom, void *data) {
-  // TODO: GEOMETRY
-}
-
 
 GEOMETRY s2_createGeom(GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg) {
   // TODO: GEOMETRY
   return NULL;
 }
 
-void s2_freeGeom(GEOMETRY geom) {
+void s2_freeIndex(GeometryIndex index) {
   // TODO: GEOMETRY
 }
 
@@ -70,15 +95,15 @@ GeometryApi* GeometryApi_GetOrCreate(GEOMETRY_LIB_TYPE type, __attribute__((__un
   switch (type) {
    case GEOMETRY_LIB_TYPE_BOOST_GEOMETRY:
     api->createGeom = bg_createGeom;
-    api->freeGeom = bg_freeGeom;
     api->createIndex = bg_createIndex;
+    api->freeIndex = bg_freeIndex;
+    api->addGeomStr = bg_addGeomStr;
     api->addGeom = bg_addGeom;
-    api->query = bg_query;
     api->delGeom = bg_delGeom;
+    api->query = bg_query;
     break;
    case GEOMETRY_LIB_TYPE_S2:
-    api->createGeom = s2_createGeom;
-    api->freeGeom = s2_freeGeom;
+    api->freeIndex = s2_freeIndex;
     // TODO: GEOMETRY
     break;
    default:

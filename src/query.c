@@ -34,6 +34,7 @@
 #include "suffix.h"
 #include "wildcard/wildcard.h"
 #include "geometry/geometry_api.h"
+#include "geometry_index.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -305,12 +306,27 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
 }
 
 QueryNode *NewGeometryNode_FromWkt(const char *wkt, size_t len) {
-  QueryNode *ret = NewQueryNode(QN_GEOMETRY);
-  GeometryQuery *geomq = rm_calloc(1, sizeof(*geomq));
-  geomq->format = GEOMETRY_FORMAT_WKT;
-  geomq->str = wkt;
-  geomq->len = len;
-  ret->gmn.geomq = geomq;
+  
+  QueryNode *ret = NULL;
+  char *delim = strstr(wkt, ":");
+  if (delim) {
+    enum QueryType query_type;
+    if (strncasecmp(wkt, "WITHIN", delim - wkt) == 0) {
+      query_type = WITHIN;
+    } else if (strncasecmp(wkt, "CONTAINS", delim - wkt) == 0) {
+      query_type = CONTAINS;
+    } else {
+      return NULL;
+    }
+    ret = NewQueryNode(QN_GEOMETRY);
+    GeometryQuery *geomq = rm_calloc(1, sizeof(*geomq));
+    geomq->format = GEOMETRY_FORMAT_WKT;
+    geomq->query_type = query_type;
+    len = len - (delim - wkt) - 1;
+    geomq->str = rm_strndup(delim + 1, len);
+    geomq->str_len = len;
+    ret->gmn.geomq = geomq;
+  }
   return ret;
 }
 
@@ -854,17 +870,23 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
 
 static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   
-  GeometryApi *api = GeometryApi_GetOrCreate(GEOMETRY_LIB_TYPE_BOOST_GEOMETRY, NULL);
   const FieldSpec *fs =
       IndexSpec_GetField(q->sctx->spec, node->gmn.geomq->attr, strlen(node->gmn.geomq->attr));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
     return NULL;
   }
-  // TODO: GEOMETRY - enable code
-  return NewGeometryIterator(q->sctx, node->gmn.geomq);
-  return NULL; //FIXME: implement
+  RedisModuleString *keyName = IndexSpec_GetFormattedKey(q->sctx->spec, fs, INDEXFLD_T_GEOMETRY);
+  GeometryIndex index = OpenGeometryIndex(q->sctx, keyName, NULL, fs);
+  if (!index) {
+    return NULL;
+  }
+  GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
+  if (!api) {
+    return NULL;
+  }
+  GeometryQuery *gq = node->gmn.geomq;
+  return api->query(index, gq->query_type, gq->format, gq->str, gq->str_len);
 }
-
 
 
 static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
