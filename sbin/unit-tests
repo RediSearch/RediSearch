@@ -135,4 +135,12 @@ elif [[ $COORD == oss ]]; then
 	fi
 fi
 
+#----------------------------------------------------------------------------------------------
+
+if [[ $NOP != 1 ]]; then
+	if [[ -n $SAN || $VG == 1 ]]; then
+		{ UNIT=1 $ROOT/sbin/memcheck-summary; (( E |= $? )); } || true
+	fi
+fi
+
 exit $E

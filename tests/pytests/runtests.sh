@@ -676,7 +676,7 @@ if [[ $NO_SUMMARY == 1 ]]; then
 	exit 0
 fi
 
-if [[ $NOP != 1 && -n $SAN ]]; then
+if [[ $NOP != 1 ]]; then
 	if [[ -n $SAN || $VG == 1 ]]; then
 		{ FLOW=1 $ROOT/sbin/memcheck-summary; (( E |= $? )); } || true
 	fi

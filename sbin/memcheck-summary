@@ -70,9 +70,9 @@ sanitizer_summary() {
 E=0
 
 DIRS=
-#if [[ $UNIT == 1 ]]; then
-#	DIRS+=" ctests cpptests"
-#fi
+if [[ $UNIT == 1 ]]; then
+	DIRS+=" ."
+fi
 if [[ $FLOW == 1 ]]; then
 	DIRS+=" pytests"
 fi
@@ -85,6 +85,10 @@ elif [[ -n $SAN ]]; then
 	for dir in $DIRS; do
 		DIR="$dir" sanitizer_summary
 	done
+fi
+
+if [[ $E == 0 ]]; then
+	echo "# No leaks detected"
 fi
 
 exit $E
