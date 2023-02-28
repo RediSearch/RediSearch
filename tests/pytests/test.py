@@ -736,6 +736,93 @@ def testPrefix(env):
         env.expect('ft.search', 'idx', 'const* -term*', 'nocontent').equal([0])
         env.expect('ft.search', 'idx', 'constant term9*', 'nocontent').equal([0])
 
+def testPrefixNodeCaseSensitive(env):
+
+    conn = getConnectionByEnv(env)
+    modes = ["TEXT", "TAG", "TAG_CASESENSITIVE"]
+    create_functions = {
+        "TEXT": ['FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT'],
+        "TAG": ['FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG'],
+        "TAG_CASESENSITIVE": ['FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'CASESENSITIVE']
+    }
+
+    # For each mode, we test both lowercase and uppercase queries with CONTAINS, so we
+    # can check both prefix and suffix modes.
+    queries_expectations = {
+        "TEXT": {
+            "lowercase": 
+            {  "query": ["@t:(*el*)"],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            },
+            "lowercase_params":
+            {  "query": ["@t:(*$p*)", "PARAMS", "2", "p", "el", "DIALECT", "2" ],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            },
+            "uppercase": 
+            {  "query": ["@t:(*EL*)"],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            },
+            "uppercase_params":
+            {  "query": ["@t:(*$p*)", "PARAMS", "2", "p", "EL", "DIALECT", "2" ],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            },
+        },
+        "TAG": {
+            "lowercase":
+            {  "query": ["@t:{*el*}"],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            },
+            "lowercase_params":
+            {  "query": ["@t:{*$p*}", "PARAMS", "2", "p", "el", "DIALECT", "2"],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            },
+            "uppercase": {
+                "query": ["@t:{*EL*}"],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            },
+            "uppercase_params": {
+                "query": ["@t:{*$p*}", "PARAMS", "2", "p", "EL", "DIALECT", "2"],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            }
+        },
+        "TAG_CASESENSITIVE": {
+            "lowercase":
+            {  "query": ["@t:{*el*}"],
+                "expectation": [2, 'doc1', 'doc3']
+            },
+            "lowercase_params":
+            {  "query": ["@t:{*$p*}", "PARAMS", "2", "p", "el", "DIALECT", "2"],
+                "expectation": [2, 'doc1', 'doc3']
+            },
+            "uppercase": {
+                "query": ["@t:{*EL*}"],
+                "expectation": [2, 'doc2', 'doc4']
+            },
+            "uppercase_params": {
+                "query": ["@t:{*$p*}", "PARAMS", "2", "p", "EL", "DIALECT", "2"],
+                "expectation": [2, 'doc2', 'doc4']
+            }
+        }
+    }
+    time.sleep(10)
+    for mode in modes:
+        env.expect(*create_functions[mode]).ok()
+        conn.execute_command('HSET', 'doc1', 't', 'hello')
+        conn.execute_command('HSET', 'doc2', 't', 'HELLO')
+        conn.execute_command('HSET', 'doc3', 't', 'help')
+        conn.execute_command('HSET', 'doc4', 't', 'HELP')
+        for case in queries_expectations[mode]:
+            query = queries_expectations[mode][case]["query"]
+            expectation = queries_expectations[mode][case]["expectation"]
+            res = env.cmd('ft.search', 'idx', *query, 'NOCONTENT')
+            # Sort to avoid coordinator reorder.
+            docs = res[1:]
+            docs.sort()
+            env.assertEqual(res[0], expectation[0])
+            env.assertEqual(docs, expectation[1:])
+        env.expect('FT.DROP', 'idx').ok()
+
+
 def testSortBy(env):
     r = env
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text', 'sortable', 'bar', 'numeric', 'sortable').ok()
@@ -2755,6 +2842,7 @@ def testBadCursor(env):
 
 def testGroupByWithApplyError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').ok()
+    waitForIndex(env, 'idx')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').ok()
     err = env.cmd('FT.AGGREGATE', 'idx', '*', 'APPLY', 'split()', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'AS', 'count')[1][0]
     assertEqualIgnoreCluster(env, 'Invalid number of arguments for split', str(err))
