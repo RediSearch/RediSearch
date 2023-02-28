@@ -152,7 +152,7 @@ if set, does not scan and index.
 </details>
 
 <details open>
-<summary><code>SCHEMA {identifier} AS {attribute} {attribute type} {options...</code></summary> 
+<summary><code>SCHEMA {identifier} AS {attribute} {attribute type} {options...}</code></summary> 
 
 after the SCHEMA keyword, declares which fields to index:
 
