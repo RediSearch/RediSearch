@@ -547,7 +547,7 @@ jobs:
             make SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.args>>
           no_output_timeout: 30m
       - run:
-          name: Check results
+          name: Check tests results
           command: ./sbin/check-tests
       - save-tests-logs
 
@@ -766,12 +766,6 @@ workflows:
           name: sanitize-<< matrix.san-type >>
           <<: *on-any-branch
           args: QUICK=1
-          matrix:
-            parameters:
-              san-type: [address]
-      - sanitize:
-          name: more-sanitize-<< matrix.san-type >>
-          args: ""
           matrix:
             parameters:
               san-type: [address]
