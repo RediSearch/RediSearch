@@ -21,6 +21,7 @@
  * (log2 floor of 1 is 0 - min, log2 floor of 2 is 1 - max, log2 floor of 3 is 1 - max, log2 floor of 4 is 2 - min, etc.)
  * A quick way to calculate the log2 floor of a number is to count the leading zeros in its binary representation:
  * for a 32 bit number, the log2 floor is "31 - the number of leading zeros". `__builtin_clz` does exactly that (clz = count leading zeros).
+ * Notice that `__builtin_clz` is undefined for 0 (as well as log2 of 0). Our first index is 1, so we don't need to worry about that.
  * since we only care about the parity of the log2 floor, we can just check the LSB of the number of leading zeros:
  * n is a min node <=> log2(n) % 2 == 0 <=> (31 - __builtin_clz(n)) % 2 == 0 <=> __builtin_clz(n) % 2 == 1
  * So we can simply check for:
