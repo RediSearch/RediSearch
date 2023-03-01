@@ -24,7 +24,10 @@
  * Notice that `__builtin_clz` is undefined for 0 (as well as log2 of 0). Our first index is 1, so we don't need to worry about that.
  * since we only care about the parity of the log2 floor, we can just check the LSB of the number of leading zeros:
  * n is a min node <=> log2(n) % 2 == 0 <=> (31 - __builtin_clz(n)) % 2 == 0 <=> __builtin_clz(n) % 2 == 1
- * So we can simply check for:
+ * So we can simply check for `(__builtin_clz(n) & 1)`.
+ * Additional info:
+ *    Correctness: https://godbolt.org/z/W7n9e39qj
+ *    Optimality:  https://quick-bench.com/q/Rl3sUfldpGlhQWjXopnTtxh95kI
  */
 #define is_min(n) (__builtin_clz(n) & 1)
 
