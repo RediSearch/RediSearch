@@ -126,6 +126,54 @@ commands:
             - artifacts/*.tgz
             - artifacts/*.tar
 
+  build-steps-benchmarks:
+    parameters:
+      redis_version:
+        type: string
+        default: "6"
+      getredis_params:
+        type: string
+        default: ""
+      build_params:
+        type: string
+        default: ""
+      run_pack:
+        type: boolean
+        default: true
+    steps:
+      - checkout-all
+      - install-prerequisites:
+          redis_version: <<parameters.redis_version>>
+          getredis_params: <<parameters.getredis_params>>
+      - run:
+          name: Build (Search)
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make build <<parameters.build_params>> SHOW=1
+      - run:
+          name: Build (Search Lite)
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make build LITE=1 <<parameters.build_params>> SHOW=1
+      - run:
+          name: Build (OSS Coordinator)
+          shell: /bin/bash -l -eo pipefail
+          command: make build COORD=oss <<parameters.build_params>> SHOW=1
+      - run:
+          name: Build (RLEC Coordinator)
+          shell: /bin/bash -l -eo pipefail
+          command: make build COORD=rlec <<parameters.build_params>> SHOW=1
+      - when:
+          condition: << parameters.run_pack >>
+          steps:
+            - run:
+                name: Pack
+                shell: /bin/bash -l -eo pipefail
+                command: |
+                  make pack SHOW=1
+                  make pack COORD=rlec SHOW=1
+                  make pack LITE=1 SHOW=1
+
   build-steps:
     parameters:
       redis_version:
@@ -452,11 +500,11 @@ jobs:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
-      - build-steps:
+      - build-steps-benchmark:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-  
+
   benchmark-vecsim-oss-standalone:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -470,7 +518,7 @@ jobs:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
-      - build-steps:
+      - build-steps-benchmark:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
@@ -481,7 +529,7 @@ jobs:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
-      - build-steps:
+      - build-steps-benchmark:
           build_params: PROFILE=1
           run_pack: false
       - benchmark-steps:
