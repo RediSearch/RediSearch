@@ -548,7 +548,7 @@ jobs:
           no_output_timeout: 30m
       - run:
           name: Check results
-          command: exit $(cat bin/artifacts/tests/status 2>/dev/null || echo 1)
+          command: ./sbin/check-tests
       - save-tests-logs
 
   valgrind-memcheck:

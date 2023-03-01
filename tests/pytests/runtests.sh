@@ -504,8 +504,8 @@ if [[ $PLATFORM_MODE == 1 ]]; then
 	CLEAR_LOGS=0
 	COLLECT_LOGS=1
 	NOFAIL=1
-	STATFILE=$ROOT/bin/artifacts/tests/status
 fi
+STATFILE=${STATFILE:-$ROOT/bin/artifacts/tests/status}
 
 #---------------------------------------------------------------------------------- Parallelism
 
@@ -697,8 +697,6 @@ fi
 if [[ -n $STATFILE ]]; then
 	mkdir -p "$(dirname "$STATFILE")"
 	if [[ -f $STATFILE ]]; then
-		# echo "STATFILE=$STATFILE"
-		# cat $STATFILE
 		(( E |= $(cat $STATFILE || echo 1) )) || true
 	fi
 	echo $E > $STATFILE
