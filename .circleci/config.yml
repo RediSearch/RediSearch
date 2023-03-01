@@ -126,7 +126,7 @@ commands:
             - artifacts/*.tgz
             - artifacts/*.tar
 
-  build-steps-benchmarks:
+  build-steps-benchmark:
     parameters:
       redis_version:
         type: string
