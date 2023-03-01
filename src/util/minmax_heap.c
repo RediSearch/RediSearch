@@ -16,7 +16,7 @@
 
 /*
  * `is_min` returns true if the index is a min node, false otherwise.
- * A node is a min node if it's level (depth) is odd (and the root has a depth 1).
+ * A node is a min node if its level (depth) is odd (and the root has a depth 1).
  * With our array representation, a node is a min node if the log2 floor of its index is even.
  * (log2 floor of 1 is 0 - min, log2 floor of 2 is 1 - max, log2 floor of 3 is 1 - max, log2 floor of 4 is 2 - min, etc.)
  * A quick way to calculate the log2 floor of a number is to count the leading zeros in its binary representation:
