@@ -102,7 +102,7 @@ does not store term offsets for documents. It saves memory, but does not allow e
 </details>
 
 <details open>
-<summary><code>TEMPORARY</code></summary> 
+<summary><code>TEMPORARY {seconds}</code></summary> 
 
 creates a lightweight temporary index that expires after a specified period of inactivity, in seconds. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and, therefore, you should consider using `SKIPINITIALSCAN` to avoid costly scanning.
 
