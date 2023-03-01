@@ -504,8 +504,8 @@ if [[ $PLATFORM_MODE == 1 ]]; then
 	CLEAR_LOGS=0
 	COLLECT_LOGS=1
 	NOFAIL=1
-	STATFILE=$ROOT/bin/artifacts/tests/status
 fi
+STATFILE=${STATFILE:-$ROOT/bin/artifacts/tests/status}
 
 #---------------------------------------------------------------------------------- Parallelism
 
@@ -602,10 +602,10 @@ if [[ -z $COORD ]]; then
 	MODARGS="timeout 0;"
 	
 	if [[ $QUICK != "~1" ]]; then
-	
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
+	fi
 
-	elif [[ $QUICK != 1 ]]; then
+	if [[ $QUICK != 1 ]]; then
 		{ (MODARGS="${MODARGS}; CONCURRENT_WRITE_MODE;" \
 			run_tests "with Concurrent write mode"); (( E |= $? )); } || true
 
@@ -625,20 +625,19 @@ if [[ -z $COORD ]]; then
 	fi
 
 elif [[ $COORD == oss ]]; then
-
 	oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
 
 	if [[ $SAN == address ]]; then
-	  # Increase the timeout for tests with sanitizer in which commands execution takes longer.
-	  oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 60000"
+		# Increase timeout for tests with sanitizer in which commands execution takes longer
+		oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 60000"
 	fi
 
 	if [[ $QUICK != "~1" ]]; then
-
 		{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
 		   run_tests "OSS cluster tests"); (( E |= $? )); } || true
+	fi
 
-	elif [[ $QUICK != 1 ]]; then
+	if [[ $QUICK != 1 ]]; then
 		{ (MODARGS="${MODARGS} PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
 		   RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} --oss_password password" \
 		   run_tests "OSS cluster tests with password"); (( E |= $? )); } || true
@@ -677,7 +676,7 @@ if [[ $NO_SUMMARY == 1 ]]; then
 	exit 0
 fi
 
-if [[ $NOP != 1 && -n $SAN ]]; then
+if [[ $NOP != 1 ]]; then
 	if [[ -n $SAN || $VG == 1 ]]; then
 		{ FLOW=1 $ROOT/sbin/memcheck-summary; (( E |= $? )); } || true
 	fi
@@ -698,8 +697,6 @@ fi
 if [[ -n $STATFILE ]]; then
 	mkdir -p "$(dirname "$STATFILE")"
 	if [[ -f $STATFILE ]]; then
-		# echo "STATFILE=$STATFILE"
-		# cat $STATFILE
 		(( E |= $(cat $STATFILE || echo 1) )) || true
 	fi
 	echo $E > $STATFILE
