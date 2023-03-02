@@ -12,5 +12,5 @@
     asm("int3"); \
     } while(0)
 #else 
-#define NAMED_TRACED_BP(label) ;
+#define NAMED_TRACED_BP(label) 
 #endif
