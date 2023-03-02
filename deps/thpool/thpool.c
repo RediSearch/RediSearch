@@ -132,6 +132,7 @@ struct thpool_* thpool_init_with_name(size_t num_threads, const char *name) {
     if (thpool_p->threads == NULL) {
       err("thpool_init(): Could not allocate memory for threads\n");
       jobqueue_destroy(&thpool_p->jobqueue);
+      rm_free(thpool_p->name);
       rm_free(thpool_p);
       return NULL;
     }
@@ -224,6 +225,7 @@ void thpool_destroy(thpool_* thpool_p) {
     thread_destroy(thpool_p->threads[n]);
   }
   rm_free(thpool_p->threads);
+  rm_free(thpool_p->name);
   rm_free(thpool_p);
 }
 
