@@ -16,6 +16,11 @@ extern "C" {
 
 typedef struct thpool_* threadpool;
 
+typedef enum {
+    THPOOL_PRIORITY_HIGH,
+    THPOOL_PRIORITY_LOW,
+} thpool_priority;
+
 
 /**
  * @brief  Initialize threadpool
@@ -62,10 +67,11 @@ threadpool thpool_init(size_t num_threads);
  * @param  threadpool    threadpool to which the work will be added
  * @param  function_p    pointer to function to add as work
  * @param  arg_p         pointer to an argument
+ * @param  priority      priority of the work, default is high
  * @return 0 on successs, -1 otherwise.
  */
 typedef void (*thpool_proc)(void*);
-int thpool_add_work(threadpool, thpool_proc function_p, void* arg_p);
+int thpool_add_work(threadpool, thpool_proc function_p, void* arg_p, thpool_priority priority);
 
 
 /**

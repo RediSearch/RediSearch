@@ -100,7 +100,7 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
     task->gc->timerID = scheduleNext(task);
     return;
   }
-  thpool_add_work(gcThreadpool_g, threadCallback, data);
+  thpool_add_work(gcThreadpool_g, threadCallback, data, THPOOL_PRIORITY_HIGH);
 }
 
 void GCContext_Start(GCContext* gc) {
@@ -132,7 +132,7 @@ void GCContext_Stop(GCContext* gc) {
     destroyCallback(gc);
   } else {
     // GC is running, we add a task to the thread pool to free it
-    thpool_add_work(gcThreadpool_g, destroyCallback, gc);
+    thpool_add_work(gcThreadpool_g, destroyCallback, gc, THPOOL_PRIORITY_HIGH);
   }
 }
 
@@ -154,7 +154,7 @@ void GCContext_OnDelete(GCContext* gc) {
 
 void GCContext_CommonForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
   GCTask *task = GCTaskCreate(gc, bc, 1);
-  thpool_add_work(gcThreadpool_g, threadCallback, task);
+  thpool_add_work(gcThreadpool_g, threadCallback, task, THPOOL_PRIORITY_HIGH);
 }
 
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {

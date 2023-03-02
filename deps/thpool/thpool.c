@@ -57,12 +57,18 @@ typedef struct job {
 
 /* Job queue */
 typedef struct jobqueue {
-  pthread_mutex_t rwmutex; /* used for queue r/w access */
   job* front;              /* pointer to front of queue */
   job* rear;               /* pointer to rear  of queue */
-  bsem* has_jobs;          /* flag as binary semaphore  */
   int len;                 /* number of jobs in queue   */
 } jobqueue;
+
+typedef struct priority_queue {
+  jobqueue high_priority_jobqueue;    /* job queue for high priority tasks */
+  jobqueue low_priority_jobqueue;     /* job queue for low priority tasks */
+  pthread_mutex_t jobqueues_rwmutex;  /* used for queue r/w access */
+  bsem* has_jobs;                     /* flag as binary semaphore  */
+  unsigned char pulls;                /* number of pulls from queue */
+} priority_queue;
 
 /* Thread */
 typedef struct thread {
@@ -79,7 +85,7 @@ typedef struct thpool_ {
   volatile int keepalive;           /* keep pool alive           */
   pthread_mutex_t thcount_lock;     /* used for thread count etc */
   pthread_cond_t threads_all_idle;  /* signal to thpool_wait     */
-  jobqueue jobqueue;                /* job queue                 */
+  priority_queue jobqueue;          /* job queue                 */
 } thpool_;
 
 /* ========================== PROTOTYPES ============================ */
@@ -94,6 +100,13 @@ static void jobqueue_clear(jobqueue* jobqueue_p);
 static void jobqueue_push(jobqueue* jobqueue_p, struct job* newjob_p);
 static struct job* jobqueue_pull(jobqueue* jobqueue_p);
 static void jobqueue_destroy(jobqueue* jobqueue_p);
+
+static int priority_queue_init(priority_queue* priority_queue_p);
+static void priority_queue_clear(priority_queue* priority_queue_p);
+static void priority_queue_push(priority_queue* priority_queue_p, struct job* newjob_p, thpool_priority priority);
+static struct job* priority_queue_pull(priority_queue* priority_queue_p);
+static void priority_queue_destroy(priority_queue* priority_queue_p);
+static size_t priority_queue_len(priority_queue* priority_queue_p);
 
 static void bsem_init(struct bsem* bsem_p, int value);
 static void bsem_reset(struct bsem* bsem_p);
@@ -120,8 +133,8 @@ struct thpool_* thpool_init(size_t num_threads) {
   thpool_p->keepalive = 1;
 
   /* Initialise the job queue */
-  if (jobqueue_init(&thpool_p->jobqueue) == -1) {
-    err("thpool_init(): Could not allocate memory for job queue\n");
+  if(priority_queue_init(&thpool_p->jobqueue) == -1) {
+    err("thpool_init(): Could not allocate memory for priority queue\n");
     rm_free(thpool_p);
     return NULL;
   }
@@ -130,7 +143,7 @@ struct thpool_* thpool_init(size_t num_threads) {
   thpool_p->threads = (struct thread**)rm_malloc(num_threads * sizeof(struct thread*));
   if (thpool_p->threads == NULL) {
     err("thpool_init(): Could not allocate memory for threads\n");
-    jobqueue_destroy(&thpool_p->jobqueue);
+    priority_queue_destroy(&thpool_p->jobqueue);
     rm_free(thpool_p);
     return NULL;
   }
@@ -155,7 +168,7 @@ struct thpool_* thpool_init(size_t num_threads) {
 }
 
 /* Add work to the thread pool */
-int thpool_add_work(thpool_* thpool_p, void (*function_p)(void*), void* arg_p) {
+int thpool_add_work(thpool_* thpool_p, void (*function_p)(void*), void* arg_p, thpool_priority priority) {
   job* newjob;
 
   newjob = (struct job*)rm_malloc(sizeof(struct job));
@@ -169,7 +182,7 @@ int thpool_add_work(thpool_* thpool_p, void (*function_p)(void*), void* arg_p) {
   newjob->arg = arg_p;
 
   /* add job to queue */
-  jobqueue_push(&thpool_p->jobqueue, newjob);
+  priority_queue_push(&thpool_p->jobqueue, newjob, priority);
 
   return 0;
 }
@@ -177,7 +190,7 @@ int thpool_add_work(thpool_* thpool_p, void (*function_p)(void*), void* arg_p) {
 /* Wait until all jobs have finished */
 void thpool_wait(thpool_* thpool_p) {
   pthread_mutex_lock(&thpool_p->thcount_lock);
-  while (thpool_p->jobqueue.len || thpool_p->num_threads_working) {
+  while (priority_queue_len(&thpool_p->jobqueue) || thpool_p->num_threads_working) {
     pthread_cond_wait(&thpool_p->threads_all_idle, &thpool_p->thcount_lock);
   }
   pthread_mutex_unlock(&thpool_p->thcount_lock);
@@ -211,7 +224,7 @@ void thpool_destroy(thpool_* thpool_p) {
   }
 
   /* Job queue cleanup */
-  jobqueue_destroy(&thpool_p->jobqueue);
+  priority_queue_destroy(&thpool_p->jobqueue);
   /* Deallocs */
   size_t n;
   for (n = 0; n < threads_total; n++) {
@@ -329,7 +342,7 @@ static void* thread_do(struct thread* thread_p) {
       /* Read job from queue and execute it */
       void (*func_buff)(void*);
       void* arg_buff;
-      job* job_p = jobqueue_pull(&thpool_p->jobqueue);
+      job* job_p = priority_queue_pull(&thpool_p->jobqueue);
       if (job_p) {
         func_buff = job_p->function;
         arg_buff = job_p->arg;
@@ -364,15 +377,6 @@ static int jobqueue_init(jobqueue* jobqueue_p) {
   jobqueue_p->len = 0;
   jobqueue_p->front = NULL;
   jobqueue_p->rear = NULL;
-
-  jobqueue_p->has_jobs = (struct bsem*)rm_malloc(sizeof(struct bsem));
-  if (jobqueue_p->has_jobs == NULL) {
-    return -1;
-  }
-
-  pthread_mutex_init(&(jobqueue_p->rwmutex), NULL);
-  bsem_init(jobqueue_p->has_jobs, 0);
-
   return 0;
 }
 
@@ -382,18 +386,14 @@ static void jobqueue_clear(jobqueue* jobqueue_p) {
   while (jobqueue_p->len) {
     rm_free(jobqueue_pull(jobqueue_p));
   }
-
   jobqueue_p->front = NULL;
   jobqueue_p->rear = NULL;
-  bsem_reset(jobqueue_p->has_jobs);
   jobqueue_p->len = 0;
 }
 
 /* Add (allocated) job to queue
  */
 static void jobqueue_push(jobqueue* jobqueue_p, struct job* newjob) {
-
-  pthread_mutex_lock(&jobqueue_p->rwmutex);
   newjob->prev = NULL;
 
   switch (jobqueue_p->len) {
@@ -408,9 +408,6 @@ static void jobqueue_push(jobqueue* jobqueue_p, struct job* newjob) {
       jobqueue_p->rear = newjob;
   }
   jobqueue_p->len++;
-
-  bsem_post(jobqueue_p->has_jobs);
-  pthread_mutex_unlock(&jobqueue_p->rwmutex);
 }
 
 /* Get first job from queue(removes it from queue)
@@ -418,8 +415,6 @@ static void jobqueue_push(jobqueue* jobqueue_p, struct job* newjob) {
  * Notice: Caller MUST hold a mutex
  */
 static struct job* jobqueue_pull(jobqueue* jobqueue_p) {
-
-  pthread_mutex_lock(&jobqueue_p->rwmutex);
   job* job_p = jobqueue_p->front;
 
   switch (jobqueue_p->len) {
@@ -437,17 +432,92 @@ static struct job* jobqueue_pull(jobqueue* jobqueue_p) {
       jobqueue_p->front = job_p->prev;
       jobqueue_p->len--;
       /* more than one job in queue -> post it */
-      bsem_post(jobqueue_p->has_jobs);
   }
 
-  pthread_mutex_unlock(&jobqueue_p->rwmutex);
   return job_p;
 }
 
 /* Free all queue resources back to the system */
 static void jobqueue_destroy(jobqueue* jobqueue_p) {
   jobqueue_clear(jobqueue_p);
-  rm_free(jobqueue_p->has_jobs);
+}
+
+/* ======================== PRIORITY QUEUE ========================== */
+
+static int priority_queue_init(priority_queue* priority_queue_p) {
+  
+  priority_queue_p->has_jobs = (struct bsem*)rm_malloc(sizeof(struct bsem));
+  if (priority_queue_p->has_jobs == NULL) {
+    return -1;
+  }
+  jobqueue_init(&priority_queue_p->high_priority_jobqueue);
+  jobqueue_init(&priority_queue_p->low_priority_jobqueue);
+  bsem_init(priority_queue_p->has_jobs, 0);
+  pthread_mutex_init(&priority_queue_p->jobqueues_rwmutex, NULL);
+  priority_queue_p->pulls = 0;
+  return 0;
+}
+
+static void priority_queue_clear(priority_queue* priority_queue_p) {
+  jobqueue_clear(&priority_queue_p->high_priority_jobqueue);
+  jobqueue_clear(&priority_queue_p->low_priority_jobqueue);
+  bsem_reset(priority_queue_p->has_jobs);
+}
+
+static void priority_queue_push(priority_queue* priority_queue_p, struct job* newjob_p, thpool_priority priority) {
+  pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
+  switch (priority) {
+    case THPOOL_PRIORITY_HIGH:
+      jobqueue_push(&priority_queue_p->high_priority_jobqueue, newjob_p);
+      break;
+    case THPOOL_PRIORITY_LOW:
+      jobqueue_push(&priority_queue_p->low_priority_jobqueue, newjob_p);
+      break;
+  }
+  bsem_post(priority_queue_p->has_jobs);
+  pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
+}
+
+static struct job* priority_queue_pull(priority_queue* priority_queue_p) {
+  struct job* job_p = NULL;
+  pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
+  // We want to pull from the lower priority queue every 3rd time
+  if (priority_queue_p->pulls % 3 == 2) {
+    job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
+    // If the lower priority queue is empty, pull from the higher priority queue
+    if(!job_p) {
+      job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
+    }
+  } else {
+    job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
+    // If the higher priority queue is empty, pull from the lower priority queue
+    if(!job_p) {
+      job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
+    }
+  }
+  priority_queue_p->pulls++;
+  if(priority_queue_p->high_priority_jobqueue.len ||  priority_queue_p->low_priority_jobqueue.len ) {
+    bsem_post(priority_queue_p->has_jobs);
+  }
+  pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
+
+  return job_p;
+
+}
+
+static void priority_queue_destroy(priority_queue* priority_queue_p) {
+  jobqueue_destroy(&priority_queue_p->high_priority_jobqueue);
+  jobqueue_destroy(&priority_queue_p->low_priority_jobqueue);
+  rm_free(priority_queue_p->has_jobs);
+  pthread_mutex_destroy(&priority_queue_p->jobqueues_rwmutex);
+}
+
+static size_t priority_queue_len(priority_queue* priority_queue_p) {
+  size_t len;
+  pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
+  len = priority_queue_p->high_priority_jobqueue.len + priority_queue_p->low_priority_jobqueue.len;
+  pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
+  return len;
 }
 
 /* ======================== SYNCHRONISATION ========================= */

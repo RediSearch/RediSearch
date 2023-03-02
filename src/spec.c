@@ -248,7 +248,7 @@ static void IndexSpec_TimedOut_Free(IndexSpec *spec) {
     }
     spec->isTimerSet = false;
   }
-  thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeTask, rm_strdup(spec->name));
+  thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeTask, rm_strdup(spec->name), THPOOL_PRIORITY_HIGH);
 }
 
 static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
@@ -1361,7 +1361,7 @@ void IndexSpec_Free(IndexSpec *spec) {
   if (RSGlobalConfig.freeResourcesThread == false) {
     IndexSpec_FreeUnlinkedData(spec);
   } else {
-    thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeUnlinkedData, spec);
+    thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeUnlinkedData, spec, THPOOL_PRIORITY_HIGH);
   }
 
   pthread_rwlock_destroy(&spec->rwlock);
@@ -1999,7 +1999,7 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   RedisModule_Log(NULL, "notice", "Register index %s for async scan", ((IndexSpec*)StrongRef_Get(spec_ref))->name);
 #endif
   IndexesScanner *scanner = IndexesScanner_New(spec_ref);
-  thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner);
+  thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner, THPOOL_PRIORITY_HIGH);
 }
 
 void ReindexPool_ThreadPoolDestroy() {
@@ -2223,7 +2223,7 @@ void Indexes_ScanAndReindex() {
   IndexesScanner *scanner = IndexesScanner_NewGlobal();
   // check no global scan is in progress
   if (scanner) {
-    thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner);
+    thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner, THPOOL_PRIORITY_HIGH);
   }
 }
 
