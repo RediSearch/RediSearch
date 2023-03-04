@@ -412,48 +412,23 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   }
 
   // If the data is not in the sorted vector, lets load it.
-  size_t nkeys = self->fieldcmp.nkeys;
-  if (nkeys && h->dmd) {
-    int nLoadKeys = self->fieldcmp.nLoadKeys;
+  size_t nLoadKeys = self->fieldcmp.nLoadKeys;
+  if (nLoadKeys && h->dmd) {
     const RLookupKey **loadKeys = self->fieldcmp.loadKeys;
-
-    // If there is no sorting vector and no field is already loaded,
-    // load all required fields, else, load missing fields
-    if (nLoadKeys == REDISEARCH_UNINITIALIZED) {
-      if (!h->rowdata.sv && !h->rowdata.dyn) {
-        loadKeys = self->fieldcmp.keys;
-        nLoadKeys = nkeys;
-      } else {
-        nLoadKeys = 0;
-        for (int i = 0; i < nkeys; ++i) {
-          if (RLookup_GetItem(self->fieldcmp.keys[i], &h->rowdata) == NULL) {
-            if (!loadKeys) {
-              loadKeys = rm_calloc(nkeys, sizeof(*loadKeys));
-            }
-            loadKeys[nLoadKeys++] = self->fieldcmp.keys[i];
-          }
-        }
-      }
-      self->fieldcmp.loadKeys = loadKeys;
-      self->fieldcmp.nLoadKeys = nLoadKeys;
-    }
-
-    if (loadKeys) {
-      QueryError status = {0};
-      RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx,
-                                    .dmd = h->dmd,
-                                    .nkeys = nLoadKeys,
-                                    .keys = loadKeys,
-                                    .status = &status};
-      RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
-      if (QueryError_HasError(&status)) {
-        // failure to fetch the doc:
-        // release dmd, reduce result count and continue
-        self->pooledResult = h;
-        SearchResult_Clear(self->pooledResult);
-        rp->parent->totalResults--;
-        return RESULT_QUEUED;
-      }
+    QueryError status = {0};
+    RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx,
+                                  .dmd = h->dmd,
+                                  .nkeys = nLoadKeys,
+                                  .keys = loadKeys,
+                                  .status = &status};
+    RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
+    if (QueryError_HasError(&status)) {
+      // failure to fetch the doc:
+      // release dmd, reduce result count and continue
+      self->pooledResult = h;
+      SearchResult_Clear(self->pooledResult);
+      rp->parent->totalResults--;
+      return RESULT_QUEUED;
     }
   }
 
@@ -570,8 +545,6 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->fieldcmp.ascendMap = ascmap;
   ret->fieldcmp.keys = keys;
   ret->fieldcmp.nkeys = nkeys;
-  ret->fieldcmp.loadKeys = NULL;
-  ret->fieldcmp.nLoadKeys = REDISEARCH_UNINITIALIZED;
 
   ret->pq = mmh_init_with_size(maxresults + 1, ret->cmp, ret->cmpCtx, srDtor);
   ret->size = maxresults;
@@ -581,6 +554,13 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->base.Free = rpsortFree;
   ret->base.type = RP_SORTER;
   return &ret->base;
+}
+
+void RPSoter_addLoadKeys(ResultProcessor *SorterByFields, const RLookupKey **loadKeys, size_t nLoadKeys) {
+  RPSorter *sorter = (RPSorter *)SorterByFields;
+  sorter->fieldcmp.loadKeys = loadKeys;
+  sorter->fieldcmp.nLoadKeys = nLoadKeys;
+  sorter->base.flags |= RESULT_PROCESSOR_F_ACCESS_REDIS;
 }
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
@@ -654,6 +634,11 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
   ret->base.type = RP_PAGER_LIMITER;
   ret->base.Next = rppagerNext;
   ret->base.Free = rppagerFree;
+
+  // Although the pager doesn't access Redis keyspace,
+  // if we are in a multi threaded execution, we insert the pager as the upstream rp
+  // of the unlocker rp, since the pager is the result processor that declares on EOF.
+  ret->base.flags |= RESULT_PROCESSOR_F_ACCESS_REDIS;
   return &ret->base;
 }
 
@@ -699,7 +684,7 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   } else {
     loadopts.mode |= RLOOKUP_LOAD_ALLKEYS;
   }
-  // if loadinging the document has failed, we return an empty array
+  // if loading the document has failed, we return an empty array
   RLookup_LoadDocument(lc->lk, &r->rowdata, &loadopts);
   return RS_RESULT_OK;
 }
@@ -720,6 +705,8 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
   sc->base.Next = rploaderNext;
   sc->base.Free = rploaderFree;
   sc->base.type = RP_LOADER;
+
+  sc->base.flags |= RESULT_PROCESSOR_F_ACCESS_REDIS;
   return &sc->base;
 }
 
@@ -1046,6 +1033,8 @@ int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_outp
 
     // If the result is invalid discard it.
     SearchResult_Destroy(curr_res);
+    rp->parent->totalResults--;
+
   }
 
   return RS_RESULT_EOF;

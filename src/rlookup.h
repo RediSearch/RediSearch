@@ -135,8 +135,11 @@ typedef struct {
 #define RLOOKUP_F_OEXCL 0x01   // Error if name exists already
 #define RLOOKUP_F_OCREAT 0x02  // Create key if it does not exit
 
-/** Force this key to be the output key, bypassing the sort vector */
-#define RLOOKUP_F_OUTPUT 0x04
+/** The original value of this field is available in the index.
+ * If this field was formatted (normalized), we need to load it from redis keyspace to 
+ * get its original value.
+ */
+#define RLOOKUP_F_ORIGINAL_VALUE_DOCSRC 0x04
 
 /** Check the sorting table, if necessary, for the index of the key. */
 #define RLOOKUP_F_SVSRC 0x08
@@ -147,16 +150,12 @@ typedef struct {
 /**
  * Do not increment the reference count of the returned key. Note that a single
  * refcount is still retained within the lookup structure itself
+ * TODO: pipline: consider removing as this is not in use
  */
 #define RLOOKUP_F_NOINCREF 0x20
 
 /**
- * This field needs to be loaded externally from a document. It is not
- * natively present.
- *
- * The flag is intended to be used by you, the programmer. If you encounter
- * a key with this flag set, then the value must be loaded externally and placed
- * into the row in the corresponding index slot.
+ * This field is part of the index schema.
  */
 #define RLOOKUP_F_DOCSRC 0x40
 
@@ -182,6 +181,12 @@ typedef struct {
  * explicitReturn is true in the aggregation request.
  */
 #define RLOOKUP_F_EXPLICITRETURN 0x400
+
+/**
+ * This key is was already loaded to the rlookup, 
+ * no need to load it again.
+ */
+#define RLOOKUP_F_ISLOADED 0x800
 
 /**
  * These flags do not persist to the key, they are just options to GetKey()
