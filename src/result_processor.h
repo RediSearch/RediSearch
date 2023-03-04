@@ -151,6 +151,11 @@ typedef enum {
   RS_RESULT_MAX
 } RPStatus;
 
+typedef enum {
+  // The result processor requires access to redis keyspace.
+  RESULT_PROCESSOR_F_ACCESS_REDIS = 0x01,  // Plan step has an alias
+} BaseRPFlags;
+
 /**
  * Result processor structure. This should be "Subclassed" by the actual
  * implementations
@@ -164,6 +169,8 @@ typedef struct ResultProcessor {
 
   // Type of result processor
   ResultProcessorType type;
+
+  uint32_t flags;
 
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is
@@ -214,6 +221,8 @@ void SortAscMap_Dump(uint64_t v, size_t n);
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
                                       uint64_t ascendingMap);
+
+void RPSoter_addLoadKeys(ResultProcessor *RPSorter, const RLookupKey **loadKeys, size_t nLoadKeys);
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults);
 

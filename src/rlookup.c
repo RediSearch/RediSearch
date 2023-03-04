@@ -64,6 +64,13 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) 
   if (FieldSpec_IsSortable(fs)) {
     ret->flags |= RLOOKUP_F_SVSRC;
     ret->svidx = fs->sortIdx;
+
+  // If the field is sortable and not normalized (UNF),
+  // we can take its value from the sorting vector.
+  // Otherwise, it needs to be externally loaded from Redis keyspace.
+    if(FieldSpec_IsUnf(fs)) {
+      ret->flags |= RLOOKUP_F_ORIGINAL_VALUE_DOCSRC;
+    }
   }
   ret->flags |= RLOOKUP_F_DOCSRC;
   if (fs->types == INDEXFLD_T_NUMERIC) {
@@ -74,7 +81,6 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) 
 
 RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int flags) {
   RLookupKey *ret = NULL;
-  int isNew = 0;
 
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
     // match `name` to the name/path of the field
@@ -530,7 +536,7 @@ static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *
         goto done;
       }
     }
-  } else {
+  } else { // If we called load to perform IF operation with FT.ADD command
     for (const RLookupKey *kk = it->head; kk; kk = kk->next) {
       /* key is not part of document schema. no need/impossible to 'load' it */
       if (!(kk->flags & RLOOKUP_F_DOCSRC)) {
