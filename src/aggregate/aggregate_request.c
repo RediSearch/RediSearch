@@ -1214,7 +1214,7 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
 
   // If we have explicit return and some of the keys' values are missing,
   // or if we don't have explicit return, meaning we use LOAD ALL
-  if (loadkeys || !req->outFields.numFields) {
+  if (loadkeys || !req->outFields.explicitReturn) {
     rp = RPLoader_New(lookup, loadkeys, loadkeys ? array_len(loadkeys) : 0);
     array_free(loadkeys);
     PUSH_RP();
