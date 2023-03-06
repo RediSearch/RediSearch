@@ -180,7 +180,7 @@ after the SCHEMA keyword, declares which fields to index:
 
    - `UNF`: By default, for hashes (not with JSON) `SORTABLE` applies a normalization to the indexed value (characters set to lowercase, removal of diacritics). When using the unnormalized form (UNF), you can disable the normalization and keep the original form of the value. With JSON, `UNF` is implicit with `SORTABLE` (normalization is disabled).
 
-   - `NOSTEM`: Text attributes can have the NOSTEM argument, which disables stemming when indexing its values. This may be ideal for things like proper names.
+   - `NOSTEM`: Text attributes can have the `NOSTEM` argument, which disables stemming when indexing its values. This may be ideal for things like proper names.
 
    - `NOINDEX`: Attributes can have the `NOINDEX` option, which means they will not be indexed. This is useful in conjunction with `SORTABLE`, to create attributes whose update using PARTIAL will not cause full reindexing of the document. If an attribute has `NOINDEX` and doesn't have `SORTABLE`, it is ignored by the index.
 
