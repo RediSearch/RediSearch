@@ -9,6 +9,7 @@ file(GLOB RMR_SRC
 include_directories(
 	${PROJECT_SOURCE_DIR}/src
 	${root}/src
+	${root}/deps/libuv
 	${root}/deps/libuv/include)
 
 if (APPLE)

@@ -235,14 +235,14 @@ MISSING_DEPS += $(LIBUV)
 endif
 
 ifeq ($(wildcard $(HIREDIS)),)
-MISSING_DEPS += $(HIREDIS)
+#@@ MISSING_DEPS += $(HIREDIS)
 endif
 
 ifneq ($(MISSING_DEPS),)
 DEPS=1
 endif
 
-DEPENDENCIES=libuv hiredis
+DEPENDENCIES=libuv #@@ hiredis
 
 ifneq ($(filter all deps $(DEPENDENCIES) pack,$(MAKECMDGOALS)),)
 DEPS=1
@@ -284,7 +284,7 @@ endif
 
 ifeq ($(DEPS),1)
 
-deps: $(LIBUV) $(HIREDIS)
+deps: $(LIBUV) #@@ $(HIREDIS)
 
 libuv: $(LIBUV)
 
@@ -424,21 +424,24 @@ callgrind: $(TARGET)
 
 #----------------------------------------------------------------------------------------------
 
-RAMP_VARIANT=$(subst release,,$(FLAVOR))$(_VARIANT.string)
-
-RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) \
-	PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
-
 ifneq ($(RAMP_YAML),)
 
+# RAMP_VARIANT=$(subst release,,$(FLAVOR))$(_VARIANT.string)
+
 PACK_ARGS=\
-	VARIANT=$(RAMP_VARIANT) \
+	VARIANT=$(VARIANT) \
 	PACKAGE_NAME=$(PACKAGE_NAME) \
 	MODULE_NAME=$(MODULE_NAME) \
 	RAMP_YAML=$(RAMP_YAML) \
 	RAMP_ARGS=$(RAMP_ARGS)
 
-bin/artifacts/$(RAMP.release) : $(RAMP_YAML) $(TARGET)
+RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 $(PACK_ARGS) $(ROOT)/sbin/pack.sh)
+
+ifneq ($(FORCE),1)
+bin/artifacts/$(RAMP.release): $(RAMP_YAML) # $(TARGET)
+else
+bin/artifacts/$(RAMP.release): __force
+endif
 	@echo Packing module...
 	$(SHOW)$(PACK_ARGS) $(ROOT)/sbin/pack.sh $(TARGET)
 
