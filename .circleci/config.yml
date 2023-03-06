@@ -113,7 +113,7 @@ commands:
           command: |
             ROOT="$PWD"
             cd tests/pytests/logs
-            tar -czf $ROOT/tests-pytests-logs.tgz *.log
+            tar -czf $ROOT/tests-pytests-logs.tgz *
           when: always
       - store_artifacts:
           path: tests-pytests-logs.tgz
@@ -463,7 +463,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-  
+
   benchmark-vecsim-oss-standalone:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
