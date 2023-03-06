@@ -78,6 +78,7 @@ class RediSearchSetup(paella.Setup):
         else:
             self.install("lcov-git", aur=True)
 
+        self.pip_install("conan")
         self.pip_install("-r %s/tests/pytests/requirements.txt" % ROOT)
         self.run("%s/bin/getaws" % READIES)
         self.run("NO_PY2=1 %s/bin/getpudb" % READIES)
