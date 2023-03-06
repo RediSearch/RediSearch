@@ -410,6 +410,13 @@ int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status) {
   RSSearchOptions *opts = &req->searchopts;
   QueryAST *ast = &req->ast;
 
+  // Set timeout for the query execution
+  // TODO: this should be done in `AREQ_execute`, but some of the iterators needs the timeout's
+  // value and some of the execution begins in `QAST_Iterate`.
+  // Setting the timeout context should be done in the same thread that executes the query.
+  updateTimeout(&req->timeoutTime, req->reqTimeout);
+  sctx->timeout = req->timeoutTime;
+
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
 

@@ -798,9 +798,6 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     }
   }
 
-  // Set timeout for the query
-  updateTimeout(&req->timeoutTime, req->reqTimeout);
-
   return REDISMODULE_OK;
 
 error:
@@ -1224,7 +1221,7 @@ static void PushUpStream(ResultProcessor *rp_to_place, ResultProcessor *rp) {
 // The Unlocker is places so that its upstream rp will be the last to access Redis keyspace.
 static int SafeRedisKeyspaceAccessPipeline(AREQ *req, ResultProcessor *first_to_access_redis,
                                     ResultProcessor *last_to_access_redis, QueryError *status) {
-  
+
   // TODO: multithreaded: Add better estimation to the buffer initial size
   ResultProcessor *rpBufferAndLocker = RPBufferAndLocker_New(1024);
 
