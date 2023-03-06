@@ -171,19 +171,20 @@ after the SCHEMA keyword, declares which fields to index:
 
    - `GEO` allows geographic range queries against the value in this attribute. The value of the attribute must be a string containing a longitude (first) and latitude separated by a comma.
 
-   - `VECTOR` allows vector similarity queries against the value in this attribute. For more information, see [Vector Fields](/redisearch/reference/vectors).
+   - `VECTOR` allows vector similarity queries against the value in this attribute. For more information, see [Vector fields](/redisearch/reference/vectors).
 
    Field options are:
 
-   - `SORTABLE`: `NUMERIC`, `TAG`, `TEXT`, or `GEO` attributes can have an optional **SORTABLE** argument. As the user [sorts the results by the value of this attribute](/redisearch/reference/sorting), the results are available with very low latency. Note that his adds memory overhead, so consider not declaring it on large text attributes. You can sort an attribute without the `SORTABLE` option, but the latency is not as good as with `SORTABLE`.
+   - `SORTABLE`: `NUMERIC`, `TAG` (not supported with JSON), or `TEXT` attributes can have an optional `SORTABLE` argument. When you sort the results by the value of [this attribute](/redisearch/reference/sorting), the results are available with very low latency. This adds a memory overhead, so consider not declaring it on large text attributes. 
+   You can sort an attribute without the `SORTABLE` option, but the latency is not as good as with `SORTABLE`. 
 
    - `UNF`: By default, for hashes (not with JSON) `SORTABLE` applies a normalization to the indexed value (characters set to lowercase, removal of diacritics). When using the unnormalized form (UNF), you can disable the normalization and keep the original form of the value. With JSON, `UNF` is implicit with `SORTABLE` (normalization is disabled).
 
-   - `NOSTEM`: Text attributes can have the NOSTEM argument which will disable stemming when indexing its values. This may be ideal for things like proper names.
+   - `NOSTEM`: Text attributes can have the NOSTEM argument, which disables stemming when indexing its values. This may be ideal for things like proper names.
 
-   - `NOINDEX`: Attributes can have the `NOINDEX` option, which means they will not be indexed. This is useful in conjunction with `SORTABLE`, to create attributes whose update using PARTIAL will not cause full reindexing of the document. If an attribute has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.
+   - `NOINDEX`: Attributes can have the `NOINDEX` option, which means they will not be indexed. This is useful in conjunction with `SORTABLE`, to create attributes whose update using PARTIAL will not cause full reindexing of the document. If an attribute has NOINDEX and doesn't have SORTABLE, it is ignored by the index.
 
-   - `PHONETIC {matcher}`: Declaring a text attribute as `PHONETIC` will perform phonetic matching on it in searches by default. The obligatory {matcher} argument specifies the phonetic algorithm and language used. The following matchers are supported:
+   - `PHONETIC {matcher}`: Declaring a text attribute as `PHONETIC`performs phonetic matching on it in searches by default. The obligatory {matcher} argument specifies the phonetic algorithm and language used. The following matchers are supported:
 
      - `dm:en` - Double metaphone for English
      - `dm:fr` - Double metaphone for French
