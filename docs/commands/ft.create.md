@@ -33,6 +33,56 @@ Create an index with the given specification. For usage, see [Examples](#example
 is index name to create. If it exists, the old specification is overwritten.
 </details>
 
+<a name="SCHEMA"></a><details open>
+<summary><code>SCHEMA {identifier} AS {attribute} {attribute type} {options...</code></summary> 
+
+after the SCHEMA keyword, declares which fields to index:
+
+ - `{identifier}` for hashes, is a field name within the hash.
+      For JSON, the identifier is a JSON Path expression.
+
+ - `AS {attribute}` defines the attribute associated to the identifier. For example, you can use this feature to alias a complex JSONPath expression with more memorable (and easier to type) name.
+
+ Field types are:
+
+ - `TEXT` - Allows full-text search queries against the value in this attribute.
+
+ - `TAG` - Allows exact-match queries, such as categories or primary keys, against the value in this attribute. For more information, see [Tag Fields](/redisearch/reference/tags).
+
+ - `NUMERIC` - Allows numeric range queries against the value in this attribute. See [query syntax docs](/redisearch/reference/query_syntax) for details on how to use numeric ranges.
+
+ - `GEO` - Allows geographic range queries against the value in this attribute. The value of the attribute must be a string containing a longitude (first) and latitude separated by a comma.
+
+ - `VECTOR` - Allows vector similarity queries against the value in this attribute. For more information, see [Vector Fields](/redisearch/reference/vectors).
+
+ Field options are:
+
+ - `SORTABLE` - `NUMERIC`, `TAG`, `TEXT`, or `GEO` attributes can have an optional **SORTABLE** argument. As the user [sorts the results by the value of this attribute](/redisearch/reference/sorting), the results are available with very low latency. Note that his adds memory overhead, so consider not declaring it on large text attributes. You can sort an attribute without the `SORTABLE` option, but the latency is not as good as with `SORTABLE`.
+
+ - `UNF` - By default, for hashes (not with JSON) `SORTABLE` applies a normalization to the indexed value (characters set to lowercase, removal of diacritics). When using the unnormalized form (UNF), you can disable the normalization and keep the original form of the value. With JSON, `UNF` is implicit with `SORTABLE` (normalization is disabled).
+
+ - `NOSTEM` - Text attributes can have the NOSTEM argument that disables stemming when indexing its values. This may be ideal for things like proper names.
+
+ - `NOINDEX` - Attributes can have the `NOINDEX` option, which means they will not be indexed. This is useful in conjunction with `SORTABLE`, to create attributes whose update using PARTIAL will not cause full reindexing of the document. If an attribute has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.
+
+ - `PHONETIC {matcher}` - Declaring a text attribute as `PHONETIC` will perform phonetic matching on it in searches by default. The obligatory {matcher} argument specifies the phonetic algorithm and language used. The following matchers are supported:
+
+   - `dm:en` - Double metaphone for English
+   - `dm:fr` - Double metaphone for French
+   - `dm:pt` - Double metaphone for Portuguese
+   - `dm:es` - Double metaphone for Spanish
+
+   For more information, see [Phonetic Matching](/redisearch/reference/phonetic_matching).
+
+  - `WEIGHT {weight}` for `TEXT` attributes, declares the importance of this attribute when calculating result accuracy. This is a multiplication factor, and defaults to 1 if not specified.
+
+  - `SEPARATOR {sep}` for `TAG` attributes, indicates how the text contained in the attribute is to be split into individual tags. The default is `,`. The value must be a single character.
+
+  - `CASESENSITIVE` for `TAG` attributes, keeps the original letter cases of the tags. If not specified, the characters are converted to lowercase.
+
+  - `WITHSUFFIXTRIE` for `TEXT` and `TAG` attributes, keeps a suffix trie with all terms which match the suffix. It is used to optimize `contains` (*foo*) and `suffix` (*foo) queries. Otherwise, a brute-force search on the trie is performed. If suffix trie exists for some fields, these queries will be disabled for other fields.
+</details>
+
 ## Optional arguments
 
 <a name="ON"></a><details open>
@@ -150,55 +200,6 @@ If not set, FT.CREATE takes the default list of stopwords. If `{count}` is set t
 
 if set, does not scan and index.
 </details>
-
-<a name="SCHEMA"></a><details open>
-<summary><code>SCHEMA {identifier} AS {attribute} {attribute type} {options...</code></summary> 
-
-after the SCHEMA keyword, declares which fields to index:
-
- - `{identifier}` for hashes, is a field name within the hash.
-      For JSON, the identifier is a JSON Path expression.
-
- - `AS {attribute}` defines the attribute associated to the identifier. For example, you can use this feature to alias a complex JSONPath expression with more memorable (and easier to type) name.
-
- Field types are:
-
- - `TEXT` - Allows full-text search queries against the value in this attribute.
-
- - `TAG` - Allows exact-match queries, such as categories or primary keys, against the value in this attribute. For more information, see [Tag Fields](/redisearch/reference/tags).
-
- - `NUMERIC` - Allows numeric range queries against the value in this attribute. See [query syntax docs](/redisearch/reference/query_syntax) for details on how to use numeric ranges.
-
- - `GEO` - Allows geographic range queries against the value in this attribute. The value of the attribute must be a string containing a longitude (first) and latitude separated by a comma.
-
- - `VECTOR` - Allows vector similarity queries against the value in this attribute. For more information, see [Vector Fields](/redisearch/reference/vectors).
-
- Field options are:
-
- - `SORTABLE` - `NUMERIC`, `TAG`, `TEXT`, or `GEO` attributes can have an optional **SORTABLE** argument. As the user [sorts the results by the value of this attribute](/redisearch/reference/sorting), the results are available with very low latency. Note that his adds memory overhead, so consider not declaring it on large text attributes. You can sort an attribute without the `SORTABLE` option, but the latency is not as good as with `SORTABLE`.
-
- - `UNF` - By default, for hashes (not with JSON) `SORTABLE` applies a normalization to the indexed value (characters set to lowercase, removal of diacritics). When using the unnormalized form (UNF), you can disable the normalization and keep the original form of the value. With JSON, `UNF` is implicit with `SORTABLE` (normalization is disabled).
-
- - `NOSTEM` - Text attributes can have the NOSTEM argument that disables stemming when indexing its values. This may be ideal for things like proper names.
-
- - `NOINDEX` - Attributes can have the `NOINDEX` option, which means they will not be indexed. This is useful in conjunction with `SORTABLE`, to create attributes whose update using PARTIAL will not cause full reindexing of the document. If an attribute has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.
-
- - `PHONETIC {matcher}` - Declaring a text attribute as `PHONETIC` will perform phonetic matching on it in searches by default. The obligatory {matcher} argument specifies the phonetic algorithm and language used. The following matchers are supported:
-
-   - `dm:en` - Double metaphone for English
-   - `dm:fr` - Double metaphone for French
-   - `dm:pt` - Double metaphone for Portuguese
-   - `dm:es` - Double metaphone for Spanish
-
-   For more information, see [Phonetic Matching](/redisearch/reference/phonetic_matching).
-
-  - `WEIGHT {weight}` for `TEXT` attributes, declares the importance of this attribute when calculating result accuracy. This is a multiplication factor, and defaults to 1 if not specified.
-
-  - `SEPARATOR {sep}` for `TAG` attributes, indicates how the text contained in the attribute is to be split into individual tags. The default is `,`. The value must be a single character.
-
-  - `CASESENSITIVE` for `TAG` attributes, keeps the original letter cases of the tags. If not specified, the characters are converted to lowercase.
-
-  - `WITHSUFFIXTRIE` for `TEXT` and `TAG` attributes, keeps a suffix trie with all terms which match the suffix. It is used to optimize `contains` (*foo*) and `suffix` (*foo) queries. Otherwise, a brute-force search on the trie is performed. If suffix trie exists for some fields, these queries will be disabled for other fields.
         
 <note><b>Notes:</b>
 
@@ -212,8 +213,7 @@ after the SCHEMA keyword, declares which fields to index:
 
    When Running RediSearch in a clustered database, you can span the index across shards using [RSCoordinator](https://github.com/RedisLabsModules/RSCoordinator). In this case the above does not apply.
 
-</note>  
-</details>
+</note>
 
 ## Return
 
