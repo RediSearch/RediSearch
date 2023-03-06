@@ -134,7 +134,8 @@ By default, there is no `SLOP` constraint.
 <details open>
 <summary><code>INORDER</code></summary>
 
-puts the query terms in the same order in the document as in the query, regardless of the offsets between them. Typically used in conjunction with `SLOP`. Default is `false`.
+requires the terms in the document to have the same order as the terms in the query, regardless of the offsets between them. Typically used in conjunction with `SLOP`. Default is `false`.
+
 </details>
 
 <details open>
