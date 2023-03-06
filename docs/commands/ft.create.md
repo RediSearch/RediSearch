@@ -184,7 +184,7 @@ after the SCHEMA keyword, declares which fields to index:
 
    - `NOINDEX`: Attributes can have the `NOINDEX` option, which means they will not be indexed. This is useful in conjunction with `SORTABLE`, to create attributes whose update using PARTIAL will not cause full reindexing of the document. If an attribute has `NOINDEX` and doesn't have `SORTABLE`, it is ignored by the index.
 
-   - `PHONETIC {matcher}`: Declaring a text attribute as `PHONETIC`performs phonetic matching on it in searches by default. The obligatory {matcher} argument specifies the phonetic algorithm and language used. The following matchers are supported:
+   - `PHONETIC {matcher}`: Declaring a text attribute as `PHONETIC` performs phonetic matching on it in searches by default. The obligatory {matcher} argument specifies the phonetic algorithm and language used. The following matchers are supported:
 
      - `dm:en` - Double metaphone for English
      - `dm:fr` - Double metaphone for French
