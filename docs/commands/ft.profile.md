@@ -30,7 +30,7 @@ removes details of `reader` iterator.
 <details open>
 <summary><code>QUERY {query}</code></summary>
 
-is query string, sent to FT.SEARCH.
+is query string, sent to `FT.SEARCH`.
 </details>
 
 <note><b>Note:</b> To reduce the size of the output, use `NOCONTENT` or `LIMIT 0 0` to reduce the reply results or `LIMITED` to not reply with details of `reader iterators` inside built-in unions such as `fuzzy` or `prefix`.</note>
