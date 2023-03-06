@@ -836,7 +836,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
-  sctx->timeout = req->timeoutTime;
   sctx->apiVersion = req->dialectVersion;
   req->sctx = sctx;
 
