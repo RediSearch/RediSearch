@@ -430,13 +430,12 @@ def testOverMaxResults():
   ]
 
   for c in commands:
-
     env.cmd(*c)
 
     env.cmd('flushall')
 
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
-    
+
     # test with number of documents lesser than MAXSEARCHRESULTS
     for i in range(10):
       conn.execute_command('HSET', i, 't', i)
@@ -602,7 +601,7 @@ def test_mod_4255(env):
   res = env.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
   cursor = res[1]
   for i in range(3, 1001, 1):
-      conn.execute_command('HSET', 'doc%i' % i, 'test', str(i))
+      conn.execute_command('HSET', f'doc{i}', 'test', str(i))
   res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
   env.assertEqual(res[0] ,[1, ['test', '2']])
   env.assertNotEqual(cursor ,0)
@@ -613,7 +612,7 @@ def test_mod_4255(env):
   cursor = res[1]
   env.assertNotEqual(cursor ,0)
   for i in range(3, 1001, 1):
-    env.cmd('DEL', 'doc%i' % i, 'test', str(i))
+    conn.execute_command('DEL', f'doc{i}', 'test', str(i))
   forceInvokeGC(env, 'idx')
 
   res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
@@ -629,19 +628,19 @@ def test_as_startswith_as(env):
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.attr1', 'AS', 'asa', 'TEXT').equal('OK')
     conn.execute_command('JSON.SET', 'doc2', '$', '{"attr1": "foo", "attr2": "bar"}')
-    
+
     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 1, 'asa').equal([1, 'doc2', ['asa', 'foo']])
     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, 'asa', 'AS', 'asa').equal([1, 'doc2', ['asa', 'foo']])
     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, '$.attr1', 'AS', 'asa').equal([1, 'doc2', ['asa', 'foo']])
     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, '$.attr1', 'AS', '$.attr2').equal([1, 'doc2', ['$.attr2', 'foo']])
     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, 'asa', 'AS', '$.attr2').equal([1, 'doc2', ['$.attr2', 'foo']])
-    
+
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 1, 'asa').equal([1, ['asa', 'foo']])
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, 'asa', 'AS', 'asa').equal([1, ['asa', 'foo']])
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, '$.attr1', 'AS', 'asa').equal([1, ['asa', 'foo']])
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, '$.attr1', 'AS', '$.attr2').equal([1, ['$.attr2', 'foo']])
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, 'asa', 'AS', '$.attr2').equal([1, ['$.attr2', 'foo']])
-    
+
 def test_mod4296_badexpr(env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').equal('OK')
   env.expect('HSET', 'doc', 't', 'foo').equal(1)
