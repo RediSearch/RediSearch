@@ -15,7 +15,9 @@ metadata:
   component: "search"
 setups:
   - oss-standalone
-  - oss-cluster-03-primaries
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+  - oss-cluster-16-primaries
 dbconfig:
   - init_commands:
       - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'

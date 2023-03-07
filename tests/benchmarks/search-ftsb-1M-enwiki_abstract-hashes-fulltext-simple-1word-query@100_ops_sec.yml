@@ -19,7 +19,9 @@ metadata:
   type: "rate-limited"
 setups:
   - oss-standalone
-  - oss-cluster-03-primaries
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+  - oss-cluster-16-primaries
 dbconfig:
   - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
   - init_commands:

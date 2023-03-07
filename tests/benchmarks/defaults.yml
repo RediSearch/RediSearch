@@ -89,6 +89,17 @@ spec:
         cpus: "3"
         memory: "30g"
 
+  - name: oss-cluster-04-primaries
+    type: oss-cluster
+    redis_topology:
+      primaries: 4
+      replicas: 0
+      placement: "sparse"
+    resources:
+      requests:
+        cpus: "4"
+        memory: "40g"
+
   - name: oss-cluster-05-primaries
     type: oss-cluster
     redis_topology:
@@ -99,6 +110,17 @@ spec:
       requests:
         cpus: "5"
         memory: "50g"
+
+  - name: oss-cluster-08-primaries
+    type: oss-cluster
+    redis_topology:
+      primaries: 8
+      replicas: 0
+      placement: "sparse"
+    resources:
+      requests:
+        cpus: "10"
+        memory: "90g"
 
   - name: oss-cluster-09-primaries
     type: oss-cluster
@@ -121,6 +143,17 @@ spec:
       requests:
         cpus: "15"
         memory: "150g"
+
+  - name: oss-cluster-16-primaries
+    type: oss-cluster
+    redis_topology:
+      primaries: 16
+      replicas: 0
+      placement: "sparse"
+    resources:
+      requests:
+        cpus: "18"
+        memory: "180g"
 
   - name: oss-cluster-21-primaries
     type: oss-cluster
