@@ -203,6 +203,7 @@ typedef struct {
  */
 RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags);
 
+RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char *name, int flags);
 /**
  * Get the amount of visible fields is the RLookup
  */
