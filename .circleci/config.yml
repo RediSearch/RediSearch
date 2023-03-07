@@ -520,12 +520,12 @@ jobs:
           name: Prepare Conan dependencies
           shell: /bin/bash -l -eo pipefail
           command: |
-            make conan COV=1 SHOW=1
+            make conan SHOW=1 NPROC=16
       - run:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
           command: |
-            make coverage QUICK=1 TEST_PARALLEL=16 SHOW=1
+            make coverage QUICK=1 TEST_PARALLEL=16 NPROC=16 SHOW=1
             make upload-cov SHOW=1
           no_output_timeout: 30m
       - save-tests-logs
@@ -574,11 +574,13 @@ jobs:
           name: Prepare Conan dependencies
           shell: /bin/bash -l -eo pipefail
           command: |
-            make conan VG=1 SHOW=1
+            make conan VG=1 SHOW=1 NPROC=16
       - run:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
-          command: make VG=1 build test SHOW=1
+          command: |
+            make VG=1 build SHOW=1 NPROC=16
+            make VG=1 test SHOW=1
           no_output_timeout: 30m
       - save-tests-logs
 
@@ -764,13 +766,15 @@ workflows:
       - build-linux-arm-ubuntu:
           <<: *never
       - build-platforms:
-          <<: *on-integ-and-version-tags
+          #@@<<: *on-integ-and-version-tags
+          <<: *always
           context: common
           matrix:
             parameters:
               platform: [jammy, focal, bionic, xenial, centos7, rocky8, bullseye, amzn2]
       - build-arm-platforms:
-          <<: *on-integ-and-version-tags
+          #@@<<: *on-integ-and-version-tags
+          <<: *always
           context: common
           matrix:
             parameters:
