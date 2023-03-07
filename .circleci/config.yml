@@ -147,6 +147,11 @@ commands:
           redis_version: <<parameters.redis_version>>
           getredis_params: <<parameters.getredis_params>>
       - run:
+          name: Prepare Conan dependencies
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make conan <<parameters.build_params>> SHOW=1 NPROC=16
+      - run:
           name: Build (Search)
           shell: /bin/bash -l -eo pipefail
           command: |
@@ -512,6 +517,11 @@ jobs:
       - checkout-all
       - install-prerequisites
       - run:
+          name: Prepare Conan dependencies
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make conan COV=1 SHOW=1
+      - run:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
           command: |
@@ -534,6 +544,11 @@ jobs:
       - checkout-all
       - install-prerequisites
       - run:
+          name: Prepare Conan dependencies
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make conan SAN=<<parameters.san-type>> SHOW=1
+      - run:
           name: Build & test (Search)
           shell: /bin/bash -l -eo pipefail
           command: |
@@ -555,6 +570,11 @@ jobs:
     steps:
       - early-returns
       - checkout-all
+      - run:
+          name: Prepare Conan dependencies
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make conan VG=1 SHOW=1
       - run:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail

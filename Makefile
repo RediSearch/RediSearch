@@ -230,7 +230,7 @@ MK_CUSTOM_CLEAN=1
 
 MISSING_DEPS:=
 
-CONAN_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/conan
+export CONAN_BINDIR:=$(ROOT)/bin/$(shell $(READIES)/bin/platform -t)/conan
 include build/conan/Makefile.defs
 
 S2GEOMETRY_DIR=$(ROOT)/deps/s2geometry

@@ -38,7 +38,7 @@ define CMAKE_DEFS +=
 	WITH_GTEST=off
 	BUILD_EXAMPLES=off
 	CMAKE_POSITION_INDEPENDENT_CODE=on
-	CMAKE_PREFIX_PATH=$(BINROOT)/conan
+	CMAKE_PREFIX_PATH=$(CONAN_BINDIR)
 endef
 
 #----------------------------------------------------------------------------------------------
