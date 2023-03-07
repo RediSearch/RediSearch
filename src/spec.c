@@ -31,6 +31,7 @@
 #include "rdb.h"
 #include "commands.h"
 #include "rmutil/cxx/chrono-clock.h"
+#include "geometry_index.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -755,6 +756,10 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, FieldSpec *fs, QueryErr
         break;
       }
     }
+  } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
+    fs->types |= INDEXFLD_T_GEOMETRY;
+    // TODO: GEMOMETRY - Support more geometry libraries - if an optional successive token exist
+    fs->geometryOpts.geometryLibType = GEOMETRY_LIB_TYPE_BOOST_GEOMETRY;
   } else {  // nothing more supported currently
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;
@@ -1412,6 +1417,9 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
         // NOT NECESSARY ANYMORE - used when field were in keyspace
         ret = RedisModule_CreateString(sctx.redisCtx, fs->name, strlen(fs->name));
         break;
+      case INDEXFLD_T_GEOMETRY:
+        ret = fmtRedisGeometryIndexKey(&sctx, fs->name);
+        break;
       case INDEXFLD_T_FULLTEXT:  // Text fields don't get a per-field index
       default:
         ret = NULL;
@@ -1709,6 +1717,9 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
       }
     }
   }
+  // TODO: GEOMETRY: load geometry specific options
+  // if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
+  // }
   return REDISMODULE_OK;
 
 fail:

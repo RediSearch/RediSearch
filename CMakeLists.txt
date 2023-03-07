@@ -59,6 +59,7 @@ option(VECSIM_STATIC "Build as static library" ON)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity/src)
+add_subdirectory(src/geometry)
 
 #----------------------------------------------------------------------------------------------
 
@@ -135,7 +136,7 @@ else() # OSS RediSearch
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
-    target_link_libraries(redisearch VectorSimilarity ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch redisearch-geometry VectorSimilarity ${CMAKE_LD_LIBS})
 
     extract_debug_symbols(redisearch)
     

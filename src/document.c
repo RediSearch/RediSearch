@@ -20,6 +20,7 @@
 #include "rmalloc.h"
 #include "indexer.h"
 #include "tag_index.h"
+#include "geometry/geometry_api.h"
 #include "aggregate/expr/expression.h"
 #include "rmutil/rm_assert.h"
 
@@ -340,6 +341,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
     for (size_t ii = 0; ii < aCtx->doc->numFields; ++ii) {
       const DocumentField *ff = aCtx->doc->fields + ii;
       if ((ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG))) {
+        // TODO: GEOMETRY - handle geometry fields?
         size_t n;
         if (ff->unionType == FLD_VAR_T_CSTR || ff->unionType == FLD_VAR_T_RMS) {
           DocumentField_GetValueCStr(&aCtx->doc->fields[ii], &n);
@@ -557,6 +559,86 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
   return 0;
 }
 
+
+FIELD_PREPROCESSOR(geometryPreprocessor) {
+  switch (field->unionType) {
+    case FLD_VAR_T_RMS:
+    {
+      // From WKT RMS
+      fdata->isMulti = 0;
+      size_t len;
+      const char *str = RedisModule_StringPtrLen(field->text, &len);
+      fdata->str = str;
+      fdata->strlen = len;
+      fdata->format = GEOMETRY_FORMAT_WKT;
+      break;
+    }
+    case FLD_VAR_T_CSTR:
+      // From WKT string
+      fdata->isMulti = 0;
+      fdata->str = field->strval;
+      fdata->strlen = field->strlen;
+      fdata->format = GEOMETRY_FORMAT_WKT;
+      break;
+    case FLD_VAR_T_NUM:
+    case FLD_VAR_T_NULL:
+      return 0;
+    case FLD_VAR_T_ARRAY:
+      fdata->isMulti = 1;
+      // TODO: GEOMETRY - parse geometries from string
+      //fdata->arrGeometry = ...
+      break;
+    default:
+      return -1;
+  }
+
+  // TODO: GEOMETRY
+  // If this is a sortable geomtry value - copy the value to the sorting vector
+  
+
+  return 0;
+}
+
+FIELD_BULK_INDEXER(geometryIndexer) {
+  GeometryIndex rt = bulk->indexDatas[INDEXFLD_T_GEOMETRY];
+  if (!rt) {
+    RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_GEOMETRY);
+    rt = bulk->indexDatas[IXFLDPOS_GEOMETRY] =
+        OpenGeometryIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_GEOMETRY], fs);
+    if (!rt) {
+      QueryError_SetError(status, QUERY_EGENERIC, "Could not open geometry index for indexing");
+      return -1;
+    }
+  }
+
+  GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
+  if (!api) {
+    QueryError_SetError(status, QUERY_EGENERIC, "Could not get geometry api for indexing");
+    return -1;
+  }
+  RedisModuleString *errMsg;
+  if (!fdata->isMulti) {
+    if (!api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, &errMsg)) {
+      
+      //TODO: GEOMETRY - Should indexing failures be handles also here and not in the preprocessor?
+      // (prefer to delay the parsing of the geometry as much as possible)
+      ++ctx->spec->stats.indexingFailures;
+
+      QueryError_SetErrorFmt(status, QUERY_EBADVAL, "Error indexing geometry: %s",
+                             RedisModule_StringPtrLen(errMsg, NULL));
+      RedisModule_FreeString(NULL, errMsg);
+      return -1;
+    }
+  } else {
+    // for (uint32_t i = 0; i < array_len(fdata->arrGeometry); ++i) {
+    //   //TODO: GEOMETRY
+    // }
+  }
+  return 0;
+}
+
+
+
 FIELD_BULK_INDEXER(numericIndexer) {
   NumericRangeTree *rt = bulk->indexDatas[IXFLDPOS_NUMERIC];
   if (!rt) {
@@ -747,6 +829,7 @@ static PreprocessorFunc preprocessorMap[] = {
     [IXFLDPOS_GEO] = geoPreprocessor,
     [IXFLDPOS_TAG] = tagPreprocessor,
     [IXFLDPOS_VECTOR] = vectorPreprocessor,
+    [IXFLDPOS_GEOMETRY] = geometryPreprocessor,
     };
 
 int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
@@ -766,6 +849,9 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
           break;
         case IXFLDPOS_VECTOR:
           rc = vectorIndexer(bulk, cur, sctx, field, fs, fdata, status);
+          break;
+        case IXFLDPOS_GEOMETRY:
+          rc = geometryIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_FULLTEXT:
           break;

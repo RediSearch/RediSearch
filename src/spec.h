@@ -34,6 +34,7 @@ struct IndexesScanner;
 struct DocumentIndexer;
 
 #define SPEC_GEO_STR "GEO"
+#define SPEC_GEOMETRY_STR "GEOMETRY"
 #define SPEC_TAG_STR "TAG"
 #define SPEC_TEXT_STR "TEXT"
 #define SPEC_VECTOR_STR "VECTOR"
@@ -253,7 +254,7 @@ typedef struct IndexSpec {
   Trie *terms;                    // Trie of all terms. Used for GC and fuzzy queries
   Trie *suffix;                   // Trie of suffix tokens of terms. Used for contains queries
   t_fieldMask suffixMask;         // Mask of all field that support contains query
-  dict *keysDict;                 // Global dictionary. Contains inverted indexes of all TEXT terms
+  dict *keysDict;                 // Global dictionary. Contains inverted indexes of all TEXT TAG NUMERIC VECTOR and GEOMETRY terms
 
   RSSortingTable *sortables;      // Contains sortable data of documents
 
