@@ -150,20 +150,20 @@ commands:
           name: Build (Search)
           shell: /bin/bash -l -eo pipefail
           command: |
-            make build <<parameters.build_params>> SHOW=1
+            make build <<parameters.build_params>> SHOW=1 NPROC=16
       - run:
           name: Build (Search Lite)
           shell: /bin/bash -l -eo pipefail
           command: |
-            make build LITE=1 <<parameters.build_params>> SHOW=1
+            make build LITE=1 <<parameters.build_params>> SHOW=1 NPROC=16
       - run:
           name: Build (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
-          command: make build COORD=oss <<parameters.build_params>> SHOW=1
+          command: make build COORD=oss <<parameters.build_params>> SHOW=1 NPROC=16
       - run:
           name: Build (RLEC Coordinator)
           shell: /bin/bash -l -eo pipefail
-          command: make build COORD=rlec <<parameters.build_params>> SHOW=1
+          command: make build COORD=rlec <<parameters.build_params>> SHOW=1 NPROC=16
       - when:
           condition: << parameters.run_pack >>
           steps:
@@ -346,6 +346,7 @@ jobs:
   build-linux-debian:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    resource_class: large
     parameters:
       build_params:
         type: string
