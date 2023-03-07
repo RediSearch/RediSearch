@@ -13,6 +13,93 @@
 #include "value.h"
 
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
+                                uint16_t idx);
+
+static const FieldSpec *findFieldInSpec(RLookup *lookup, const char *name) {
+  const IndexSpecCache *cc = lookup->spcache;
+  if (!cc) {
+    return NULL;
+  }
+
+  const FieldSpec *fs = NULL;
+  for (size_t ii = 0; ii < cc->nfields; ++ii) {
+    if (!strcmp(cc->fields[ii].name, name)) {
+      fs = cc->fields + ii;
+    }
+  }
+
+  return fs;
+
+}
+
+static void Lookupkey_setFieldSpec(RLookupKey *key, const FieldSpec *fs, int flags) {
+ 
+  key->path = fs->path;
+
+  if (FieldSpec_IsSortable(fs)) {
+    key->flags |= RLOOKUP_F_SVSRC;
+    key->svidx = fs->sortIdx;
+
+  // If the field is sortable and not normalized (UNF),
+  // we can take its value from the sorting vector.
+  // Otherwise, it needs to be externally loaded from Redis keyspace.
+    if(FieldSpec_IsUnf(fs)) {
+      key->flags |= RLOOKUP_F_ORIGINAL_VALUE_DOCSRC;
+    }
+  }
+  key->flags |= RLOOKUP_F_DOCSRC;
+  if (fs->types == INDEXFLD_T_NUMERIC) {
+    key->fieldtype = RLOOKUP_C_DBL;
+  }
+}
+
+static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) {
+
+  const FieldSpec *fs = findFieldInSpec(lookup, name);
+  if(!fs) {
+    return NULL;
+  }
+
+  uint16_t idx = lookup->rowlen++;
+
+  RLookupKey *ret = createNewKey(lookup, name, strlen(name), flags, idx);
+  Lookupkey_setFieldSpec(ret, fs, flags);
+
+  return ret;
+
+}
+
+static RLookupKey *FindExistingPath(RLookup *lookup, const char *path, FieldSpec **out_spec_field ) {
+
+  // Check if path exist in schema (as name).
+  // If the user set an alias for one of the fields, they should address
+  // it by its aliased name, otherwise it will be loaded from redis key space (unless already exist in 
+  // the rlookup)
+
+
+  // TODO: optimize pipeline: add to documentation that addressing keys by their original path
+  // and not the by their alias can harm perfomance.
+
+  const FieldSpec *fs = findFieldInSpec(lookup, path);
+
+  // If it exist in spec, search for the original path in the rlookup.
+  if(fs) {
+    path = fs->path;
+    *out_spec_field = fs;
+  }
+
+  // Search for path in the rlookup.
+  for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
+    if (!strcmp(kk->path, path))
+      return kk;
+  }
+
+  return NULL;
+
+
+}  
+
+static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
                                 uint16_t idx) {
   RLookupKey *ret = rm_calloc(1, sizeof(*ret));
 
@@ -38,46 +125,41 @@ static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int
   }
   return ret;
 }
+                          
+RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char *name, int flags) {
+  FieldSpec *fs = NULL;
+  RLookupKey *lookupkey = FindExistingPath(lookup, path, &fs);
 
-static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) {
-  const IndexSpecCache *cc = lookup->spcache;
-  if (!cc) {
-    return NULL;
-  }
+  // if we found a rlookupkey and it has the same name, use it.
+  if(lookupkey && !strcmp(lookupkey->name, name)) {
+      return lookupkey;
+  } 
 
-  const FieldSpec *fs = NULL;
-  for (size_t ii = 0; ii < cc->nfields; ++ii) {
-    if (!strcmp(cc->fields[ii].name, name)) {
-      fs = cc->fields + ii;
-      break;
+  // If we didn't find a key, or if we did find a key but with a different name,
+  // create a new key.
+  RLookupKey *ret = createNewKey(lookup, name, strlen(name), flags, lookup->rowlen);
+  ++lookup->rowlen;
+
+  // Copy the meta data of the existing key, if we found one.
+  if(lookupkey) {
+    ret->path = lookupkey->path;
+    ret->dstidx = lookupkey->dstidx;
+    ret->svidx = lookupkey->svidx;
+    ret->flags |= lookupkey->flags;
+    ret->fieldtype = lookupkey->fieldtype;
+  } else {
+    // if we didn't find any key, but the key exists in the schema 
+    // use spec fields
+    if(fs) {
+      Lookupkey_setFieldSpec(ret, fs, flags);
+    } else {
+      ret->path = path;
     }
   }
 
-  if (!fs) {
-    // Field does not exist in the schema at all
-    return NULL;
-  }
-
-  uint16_t idx = lookup->rowlen++;
-
-  RLookupKey *ret = createNewKey(lookup, name, strlen(name), flags, idx);
-  if (FieldSpec_IsSortable(fs)) {
-    ret->flags |= RLOOKUP_F_SVSRC;
-    ret->svidx = fs->sortIdx;
-
-  // If the field is sortable and not normalized (UNF),
-  // we can take its value from the sorting vector.
-  // Otherwise, it needs to be externally loaded from Redis keyspace.
-    if(FieldSpec_IsUnf(fs)) {
-      ret->flags |= RLOOKUP_F_ORIGINAL_VALUE_DOCSRC;
-    }
-  }
-  ret->flags |= RLOOKUP_F_DOCSRC;
-  if (fs->types == INDEXFLD_T_NUMERIC) {
-    ret->fieldtype = RLOOKUP_C_DBL;
-  }
   return ret;
 }
+
 
 RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int flags) {
   RLookupKey *ret = NULL;

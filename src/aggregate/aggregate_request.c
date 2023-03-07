@@ -991,6 +991,8 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
       QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", name);
       return NULL;
     }
+    key->flags |= RLOOKUP_F_ISLOADED;
+
     // In some cases the iterator that requested the additional field can be NULL (if some other iterator knows early
     // that it has no results), but we still want the rest of the pipline to know about the additional field name,
     // because there is no syntax error and the sorter should be able to "sort" by this field.
@@ -1052,10 +1054,9 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
         return NULL;
       }
       sortkeys[ii] = sortkey;
-      // if the key is party of the schema, but it is not sortable, and also not loaded by another result processor,
+      // if the key is not sortable, and also not loaded by another result processor,
       // add it to the loadkeys list.
-      if((sortkey->flags & RLOOKUP_F_DOCSRC) && 
-        !(sortkey->flags & RLOOKUP_F_SVSRC) &&
+      if(!(sortkey->flags & RLOOKUP_F_SVSRC) &&
          !(sortkey->flags & RLOOKUP_F_ISLOADED)) {
         // initialize loadKeys
         if (!loadKeys) {
@@ -1188,25 +1189,15 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
   // Add a LOAD step...
   const RLookupKey **loadkeys = NULL;
   if (req->outFields.explicitReturn) {
-    //if it's JSON index, we always load return fields.
-    bool json_index = req->sctx->spec->rule->type == DocumentType_Json;
-
     // Go through all the fields and ensure that each one exists in the lookup stage
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       const ReturnedField *rf = req->outFields.fields + ii;
-      RLookupKey *lk = RLookup_GetKey(lookup, rf->name, RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
-      
-      // change path to be used by loader
-      lk->path = rf->path;
-      
-      // assign explicit output flag
+
+      RLookupKey *lk = RLookup_GetOrCreateKey(lookup, rf->path, rf->name, 0);
       lk->flags |= RLOOKUP_F_EXPLICITRETURN;
-      
-      // if the key is not already loaded, and we can't get its value from the index,
-      // add it to the loadkeys list.
-      if (json_index ||
-      (!(lk->flags & RLOOKUP_F_ISLOADED) && !(lk->flags & RLOOKUP_F_ORIGINAL_VALUE_DOCSRC))) {
+      if ((!(lk->flags & RLOOKUP_F_ISLOADED) && !(lk->flags & RLOOKUP_F_ORIGINAL_VALUE_DOCSRC))) {
         *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
+        lk->flags|= RLOOKUP_F_ISLOADED;
       }
 
     }
