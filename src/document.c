@@ -616,9 +616,19 @@ FIELD_BULK_INDEXER(geometryIndexer) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not get geometry api for indexing");
     return -1;
   }
+  RedisModuleString *errMsg;
   if (!fdata->isMulti) {
-    //TODO: GEOMETRY - handle error (pass RMS ptr)
-    api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, NULL);
+    if (!api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, &errMsg)) {
+      
+      //TODO: GEOMETRY - Should indexing failures be handles also here and not in the preprocessor?
+      // (prefer to delay the parsing of the geometry as much as possible)
+      ++ctx->spec->stats.indexingFailures;
+
+      QueryError_SetErrorFmt(status, QUERY_EBADVAL, "Error indexing geometry: %s",
+                             RedisModule_StringPtrLen(errMsg, NULL));
+      RedisModule_FreeString(NULL, errMsg);
+      return -1;
+    }
   } else {
     // for (uint32_t i = 0; i < array_len(fdata->arrGeometry); ++i) {
     //   //TODO: GEOMETRY

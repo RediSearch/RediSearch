@@ -33,6 +33,9 @@ struct RTDoc {
 
   [[nodiscard]] static rect_internal to_rect(poly_type const& poly) {
     const auto& points = poly.outer();
+    if (points.empty()) {
+      return rect_internal{};
+    }
     auto xs = std::ranges::transform_view(points, [](const auto& p) { return bg::get<0>(p); });
     auto [min_x, max_x] = std::ranges::minmax(xs);
     auto ys = std::ranges::transform_view(points, [](const auto& p) { return bg::get<1>(p); });

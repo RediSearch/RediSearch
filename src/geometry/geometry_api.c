@@ -36,10 +36,10 @@ struct GeometryIndex* bg_createIndex() {
   return (struct GeometryIndex*)RTree_New();
 }
 
-IndexIterator* bg_query(struct GeometryIndex *index, enum QueryType queryType, GEOMETRY_FORMAT format, const char *str, size_t len) {
+IndexIterator* bg_query(struct GeometryIndex *index, enum QueryType queryType, GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg) {
   switch (format) {
   case GEOMETRY_FORMAT_WKT:
-    return RTree_Query_WKT((struct RTree*)index, str, len, queryType);
+    return RTree_Query_WKT((struct RTree*)index, str, len, queryType, err_msg);
   
   case GEOMETRY_FORMAT_GEOJSON:
   default:
@@ -51,15 +51,11 @@ int bg_addGeomStr(struct GeometryIndex *index, GEOMETRY_FORMAT format, const cha
   
   switch (format) {
   case GEOMETRY_FORMAT_WKT:
-    if (!RTree_Insert_WKT((struct RTree*)index, str, len, docId)) {
-      if (err_msg) {
-        *err_msg = RedisModule_CreateStringPrintf(NULL, "Invalid WKT %.*s", (int)len, str);
-      }
-    }
-    break;
+    return !RTree_Insert_WKT((struct RTree*)index, str, len, docId, err_msg);
 
   default:
   case GEOMETRY_FORMAT_GEOJSON:
+    // TODO: GEOMETRY Support GeoJSON
     return 1;
 
   }

@@ -16,7 +16,7 @@ NODISCARD struct RTree *RTree_New();
 struct RTree *Load_WKT_File(struct RTree *rtree, const char *path);
 void RTree_Free(struct RTree *rtree) NOEXCEPT;
 void RTree_Insert(struct RTree *rtree, struct RTDoc const *doc);
-int RTree_Insert_WKT(struct RTree *rtree, const char *wkt, size_t len, t_docId id);
+int RTree_Insert_WKT(struct RTree *rtree, const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg);
 bool RTree_Remove(struct RTree *rtree, struct RTDoc const *doc);
 int RTree_Remove_WKT(struct RTree *rtree, const char *wkt, size_t len, t_docId id);
 NODISCARD size_t RTree_Size(struct RTree const *rtree) NOEXCEPT;
@@ -25,7 +25,9 @@ void RTree_Clear(struct RTree *rtree) NOEXCEPT;
 NODISCARD struct RTDoc *RTree_Bounds(struct RTree const *rtree);
 
 NODISCARD IndexIterator *RTree_Query(struct RTree const *rtree, struct RTDoc const *queryDoc, enum QueryType queryType);
-NODISCARD IndexIterator *RTree_Query_WKT(struct RTree const *rtree, const char *wkt, size_t len, enum QueryType queryType);
+
+// Caller should free the returned err_msg
+NODISCARD IndexIterator *RTree_Query_WKT(struct RTree const *rtree, const char *wkt, size_t len, enum QueryType queryType, RedisModuleString **err_msg);
 
 NODISCARD size_t RTree_MemUsage(struct RTree const *rtree);
 #ifdef __cplusplus

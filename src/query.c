@@ -885,7 +885,14 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
     return NULL;
   }
   GeometryQuery *gq = node->gmn.geomq;
-  return api->query(index, gq->query_type, gq->format, gq->str, gq->str_len);
+  RedisModuleString *errMsg;
+  IndexIterator *ret = api->query(index, gq->query_type, gq->format, gq->str, gq->str_len, &errMsg);
+  if (ret == NULL) {
+    QueryError_SetErrorFmt(q->status, QUERY_EBADVAL, "Error querying geometry index: %s",
+                           RedisModule_StringPtrLen(errMsg, NULL));
+    RedisModule_FreeString(NULL, errMsg);
+  }
+  return ret;
 }
 
 

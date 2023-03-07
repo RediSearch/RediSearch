@@ -27,11 +27,13 @@ void RTree_Insert(RTree *rtree, RTDoc const *doc) {
   rtree->insert(*doc);
 }
 
-int RTree_Insert_WKT(RTree *rtree, const char *wkt, size_t len, t_docId id) {
+int RTree_Insert_WKT(RTree *rtree, const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg) {
   try {
     rtree->insert(RTDoc{std::string_view{wkt, len}, id});
     return 0;
-  } catch (...) {
+  } catch (const std::exception &e) {
+    if (err_msg)
+      *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
     return 1;
   }
 }
@@ -59,8 +61,18 @@ IndexIterator *RTree_Query(RTree const *rtree, RTDoc const *queryDoc, QueryType 
   return generate_query_iterator(rtree->query(*queryDoc, queryType));
 }
 
-IndexIterator *RTree_Query_WKT(RTree const *rtree, const char *wkt, size_t len, enum QueryType queryType) {
-  return generate_query_iterator(rtree->query(RTDoc{std::string_view{wkt, len}, 0}, queryType));
+IndexIterator *RTree_Query_WKT(RTree const *rtree, const char *wkt, size_t len, enum QueryType queryType, RedisModuleString **err_msg) {
+  try
+  {
+    auto res = rtree->query(RTDoc{std::string_view{wkt, len}, 0}, queryType);
+    return generate_query_iterator(std::move(res));
+  }
+  catch(const std::exception& e)
+  {
+    if (err_msg)
+      *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
+    return nullptr;
+  }
 }
 
 RTDoc *RTree_Bounds(RTree const *rtree) {
