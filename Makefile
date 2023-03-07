@@ -305,7 +305,7 @@ conan: $(CONAN)
 
 $(CONAN):
 	@echo Fetching conan libraries...
-	$(SHOW)$(MAKE) --no-print-directory -C build/conan BINROOT=$(BINROOT) DEBUG=''
+	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG=''
 
 s2geometry: $(S2GEOMETRY)
 
