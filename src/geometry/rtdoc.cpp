@@ -1,0 +1,39 @@
+
+#include "rtdoc.hpp"
+
+extern "C" RTDoc *From_WKT(const char *wkt, size_t len, t_docId id) {
+  try {
+    return new RTDoc{std::string_view{wkt, len}, id};
+  } catch (...) {
+    return nullptr;
+  }
+}
+
+RTDoc *RTDoc_Copy(RTDoc const *other) {
+  return new RTDoc{*other};
+}
+
+void RTDoc_Free(RTDoc *doc) noexcept {
+  delete doc;
+}
+
+t_docId RTDoc_GetID(RTDoc const *doc) noexcept {
+  return doc->id();
+}
+
+bool RTDoc_IsEqual(RTDoc const *lhs, RTDoc const *rhs) {
+  return *lhs == *rhs;
+}
+
+RedisModuleString *RTDoc_ToString(struct RTDoc const *doc) {
+  if (RedisModule_CreateString) {
+    string s = doc->to_string();
+    return RedisModule_CreateString(nullptr, s.c_str(), s.length());
+  } else {
+    return nullptr;
+  }
+}
+
+void RTDoc_Print(struct RTDoc const *doc) {
+  std::cout << *doc << '\n';
+}

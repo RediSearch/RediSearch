@@ -12,6 +12,7 @@
 #include "util/block_alloc.h"
 #include "concurrent_ctx.h"
 #include "util/arr.h"
+#include "geometry_index.h"
 // Preprocessors can store field data to this location
 typedef struct FieldIndexerData {
   int isMulti;
@@ -27,6 +28,15 @@ typedef struct FieldIndexerData {
 
     // Multi value
     arrayof(double) arrNumeric;
+
+    struct {
+      const char *str;
+      size_t strlen;
+      GEOMETRY_FORMAT format;
+    };
+    // struct {
+    //   arrayof(GEOMETRY) arrGeometry;
+    // };
   };
 
 } FieldIndexerData;
