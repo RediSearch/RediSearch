@@ -1927,14 +1927,16 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   RedisModule_InfoAddSection(ctx, name);
 
   // Index flags
-  if (sp->flags & ~(Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets) || sp->flags & Index_WideSchema) {
+  if (sp->flags & ~(Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreByteOffsets) || sp->flags & Index_WideSchema) {
     RedisModule_InfoBeginDictField(ctx, "index_options");
     if (!(sp->flags & (Index_StoreFreqs)))
       RedisModule_InfoAddFieldCString(ctx, SPEC_NOFREQS_STR, "ON");
     if (!(sp->flags & (Index_StoreFieldFlags)))
       RedisModule_InfoAddFieldCString(ctx, SPEC_NOFIELDS_STR, "ON");
-    if (!(sp->flags & (Index_StoreTermOffsets)))
+    if (!(sp->flags & (Index_StoreTermOffsets | Index_StoreByteOffsets)))
       RedisModule_InfoAddFieldCString(ctx, SPEC_NOOFFSETS_STR, "ON");
+    if (!(sp->flags & (Index_StoreByteOffsets)))
+      RedisModule_InfoAddFieldCString(ctx, SPEC_NOHL_STR, "ON");
     if (sp->flags & Index_WideSchema)
       RedisModule_InfoAddFieldCString(ctx, SPEC_SCHEMA_EXPANDABLE_STR, "ON");
     RedisModule_InfoEndDictField(ctx);
