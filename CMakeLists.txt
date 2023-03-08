@@ -126,7 +126,7 @@ elseif (BUILD_STATIC)
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
-    target_link_libraries(redisearch VectorSimilarity ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch redisearch-geometry VectorSimilarity ${CMAKE_LD_LIBS})
 
     set(TEST_MODULE "redisearch-static")
     set(TEST_MODULE_SO $<TARGET_FILE:redisearch>)
