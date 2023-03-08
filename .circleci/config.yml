@@ -289,6 +289,9 @@ commands:
       allowed_envs:
         type: string
         default: "oss-standalone"
+      allowed_setups:
+        type: string
+        default: ""
       benchmark_runner_group_member_id:
         type: string
         default: "1"
@@ -336,7 +339,8 @@ commands:
               --fail_fast \
               --triggering_env << parameters.triggering_env >> \
               --push_results_redistimeseries \
-              --allowed-envs << parameters.allowed_envs >> || true
+              --allowed-envs << parameters.allowed_envs >> \
+              --allowed-setups << parameters.allowed_setups >> || true
       - run:
           name: Generate Pull Request Performance info
           command: |
@@ -518,8 +522,9 @@ jobs:
           benchmark_glob: "search*.yml"
           module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
+          allowed_setups: oss-cluster-04-primaries,oss-cluster-08-primaries
           benchmark_runner_group_member_id: "1"
-          benchmark_runner_group_total: "3"
+          benchmark_runner_group_total: "2"
   benchmark-search-oss-cluster-g2:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -530,8 +535,9 @@ jobs:
           benchmark_glob: "search*.yml"
           module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
+          allowed_setups: oss-cluster-04-primaries,oss-cluster-08-primaries
           benchmark_runner_group_member_id: "2"
-          benchmark_runner_group_total: "3"
+          benchmark_runner_group_total: "2"
   benchmark-search-oss-cluster-g3:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -542,8 +548,48 @@ jobs:
           benchmark_glob: "search*.yml"
           module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
-          benchmark_runner_group_member_id: "3"
-          benchmark_runner_group_total: "3"
+          allowed_setups: oss-cluster-16-primaries,oss-cluster-20-primaries
+          benchmark_runner_group_member_id: "1"
+          benchmark_runner_group_total: "2"
+  benchmark-search-oss-cluster-g4:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          run_pack: false
+      - benchmark-steps:
+          benchmark_glob: "search*.yml"
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          allowed_envs: oss-cluster
+          allowed_setups: oss-cluster-16-primaries,oss-cluster-20-primaries
+          benchmark_runner_group_member_id: "2"
+          benchmark_runner_group_total: "2"
+  benchmark-search-oss-cluster-g5:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          run_pack: false
+      - benchmark-steps:
+          benchmark_glob: "search*.yml"
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          allowed_envs: oss-cluster
+          allowed_setups: oss-cluster-24-primaries,oss-cluster-32-primaries
+          benchmark_runner_group_member_id: "1"
+          benchmark_runner_group_total: "2"
+  benchmark-search-oss-cluster-g6:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          run_pack: false
+      - benchmark-steps:
+          benchmark_glob: "search*.yml"
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          allowed_envs: oss-cluster
+          allowed_setups: oss-cluster-24-primaries,oss-cluster-32-primaries
+          benchmark_runner_group_member_id: "2"
+          benchmark_runner_group_total: "2"
 
   benchmark-search-oss-standalone-profiler-g1:
     docker:
@@ -907,6 +953,9 @@ workflows:
       - benchmark-search-oss-cluster-g3:
           context: common
           <<: *on-integ-and-version-tags
+      - benchmark-search-oss-cluster-g4:
+          context: common
+          <<: *on-integ-and-version-tags
       - benchmark-search-oss-standalone-profiler-g1:
           context: common
           <<: *on-integ-and-version-tags
@@ -988,6 +1037,9 @@ workflows:
       - benchmark-search-oss-cluster-g3:
           context: common
           <<: *on-any-branch
+      - benchmark-search-oss-cluster-g4:
+          context: common
+          <<: *on-any-branch
   nightly:
     triggers:
       - schedule:
@@ -1027,6 +1079,14 @@ workflows:
       - benchmark-search-oss-cluster-g2:
           context: common
       - benchmark-search-oss-cluster-g3:
+          context: common
+      - benchmark-search-oss-cluster-g4:
+          context: common
+      # We only run g5 and g6 of oss cluster 
+      # (oss-cluster-24-primaries, and oss-cluster-32-primaries) once a week
+      - benchmark-search-oss-cluster-g5:
+          context: common
+      - benchmark-search-oss-cluster-g6:
           context: common
       - benchmark-vecsim-oss-standalone-g1:
           context: common

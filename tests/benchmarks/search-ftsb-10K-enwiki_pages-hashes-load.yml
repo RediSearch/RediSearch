@@ -18,6 +18,10 @@ setups:
   - oss-cluster-04-primaries
   - oss-cluster-08-primaries
   - oss-cluster-16-primaries
+  - oss-cluster-20-primaries
+  - oss-cluster-24-primaries
+  - oss-cluster-32-primaries
+
 dbconfig:
   - init_commands:
       - '"FT.CREATE" "enwiki_pages" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "text" "text" "SORTABLE" "comment" "text" "SORTABLE" "username" "tag" "SORTABLE" "timestamp" "numeric" "SORTABLE"'
