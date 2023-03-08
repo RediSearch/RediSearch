@@ -222,6 +222,15 @@ _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST)
 
 #----------------------------------------------------------------------------------------------
 
+BOOST_INC_PATH.centos:=/usr/include/boost169
+CC_INCLUDES.centos7 += $(BOOST_INC_PATH.centos)
+CC_INCLUDES.centos8 += $(BOOST_INC_PATH.centos)
+
+BOOST_PATH.macos:=$(shell brew --prefix boost)
+CC_INCLUDES.macos += $(BOOST_PATH.macos)/include
+
+#----------------------------------------------------------------------------------------------
+
 include $(MK)/defs
 
 MK_CUSTOM_CLEAN=1
