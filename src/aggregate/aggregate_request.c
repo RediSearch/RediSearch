@@ -1189,13 +1189,15 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
   // Add a LOAD step...
   const RLookupKey **loadkeys = NULL;
   if (req->outFields.explicitReturn) {
+    bool is_old_json = (req->sctx->spec->rule->type == DocumentType_Json) && (req->dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST);
     // Go through all the fields and ensure that each one exists in the lookup stage
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       const ReturnedField *rf = req->outFields.fields + ii;
 
       RLookupKey *lk = RLookup_GetOrCreateKey(lookup, rf->path, rf->name, 0);
       lk->flags |= RLOOKUP_F_EXPLICITRETURN;
-      if ((!(lk->flags & RLOOKUP_F_ISLOADED) && !(lk->flags & RLOOKUP_F_ORIGINAL_VALUE_DOCSRC))) {
+      if (is_old_json || 
+      ((!(lk->flags & RLOOKUP_F_ISLOADED) && !(lk->flags & RLOOKUP_F_ORIGINAL_VALUE_DOCSRC)))) {
         *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
         lk->flags|= RLOOKUP_F_ISLOADED;
       }
