@@ -1040,6 +1040,12 @@ workflows:
       - benchmark-search-oss-cluster-g4:
           context: common
           <<: *on-any-branch
+      - benchmark-search-oss-cluster-g5:
+          context: common
+          <<: *on-any-branch
+      - benchmark-search-oss-cluster-g6:
+          context: common
+          <<: *on-any-branch
   nightly:
     triggers:
       - schedule:
