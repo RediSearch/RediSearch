@@ -113,7 +113,7 @@ commands:
           command: |
             ROOT="$PWD"
             cd tests/pytests/logs
-            tar -czf $ROOT/tests-pytests-logs.tgz *
+            tar -czf $ROOT/tests-pytests-logs.tgz *.log*
           when: always
       - store_artifacts:
           path: tests-pytests-logs.tgz
