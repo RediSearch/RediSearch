@@ -414,3 +414,55 @@ def test_fuzzy(env):
     res1 = env.execute_command('FT.SEARCH', 'idx', '%%%their%%%')
     res2 = env.execute_command('FT.SEARCH', 'idx', '%%%$tok%%%', 'PARAMS', 2, 'tok', 'their')
     env.assertEqual(res2, res1)
+
+def aliasing(env, is_sortable, is_sortable_unf):
+    # THIS IS WIP!!!!!!
+    conn = getConnectionByEnv(env)
+
+    sortable_param = ['SORTABLE', 'UNF'] if is_sortable_unf else (['SORTABLE'] if is_sortable else [])
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'numval', 'AS', 'numval_name', 'NUMERIC', *sortable_param).ok()
+
+    env.assertEqual(conn.execute_command('HSET', 'key1', 'numval_name', '105'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key2', 'numval', '104'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key6', 'x', 'not in schema'), 1)
+    
+    
+    #try to sortby numval -> should faild
+    
+    #sortby numval_name return numval_name as numval_ret_alias -> should not contain key3 value
+    
+
+    # test with sortby. the return by should return the indexed field's value and not the 
+    # value from the hash
+    # return numval_name -> return only key2 values
+    # no buffer
+    res = env.execute_command('FT.SEARCH', 'idx', '*', 'return', 1, 'numval_name')
+    env.assertEqual(res, [3, 'key1', [], 'key2', ['numval_name', '104'], 'key6', []])   
+    
+    #return numval -> only key2 values but loaded 
+    res = env.execute_command('FT.SEARCH', 'idx', '*', 'return', 1, 'numval')
+    env.assertEqual(res, [3, 'key1', [], 'key2', ['numval', '104'], 'key6', []])   
+    #return numval_name as x x numval_name  -> return numval from schema with x title, the second x is ignored because this name is already exists,
+    # load x with title x, return x with title b
+    res = env.execute_command('FT.SEARCH', 'idx', '*', 'sortby', 'numval_name', 'return', 7, 'numval_name', 'as', 'x',  
+                              'x', 
+                              'x', 'as' ,'b')
+    env.assertEqual(res, [3, 'key2', ['x', '104'], 'key1', [], 'key6', ['b', 'not in schema']])   
+    
+    #if no sortby will return according to indexing order
+    res = env.execute_command('FT.SEARCH', 'idx', '*','return', 7, 'numval_name', 'as', 'x',  
+                              'x', 
+                              'x', 'as' ,'b')
+    env.assertEqual(res, [3, 'key1', [], 'key2', ['x', '104'], 'key6', ['b', 'not in schema']])      
+    res1 = env.execute_command('FT.SEARCH', 'idx', '*', 
+                               'return', 6, 'numval', 'as', 'x',
+                               'x', 'as', 'y')
+    env.assertEqual(res1, [3, 'key1', [], 'key2', ['x', '104'], 'key6', ['y', 'not in schema']])   
+    res2 = env.execute_command('FT.SEARCH', 'idx', '*', 
+                               'return', 6, 'x', 'as', 'y','numval', 'as', 'x')
+    env.assertEqual(res2, res1)   
+
+def test_aliasing_sortables_formatted(env):
+    env = Env(moduleArgs = 'ENABLE_THREADS TRUE WORKER_THREADS 8')
+    
+    aliasing(env, is_sortable = True, is_sortable_unf = True)
