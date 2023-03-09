@@ -415,54 +415,152 @@ def test_fuzzy(env):
     res2 = env.execute_command('FT.SEARCH', 'idx', '%%%$tok%%%', 'PARAMS', 2, 'tok', 'their')
     env.assertEqual(res2, res1)
 
+''' Test aliasing behavior.
+# Aliasing guidelines:
+    # If the SCHEMA contains `a AS b`, `a` is only used to load values from redis, if required. This field should by
+      applied by its name (b). Meaning:
+        # `SORTBY a` is not allowed (not in schema), 
+          `SORTBY b` is OK.
+        # if `b` is SORTABLE HASH field, or SORTABLE JSON and the query uses DIALECT 3,
+          the value will not be loaded from redis but taken from the sorting vector.  
+        # `RETURN a` always loads `a` from redis, even if `b` is sortable. 
+          For optimized performance the user should use `RETURN b`
+        # `RETURN b as x 
+                  b as c` will return:
+            title = x, val = b
+            title = c, val = b
+        # `RETURN b as x
+                  x as y` is allowed and yields:
+            title = x, val = b     
+            title = y, val = x    
+            '''
+        
 def aliasing(env, is_sortable, is_sortable_unf):
     # THIS IS WIP!!!!!!
     conn = getConnectionByEnv(env)
 
     sortable_param = ['SORTABLE', 'UNF'] if is_sortable_unf else (['SORTABLE'] if is_sortable else [])
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'numval', 'AS', 'numval_name', 'NUMERIC', *sortable_param).ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'numval', 'AS', 'numval_name', 'NUMERIC', *sortable_param,
+                                              'text', 'AS', 'text_name', 'TEXT',*sortable_param).ok()
+    
+    #indexed
+    env.assertEqual(conn.execute_command('HSET', 'key1', 'numval', '110'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key2', 'numval', '109'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key5', 'text', 'Meow'), 1)
+    
+    # Not part of the schema
+    env.assertEqual(conn.execute_command('HSET', 'key3', 'numval_name', '108'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key4', 'x', '107'), 1)
+    
+    docs_num = 5
+    # `SORTBY numval` is not allowed (not in schema)
+    env.expect('FT.SEARCH', 'idx', '*', 'sortby', 'numval').raiseError().contains('Property `numval` not loaded nor in schema')
+    
+    # `SORTBY numval_name` is allowed, key1 and key2 will be sorted, key5, key3 and key4 order is determined by the order of creation.
+    # As no return is specified, returns indexed fields + all the documents' fields.
+    res = env.execute_command('FT.SEARCH', 'idx', '*', 'sortby', 'numval_name', 'ASC')
+    env.assertEqual(res, [docs_num, 'key2', ['numval_name', '109', 'numval', '109'], 
+                             'key1', ['numval_name', '110', 'numval', '110'],
+                             'key5', ['text', 'Meow'],
+                             'key3', ['numval_name', '108'],
+                             'key4', ['x', '107']])   
+    
 
-    env.assertEqual(conn.execute_command('HSET', 'key1', 'numval_name', '105'), 1)
-    env.assertEqual(conn.execute_command('HSET', 'key2', 'numval', '104'), 1)
-    env.assertEqual(conn.execute_command('HSET', 'key6', 'x', 'not in schema'), 1)
-    
-    
-    #try to sortby numval -> should faild
-    
-    #sortby numval_name return numval_name as numval_ret_alias -> should not contain key3 value
-    
+    # `SORTBY numval_name` and `RETURN` specific fields with new name. Return only the indexes fields, not loading 
+    # `numval_name` for key3 because indexed fields have higher priority.
+    # TEXT field should return the original value.
+    res = env.execute_command('FT.SEARCH', 'idx', '*', 'sortby', 'numval_name', 'ASC',
+                            'RETURN', 8,'numval_name',
+                                        'numval_name', 'AS', 'numval_new_name',
+                                        'numval_name', 'AS', 'numval_new_name2',
+                                        'text_name')
+    env.assertEqual(res, [docs_num, 'key2', ['numval_name', '109', 'numval_new_name', '109', 'numval_new_name2', '109'], 
+                             'key1', ['numval_name', '110', 'numval_new_name', '110', 'numval_new_name2', '110'],
+                             'key5', ['text_name', 'Meow'],
+                             'key3', [],
+                             'key4', []]) 
 
-    # test with sortby. the return by should return the indexed field's value and not the 
-    # value from the hash
-    # return numval_name -> return only key2 values
-    # no buffer
-    res = env.execute_command('FT.SEARCH', 'idx', '*', 'return', 1, 'numval_name')
-    env.assertEqual(res, [3, 'key1', [], 'key2', ['numval_name', '104'], 'key6', []])   
+    # If no `SORTBY', we expect the same results, different order.
+    # Because the first RETURN is the original path, the values are taken from redis and not from the 
+    # index.
+    res = env.execute_command('FT.SEARCH', 'idx', '*', 
+                              'RETURN', 4,'numval',
+                                          'numval_name', 'AS', 'numval_new_name')
+    env.assertEqual(res, [docs_num, 'key1', ['numval', '110', 'numval_new_name', '110'],
+                             'key2', ['numval', '109', 'numval_new_name', '109'], 
+                             'key3', [],
+                             'key4', [],
+                             'key5', []])  
     
-    #return numval -> only key2 values but loaded 
-    res = env.execute_command('FT.SEARCH', 'idx', '*', 'return', 1, 'numval')
-    env.assertEqual(res, [3, 'key1', [], 'key2', ['numval', '104'], 'key6', []])   
-    #return numval_name as x x numval_name  -> return numval from schema with x title, the second x is ignored because this name is already exists,
-    # load x with title x, return x with title b
-    res = env.execute_command('FT.SEARCH', 'idx', '*', 'sortby', 'numval_name', 'return', 7, 'numval_name', 'as', 'x',  
-                              'x', 
-                              'x', 'as' ,'b')
-    env.assertEqual(res, [3, 'key2', ['x', '104'], 'key1', [], 'key6', ['b', 'not in schema']])   
+    # `RETURN b as x
+    #         x as y` is allowed and yields: title = x, val = b title = y, val = x  
+    res = env.execute_command('FT.SEARCH', 'idx', '*', 
+                              'RETURN', 6,'numval_name','AS', 'x',
+                                          'x', 'AS', 'y')
+    env.assertEqual(res, [docs_num, 'key1', ['x', '110'],
+                             'key2', ['x', '109'], 
+                             'key3', [],
+                             'key4', ['y', '107'],
+                             'key5', []])
     
-    #if no sortby will return according to indexing order
-    res = env.execute_command('FT.SEARCH', 'idx', '*','return', 7, 'numval_name', 'as', 'x',  
-                              'x', 
-                              'x', 'as' ,'b')
-    env.assertEqual(res, [3, 'key1', [], 'key2', ['x', '104'], 'key6', ['b', 'not in schema']])      
-    res1 = env.execute_command('FT.SEARCH', 'idx', '*', 
-                               'return', 6, 'numval', 'as', 'x',
-                               'x', 'as', 'y')
-    env.assertEqual(res1, [3, 'key1', [], 'key2', ['x', '104'], 'key6', ['y', 'not in schema']])   
+    # Test order of return - shouldn't change the result.
     res2 = env.execute_command('FT.SEARCH', 'idx', '*', 
-                               'return', 6, 'x', 'as', 'y','numval', 'as', 'x')
-    env.assertEqual(res2, res1)   
+                              'RETURN', 6,'x', 'AS', 'y',
+                                        'numval_name','AS', 'x')
+    env.assertEqual(res2, res)   
 
-def test_aliasing_sortables_formatted(env):
-    env = Env(moduleArgs = 'ENABLE_THREADS TRUE WORKER_THREADS 8')
+def test_aliasing_sortables(env):
+    aliasing(env, is_sortable = True, is_sortable_unf = False)
     
+def test_aliasing_NOTsortables(env):
+    
+    aliasing(env, is_sortable = False, is_sortable_unf = False)
+    
+def test_aliasing_sortables_UNF(env):
     aliasing(env, is_sortable = True, is_sortable_unf = True)
+
+    
+def unf(env, is_sortable_unf):
+    conn = getConnectionByEnv(env)
+
+    sortable_param = ['SORTABLE', 'UNF'] if is_sortable_unf else ['SORTABLE']
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'AS', 'text_name', 'TEXT',*sortable_param).ok()
+    
+    original_value1 = 'Meow'
+    original_value2 = 'aMeow'   
+    hased_field1 = ['text', original_value1]
+    hased_field2 = ['text', original_value2]
+    env.assertEqual(conn.execute_command('HSET', 'key1', *hased_field1), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key2', *hased_field2), 1)
+    
+    def expected_res(is_explicit_return):
+        loaded_fields = [hased_field1, hased_field2] if not is_explicit_return else [[],[]]
+        sort_output_fields = [['text_name', 'Meow'], ['text_name', 'aMeow']] if is_sortable_unf  or is_explicit_return \
+            else [['text_name', 'meow'], ['text_name', 'ameow']]
+        # Meow < aMeow < meow 
+        # When we `SORTBY text_name`:
+        # if text_name is UNF, the indexed value equals the original and Meow < aMeow
+        if is_sortable_unf:
+            first = ['key1', [*sort_output_fields[0], *loaded_fields[0]]]
+            second = ['key2', [*sort_output_fields[1], *loaded_fields[1]]]
+        # Otherwise, the indexed value is formated the original and ameow < meow
+        else :
+            first = ['key2', [*sort_output_fields[1], *loaded_fields[1]]]
+            second = ['key1', [*sort_output_fields[0], *loaded_fields[0]]]
+
+        return [*first, *second]
+    
+    # Anyway, the original value is returned.
+    res = env.execute_command('FT.SEARCH', 'idx', '*', 'sortby', 'text_name', 'ASC',
+                            'RETURN', 1,'text_name')
+    env.assertEqual(res, [2, *expected_res(True)])  
+    
+    # Printing both sortby values and loaded values.      
+    res = env.execute_command('FT.SEARCH', 'idx', '*', 'sortby', 'text_name', 'ASC')
+    env.assertEqual(res, [2, *expected_res(False)])
+
+def test_sortable_unf(env):
+    unf(env, is_sortable_unf=True)
+
+def test_sortable_NOunf(env):
+    unf(env, is_sortable_unf=False)    
