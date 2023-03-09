@@ -1194,7 +1194,7 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       const ReturnedField *rf = req->outFields.fields + ii;
 
-      RLookupKey *lk = RLookup_GetOrCreateKey(lookup, rf->path, rf->name, 0);
+      RLookupKey *lk = RLookup_GetOrCreateKey(lookup, rf->path, rf->name, RLOOKUP_F_ALIAS);
       lk->flags |= RLOOKUP_F_EXPLICITRETURN;
       if (is_old_json || 
       ((!(lk->flags & RLOOKUP_F_ISLOADED) && !(lk->flags & RLOOKUP_F_ORIGINAL_VALUE_DOCSRC)))) {
