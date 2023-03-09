@@ -3,7 +3,6 @@ from common import *
 import json
 
 def testSanitySearchHashWithin(env):
-  
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOMETRY').ok()
   
@@ -15,11 +14,11 @@ def testSanitySearchHashWithin(env):
   # TODO: GEOMETRY - Use params
   #env.expect('FT.SEARCH', 'idx', '@geom:[within $POLY]', 'PARAMS', '2', 'POLY', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))').equal([1, 'small', expected])
 
-  env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3).equal([2, 'small', 'large'])
+  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
 
 def testSanitySearchJsonWithin(env):
-  
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOMETRY').ok()
 
@@ -32,11 +31,11 @@ def testSanitySearchJsonWithin(env):
   #env.expect('FT.SEARCH', 'idx', '@geom:[within $POLY]', 'PARAMS', '2', 'POLY', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))').equal([1, 'small', expected])
 
   env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'RETURN', 1, 'geom', 'DIALECT', 3).equal([1, 'small', ['geom', json.dumps([json.loads(expected[1])[0]['geom']])]])
-  env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3).equal([2, 'small', 'large'])
+  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
 
 def testSanitySearchJsonCombined(env):
-  
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOMETRY $.name as name TEXT').ok()
 
