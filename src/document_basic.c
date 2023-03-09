@@ -357,6 +357,7 @@ void Document_Clear(Document *d) {
           rm_free(field->strval);
           break;
         case FLD_VAR_T_ARRAY:
+        // TODO: GEOMETRY Handle multi-value geometry fields
           if (field->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG | INDEXFLD_T_GEO)) {
             for (int i = 0; i < field->arrayLen; ++i) {
               rm_free(field->multiVal[i]);

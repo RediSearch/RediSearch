@@ -171,9 +171,11 @@ CC_CXX_STD=c++11
 
 CC_STATIC_LIBSTDCXX ?= 1
 
-export OPENSSL_ROOT_DIR:=$(LIBSSL_PREFIX)
+export OPENSSL_ROOT_DIR:=$(openssl_prefix)
 
 CC_COMMON_H=src/common.h
+
+MACOS_PACKAGS=openssl boost
 
 #----------------------------------------------------------------------------------------------
 
@@ -215,10 +217,18 @@ endif
 _CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME)
 
 ifeq ($(OS),macos)
-_CMAKE_FLAGS += -DLIBSSL_DIR=$(LIBSSL_PREFIX)
+_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix)
 endif
 
 _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) 
+
+#----------------------------------------------------------------------------------------------
+
+BOOST_INC_PATH.centos:=/usr/include/boost169
+CC_INCLUDES.centos7 += $(BOOST_INC_PATH.centos)
+CC_INCLUDES.centos8 += $(BOOST_INC_PATH.centos)
+
+CC_INCLUDES.macos += $(boost_prefix)/include
 
 #----------------------------------------------------------------------------------------------
 

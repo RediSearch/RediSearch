@@ -5,7 +5,8 @@ include(${root}/deps/readies/cmake/main)
 
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
 
-set(CMAKE_MODULE_PATH ${binroot}/conan)
+str_from_env(CONAN_BINDIR)
+set(CMAKE_MODULE_PATH ${CONAN_BINDIR})
 
 #----------------------------------------------------------------------------------------------
 
@@ -53,6 +54,7 @@ include_directories(
     ${root}/src
     ${root}/deps
     ${root}/deps/VectorSimilarity/src
+	${root}/deps/s2geometry/src
     ${root})
 
 add_subdirectory(deps/rmutil)
@@ -65,6 +67,7 @@ option(VECSIM_STATIC "Build as static library" ON)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity/src)
+add_subdirectory(src/geometry)
 
 #----------------------------------------------------------------------------------------------
 
@@ -131,7 +134,7 @@ elseif (BUILD_STATIC)
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
-    target_link_libraries(redisearch VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch redisearch-geometry VectorSimilarity  ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
 
     set(TEST_MODULE "redisearch-static")
     set(TEST_MODULE_SO $<TARGET_FILE:redisearch>)
@@ -141,7 +144,7 @@ else() # OSS RediSearch
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
-    target_link_libraries(redisearch VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch redisearch-geometry VectorSimilarity  ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
 
     extract_debug_symbols(redisearch)
     

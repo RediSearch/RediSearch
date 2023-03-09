@@ -38,6 +38,7 @@
 #include "rwlock.h"
 #include "info_command.h"
 #include "rejson_api.h"
+#include "geometry/geometry_api.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -1121,6 +1122,7 @@ void RediSearch_CleanupModule(void) {
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();
   SchemaPrefixes_Free(ScemaPrefixes_g);
+  GeometryApi_Free();
 
   RedisModule_FreeThreadSafeContext(RSDummyContext);
   Dictionary_Free();
