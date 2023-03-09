@@ -67,7 +67,7 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) 
 
 }
 
-static RLookupKey *FindExistingPath(RLookup *lookup, const char *path, int flags, const FieldSpec** out_spec_field ) {
+static RLookupKey *FindExistingPath(RLookup *lookup, const char *path, const FieldSpec** out_spec_field ) {
 
   // Check if path exist in schema (as name).
   // If the users set an alias for the fields, they should address them by their aliased name,
@@ -78,23 +78,16 @@ static RLookupKey *FindExistingPath(RLookup *lookup, const char *path, int flags
 
   const FieldSpec *fs = findFieldInSpec(lookup, path);
 
-  // If it exists in spec, search for the original path in the rlookup.
-  // Don't change the path if the key has no aliases.
-  if(fs && (flags & RLOOKUP_F_ALIAS)) {
+  // If it exist in spec, search for the original path in the rlookup.
+  if(fs) {
     path = fs->path;
     *out_spec_field = fs;
   }
- 
+
   // Search for path in the rlookup.
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
-    if (!strcmp(kk->path, path)) {
-      // if the key has NO aliases, keep searching until the exact key is found. 
-      if((flags & RLOOKUP_F_ALIAS) || !strcmp(kk->name, path)) {
-        return kk;
-      }
-
-
-    }
+    if (!strcmp(kk->path, path))
+      return kk;
   }
 
   return NULL;
@@ -159,7 +152,7 @@ static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int
 
 RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char *name, int flags) {
   const FieldSpec *fs = NULL;
-  RLookupKey *lookupkey = FindExistingPath(lookup, path, flags, &fs);
+  RLookupKey *lookupkey = FindExistingPath(lookup, path, &fs);
 
   // if we found a rlookupkey and it has the same name, use it.
   if(lookupkey) {

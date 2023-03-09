@@ -189,11 +189,6 @@ typedef struct {
 #define RLOOKUP_F_ISLOADED 0x800
 
 /**
- * This key doesn't have an alias. Search by name and path.
- */
-#define RLOOKUP_F_ALIAS 0x1000
-
-/**
  * These flags do not persist to the key, they are just options to GetKey()
  */
 #define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF)
