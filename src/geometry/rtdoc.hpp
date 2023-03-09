@@ -6,10 +6,11 @@
 
 #pragma once
 
-#include <ranges>
-#include <iostream>
 #include "polygon.hpp"
 #include "rtdoc.h"
+
+#include <ranges>
+#include <iostream>
 
 namespace bg = boost::geometry;
 namespace bgm = bg::model;

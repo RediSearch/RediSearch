@@ -876,7 +876,7 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
     return NULL;
   }
   RedisModuleString *keyName = IndexSpec_GetFormattedKey(q->sctx->spec, fs, INDEXFLD_T_GEOMETRY);
-  GeometryIndex index = OpenGeometryIndex(q->sctx, keyName, NULL, fs);
+  GeometryIndex *index = OpenGeometryIndex(q->sctx, keyName, NULL, fs);
   if (!index) {
     return NULL;
   }
