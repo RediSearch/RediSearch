@@ -37,7 +37,7 @@ OP=""
 os="$($READIES/bin/platform --os)"
 arch="$($READIES/bin/platform --arch)"
 
-if [[ ! -z $REPO_PATH ]]; then
+if [[ -n $REPO_PATH ]]; then
 	platform="$($READIES/bin/platform -t)"
 else
 	if [[ $os != linux && $os != macos ]]; then

@@ -40,10 +40,9 @@ static GeometryIndex *openGeometryKeysDict(RedisSearchCtx *ctx, RedisModuleStrin
   return kdv->p;
 }
 
-GeometryIndex OpenGeometryIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
+GeometryIndex *OpenGeometryIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                  RedisModuleKey **idxKey, const FieldSpec *fs) {
-
-  GeometryIndex ret;
+  GeometryIndex *ret;
   if (!ctx->spec->keysDict) {
     RedisModuleKey *key_s = NULL;
 

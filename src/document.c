@@ -600,7 +600,7 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(geometryIndexer) {
-  GeometryIndex rt = bulk->indexDatas[INDEXFLD_T_GEOMETRY];
+  GeometryIndex *rt = bulk->indexDatas[INDEXFLD_T_GEOMETRY];
   if (!rt) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_GEOMETRY);
     rt = bulk->indexDatas[IXFLDPOS_GEOMETRY] =

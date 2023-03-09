@@ -6,8 +6,9 @@
 
 #pragma once
 
+#include "redisearch.h"
+
 #include <stdbool.h>
-#include "../redisearch.h"
 
 #ifdef __cplusplus
 #define NODISCARD [[nodiscard]]

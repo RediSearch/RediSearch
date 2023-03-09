@@ -16,6 +16,7 @@ ADD . /build
 RUN ./deps/readies/bin/getupdates
 RUN VERBOSE=1 ./sbin/setup
 
+RUN make conan SHOW=1
 RUN make build SHOW=1
 
 {% if PACK == "1" %}

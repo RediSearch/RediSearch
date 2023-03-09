@@ -1,0 +1,2 @@
+
+export CONAN=$(CONAN_BINDIR)/CMakePresets.json

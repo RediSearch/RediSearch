@@ -4,8 +4,9 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#include <fstream>
 #include "rtree.hpp"
+
+#include <fstream>
 
 RTree *RTree_New() {
   return new RTree{};

@@ -8,9 +8,14 @@
 #include "geometry.h"
 #include "rmalloc.h"
 
+// TOD: remove
+#include "s2/s2point_index.h"
+
 GeometryApi* apis[GEOMETRY_LIB_TYPE__NUM] = {0};
 
 GEOMETRY bg_createGeom(GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg) {
+  S2PointIndex<int> s2_index; // TODO: remove
+
   switch (format) {
    case GEOMETRY_FORMAT_WKT: {
     GEOMETRY d = From_WKT(str, len, 0);
@@ -28,12 +33,12 @@ GEOMETRY bg_createGeom(GEOMETRY_FORMAT format, const char *str, size_t len, Redi
   return NULL;
 }
 
-void bg_freeIndex(GeometryIndex index) {
-  RTree_Free(index);
+void bg_freeIndex(GeometryIndex *index) {
+  RTree_Free(reinterpret_cast<RTree*>(index));
 }
 
 struct GeometryIndex* bg_createIndex() {
-  return (struct GeometryIndex*)RTree_New();
+  return reinterpret_cast<GeometryIndex*>(RTree_New());
 }
 
 IndexIterator* bg_query(struct GeometryIndex *index, enum QueryType queryType, GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg) {
@@ -62,8 +67,10 @@ int bg_addGeomStr(struct GeometryIndex *index, GEOMETRY_FORMAT format, const cha
   return 0;
 }
 
-int bg_addGeom(struct GeometryIndex *index, GEOMETRY geom) {
-  RTree_Insert((struct RTree*)index, geom);
+int bg_addGeom(GeometryIndex *index_, GEOMETRY geom_) {
+  auto index = reinterpret_cast<RTree*>(index_);
+  auto geom = reinterpret_cast<const RTDoc*>(geom_);
+  RTree_Insert(index, geom);
 }
 
 int bg_delGeom(struct GeometryIndex *index, GEOMETRY geom, void *data) {
@@ -75,10 +82,11 @@ GEOMETRY s2_createGeom(GEOMETRY_FORMAT format, const char *str, size_t len, Redi
   return NULL;
 }
 
-void s2_freeIndex(GeometryIndex index) {
+void s2_freeIndex(GeometryIndex *index) {
   // TODO: GEOMETRY
 }
 
+extern "C"
 GeometryApi* GeometryApi_GetOrCreate(GEOMETRY_LIB_TYPE type, __attribute__((__unused__)) void *pdata) {
   if (type == GEOMETRY_LIB_TYPE_NONE) {
     return NULL;
@@ -111,6 +119,7 @@ GeometryApi* GeometryApi_GetOrCreate(GEOMETRY_LIB_TYPE type, __attribute__((__un
   return api;
 }
 
+extern "C"
 void GeometryApi_Free() {
   for (int i = 0; i < GEOMETRY_LIB_TYPE__NUM; ++i) {
     if (apis[i]) {

@@ -240,6 +240,21 @@ MK_CUSTOM_CLEAN=1
 
 MISSING_DEPS:=
 
+export CONAN_BINDIR:=$(ROOT)/bin/$(shell $(READIES)/bin/platform -t)/conan
+include build/conan/Makefile.defs
+
+S2GEOMETRY_DIR=$(ROOT)/deps/s2geometry
+export S2GEOMETRY_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/s2geometry
+include build/s2geometry/Makefile.defs
+
+ifeq ($(wildcard $(CONAN)),)
+MISSING_DEPS += $(CONAN)
+endif
+
+ifeq ($(wildcard $(S2GEOMETRY)),)
+MISSING_DEPS += $(S2GEOMETRY)
+endif
+
 ifeq ($(wildcard $(LIBUV)),)
 MISSING_DEPS += $(LIBUV)
 endif
@@ -252,7 +267,7 @@ ifneq ($(MISSING_DEPS),)
 DEPS=1
 endif
 
-DEPENDENCIES=libuv #@@ hiredis
+DEPENDENCIES=conan s2geometry libuv #@@ hiredis
 
 ifneq ($(filter all deps $(DEPENDENCIES) pack,$(MAKECMDGOALS)),)
 DEPS=1
@@ -294,7 +309,19 @@ endif
 
 ifeq ($(DEPS),1)
 
-deps: $(LIBUV) #@@ $(HIREDIS)
+deps: $(CONAN) $(S2GEOMETRY) $(LIBUV) #@@ $(HIREDIS)
+
+conan: $(CONAN)
+
+$(CONAN):
+	@echo Fetching conan libraries...
+	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG=''
+
+s2geometry: $(S2GEOMETRY)
+
+$(S2GEOMETRY):
+	@echo Building s2geometry...
+	$(SHOW)$(MAKE) --no-print-directory -C build/s2geometry DEBUG=''
 
 libuv: $(LIBUV)
 

@@ -1,8 +1,11 @@
 set(CMAKE_CXX_STANDARD 20)
 
+include(${CONAN_BINDIR}/absl-config.cmake)
+
 file(GLOB SOURCES
-    "*.cpp"
-    "geometry_api.c")
+    "*.cpp")
 
 add_library(redisearch-geometry STATIC ${SOURCES})
+
+include_directories("${absl_INCLUDE_DIR}")
 
