@@ -1,18 +1,21 @@
 ---
-syntax: 
+syntax: |
+  FT.CONFIG SET option value
 ---
 
-Describe configuration options
+Set the value of a RediSearch configuration parameter.
 
-## Syntax
+Values set using `FT.CONFIG SET` are not persisted after server restart.
 
-{{< highlight bash >}}
-FT.CONFIG SET option value
-{{< / highlight >}}
+RediSearch configuration parameters are detailed in [Configuration parameters](/docs/stack/search/configuring).
+
+{{% alert title="Note" color="warning" %}}
+As detailed in the link above, not all RediSearch configuration parameters can be set at runtime.
+{{% /alert %}}
 
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>option</code></summary> 

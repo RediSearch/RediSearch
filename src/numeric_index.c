@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "numeric_index.h"
 #include "redis_index.h"
 #include "sys/param.h"
@@ -16,13 +22,11 @@
 typedef struct {
   IndexIterator *it;
   uint32_t lastRevId;
+  IndexSpec *sp;
+  const char *fieldName;
 } NumericUnionCtx;
 
-/* A callback called after a concurrent context regains execution context. When this happen we need
- * to make sure the key hasn't been deleted or its structure changed, which will render the
- * underlying iterators invalid */
-void NumericRangeIterator_OnReopen(void *privdata) {
-}
+void NumericRangeIterator_OnReopen(void *privdata);
 
 #ifdef _DEBUG
 void NumericRangeTree_Dump(NumericRangeTree *t, int indent) {
@@ -628,6 +632,8 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
     NumericUnionCtx *uc = rm_malloc(sizeof(*uc));
     uc->lastRevId = t->revisionId;
     uc->it = it;
+    uc->sp = ctx->spec;
+    uc->fieldName = flt->fieldName;
     ConcurrentSearch_AddKey(csx, NumericRangeIterator_OnReopen, uc, rm_free);
   }
   return it;
@@ -839,4 +845,47 @@ NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter) 
 void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter) {
   array_free(iter->nodesStack);
   rm_free(iter);
+}
+
+/* A callback called after a concurrent context regains execution context. When this happen we need
+ * to make sure the key hasn't been deleted or its structure changed, which will render the
+ * underlying iterators invalid */
+void NumericRangeIterator_OnReopen(void *privdata) {
+  NumericUnionCtx *nu = privdata;
+  IndexSpec *sp = nu->sp;
+  IndexIterator *it = nu->it;
+  IndexReader *ir = it->ctx;
+
+  RedisModuleString *numField = RedisModule_CreateString(NULL, nu->fieldName, strlen(nu->fieldName));
+  RedisSearchCtx sctx = (RedisSearchCtx)SEARCH_CTX_STATIC(RSDummyContext, sp);
+  NumericRangeTree *rt = openNumericKeysDict(&sctx, numField, 0);
+  RedisModule_FreeString(NULL, numField);
+  
+  if (!rt || rt->revisionId != nu->lastRevId) {
+    // The numeric tree was either completely deleted or a node was splitted or removed.
+    // The cursor is invalidated.
+    it->Abort(ir);
+    return;
+  }
+
+  // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
+  if (ir->gcMarker == ir->idx->gcMarker) {
+    // no GC - we just go to the same offset we were at
+    size_t offset = ir->br.pos;
+    ir->br = NewBufferReader(&ir->idx->blocks[ir->currentBlock].buf);
+    ir->br.pos = offset;
+  } else {
+    // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
+    // anymore. This means that we need to seek to last docId we were at
+
+    // reset the state of the reader
+    t_docId lastId = ir->lastId;
+    ir->currentBlock = 0;
+    ir->br = NewBufferReader(&ir->idx->blocks[ir->currentBlock].buf);
+    ir->lastId = ir->idx->blocks[ir->currentBlock].firstId;
+
+    // seek to the previous last id
+    RSIndexResult *dummy = NULL;
+    IR_SkipTo(ir, lastId, &dummy);
+  }
 }

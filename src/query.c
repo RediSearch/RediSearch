@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -207,7 +213,7 @@ QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt, bool prefi
   ret->pfx.suffix = suffix;
   q->numTokens++;
   if (qt->type == QT_TERM) {
-    char *s = rm_strdupcase(qt->s, qt->len);
+    char *s = rm_strndup_unescape(qt->s, qt->len);
     ret->pfx.tok = (RSToken){.str = s, .len = strlen(s), .expanded = 0, .flags = 0};
   } else {
     assert (qt->type == QT_PARAM_TERM);
@@ -1336,7 +1342,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
                          .trace_log = NULL
 #endif
   };
-  if (dialectVersion == 2)
+  if (dialectVersion >= 2)
     dst->root = RSQuery_ParseRaw_v2(&qpCtx);
   else
     dst->root = RSQuery_ParseRaw_v1(&qpCtx);
@@ -1533,10 +1539,15 @@ void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask) {
 void QueryNode_AddChildren(QueryNode *n, QueryNode **children, size_t nchildren) {
   if (n->type == QN_TAG) {
     for (size_t ii = 0; ii < nchildren; ++ii) {
-      if (children[ii]->type == QN_TOKEN || children[ii]->type == QN_PHRASE ||
-          children[ii]->type == QN_PREFIX || children[ii]->type == QN_LEXRANGE ||
-          children[ii]->type == QN_WILDCARD_QUERY) {
+      QueryNode *child = children[ii];
+      if (child->type == QN_TOKEN || child->type == QN_PHRASE ||
+          child->type == QN_PREFIX || child->type == QN_LEXRANGE ||
+          child->type == QN_WILDCARD_QUERY) {
         n->children = array_ensure_append(n->children, children + ii, 1, QueryNode *);
+        for(size_t jj = 0; jj < QueryNode_NumParams(child); ++jj) {
+          Param *p = child->params + jj;
+          p->type = PARAM_TERM_CASE;
+        }
       }
     }
   } else {

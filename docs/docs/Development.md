@@ -43,31 +43,29 @@ You can replace `debian:bullseye` with your OS of choice, with the host OS being
 To build and test RediSearch one needs to install several packages, depending on the underlying OS. Currently, we support the Ubuntu/Debian, CentOS, Fedora, and macOS.
 
 First, enter `RediSearch` directory.
-
-If you have ```gnu make``` installed, you can execute,
-
-```
-make setup
-```
-Alternatively, invoke the following:
+Execute:
 
 ```
-./deps/readies/bin/getpy2
-./system-setup.py
+./sbin/setup
 ```
-Note that ```system-setup.py``` **will install various packages on your system** using the native package manager and pip. It will invoke `sudo` on its own, prompting for permission.
+Followed by:
+
+```
+bash -l
+```
+Note that this **will install various packages on your system** using the native package manager and pip. It will invoke `sudo` on its own, prompting for permission.
 
 If you prefer to avoid that, you can:
 
-* Review `system-setup.py` and install packages manually,
-* Use `system-setup.py --nop` to display installation commands without executing them,
+* Review `sbin/system-setup.py` and install packages manually,
+* Use `./sbin/system-setup.py --nop` to display installation commands without executing them,
 * Use an isolated environment like explained above,
-* Use a Python virtual environment, as Python installations are known to be sensitive when not used in isolation: `python2 -m virtualenv venv; . ./venv/bin/activate`
+* Use a Python virtual environment, as Python installations are known to be sensitive when not used in isolation: `python3 -m virtualenv venv; . ./venv/bin/activate`
 
 ## Installing Redis
 As a rule of thumb, you're better off running the latest Redis version.
 
-If your OS has a Redis 6.x package, you can install it using the OS package manager.
+If your OS has a Redis 6.x or 7.x package, you can install it using the OS package manager.
 
 Otherwise, you can invoke ```./deps/readies/bin/getredis```.
 
@@ -78,19 +76,21 @@ Otherwise, you can invoke ```./deps/readies/bin/getredis```.
 make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
 make fetch         # download and prepare dependant modules
 
-make build         # compile and link
-  COORD=1|oss|rlec   # build coordinator (1|oss: Open Source, rlec: Enterprise)
-  STATIC=1           # build as static lib
-  LITE=1             # build RediSearchLight
-  VECSIM_MARCH=arch  # architecture for VecSim build
-  DEBUG=1            # build for debugging
-  NO_TESTS=1         # disable unit tests
-  WHY=1              # explain CMake decisions (in /tmp/cmake-why)
-  FORCE=1            # Force CMake rerun (default)
-  CMAKE_ARGS=...     # extra arguments to CMake
-  VG=1               # build for Valgrind
-  SAN=type           # build with LLVM sanitizer (type=address|memory|leak|thread) 
-  SLOW=1             # do not parallelize build (for diagnostics)
+make build          # compile and link
+  COORD=1|oss|rlec    # build coordinator (1|oss: Open Source, rlec: Enterprise)
+  STATIC=1            # build as static lib
+  LITE=1              # build RediSearchLight
+  DEBUG=1             # build for debugging
+  NO_TESTS=1          # disable unit tests
+  WHY=1               # explain CMake decisions (in /tmp/cmake-why)
+  FORCE=1             # Force CMake rerun (default)
+  CMAKE_ARGS=...      # extra arguments to CMake
+  VG=1                # build for Valgrind
+  SAN=type            # build with LLVM sanitizer (type=address|memory|leak|thread) 
+  SLOW=1              # do not parallelize build (for diagnostics)
+  GCC=1               # build with GCC (default unless Sanitizer)
+  CLANG=1             # build with CLang
+  STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
@@ -98,17 +98,14 @@ make clean         # remove build artifacts
 make run           # run redis with RediSearch
   GDB=1              # invoke using gdb
 
-make test          # run all tests (via ctest)
-  COORD=1|oss|rlec   # test coordinator
-  TEST=regex         # run tests that match regex
-  TESTDEBUG=1        # be very verbose (CTest-related)
-  CTEST_ARG=...      # pass args to CTest
-  CTEST_PARALLEL=n   # run tests in give parallelism
+make test          # run all tests
+  COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
+  TEST=name          # run specified test
 make pytest        # run python tests (tests/pytests)
-  COORD=1|oss|rlec   # test coordinator
+  COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=name          # e.g. TEST=test:testSearch
   RLTEST_ARGS=...    # pass args to RLTest
-  REJSON=1|0         # also load RedisJSON module
+  REJSON=1|0|get     # also load RedisJSON module (default: 1)
   REJSON_PATH=path   # use RedisJSON module at `path`
   EXT=1              # External (existing) environment
   GDB=1              # RLTest interactive debugging
@@ -116,23 +113,30 @@ make pytest        # run python tests (tests/pytests)
   VG_LEAKS=0         # do not search leaks with Valgrind
   SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
   ONLY_STABLE=1      # skip unstable tests
+make unit-tests    # run unit tests (C and C++)
+  TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
 make c_tests       # run C tests (from tests/ctests)
 make cpp_tests     # run C++ tests (from tests/cpptests)
-  TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
+make vecsim-bench  # run VecSim micro-benchmark
 
 make callgrind     # produce a call graph
   REDIS_ARGS="args"
 
-make pack          # create installation packages
-  COORD=rlec         # pack RLEC coordinator ('redisearch' package)
-  LITE=1             # pack RediSearchLight ('redisearch-light' package)
-make deploy        # copy packages to S3
-make release       # release a version
+make pack             # create installation packages (default: 'redisearch-oss' package)
+  COORD=rlec            # pack RLEC coordinator ('redisearch' package)
+  LITE=1                # pack RediSearchLight ('redisearch-light' package)
 
-make docs          # create documentation
-make deploy-docs   # deploy documentation
+make upload-artifacts   # copy snapshot packages to S3
+  OSNICK=nick             # copy snapshots for specific OSNICK
+make upload-release     # copy release packages to S3
 
-make platform      # build for specified platform
+common options for upload operations:
+  STAGING=1             # copy to staging lab area (for validation)
+  FORCE=1               # allow operation outside CI environment
+  VERBOSE=1             # show more details
+  NOP=1                 # do not copy, just print commands
+
+make docker        # build for specified platform
   OSNICK=nick        # platform to build for (default: host platform)
   TEST=1             # run tests after build
   PACK=1             # create package

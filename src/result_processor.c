@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "result_processor.h"
 #include "query.h"
 #include "extension.h"
@@ -154,7 +160,11 @@ void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout) {
 }
 
 IndexIterator *QITR_GetRootFilter(QueryIterator *it) {
-  return ((RPIndexIterator *)it->rootProc)->iiter;
+  /* On coordinator, the root result processor will be a network result processor and we should ignore it */
+  if (it->rootProc->type == RP_INDEX) {
+      return ((RPIndexIterator *)it->rootProc)->iiter;
+  }
+  return NULL;
 }
 
 void QITR_PushRP(QueryIterator *it, ResultProcessor *rp) {
@@ -573,12 +583,6 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->fieldcmp.loadKeys = NULL;
   ret->fieldcmp.nLoadKeys = REDISEARCH_UNINITIALIZED;
 
-  if (RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
-    maxresults = MIN(maxresults, RSGlobalConfig.maxAggregateResults);
-  } else if (RSGlobalConfig.maxSearchResults != UINT64_MAX) {
-    maxresults = MIN(maxresults, RSGlobalConfig.maxSearchResults);
-  }
-
   ret->pq = mmh_init_with_size(maxresults + 1, ret->cmp, ret->cmpCtx, srDtor);
   ret->size = maxresults;
   ret->offset = 0;
@@ -732,7 +736,7 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
 static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Scorer",      "Sorter",
                                      "Counter",   "Pager/Limiter", "Highlighter", "Grouper",
                                      "Projector", "Filter",        "Profile",     "Network",
-                                     "Vector Similarity Scores Loader"};
+                                     "Metrics Applier"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");

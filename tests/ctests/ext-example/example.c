@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include <string.h>
 #include <stdio.h>
 #include <sys/param.h>
@@ -28,7 +34,8 @@ void myFreeFunc(void *p) {
 }
 
 /* Register the default extension */
-int RS_ExtensionInit(RSExtensionCtx *ctx) {
+int __attribute__((visibility("default")))
+RS_ExtensionInit(RSExtensionCtx *ctx) {
 
   if (ctx->RegisterScoringFunction("example_scorer", myScorer, myFreeFunc, NULL) ==
       REDISEARCH_ERR) {

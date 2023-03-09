@@ -40,7 +40,7 @@ doc1_content = [
                 "seq": [11]
             }
         ]
-    
+
     },
     {
         "name": "top2",
@@ -96,7 +96,7 @@ def testBasic(env):
     """ Test multi numeric values (an array of numeric values or multiple numeric values) """
 
     conn = getConnectionByEnv(env)
-    
+
     env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$..seq[*]', 'AS', 'seq', 'NUMERIC').ok()
     env.expect('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', '$[0].nested2[0].seq', 'AS', 'seq', 'NUMERIC').ok()
     env.expect('FT.CREATE', 'idx3', 'ON', 'JSON', 'SCHEMA', '$[1].nested2[2].seq', 'AS', 'seq', 'NUMERIC').ok()
@@ -106,7 +106,7 @@ def testBasic(env):
         '$[1].nested2[2].seq', 'AS', 'seq2', 'NUMERIC').ok()     # [42, 64, -1, 10E+20, -10.0e-5]
 
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
-    
+
     # Open/Close range and Not
     env.expect('FT.SEARCH', 'idx1', '@seq:[3 6]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx1', '-@seq:[3 6]', 'NOCONTENT').equal([0])
@@ -122,7 +122,7 @@ def testBasic(env):
 
     env.expect('FT.SEARCH', 'idx3', '@seq:[-0.0002 -0.0001]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx3', '@seq:[-0.0002 (-0.0001]', 'NOCONTENT').equal([0])
-    
+
     env.expect('FT.SEARCH', 'idx3', '-@seq:[-0.0002 (-0.0001]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx3', '@seq:[-0.0002 (-0.0001]', 'NOCONTENT').equal([0])
 
@@ -140,9 +140,9 @@ def testMultiNonNumeric(env):
     Fail on text, bool, object, arr of strings, arr with mixed types
     """
     conn = getConnectionByEnv(env)
-    
+
     non_numeric_dict = json.loads(doc_non_numeric_content)
-    
+
     # Create indices and a key per index, e.g.,
     #   FT.CREATE idx1 ON JSON PREFIX 1 doc:1: SCHEMA $ AS root NUMERIC
     #   JSON.SET doc:1: $ '[2, -7, null, 131.42, null , 0, null]'
@@ -156,7 +156,7 @@ def testMultiNonNumeric(env):
         conn.execute_command('JSON.SET', doc, '$', json.dumps(v))
         res_failures = 0 if i+1 <= 5 else 1
         env.assertEqual(int(index_info(env, idx)['hash_indexing_failures']), res_failures, message=str(i))
-    
+
     # Search good indices with content
     env.expect('FT.SEARCH', 'idx1', '@root:[131 132]', 'NOCONTENT').equal([1, 'doc:1:'])
     env.expect('FT.SEARCH', 'idx2', '@root:[131 132]', 'NOCONTENT').equal([1, 'doc:2:'])
@@ -171,18 +171,18 @@ def testMultiNonNumericNested(env):
     conn = getConnectionByEnv(env)
 
     non_numeric_dict = json.loads(doc_non_numeric_content)
-    
+
     # Create indices, e.g.,
     #   FT.CREATE idx1 ON JSON SCHEMA $.attr1 AS attr NUMERIC
     for (i,v) in enumerate(non_numeric_dict.values()):
         conn.execute_command('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'NUMERIC')
     conn.execute_command('JSON.SET', 'doc:1', '$', doc_non_numeric_content)
-    
+
     # First 5 indices are OK (nulls are skipped)
     for (i,v) in enumerate(non_numeric_dict.values()):
         res_failures = 0 if i+1 <= 5 else 1
         env.assertEqual(int(index_info(env, 'idx{}'.format(i+1))['hash_indexing_failures']), res_failures)
-    
+
     # Search good indices with content
     env.expect('FT.SEARCH', 'idx1', '@attr:[131 132]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx2', '@attr:[131 132]', 'NOCONTENT').equal([1, 'doc:1'])
@@ -195,7 +195,7 @@ def testRange(env):
 
     arr_len = 20
     sub_arrays = [
-        # positive        
+        # positive
         [i for i in linspace(1, 5, num=arr_len)],       # float asc
         [i for i in linspace(5, 1, num=arr_len)],       # float desc
         [i for i in range(1, arr_len + 1)],             # int asc
@@ -222,7 +222,7 @@ def testRange(env):
     max_val = (doc_num - 1) * 100 + arr_len
     env.expect('FT.SEARCH', 'idx:all', '@val:[-inf (-{}]'.format(max_val), 'NOCONTENT').equal([0])
     env.expect('FT.SEARCH', 'idx:all', '@val:[({} +inf]'.format(max_val), 'NOCONTENT').equal([0])
-    
+
     for doc in range(doc_num, 0, -1):
         expected = [doc_num + 1 - doc]
         max_val = (doc - 1) * 100 + arr_len
@@ -291,12 +291,12 @@ def testInvertedIndexMultipleBlocks(env):
 def checkInfoAndGC(env, idx, doc_num, create, delete):
     """ Helper function for testInfoAndGC """
     conn = getConnectionByEnv(env)
-    
+
     # Start empty
     env.assertEqual(True, True, message = 'check {}'.format(idx))
     info = index_info(env, idx)
     env.assertEqual(int(info['num_docs']), 0)
-    env.assertEqual(int(info['total_inverted_index_blocks']), 0)
+    env.assertLessEqual(int(info['total_inverted_index_blocks']), 1) # 1 block might already be there
     env.assertEqual(int(info['inverted_sz_mb']), 0)
 
     create(env, doc_num)
@@ -347,7 +347,7 @@ def testInfoAndGC(env):
     def create_json_docs_single(env, doc_num):
         for doc in range(1, doc_num + 1):
             conn.execute_command('JSON.SET', 'doc:{}'.format(doc), '$', json.dumps({'top': random.uniform(1, 100000)}))
-    
+
     def delete_json_docs(env, doc_num):
         for doc in range(1, doc_num + 1):
             conn.execute_command('JSON.DEL', 'doc:{}'.format(doc), '$')
@@ -355,7 +355,7 @@ def testInfoAndGC(env):
     def create_hash_docs(env, doc_num):
         for doc in range(1, doc_num + 1):
             conn.execute_command('HSET', 'doc:{}'.format(doc), 'top', random.uniform(1, 100000))
-    
+
     def delete_hash_docs(env, doc_num):
         for doc in range(1, doc_num + 1):
             conn.execute_command('DEL', 'doc:{}'.format(doc), '$')
@@ -368,7 +368,7 @@ def testInfoAndGC(env):
     checkInfoAndGC(env, 'idx_json_mult', doc_num, create_json_docs_multi, delete_json_docs)
 
     # JSON single
-    env.flush()    
+    env.flush()
     env.expect('FT.CREATE', 'idx_json_single', 'ON', 'JSON', 'SCHEMA', '$.top', 'AS', 'val', 'NUMERIC').ok()
     checkInfoAndGC(env, 'idx_json_single', doc_num, create_json_docs_single, delete_json_docs)
 
@@ -408,7 +408,7 @@ def prepareSortBy(env, is_flat_arr, default_dialect):
 
 def checkSortByBWC(env, is_flat_arr):
     """ Helper function for backward compatibility of sorting multi numeric values """
-    
+
     default_dialect = True
     env.assertEqual(1, 1, message='flat {}, default dialect {}'.format(is_flat_arr, default_dialect))
     query = prepareSortBy(env, is_flat_arr, default_dialect)
@@ -437,7 +437,7 @@ def checkSortByBWC(env, is_flat_arr):
         checkGreater(int(res[i]), int(res[i - 1]))
 
     # Results should be descending
-    res = conn.execute_command(*query, 'SORTBY', 'val', 'DESC')    
+    res = conn.execute_command(*query, 'SORTBY', 'val', 'DESC')
     for i in range(2, len(res)):
         checkLess(int(res[i]), int(res[i - 1]))
 
@@ -451,7 +451,7 @@ def testSortByArrBWC(env):
 
 def checkSortBy(env, is_flat_arr):
     """ Helper function for testing of sorting multi numeric values """
-    
+
     default_dialect = False
     env.assertEqual(1, 1, message='flat {}, default dialect {}'.format(is_flat_arr, default_dialect))
     query = prepareSortBy(env, is_flat_arr, default_dialect)
@@ -463,7 +463,7 @@ def checkSortBy(env, is_flat_arr):
         env.assertGreater(int(res[i]), int(res[i - 1]))
 
     # Results should be descending
-    res = conn.execute_command(*query, 'SORTBY', 'val', 'DESC')    
+    res = conn.execute_command(*query, 'SORTBY', 'val', 'DESC')
     for i in range(2, len(res)):
         env.assertLess(int(res[i]), int(res[i - 1]))
 
@@ -480,10 +480,10 @@ def keep_dict_keys(dict, keys):
 
 def testInfoStats(env):
     """ Check that stats of single value are equivalent to multi value"""
-    
+
     printSeed(env)
     conn = getConnectionByEnv(env)
-    
+
     env.expect('FT.CREATE', 'idx:single', 'ON', 'JSON', 'PREFIX', 1, 'doc:single:', 'SCHEMA', '$.top', 'AS', 'val', 'NUMERIC').ok()
     env.expect('FT.CREATE', 'idx:multi', 'ON', 'JSON', 'PREFIX', 1, 'doc:multi:', 'SCHEMA', '$.top', 'AS', 'val', 'NUMERIC').ok()
 
@@ -509,7 +509,7 @@ def testInfoStats(env):
 
 def testInfoStatsAndSearchAsSingle(env):
     """ Check that search results and relevant stats are the same for single values and equivalent multi values """
-    
+
     printSeed(env)
 
     conn = getConnectionByEnv(env)
@@ -525,20 +525,20 @@ def testInfoStatsAndSearchAsSingle(env):
     #  FT.CREATE idx:multi ON JSON PREFIX 1 doc:multi: SCHEMA $.val1 AS val1 NUMERIC
     env.expect(*create_idx_single).ok()
     env.expect(*create_idx_multi).ok()
-    
+
     doc_num = 200
     for doc in range(1, doc_num + 1):
         val_count = random.randint(1, max_attr_num)
         val_list = [random.uniform(-50000, 50000) for i in range(val_count)]
         # Use slot id tag to make results from single and multi indices in same order
-        # Doc with a single multi value, e.g., 
+        # Doc with a single multi value, e.g.,
         #  JSON.SET doc:single:1 $ '{"val1": 10, "val2": 20, "val3": 30}'
         conn.execute_command('JSON.SET', 'doc:multi:{{{}}}'.format(doc), '$', json.dumps({'val1': val_list}))
-        # Doc with several single values, e.g., 
+        # Doc with several single values, e.g.,
         #  JSON.SET doc:multi:1 $ '{"val1": [10, 20, 30]}'
         json_val = {k:v for (k,v) in zip(['val{}'.format(i + 1) for i in range(val_count)], val_list)}
         conn.execute_command('JSON.SET', 'doc:single:{{{}}}'.format(doc), '$', json.dumps(json_val))
-    
+
     # Compare INFO stats
     interesting_attr = ['num_docs', 'max_doc_id', 'num_records', 'total_inverted_index_blocks']
     info_single = keep_dict_keys(index_info(env, 'idx:single'), interesting_attr)
@@ -558,15 +558,15 @@ def testInfoStatsAndSearchAsSingle(env):
 
 def testConsecutiveValues(env):
     """ Test with many consecutive values which should cause range tree to do rebalancing (also for code coverage) """
-    
+
     env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
-    
+
     conn = getConnectionByEnv(env)
 
     num_docs = 10000
-    
+
     # Add values from -5000 to 5000
     # Add to the right, rebalance to the left
     i = -5000
@@ -574,7 +574,7 @@ def testConsecutiveValues(env):
     for doc in range(1, num_docs + 1):
         conn.execute_command('JSON.SET', 'doc:{}'.format(doc), '$', json.dumps({'val': [i, i+1]}))
         i = i + 1
-    
+
     env.expect('FT.SEARCH', 'idx', '@val:[-5000 -4999]', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
     env.expect('FT.SEARCH', 'idx', '@val:[5 6]', 'NOCONTENT').equal([3, 'doc:5005', 'doc:5006', 'doc:5007'])
     env.expect('FT.SEARCH', 'idx', '@val:[4999 5000]', 'NOCONTENT').equal([2, 'doc:9999', 'doc:10000'])
@@ -588,7 +588,7 @@ def testConsecutiveValues(env):
     for doc in range(1, num_docs + 1):
         conn.execute_command('JSON.SET', 'doc:{}'.format(doc), '$', json.dumps({'val': [i, i-1]}))
         i = i - 1
-    
+
     env.expect('FT.SEARCH', 'idx', '@val:[4999 5000]', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
     env.expect('FT.SEARCH', 'idx', '@val:[-6 -5]', 'NOCONTENT').equal([3, 'doc:5005', 'doc:5006', 'doc:5007'])
     env.expect('FT.SEARCH', 'idx', '@val:[-5000 -4999]', 'NOCONTENT').equal([2, 'doc:9999', 'doc:10000'])
@@ -639,7 +639,7 @@ def checkUpdateNumRecords(env, is_json):
 
     info = index_info(env, 'idx')
     env.assertEqual(info['num_records'], '9')
-    
+
     # Update doc to have one value less
     if is_json:
         conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps({'val': [1, 2]}))
@@ -743,7 +743,7 @@ def checkMultiNumericReturn(env, expected, default_dialect, is_sortable):
     #  Schema attribute with path to an array was not supported (lead to indexing failure)
     if not default_dialect:
         env.assertEqual(res, [1, ['val', expected[2][2][1]]])
-    
+
 
     env.expect('FT.AGGREGATE', 'idx_arr',
                '@val:[2 3]', 'LOAD', '1', '@val', *dialect_param).equal([1, ['val', expected[2][2][1]]])

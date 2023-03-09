@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "rlookup.h"
 #include "module.h"
 #include "document.h"
@@ -313,7 +319,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
   int res = REDISMODULE_ERR;
   RedisModuleString *serialized = NULL;
   
-  if (apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST || japi_ver < 2) {
+  if (apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST || japi_ver < 3) {
     // Preserve single value behavior for backward compatibility
     RedisJSON json = japi->next(iter);
     if (!json) {

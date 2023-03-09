@@ -84,11 +84,14 @@ def toSortedFlatList(res):
         return py2sorted(finalList)
     return [res]
 
-def assertInfoField(env, idx, field, expected):
+def assertInfoField(env, idx, field, expected, delta=None):
     if not env.isCluster():
         res = env.cmd('ft.info', idx)
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-        env.assertEqual(d[field], expected)
+        if delta is None:
+            env.assertEqual(d[field], expected)
+        else:
+            env.assertAlmostEqual(float(d[field]), float(expected), delta=delta)
 
 def sortedResults(res):
     n = res[0]
@@ -206,7 +209,7 @@ def collectKeys(env, pattern='*'):
 
 def forceInvokeGC(env, idx):
     waitForRdbSaveToFinish(env)
-    env.cmd('ft.debug', 'GC_FORCEINVOKE', idx)
+    env.cmd(('_' if env.isCluster() else '') + 'ft.debug', 'GC_FORCEINVOKE', idx)
 
 def skip(f, on_cluster=False):
     @wraps(f)
@@ -242,7 +245,7 @@ def no_asan(f):
 def unstable(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
-        if ONLY_STABLE:
+        if UNSTABLE == True:
             fname = f.__name__
             env.debugPrint("skipping {} because it is unstable".format(fname), force=True)
             env.skip()
@@ -283,8 +286,77 @@ def create_np_array_typed(data, data_type='FLOAT32'):
         return np.array(data, dtype=np.float64)
     return None
 
+def compare_lists_rec(var1, var2, delta):
+    if type(var1) != type(var2):
+        return False
+    try:
+        if type(var1) is not str and len(var1) != len(var2):
+            return False
+    except:
+        pass
+
+    if isinstance(var1, list):
+        #print("compare_lists_rec: list {}".format(var1))
+        for i in range(len(var1)):
+            #print("compare_lists_rec: list: i = {}".format(i))
+            res = compare_lists_rec(var1[i], var2[i], delta)
+            #print("list: var1 = {}, var2 = {}, res = {}".format(var1[i], var2[i], res))
+            if res is False:
+                return False
+
+    elif isinstance(var1, dict):
+        for k in var1:
+            res = compare_lists_rec(var1[k], var2[k], delta)
+            if res is False:
+                return False
+
+    elif isinstance(var1, set):
+        for v in var1:
+            if v not in var2:
+                return False
+
+    elif isinstance(var1, tuple):
+        for i in range(len(var1)):
+            compare_lists_rec(var1[i], var2[i], delta)
+            if res is False:
+                return False
+
+    elif isinstance(var1, float):
+        diff = var1 - var2
+        if diff < 0:
+            diff = -diff
+        #print("diff {} delta {}".format(diff, delta))
+        return diff <= delta
+
+    elif isinstance(var1, str): # float as string
+        try:
+            diff = float(var1) - float(var2)
+            if diff < 0:
+                diff = -diff
+        except:
+            return var1 == var2
+
+        #print("var1 {} var2 {} diff {} delta {}".format(var1, var2, diff, delta))
+        return diff <= delta
+
+    else: # int() | bool() | None:
+        return var1 == var2
+
+    return True
+
+def compare_lists(env, list1, list2, delta=0.01, _assert=True):
+    res = compare_lists_rec(list1, list2, delta + 0.000001)
+    if res:
+        if _assert:
+            env.assertTrue(True, message='%s ~ %s' % (str(list1), str(list2)))
+        return True
+    else:
+        if _assert:
+            env.assertTrue(False, message='%s ~ %s' % (str(list1), str(list2)))
+        return False
+
 class ConditionalExpected:
-    
+
     def __init__(self, env, cond):
         self.env = env
         self.cond_val = cond(env)

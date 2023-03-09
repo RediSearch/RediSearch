@@ -1,18 +1,13 @@
 ---
-syntax: 
+syntax: |
+  FT.CURSOR DEL index cursor_id
 ---
 
 Delete a cursor
 
-## Syntax
-
-{{< highlight bash >}}
-FT.CURSOR DEL index cursor_id
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>index</code></summary>
