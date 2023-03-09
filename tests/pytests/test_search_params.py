@@ -436,7 +436,6 @@ def test_fuzzy(env):
             '''
         
 def aliasing(env, is_sortable, is_sortable_unf):
-    # THIS IS WIP!!!!!!
     conn = getConnectionByEnv(env)
 
     sortable_param = ['SORTABLE', 'UNF'] if is_sortable_unf else (['SORTABLE'] if is_sortable else [])
