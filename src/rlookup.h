@@ -148,55 +148,48 @@ typedef struct {
 #define RLOOKUP_F_NAMEALLOC 0x10
 
 /**
- * Do not increment the reference count of the returned key. Note that a single
- * refcount is still retained within the lookup structure itself
- * TODO: pipline: consider removing as this is not in use
- */
-#define RLOOKUP_F_NOINCREF 0x20
-
-/**
  * This field is part of the index schema.
  */
-#define RLOOKUP_F_DOCSRC 0x40
+#define RLOOKUP_F_DOCSRC 0x20
 
 /**
  * This field is hidden within the document and is only used as a transient
  * field for another consumer. Don't output this field.
  */
-#define RLOOKUP_F_HIDDEN 0x80
+#define RLOOKUP_F_HIDDEN 0x40
 
 /**
  * This key is used as sorting key for the result
  */
-#define RLOOKUP_F_SORTKEY 0x100
+#define RLOOKUP_F_SORTKEY 0x80
 
 /**
  * This key is unresolved. It source needs to be derived from elsewhere
  */
-#define RLOOKUP_F_UNRESOLVED 0x200
+#define RLOOKUP_F_UNRESOLVED 0x100
 
 /**
  * The opposite of F_HIDDEN. This field is specified as an explicit return in
  * the RETURN list, so ensure that this gets emitted. Only set if
  * explicitReturn is true in the aggregation request.
  */
-#define RLOOKUP_F_EXPLICITRETURN 0x400
+#define RLOOKUP_F_EXPLICITRETURN 0x200
 
 /**
  * This key is was already loaded to the rlookup, 
  * no need to load it again.
  */
-#define RLOOKUP_F_ISLOADED 0x800
+#define RLOOKUP_F_ISLOADED 0x400
 
 /**
  * This key doesn't have an alias. Search by name and path.
  */
-#define RLOOKUP_F_ALIAS 0x1000
+#define RLOOKUP_F_ALIAS 0x800
 
 /**
  * These flags do not persist to the key, they are just options to GetKey()
  */
-#define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF)
+#define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT)
 
 /**
  * Get a RLookup key for a given name. The behavior of this function depends on

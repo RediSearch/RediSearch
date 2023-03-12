@@ -188,10 +188,6 @@ RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char
                                   .type = 0,
                           };
   RLookupKey *ret = createNewKeyOptions(lookup, &options);
-  
-  if (!(flags & RLOOKUP_F_NOINCREF)) {
-    ret->refcnt++;
-  }
 
   // If the requester of this key is also its creator, remove the unresolved flag
   ret->flags &= ~RLOOKUP_F_UNRESOLVED;
@@ -244,10 +240,6 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
         ret->flags |= RLOOKUP_F_UNRESOLVED;
       }
     }
-  }
-
-  if (!(flags & RLOOKUP_F_NOINCREF)) {
-    ret->refcnt++;
   }
 
   if (flags & RLOOKUP_F_OCREAT) {
@@ -316,7 +308,7 @@ void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
 void RLookup_WriteKeyByName(RLookup *lookup, const char *name, RLookupRow *dst, RSValue *v) {
   // Get the key first
   RLookupKey *k =
-      RLookup_GetKey(lookup, name, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
+      RLookup_GetKey(lookup, name, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_OCREAT);
   RS_LOG_ASSERT(k, "failed to get key");
   RLookup_WriteKey(k, dst, v);
 }
