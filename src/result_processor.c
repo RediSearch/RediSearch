@@ -710,8 +710,8 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
   return &sc->base;
 }
 
-static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Buffer and Locker", "Unlocker", "Scorer",
-                                     "Sorter",    "Counter",   "Pager/Limiter", "Highlighter", 
+static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Buffer and Locker", "Unlocker", "Spec unlocker", 
+                                     "Scorer", "Sorter",    "Counter",   "Pager/Limiter", "Highlighter", 
                                      "Grouper",   "Projector", "Filter",        "Profile",     
                                      "Network",   "Metrics Applier"};
 
@@ -1147,5 +1147,46 @@ ResultProcessor *RPUnlocker_New(RPBufferAndLocker *rpBufferAndLocker) {
   ret->base.type = RP_UNLOCKER;
 
   ret->rpBufferAndLocker = rpBufferAndLocker;
+  return &ret->base;
+}
+
+
+/*******************************************************************************************************************
+ *  SpecUnLocker Results Processor
+ *
+ * This component should be added to a thread safe query's execution pipeline if the access to
+ * Redis keyspace is NOT required.
+ * 
+ * It is responsible for unlocking the spec immediately after the search phase of the query is done.
+ *
+ *******************************************************************************************************************/
+
+typedef struct {
+  ResultProcessor base;
+} RPSpecUnlocker;
+
+static int RPSpecUnlocker_Next(ResultProcessor *rp, SearchResult *res) {
+  // call the next result processor
+  int result_status = rp->upstream->Next(rp->upstream, res);
+  
+  // Finish the search
+  if(result_status != REDISMODULE_OK) {
+    RedisSearchCtx *RSctx = rp->parent->sctx;
+    RedisSearchCtx_UnlockSpec(RSctx);
+  }
+  return result_status;
+}
+
+static void RPSpecUnlocker_Free(ResultProcessor *base) {
+  rm_free(base);
+}
+
+ResultProcessor *RPSpecUnlocker_New() {
+  RPUnlocker *ret = rm_calloc(1, sizeof(RPSpecUnlocker));
+
+  ret->base.Next = RPSpecUnlocker_Next;
+  ret->base.Free = RPSpecUnlocker_Free;
+  ret->base.type = RP_SPECUNLOCKER;
+
   return &ret->base;
 }

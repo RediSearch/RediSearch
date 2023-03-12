@@ -56,6 +56,7 @@ typedef enum {
   RP_LOADER,
   RP_BUFFER_AND_LOCKER,
   RP_UNLOCKER,
+  RP_SPECUNLOCKER,
   RP_SCORER,
   RP_SORTER,
   RP_COUNTER,
@@ -283,6 +284,18 @@ ResultProcessor *RPBufferAndLocker_New(size_t BlockSize);
  *******************************************************************************************************************/
 
 ResultProcessor *RPUnlocker_New(RPBufferAndLocker *rpBufferAndLocker);
+
+/*******************************************************************************************************************
+ *  SpecUnLocker Results Processor
+ *
+ * This component should be added to a thread safe query's execution pipeline if the access to
+ * Redis keyspace is NOT required.
+ * 
+ * It is responsible for unlocking the spec immediately after the search phase of the query is done.
+ *
+ *******************************************************************************************************************/
+
+ResultProcessor *RPSpecUnlocker_New();
 
 /*******************************************************************************************************************
  *  Profiling Processor
