@@ -436,6 +436,7 @@ def test_fuzzy(env):
             '''
         
 def aliasing(env, is_sortable, is_sortable_unf):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
     sortable_param = ['SORTABLE', 'UNF'] if is_sortable_unf else (['SORTABLE'] if is_sortable else [])
@@ -458,26 +459,36 @@ def aliasing(env, is_sortable, is_sortable_unf):
     # `SORTBY numval_name` is allowed, key1 and key2 will be sorted, key5, key3 and key4 order is determined by the order of creation.
     # As no return is specified, returns indexed fields + all the documents' fields.
     res = env.execute_command('FT.SEARCH', 'idx', '*', 'sortby', 'numval_name', 'ASC')
-    env.assertEqual(res, [docs_num, 'key2', ['numval_name', '109', 'numval', '109'], 
-                             'key1', ['numval_name', '110', 'numval', '110'],
-                             'key5', ['text', 'Meow'],
-                             'key3', ['numval_name', '108'],
-                             'key4', ['x', '107']])   
+    unsorted_expected = ['key5', ['text', 'Meow'],
+                'key3', ['numval_name', '108'],
+                'key4', ['x', '107']] 
     
-
+    # First results should be the indexed documents that contains the numeric that determines the sorting order, 
+    # sorted by their value in ascending order
+    env.assertEqual(res[1:5], ['key2', ['numval_name', '109', 'numval', '109'], 
+                             'key1', ['numval_name', '110', 'numval', '110']])      
+    # Next, all other documents in the database, no order is guaranteed.
+    for val in unsorted_expected:
+        env.assertContains(val, res[5::])  
     # `SORTBY numval_name` and `RETURN` specific fields with new name. Return only the indexes fields, not loading 
     # `numval_name` for key3 because indexed fields have higher priority.
     # TEXT field should return the original value.
+    
     res = env.execute_command('FT.SEARCH', 'idx', '*', 'sortby', 'numval_name', 'ASC',
                             'RETURN', 8,'numval_name',
                                         'numval_name', 'AS', 'numval_new_name',
                                         'numval_name', 'AS', 'numval_new_name2',
                                         'text_name')
-    env.assertEqual(res, [docs_num, 'key2', ['numval_name', '109', 'numval_new_name', '109', 'numval_new_name2', '109'], 
-                             'key1', ['numval_name', '110', 'numval_new_name', '110', 'numval_new_name2', '110'],
-                             'key5', ['text_name', 'Meow'],
-                             'key3', [],
-                             'key4', []]) 
+    unsorted_expected = ['key5', ['text_name', 'Meow'],
+                        'key3', [],
+                        'key4', []]
+    # First results should be the indexed documents that contains the numeric that determines the sorting order, 
+    # sorted by their value in ascending order
+    env.assertEqual(res[1:5], ['key2', ['numval_name', '109', 'numval_new_name', '109', 'numval_new_name2', '109'], 
+                             'key1', ['numval_name', '110', 'numval_new_name', '110', 'numval_new_name2', '110']])      
+    # Next, all other documents in the database, no order is guaranteed.
+    for val in unsorted_expected:
+        env.assertContains(val, res[5::])  
 
     # If no `SORTBY', we expect the same results, different order.
     # Because the first RETURN is the original path, the values are taken from redis and not from the 
