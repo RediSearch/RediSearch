@@ -896,12 +896,12 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
   const RLookupKey *srckeys[gstp->nproperties], *dstkeys[gstp->nproperties];
   for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
     const char *fldname = gstp->properties[ii] + 1;  // account for the @-
-    srckeys[ii] = RLookup_GetKey(srclookup, fldname, RLOOKUP_F_NOINCREF);
+    srckeys[ii] = RLookup_GetKey(srclookup, fldname, 0);
     if (!srckeys[ii]) {
       QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "No such property `%s`", fldname);
       return NULL;
     }
-    dstkeys[ii] = RLookup_GetKey(&gstp->lookup, fldname, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
+    dstkeys[ii] = RLookup_GetKey(&gstp->lookup, fldname, RLOOKUP_F_OCREAT);
   }
 
   Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties);
@@ -926,7 +926,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
 
     // Set the destination key for the grouper!
     RLookupKey *dstkey =
-        RLookup_GetKey(&gstp->lookup, pr->alias, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
+        RLookup_GetKey(&gstp->lookup, pr->alias, RLOOKUP_F_OCREAT);
     Grouper_AddReducer(grp, rr, dstkey);
   }
 
@@ -986,7 +986,7 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
       QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", name);
       return NULL;
     }
-    RLookupKey *key = RLookup_GetKey(rl, name, RLOOKUP_F_OEXCL | RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
+    RLookupKey *key = RLookup_GetKey(rl, name, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
     if (!key) {
       QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", name);
       return NULL;
@@ -1048,7 +1048,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
 
     for (size_t ii = 0; ii < nkeys; ++ii) {
       const char *keystr = astp->sortKeys[ii];
-      RLookupKey *sortkey = RLookup_GetKey(lk, keystr, RLOOKUP_F_NOINCREF);
+      RLookupKey *sortkey = RLookup_GetKey(lk, keystr, 0);
       if (!sortkey) {
         QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", keystr);
         return NULL;
@@ -1350,7 +1350,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
 
         if (stp->type == PLN_T_APPLY) {
           RLookupKey *dstkey =
-              RLookup_GetKey(curLookup, stp->alias, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
+              RLookup_GetKey(curLookup, stp->alias, RLOOKUP_F_OCREAT);
           rp = RPEvaluator_NewProjector(mstp->parsedExpr, curLookup, dstkey);
         } else {
           rp = RPEvaluator_NewFilter(mstp->parsedExpr, curLookup);
