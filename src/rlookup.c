@@ -25,6 +25,7 @@ static const FieldSpec *findFieldInSpec(RLookup *lookup, const char *name) {
   for (size_t ii = 0; ii < cc->nfields; ++ii) {
     if (!strcmp(cc->fields[ii].name, name)) {
       fs = cc->fields + ii;
+      break;
     }
   }
 
@@ -44,23 +45,23 @@ static void Lookupkey_ConfigKeyFromSpec(RLookupKey *key, const FieldSpec *fs, in
   // we can take its value from the sorting vector.
   // Otherwise, it needs to be externally loaded from Redis keyspace.
     if(FieldSpec_IsUnf(fs)) {
-      key->flags |= RLOOKUP_F_ORIGINAL_VALUE_DOCSRC;
+      key->flags |= RLOOKUP_F_UNF;
     }
   }
-  key->flags |= RLOOKUP_F_DOCSRC;
+  key->flags |= RLOOKUP_F_SCHEMASRC;
   if (fs->types == INDEXFLD_T_NUMERIC) {
     key->fieldtype = RLOOKUP_C_DBL;
   }
 }
 
-static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) {
+static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t name_len, int flags) {
 
   const FieldSpec *fs = findFieldInSpec(lookup, name);
   if(!fs) {
     return NULL;
   }
 
-  RLookupKey *ret = createNewKey(lookup, name, strlen(name), flags, lookup->rowlen);
+  RLookupKey *ret = createNewKey(lookup, name, name_len, flags, lookup->rowlen);
   Lookupkey_ConfigKeyFromSpec(ret, fs, flags);
 
   return ret;
@@ -79,8 +80,11 @@ static RLookupKey *FindExistingPath(RLookup *lookup, const char *path, int flags
   const FieldSpec *fs = findFieldInSpec(lookup, path);
 
   // If it exists in spec, search for the original path in the rlookup.
-  if(fs && (flags & RLOOKUP_F_ALIAS)) {
-    path = fs->path;
+  // If the key doesn't have an alias, we don't want to change the path.
+  if(fs) {
+    if((flags & RLOOKUP_F_ALIAS)) {
+      path = fs->path;
+    }
     *out_spec_field = fs;
   }
 
@@ -157,13 +161,13 @@ RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char
   const FieldSpec *fs = NULL;
   RLookupKey *lookupkey = FindExistingPath(lookup, path, flags, &fs);
 
-  // if we found a rlookupkey and it has the same name, use it.
+  // if we found a RLookupKey and it has the same name, use it.
   if(lookupkey) {
     if (!strcmp(lookupkey->name, name)) {
       return lookupkey;
     }
 
-  // Else, generate anew key and copy the meta data of the existing key.
+  // Else, generate a new key and copy the meta data of the existing key.
   // The new key will point to the same RSValue as the existing key, so we can avoid loading
   // this field twice.
     RLookupKeyOptions options = { 
@@ -228,7 +232,7 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
   }
 
   if (!ret) {
-    ret = genKeyFromSpec(lookup, name, flags);
+    ret = genKeyFromSpec(lookup, name, n, flags);
   }
 
   if (!ret) {
@@ -668,7 +672,7 @@ static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *
   } else { // If we called load to perform IF operation with FT.ADD command
     for (const RLookupKey *kk = it->head; kk; kk = kk->next) {
       /* key is not part of document schema. no need/impossible to 'load' it */
-      if (!(kk->flags & RLOOKUP_F_DOCSRC)) {
+      if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
         continue;
       }
       if (!options->noSortables) {

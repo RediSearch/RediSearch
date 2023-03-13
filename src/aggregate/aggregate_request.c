@@ -85,10 +85,6 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, con
 }
 
 static void FieldList_RestrictReturn(FieldList *fields) {
-  if (!fields->explicitReturn) {
-    return;
-  }
-
   size_t oix = 0;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     if (fields->fields[ii].explicitReturn == 0) {
@@ -506,9 +502,8 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       ReturnedField *f = FieldList_GetCreateField(&req->outFields, name, path);
       f->explicitReturn = 1;
     }
+    FieldList_RestrictReturn(&req->outFields);
   }
-  // TODO: move inside the if?
-  FieldList_RestrictReturn(&req->outFields);
   return REDISMODULE_OK;
 }
 
@@ -963,7 +958,7 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
     // See if we need a loader step?
     const RLookupKey **kklist = NULL;
     for (RLookupKey *kk = firstLk->head; kk; kk = kk->next) {
-      if ((kk->flags & RLOOKUP_F_DOCSRC) && (!(kk->flags & RLOOKUP_F_SVSRC))) {
+      if ((kk->flags & RLOOKUP_F_SCHEMASRC) && (!(kk->flags & RLOOKUP_F_SVSRC))) {
         *array_ensure_tail(&kklist, const RLookupKey *) = kk;
       }
     }
@@ -1058,29 +1053,23 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
       // add it to the loadkeys list.
       if(!(sortkey->flags & RLOOKUP_F_SVSRC) &&
          !(sortkey->flags & RLOOKUP_F_ISLOADED)) {
-        // initialize loadKeys
-        if (!loadKeys) {
-          loadKeys = rm_calloc(nkeys, sizeof(*loadKeys));
-        }
-        // Add to loadkeys
-        loadKeys[nLoadKeys++] = sortkey;
+
+        *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
 
         // Update lookupkey's flag to loaded
         sortkey->flags |= RLOOKUP_F_ISLOADED;
       }
     }
-
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
-
     if(loadKeys) {
+      nLoadKeys = array_len(loadKeys);
       // if we need to load all the fields, we don't need both sortkeys and
       // loadKeys as they are identical. 
       if (nLoadKeys == nkeys) {
-        rm_free(loadKeys);
+        array_free(loadKeys);
         loadKeys = sortkeys;
       }
-      RPSoter_addLoadKeys(rp, loadKeys, nLoadKeys);
     }
+    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, loadKeys, nLoadKeys, astp->sortAscMap);
     up = pushRP(req, rp, up);
   }
 
@@ -1189,7 +1178,7 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
   // Add a LOAD step...
   const RLookupKey **loadkeys = NULL;
   if (req->outFields.explicitReturn) {
-    bool is_old_json = (req->sctx->spec->rule->type == DocumentType_Json) && (req->dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST);
+    bool is_old_json = isSpecJson(req->sctx->spec) && (req->dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST);
     // Go through all the fields and ensure that each one exists in the lookup stage
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       const ReturnedField *rf = req->outFields.fields + ii;
@@ -1197,7 +1186,7 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
       RLookupKey *lk = RLookup_GetOrCreateKey(lookup, rf->path, rf->name, RLOOKUP_F_ALIAS);
       lk->flags |= RLOOKUP_F_EXPLICITRETURN;
       if (is_old_json || 
-      ((!(lk->flags & RLOOKUP_F_ISLOADED) && !(lk->flags & RLOOKUP_F_ORIGINAL_VALUE_DOCSRC)))) {
+      ((!(lk->flags & RLOOKUP_F_ISLOADED) && !(lk->flags & RLOOKUP_F_UNF)))) {
         *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
         lk->flags|= RLOOKUP_F_ISLOADED;
       }
@@ -1208,7 +1197,7 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
   // If we have explicit return and some of the keys' values are missing,
   // or if we don't have explicit return, meaning we use LOAD ALL
   if (loadkeys || !req->outFields.explicitReturn) {
-    rp = RPLoader_New(lookup, loadkeys, loadkeys ? array_len(loadkeys) : 0);
+    rp = RPLoader_New(lookup, loadkeys, array_len(loadkeys));
     array_free(loadkeys);
     PUSH_RP();
   }
@@ -1221,7 +1210,7 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
       if (!kk) {
         QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "No such property `%s`", ff->name);
         goto error;
-      } else if (!(kk->flags & (RLOOKUP_F_DOCSRC | RLOOKUP_F_SVSRC))) {
+      } else if (!(kk->flags & (RLOOKUP_F_SCHEMASRC | RLOOKUP_F_SVSRC))) {
         // TODO: this is a dead code
         QueryError_SetErrorFmt(status, QUERY_EINVAL, "Property `%s` is not in document", ff->name);
         goto error;
@@ -1248,46 +1237,72 @@ static void PushUpStream(ResultProcessor *rp_to_place, ResultProcessor *rp) {
 // The Buffer-Locker rp is added as the upstream of the first result processor that might
 // access Redis keyspace.
 // The Unlocker is places so that its upstream rp will be the last to access Redis keyspace.
-static void SafeRedisKeyspaceAccessPipeline(AREQ *req, QueryError *status) {
+static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
   
-  // Go over the pipeline and find the result processor @first, 
-  // which is the first to access redis and push the bufer-locker onto its upstream.
-  // In order to find the position of the unlocker, Also, find rp @safe, of which its upstream rp is @last rp that needs redis's lock,
-  // push the unlocker as @safe upstream.
-  ResultProcessor *upstream_is_buffer_unlocker = NULL;
-  ResultProcessor *upstream_is_unlcoker = NULL;
-  // Start from the end processor and iterate beackward until the next rp
-  // is the last to access redis and push the unlocker between them.
+  // Go over the pipeline and find the result processor that are the first and last to access redis.
+  // We mark the first rp that accesses redis with upstream_is_buffer_locker.
+  // We need to store the rp that its upstream is the result processor that is the last rp to access redis
+  // in order to push the unlocker as its upstream.
 
+  // for example if the pipline is 
+  // root<-sorter<-loader (an arrow signs the upstream direction)
+  // upstream_is_buffer_locker = sorter, upstream_is_unlcoker = dummy
+  // and the finale pipeline is:
+  // root<-buffer-locker<-sorter<-loader<-unlocker
+  ResultProcessor *upstream_is_buffer_locker = NULL;
+  ResultProcessor *upstream_is_unlcoker = NULL;
+ 
   ResultProcessor dummy_rp = {.upstream = req->qiter.endProc};
   ResultProcessor *curr_rp = &dummy_rp;
+  // Start from the end processor and iterate beackward until the next rp
+  // is the last to access redis or its a pipeline breaker.
 
-  while (curr_rp != req->qiter.rootProc) {
-    if (curr_rp->upstream->flags & RESULT_PROCESSOR_F_ACCESS_REDIS) {
-      if(!upstream_is_unlcoker) {
-        upstream_is_unlcoker = curr_rp;
-      }
-      upstream_is_buffer_unlocker = curr_rp->upstream;
+  while (curr_rp != req->qiter.rootProc && 
+        !(curr_rp->upstream->flags & (RESULT_PROCESSOR_F_ACCESS_REDIS | RESULT_PROCESSOR_F_BREAKS_PIPELINE))) {
+    curr_rp = curr_rp->upstream;
+  }
+
+  // if we got the root proc, redis access in not needed, return.
+  if (curr_rp == req->qiter.rootProc) {
+    return;
+  }
+
+  // The upstream rp of the curr_rp is the last to access redis, or a pipline breaker
+  // we want to place the unlocker between curr_rp and its upstream.
+  upstream_is_unlcoker = curr_rp;
+  
+  // The last to access redis might be also the first to access redis.
+  // We mark it to push the buffer-locker as its upstream.
+  curr_rp = curr_rp->upstream;
+
+  upstream_is_buffer_locker = curr_rp;
+
+  // Keep searching until we get to the root rp.
+  curr_rp = curr_rp->upstream;
+
+  while (curr_rp != req->qiter.rootProc){
+    if (curr_rp->flags & RESULT_PROCESSOR_F_ACCESS_REDIS) {
+      upstream_is_buffer_locker = curr_rp;
     }
     curr_rp = curr_rp->upstream;
   }
 
-  // if redis access in not needed, return.
-  if(!upstream_is_buffer_unlocker) {
-    assert(!upstream_is_unlcoker);
+  // If in the first loop we stored a rp with RESULT_PROCESSOR_F_BREAKS_PIPELINE flag, 
+  // and the second loop didn't find any rp that needs to access redis,
+  // we don't need the buffer.
+  if(!(upstream_is_buffer_locker->flags & RESULT_PROCESSOR_F_ACCESS_REDIS)) {
     return;
   }
-
   // TODO: multithreaded: Add better estimation to the buffer initial size
   ResultProcessor *rpBufferAndLocker = RPBufferAndLocker_New(1024);
 
   // Place buffer and locker as the upstream of the first_to_access_redis result processor.
-  PushUpStream(rpBufferAndLocker, upstream_is_buffer_unlocker);
+  PushUpStream(rpBufferAndLocker, upstream_is_buffer_locker);
 
   // Find where to place unlocker
   ResultProcessor *rpUnlocker = RPUnlocker_New((RPBufferAndLocker*)rpBufferAndLocker);
 
-  // Handle special case where endProc is the last.
+  // Handle special case where original endProc becomes the upstream of the unlocker, and we need to update req->qiter.endProc
   if (upstream_is_unlcoker == &dummy_rp) {
     pushRP(req, rpUnlocker, req->qiter.endProc);
   } else {
@@ -1381,7 +1396,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
             // We only get a NULL return if the key already exists, which means
             // that we don't need to retrieve it again.
             continue;
-          } 
+          }
 
           if (AC_AdvanceIfMatch(&lstp->args, SPEC_AS_STR)) {
             int rv = AC_GetString(&lstp->args, &name, NULL, 0);
@@ -1396,9 +1411,9 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
           // set lookupkey name to name.
           // by defualt "name = path"
           kk->name = name;
+          kk->name_len = strlen(name);
 
           kk->flags |= RLOOKUP_F_ISLOADED;
-          kk->name_len = strlen(name);
           lstp->keys[lstp->nkeys++] = kk;
         }
         if (lstp->nkeys || lstp->base.flags & PLN_F_LOAD_ALL) {
@@ -1441,7 +1456,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
   // If we are in a multi threaded context we need to buffer results and lock the GIL
   // before we first access redis key space and unlock it when it is no longer needed.
   if((options & AREQ_BUILD_THREADSAFE_PIPELINE)) {
-    SafeRedisKeyspaceAccessPipeline(req, status);
+    SafeRedisKeyspaceAccessPipeline(req);
   }
 
   // In profile mode, we need to add RP_Profile before each RP
