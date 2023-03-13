@@ -15,6 +15,48 @@
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
                                 uint16_t idx);
 
+typedef struct {
+  const char *name;
+  size_t namelen;
+
+  const char *path;
+  int flags;
+  uint16_t dstidx;
+  uint16_t svidx;
+  RLookupCoerceType type;
+} RLookupKeyOptions;
+
+static RLookupKey *createNewKeyOptions(RLookup *lookup, RLookupKeyOptions *rlookupkey_options) {
+  RLookupKey *ret = rm_calloc(1, sizeof(*ret));
+
+   int flags = rlookupkey_options->flags;
+
+  ret->flags = (flags & (~RLOOKUP_TRANSIENT_FLAGS));
+  ret->dstidx = rlookupkey_options->dstidx;
+  ret->svidx = rlookupkey_options->svidx;
+  ret->fieldtype = rlookupkey_options->type;
+
+  if (flags & RLOOKUP_F_NAMEALLOC) {
+    ret->name = rm_strndup(rlookupkey_options->name, rlookupkey_options->namelen);
+  } else {
+    ret->name = rlookupkey_options->name;
+  }
+  ret->name_len = rlookupkey_options->namelen;
+
+  ret->path = rlookupkey_options->path == rlookupkey_options->name ? ret->name : rlookupkey_options->path;
+
+  if (!lookup->head) {
+    lookup->head = lookup->tail = ret;
+  } else {
+    lookup->tail->next = ret;
+    lookup->tail = ret;
+  }
+  ++(lookup->rowlen);
+
+  return ret;
+}
+
+
 static const FieldSpec *findFieldInSpec(RLookup *lookup, const char *name) {
   const IndexSpecCache *cc = lookup->spcache;
   if (!cc) {
@@ -33,24 +75,24 @@ static const FieldSpec *findFieldInSpec(RLookup *lookup, const char *name) {
 
 }
 
-static void Lookupkey_ConfigKeyFromSpec(RLookupKey *key, const FieldSpec *fs, int flags) {
+static void Lookupkey_ConfigKeyOptionsFromSpec(RLookupKeyOptions *key_options, const FieldSpec *fs) {
  
-  key->path = fs->path;
+  key_options->path = fs->path;
 
   if (FieldSpec_IsSortable(fs)) {
-    key->flags |= RLOOKUP_F_SVSRC;
-    key->svidx = fs->sortIdx;
+    key_options->flags |= RLOOKUP_F_SVSRC;
+    key_options->svidx = fs->sortIdx;
 
   // If the field is sortable and not normalized (UNF),
   // we can take its value from the sorting vector.
   // Otherwise, it needs to be externally loaded from Redis keyspace.
     if(FieldSpec_IsUnf(fs)) {
-      key->flags |= RLOOKUP_F_UNF;
+      key_options->flags |= RLOOKUP_F_UNF;
     }
   }
-  key->flags |= RLOOKUP_F_SCHEMASRC;
+  key_options->flags |= RLOOKUP_F_SCHEMASRC;
   if (fs->types == INDEXFLD_T_NUMERIC) {
-    key->fieldtype = RLOOKUP_C_DBL;
+    key_options->type = RLOOKUP_C_DBL;
   }
 }
 
@@ -61,10 +103,17 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t name
     return NULL;
   }
 
-  RLookupKey *ret = createNewKey(lookup, name, name_len, flags, lookup->rowlen);
-  Lookupkey_ConfigKeyFromSpec(ret, fs, flags);
-
-  return ret;
+  RLookupKeyOptions options = { 
+                              .name = name, 
+                              .namelen = name_len, 
+                              .path = NULL,
+                              .flags = flags,
+                              .dstidx = lookup->rowlen, 
+                              .svidx = 0,
+                              .type = 0,
+                            };
+  Lookupkey_ConfigKeyOptionsFromSpec(&options, fs);
+  return createNewKeyOptions(lookup, &options);
 
 }
 
@@ -101,46 +150,6 @@ static RLookupKey *FindExistingPath(RLookup *lookup, const char *path, int flags
 
 
 }  
-
-typedef struct {
-  const char *name;
-  size_t namelen;
-
-  const char *path;
-  int flags;
-  uint16_t dstidx;
-  uint16_t svidx;
-  RLookupCoerceType type;
-} RLookupKeyOptions;
-
-static RLookupKey *createNewKeyOptions(RLookup *lookup, RLookupKeyOptions *rlookupkey_options) {
-  RLookupKey *ret = rm_calloc(1, sizeof(*ret));
-
-   int flags = rlookupkey_options->flags;
-
-  ret->flags = (flags & (~RLOOKUP_TRANSIENT_FLAGS));
-  ret->dstidx = rlookupkey_options->dstidx;
-  ret->refcnt = 1;
-
-  if (flags & RLOOKUP_F_NAMEALLOC) {
-    ret->name = rm_strndup(rlookupkey_options->name, rlookupkey_options->namelen);
-  } else {
-    ret->name = rlookupkey_options->name;
-  }
-  ret->name_len = rlookupkey_options->namelen;
-
-  ret->path = rlookupkey_options->path;
-
-  if (!lookup->head) {
-    lookup->head = lookup->tail = ret;
-  } else {
-    lookup->tail->next = ret;
-    lookup->tail = ret;
-  }
-  ++(lookup->rowlen);
-
-  return ret;
-}
 
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
                                 uint16_t idx) {
@@ -181,34 +190,23 @@ RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char
                           };
     return createNewKeyOptions(lookup, &options);
   } 
-
   RLookupKeyOptions options = { 
                                   .name = name, 
                                   .namelen = strlen(name), 
-                                  .path = NULL,
-                                  .flags = flags,
+                                  .path = path,
+                                  .flags = flags & ~RLOOKUP_F_UNRESOLVED,  // If the requester of this key is also its creator, remove the unresolved flag
                                   .dstidx = lookup->rowlen, 
                                   .svidx = 0,
                                   .type = 0,
                           };
-  RLookupKey *ret = createNewKeyOptions(lookup, &options);
 
-  // If the requester of this key is also its creator, remove the unresolved flag
-  ret->flags &= ~RLOOKUP_F_UNRESOLVED;
-  
+
   // if we didn't find any key, but the key exists in the schema 
   // use spec fields
   if(fs) {
-    Lookupkey_ConfigKeyFromSpec(ret, fs, flags);
-  } else {
-    // If no explicit path is required, use name.
-    // It's important to set the path after creating the key because createNewKey might 
-    // allocate the name's string. (RLOOKUP_F_NAMEALLOC is set)
-    ret->path = path == name ? ret->name : path;
-  }
-
-
-  return ret;
+    Lookupkey_ConfigKeyOptionsFromSpec(&options, fs);
+  }  
+  return createNewKeyOptions(lookup, &options);
 }
 
 

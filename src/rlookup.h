@@ -80,8 +80,6 @@ typedef struct RLookupKey {
   /** Type this lookup should be coerced to */
   RLookupCoerceType fieldtype : 16;
 
-  uint32_t refcnt;
-
   /** Path and name of this field
    *  path AS name */
   const char *path;
