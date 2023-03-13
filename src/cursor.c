@@ -312,7 +312,7 @@ void Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) 
 #ifdef FTINFO_FOR_INFO_MODULES
 void Cursors_RenderStatsForInfo(CursorList *cl, const char *name, RedisModuleInfoCtx *ctx) {
   CursorList_Lock(cl);
-  CursorSpecInfo *info = findInfo(cl, name, NULL);
+  CursorSpecInfo *info = findInfo(cl, name);
 
   RedisModule_InfoBeginDictField(ctx, "cursor_stats");
   RedisModule_InfoAddFieldLongLong(ctx, "global_idle", ARRAY_GETSIZE_AS(&cl->idle, Cursor **));
