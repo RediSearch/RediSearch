@@ -417,11 +417,12 @@ def test_fuzzy(env):
 
 ''' Test aliasing behavior.
 # Aliasing guidelines:
-    # If the SCHEMA contains `a AS b`, `a` is only used to load values from redis, if required. This field should by
+    # If the SCHEMA contains `a AS b`, `a` is only used to load values from redis, if required. This field should be
       applied by its name (b). Meaning:
         # `SORTBY a` is not allowed (not in schema), 
           `SORTBY b` is OK.
-        # if `b` is SORTABLE HASH field, or SORTABLE JSON and the query uses DIALECT 3,
+        # if `b` is SORTABLE HASH field, or SORTABLE JSON and `b` is UNF (not normalized), 
+          and the query uses DIALECT 3 or greater,
           the value will not be loaded from redis but taken from the sorting vector.  
         # `RETURN a` always loads `a` from redis, even if `b` is sortable. 
           For optimized performance the user should use `RETURN b`
@@ -436,7 +437,7 @@ def test_fuzzy(env):
             '''
         
 def aliasing(env, is_sortable, is_sortable_unf):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     sortable_param = ['SORTABLE', 'UNF'] if is_sortable_unf else (['SORTABLE'] if is_sortable else [])
@@ -470,8 +471,8 @@ def aliasing(env, is_sortable, is_sortable_unf):
     # Next, all other documents in the database, no order is guaranteed.
     for val in unsorted_expected:
         env.assertContains(val, res[5::])  
-    # `SORTBY numval_name` and `RETURN` specific fields with new name. Return only the indexes fields, not loading 
-    # `numval_name` for key3 because indexed fields have higher priority.
+    # `SORTBY numval_name` and `RETURN` specific fields with new name. Return only the indexed fields, not loading 
+    # `numval_name` for key3 because alias names of indexed fields have higher priority.
     # TEXT field should return the original value.
     
     res = env.execute_command('FT.SEARCH', 'idx', '*', 'sortby', 'numval_name', 'ASC',
