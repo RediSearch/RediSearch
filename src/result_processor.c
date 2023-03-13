@@ -379,7 +379,7 @@ static void rpsortFree(ResultProcessor *rp) {
   }
 
   if (self->fieldcmp.loadKeys && self->fieldcmp.loadKeys != self->fieldcmp.keys) {
-    rm_free(self->fieldcmp.loadKeys);
+    array_free(self->fieldcmp.loadKeys);
   }
 
   // calling mmh_free will free all the remaining results in the heap, if any
@@ -538,13 +538,22 @@ static void srDtor(void *p) {
 }
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
+                                      const RLookupKey **loadKeys, size_t nLoadKeys,
                                       uint64_t ascmap) {
+                                        
+  assert(nkeys >= nLoadKeys);
+
   RPSorter *ret = rm_calloc(1, sizeof(*ret));
   ret->cmp = nkeys ? cmpByFields : cmpByScore;
   ret->cmpCtx = ret;
   ret->fieldcmp.ascendMap = ascmap;
   ret->fieldcmp.keys = keys;
   ret->fieldcmp.nkeys = nkeys;
+  ret->fieldcmp.loadKeys = loadKeys;
+  ret->fieldcmp.nLoadKeys = nLoadKeys;
+  if(nLoadKeys) {
+    ret->base.flags |= RESULT_PROCESSOR_F_ACCESS_REDIS;
+  }
 
   ret->pq = mmh_init_with_size(maxresults + 1, ret->cmp, ret->cmpCtx, srDtor);
   ret->size = maxresults;
@@ -556,15 +565,8 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   return &ret->base;
 }
 
-void RPSoter_addLoadKeys(ResultProcessor *SorterByFields, const RLookupKey **loadKeys, size_t nLoadKeys) {
-  RPSorter *sorter = (RPSorter *)SorterByFields;
-  sorter->fieldcmp.loadKeys = loadKeys;
-  sorter->fieldcmp.nLoadKeys = nLoadKeys;
-  sorter->base.flags |= RESULT_PROCESSOR_F_ACCESS_REDIS;
-}
-
 ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
-  return RPSorter_NewByFields(maxresults, NULL, 0, 0);
+  return RPSorter_NewByFields(maxresults, NULL, 0, NULL, 0, 0);
 }
 
 void SortAscMap_Dump(uint64_t tt, size_t n) {
@@ -635,10 +637,8 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
   ret->base.Next = rppagerNext;
   ret->base.Free = rppagerFree;
 
-  // Although the pager doesn't access Redis keyspace,
-  // if we are in a multi threaded execution, we insert the pager as the upstream rp
-  // of the unlocker rp, since the pager is the result processor that declares on EOF.
-  ret->base.flags |= RESULT_PROCESSOR_F_ACCESS_REDIS;
+  // If the pager reaches the limit, it will declare EOF, without an additional call to its upstream.next.
+  ret->base.flags |= RESULT_PROCESSOR_F_BREAKS_PIPELINE;
   return &ret->base;
 }
 
