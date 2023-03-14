@@ -557,7 +557,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     // report block client start time
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, blockedClient);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
-    workersThreadPool_AddWork((thpool_proc)AREQ_Execute_Callback, BCRctx);
+    workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
   } else {
     if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
       goto error;
