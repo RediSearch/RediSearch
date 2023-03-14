@@ -550,6 +550,28 @@ def test_sortby_Noexist(env):
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '3').equal([4, 'doc1', ['t', '1'], 'doc3', ['t', '3'], 'doc2', ['somethingelse', '2']])
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '3').equal([4, 'doc3', ['t', '3'], 'doc1', ['t', '1'], 'doc4', ['somethingelse', '4']])
 
+def test_sortby_Noexist_Sortables(env):
+    ''' issue 3457 '''
+
+    conn = getConnectionByEnv(env)
+    for count, args in enumerate([[True,True], [True,False], [False,True], [False,False]]):
+      sortable1 = ['SORTABLE'] if args[0] else []
+      sortable2 = ['SORTABLE'] if args[1] else []
+      conn.execute_command('FT.CREATE', 'idx{}'.format(count), 'SCHEMA', 'numval', 'NUMERIC' , *sortable1,
+                                                'text', 'TEXT', *sortable2)
+      
+      conn.execute_command('HSET', 'key1', 'numval', '110')
+      conn.execute_command('HSET', 'key2', 'numval', '109')
+      conn.execute_command('HSET', 'key5', 'text', 'Meow')
+      conn.execute_command('HSET', 'key7', 'text', 'Chirp')
+    
+      msg = 'sortable1: {}, sortable2: {}'.format(sortable1, sortable2)
+      res = conn.execute_command('FT.SEARCH', 'idx{}'.format(count), '*', 'sortby', 'numval', 'ASC')
+      env.assertEqual(res, [4, 'key2', ['numval', '109'], 'key1', ['numval', '110'], 'key5', ['text', 'Meow'], 'key7', ['text', 'Chirp']], message=msg)
+
+      res = conn.execute_command('FT.SEARCH', 'idx{}'.format(count), '*', 'sortby', 'numval', 'DESC')
+      env.assertEqual(res, [4, 'key1', ['numval', '110'], 'key2', ['numval', '109'], 'key7', ['text', 'Chirp'], 'key5', ['text', 'Meow']], message=msg)
+
 def testDeleteIndexes(env):
   # test cleaning of all specs from a prefix
   conn = getConnectionByEnv(env)
