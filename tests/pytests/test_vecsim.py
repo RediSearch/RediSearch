@@ -220,6 +220,38 @@ def test_sanity_l2():
             conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
+def test_sanity_zero_results():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 4
+
+    index_types = ['FLAT', 'HNSW']
+    data_types = ['FLOAT32', 'FLOAT64']
+    for index_type in index_types:
+        for data_type in data_types:
+            env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index_type, '6', 'TYPE', data_type,
+                       'DIM', dim, 'DISTANCE_METRIC', 'L2', 'n', 'NUMERIC').ok()
+            conn.execute_command('HSET', 'a', 'n', 0xa, 'v', create_np_array_typed(np.random.rand(dim), data_type).tobytes())
+            conn.execute_command('HSET', 'b', 'n', 0xb, 'v', create_np_array_typed(np.random.rand(dim), data_type).tobytes())
+            conn.execute_command('HSET', 'c', 'n', 0xc, 'v', create_np_array_typed(np.random.rand(dim), data_type).tobytes())
+            conn.execute_command('HSET', 'd', 'n', 0xd, 'v', create_np_array_typed(np.random.rand(dim), data_type).tobytes())
+
+            query_vec = create_np_array_typed(np.random.rand(dim), data_type)
+
+            # Test looking for 0 results
+            env.expect('FT.SEARCH', 'idx', '*=>[KNN 0 @v $blob AS dist]', 'PARAMS', '2', 'blob', query_vec.tobytes()).equal([0])
+            env.expect('FT.SEARCH', 'idx', '*=>[KNN $K @v $blob AS dist]', 'PARAMS', '4', 'K', 0, 'blob', query_vec.tobytes()).equal([0])
+            env.expect('FT.SEARCH', 'idx', '*=>[KNN 0 @v $blob AS dist]', 'PARAMS', '2', 'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist', 'LIMIT', 0, 10).equal([0])
+
+            # Test looking for 0 results with a filter
+            env.expect('FT.SEARCH', 'idx', '@n:[0 10]=>[KNN 0 @v $blob AS dist]', 'PARAMS', '2', 'blob', query_vec.tobytes()).equal([0])
+            env.expect('FT.SEARCH', 'idx', '@n:[0 10]=>[KNN $K @v $blob AS dist]', 'PARAMS', '4', 'K', 0, 'blob', query_vec.tobytes()).equal([0])
+            env.expect('FT.SEARCH', 'idx', '@n:[0 10]=>[KNN 0 @v $blob AS dist]', 'PARAMS', '2', 'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist', 'LIMIT', 0, 10).equal([0])
+
+            # End of round cleanup
+            conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+
+
 def test_del_reuse():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
 
