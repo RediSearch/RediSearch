@@ -1234,8 +1234,8 @@ static void PushUpStream(ResultProcessor *rp_to_place, ResultProcessor *rp) {
 }
 
 // Add Buffer-Locker and Unlocker result processors to the pipeline.
-// The Buffer-Locker rp is added as the upstream of the first result processor that might
-// access Redis keyspace.
+// The Buffer-Locker rp is added as the upstream of the first result processor that
+// accesses Redis keyspace.
 // The Unlocker is places so that its upstream rp will be the last to access Redis keyspace.
 static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
   
@@ -1254,16 +1254,29 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
  
   ResultProcessor dummy_rp = {.upstream = req->qiter.endProc};
   ResultProcessor *curr_rp = &dummy_rp;
+  
+  // Store the previous rp in case we don't need to access redis and we want to use the spec-unlocker.
+  // The spec-unlocker should be placed so that rootProc is its upstream.
+  // we assume that rootProc != endProc, meaning the spec-unlocker will never be the last rp, 
+  // and we don't need to update req->qiter.endProc
+  ResultProcessor *prev_rp = NULL;
+
   // Start from the end processor and iterate beackward until the next rp
   // is the last to access redis or its a pipeline breaker.
 
   while (curr_rp != req->qiter.rootProc && 
         !(curr_rp->upstream->flags & (RESULT_PROCESSOR_F_ACCESS_REDIS | RESULT_PROCESSOR_F_BREAKS_PIPELINE))) {
+    prev_rp = curr_rp;
     curr_rp = curr_rp->upstream;
   }
 
-  // if we got the root proc, redis access in not needed, return.
+  // if we got the root proc, redis access in not needed, push the spec unlocker rp.
   if (curr_rp == req->qiter.rootProc) {
+    assert(prev_rp != &dummy_rp);
+    ResultProcessor *rpSpecUnlocker = RPSpecUnlocker_New();
+
+    // The root iterator is the upstream of prev_rp. Let's place the spec unlocker between them.
+    PushUpStream(rpSpecUnlocker, prev_rp);
     return;
   }
 
@@ -1284,21 +1297,18 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
     if (curr_rp->flags & RESULT_PROCESSOR_F_ACCESS_REDIS) {
       upstream_is_buffer_locker = curr_rp;
     }
+    prev_rp = curr_rp;
     curr_rp = curr_rp->upstream;
   }
 
   // If in the first loop we stored a rp with RESULT_PROCESSOR_F_BREAKS_PIPELINE flag, 
   // and the second loop didn't find any rp that needs to access redis,
-  // we don't need the buffer.
+  // we don't need the buffer, We can unlock the spec right after the root itertor.
   if(!(upstream_is_buffer_locker->flags & RESULT_PROCESSOR_F_ACCESS_REDIS)) {
-     //   assert(prev_rp != &dummy_rp);
     ResultProcessor *rpSpecUnlocker = RPSpecUnlocker_New();
 
     // The root iterator is the upstream of prev_rp. Let's place the spec unlocker between them.
-    // NOTE: currently multi threaded pipeline is only supported with FT.SEARCH, 
-    // So we can assume that rootProc != endProc meaning the spec-unlocker will never be the last rp, 
-    // and we don't need to update req->qiter.endProc
-   // PushUpStream(rpSpecUnlocker, prev_rp);
+    PushUpStream(rpSpecUnlocker, prev_rp);
     return;
   }
   // TODO: multithreaded: Add better estimation to the buffer initial size
