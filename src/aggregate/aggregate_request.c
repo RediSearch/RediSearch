@@ -1291,14 +1291,14 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
   // and the second loop didn't find any rp that needs to access redis,
   // we don't need the buffer.
   if(!(upstream_is_buffer_locker->flags & RESULT_PROCESSOR_F_ACCESS_REDIS)) {
-        assert(prev_rp != &dummy_rp);
+     //   assert(prev_rp != &dummy_rp);
     ResultProcessor *rpSpecUnlocker = RPSpecUnlocker_New();
 
     // The root iterator is the upstream of prev_rp. Let's place the spec unlocker between them.
     // NOTE: currently multi threaded pipeline is only supported with FT.SEARCH, 
     // So we can assume that rootProc != endProc meaning the spec-unlocker will never be the last rp, 
     // and we don't need to update req->qiter.endProc
-    PushUpStream(rpSpecUnlocker, prev_rp);
+   // PushUpStream(rpSpecUnlocker, prev_rp);
     return;
   }
   // TODO: multithreaded: Add better estimation to the buffer initial size
