@@ -194,6 +194,10 @@ void testRangeIteratorHelper(bool isMulti) {
       size_t numEstimatedLimited = itLimited->NumEstimated(itLimited->ctx);
       // printf("%f %f %ld %ld\n", rangeArray[i][0], rangeArray[i][1], numEstimated, numEstimatedLimited);
       ASSERT_TRUE(numEstimated >= numEstimatedLimited );
+      it->Free(it);
+      NumericFilter_Free(flt);
+      itLimited->Free(itLimited);
+      NumericFilter_Free(fltLimited);
     }
   }
 

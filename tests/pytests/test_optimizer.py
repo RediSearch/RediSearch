@@ -23,13 +23,13 @@ from RLTest import Env
 
 # transfer query to be a profile query
 def print_profile(env, query, params, optimize=False):
-	
+
 	isSearch = (query[0] == 'ft.search')
 	query_list = ['ft.profile']
 	query_list.append('search' if isSearch else 'aggregate')
 	query_list.append('QUERY')
 	query_list.append(*query)
-	
+
 	if optimize:
 		params.append('OPTIMIZE')
 	env.debugPrint(env.cmd(*query_list, *params))
@@ -42,7 +42,7 @@ def compare_optimized_to_not(env, query, params, msg=None):
 
 	# check length of list to avoid errors
 	if len(not_res) == 1 or len(opt_res) == 1:
-		env.assertEqual(len(not_res), len(opt_res))
+		env.assertEqual(len(not_res), len(opt_res), message=msg)
 		if len(not_res) != len(opt_res):
 			env.debugPrint(str(not_res), force=True)
 			env.debugPrint(str(opt_res), force=True)
@@ -54,12 +54,12 @@ def compare_optimized_to_not(env, query, params, msg=None):
 	opt_list = [to_dict(n)['n'] for n in opt_res[i::i]]
 	#not_list = not_res[1:]
 	#opt_list = opt_res[1:]
-	
+
 	cmds = ['ft.search', 'ft.aggregate']
 	msg = cmds[i%2] + ' limit %d %d : ' % (params[1], params[2]) + msg
 
 	# check length and content
-	env.assertEqual(len(not_res), len(opt_res))
+	env.assertEqual(len(not_res), len(opt_res), message=msg)
 	env.assertEqual(not_list, opt_list, message=msg)
 	if not_list != opt_list:
 		print(str(not_res))
@@ -83,7 +83,7 @@ def testOptimizer(env):
 	numeric_info = conn.execute_command('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
 	env.debugPrint(str(numeric_info), force=True)
 	params = ['NOCONTENT', 'OPTIMIZE']
-	
+
     ### (1) range and filter with sort ###
     # Search only minimal number of ranges
 	env.expect('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '10', '110'])
@@ -92,11 +92,11 @@ def testOptimizer(env):
 	env.expect('ft.search', 'idx_sortable', 'foo @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '10', '110'])
 	env.expect('ft.search', 'idx_sortable', 'foo @n:[10 20]', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '10', '110'])
 	env.expect('ft.search', 'idx_sortable', 'foo @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '120', '20'])
-	
+
 	profiler =  [['Iterators profile',
 					['Type', 'OPTIMIZER', 'Counter', 10, 'Optimizer mode', 'Hybrid', 'Child iterator',
 						['Type', 'TEXT', 'Term', 'foo', 'Counter', 801, 'Size', 10000]]],
-				['Result processors profile', 
+				['Result processors profile',
 				  	['Type', 'Index', 'Counter', 10],
 					['Type', 'Sorter', 'Counter', 10]]]
 	res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo @n:[10 15]', 'SORTBY', 'n', *params)
@@ -339,7 +339,7 @@ def testWOLimit(env):
 	env.debugPrint(str(numeric_info), force=True)
 	params = ['NOCONTENT', 'OPTIMIZE']
 
-	res10 = [10, '12', '17', '22', '27', '32', '37', '42', '47', '52', '57'] 
+	res10 = [10, '12', '17', '22', '27', '32', '37', '42', '47', '52', '57']
 	res6 = [6, '12', '17', '22', '27', '32', '37']
 
     ### (1) range and filter with sort ###
@@ -364,7 +364,7 @@ def testWOLimit(env):
 
     ### (5) numeric range with sort ###
     # Search only minimal number of ranges
-	res4 = [3, '10', ['n', '10'], '11', ['n', '11'], '12', ['n', '12']] 
+	res4 = [3, '10', ['n', '10'], '11', ['n', '11'], '12', ['n', '12']]
 	res10 = [10, '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
 	env.expect('ft.search', 'idx', '@n:[10 50]', 'SORTBY', 'n', *params).equal(res10)	#TODO:
 	env.expect('ft.search', 'idx', '@n:[10 12]', 'SORTBY', 'n', 'OPTIMIZE', 'RETURN', 1, 'n').equal(res4)
@@ -393,7 +393,7 @@ def testWOLimit(env):
 
     ### (11) wildcard with sort ###
     # Search only minimal number of ranges
-	res10 = [10, '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'] 
+	res10 = [10, '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
 	env.expect('ft.search', 'idx', '*', 'SORTBY', 'n', *params).equal(res10)
 
     ### (12) wildcard w/o sort ###
@@ -485,7 +485,7 @@ def testAggregate(env):
 		for i in range(len(limits)):
 			params[1] = limits[i][0]
 			params[2] = limits[i][1]
-			
+
 			for j in range(len(ranges)):
 				numRange = '@n:[%d %d]' % (ranges[j][0],ranges[j][1])
 
@@ -585,7 +585,7 @@ def testCoordinator(env):
 		for i in range(len(limits)):
 			params[1] = limits[i][0]
 			params[2] = limits[i][1]
-			
+
 			for j in range(len(ranges)):
 				numRange = '@n:[%d %d]' % (ranges[j][0],ranges[j][1])
 
