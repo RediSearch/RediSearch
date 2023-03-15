@@ -152,10 +152,9 @@ typedef enum {
 } RPStatus;
 
 typedef enum {
-  // 
   RESULT_PROCESSOR_F_ACCESS_REDIS = 0x01,  // The result processor requires access to redis keyspace.
 
-  RESULT_PROCESSOR_F_BREAKS_PIPELINE = 0x02 // The result processor might break the pipeline by concluding and declaring EOF.
+  RESULT_PROCESSOR_F_BREAKS_PIPELINE = 0x02 // The result processor might break the pipeline by changing RPStatus.
 } BaseRPFlags;
 
 /**

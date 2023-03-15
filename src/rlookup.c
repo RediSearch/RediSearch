@@ -166,7 +166,7 @@ static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int
   return createNewKeyOptions(lookup, &options);
 }
 
-RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char *name, int flags) {
+static RLookupKey *RLookup_GetOrCreateKeyEx(RLookup *lookup, const char *path, const char *name, size_t name_len, int flags) {
   const FieldSpec *fs = NULL;
   RLookupKey *lookupkey = FindExistingPath(lookup, path, flags, &fs);
 
@@ -181,7 +181,7 @@ RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char
   // this field twice.
     RLookupKeyOptions options = { 
                                   .name = name, 
-                                  .namelen = strlen(name), 
+                                  .namelen = name_len, 
                                   .path = lookupkey->path,
                                   .flags = flags | lookupkey->flags,
                                   .dstidx = lookupkey->dstidx, 
@@ -192,7 +192,7 @@ RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char
   } 
   RLookupKeyOptions options = { 
                                   .name = name, 
-                                  .namelen = strlen(name), 
+                                  .namelen = name_len, 
                                   .path = path,
                                   .flags = flags & ~RLOOKUP_F_UNRESOLVED,  // If the requester of this key is also its creator, remove the unresolved flag
                                   .dstidx = lookup->rowlen, 
@@ -209,10 +209,13 @@ RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char
   return createNewKeyOptions(lookup, &options);
 }
 
+RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char *name, int flags) {
+  RLookup_GetOrCreateKeyEx(lookup, path, name, strlen(name), flags);
+} 
 
 RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int flags) {
   if((flags & RLOOKUP_F_OCREAT) && !(flags & RLOOKUP_F_OEXCL) ) {
-   return RLookup_GetOrCreateKey(lookup, name, name, flags);
+   return RLookup_GetOrCreateKeyEx(lookup, name, name, n, flags);
   }
 
   RLookupKey *ret = NULL;

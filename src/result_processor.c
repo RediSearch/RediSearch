@@ -378,7 +378,7 @@ static void rpsortFree(ResultProcessor *rp) {
     rm_free(self->pooledResult);
   }
 
-  if (self->fieldcmp.loadKeys && self->fieldcmp.loadKeys != self->fieldcmp.keys) {
+  if (self->fieldcmp.loadKeys != self->fieldcmp.keys) {
     array_free(self->fieldcmp.loadKeys);
   }
 

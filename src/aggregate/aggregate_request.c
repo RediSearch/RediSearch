@@ -1037,8 +1037,6 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
 
     // Store and count keys that require loading from Redis.
     const RLookupKey **loadKeys = NULL;
-    size_t nLoadKeys = 0;
-
     RLookup *lk = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
 
     for (size_t ii = 0; ii < nkeys; ++ii) {
@@ -1060,16 +1058,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
         sortkey->flags |= RLOOKUP_F_ISLOADED;
       }
     }
-    if(loadKeys) {
-      nLoadKeys = array_len(loadKeys);
-      // if we need to load all the fields, we don't need both sortkeys and
-      // loadKeys as they are identical. 
-      if (nLoadKeys == nkeys) {
-        array_free(loadKeys);
-        loadKeys = sortkeys;
-      }
-    }
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, loadKeys, nLoadKeys, astp->sortAscMap);
+    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, loadKeys, array_len(loadKeys), astp->sortAscMap);
     up = pushRP(req, rp, up);
   }
 
@@ -1236,10 +1225,11 @@ static void PushUpStream(ResultProcessor *rp_to_place, ResultProcessor *rp) {
 // Add Buffer-Locker and Unlocker result processors to the pipeline.
 // The Buffer-Locker rp is added as the upstream of the first result processor that might
 // access Redis keyspace.
-// The Unlocker is places so that its upstream rp will be the last to access Redis keyspace.
+// The Unlocker is placed so that its upstream rp will be the last to access Redis keyspace.
+// Main assumptions: 1. the rootProc dosn't access redis 2. rootProc != endProc
 static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
   
-  // Go over the pipeline and find the result processor that are the first and last to access redis.
+  // Go over the pipeline and find the result processors that are the first and last to access redis.
   // We mark the first rp that accesses redis with upstream_is_buffer_locker.
   // We need to store the rp that its upstream is the result processor that is the last rp to access redis
   // in order to push the unlocker as its upstream.
