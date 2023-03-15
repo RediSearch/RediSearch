@@ -23,4 +23,4 @@ jobs:
         make DEBUG=1 BUILD_TRACE=1
     - name: Read After Write tests
       run: |
-        make pytest TEST=test_raw.py DEBUG=1
+        make pytest TEST=test_read_after_writes.py DEBUG=1
