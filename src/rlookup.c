@@ -210,9 +210,8 @@ static RLookupKey *RLookup_GetOrCreateKeyEx(RLookup *lookup, const char *path, c
 }
 
 RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char *name, int flags) {
-  RLookup_GetOrCreateKeyEx(lookup, path, name, strlen(name), flags);
-} 
-
+ return RLookup_GetOrCreateKeyEx(lookup, path, name, strlen(name), flags);
+}
 RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int flags) {
   if((flags & RLOOKUP_F_OCREAT) && !(flags & RLOOKUP_F_OEXCL) ) {
    return RLookup_GetOrCreateKeyEx(lookup, name, name, n, flags);
