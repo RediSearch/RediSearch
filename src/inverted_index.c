@@ -848,9 +848,12 @@ SKIPPER(seekRawDocIdsOnly) {
   // we cannot get out of range since we check in
   if (curVal < delta) {
     cur++;
+#if 0
+	// TODO: consider adding a fix
     if (cur >= (br->buf->offset) / 4) {
       return 0;
     }
+#endif // 0
   }
 
   // skip to position and read
