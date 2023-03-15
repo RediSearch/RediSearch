@@ -213,7 +213,7 @@ def testDropWith__FORCEKEEPDOCS():
     env.assertEqual(slave.execute_command('KEYS', '*'), ['doc1'])
 
 def testExpireDocs():
-  expireDocs(False,
+  expireDocs(False, False,
              # Without sortby - both docs exist but doc1 fail to load field since it was expired lazily
              [2, 'doc1', None, 'doc2', ['t', 'foo']],
              # With sortby - since there is no SORTABLE, we loaded doc1 at sortby and found out it was deleted
@@ -223,12 +223,29 @@ def testExpireDocsSortable():
   '''
   Same as test `testExpireDocs` only with SORTABLE
   '''
-  expireDocs(True,
+  expireDocs(True, False,
              # With SORTABLE - both docs exist but doc1 fail to load field since it was expired lazily
              [2, 'doc1', None, 'doc2', ['t', 'foo']],
              [2, 'doc1', None, 'doc2', ['t', 'foo']])
 
-def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_sortby):
+def testExpireDocsOptimized():
+  expireDocs(False, True,
+             # Without sortby - both docs exist but doc1 fail to load field since it was expired lazily
+             [2, 'doc1', None, 'doc2', ['t', 'foo']],
+             # With sortby - since there is no SORTABLE, we loaded doc1 at sortby and found out it was deleted
+             [1, 'doc2', ['t', 'foo']])
+
+def testExpireDocsSortableOptimized():
+  '''
+  Same as test `testExpireDocs` only with SORTABLE
+  '''
+  expireDocs(True, True,
+             # With SORTABLE - both docs exist but doc1 fail to load field since it was expired lazily
+             [2, 'doc1', None, 'doc2', ['t', 'foo']],
+             [2, 'doc1', None, 'doc2', ['t', 'foo']])
+
+
+def expireDocs(isSortable, isOptimized, iter1_expected_without_sortby, iter1_expected_with_sortby):
   '''
   This test creates an index and two documents and check they
   exist on both shards.
@@ -250,6 +267,7 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
   for i in range(2):
     sortby_cmd = [] if i == 0 else ['SORTBY', 't']
     sortable_arg = [] if not isSortable else ['SORTABLE']
+    optimize_arg = [] if not isOptimized else ['OPTIMIZE']
     master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', *sortable_arg)
     master.execute_command('HSET', 'doc1', 't', 'bar')
     master.execute_command('HSET', 'doc2', 't', 'foo')
@@ -260,10 +278,10 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
     res = master.execute_command('WAIT', '1', '10000')
     env.assertEqual(res, 1)
     
-    res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+    res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd, *optimize_arg)
     env.assertEqual(res, [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']])
 
-    res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+    res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd, *optimize_arg)
     env.assertEqual(res, [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']])
 
     # Allow time for expiration to occur during search
@@ -272,14 +290,14 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
     msg = '{}{} sortby'.format('SORTABLE ' if isSortable else '', 'without' if i == 0 else 'with')
     # First iteration
     expected_res = iter1_expected_without_sortby if i == 0 else iter1_expected_with_sortby
-    checkSlaveSynced(env, slave, ('FT.SEARCH', 'idx', '*'), expected_res, time_out=5)
-    res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+    checkSlaveSynced(env, slave, ('FT.SEARCH', 'idx', '*', *optimize_arg), expected_res, time_out=5)
+    res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd, *optimize_arg)
     env.assertEqual(res, expected_res, message=msg)
 
     # Second iteration - only 1 doc is left (master deleted it)
-    res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+    res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd, *optimize_arg)
     env.assertEqual(res, [1, 'doc2', ['t', 'foo']], message=msg)
-    res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
+    res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd, *optimize_arg)
     env.assertEqual(res, [1, 'doc2', ['t', 'foo']], message=msg)
 
 

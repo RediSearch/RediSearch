@@ -22,6 +22,7 @@ extern "C" {
 #define DEFAULT_LIMIT 10
 
 typedef struct Grouper Grouper;
+struct QOptimizer;
 
 typedef enum {
   QEXEC_F_IS_EXTENDED = 0x01,     // Contains aggregations or projections
@@ -60,11 +61,17 @@ typedef enum {
   /* FT.AGGREGATE load all fields */
   QEXEC_AGG_LOAD_ALL = 0x20000,
 
+  /* Optimize query */
+  QEXEC_OPTIMIZE = 0x40000,
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
+#define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
+#define IsWildcard(r) (req->ast.root->type == QN_WILDCARD)
+#define HasScorer(r) (r->optimizer->scorerType != SCORER_TYPE_NONE)
+
 
 typedef enum {
   /* Received EOF from iterator */
@@ -127,6 +134,8 @@ typedef struct {
   double pipelineBuildTime;  // Time for creating the pipeline
 
   const char** requiredFields;
+
+  struct QOptimizer *optimizer;        // Hold parameters for query optimizer
 } AREQ;
 
 /**

@@ -17,6 +17,7 @@
 #include "profile.h"
 #include "config.h"
 #include "util/timeout.h"
+#include "query_optimizer.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -161,11 +162,7 @@ int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
       return REDISMODULE_ERR;
     }
     if ((AC_GetUnsigned(ac, dialect, AC_F_GE1) != AC_OK) || (*dialect > MAX_DIALECT_VERSION)) {
-      QueryError_SetErrorFmt(
-        status, QUERY_EPARSEARGS,
-        "DIALECT requires a non negative integer >=%u and <= %u",
-        MIN_DIALECT_VERSION, MAX_DIALECT_VERSION
-      );
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "DIALECT requires a non negative integer >=1 and <= %u", MAX_DIALECT_VERSION);
       return REDISMODULE_ERR;
     }
     return REDISMODULE_OK;
@@ -409,6 +406,8 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       {AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)},
       {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopwrods)},
       {AC_MKBITFLAG("EXPLAINSCORE", &req->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
+      {AC_MKBITFLAG("OPTIMIZE", &req->reqflags, QEXEC_OPTIMIZE)},
+      {AC_MKBITFLAG("WITHOUTCOUNT", &req->reqflags, QEXEC_OPTIMIZE)},
       {.name = "PAYLOAD",
        .type = AC_ARGTYPE_STRING,
        .target = &req->ast.udata,
@@ -731,6 +730,7 @@ AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
   req->dialectVersion = RSGlobalConfig.defaultDialectVersion;
   req->reqTimeout = RSGlobalConfig.queryTimeoutMS;
+  req->optimizer = QOptimizer_New();
   return req;
 }
 
@@ -894,8 +894,17 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     }
   }
 
+  // parse inputs for optimizations
+  OPTMZ(QOptimizer_Parse(req));
+
+  // check possible optimization after creation of QueryNode tree
+  OPTMZ(QOptimizer_QueryNodes(req->ast.root, req->optimizer));
+
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
+
+  // check possible optimization after creation of IndexIterator tree
+  OPTMZ(QOptimizer_Iterators(req, req->optimizer));
 
   TimedOut_WithStatus(&req->timeoutTime, status);
 
@@ -1066,13 +1075,14 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
       }
     }
 
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
+    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap, req->optimizer->type == Q_OPT_NO_SORTER);
     up = pushRP(req, rp, up);
   }
 
   // No sort? then it must be sort by score, which is the default.
-  if (rp == NULL && (req->reqflags & QEXEC_F_IS_SEARCH)) {
-    rp = RPSorter_NewByScore(limit);
+  // In optimize mode, add sorter for queries with scorer or for `*`.
+  if (rp == NULL && IsSearch(req) && (!IsOptimized(req) || HasScorer(req) || IsWildcard(req))) {
+    rp = RPSorter_NewByScore(limit, req->optimizer->type == Q_OPT_NO_SORTER);
     up = pushRP(req, rp, up);
   }
 
@@ -1382,6 +1392,9 @@ void AREQ_Free(AREQ *req) {
   if (req->rootiter) {
     req->rootiter->Free(req->rootiter);
     req->rootiter = NULL;
+  }
+  if (req->optimizer) {
+    QOptimizer_Free(req->optimizer);
   }
 
   // Go through each of the steps and free it..

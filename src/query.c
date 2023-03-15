@@ -794,7 +794,7 @@ static IndexIterator *Query_EvalWildcardNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
 
-  return NewWildcardIterator(q->docTable->maxDocId, q->sctx->spec->docs.size);
+  return NewWildcardIterator(q->docTable->maxDocId, q->docTable->size);
 }
 
 static IndexIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {

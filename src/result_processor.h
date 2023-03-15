@@ -211,9 +211,9 @@ ResultProcessor *RPMetricsLoader_New();
 void SortAscMap_Dump(uint64_t v, size_t n);
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascendingMap);
+                                      uint64_t ascendingMap, bool quickExit);
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, bool quickExit);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
