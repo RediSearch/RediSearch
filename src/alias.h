@@ -28,20 +28,12 @@ extern AliasTable *AliasTable_g;
 
 AliasTable *AliasTable_New(void);
 
-int AliasTable_Add(AliasTable *table, const char *alias, IndexSpec *spec, int options,
-                   QueryError *status);
-
-int AliasTable_Del(AliasTable *table, const char *alias, IndexSpec *spec, int options,
-                   QueryError *status);
-
-IndexSpec *AliasTable_Get(AliasTable *table, const char *alias);
-
 void IndexAlias_InitGlobal(void);
 void IndexAlias_DestroyGlobal(AliasTable **t);
 
-int IndexAlias_Add(const char *alias, IndexSpec *spec, int options, QueryError *status);
-int IndexAlias_Del(const char *alias, IndexSpec *spec, int options, QueryError *status);
-IndexSpec *IndexAlias_Get(const char *alias);
+int IndexAlias_Add(const char *alias, StrongRef spec, int options, QueryError *status);
+int IndexAlias_Del(const char *alias, StrongRef spec, int options, QueryError *status);
+StrongRef IndexAlias_Get(const char *alias);
 
 #ifdef __cplusplus
 }

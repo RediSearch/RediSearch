@@ -162,7 +162,11 @@ int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
       return REDISMODULE_ERR;
     }
     if ((AC_GetUnsigned(ac, dialect, AC_F_GE1) != AC_OK) || (*dialect > MAX_DIALECT_VERSION)) {
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "DIALECT requires a non negative integer >=1 and <= %u", MAX_DIALECT_VERSION);
+      QueryError_SetErrorFmt(
+        status, QUERY_EPARSEARGS,
+        "DIALECT requires a non negative integer >=%u and <= %u",
+        MIN_DIALECT_VERSION, MAX_DIALECT_VERSION
+      );
       return REDISMODULE_ERR;
     }
     return REDISMODULE_OK;
@@ -908,8 +912,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   TimedOut_WithStatus(&req->timeoutTime, status);
 
-  if (QueryError_HasError(status))
+  if (QueryError_HasError(status)) {
     return REDISMODULE_ERR;
+  }
   if (IsProfile(req)) {
     // Add a Profile iterators before every iterator in the tree
     Profile_AddIters(&req->rootiter);
@@ -1094,6 +1099,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
   return rp;
 }
 
+// Assumes that the spec is locked
 static ResultProcessor *getScorerRP(AREQ *req) {
   const char *scorer = req->searchopts.scorerName;
   if (!scorer) {
@@ -1233,6 +1239,53 @@ error:
   return REDISMODULE_ERR;
 }
 
+// Add rp_to_place to an existing pipeline as the upstream result proceesor of rp.
+static void PushUpStream(ResultProcessor *rp_to_place, ResultProcessor *rp) {
+  rp_to_place->upstream = rp->upstream;
+  rp->upstream = rp_to_place;
+  rp_to_place->parent = rp->parent;
+}
+
+// Add Buffer-Locker and Unlocker result processors to the pipeline.
+// The Buffer-Locker rp is added as the upstream of the first result processor that might
+// access Redis keyspace.
+// The Unlocker is places so that its upstream rp will be the last to access Redis keyspace.
+static int SafeRedisKeyspaceAccessPipeline(AREQ *req, ResultProcessor *first_to_access_redis,
+                                    ResultProcessor *last_to_access_redis, QueryError *status) {
+
+  // TODO: multithreaded: Add better estimation to the buffer initial size
+  ResultProcessor *rpBufferAndLocker = RPBufferAndLocker_New(1024);
+
+  // Place buffer and locker as the upstream of the first_to_access_redis result processor.
+  PushUpStream(rpBufferAndLocker, first_to_access_redis);
+
+  // Find where to place unlocker
+  ResultProcessor *rpUnlocker = RPUnlocker_New((RPBufferAndLocker*)rpBufferAndLocker);
+
+  // Start from the end processor and iterate beackward until the next rp
+  // is the last to access redis and push the unlocker between them.
+
+  ResultProcessor dummy_rp = {.upstream = req->qiter.endProc};
+  ResultProcessor *curr_rp = &dummy_rp;
+
+  while (last_to_access_redis != curr_rp->upstream &&  curr_rp->upstream != rpBufferAndLocker) {
+    curr_rp = curr_rp->upstream;
+  }
+  // If we didn't find where to push the unlocker something went wrong...
+  if (curr_rp->upstream == rpBufferAndLocker) {
+    QueryError_SetErrorFmt(status, QUERY_ECONSTRUCT_PIPELINE, "Can't find unlocker position in the query stream");
+    return REDISMODULE_ERR;
+  }
+  // Handle special case where endProc is the last.
+  if (curr_rp == &dummy_rp) {
+    pushRP(req, rpUnlocker, req->qiter.endProc);
+  } else {
+    PushUpStream(rpUnlocker, curr_rp);
+  }
+
+  return REDISMODULE_OK;
+}
+
 int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
   if (!(options & AREQ_BUILDPIPELINE_NO_ROOT)) {
     buildImplicitPipeline(req, status);
@@ -1243,6 +1296,8 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
 
   AGGPlan *pln = &req->ap;
   ResultProcessor *rp = NULL, *rpUpstream = req->qiter.endProc;
+  ResultProcessor *first_to_access_redis = NULL;
+  ResultProcessor *last_to_access_redis = NULL;
 
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
@@ -1266,6 +1321,13 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
         }
         hasArrange = 1;
         rpUpstream = rp;
+        // if we have sortby, we might need to access redis keyspace and load the fields' data.
+        if (((PLN_ArrangeStep *)stp)->sortKeys) {
+          if (!first_to_access_redis) {
+            first_to_access_redis = rp;
+          }
+          last_to_access_redis = rp;
+        }
         break;
       }
 
@@ -1336,6 +1398,11 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
         }
         if (lstp->nkeys || lstp->base.flags & PLN_F_LOAD_ALL) {
           rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
+
+          if (!first_to_access_redis) {
+            first_to_access_redis = rp;
+          }
+          last_to_access_redis = rp;
           PUSH_RP();
         }
         break;
@@ -1355,7 +1422,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
 
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
-  if (!hasArrange && (req->reqflags & QEXEC_F_IS_SEARCH)) {
+  if (!hasArrange && IsSearch(req)) {
     rp = getArrangeRP(req, pln, NULL, status, rpUpstream);
     if (!rp) {
       goto error;
@@ -1365,8 +1432,27 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
 
   // If this is an FT.SEARCH command which requires returning of some of the
   // document fields, handle those options in this function
-  if ((req->reqflags & QEXEC_F_IS_SEARCH) && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
+  if (IsSearch(req) && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
     if (buildOutputPipeline(req, status) != REDISMODULE_OK) {
+      goto error;
+    }
+
+    // In this case and proc is either the loader or the highlither.
+    // The highlighter doesn't need to access Redis, so we skip it in case
+    // it exists.
+    last_to_access_redis = req->qiter.endProc;
+    if(req->reqflags & QEXEC_F_SEND_HIGHLIGHT) {
+      last_to_access_redis = last_to_access_redis->upstream;
+    }
+    if(!first_to_access_redis) {
+        first_to_access_redis = last_to_access_redis;
+    }
+  }
+
+  // If we are in a multi threaded context we need to buffer results and lock the GIL
+  // before we first access redis key space and unlock it when it is no longer needed.
+  if((options & AREQ_BUILD_THREADSAFE_PIPELINE) && first_to_access_redis) {
+    if(REDISMODULE_ERR == SafeRedisKeyspaceAccessPipeline(req, first_to_access_redis, last_to_access_redis, status)) {
       goto error;
     }
   }
@@ -1408,16 +1494,16 @@ void AREQ_Free(AREQ *req) {
 
   ConcurrentSearchCtx_Free(&req->conc);
 
-  // Finally, free the context. If we are a cursor, some more
-  // cleanup is required since we also now own the
-  // detached ("Thread Safe") context.
+  // Finally, free the context. If we are a cursor or have multi workers threads,
+  // we need also to detach the ("Thread Safe") context.
   RedisModuleCtx *thctx = NULL;
   if (req->sctx) {
-    if (req->reqflags & QEXEC_F_IS_CURSOR) {
+    if (req->reqflags & QEXEC_F_HAS_THCTX || req->reqflags & QEXEC_F_IS_CURSOR) {
       thctx = req->sctx->redisCtx;
       req->sctx->redisCtx = NULL;
     }
-    SearchCtx_Decref(req->sctx);
+    // Here we unlock the spec
+    SearchCtx_Free(req->sctx);
   }
   for (size_t ii = 0; ii < req->nargs; ++ii) {
     sdsfree(req->args[ii]);

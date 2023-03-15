@@ -480,6 +480,7 @@ jobs:
           benchmark_glob: "search*.yml"
           benchmark_runner_group_member_id: "2"
           benchmark_runner_group_total: "3"
+
   benchmark-search-oss-standalone-g3:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -490,7 +491,7 @@ jobs:
           benchmark_glob: "search*.yml"
           benchmark_runner_group_member_id: "3"
           benchmark_runner_group_total: "3"
-  
+
   benchmark-vecsim-oss-standalone-g1:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -501,6 +502,7 @@ jobs:
           benchmark_glob: "vecsim*.yml"
           benchmark_runner_group_member_id: "1"
           benchmark_runner_group_total: "2"
+
   benchmark-vecsim-oss-standalone-g2:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -525,6 +527,7 @@ jobs:
           allowed_setups: oss-cluster-04-primaries,oss-cluster-08-primaries
           benchmark_runner_group_member_id: "1"
           benchmark_runner_group_total: "2"
+
   benchmark-search-oss-cluster-g2:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -538,6 +541,7 @@ jobs:
           allowed_setups: oss-cluster-04-primaries,oss-cluster-08-primaries
           benchmark_runner_group_member_id: "2"
           benchmark_runner_group_total: "2"
+
   benchmark-search-oss-cluster-g3:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -551,6 +555,7 @@ jobs:
           allowed_setups: oss-cluster-16-primaries,oss-cluster-20-primaries
           benchmark_runner_group_member_id: "1"
           benchmark_runner_group_total: "2"
+
   benchmark-search-oss-cluster-g4:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -564,6 +569,7 @@ jobs:
           allowed_setups: oss-cluster-16-primaries,oss-cluster-20-primaries
           benchmark_runner_group_member_id: "2"
           benchmark_runner_group_total: "2"
+
   benchmark-search-oss-cluster-g5:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -577,6 +583,7 @@ jobs:
           allowed_setups: oss-cluster-24-primaries,oss-cluster-32-primaries
           benchmark_runner_group_member_id: "1"
           benchmark_runner_group_total: "2"
+
   benchmark-search-oss-cluster-g6:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -853,6 +860,7 @@ on-integ-branch: &on-integ-branch
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
+        - /^feature_.*$/
     tags:
       ignore: /.*/
 
@@ -863,6 +871,7 @@ on-integ-branch-cron: &on-integ-branch-cron
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
+        - /^feature_.*$/
 
 not-on-integ-branch: &not-on-integ-branch
   filters:
@@ -871,6 +880,7 @@ not-on-integ-branch: &not-on-integ-branch
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
+        - /^feature_.*$/
     tags:
       ignore: /.*/
 
@@ -888,6 +898,7 @@ on-integ-and-version-tags: &on-integ-and-version-tags
         - master
         - /^\d+\.\d+.*$/
         - /^feature-.*$/
+        - /^feature_.*$/
     tags:
       only: /^v[0-9].*/
 
@@ -1088,7 +1099,7 @@ workflows:
           context: common
       - benchmark-search-oss-cluster-g4:
           context: common
-      # We only run g5 and g6 of oss cluster 
+      # We only run g5 and g6 of oss cluster
       # (oss-cluster-24-primaries, and oss-cluster-32-primaries) once a week
       - benchmark-search-oss-cluster-g5:
           context: common

@@ -1780,6 +1780,7 @@ static sds QueryNode_DumpChildren(sds s, const IndexSpec *spec, const QueryNode 
 
 /* Return a string representation of the query parse tree. The string should be freed by the
  * caller
+ * Assumes that the spec is guarded by the GIL or its own lock (read or write)
  */
 char *QAST_DumpExplain(const QueryAST *q, const IndexSpec *spec) {
   // empty query
@@ -1793,6 +1794,7 @@ char *QAST_DumpExplain(const QueryAST *q, const IndexSpec *spec) {
   return ret;
 }
 
+// Debugging function to print the query parse tree
 void QAST_Print(const QueryAST *ast, const IndexSpec *spec) {
   sds s = QueryNode_DumpSds(sdsnew(""), spec, ast->root, 0);
   sdsfree(s);

@@ -148,6 +148,11 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
 const char *QueryError_GetError(const QueryError *status);
 
 /**
+ * Retrieve the error code.
+ */
+QueryErrorCode QueryError_GetCode(const QueryError *status);
+
+/**
  * Clear the error state, potentially releasing the embedded string
  */
 void QueryError_ClearError(QueryError *err);

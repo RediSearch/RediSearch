@@ -21,6 +21,7 @@
 #include "rwlock.h"
 #include "json.h"
 #include "VecSim/vec_sim.h"
+#include "util/workers.h"
 
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -144,8 +145,11 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   dictEntry *entry;
   int count = 5;
   while (count-- && (entry = dictNext(iter))) {
-    IndexSpec *spec = dictGetVal(entry);
-    IndexSpec_AddToInfo(ctx, spec);
+    StrongRef ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(ref);
+    if (sp) {
+      IndexSpec_AddToInfo(ctx, sp);
+    }
   }
   dictReleaseIterator(iter);
   #endif
@@ -209,6 +213,17 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   GC_ThreadPoolStart();
 
   CleanPool_ThreadPoolStart();
+  
+  // Init threadpool. 
+  // Threadpool size can only be set on load, hence it is not dependent on
+  // threadsEnabled flag.
+  if(RSGlobalConfig.numWorkerThreads){
+    if(workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
+      return REDISMODULE_ERR;
+    }
+    DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
+  }
+  
   // Init cursors mechanism
   CursorList_Init(&RSCursors);
 
@@ -217,7 +232,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   // Register aggregation functions
   RegisterAllFunctions();
 
-  DO_LOG("notice", "Initialized thread pool!");
+  DO_LOG("notice", "Initialized thread pools!");
 
   /* Load extensions if needed */
   if (RSGlobalConfig.extLoad != NULL) {

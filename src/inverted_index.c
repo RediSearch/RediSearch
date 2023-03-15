@@ -58,7 +58,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
   // Avoid some of the allocation if not needed
   size_t size = (useFieldMask || useNumEntries) ? sizeof(InvertedIndex) :
                                                   sizeof(InvertedIndex) - sizeof(t_fieldMask);
-                                                  
+
   InvertedIndex *idx = rm_malloc(size);
   idx->blocks = NULL;
   idx->size = 0;
@@ -107,7 +107,7 @@ void IndexReader_OnReopen(void *privdata) {
   if (ir->record->type == RSResultType_Term) {
     // we need to reopen the inverted index to make sure its stil valid.
     // the GC might have deleted it by now.
-    RedisSearchCtx sctx = (RedisSearchCtx)SEARCH_CTX_STATIC(RSDummyContext, (IndexSpec *)ir->sp);
+    RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, (IndexSpec *)ir->sp);
     InvertedIndex *idx = Redis_OpenInvertedIndexEx(&sctx, ir->record->term.term->str,
                                                    ir->record->term.term->len, 0, NULL, NULL);
     if (!idx || ir->idx != idx) {
@@ -332,7 +332,7 @@ void InvertedIndex_Dump(InvertedIndex *idx, int indent) {
   ++indent;
   PRINT_INDENT(indent);
   printf("numDocs %u, lastId %ld, size %u\n", idx->numDocs, idx->lastId, idx->size);
-  
+
   RSIndexResult *res = NULL;
   IndexReader *ir = NewNumericReader(NULL, idx, NULL ,0, 0, false);
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
@@ -433,7 +433,7 @@ ENCODER(encodeNumeric) {
 
   // Write the header at its marked position
   *BufferWriter_PtrAt(bw, pos) = header.storage;
-  
+
   return sz;
 }
 
@@ -536,7 +536,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   } else {
     delta = docId - blk->firstId;
   }
-  
+
   // For non-numeric encoders the maximal delta is UINT32_MAX (since it is encoded with 4 bytes)
   //
   // For numeric encoder the maximal delta is practically not a limit (see structs `EncodingHeader` and `NumEncodingCommon`)
@@ -552,13 +552,13 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   idx->lastId = docId;
   blk->lastId = docId;
   ++blk->numEntries;
-  if (!same_doc) {    
+  if (!same_doc) {
     ++idx->numDocs;
   }
   if (encoder == encodeNumeric) {
     ++idx->numEntries;
   }
-  
+
   return ret;
 }
 
@@ -765,7 +765,7 @@ DECODER(readNumeric) {
       return isWithinRadius(f->geoFilter, res->num.value, &res->num.value);
     }
   }
-  
+
   return 1;
 }
 
@@ -973,10 +973,11 @@ static int IR_TestNumeric(IndexCriteriaTester *ct, t_docId id) {
   IR_CriteriaTester *irct = (IR_CriteriaTester *)ct;
   const IndexSpec *sp = irct->spec;
   size_t len;
-  const char *externalId = DocTable_GetKey((DocTable *)&sp->docs, id, &len);
+  const sds externalId = DocTable_GetKey((DocTable *)&sp->docs, id, &len);
   double doubleValue;
   int ret = sp->getValue(sp->getValueCtx, irct->nf.fieldName, externalId, NULL, &doubleValue);
   RS_LOG_ASSERT(ret == RSVALTYPE_DOUBLE, "RSvalue type should be a double");
+  sdsfree(externalId);
   return ((irct->nf.min < doubleValue || (irct->nf.inclusiveMin && irct->nf.min == doubleValue)) &&
           (irct->nf.max > doubleValue || (irct->nf.inclusiveMax && irct->nf.max == doubleValue)));
 }
@@ -991,7 +992,8 @@ static int IR_TestTerm(IndexCriteriaTester *ct, t_docId id) {
   IR_CriteriaTester *irct = (IR_CriteriaTester *)ct;
   const IndexSpec *sp = irct->spec;
   size_t len;
-  const char *externalId = DocTable_GetKey((DocTable *)&sp->docs, id, &len);
+  int ret = 0;
+  const sds externalId = DocTable_GetKey(&sp->docs, id, &len);
   for (int i = 0; i < sp->numFields; ++i) {
     FieldSpec *field = sp->fields + i;
     if (!(FIELD_BIT(field) & irct->tf.fieldMask)) {
@@ -999,13 +1001,16 @@ static int IR_TestTerm(IndexCriteriaTester *ct, t_docId id) {
       continue;
     }
     char *strValue;
-    int ret = sp->getValue(sp->getValueCtx, field->name, externalId, &strValue, NULL);
-    RS_LOG_ASSERT(ret == RSVALTYPE_STRING, "RSvalue type should be a string");
+    int type = sp->getValue(sp->getValueCtx, field->name, externalId, &strValue, NULL);
+    RS_LOG_ASSERT(type == RSVALTYPE_STRING, "RSvalue type should be a string");
     if (strcmp(irct->tf.term, strValue) == 0) {
-      return 1;
+      ret = 1;
+      break;
     }
   }
-  return 0;
+
+  sdsfree(externalId);
+  return ret;
 }
 
 static void IR_TesterFreeTerm(IndexCriteriaTester *ct) {
@@ -1088,13 +1093,13 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     // Avoid returning the same doc
     //
     // Currently the only relevant predicate for multi-value is `any`, therefore only the first match in each doc is needed.
-    // More advanced predicates, such as `at least <N>` or `exactly <N>`, will require adding more logic.    
+    // More advanced predicates, such as `at least <N>` or `exactly <N>`, will require adding more logic.
       if( ir->sameId == ir->lastId) {
         continue;
       }
       ir->sameId = ir->lastId;
     }
-    
+
 
     ++ir->len;
     *e = record;
@@ -1394,7 +1399,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     int fragsIncr = (isFirstRes || (lastReadId != res->docId)) ? 1 : 0;
     isFirstRes = false;
     lastReadId = res->docId;
-    
+
     // Lookup the doc (for the same doc use the previous result)
     docExists = fragsIncr ? DocTable_Exists(dt, res->docId) : docExists;
 

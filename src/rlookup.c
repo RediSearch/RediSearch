@@ -151,9 +151,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
 
 void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
   memset(lk, 0, sizeof(*lk));
-  if (spcache) {
-    lk->spcache = spcache;
-  }
+  lk->spcache = spcache;
 }
 
 void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
@@ -195,10 +193,6 @@ void RLookupRow_Wipe(RLookupRow *r) {
     }
   }
   r->sv = NULL;
-  if (r->rmkey) {
-    RedisModule_CloseKey(r->rmkey);
-    r->rmkey = NULL;
-  }
 }
 
 void RLookupRow_Cleanup(RLookupRow *r) {
@@ -318,7 +312,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 
   int res = REDISMODULE_ERR;
   RedisModuleString *serialized = NULL;
-  
+
   if (apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST || japi_ver < 3) {
     // Preserve single value behavior for backward compatibility
     RedisJSON json = japi->next(iter);
@@ -336,7 +330,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
     if (japi->getJSONFromIter(iter, ctx, &serialized) == REDISMODULE_ERR) {
       goto done;
     }
-    
+
     // Second, get the first JSON value
     RedisJSON json = japi->next(iter);
     // If the value is an array, we currently try using the first element
@@ -355,7 +349,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
       RedisModule_FreeString(ctx, serialized);
     }
   }
-  
+
 done:
   return res;
 }
@@ -435,6 +429,9 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   }
 
   if (rc == REDISMODULE_OK && val != NULL) {
+    // `val` was created by `RedisModule_HashGet` and is owned by us.
+    // This function might retain it, but it's thread-safe to free it afterwards without any locks
+    // as it will hold the only reference to it after the next line.
     rsv = hvalToValue(val, kk->fieldtype);
     RedisModule_FreeString(RSDummyContext, val);
   } else if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
@@ -447,8 +444,7 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   }
 
   // Value has a reference count of 1
-  RLookup_WriteKey(kk, dst, rsv);
-  RSValue_Decref(rsv);
+  RLookup_WriteOwnKey(kk, dst, rsv);
   return REDISMODULE_OK;
 }
 
@@ -508,8 +504,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   }
 
   // Value has a reference count of 1
-  RLookup_WriteKey(kk, dst, rsv);
-  RSValue_Decref(rsv);
+  RLookup_WriteOwnKey(kk, dst, rsv);
   return REDISMODULE_OK;
 }
 
@@ -584,6 +579,10 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
   if (pd->options->forceString) {
     ctype = RLOOKUP_C_STR;
   }
+  // This function will retain the value if it's a string. This is thread-safe because
+  // the value was created just before calling this callback and will be freed right after
+  // the callback returns, so this is a thread-local operation that will take ownership of
+  // the string value.
   RSValue *vptr = hvalToValue(value, ctype);
   RLookup_WriteOwnKey(rlk, pd->dst, vptr);
 }
@@ -695,6 +694,7 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
   if (options->dmd) {
     dst->sv = options->dmd->sortVector;
   }
+
   if (options->mode & RLOOKUP_LOAD_ALLKEYS) {
     if (options->dmd->type == DocumentType_Hash) {
       rv = RLookup_HGETALL(it, dst, options);
@@ -715,8 +715,8 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
   return rv;
 }
 
-int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, SchemaRule *rule, const char *keyptr) {
-  IndexSpec *spec = rule->spec;
+int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *spec, const char *keyptr) {
+  SchemaRule *rule = spec->rule;
 
   // create rlookupkeys
   int nkeys = array_len(rule->filter_fields);

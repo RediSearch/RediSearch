@@ -122,9 +122,6 @@ typedef struct {
   /** Sorting vector attached to document */
   const RSSortingVector *sv;
 
-  /** Module key for data that derives directly from a Redis data type */
-  RedisModuleKey *rmkey;
-
   /** Dynamic values obtained from prior processing */
   RSValue **dyn;
 
@@ -377,7 +374,7 @@ static inline const RLookupKey *RLookup_FindKeyWith(const RLookup *l, uint32_t f
 /**
  * Initialize the lookup with fields from hash.
  */
-int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, SchemaRule *rule, const char *keyptr);
+int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *sp, const char *keyptr);
 
 
 int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);

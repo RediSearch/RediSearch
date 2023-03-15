@@ -584,9 +584,9 @@ RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *fiel
                                         field);
 }
 
-static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
+static NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyName,
                                              int write) {
-  KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, keyName);
+  KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;
   }
@@ -596,7 +596,7 @@ static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleStr
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = (void (*)(void *))NumericRangeTree_Free;
   kdv->p = NewNumericRangeTree();
-  dictAdd(ctx->spec->keysDict, keyName, kdv);
+  dictAdd(spec->keysDict, keyName, kdv);
   return kdv->p;
 }
 
@@ -616,7 +616,7 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
 
     t = RedisModule_ModuleTypeGetValue(key);
   } else {
-    t = openNumericKeysDict(ctx, s, 0);
+    t = openNumericKeysDict(ctx->spec, s, 0);
   }
 
   if (!t) {
@@ -666,7 +666,7 @@ NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyNa
       t = RedisModule_ModuleTypeGetValue(*idxKey);
     }
   } else {
-    t = openNumericKeysDict(ctx, keyName, 1);
+    t = openNumericKeysDict(ctx->spec, keyName, 1);
   }
   return t;
 }
@@ -857,8 +857,7 @@ void NumericRangeIterator_OnReopen(void *privdata) {
   IndexReader *ir = it->ctx;
 
   RedisModuleString *numField = RedisModule_CreateString(NULL, nu->fieldName, strlen(nu->fieldName));
-  RedisSearchCtx sctx = (RedisSearchCtx)SEARCH_CTX_STATIC(RSDummyContext, sp);
-  NumericRangeTree *rt = openNumericKeysDict(&sctx, numField, 0);
+  NumericRangeTree *rt = openNumericKeysDict(sp, numField, 0);
   RedisModule_FreeString(NULL, numField);
   
   if (!rt || rt->revisionId != nu->lastRevId) {
