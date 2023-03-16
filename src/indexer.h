@@ -15,7 +15,7 @@
 // Preprocessors can store field data to this location
 typedef struct FieldIndexerData {
   int isMulti;
-  union {
+  struct {
     // Single value
     double numeric;  // i.e. the numeric value of the field
     char **tags;
