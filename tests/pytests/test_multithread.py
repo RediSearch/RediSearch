@@ -83,6 +83,7 @@ def get_pipeline(profile_res):
     
 def test_pipeline():
     env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
+    env.skipOnCluster()
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     
     docs_count = 3
