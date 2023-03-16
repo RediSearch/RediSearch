@@ -49,31 +49,29 @@ def testMultipleBlocksBuffer():
 Test pipeline:
 Sorter with no access to redis:
 case 1: no loader (sortby SORTABLE NOCONTENT/sortby a (SORTABLE UNF) return a, no sortby NOCONTENT)
-expected pipeline: root<-sorter
+expected pipeline: root(<-scorer)<-sorter  
 case 2: with loader (sortby SORTABLE (loadall)/ sortby SORTABLE a return b, no sortby (loadall) )
-expected pipeline: root<-sorter<-buffer-locker<-loader<-unlocker
-case 3: with pager, no loader (no sortby LIMIT 0 1 NOCONTENT)
+expected pipeline: root<-(<-scorer)sorter<-buffer-locker<-loader<-unlocker
+case 3: with pager, no loader 
 expected pipeline: root<-sorter<-pager
-case 4: with pager, with loader (no sortby LIMIT 0 1 (loadall))
+case 4: with pager, with loader
 expected pipeline: root<-sorter<-pager<-buffer-locker<-loader<-unlocker
 
 Sorter with access to redis:
 case 1: no loader (sortby NOTSORTABLE NOCONTENT/sortby a (NOTSORTABLE) return a)
 expected pipeline: root<-buffer-locker<-sorter<-unlocker
-case 2: with loader (sortby NOTSORTABLE (loadall)/ sortby NOTSORTABLE a return b, no sortby (loadall) )
+case 2: with loader (sortby NOTSORTABLE (loadall)/ sortby NOTSORTABLE a return b)
 expected pipeline: root<-buffer-locker<-sorter<-loader<-unlocker
-case 3: with pager, no loader (sortby NOTSORTABLE LIMIT 0 1 NOCONTENT)
+case 3: with pager, no loader
 expected pipeline: root<-buffer-locker<-sorter<-pager<-unlocker
-case 4: with pager, with loader (sortby NOTSORTABLE LIMIT 0 1 (loadall))
+case 4: with pager, with loader
 expected pipeline: root<-buffer-locker<-sorter<-pager<-loader<-unlocker
 
 Additional rp:
-case 1: metric with loader
-expected pipeline: root<-metric<-sorter<-buffer-locker<-loader<-unlocker
-case 2: metric with no loader
-expected pipeline: root<-metric<-sorter
-case 3: highlighter (last to access redis is not endProc)
+case 1: highlighter (last to access redis is not endProc)
 expected pipeline: root<-sorter<-buffer-locker<-loader<-unlocker<-highlighter
+case 2: metric
+expected pipeline: root<-metric<-sorter<-buffer-locker<-loader<-unlocker 
 '''
 
 def get_pipeline(profile_res):
@@ -234,13 +232,3 @@ def test_pipeline():
     #sortby NOT SORTABLE NOCONTENT
     env.assertEqual(get_pipeline(res), expected_pipeline)
     
-
-
-          
-#     Additional rp:
-# case 1: metric with loader
-# expected pipeline: root<-metric<-sorter<-buffer-locker<-loader<-unlocker
-# case 2: metric with no loader
-# expected pipeline: root<-metric<-sorter
-# case 3: highlighter (last to access redis is not endProc)
-# expected pipeline: root<-sorter<-buffer-locker<-loader<-unlocker<-highlighter
