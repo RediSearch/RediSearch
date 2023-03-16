@@ -20,6 +20,7 @@
 
 extern RSConfig RSGlobalConfig;
 
+#define DEFAULT_BUFFER_BLOCK_SIZE 1024
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
  * in this case refers to reducers which re-create the search results.
@@ -1284,7 +1285,7 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
     return;
   }
   // TODO: multithreaded: Add better estimation to the buffer initial size
-  ResultProcessor *rpBufferAndLocker = RPBufferAndLocker_New(1024);
+  ResultProcessor *rpBufferAndLocker = RPBufferAndLocker_New(DEFAULT_BUFFER_BLOCK_SIZE);
 
   // Place buffer and locker as the upstream of the first_to_access_redis result processor.
   PushUpStream(rpBufferAndLocker, upstream_is_buffer_locker);
