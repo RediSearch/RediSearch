@@ -263,7 +263,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   } else if (rc == RS_RESULT_ERROR) {
     resultsLen = 2;
   } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
-           !(req->optimizer->type == Q_OPT_NO_SORTER)) {
+             req->optimizer->type != Q_OPT_NO_SORTER) {
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
     size_t reqLimit = arng && arng->isLimited? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited? arng->offset : 0;
