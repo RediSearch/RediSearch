@@ -162,10 +162,10 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
 
         // handle expired results
         RSDocumentMetadata *dmd = DocTable_Get(&opt->sctx->spec->docs, childRes->docId);
-        if (!dmd) {
+        if (!dmd || dmd->flags & Document_Deleted) {
+          DMD_Decref(dmd);
           continue;
         }   
-        DMD_Incref(dmd);
         it->pooledResult->num.dmd = dmd;
 
         // heap is not full. insert
