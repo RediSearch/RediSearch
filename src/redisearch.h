@@ -255,7 +255,7 @@ typedef struct {
 
 typedef struct {
   double value;
-  RSDocumentMetadata *dmd;
+  const RSDocumentMetadata *dmd;
 } RSNumericRecord;
 
 typedef enum {
