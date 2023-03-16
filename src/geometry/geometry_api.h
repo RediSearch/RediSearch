@@ -18,6 +18,7 @@ typedef struct {
     int (*addGeom)(GeometryIndex *index, GEOMETRY geom);
     int (*delGeom)(GeometryIndex *index, GEOMETRY geom, void *data);
     IndexIterator* (*query)(GeometryIndex *index, enum QueryType queryType, GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg);
+    void (*dump)(GeometryIndex *index, RedisModuleCtx *ctx);
 } GeometryApi; // TODO: GEOMETRY Rename to GeometryIndex
 
 #ifdef __cplusplus

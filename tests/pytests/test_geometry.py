@@ -2,6 +2,18 @@ from RLTest import Env
 from common import *
 import json
 
+def sortResultByKeyName(res):
+  '''
+    Sorts the result by name
+    res = [<COUNT>, '<NAME_1>, '<VALUE_1>', '<NAME_2>, '<VALUE_2>', ...] 
+  '''
+  pairs = [(name,value) for name,value in zip(res[1::2], res[2::2])]
+  pairs = [i for i in sorted(pairs, key=lambda x: x[0])]
+  pairs = [i for pair in pairs for i in pair]
+  res = [res[0], *pairs]
+  return res
+
+
 def testSanitySearchHashWithin(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOMETRY').ok()
@@ -80,3 +92,24 @@ def testWKTQueryError(env):
   env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOMETRY $.name as name TEXT').ok()
 
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within:POLIGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3).error().contains('POLIGON')
+
+def testSimpleUpdate(env):
+  ''' Test updating geometries '''
+  
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOMETRY').ok()
+  conn.execute_command('HSET', 'k1', 'geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))')
+  conn.execute_command('HSET', 'k2', 'geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))')
+  
+  expected1 = ['geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))']
+  expected2 = ['geom', 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))']
+  
+  env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([1, 'k1', expected1])
+  
+  res = conn.execute_command('FT.DEBUG', 'DUMP_GEOMIDX', 'idx', 'geom')
+  env.debugPrint(str(res), force=True)
+
+  # Update
+  conn.execute_command('HSET', 'k2', 'geom', 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))')
+  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3)
+  env.assertEqual(sortResultByKeyName(res), sortResultByKeyName([2, 'k1', expected1, 'k2', expected2]))

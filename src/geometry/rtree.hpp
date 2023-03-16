@@ -32,6 +32,34 @@ struct RTree {
     return rtree_.remove(doc);
   }
 
+  void dump(RedisModuleCtx* ctx) const {
+    size_t lenTop = 0;
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+    RedisModule_ReplyWithStringBuffer(ctx, "type", strlen("type"));
+    RedisModule_ReplyWithStringBuffer(ctx, "rtree", strlen("rtree"));
+    lenTop += 2;
+
+    RedisModule_ReplyWithStringBuffer(ctx, "docs", strlen("docs"));
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    lenTop += 2;
+    size_t lenValues = 0;
+    std::for_each(rtree_.qbegin(bgi::satisfies([](RTDoc const& d) { return true; })),
+      rtree_.qend(),
+      [&lenValues, ctx](RTDoc const& d) {
+          RedisModule_ReplyWithStringBuffer(ctx, "id", strlen("id"));
+          RedisModule_ReplyWithLongLong(ctx, d.id());
+          lenValues += 2;
+          
+          RedisModule_ReplyWithStringBuffer(ctx, "geometry", strlen("geometry"));
+          auto str = d.to_string();
+          RedisModule_ReplyWithStringBuffer(ctx, str.data(), str.size());
+          lenValues += 2;
+      });
+    RedisModule_ReplySetArrayLength(ctx, lenValues);    
+    RedisModule_ReplySetArrayLength(ctx, lenTop);
+  }
+
   [[nodiscard]] size_t size() const noexcept {
     return rtree_.size();
   }

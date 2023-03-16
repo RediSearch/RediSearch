@@ -34,7 +34,6 @@
 #include "suffix.h"
 #include "wildcard/wildcard.h"
 #include "geometry/geometry_api.h"
-#include "geometry_index.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 

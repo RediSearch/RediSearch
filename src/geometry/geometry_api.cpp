@@ -71,10 +71,16 @@ int bg_addGeom(GeometryIndex *index_, GEOMETRY geom_) {
   auto index = reinterpret_cast<RTree*>(index_);
   auto geom = reinterpret_cast<const RTDoc*>(geom_);
   RTree_Insert(index, geom);
+  return 1;
 }
 
 int bg_delGeom(struct GeometryIndex *index, GEOMETRY geom, void *data) {
   // TODO: GEOMETRY
+  return 0;
+}
+
+void bg_dumpIndex(GeometryIndex *index, RedisModuleCtx *ctx) {
+  RTree_Dump(reinterpret_cast<RTree*>(index), ctx);
 }
 
 GEOMETRY s2_createGeom(GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg) {
@@ -105,6 +111,7 @@ GeometryApi* GeometryApi_GetOrCreate(GEOMETRY_LIB_TYPE type, __attribute__((__un
     api->addGeom = bg_addGeom;
     api->delGeom = bg_delGeom;
     api->query = bg_query;
+    api->dump = bg_dumpIndex;
     break;
    case GEOMETRY_LIB_TYPE_S2:
     api->freeIndex = s2_freeIndex;

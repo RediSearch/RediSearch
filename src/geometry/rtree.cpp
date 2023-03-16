@@ -56,6 +56,10 @@ int RTree_Remove_WKT(RTree *rtree, const char *wkt, size_t len, t_docId id) {
   }
 }
 
+void RTree_Dump(RTree* rtree, RedisModuleCtx *ctx) {
+  rtree->dump(ctx);
+}
+
 IndexIterator *generate_query_iterator(RTree::ResultsVec&& results) {
   auto ids = GeometryQueryIterator::container(results.size());
   std::ranges::transform(results, ids.begin(), [](auto && doc) { return doc.id(); });
