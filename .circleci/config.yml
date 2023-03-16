@@ -956,6 +956,12 @@ workflows:
       - benchmark-search-oss-cluster-g4:
           context: common
           <<: *on-integ-and-version-tags
+      - benchmark-search-oss-cluster-g5:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-search-oss-cluster-g6:
+          context: common
+          <<: *on-integ-and-version-tags
       - benchmark-search-oss-standalone-profiler-g1:
           context: common
           <<: *on-integ-and-version-tags
