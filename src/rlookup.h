@@ -80,8 +80,6 @@ typedef struct RLookupKey {
   /** Type this lookup should be coerced to */
   RLookupCoerceType fieldtype : 16;
 
-  uint32_t refcnt;
-
   /** Path and name of this field
    *  path AS name */
   const char *path;
@@ -132,12 +130,18 @@ typedef struct {
   size_t ndyn;
 } RLookupRow;
 
+#define RLOOKUP_F_NOFLAGS 0x0 // No special flags to pass.
+
 #define RLOOKUP_F_OEXCL 0x01   // Error if name exists already
 #define RLOOKUP_F_OCREAT 0x02  // Create key if it does not exit
 
-/** Force this key to be the output key, bypassing the sort vector */
-#define RLOOKUP_F_OUTPUT 0x04
-
+/** The original value of this field is available in the index.
+ * Schema fields can be declared as SORTABLE UNF, meaning we don't apply any modifications on them 
+ * before storing them in the sorting vector. The sorting vector holds their original value.
+ * If this field was formatted (normalized, or it is NOT UNF), we need to load it from redis keyspace to 
+ * get its original value.
+ */
+#define RLOOKUP_F_UNFORMATTED 0x04
 /** Check the sorting table, if necessary, for the index of the key. */
 #define RLOOKUP_F_SVSRC 0x08
 
@@ -145,59 +149,79 @@ typedef struct {
 #define RLOOKUP_F_NAMEALLOC 0x10
 
 /**
- * Do not increment the reference count of the returned key. Note that a single
- * refcount is still retained within the lookup structure itself
+ * This field is part of the index schema.
  */
-#define RLOOKUP_F_NOINCREF 0x20
-
-/**
- * This field needs to be loaded externally from a document. It is not
- * natively present.
- *
- * The flag is intended to be used by you, the programmer. If you encounter
- * a key with this flag set, then the value must be loaded externally and placed
- * into the row in the corresponding index slot.
- */
-#define RLOOKUP_F_DOCSRC 0x40
+#define RLOOKUP_F_SCHEMASRC 0x20
 
 /**
  * This field is hidden within the document and is only used as a transient
  * field for another consumer. Don't output this field.
  */
-#define RLOOKUP_F_HIDDEN 0x80
+#define RLOOKUP_F_HIDDEN 0x40
 
 /**
  * This key is used as sorting key for the result
  */
-#define RLOOKUP_F_SORTKEY 0x100
+#define RLOOKUP_F_SORTKEY 0x80
 
 /**
  * This key is unresolved. It source needs to be derived from elsewhere
  */
-#define RLOOKUP_F_UNRESOLVED 0x200
+#define RLOOKUP_F_UNRESOLVED 0x100
 
 /**
  * The opposite of F_HIDDEN. This field is specified as an explicit return in
  * the RETURN list, so ensure that this gets emitted. Only set if
  * explicitReturn is true in the aggregation request.
  */
-#define RLOOKUP_F_EXPLICITRETURN 0x400
+#define RLOOKUP_F_EXPLICITRETURN 0x200
+
+/**
+ * This key's value is already available in the Rlookup table.
+ * For example, if an upstream result processor already loaded the value from redis keyspace,
+ * or if this key was generated during building the query's pipeline (by a metric step, for example).
+ */
+#define RLOOKUP_F_ISLOADED 0x400
+
+/**
+ * This key might have an alias and we pass both its name and path if we ask to 
+ * find an existing key.
+ */
+#define RLOOKUP_F_ALIAS 0x800
 
 /**
  * These flags do not persist to the key, they are just options to GetKey()
  */
-#define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF)
+#define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT)
 
 /**
  * Get a RLookup key for a given name. The behavior of this function depends on
  * the flags.
  *
+ * if F_OCREAT without F_OEXCL flags are set, a valid key is always returned.
+ * 
+ * This function returns NULL if the F_OCREAT is not set and the key doesn't exist in the schema.
+ * A key that was generated from the index spec will be marked with F_SCHEMASRC.
+
  * If F_OCREAT is not used, then this function will return NULL if a key could
  * not be found, unless OPT_UNRESOLVED_OK is set on the lookup itself. In this
  * case, the key is returned, but has the F_UNRESOLVED flag set.
  */
 RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags);
 
+/**
+ * Get or create a RLookup key for a given path and name. This function always returns a valid key,
+ * hence, F_OCREAT and F_OEXCL are redundant here.
+ * 
+ * A key that contains a field from the index will be marked with F_SCHEMASRC.
+ * 
+ * This function first looks for an existing key with key->path equals to @path.
+ * 
+ * If this path is found, and @name doesn't equal @path, a new key is generated with the same
+ * attributes as the found key, but with a different name.
+ * 
+ */
+RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char *name, int flags);
 /**
  * Get the amount of visible fields is the RLookup
  */

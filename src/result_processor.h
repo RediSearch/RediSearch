@@ -151,6 +151,12 @@ typedef enum {
   RS_RESULT_MAX
 } RPStatus;
 
+typedef enum {
+  RESULT_PROCESSOR_F_ACCESS_REDIS = 0x01,  // The result processor requires access to redis keyspace.
+
+  RESULT_PROCESSOR_F_BREAKS_PIPELINE = 0x02 // The result processor might break the pipeline by changing RPStatus.
+} BaseRPFlags;
+
 /**
  * Result processor structure. This should be "Subclassed" by the actual
  * implementations
@@ -164,6 +170,8 @@ typedef struct ResultProcessor {
 
   // Type of result processor
   ResultProcessorType type;
+
+  uint32_t flags;
 
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is
@@ -212,8 +220,18 @@ ResultProcessor *RPMetricsLoader_New();
 #define SORTASCMAP_GETASC(mm, pos) ((mm) & (1LLU << (pos)))
 void SortAscMap_Dump(uint64_t v, size_t n);
 
+/**
+ * Creates a sorter result processor.
+ * @param keys is an array of RLookupkeys to sort by them, 
+ * @param nkeys is the number of keys.
+ * keys will be freed by the arrange step dtor.
+ * @param loadKeys is an array of RLookupkeys that their value needs to be loaded from Redis keyspace.
+ * @param nLoadKeys is the length of loadKeys.
+ * If keys and loadKeys doesn't point to the same address, loadKeys will be freed in the sorter dtor.
+ */
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascendingMap);
+                                      const RLookupKey **loadKeys, size_t nLoadKeys,
+                                      uint64_t ascmap);
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults);
 
