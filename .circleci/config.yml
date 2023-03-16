@@ -364,7 +364,7 @@ jobs:
         default: ""
       test_params:
         type: string
-        default: ""
+        default: "QUICK=1"
       redis_version:
         type: string
         default: "6"
@@ -376,7 +376,7 @@ jobs:
           build_params: <<parameters.build_params>>
           redis_version: <<parameters.redis_version>>
       - test-steps:
-          test_params: <<parameters.build_params>> <<parameters.test_params>> QUICK=1
+          test_params: <<parameters.build_params>> <<parameters.test_params>>
       - run:
           name: Persist artifacts?
           command: |
@@ -432,20 +432,20 @@ jobs:
       xcode: 12.5.1
     resource_class: macos.x86.medium.gen2
     parameters:
+      test_params:
+        type: string
+        default: "QUICK=1"
       upload:
         type: string
         default: "yes"
     steps:
       - early-returns
-      # - run:
-      #     name: Brew upgrade
-      #     command: brew upgrade
       - run:
           name: Set up workspace
           command: mkdir -p ~/workspace
       - build-steps
       - test-steps:
-          test_params: QUICK=1
+          test_params: <<parameters.test_params>>
       - run:
           name: Persist artifacts?
           command: |
@@ -901,6 +901,13 @@ workflows:
     jobs:
       - build-linux-debian:
           <<: *not-on-integ-branch
+      - build-linux-debian:
+          <<: *always
+          name: build-with-redis-<<matrix.redis_version>>
+          matrix:
+            parameters:
+              redis_version: ["6.0", "6.2", "7", "unstable"]
+              test_params: ""
       - build-linux-arm-ubuntu:
           <<: *never
       - build-platforms:
@@ -1054,11 +1061,13 @@ workflows:
     jobs:
       - build-macos:
           upload: "no"
+          test_params: ""
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
           matrix:
             parameters:
               redis_version: ["6.0", "6.2", "7", "unstable"]
+              test_params: ""
       - sanitize:
           name: nightly-sanitize-<< matrix.san-type >>
           args: ""
