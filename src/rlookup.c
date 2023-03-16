@@ -15,6 +15,15 @@
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
                                 uint16_t idx);
 
+// Required attributes of a new rlookupkey to pass createNewLookupKeyFromOptions function 
+// @member name: name to give the rlookup key. 
+// @member path: the original path of this key in Redis key space. If the `name` and `path` point to the 
+// address, the new key will also contain 'name' and 'path' pointing to the same address 
+// (even if name was reallocated - see flags)
+// @member flags: flags to set in the new key. if RLOOKUP_F_NAMEALLOC flag is set, `name` will be reallocated.
+// @member dstidx: the column index of the key in the Rlookup table.
+// @member svidx: If the key contains a sortable field, this is the index of the key's value in the sorting vector
+// @member type: type of the field's value.
 typedef struct {
   const char *name;
   size_t namelen;
@@ -26,7 +35,7 @@ typedef struct {
   RLookupCoerceType type;
 } RLookupKeyOptions;
 
-static RLookupKey *createNewKeyOptions(RLookup *lookup, RLookupKeyOptions *rlookupkey_options) {
+static RLookupKey *createNewLookupKeyFromOptions(RLookup *lookup, RLookupKeyOptions *rlookupkey_options) {
   RLookupKey *ret = rm_calloc(1, sizeof(*ret));
 
    int flags = rlookupkey_options->flags;
@@ -51,6 +60,8 @@ static RLookupKey *createNewKeyOptions(RLookup *lookup, RLookupKeyOptions *rlook
     lookup->tail->next = ret;
     lookup->tail = ret;
   }
+
+  // Increase the Rlookup table row length. (all rows have the same length).
   ++(lookup->rowlen);
 
   return ret;
@@ -87,7 +98,7 @@ static void Lookupkey_ConfigKeyOptionsFromSpec(RLookupKeyOptions *key_options, c
   // we can take its value from the sorting vector.
   // Otherwise, it needs to be externally loaded from Redis keyspace.
     if(FieldSpec_IsUnf(fs)) {
-      key_options->flags |= RLOOKUP_F_UNF;
+      key_options->flags |= RLOOKUP_F_UNFORMATTED;
     }
   }
   key_options->flags |= RLOOKUP_F_SCHEMASRC;
@@ -113,18 +124,18 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t name
                               .type = 0,
                             };
   Lookupkey_ConfigKeyOptionsFromSpec(&options, fs);
-  return createNewKeyOptions(lookup, &options);
+  return createNewLookupKeyFromOptions(lookup, &options);
 
 }
 
-static RLookupKey *FindExistingPath(RLookup *lookup, const char *path, int flags, const FieldSpec** out_spec_field) {
+static RLookupKey *FindLookupKeyWithExistingPath(RLookup *lookup, const char *path, int flags, const FieldSpec** out_spec_field) {
 
   // Check if path exist in schema (as name).
   // If the users set an alias for the fields, they should address them by their aliased name,
   //  otherwise it will be loaded from redis key space (unless already exist in the rlookup)
 
   // TODO: optimize pipeline: add to documentation that addressing keys by their original path
-  // and not the by their alias can harm perfomance.
+  // and not the by their alias can harm performance.
 
   const FieldSpec *fs = findFieldInSpec(lookup, path);
 
@@ -163,12 +174,12 @@ static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int
                                 .svidx = 0,
                                 .type = 0,
                               };
-  return createNewKeyOptions(lookup, &options);
+  return createNewLookupKeyFromOptions(lookup, &options);
 }
 
 static RLookupKey *RLookup_GetOrCreateKeyEx(RLookup *lookup, const char *path, const char *name, size_t name_len, int flags) {
   const FieldSpec *fs = NULL;
-  RLookupKey *lookupkey = FindExistingPath(lookup, path, flags, &fs);
+  RLookupKey *lookupkey = FindLookupKeyWithExistingPath(lookup, path, flags, &fs);
 
   // if we found a RLookupKey and it has the same name, use it.
   if(lookupkey) {
@@ -188,7 +199,7 @@ static RLookupKey *RLookup_GetOrCreateKeyEx(RLookup *lookup, const char *path, c
                                   .svidx = lookupkey->svidx,
                                   .type = lookupkey->fieldtype,
                           };
-    return createNewKeyOptions(lookup, &options);
+    return createNewLookupKeyFromOptions(lookup, &options);
   } 
   RLookupKeyOptions options = { 
                                   .name = name, 
@@ -206,7 +217,7 @@ static RLookupKey *RLookup_GetOrCreateKeyEx(RLookup *lookup, const char *path, c
   if(fs) {
     Lookupkey_ConfigKeyOptionsFromSpec(&options, fs);
   }  
-  return createNewKeyOptions(lookup, &options);
+  return createNewLookupKeyFromOptions(lookup, &options);
 }
 
 RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char *name, int flags) {

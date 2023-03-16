@@ -891,7 +891,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
   const RLookupKey *srckeys[gstp->nproperties], *dstkeys[gstp->nproperties];
   for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
     const char *fldname = gstp->properties[ii] + 1;  // account for the @-
-    srckeys[ii] = RLookup_GetKey(srclookup, fldname, 0);
+    srckeys[ii] = RLookup_GetKey(srclookup, fldname, RLOOKUP_F_NOFLAGS);
     if (!srckeys[ii]) {
       QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "No such property `%s`", fldname);
       return NULL;
@@ -1041,7 +1041,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
 
     for (size_t ii = 0; ii < nkeys; ++ii) {
       const char *keystr = astp->sortKeys[ii];
-      RLookupKey *sortkey = RLookup_GetKey(lk, keystr, 0);
+      RLookupKey *sortkey = RLookup_GetKey(lk, keystr, RLOOKUP_F_NOFLAGS);
       if (!sortkey) {
         QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", keystr);
         return NULL;
@@ -1175,7 +1175,7 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
       RLookupKey *lk = RLookup_GetOrCreateKey(lookup, rf->path, rf->name, RLOOKUP_F_ALIAS);
       lk->flags |= RLOOKUP_F_EXPLICITRETURN;
       if (is_old_json || 
-      ((!(lk->flags & RLOOKUP_F_ISLOADED) && !(lk->flags & RLOOKUP_F_UNF)))) {
+      ((!(lk->flags & RLOOKUP_F_ISLOADED) && !(lk->flags & RLOOKUP_F_UNFORMATTED)))) {
         *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
         lk->flags|= RLOOKUP_F_ISLOADED;
       }
@@ -1195,7 +1195,7 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
     RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       ReturnedField *ff = req->outFields.fields + ii;
-      RLookupKey *kk = RLookup_GetKey(lookup, ff->name, 0);
+      RLookupKey *kk = RLookup_GetKey(lookup, ff->name, RLOOKUP_F_NOFLAGS);
       if (!kk) {
         QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "No such property `%s`", ff->name);
         goto error;

@@ -428,12 +428,12 @@ def test_fuzzy(env):
           For optimized performance the user should use `RETURN b`
         # `RETURN b as x 
                   b as c` will return:
-            title = x, val = b
-            title = c, val = b
+            title = x, with the value of field b
+            title = c, with the value of field b
         # `RETURN b as x
                   x as y` is allowed and yields:
-            title = x, val = b     
-            title = y, val = x    
+            title = x with the value of field b
+            title = y with the value of field x  
             '''
         
 def aliasing(env, is_sortable, is_sortable_unf):
@@ -539,13 +539,13 @@ def unf(env, is_sortable_unf):
     
     original_value1 = 'Meow'
     original_value2 = 'aMeow'   
-    hased_field1 = ['text', original_value1]
-    hased_field2 = ['text', original_value2]
-    env.assertEqual(conn.execute_command('HSET', 'key1', *hased_field1), 1)
-    env.assertEqual(conn.execute_command('HSET', 'key2', *hased_field2), 1)
+    hashed_field1 = ['text', original_value1]
+    hashed_field2 = ['text', original_value2]
+    env.assertEqual(conn.execute_command('HSET', 'key1', *hashed_field1), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key2', *hashed_field2), 1)
     
     def expected_res(is_explicit_return):
-        loaded_fields = [hased_field1, hased_field2] if not is_explicit_return else [[],[]]
+        loaded_fields = [hashed_field1, hashed_field2] if not is_explicit_return else [[],[]]
         sort_output_fields = [['text_name', 'Meow'], ['text_name', 'aMeow']] if is_sortable_unf  or is_explicit_return \
             else [['text_name', 'meow'], ['text_name', 'ameow']]
         # Meow < aMeow < meow 

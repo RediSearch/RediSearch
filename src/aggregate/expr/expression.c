@@ -265,7 +265,7 @@ int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
 
   switch (expr->t) {
     case RSExpr_Property:
-      expr->property.lookupObj = RLookup_GetKey(lookup, expr->property.key, 0);
+      expr->property.lookupObj = RLookup_GetKey(lookup, expr->property.key, RLOOKUP_F_NOFLAGS);
       if (!expr->property.lookupObj) {
         QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "Property `%s` not loaded in pipeline",
                                expr->property.key);
