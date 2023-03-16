@@ -905,10 +905,12 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   OPTMZ(QOptimizer_QueryNodes(req->ast.root, req->optimizer));
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
-  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
+
+  // moved
+  //req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
 
   // check possible optimization after creation of IndexIterator tree
-  OPTMZ(QOptimizer_Iterators(req, req->optimizer));
+  //OPTMZ(QOptimizer_Iterators(req, req->optimizer));
 
   TimedOut_WithStatus(&req->timeoutTime, status);
 

@@ -424,6 +424,9 @@ int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status) {
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
 
+  // check possible optimization after creation of IndexIterator tree
+  OPTMZ(QOptimizer_Iterators(req, req->optimizer));
+
   TimedOut_WithStatus(&req->timeoutTime, status);
 
   if (QueryError_HasError(status))
