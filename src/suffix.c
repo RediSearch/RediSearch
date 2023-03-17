@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "suffix.h"
 #include "rmutil/rm_assert.h"
 #include "config.h"
@@ -108,7 +114,11 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
     TrieNode *node = TrieNode_Get(trie->root, runes + j, rlen - j, 1, NULL);
     suffixData *data = Suffix_GetData(node);
-    RS_LOG_ASSERT(data, "all suffixes must exist");
+    // suffix trie is shared between all text fields in index, even if they don't use it.
+    // if the trie is owned by other fields and not any one containing this suffix,
+    // then failure to find the suffix is not an error. just move along.
+    if (!data) continue;
+    // RS_LOG_ASSERT(data, "all suffixes must exist");
     // suffixData *data = TrieMap_Find(trie, str + j, len - j);
     if (j == 0) {
       // keep pointer to word string to free after it was found in al sub tokens.
@@ -393,7 +403,11 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
   // iterate all matching terms and remove word
   for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
     suffixData *data = TrieMap_Find(trie, str + j, len - j);
-    RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
+    // suffix trie is shared between all tag fields in index, even if they don't use it.
+    // if the trie is owned by other fields and not any one containing this suffix,
+    // then failure to find the suffix is not an error. just move along.
+    if (data == TRIEMAP_NOTFOUND) continue;
+    // RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
     if (j == 0) {
       // keep pointer to word string to free after it was found in al sub tokens.
       oldTerm = data->term;

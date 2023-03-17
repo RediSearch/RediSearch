@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef __SPEC_H__
 #define __SPEC_H__
 
@@ -174,7 +180,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 20
+#define INDEX_CURRENT_VERSION 21
+#define INDEX_VECSIM_MULTI_VERSION 21
 #define INDEX_VECSIM_2_VERSION 20
 #define INDEX_VECSIM_VERSION 19
 #define INDEX_JSON_VERSION 18
@@ -275,6 +282,9 @@ typedef struct IndexSpec {
   long long timeout;
   RedisModuleTimerID timerId;
   bool isTimerSet;
+
+  // bitarray of dialects used by this index
+  uint_least8_t used_dialects;
 
   // For criteria tester
   RSGetValueCallback getValue;

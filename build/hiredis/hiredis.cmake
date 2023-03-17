@@ -2,7 +2,7 @@
 set(ENABLE_SSL ON CACHE BOOL "Build hiredis with ssl")
 option(DISABLE_TESTS "If tests should be compiled or not" ON)
 
-add_subdirectory(${RS_DIR}/deps/hiredis hiredis)
+add_subdirectory(${root}/deps/hiredis hiredis)
 
 if (APPLE)
     include_directories(/usr/local/opt/openssl/include)

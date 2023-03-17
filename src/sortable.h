@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef __RS_SORTABLE_H__
 #define __RS_SORTABLE_H__
 #include "redismodule.h"
@@ -22,6 +28,7 @@ extern "C" {
 #define RS_SORTABLE_STR 3
 // nil value means the value is empty
 #define RS_SORTABLE_NIL 4
+#define RS_SORTABLE_RSVAL 5
 
 /* RSSortingVector is a vector of sortable values. All documents in a schema where sortable fields
  * are defined will have such a vector. */

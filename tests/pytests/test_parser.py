@@ -333,7 +333,7 @@ VECTOR {
     @t1:hello
     @t1:world
   }
-} => {K=10 nearest vectors to `$B` in @v, AS `__v_score`}
+} => {K=10 nearest vectors to `$B` in vector index associated with field @v, yields distance as `__v_score`}
 '''[1:])
 
 def test_filters_v1():
@@ -538,8 +538,8 @@ def testUnsupportedNesting(env):
 
     and_exp = nest_exp('mod', 'a', True, nest_level)
     or_exp = nest_exp('mod', 'a', False, nest_level)
-    # env.debugPrint(and_exp, force=True)
-    # env.debugPrint(or_exp, force=True)
+    # env.debugPrint(and_exp, force=TEST_DEBUG)
+    # env.debugPrint(or_exp, force=TEST_DEBUG)
     env.expect('ft.search', 'idx', and_exp, 'DIALECT', 1).error().contains('Syntax error at offset')
     env.expect('ft.search', 'idx', and_exp, 'DIALECT', 2).error().contains('Parser stack overflow.')
     env.expect('ft.search', 'idx', or_exp, 'DIALECT', 1).error().contains('Syntax error at offset')
@@ -552,8 +552,8 @@ def testSupportedNesting_v1():
 
     and_exp = nest_exp('mod', 'a', True, nest_level)
     or_exp = nest_exp('mod', 'a', False, nest_level)
-    # env.debugPrint(and_exp, force=True)
-    # env.debugPrint(or_exp, force=True)
+    # env.debugPrint(and_exp, force=TEST_DEBUG)
+    # env.debugPrint(or_exp, force=TEST_DEBUG)
     env.expect('ft.search', 'idx', and_exp).equal([0])
     env.expect('ft.search', 'idx', or_exp).equal([0])
 
@@ -564,8 +564,8 @@ def testSupportedNesting_v2():
 
     and_exp = nest_exp('mod', 'a', True, nest_level)
     or_exp = nest_exp('mod', 'a', False, nest_level)
-    # env.debugPrint(and_exp, force=True)
-    # env.debugPrint(or_exp, force=True)
+    # env.debugPrint(and_exp, force=TEST_DEBUG)
+    # env.debugPrint(or_exp, force=TEST_DEBUG)
     env.expect('ft.search', 'idx', and_exp).equal([0])
     env.expect('ft.search', 'idx', or_exp).equal([0])
 

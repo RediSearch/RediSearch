@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef RS_STRCONV_H_
 #define RS_STRCONV_H_
 #include <stdlib.h>
@@ -64,6 +70,27 @@ static char *strtolower(char *str) {
     p++;
   }
   return str;
+}
+
+static char *rm_strndup_unescape(const char *s, size_t len) {
+  char *ret = rm_strndup(s, len);
+  char *dst = ret;
+  char *src = (char *)s;
+  while (*src && len) {
+    // unescape
+    if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
+      ++src;
+      --len;
+      continue;
+    }
+    *dst = *src;
+    ++dst;
+    ++src;
+    --len;
+  }
+  *dst = '\0';
+
+  return ret;
 }
 
 // strndup + lowercase in one pass!

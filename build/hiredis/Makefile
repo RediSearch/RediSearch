@@ -1,79 +1,55 @@
 
 ROOT=../..
-MK.pyver:=3
+
+MK.cmake=1
+
 include $(ROOT)/deps/readies/mk/main
-
-define HELPTEXT
-make build    # configure and compile
-make clean    # clean generated sbinaries
-  ALL=1       # remote entire binary directory
-endef
-
-MK_ALL_TARGETS=build
 
 #----------------------------------------------------------------------------------------------
 
-BINDIR=$(BINROOT)/hiredis
+define HELPTEXT
+make build          # compile and link
+  DEBUG=1             # build for debugging
+  WHY=1               # explain CMake decisions (in /tmp/cmake-why)
+  FORCE=1             # Force CMake rerun (default)
+  CMAKE_ARGS=...      # extra arguments to CMake
+  SLOW=1              # do not parallelize build (for diagnostics)
+make clean         # remove build artifacts
+  ALL=1              # remove entire artifacts directory
+
+endef
+
+#----------------------------------------------------------------------------------------------
+
 SRCDIR=$(ROOT)/deps/hiredis
+
+BINDIR=$(BINROOT)/hiredis
 
 TARGET=$(BINDIR)/libhiredis.a
 
 #----------------------------------------------------------------------------------------------
 
-MK_CUSTOM_CLEAN=1
-
 include $(MK)/defs
 
-CC=gcc
-
-_SOURCES=alloc.c async.c dict.c hiredis.c net.c read.c sds.c sockcompat.c ssl.c
-
-SOURCES=$(addprefix $(SRCDIR)/,$(_SOURCES))
-OBJECTS=$(patsubst $(SRCDIR)/%.c,$(BINDIR)/%.o,$(SOURCES))
-
-CC_DEPS = $(patsubst $(SRCDIR)/%.c, $(BINDIR)/%.d, $(SOURCES))
-
-CC_FLAGS += \
-	-fPIC \
-	-std=gnu99 \
-	-MMD -MF $(@:.o=.d) \
-	-I$(SRCDIR) \
-	-I$(BINDIR) \
-	-I/usr/local/opt/openssl/include \
-	$(CC_FLAGS.coverage)
-
-ifeq ($(DEBUG),1)
-CC_FLAGS += -g -O0
-LD_FLAGS += -g
-else
-CC_FLAGS += -O2 -Wno-unused-result
-endif
-
-ifeq ($(OS),macos)
-CC_FLAGS += -I$(LIBSSL_PREFIX)/include
-LD_FLAGS += -undefined dynamic_lookup
-endif
-
-LD_FLAGS += $(LD_FLAGS.coverage)
+define CMAKE_DEFS +=
+	DISABLE_TESTS=on
+	ENABLE_SSL=on
+	CMAKE_POSITION_INDEPENDENT_CODE=on
+endef
 
 #----------------------------------------------------------------------------------------------
 
+MK_CUSTOM_CLEAN=1
+
 include $(MK)/rules
 
--include $(CC_DEPS)
-
-$(BINDIR)/%.o: $(SRCDIR)/%.c
-	@echo Compiling $<...
-	$(SHOW)$(CC) $(CC_FLAGS) -fvisibility=hidden -c $< -o $@
-
-$(TARGET): $(OBJECTS)
-	@echo Creating $@...
-	$(SHOW)$(AR) rcs $@ $(OBJECTS)
+#----------------------------------------------------------------------------------------------
 
 clean:
 ifeq ($(ALL),1)
-	$(SHOW)rm -rf $(BINDIR) $(TARGET)
+	$(SHOW)rm -rf $(BINDIR)
 else
-	-$(SHOW)find $(BINDIR) -name '*.[oadh]' -type f -delete
-	$(SHOW)rm -f $(TARGET)
+	$(SHOW)$(MAKE) -C $(BINDIR) clean
 endif
+
+.PHONY: clean

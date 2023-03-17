@@ -248,7 +248,7 @@ These are the pre-bundled scoring functions available in RediSearch:
 
 It is possible to bypass the scoring function mechanism, and order search results by the value of different document properties (fields) directly - even if the sorting field is not used by the query. For example, you can search for first name and sort by the last name. 
 
-When creating the index with FT.CREATE, you can declare `TEXT` and `NUMERIC` properties to be `SORTABLE`. When a property is sortable, we can later decide to order the results by its values. For example, in the following schema:
+When creating the index with `FT.CREATE`, you can declare `TEXT`, `TAG`, `NUMERIC`, and `GEO` properties as `SORTABLE`. When a property is sortable, you can later decide to order the results by its values with relatively low latency (when a property is not sortable, it can still be sorted by its values, but with not as good latency). For example, in the following schema:
 
 ```
 > FT.CREATE users SCHEMA first_name TEXT last_name TEXT SORTABLE age NUMERIC SORTABLE

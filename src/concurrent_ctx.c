@@ -1,20 +1,26 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "concurrent_ctx.h"
 #include "thpool/thpool.h"
 #include <unistd.h>
 #include <util/arr.h>
 #include "rmutil/rm_assert.h"
 
-static threadpool *threadpools_g = NULL;
+static arrayof(redisearch_threadpool) threadpools_g = NULL;
 
 int CONCURRENT_POOL_INDEX = -1;
 int CONCURRENT_POOL_SEARCH = -1;
 
 int ConcurrentSearch_CreatePool(int numThreads) {
   if (!threadpools_g) {
-    threadpools_g = array_new(threadpool, 4);
+    threadpools_g = array_new(redisearch_threadpool, 4);
   }
   int poolId = array_len(threadpools_g);
-  threadpools_g = array_append(threadpools_g, thpool_init(numThreads));
+  threadpools_g = array_append(threadpools_g, redisearch_thpool_init(numThreads));
   return poolId;
 }
 
@@ -42,7 +48,7 @@ void ConcurrentSearch_ThreadPoolDestroy(void) {
     return;
   }
   for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
-    thpool_destroy(threadpools_g[ii]);
+    redisearch_thpool_destroy(threadpools_g[ii]);
   }
   array_free(threadpools_g);
   threadpools_g = NULL;
@@ -59,8 +65,8 @@ typedef struct ConcurrentCmdCtx {
 
 /* Run a function on the concurrent thread pool */
 void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
-  threadpool p = threadpools_g[type];
-  thpool_add_work(p, func, arg);
+  redisearch_threadpool p = threadpools_g[type];
+  redisearch_thpool_add_work(p, func, arg);
 }
 
 static void threadHandleCommand(void *p) {

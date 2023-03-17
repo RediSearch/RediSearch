@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef REDISEARCH_H__
 #define REDISEARCH_H__
 
@@ -250,24 +256,17 @@ typedef struct {
   double value;
 } RSNumericRecord;
 
-/* A vector record represents a vector similarity search result which has a specific *distance* from the
- * query vector in the vector index, and associated with *scoreField* */
-typedef struct {
-  double distance;
-  char *scoreField;
-} RSDistanceRecord;
-
 typedef enum {
   RSResultType_Union = 0x1,
   RSResultType_Intersection = 0x2,
   RSResultType_Term = 0x4,
   RSResultType_Virtual = 0x8,
   RSResultType_Numeric = 0x10,
-  RSResultType_Distance = 0x20,
-  RSResultType_HybridDistance = 0x40,
+  RSResultType_Metric = 0x20,
+  RSResultType_HybridMetric = 0x40,
 } RSResultType;
 
-#define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridDistance)
+#define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)
 
 typedef struct {
   /* The number of child records */
@@ -280,6 +279,17 @@ typedef struct {
   // A map of the aggregate type of the underlying results
   uint32_t typeMask;
 } RSAggregateResult;
+
+// Forward declaration of needed structs
+struct RLookupKey;
+struct RSValue;
+
+// Holds a key-value pair of an `RSValue` and the `RLookupKey` to add it into.
+// A result processor will write the value into the key if the result passed the AST.
+typedef struct RSYieldableMetric{
+  struct RLookupKey *key;
+  struct RSValue *value;
+} RSYieldableMetric;
 
 #pragma pack(16)
 
@@ -316,11 +326,13 @@ typedef struct RSIndexResult {
     RSVirtualRecord virt;
     // numeric record with float value
     RSNumericRecord num;
-    // vector record with distance and score field name
-    RSDistanceRecord dist;
   };
 
   RSResultType type;
+
+  // Holds an array of metrics yielded by the different iterators in the AST
+  RSYieldableMetric *metrics;
+
   // we mark copied results so we can treat them a bit differently on deletion, and pool them if we
   // want
   int isCopy;
