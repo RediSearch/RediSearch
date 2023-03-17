@@ -1135,11 +1135,11 @@ void IndexSpecCache_Decref(IndexSpecCache *c) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static threadpool cleanPool = NULL;
+static redisearch_threadpool cleanPool = NULL;
 
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
-    cleanPool = thpool_init(1);
+    cleanPool = redisearch_thpool_init(1);
   }
 }
 
@@ -1147,9 +1147,9 @@ void CleanPool_ThreadPoolDestroy() {
   if (cleanPool) {
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     if (RSGlobalConfig.freeResourcesThread) {
-      thpool_wait(cleanPool);
+      redisearch_thpool_wait(cleanPool);
     }
-    thpool_destroy(cleanPool);
+    redisearch_thpool_destroy(cleanPool);
     cleanPool = NULL;
     RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
@@ -1278,7 +1278,7 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   if (RSGlobalConfig.freeResourcesThread == false) {
     IndexSpec_FreeUnlinkedData(spec);
   } else {
-    thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeUnlinkedData, spec);
+    redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeUnlinkedData, spec);
   }
 }
 
@@ -1314,7 +1314,7 @@ void IndexSpec_Free(IndexSpec *spec) {
       RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
       spec->isTimerSet = false;
     }
-    thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeTask, rm_strdup(spec->name));
+    redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeTask, rm_strdup(spec->name));
     return;
   }
 
@@ -1743,7 +1743,7 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static threadpool reindexPool = NULL;
+static redisearch_threadpool reindexPool = NULL;
 
 static IndexesScanner *IndexesScanner_New(IndexSpec *spec) {
   if (!spec && global_spec_scanner) {
@@ -1899,19 +1899,19 @@ end:
 
 static void IndexSpec_ScanAndReindexAsync(IndexSpec *sp) {
   if (!reindexPool) {
-    reindexPool = thpool_init(1);
+    reindexPool = redisearch_thpool_init(1);
   }
 #ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Register index %s for async scan", sp->name);
 #endif
   IndexesScanner *scanner = IndexesScanner_New(sp);
-  thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner);
+  redisearch_thpool_add_work(reindexPool, (redisearch_thpool_proc)Indexes_ScanAndReindexTask, scanner);
 }
 
 void ReindexPool_ThreadPoolDestroy() {
   if (reindexPool != NULL) {
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-    thpool_destroy(reindexPool);
+    redisearch_thpool_destroy(reindexPool);
     reindexPool = NULL;
     RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
@@ -1927,14 +1927,16 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   RedisModule_InfoAddSection(ctx, name);
 
   // Index flags
-  if (sp->flags & ~(Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets) || sp->flags & Index_WideSchema) {
+  if (sp->flags & ~(Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreByteOffsets) || sp->flags & Index_WideSchema) {
     RedisModule_InfoBeginDictField(ctx, "index_options");
     if (!(sp->flags & (Index_StoreFreqs)))
       RedisModule_InfoAddFieldCString(ctx, SPEC_NOFREQS_STR, "ON");
     if (!(sp->flags & (Index_StoreFieldFlags)))
       RedisModule_InfoAddFieldCString(ctx, SPEC_NOFIELDS_STR, "ON");
-    if (!(sp->flags & (Index_StoreTermOffsets)))
+    if (!(sp->flags & (Index_StoreTermOffsets | Index_StoreByteOffsets)))
       RedisModule_InfoAddFieldCString(ctx, SPEC_NOOFFSETS_STR, "ON");
+    if (!(sp->flags & (Index_StoreByteOffsets)))
+      RedisModule_InfoAddFieldCString(ctx, SPEC_NOHL_STR, "ON");
     if (sp->flags & Index_WideSchema)
       RedisModule_InfoAddFieldCString(ctx, SPEC_SCHEMA_EXPANDABLE_STR, "ON");
     RedisModule_InfoEndDictField(ctx);
@@ -2118,14 +2120,14 @@ void Indexes_UpgradeLegacyIndexes() {
 
 void Indexes_ScanAndReindex() {
   if (!reindexPool) {
-    reindexPool = thpool_init(1);
+    reindexPool = redisearch_thpool_init(1);
   }
 
   RedisModule_Log(NULL, "notice", "Scanning all indexes");
   IndexesScanner *scanner = IndexesScanner_New(NULL);
   // check no global scan is in progress
   if (scanner) {
-    thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner);
+    redisearch_thpool_add_work(reindexPool, (redisearch_thpool_proc)Indexes_ScanAndReindexTask, scanner);
   }
 }
 
