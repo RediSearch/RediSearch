@@ -1,8 +1,8 @@
-name: "ftsb-1M-enwiki_abstract-hashes-load"
+name: "ftsb-10K-enwiki_pages-hashes-load"
 description: "
-             enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-abstract-benchmark/description.md), 
-             from English-language Wikipedia:Database page abstracts. 
-             This use case generates 3 TEXT fields per document, and focusses on full text queries performance.
+             enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-pages-benchmark/description.md), 
+             from English-language Wikipedia:Database page edition data. 
+             This use case generates 100K docs, with 3 TEXT fields (all sortable), 1 sortable TAG field, and 1 sortable NUMERIC fields per document.
              Specifically for this testcase:
                 - Type (read/write/mixed): write
                 - Query type: N/A
@@ -24,7 +24,7 @@ setups:
 
 dbconfig:
   - init_commands:
-      - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
+      - '"FT.CREATE" "enwiki_pages" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "text" "text" "SORTABLE" "comment" "text" "SORTABLE" "username" "tag" "SORTABLE" "timestamp" "numeric" "SORTABLE"'
 clientconfig:
   - tool: ftsb_redisearch
   - parameters:

@@ -528,6 +528,7 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     // take the ascending bit for this property from the ascending bitmap
     ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
     if (!v1 || !v2) {
+      // If at least one of these has no sort key, it gets high value regardless of asc/desc
       int rc;
       if (v1) {
         return 1;
@@ -724,7 +725,7 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
 static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Scorer",      "Sorter",
                                      "Counter",   "Pager/Limiter", "Highlighter", "Grouper",
                                      "Projector", "Filter",        "Profile",     "Network",
-                                     "Vector Similarity Scores Loader"};
+                                     "Metrics Applier"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
