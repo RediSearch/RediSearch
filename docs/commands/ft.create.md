@@ -30,6 +30,7 @@ syntax: |
       NUMERIC [SORTABLE] [NOINDEX] |
       GEO [SORTABLE] [NOINDEX] |
       VECTOR {algorithm} {count} [{attribute_name} {attribute_value} ...] ...] 
+---
 
 ## Description
 
