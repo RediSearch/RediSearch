@@ -88,7 +88,7 @@ def testManyPrefixes(env):
         env.execute_command('ft.create', i, 'ON', 'HASH',
                             'PREFIX', '1', i,
                             'SCHEMA', 'name', 'text')
-    env.debugPrint(str(time.time() - start_time), force=True)
+    env.debugPrint(str(time.time() - start_time), force=TEST_DEBUG)
     start_time = time.time()
     conn.execute_command('FLUSHALL')
     env.assertLess(time.time() - start_time, 5)
@@ -540,6 +540,7 @@ def testRestore(env):
     env.expect('RESTORE', 'doc1', 0, dump)
     env.expect('FT.SEARCH idx foo').equal([1, 'doc1', ['test', 'foo']])
 
+@no_asan
 def testExpire(env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')

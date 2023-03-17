@@ -12,6 +12,7 @@
 *.dSYM
 /bin/
 /site/
+/tests/logs/
 /venv*/
 /srcutil/lemon
 /src/query_parser/lemon
@@ -21,4 +22,5 @@
 .cproject
 VSCODE.DB*
 callgrind.out.*
+/tests/pytests/logs/
 /1/

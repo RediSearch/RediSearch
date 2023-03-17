@@ -14,11 +14,7 @@ COPY --from=redis /usr/local/ /usr/local/
 ADD . /build
 
 RUN ./deps/readies/bin/getupdates
-RUN ./deps/readies/bin/getpy3
-RUN ./sbin/system-setup.py
-
-RUN /usr/local/bin/redis-server --version
-RUN make fetch
+RUN VERBOSE=1 ./sbin/setup
 
 RUN make build SHOW=1
 
@@ -34,24 +30,20 @@ RUN make build COORD=oss SHOW=1
 {% if PACK == "1" %}
 RUN mkdir -p bin/artifacts
 RUN make pack
-RUN make pack COORD=rlec
 RUN make pack LITE=1
+RUN make pack COORD=rlec
 RUN set -e ;\
     echo "Artifacts:" ;\
     du -ah --apparent-size /build/bin/artifacts
 {% endif %}
 
 {% if TEST == "1" %}
-RUN TEST= make test
-RUN TEST= make test COORD=oss
-RUN set -e ;\
-    cd /build/tests/pytests/logs ;\
-    rm -f *.aof *.rdb ;\
-    tar -czf /build/bin/artifacts/tests-pytests-logs-{{ARCH}}-{{OSNICK}}.tgz .
+RUN TEST='' make test PLATFORM_MODE=1 QUICK=1
+RUN TEST='' make test COORD=oss PLATFORM_MODE=1 QUICK=1
 {% endif %}
 
 #----------------------------------------------------------------------------------------------
-FROM redisfab/rejson:{{REJSON_VERSION}}-{{ARCH}}-{{REJSON_OSNICK}} AS json
+FROM redisfab/rejson:{{REJSON_VERSION}}-{{ARCH}}-{{OSNICK}} AS json
 FROM redisfab/redis:{{REDIS_VERSION}}-{{ARCH}}-{{OSNICK}}
 
 WORKDIR /data

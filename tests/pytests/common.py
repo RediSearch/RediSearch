@@ -1,5 +1,8 @@
 
-from collections import Iterable
+try:
+    from collections.abc import Iterable
+except ImportError:
+    from collections import Iterable
 import time
 from packaging import version
 from functools import wraps
@@ -8,7 +11,8 @@ import platform
 import itertools
 from redis.client import NEVER_DECODE
 import RLTest
-
+from typing import Any, Callable
+from RLTest.env import Query
 from includes import *
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
@@ -210,8 +214,19 @@ def no_msan(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
         if SANITIZER == 'memory':
-            fname = f.func_name
+            fname = f.__name__
             env.debugPrint("skipping {} due to memory sanitizer".format(fname), force=True)
+            env.skip()
+            return
+        return f(env, *args, **kwargs)
+    return wrapper
+
+def no_asan(f):
+    @wraps(f)
+    def wrapper(env, *args, **kwargs):
+        if SANITIZER in ['address', 'addr']:
+            fname = f.__name__
+            env.debugPrint("skipping {} due to address sanitizer".format(fname), force=True)
             env.skip()
             return
         return f(env, *args, **kwargs)
@@ -220,8 +235,8 @@ def no_msan(f):
 def unstable(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
-        if ONLY_STABLE:
-            fname = f.func_name
+        if UNSTABLE == True:
+            fname = f.__name__
             env.debugPrint("skipping {} because it is unstable".format(fname), force=True)
             env.skip()
             return
