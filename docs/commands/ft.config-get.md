@@ -1,18 +1,13 @@
 ---
-syntax: 
+syntax: |
+  FT.CONFIG GET option
 ---
 
 Retrieve configuration options
 
-## Syntax
-
-{{< highlight bash >}}
-FT.CONFIG GET option
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>option</code></summary> 

@@ -1,5 +1,10 @@
 ---
-syntax: 
+syntax: |
+  FT.SUGGET key prefix 
+    [FUZZY] 
+    [WITHSCORES] 
+    [WITHPAYLOADS] 
+    [MAX max]
 ---
 
 Get completion suggestions for a prefix
@@ -7,16 +12,12 @@ Get completion suggestions for a prefix
 ## Syntax
 
 {{< highlight bash >}}
-FT.SUGGET key prefix 
-          [FUZZY] 
-          [WITHSCORES] 
-          [WITHPAYLOADS] 
-          [MAX max]
+
 {{< / highlight >}}
 
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>key</code></summary>
@@ -30,7 +31,7 @@ is suggestion dictionary key.
 is prefix to complete on.
 </details>
 
-## Optional parameters
+## Optional arguments
 
 <details open>
 <summary><code>FUZZY</code></summary> 
@@ -53,7 +54,7 @@ also returns the score of each suggestion. This can be used to merge results fro
 <details open>
 <summary><code>WITHPAYLOADS</code></summary> 
 
- returns optional payloads saved along with the suggestions. If no payload is present for an entry, it returns a null reply.
+returns optional payloads saved along with the suggestions. If no payload is present for an entry, it returns a null reply.
 </details>
 
 ## Return

@@ -142,7 +142,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
           v = RS_DUOVAL_VAL(*v);
         }
         RSValue rsv;
-        if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE) {
+        if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE && !RSValue_IsNull(v)) {
           double d;
           RSValue_ToNumber(v, &d);
           RSValue_SetNumber(&rsv, d);
@@ -434,6 +434,9 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
     goto error;
   }
+
+  SET_DIALECT(r->sctx->spec->used_dialects, r->dialectVersion);
+  SET_DIALECT(RSGlobalConfig.used_dialects, r->dialectVersion);
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
     int rc = AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status);

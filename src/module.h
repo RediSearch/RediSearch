@@ -18,6 +18,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 int IsMaster();
 int IsEnterprise();
 
+void GetFormattedRedisVersion(char *buf, size_t len);
+void GetFormattedRedisEnterpriseVersion(char *buf, size_t len);
+
 /** Cleans up all globals in the module */
 void RediSearch_CleanupModule(void);
 

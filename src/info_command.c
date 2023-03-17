@@ -46,7 +46,8 @@ static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
   int n = 0;
   ADD_NEGATIVE_OPTION(Index_StoreFreqs, SPEC_NOFREQS_STR);
   ADD_NEGATIVE_OPTION(Index_StoreFieldFlags, SPEC_NOFIELDS_STR);
-  ADD_NEGATIVE_OPTION(Index_StoreTermOffsets, SPEC_NOOFFSETS_STR);
+  ADD_NEGATIVE_OPTION((Index_StoreTermOffsets|Index_StoreByteOffsets), SPEC_NOOFFSETS_STR);
+  ADD_NEGATIVE_OPTION(Index_StoreByteOffsets, SPEC_NOHL_STR);
   if (sp->flags & Index_WideSchema) {
     RedisModule_ReplyWithSimpleString(ctx, SPEC_SCHEMA_EXPANDABLE_STR);
     n++;
@@ -239,6 +240,14 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     ReplyWithStopWordsList(ctx, sp->stopwords);
     n += 2;
   }
+
+  RedisModule_ReplyWithSimpleString(ctx, "dialect_stats");
+  RedisModule_ReplyWithArray(ctx, 2 * (MAX_DIALECT_VERSION - MIN_DIALECT_VERSION + 1));
+  for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {
+    RedisModule_ReplyWithPrintf(ctx, "dialect_%d", dialect);
+    RedisModule_ReplyWithLongLong(ctx, GET_DIALECT(sp->used_dialects, dialect));
+  }
+  n += 2;
 
   RedisModule_ReplySetArrayLength(ctx, n);
   return REDISMODULE_OK;
