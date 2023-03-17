@@ -1,21 +1,16 @@
 ---
-syntax: 
+syntax: |
+  FT.SPELLCHECK index query 
+    [DISTANCE distance] 
+    [TERMS INCLUDE | EXCLUDE dictionary [terms [terms ...]]] 
+    [DIALECT dialect]
 ---
 
 Perform spelling correction on a query, returning suggestions for misspelled terms
 
-## Syntax
-
-{{< highlight bash >}}
-FT.SPELLCHECK index query 
-          [DISTANCE distance] 
-          [TERMS INCLUDE | EXCLUDE dictionary [TERMS ...]] 
-          [DIALECT dialect]
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>index</code></summary>
@@ -31,7 +26,7 @@ is search query.
 
 See [Spellchecking](/redisearch/reference/spellcheck) for more details.
 
-## Optional parameters
+## Optional arguments
 
 <details open>
 <summary><code>TERMS</code></summary> 

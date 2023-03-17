@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "conn.h"
 #include "reply.h"
 #include "hiredis/adapters/libuv.h"
@@ -223,7 +229,7 @@ static void freeConn(MRConn *conn) {
     if (uv_is_active(conn->timer)) {
       uv_timer_stop(conn->timer);
     }
-    uv_close(conn->timer, (uv_close_cb)free);
+    uv_close(conn->timer, (uv_close_cb)rm_free);
   }
   rm_free(conn);
 }

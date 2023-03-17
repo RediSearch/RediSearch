@@ -6,7 +6,8 @@ ROOT=$(cd $HERE/.. && pwd)
 READIES=$ROOT/deps/readies
 . $READIES/shibumi/defs
 
-getver_c=$(mktemp --suffix=.c)
+cd $ROOT
+getver_c=$(mktemp "${TMPDIR:-/tmp}/getver-XXXXXXX.c")
 if [[ $NUMERIC != 1 ]]; then
 	cat <<- EOF > $getver_c
 		#include <stdio.h>

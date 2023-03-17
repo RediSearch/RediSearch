@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #include "json.h"
 #include "document.h"
@@ -27,19 +33,16 @@ void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_
 //---------------------------------------------------------------------------------------------
 
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
-    japi = RedisModule_GetSharedAPI(ctx, "RedisJSON_V2");
-    if (japi) {
-      japi_ver = 2;
-      RedisModule_Log(ctx, "notice", "Acquired RedisJSON_V2 API");
-    } else {
-      japi = RedisModule_GetSharedAPI(ctx, "RedisJSON_V1");
+    char ver[128];
+    // Obtain the newest version of JSON API
+    for (int i = 3; i >= 1; --i) {
+      sprintf(ver, "RedisJSON_V%d", i);
+      japi = RedisModule_GetSharedAPI(ctx, ver);
       if (japi) {
-        japi_ver = 1;
-        RedisModule_Log(ctx, "notice", "Acquired RedisJSON_V1 API");
+        japi_ver = i;
+        RedisModule_Log(ctx, "notice", "Acquired RedisJSON_V%d API", i);
+        return 1;
       }
-    }
-    if (japi) {
-      return 1;
     }
     if (subscribeToModuleChange) {
       RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ModuleChange,
@@ -113,9 +116,8 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
   case JSONType_Null:
     rv = REDISMODULE_OK;
     break;
-  // TEXT and VECTOR fields can be represented as array
   case JSONType_Array:
-    if (fieldType == INDEXFLD_T_FULLTEXT  || fieldType == INDEXFLD_T_VECTOR || fieldType == INDEXFLD_T_NUMERIC) {
+    if (fieldType == INDEXFLD_T_FULLTEXT  || fieldType == INDEXFLD_T_VECTOR || fieldType == INDEXFLD_T_NUMERIC || fieldType == INDEXFLD_T_TAG || fieldType == INDEXFLD_T_GEO) {
       rv = REDISMODULE_OK;
     }
     break;
@@ -346,11 +348,11 @@ int JSON_StoreTextInDocField(size_t len, JSONIterable *iterable, struct Document
     } else if (jsonType == JSONType_Null) {
       nulls++; // Skip Nulls
     } else {
-      // Text fields can handle only strings or Nulls
+      // Text/Tag fields can handle only strings or Nulls
       goto error;
     }
   }
-  RS_LOG_ASSERT ((i + nulls) == len, "TEXT iterator count and len must be equal");
+  RS_LOG_ASSERT ((i + nulls) == len, "TEXT/TAG iterator count and len must be equal");
   // Remain with surplus unused array entries from skipped null values until `Document_Clear` is called
   df->arrayLen = i;
   df->unionType = FLD_VAR_T_ARRAY;
@@ -462,6 +464,9 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
     case JSONType_Array:
       switch (fs->types) {
         case INDEXFLD_T_FULLTEXT:
+        case INDEXFLD_T_TAG:
+        case INDEXFLD_T_GEO:
+          // (initially GEO is stored as TEXT)
           rv = JSON_StoreTextInDocFieldFromArr(json, df);
           break;
         case INDEXFLD_T_VECTOR:
@@ -485,33 +490,8 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
   return rv;
 }
 
-int JSON_StoreTagsInDocField(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df) {
-    df->multiVal = rm_calloc(len , sizeof(*df->multiVal));
-    df->arrayLen = len;
-
-    int i = 0;
-    size_t strlen;
-    RedisJSON json;
-    const char *str;
-    while ((json = japi->next(jsonIter))) {
-      if (japi->getType(json) != JSONType_String) {
-        // TAG fields can index only strings
-        for (int j = 0; j < i; ++j) {
-          rm_free(df->multiVal[j]);
-        }
-        rm_free(df->multiVal);
-        return REDISMODULE_ERR;
-      }
-      japi->getString(json, &str, &strlen);
-      df->multiVal[i++] = rm_strndup(str, strlen);
-    }
-    RS_LOG_ASSERT (i == len, "TAG iterator count and len must be equal");
-    df->unionType = FLD_VAR_T_ARRAY;
-    return REDISMODULE_OK;
-}
-
 int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
-                              FieldSpec *fs, struct DocumentField *df) {
+                              FieldSpec *fs, struct DocumentField *df, RedisModuleCtx *ctx) {
   int rv = REDISMODULE_OK;
 
   if (len == 1) {
@@ -528,11 +508,10 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
   } else {
     switch (fs->types) {
       case INDEXFLD_T_TAG:
-        // Handling multiple values as a Tag list
-        rv = JSON_StoreTagsInDocField(len, jsonIter, df);
-        break;
       case INDEXFLD_T_FULLTEXT:
+      case INDEXFLD_T_GEO:
         // Handling multiple values as Text
+        // (initially GEO is stored as TEXT)
         rv = JSON_StoreTextInDocFieldFromIter(len, jsonIter, df);
         break;
       case INDEXFLD_T_NUMERIC:
@@ -549,5 +528,21 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
     }
   }
 
+  df->multisv = NULL;
+  // If all is successful up til here,
+  // we check whether a multi value is needed to be calculated for SORTABLE (avoiding re-opening the key and re-parsing the path)
+  // (requires some API V2 functions to be available)
+  if (rv == REDISMODULE_OK && FieldSpec_IsSortable(fs) && df->unionType == FLD_VAR_T_ARRAY && japi_ver >= 3) {
+    RSValue *rsv = NULL;
+    japi->resetIter(jsonIter);
+    // There is no api version (DIALECT) specified during ingestion,
+    // So we need to prepare a value using newer api version,
+    // in order to be able to handle a query later on with either old or new api version
+    if (jsonIterToValue(ctx, jsonIter, APIVERSION_RETURN_MULTI_CMP_FIRST, &rsv) == REDISMODULE_OK) {
+      df->multisv = rsv;
+    } else {
+      rv = REDISMODULE_ERR;
+    }
+  }
   return rv;
 }

@@ -1097,7 +1097,7 @@ int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len,
         }
         case FULL_MATCH: {
           // if query string ends with *, all following children are a match
-          if (it->buf[array_len(it->buf) - 1] == '*') {
+          if (it->prefix[it->prefixLen - 1] == '*') {
             current->found = true;
           }
           // current node is terminal and should be returned

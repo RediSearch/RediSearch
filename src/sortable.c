@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include <stdlib.h>
 #include <stdio.h>
 #include "rmutil/rm_assert.h"
@@ -81,6 +87,9 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type,
       tbl->values[idx] = RS_StringValT(str, strlen(str), RSString_RMAlloc);
       break;
     }
+    case RS_SORTABLE_RSVAL:
+      tbl->values[idx] = (RSValue*)p;
+      break;
     case RS_SORTABLE_NIL:
     default:
       tbl->values[idx] = RS_NullVal();

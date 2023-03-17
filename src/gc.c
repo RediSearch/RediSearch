@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include <pthread.h>
 #include <assert.h>
 #include <unistd.h>
@@ -12,7 +18,7 @@
 #include "thpool/thpool.h"
 #include "rmutil/rm_assert.h"
 
-static threadpool gcThreadpool_g = NULL;
+static redisearch_threadpool gcThreadpool_g = NULL;
 
 static GCTask *GCTaskCreate(GCContext *gc, RedisModuleBlockedClient* bClient, int debug) {
   GCTask *task = rm_malloc(sizeof(*task));
@@ -129,7 +135,7 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
     task->gc->timerID = scheduleNext(task);
     return;
   }
-  thpool_add_work(gcThreadpool_g, threadCallback, data);
+  redisearch_thpool_add_work(gcThreadpool_g, threadCallback, data);
 }
 
 void GCContext_Start(GCContext* gc) {
@@ -163,7 +169,7 @@ void GCContext_Stop(GCContext* gc) {
     rm_free(gc);
     return;
   }
-  thpool_add_work(gcThreadpool_g, destroyCallback, gc);
+  redisearch_thpool_add_work(gcThreadpool_g, destroyCallback, gc); 
 }
 
 void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx) {
@@ -189,7 +195,7 @@ void GCContext_CommonForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
   }
 
   GCTask *task = GCTaskCreate(gc, bc, 1);
-  thpool_add_work(gcThreadpool_g, threadCallback, task);
+  redisearch_thpool_add_work(gcThreadpool_g, threadCallback, task);
 }
 
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
@@ -202,14 +208,14 @@ void GCContext_ForceBGInvoke(GCContext* gc) {
 
 void GC_ThreadPoolStart() {
   if (gcThreadpool_g == NULL) {
-    gcThreadpool_g = thpool_init(1);
+    gcThreadpool_g = redisearch_thpool_init(1);
   }
 }
 
 void GC_ThreadPoolDestroy() {
   if (gcThreadpool_g != NULL) {
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-    thpool_destroy(gcThreadpool_g);
+    redisearch_thpool_destroy(gcThreadpool_g);
     gcThreadpool_g = NULL;
     RedisModule_ThreadSafeContextLock(RSDummyContext);
   }

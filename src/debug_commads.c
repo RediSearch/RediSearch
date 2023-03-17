@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "debug_commads.h"
 #include "inverted_index.h"
 #include "index.h"
@@ -608,8 +614,8 @@ DEBUG_COMMAND(ttl) {
 }
 
 DEBUG_COMMAND(GitSha) {
-#ifdef RS_GIT_SHA
-  RedisModule_ReplyWithStringBuffer(ctx, RS_GIT_SHA, strlen(RS_GIT_SHA));
+#ifdef GIT_SHA
+  RedisModule_ReplyWithStringBuffer(ctx, GIT_SHA, strlen(GIT_SHA));
 #else
   RedisModule_ReplyWithError(ctx, "GIT SHA was not defined on compilation");
 #endif

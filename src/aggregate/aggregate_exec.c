@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "redismodule.h"
 #include "redisearch.h"
 #include "search_ctx.h"
@@ -38,6 +44,8 @@ static void reeval_key(RedisModuleCtx *outctx, const RSValue *key) {
   else {
     if(key->t == RSValue_Reference) {
       key = RSValue_Dereference(key);
+    } else if (key->t == RSValue_Duo) {
+      key = RS_DUOVAL_VAL(*key);
     }
     switch (key->t) {
       case RSValue_Number:
@@ -58,6 +66,7 @@ static void reeval_key(RedisModuleCtx *outctx, const RSValue *key) {
       case RSValue_Undef:
       case RSValue_Array:
       case RSValue_Reference:
+      case RSValue_Duo:
         break;
     }
     if (rskey) {
@@ -127,10 +136,13 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
       for(; currentField < requiredFieldsCount; currentField++) {
         count++;
         const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], 0);
-        const RSValue *v = getReplyKey(rlk, r);
-        // align field value with its type
+        RSValue *v = (RSValue*)getReplyKey(rlk, r);
+        if (v && v->t == RSValue_Duo) {
+          // For duo value, we use the value here (not the other value)
+          v = RS_DUOVAL_VAL(*v);
+        }
         RSValue rsv;
-        if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE) {
+        if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE && !RSValue_IsNull(v)) {
           double d;
           RSValue_ToNumber(v, &d);
           RSValue_SetNumber(&rsv, d);
@@ -166,6 +178,11 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
       }
       const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
       RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
+
+      if (v && v->t == RSValue_Duo && req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST) {
+        // For duo value, we use the value here (not the other value)
+        v = RS_DUOVAL_VAL(*v);
+      }
 
       RedisModule_ReplyWithStringBuffer(outctx, kk->name, kk->name_len);
       RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
@@ -417,6 +434,9 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
     goto error;
   }
+
+  SET_DIALECT(r->sctx->spec->used_dialects, r->dialectVersion);
+  SET_DIALECT(RSGlobalConfig.used_dialects, r->dialectVersion);
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
     int rc = AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status);

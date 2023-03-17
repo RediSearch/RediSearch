@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include <string.h>
 #include <stdlib.h>
 #include "endpoint.h"
@@ -17,13 +23,35 @@ int MREndpoint_Parse(const char *addr, MREndpoint *ep) {
     addr = at + 1;
   }
 
-  char *colon = strchr(addr, ':');
-  if (!colon || colon == addr) {
+  int has_opener = 0;
+  if (addr[0] == '[') {
+      has_opener = 1;
+      ++addr; // skip the ipv6 opener '['
+  }
+
+  char *iter = strchr(addr, ':');
+  char *colon = NULL;
+  while (iter) {
+      colon = iter;
+      ++iter;
+      iter = strchr(iter, ':');
+  }
+
+  if (!colon) {
     MREndpoint_Free(ep);
     return REDIS_ERR;
   }
 
-  ep->host = rm_strndup(addr, colon - addr);
+  size_t s = colon - addr;
+  if (has_opener) {
+      if (addr[s - 1] != ']') {
+          MREndpoint_Free(ep);
+          return REDIS_ERR;
+      }
+      --s; // skip the ipv6 closer ']'
+  }
+
+  ep->host = rm_strndup(addr, s);
   ep->port = atoi(colon + 1);
 
   if (ep->port <= 0 || ep->port > 0xFFFF) {
