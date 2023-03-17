@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #ifndef SRC_SYNONYM_MAP_H_
 #define SRC_SYNONYM_MAP_H_
@@ -7,6 +13,8 @@
 #include "util/arr.h"
 #include "util/strconv.h"
 #include <stdbool.h>
+
+#define SYNONYM_PREFIX_CHAR '~'
 
 /**
  * Holding a term data

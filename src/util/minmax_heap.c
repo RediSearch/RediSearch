@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -8,27 +14,28 @@
 
 #include "rmalloc.h"
 
-#define is_min(n) ((log2_32(n) & 1) == 0)
+/*
+ * `is_min` returns true if the index is a min node, false otherwise.
+ * A node is a min node if its level (depth) is odd (and the root has a depth 1).
+ * With our array representation, a node is a min node if the log2 floor of its index is even.
+ * (log2 floor of 1 is 0 - min, log2 floor of 2 is 1 - max, log2 floor of 3 is 1 - max, log2 floor of 4 is 2 - min, etc.)
+ * A quick way to calculate the log2 floor of a number is to count the leading zeros in its binary representation:
+ * for a 32 bit number, the log2 floor is "31 - the number of leading zeros". `__builtin_clz` does exactly that (clz = count leading zeros).
+ * Notice that `__builtin_clz` is undefined for 0 (as well as log2 of 0). Our first index is 1, so we don't need to worry about that.
+ * since we only care about the parity of the log2 floor, we can just check the LSB of the number of leading zeros:
+ * n is a min node <=> log2(n) % 2 == 0 <=> (31 - __builtin_clz(n)) % 2 == 0 <=> __builtin_clz(n) % 2 == 1
+ * So we can simply check for `(__builtin_clz(n) & 1)`.
+ * Additional info:
+ *    Correctness: https://godbolt.org/z/W7n9e39qj
+ *    Optimality:  https://quick-bench.com/q/Rl3sUfldpGlhQWjXopnTtxh95kI
+ */
+#define is_min(n) (__builtin_clz(n) & 1)
+
 #define parent(n) (n / 2)
 #define first_child(n) (n * 2)
 #define second_child(n) ((n * 2) + 1)
 
-#define heap_gt(h, x, y) (h->cmp(h->data[x], h->data[y], h->cmp_ctx) > 0)
-#define heap_lt(h, x, y) (h->cmp(h->data[x], h->data[y], h->cmp_ctx) < 0)
-
 #define heap_max(h, x, y) (heap_gt(h, x, y) ? h->data[x] : h->data[y])
-
-static const int tab32[32] = {0, 9,  1,  10, 13, 21, 2,  29, 11, 14, 16, 18, 22, 25, 3, 30,
-                              8, 12, 20, 28, 15, 17, 24, 7,  19, 27, 23, 6,  26, 5,  4, 31};
-
-static inline int log2_32(uint32_t value) {
-  value |= value >> 1;
-  value |= value >> 2;
-  value |= value >> 4;
-  value |= value >> 8;
-  value |= value >> 16;
-  return tab32[(uint32_t)(value * 0x07C4ACDD) >> 27];
-}
 
 #define swap(h, i, j)        \
   {                          \
@@ -36,6 +43,11 @@ static inline int log2_32(uint32_t value) {
     h->data[i] = h->data[j]; \
     h->data[j] = tmp;        \
   }
+
+typedef bool (*heap_order_fn)(const heap_t*, int, int);
+
+static inline bool heap_gt(const heap_t* h, int x, int y) { return (h->cmp(h->data[x], h->data[y], h->cmp_ctx) > 0); }
+static inline bool heap_lt(const heap_t* h, int x, int y) { return (h->cmp(h->data[x], h->data[y], h->cmp_ctx) < 0); }
 
 static void bubbleup_min(heap_t* h, int i) {
   int pp_idx = parent(parent(i));
@@ -78,26 +90,15 @@ static void bubbleup(heap_t* h, int i) {
   }
 }
 
-int index_max_child_grandchild(heap_t* h, int i) {
-  int a = first_child(i);
-  int b = second_child(i);
-  int d = second_child(a);
-  int c = first_child(a);
-  int f = second_child(b);
-  int e = first_child(b);
-
-  int min_idx = -1;
-  if (a <= h->count) min_idx = a;
-  if (b <= h->count && heap_gt(h, b, min_idx)) min_idx = b;
-  if (c <= h->count && heap_gt(h, c, min_idx)) min_idx = c;
-  if (d <= h->count && heap_gt(h, d, min_idx)) min_idx = d;
-  if (e <= h->count && heap_gt(h, e, min_idx)) min_idx = e;
-  if (f <= h->count && heap_gt(h, f, min_idx)) min_idx = f;
-
-  return min_idx;
+static int choose_from_3(heap_order_fn fn, heap_t* h, int a, int b, int c) {
+  return (fn(h, a, b) ? (fn(h, a, c) ? a : c) : (fn(h, b, c) ? b : c));
 }
 
-int index_min_child_grandchild(heap_t* h, int i) {
+static int choose_from_4(heap_order_fn fn, heap_t* h, int a, int b, int c, int d) {
+  return (fn(h, a, b) ? choose_from_3(fn, h, a, c, d) : choose_from_3(fn, h, b, c, d));
+}
+
+static inline char highest_descendant_in_range(heap_t* h, int i) {
   int a = first_child(i);
   int b = second_child(i);
   int c = first_child(a);
@@ -105,15 +106,50 @@ int index_min_child_grandchild(heap_t* h, int i) {
   int e = first_child(b);
   int f = second_child(b);
 
-  int min_idx = -1;
-  if (a <= h->count) min_idx = a;
-  if (b <= h->count && heap_lt(h, b, min_idx)) min_idx = b;
-  if (c <= h->count && heap_lt(h, c, min_idx)) min_idx = c;
-  if (d <= h->count && heap_lt(h, d, min_idx)) min_idx = d;
-  if (e <= h->count && heap_lt(h, e, min_idx)) min_idx = e;
-  if (f <= h->count && heap_lt(h, f, min_idx)) min_idx = f;
+  if (f <= h->count) return 0xf;
+  if (e <= h->count) return 0xe;
+  if (d <= h->count) return 0xd;
+  if (c <= h->count) return 0xc;
+  if (b <= h->count) return 0xb;
+  if (a <= h->count) return 0xa;
 
-  return min_idx;
+  return 0x0;
+}
+
+// basing on the min/max heap property, we can determine the best child/grandchild out of the existing
+// ones without having to compare all of them
+static inline int index_best_child_grandchild_common(heap_t* h, heap_order_fn order, int i) {
+  int a = first_child(i);
+  int b = second_child(i);
+  int c = first_child(a);
+  int d = second_child(a);
+  int e = first_child(b);
+  int f = second_child(b);
+
+  switch (highest_descendant_in_range(h, i)) {
+    case 0xf:
+      return choose_from_4(order, h, c, d, e, f);
+    case 0xe:
+      return choose_from_3(order, h, c, d, e);
+    case 0xd:
+      return choose_from_3(order, h, b, c, d);
+    case 0xc:
+      return order(h, b, c) ? b : c;
+    case 0xb:
+      return order(h, a, b) ? a : b;
+    case 0xa:
+      return a;
+    default:
+      return -1;
+  }
+}
+
+static int index_max_child_grandchild(heap_t* h, int i) {
+  return index_best_child_grandchild_common(h, heap_gt, i);
+}
+
+static int index_min_child_grandchild(heap_t* h, int i) {
+  return index_best_child_grandchild_common(h, heap_lt, i);
 }
 
 static void trickledown_max(heap_t* h, int i) {
@@ -152,14 +188,6 @@ static void trickledown_min(heap_t* h, int i) {
   }
 }
 
-static void trickledown(heap_t* h, int i) {
-  if (is_min(i)) {
-    trickledown_min(h, i);
-  } else {
-    trickledown_max(h, i);
-  }
-}
-
 void mmh_insert(heap_t* h, void* value) {
   assert(value != NULL);
   h->count++;
@@ -176,7 +204,7 @@ void* mmh_pop_min(heap_t* h) {
   if (h->count > 1) {
     void* d = h->data[1];
     h->data[1] = h->data[h->count--];
-    trickledown(h, 1);
+    trickledown_min(h, 1);
 
     return d;
   }
@@ -194,7 +222,7 @@ void* mmh_pop_max(heap_t* h) {
     if (heap_lt(h, 2, 3)) idx = 3;
     void* d = h->data[idx];
     h->data[idx] = h->data[h->count--];
-    trickledown(h, idx);
+    trickledown_max(h, idx);
 
     return d;
   }

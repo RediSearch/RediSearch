@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #include "libnu/libnu.h"
 #include "rune_util.h"
@@ -95,4 +101,14 @@ size_t strToRunesN(const char *src, size_t slen, rune *out) {
     out[nout++] = (rune)cp;
   }
   return nout;
+}
+
+const rune *runenchr(const rune *r, size_t len, rune c) {
+  size_t i = 0;
+  for (; i < len; ++i) {
+    if (r[i] == (rune)c) {
+      break;
+    }
+  }
+  return i == len ? NULL : r + i;
 }

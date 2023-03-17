@@ -1,22 +1,37 @@
-Retrieves configuration options.
+---
+syntax: |
+  FT.CONFIG GET option
+---
 
-#### Parameters
+Retrieve configuration options
 
-* **option**: the name of the configuration option, or '*' for all.
+[Examples](#examples)
 
-@return
+## Required arguments
 
-@array-reply of the configuration name and value.
+<details open>
+<summary><code>option</code></summary> 
 
-@examples
+is name of the configuration option, or '*' for all. 
+</details>
 
-```
-redis> FT.CONFIG GET TIMEOUT
+## Return
+
+FT.CONFIG GET returns an array reply of the configuration name and value.
+
+## Examples
+
+<details open>
+<summary><b>Retrieve configuration options</b></summary>
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.CONFIG GET TIMEOUT
 1) 1) TIMEOUT
    2) 42
-```
-```
-redis> FT.CONFIG GET *
+{{< / highlight >}}
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.CONFIG GET *
  1) 1) EXTLOAD
     2) (nil)
  2) 1) SAFEMODE
@@ -87,4 +102,13 @@ redis> FT.CONFIG GET *
     2) false
 35) 1) _NUMERIC_RANGES_PARENTS
     2) 0
-```
+{{< / highlight >}}
+</details>
+
+## See also
+
+`FT.CONFIG SET` | `FT.CONFIG HELP` 
+
+## Related topics
+
+[RediSearch](/docs/stack/search)

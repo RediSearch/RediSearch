@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #ifndef SRC_GC_H_
 #define SRC_GC_H_
@@ -15,6 +21,7 @@ struct IndexSpec;
 typedef struct GCCallbacks {
   int (*periodicCallback)(RedisModuleCtx* ctx, void* gcCtx);
   void (*renderStats)(RedisModuleCtx* ctx, void* gc);
+  void (*renderStatsForInfo)(RedisModuleInfoCtx* ctx, void* gc);
   void (*onDelete)(void* ctx);
   void (*onTerm)(void* ctx);
 
@@ -42,6 +49,9 @@ GCContext* GCContext_CreateGC(RedisModuleString* keyName, float initialHZ, uint6
 void GCContext_Start(GCContext* gc);
 void GCContext_Stop(GCContext* gc);
 void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx);
+#ifdef FTINFO_FOR_INFO_MODULES
+void GCContext_RenderStatsForInfo(GCContext* gc, RedisModuleInfoCtx* ctx);
+#endif
 void GCContext_OnDelete(GCContext* gc);
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc);
 void GCContext_ForceBGInvoke(GCContext* gc);

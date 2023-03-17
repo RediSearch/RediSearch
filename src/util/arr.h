@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef UTIL_ARR_H_
 #define UTIL_ARR_H_
 /* arr.h - simple, easy to use dynamic array with fat pointers,
@@ -223,6 +229,7 @@ static ARR_FORCEINLINE uint32_t array_len(array_t arr) {
 static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
   array_hdr_t *arr_hdr = array_hdr(arr);
   assert(len >= 0 && "trimming len is negative");
+  //printf("array_len %d len %d\n", array_len(arr), len);
   assert((cap == ARR_CAP_NOSHRINK || cap > 0 || len == cap) && "trimming capacity is illegal");
   assert((cap == ARR_CAP_NOSHRINK || cap >= len) && "trimming len is greater then capacity");
   assert((len <= arr_hdr->len) && "trimming len is greater then current len");
@@ -234,7 +241,10 @@ static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
   return arr_hdr->buf;
 }
 
-#define array_trimm_len(arr, len) (__typeof__(arr)) array_trimm(arr, len, ARR_CAP_NOSHRINK)
+/* Trim array by `len` elements */
+#define array_trimm_len(arr, len) (__typeof__(arr)) array_trimm(arr, array_len(arr) - (len), ARR_CAP_NOSHRINK)
+
+/* Resize array to `cap` elements */
 #define array_trimm_cap(arr, len) (__typeof__(arr)) array_trimm(arr, len, len)
 
 /* Free the array, without dealing with individual elements */

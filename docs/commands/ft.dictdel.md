@@ -1,17 +1,45 @@
-Deletes terms from a dictionary.
+---
+syntax: |
+  FT.DICTDEL dict term [term ...]
+---
 
-#### Parameters
+Delete terms from a dictionary
 
-* **dict**: the dictionary name.
+[Examples](#examples)
 
-* **term**: the term to delete from the dictionary.
+## Required arguments
 
-@return
+<details open>
+<summary><code>dict</code></summary>
 
-@integer-reply - the number of terms that were deleted.
+is dictionary name.
+</details>
 
+<details open>
+<summary><code>term</code></summary>
 
-```
-redis> FT.DICTDEL dict foo bar "hello world"
+term to delete from the dictionary.
+</details>
+
+## Return
+
+FT.DICTDEL returns an integer reply, the number of new terms that were deleted.
+
+## Examples
+
+<details open>
+<summary><b>Delete terms from a dictionary</b></summary>
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.DICTDEL dict foo bar "hello world"
 (integer) 3
-```
+{{< / highlight >}}
+</details>
+
+## See also
+
+`FT.DICTADD` | `FT.DICTDUMP`
+
+## Related topics
+
+[RediSearch](/docs/stack/search)

@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #pragma once
 
 #include "geohash/geohash_helper.h"
@@ -7,7 +13,7 @@
 
 /*
  * Encode longetude and latitude doubles into a single double.
- * This value can be sorted and used for distance. 
+ * This value can be sorted and used for distance.
  */
 int  encodeGeo(double lon, double lat, double *bits);
 
@@ -18,7 +24,7 @@ int  decodeGeo(double bits, double *xy);
 
 /*
  * Calculate which neighboring squares around a point contain the given radius.
- * 
+ *
  * `isWithinRadiusLonLat` must be use the filter out results that are within
  * the squares but not in radius.
  */

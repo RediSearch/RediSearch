@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #define __REDISEARCH_STOPORWORDS_C__
 #include "stopwords.h"
 #include "triemap/triemap.h"
@@ -45,7 +51,7 @@ int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) 
   strtolower(lowStr);
   int ret = TrieMap_Find(sl->m, (char *)lowStr, len) != TRIEMAP_NOTFOUND;
 
-  // free memory if allocated 
+  // free memory if allocated
   if (len >= 32) rm_free(lowStr);
 
   return ret;
@@ -197,6 +203,30 @@ void ReplyWithStopWordsList(RedisModuleCtx *ctx, struct StopWordList *sl) {
   RedisModule_ReplySetArrayLength(ctx, i);
   TrieMapIterator_Free(it);
 }
+
+#ifdef FTINFO_FOR_INFO_MODULES
+void AddStopWordsListToInfo(RedisModuleInfoCtx *ctx, struct StopWordList *sl) {
+  if (sl == NULL) {
+    return;
+  }
+
+  TrieMapIterator *it = TrieMap_Iterate(sl->m, "", 0);
+  char *str;
+  tm_len_t len;
+  void *ptr;
+  bool first = true;
+  arrayof(char) stopwords = array_new(char, 512);
+  while (TrieMapIterator_Next(it, &str, &len, &ptr)) {
+    stopwords = array_ensure_append_1(stopwords, "\"");
+    stopwords = array_ensure_append_n(stopwords, str, len);
+    stopwords = array_ensure_append_n(stopwords, "\",", 2);
+  }
+  stopwords[array_len(stopwords)-1] = '\0';
+  RedisModule_InfoAddFieldCString(ctx, "stop_words", stopwords);
+  array_free(stopwords);
+  TrieMapIterator_Free(it);
+}
+#endif
 
 char **GetStopWordsList(struct StopWordList *sl, size_t *size) {
   *size = sl->m->cardinality;

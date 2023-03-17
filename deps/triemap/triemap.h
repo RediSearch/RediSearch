@@ -8,12 +8,16 @@
 #include <stdbool.h>
 
 #include "util/arr.h"
+#include "util/timeout.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef uint16_t tm_len_t;
 
 #define TM_NODE_DELETED 0x01
 #define TM_NODE_TERMINAL 0x02
-#define TM_NODE_SORTED 0x04
 
 /* This special pointer is returned when TrieMap_Find cannot find anything */
 extern void *TRIEMAP_NOTFOUND;
@@ -49,6 +53,8 @@ typedef struct {
   size_t size;         // number of nodes
 } TrieMap;
 
+typedef void (*freeCB)(void *);
+
 TrieMap *NewTrieMap();
 
 typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
@@ -74,7 +80,7 @@ int TrieMap_Add(TrieMap *t, char *str, tm_len_t len, void *value, TrieMapReplace
  * constant value TRIEMAP_NOTFOUND, so checking if the key exists is done by
  * comparing to it, becase NULL can be a valid result.
  */
-void *TrieMap_Find(TrieMap *t, char *str, tm_len_t len);
+void *TrieMap_Find(TrieMap *t, const char *str, tm_len_t len);
 
 /* Find nodes that have a given prefix. Results are placed in an array.
  */
@@ -83,22 +89,11 @@ int TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len, arrayof(void
 /* Mark a node as deleted. It also optimizes the trie by merging nodes if
  * needed. If freeCB is given, it will be used to free the value of the deleted
  * node. If it doesn't, we simply call free() */
-int TrieMap_Delete(TrieMap *t, char *str, tm_len_t len, void (*freeCB)(void *));
+int TrieMap_Delete(TrieMap *t, const char *str, tm_len_t len, freeCB func);
 
 /* Free the trie's root and all its children recursively. If freeCB is given, we
  * call it to free individual payload values. If not, free() is used instead. */
-void TrieMap_Free(TrieMap *t, void (*freeCB)(void *));
-
-/* Get a random key from the trie by doing a random walk down and up the tree
- * for a minimum number of steps. Returns 0 if the tree is empty and we couldn't
- * find a random node.
- * Assign's the key to str and saves its len (the key is NOT null terminated).
- * NOTE: It is the caller's responsibility to free the key string
- */
-int TrieMap_RandomKey(TrieMap *t, char **str, tm_len_t *len, void **ptr);
-
-/* Get the value of a random element under a specific prefix. NULL if the prefix was not found */
-void *TrieMap_RandomValueByPrefix(TrieMap *t, const char *prefix, tm_len_t pflen);
+void TrieMap_Free(TrieMap *t, freeCB func);
 
 size_t TrieMap_MemUsage(TrieMap *t);
 
@@ -107,26 +102,39 @@ size_t TrieMap_MemUsage(TrieMap *t);
 /* trie iterator stack node. for internal use only */
 typedef struct {
   int state;
+  bool found;
   TrieMapNode *n;
   tm_len_t stringOffset;
   tm_len_t childOffset;
 } __tmi_stackNode;
 
-typedef struct {
-  char *buf;
-  tm_len_t bufLen;
-  tm_len_t bufOffset;
+/* Use by TrieMapIterator to determine type of query */
+typedef enum {
+  TM_PREFIX_MODE = 0,
+  TM_CONTAINS_MODE = 1,
+  TM_SUFFIX_MODE = 2,
+  TM_WILDCARD_MODE = 3,
+  TM_WILDCARD_FIXED_LEN_MODE = 4,
+} tm_iter_mode;
 
-  __tmi_stackNode *stack;
-  tm_len_t stackOffset;
-  tm_len_t stackCap;
+typedef struct TrieMapIterator{
+  arrayof(char) buf;
+
+  arrayof(__tmi_stackNode) stack;
 
   const char *prefix;
   tm_len_t prefixLen;
-  int inSuffix;
+
+  tm_iter_mode mode;
+
+  struct TrieMapIterator *matchIter;
+
+  struct timespec timeout;
+  size_t timeoutCounter;
 } TrieMapIterator;
 
-void __tmi_Push(TrieMapIterator *it, TrieMapNode *node);
+void __tmi_Push(TrieMapIterator *it, TrieMapNode *node, tm_len_t stringOffset,
+                bool found);
 void __tmi_Pop(TrieMapIterator *it);
 
 /* Iterate the trie for all the suffixes of a given prefix. This returns an
@@ -135,6 +143,9 @@ void __tmi_Pop(TrieMapIterator *it);
  * prefix is not found, the first call to next will return 0 */
 TrieMapIterator *TrieMap_Iterate(TrieMap *t, const char *prefix, tm_len_t prefixLen);
 
+/* Set timeout limit used for affix queries */
+void TrieMapIterator_SetTimeout(TrieMapIterator *it, struct timespec timeout);
+
 /* Free a trie iterator */
 void TrieMapIterator_Free(TrieMapIterator *it);
 
@@ -142,10 +153,26 @@ void TrieMapIterator_Free(TrieMapIterator *it);
  * or 0 if we're done and should exit */
 int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
 
+/* Iterate to the next matching entry in the trie. Returns 1 if we can continue,
+ * or 0 if we're done and should exit 
+ * NextContains is used by Contains and Suffix queries.
+ * Wildcard is used by Wildcard queries.
+ */
+int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
+int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
+
+typedef int (*TrieMapIterator_NextFunc)(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
+
 typedef void(TrieMapRangeCallback)(const char *, size_t, void *, void *);
 
 void TrieMap_IterateRange(TrieMap *trie, const char *min, int minlen, bool includeMin,
                           const char *max, int maxlen, bool includeMax,
                           TrieMapRangeCallback callback, void *ctx);
+
+void *TrieMap_RandomValueByPrefix(TrieMap *t, const char *prefix, tm_len_t pflen);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

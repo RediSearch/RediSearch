@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef SRC_REDISEARCH_API_H_
 #define SRC_REDISEARCH_API_H_
 
@@ -59,6 +65,7 @@ typedef struct RSIdxOptions RSIndexOptions;
 #define RSFLDOPT_NOINDEX 0x02
 #define RSFLDOPT_TXTNOSTEM 0x04
 #define RSFLDOPT_TXTPHONETIC 0x08
+#define RSFLDOPT_WITHSUFFIXTRIE 0x10
 
 // This enum copies
 typedef enum {
@@ -261,6 +268,10 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreateGeoNode)
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreatePrefixNode)
 (RSIndex* sp, const char* fieldName, const char* s);
+MODULE_API_FUNC(RSQNode*, RediSearch_CreateContainsNode)
+(RSIndex* sp, const char* fieldName, const char* s);
+MODULE_API_FUNC(RSQNode*, RediSearch_CreateSuffixNode)
+(RSIndex* sp, const char* fieldName, const char* s);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateLexRangeNode)
 (RSIndex* sp, const char* fieldName, const char* begin, const char* end, int includeBegin,
@@ -271,6 +282,10 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagNode)(RSIndex* sp, const char* fie
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagTokenNode)
 (RSIndex* sp, const char* token);
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagPrefixNode)
+(RSIndex* sp, const char* s);
+MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagContainsNode)
+(RSIndex* sp, const char* s);
+MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagSuffixNode)
 (RSIndex* sp, const char* s);
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagLexRangeNode)
 (RSIndex* sp, const char* begin, const char* end, int includeBegin,
@@ -335,6 +350,8 @@ MODULE_API_FUNC(double, RediSearch_ResultsIteratorGetScore)(const RSResultsItera
 
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* options, int policy);
 
+MODULE_API_FUNC(size_t, RediSearch_MemUsage)(RSIndex* sp);
+
 /**
  * Return an info struct
  * @param sp the index
@@ -372,10 +389,14 @@ MODULE_API_FUNC(void, RediSearch_IndexInfoFree)(RSIdxInfo *info);
   X(CreateTokenNode)                 \
   X(CreateNumericNode)               \
   X(CreatePrefixNode)                \
+  X(CreateContainsNode)              \
+  X(CreateSuffixNode)                \
   X(CreateLexRangeNode)              \
   X(CreateTagNode)                   \
   X(CreateTagTokenNode)              \
   X(CreateTagPrefixNode)             \
+  X(CreateTagContainsNode)           \
+  X(CreateTagSuffixNode)             \
   X(CreateTagLexRangeNode)           \
   X(CreateIntersectNode)             \
   X(CreateUnionNode)                 \
@@ -395,6 +416,7 @@ MODULE_API_FUNC(void, RediSearch_IndexInfoFree)(RSIdxInfo *info);
   X(IterateQueryWithDialect)         \
   X(ResultsIteratorGetScore)         \
   X(IndexOptionsSetGCPolicy)         \
+  X(MemUsage)                        \
   X(IndexInfo)                       \
   X(IndexInfoFree)                   \
   X(SetCriteriaTesterThreshold)

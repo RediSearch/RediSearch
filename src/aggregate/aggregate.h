@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef RS_AGGREGATE_H__
 #define RS_AGGREGATE_H__
 #include "value.h"
@@ -7,6 +13,7 @@
 #include "expr/expression.h"
 #include "aggregate_plan.h"
 #include "rmutil/rm_assert.h"
+#include "rmutil/cxx/chrono-clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -114,10 +121,10 @@ typedef struct {
   unsigned int dialectVersion;
 
   /** Profile variables */
-  clock_t initClock;          // Time of start. Reset for each cursor call
-  clock_t totalTime;          // Total time. Used to accimulate cursors times
-  clock_t parseTime;          // Time for parsing the query
-  clock_t pipelineBuildTime;  // Time for creating the pipeline
+  hires_clock_t initClock;  // Time of start. Reset for each cursor call
+  double totalTime;          // Total time. Used to accimulate cursors times
+  double parseTime;          // Time for parsing the query
+  double pipelineBuildTime;  // Time for creating the pipeline
 
   const char** requiredFields;
 } AREQ;

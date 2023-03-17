@@ -1,9 +1,16 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef RS_CONFIG_H_
 #define RS_CONFIG_H_
 
 #include "redismodule.h"
 #include "rmutil/sds.h"
 #include "query_error.h"
+#include "fields_global_stats.h"
 
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
@@ -11,7 +18,7 @@ typedef enum {
   TimeoutPolicy_Invalid       // Not a real value
 } RSTimeoutPolicy;
 
-typedef enum { GCPolicy_Fork = 0, GCPolicy_Sync } GCPolicy;
+typedef enum { GCPolicy_Fork = 0 } GCPolicy;
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
 
@@ -22,8 +29,6 @@ RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n);
 
 static inline const char *GCPolicy_ToString(GCPolicy policy) {
   switch (policy) {
-    case GCPolicy_Sync:
-      return "sync";
     case GCPolicy_Fork:
       return "fork";
     default:          // LCOV_EXCL_LINE cannot be reached
@@ -55,7 +60,7 @@ typedef struct {
   // 0 means unlimited
   long long queryTimeoutMS;
 
-  long long timeoutPolicy;
+  RSTimeoutPolicy timeoutPolicy;
 
   // Number of rows to read from a cursor if not specified
   long long cursorReadSize;
@@ -82,11 +87,13 @@ typedef struct {
   size_t forkGcSleepBeforeExit;
   int forkGCCleanNumericEmptyNodes;
 
+  FieldsGlobalStats fieldsStats;
+
   // Chained configuration data
   void *chainedConfig;
 
   long long maxResultsToUnsortedMode;
-  long long minUnionIterHeap;;
+  long long minUnionIterHeap;
 
   int noMemPool;
 
@@ -104,6 +111,15 @@ typedef struct {
   int invertedIndexRawDocidEncoding;
   // Default dialect level used throughout database lifetime.
   unsigned int defaultDialectVersion;
+  // sets the memory limit for vector indexes to resize by (in bytes).
+  // 0 indicates no limit. Default value is 0.
+  unsigned int vssMaxResize;
+  // The delta used to increase positional offsets between array slots for multi text values.
+  // Can allow to control the seperation between phrases in different array slots (related to the SLOP parameter in ft.search command)
+  // Default value is 100. 0 will not increment (as if all text is a continus phrase).
+  unsigned int multiTextOffsetDelta;
+  // bitarray of dialects used by all indices
+  uint_least8_t used_dialects;
 } RSConfig;
 
 typedef enum {
@@ -161,6 +177,10 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
 
 sds RSConfig_GetInfoString(const RSConfig *config);
 
+void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
+
+void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
+
 #define DEFAULT_DOC_TABLE_SIZE 1000000
 #define MAX_DOC_TABLE_SIZE 100000000
 #define CONCURRENT_SEARCH_POOL_DEFAULT_SIZE 20
@@ -172,7 +192,11 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 #define NR_MAX_DEPTH_BALANCE 2
-#define MAX_DIALECT_VERSION 2
+#define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
+#define MAX_DIALECT_VERSION 3 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
+#define DIALECT_OFFSET(d) (1ULL << (d - MIN_DIALECT_VERSION))// offset of the d'th bit. begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
+#define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
+#define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
@@ -189,7 +213,8 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
     .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
-    .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1, \
+    .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1,\
+    .vssMaxResize = 0, .multiTextOffsetDelta = 100, .used_dialects = 0                            \
   }
 
 #define REDIS_ARRAY_LIMIT 7
@@ -199,5 +224,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 static inline int isFeatureSupported(int feature) {
   return feature <= RSGlobalConfig.serverVersion;
 }
+
+#define CONFIG_SETTER(name) int name(RSConfig *config, ArgsCursor *ac, QueryError *status)
 
 #endif

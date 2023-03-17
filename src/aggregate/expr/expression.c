@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "expression.h"
 #include "result_processor.h"
 #include "rlookup.h"
@@ -69,7 +75,11 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
       res = n1 + n2;
       break;
     case '/':
-      res = n1 / n2;
+      if (n2 != 0) {
+        res = n1 / n2;
+      } else {
+        res = NAN;
+      }
       break;
     case '-':
       res = n1 - n2;
@@ -77,8 +87,15 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
     case '*':
       res = n1 * n2;
       break;
-    case '%':
-      res = (long long)n1 % (long long)n2;
+    case '%':	      
+        // workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=30484
+        if (n2 == -1){ 
+          res = 0;
+        } else if (n2 != 0) {
+          res = (long long)n1 % (long long)n2;
+        } else {
+          res = NAN;
+        }
       break;
     case '^':
       res = pow(n1, n2);
@@ -305,6 +322,10 @@ EvalCtx *EvalCtx_Create() {
   r->ee.lookup = &r->lk;
   r->ee.srcrow = &r->row;
   r->ee.err = &r->status;
+
+  r->res = *RS_NullVal();
+
+  r->_expr = NULL;
 
   return r;
 }

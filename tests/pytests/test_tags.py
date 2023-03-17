@@ -11,7 +11,6 @@ def testTagIndex(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH','schema', 'title', 'text', 'tags', 'tag').ok()
     N = 10
     for n in range(N):
-
         env.expect('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
                                        'title', 'hello world term%d' % n, 'tags', 'foo bar,xxx,tag %d' % n).ok()
     for _ in r.retry_with_rdb_reload():
@@ -182,10 +181,10 @@ def testTagCaseSensitive(env):
     if not env.is_cluster():
         conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
         env.expect('FT.DEBUG', 'dump_tagidx', 'idx1', 't').equal([['foo', [1, 2, 3]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx2', 't').equal([['foo', [1, 3]], ['FOO', [1, 2]]])
+        env.expect('FT.DEBUG', 'dump_tagidx', 'idx2', 't').equal([['FOO', [1, 2]], ['foo', [1, 3]]])
         env.expect('FT.DEBUG', 'dump_tagidx', 'idx3', 't').equal([['foo', [2, 3]], ['foo,foo', [1]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx4', 't').equal([['foo', [3]], ['foo,FOO', [1]], ['FOO', [2]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['foo', [3]], ['foo,FOO', [1]], ['FOO', [2]]])
+        env.expect('FT.DEBUG', 'dump_tagidx', 'idx4', 't').equal([['FOO', [2]], ['foo', [3]], ['foo,FOO', [1]]])
+        env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['FOO', [2]], ['foo', [3]], ['foo,FOO', [1]]])
 
     env.expect('FT.SEARCH', 'idx1', '@t:{FOO}')         \
         .equal([3, 'doc1', ['t', 'foo,FOO'], 'doc2', ['t', 'FOO'], 'doc3', ['t', 'foo']])
@@ -209,10 +208,10 @@ def testTagCaseSensitive(env):
         forceInvokeGC(env, 'idx5')
 
         env.expect('FT.DEBUG', 'dump_tagidx', 'idx1', 't').equal([['f o', [4, 5, 6]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx2', 't').equal([['f o', [4, 6]], ['F O', [4, 5]]])
+        env.expect('FT.DEBUG', 'dump_tagidx', 'idx2', 't').equal([['F O', [4, 5]], ['f o', [4, 6]]])
         env.expect('FT.DEBUG', 'dump_tagidx', 'idx3', 't').equal([['f o', [5, 6]], ['f o,f o', [4]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx4', 't').equal([['f o', [6]], ['f o,F O', [4]], ['F O', [5]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['f o', [6]], ['f o,F O', [4]], ['F O', [5]]])
+        env.expect('FT.DEBUG', 'dump_tagidx', 'idx4', 't').equal([['F O', [5]], ['f o', [6]], ['f o,F O', [4]]])
+        env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['F O', [5]], ['f o', [6]], ['f o,F O', [4]]])
 
     # not casesensitive
     env.expect('FT.SEARCH', 'idx1', '@t:{F\\ O}')         \
@@ -259,7 +258,7 @@ def testTagGCClearEmpty(env):
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'bar')
     conn.execute_command('HSET', 'doc3', 't', 'baz')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1]], ['bar', [2]], ['baz', [3]]])
+    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['bar', [2]], ['baz', [3]], ['foo', [1]]])
     env.expect('FT.SEARCH', 'idx', '@t:{foo}').equal([1, 'doc1', ['t', 'foo']])
 
     # delete two tags

@@ -12,6 +12,7 @@
 *.dSYM
 /bin/
 /site/
+/tests/logs/
 /venv*/
 /srcutil/lemon
 /src/query_parser/lemon
@@ -22,4 +23,5 @@
 VSCODE.DB*
 callgrind.out.*
 **/.ipynb_checkpoints/
+/tests/pytests/logs/
 /1/

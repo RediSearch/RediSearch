@@ -79,6 +79,7 @@ def testPrefix2(env):
     env.assertIn('that:foo', res)
     env.assertIn('this:foo', res)
 
+@no_asan
 def testManyPrefixes(env):
     # this test checks that releasing all indexes is faster
     # it went down from 10 to less than 1 second for 10,000 indexes
@@ -88,7 +89,7 @@ def testManyPrefixes(env):
         env.execute_command('ft.create', i, 'ON', 'HASH',
                             'PREFIX', '1', i,
                             'SCHEMA', 'name', 'text')
-    env.debugPrint(str(time.time() - start_time), force=True)
+    env.debugPrint(str(time.time() - start_time), force=TEST_DEBUG)
     start_time = time.time()
     conn.execute_command('FLUSHALL')
     env.assertLess(time.time() - start_time, 5)
@@ -189,6 +190,14 @@ def testRename(env):
 
     env.cmd('SET foo bar')
     env.cmd('RENAME foo fubu')
+
+def testRenameChangePrefix(env):
+    env.skipOnCluster()
+    env.cmd('ft.create idx1 PREFIX 1 1: SCHEMA name text')
+    env.cmd('ft.create idx2 PREFIX 1 2: SCHEMA name text')
+
+    env.cmd('SET 1:1 bar')
+    env.expect('RENAME 1:1 2:1').ok()
 
 def testCopy(env):
     env.skipOnCluster()
@@ -531,16 +540,6 @@ def testRestore(env):
     env.expect('FT.SEARCH idx foo').equal([0])
     env.expect('RESTORE', 'doc1', 0, dump)
     env.expect('FT.SEARCH idx foo').equal([1, 'doc1', ['test', 'foo']])
-
-def testExpire(env):
-    conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
-    conn.execute_command('HSET', 'doc1', 'test', 'foo')
-    env.expect('FT.SEARCH idx foo').equal([1, 'doc1', ['test', 'foo']])
-    conn.execute_command('PEXPIRE', 'doc1', '1')
-    env.expect('FT.SEARCH idx foo').equal([1, 'doc1', ['test', 'foo']])
-    sleep(1.1)
-    env.expect('FT.SEARCH idx foo').equal([0])
 
 def testEvicted(env):
     env.skipOnCluster()

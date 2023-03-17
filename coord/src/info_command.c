@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "info_command.h"
 
 // Type of field returned in INFO
@@ -32,7 +38,8 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "offset_bits_per_record_avg", .type = InfoField_DoubleAverage},
     {.name = "indexing", .type = InfoField_WholeSum},
     {.name = "percent_indexed", .type = InfoField_DoubleAverage},
-    {.name = "hash_indexing_failures", .type = InfoField_WholeSum}};
+    {.name = "hash_indexing_failures", .type = InfoField_WholeSum},
+    {.name = "number_of_uses", .type = InfoField_Max}};
 
 static InfoFieldSpec gcSpecs[] = {
     {.name = "current_hz", .type = InfoField_DoubleAverage},
@@ -46,9 +53,17 @@ static InfoFieldSpec cursorSpecs[] = {
     {.name = "index_total", .type = InfoField_WholeSum},
 };
 
-#define NUM_FIELDS_SPEC (sizeof(toplevelSpecs_g) / sizeof(InfoFieldSpec))
-#define NUM_GC_FIELDS_SPEC (sizeof(gcSpecs) / sizeof(InfoFieldSpec))
-#define NUM_CURSOR_FIELDS_SPEC (sizeof(cursorSpecs) / sizeof(InfoFieldSpec))
+static InfoFieldSpec dialectSpecs[] = {
+    {.name = "dialect_1", .type = InfoField_Max},
+    {.name = "dialect_2", .type = InfoField_Max},
+    {.name = "dialect_3", .type = InfoField_Max},
+};
+
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(*arr))
+#define NUM_FIELDS_SPEC (ARRAY_SIZE(toplevelSpecs_g))
+#define NUM_GC_FIELDS_SPEC (ARRAY_SIZE(gcSpecs))
+#define NUM_CURSOR_FIELDS_SPEC (ARRAY_SIZE(cursorSpecs))
+#define NUM_DIALECT_FIELDS_SPEC (ARRAY_SIZE(dialectSpecs))
 
 // Variant value type
 typedef struct {
@@ -74,6 +89,7 @@ typedef struct {
   InfoValue toplevelValues[NUM_FIELDS_SPEC];
   InfoValue gcValues[NUM_GC_FIELDS_SPEC];
   InfoValue cursorValues[NUM_CURSOR_FIELDS_SPEC];
+  InfoValue dialectValues[NUM_DIALECT_FIELDS_SPEC];
 } InfoFields;
 
 /**
@@ -146,6 +162,8 @@ static void handleSpecialField(InfoFields *fields, const char *name, MRReply *va
 
   } else if (!strcmp(name, "cursor_stats")) {
     processKvArray(fields, value, fields->cursorValues, cursorSpecs, NUM_CURSOR_FIELDS_SPEC, 1);
+  } else if (!strcmp(name, "dialect_stats")) {
+    processKvArray(fields, value, fields->dialectValues, dialectSpecs, NUM_DIALECT_FIELDS_SPEC, 1);
   }
 }
 
@@ -180,7 +198,7 @@ static void processKvArray(InfoFields *ctx, MRReply *array, InfoValue *dsts, Inf
 }
 
 static void cleanInfoReply(InfoFields *fields) {
-  free(fields->errorIndexes);
+  rm_free(fields->errorIndexes);
 }
 
 static size_t replyKvArray(InfoFields *fields, RedisModuleCtx *ctx, InfoValue *values,
@@ -253,6 +271,13 @@ static void generateFieldsReply(InfoFields *fields, RedisModuleCtx *ctx) {
   RedisModule_ReplySetArrayLength(ctx, nCursorStats);
   n += 2;
 
+  RedisModule_ReplyWithSimpleString(ctx, "dialect_stats");
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  size_t nDialectStats =
+      replyKvArray(fields, ctx, fields->dialectValues, dialectSpecs, NUM_DIALECT_FIELDS_SPEC);
+  RedisModule_ReplySetArrayLength(ctx, nDialectStats);
+  n += 2;
+
   n += replyKvArray(fields, ctx, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);
   RedisModule_ReplySetArrayLength(ctx, n);
 }
@@ -271,7 +296,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   for (size_t ii = 0; ii < count; ++ii) {
     if (MRReply_Type(replies[ii]) == MR_REPLY_ERROR) {
       if (!fields.errorIndexes) {
-        fields.errorIndexes = calloc(count, sizeof(*fields.errorIndexes));
+        fields.errorIndexes = rm_calloc(count, sizeof(*fields.errorIndexes));
       }
       fields.errorIndexes[ii] = 1;
       numErrored++;

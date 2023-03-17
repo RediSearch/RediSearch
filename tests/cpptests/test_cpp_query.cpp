@@ -466,6 +466,10 @@ TEST_F(QueryTest, testParser_v2) {
   assertInvalidQuery("@tag:{foo | bar} => {$great:;} ", ctx);
   assertInvalidQuery("@tag:{foo | bar} => {$:1;} ", ctx);
   assertInvalidQuery(" => {$weight: 0.5;} ", ctx);
+  // Vector attributes are invalid for non-vector queries.
+  assertInvalidQuery("@title:(foo bar) => {$ef_runtime: 100;}", ctx);
+  assertInvalidQuery("@title:(foo bar) => {$yield_distance_as:my_dist;}", ctx);
+  assertInvalidQuery("@title:(foo bar) => {$weight: 2.0; $ef_runtime: 100;}", ctx);
 
   // Test basic vector similarity query
   assertValidQuery("*=>[KNN 10 @vec_field $BLOB]", ctx);
@@ -475,10 +479,16 @@ TEST_F(QueryTest, testParser_v2) {
   assertValidQuery("*=>[KNN $K @vec_field $BLOB AS score]", ctx);
   assertValidQuery("*=>[KNN $K @vec_field $BLOB EF $ef foo bar x 5 AS score]", ctx);
   assertValidQuery("*=>[KNN $K @vec_field $BLOB foo bar x 5]", ctx);
+  // Using query attributes syntax is also allowed.
+  assertValidQuery("*=>[knn $K @vec_field $BLOB]=>{$yield_distance_as: vec_dist;}", ctx);
+  assertValidQuery("*=>[knn $K @vec_field $BLOB]=>{$yield_distance_as: as;}", ctx); // using stop-word as the attribute value
+  assertValidQuery("*=>[KNN $KNN @KNN $KNN KNN $KNN]=>{$yield_distance_as: VECTOR_RANGE;}", ctx); // using reserved word as an attribute or field
+  assertValidQuery("*=>[KNN $K @vec_field $BLOB] =>{$yield_distance_as: vec_dist; $ef_runtime: 100;}", ctx);
+  assertValidQuery("*=>[KNN $K @vec_field $BLOB] =>{$weight: 2.0; $ef_runtime: 100;}", ctx); // weight is valid, but ignored
 
   // Test basic vector similarity query combined with other expressions
   // This should fail for now because right now we only allow KNN query to be the root node.
-  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB]=>{$weight: 0.5; $slop: 2}", ctx);
+  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB] title=>{$weight: 0.5; $slop: 2}", ctx);
   assertInvalidQuery("*=>[KNN $K1 @vec_field $BLOB1] OR *=>[KNN $K2 @vec_field $BLOB2]", ctx);
 
   // Test basic vector similarity query errors
@@ -491,15 +501,19 @@ TEST_F(QueryTest, testParser_v2) {
   assertInvalidQuery("*=>[KNN $K @vec_field $BLOB $EF ef foo bar x 5 AS score]", ctx); // parameter as attribute
   assertInvalidQuery("*=>[KNN $K @vec_field $BLOB EF ef foo bar x 5 AS ]", ctx); // not specifying score field name
   assertInvalidQuery("*=>[KNN $K @vec_field $BLOB EF ef foo bar x]", ctx); // missing parameter value (passing only key)
+  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB => {$yield:dist}]", ctx); // invalid attributes syntax
+  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB EF_RUNTIME 100 => {$yield_distance_as:dist;}]", ctx); // invalid combined syntax
+  assertInvalidQuery("*=>[KNN $K @vec_field $BLOB EF_RUNTIME 100] => {$bad_attr:dist;}", ctx); // invalid vector attribute
 
   // Test simple hybrid vector query
-  assertValidQuery("(KNN)=>[KNN 10 @vec_field $BLOB]", ctx); // using KNN command in other context
-
-  assertInvalidQuery("hello world=>[KNN 10 @vec_field $BLOB]", ctx);
-  assertInvalidQuery("@title:hello world=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("KNN=>[KNN 10 @vec_field $BLOB]", ctx); // using KNN command in other context
   assertValidQuery("(hello world)=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(@title:hello)=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("@title:hello=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("@title:hello=>[KNN 10 @vec_field $BLOB EF_RUNTIME 100 HYBRID_POLICY BATCHES]", ctx);
+  assertValidQuery("@title:hello=>[KNN 10 @vec_field $BLOB AS score]", ctx);
+  assertValidQuery("@title:hello=>[KNN 10 @vec_field $BLOB] => {$yield_distance_as:score;}", ctx);
+  assertValidQuery("hello=>[KNN 10 @vec_field $BLOB] => {$yield_distance_as:score; $hybrid_policy:batches; $BATCH_SIZE:100}", ctx);
 
   assertValidQuery("hello=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(hello|world)=>[KNN 10 @vec_field $BLOB]", ctx);
@@ -508,19 +522,62 @@ TEST_F(QueryTest, testParser_v2) {
   assertValidQuery("(-hello ~world ~war)=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("@tags:{bar* | foo}=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(no -as) => {$weight: 0.5} => [KNN 10 @vec_field $BLOB]", ctx);
+
+  // Invalid complex queries with hybrid vector
+  assertInvalidQuery("hello world=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertInvalidQuery("@title:hello world=>[KNN 10 @vec_field $BLOB]", ctx);
   assertInvalidQuery("(hello world => [KNN 10 @vec_field $BLOB]) other phrase", ctx);
   assertInvalidQuery("(hello world => [KNN 10 @vec_field $BLOB]) @title:other", ctx);
   assertInvalidQuery("hello world => [KNN 10 @vec_field $BLOB] OR other => [KNN 10 @vec_field $BLOB]", ctx);
+
+  // Test range queries
+  assertValidQuery("@v:[VECTOR_RANGE 0.01 $BLOB]", ctx);
+  assertValidQuery("@v:[vector_range 0.01 $BLOB]", ctx);
+  assertValidQuery("@v:[vEcToR_RaNgE 0.01 $BLOB]", ctx);
+  assertValidQuery("@v:[VECTOR_RANGE 2 $BLOB]", ctx);
+  assertValidQuery("@v:[VECTOR_RANGE $radius $BLOB]", ctx);
+  assertValidQuery("@v:[VECTOR_RANGE 2e-2 $BLOB]", ctx);
+  assertValidQuery("@v:[VECTOR_RANGE 2E-2 $BLOB]", ctx);
+  assertValidQuery("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: V_SCORE;}", ctx);
+  assertValidQuery("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: as;}", ctx);
+  assertValidQuery("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$epsilon: 0.01;}", ctx);
+  assertValidQuery("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$epsilon: 0.01; $yield_distance_as: V_SCORE;}", ctx);
+  assertValidQuery("@v:[VECTOR_RANGE $r $BLOB]=>{$epsilon: 0.01; $yield_distance_as: V_SCORE;}", ctx);
+
+  // Complex queries with range
+  assertValidQuery("@v:[VECTOR_RANGE 0.01 $BLOB] @text:foo OR bar", ctx);
+  assertValidQuery("(@v:[VECTOR_RANGE 0.01 $BLOB] @text:foo) => { $weight: 2.0 }", ctx);
+  assertValidQuery("@v:[VECTOR_RANGE 0.01 $BLOB] @text:foo OR bar @v:[VECTOR_RANGE 0.04 $BLOB2]", ctx);
+  assertValidQuery("(@v:[VECTOR_RANGE 0.01 $BLOB] @text:foo) => [KNN 5 @v $BLOB2]", ctx);
+  assertValidQuery("@v:[VECTOR_RANGE 0.01 $BLOB] => [KNN 5 @v2 $BLOB2 AS second_score]", ctx);
+  assertValidQuery("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: score1;} => [KNN 5 @v2 $BLOB2 AS second_score]", ctx);
+  assertValidQuery("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: score1;} => [KNN 5 @v2 $BLOB2] => {$yield_distance_as:second_score;}", ctx);
+  assertValidQuery("@v:[VECTOR_RANGE 0.01 $BLOB] VECTOR_RANGE", ctx); // Fallback VECTOR_RANGE into a term.
+
+  // Invalid queries
+  assertInvalidQuery("@v:[vector-range 0.01 $BLOB]", ctx);
+  assertInvalidQuery("@v:[BAD 0.01 $BLOB]", ctx);
+  assertInvalidQuery("@v:[VECTOR_RANGE 0.01]", ctx);
+  assertInvalidQuery("@v:[VECTOR_RANGE $BLOB]", ctx);
+  assertInvalidQuery("@v:[VECTOR_RANGE bad $BLOB]", ctx);
+  assertInvalidQuery("@v:[VECTOR_RANGE 0.01 param]", ctx);
+  assertInvalidQuery("@v:[VECTOR_RANGE 0.01 param val $BLOB]", ctx);
 
   assertValidQuery("@title:((hello world)|((hello world)|(hallo world|werld) | hello world werld))", ctx);
   assertValidQuery("(hello world)|((hello world)|(hallo world|werld) | hello world werld)", ctx);
 
   assertValidQuery("hello 13 again", ctx);
 
+  assertValidQuery("w'hello'", ctx);
+  assertValidQuery("w'\\hello'", ctx);
+  assertValidQuery("w'\\\\hello'", ctx);
+  assertValidQuery("w'he\\\\llo'", ctx);
+  assertValidQuery("w'he\\\\llo'", ctx);
+
   const char *qt = "(hello|world) and \"another world\" (foo is bar) -(baz boo*)";
   QASTCXX ast;
   ast.setContext(&ctx);
-  ASSERT_TRUE(ast.parse(qt));
+  ASSERT_TRUE(ast.parse(qt, version));
   QueryNode *n = ast.root;
   //QAST_Print(&ast, ctx.spec);
   ASSERT_TRUE(n != NULL);
@@ -571,7 +628,7 @@ TEST_F(QueryTest, testVectorHybridQuery) {
   QASTCXX ast;
   ast.setContext(&ctx);
   int ver = 2;
-  
+
   const char *vqt[] = {
     "(hello world)=>[KNN 10 @vec $BLOB]",
     "@title:(hello|world)=>[KNN 10 @vec $BLOB]",
@@ -829,5 +886,29 @@ TEST_F(QueryTest, testTags) {
 
   ASSERT_EQ(QN_TOKEN, n->children[3]->type);
   ASSERT_STREQ("lorem\\ ipsum", n->children[3]->tn.str);
+  IndexSpec_Free(ctx.spec);
+}
+
+TEST_F(QueryTest, testWildcard) {
+  static const char *args[] = {"SCHEMA", "title", "text"};
+  QueryError err = {QUERY_OK};
+  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
+
+  const char *qt = "w'hello world'";
+  QASTCXX ast(ctx);
+  ASSERT_TRUE(ast.parse(qt, 2)) << ast.getError();
+  QueryNode *n = ast.root;
+  ASSERT_EQ(n->type, QN_WILDCARD_QUERY);
+  ASSERT_EQ(11, n->verb.tok.len);
+  ASSERT_STREQ("hello world", n->verb.tok.str);
+
+  qt = "w'?*?*?'";
+  ASSERT_TRUE(ast.parse(qt, 2)) << ast.getError();
+  n = ast.root;
+  ASSERT_EQ(n->type, QN_WILDCARD_QUERY);
+  ASSERT_EQ(5, n->verb.tok.len);
+  ASSERT_STREQ("?*?*?", n->verb.tok.str);
+
   IndexSpec_Free(ctx.spec);
 }

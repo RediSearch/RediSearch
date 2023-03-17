@@ -1,24 +1,55 @@
-Deletes the index.
+---
+syntax: |
+  FT.DROPINDEX index 
+    [DD]
+---
 
-By default, FT.DROPINDEX does not delete the document hashes associated with the index. Adding the DD option deletes the hashes as well.
+Delete an index
 
-#### Parameters
+[Examples](#examples)
 
-- **index**: The Fulltext index name. The index must be first created with FT.CREATE
-- **DD**: If set, the drop operation will delete the actual document hashes.
+## Required arguments
 
-@return
+<details open>
+<summary><code>index</code></summary>
 
-@simple-string-reply - `OK` if executed correctly, or @error-reply otherwise.
+is full-text index name. You must first create the index using `FT.CREATE`.
+</details>
 
-!!! note
-     When using FT.DROPINDEX with the parameter DD, if an index creation is still running (FT.CREATE is running asynchronously),
-     only the document hashes that have already been indexed are deleted. The document hashes left to be indexed will remain in the database.
-     You can use FT.INFO to check the completion of the indexing.
+## Optional arguments
 
-@examples
+<details open>
+<summary><code>DD</code></summary>
 
-```sql
-redis> FT.DROPINDEX idx DD
+drop operation that, if set, deletes the actual document hashes.
+
+By default, FT.DROPINDEX does not delete the documents associated with the index. Adding the `DD` option deletes the documents as well. 
+If an index creation is still running (`FT.CREATE` is running asynchronously), only the document hashes that have already been indexed are deleted. 
+The document hashes left to be indexed remain in the database.
+To check the completion of the indexing, use `FT.INFO`.
+
+</details>
+
+## Return
+
+FT.DROPINDEX returns a simple string reply `OK` if executed correctly, or an error reply otherwise.
+
+## Examples
+
+<details open>
+<summary><b>Delete an index</b></summary>
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.DROPINDEX idx DD
 OK
-```
+{{< / highlight >}}
+</details>
+
+## See also
+
+`FT.CREATE` | `FT.INFO`
+
+## Related topics
+
+[RediSearch](/docs/stack/search)
+

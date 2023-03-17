@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "forward_index.h"
 #include "tokenize.h"
 #include "util/fnv.h"
@@ -49,6 +55,8 @@ static size_t estimtateTermCount(const Document *doc) {
       size_t n;
       DocumentField_GetValueCStr(field, &n);
       nChars += n;
+    } else if (field->unionType == FLD_VAR_T_ARRAY) {
+        nChars += DocumentField_GetArrayValueCStrTotalLen(field);
     }
   }
   return nChars / CHARS_PER_TERM;
@@ -165,6 +173,7 @@ static khIdxEntry *makeEntry(ForwardIndex *idx, const char *s, size_t n, uint32_
 
 #define TOKOPT_F_STEM 0x01
 #define TOKOPT_F_COPYSTR 0x02
+#define TOKOPT_F_SUFFIX_TRIE 0x04
 
 static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t tokLen,
                                      uint32_t pos, float fieldScore, t_fieldId fieldId,
@@ -228,6 +237,7 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
   int options = 0;
   if (tokInfo->flags & Token_CopyRaw) {
     options |= TOKOPT_F_COPYSTR;
+    options |= TOKOPT_F_SUFFIX_TRIE;
   }
   ForwardIndex_HandleToken(tokCtx->idx, tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
                            tokCtx->fieldScore, tokCtx->fieldId, options);

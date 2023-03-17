@@ -25,9 +25,9 @@ class TestDebugCommands(object):
 
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
-        help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO',
-                    'DUMP_PHONETIC_HASH', 'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY',
-                    'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC', 'GIT_SHA', 'TTL', 'VECSIM_INFO']
+        help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_NUMIDXTREE', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO',
+                     'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE', 'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY',
+                     'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC', 'GIT_SHA', 'TTL', 'VECSIM_INFO']
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
         for cmd in help_list:
@@ -149,11 +149,11 @@ class TestDebugCommands(object):
     def testInvertedIndexSummary(self):
         self.env.expect('FT.DEBUG', 'invidx_summary', 'idx', 'meir').equal(['numDocs', 1, 'lastId', 1, 'flags',
                                                                             83, 'numberOfBlocks', 1, 'blocks',
-                                                                            ['firstId', 1, 'lastId', 1, 'numDocs', 1]])
+                                                                            ['firstId', 1, 'lastId', 1, 'numEntries', 1]])
 
         self.env.expect('FT.DEBUG', 'INVIDX_SUMMARY', 'idx', 'meir').equal(['numDocs', 1, 'lastId', 1, 'flags',
                                                                             83, 'numberOfBlocks', 1, 'blocks',
-                                                                            ['firstId', 1, 'lastId', 1, 'numDocs', 1]])
+                                                                            ['firstId', 1, 'lastId', 1, 'numEntries', 1]])
 
     def testUnexistsInvertedIndexSummary(self):
         self.env.expect('FT.DEBUG', 'invidx_summary', 'idx', 'meir1').raiseError()
@@ -179,3 +179,6 @@ class TestDebugCommands(object):
 
     def testNumericIndexSummaryWrongArity(self):
         self.env.expect('FT.DEBUG', 'numidx_summary', 'idx1').raiseError()
+
+    def testDumpSuffixWrongArity(self):
+        self.env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx1', 'no_suffix').raiseError()

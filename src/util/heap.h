@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef HEAP_H
 #define HEAP_H
 #include <stdlib.h>
@@ -33,6 +39,15 @@ void heap_init(heap_t* h,
                unsigned int size);
 
 void heap_free(heap_t * hp);
+
+/**
+ * Empties the heap and frees it.
+ *
+ * NOTE:
+ *  Frees all items.
+ *  Only use if item memory is NOT managed outside of heap.
+ *  If `heap_clear` was invoked, the old data cannot be freed by the heap. */
+void heap_destroy(heap_t * hp);
 
 /**
  * Add item
@@ -120,8 +135,8 @@ typedef void (*HeapCallback)(void *dst, void *src);
  * Run callback of all elements equal to root
  *
  * @param[in] callback The function to be called
- * @param[in] ctx The data required by the callback function 
- * @return 
+ * @param[in] ctx The data required by the callback function
+ * @return
  */
 void heap_cb_root(const heap_t * hp, HeapCallback cb, void *ctx);
 

@@ -1,19 +1,47 @@
-Deletes a string from a suggestion index.
+---
+syntax: |
+  FT.SUGDEL key string
+---
 
-#### Parameters
+Delete a string from a suggestion index
 
-- **key**: the suggestion dictionary key.
-- **string**: the string to delete
+[Examples](#examples)
 
-#### Returns
+## Required arguments
 
-@integer-reply: 1 if the string was found and deleted, 0 otherwise.
+<details open>
+<summary><code>key</code></summary>
 
-@examples
+is suggestion dictionary key.
+</details>
 
-```sql
-redis> FT.SUGDEL sug "hello"
+<details open>
+<summary><code>string</code></summary> 
+
+is suggestion string to index.
+</details>
+
+## Return
+
+FT.SUGDEL returns an integer reply, 1 if the string was found and deleted, 0 otherwise.
+
+## Examples
+
+<details open>
+<summary><b>Delete a string from a suggestion index</b></summary>
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SUGDEL sug "hello"
 (integer) 1
-redis> FT.SUGDEL sug "hello"
+127.0.0.1:6379> FT.SUGDEL sug "hello"
 (integer) 0
-```
+{{< / highlight >}}
+</details>
+
+## See also
+
+`FT.SUGGET` | `FT.SUGADD` | `FT.SUGLEN` 
+
+## Related topics
+
+[RediSearch](/docs/stack/search)

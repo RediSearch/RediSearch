@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #pragma once
 
@@ -18,6 +24,7 @@ typedef enum {
   PARAM_GEO_COORD,
   PARAM_GEO_UNIT,
   PARAM_VEC,
+  PARAM_WILDCARD,
 } ParamType;
 
 typedef struct Param {

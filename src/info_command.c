@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "redismodule.h"
 #include "spec.h"
 #include "inverted_index.h"
@@ -40,7 +46,8 @@ static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
   int n = 0;
   ADD_NEGATIVE_OPTION(Index_StoreFreqs, SPEC_NOFREQS_STR);
   ADD_NEGATIVE_OPTION(Index_StoreFieldFlags, SPEC_NOFIELDS_STR);
-  ADD_NEGATIVE_OPTION(Index_StoreTermOffsets, SPEC_NOOFFSETS_STR);
+  ADD_NEGATIVE_OPTION((Index_StoreTermOffsets|Index_StoreByteOffsets), SPEC_NOOFFSETS_STR);
+  ADD_NEGATIVE_OPTION(Index_StoreByteOffsets, SPEC_NOHL_STR);
   if (sp->flags & Index_WideSchema) {
     RedisModule_ReplyWithSimpleString(ctx, SPEC_SCHEMA_EXPANDABLE_STR);
     n++;
@@ -95,25 +102,10 @@ static int renderIndexDefinitions(RedisModuleCtx *ctx, IndexSpec *sp) {
   return 2;
 }
 
-static const char *getSpecTypeNames(int idx) {
-  switch (idx) {
-  case IXFLDPOS_FULLTEXT: return SPEC_TEXT_STR;
-  case IXFLDPOS_TAG:      return SPEC_TAG_STR;
-  case IXFLDPOS_NUMERIC:  return SPEC_NUMERIC_STR;
-  case IXFLDPOS_GEO:      return SPEC_GEO_STR;
-  case IXFLDPOS_VECTOR:   return SPEC_VECTOR_STR;
-
-  default:
-    RS_LOG_ASSERT(0, "oops");
-    break;
-  }
-}
-
 /* FT.INFO {index}
  *  Provide info and stats about an index
  */
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_AutoMemory(ctx);
   if (argc < 2) return RedisModule_WrongArity(ctx);
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
@@ -152,12 +144,12 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       for (size_t jj = 0; jj < INDEXFLD_NUM_TYPES; ++jj) {
         if (FIELD_IS(fs, INDEXTYPE_FROM_POS(jj))) {
           ntypes++;
-          RedisModule_ReplyWithSimpleString(ctx, getSpecTypeNames(jj));
+          RedisModule_ReplyWithSimpleString(ctx, FieldSpec_GetTypeNames(jj));
         }
       }
       RedisModule_ReplySetArrayLength(ctx, ntypes);
     } else {
-      REPLY_KVSTR(nn, "type", getSpecTypeNames(INDEXTYPE_TO_POS(fs->types)));
+      REPLY_KVSTR(nn, "type", FieldSpec_GetTypeNames(INDEXTYPE_TO_POS(fs->types)));
     }
 
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
@@ -168,9 +160,17 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       char buf[2];
       sprintf(buf, "%c", fs->tagOpts.tagSep);
       REPLY_KVSTR(nn, SPEC_TAG_SEPARATOR_STR, buf);
+      if (fs->tagOpts.tagFlags & TagField_CaseSensitive) {
+        RedisModule_ReplyWithSimpleString(ctx, SPEC_TAG_CASE_SENSITIVE_STR);
+        ++nn;
+      }
     }
     if (FieldSpec_IsSortable(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);
+      ++nn;
+    }
+    if (FieldSpec_IsUnf(fs)) {
+      RedisModule_ReplyWithSimpleString(ctx, SPEC_UNF_STR);
       ++nn;
     }
     if (FieldSpec_IsNoStem(fs)) {
@@ -179,6 +179,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
     if (!FieldSpec_IsIndexable(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_NOINDEX_STR);
+      ++nn;
+    }
+    if (FieldSpec_HasSuffixTrie(fs)) {
+      RedisModule_ReplyWithSimpleString(ctx, SPEC_WITHSUFFIXTRIE_STR);
       ++nn;
     }
     RedisModule_ReplySetArrayLength(ctx, nn);
@@ -214,23 +218,14 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM(n, "offset_bits_per_record_avg",
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
   REPLY_KVNUM(n, "hash_indexing_failures", sp->stats.indexingFailures);
-
+  REPLY_KVNUM(n, "total_indexing_time", sp->stats.totalIndexTime / 1000.0);
   REPLY_KVNUM(n, "indexing", !!global_spec_scanner || sp->scan_in_progress);
 
-  double percent_indexed;
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
-  if (scanner || sp->scan_in_progress) {
-    if (scanner) {
-      percent_indexed =
-          scanner->totalKeys > 0 ? (double)scanner->scannedKeys / scanner->totalKeys : 0;
-    } else {
-      percent_indexed = 0;
-    }
-  } else {
-    percent_indexed = 1.0;
-  }
-
+  double percent_indexed = IndexesScanner_IndexedPercent(scanner, sp);
   REPLY_KVNUM(n, "percent_indexed", percent_indexed);
+
+  REPLY_KVINT(n, "number_of_uses", sp->counter);
 
   if (sp->gc) {
     RedisModule_ReplyWithSimpleString(ctx, "gc_stats");
@@ -245,6 +240,14 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     ReplyWithStopWordsList(ctx, sp->stopwords);
     n += 2;
   }
+
+  RedisModule_ReplyWithSimpleString(ctx, "dialect_stats");
+  RedisModule_ReplyWithArray(ctx, 2 * (MAX_DIALECT_VERSION - MIN_DIALECT_VERSION + 1));
+  for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {
+    RedisModule_ReplyWithPrintf(ctx, "dialect_%d", dialect);
+    RedisModule_ReplyWithLongLong(ctx, GET_DIALECT(sp->used_dialects, dialect));
+  }
+  n += 2;
 
   RedisModule_ReplySetArrayLength(ctx, n);
   return REDISMODULE_OK;

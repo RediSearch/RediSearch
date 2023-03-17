@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef __REDISEARCH_STOPWORDS_H___
 #define __REDISEARCH_STOPWORDS_H___
 
@@ -45,6 +51,10 @@ void StopWordList_RdbSave(RedisModuleIO *rdb, struct StopWordList *sl);
 void StopWordList_Ref(struct StopWordList *sl);
 
 void ReplyWithStopWordsList(RedisModuleCtx *ctx, struct StopWordList *sl);
+
+#ifdef FTINFO_FOR_INFO_MODULES
+void AddStopWordsListToInfo(RedisModuleInfoCtx *ctx, struct StopWordList *sl);
+#endif
 
 /* Returns a NULL terminated list of stopwords */
 char **GetStopWordsList(struct StopWordList *sl, size_t *size);

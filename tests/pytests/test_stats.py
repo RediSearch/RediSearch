@@ -34,7 +34,7 @@ def runTestWithSeed(env, s=None):
     env.expect('FLUSHALL')
     if s == None:
         s = int(time())
-    env.debugPrint('seed: %s' % str(s), force=True)
+    env.debugPrint('seed: %s' % str(s), force=TEST_DEBUG)
     seed(s)
 
     idx = 'idx'
@@ -240,3 +240,25 @@ def testDocTableInfo(env):
     env.assertEqual(int(d['num_docs']), 0)
     env.assertEqual(int(d['doc_table_size_mb']), 0)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
+
+def testInfoIndexingTime(env):
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+
+    # Add indexing time with HSET
+    env.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE')
+
+    d = ft_info_to_dict(env, 'idx1')
+    env.assertEqual(int(d['total_indexing_time']), 0)
+
+    conn.execute_command('HSET', 'a', 'txt', 'hello world')
+
+    d = ft_info_to_dict(env, 'idx1')
+    env.assertGreater(float(d['total_indexing_time']), 0)
+
+    # Add indexing time with scanning of existing docs
+    env.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE')
+    waitForIndex(env, 'idx2')
+
+    d = ft_info_to_dict(env, 'idx2')
+    env.assertGreater(float(d['total_indexing_time']), 0)

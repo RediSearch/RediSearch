@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "config.h"
 #include "err.h"
 #include "rmutil/util.h"
@@ -28,7 +34,6 @@
     RETURN_PARSE_ERROR(rc); \
   }
 
-#define CONFIG_SETTER(name) static int name(RSConfig *config, ArgsCursor *ac, QueryError *status)
 
 #define CONFIG_GETTER(name) static sds name(const RSConfig *config)
 
@@ -370,7 +375,7 @@ CONFIG_SETTER(setNumericTreeMaxDepthRange) {
   if (maxDepthRange > NR_MAX_DEPTH_BALANCE) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Max depth for range cannot be higher "
                                                   "than max depth for balance");
-    return REDISMODULE_ERR;   
+    return REDISMODULE_ERR;
   }
   config->numericTreeMaxDepthRange = maxDepthRange;
   RETURN_STATUS(acrc);
@@ -386,7 +391,7 @@ CONFIG_SETTER(setDefaultDialectVersion) {
   int acrc = AC_GetUnsigned(ac, &defaultDialectVersion, AC_F_GE1);
   if (defaultDialectVersion > MAX_DIALECT_VERSION) {
     QueryError_SetErrorFmt(status, MAX_DIALECT_VERSION, "Default dialect version cannot be higher than %u", MAX_DIALECT_VERSION);
-    return REDISMODULE_ERR;   
+    return REDISMODULE_ERR;
   }
   config->defaultDialectVersion = defaultDialectVersion;
   RETURN_STATUS(acrc);
@@ -397,6 +402,28 @@ CONFIG_GETTER(getDefaultDialectVersion) {
   return sdscatprintf(ss, "%u", config->defaultDialectVersion);
 }
 
+CONFIG_SETTER(setVSSMaxResize) {
+  size_t resize;
+  int acrc = AC_GetSize(ac, &resize, AC_F_GE0);
+  config->vssMaxResize = resize;
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getVSSMaxResize) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->vssMaxResize);
+}
+
+CONFIG_SETTER(setMultiTextOffsetDelta) {
+  int acrc = AC_GetUnsigned(ac, &config->multiTextOffsetDelta, AC_F_GE0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getMultiTextOffsetDelta) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->multiTextOffsetDelta);
+}
+
 CONFIG_SETTER(setGcPolicy) {
   const char *policy;
   int acrc = AC_GetString(ac, &policy, NULL, 0);
@@ -404,9 +431,10 @@ CONFIG_SETTER(setGcPolicy) {
   if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
     config->gcPolicy = GCPolicy_Fork;
   } else if (!strcasecmp(policy, "LEGACY")) {
-    config->gcPolicy = GCPolicy_Sync;
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Legacy GC policy is no longer supported (since 2.6.0)");
+    return REDISMODULE_ERR;
   } else {
-    RETURN_ERROR("Invalid GC Policy value");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid GC Policy value");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
@@ -711,16 +739,24 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getRawDocIDEncoding,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "_NUMERIC_RANGES_PARENTS",
-         .helpText = "Keep numeric ranges in numeric tree parent nodes of leafs " 
+         .helpText = "Keep numeric ranges in numeric tree parent nodes of leafs "
                      "for `x` generations.",
          .setValue = setNumericTreeMaxDepthRange,
          .getValue = getNumericTreeMaxDepthRange},
         {.name = "DEFAULT_DIALECT",
          .helpText = "Set RediSearch default dialect version throught the lifetime of the server.",
          .setValue = setDefaultDialectVersion,
-         .getValue = getDefaultDialectVersion
-
-        },
+         .getValue = getDefaultDialectVersion},
+        {.name = "VSS_MAX_RESIZE",
+         .helpText = "Set RediSearch vector indexes max resize (in bytes).",
+         .setValue = setVSSMaxResize,
+         .getValue = getVSSMaxResize},
+         {.name = "MULTI_TEXT_SLOP",
+         .helpText = "Set RediSearch delta used to increase positional offsets between array slots for multi text values."
+                      "Can control the level of separation between phrases in different array slots (related to the SLOP parameter of ft.search command)",
+         .setValue = setMultiTextOffsetDelta,
+         .getValue = getMultiTextOffsetDelta,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -828,6 +864,43 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
   int rc = var->setValue(config, &ac, status);
   *offset += ac.offset;
   return rc;
+}
+
+void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
+  RedisModule_InfoAddSection(ctx, "runtime_configurations");
+
+  RedisModule_InfoAddFieldCString(ctx, "concurrent_mode", RSGlobalConfig.concurrentMode ? "ON" : "OFF");
+  if (RSGlobalConfig.extLoad != NULL) {
+    RedisModule_InfoAddFieldCString(ctx, "extension_load", (char*)RSGlobalConfig.extLoad);
+  }
+  if (RSGlobalConfig.frisoIni != NULL) {
+    RedisModule_InfoAddFieldCString(ctx, "friso_ini", (char*)RSGlobalConfig.frisoIni);
+  }
+  RedisModule_InfoAddFieldCString(ctx, "enableGC", RSGlobalConfig.enableGC ? "ON" : "OFF");
+  RedisModule_InfoAddFieldLongLong(ctx, "minimal_term_prefix", RSGlobalConfig.minTermPrefix);
+  RedisModule_InfoAddFieldLongLong(ctx, "maximal_prefix_expansions", RSGlobalConfig.maxPrefixExpansions);
+  RedisModule_InfoAddFieldLongLong(ctx, "query_timeout_ms", RSGlobalConfig.queryTimeoutMS);
+  RedisModule_InfoAddFieldCString(ctx, "timeout_policy", (char*)TimeoutPolicy_ToString(RSGlobalConfig.timeoutPolicy));
+  RedisModule_InfoAddFieldLongLong(ctx, "cursor_read_size", RSGlobalConfig.cursorReadSize);
+  RedisModule_InfoAddFieldLongLong(ctx, "cursor_max_idle_time", RSGlobalConfig.cursorMaxIdle);
+
+  RedisModule_InfoAddFieldLongLong(ctx, "max_doc_table_size", RSGlobalConfig.maxDocTableSize);
+  RedisModule_InfoAddFieldLongLong(ctx, "max_search_results", RSGlobalConfig.maxSearchResults);
+  RedisModule_InfoAddFieldLongLong(ctx, "max_aggregate_results", RSGlobalConfig.maxAggregateResults);
+  RedisModule_InfoAddFieldLongLong(ctx, "search_pool_size", RSGlobalConfig.searchPoolSize);
+  RedisModule_InfoAddFieldLongLong(ctx, "index_pool_size", RSGlobalConfig.indexPoolSize);
+  RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcScanSize);
+  RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length", RSGlobalConfig.minPhoneticTermLen);
+}
+
+void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
+  RedisModule_InfoAddSection(ctx, "dialect_statistics");
+  for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {
+    char field[16] = {0};
+    snprintf(field, sizeof field, "dialect_%d", dialect);
+    // extract the d'th bit of the dialects bitfield.
+    RedisModule_InfoAddFieldULongLong(ctx, field, GET_DIALECT(RSGlobalConfig.used_dialects, dialect));
+  }
 }
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {

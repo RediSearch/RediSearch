@@ -1,6 +1,6 @@
 from RLTest import Env
 from includes import *
-from common import waitForIndex
+from common import *
 
 
 def testDictAdd():
@@ -62,11 +62,12 @@ def testBasicSpellCheck():
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
     env.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
-    env.expect('ft.spellcheck', 'idx', 'name').equal([['TERM', 'name',
-                                                     [['0.66666666666666663', 'name2'], ['0.33333333333333331', 'name1']]]])
-    if not env.isCluster():
-        env.expect('ft.spellcheck', 'idx', '@body:name').equal([['TERM', 'name', [['0.66666666666666663', 'name2']]]])
+    res = env.cmd('ft.spellcheck', 'idx', 'name')
+    compare_lists(env, res, [['TERM', 'name', [['0.66666666666666663', 'name2'], ['0.33333333333333331', 'name1']]]])
 
+    if not env.isCluster():
+        res = env.cmd('ft.spellcheck', 'idx', '@body:name')
+        compare_lists(env, res, [['TERM', 'name', [['0.66666666666666663', 'name2']]]])
 
 def testBasicSpellCheckWithNoResult():
     env = Env()
@@ -96,16 +97,14 @@ def testSpellCheckWithIncludeDict():
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
     env.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
-    env.expect('ft.spellcheck', 'idx', 'name', 'TERMS', 'INCLUDE', 'dict').equal([['TERM', 'name',
-                                                                                   [['0.66666666666666663', 'name2'],
-                                                                                    ['0.33333333333333331', 'name1'],
-                                                                                    ['0', 'name3'], ['0', 'name4'],
-                                                                                    ['0', 'name5']]]])
-    env.expect('ft.spellcheck', 'idx', 'name', 'TERMS', 'include', 'dict').equal([['TERM', 'name',
-                                                                                   [['0.66666666666666663', 'name2'],
-                                                                                    ['0.33333333333333331', 'name1'],
-                                                                                    ['0', 'name3'], ['0', 'name4'],
-                                                                                    ['0', 'name5']]]])
+    
+    res = env.cmd('ft.spellcheck', 'idx', 'name', 'TERMS', 'INCLUDE', 'dict')
+    compare_lists(env, res, [['TERM', 'name', [['0.66666666666666663', 'name2'], ['0.33333333333333331', 'name1'],
+                                               ['0', 'name3'], ['0', 'name4'], ['0', 'name5']]]])
+
+    res = env.cmd('ft.spellcheck', 'idx', 'name', 'TERMS', 'include', 'dict')
+    compare_lists(env, res, [['TERM', 'name', [['0.66666666666666663', 'name2'], ['0.33333333333333331', 'name1'],
+                                               ['0', 'name3'], ['0', 'name4'], ['0', 'name5']]]])
 
 
 def testSpellCheckWithDuplications():
@@ -116,10 +115,11 @@ def testSpellCheckWithDuplications():
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
     env.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
-    env.expect('ft.spellcheck', 'idx', 'name', 'TERMS', 'INCLUDE', 'dict').equal([['TERM', 'name',
-                                                                                   [['0.66666666666666663', 'name2'],
-                                                                                    ['0.33333333333333331', 'name1'],
-                                                                                    ['0', 'name4'], ['0', 'name5']]]])
+    
+    res = env.cmd('ft.spellcheck', 'idx', 'name', 'TERMS', 'INCLUDE', 'dict')
+    compare_lists(env, res, [['TERM', 'name', [['0.66666666666666663', 'name2'],
+                                               ['0.33333333333333331', 'name1'],
+                                               ['0', 'name4'], ['0', 'name5']]]])
 
 
 def testSpellCheckExcludeDict():
@@ -165,7 +165,7 @@ def testSpellCheckBadFormat():
     env.expect('ft.spellcheck', 'idx', 'name', 'DISTANCE').raiseError()
     env.expect('ft.spellcheck', 'idx', 'name', 'DISTANCE', 0).raiseError()
     env.expect('ft.spellcheck', 'idx', 'name', 'DISTANCE', -1).raiseError()
-    env.expect('ft.spellcheck', 'idx', 'name', 'DISTANCE', 101).raiseError()
+    env.expect('ft.spellcheck', 'idx', 'name', 'DISTANCE', 5).raiseError()
 
 
 def testSpellCheckNoneExistingDicts():
@@ -203,8 +203,3 @@ def testSpellCheckIssue437():
                'EXCLUDE', 'slang', 'TERMS',
                'INCLUDE', 'slang').equal([['TERM', 'tooni', [['0', 'toonie']]]])
 
-def test_spell_check_dialect_errors(env):
-    env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
-    env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT').error().contains("Need an argument for DIALECT")
-    env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT', 0).error().contains("DIALECT requires a non negative integer >=1 and <= 2")
-    env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT', 3).error().contains("DIALECT requires a non negative integer >=1 and <= 2")

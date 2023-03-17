@@ -1,4 +1,11 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "tag_index.h"
+#include "suffix.h"
 #include "rmalloc.h"
 #include "rmutil/vector.h"
 #include "inverted_index.h"
@@ -19,6 +26,7 @@ TagIndex *NewTagIndex() {
   TagIndex *idx = rm_new(TagIndex);
   idx->values = NewTrieMap();
   idx->uniqueId = tagUniqueId++;
+  idx->suffix = NULL;
   return idx;
 }
 
@@ -68,7 +76,7 @@ static int tokenizeTagString(const char *str, char sep, TagFieldFlags flags, cha
   }
 
   char *p;
-  char *pp = p = rm_strdup(str);  
+  char *pp = p = rm_strdup(str);
   while (p) {
     // get the next token
     size_t toklen;
@@ -108,7 +116,8 @@ char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *d
   case FLD_VAR_T_NULL:
     break;
   case FLD_VAR_T_GEO:
-  case FLD_VAR_T_NUM:  
+  case FLD_VAR_T_NUM:
+  case FLD_VAR_T_BLOB_ARRAY:
     RS_LOG_ASSERT(0, "nope")
   }
   return ret;
@@ -142,6 +151,9 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
     const char *tok = values[ii];
     if (tok && *tok != '\0') {
       ret += tagIndex_Put(idx, tok, strlen(tok), docId);
+      if (idx->suffix) { // add to suffix triemap if exist
+        addSuffixTrieMap(idx->suffix, tok, strlen(tok));
+      }
     }
   }
   return ret;
@@ -215,6 +227,17 @@ void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *co
   ConcurrentSearch_AddKey(conc, TagReader_OnReopen, tctx, concCtxFree);
 }
 
+IndexIterator *TagIndex_GetReader(IndexSpec *sp, InvertedIndex *iv, const char *value, size_t len,
+                                   double weight) {
+  RSToken tok = {.str = (char *)value, .len = len};
+  RSQueryTerm *t = NewQueryTerm(&tok, 0);
+  IndexReader *r = NewTermIndexReader(iv, sp, RS_FIELDMASK_ALL, t, weight);
+  if (!r) {
+    return NULL;
+  }
+  return NewReadIterator(r);
+}
+
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
 IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *value, size_t len,
@@ -224,14 +247,7 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *val
   if (iv == TRIEMAP_NOTFOUND || !iv || iv->numDocs == 0) {
     return NULL;
   }
-
-  RSToken tok = {.str = (char *)value, .len = len};
-  RSQueryTerm *t = NewQueryTerm(&tok, 0);
-  IndexReader *r = NewTermIndexReader(iv, sp, RS_FIELDMASK_ALL, t, weight);
-  if (!r) {
-    return NULL;
-  }
-  return NewReadIterator(r);
+  return TagIndex_GetReader(sp, iv, value, len, weight);
 }
 
 /* Format the key name for a tag index */
@@ -345,6 +361,7 @@ void TagIndex_RdbSave(RedisModuleIO *rdb, void *value) {
 void TagIndex_Free(void *p) {
   TagIndex *idx = p;
   TrieMap_Free(idx->values, InvertedIndex_Free);
+  TrieMap_Free(idx->suffix, suffixTrieMap_freeCallback);
   rm_free(idx);
 }
 

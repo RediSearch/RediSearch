@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "config.h"
 #include "notifications.h"
 #include "spec.h"
@@ -135,7 +141,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       break;
 
 /********************************************************
- *              Handling Redis commands                 * 
+ *              Handling Redis commands                 *
  ********************************************************/
     case restore_cmd:
     case copy_to_cmd:
@@ -153,12 +159,12 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case change_cmd:
     // TODO: hash/json
       kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
-      kType = DocumentType_None;
+      kType = DocumentType_Unsupported;
       if (kp) {
         kType = getDocType(kp);
         RedisModule_CloseKey(kp);
       }
-      if (kType == DocumentType_None) {
+      if (kType == DocumentType_Unsupported) {
         // in crdt empty key means that key was deleted
         // TODO:FIX
         Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
@@ -170,7 +176,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       break;
 
     case rename_from_cmd:
-      // Notification rename_to is called right after rename_from so this is safe.  
+      // Notification rename_to is called right after rename_from so this is safe.
       global_RenameFromKey = key;
       break;
 
@@ -181,7 +187,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
 
 /********************************************************
- *              Handling RedisJSON commands             * 
+ *              Handling RedisJSON commands             *
  ********************************************************/
   if (!strncmp(event, "json.", strlen("json."))) {
     if (!strncmp(event + JSON_LEN, "set", strlen("set")) ||
@@ -373,4 +379,22 @@ void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
     RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
     RedisModule_Log(ctx, "notice", "Enabled diskless replication");
   }
+}
+
+void RoleChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(eid);
+  switch(subevent) {
+  case REDISMODULE_EVENT_REPLROLECHANGED_NOW_MASTER:
+    Indexes_SetTempSpecsTimers(TimerOp_Add);
+    break;
+  case REDISMODULE_EVENT_REPLROLECHANGED_NOW_REPLICA:
+    Indexes_SetTempSpecsTimers(TimerOp_Del);
+    break;
+  }
+}
+
+void Initialize_RoleChangeNotifications(RedisModuleCtx *ctx) {
+  int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplicationRoleChanged, RoleChangeCallback);
+  RedisModule_Assert(success != REDISMODULE_ERR); // should be supported in this redis version/release
+  RedisModule_Log(ctx, "notice", "Enabled role change notification");
 }

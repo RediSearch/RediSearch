@@ -1,34 +1,50 @@
-Returns information and statistics on the index. Returned values include:
+---
+syntax: |
+  FT.INFO index
+---
 
-* `index_definition`: reflection of `FT.CREATE` command parameters.
-* `fields`: index schema - field names, types, and attributes.
-* Number of documents.
-* Number of distinct terms.
-* Average bytes per record.
-* Size and capacity of the index buffers.
-* Indexing state and percentage as well as failures:
-  * `indexing`: whether of not the index is being scanned in the background,
-  * `percent_indexed`: progress of background indexing (1 if complete),
-  * `hash_indexing_failures`: number of failures due to operations not compatible with index schema.
+Return information and statistics on the index
 
-Optional
+[Examples](#examples)
 
-* Statistics about the `garbage collector` for all options other than NOGC.
-* Statistics about `cursors` if a cursor exists for the index.
-* Statistics about `stopword lists` if a custom stopword list is used.
+## Required arguments
 
-#### Parameters
+<details open>
+<summary><code>index</code></summary>
 
-- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+is full-text index name. You must first create the index using `FT.CREATE`.
+</details>
 
-@return
+## Return
 
-@array-reply - pairs of keys and values.
+FT.INFO returns an array reply with pairs of keys and values.
 
-@examples
+Returned values include:
 
-```
-127.0.0.1:6379> ft.info idx
+- `index_definition`: reflection of `FT.CREATE` command parameters.
+- `fields`: index schema - field names, types, and attributes.
+- Number of documents.
+- Number of distinct terms.
+- Average bytes per record.
+- Size and capacity of the index buffers.
+- Indexing state and percentage as well as failures:
+  - `indexing`: whether of not the index is being scanned in the background.
+  - `percent_indexed`: progress of background indexing (1 if complete).
+  - `hash_indexing_failures`: number of failures due to operations not compatible with index schema.
+
+Optional statistics include:
+
+* `garbage collector` for all options other than NOGC.
+* `cursors` if a cursor exists for the index.
+* `stopword lists` if a custom stopword list is used.
+
+## Examples
+
+<details open>
+<summary><b>Return statistics about an index</b></summary>
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.INFO idx
 1) index_name
  2) wikipedia
  3) index_options
@@ -91,8 +107,10 @@ Optional
 42) "0"
 43) percent_indexed
 44) "1"
-45) gc_stats
-46)  1) bytes_collected
+45) number_of_uses
+46) 1
+47) gc_stats
+48)  1) bytes_collected
      2) "4148136"
      3) total_ms_run
      4) "14796"
@@ -106,8 +124,8 @@ Optional
     12) "0"
     13) gc_blocks_denied
     14) "0"
-47) cursor_stats
-48) 1) global_idle
+49) cursor_stats
+50) 1) global_idle
     2) (integer) 0
     3) global_total
     4) (integer) 0
@@ -115,8 +133,18 @@ Optional
     6) (integer) 128
     7) index_total
     8) (integer) 0
-49) stopwords_list
-50) 1) "tlv"
+51) stopwords_list
+52) 1) "tlv"
     2) "summer"
     3) "2020"
-```
+{{< / highlight >}}
+</details>
+
+## See also
+
+`FT.CREATE` | `FT.SEARCH`
+
+## Related topics
+
+[RediSearch](/docs/stack/search)
+

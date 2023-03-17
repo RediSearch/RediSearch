@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 %left LOWEST.
 %left TILDE.
 %left TAGLIST.
@@ -9,7 +15,7 @@
 
 %left TERMLIST.
 %left TERM. 
-%left PREFIX.
+%left PREFIX SUFFIX CONTAINS.
 %left PERCENT.
 %left ATTRIBUTE.
 %right LP.
@@ -119,8 +125,8 @@ static int one_not_null(void *a, void *b, void *out) {
 %type attribute_list {QueryAttribute *}
 %destructor attribute_list { array_free_ex($$, rm_free((char*)((QueryAttribute*)ptr )->value)); }
 
-%type prefix { QueryNode * } 
-%destructor prefix { QueryNode_Free($$); }
+%type affix { QueryNode * } 
+%destructor affix { QueryNode_Free($$); }
 
 %type termlist { QueryNode * } 
 %destructor termlist { QueryNode_Free($$); }
@@ -334,7 +340,7 @@ expr(A) ::= term(B) . [LOWEST]  {
    A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
 }
 
-expr(A) ::= prefix(B) . [PREFIX]  {
+expr(A) ::= affix(B) . [PREFIX]  {
     A= B;
 }
 
@@ -386,12 +392,20 @@ expr(A) ::= TILDE expr(B) . {
 }
 
 /////////////////////////////////////////////////////////////////
-// Prefix experessions
+// Prefix expressions
 /////////////////////////////////////////////////////////////////
 
 // v2.2.9 diff - string duplication are happening in NewPrefixNode_WithParams now.
-prefix(A) ::= PREFIX(B) . [PREFIX] {
-    A = NewPrefixNode_WithParams(ctx, &B);
+affix(A) ::= PREFIX(B) . [PREFIX] {
+    A = NewPrefixNode_WithParams(ctx, &B, true, false);
+}
+
+affix(A) ::= SUFFIX(B) . [PREFIX] {
+    A = NewPrefixNode_WithParams(ctx, &B, false, true);
+}
+
+affix(A) ::= CONTAINS(B) . [PREFIX] {
+    A = NewPrefixNode_WithParams(ctx, &B, true, true);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -483,7 +497,7 @@ tag_list(A) ::= LB STOPWORD(B) . [TAGLIST] {
     QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), -1));
 }
 
-tag_list(A) ::= LB prefix(B) . [TAGLIST] {
+tag_list(A) ::= LB affix(B) . [TAGLIST] {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, B);
 }
@@ -503,7 +517,7 @@ tag_list(A) ::= tag_list(B) OR STOPWORD(C) . [TAGLIST] {
     A = B;
 }
 
-tag_list(A) ::= tag_list(B) OR prefix(C) . [TAGLIST] {
+tag_list(A) ::= tag_list(B) OR affix(C) . [TAGLIST] {
     QueryNode_AddChild(B, C);
     A = B;
 }

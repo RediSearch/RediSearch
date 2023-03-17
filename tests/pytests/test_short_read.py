@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import zipfile
 from itertools import chain
+import tempfile
 
 import gevent.queue
 import gevent.server
@@ -15,8 +16,6 @@ import gevent.socket
 from common import *
 from includes import *
 
-CREATE_INDICES_TARGET_DIR = '/tmp/test'
-BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
 
 SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '1'))
 SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
@@ -62,8 +61,8 @@ def downloadFiles(target_dir):
         if not os.path.exists(path_dir):
             os.makedirs(path_dir)
         if not os.path.exists(path):
-            subprocess.call(['wget', '-q', BASE_RDBS_URL + f, '-O', path])
-            _, ext = os.path.splitext(f)
+            dpath = paella.wget(BASE_RDBS_URL + f, dest=path)
+            _, ext = os.path.splitext(dpath)
             if ext == '.zip':
                 if not unzip(path, path_dir):
                     return False
@@ -111,7 +110,8 @@ def create_indices(env, rdbFileName, idxNameStem, isHash, isJson):
 
     env.assertTrue(env.cmd('save'))
     # Copy to avoid truncation of rdb due to RLTest flush and save
-    dbCopyFilePath = os.path.join(CREATE_INDICES_TARGET_DIR, dbFileName)
+    tempdir = tempfile.TemporaryDirectory(prefix='test_')
+    dbCopyFilePath = os.path.join(tempdir.name, dbFileName)
     dbCopyFileDir = os.path.dirname(dbCopyFilePath)
     if not os.path.exists(dbCopyFileDir):
         os.makedirs(dbCopyFileDir)
@@ -473,7 +473,7 @@ def testShortReadSearch(env):
         env.skip()  # FIXME: enable coverage test
 
     env.skipOnCluster()
-    if env.env.endswith('existing-env') and os.environ.get('CI'):
+    if env.env.endswith('existing-env') and CI:
         env.skip()
 
     if OS == 'macos':

@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "index.h"
 #include "geo_index.h"
 #include "rmutil/util.h"
@@ -106,6 +112,13 @@ done:
 }
 
 IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf) {
+  // check input parameters are valid
+  if (gf->radius <= 0 ||
+      gf->lon > GEO_LONG_MAX || gf->lon < GEO_LONG_MIN ||
+      gf->lat > GEO_LAT_MAX || gf->lat < GEO_LAT_MIN) {
+    return NULL;
+  }
+
   GeoHashRange ranges[GEO_RANGE_COUNT] = {{0}};
   double radius_meter = gf->radius * extractUnitFactor(gf->unitType);
   calcRanges(gf->lon, gf->lat, radius_meter, ranges);
@@ -189,17 +202,11 @@ GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit,
 
 int GeoFilter_EvalParams(dict *params, QueryNode *node, QueryError *status) {
   if (node->params) {
-    int resolved = 0;
-
     for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
       int res = QueryParam_Resolve(&node->params[i], params, status);
       if (res < 0)
         return REDISMODULE_ERR;
-      else if (res > 0)
-        resolved = 1;
     }
-    if (resolved && !GeoFilter_Validate(node->gn.gf, status))
-        return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
 }

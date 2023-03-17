@@ -1,15 +1,50 @@
-Reads next results from an existing cursor.
+---
+syntax: |
+  FT.CURSOR READ index cursor_id [COUNT read_size]
+---
 
-#### Parameters
+Read next results from an existing cursor
 
-* **index**: the index name.
-* **cursorId**: the id of the cursor.
-* **readSize**: number of result to read. This parameters override the `COUNT` specified in `FT.AGGREGATE`.
+[Examples](#examples)
 
-@return
+## Required arguments
 
-@array-reply where each row is an @array-reply and represents a single aggregate result.
+<details open>
+<summary><code>index</code></summary>
 
-```
-redis> FT.CURSOR READ idx 342459320 COUNT 50 
-```
+is index name.
+</details>
+
+<details open>
+<summary><code>cursor_id</code></summary>
+
+is id of the cursor.
+</details>
+
+<details open>
+<summary><code>[COUNT read_size]</code></summary>
+
+is number of results to read. This parameter overrides `COUNT` specified in `FT.AGGREGATE`.
+</details>
+
+## Return
+
+FT.CURSOR DEL returns an array reply where each row is an array reply and represents a single aggregate result.
+
+## Examples
+
+<details open>
+<summary><b>Read next results from a cursor</b></summary>
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.CURSOR READ idx 342459320 COUNT 50
+{{< / highlight >}}
+</details>
+
+## See also
+
+`FT.CURSOR DEL` | `FT.AGGREGATE`
+
+## Related topics
+
+[RediSearch](/docs/stack/search)

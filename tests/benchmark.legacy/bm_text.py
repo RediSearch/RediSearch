@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*- 
+# -*- coding: utf-8 -*-
 
 import unittest
 from includes import *
@@ -27,7 +27,7 @@ def testBenchmarkText(env):
 
   for i in range(num_queries):
     pl.execute_command('FT.SEARCH','idx', '*', 'nocontent', 'LIMIT', 0, 100)
-    
+
   start_time = time()
   pl.execute()
   print time() - start_time

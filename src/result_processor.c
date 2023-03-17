@@ -1,9 +1,16 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "result_processor.h"
 #include "query.h"
 #include "extension.h"
 #include <util/minmax_heap.h>
 #include "ext/default.h"
 #include "rmutil/rm_assert.h"
+#include "rmutil/cxx/chrono-clock.h"
 #include "util/timeout.h"
 
 /*******************************************************************************************************************
@@ -61,7 +68,7 @@ typedef struct {
   ResultProcessor base;
   IndexIterator *iiter;
   struct timespec timeout;  // milliseconds until timeout
-  size_t timeoutLimiter;    // counter to limit number of calls to TimedOut()
+  size_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
 } RPIndexIterator;
 
 /* Next implementation */
@@ -69,7 +76,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
 
-  if (TimedOut(self->timeout, &self->timeoutLimiter)) {
+  if (TimedOut_WithCounter(&self->timeout, &self->timeoutLimiter) == TIMED_OUT) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -86,10 +93,16 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   while (1) {
     rc = it->Read(it->ctx, &r);
     // This means we are done!
-    if (rc == INDEXREAD_EOF) {
+    switch (rc) {
+    case INDEXREAD_EOF:
       return RS_RESULT_EOF;
-    } else if (!r || rc == INDEXREAD_NOTFOUND) {
+    case INDEXREAD_TIMEOUT:
+      return RS_RESULT_TIMEDOUT;
+    case INDEXREAD_NOTFOUND:
       continue;
+    default: // INDEXREAD_OK
+      if (!r)
+        continue;
     }
 
     dmd = DocTable_Get(&RP_SPEC(base)->docs, r->docId);
@@ -142,7 +155,11 @@ void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout) {
 }
 
 IndexIterator *QITR_GetRootFilter(QueryIterator *it) {
-  return ((RPIndexIterator *)it->rootProc)->iiter;
+  /* On coordinator, the root result processor will be a network result processor and we should ignore it */
+  if (it->rootProc->type == RP_INDEX) {
+      return ((RPIndexIterator *)it->rootProc)->iiter;
+  }
+  return NULL;
 }
 
 void QITR_PushRP(QueryIterator *it, ResultProcessor *rp) {
@@ -238,61 +255,43 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
 }
 
 /*******************************************************************************************************************
- *  Vector Similarity Result Processor
+ *  Additional Values Loader Result Processor
  *
  * It takes results from upstream (should be Index iterator or close; before any RP that need these field),
- * and add thier vecsim score to the right score field before sending them downstream.
+ * and add their additional value to the right score field before sending them downstream.
  *******************************************************************************************************************/
 
 typedef struct {
   ResultProcessor base;
-  const RLookupKey **keys;
-  size_t nkeys;
-} RPVecSim;
+} RPMetrics;
 
-static int rpvecsimNext(ResultProcessor *base, SearchResult *res) {
+static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
   int rc;
-  RPVecSim *self = (RPVecSim *)base;
 
   rc = base->upstream->Next(base->upstream, res);
   if (rc != RS_RESULT_OK) {
     return rc;
   }
 
-  // Add result to every score field.
-  // TODO: when we'll have a way to hold many results, add each result to its corresponding field
-  //  this will require scanning the entire IndexResult tree and looking for vector nodes whose score field name
-  //  stored in some entry of the self->keys array
-  RS_LOG_ASSERT(self->nkeys == 1, "Internal error, number of vector fields in a query is at most 1");
-  for (size_t i = 0; i < self->nkeys; i++) {
-    RSValue *val;
-    if (res->indexResult->type == RSResultType_HybridDistance) {
-      val = RS_NumVal(res->indexResult->agg.children[0]->dist.distance);
-    } else {
-      // The entire query is a TOP-K query, or this is hybrid query that doesn't use the doc score,
-      // so the distance is saved in the root of indexResult.
-      val = RS_NumVal(res->indexResult->dist.distance);
-    }
-    RLookup_WriteOwnKey(self->keys[i], &(res->rowdata), val);
+  arrayof(RSYieldableMetric) arr = res->indexResult->metrics;
+  for (size_t i = 0; i < array_len(arr); i++) {
+    RLookup_WriteKey(arr[i].key, &(res->rowdata), arr[i].value);
   }
 
   return rc;
 }
 
-/* Free implementation for vecsim */
-static void rpvecsimFree(ResultProcessor *rp) {
-  RPVecSim *self = (RPVecSim *)rp;
-  rm_free(self->keys);
+/* Free implementation for RPMetrics */
+static void rpMetricsFree(ResultProcessor *rp) {
+  RPMetrics *self = (RPMetrics *)rp;
   rm_free(self);
 }
 
-ResultProcessor *RPVecSim_New(const RLookupKey **keys, size_t nkeys) {
-  RPVecSim *ret = rm_calloc(1, sizeof(*ret));
-  ret->keys = keys;
-  ret->nkeys = nkeys;
-  ret->base.Next = rpvecsimNext;
-  ret->base.Free = rpvecsimFree;
-  ret->base.type = RP_VECSIM;
+ResultProcessor *RPMetricsLoader_New() {
+  RPMetrics *ret = rm_calloc(1, sizeof(*ret));
+  ret->base.Next = rpMetricsNext;
+  ret->base.Free = rpMetricsFree;
+  ret->base.type = RP_METRICS;
   return &ret->base;
 }
 
@@ -446,7 +445,12 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
                                     .status = &status};
       RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
       if (QueryError_HasError(&status)) {
-        return RS_RESULT_ERROR;
+        // failure to fetch the doc:
+        // release dmd, reduce result count and continue
+        self->pooledResult = h;
+        SearchResult_Clear(self->pooledResult);
+        rp->parent->totalResults--;
+        return RESULT_QUEUED;
       }
     }
   }
@@ -524,11 +528,12 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     // take the ascending bit for this property from the ascending bitmap
     ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
     if (!v1 || !v2) {
+      // If at least one of these has no sort key, it gets high value regardless of asc/desc
       int rc;
       if (v1) {
-        rc = 1;
+        return 1;
       } else if (v2) {
-        rc = -1;
+        return -1;
       } else {
         rc = h1->docId < h2->docId ? -1 : 1;
       }
@@ -566,12 +571,6 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->fieldcmp.nkeys = nkeys;
   ret->fieldcmp.loadKeys = NULL;
   ret->fieldcmp.nLoadKeys = REDISEARCH_UNINITIALIZED;
-
-  if (RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
-    maxresults = MIN(maxresults, RSGlobalConfig.maxAggregateResults);
-  } else if (RSGlobalConfig.maxSearchResults != UINT64_MAX) {
-    maxresults = MIN(maxresults, RSGlobalConfig.maxSearchResults);
-  }
 
   ret->pq = mmh_init_with_size(maxresults + 1, ret->cmp, ret->cmpCtx, srDtor);
   ret->size = maxresults;
@@ -726,7 +725,7 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
 static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Scorer",      "Sorter",
                                      "Counter",   "Pager/Limiter", "Highlighter", "Grouper",
                                      "Projector", "Filter",        "Profile",     "Network",
-                                     "Vector Similarity Scores Loader"};
+                                     "Metrics Applier"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
@@ -742,22 +741,23 @@ void RP_DumpChain(const ResultProcessor *rp) {
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
-/// Profile RP                                                             ///
+/// Profile RP                                                               ///
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
 typedef struct {
   ResultProcessor base;
-  clock_t profileTime;
+  double profileTime;
   uint64_t profileCount;
 } RPProfile;
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
 
-  clock_t rpStartTime = clock();
+  hires_clock_t t0;
+  hires_clock_get(&t0);
   int rc = base->upstream->Next(base->upstream, r);
-  self->profileTime += clock() - rpStartTime;
+  self->profileTime += hires_clock_since_msec(&t0);
   self->profileCount++;
   return rc;
 }
@@ -780,7 +780,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
   return &rpp->base;
 }
 
-clock_t RPProfile_GetClock(ResultProcessor *rp) {
+double RPProfile_GetDurationMSec(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileTime;
 }
@@ -788,6 +788,15 @@ clock_t RPProfile_GetClock(ResultProcessor *rp) {
 uint64_t RPProfile_GetCount(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileCount;
+}
+
+void Profile_AddRPs(QueryIterator *qiter) {
+  ResultProcessor *cur = qiter->endProc = RPProfile_New(qiter->endProc, qiter);
+  while (cur && cur->upstream && cur->upstream->upstream) {
+    cur = cur->upstream;
+    cur->upstream = RPProfile_New(cur->upstream, qiter);
+    cur = cur->upstream;
+  }
 }
 
 /*******************************************************************************************************************

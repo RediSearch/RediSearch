@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef __QUERY_H__
 #define __QUERY_H__
 
@@ -20,6 +26,13 @@
 extern "C" {
 #endif
 
+// Holds a yieldable field name, and the address to write the RLookupKey pointer later.
+typedef struct MetricRequest{
+  char *metric_name;
+  RLookupKey **key_ptr;
+} MetricRequest;
+
+
 /**
  * Query AST structure.
  *
@@ -35,8 +48,8 @@ typedef struct QueryAST {
   const void *udata;
   size_t udatalen;
 
-  // vector score field names array in the AST.
-  char **vecScoreFieldNames;
+  // array of additional metrics names in the AST.
+  MetricRequest *metricRequests;
 
   // Copied query and length, because it seems we modify the string
   // in the parser (FIXME). Thus, if the original query is const
@@ -107,6 +120,12 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
 
 int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, QueryError *status);
 int QueryNode_EvalParams(dict *params, QueryNode *node, QueryError *status);
+
+int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status);
+
+// Checks whether query nodes are valid
+// Currently Phrase nodes are checked whether slop/inorder are allowed
+int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status);
 
 /* Return a string representation of the QueryParseCtx parse tree. The string should be freed by the
  * caller */

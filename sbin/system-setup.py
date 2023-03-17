@@ -5,7 +5,7 @@ import os
 import argparse
 
 HERE = os.path.abspath(os.path.dirname(__file__))
-ROOT = os.path.join(HERE, "..")
+ROOT = os.path.abspath(os.path.join(HERE, ".."))
 READIES = os.path.join(ROOT, "deps/readies")
 sys.path.insert(0, READIES)
 import paella
@@ -23,7 +23,7 @@ class RediSearchSetup(paella.Setup):
         self.install("git gawk jq openssl rsync unzip")
 
     def linux_first(self):
-        self.install("patch")
+        self.install("patch psmisc")
 
     def debian_compat(self):
         self.install("libatomic1")
@@ -33,13 +33,13 @@ class RediSearchSetup(paella.Setup):
 
         if self.platform.is_arm():
             if self.dist == 'ubuntu' and self.os_version[0] < 20:
-                # self.install("python3-gevent")
                 pass
             else:
                 self.install("libffi-dev")
 
     def redhat_compat(self):
         self.install("redhat-lsb-core")
+        self.install("which")
         self.run("%s/bin/getepel" % READIES, sudo=True)
         self.install("libatomic")
 
@@ -47,10 +47,7 @@ class RediSearchSetup(paella.Setup):
         self.install("libtool m4 automake openssl-devel")
         self.install("python3-devel")
 
-        if self.platform.is_arm():
-            # self.install("python-gevent")
-            pass
-        else:
+        if not self.platform.is_arm():
             self.install_linux_gnu_tar()
 
     def archlinux(self):
@@ -64,12 +61,13 @@ class RediSearchSetup(paella.Setup):
 
     def macos(self):
         self.install_gnu_utils()
-        self.run("%s/bin/getgcc --modern" % READIES)
         self.install("pkg-config")
         self.install("libtool m4 automake")
+        self.pip_install("-r %s/tests/pytests/requirements.macos.txt" % ROOT)
+        # self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
 
-        # for now depending on redis from brew, it's version6 with TLS.
-        self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
+    def linux_first(self):
+        self.pip_install("-r %s/tests/pytests/requirements.linux.txt" % ROOT)
 
     def common_last(self):
         self.run("{PYTHON} {READIES}/bin/getcmake --usr".format(PYTHON=self.python, READIES=READIES),
@@ -79,12 +77,10 @@ class RediSearchSetup(paella.Setup):
             self.install("lcov")
         else:
             self.install("lcov-git", aur=True)
-        self.pip_install("pudb awscli")
-
-        if int(sh("{PYTHON} -c 'import gevent' 2> /dev/null; echo $?".format(PYTHON=self.python))) != 0:
-            self.pip_install("gevent")
 
         self.pip_install("-r %s/tests/pytests/requirements.txt" % ROOT)
+        self.run("%s/bin/getaws" % READIES)
+        self.run("NO_PY2=1 %s/bin/getpudb" % READIES)
 
 #----------------------------------------------------------------------------------------------
 

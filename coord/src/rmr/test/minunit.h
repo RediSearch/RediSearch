@@ -1,4 +1,10 @@
 /*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
+/*
  * Copyright (c) 2012 David Siñuela Pastor, siu.4coders@gmail.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining
@@ -33,11 +39,16 @@ extern "C" {
 #elif defined(__unix__) || defined(__unix) || defined(unix) ||                 \
     (defined(__APPLE__) && defined(__MACH__))
 
+#if 0
+// This prevents macOS SDK from defining CLOCK_MONOTONIC_RAW - temporarily disabled
+// TODO: investigate
+
 /* Change POSIX C SOURCE version for pure c99 compilers */
 #if !defined(_POSIX_C_SOURCE) || _POSIX_C_SOURCE < 200112L
 #undef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200112L
 #endif
+#endif // 0
 
 #include <unistd.h>   /* POSIX flags */
 #include <time.h>     /* clock_gettime(), time() */

@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "aggregate.h"
 #include "reducer.h"
 
@@ -10,6 +16,7 @@
 #include "extension.h"
 #include "profile.h"
 #include "config.h"
+#include "util/timeout.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -149,13 +156,17 @@ static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
 }
 
 int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
-  if (AC_NumRemaining(ac) < 1) {	
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for DIALECT");	
-      return REDISMODULE_ERR;	
-    }	
-    if ((AC_GetUnsigned(ac, dialect, AC_F_GE1) != AC_OK) || (*dialect > MAX_DIALECT_VERSION)) {	
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "DIALECT requires a non negative integer >=1 and <= %u", MAX_DIALECT_VERSION);	
-      return REDISMODULE_ERR;	
+  if (AC_NumRemaining(ac) < 1) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for DIALECT");
+      return REDISMODULE_ERR;
+    }
+    if ((AC_GetUnsigned(ac, dialect, AC_F_GE1) != AC_OK) || (*dialect > MAX_DIALECT_VERSION)) {
+      QueryError_SetErrorFmt(
+        status, QUERY_EPARSEARGS,
+        "DIALECT requires a non negative integer >=%u and <= %u",
+        MIN_DIALECT_VERSION, MAX_DIALECT_VERSION
+      );
+      return REDISMODULE_ERR;
     }
     return REDISMODULE_OK;
 }
@@ -209,14 +220,14 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if (req->reqflags & QEXEC_F_IS_SEARCH && !(QEXEC_F_SEND_SCORES & req->reqflags)) {
       req->searchopts.flags |= Search_IgnoreScores;
     }
-  } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {	
-    if (AC_NumRemaining(ac) < 1) {	
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");	
-      return ARG_ERROR;	
-    }	
-    if (AC_GetInt(ac, &req->reqTimeout, AC_F_GE0) != AC_OK) {	
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a non negative integer");	
-      return ARG_ERROR;	
+  } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {
+    if (AC_NumRemaining(ac) < 1) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");
+      return ARG_ERROR;
+    }
+    if (AC_GetInt(ac, &req->reqTimeout, AC_F_GE0) != AC_OK) {
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a non negative integer");
+      return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
     if (parseCursorSettings(req, ac, status) != REDISMODULE_OK) {
@@ -329,6 +340,10 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   // MAX is not included in the normal SORTBY arglist.. so we need to switch
   // back to `ac`
   if (AC_AdvanceIfMatch(ac, "MAX")) {
+    if (isLegacy) {
+      QERR_MKBADARGS_FMT(status, "SORTBY MAX is not supported by FT.SEARCH");
+      goto err;
+    }
     unsigned mx = 0;
     if ((rv = AC_GetUnsigned(ac, &mx, 0) != AC_OK)) {
       QERR_MKBADARGS_AC(status, "MAX", rv);
@@ -483,7 +498,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         if (rv != AC_OK) {
           QERR_MKBADARGS_FMT(status, "RETURN path AS name - must be accompanied with NAME");
           return REDISMODULE_ERR;
-        } else if (!strncasecmp(name, SPEC_AS_STR, strlen(SPEC_AS_STR))) {
+        } else if (!strcasecmp(name, SPEC_AS_STR)) {
           QERR_MKBADARGS_FMT(status, "Alias for RETURN cannot be `AS`");
           return REDISMODULE_ERR;
         }
@@ -691,7 +706,7 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
     rc = AC_GetString(ac, &s, NULL, 0);
     if (rc != AC_OK || strcmp(s, "*")) {
       QERR_MKBADARGS_AC(status, "LOAD", rc);
-      return REDISMODULE_ERR;  
+      return REDISMODULE_ERR;
     }
     req->reqflags |= QEXEC_AGG_LOAD_ALL;
   }
@@ -715,6 +730,7 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
 AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
   req->dialectVersion = RSGlobalConfig.defaultDialectVersion;
+  req->reqTimeout = RSGlobalConfig.queryTimeoutMS;
   return req;
 }
 
@@ -781,6 +797,10 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
       goto error;
     }
   }
+
+  // Set timeout for the query
+  updateTimeout(&req->timeoutTime, req->reqTimeout);
+
   return REDISMODULE_OK;
 
 error:
@@ -819,6 +839,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
+  sctx->timeout = req->timeoutTime;
+  sctx->apiVersion = req->dialectVersion;
   req->sctx = sctx;
 
   if ((index->flags & Index_StoreByteOffsets) == 0 && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
@@ -854,13 +876,17 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   QueryAST *ast = &req->ast;
 
-  int rv = QAST_Parse(ast, sctx, &req->searchopts, req->query, strlen(req->query), req->dialectVersion, status);
+  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), req->dialectVersion, status);
   if (rv != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
   QAST_EvalParams(ast, opts, status);
   applyGlobalFilters(opts, ast, sctx);
+
+  if (QAST_CheckIsValid(ast, req->sctx->spec, opts, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
 
   if (!(opts->flags & Search_Verbatim)) {
     if (QAST_Expand(ast, opts->expanderName, opts, sctx, status) != REDISMODULE_OK) {
@@ -870,6 +896,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
+
+  TimedOut_WithStatus(&req->timeoutTime, status);
+
   if (QueryError_HasError(status))
     return REDISMODULE_ERR;
   if (IsProfile(req)) {
@@ -930,12 +959,6 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
 static ResultProcessor *pushRP(AREQ *req, ResultProcessor *rp, ResultProcessor *rpUpstream) {
   rp->upstream = rpUpstream;
   rp->parent = &req->qiter;
-
-  // In profile mode, we add an RPprofile before any RP to collect stats.
-  if (IsProfile(req)) {
-    rp = RPProfile_New(rp, &req->qiter);
-  }
-
   req->qiter.endProc = rp;
   return rp;
 }
@@ -972,27 +995,27 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
   return pushRP(req, groupRP, rpUpstream);
 }
 
-static ResultProcessor *getVecSimRP(AREQ *req, AGGPlan *pln, ResultProcessor *up, QueryError *status) {
-  RLookup *lk = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
-  char **scoreFields = req->ast.vecScoreFieldNames;
-  size_t nScoreFields = array_len(scoreFields);
-  RLookupKey **keys = rm_calloc(nScoreFields, sizeof(*keys));
-  for (size_t i = 0; i < nScoreFields; i++) {
-    if (IndexSpec_GetField(req->sctx->spec, scoreFields[i], strlen(scoreFields[i]))) {
-      QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", scoreFields[i]);
-      rm_free(keys);
+static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryError *status) {
+  MetricRequest *requests = req->ast.metricRequests;
+  for (size_t i = 0; i < array_len(requests); i++) {
+    char *name = requests[i].metric_name;
+    if (IndexSpec_GetField(req->sctx->spec, name, strlen(name))) {
+      QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", name);
       return NULL;
     }
-    keys[i] = RLookup_GetKey(lk, scoreFields[i], RLOOKUP_F_OEXCL | RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
-    if (!keys[i]) {
-      QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", scoreFields[i]);
-      rm_free(keys);
+    RLookupKey *key = RLookup_GetKey(rl, name, RLOOKUP_F_OEXCL | RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
+    if (!key) {
+      QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", name);
       return NULL;
     }
+    // In some cases the iterator that requested the additional field can be NULL (if some other iterator knows early
+    // that it has no results), but we still want the rest of the pipline to know about the additional field name,
+    // because there is no syntax error and the sorter should be able to "sort" by this field.
+    // If there is a pointer to the node's RLookupKey, write the address.
+    if (requests[i].key_ptr)
+      *requests[i].key_ptr = key;
   }
-
-  ResultProcessor *rp = RPVecSim_New((const RLookupKey **)keys, array_len(req->ast.vecScoreFieldNames));
-  return pushRP(req, rp, up);
+  return RPMetricsLoader_New();
 }
 
 static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep *stp,
@@ -1015,6 +1038,15 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
   size_t limit = astp->offset + astp->limit;
   if (!limit) {
     limit = DEFAULT_LIMIT;
+  }
+
+  if ((req->reqflags & QEXEC_F_IS_SEARCH) && RSGlobalConfig.maxSearchResults != UINT64_MAX) {
+    limit = MIN(limit, RSGlobalConfig.maxSearchResults);
+  }
+
+  if (!(req->reqflags & QEXEC_F_IS_SEARCH) && RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
+    limit = MIN(limit, RSGlobalConfig.maxAggregateResults);
+
   }
 
   if (astp->sortKeys) {
@@ -1110,6 +1142,16 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   req->qiter.rootProc = req->qiter.endProc = rp;
   PUSH_RP();
 
+  // Load results metrics according to their RLookup key.
+  // We need this RP only if metricRequests is not empty.
+  if (req->ast.metricRequests) {
+    rp = getAdditionalMetricsRP(req, first, Status);
+    if (!rp) {
+      return;
+    }
+    PUSH_RP();
+  }
+
   /** Create a scorer if:
    *  * WITHSCORES is defined
    *  * there is no subsequent sorter within this grouping */
@@ -1184,19 +1226,13 @@ error:
 int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
   if (!(options & AREQ_BUILDPIPELINE_NO_ROOT)) {
     buildImplicitPipeline(req, status);
+    if (status->code != QUERY_OK) {
+      goto error;
+    }
   }
 
   AGGPlan *pln = &req->ap;
   ResultProcessor *rp = NULL, *rpUpstream = req->qiter.endProc;
-
-  // Load vecsim results according to their score fields.
-  // We need this RP only if vecScoreFieldNames is not empty.
-  if (req->ast.vecScoreFieldNames) {
-    rpUpstream = getVecSimRP(req, pln, rpUpstream, status);
-    if (!rpUpstream) {
-      goto error;
-    }
-  }
 
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
@@ -1277,13 +1313,13 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
             if (rv != AC_OK) {
               QERR_MKBADARGS_FMT(status, "RETURN path AS name - must be accompanied with NAME");
               return REDISMODULE_ERR;
-            } else if (!strncasecmp(name, SPEC_AS_STR, strlen(SPEC_AS_STR))) {
+            } else if (!strcasecmp(name, SPEC_AS_STR)) {
               QERR_MKBADARGS_FMT(status, "Alias for RETURN cannot be `AS`");
               return REDISMODULE_ERR;
             }
           }
           // set lookupkey name to name.
-          // by defualt "name = path" 
+          // by defualt "name = path"
           kk->name = name;
           kk->name_len = strlen(name);
           lstp->keys[lstp->nkeys++] = kk;
@@ -1323,6 +1359,11 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
     if (buildOutputPipeline(req, status) != REDISMODULE_OK) {
       goto error;
     }
+  }
+
+  // In profile mode, we need to add RP_Profile before each RP
+  if (IsProfile(req) && req->qiter.endProc) {
+    Profile_AddRPs(&req->qiter);
   }
 
   return REDISMODULE_OK;

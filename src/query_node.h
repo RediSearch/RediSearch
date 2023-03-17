@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #pragma once
 
@@ -52,6 +58,9 @@ typedef enum {
   /* Vector */
   QN_VECTOR,
 
+  /* Wildcard */
+  QN_WILDCARD_QUERY,
+
   /* Null term - take no action */
   QN_NULL
 } QueryNodeType;
@@ -82,6 +91,8 @@ typedef RSToken QueryTokenNode;
 
 typedef struct {
   RSToken tok;
+  bool prefix;
+  bool suffix;
 } QueryPrefixNode;
 
 typedef struct {
@@ -114,8 +125,14 @@ typedef struct {
   bool includeEnd;
 } QueryLexRangeNode;
 
+typedef struct {
+  RSToken tok;
+} QueryVerbatimNode;
+
 typedef enum {
   QueryNode_Verbatim = 0x01,
+  QueryNode_OverriddenInOrder = 0x02,
+  QueryNode_YieldsDistance = 0x04,
 } QueryNodeFlags;
 
 /* Query attribute is a dynamic attribute that can be applied to any query node.
@@ -132,6 +149,14 @@ typedef struct {
 #define PHONETIC_DISABLED 2
 #define PHONETIC_DEFAULT 0
 
+/* Define the attributes' names */
+#define YIELD_DISTANCE_ATTR "yield_distance_as"
+#define SLOP_ATTR "slop"
+#define INORDER_ATTR "inorder"
+#define WEIGHT_ATTR "weight"
+#define PHONETIC_ATTR "phonetic"
+
+
 /* Various modifiers and options that can apply to the entire query or any sub-query of it */
 typedef struct {
   QueryNodeFlags flags;
@@ -140,6 +165,7 @@ typedef struct {
   int inOrder;
   double weight;
   int phonetic;
+  char *distField;
 } QueryNodeOptions;
 
 typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;
@@ -161,6 +187,7 @@ typedef struct RSQueryNode {
     QueryTagNode tag;
     QueryFuzzyNode fz;
     QueryLexRangeNode lxrng;
+    QueryVerbatimNode verb;
   };
 
   /* The node type, for resolving the union access */
@@ -174,6 +201,7 @@ typedef struct RSQueryNode {
 } QueryNode;
 
 int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, QueryError *status);
+int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *spec, bool anyField, QueryError *status);
 
 void QueryNode_AddChildren(QueryNode *parent, QueryNode **children, size_t n);
 void QueryNode_AddChild(QueryNode *parent, QueryNode *child);

@@ -54,6 +54,12 @@
         ]
       },
       {
+        "name": "filter",
+        "type": "string",
+        "optional": true,
+        "token": "FILTER"
+      },
+      {
         "name": "default_lang",
         "type": "string",
         "token":"LANGUAGE",
@@ -130,11 +136,18 @@
             "type": "integer"
           },
           {
-            "multiple": true,
             "name": "stopword",
-            "type": "string"
+            "type": "string",
+            "multiple": true,
+            "optional": true
           }
         ]
+      },
+      {
+        "name": "skipinitialscan",
+        "type": "pure-token",
+        "token": "SKIPINITIALSCAN",
+        "optional": true
       },
       {
         "name": "schema",
@@ -186,6 +199,12 @@
                 "token": "VECTOR"
               }
             ]
+          },
+          {
+            "name": "withsuffixtrie",
+            "type": "pure-token",
+            "token": "WITHSUFFIXTRIE",
+            "optional": true
           },
           {
             "name": "sortable",
@@ -282,6 +301,12 @@
       {
         "name": "index",
         "type": "string"
+      },
+      {
+        "name": "skipinitialscan",
+        "type": "pure-token",
+        "token": "SKIPINITIALSCAN",
+        "optional": true
       },
       {
         "name": "schema",
@@ -898,8 +923,7 @@
           {
             "name": "summarize",
             "type": "pure-token",
-            "token": "SUMMARIZE",
-            "optional": true
+            "token": "SUMMARIZE"
           },
           {
             "name": "fields",
@@ -946,8 +970,7 @@
           {
             "name": "highlight",
             "type": "pure-token",
-            "token": "HIGHLIGHT",
-            "optional": true
+            "token": "HIGHLIGHT"
           },
           {
             "name": "fields",
@@ -1086,14 +1109,14 @@
         ]
       },
       {
-        "name": "PARAMS",
+        "name": "params",
         "type": "block",
         "optional": true,
         "arguments": [          
           {
             "name": "params",
             "type": "pure-token",
-            "token": "params"
+            "token": "PARAMS"
           },
           {
             "name": "nargs",
@@ -1129,7 +1152,7 @@
   },
 
   "FT.AGGREGATE": {
-    "summary": "Adds terms to a dictionary",
+    "summary": "Run a search query on an index and perform aggregate transformations on the results",
     "complexity": "O(1)",
     "arguments": [
       {
@@ -1154,7 +1177,7 @@
           {
             "name": "count",
             "type": "string",
-            "token":"LOAD"
+            "token": "LOAD"
           },
           {
             "name": "field",
@@ -1167,7 +1190,7 @@
         "name": "timeout",
         "type": "integer",
         "optional": true,
-        "token":"TIMEOUT"
+        "token": "TIMEOUT"
       },
       {
         "name": "loadall",
@@ -1184,7 +1207,7 @@
           {
             "name": "nargs",
             "type": "integer",
-            "token":"GROUPBY"
+            "token": "GROUPBY"
           },
           {
             "name": "property",
@@ -1200,7 +1223,7 @@
               {
                 "name": "function",
                 "type": "string",
-                "token":"REDUCE"
+                "token": "REDUCE"
               },
               {
                 "name": "nargs",
@@ -1214,7 +1237,7 @@
               {
                 "name": "name",
                 "type": "string",
-                "token":"AS",
+                "token": "AS",
                 "optional": true
               }
             ]
@@ -1229,7 +1252,7 @@
           {
             "name": "nargs",
             "type": "integer",
-            "token":"SORTBY"
+            "token": "SORTBY"
           },
           {
             "name": "fields",
@@ -1262,7 +1285,7 @@
           {
             "name": "num",
             "type": "integer",
-            "token":"MAX",
+            "token": "MAX",
             "optional": true
           }
         ]
@@ -1276,12 +1299,12 @@
           {
             "name": "expression",
             "type": "string",
-            "token":"APPLY"
+            "token": "APPLY"
           },
           {
             "name": "name",
             "type": "string",
-            "token":"AS"
+            "token": "AS"
           }
         ]
       },
@@ -1309,7 +1332,7 @@
         "name": "filter",
         "type": "string",
         "optional": true,
-        "token":"FILTER"
+        "token": "FILTER"
       },
       {
         "name": "cursor",
@@ -1319,35 +1342,34 @@
           {
             "name": "withcursor",
             "type": "pure-token",
-            "token": "WITHCURSOR",
-            "optional": true
+            "token": "WITHCURSOR"
           },
           {
             "name": "read_size",
             "type": "integer",
             "optional": true,
-            "token":"COUNT"
+            "token": "COUNT"
           },
           {
             "name": "idle_time",
             "type": "integer",
             "optional": true,
-            "token":"MAXIDLE"
+            "token": "MAXIDLE"
           }
         ]
       },
       {
-        "name": "PARAMS",
+        "name": "params",
         "type": "block",
         "optional": true,
-        "arguments": [          
+        "arguments": [
           {
             "name": "params",
             "type": "pure-token",
-            "token": "params"
+            "token": "PARAMS"
           },
           {
-            "name": "NARGS",
+            "name": "nargs",
             "type": "integer"
           },
           {

@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "indexer.h"
 #include "forward_index.h"
 #include "numeric_index.h"
@@ -6,7 +12,9 @@
 #include "vector_index.h"
 #include "index.h"
 #include "redis_index.h"
+#include "suffix.h"
 #include "rmutil/rm_assert.h"
+#include "phonetic_manager.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -157,14 +165,14 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
       // Open the inverted index:
       ForwardIndexEntry *fwent = merged->head;
 
-      // Add the term to the prefix trie. This only needs to be done once per term
-      IndexSpec_AddTerm(ctx->spec, fwent->term, fwent->len);
 
       RedisModuleKey *idxKey = NULL;
-      InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, fwent->term, fwent->len, 1, &idxKey);
+      bool isNew;
+      InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, fwent->term, fwent->len, 1, &isNew, &idxKey);
 
-      if (invidx == NULL) {
-        continue;
+      if (isNew) {
+        // Add the term to the prefix trie. This only needs to be done once per term
+        IndexSpec_AddTerm(ctx->spec, fwent->term, fwent->len);
       }
 
       for (; fwent != NULL; fwent = fwent->next) {
@@ -211,7 +219,7 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
  */
 static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   RS_LOG_ASSERT(ctx, "ctx should not be NULL");
-  
+
   IndexSpec *spec = ctx->spec;
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
@@ -220,9 +228,11 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
 
   while (entry != NULL) {
     RedisModuleKey *idxKey = NULL;
-    IndexSpec_AddTerm(spec, entry->term, entry->len);
-
-    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &idxKey);
+    bool isNew;
+    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &isNew, &idxKey);
+    if (isNew) {
+      IndexSpec_AddTerm(spec, entry->term, entry->len);
+    }
     if (invidx) {
       entry->docId = aCtx->doc->docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
@@ -231,6 +241,13 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
         invidx->fieldMask |= entry->fieldMask;
       }
     }
+    
+    if (spec->suffixMask & entry->fieldMask && entry->term[0] != STEM_PREFIX
+                                            && entry->term[0] != PHONETIC_PREFIX
+                                            && entry->term[0] != SYNONYM_PREFIX_CHAR) {
+      addSuffixTrie(spec->suffix, entry->term, entry->len);
+    }
+
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }

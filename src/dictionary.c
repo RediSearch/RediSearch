@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "dictionary.h"
 #include "redismodule.h"
 #include "rmalloc.h"
@@ -9,7 +15,7 @@ dict *spellCheckDicts = NULL;
 Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode) {
   Trie *t = dictFetchValue(spellCheckDicts, dictName);
   if (!t && mode == REDISMODULE_WRITE) {
-    t = NewTrie();
+    t = NewTrie(NULL, Trie_Sort_Lex);
     dictAdd(spellCheckDicts, (char *)dictName, t);
   }
   return t;
@@ -70,8 +76,6 @@ int Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
   }
-  DFAFilter_Free(it->ctx);
-  rm_free(it->ctx);
   TrieIterator_Free(it);
 
   return 1;
@@ -82,8 +86,6 @@ int DictDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
-  RedisModule_AutoMemory(ctx);
-
   const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
 
   char *error;
@@ -100,7 +102,6 @@ int DictDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  RedisModule_AutoMemory(ctx);
 
   const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
 
@@ -121,7 +122,6 @@ int DictAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  RedisModule_AutoMemory(ctx);
 
   const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
 

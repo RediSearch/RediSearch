@@ -180,13 +180,39 @@ TEST_F(LLApiTest, testAddDocumentGeoField) {
   ASSERT_EQ(res, REDISMODULE_OK);
   RediSearch_SpecAddDocument(index, d);
 
-  // searching on the index
-  RSQNode* qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 20.6543222, 0.123455, 10, RS_GEO_DISTANCE_M);
-  RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
-  ASSERT_TRUE(iter != NULL);
-
+  // error while searching the index
   size_t len;
-  const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
+  const char* id;
+  // radius < 0
+  RSQNode* qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 20.6543222, 0.123455, -1, RS_GEO_DISTANCE_M);
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_FALSE(iter);
+
+  // lat > MAX_LAT
+  qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 100, 0.123455, 10, RS_GEO_DISTANCE_M);
+  iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_FALSE(iter);
+
+  // 90 > lat > 85
+  // we receive an EOF iterator  
+  qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 87, 0.123455, 10, RS_GEO_DISTANCE_M);
+  iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_TRUE(iter);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
+  ASSERT_STREQ(id, NULL);
+  RediSearch_ResultsIteratorFree(iter);
+
+  // lon > MAX_LON
+  qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 20.6543222, 200, 10, RS_GEO_DISTANCE_M);
+  iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_FALSE(iter);
+
+  // searching on the index
+  qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 20.6543222, 0.123455, 10, RS_GEO_DISTANCE_M);
+  iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_TRUE(iter);
+
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, DOCID1);
   id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, NULL);
@@ -330,6 +356,147 @@ TEST_F(LLApiTest, testMassivePrefix) {
   }
 
   RediSearch_ResultsIteratorFree(iter);
+  RediSearch_DropIndex(index);
+}
+
+const char *words[] = {"he", "her", "hell", "help", "helper", "hello",
+                        "hello world", "towel", "dealer", "bell"};
+
+void loadDocsText(RSIndex *index) {
+  char buff[16];
+  for (int i = 0; i < 10; ++i) {
+    sprintf(buff, "%d", i);
+    RSDoc* d = RediSearch_CreateDocument(buff, strlen(buff), 1.0, NULL);
+    RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, words[i], RSFLDTYPE_DEFAULT);
+    RediSearch_DocumentAddFieldCString(d, FIELD_NAME_2, words[i], RSFLDTYPE_DEFAULT);
+    RediSearch_SpecAddDocument(index, d);
+  }
+}
+
+TEST_F(LLApiTest, testContainsText) {
+  // creating the index
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  RediSearch_CreateTextField(index, FIELD_NAME_1);
+  RediSearch_CreateField(index, FIELD_NAME_2, RSFLDTYPE_FULLTEXT, RSFLDOPT_WITHSUFFIXTRIE);
+  loadDocsText(index);
+
+  RSQNode* qn = RediSearch_CreateContainsNode(index, FIELD_NAME_1, "el");
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_FALSE(iter);
+
+  qn = RediSearch_CreateContainsNode(index, FIELD_NAME_2, "el");
+  iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_TRUE(iter);
+
+  const char* id;
+  size_t len;
+  int ii = 0;
+  while ((id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len))) {
+    ASSERT_TRUE(strstr(words[*id - '0'], "el") != NULL);
+    ++ii;
+  }
+  ASSERT_EQ(ii, 7);
+
+  RediSearch_ResultsIteratorFree(iter);
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testSuffixText) {
+  // creating the index
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  RediSearch_CreateTextField(index, FIELD_NAME_1);
+  RediSearch_CreateField(index, FIELD_NAME_2, RSFLDTYPE_FULLTEXT, RSFLDOPT_WITHSUFFIXTRIE);
+  loadDocsText(index);
+
+  RSQNode* qn = RediSearch_CreateSuffixNode(index, FIELD_NAME_1, "er");
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_FALSE(iter);
+
+  qn = RediSearch_CreateSuffixNode(index, FIELD_NAME_2, "er");
+  iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_TRUE(iter);
+
+  const char* id;
+  size_t len;
+  int ii = 0;
+  while ((id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len))) {
+    ASSERT_TRUE(strstr(words[*id - '0'], "er") != NULL);
+    ++ii;
+  }
+  ASSERT_EQ(ii, 3);
+
+  RediSearch_ResultsIteratorFree(iter);
+
+  RediSearch_DropIndex(index);
+}
+
+
+void loadDocsTag(RSIndex *index) {
+  char buff[16];
+  for (int i = 0; i < 10; ++i) {
+    sprintf(buff, "%d", i);
+    RSDoc* d = RediSearch_CreateDocument(buff, strlen(buff), 1.0, NULL);
+    RediSearch_DocumentAddFieldCString(d, TAG_FIELD_NAME1, words[i], RSFLDTYPE_DEFAULT);
+    RediSearch_DocumentAddFieldCString(d, TAG_FIELD_NAME2, words[i], RSFLDTYPE_DEFAULT);
+    RediSearch_SpecAddDocument(index, d);
+  }
+}
+
+TEST_F(LLApiTest, testContainsTag) {
+  // creating the index
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  RediSearch_CreateTagField(index, TAG_FIELD_NAME1);
+  RediSearch_CreateField(index, TAG_FIELD_NAME2, RSFLDTYPE_TAG, RSFLDOPT_WITHSUFFIXTRIE);
+  loadDocsTag(index);
+
+  const char *fields[] = {TAG_FIELD_NAME1, TAG_FIELD_NAME2};
+  for (int i = 0; i < 2; ++i) {
+    RSQNode* qn = RediSearch_CreateTagNode(index, fields[i]);
+    RSQNode* pqn = RediSearch_CreateTagContainsNode(index, "el");
+    RediSearch_QueryNodeAddChild(qn, pqn);
+    RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
+    ASSERT_TRUE(iter);
+
+    const char* id;
+    size_t len;
+    int ii = 0;
+    while ((id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len))) {
+      ASSERT_TRUE(strstr(words[*id - '0'], "el") != NULL);
+      ++ii;
+    }
+    ASSERT_EQ(ii, 7);
+
+    RediSearch_ResultsIteratorFree(iter);
+  }
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testSuffixTag) {
+  // creating the index
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  RediSearch_CreateTagField(index, TAG_FIELD_NAME1);
+  RediSearch_CreateField(index, TAG_FIELD_NAME2, RSFLDTYPE_TAG, RSFLDOPT_WITHSUFFIXTRIE);
+  loadDocsTag(index);
+
+  const char *fields[] = {TAG_FIELD_NAME1, TAG_FIELD_NAME2};
+  for (int i = 0; i < 2; ++i) {
+    RSQNode* qn = RediSearch_CreateTagNode(index, fields[i]);
+    RSQNode* pqn = RediSearch_CreateTagSuffixNode(index, "ell");
+    RediSearch_QueryNodeAddChild(qn, pqn);
+    RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
+    ASSERT_TRUE(iter);
+
+    const char* id;
+    size_t len;
+    int ii = 0;
+    while ((id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len))) {
+      ASSERT_TRUE(strstr(words[*id - '0'], "ell") != NULL);
+      ++ii;
+    }
+    ASSERT_EQ(ii, 2);
+
+    RediSearch_ResultsIteratorFree(iter);
+  }
   RediSearch_DropIndex(index);
 }
 
@@ -837,7 +1004,7 @@ TEST_F(LLApiTest, testStopwords) {
   RediSearch_DropIndex(index);
 
   // Check custom stopword list
-  const char *words[] = {"Redis", "Labs"};
+  const char *words[] = { "Labs", "Redis"};
   RSIndexOptions *options = RediSearch_CreateIndexOptions();
   RediSearch_IndexOptionsSetStopwords(options, words, 2);
 
@@ -889,7 +1056,7 @@ TEST_F(LLApiTest, testGetters) {
   RediSearch_FreeDocument(d);
 
   RediSearch_FreeIndexOptions(opt);
-  RediSearch_DropIndex(index);  
+  RediSearch_DropIndex(index);
 }
 
 TEST_F(LLApiTest, testInfo) {
@@ -929,7 +1096,7 @@ TEST_F(LLApiTest, testInfo) {
 
   // test invalid option
   RSIdxInfo info = { .version = 0 };
-  ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_ERR);  
+  ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_ERR);
 
   info = { .version = RS_INFO_CURRENT_VERSION };
   ASSERT_EQ(RediSearch_IndexInfo(index, &info), REDISEARCH_OK);
@@ -983,7 +1150,7 @@ TEST_F(LLApiTest, testInfo) {
   RediSearch_IndexInfoFree(&info);
 
   RediSearch_FreeIndexOptions(opt);
-  RediSearch_DropIndex(index);  
+  RediSearch_DropIndex(index);
 }
 
 TEST_F(LLApiTest, testLanguage) {
@@ -1013,4 +1180,48 @@ TEST_F(LLApiTest, testScore) {
   ASSERT_EQ(REDISEARCH_OK, RediSearch_IndexOptionsSetScore(opt, 0.5));
   ASSERT_EQ(opt->score, 0.5);
   RediSearch_FreeIndexOptions(opt);
+}
+
+TEST_F(LLApiTest, testInfoSize) {
+  // creating the index
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+
+  // adding field to the index
+  RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
+  RediSearch_CreateTextField(index, FIELD_NAME_1);
+
+  ASSERT_EQ(RediSearch_MemUsage(index), 0);
+
+  // adding document to the index
+  RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
+  RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 20, RSFLDTYPE_DEFAULT);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TEXT", RSFLDTYPE_DEFAULT);
+  RediSearch_SpecAddDocument(index, d);
+
+  ASSERT_EQ(RediSearch_MemUsage(index), 112);
+
+  d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
+  RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
+  RediSearch_SpecAddDocument(index, d);
+
+  ASSERT_EQ(RediSearch_MemUsage(index), 252);
+
+  // test MemUsage after deleting docs
+  int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
+  ASSERT_EQ(REDISMODULE_OK, ret);
+  ASSERT_EQ(RediSearch_MemUsage(index), 124);
+  RSGlobalConfig.forkGcCleanThreshold = 0;
+  index->gc->callbacks.periodicCallback(RSDummyContext, index->gc->gcCtx);
+  ASSERT_EQ(RediSearch_MemUsage(index), 113);
+
+  ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
+  ASSERT_EQ(REDISMODULE_OK, ret);
+  ASSERT_EQ(RediSearch_MemUsage(index), 14);
+  index->gc->callbacks.periodicCallback(RSDummyContext, index->gc->gcCtx);
+  ASSERT_EQ(RediSearch_MemUsage(index), 2);
+  // we have 2 left over b/c of the offset vector size which we cannot clean
+  // since the data is not maintained
+
+  RediSearch_DropIndex(index);
 }

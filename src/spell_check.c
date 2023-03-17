@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "spell_check.h"
 #include "util/arr.h"
 #include "dictionary.h"
@@ -34,7 +40,7 @@ static void RS_SuggestionFree(RS_Suggestion *suggestion) {
 RS_Suggestions *RS_SuggestionsCreate() {
 #define SUGGESTIONS_ARRAY_INITIAL_SIZE 10
   RS_Suggestions *ret = rm_calloc(1, sizeof(RS_Suggestions));
-  ret->suggestionsTrie = NewTrie();
+  ret->suggestionsTrie = NewTrie(NULL, Trie_Sort_Score);
   return ret;
 }
 
@@ -77,7 +83,7 @@ void RS_SuggestionsFree(RS_Suggestions *s) {
 static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t len,
                                   t_fieldMask fieldMask) {
   RedisModuleKey *keyp = NULL;
-  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(scCtx->sctx, suggestion, len, 0, &keyp);
+  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(scCtx->sctx, suggestion, len, 0, NULL, &keyp);
   double retVal = 0;
   if (!invidx) {
     // can not find inverted index key, score is 0.
@@ -120,8 +126,6 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len,
   if (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
     retVal = true;
   }
-  DFAFilter_Free(it->ctx);
-  rm_free(it->ctx);
   TrieIterator_Free(it);
   if (outScore) {
     *outScore = score;
@@ -150,8 +154,6 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
     }
     rm_free(res);
   }
-  DFAFilter_Free(it->ctx);
-  rm_free(it->ctx);
   TrieIterator_Free(it);
 }
 
@@ -167,8 +169,6 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
     char *res = runesToStr(rstr, slen, &termLen);
     ret = array_append(ret, RS_SuggestionCreate(res, termLen, score));
   }
-  DFAFilter_Free(iter->ctx);
-  rm_free(iter->ctx);
   TrieIterator_Free(iter);
   return ret;
 }

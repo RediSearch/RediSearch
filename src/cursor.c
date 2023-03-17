@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "cursor.h"
 #include <time.h>
 #include "rmutil/rm_assert.h"
@@ -26,18 +32,11 @@ void CursorList_Init(CursorList *cl) {
   cl->lookup = kh_init(cursors);
   Array_Init(&cl->idle);
   srand48(getpid());
+  cl->specsDict = dictCreate(&dictTypeHeapStrings, NULL);
 }
 
-static CursorSpecInfo *findInfo(const CursorList *cl, const char *keyName, size_t *index) {
-  for (size_t ii = 0; ii < cl->specsCount; ++ii) {
-    if (!strcmp(cl->specs[ii]->keyName, keyName)) {
-      if (index) {
-        *index = ii;
-      }
-      return cl->specs[ii];
-    }
-  }
-  return NULL;
+static CursorSpecInfo *findInfo(const CursorList *cl, const char *keyName) {
+  return dictFetchValue(cl->specsDict, keyName);;
 }
 
 static void Cursor_RemoveFromIdle(Cursor *cur) {
@@ -144,23 +143,20 @@ int Cursors_CollectIdle(CursorList *cl) {
 }
 
 void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity) {
-  CursorSpecInfo *info = findInfo(cl, k, NULL);
+  CursorSpecInfo *info = findInfo(cl, k);
   if (!info) {
     info = rm_malloc(sizeof(*info));
     info->keyName = rm_strdup(k);
     info->used = 0;
-    cl->specs = rm_realloc(cl->specs, sizeof(*cl->specs) * ++cl->specsCount);
-    cl->specs[cl->specsCount - 1] = info;
+    dictAdd(cl->specsDict, (void *)k, info);
   }
   info->cap = capacity;
 }
 
 void CursorList_RemoveSpec(CursorList *cl, const char *k) {
-  size_t index;
-  CursorSpecInfo *info = findInfo(cl, k, &index);
+  CursorSpecInfo *info = findInfo(cl, k);
   if (info) {
-    cl->specs[index] = cl->specs[cl->specsCount - 1];
-    cl->specs = rm_realloc(cl->specs, sizeof(*cl->specs) * --cl->specsCount);
+    dictDelete(cl->specsDict, k);
     rm_free(info->keyName);
     rm_free(info);
   }
@@ -188,7 +184,7 @@ Cursor *Cursors_Reserve(CursorList *cl, const char *lookupName, unsigned interva
                         QueryError *status) {
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
-  CursorSpecInfo *spec = findInfo(cl, lookupName, NULL);
+  CursorSpecInfo *spec = findInfo(cl, lookupName);
   Cursor *cur = NULL;
 
   if (spec == NULL) {
@@ -292,7 +288,7 @@ int Cursor_Free(Cursor *cur) {
 
 void Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) {
   CursorList_Lock(cl);
-  CursorSpecInfo *info = findInfo(cl, name, NULL);
+  CursorSpecInfo *info = findInfo(cl, name);
 
   RedisModule_ReplyWithSimpleString(ctx, "cursor_stats");
 
@@ -313,6 +309,22 @@ void Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) 
   CursorList_Unlock(cl);
 }
 
+#ifdef FTINFO_FOR_INFO_MODULES
+void Cursors_RenderStatsForInfo(CursorList *cl, const char *name, RedisModuleInfoCtx *ctx) {
+  CursorList_Lock(cl);
+  CursorSpecInfo *info = findInfo(cl, name);
+
+  RedisModule_InfoBeginDictField(ctx, "cursor_stats");
+  RedisModule_InfoAddFieldLongLong(ctx, "global_idle", ARRAY_GETSIZE_AS(&cl->idle, Cursor **));
+  RedisModule_InfoAddFieldLongLong(ctx, "global_total", kh_size(cl->lookup));
+  RedisModule_InfoAddFieldLongLong(ctx, "index_capacity", info->cap);
+  RedisModule_InfoAddFieldLongLong(ctx, "index_total", info->used);
+  RedisModule_InfoEndDictField(ctx);
+
+  CursorList_Unlock(cl);
+}
+#endif // FTINFO_FOR_INFO_MODULES
+
 static void purgeCb(CursorList *cl, Cursor *cur, void *arg) {
   CursorSpecInfo *info = arg;
   if (cur->specInfo != info) {
@@ -324,7 +336,7 @@ static void purgeCb(CursorList *cl, Cursor *cur, void *arg) {
 }
 
 void Cursors_PurgeWithName(CursorList *cl, const char *lookupName) {
-  CursorSpecInfo *info = findInfo(cl, lookupName, NULL);
+  CursorSpecInfo *info = findInfo(cl, lookupName);
   if (!info) {
     return;
   }
@@ -349,11 +361,16 @@ void CursorList_Destroy(CursorList *cl) {
   }
   kh_destroy(cursors, cl->lookup);
 
-  for (size_t ii = 0; ii < cl->specsCount; ++ii) {
-    CursorSpecInfo *sp = cl->specs[ii];
+  // free the dictionary
+  dictIterator *iter = dictGetIterator(cl->specsDict);
+  dictEntry *entry;
+  while ((entry = dictNext(iter))) {
+    CursorSpecInfo *sp = dictGetVal(entry);
     rm_free(sp->keyName);
     rm_free(sp);
   }
-  rm_free(cl->specs);
+  dictReleaseIterator(iter);
+  dictRelease(cl->specsDict);
+
   pthread_mutex_destroy(&cl->lock);
 }

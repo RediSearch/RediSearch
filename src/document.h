@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef __RS_DOCUMENT_H__
 #define __RS_DOCUMENT_H__
 #include <pthread.h>
@@ -43,7 +49,8 @@ typedef enum {
   FLD_VAR_T_NUM = 0x04,
   FLD_VAR_T_GEO = 0x08,
   FLD_VAR_T_ARRAY = 0x10,
-  FLD_VAR_T_NULL = 0x20,
+  FLD_VAR_T_BLOB_ARRAY = 0x20,
+  FLD_VAR_T_NULL = 0x40,
 } FieldVarType;
 
 typedef struct DocumentField{
@@ -56,7 +63,13 @@ typedef struct DocumentField{
       char *strval;
       size_t strlen;
     };
+    struct {
+      char *blobArr;
+      size_t blobSize;
+      size_t blobArrLen;
+    };
     double numval;
+    arrayof(double) arrNumval;
     struct {
       double lon, lat;
     };
@@ -65,6 +78,7 @@ typedef struct DocumentField{
       size_t arrayLen; // for multiVal TODO: use arr.h
     };
   };
+  RSValue *multisv; // sortable value for multi value (pre-calculated during ingestion)
   FieldVarType unionType;
   FieldType indexAs;
 } DocumentField;
@@ -331,7 +345,7 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx);
  * When this function completes, it will send the reply to the client and
  * unblock the client passed when the context was first created.
  */
-int Document_AddToIndexes(RSAddDocumentCtx *ctx);
+int Document_AddToIndexes(RSAddDocumentCtx *ctx, RedisSearchCtx *sctx);
 
 /**
  * Free the AddDocumentCtx. Should be done once AddToIndexes() completes; or
@@ -361,8 +375,14 @@ int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleStr
 
 DocumentField *Document_GetField(Document *d, const char *fieldName);
 
-/* return value as c string */
+/* return value as c string (if array - return the first entry)*/
 const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len);
+
+/* return an array value as c string */
+const char *DocumentField_GetArrayValueCStr(const DocumentField *df, size_t *len, size_t index);
+
+/* return the sum of all c string lenths in array */
+size_t DocumentField_GetArrayValueCStrTotalLen(const DocumentField *df);
 
 // Document add functions:
 int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

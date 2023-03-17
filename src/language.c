@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "language.h"
 #include <string.h>
 
@@ -60,7 +66,7 @@ const char *RSLanguage_ToString(RSLanguage language) {
     case  RS_LANG_IRISH:       ret = "irish";      break;
     case  RS_LANG_ITALIAN:     ret = "italian";    break;
     case  RS_LANG_LITHUANIAN:  ret = "lithuanian"; break;
-    case  RS_LANG_NEPALI:      ret = "napali";     break; 
+    case  RS_LANG_NEPALI:      ret = "napali";     break;
     case  RS_LANG_NORWEGIAN:   ret = "norwegian";  break;
     case  RS_LANG_PORTUGUESE:  ret = "portuguese"; break;
     case  RS_LANG_ROMANIAN:    ret = "romanian";   break;
@@ -72,7 +78,7 @@ const char *RSLanguage_ToString(RSLanguage language) {
     case  RS_LANG_TURKISH:     ret = "turkish";    break;
     case  RS_LANG_YIDDISH:     ret = "yiddish";    break;
     case  RS_LANG_CHINESE:     ret = "chinese";    break;
-    case  RS_LANG_UNSUPPORTED:  
+    case  RS_LANG_UNSUPPORTED:
     default: break;
   }
   return (const char *)ret;

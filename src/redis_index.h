@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef __REDIS_INDEX__
 #define __REDIS_INDEX__
 
@@ -16,9 +22,9 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
                               double weight);
 
 InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, size_t len,
-                                         int write, RedisModuleKey **keyp);
-#define Redis_OpenInvertedIndex(ctx, term, len, isWrite) \
-  Redis_OpenInvertedIndexEx(ctx, term, len, isWrite, NULL)
+                                         int write, bool *outIsNew, RedisModuleKey **keyp);
+#define Redis_OpenInvertedIndex(ctx, term, len, isWrite, outIsNew) \
+  Redis_OpenInvertedIndexEx(ctx, term, len, isWrite, outIsNew, NULL)
 void Redis_CloseReader(IndexReader *r);
 
 /*

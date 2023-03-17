@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #pragma once
 
@@ -77,6 +83,8 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
 
 void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb);
 int SchemaRule_RdbLoad(struct IndexSpec *sp, RedisModuleIO *rdb, int encver);
+
+bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type);
 
 //---------------------------------------------------------------------------------------------
 

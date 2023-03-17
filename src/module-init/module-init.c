@@ -96,6 +96,8 @@ static int initAsModule(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
 
+  GetJSONAPIs(ctx, 1);
+
   return REDISMODULE_OK;
 }
 
@@ -105,6 +107,48 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   RSGlobalConfig.minTermPrefix = 0;
   RSGlobalConfig.maxPrefixExpansions = LONG_MAX;
   return REDISMODULE_OK;
+}
+
+void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
+  // Module version
+  RedisModule_InfoAddSection(ctx, "version");
+  char ver[64];
+  // RediSearch version
+  sprintf(ver, "%d.%d.%d", REDISEARCH_VERSION_MAJOR, REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH);
+  RedisModule_InfoAddFieldCString(ctx, "version", ver);
+  // Redis version
+  GetFormattedRedisVersion(ver, sizeof(ver));
+  RedisModule_InfoAddFieldCString(ctx, "redis_version", ver);
+  // Redis Enterprise version
+  if (IsEnterprise()) {
+    GetFormattedRedisEnterpriseVersion(ver, sizeof(ver));
+    RedisModule_InfoAddFieldCString(ctx, "redis_enterprise_version", ver);
+  }
+
+  // Numer of indexes
+  RedisModule_InfoAddSection(ctx, "index");
+  RedisModule_InfoAddFieldLongLong(ctx, "number_of_indexes", dictSize(specDict_g));
+
+  // Fields statistics
+  FieldsGlobalStats_AddToInfo(ctx);
+
+  // Dialect statistics
+  DialectsGlobalStats_AddToInfo(ctx);
+
+  // Run time configuration
+  RSConfig_AddToInfo(ctx);
+
+  #ifdef FTINFO_FOR_INFO_MODULES
+  // FT.INFO for some of the indexes
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry;
+  int count = 5;
+  while (count-- && (entry = dictNext(iter))) {
+    IndexSpec *spec = dictGetVal(entry);
+    IndexSpec_AddToInfo(ctx, spec);
+  }
+  dictReleaseIterator(iter);
+  #endif
 }
 
 static inline const char* RS_GetExtraVersion() {
@@ -194,13 +238,19 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     return REDISMODULE_ERR;
   }
 
+  // Register to Info function
+  if (RedisModule_RegisterInfoFunc && RedisModule_RegisterInfoFunc(ctx, RS_moduleInfoFunc) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  }
+
   Initialize_KeyspaceNotifications(ctx);
   Initialize_CommandFilter(ctx);
-  GetJSONAPIs(ctx, 1);
   Initialize_RdbNotifications(ctx);
+  Initialize_RoleChangeNotifications(ctx);
 
   // Register rm_malloc memory functions as vector similarity memory functions.
   VecSimMemoryFunctions vecsimMemoryFunctions = {.allocFunction = rm_malloc, .callocFunction = rm_calloc, .reallocFunction = rm_realloc, .freeFunction = rm_free};
   VecSim_SetMemoryFunctions(vecsimMemoryFunctions);
+  VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
   return REDISMODULE_OK;
 }
