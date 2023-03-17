@@ -521,7 +521,7 @@ jobs:
           benchmark_glob: "search*.yml"
           module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
-          allowed_setups: oss-cluster-04-primaries,oss-cluster-08-primaries
+          allowed_setups: oss-cluster-02-primaries,oss-cluster-04-primaries,oss-cluster-08-primaries
           benchmark_runner_group_member_id: "1"
           benchmark_runner_group_total: "2"
   benchmark-search-oss-cluster-g2:
@@ -534,7 +534,7 @@ jobs:
           benchmark_glob: "search*.yml"
           module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
-          allowed_setups: oss-cluster-04-primaries,oss-cluster-08-primaries
+          allowed_setups: oss-cluster-02-primaries,oss-cluster-04-primaries,oss-cluster-08-primaries
           benchmark_runner_group_member_id: "2"
           benchmark_runner_group_total: "2"
   benchmark-search-oss-cluster-g3:
