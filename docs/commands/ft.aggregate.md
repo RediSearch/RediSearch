@@ -24,9 +24,9 @@ Run a search query on an index, and perform aggregate transformations on the res
 ## Required arguments
 
 <details open>
-<summary><code>index_name</code></summary>
+<summary><code>index</code></summary>
 
-is index against which the query is executed.
+is index name against which the query is executed. You must first create the index using `FT.CREATE`.
 </details>
 
 <details open>
