@@ -116,7 +116,7 @@ To search the index for documents that contain specific words, use the `FT.SEARC
 {{% alert title="Note" color="info" %}}
 When configuring [ACLs](/docs/management/security/acl/), search-related commands such as `FT.SEARCH` consider the index name to be the "key". Therefore, if you use key patterns in an ACL rule allowing or disallowing search commands, include a pattern matching the index name for the specified commands. 
 
-For example, to enable use for searching the index `myIdx`, the ACL rule should include a pattern for either this command, or a category which includes it. Such ACL rules could be `+ft.search ~myIdx`, `+ft.search ~myId*`, `+@all ~myIdx` etc.
+For example, to enable search on an index `myIdx`, the ACL rule should include a pattern for either 'FT.SEARCH` or a category that includes it. Such ACL rules could be `+ft.search ~myIdx`, `+ft.search ~myId*`, `+@all ~myIdx`, and so on.
 {{% /alert %}}
 
 ## Drop the index
