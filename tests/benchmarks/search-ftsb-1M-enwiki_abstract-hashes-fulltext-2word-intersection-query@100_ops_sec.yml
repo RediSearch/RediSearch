@@ -31,7 +31,7 @@ setups:
 dbconfig:
   - module-configuration-parameters:
       redisearch:
-        WORKER_THREADS: 8
+        WORKER_THREADS: 2
         ENABLE_THREADS: 'TRUE'
   - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
   - init_commands:
