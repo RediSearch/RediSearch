@@ -20,6 +20,9 @@ dbconfig:
       redisearch:
         WORKER_THREADS: 2
         ENABLE_THREADS: 'TRUE'
+module-oss:
+        WORKER_THREADS: 2
+        ENABLE_THREADS: 'TRUE'
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64
