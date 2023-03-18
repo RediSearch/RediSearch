@@ -28,6 +28,9 @@ dbconfig:
       redisearch:
         WORKER_THREADS: 4
         ENABLE_THREADS: 'TRUE'
+module-oss:
+        WORKER_THREADS: 4
+        ENABLE_THREADS: 'TRUE'
   - dataset_name: "ftsb-10K-enwiki_pages-hashes"
   - init_commands:
     - '"FT.CREATE" "enwiki_pages" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "text" "text" "SORTABLE" "comment" "text" "SORTABLE" "username" "tag" "SORTABLE" "timestamp" "numeric" "SORTABLE"'
