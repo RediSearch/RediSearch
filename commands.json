@@ -1152,7 +1152,7 @@
   },
 
   "FT.AGGREGATE": {
-    "summary": "Adds terms to a dictionary",
+    "summary": "Run a search query on an index and perform aggregate transformations on the results",
     "complexity": "O(1)",
     "arguments": [
       {
@@ -1177,7 +1177,7 @@
           {
             "name": "count",
             "type": "string",
-            "token":"LOAD"
+            "token": "LOAD"
           },
           {
             "name": "field",
@@ -1190,7 +1190,7 @@
         "name": "timeout",
         "type": "integer",
         "optional": true,
-        "token":"TIMEOUT"
+        "token": "TIMEOUT"
       },
       {
         "name": "loadall",
@@ -1207,7 +1207,7 @@
           {
             "name": "nargs",
             "type": "integer",
-            "token":"GROUPBY"
+            "token": "GROUPBY"
           },
           {
             "name": "property",
@@ -1223,7 +1223,7 @@
               {
                 "name": "function",
                 "type": "string",
-                "token":"REDUCE"
+                "token": "REDUCE"
               },
               {
                 "name": "nargs",
@@ -1237,7 +1237,7 @@
               {
                 "name": "name",
                 "type": "string",
-                "token":"AS",
+                "token": "AS",
                 "optional": true
               }
             ]
@@ -1252,7 +1252,7 @@
           {
             "name": "nargs",
             "type": "integer",
-            "token":"SORTBY"
+            "token": "SORTBY"
           },
           {
             "name": "fields",
@@ -1285,7 +1285,7 @@
           {
             "name": "num",
             "type": "integer",
-            "token":"MAX",
+            "token": "MAX",
             "optional": true
           }
         ]
@@ -1299,12 +1299,12 @@
           {
             "name": "expression",
             "type": "string",
-            "token":"APPLY"
+            "token": "APPLY"
           },
           {
             "name": "name",
             "type": "string",
-            "token":"AS"
+            "token": "AS"
           }
         ]
       },
@@ -1332,7 +1332,7 @@
         "name": "filter",
         "type": "string",
         "optional": true,
-        "token":"FILTER"
+        "token": "FILTER"
       },
       {
         "name": "cursor",
@@ -1348,13 +1348,13 @@
             "name": "read_size",
             "type": "integer",
             "optional": true,
-            "token":"COUNT"
+            "token": "COUNT"
           },
           {
             "name": "idle_time",
             "type": "integer",
             "optional": true,
-            "token":"MAXIDLE"
+            "token": "MAXIDLE"
           }
         ]
       },
@@ -1362,7 +1362,7 @@
         "name": "params",
         "type": "block",
         "optional": true,
-        "arguments": [          
+        "arguments": [
           {
             "name": "params",
             "type": "pure-token",

@@ -1738,8 +1738,8 @@ def testInfoCommand(env):
             env.assertGreater(float(d['bytes_per_record_avg']), 0)
             env.assertGreater(float(d['doc_table_size_mb']), 0)
 
-    for x in range(1, 5):
-        for combo in combinations(('NOOFFSETS', 'NOFREQS', 'NOFIELDS', ''), x):
+    for x in range(1, 6):
+        for combo in combinations(('NOOFFSETS', 'NOFREQS', 'NOFIELDS', 'NOHL', ''), x):
             combo = list(filter(None, combo))
             options = combo + ['schema', 'f1', 'text']
             try:
@@ -1759,6 +1759,15 @@ def testInfoCommand(env):
 
             for option in filter(None, combo):
                 env.assertTrue(option in opts)
+
+def testInfoCommandImplied(env):
+    ''' Test that NOHL is implied by NOOFFSETS '''
+    r = env
+    env.assertCmdOk('ft.create', 'idx', 'ON', 'HASH', 'NOOFFSETS', 'schema', 'f1', 'text')
+    res = env.cmd('ft.info', 'idx')
+    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+    env.assertNotEqual(-1, d['index_options'].index('NOOFFSETS'))
+    env.assertNotEqual(-1, d['index_options'].index('NOHL'))
 
 def testNoStem(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH',
