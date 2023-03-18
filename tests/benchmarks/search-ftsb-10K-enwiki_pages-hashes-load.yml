@@ -26,7 +26,7 @@ setups:
 dbconfig:
   - module-configuration-parameters:
       redisearch:
-        WORKER_THREADS: 2
+        WORKER_THREADS: 4
         ENABLE_THREADS: 'TRUE'
   - init_commands:
       - '"FT.CREATE" "enwiki_pages" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "text" "text" "SORTABLE" "comment" "text" "SORTABLE" "username" "tag" "SORTABLE" "timestamp" "numeric" "SORTABLE"'
