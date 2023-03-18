@@ -30,7 +30,7 @@ dbconfig:
       redisearch:
         WORKER_THREADS: 2
         ENABLE_THREADS: 'TRUE'
-module-oss:
+      module-oss:
         WORKER_THREADS: 2
         ENABLE_THREADS: 'TRUE'
   - init_commands:
