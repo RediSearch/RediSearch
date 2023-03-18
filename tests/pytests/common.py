@@ -84,11 +84,11 @@ def toSortedFlatList(res):
         return py2sorted(finalList)
     return [res]
 
-def assertInfoField(env, idx, field, expected, delta=0):
+def assertInfoField(env, idx, field, expected, delta=None):
     if not env.isCluster():
         res = env.cmd('ft.info', idx)
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-        if delta is 0:
+        if delta is None:
             env.assertEqual(d[field], expected)
         else:
             env.assertAlmostEqual(float(d[field]), float(expected), delta=delta)
@@ -209,7 +209,7 @@ def collectKeys(env, pattern='*'):
 
 def forceInvokeGC(env, idx):
     waitForRdbSaveToFinish(env)
-    env.cmd('ft.debug', 'GC_FORCEINVOKE', idx)
+    env.cmd(('_' if env.isCluster() else '') + 'ft.debug', 'GC_FORCEINVOKE', idx)
 
 def skip(f, on_cluster=False):
     @wraps(f)
@@ -294,7 +294,6 @@ def compare_lists_rec(var1, var2, delta):
             return False
     except:
         pass
-
 
     if isinstance(var1, list):
         #print("compare_lists_rec: list {}".format(var1))

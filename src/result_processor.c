@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "result_processor.h"
 #include "query.h"
 #include "extension.h"
@@ -522,6 +528,7 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     // take the ascending bit for this property from the ascending bitmap
     ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
     if (!v1 || !v2) {
+      // If at least one of these has no sort key, it gets high value regardless of asc/desc
       int rc;
       if (v1) {
         return 1;
@@ -564,12 +571,6 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->fieldcmp.nkeys = nkeys;
   ret->fieldcmp.loadKeys = NULL;
   ret->fieldcmp.nLoadKeys = REDISEARCH_UNINITIALIZED;
-
-  if (RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
-    maxresults = MIN(maxresults, RSGlobalConfig.maxAggregateResults);
-  } else if (RSGlobalConfig.maxSearchResults != UINT64_MAX) {
-    maxresults = MIN(maxresults, RSGlobalConfig.maxSearchResults);
-  }
 
   ret->pq = mmh_init_with_size(maxresults + 1, ret->cmp, ret->cmpCtx, srDtor);
   ret->size = maxresults;
@@ -724,7 +725,7 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
 static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Scorer",      "Sorter",
                                      "Counter",   "Pager/Limiter", "Highlighter", "Grouper",
                                      "Projector", "Filter",        "Profile",     "Network",
-                                     "Vector Similarity Scores Loader"};
+                                     "Metrics Applier"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");

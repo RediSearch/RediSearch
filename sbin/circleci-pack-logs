@@ -1,0 +1,33 @@
+#!/bin/bash
+
+PROGNAME="${BASH_SOURCE[0]}"
+HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
+ROOT=$(cd $HERE/.. && pwd)
+
+if [[ -z $CIRCLECI ]]; then
+	echo "Not in CircleCI"
+	exit 1
+fi
+
+if [[ -n $CIRCLE_BRANCH ]]; then
+	CIRCLE_BRANCH_OR_TAG="$CIRCLE_BRANCH"
+else
+	CIRCLE_BRANCH_OR_TAG="$CIRCLE_TAG"
+fi
+
+TEST_LOGFILE_PREFIX=${CIRCLE_PROJECT_REPONAME}_${CIRCLE_BRANCH_OR_TAG}_${CIRCLE_JOB}
+
+mkdir -p $ROOT/logs
+
+if [[ -d $ROOT/tests/pytests/logs ]]; then
+	cd $ROOT/tests/pytests/logs
+	rm -f *.{aof,rdb}
+	TEST_LOGFILE=$ROOT/logs/${TEST_LOGFILE_PREFIX}_tests-pytests-logs.tgz
+	tar -czf $TEST_LOGFILE *.log* || true
+fi
+
+if [[ -d $ROOT/tests/logs ]]; then
+	cd $ROOT/tests/logs
+	TEST_LOGFILE=$ROOT/logs/${TEST_LOGFILE_PREFIX}_tests-unit-tests-logs.tgz
+	tar -czf $TEST_LOGFILE *.log* || true
+fi

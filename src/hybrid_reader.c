@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include <math.h>
 #include "hybrid_reader.h"
 #include "VecSim/vec_sim.h"
@@ -418,7 +424,8 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
   hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = 0 };
   hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
 
-  if (hParams.childIt == NULL) {
+  if (hParams.childIt == NULL || hParams.query.k == 0) {
+    // If there is no child iterator, or the query is going to return 0 results, we can use simple KNN.
     hi->searchMode = VECSIM_STANDARD_KNN;
   } else {
     // hi->searchMode is VECSIM_HYBRID_ADHOC_BF || VECSIM_HYBRID_BATCHES

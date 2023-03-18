@@ -6,7 +6,7 @@ description: >
     RediSearch supports multiple module configuration parameters. Some of these parameters can only be set at load-time, while other parameters can be set either on load-time or on run-time.
 ---
 
-## Setting configuration parameters on module load
+## Set configuration parameters on module load
 
 Setting configuration parameters at load-time is done by appending arguments after the `--loadmodule` argument when starting a server from the command line or after the `loadmodule` directive in a Redis config file. For example:
 
@@ -28,7 +28,7 @@ From the command line:
 $ redis-server --loadmodule ./redisearch.so [OPT VAL]...
 ```
 
-## Setting configuration parameters at run-time (for supported parameters)
+## Set configuration parameters at run-time (for supported parameters)
 
 RediSearch exposes the `FT.CONFIG` endpoint to allowing for the setting and retrieval of configuration parameters at run-time.
 
@@ -38,16 +38,18 @@ To set the value of a configuration parameter at run-time (for supported paramet
 FT.CONFIG SET OPT1 VAL1
 ```
 
-Similarly, current configuration parameter values can be retrieved using:
+Similarly, you can retrieve current configuration parameter values using:
 
 ```sh
 FT.CONFIG GET OPT1
 FT.CONFIG GET *
 ```
 
+Values set using `FT.CONFIG SET` are not persisted after server restart.
+
 ## RediSearch configuration parameters
 
-The following table summerizes which configuration parameters can be set at module load-time and which can be set on run-time:
+The following table summarizes which configuration parameters can be set at module load-time and run-time:
 
 | Configuration Parameter                             | Load-time          | Run-time             |
 | :-------                                            | :-----             | :-----------         |
@@ -81,10 +83,12 @@ The following table summerizes which configuration parameters can be set at modu
 
 The maximum amount of time **in milliseconds** that a search query is allowed to run. If this time is exceeded we return the top results accumulated so far, or an error depending on the policy set with `ON_TIMEOUT`. The timeout can be disabled by setting it to 0.
 
-{{% alert title="Note" color="info" %}}
-Timeout refers to query time only.
-Parsing the query is not counted towards `timeout`.
-If timeout was not reached during the search, finalizing operation such as loading documents' content or reducers, continue.
+{{% alert title="Notes" color="info" %}}
+
+* Timeout refers to query time only.
+* Parsing the query is not counted towards `timeout`.
+* If timeout was not reached during the search, finalizing operation such as loading documents' content or reducers, continue.
+
 {{% /alert %}}
 
 #### Default
@@ -122,7 +126,11 @@ $ redis-server --loadmodule ./redisearch.so ON_TIMEOUT fail
 
 ### SAFEMODE
 
-!! Deprecated in v1.6.  From this version, SAFEMODE is the default.  If you still like to re-enable the concurrent mode for writes, use [CONCURRENT_WRITE_MODE](#concurrent_write_mode) !!
+{{% alert title="Deprecated" color="info" %}}
+
+Deprecated in v1.6. From this version, SAFEMODE is the default.  If you still like to re-enable the concurrent mode for writes, use [CONCURRENT_WRITE_MODE](#concurrent_write_mode).
+
+{{% /alert %}}
 
 If present in the argument list, RediSearch will turn off concurrency for query processing, and work in a single thread.
 
@@ -137,11 +145,13 @@ Off (not present)
 $ redis-server --loadmodule ./redisearch.so SAFEMODE
 ```
 
-#### Notes
+{{% alert title="Note" color="info" %}}
 
-* deprecated in v1.6
+* Deprecated in v1.6
 
----
+{{% /alert %}}
+
+___
 
 ### CONCURRENT_WRITE_MODE
 
@@ -157,9 +167,11 @@ Not set - "disabled"
 $ redis-server --loadmodule ./redisearch.so CONCURRENT_WRITE_MODE
 ```
 
-#### Notes
+{{% alert title="Note" color="info" %}}
 
-* added in v1.6
+* Added in v1.6
+
+{{% /alert %}}
 
 ---
 
@@ -293,9 +305,11 @@ The maximum idle time (in ms) that can be set to the [cursor api](/redisearch/re
 $ redis-server --loadmodule ./redisearch.so CURSOR_MAX_IDLE 500000
 ```
 
-#### Notes
+{{% alert title="Note" color="info" %}}
 
-* added in v1.6
+* Added in v1.6
+
+{{% /alert %}}
 
 ---
 
@@ -321,9 +335,11 @@ indexed fields are updated frequently.
 $ redis-server --loadmodule ./redisearch.so PARTIAL_INDEXED_DOCS 1
 ```
 
-#### Notes
+{{% alert title="Note" color="info" %}}
 
-* added in v2.0.0
+* Added in v2.0.0
+
+{{% /alert %}}
 
 ---
 
@@ -364,9 +380,11 @@ The policy for the garbage collector (GC). Supported policies are:
 $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK
 ```
 
-#### Notes
+{{% alert title="Note" color="info" %}}
 
 * When the `GC_POLICY` is `FORK` it can be combined with the options below.
+
+{{% /alert %}}
 
 ---
 
@@ -400,9 +418,11 @@ Interval (in seconds) between two consecutive `fork GC` runs.
 $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_RUN_INTERVAL 60
 ```
 
-#### Notes
+{{% alert title="Note" color="info" %}}
 
-* only to be combined with `GC_POLICY FORK`
+* Can only be combined with `GC_POLICY FORK`
+
+{{% /alert %}}
 
 ---
 
@@ -420,10 +440,12 @@ Interval (in seconds) in which RediSearch will retry to run `fork GC` in case of
 $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_RETRY_INTERVAL 10
 ```
 
-#### Notes
+{{% alert title="Notes" color="info" %}}
 
-* only to be combined with `GC_POLICY FORK`
-* added in v1.4.16
+* Can only be combined with `GC_POLICY FORK`
+* Added in v1.4.16
+
+{{% /alert %}}
 
 ---
 
@@ -441,10 +463,12 @@ The `fork GC` will only start to clean when the number of not cleaned documents 
 $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 10000
 ```
 
-#### Notes
+{{% alert title="Notes" color="info" %}}
 
-* only to be combined with `GC_POLICY FORK`
-* added in v1.4.16
+* Can only be combined with `GC_POLICY FORK`
+* Added in v1.4.16
+
+{{% /alert %}}
 
 ---
 
@@ -462,10 +486,12 @@ There is no default for index name, and the other arguments have the same defaul
 $ redis-server --loadmodule ./redisearch.so UPGRADE_INDEX idx PREFIX 1 tt LANGUAGE french LANGUAGE_FIELD MyLang SCORE 0.5 SCORE_FIELD MyScore PAYLOAD_FIELD MyPayload UPGRADE_INDEX idx1
 ```
 
-#### Notes
+{{% alert title="Notes" color="info" %}}
 
 * If the RDB file does not contain a legacy index that's specified in the configuration, a warning message will be added to the log file and loading will continue.
 * If the RDB file contains a legacy index that wasn't specified in the configuration loading will fail and the server won't start.
+
+{{% /alert %}}
 
 ---
 
@@ -483,16 +509,18 @@ Not set
 $ redis-server --loadmodule ./redisearch.so OSS_GLOBAL_PASSWORD password
 ```
 
-#### Notes
+{{% alert title="Notes" color="info" %}}
 
-* only relevant when Coordinator is used
-* added in v2.0.3
+* Only relevant when Coordinator is used
+* Added in v2.0.3
+
+{{% /alert %}}
 
 ---
 
 ### DEFAULT_DIALECT
 
-The default DIALECT to be used by `FT.CREATE`, `FT.AGGREGATE`, `FT.EXPLAIN`, `FT.EXPLAINCLI`, and `FT.SPECLCHECK`.
+The default DIALECT to be used by `FT.CREATE`, `FT.AGGREGATE`, `FT.EXPLAIN`, `FT.EXPLAINCLI`, and `FT.SPELLCHECK`.
 
 #### Default
 
@@ -504,13 +532,12 @@ The default DIALECT to be used by `FT.CREATE`, `FT.AGGREGATE`, `FT.EXPLAIN`, `FT
 $ redis-server --loadmodule ./redisearch.so DEFAULT_DIALECT 2
 ```
 
-#### Notes
+{{% alert title="Notes" color="info" %}}
 
-* Vector similarity search requires `DIALECT 2` or greater.
-* added in v2.4.3
+* Vector similarity search requires `DIALECT 2` or greater **(added in v2.4.3)**.
+* Returning multiple values from `FT.SEARCH` and `FT.AGGREGATE` requires `DIALECT 3` or greater, when available **(added in v2.6.1)**.
 
-* Returning multiple values from `FT.SEARCH` and `FT.AGGREGATE` requires `DIALECT 3` (or greater, when available). 
-* Added in v2.6.1.
+{{% /alert %}}
 
 ---
 
@@ -528,8 +555,10 @@ The maximum memory resize for Vector Similarity index in bytes. This value will 
 $ redis-server --loadmodule ./redisearch.so VSS_MAX_RESIZE 52428800  # 50MB
 ```
 
-#### Notes
+{{% alert title="Note" color="info" %}}
 
-* added in v2.4.8
+* Added in v2.4.8
+
+{{% /alert %}}
 
 ---

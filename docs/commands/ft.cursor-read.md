@@ -1,18 +1,15 @@
 ---
-syntax: 
+syntax: |
+  FT.CURSOR READ index cursor_id [COUNT read_size]
 ---
 
 Read next results from an existing cursor
 
-## Syntax
-
-{{< highlight bash >}}
-FT.CURSOR READ index cursor_id [COUNT read_size]
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+See [Cursor API](/docs/stack/search/reference/aggregations/#cursor-api) for more details.
+
+## Required arguments
 
 <details open>
 <summary><code>index</code></summary>

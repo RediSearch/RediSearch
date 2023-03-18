@@ -9,13 +9,13 @@ type: docs
 [![Github](https://img.shields.io/static/v1?label=&message=repository&color=5961FF&logo=github)](https://github.com/RediSearch/RediSearch/)
 
 
-RediSearch is a [source-available](https://github.com/RediSearch/RediSearch/blob/master/LICENSE) Redis module that enables querying, secondary indexing, and full-text search for Redis. These features enable multi-field queries, [aggregation](/docs/stack/search/reference/aggregations), exact phrase matching, [numeric filtering](/docs/stack/search/reference/query_syntax/#numeric-filters-in-query), [geo filtering](/docs/stack/search/reference/query_syntax/#geo-filters-in-query) and [vector similarity semantic search](/docs/stack/search/reference/query_syntax/#vector-similarity-search-in-query) on top of text queries.
+RediSearch is a [source-available](https://raw.githubusercontent.com/RediSearch/RediSearch/master/LICENSE.txt) Redis module that enables querying, secondary indexing, and full-text search for Redis. These features enable multi-field queries, [aggregation](/docs/stack/search/reference/aggregations), exact phrase matching, [numeric filtering](/docs/stack/search/reference/query_syntax/#numeric-filters-in-query), [geo filtering](/docs/stack/search/reference/query_syntax/#geo-filters-in-query) and [vector similarity semantic search](/docs/stack/search/reference/query_syntax/#vector-similarity-search-in-query) on top of text queries.
 
 ## Quick links
   - [Quick start guide](/redisearch/quick_start)
   - [Source code](https://github.com/RediSearch/RediSearch)
   - [Latest release](https://github.com/RediSearch/RediSearch/releases)
-  - [Docker image](https://hub.docker.com/r/redislabs/redisearch/)
+  - [Docker image](https://hub.docker.com/r/redis/redis-stack-server/)
 
 ## Primary features
 
@@ -95,4 +95,4 @@ Got questions? Feel free to ask at the [RediSearch forum](https://forum.redis.co
 
 ## License
 
-Redis Source Available License Agreement - see [LICENSE](https://raw.githubusercontent.com/RediSearch/RediSearch/master/LICENSE)
+Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1) - see [LICENSE](https://raw.githubusercontent.com/RediSearch/RediSearch/master/LICENSE.txt)

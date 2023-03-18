@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #include "wildcard/wildcard.h"
 #include "suffix.h"
@@ -195,6 +201,8 @@ int test_match() {
   _testMatch("*oo", "fo", PARTIAL_MATCH);
   _testMatch("*oo", "fooo", FULL_MATCH);
   _testMatch("*oo", "bar", PARTIAL_MATCH);
+  _testMatch("*", "bar", FULL_MATCH);
+  _testMatch("*", "", FULL_MATCH);
 
   // mix
   _testMatch("f?o*bar", "foobar", FULL_MATCH);

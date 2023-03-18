@@ -87,7 +87,7 @@ def searchMultiTextCategory(env):
         q.equal([1, 'doc:1'])
 
     for idx in ['idx_category_arr', 'idx_category_arr_author_flat']:
-        env.debugPrint(idx, force=True)
+        env.debugPrint(idx, force=TEST_DEBUG)
         cond.call('FT.SEARCH', idx, '@category:(database programming)', 'NOCONTENT', 'SLOP', '98') \
         .expect_when(True,  expect_0) \
         .expect_when(False, expect_undef_order)
@@ -128,7 +128,7 @@ def searchMultiTextAuthor(env):
     env.assertEqual(int(index_info(env, 'idx_author_arr')['hash_indexing_failures']), 3)
 
     for idx in ['idx_author_flat']:
-        env.debugPrint(idx, force=True)
+        env.debugPrint(idx, force=TEST_DEBUG)
         env.expect('FT.SEARCH', idx, '@author:(Richard)', 'NOCONTENT').equal([1, 'doc:1'])
         
         # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)
@@ -400,7 +400,7 @@ def sortMulti(env, text_cmd_args, tag_cmd_args):
                         message = '{} text arg `{}` tag arg `{}`'.format('multi TEXT with multi TAG', text_arg, tag_arg))
 
     if not env.isCluster():
-        # (skip this comparison in cluster since score is affected by the numer of shards/distribution of keys across shards)
+        # (skip this comparison in cluster since score is affected by the number of shards/distribution of keys across shards)
         # Check that order and scores are the same
         for i, text_arg in enumerate(text_cmd_args):
             text_arg.append('WITHSCORES')

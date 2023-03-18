@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef RS_CONFIG_H_
 #define RS_CONFIG_H_
 
@@ -112,6 +118,8 @@ typedef struct {
   // Can allow to control the seperation between phrases in different array slots (related to the SLOP parameter in ft.search command)
   // Default value is 100. 0 will not increment (as if all text is a continus phrase).
   unsigned int multiTextOffsetDelta;
+  // bitarray of dialects used by all indices
+  uint_least8_t used_dialects;
 } RSConfig;
 
 typedef enum {
@@ -171,6 +179,8 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 
 void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 
+void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
+
 #define DEFAULT_DOC_TABLE_SIZE 1000000
 #define MAX_DOC_TABLE_SIZE 100000000
 #define CONCURRENT_SEARCH_POOL_DEFAULT_SIZE 20
@@ -182,7 +192,11 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 #define NR_MAX_DEPTH_BALANCE 2
-#define MAX_DIALECT_VERSION 3
+#define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
+#define MAX_DIALECT_VERSION 3 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
+#define DIALECT_OFFSET(d) (1ULL << (d - MIN_DIALECT_VERSION))// offset of the d'th bit. begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
+#define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
+#define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
@@ -200,7 +214,7 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
     .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
     .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1,\
-    .vssMaxResize = 0, .multiTextOffsetDelta = 100,                                               \
+    .vssMaxResize = 0, .multiTextOffsetDelta = 100, .used_dialects = 0                            \
   }
 
 #define REDIS_ARRAY_LIMIT 7

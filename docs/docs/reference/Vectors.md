@@ -26,7 +26,7 @@ Vector similarity provides these functionalities:
 
          $d(u, v) = \sqrt{ \displaystyle\sum_{i=1}^n{(u_i - v_i)^2}}$
 
-    - IP - Internal product of two vectors
+    - IP - Inner product of two vectors
 
          $d(u, v) = 1 -u\cdot v$
 
@@ -171,7 +171,7 @@ Unlike in hashes, vectors are stored in JSON documents as arrays (not as blobs).
 JSON.SET 1 $ '{"vec":[1,2,3,4]}'
 ```
 
-As of v2.6.1, RedisJSON supports multi-value indexing. This capability accounts for vectors as well. Thus, it is possible to index multiple vectors under the same JSONPath. Additional information is available in the [Indexing JSON documents](/docs/stack/search/indexing_json/#index-json-arrays-as-text) section. 
+As of v2.6.1, RedisJSON supports multi-value indexing. This capability accounts for vectors as well. Thus, it is possible to index multiple vectors under the same JSONPath. Additional information is available in the [Indexing JSON documents](/docs/stack/search/indexing_json/#index-json-arrays-as-vector) section. 
 
 **Example**
 ```
@@ -290,59 +290,65 @@ Optional parameters are:
 
 ## Vector search examples
 
-* "Pure" KNN queries:
+### "Pure" KNN queries
+Return the 10 documents for which the vector stored under its `vec` field is the closest to the vector represented by the following 4-bytes blob:
 ```
-FT.SEARCH idx "*=>[KNN 100 @vec $BLOB]" PARAMS 2 BLOB "\12\a9\f5\6c" DIALECT 2
+FT.SEARCH idx "*=>[KNN 10 @vec $BLOB]" PARAMS 2 BLOB "\x12\xa9\xf5\x6c" DIALECT 2
 ```
-
+Now, sort the results by their distance from the query vector: 
 ```
-FT.SEARCH idx "*=>[KNN 100 @vec $BLOB]" PARAMS 2 BLOB "\12\a9\f5\6c" SORTBY __vec_score DIALECT 2
+FT.SEARCH idx "*=>[KNN 10 @vec $BLOB]" PARAMS 2 BLOB "\x12\xa9\xf5\x6c" SORTBY __vec_score DIALECT 2
 ```
-
+Return the top 10 similar documents, use *query params* (see "params" section in [FT.SEARCH command](/commands/ft.search/)) for specifying `K` and `EF_RUNTIME` parameter, and set `EF_RUNTIME` value to 150 (assuming `vec` is an HNSW index):
 ```
-FT.SEARCH idx "*=>[KNN $K @vec $BLOB EF_RUNTIME $EF]" PARAMS 6 BLOB "\12\a9\f5\6c" K 10 EF 150 DIALECT 2
+FT.SEARCH idx "*=>[KNN $K @vec $BLOB EF_RUNTIME $EF]" PARAMS 6 BLOB "\x12\xa9\xf5\x6c" K 10 EF 150 DIALECT 2
 ```
-
+Similar to the previous queries, this time use a custom distance field name to sort by it: 
 ```
-FT.SEARCH idx "*=>[KNN $K @vec $BLOB AS my_scores]" PARAMS 4 BLOB "\12\a9\f5\6c" K 10 SORTBY my_scores DIALECT 2
+FT.SEARCH idx "*=>[KNN $K @vec $BLOB AS my_scores]" PARAMS 4 BLOB "\x12\xa9\xf5\x6c" K 10 SORTBY my_scores DIALECT 2
 ```
-
+Use query attributes syntax to specify optional parameters and the distance field name: 
 ```
-FT.SEARCH idx "*=>[KNN 10 @vec $BLOB]=>{$EF_RUNTIME: $EF; $YIELD_DISTANCE_AS: my_scores}" PARAMS 4 EF 150 BLOB "\12\a9\f5\6c" SORTBY my_scores DIALECT 2
-```
-
-* Hybrid KNN queries:
-
-```
-FT.SEARCH idx "(@title:Dune @num:[2020 2022])=>[KNN $K @vec $BLOB AS my_scores]" PARAMS 4 BLOB "\12\a9\f5\6c" K 10 SORTBY my_scores DIALECT 2
+FT.SEARCH idx "*=>[KNN 10 @vec $BLOB]=>{$EF_RUNTIME: $EF; $YIELD_DISTANCE_AS: my_scores}" PARAMS 4 EF 150 BLOB "\x12\xa9\xf5\x6c" SORTBY my_scores DIALECT 2
 ```
 
+### Hybrid KNN queries
+Among documents that have `'Dune'` in their `title` field and their `num` value is in the range `[2020, 2022]`, return the top 10 for which the vector stored in the `vec` field is the closest to the vector represented by the following 4-bytes blob:
 ```
-FT.SEARCH idx "(@type:{shirt} ~@color:{blue})=>[KNN $K @vec $BLOB AS my_scores]" PARAMS 4 BLOB "\12\a9\f5\6c" K 10 SORTBY my_scores DIALECT 2
+FT.SEARCH idx "(@title:Dune @num:[2020 2022])=>[KNN $K @vec $BLOB AS my_scores]" PARAMS 4 BLOB "\x12\xa9\xf5\x6c" K 10 SORTBY my_scores DIALECT 2
 ```
-
+Use a different filter for the hybrid query: this time, return the top 10 results from the documents that contain a `'shirt'` tag  in the `type` field and optionally a `'blue'` tag in their `color` field. Here, the results are sorted by the full-text scorer.
 ```
-FT.SEARCH idx "(@type:{shirt})=>[KNN $K @vec $BLOB HYBRID_POLICY ADHOC_BF]" PARAMS 4 BLOB "\12\a9\f5\6c" K 10 SORTBY __vec_scores DIALECT 2
+FT.SEARCH idx "(@type:{shirt} ~@color:{blue})=>[KNN $K @vec $BLOB]" PARAMS 4 BLOB "\x12\xa9\xf5\x6c" K 10 DIALECT 2
 ```
-
+And, here's a hybrid query in which the hybrid policy is set explicitly to "ad-hoc brute force" (rather than auto-selected):
 ```
-FT.SEARCH idx "(@type:{shirt})=>[KNN $K @vec $BLOB HYBRID_POLICY BATCHES BATCH_SIZE $B_SIZE]" PARAMS 6 BLOB "\12\a9\f5\6c" K 10 B_SIZE 50 DIALECT 2
+FT.SEARCH idx "(@type:{shirt})=>[KNN $K @vec $BLOB HYBRID_POLICY ADHOC_BF]" PARAMS 4 BLOB "\x12\xa9\xf5\x6c" K 10 SORTBY __vec_scores DIALECT 2
 ```
-
+And, now, here's a hybrid query in which the hybrid policy is set explicitly to "batches", and the batch size is set explicitly to be 50 using a query parameter:
 ```
-FT.SEARCH idx "(@type:{shirt})=>[KNN 10 @vec $BLOB]=>{$HYBRID_POLICY: BATCHES; $BATCH_SIZE: 50}" PARAMS 2 BLOB "\12\a9\f5\6c" DIALECT 2
+FT.SEARCH idx "(@type:{shirt})=>[KNN $K @vec $BLOB HYBRID_POLICY BATCHES BATCH_SIZE $B_SIZE]" PARAMS 6 BLOB "\x12\xa9\xf5\x6c" K 10 B_SIZE 50 DIALECT 2
 ```
-
-* Range queries:
-
+Run the same query as above and use the query attributes syntax to specify optional parameters:
 ```
-FT.SEARCH idx "@vec:[VECTOR_RANGE $r $BLOB]" PARAMS 4 BLOB "\12\a9\f5\6c" r 5 DIALECT 2
-```
-
-```
-FT.SEARCH idx "@vec:[VECTOR_RANGE 5 $BLOB]=>{$EPSILON:0.5; $YIELD_DISTANCE_AS: my_scores" PARAMS 2 BLOB "\12\a9\f5\6c" SORTBY my_scores DIALECT 2
+FT.SEARCH idx "(@type:{shirt})=>[KNN 10 @vec $BLOB]=>{$HYBRID_POLICY: BATCHES; $BATCH_SIZE: 50}" PARAMS 2 BLOB "\x12\xa9\xf5\x6c" DIALECT 2
 ```
 
+See additional Python examples in [this Jupyter notebook](https://github.com/RediSearch/RediSearch/blob/master/docs/docs/vecsim-hybrid_queries_examples.ipynb)
+
+### Range queries
+
+Return 100 documents for which the distance between its vector stored under the `vec` field to the specified query vector blob is at most 5 (in terms of `vec` field `DISTANCE_METRIC`):
 ```
-FT.SEARCH idx "@type:{shirt} @num:[2020 2022] @vec:[VECTOR_RANGE 0.8 $BLOB]=>{$YIELD_DISTANCE_AS: my_scores}" PARAMS 2 BLOB "\12\a9\f5\6c" SORTBY my_scores DIALECT 2
+FT.SEARCH idx "@vec:[VECTOR_RANGE $r $BLOB]" PARAMS 4 BLOB "\x12\xa9\xf5\x6c" r 5 LIMIT 0 100 DIALECT 2
 ```
+Run the same query as above and set `EPSILON` parameter to `0.5` (assuming `vec` is HNSW index), yield the vector distance between `vec` and the query result in a field named `my_scores`, and sort the results by that distance.
+```
+FT.SEARCH idx "@vec:[VECTOR_RANGE 5 $BLOB]=>{$EPSILON:0.5; $YIELD_DISTANCE_AS: my_scores}" PARAMS 2 BLOB "\x12\xa9\xf5\x6c" SORTBY my_scores LIMIT 0 100 DIALECT 2
+```
+Use the vector range query in a complex query: return all the documents that contain either `'shirt'` in their `type` tag with their `num` value in the range `[2020, 2022]` OR a vector stored in `vec` whose distance from the query vector is no more than `0.8`, then sort results by their vector distance, if it is in the range: 
+```
+FT.SEARCH idx "(@type:{shirt} @num:[2020 2022]) | @vec:[VECTOR_RANGE 0.8 $BLOB]=>{$YIELD_DISTANCE_AS: my_scores}" PARAMS 2 BLOB "\x12\xa9\xf5\x6c" SORTBY my_scores DIALECT 2
+```
+
+See additional Python examples in [this Jupyter notebook](https://github.com/RediSearch/RediSearch/blob/master/docs/docs/vecsim-range_queries_examples.ipynb)
