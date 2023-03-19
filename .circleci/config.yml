@@ -9,6 +9,16 @@ parameters:
     type: boolean
 
 commands:
+  classify:
+    steps:
+      - attach_workspace:
+          at: ~/workspace
+      - run: |
+          mkdir -p ~/workspace/$CIRCLE_BUILD_NUM/tags
+      - persist_to_workspace:
+          root: ~/workspace/$CIRCLE_BUILD_NUM
+          paths:
+            - tags/
   early-returns:
     steps:
       - run:
@@ -902,13 +912,6 @@ workflows:
     jobs:
       - build-linux-debian:
           <<: *not-on-integ-branch
-      - build-linux-debian:
-          <<: *always
-          name: build-with-redis-<<matrix.redis_version>>
-          test_params: ""
-          matrix:
-            parameters:
-              redis_version: ["6.0", "6.2", "7", "unstable"]
       - build-linux-arm-ubuntu:
           <<: *never
       - build-platforms:
@@ -1072,10 +1075,10 @@ workflows:
           test_params: ""
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
+          test_params: ""
           matrix:
             parameters:
               redis_version: ["6.0", "6.2", "7", "unstable"]
-              test_params: ""
       - sanitize:
           name: nightly-sanitize-<< matrix.san-type >>
           test_args: ""
