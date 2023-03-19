@@ -109,11 +109,12 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
       dmd = r->dmd;
     } else {
       dmd = DocTable_Borrow(&RP_SPEC(base)->docs, r->docId);
-      if (!dmd || (dmd->flags & Document_Deleted)) {
-        DMD_Return(dmd);
-        continue;
-      }
     }
+    if (!dmd || (dmd->flags & Document_Deleted)) {
+      DMD_Return(dmd);
+      continue;
+    }
+
     if (isTrimming && RedisModule_ShardingGetKeySlot) {
       RedisModuleString *key = RedisModule_CreateString(NULL, dmd->keyPtr, sdslen(dmd->keyPtr));
       int slot = RedisModule_ShardingGetKeySlot(key);
