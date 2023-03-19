@@ -190,8 +190,10 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
+// Get the index search context from the result processor
+#define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 // Get the index spec from the result processor
-#define RP_SPEC(rpctx) ((rpctx)->parent->sctx->spec)
+#define RP_SPEC(rpctx) (RP_SCTX(rpctx)->spec)
 
 /**
  * This function resets the search result, so that it may be reused again.
@@ -264,9 +266,13 @@ void RP_DumpChain(const ResultProcessor *rp);
  * to Redis keysapce to allow the downstream result processor a thread safe access to it.
  *
  * Unlocking Redis should be done only by the Unlocker result processor that should be added as well.
+ * 
+ * @param BlockSize is the number of results in each buffer block.
+ * @param spec_version is the version of the spec during pipeline construction. This version will be compared
+ * to the spec version after we unlock the spec, to decide if results' validation is needed.
  *******************************************************************************************************************/
 typedef struct RPBufferAndLocker RPBufferAndLocker;
-ResultProcessor *RPBufferAndLocker_New(size_t BlockSize);
+ResultProcessor *RPBufferAndLocker_New(size_t BlockSize, size_t spec_version);
 
 /*******************************************************************************************************************
  *  UnLocker Results Processor

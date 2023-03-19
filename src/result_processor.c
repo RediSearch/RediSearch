@@ -53,9 +53,15 @@ void SearchResult_Destroy(SearchResult *r) {
   SearchResult_Clear(r);
   RLookupRow_Cleanup(&r->rowdata);
 }
-
-static int RPGeneric_NextEOF(ResultProcessor *rp, SearchResult *res) {
-  return RS_RESULT_EOF;
+static int EndIteratorResult_to_RPResult(int rc) {
+  switch (rc) {
+    case INDEXREAD_EOF:
+      return RS_RESULT_EOF;
+    case INDEXREAD_TIMEOUT:
+      return RS_RESULT_TIMEDOUT;
+    default:
+      return rc;
+  }
 }
 
 /*******************************************************************************************************************
@@ -96,9 +102,9 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     // This means we are done!
     switch (rc) {
     case INDEXREAD_EOF:
-      return RS_RESULT_EOF;
     case INDEXREAD_TIMEOUT:
-      return RS_RESULT_TIMEDOUT;
+      RedisSearchCtx_UnlockSpec(RP_SCTX(base));
+      return EndIteratorResult_to_RPResult(rc);
     case INDEXREAD_NOTFOUND:
       continue;
     default: // INDEXREAD_OK
@@ -860,6 +866,9 @@ typedef struct RPBufferAndLocker{
 
   // Redis's lock status
   bool isRedisLocked;
+
+  // Spec version before unlocking the spec.
+  size_t spec_version;
 } RPBufferAndLocker;
 /*********** Buffered and locker functions declarations ***********/ 
 
@@ -890,7 +899,7 @@ static bool IsBufferEmpty(RPBufferAndLocker *rpPufferAndLocker);
 static SearchResult *GetNextResult(RPBufferAndLocker *rpPufferAndLocker);
 /*******************************************************************************/ 
 
-ResultProcessor *RPBufferAndLocker_New(size_t BlockSize) {
+ResultProcessor *RPBufferAndLocker_New(size_t BlockSize, size_t spec_version) {
   RPBufferAndLocker *ret = rm_calloc(1, sizeof(RPBufferAndLocker));
 
   ret->base.Next = rpbufferNext_bufferDocs;
@@ -905,6 +914,8 @@ ResultProcessor *RPBufferAndLocker_New(size_t BlockSize) {
   ret->curr_result_index = 0;
 
   ret->isRedisLocked = false;
+
+  ret->spec_version = spec_version;
   return &ret->base;
 }
 
@@ -923,11 +934,6 @@ void RPBufferAndLocker_Free(ResultProcessor *base) {
 
 int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   RPBufferAndLocker *rpPufferAndLocker = (RPBufferAndLocker *)rp;
-
-  // Get the current index version so we can check later if any updates accured
-  // after we finish to buffer the results
-  RedisSearchCtx *RSctx = rpPufferAndLocker->base.parent->sctx;
-  double currentIndexVersion = IndexSpec_GetVersion(RSctx->spec);
 
   // Keep fetching results from the upstream result processor until EOF is reached
   int result_status;
@@ -953,15 +959,14 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   // Now we have the data of all documents that pass the query filters,
   // let's lock Redis to provide safe access to Redis keyspace 
   
-  // unlockspec to avoid deadlocks
-  RedisSearchCtx_UnlockSpec(RSctx);
+  RedisSearchCtx *Sctx = RP_SCTX(rp);
 
   // Lock Redis to gurentee safe access to Redis keyspace
-  LockRedis(rpPufferAndLocker, RSctx->redisCtx);
+  LockRedis(rpPufferAndLocker, Sctx->redisCtx);
 
   // If the spec has been changed since we released the spec lock,
   // we need to validate every buffered result
-  if (currentIndexVersion != IndexSpec_GetVersion(RSctx->spec)) {
+  if (rpPufferAndLocker->spec_version != IndexSpec_GetVersion(Sctx->spec)) {
     rp->Next = rpbufferNext_ValidateAndYield;
   } else { // Else we just return the results one by one
     rp->Next = rpbufferNext_Yield;

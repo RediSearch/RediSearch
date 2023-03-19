@@ -1643,7 +1643,7 @@ size_t IndexSpec_GetVersion(const IndexSpec *sp) {
 }
 
 // Update the spec vesrion if we update the index.
-// This function should be called after the write lock is acquired.
+// It is assumed that this function is called after locking Redis.
 // When the version number is overflowed, it will start from zero.
 void IndexSpec_UpdateVersion(IndexSpec *sp) {
   ++sp->specVersion;
