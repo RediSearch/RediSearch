@@ -685,7 +685,7 @@ jobs:
     parameters:
       san-type:
         type: string
-      test_args:
+      test_params:
         type: string
         default: "QUICK=1"
     steps:
@@ -697,14 +697,14 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           command: |
             make SAN=<<parameters.san-type>> build SHOW=1
-            make SAN=<<parameters.san-type>> test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.test_args>>
+            make SAN=<<parameters.san-type>> test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.test_params>>
           no_output_timeout: 30m
       - run:
           name: Build & test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
           command: |
             make SAN=<<parameters.san-type>> COORD=oss build SHOW=1
-            make SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.test_args>>
+            make SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.test_params>>
           no_output_timeout: 30m
       - run:
           name: Check tests results
@@ -924,7 +924,7 @@ workflows:
       - sanitize:
           name: sanitize-<< matrix.san-type >>
           <<: *always
-          test_args: QUICK=1
+          test_params: QUICK=1
           matrix:
             parameters:
               san-type: [address]
@@ -1064,7 +1064,7 @@ workflows:
               redis_version: ["6.0", "6.2", "7", "unstable"]
       - sanitize:
           name: nightly-sanitize-<< matrix.san-type >>
-          test_args: ""
+          test_params: ""
           matrix:
             parameters:
               san-type: [address]
