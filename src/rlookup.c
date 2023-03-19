@@ -68,7 +68,7 @@ static RLookupKey *createNewLookupKeyFromOptions(RLookup *lookup, RLookupKeyOpti
 }
 
 
-static const FieldSpec *findFieldInSpec(RLookup *lookup, const char *name) {
+const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
   const IndexSpecCache *cc = lookup->spcache;
   if (!cc) {
     return NULL;
@@ -109,7 +109,7 @@ static void Lookupkey_ConfigKeyOptionsFromSpec(RLookupKeyOptions *key_options, c
 
 static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t name_len, int flags) {
 
-  const FieldSpec *fs = findFieldInSpec(lookup, name);
+  const FieldSpec *fs = findFieldInSpecCache(lookup, name);
   if(!fs) {
     return NULL;
   }
@@ -137,7 +137,7 @@ static RLookupKey *FindLookupKeyWithExistingPath(RLookup *lookup, const char *pa
   // TODO: optimize pipeline: add to documentation that addressing keys by their original path
   // and not the by their alias can harm performance.
 
-  const FieldSpec *fs = findFieldInSpec(lookup, path);
+  const FieldSpec *fs = findFieldInSpecCache(lookup, path);
 
   // If it exists in spec, search for the original path in the rlookup.
   // If the key doesn't have an alias, we don't want to change the path.
