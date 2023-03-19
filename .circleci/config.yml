@@ -364,7 +364,7 @@ jobs:
         default: ""
       test_params:
         type: string
-        default: ""
+        default: "QUICK=1"
       redis_version:
         type: string
         default: "6"
@@ -376,7 +376,7 @@ jobs:
           build_params: <<parameters.build_params>>
           redis_version: <<parameters.redis_version>>
       - test-steps:
-          test_params: <<parameters.build_params>> <<parameters.test_params>> QUICK=1
+          test_params: <<parameters.build_params>> <<parameters.test_params>>
       - run:
           name: Persist artifacts?
           command: |
@@ -432,20 +432,20 @@ jobs:
       xcode: 12.5.1
     resource_class: macos.x86.medium.gen2
     parameters:
+      test_params:
+        type: string
+        default: "QUICK=1"
       upload:
         type: string
         default: "yes"
     steps:
       - early-returns
-      # - run:
-      #     name: Brew upgrade
-      #     command: brew upgrade
       - run:
           name: Set up workspace
           command: mkdir -p ~/workspace
       - build-steps
       - test-steps:
-          test_params: QUICK=1
+          test_params: <<parameters.test_params>>
       - run:
           name: Persist artifacts?
           command: |
@@ -685,8 +685,9 @@ jobs:
     parameters:
       san-type:
         type: string
-      args:
+      test_params:
         type: string
+        default: "QUICK=1"
     steps:
       - early-returns
       - checkout-all
@@ -696,14 +697,14 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           command: |
             make SAN=<<parameters.san-type>> build SHOW=1
-            make SAN=<<parameters.san-type>> test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.args>>
+            make SAN=<<parameters.san-type>> test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.test_params>>
           no_output_timeout: 30m
       - run:
           name: Build & test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
           command: |
             make SAN=<<parameters.san-type>> COORD=oss build SHOW=1
-            make SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.args>>
+            make SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.test_params>>
           no_output_timeout: 30m
       - run:
           name: Check tests results
@@ -919,11 +920,11 @@ workflows:
           <<: *on-integ-and-version-tags
           context: common
       - coverage:
-          <<: *on-any-branch
+          <<: *always
       - sanitize:
           name: sanitize-<< matrix.san-type >>
-          <<: *on-any-branch
-          args: QUICK=1
+          <<: *always
+          test_params: QUICK=1
           matrix:
             parameters:
               san-type: [address]
@@ -1000,52 +1001,52 @@ workflows:
     jobs:
       - benchmark-search-oss-standalone-g1:
           context: common
-          <<: *on-any-branch
+          <<: *always
       - benchmark-search-oss-standalone-g2:
           context: common
-          <<: *on-any-branch
+          <<: *always
       - benchmark-search-oss-standalone-g3:
           context: common
-          <<: *on-any-branch
+          <<: *always
       - benchmark-vecsim-oss-standalone-g1:
           context: common
-          <<: *on-any-branch
+          <<: *always
       - benchmark-vecsim-oss-standalone-g2:
           context: common
-          <<: *on-any-branch
+          <<: *always
       - benchmark-vecsim-oss-standalone-profiler-g1:
           context: common
-          <<: *on-any-branch
+          <<: *always
       - benchmark-vecsim-oss-standalone-profiler-g2:
           context: common
-          <<: *on-any-branch
+          <<: *always
       - benchmark-search-oss-standalone-profiler-g1:
           context: common
-          <<: *on-any-branch
+          <<: *always
       - benchmark-search-oss-standalone-profiler-g2:
           context: common
-          <<: *on-any-branch
+          <<: *always
       - benchmark-search-oss-standalone-profiler-g3:
           context: common
-          <<: *on-any-branch
+          <<: *always
       - benchmark-search-oss-cluster-g1:
           context: common
-          <<: *on-any-branch
+          <<: *always
       - benchmark-search-oss-cluster-g2:
           context: common
-          <<: *on-any-branch
+          <<: *always
       - benchmark-search-oss-cluster-g3:
           context: common
-          <<: *on-any-branch
+          <<: *always
       - benchmark-search-oss-cluster-g4:
           context: common
-          <<: *on-any-branch
+          <<: *always
       - benchmark-search-oss-cluster-g5:
           context: common
-          <<: *on-any-branch
+          <<: *always
       - benchmark-search-oss-cluster-g6:
           context: common
-          <<: *on-any-branch
+          <<: *always
   nightly:
     triggers:
       - schedule:
@@ -1054,14 +1055,16 @@ workflows:
     jobs:
       - build-macos:
           upload: "no"
+          test_params: ""
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
+          test_params: ""
           matrix:
             parameters:
               redis_version: ["6.0", "6.2", "7", "unstable"]
       - sanitize:
           name: nightly-sanitize-<< matrix.san-type >>
-          args: ""
+          test_params: ""
           matrix:
             parameters:
               san-type: [address]
