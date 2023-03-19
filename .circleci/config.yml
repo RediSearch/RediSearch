@@ -938,13 +938,6 @@ workflows:
           matrix:
             parameters:
               san-type: [address]
-      - sanitize:
-          <<: *always
-          name: full-sanitize-<< matrix.san-type >>
-          test_args: ""
-          matrix:
-            parameters:
-              san-type: [address]
       - valgrind-memcheck:
           <<: *never
       - benchmark-search-oss-standalone-g1:
