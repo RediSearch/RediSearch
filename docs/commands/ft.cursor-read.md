@@ -7,6 +7,8 @@ Read next results from an existing cursor
 
 [Examples](#examples)
 
+See [Cursor API](/docs/stack/search/reference/aggregations/#cursor-api) for more details.
+
 ## Required arguments
 
 <details open>

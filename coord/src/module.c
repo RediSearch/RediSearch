@@ -667,30 +667,31 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
   const searchResult *r1 = p1, *r2 = p2;
   const searchRequestCtx *req = udata;
   // Compary by sorting keys
-  if ((r1->sortKey || r2->sortKey) && req->withSortby) {
+  if (req->withSortby) {
     int cmp = 0;
-    // Sort by numeric sorting keys
-    if (r1->sortKeyNum != HUGE_VAL && r2->sortKeyNum != HUGE_VAL) {
-      double diff = r2->sortKeyNum - r1->sortKeyNum;
-      cmp = diff < 0 ? -1 : (diff > 0 ? 1 : 0);
-    } else if (r1->sortKey && r2->sortKey) {
+    if ((r1->sortKey || r2->sortKey)) {
+      // Sort by numeric sorting keys
+      if (r1->sortKeyNum != HUGE_VAL && r2->sortKeyNum != HUGE_VAL) {
+        double diff = r2->sortKeyNum - r1->sortKeyNum;
+        cmp = diff < 0 ? -1 : (diff > 0 ? 1 : 0);
+      } else if (r1->sortKey && r2->sortKey) {
 
-      // Sort by string sort keys
-      cmp = cmpStrings(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
-      // printf("Using sortKey!! <N=%lu> %.*s vs <N=%lu> %.*s. Result=%d\n", r2->sortKeyLen,
-      //        (int)r2->sortKeyLen, r2->sortKey, r1->sortKeyLen, (int)r1->sortKeyLen, r1->sortKey,
-      //        cmp);
-    } else {
-      // If at least one of these has a sort key, it gets high value regardless of asc/desc
-      return r2->sortKey ? 1 : -1;
+        // Sort by string sort keys
+        cmp = cmpStrings(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
+        // printf("Using sortKey!! <N=%lu> %.*s vs <N=%lu> %.*s. Result=%d\n", r2->sortKeyLen,
+        //        (int)r2->sortKeyLen, r2->sortKey, r1->sortKeyLen, (int)r1->sortKeyLen, r1->sortKey,
+        //        cmp);
+      } else {
+        // If at least one of these has no sort key, it gets high value regardless of asc/desc
+        return r2->sortKey ? 1 : -1;
+      }
     }
-    // in case of a tie - compare ids
+    // in case of a tie or missing both sorting keys - compare ids
     if (!cmp) {
       // printf("It's a tie! Comparing <N=%lu> %.*s vs <N=%lu> %.*s\n", r2->idLen, (int)r2->idLen,
       //        r2->id, r1->idLen, (int)r1->idLen, r1->id);
       cmp = cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
     }
-
     return (req->sortAscending ? -cmp : cmp);
   }
 
@@ -1737,12 +1738,8 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
-#ifdef HAVE_REDISMODULE_HOLDSTRING
-    sCmdCtx->argv[i] = RedisModule_HoldString(ctx, argv[i]);
-#else
-    sCmdCtx->argv[i] = argv[i];
-    RedisModule_RetainString(ctx, argv[i]);
-#endif
+    // We need to copy the argv because it will be freed in the callback (from another thread).
+    sCmdCtx->argv[i] = RedisModule_CreateStringFromString(ctx, argv[i]);
   }
   sCmdCtx->argc = argc;
   sCmdCtx->bc = bc;

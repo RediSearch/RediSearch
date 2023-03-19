@@ -26,7 +26,7 @@ Vector similarity provides these functionalities:
 
          $d(u, v) = \sqrt{ \displaystyle\sum_{i=1}^n{(u_i - v_i)^2}}$
 
-    - IP - Internal product of two vectors
+    - IP - Inner product of two vectors
 
          $d(u, v) = 1 -u\cdot v$
 
