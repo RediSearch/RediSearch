@@ -184,6 +184,7 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
           if (it->cmp(tempRes, it->pooledResult, NULL) > 0) {
             heap_replace(it->heap, it->pooledResult);
             it->pooledResult = tempRes;
+            DMD_Return(it->pooledResult->dmd);
           }
         }
       } 
