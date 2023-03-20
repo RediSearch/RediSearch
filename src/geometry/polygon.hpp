@@ -26,6 +26,7 @@ struct Polygon {
 	polygon_internal poly_;
 
   [[nodiscard]] explicit Polygon() = default;
+  [[nodiscard]] explicit Polygon(std::string_view wkt) : poly_{from_wkt(wkt)} {}
   [[nodiscard]] explicit Polygon(int num_points, ...) {
     std::va_list ap;
     va_start(ap, num_points);
