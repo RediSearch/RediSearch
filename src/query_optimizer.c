@@ -29,7 +29,7 @@ void QOptimizer_Parse(AREQ *req) {
     if (arng->sortKeys) {
       const char *name = arng->sortKeys[0];
       const FieldSpec *field = IndexSpec_GetField(req->sctx->spec, name, strlen(name));
-      if (field->types == INDEXFLD_T_NUMERIC) {
+      if (field && field->types == INDEXFLD_T_NUMERIC) {
         opt->field = field;
         opt->fieldName = name;
         opt->asc = arng->sortAscMap & 0x01;
