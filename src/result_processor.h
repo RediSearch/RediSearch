@@ -156,7 +156,7 @@ typedef enum {
 
   // The result processor might break the pipeline by changing RPStatus.
   // Note that this kind of rp is also responsible to release the spec lock when it breaks the pipeline
-  // (declaring EOF or TIMEOUT).
+  // (declaring EOF or TIMEOUT), by calling UnlockSpec_and_ReturnRPResult.
   RESULT_PROCESSOR_F_BREAKS_PIPELINE = 0x02 
 } BaseRPFlags;
 
