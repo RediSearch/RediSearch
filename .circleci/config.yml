@@ -336,7 +336,6 @@ commands:
               --github_sha $CIRCLE_SHA1 \
               --github_branch $branch \
               --upload_results_s3 \
-              --fail_fast \
               --triggering_env << parameters.triggering_env >> \
               --push_results_redistimeseries \
               --allowed-envs << parameters.allowed_envs >> \
@@ -958,6 +957,12 @@ workflows:
           context: common
           <<: *on-integ-and-version-tags
       - benchmark-search-oss-cluster-g4:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-search-oss-cluster-g5:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-search-oss-cluster-g6:
           context: common
           <<: *on-integ-and-version-tags
       - benchmark-search-oss-standalone-profiler-g1:
