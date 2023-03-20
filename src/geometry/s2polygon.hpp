@@ -7,6 +7,8 @@
 #pragma once
 
 #include <cstdarg>
+#include <vector>
+#include <memory>
 #include "s2geometry/src/s2/s2polygon.h"
 #define BOOST_ALLOW_DEPRECATED_HEADERS
 #include <boost/geometry.hpp>
@@ -33,8 +35,8 @@ struct Polygon {
 
       for (const auto& bgpoint : bg_points) {
         auto lat = S1Angle::Degrees{bgpoint.get<0>()};
-        auto lon = S1Angle::Degrees{bgpoint.get<1>()};
-        auto s2point = S2LatLng{lat, lon}.ToPoint();
+        auto lng = S1Angle::Degrees{bgpoint.get<1>()};
+        auto s2point = S2LatLng{lat, lng}.ToPoint();
         s2_points.push_back(s2point);
       }
 
