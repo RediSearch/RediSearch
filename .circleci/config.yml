@@ -67,7 +67,7 @@ commands:
             if [[ $(uname -s) == Darwin ]]; then rm -f /usr/local/bin/python3; fi
             ./deps/readies/bin/getpy3
       - run:
-          name: Setup automation (2)
+          name: Setup automation (part 2)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
           command: |
@@ -427,10 +427,43 @@ jobs:
       - vm-build-platforms-steps:
           platform: <<parameters.platform>>
 
-  build-macos:
+  build-macos-x64:
     macos:
       xcode: 12.5.1
     resource_class: macos.x86.medium.gen2
+    parameters:
+      test_params:
+        type: string
+        default: "QUICK=1"
+      upload:
+        type: string
+        default: "yes"
+    steps:
+      - early-returns
+      - run:
+          name: Set up workspace
+          command: mkdir -p ~/workspace
+      - build-steps
+      - test-steps:
+          test_params: <<parameters.test_params>>
+      - run:
+          name: Persist artifacts?
+          command: |
+            if [[ "<<parameters.upload>>" != "yes" ]]; then
+              circleci step halt
+            fi
+      - run:
+          name: Upload artifacts to S3
+          command: |
+            if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
+                make upload-artifacts SHOW=1
+            fi
+      - persist-artifacts
+
+  build-macos-m1:
+    macos:
+      xcode: 14.2.0
+    resource_class: macos.m1.large.gen1
     parameters:
       test_params:
         type: string
@@ -916,9 +949,13 @@ workflows:
           matrix:
             parameters:
               platform: [jammy, focal, bionic]
-      - build-macos:
+      - build-macos-x64:
           <<: *on-integ-and-version-tags
           context: common
+      - build-macos-m1:
+          context: common
+          #@@<<: *on-integ-and-version-tags
+          <<: *always
       - coverage:
           <<: *always
       - sanitize:
@@ -980,7 +1017,8 @@ workflows:
           requires:
             - build-platforms
             - build-arm-platforms
-            - build-macos
+            - build-macos-x64
+            - build-macos-m1
       - upload-artifacts:
           name: upload-release-artifacts
           context: common
@@ -988,7 +1026,8 @@ workflows:
           requires:
             - build-platforms
             - build-arm-platforms
-            - build-macos
+            - build-macos-x64
+            - build-macos-m1
       - release-qa-tests:
           context: common
           <<: *on-version-tags
@@ -1053,7 +1092,10 @@ workflows:
           cron: "20 17 * * 0,3"
           <<: *on-integ-branch-cron
     jobs:
-      - build-macos:
+      - build-macos-x64:
+          upload: "no"
+          test_params: ""
+      - build-macos-m1:
           upload: "no"
           test_params: ""
       - build-linux-debian:
