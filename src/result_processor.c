@@ -53,16 +53,7 @@ void SearchResult_Destroy(SearchResult *r) {
   SearchResult_Clear(r);
   RLookupRow_Cleanup(&r->rowdata);
 }
-static int EndIteratorResult_to_RPResult(int rc) {
-  switch (rc) {
-    case INDEXREAD_EOF:
-      return RS_RESULT_EOF;
-    case INDEXREAD_TIMEOUT:
-      return RS_RESULT_TIMEDOUT;
-    default:
-      return rc;
-  }
-}
+
 
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
@@ -77,6 +68,10 @@ static int EndIteratorResult_to_RPResult(int rc) {
 // can be accessed safely.
 #define RP_SPEC(rpctx) (RP_SCTX(rpctx)->spec)
 
+static int UnlockSpec_and_ReturnRPResult(ResultProcessor *base, int result_status) {
+  RedisSearchCtx_UnlockSpec(RP_SCTX(base));
+  return result_status;
+}
 typedef struct {
   ResultProcessor base;
   IndexIterator *iiter;
@@ -90,12 +85,12 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   IndexIterator *it = self->iiter;
 
   if (TimedOut_WithCounter(&self->timeout, &self->timeoutLimiter) == TIMED_OUT) {
-    return RS_RESULT_TIMEDOUT;
+    return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
   }
 
   // No root filter - the query has 0 results
   if (self->iiter == NULL) {
-    return RS_RESULT_EOF;
+    return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_EOF);
   }
 
   RSIndexResult *r;
@@ -108,9 +103,9 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     // This means we are done!
     switch (rc) {
     case INDEXREAD_EOF:
+      return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_EOF);
     case INDEXREAD_TIMEOUT:
-      RedisSearchCtx_UnlockSpec(RP_SCTX(base));
-      return EndIteratorResult_to_RPResult(rc);
+      return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
     case INDEXREAD_NOTFOUND:
       continue;
     default: // INDEXREAD_OK
@@ -629,7 +624,8 @@ static int rppagerNext(ResultProcessor *base, SearchResult *r) {
 
   // If we've reached LIMIT:
   if (self->count >= self->limit + self->offset) {
-    return RS_RESULT_EOF;
+    // In case the pager breaks the pipeline, release the spec lock here.
+    return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_EOF);
   }
 
   self->count++;

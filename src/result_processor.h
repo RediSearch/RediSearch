@@ -154,7 +154,10 @@ typedef enum {
 typedef enum {
   RESULT_PROCESSOR_F_ACCESS_REDIS = 0x01,  // The result processor requires access to redis keyspace.
 
-  RESULT_PROCESSOR_F_BREAKS_PIPELINE = 0x02 // The result processor might break the pipeline by changing RPStatus.
+  // The result processor might break the pipeline by changing RPStatus.
+  // Note that this kind of rp is also responsible to release the spec lock when it breaks the pipeline
+  // (declaring EOF or TIMEOUT).
+  RESULT_PROCESSOR_F_BREAKS_PIPELINE = 0x02 
 } BaseRPFlags;
 
 /**
@@ -190,10 +193,6 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
-// Get the index search context from the result processor
-#define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
-// Get the index spec from the result processor
-#define RP_SPEC(rpctx) (RP_SCTX(rpctx)->spec)
 
 /**
  * This function resets the search result, so that it may be reused again.
