@@ -638,9 +638,12 @@ elif [[ $COORD == oss ]]; then
 	fi
 
 	if [[ $QUICK != 1 ]]; then
-		{ (MODARGS="${MODARGS} PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
-		   RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} --oss_password password" \
-		   run_tests "OSS cluster tests with password"); (( E |= $? )); } || true
+		if [[ $SAN != address && $FORCE_SAN != 1 ]]; then
+			{ (MODARGS="${MODARGS} PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
+			   RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} --oss_password password" \
+			   run_tests "OSS cluster tests with password"); (( E |= $? )); } || true
+		fi
+
 		{ (MODARGS="${MODARGS} PARTITIONS AUTO SAFEMODE" RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args}" \
 		   run_tests "OSS cluster tests (safe mode)"); (( E |= $? )); } || true
 

@@ -24,9 +24,9 @@ Run a search query on an index, and perform aggregate transformations on the res
 ## Required arguments
 
 <details open>
-<summary><code>index_name</code></summary>
+<summary><code>index</code></summary>
 
-is index against which the query is executed.
+is index name against which the query is executed. You must first create the index using `FT.CREATE`.
 </details>
 
 <details open>
@@ -63,6 +63,8 @@ groups the results in the pipeline based on one or more properties. Each group s
 <summary><code>REDUCE {func} {nargs} {arg} … [AS {name}]</code></summary>
 
 reduces the matching results in each group into a single record, using a reduction function. For example, `COUNT` counts the number of records in the group. The reducers can have their own property names using the `AS {name}` optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to `COUNT_DISTINCT` by property `@foo`, the resulting name will be `count_distinct(@foo)`.
+  
+See [Supported GROUPBY reducers](/redisearch/reference/aggregations/#supported-groupby-reducers) for more details.   
 </details>
 
 <details open>
