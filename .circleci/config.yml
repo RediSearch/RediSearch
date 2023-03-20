@@ -336,7 +336,6 @@ commands:
               --github_sha $CIRCLE_SHA1 \
               --github_branch $branch \
               --upload_results_s3 \
-              --fail_fast \
               --triggering_env << parameters.triggering_env >> \
               --push_results_redistimeseries \
               --allowed-envs << parameters.allowed_envs >> \
@@ -522,7 +521,7 @@ jobs:
           benchmark_glob: "search*.yml"
           module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
-          allowed_setups: oss-cluster-04-primaries,oss-cluster-08-primaries
+          allowed_setups: oss-cluster-02-primaries,oss-cluster-04-primaries,oss-cluster-08-primaries
           benchmark_runner_group_member_id: "1"
           benchmark_runner_group_total: "2"
   benchmark-search-oss-cluster-g2:
@@ -535,7 +534,7 @@ jobs:
           benchmark_glob: "search*.yml"
           module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
-          allowed_setups: oss-cluster-04-primaries,oss-cluster-08-primaries
+          allowed_setups: oss-cluster-02-primaries,oss-cluster-04-primaries,oss-cluster-08-primaries
           benchmark_runner_group_member_id: "2"
           benchmark_runner_group_total: "2"
   benchmark-search-oss-cluster-g3:
@@ -955,6 +954,12 @@ workflows:
           context: common
           <<: *on-integ-and-version-tags
       - benchmark-search-oss-cluster-g4:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-search-oss-cluster-g5:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-search-oss-cluster-g6:
           context: common
           <<: *on-integ-and-version-tags
       - benchmark-search-oss-standalone-profiler-g1:
