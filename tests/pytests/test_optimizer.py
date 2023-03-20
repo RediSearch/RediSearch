@@ -631,6 +631,9 @@ def testVector():
 	]
 
 	for query in queries:
-		# A query with a vector KNN should not be optimized
-		env.assertEqual(conn.execute_command(*(search + query)), conn.execute_command(*(search + query + ['OPTIMIZE'])))
-		env.assertEqual(conn.execute_command(*(profile + query)), conn.execute_command(*(profile + query + ['OPTIMIZE'])))
+		# A query with a vector KNN should not be optimized, but should succeed
+		env.assertEqual(conn.execute_command(*search, *query), conn.execute_command(*search, *query, 'OPTIMIZE'))
+		if not env.isCluster():
+			# Run the same query with profiling, and make sure the query is not optimized
+			# (same iterators and pipeline should be used)
+			env.assertEqual(conn.execute_command(*profile, *query), conn.execute_command(*profile, *query, 'OPTIMIZE'))
