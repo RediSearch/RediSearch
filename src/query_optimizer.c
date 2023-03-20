@@ -29,7 +29,7 @@ void QOptimizer_Parse(AREQ *req) {
     if (arng->sortKeys) {
       const char *name = arng->sortKeys[0];
       const FieldSpec *field = IndexSpec_GetField(req->sctx->spec, name, strlen(name));
-      if (field->types == INDEXFLD_T_NUMERIC) {
+      if (field && field->types == INDEXFLD_T_NUMERIC) {
         opt->field = field;
         opt->fieldName = name;
         opt->asc = arng->sortAscMap & 0x01;
@@ -173,7 +173,7 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   }
 
   // there is no sorting field and scorer is required - we must check all results
-  if (!isSortby && opt->scorerReq) {
+  if ((!isSortby && opt->scorerReq) || (root->type == QN_VECTOR && root->vn.vq->type == VECSIM_QT_KNN)) {
     opt->type = Q_OPT_NONE;
     return;
   }
@@ -219,14 +219,14 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
     // limit range to number of required LIMIT
     case Q_OPT_PARTIAL_RANGE: {
       if (root->type == WILDCARD_ITERATOR) {
-        req->rootiter = NewOptimizerIterator(opt, root);          
+        req->rootiter = NewOptimizerIterator(opt, root);
       } else if (req->ast.root->type == QN_NUMERIC) {
         // trim the union numeric iterator to have the minimal number of ranges
         if (root->type == UNION_ITERATOR) {
           trimUnionIterator(root, 0, opt->limit, opt->asc, true);
         }
       } else {
-        req->rootiter = NewOptimizerIterator(opt, root);          
+        req->rootiter = NewOptimizerIterator(opt, root);
       }
       return;
     }
@@ -237,11 +237,11 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
         IndexIterator *numericIter = NewNumericFilterIterator(req->sctx, opt->sortbyNode->nn.nf,
                                                              &req->conc, INDEXFLD_T_NUMERIC);
         updateRootIter(req, root, numericIter);
-        return; 
+        return;
       }
       opt->type = Q_OPT_HYBRID;
       // replace root with OptimizerIterator
-      req->rootiter = NewOptimizerIterator(opt, root);          
+      req->rootiter = NewOptimizerIterator(opt, root);
     }
   }
 }
@@ -268,7 +268,7 @@ const char *QOptimizer_PrintType(QOptimizer *opt) {
     case Q_OPT_HYBRID:
      return "Hybrid";
     case Q_OPT_UNDECIDED:
-      return "Undecided";     
+      return "Undecided";
     case Q_OPT_FILTER:
       return "Filter";
   }
