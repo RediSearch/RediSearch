@@ -667,8 +667,8 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   }
   
   const char *str = NULL;
+  fdata->isMulti = 0;
   if (str_count == 1) {
-    fdata->isMulti = 0;
     str = DocumentField_GetValueCStr(field, &len);
     if (parseGeo(str, len, &lon, &lat) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
