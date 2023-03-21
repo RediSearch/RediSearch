@@ -104,17 +104,14 @@ int TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data
   case FLD_VAR_T_RMS:
     str = (char *)RedisModule_StringPtrLen(data->text, NULL);
     tokenizeTagString(str, sep, flags, &arr);
-    fdata->tags = arr;
     break;
   case FLD_VAR_T_CSTR:
     tokenizeTagString(data->strval, sep, flags, &arr);
-    fdata->tags = arr;
     break;
   case FLD_VAR_T_ARRAY:
     for (int i = 0; i < data->arrayLen; i++) {
       tokenizeTagString(data->multiVal[i], sep, flags, &arr);
     }
-    fdata->tags = arr;
     break;
   case FLD_VAR_T_NULL:
     fdata->isNull = 1;
@@ -125,6 +122,7 @@ int TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data
   case FLD_VAR_T_BLOB_ARRAY:
     RS_LOG_ASSERT(0, "nope")
   }
+  fdata->tags = arr;
   return ret;
 }
 
