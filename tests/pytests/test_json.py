@@ -944,6 +944,28 @@ def testNullValue(env):
     check_index_with_null(env, 'idx_separator')
     check_index_with_null(env, 'idx_casesensitive')
 
+def testNullValueSkipped(env):
+    ''' check null values are skipped from indexing '''
+
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.num', 'AS', 'num', 'NUMERIC',
+                                                           '$.txt', 'AS', 'txt', 'TEXT',
+                                                           '$.tag', 'AS', 'tag', 'TAG',
+                                                           '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2',
+                                                           '$.geo', 'AS', 'geo', 'GEO').ok()
+    
+    conn.execute_command('JSON.SET', 'doc1', '$', r'{"num": null}')
+    conn.execute_command('JSON.SET', 'doc2', '$', r'{"txt": null}')
+    conn.execute_command('JSON.SET', 'doc3', '$', r'{"tag": null}')
+    conn.execute_command('JSON.SET', 'doc4', '$', r'{"geo": null}')
+    conn.execute_command('JSON.SET', 'doc5', '$', r'{"vec": null}')
+
+    info_res = index_info(env, 'idx')
+    env.assertEqual(int(info_res['hash_indexing_failures']), 0)
+    env.assertEqual(int(info_res['num_records']), 0)
+    env.assertEqual(int(info_res['num_terms']), 0)
+
+
 @no_msan
 def testVector_empty_array(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
