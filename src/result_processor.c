@@ -624,8 +624,11 @@ static int rppagerNext(ResultProcessor *base, SearchResult *r) {
 
   // If we've reached LIMIT:
   if (self->count >= self->limit + self->offset) {
-    // In case the pager breaks the pipeline, release the spec lock here.
-    return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_EOF);
+      // In case the pager breaks the pipeline and we have context (not a coordinator pipeline), release the spec lock here.
+      return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_EOF);
+    } else {
+      return RS_RESULT_EOF;
+    }
   }
 
   self->count++;
