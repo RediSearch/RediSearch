@@ -685,7 +685,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       const char *cur_str = DocumentField_GetArrayValueCStr(field, &len, i);
       if ((parseGeo(cur_str, len, &lon, &lat) != REDISMODULE_OK) || ((geohash = calcGeoHash(lon, lat)) == INVALID_GEOHASH)) {
         array_free(arr);
-        fdata->arrNumeric = 0;
+        fdata->arrNumeric = NULL;
         return REDISMODULE_ERR;
       }
       array_ensure_append_1(arr, geohash);

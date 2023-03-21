@@ -118,7 +118,7 @@ void TagIndex_Free(void *p);
 char *TagIndex_SepString(char sep, char **s, size_t *toklen);
 
 /* Preprocess a document tag field, split the content in data into fdata `tags` array
-   Return 0 if there's no content in the field, 1 otherwise
+   Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise
  */
 int TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data, FieldIndexerData *fdata);
 
