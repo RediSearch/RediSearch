@@ -97,22 +97,24 @@ static int tokenizeTagString(const char *str, char sep, TagFieldFlags flags, cha
 }
 
 int TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data, FieldIndexerData *fdata) {
-  char **arr = array_new(char *, 4);
-  fdata->tags = arr;
+  arrayof(char*) arr = array_new(char *, 4);
   const char *str;
   int ret = 1;
   switch (data->unionType) {
   case FLD_VAR_T_RMS:
     str = (char *)RedisModule_StringPtrLen(data->text, NULL);
     tokenizeTagString(str, sep, flags, &arr);
+    fdata->tags = arr;
     break;
   case FLD_VAR_T_CSTR:
     tokenizeTagString(data->strval, sep, flags, &arr);
+    fdata->tags = arr;
     break;
   case FLD_VAR_T_ARRAY:
     for (int i = 0; i < data->arrayLen; i++) {
       tokenizeTagString(data->multiVal[i], sep, flags, &arr);
     }
+    fdata->tags = arr;
     break;
   case FLD_VAR_T_NULL:
     fdata->isNull = 1;

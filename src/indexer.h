@@ -22,7 +22,7 @@ typedef struct FieldIndexerData {
 
     // Single value
     double numeric;  // i.e. the numeric value of the field
-    char **tags;
+    arrayof(char*) tags;
     struct {
       const void *vector;
       size_t vecLen;
