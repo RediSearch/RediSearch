@@ -171,8 +171,6 @@ CC_CXX_STD=c++11
 
 CC_STATIC_LIBSTDCXX ?= 1
 
-export OPENSSL_ROOT_DIR:=$(LIBSSL_PREFIX)
-
 CC_COMMON_H=src/common.h
 
 #----------------------------------------------------------------------------------------------
@@ -215,7 +213,7 @@ endif
 _CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME)
 
 ifeq ($(OS),macos)
-_CMAKE_FLAGS += -DLIBSSL_DIR=$(LIBSSL_PREFIX)
+_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix)
 endif
 
 _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) 
