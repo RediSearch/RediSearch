@@ -370,7 +370,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
    * to do it
    */
   for (size_t ii = 0; ii < aCtx->doc->numFields; ++ii) {
-    if (FIELD_IS_VALID(aCtx, ii) && !FIELD_IS_NULL(aCtx, ii)) {
+    if (FIELD_IS_VALID(aCtx, ii)) {
       if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_TAG) && aCtx->fdatas[ii].tags) {
         TagIndex_FreePreprocessedData(aCtx->fdatas[ii].tags);
         aCtx->fdatas[ii].tags = NULL;
