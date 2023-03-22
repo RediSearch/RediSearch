@@ -48,6 +48,7 @@ static void freeDocumentContext(void *p) {
 #define DUP_FIELD_ERRSTR "Requested to index field twice"
 
 #define FIELD_IS_VALID(aCtx, ix) ((aCtx)->fspecs[ix].name != NULL)
+#define FIELD_IS_NULL(aCtx, ix) ((aCtx)->fdatas[ix].isNull)
 
 static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
   Document *doc = aCtx->doc;
@@ -63,6 +64,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     // left-over tag data here; if we've realloc'd, then this contains
     // garbage
     aCtx->fdatas[ii].tags = NULL;
+    aCtx->fdatas[ii].isNull = 0;
   }
 
   size_t numTextIndexable = 0;
@@ -372,7 +374,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
         TagIndex_FreePreprocessedData(aCtx->fdatas[ii].tags);
         aCtx->fdatas[ii].tags = NULL;
       } else if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_GEO) && aCtx->fdatas[ii].isMulti &&
-                 aCtx->fdatas[ii].arrNumeric) {
+                 aCtx->fdatas[ii].arrNumeric && !FIELD_IS_NULL(aCtx, ii)) {
         array_free(aCtx->fdatas[ii].arrNumeric);
         aCtx->fdatas[ii].arrNumeric = NULL;
       }
@@ -534,6 +536,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
       fdata->numeric = field->numval;
       break;
     case FLD_VAR_T_NULL:
+      fdata->isNull = 1;
       return 0;
     case FLD_VAR_T_ARRAY:
       fdata->isMulti = 1;
@@ -597,6 +600,7 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
     fdata->vecLen = field->blobSize;
     fdata->numVec = field->blobArrLen;
   } else if (field->unionType == FLD_VAR_T_NULL) {
+    fdata->isNull = 1;
     return 0; // Skipping indexing missing vector
   }
   if (fdata->vecLen != fs->vectorOpts.expBlobSize) {
@@ -636,11 +640,11 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 
   switch (field->unionType) {
     case FLD_VAR_T_GEO:
+      fdata->isMulti = 0;
       geohash = calcGeoHash(field->lon, field->lat);
       if (geohash == INVALID_GEOHASH) {
         return REDISMODULE_ERR;
       }
-      fdata->isMulti = 0;
       fdata->numeric = geohash;
       if (FieldSpec_IsSortable(fs)) {
         RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM, 0);
@@ -651,6 +655,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       str_count = 1;
       break;
     case FLD_VAR_T_NULL:
+      fdata->isNull = 1;
       return REDISMODULE_OK;
     case FLD_VAR_T_ARRAY:
       str_count = field->arrayLen;
@@ -661,8 +666,8 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   }
   
   const char *str = NULL;
+  fdata->isMulti = 0;
   if (str_count == 1) {
-    fdata->isMulti = 0;
     str = DocumentField_GetValueCStr(field, &len);
     if (parseGeo(str, len, &lon, &lat) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
@@ -673,17 +678,18 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     }
     fdata->numeric = geohash;
   } else if (str_count > 1) {
+    fdata->isMulti = 1;
     arrayof(double) arr = array_new(double, str_count);
     for (size_t i = 0; i < str_count; ++i) {
       const char *cur_str = DocumentField_GetArrayValueCStr(field, &len, i);
       if ((parseGeo(cur_str, len, &lon, &lat) != REDISMODULE_OK) || ((geohash = calcGeoHash(lon, lat)) == INVALID_GEOHASH)) {
         array_free(arr);
+        fdata->arrNumeric = NULL;
         return REDISMODULE_ERR;
       }
       array_ensure_append_1(arr, geohash);
     }
     str = DocumentField_GetArrayValueCStr(field, &len, 0);
-    fdata->isMulti = 1;
     fdata->arrNumeric = arr;
   }
 
@@ -700,19 +706,16 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 }
 
 FIELD_PREPROCESSOR(tagPreprocessor) {
-  fdata->tags = TagIndex_Preprocess(fs->tagOpts.tagSep, fs->tagOpts.tagFlags, field);
-
-  if (fdata->tags == NULL) {
-    return 0;
-  }
-  if (FieldSpec_IsSortable(fs)) {
-    if (field->unionType != FLD_VAR_T_ARRAY) {
-      size_t fl;
-      const char *str = DocumentField_GetValueCStr(field, &fl);
-      RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
-    } else if (field->multisv) {
-      RSSortingVector_Put(aCtx->sv, fs->sortIdx, field->multisv, RS_SORTABLE_RSVAL, 0);
-      field->multisv = NULL;
+  if (TagIndex_Preprocess(fs->tagOpts.tagSep, fs->tagOpts.tagFlags, field, fdata)) {
+    if (FieldSpec_IsSortable(fs)) {
+      if (field->unionType != FLD_VAR_T_ARRAY) {
+        size_t fl;
+        const char *str = DocumentField_GetValueCStr(field, &fl);
+        RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
+      } else if (field->multisv) {
+        RSSortingVector_Put(aCtx->sv, fs->sortIdx, field->multisv, RS_SORTABLE_RSVAL, 0);
+        field->multisv = NULL;
+      }
     }
   }
   return 0;
@@ -814,6 +817,11 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
         }
         ourRv = REDISMODULE_ERR;
         goto cleanup;
+      }
+      if (!(fs->options & FieldSpec_Dynamic)) {
+        // Non-dynamic fields are only indexed as a single type.
+        // Only dynamic fields may be indexed as multiple index types.
+        break;
       }
     }
   }

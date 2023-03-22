@@ -653,7 +653,9 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
     iter->scorerFree(iter->scargs.extdata);
   }
   QAST_Destroy(&iter->qast);
-  dictResumeRehashing(iter->sp->keysDict);
+  if (iter->sp && iter->sp->keysDict) {
+    dictResumeRehashing(iter->sp->keysDict);
+  }
   rm_free(iter);
   RWLOCK_RELEASE();
 }
