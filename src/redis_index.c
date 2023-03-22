@@ -197,6 +197,7 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, 
 }
 
 void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
+  assert(sctx);
   if (sctx->flags == RS_CTX_UNSET) {
     return;
   }

@@ -403,6 +403,12 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
 
 int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
 
+
+/**
+ * Search an index field by its name in the lookup table spec cache.
+ */
+const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name);
+
 #ifdef __cplusplus
 }
 #endif

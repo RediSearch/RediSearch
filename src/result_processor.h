@@ -154,7 +154,10 @@ typedef enum {
 typedef enum {
   RESULT_PROCESSOR_F_ACCESS_REDIS = 0x01,  // The result processor requires access to redis keyspace.
 
-  RESULT_PROCESSOR_F_BREAKS_PIPELINE = 0x02 // The result processor might break the pipeline by changing RPStatus.
+  // The result processor might break the pipeline by changing RPStatus.
+  // Note that this kind of rp is also responsible to release the spec lock when it breaks the pipeline
+  // (declaring EOF or TIMEOUT), by calling UnlockSpec_and_ReturnRPResult.
+  RESULT_PROCESSOR_F_BREAKS_PIPELINE = 0x02 
 } BaseRPFlags;
 
 /**
@@ -190,8 +193,6 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
-// Get the index spec from the result processor
-#define RP_SPEC(rpctx) ((rpctx)->parent->sctx->spec)
 
 /**
  * This function resets the search result, so that it may be reused again.
@@ -264,9 +265,13 @@ void RP_DumpChain(const ResultProcessor *rp);
  * to Redis keysapce to allow the downstream result processor a thread safe access to it.
  *
  * Unlocking Redis should be done only by the Unlocker result processor that should be added as well.
+ * 
+ * @param BlockSize is the number of results in each buffer block.
+ * @param spec_version is the version of the spec during pipeline construction. This version will be compared
+ * to the spec version after we unlock the spec, to decide if results' validation is needed.
  *******************************************************************************************************************/
 typedef struct RPBufferAndLocker RPBufferAndLocker;
-ResultProcessor *RPBufferAndLocker_New(size_t BlockSize);
+ResultProcessor *RPBufferAndLocker_New(size_t BlockSize, size_t spec_version);
 
 /*******************************************************************************************************************
  *  UnLocker Results Processor
