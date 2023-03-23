@@ -39,6 +39,7 @@ typedef enum {
   copy_to_cmd,
 
   json_set_cmd,
+  json_mset_cmd,
   json_merge_cmd,
   json_del_cmd,
   json_incrby_cmd,
@@ -92,10 +93,10 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                     *rename_from_event = 0, *rename_to_event = 0, *trimmed_event = 0,
                     *restore_event = 0, *expired_event = 0, *evicted_event = 0, *change_event = 0,
                     *loaded_event = 0, *copy_to_event = 0,
-                    *json_set_event = 0, *json_merge_event = 0, *json_del_event = 0, *json_incrby_event = 0,
-                    *json_nummultby_event = 0, *json_strappend_event = 0, *json_arrappend_event = 0,
-                    *json_arrinsert_event = 0, *json_arrpop_event = 0, *json_arrtrim_event = 0,
-                    *json_toggle_event = 0;
+                    *json_set_event = 0, *json_mset_event = 0, *json_merge_event = 0, *json_del_event = 0, 
+                    *json_incrby_event = 0, *json_nummultby_event = 0, *json_strappend_event = 0, 
+                    *json_arrappend_event = 0, *json_arrinsert_event = 0, *json_arrpop_event = 0, 
+                    *json_arrtrim_event = 0, *json_toggle_event = 0;
 
   // clang-format off
 
@@ -122,6 +123,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   else CHECK_CACHED_EVENT(copy_to)
 
   else CHECK_CACHED_EVENT(json_set)
+  else CHECK_CACHED_EVENT(json_mset)
   else CHECK_CACHED_EVENT(json_merge)
   else CHECK_CACHED_EVENT(json_del)
   else CHECK_CACHED_EVENT(json_incrby)
@@ -136,6 +138,8 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   else {
     if (!strncmp(event, "json.", JSON_LEN)) {
       CHECK_AND_CACHE_MODULE_EVENT(json, set)
+      else CHECK_AND_CACHE_MODULE_EVENT(json, mset)
+      else CHECK_AND_CACHE_MODULE_EVENT(json, merge)
       else CHECK_AND_CACHE_MODULE_EVENT(json, del)
       else CHECK_AND_CACHE_MODULE_EVENT(json, incrby)
       else CHECK_AND_CACHE_MODULE_EVENT(json, nummultby)
@@ -161,10 +165,6 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     else CHECK_AND_CACHE_EVENT(expired)
     else CHECK_AND_CACHE_EVENT(evicted)
     else CHECK_AND_CACHE_EVENT(change)
-    else CHECK_AND_CACHE_EVENT(del)
-    else CHECK_AND_CACHE_EVENT(set)
-    else CHECK_AND_CACHE_EVENT(rename_from)
-    else CHECK_AND_CACHE_EVENT(rename_to)
     else CHECK_AND_CACHE_EVENT(loaded)
     else CHECK_AND_CACHE_EVENT(copy_to)
     else redisCommand = _null_cmd;
@@ -233,6 +233,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       break;
 
     case json_set_cmd:
+    case json_mset_cmd:
     case json_merge_cmd:
     case json_del_cmd:
     case json_incrby_cmd:
