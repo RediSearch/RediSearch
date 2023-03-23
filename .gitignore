@@ -22,8 +22,7 @@
 VSCODE.DB*
 callgrind.out.*
 **/.ipynb_checkpoints/
+/tests/logs/
 /tests/pytests/logs/
+/deps/RedisJSON/
 /1/
-build/
-cmake-build-debug/
-CMakeCache.txt

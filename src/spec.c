@@ -392,8 +392,8 @@ static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
   // Uncomment these when support for other type is added.
   if (!strncasecmp(VECSIM_TYPE_FLOAT32, typeStr, len))
     *type = VecSimType_FLOAT32;
-   else if (!strncasecmp(VECSIM_TYPE_FLOAT64, typeStr, len))
-     *type = VecSimType_FLOAT64;
+  else if (!strncasecmp(VECSIM_TYPE_FLOAT64, typeStr, len))
+    *type = VecSimType_FLOAT64;
   // else if (!strncasecmp(VECSIM_TYPE_INT32, typeStr, len))
   //   *type = VecSimType_INT32;
   // else if (!strncasecmp(VECSIM_TYPE_INT64, typeStr, len))
@@ -430,8 +430,11 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
   // Calculating max block size (in # of vectors), according to memory limits
   size_t maxBlockSize = BLOCK_MEMORY_LIMIT / VecSimIndex_EstimateElementSize(params);
   // if Block size was not set by user, sets the default to min(maxBlockSize, DEFAULT_BLOCK_SIZE)
-  if (params->hnswParams.blockSize == 0) {
+  if (params->hnswParams.blockSize == 0) { // indicates that block size was not set by the user
     params->hnswParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
+  }
+  if (params->hnswParams.initialCapacity == SIZE_MAX) { // indicates that initial capacity was not set by the user
+    params->hnswParams.initialCapacity = params->hnswParams.blockSize;
   }
   size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
   size_t free_memory = memoryLimit - used_memory;
@@ -439,7 +442,7 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
     QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index initial capacity %zu exceeded server limit (%zu with the given parameters)", params->hnswParams.initialCapacity, maxBlockSize);
     return 0;
   }
-  else if (params->hnswParams.blockSize  > maxBlockSize) {
+  if (params->hnswParams.blockSize > maxBlockSize) {
     // TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
     // QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", fs->vectorOpts.vecSimParams.bfParams.blockSize, maxBlockSize);
     // return 0;
@@ -453,8 +456,11 @@ static int parseVectorField_validate_flat(VecSimParams *params, QueryError *stat
   // Calculating max block size (in # of vectors), according to memory limits
   size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
   // if Block size was not set by user, sets the default to min(maxBlockSize, DEFAULT_BLOCK_SIZE)
-  if (params->bfParams.blockSize == 0) {
+  if (params->bfParams.blockSize == 0) { // indicates that block size was not set by the user
     params->bfParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
+  }
+  if (params->bfParams.initialCapacity == SIZE_MAX) { // indicates that initial capacity was not set by the user
+    params->bfParams.initialCapacity = params->bfParams.blockSize;
   }
   // Calculating index size estimation, after first vector block was allocated.
   size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
@@ -474,14 +480,13 @@ static int parseVectorField_validate_flat(VecSimParams *params, QueryError *stat
 
 int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, QueryError *status) {
   setMemoryInfo(ctx);
+  bool valid = false;
   if (VecSimAlgo_HNSWLIB == params->algo) {
-    if (parseVectorField_validate_hnsw(params, status))
-      return REDISMODULE_OK;
+    valid = parseVectorField_validate_hnsw(params, status);
   } else if (VecSimAlgo_BF == params->algo) {
-    if (parseVectorField_validate_flat(params, status))
-      return REDISMODULE_OK;
+    valid = parseVectorField_validate_flat(params, status);
   }
-  return REDISMODULE_ERR;
+  return valid ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
 static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
@@ -684,13 +689,13 @@ static int parseVectorField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryE
   }
   if (!strncasecmp(VECSIM_ALGORITHM_BF, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_BF;
-    fs->vectorOpts.vecSimParams.bfParams.initialCapacity = 1000;
+    fs->vectorOpts.vecSimParams.bfParams.initialCapacity = SIZE_MAX;
     fs->vectorOpts.vecSimParams.bfParams.blockSize = 0;
     fs->vectorOpts.vecSimParams.bfParams.multi = multi;
     return parseVectorField_flat(fs, ac, status);
   } else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_HNSWLIB;
-    fs->vectorOpts.vecSimParams.hnswParams.initialCapacity = 1000;
+    fs->vectorOpts.vecSimParams.hnswParams.initialCapacity = SIZE_MAX;
     fs->vectorOpts.vecSimParams.hnswParams.blockSize = 0;
     fs->vectorOpts.vecSimParams.hnswParams.M = HNSW_DEFAULT_M;
     fs->vectorOpts.vecSimParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
@@ -1130,11 +1135,11 @@ void IndexSpecCache_Decref(IndexSpecCache *c) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static threadpool cleanPool = NULL;
+static redisearch_threadpool cleanPool = NULL;
 
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
-    cleanPool = thpool_init(1);
+    cleanPool = redisearch_thpool_init(1);
   }
 }
 
@@ -1142,9 +1147,9 @@ void CleanPool_ThreadPoolDestroy() {
   if (cleanPool) {
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     if (RSGlobalConfig.freeResourcesThread) {
-      thpool_wait(cleanPool);
+      redisearch_thpool_wait(cleanPool);
     }
-    thpool_destroy(cleanPool);
+    redisearch_thpool_destroy(cleanPool);
     cleanPool = NULL;
     RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
@@ -1273,7 +1278,7 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   if (RSGlobalConfig.freeResourcesThread == false) {
     IndexSpec_FreeUnlinkedData(spec);
   } else {
-    thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeUnlinkedData, spec);
+    redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeUnlinkedData, spec);
   }
 }
 
@@ -1309,7 +1314,7 @@ void IndexSpec_Free(IndexSpec *spec) {
       RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
       spec->isTimerSet = false;
     }
-    thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeTask, rm_strdup(spec->name));
+    redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeTask, rm_strdup(spec->name));
     return;
   }
 
@@ -1738,7 +1743,7 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static threadpool reindexPool = NULL;
+static redisearch_threadpool reindexPool = NULL;
 
 static IndexesScanner *IndexesScanner_New(IndexSpec *spec) {
   if (!spec && global_spec_scanner) {
@@ -1856,7 +1861,11 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
 
   while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB)Indexes_ScanProc, scanner)) {
     RedisModule_ThreadSafeContextUnlock(ctx);
-    sched_yield();
+    // Sleep for one microsecond to allow redis server to acquire the GIL while we release it.
+    // Note that previously the 'usleep(1)' was replaced with 'sched_yield()', but it turns out that
+    // 'sched_yield()' doesn't give up the processor for enough time to ensure that other threads
+    // that are waiting for the GIL will actually have the chance to take it.
+    usleep(1);
     RedisModule_ThreadSafeContextLock(ctx);
 
     if (scanner->cancelled) {
@@ -1890,19 +1899,19 @@ end:
 
 static void IndexSpec_ScanAndReindexAsync(IndexSpec *sp) {
   if (!reindexPool) {
-    reindexPool = thpool_init(1);
+    reindexPool = redisearch_thpool_init(1);
   }
 #ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Register index %s for async scan", sp->name);
 #endif
   IndexesScanner *scanner = IndexesScanner_New(sp);
-  thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner);
+  redisearch_thpool_add_work(reindexPool, (redisearch_thpool_proc)Indexes_ScanAndReindexTask, scanner);
 }
 
 void ReindexPool_ThreadPoolDestroy() {
   if (reindexPool != NULL) {
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-    thpool_destroy(reindexPool);
+    redisearch_thpool_destroy(reindexPool);
     reindexPool = NULL;
     RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
@@ -1918,14 +1927,16 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   RedisModule_InfoAddSection(ctx, name);
 
   // Index flags
-  if (sp->flags & ~(Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets) || sp->flags & Index_WideSchema) {
+  if (sp->flags & ~(Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreByteOffsets) || sp->flags & Index_WideSchema) {
     RedisModule_InfoBeginDictField(ctx, "index_options");
     if (!(sp->flags & (Index_StoreFreqs)))
       RedisModule_InfoAddFieldCString(ctx, SPEC_NOFREQS_STR, "ON");
     if (!(sp->flags & (Index_StoreFieldFlags)))
       RedisModule_InfoAddFieldCString(ctx, SPEC_NOFIELDS_STR, "ON");
-    if (!(sp->flags & (Index_StoreTermOffsets)))
+    if (!(sp->flags & (Index_StoreTermOffsets | Index_StoreByteOffsets)))
       RedisModule_InfoAddFieldCString(ctx, SPEC_NOOFFSETS_STR, "ON");
+    if (!(sp->flags & (Index_StoreByteOffsets)))
+      RedisModule_InfoAddFieldCString(ctx, SPEC_NOHL_STR, "ON");
     if (sp->flags & Index_WideSchema)
       RedisModule_InfoAddFieldCString(ctx, SPEC_SCHEMA_EXPANDABLE_STR, "ON");
     RedisModule_InfoEndDictField(ctx);
@@ -2109,14 +2120,14 @@ void Indexes_UpgradeLegacyIndexes() {
 
 void Indexes_ScanAndReindex() {
   if (!reindexPool) {
-    reindexPool = thpool_init(1);
+    reindexPool = redisearch_thpool_init(1);
   }
 
   RedisModule_Log(NULL, "notice", "Scanning all indexes");
   IndexesScanner *scanner = IndexesScanner_New(NULL);
   // check no global scan is in progress
   if (scanner) {
-    thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner);
+    redisearch_thpool_add_work(reindexPool, (redisearch_thpool_proc)Indexes_ScanAndReindexTask, scanner);
   }
 }
 

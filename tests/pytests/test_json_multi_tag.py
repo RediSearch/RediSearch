@@ -127,7 +127,7 @@ def searchMultiTagCategory(env):
     conn = getConnectionByEnv(env)
 
     for idx in ['idx_category_arr', 'idx_category_arr_author_flat']:
-        env.debugPrint(idx, force=True)
+        env.debugPrint(idx, force=TEST_DEBUG)
         
         # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)
         res = env.execute_command('FT.SEARCH', idx, '@category:{database}', 'NOCONTENT')
