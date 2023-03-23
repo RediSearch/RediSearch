@@ -40,7 +40,7 @@ typedef struct {
 static void reeval_key(RedisModuleCtx *outctx, const RSValue *key) {
   RedisModuleString *rskey = NULL;
   if (!key) {
-    RedisModule_ReplyWithNull(outctx); 
+    RedisModule_ReplyWithNull(outctx);
   }
   else {
     if(key->t == RSValue_Reference) {
@@ -162,7 +162,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
       return count;
     }
 
-    // Get the number of fields in the reply. 
+    // Get the number of fields in the reply.
     // Excludes hidden fields, fields not included in RETURN and, score and language fields.
     SchemaRule *rule = req->sctx ? req->sctx->spec->rule : NULL;
     int excludeFlags = RLOOKUP_F_HIDDEN;
@@ -238,8 +238,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   int rc = RS_RESULT_EOF;
   ResultProcessor *rp = req->qiter.endProc;
 
-  if (!(req->reqflags & QEXEC_F_IS_CURSOR) && 
-      !(req->reqflags & QEXEC_F_IS_SEARCH)) {
+  if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !(req->reqflags & QEXEC_F_IS_SEARCH)) {
     limit = RSGlobalConfig.maxAggregateResults;
   }
 
@@ -255,7 +254,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   } else if (rc == RS_RESULT_ERROR) {
     resultsLen = 2;
   } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
-           !(req->optimizer->type == Q_OPT_NO_SORTER)) {
+             req->optimizer->type != Q_OPT_NO_SORTER) {
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
     size_t reqLimit = arng && arng->isLimited? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited? arng->offset : 0;
@@ -500,7 +499,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithError(ctx, "No `SEARCH` or `AGGREGATE` provided");
     return REDISMODULE_OK;
   }
-  
+
   cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
   if (strcasecmp(cmd, "LIMITED") == 0) {
     withProfile = PROFILE_LIMITED;
@@ -512,7 +511,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
   }
 
-  int newArgc = argc - curArg + PROFILE_1ST_PARAM; 
+  int newArgc = argc - curArg + PROFILE_1ST_PARAM;
   RedisModuleString **newArgv = _profileArgsDup(argv, argc, curArg - PROFILE_1ST_PARAM);
   execCommandCommon(ctx, newArgv, newArgc, cmdType, withProfile);
   rm_free(newArgv);
@@ -544,8 +543,8 @@ int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, Qu
 
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
-  
-  // reset profile clock for cursor reads except for 1st 
+
+  // reset profile clock for cursor reads except for 1st
   if (IsProfile(req) && req->totalTime != 0) {
     hires_clock_get(&req->initClock);
   }
