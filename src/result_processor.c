@@ -338,7 +338,7 @@ typedef struct {
   ResultProcessor base;
 
   // The heap. We use a min-max heap here
-  heap_t *pq;
+  mm_heap_t *pq;
 
   // the compare function for the heap. We use it to test if a result needs to be added to the heap
   RPSorterCompareFunc cmp;
