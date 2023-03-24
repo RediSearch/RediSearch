@@ -1070,7 +1070,7 @@ static void sendSearchResults(RedisModuleCtx *ctx, searchReducerCtx *rCtx) {
 
   // Load the results from the heap into a sorted array. Free the items in
   // the heap one-by-one so that we don't have to go through them again
-  searchResult *results[qlen];
+  searchResult **results = rm_malloc(sizeof(*results) * qlen);
   while (pos) {
     results[--pos] = heap_poll(rCtx->pq);
   }
@@ -1119,6 +1119,7 @@ static void sendSearchResults(RedisModuleCtx *ctx, searchReducerCtx *rCtx) {
   for (pos = 0; pos < qlen; pos++) {
     rm_free(results[pos]);
   }
+  rm_free(results);
 }
 
 /**
