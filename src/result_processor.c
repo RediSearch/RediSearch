@@ -338,11 +338,7 @@ typedef struct {
   ResultProcessor base;
 
   // The desired size of the heap - top N results
-  // If set to 0 this is a growing heap
   uint32_t size;
-
-  // The offset - used when popping result after we're done
-  uint32_t offset;
 
   // The heap. We use a min-max heap here
   heap_t *pq;
@@ -369,14 +365,13 @@ typedef struct {
 /* Yield - pops the current top result from the heap */
 static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
+  SearchResult *cur_best = mmh_pop_max(self->pq);
 
-  // make sure we don't overshoot the heap size, unless the heap size is dynamic
-  if (self->pq->count > 0 && (!self->size || self->offset++ < self->size)) {
-    SearchResult *sr = mmh_pop_max(self->pq);
+  if (cur_best) {
     RLookupRow oldrow = r->rowdata;
-    *r = *sr;
+    *r = *cur_best;
 
-    rm_free(sr);
+    rm_free(cur_best);
     RLookupRow_Cleanup(&oldrow);
     return RS_RESULT_OK;
   }
@@ -420,8 +415,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   }
 
   // If the queue is not full - we just push the result into it
-  // If the pool size is 0 we always do that, letting the heap grow dynamically
-  if (!self->size || self->pq->count + 1 < self->pq->size) {
+  if (self->pq->count + 1 < self->pq->size) {
 
     // copy the index result to make it thread safe - but only if it is pushed to the heap
     h->indexResult = NULL;
@@ -447,8 +441,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     // if needed - pop it and insert a new result
     if (self->cmp(h, minh, self->cmpCtx) > 0) {
       h->indexResult = NULL;
-      self->pooledResult = mmh_pop_min(self->pq);
-      mmh_insert(self->pq, h);
+      self->pooledResult = mmh_exchange_min(self->pq, h);
       SearchResult_Clear(self->pooledResult);
     } else {
       // The current should not enter the pool, so just leave it as is
@@ -497,15 +490,13 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
     if (!v1 || !v2) {
       // If at least one of these has no sort key, it gets high value regardless of asc/desc
-      int rc;
       if (v1) {
         return 1;
       } else if (v2) {
         return -1;
       } else {
-        rc = h1->docId < h2->docId ? -1 : 1;
+        break; // following the existing logic. TODO: if both are NULL, should we continue to the next field?
       }
-      return ascending ? -rc : rc;
     }
 
     int rc = RSValue_Cmp(v1, v2, qerr);
@@ -542,7 +533,6 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 
   ret->pq = mmh_init_with_size(maxresults + 1, ret->cmp, ret->cmpCtx, srDtor);
   ret->size = maxresults;
-  ret->offset = 0;
   ret->pooledResult = NULL;
   ret->base.Next = rpsortNext_Accum;
   ret->base.Free = rpsortFree;
