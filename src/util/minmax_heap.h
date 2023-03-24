@@ -31,5 +31,6 @@ void* mmh_pop_min(heap_t* h);
 void* mmh_pop_max(heap_t* h);
 void* mmh_peek_min(const heap_t* h);
 void* mmh_peek_max(const heap_t* h);
+void* mmh_exchange_min(heap_t* h, void* value); // combines pop-and-then-insert logic
 
 #endif  // MINMAX_HEAP_H_

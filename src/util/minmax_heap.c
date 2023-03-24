@@ -200,6 +200,17 @@ void mmh_insert(heap_t* h, void* value) {
   bubbleup(h, h->count);
 }
 
+void* mmh_exchange_min(heap_t* h, void* value) {
+  assert(value != NULL);
+  void *min = NULL;
+  if (h->count > 0) {
+    min = h->data[1];
+    h->data[1] = value;
+    trickledown_min(h, 1);
+  }
+  return min;
+}
+
 void* mmh_pop_min(heap_t* h) {
   if (h->count > 1) {
     void* d = h->data[1];
