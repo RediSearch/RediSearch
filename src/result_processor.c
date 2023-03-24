@@ -536,6 +536,7 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     // take the ascending bit for this property from the ascending bitmap
     ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
     if (!v1 || !v2) {
+      // If at least one of these has no sort key, it gets high value regardless of asc/desc
       int rc;
       if (v1) {
         return 1;

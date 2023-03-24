@@ -152,7 +152,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
           v = RS_DUOVAL_VAL(*v);
         }
         RSValue rsv;
-        if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE) {
+        if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE && !RSValue_IsNull(v)) {
           double d;
           RSValue_ToNumber(v, &d);
           RSValue_SetNumber(&rsv, d);

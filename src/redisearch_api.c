@@ -680,7 +680,9 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   }
   QAST_Destroy(&iter->qast);
   DMD_Return(iter->lastmd);
-  dictResumeRehashing(iter->sp->keysDict);
+  if (iter->sp && iter->sp->keysDict) {
+    dictResumeRehashing(iter->sp->keysDict);
+  }
   rm_free(iter);
   RWLOCK_RELEASE();
 }
