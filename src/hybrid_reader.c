@@ -67,37 +67,48 @@ static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
   return INDEXREAD_OK;
 }
 
-// TODO: reorder logic and use mmh_exchange_max
-static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexResult *child_res,
-                               RSIndexResult *vec_res, double *upper_bound) {
+static void insertResultToHeap_Metric(HybridIterator *hr, RSIndexResult *child_res, RSIndexResult **vec_res) {
 
-  RSIndexResult *hit;
-  // If we ignore the document score, hit is single node of type DISTANCE.
+  ResultMetrics_Concat(*vec_res, child_res); // Pass child metrics, if there are any
+  ResultMetrics_Add(*vec_res, hr->base.ownKey, RS_NumVal((*vec_res)->num.value));
+
+  if (hr->topResults->count < hr->query.k) {
+    // Insert to heap, allocate new memory for the next result.
+    mmh_insert(hr->topResults, *vec_res);
+    *vec_res = NewMetricResult();
+  } else {
+    // Replace the worst result and reuse its memory.
+    *vec_res = mmh_exchange_max(hr->topResults, *vec_res);
+    IndexResult_Clear(*vec_res); // Reuse
+  }
+}
+
+static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *res, RSIndexResult *child_res,
+                                         RSIndexResult *vec_res) {
+
+  AggregateResult_AddChild(res, vec_res);
+  AggregateResult_AddChild(res, child_res);
+  RSIndexResult *hit = IndexResult_DeepCopy(res);
+  ResultMetrics_Add(hit, hr->base.ownKey, RS_NumVal(vec_res->num.value));
+
+  if (hr->topResults->count < hr->query.k) {
+    mmh_insert(hr->topResults, hit);
+  } else {
+    IndexResult_Free(mmh_exchange_max(hr->topResults, hit));
+  }
+}
+
+static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexResult *child_res,
+                               RSIndexResult **vec_res, double *upper_bound) {
   if (hr->ignoreScores) {
-    if (hr->topResults->count < hr->query.k) {
-      hit = NewMetricResult();
-    } else {
-      // Reuse the memory of the worst result and replace it.
-      hit = mmh_pop_max(hr->topResults);
-      IndexResult_Clear(hit);
-    }
-    *hit = *vec_res; // Shallow copy.
-    ResultMetrics_Concat(hit, child_res); // Pass child metrics, if there are any
+    // If we ignore the document score, insert a single node of type DISTANCE.
+    insertResultToHeap_Metric(hr, child_res, vec_res);
   } else {
     // Otherwise, first child is the vector distance, and the second contains a subtree with
     // the terms that the scorer will use later on in the pipeline.
-    AggregateResult_AddChild(res, vec_res);
-    AggregateResult_AddChild(res, child_res);
-    hit = IndexResult_DeepCopy(res);
-    if (hr->topResults->count >= hr->query.k) {
-      // Remove and release the worst result to replace it with the new one.
-      RSIndexResult *top_res = mmh_pop_max(hr->topResults);
-      IndexResult_Free(top_res);
-    }
+    insertResultToHeap_Aggregate(hr, res, child_res, *vec_res);
   }
-  ResultMetrics_Add(hit, hr->base.ownKey, RS_NumVal(vec_res->num.value));
-  // Insert to heap, update the distance upper bound.
-  mmh_insert(hr->topResults, hit);
+  // Set new upper bound.
   RSIndexResult *worst = mmh_peek_max(hr->topResults);
   *upper_bound = VECTOR_RESULT(worst)->num.value;
   // Reset the current result.
@@ -118,7 +129,7 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
       if (hr->topResults->count < hr->query.k || cur_vec_res->num.value < *upper_bound) {
         // Otherwise, set the vector and child results as the children the res
         // and insert result to the heap.
-        insertResultToHeap(hr, cur_res, cur_child_res, cur_vec_res, upper_bound);
+        insertResultToHeap(hr, cur_res, cur_child_res, &cur_vec_res, upper_bound);
       }
       int ret_child = hr->child->Read(hr->child->ctx, &cur_child_res);
       int ret_vec = HR_ReadInBatch(hr, &cur_vec_res);
@@ -172,7 +183,7 @@ void computeDistances(HybridIterator *hr) {
       // Populate the vector result.
       cur_vec_res->docId = cur_child_res->docId;
       cur_vec_res->num.value = metric;
-      insertResultToHeap(hr, cur_res, cur_child_res, cur_vec_res, &upper_bound);
+      insertResultToHeap(hr, cur_res, cur_child_res, &cur_vec_res, &upper_bound);
     }
   }
   if (qvector != hr->query.vector) {
