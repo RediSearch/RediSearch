@@ -736,13 +736,12 @@ TEST_F(IndexTest, testHybridVector) {
   HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
-  // Expect to get top 10 results in reverse order of the distance that passes the filter: 364, 368, ..., 400.
+  // Expect to get top 10 results in the right order of the distance that passes the filter: 400, 396, ..., 364.
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
-    count++;
     ASSERT_EQ(h->type, RSResultType_Metric);
-    // since larger ids has lower distance, in every we get higher id (where max id is the final result).
-    size_t expected_id = max_id - step*(k - count);
+    // since larger ids has lower distance, in every we get lower id (where max id is the final result).
+    size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);
   }
   ASSERT_EQ(count, k);
@@ -756,13 +755,12 @@ TEST_F(IndexTest, testHybridVector) {
   // check rerun and abort (go over only half of the results)
   count = 0;
   for (size_t i = 0; i < k/2; i++) {
-    count++;
     ASSERT_EQ(hybridIt->Read(hybridIt->ctx, &h), INDEXREAD_OK);
     ASSERT_EQ(h->type, RSResultType_Metric);
-    size_t expected_id = max_id - step*(k - count);
+    size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);
   }
-  ASSERT_EQ(hybridIt->LastDocId(hybridIt->ctx), max_id - step*k/2);
+  ASSERT_EQ(hybridIt->LastDocId(hybridIt->ctx), max_id - step*((k/2)-1));
   hybridIt->Abort(hybridIt->ctx);
   ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
 
@@ -771,10 +769,9 @@ TEST_F(IndexTest, testHybridVector) {
   hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
-    count++;
     ASSERT_EQ(h->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
-    size_t expected_id = max_id - step*(k - count);
+    size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);
   }
   hybridIt->Free(hybridIt);
@@ -792,13 +789,12 @@ TEST_F(IndexTest, testHybridVector) {
   // This time, result is a tree with 2 children: vector score and subtree of terms (for scoring).
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
-    count++;
     ASSERT_EQ(h->type, RSResultType_HybridMetric);
     ASSERT_TRUE(RSIndexResult_IsAggregate(h));
     ASSERT_EQ(h->agg.numChildren, 2);
     ASSERT_EQ(h->agg.children[0]->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
-    size_t expected_id = max_id - step*(k - count);
+    size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);
   }
   ASSERT_EQ(count, k);
@@ -809,13 +805,12 @@ TEST_F(IndexTest, testHybridVector) {
   hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
-    count++;
     ASSERT_EQ(h->type, RSResultType_HybridMetric);
     ASSERT_TRUE(RSIndexResult_IsAggregate(h));
     ASSERT_EQ(h->agg.numChildren, 2);
     ASSERT_EQ(h->agg.children[0]->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
-    size_t expected_id = max_id - step*(k - count);
+    size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);
   }
   hybridIt->Free(hybridIt);
