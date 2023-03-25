@@ -67,7 +67,7 @@ static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
   return INDEXREAD_OK;
 }
 
-static void insertResultToHeap_Metric(HybridIterator *hr, RSIndexResult *child_res, RSIndexResult **vec_res) {
+static void insertResultToHeap_Metric(HybridIterator *hr, RSIndexResult *child_res, RSIndexResult **vec_res, double *upper_bound) {
 
   ResultMetrics_Concat(*vec_res, child_res); // Pass child metrics, if there are any
   ResultMetrics_Add(*vec_res, hr->base.ownKey, RS_NumVal((*vec_res)->num.value));
@@ -81,14 +81,18 @@ static void insertResultToHeap_Metric(HybridIterator *hr, RSIndexResult *child_r
     *vec_res = mmh_exchange_max(hr->topResults, *vec_res);
     IndexResult_Clear(*vec_res); // Reuse
   }
+  // Set new upper bound.
+  RSIndexResult *worst = mmh_peek_max(hr->topResults);
+  *upper_bound = worst->num.value;
 }
 
 static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *res, RSIndexResult *child_res,
-                                         RSIndexResult *vec_res) {
+                                         RSIndexResult *vec_res, double *upper_bound) {
 
   AggregateResult_AddChild(res, vec_res);
   AggregateResult_AddChild(res, child_res);
   RSIndexResult *hit = IndexResult_DeepCopy(res);
+  AggregateResult_Reset(res); // Reset the current result.
   ResultMetrics_Add(hit, hr->base.ownKey, RS_NumVal(vec_res->num.value));
 
   if (hr->topResults->count < hr->query.k) {
@@ -96,23 +100,21 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *res,
   } else {
     IndexResult_Free(mmh_exchange_max(hr->topResults, hit));
   }
+  // Set new upper bound.
+  RSIndexResult *worst = mmh_peek_max(hr->topResults);
+  *upper_bound = worst->agg.children[0]->num.value;
 }
 
 static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexResult *child_res,
                                RSIndexResult **vec_res, double *upper_bound) {
   if (hr->ignoreScores) {
     // If we ignore the document score, insert a single node of type DISTANCE.
-    insertResultToHeap_Metric(hr, child_res, vec_res);
+    insertResultToHeap_Metric(hr, child_res, vec_res, upper_bound);
   } else {
     // Otherwise, first child is the vector distance, and the second contains a subtree with
     // the terms that the scorer will use later on in the pipeline.
-    insertResultToHeap_Aggregate(hr, res, child_res, *vec_res);
+    insertResultToHeap_Aggregate(hr, res, child_res, *vec_res, upper_bound);
   }
-  // Set new upper bound.
-  RSIndexResult *worst = mmh_peek_max(hr->topResults);
-  *upper_bound = VECTOR_RESULT(worst)->num.value;
-  // Reset the current result.
-  AggregateResult_Reset(res);
 }
 
 static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *vecsim_iter,
