@@ -415,7 +415,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   }
 
   // If the queue is not full - we just push the result into it
-  if (self->pq->count + 1 < self->pq->size) {
+  if (self->pq->count < self->size) {
 
     // copy the index result to make it thread safe - but only if it is pushed to the heap
     h->indexResult = NULL;
@@ -531,7 +531,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->fieldcmp.keys = keys;
   ret->fieldcmp.nkeys = nkeys;
 
-  ret->pq = mmh_init_with_size(maxresults + 1, ret->cmp, ret->cmpCtx, srDtor);
+  ret->pq = mmh_init_with_size(maxresults, ret->cmp, ret->cmpCtx, srDtor);
   ret->size = maxresults;
   ret->pooledResult = NULL;
   ret->base.Next = rpsortNext_Accum;
