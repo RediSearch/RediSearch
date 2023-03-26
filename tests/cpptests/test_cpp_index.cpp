@@ -685,7 +685,7 @@ TEST_F(IndexTest, testHybridVector) {
 
   float query[] = {(float)max_id, (float)max_id, (float)max_id, (float)max_id};
   KNNVectorQuery top_k_query = {.vector = query, .vecLen = d, .k = 10, .order = BY_SCORE};
-  VecSimQueryParams queryParams;
+  VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = max_id;
 
   // Run simple top k query.

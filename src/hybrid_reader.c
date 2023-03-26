@@ -403,6 +403,10 @@ void HybridIterator_Free(struct indexIterator *self) {
 }
 
 IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
+  RS_LOG_ASSERT(
+      hParams.qParams.searchMode >= 0 && hParams.qParams.searchMode < VECSIM_LAST_SEARCHMODE,
+      "Invalid hybrid search mode");
+
   HybridIterator *hi = rm_new(HybridIterator);
   hi->lastDocId = 0;
   hi->child = hParams.childIt;
