@@ -193,6 +193,7 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
     // Not enough result, try to rewind
     if (heap_size(it->heap) > heap_count(it->heap) && it->offset < it->childEstimate) {
       OPT_Rewind(it->base.ctx);
+      childRes = numericRes = NULL;
       // rewind was successful, continue iteration
       if (it->numericIter != NULL) {
         numeric = it->numericIter; 
