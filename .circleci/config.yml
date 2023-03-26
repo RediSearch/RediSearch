@@ -1003,19 +1003,19 @@ workflows:
           requires:
             - upload-release-artifacts
 
-      # - benchmark-search-oss-standalone-g1:
-      #     context: common
-      #     <<: *on-any-branch
-      # - benchmark-search-oss-standalone-g2:
-      #     context: common
-      #     <<: *on-any-branch
-      # - benchmark-search-oss-standalone-g3:
-      #     context: common
-      #     <<: *on-any-branch
   benchmark_flow_label:
     when:
       << pipeline.parameters.run_benchmark_flow_label >>
     jobs:
+      - benchmark-search-oss-standalone-g1:
+          context: common
+          <<: *on-any-branch
+      - benchmark-search-oss-standalone-g2:
+          context: common
+          <<: *on-any-branch
+      - benchmark-search-oss-standalone-g3:
+          context: common
+          <<: *on-any-branch
       - benchmark-vecsim-oss-standalone-g1:
           context: common
           <<: *on-any-branch
@@ -1028,33 +1028,33 @@ workflows:
       - benchmark-vecsim-oss-standalone-profiler-g2:
           context: common
           <<: *on-any-branch
-      # - benchmark-search-oss-standalone-profiler-g1:
-      #     context: common
-      #     <<: *on-any-branch
-      # - benchmark-search-oss-standalone-profiler-g2:
-      #     context: common
-      #     <<: *on-any-branch
-      # - benchmark-search-oss-standalone-profiler-g3:
-      #     context: common
-      #     <<: *on-any-branch
-      # - benchmark-search-oss-cluster-g1:
-      #     context: common
-      #     <<: *on-any-branch
-      # - benchmark-search-oss-cluster-g2:
-      #     context: common
-      #     <<: *on-any-branch
-      # - benchmark-search-oss-cluster-g3:
-      #     context: common
-      #     <<: *on-any-branch
-      # - benchmark-search-oss-cluster-g4:
-      #     context: common
-      #     <<: *on-any-branch
-      # - benchmark-search-oss-cluster-g5:
-      #     context: common
-      #     <<: *on-any-branch
-      # - benchmark-search-oss-cluster-g6:
-      #     context: common
-      #     <<: *on-any-branch
+      - benchmark-search-oss-standalone-profiler-g1:
+          context: common
+          <<: *on-any-branch
+      - benchmark-search-oss-standalone-profiler-g2:
+          context: common
+          <<: *on-any-branch
+      - benchmark-search-oss-standalone-profiler-g3:
+          context: common
+          <<: *on-any-branch
+      - benchmark-search-oss-cluster-g1:
+          context: common
+          <<: *on-any-branch
+      - benchmark-search-oss-cluster-g2:
+          context: common
+          <<: *on-any-branch
+      - benchmark-search-oss-cluster-g3:
+          context: common
+          <<: *on-any-branch
+      - benchmark-search-oss-cluster-g4:
+          context: common
+          <<: *on-any-branch
+      - benchmark-search-oss-cluster-g5:
+          context: common
+          <<: *on-any-branch
+      - benchmark-search-oss-cluster-g6:
+          context: common
+          <<: *on-any-branch
   nightly:
     triggers:
       - schedule:
