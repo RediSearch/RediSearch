@@ -115,11 +115,16 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
         continue;
     }
 
-    dmd = DocTable_Borrow(&RP_SPEC(base)->docs, r->docId);
+    if (r->dmd) {
+      dmd = r->dmd;
+    } else {
+      dmd = DocTable_Borrow(&RP_SPEC(base)->docs, r->docId);
+    }
     if (!dmd || (dmd->flags & Document_Deleted)) {
       DMD_Return(dmd);
       continue;
     }
+
     if (isTrimming && RedisModule_ShardingGetKeySlot) {
       RedisModuleString *key = RedisModule_CreateString(NULL, dmd->keyPtr, sdslen(dmd->keyPtr));
       int slot = RedisModule_ShardingGetKeySlot(key);
@@ -583,7 +588,6 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 }
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults, bool quickExit) {
-ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
   return RPSorter_NewByFields(maxresults, NULL, 0, NULL, 0, 0, quickExit);
 }
 

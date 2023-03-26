@@ -171,7 +171,7 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
         if (!dmd) {
           continue;
         }   
-        it->pooledResult->num.dmd = dmd;
+        it->pooledResult->dmd = dmd;
 
         // heap is not full. insert
         if (heap_count(it->heap) < heap_size(it->heap)) {
@@ -185,6 +185,7 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
             heap_replace(it->heap, it->pooledResult);
             it->pooledResult = tempRes;
           }
+          DMD_Return(it->pooledResult->dmd);
         }
       } 
     }

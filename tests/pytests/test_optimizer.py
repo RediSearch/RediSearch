@@ -84,8 +84,8 @@ def testOptimizer(env):
 	env.debugPrint(str(numeric_info), force=True)
 	params = ['NOCONTENT', 'OPTIMIZE']
 
-    ### (1) range and filter with sort ###
-    # Search only minimal number of ranges
+	### (1) range and filter with sort ###
+	# Search only minimal number of ranges
 	env.expect('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '10', '110'])
 	env.expect('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '10', '110'])
 	env.expect('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '120', '20'])
@@ -123,8 +123,8 @@ def testOptimizer(env):
 	env.assertEqual(res[0], [10, '10', '12', '14', '16', '18', '20', '110', '112', '114', '116'])
 	env.assertEqual(res[1][3:], profiler)
 
-    ### (3) TAG and range with sort ###
-    # Search only minimal number of ranges
+	### (3) TAG and range with sort ###
+	# Search only minimal number of ranges
 	env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '10', '110'])
 	env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '10', '110'])
 	env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '120', '20'])
@@ -142,8 +142,8 @@ def testOptimizer(env):
 	env.assertEqual(res[0], [10, '10', '110', '210', '310', '410', '510', '610', '710', '810', '910'])
 	env.assertEqual(res[1][3:], profiler)
 
-    ### (4) TAG and range w/o sort ###
-    # stop after enough results were collected
+	### (4) TAG and range w/o sort ###
+	# stop after enough results were collected
 	env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 20]', 'limit', 0 , 2, *params).equal([2, '10', '12'])
 	env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 20]', 'limit', 0 , 3, *params).equal([3, '10', '12', '14'])
 	env.expect('ft.search', 'idx_sortable', '@tag:{foo} @n:[10 20]', 'limit', 0 , 2, *params).equal([2, '10', '12'])
@@ -163,8 +163,8 @@ def testOptimizer(env):
 	env.assertEqual(res[0], [10, '10', '12', '14', '110', '112', '114', '210', '212', '214', '310'])
 	env.assertEqual(res[1][3:], profiler)
 
-    ### (5) numeric range with sort ###
-    # Search only minimal number of ranges
+	### (5) numeric range with sort ###
+	# Search only minimal number of ranges
 	env.expect('ft.search', 'idx', '@n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '10', '11'])
 	env.expect('ft.search', 'idx', '@n:[10 20]', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '10', '11'])
 	env.expect('ft.search', 'idx', '@n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19921', '19920'])
@@ -183,8 +183,8 @@ def testOptimizer(env):
 	env.assertEqual(res[0], [10, '10', '11', '110', '111', '210', '211', '310', '311', '410', '411'])
 	env.assertEqual(res[1][3:], profiler)
 
-    ### (6) only range ###
-    # stop after enough results were collected
+	### (6) only range ###
+	# stop after enough results were collected
 	env.expect('ft.search', 'idx', '@n:[10 20]', 'limit', 0 , 2, *params).equal([2, '10', '11'])
 	env.expect('ft.search', 'idx', '@n:[10 20]', 'limit', 0 , 3, *params).equal([3, '10', '11', '12'])
 	env.expect('ft.search', 'idx_sortable', '@n:[10 20]', 'limit', 0 , 2, *params).equal([2, '10', '11'])
@@ -202,8 +202,8 @@ def testOptimizer(env):
 	env.assertEqual(res[0], [10, '10', '11', '12', '13', '14', '15', '110', '111', '112', '113'])
 	env.assertEqual(res[1][3:], profiler)
 
-    ### (7) filter with sort ###
-    # Search only minimal number of ranges
+	### (7) filter with sort ###
+	# Search only minimal number of ranges
 	env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '0', '100'])
 	env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '100'])
 	env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '198', '98'])
@@ -224,8 +224,8 @@ def testOptimizer(env):
 	result = env.cmd('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'limit', 0 , 1500, *params)
 	env.assertEqual(result[0], 1500)
 
-    ### (8) filter w/o sort (by score) ###
-    # search over all matches
+	### (8) filter w/o sort (by score) ###
+	# search over all matches
 	env.expect('ft.search', 'idx', 'foo', 'limit', 0 , 2, *params).equal([2, '0', '2'])
 	env.expect('ft.search', 'idx', 'foo', 'limit', 0 , 3, *params).equal([3, '0', '2', '4'])
 	env.expect('ft.search', 'idx_sortable', 'foo', 'limit', 0 , 2, *params).equal([2, '0', '2'])
@@ -241,8 +241,8 @@ def testOptimizer(env):
 	env.assertEqual(res[0], [10, '0', '2', '4', '6', '8', '10', '12', '14', '16', '18'])
 	env.assertEqual(res[1][3:], profiler)
 
-    ### (9) no sort, no score, with sortby ###
-    # Search only minimal number of ranges
+	### (9) no sort, no score, with sortby ###
+	# Search only minimal number of ranges
 	env.expect('ft.search', 'idx', '@tag:{foo}', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '0', '100'])
 	env.expect('ft.search', 'idx', '@tag:{foo}', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '100'])
 	env.expect('ft.search', 'idx', '@tag:{foo}', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '198', '98'])
@@ -260,8 +260,8 @@ def testOptimizer(env):
 	env.assertEqual(res[0], [10, '0', '100', '200', '300', '400', '500', '600', '700', '800', '900'])
 	env.assertEqual(res[1][3:], profiler)
 
-    ### (10) no sort, no score, no sortby ###
-    # stop after enough results were collected
+	### (10) no sort, no score, no sortby ###
+	# stop after enough results were collected
 	env.expect('ft.search', 'idx', '@tag:{foo}', 'limit', 0 , 2, *params).equal([2, '0', '2'])
 	env.expect('ft.search', 'idx', '@tag:{foo}', 'limit', 0 , 3, *params).equal([3, '0', '2', '4'])
 	env.expect('ft.search', 'idx_sortable', '@tag:{foo}', 'limit', 0 , 2, *params).equal([2, '0', '2'])
@@ -277,8 +277,8 @@ def testOptimizer(env):
 	env.assertEqual(res[0], [10, '0', '2', '4', '6', '8', '10', '12', '14', '16', '18'])
 	env.assertEqual(res[1][3:], profiler)
 
-    ### (11) wildcard with sort ###
-    # Search only minimal number of ranges
+	### (11) wildcard with sort ###
+	# Search only minimal number of ranges
 	env.expect('ft.search', 'idx', '*', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '0', '1'])
 	env.expect('ft.search', 'idx', '*', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '1'])
 	env.expect('ft.search', 'idx', '*', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '99', '98'])
@@ -296,8 +296,8 @@ def testOptimizer(env):
 	env.assertEqual(res[0], [10, '0', '1', '100', '101', '200', '201', '300', '301', '400', '401'])
 	env.assertEqual(res[1][3:], profiler)
 
-    ### (12) wildcard w/o sort ###
-    # stop after enough results were collected
+	### (12) wildcard w/o sort ###
+	# stop after enough results were collected
 	env.expect('ft.search', 'idx', '*', 'limit', 0 , 2, *params).equal([2, '0', '1'])
 	env.expect('ft.search', 'idx', '*', 'limit', 0 , 3, *params).equal([3, '0', '1', '2'])
 	env.expect('ft.search', 'idx_sortable', '*', 'limit', 0 , 2, *params).equal([2, '0', '1'])
@@ -342,62 +342,62 @@ def testWOLimit(env):
 	res10 = [10, '12', '17', '22', '27', '32', '37', '42', '47', '52', '57']
 	res6 = [6, '12', '17', '22', '27', '32', '37']
 
-    ### (1) range and filter with sort ###
-    # Search only minimal number of ranges
+	### (1) range and filter with sort ###
+	# Search only minimal number of ranges
 	env.expect('ft.search', 'idx', 'foo @n:[10 70]', 'SORTBY', 'n', *params).equal(res10)
 	env.expect('ft.search', 'idx', 'foo @n:[10 40]', 'SORTBY', 'n', *params).equal(res6)
 
 	### (2) range and filter w/o sort ###
-    # stop after enough results were collected
+	# stop after enough results were collected
 	env.expect('ft.search', 'idx', 'foo @n:[10 70]', *params).equal(res10)
 	env.expect('ft.search', 'idx', 'foo @n:[10 40]', *params).equal(res6)
 
-    ### (3) TAG and range with sort ###
-    # Search only minimal number of ranges
+	### (3) TAG and range with sort ###
+	# Search only minimal number of ranges
 	env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 70]', 'SORTBY', 'n', *params).equal(res10)
 	env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 40]', 'SORTBY', 'n', *params).equal(res6)
 
-    ### (4) TAG and range w/o sort ###
-    # stop after enough results were collected
+	### (4) TAG and range w/o sort ###
+	# stop after enough results were collected
 	env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 70]', *params).equal(res10)
 	env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 40]', *params).equal(res6)
 
-    ### (5) numeric range with sort ###
-    # Search only minimal number of ranges
+	### (5) numeric range with sort ###
+	# Search only minimal number of ranges
 	res4 = [3, '10', ['n', '10'], '11', ['n', '11'], '12', ['n', '12']]
 	res10 = [10, '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
 	env.expect('ft.search', 'idx', '@n:[10 50]', 'SORTBY', 'n', *params).equal(res10)	#TODO:
 	env.expect('ft.search', 'idx', '@n:[10 12]', 'SORTBY', 'n', 'OPTIMIZE', 'RETURN', 1, 'n').equal(res4)
 
-    ### (6) only range ###
-    # stop after enough results were collected
+	### (6) only range ###
+	# stop after enough results were collected
 	env.expect('ft.search', 'idx', '@n:[10 50]', *params).equal(res10)
 	env.expect('ft.search', 'idx', '@n:[10 12]', 'OPTIMIZE', 'RETURN', 1, 'n').equal(res4)
 
-    ### (7) filter with sort ###
-    # Search only minimal number of ranges
+	### (7) filter with sort ###
+	# Search only minimal number of ranges
 	res10 = [10, '2', '7', '12', '17', '22', '27', '32', '37', '42', '47']
 	env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', *params).equal(res10)
 
-    ### (8) filter w/o sort (by score) ###
-    # search over all matches
+	### (8) filter w/o sort (by score) ###
+	# search over all matches
 	env.expect('ft.search', 'idx', 'foo', *params).equal(res10)		# TODO:
 
-    ### (9) no sort, no score, with sortby ###
-    # Search only minimal number of ranges
+	### (9) no sort, no score, with sortby ###
+	# Search only minimal number of ranges
 	env.expect('ft.search', 'idx', '@tag:{foo}', 'SORTBY', 'n', *params).equal(res10)
 
-    ### (10) no sort, no score, no sortby ###
-    # stop after enough results were collected
+	### (10) no sort, no score, no sortby ###
+	# stop after enough results were collected
 	env.expect('ft.search', 'idx', '@tag:{foo}', *params).equal(res10)
 
-    ### (11) wildcard with sort ###
-    # Search only minimal number of ranges
+	### (11) wildcard with sort ###
+	# Search only minimal number of ranges
 	res10 = [10, '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
 	env.expect('ft.search', 'idx', '*', 'SORTBY', 'n', *params).equal(res10)
 
-    ### (12) wildcard w/o sort ###
-    # stop after enough results were collected
+	### (12) wildcard w/o sort ###
+	# stop after enough results were collected
 	env.expect('ft.search', 'idx', '*', *params).equal(res10)
 
 def testSearch(env):
@@ -609,3 +609,31 @@ def testCoordinator(env):
 			### (11) wildcard with sort ###
 			# aggregate only minimal number of ranges
 			compare_optimized_to_not(env, ['ft.aggregate', 'idx', '*', 'SORTBY', 2, '@n', 'ASC'], params, 'case 11')
+
+def testVector():
+	env = Env(moduleArgs='DEFAULT_DIALECT 2')
+	conn = getConnectionByEnv(env)
+
+	env.expect('FT.CREATE idx SCHEMA v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 t TEXT n NUMERIC').ok()
+	conn.execute_command('hset', '1', 'v', 'bababaca', 't', "hello", 'n', 1)
+	conn.execute_command('hset', '2', 'v', 'babababa', 't', "hello", 'n', 2)
+	conn.execute_command('hset', '3', 'v', 'aabbaabb', 't', "hello", 'n', 3)
+	conn.execute_command('hset', '4', 'v', 'bbaabbaa', 't', "hello world", 'n', 4)
+	conn.execute_command('hset', '5', 'v', 'aaaabbbb', 't', "hello world", 'n', 5)
+
+	search = ['FT.SEARCH', 'idx']
+	profile = ['FT.PROFILE', 'idx', 'search', 'query']
+
+	queries = [
+		['(@t:hello world)=>[KNN 3 @v $vec]', 'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa'],
+		['(@t:hello @n:[1 4])=>[KNN 3 @v $vec]', 'SORTBY', 'n', 'PARAMS', '2', 'vec', 'aaaaaaaa'],
+		['@n:[1 4]=>[KNN 3 @v $vec]', 'PARAMS', '2', 'vec', 'aaaaaaaa'],
+	]
+
+	for query in queries:
+		# A query with a vector KNN should not be optimized, but should succeed
+		env.assertEqual(conn.execute_command(*search, *query), conn.execute_command(*search, *query, 'OPTIMIZE'))
+		if not env.isCluster():
+			# Run the same query with profiling, and make sure the query is not optimized
+			# (same iterators and pipeline should be used)
+			env.assertEqual(conn.execute_command(*profile, *query), conn.execute_command(*profile, *query, 'OPTIMIZE'))
