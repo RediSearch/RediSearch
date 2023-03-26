@@ -1003,10 +1003,7 @@ workflows:
           requires:
             - upload-release-artifacts
 
-  benchmark_flow_label:
-    when:
       << pipeline.parameters.run_benchmark_flow_label >>
-    jobs:
       # - benchmark-search-oss-standalone-g1:
       #     context: common
       #     <<: *on-any-branch
@@ -1016,6 +1013,9 @@ workflows:
       # - benchmark-search-oss-standalone-g3:
       #     context: common
       #     <<: *on-any-branch
+  benchmark_flow_label:
+    when:
+    jobs:
       - benchmark-vecsim-oss-standalone-g1:
           context: common
           <<: *on-any-branch
