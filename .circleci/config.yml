@@ -573,7 +573,10 @@ jobs:
           allowed_setups: oss-cluster-02-primaries,oss-cluster-04-primaries,oss-cluster-08-primaries
           benchmark_runner_group_member_id: "2"
           benchmark_runner_group_total: "2"
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/feature_concurent_ft_search
   benchmark-search-oss-cluster-g3:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye

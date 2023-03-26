@@ -875,6 +875,8 @@ int IndexSpec_CreateTextId(const IndexSpec *sp) {
   return maxId + 1;
 }
 
+static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
+
 /**
  * Add fields to an existing (or newly created) index. If the addition fails,
  */
@@ -1007,13 +1009,10 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     fs = NULL;
   }
 
-  // If we got here we successfully added the field, we can invalidate the spec cache.
-  if (sp->spcache) {
-    // Assuming we locked the index spec for write and we have a single writer,
-    // we don't need atomic operations here.
-    IndexSpecCache_Decref(sp->spcache);
-    sp->spcache = NULL;
-  }
+  // If we successfully modified the schema, we need to update the spec cache
+  IndexSpecCache_Decref(sp->spcache);
+  sp->spcache = IndexSpec_BuildSpecCache(sp);
+
   return 1;
 
 reset:
@@ -1031,7 +1030,7 @@ reset:
 
   sp->numFields = prevNumFields;
   sp->sortables->len = prevSortLen;
-  sp->flags = prevFlags;
+  sp->flags = prevFlags | (sp->flags & Index_HasSuffixTrie);
   return 0;
 }
 
@@ -1190,11 +1189,12 @@ static void IndexSpecCache_Free(IndexSpecCache *c) {
 // and at this point the refcount only gets decremented so there is no wory of some thread increasing the
 // refcount while we are freeing the cache.
 void IndexSpecCache_Decref(IndexSpecCache *c) {
-  if (!__atomic_sub_fetch(&c->refcount, 1, __ATOMIC_RELAXED)) {
+  if (c && !__atomic_sub_fetch(&c->refcount, 1, __ATOMIC_RELAXED)) {
     IndexSpecCache_Free(c);
   }
 }
 
+// Assuming the spec is properly locked before calling this function.
 static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
   IndexSpecCache *ret = rm_calloc(1, sizeof(*ret));
   ret->nfields = spec->numFields;
@@ -1214,14 +1214,8 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
   return ret;
 }
 
-// This function is only being called from the main-thread (at the moment) under the GIL and the spec's
-// read lock, so there is no race on setting the cache value if it is null.
-// The refcount still should be atomic as it is being accessed from other threads (for decref).
 IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
-  if (!spec->spcache) {
-    ((IndexSpec *)spec)->spcache = IndexSpec_BuildSpecCache(spec);
-  }
-
+  RS_LOG_ASSERT(spec->spcache, "Index spec cache is NULL");
   __atomic_fetch_add(&spec->spcache->refcount, 1, __ATOMIC_RELAXED);
   return spec->spcache;
 }
@@ -1270,12 +1264,9 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     spec->rule = NULL;
   }
   // Free fields cache data
-  if (spec->spcache) {
-    // Assuming we locked the index spec for write and we have a single writer,
-    // we don't need atomic operations here.
-    IndexSpecCache_Decref(spec->spcache);
-    spec->spcache = NULL;
-  }
+  IndexSpecCache_Decref(spec->spcache);
+  spec->spcache = NULL;
+
   // Free fields formatted names
   if (spec->indexStrs) {
     for (size_t ii = 0; ii < spec->numFields; ++ii) {
@@ -1652,7 +1643,7 @@ size_t IndexSpec_GetVersion(const IndexSpec *sp) {
 }
 
 // Update the spec vesrion if we update the index.
-// This function should be called after the write lock is acquired.
+// It is assumed that this function is called after locking Redis.
 // When the version number is overflowed, it will start from zero.
 void IndexSpec_UpdateVersion(IndexSpec *sp) {
   ++sp->specVersion;
@@ -2269,8 +2260,9 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
         sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
       }
     }
-
   }
+  // After loading all the fields, we can build the spec cache
+  sp->spcache = IndexSpec_BuildSpecCache(sp);
 
   //    IndexStats_RdbLoad(rdb, &sp->stats);
 
@@ -2383,6 +2375,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
       RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
     }
   }
+  // After loading all the fields, we can build the spec cache
+  sp->spcache = IndexSpec_BuildSpecCache(sp);
 
   IndexStats_RdbLoad(rdb, &sp->stats);
 
@@ -2754,12 +2748,12 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   dict *specs = res->specs;
 
 #if defined(_DEBUG) && 0
-  RLookupKey *k = RLookup_GetKey(&r->lk, UNDERSCORE_KEY, 0);
+  RLookupKey *k = RLookup_GetKey(&r->lk, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
   RSValue *v = RLookup_GetItem(k, &r->row);
   const char *x = RSValue_StringPtrLen(v, NULL);
   RedisModule_Log(NULL, "notice", "Indexes_FindMatchingSchemaRules: x=%s", x);
   const char *f = "name";
-  k = RLookup_GetKey(&r->lk, f, 0);
+  k = RLookup_GetKey(&r->lk, f, RLOOKUP_F_NOFLAGS);
   if (k) {
     v = RLookup_GetItem(k, &r->row);
     x = RSValue_StringPtrLen(v, NULL);
