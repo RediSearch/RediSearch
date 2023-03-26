@@ -383,19 +383,43 @@ Now we can look for products offered by these vendors, for example:
 
 Starting with RediSearch 2.6.0, you can index a JSONPath leading to an array of numeric values as a VECTOR type in the index schema.
 
+For example, let's assume that our JSON items include an array of vector embeddings, where each vector represent an image of the product. To index these vectors, specify the JSONPath `$.embedding` in the schema definition during index creation:
+
+```sql
+127.0.0.1:6379> FT.CREATE itemIdx5 ON JSON PREFIX 1 item: SCHEMA $.embedding AS embedding VECTOR FLAT 6 DIM 4 DISTANCE_METRIC L2 TYPE FLOAT32
+OK
+127.0.0.1:6379> JSON.SET item:1 $ '{"name":"Noise-cancelling Bluetooth headphones","description":"Wireless Bluetooth headphones with noise-cancelling technology","price":99.98,"stock":25,"colors":["black","silver"],"embedding":[0.87,-0.15,0.55,0.03]}'
+OK
+127.0.0.1:6379> JSON.SET item:2 $ '{"name":"Wireless earbuds","description":"Wireless Bluetooth in-ear headphones","price":64.99,"stock":17,"colors":["black","white"],"embedding":[-0.7,-0.51,0.88,0.14]}'
+OK
+```
+
+Now you can search for the two headphones that are most similar to the image embedding by using vector similarity search KNN query. (Note that the vector queries are supported as of dialect 2.) For example:
+```sql
+127.0.0.1:6379> FT.SEARCH itemIdx5 '*=>[KNN 2 @embedding $blob AS dist]' SORTBY dist PARAMS 2 blob \x01\x01\x01\x01 DIALECT 2
+1) (integer) 2
+2) "item:1"
+3) 1) "dist"
+   2) "1.08280003071"
+   3) "$"
+   4) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"],\"embedding\":[0.87,-0.15,0.55,0.03]}"
+4) "item:2"
+5) 1) "dist"
+   2) "1.54409992695"
+   3) "$"
+   4) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],\"embedding\":[-0.7,-0.51,0.88,0.14]}"
+```
+
 If you want to index *multiple* numeric arrays as VECTOR, use a [JSONPath](/docs/stack/json/path/) leading to multiple numeric arrays using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
 
 For example, let's assume that our JSON items include an array of vector embeddings, where each vector represent a different image of the same product. To index these vectors, specify the JSONPath `$.embeddings[*]` in the schema definition during index creation:
 
 ```sql
-127.0.0.1:6379> FT.CREATE itemIdx5 ON JSON PREFIX 1 item: SCHEMA $.embedding[*] AS embedding VECTOR FLAT 6 DIM 4 DISTANCE_METRIC L2 TYPE FLOAT32
+127.0.0.1:6379> FT.CREATE itemIdx5 ON JSON PREFIX 1 item: SCHEMA $.embeddings[*] AS embeddings VECTOR FLAT 6 DIM 4 DISTANCE_METRIC L2 TYPE FLOAT32
 OK
-```
-```sql
-127.0.0.1:6379> JSON.SET item:1 $ '{"name":"Noise-cancelling Bluetooth headphones","description":"Wireless Bluetooth headphones with noise-cancelling technology","price":99.98,"stock":25,"colors":["black","silver"],"embedding":[[0.87,-0.15,0.55,0.03]]}'
+127.0.0.1:6379> JSON.SET item:1 $ '{"name":"Noise-cancelling Bluetooth headphones","description":"Wireless Bluetooth headphones with noise-cancelling technology","price":99.98,"stock":25,"colors":["black","silver"],"embeddings":[[0.87,-0.15,0.55,0.03]]}'
 OK
-
-127.0.0.1:6379> JSON.SET item:2 $ '{"name":"Wireless earbuds","description":"Wireless Bluetooth in-ear headphones","price":64.99,"stock":17,"colors":["black","white"],"embedding":[[-0.7,-0.51,0.88,0.14],[-0.8,-0.15,0.33,-0.01]]}'
+127.0.0.1:6379> JSON.SET item:2 $ '{"name":"Wireless earbuds","description":"Wireless Bluetooth in-ear headphones","price":64.99,"stock":17,"colors":["black","white"],"embeddings":[[-0.7,-0.51,0.88,0.14],[-0.8,-0.15,0.33,-0.01]]}'
 OK
 ```
 
@@ -407,18 +431,18 @@ Unlike the case with the NUMERIC type, setting a static path such as `$.embeddin
 Now you can search for the two headphones that are most similar to an image embedding by using vector similarity search KNN query. (Note that the vector queries are supported as of dialect 2.) The distance between a document to the query vector is defined as the minimum distance between the query vector to a vector that matches the JSONPath specified in the schema. For example:
 
 ```sql
-127.0.0.1:6379> FT.SEARCH itemIdx5 '*=>[KNN 2 @embeddings $blob]' PARAMS 2 blob \x01\x01\x01\x01 DIALECT 2
-1) "2"
-2) "item:1"
-3) 1) "__embedding_score"
-   2) "1.08280003071"
-   1) "$"
-   2) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"],\"embedding\":[[0.87,-0.15,0.55,0.03]]}"
+127.0.0.1:6379> FT.SEARCH itemIdx5 '*=>[KNN 2 @embeddings $blob AS dist]' SORTBY dist PARAMS 2 blob \x01\x01\x01\x01 DIALECT 2
+1) (integer) 2
 2) "item:2"
-3) 1) "__embedding_score"
+3) 1) "dist"
    2) "0.771500051022"
    3) "$"
-   4) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],"embedding":[[-0.7,-0.51,0.88,0.14],[-0.8,-0.15,0.33,-0.01]]}"
+   4) "{\"name\":\"Wireless earbuds\",\"description\":\"Wireless Bluetooth in-ear headphones\",\"price\":64.99,\"stock\":17,\"colors\":[\"black\",\"white\"],\"embeddings\":[[-0.7,-0.51,0.88,0.14],[-0.8,-0.15,0.33,-0.01]]}"
+4) "item:1"
+5) 1) "dist"
+   2) "1.08280003071"
+   3) "$"
+   4) "{\"name\":\"Noise-cancelling Bluetooth headphones\",\"description\":\"Wireless Bluetooth headphones with noise-cancelling technology\",\"price\":99.98,\"stock\":25,\"colors\":[\"black\",\"silver\"],\"embeddings\":[[0.87,-0.15,0.55,0.03]]}"
 ```
 Note that `0.771500051022` is the L2 distance between the query vector and `[-0.8,-0.15,0.33,-0.01]`, which is the second element in the embedding array, and it is lower than the L2 distance between the query vector and `[-0.7,-0.51,0.88,0.14]`, which is the first element in the embedding array.
 
