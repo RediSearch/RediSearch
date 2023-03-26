@@ -6,17 +6,17 @@ from common import *
 from RLTest import Env
 
 # /**********************************************************************
-# * NUM * TEXT  * TAG *  with SORTBY on NUMERIC  *    w/o SORTBY        *
+# * NUM * TEXT  * TAG *  with SORTBY on NUMERIC  *	w/o SORTBY		*
 # ***********************************************************************
-# *  Y  *   Y   * Y/N *    Q_OPT_HYBRID (1)      *   Q_OPT_NONE (2)     *
+# *  Y  *   Y   * Y/N *	Q_OPT_HYBRID (1)	  *   Q_OPT_NONE (2)	 *
 # ***********************************************************************
-# *  Y  *   N   *  Y  *    Q_OPT_HYBRID (3)      *  Q_OPT_HYBRID (4)    *
+# *  Y  *   N   *  Y  *	Q_OPT_HYBRID (3)	  *  Q_OPT_HYBRID (4)	*
 # ***********************************************************************
 # *  Y  *   N   *  N  * Q_OPT_PARTIAL_RANGE (5)  * Q_OPT_NO_SORTER (6)  *
 # ***********************************************************************
-# *  N  *   Y   * Y/N *    Q_OPT_HYBRID (7)      *   Q_OPT_NONE  (8)    *
+# *  N  *   Y   * Y/N *	Q_OPT_HYBRID (7)	  *   Q_OPT_NONE  (8)	*
 # ***********************************************************************
-# *  N  *   N   *  Y  *    Q_OPT_HYBRID (9)      * Q_OPT_NO_SORTER (10) *
+# *  N  *   N   *  Y  *	Q_OPT_HYBRID (9)	  * Q_OPT_NO_SORTER (10) *
 # ***********************************************************************
 # *  N  *   N   *  N  * Q_OPT_PARTIAL_RANGE (11) * Q_OPT_NO_SORTER (12) *
 # **********************************************************************/
