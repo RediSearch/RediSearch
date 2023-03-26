@@ -9,7 +9,6 @@ from common import getConnectionByEnv, waitForIndex, create_np_array_typed
 
 def testCreateIndex(env):
     conn = getConnectionByEnv(env)
-
     r = env
     N = 1000
     for i in range(N):
@@ -23,7 +22,6 @@ def testCreateIndex(env):
 
 def testAlterIndex(env):
     conn = getConnectionByEnv(env)
-
     r = env
     N = 10000
     for i in range(N):
@@ -39,7 +37,6 @@ def testAlterIndex(env):
 
 def testDeleteIndex(env):
     conn = getConnectionByEnv(env)
-
     r = env
     N = 100
     for i in range(N):
@@ -51,12 +48,10 @@ def testDeleteIndex(env):
     r.expect('ft.info', 'idx').equal('Unknown index name')
     # time.sleep(1)
 
-
 def test_mod4745(env):
     conn = getConnectionByEnv(env)
     r = env
-
-    # Create an index with large dim so that a single indexing operation will take a long time.
+    # Create an index with large dim so that a single indexing operation will take a long time
     N = 1000
     dim = 50000
     for i in range(N):
@@ -75,6 +70,7 @@ def test_mod4745(env):
     # Make sure we are getting here without having cluster mark itself as fail since the server is not responsive and
     # fail to send cluster PING on time before we reach cluster-node-timeout.
     waitForIndex(r, 'idx')
+
 def test_eval_node_errors_async():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKER_THREADS 1 ENABLE_THREADS TRUE ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
@@ -90,8 +86,8 @@ def test_eval_node_errors_async():
         env.assertEqual(conn.execute_command('HSET', f'key{i}', 'foo', 'hello',
                                              'v', create_np_array_typed([i/1000]*dim).tobytes()), 2)
 
-    # Test various scenarios where evaluating the AST should raise an error, and validate that it was caught from
-    # the BG thread.
+    # Test various scenarios where evaluating the AST should raise an error,
+    # and validate that it was caught from the BG thread
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 200 100]', 'NOCONTENT').raiseError()\
         .contains(f"{async_err_prefix}Invalid GeoFilter unit")
     env.expect('ft.search', 'idx', '@foo:*ell*', 'NOCONTENT').error() \
@@ -102,6 +98,7 @@ def test_eval_node_errors_async():
     env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 10000000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_docs,
                'PARAMS', 2, 'vec_param', create_np_array_typed([0]*dim).tobytes(),
                'TIMEOUT', 1).error().equal(f'{async_err_prefix}Timeout limit was reached')
+
     # This error is caught during building the implicit pipeline (also should occur in BG thread)
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$yield_distance_as:v}', 'timeout', 0, 'PARAMS', '2', 'b',
                create_np_array_typed([0]*dim).tobytes()).error()\

@@ -31,6 +31,9 @@ help() {
 		COORD=1|oss|rlec      Test Coordinator
 		SHARDS=n              Number of OSS coordinator shards (default: 3)
 		QUICK=1|~1|0          Perform only common test variant (~1: all but common)
+		CONFIG=cfg            Perform one of: concurrent_write, max_unsorted, 
+		                        union_iterator_heap, raw_docid, dialect_2,
+								(coordinator:) global_password, safemode, tls
 
 		TEST=name             Run specific test (e.g. test.py:test_name)
 		TESTFILE=file         Run tests listed in `file`
@@ -601,27 +604,37 @@ E=0
 if [[ -z $COORD ]]; then
 	MODARGS="timeout 0;"
 	
-	if [[ $QUICK != "~1" ]]; then
+	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 	fi
 
 	if [[ $QUICK != 1 ]]; then
-		{ (MODARGS="${MODARGS}; CONCURRENT_WRITE_MODE;" \
-			run_tests "with Concurrent write mode"); (( E |= $? )); } || true
-
-		{ (MODARGS="${MODARGS}; _MAX_RESULTS_TO_UNSORTED_MODE 1;" \
-			run_tests "MAX_RESULTS_TO_UNSORTED_MODE=1"); (( E |= $? )); } || true
-
-		{ (MODARGS="${MODARGS}; UNION_ITERATOR_HEAP 1;" \
-			run_tests "with Union iterator heap"); (( E |= $? )); } || true
-
-		if [[ $COV != 1 ]]; then
-			{ (MODARGS="${MODARGS}; RAW_DOCID_ENCODING true;" \
-				run_tests "with raw DocID encoding"); (( E |= $? )); } || true
+		if [[ -z $CONFIG || $CONFIG == concurrent_write ]]; then
+			{ (MODARGS="${MODARGS}; CONCURRENT_WRITE_MODE;" \
+				run_tests "with Concurrent write mode"); (( E |= $? )); } || true
 		fi
 
-		{ (MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" \
-			run_tests "with Dialect v2"); (( E |= $? )); } || true
+		if [[ -z $CONFIG || $CONFIG == max_unsorted ]]; then
+			{ (MODARGS="${MODARGS}; _MAX_RESULTS_TO_UNSORTED_MODE 1;" \
+				run_tests "MAX_RESULTS_TO_UNSORTED_MODE=1"); (( E |= $? )); } || true
+		fi
+
+		if [[ -z $CONFIG || $CONFIG == union_iterator_heap ]]; then
+			{ (MODARGS="${MODARGS}; UNION_ITERATOR_HEAP 1;" \
+				run_tests "with Union iterator heap"); (( E |= $? )); } || true
+		fi
+
+		if [[ -z $CONFIG || $CONFIG == raw_docid ]]; then
+			if [[ $COV != 1 ]]; then
+				{ (MODARGS="${MODARGS}; RAW_DOCID_ENCODING true;" \
+					run_tests "with raw DocID encoding"); (( E |= $? )); } || true
+			fi
+		fi
+
+		if [[ -z $CONFIG || $CONFIG == dialect_2 ]]; then
+			{ (MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" \
+				run_tests "with Dialect v2"); (( E |= $? )); } || true
+		fi
 	fi
 
 elif [[ $COORD == oss ]]; then
@@ -638,14 +651,18 @@ elif [[ $COORD == oss ]]; then
 	fi
 
 	if [[ $QUICK != 1 ]]; then
-		if [[ $SAN != address && $FORCE_SAN != 1 ]]; then
-			{ (MODARGS="${MODARGS} PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
-			   RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} --oss_password password" \
-			   run_tests "OSS cluster tests with password"); (( E |= $? )); } || true
+		if [[ -z $CONFIG || $CONFIG == global_password ]]; then
+			if [[ $SAN != address && $FORCE_SAN != 1 ]]; then
+				{ (MODARGS="${MODARGS} PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
+				   RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} --oss_password password" \
+				   run_tests "OSS cluster tests with password"); (( E |= $? )); } || true
+			fi
 		fi
 
-		{ (MODARGS="${MODARGS} PARTITIONS AUTO SAFEMODE" RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args}" \
-		   run_tests "OSS cluster tests (safe mode)"); (( E |= $? )); } || true
+		if [[ -z $CONFIG || $CONFIG == safemode ]]; then
+			{ (MODARGS="${MODARGS} PARTITIONS AUTO SAFEMODE" RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args}" \
+			   run_tests "OSS cluster tests (safe mode)"); (( E |= $? )); } || true
+		fi
 
 		tls_args="--tls \
 			--tls-cert-file $ROOT/bin/tls/redis.crt \
@@ -663,8 +680,11 @@ elif [[ $COORD == oss ]]; then
 		fi
 
 		PASSPHRASE=$PASSPHRASE $ROOT/sbin/gen-test-certs
-		{ (RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} ${tls_args}" \
-		   run_tests "OSS cluster tests TLS"); (( E |= $? )); } || true
+		
+		if [[ -z $CONFIG || $CONFIG == tls ]]; then
+			{ (RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} ${tls_args}" \
+			   run_tests "OSS cluster tests TLS"); (( E |= $? )); } || true
+		fi
 	fi # QUICK
 
 elif [[ $COORD == rlec ]]; then
