@@ -699,7 +699,10 @@ TEST_F(IndexTest, testHybridVector) {
                                   .ignoreDocScore = true,
                                   .childIt = NULL
   };
-  IndexIterator *vecIt = NewHybridVectorIterator(hParams);
+  QueryError err = {QUERY_OK};
+  IndexIterator *vecIt = NewHybridVectorIterator(hParams, &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+
   RSIndexResult *h = NULL;
   size_t count = 0;
 
@@ -724,7 +727,9 @@ TEST_F(IndexTest, testHybridVector) {
   // Test in hybrid mode.
   IndexIterator *ir = NewReadIterator(r);
   hParams.childIt = ir;
-  IndexIterator *hybridIt = NewHybridVectorIterator(hParams);
+  IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+
   HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
@@ -776,7 +781,8 @@ TEST_F(IndexTest, testHybridVector) {
   ir = NewReadIterator(r);
   hParams.ignoreDocScore = false;
   hParams.childIt = ir;
-  hybridIt = NewHybridVectorIterator(hParams);
+  hybridIt = NewHybridVectorIterator(hParams, &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
@@ -851,7 +857,9 @@ TEST_F(IndexTest, testInvalidHybridVector) {
                                   .vectorScoreField = (char *)"__v_score",
                                   .ignoreDocScore = true,
                                   .childIt = ii};
-  IndexIterator *hybridIt = NewHybridVectorIterator(hParams);
+  QueryError err = {QUERY_OK};                              
+  IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_FALSE(hybridIt);
 
   ii->Free(ii);

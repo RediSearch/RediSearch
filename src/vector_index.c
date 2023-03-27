@@ -135,12 +135,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .childIt = child_it,
                                       .timeout = q->sctx->timeout,
       };
-      IndexIterator *ret = NewHybridVectorIterator(hParams);
-      if (!ret) {
-        QueryError_SetErrorFmt(q->status, QUERY_EGENERIC,
-                               "Creating new hybrid vector iterator failed");
-      }
-      return ret;
+      return NewHybridVectorIterator(hParams, q->status);
     }
     case VECSIM_QT_RANGE: {
       if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {
