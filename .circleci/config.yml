@@ -448,6 +448,39 @@ jobs:
             fi
       - persist-artifacts
 
+  build-macos-m1:
+    macos:
+      xcode: 14.2.0
+    resource_class: macos.m1.large.gen1
+    parameters:
+      test_params:
+        type: string
+        default: "QUICK=1"
+      upload:
+        type: string
+        default: "yes"
+    steps:
+      - early-returns
+      - run:
+          name: Set up workspace
+          command: mkdir -p ~/workspace
+      - build-steps
+      - test-steps:
+          test_params: <<parameters.test_params>>
+      - run:
+          name: Persist artifacts?
+          command: |
+            if [[ "<<parameters.upload>>" != "yes" ]]; then
+              circleci step halt
+            fi
+      - run:
+          name: Upload artifacts to S3
+          command: |
+            if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
+                make upload-artifacts SHOW=1
+            fi
+      - persist-artifacts
+
   benchmark-search-oss-standalone:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -821,16 +854,16 @@ workflows:
     jobs:
       - benchmark-search-oss-standalone:
           context: common
-          <<: *on-any-branch
+          <<: *always
       - benchmark-vecsim-oss-standalone:
           context: common
-          <<: *on-any-branch
+          <<: *always
       - benchmark-vecsim-oss-standalone-profiler:
           context: common
-          <<: *on-any-branch
+          <<: *always
       - benchmark-search-oss-standalone-profiler:
           context: common
-          <<: *on-any-branch
+          <<: *always
 
   nightly:
     triggers:
