@@ -33,7 +33,7 @@ help() {
 		QUICK=1|~1|0          Perform only common test variant (~1: all but common)
 		CONFIG=cfg            Perform one of: concurrent_write, max_unsorted, 
 		                        union_iterator_heap, raw_docid, dialect_2,
-								(coordinator:) global_password, safemode, tls
+		                        (coordinator:) global_password, safemode, tls
 
 		TEST=name             Run specific test (e.g. test.py:test_name)
 		TESTFILE=file         Run tests listed in `file`
