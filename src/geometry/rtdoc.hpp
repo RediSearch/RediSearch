@@ -18,22 +18,19 @@ using string = std::basic_string<char, std::char_traits<char>, rm_allocator<char
 
 struct RTDoc {
   using point_type = Point::point_internal;
-  using poly_type = Polygon::polygon_internal;
+  using poly_type = Polygon::polygon_internal;  
   using rect_internal = bgm::box<point_type>;
-  poly_type poly_;
+  
   rect_internal rect_;
   t_docId id_;
 
   explicit RTDoc() = default;
-  explicit RTDoc(rect_internal const& rect) noexcept : poly_{to_poly(rect)}, rect_{rect}, id_{0} {
+  explicit RTDoc(rect_internal const& rect) noexcept : rect_{rect}, id_{0} {
   }
   explicit RTDoc(poly_type const& poly, t_docId id = 0)
-      : poly_{poly}, rect_{to_rect(poly)}, id_{id} {
+      : rect_{to_rect(poly)}, id_{id} {
   }
-  explicit RTDoc(std::string_view wkt, t_docId id = 0)
-      : poly_{Polygon::from_wkt(wkt)}, rect_{to_rect(poly_)}, id_{id} {
-  }
-
+  
   [[nodiscard]] t_docId id() const noexcept {
     return id_;
   }
@@ -62,10 +59,10 @@ struct RTDoc {
                                           point_type{x_min, y_max}, p_min}};
   }
 
-  [[nodiscard]] string to_string() const {
+  [[nodiscard]] string rect_to_string() const {
     using sstream = std::basic_stringstream<char, std::char_traits<char>, rm_allocator<char>>;
     sstream ss{};
-    ss << bg::wkt(poly_);
+    ss << bg::wkt(rect_);
     return ss.str();
   }
 
@@ -82,12 +79,12 @@ struct RTDoc {
 };
 
 inline std::ostream& operator<<(std::ostream& os, RTDoc const& doc) {
-  os << bg::wkt(doc.poly_);
+  os << bg::wkt(doc.rect_);
   return os;
 }
 
 [[nodiscard]] inline bool operator==(RTDoc const& lhs, RTDoc const& rhs) noexcept {
-  return lhs.id_ == rhs.id_ && bg::equals(lhs.rect_, rhs.rect_) && bg::equals(lhs.poly_, rhs.poly_);
+  return lhs.id_ == rhs.id_ && bg::equals(lhs.rect_, rhs.rect_);
 }
 
 struct RTDoc_Indexable {

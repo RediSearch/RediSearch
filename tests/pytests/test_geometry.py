@@ -7,8 +7,10 @@ def sortResultByKeyName(res):
     Sorts the result by name
     res = [<COUNT>, '<NAME_1>, '<VALUE_1>', '<NAME_2>, '<VALUE_2>', ...] 
   '''
+  # Sort name and value pairs by name
   pairs = [(name,value) for name,value in zip(res[1::2], res[2::2])]
   pairs = [i for i in sorted(pairs, key=lambda x: x[0])]
+  # Flatten the sorted pairs to a list
   pairs = [i for pair in pairs for i in pair]
   res = [res[0], *pairs]
   return res
@@ -104,12 +106,20 @@ def testSimpleUpdate(env):
   expected1 = ['geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))']
   expected2 = ['geom', 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))']
   
-  env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([1, 'k1', expected1])
-  
   res = conn.execute_command('FT.DEBUG', 'DUMP_GEOMIDX', 'idx', 'geom')
   env.debugPrint(str(res), force=True)
 
+  # Search
+  env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([1, 'k1', expected1])
+  
   # Update
   conn.execute_command('HSET', 'k2', 'geom', 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))')
+
+  res = conn.execute_command('FT.DEBUG', 'DUMP_GEOMIDX', 'idx', 'geom')
+  env.debugPrint(str(res), force=True)
+
+  # Search
   res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3)
   env.assertEqual(sortResultByKeyName(res), sortResultByKeyName([2, 'k1', expected1, 'k2', expected2]))
+
+  

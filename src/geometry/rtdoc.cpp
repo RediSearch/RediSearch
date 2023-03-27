@@ -7,10 +7,13 @@
 
 #include "rtdoc.hpp"
 
-RTDoc *From_WKT(const char *wkt, size_t len, t_docId id) {
+RTDoc *From_WKT(const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg) {
   try {
-    return new RTDoc{std::string_view{wkt, len}, id};
-  } catch (...) {
+    auto geometry = Polygon::from_wkt(std::string_view{wkt, len});
+    return new RTDoc{geometry, id};
+  } catch (const std::exception &e) {
+    if (err_msg)
+      *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
     return nullptr;
   }
 }
@@ -33,7 +36,7 @@ bool RTDoc_IsEqual(RTDoc const *lhs, RTDoc const *rhs) {
 
 RedisModuleString *RTDoc_ToString(struct RTDoc const *doc) {
   if (RedisModule_CreateString) {
-    string s = doc->to_string();
+    string s = doc->rect_to_string();
     return RedisModule_CreateString(nullptr, s.c_str(), s.length());
   } else {
     return nullptr;

@@ -11,11 +11,9 @@
 #include "geometry_index.h"
 
 typedef struct {
-    GEOMETRY (*createGeom)(GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg);
     struct GeometryIndex* (*createIndex)();
     void (*freeIndex)(GeometryIndex *index);
-    int (*addGeomStr)(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len, t_docId docId, RedisModuleString **err_msg);
-    int (*addGeom)(GeometryIndex *index, GEOMETRY geom);
+    int (*addGeomStr)(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len, t_docId docId, t_docId oldDocId, RedisModuleString **err_msg);
     int (*delGeom)(GeometryIndex *index, GEOMETRY geom, void *data);
     IndexIterator* (*query)(GeometryIndex *index, enum QueryType queryType, GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg);
     void (*dump)(GeometryIndex *index, RedisModuleCtx *ctx);
