@@ -404,7 +404,7 @@ void HybridIterator_Free(struct indexIterator *self) {
 
 IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
   // If searchMode is out of the expected range.
-  if (hParams.qParams.searchMode < 0 || hParams.qParams.searchMode < VECSIM_LAST_SEARCHMODE) {
+  if (hParams.qParams.searchMode < 0 || hParams.qParams.searchMode >= VECSIM_LAST_SEARCHMODE) {
     return NULL;
   }
 
