@@ -66,6 +66,7 @@ OSNICK=$($READIES/bin/platform --osnick)
 
 export EXT_TEST_PATH=${BINROOT}/search/example_extension/libexample_extension.so
 
+SKIP_CPP_TESTS=""
 #---------------------------------------------------------------------------------- Tests scope
 
 [[ $COORD == 1 ]] && COORD=oss
