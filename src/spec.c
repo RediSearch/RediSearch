@@ -183,9 +183,9 @@ StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
   return IndexSpec_Parse(RedisModule_StringPtrLen(name, NULL), args, argc, status);
 }
 
-FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type) {
+arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type) {
 #define FIELDS_ARRAY_CAP 2
-  FieldSpec **fields = array_new(FieldSpec *, FIELDS_ARRAY_CAP);
+  arrayof(FieldSpec *) fields = array_new(FieldSpec *, FIELDS_ARRAY_CAP);
   for (int i = 0; i < spec->numFields; ++i) {
     if (FIELD_IS(spec->fields + i, type)) {
       fields = array_append(fields, &(spec->fields[i]));
