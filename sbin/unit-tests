@@ -56,10 +56,17 @@ sanitizer_defs() {
 OP=
 [[ $NOP == 1 ]] && OP=echo
 
+#--------------------------------------------------------------------------------- Environments
+
+ARCH=$($READIES/bin/platform --arch)
+OS=$($READIES/bin/platform --os)
+OSNICK=$($READIES/bin/platform --osnick)
+
 #---------------------------------------------------------------------------------------- Setup
 
 export EXT_TEST_PATH=${BINROOT}/search/example_extension/libexample_extension.so
 
+SKIP_CPP_TESTS=""
 
 #---------------------------------------------------------------------------------- Tests scope
 
@@ -137,7 +144,7 @@ if [[ -z $COORD ]]; then
 		cd $ROOT/tests/cpptests
 		TEST_NAME=rstest sanitizer_defs
 		if [[ -z $TEST ]]; then
-			{ $OP $TESTS_DIR/rstest; (( E |= $? )); } || true
+			{ $OP $TESTS_DIR/rstest --gtest_filter="-$SKIP_CPP_TESTS"; (( E |= $? )); } || true
 		else
 			{ $OP $TESTS_DIR/rstest --gtest_filter=$TEST; (( E |= $? )); } || true
 		fi
@@ -171,8 +178,6 @@ if [[ $NOP != 1 ]]; then
 fi
 
 if [[ $COLLECT_LOGS == 1 ]]; then
-	ARCH=$($READIES/bin/platform --arch)
-	OSNICK=$($READIES/bin/platform --osnick)
 	cd $ROOT
 	mkdir -p bin/artifacts/tests
 	test_tar="bin/artifacts/tests/unit-tests-logs-${ARCH}-${OSNICK}.tgz"
