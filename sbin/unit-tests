@@ -143,9 +143,9 @@ if [[ -z $COORD ]]; then
 		cd $ROOT/tests/cpptests
 		TEST_NAME=rstest sanitizer_defs
 		if [[ -z $TEST ]]; then
-			{ $OP $TESTS_DIR/rstest --gtest_filter="-$SKIP_CPP_TESTS"; (( E |= $? )); } || true
+			{ $OP $GDB_CMD $TESTS_DIR/rstest --gtest_filter="-$SKIP_CPP_TESTS"; (( E |= $? )); } || true
 		else
-			{ $OP $TESTS_DIR/rstest --gtest_filter=$TEST; (( E |= $? )); } || true
+			{ $OP $GDB_CMD $TESTS_DIR/rstest --gtest_filter=$TEST; (( E |= $? )); } || true
 		fi
 	fi
 
