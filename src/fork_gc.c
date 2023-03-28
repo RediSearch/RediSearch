@@ -485,6 +485,7 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
     NumericRangeTreeIterator_Free(gcIterator);
   }
 
+  array_free(numericFields);
   // we are done with numeric fields
   FGC_sendTerminator(gc);
 }
@@ -527,7 +528,8 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
       }
     }
   }
-  rm_free(tagFields);
+
+  array_free(tagFields);
   // we are done with numeric fields
   FGC_sendTerminator(gc);
 }
