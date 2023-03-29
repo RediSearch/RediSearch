@@ -47,9 +47,8 @@ int bg_addGeomStr(struct GeometryIndex *index, GEOMETRY_FORMAT format, const cha
   return 0;
 }
 
-int bg_delGeom(struct GeometryIndex *index, GEOMETRY geom, void *data) {
-  // TODO: GEOMETRY
-  return 0;
+int bg_delGeom(struct GeometryIndex *index, t_docId docId) {
+  return RTree_RemoveByDocId(reinterpret_cast<RTree*>(index), docId);
 }
 
 void bg_dumpIndex(GeometryIndex *index, RedisModuleCtx *ctx) {

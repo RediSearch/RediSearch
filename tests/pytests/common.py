@@ -207,9 +207,12 @@ def collectKeys(env, pattern='*'):
         keys.extend(conn.keys(pattern))
     return sorted(keys)
 
+def ftDebugCmdName(env):
+    return '_ft.debug' if env.isCluster() else 'ft.debug'
+
 def forceInvokeGC(env, idx):
     waitForRdbSaveToFinish(env)
-    env.cmd(('_' if env.isCluster() else '') + 'ft.debug', 'GC_FORCEINVOKE', idx)
+    env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx)
 
 def skip(f, on_cluster=False):
     @wraps(f)

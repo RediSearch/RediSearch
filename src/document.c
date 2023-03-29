@@ -602,9 +602,8 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 FIELD_BULK_INDEXER(geometryIndexer) {
   GeometryIndex *rt = bulk->indexDatas[INDEXFLD_T_GEOMETRY];
   if (!rt) {
-    RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_GEOMETRY);
     rt = bulk->indexDatas[IXFLDPOS_GEOMETRY] =
-        OpenGeometryIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_GEOMETRY], fs);
+        OpenGeometryIndex(ctx->redisCtx, ctx->spec, &bulk->indexKeys[IXFLDPOS_GEOMETRY], fs);
     if (!rt) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open geometry index for indexing");
       return -1;
@@ -617,12 +616,12 @@ FIELD_BULK_INDEXER(geometryIndexer) {
     return -1;
   }
   RedisModuleString *errMsg;
-  t_docId oldDocId = aCtx->oldMd ? aCtx->oldMd->id : 0;
+  t_docId oldDocId = 0; // TODO: GEOMETRY - should use?   = aCtx->oldMd ? aCtx->oldMd->id : 0;
   if (!fdata->isMulti) {
     if (!api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, oldDocId, &errMsg)) {
       ++ctx->spec->stats.indexingFailures;
-      QueryError_SetErrorFmt(status, QUERY_EBADVAL, "Error indexing geometry: %s",
-                             RedisModule_StringPtrLen(errMsg, NULL));
+      // QueryError_SetErrorFmt(status, QUERY_EBADVAL, "Error indexing geometry: %s",
+      //                        RedisModule_StringPtrLen(errMsg, NULL));
       RedisModule_FreeString(NULL, errMsg);
       return -1;
     }

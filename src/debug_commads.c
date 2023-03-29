@@ -236,18 +236,13 @@ DEBUG_COMMAND(DumpGeometryIndex) {
   }
   GET_SEARCH_CTX(argv[0])
   RedisModuleKey *keyp = NULL;
-  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_GEOMETRY);
-  if (!keyName) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "Could not find key for given field in index spec");
-    goto end;
-  }
   const char *fieldName = RedisModule_StringPtrLen(argv[1], NULL);
   const FieldSpec *fs = IndexSpec_GetField(sctx->spec, fieldName, strlen(fieldName));
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  GeometryIndex *idx = OpenGeometryIndex(sctx, keyName, &keyp, fs);
+  GeometryIndex *idx = OpenGeometryIndex(sctx->redisCtx, sctx->spec, &keyp, fs);
   if (!idx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not open geometry index");
     goto end;

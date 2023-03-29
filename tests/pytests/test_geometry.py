@@ -15,6 +15,12 @@ def sortResultByKeyName(res):
   res = [res[0], *pairs]
   return res
 
+def map_index_dumps(res):
+  '''
+    Insert the result of an index dump to a map
+  '''
+  return {res[i]: res[i+1] for i in range(0, len(res), 2)}
+
 
 def testSanitySearchHashWithin(env):
   conn = getConnectionByEnv(env)
@@ -99,27 +105,133 @@ def testSimpleUpdate(env):
   ''' Test updating geometries '''
   
   conn = getConnectionByEnv(env)
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOMETRY').ok()
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOMETRY', 'geom2', 'GEOMETRY').ok()
   conn.execute_command('HSET', 'k1', 'geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))')
   conn.execute_command('HSET', 'k2', 'geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))')
+  conn.execute_command('HSET', 'k3', 'geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))', 'geom2', 'POLYGON((1 1, 1 140, 140 140, 140 1, 1 1))')
   
   expected1 = ['geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))']
   expected2 = ['geom', 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))']
+  expected3 = ['geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))', 'geom2', 'POLYGON((1 1, 1 140, 140 140, 140 1, 1 1))']
   
-  res = conn.execute_command('FT.DEBUG', 'DUMP_GEOMIDX', 'idx', 'geom')
-  env.debugPrint(str(res), force=True)
-
+  # Dump geom
+  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom')
+  res = map_index_dumps(res)
+  env.assertEqual(res['num_docs'], 3)
+  # Dump geom2
+  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom2')
+  res = map_index_dumps(res)
+  env.assertEqual(res['num_docs'], 1)
   # Search
   env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([1, 'k1', expected1])
   
   # Update
   conn.execute_command('HSET', 'k2', 'geom', 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))')
-
-  res = conn.execute_command('FT.DEBUG', 'DUMP_GEOMIDX', 'idx', 'geom')
-  env.debugPrint(str(res), force=True)
-
-  # Search
+  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom')
+  res = map_index_dumps(res)
+  env.assertEqual(res['num_docs'], 3)
+  # Dump geom2
+  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom2')
+  res = map_index_dumps(res)
+  env.assertEqual(res['num_docs'], 1)
+  # Search after update
   res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3)
   env.assertEqual(sortResultByKeyName(res), sortResultByKeyName([2, 'k1', expected1, 'k2', expected2]))
 
+  # Set illegal data to field geom (indexing fails, field should be removed from index)
+  conn.execute_command('HSET', 'k2', 'geom', '')
+  # Dump geom
+  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom')
+  res = map_index_dumps(res)
+  env.assertEqual(res['num_docs'], 2)
+  # Dump geom2
+  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom2')
+  res = map_index_dumps(res)
+  env.assertEqual(res['num_docs'], 1)
+  # Search
+  env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([1, 'k1', expected1])
+
+  # Delete key
+  conn.execute_command('DEL', 'k2')
+  # Dump geom
+  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom')
+  res = map_index_dumps(res)
+  env.assertEqual(res['num_docs'], 2)
+  # Dump geom2
+  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom2')
+  res = map_index_dumps(res)
+  env.assertEqual(res['num_docs'], 1)
+  # Search within after delete
+  env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([1, 'k1', expected1])
+
+  # Delete key
+  conn.execute_command('DEL', 'k1')
+  # Dump geom
+  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom')
+  res = map_index_dumps(res)
+  env.assertEqual(res['num_docs'], 1)
+  # Search within
+  env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([0])
+  # Search contains
+  env.expect('FT.SEARCH', 'idx', '@geom:[contains:POLYGON((2 2, 2 150, 150 150, 150 2, 2 2))]', 'DIALECT', 3).equal([1, 'k3', expected3])
+
+  # Delete field
+  conn.execute_command('HDEL', 'k3', 'geom2')
+  expected3 = ['geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))']
+  # Search contains
+  env.expect('FT.SEARCH', 'idx', '@geom:[contains:POLYGON((2 2, 2 150, 150 150, 150 2, 2 2))]', 'DIALECT', 3).equal([1, 'k3', expected3])
+
+  # Delete key
+  conn.execute_command('DEL', 'k3')
+  # Dump geom
+  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom')
+  res = map_index_dumps(res)
+  env.assertEqual(res['num_docs'], 0)
+  # Search contains
+  env.expect('FT.SEARCH', 'idx', '@geom:[contains:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([0])
+
+
+def testFieldUpdate(env):
+  ''' Test updating a field, keeping the rest intact '''
   
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom1', 'GEOMETRY', 'geom2', 'GEOMETRY').ok()
+  field1 = ['geom1',  'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))']
+  field2 = ['geom2', 'POLYGON((1 1, 1 140, 140 140, 140 1, 1 1))']
+  conn.execute_command('HSET', 'k1', *field1, *field2)
+
+  # Dump geom
+  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom1')
+  res = map_index_dumps(res)
+  env.assertEqual(res['num_docs'], 1)
+  # Dump geom2
+  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom2')
+  res = map_index_dumps(res)
+  env.assertEqual(res['num_docs'], 1)
+
+  # Search contains on geom field
+  env.expect('FT.SEARCH', 'idx', '@geom1:[contains:POLYGON((1 1, 1 150, 150 150, 150 1, 1 1))]', 'DIALECT', 3).equal([1, 'k1', [*field1, *field2]])
+  # Search within on geom2 field
+  env.expect('FT.SEARCH', 'idx', '@geom2:[within:POLYGON((1 1, 1 170, 170 170, 170 1, 1 1))]', 'DIALECT', 3).equal([1, 'k1', [*field1, *field2]])
+
+  # Update - make geom2 smaller
+  field2 = ['geom2', 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))']
+  conn.execute_command('HSET', 'k1', *field2)
+
+  # Search contains on geom field
+  env.expect('FT.SEARCH', 'idx', '@geom1:[contains:POLYGON((1 1, 1 150, 150 150, 150 1, 1 1))]', 'DIALECT', 3).equal([1, 'k1', [*field1, *field2]])
+  # Search within on geom2 field
+  env.expect('FT.SEARCH', 'idx', '@geom2:[within:POLYGON((1 1, 1 170, 170 170, 170 1, 1 1))]', 'DIALECT', 3).equal([1, 'k1', [*field1, *field2]])
+
+  # Update - make geom2 larger
+  field2 = ['geom2', 'POLYGON((1 1, 1 180, 180 180, 180 1, 1 1))']
+  conn.execute_command('HSET', 'k1', *field2)
+  # Search contains on geom field
+  env.expect('FT.SEARCH', 'idx', '@geom1:[contains:POLYGON((1 1, 1 150, 150 150, 150 1, 1 1))]', 'DIALECT', 3).equal([1, 'k1', [*field1, *field2]])
+  # Search within on geom2 field
+  env.expect('FT.SEARCH', 'idx', '@geom2:[within:POLYGON((1 1, 1 170, 170 170, 170 1, 1 1))]', 'DIALECT', 3).equal([0])
+
+
+  
+
+    

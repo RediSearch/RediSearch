@@ -36,17 +36,13 @@ struct RTree {
     return {};
   }
 
-  void insert(const RTDoc::poly_type& poly, t_docId id, t_docId oldId = 0) {
+  void insert(const RTDoc::poly_type& poly, t_docId id) {
     RTDoc doc{poly, id};
-    if (oldId != 0) {
-      remove(oldId);
-    }
     rtree_.insert(doc);
     docLookup_.insert({id, poly});
   }
 
   bool remove(t_docId id) {
-    
     auto doc = lookup(id);
     if (doc.has_value()) {
       rtree_.remove(RTDoc{doc.value(), id});
@@ -79,7 +75,13 @@ struct RTree {
     RedisModule_ReplyWithStringBuffer(ctx, "boost_rtree", strlen("boost_rtree"));
     lenTop += 2;
 
-    RedisModule_ReplyWithStringBuffer(ctx, "doc_num", strlen("doc_num"));
+    RedisModule_ReplyWithStringBuffer(ctx, "ptr", strlen("ptr"));
+    char addr[1024] = {0};
+    sprintf(addr, "%p", &rtree_);
+    RedisModule_ReplyWithStringBuffer(ctx, addr, strlen(addr));
+    lenTop += 2;
+
+    RedisModule_ReplyWithStringBuffer(ctx, "num_docs", strlen("num_docs"));
     RedisModule_ReplyWithLongLong(ctx, (long long)rtree_.size());
     lenTop += 2;
 
@@ -150,7 +152,7 @@ struct RTree {
 		auto results = query(bgi::contains(queryDoc.rect_));
 		std::erase_if(results, [&](auto const& doc) {
       auto geometry = lookup(doc.id());
-      return geometry && !bg::within(geometry.value().get(), queryGeometry);
+      return geometry && !bg::within(queryGeometry, geometry.value().get());
 		});
 		return results;
 	}
