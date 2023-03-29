@@ -61,10 +61,10 @@ If you have a more detailed question, drop us a line on the [RediSearch Discussi
 ## Client libraries
 
 ### Official clients
-| [<img width="75" src="https://user-images.githubusercontent.com/1655867/228534778-d0b41ce8-3ce4-4340-bd32-754f01ebed43.svg" />][dotnet-quickstart]  | [<img width="75" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/java/java-plain-wordmark.svg" />][java-quickstart]  | [<img width="75" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/nodejs/nodejs-original-wordmark.svg" />][nodejs-quickstart]   | [<img width="75" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/python/python-original-wordmark.svg" />][python-quickstart]  |
-|---|---|---|---|
-|  [NRedisStack][dotnet-quickstart] | [Jedis][java-quickstart]  | [node-redis][nodejs-quickstart]  |  [redis-py][python-quickstart] |
-|  [Redis.OM][dotnet-om] |   | [Redis OM Spring][java-om]  | [redis-om-node][nodejs-om]  |  [redis-om][python-om] |
+| [<img width="75" src="https://user-images.githubusercontent.com/1655867/228534778-d0b41ce8-3ce4-4340-bd32-754f01ebed43.svg" />][dotnet-quickstart]  | [<img width="75" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/java/java-plain-wordmark.svg" />][java-quickstart] | [<img width="75" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/nodejs/nodejs-original-wordmark.svg" />][nodejs-quickstart]   | [<img width="75" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/python/python-original-wordmark.svg" />][python-quickstart]  |
+|---|------------------------------------------------------------------------------------------------------------------------------------------|---|---|
+|  [NRedisStack][dotnet-quickstart] | [Jedis][java-quickstart]                                                                                                                 | [node-redis][nodejs-quickstart]  |  [redis-py][python-quickstart] |
+|  [Redis.OM][dotnet-om] | [Redis OM Spring][java-om]                                                                                                               | [redis-om-node][nodejs-om]  |  [redis-om][python-om] |
 
 [dotnet-quickstart]: https://redis.io/docs/redis-clients/dotnet/
 [dotnet-om]: https://github.com/redis/redis-om-dotnet
