@@ -975,7 +975,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     }
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
     FGC_lock(&sctx);
-    if (RSGlobalConfig.forkGCCleanNumericEmptyNodes) {
+    if (gc->cleanNumericEmptyNodes) {
       NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
       rt->numRanges += rv.numRanges;
       rt->emptyLeaves = 0;
@@ -1167,9 +1167,10 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 
   gc->deletedDocsFromLastRun = 0;
 
+  gc->retryInterval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
+  
   RedisModule_ThreadSafeContextUnlock(ctx);
 
-  gc->retryInterval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
 
   if (cpid == 0) {
     setpriority(PRIO_PROCESS, getpid(), 19);
@@ -1201,6 +1202,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     }
 
     gc->execState = FGC_STATE_APPLYING;
+    gc->cleanNumericEmptyNodes = RSGlobalConfig.forkGCCleanNumericEmptyNodes;
     if (FGC_parentHandleFromChild(gc) == FGC_SPEC_DELETED) {
       gcrv = 0;
     }
@@ -1332,6 +1334,9 @@ ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
   };
   forkGc->retryInterval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
   forkGc->retryInterval.tv_nsec = 0;
+
+  forkGc->cleanNumericEmptyNodes = RSGlobalConfig.forkGCCleanNumericEmptyNodes;
+
   forkGc->ctx = RedisModule_GetThreadSafeContext(NULL);
 
   callbacks->onTerm = onTerminateCb;
