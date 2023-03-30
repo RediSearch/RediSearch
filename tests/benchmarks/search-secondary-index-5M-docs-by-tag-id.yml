@@ -1,0 +1,48 @@
+name: "search-secondary-index-5M-docs-by-tag-id"
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5
+metadata:
+  component: "search"
+  scaling: "dataset"
+setups:
+  - oss-standalone
+  - oss-cluster-02-primaries
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+  - oss-cluster-16-primaries
+  - oss-cluster-20-primaries
+  - oss-cluster-24-primaries
+  - oss-cluster-32-primaries
+
+dbconfig:
+  - dataset_name: "search-secondary-index-5M-docs-by-tag-id"
+  - init_commands:
+    - 'FT.CREATE idx:single ON HASH PREFIX 1 doc:single SCHEMA id tag SORTABLE field1 TEXT SORTABLE field2 TEXT SORTABLE field3 TEXT SORTABLE field4 TEXT SORTABLE field5 TEXT SORTABLE field6 TEXT SORTABLE field7 TEXT SORTABLE field8 TEXT SORTABLE field9 TEXT SORTABLE field10 TEXT SORTABLE'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/5M-simple_doc-id_tag/5M-simple_doc-id_tag.redisearch.commands.SETUP.csv"
+  - check:
+      keyspacelen: 5000000
+clientconfig:
+  - benchmark_type: "read-only"
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 32
+    - requests: 1000000
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/5M-simple_doc-id_tag/5M-simple_doc-id_tag.redisearch.commands.BENCH.csv"
+exporter:
+  redistimeseries:
+    break_by:
+      - version
+      - commit
+    timemetric: "$.StartTime"
+    metrics:
+      - "$.OverallRates.overallOpsRate"
+      - "$.OverallQuantiles.allCommands.q50"
+      - "$.OverallQuantiles.allCommands.q95"
+      - "$.OverallQuantiles.allCommands.q99"
+      - "$.OverallQuantiles.allCommands.q999"
