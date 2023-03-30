@@ -55,11 +55,6 @@ void bg_dumpIndex(GeometryIndex *index, RedisModuleCtx *ctx) {
   RTree_Dump(reinterpret_cast<RTree*>(index), ctx);
 }
 
-GEOMETRY s2_createGeom(GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg) {
-  // TODO: GEOMETRY
-  return NULL;
-}
-
 void s2_freeIndex(GeometryIndex *index) {
   // TODO: GEOMETRY
 }
