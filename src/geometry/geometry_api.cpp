@@ -32,11 +32,11 @@ IndexIterator* bg_query(struct GeometryIndex *index, enum QueryType queryType, G
   }
 }
 
-int bg_addGeomStr(struct GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len, t_docId docId, t_docId oldDocId, RedisModuleString **err_msg) {
+int bg_addGeomStr(struct GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len, t_docId docId, RedisModuleString **err_msg) {
   
   switch (format) {
   case GEOMETRY_FORMAT_WKT:
-    return !RTree_Insert_WKT((struct RTree*)index, str, len, docId, oldDocId, err_msg);
+    return !RTree_Insert_WKT((struct RTree*)index, str, len, docId, err_msg);
 
   default:
   case GEOMETRY_FORMAT_GEOJSON:
@@ -53,11 +53,6 @@ int bg_delGeom(struct GeometryIndex *index, t_docId docId) {
 
 void bg_dumpIndex(GeometryIndex *index, RedisModuleCtx *ctx) {
   RTree_Dump(reinterpret_cast<RTree*>(index), ctx);
-}
-
-GEOMETRY s2_createGeom(GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg) {
-  // TODO: GEOMETRY
-  return NULL;
 }
 
 void s2_freeIndex(GeometryIndex *index) {

@@ -15,12 +15,19 @@ def sortResultByKeyName(res):
   res = [res[0], *pairs]
   return res
 
-def map_index_dumps(res):
+def array_of_key_value_to_map(res):
   '''
-    Insert the result of an index dump to a map
+    Insert the result of an array of keys and values to a map
   '''
   return {res[i]: res[i+1] for i in range(0, len(res), 2)}
 
+
+def assert_index_num_docs(env, idx, attr, num_docs):
+  if not env.isCluster():
+    res = env.cmd('FT.DEBUG', 'DUMP_GEOMIDX', idx, attr)
+    res = env.execute_command('FT.DEBUG', 'DUMP_GEOMIDX', idx, attr)
+    res = array_of_key_value_to_map(res)
+    env.assertEqual(res['num_docs'], num_docs)
 
 def testSanitySearchHashWithin(env):
   conn = getConnectionByEnv(env)
@@ -114,62 +121,41 @@ def testSimpleUpdate(env):
   expected2 = ['geom', 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))']
   expected3 = ['geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))', 'geom2', 'POLYGON((1 1, 1 140, 140 140, 140 1, 1 1))']
   
-  # Dump geom
-  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom')
-  res = map_index_dumps(res)
-  env.assertEqual(res['num_docs'], 3)
-  # Dump geom2
-  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom2')
-  res = map_index_dumps(res)
-  env.assertEqual(res['num_docs'], 1)
+  # Dump geometry index
+  assert_index_num_docs(env, 'idx', 'geom', 3)
+  assert_index_num_docs(env, 'idx', 'geom2', 1)
   # Search
   env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([1, 'k1', expected1])
   
   # Update
   conn.execute_command('HSET', 'k2', 'geom', 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))')
-  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom')
-  res = map_index_dumps(res)
-  env.assertEqual(res['num_docs'], 3)
-  # Dump geom2
-  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom2')
-  res = map_index_dumps(res)
-  env.assertEqual(res['num_docs'], 1)
+  # Dump geometry index
+  assert_index_num_docs(env, 'idx', 'geom', 3)
+  assert_index_num_docs(env, 'idx', 'geom2', 1)
   # Search after update
   res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3)
   env.assertEqual(sortResultByKeyName(res), sortResultByKeyName([2, 'k1', expected1, 'k2', expected2]))
 
   # Set illegal data to field geom (indexing fails, field should be removed from index)
   conn.execute_command('HSET', 'k2', 'geom', '')
-  # Dump geom
-  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom')
-  res = map_index_dumps(res)
-  env.assertEqual(res['num_docs'], 2)
-  # Dump geom2
-  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom2')
-  res = map_index_dumps(res)
-  env.assertEqual(res['num_docs'], 1)
+  # Dump geometry index
+  assert_index_num_docs(env, 'idx', 'geom', 2)
+  assert_index_num_docs(env, 'idx', 'geom2', 1)
   # Search
   env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([1, 'k1', expected1])
 
   # Delete key
   conn.execute_command('DEL', 'k2')
-  # Dump geom
-  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom')
-  res = map_index_dumps(res)
-  env.assertEqual(res['num_docs'], 2)
-  # Dump geom2
-  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom2')
-  res = map_index_dumps(res)
-  env.assertEqual(res['num_docs'], 1)
+  # Dump geometry index
+  assert_index_num_docs(env, 'idx', 'geom', 2)
+  assert_index_num_docs(env, 'idx', 'geom2', 1)
   # Search within after delete
   env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([1, 'k1', expected1])
 
   # Delete key
   conn.execute_command('DEL', 'k1')
-  # Dump geom
-  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom')
-  res = map_index_dumps(res)
-  env.assertEqual(res['num_docs'], 1)
+  # Dump geometry index
+  assert_index_num_docs(env, 'idx', 'geom', 1)
   # Search within
   env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([0])
   # Search contains
@@ -183,10 +169,8 @@ def testSimpleUpdate(env):
 
   # Delete key
   conn.execute_command('DEL', 'k3')
-  # Dump geom
-  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom')
-  res = map_index_dumps(res)
-  env.assertEqual(res['num_docs'], 0)
+  # Dump geometry index
+  assert_index_num_docs(env, 'idx', 'geom', 0)
   # Search contains
   env.expect('FT.SEARCH', 'idx', '@geom:[contains:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([0])
 
@@ -200,14 +184,9 @@ def testFieldUpdate(env):
   field2 = ['geom2', 'POLYGON((1 1, 1 140, 140 140, 140 1, 1 1))']
   conn.execute_command('HSET', 'k1', *field1, *field2)
 
-  # Dump geom
-  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom1')
-  res = map_index_dumps(res)
-  env.assertEqual(res['num_docs'], 1)
-  # Dump geom2
-  res = conn.execute_command(ftDebugCmdName(env), 'DUMP_GEOMIDX', 'idx', 'geom2')
-  res = map_index_dumps(res)
-  env.assertEqual(res['num_docs'], 1)
+  # Dump geometry index
+  assert_index_num_docs(env, 'idx', 'geom1', 1)
+  assert_index_num_docs(env, 'idx', 'geom2', 1)
 
   # Search contains on geom field
   env.expect('FT.SEARCH', 'idx', '@geom1:[contains:POLYGON((1 1, 1 150, 150 150, 150 1, 1 1))]', 'DIALECT', 3).equal([1, 'k1', [*field1, *field2]])
@@ -228,6 +207,14 @@ def testFieldUpdate(env):
   conn.execute_command('HSET', 'k1', *field2)
   # Search contains on geom field
   env.expect('FT.SEARCH', 'idx', '@geom1:[contains:POLYGON((1 1, 1 150, 150 150, 150 1, 1 1))]', 'DIALECT', 3).equal([1, 'k1', [*field1, *field2]])
+  # Search within on geom2 field
+  env.expect('FT.SEARCH', 'idx', '@geom2:[within:POLYGON((1 1, 1 170, 170 170, 170 1, 1 1))]', 'DIALECT', 3).equal([0])
+
+  # Update - make geom1 smaller
+  field1 = ['geom1', 'POLYGON((1 1, 1 149, 149 149, 149 1, 1 1))']
+  conn.execute_command('HSET', 'k1', *field1)
+  # Search contains on geom field
+  env.expect('FT.SEARCH', 'idx', '@geom1:[contains:POLYGON((1 1, 1 150, 150 150, 150 1, 1 1))]', 'DIALECT', 3).equal([0])
   # Search within on geom2 field
   env.expect('FT.SEARCH', 'idx', '@geom2:[within:POLYGON((1 1, 1 170, 170 170, 170 1, 1 1))]', 'DIALECT', 3).equal([0])
 

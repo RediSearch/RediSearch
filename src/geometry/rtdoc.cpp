@@ -7,6 +7,7 @@
 
 #include "rtdoc.hpp"
 
+// TODO: GEOMETRY - remove this function if not used by tests
 RTDoc *From_WKT(const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg) {
   try {
     auto geometry = Polygon::from_wkt(std::string_view{wkt, len});

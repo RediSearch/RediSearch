@@ -30,9 +30,8 @@ void RTree_Free(RTree *rtree) noexcept {
   delete rtree;
 }
 
-int RTree_Insert_WKT(RTree *rtree, const char *wkt, size_t len, t_docId id, t_docId old_id, RedisModuleString **err_msg) {
+int RTree_Insert_WKT(RTree *rtree, const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg) {
   try {
-    rtree->remove(old_id);
     auto geometry = Polygon::from_wkt(std::string_view{wkt, len});
     rtree->insert(geometry, id);
     return 0;

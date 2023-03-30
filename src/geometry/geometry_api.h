@@ -13,7 +13,7 @@
 typedef struct {
     struct GeometryIndex* (*createIndex)();
     void (*freeIndex)(GeometryIndex *index);
-    int (*addGeomStr)(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len, t_docId docId, t_docId oldDocId, RedisModuleString **err_msg);
+    int (*addGeomStr)(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len, t_docId docId, RedisModuleString **err_msg);
     int (*delGeom)(GeometryIndex *index, t_docId docId);
     IndexIterator* (*query)(GeometryIndex *index, enum QueryType queryType, GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg);
     void (*dump)(GeometryIndex *index, RedisModuleCtx *ctx);

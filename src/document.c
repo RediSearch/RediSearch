@@ -616,9 +616,8 @@ FIELD_BULK_INDEXER(geometryIndexer) {
     return -1;
   }
   RedisModuleString *errMsg;
-  t_docId oldDocId = 0; // TODO: GEOMETRY - should use?   = aCtx->oldMd ? aCtx->oldMd->id : 0;
   if (!fdata->isMulti) {
-    if (!api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, oldDocId, &errMsg)) {
+    if (!api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, &errMsg)) {
       ++ctx->spec->stats.indexingFailures;
       // QueryError_SetErrorFmt(status, QUERY_EBADVAL, "Error indexing geometry: %s",
       //                        RedisModule_StringPtrLen(errMsg, NULL));

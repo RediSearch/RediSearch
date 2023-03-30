@@ -22,7 +22,7 @@ struct RedisModuleCtx;
 NODISCARD struct RTree *RTree_New();
 struct RTree *Load_WKT_File(struct RTree *rtree, const char *path);
 void RTree_Free(struct RTree *rtree) NOEXCEPT;
-int RTree_Insert_WKT(struct RTree *rtree, const char *wkt, size_t len, t_docId id, t_docId old_id, RedisModuleString **err_msg);
+int RTree_Insert_WKT(struct RTree *rtree, const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg);
 bool RTree_Remove(struct RTree *rtree, struct RTDoc const *doc);
 bool RTree_RemoveByDocId(struct RTree *rtree, t_docId);
 int RTree_Remove_WKT(struct RTree *rtree, const char *wkt, size_t len, t_docId id);
