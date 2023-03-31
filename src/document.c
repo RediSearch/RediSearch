@@ -438,6 +438,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_GEO:
+    case FLD_VAR_T_GEOMETRY:
       return -1;
     case FLD_VAR_T_ARRAY:
     case FLD_VAR_T_CSTR:
@@ -600,7 +601,7 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(geometryIndexer) {
-  GeometryIndex *rt = bulk->indexDatas[INDEXFLD_T_GEOMETRY];
+  GeometryIndex *rt = bulk->indexDatas[IXFLDPOS_GEOMETRY];
   if (!rt) {
     rt = bulk->indexDatas[IXFLDPOS_GEOMETRY] =
         OpenGeometryIndex(ctx->redisCtx, ctx->spec, &bulk->indexKeys[IXFLDPOS_GEOMETRY], fs);
@@ -735,6 +736,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       break;
     case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
+    case FLD_VAR_T_GEOMETRY:
       RS_LOG_ASSERT(0, "Oops");
   }
   
@@ -1088,6 +1090,7 @@ const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len) {
     case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_GEO:
+    case FLD_VAR_T_GEOMETRY:
       RS_LOG_ASSERT(0, "invalid types");
   }
   return NULL;
