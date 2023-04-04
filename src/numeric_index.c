@@ -535,7 +535,7 @@ IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
 /* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
  * the filter */
 IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
-                                     const NumericFilter *f) {
+                                     const NumericFilter *f, QueryConfig *config) {
 
   Vector *v = NumericRangeTree_Find(t, f);
   if (!v || Vector_Size(v) == 0) {
@@ -571,7 +571,7 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
   Vector_Free(v);
 
   QueryNodeType type = (!f || NumericFilter_IsNumeric(f)) ? QN_NUMERIC : QN_GEO;
-  IndexIterator *it = NewUnionIterator(its, n, NULL, 1, 1, type, NULL);
+  IndexIterator *it = NewUnionIterator(its, n, NULL, 1, 1, type, NULL, config);
 
   return it;
 }
@@ -601,7 +601,7 @@ static NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString 
 }
 
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx, FieldType forType) {
+                                               ConcurrentSearchCtx *csx, FieldType forType, QueryConfig *config) {
   RedisModuleString *s = IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, forType);
   if (!s) {
     return NULL;
@@ -623,7 +623,7 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
     return NULL;
   }
 
-  IndexIterator *it = createNumericIterator(ctx->spec, t, flt);
+  IndexIterator *it = createNumericIterator(ctx->spec, t, flt, config);
   if (!it) {
     return NULL;
   }

@@ -21,6 +21,7 @@
 #include "search_options.h"
 #include "query_error.h"
 #include "query_internal.h"
+#include "query_config.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -56,6 +57,10 @@ typedef struct QueryAST {
   // then it explodes
   char *query;
   size_t nquery;
+
+  // Copy of RSGlobalConfig parameters required for query exection,
+  // to ensure that they won't change during query execution.
+  QueryConfig config;
 } QueryAST;
 
 /**

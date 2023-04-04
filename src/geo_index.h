@@ -16,6 +16,7 @@
 #include "rs_geo.h"
 #include "numeric_index.h"
 #include "query_node.h"
+#include "query_config.h"
 
 typedef struct geoIndex {
   RedisSearchCtx *ctx;
@@ -71,7 +72,7 @@ int GeoFilter_Validate(const GeoFilter *gf, QueryError *status);
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0] */
 int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status);
 void GeoFilter_Free(GeoFilter *gf);
-IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf);
+IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf, QueryConfig *config);
 
 /*****************************************************************************/
 

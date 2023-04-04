@@ -111,7 +111,7 @@ done:
   return docIds;
 }
 
-IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf) {
+IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf, QueryConfig *config) {
   // check input parameters are valid
   if (gf->radius <= 0 ||
       gf->lon > GEO_LONG_MAX || gf->lon < GEO_LONG_MIN ||
@@ -132,7 +132,7 @@ IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf) {
               NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1, true);
       filt->fieldName = rm_strdup(gf->property);
       filt->geoFilter = gf;
-      struct indexIterator *numIter = NewNumericFilterIterator(ctx, filt, NULL, INDEXFLD_T_GEO);
+      struct indexIterator *numIter = NewNumericFilterIterator(ctx, filt, NULL, INDEXFLD_T_GEO, config);
       if (numIter != NULL) {
         iters[itersCount++] = numIter;
       }
@@ -147,7 +147,7 @@ IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf) {
     rm_free(iters);
     return it;
   }
-  IndexIterator *it = NewUnionIterator(iters, itersCount, NULL, 1, 1, QN_GEO, NULL);
+  IndexIterator *it = NewUnionIterator(iters, itersCount, NULL, 1, 1, QN_GEO, NULL, config);
   if (!it) {
     return NULL;
   }

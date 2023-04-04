@@ -584,6 +584,9 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
     it->qast.root = input->u.qn;
   }
 
+  // set queryAST configuration parameters
+  queryConfig_init(&it->qast.config);
+
   if (QAST_Expand(&it->qast, NULL, &options, &sctx, &status) != REDISMODULE_OK) {
     goto end;
   }

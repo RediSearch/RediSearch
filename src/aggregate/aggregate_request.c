@@ -18,6 +18,7 @@
 #include "config.h"
 #include "util/timeout.h"
 #include "query_optimizer.h"
+#include "query_config.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -195,19 +196,21 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       // LIMIT 0 0 - only count
       req->reqflags |= QEXEC_F_NOROWS;
       req->reqflags |= QEXEC_F_SEND_NOFIELDS;
-    } else if ((arng->limit > RSGlobalConfig.maxSearchResults) &&
+      // TODO: unify if when req holds only maxResults according to the query type. 
+      //(SEARCH / AGGREGATE)
+    } else if ((arng->limit > req->maxSearchResults) &&
                (req->reqflags & QEXEC_F_IS_SEARCH)) {
       QueryError_SetErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
-                             RSGlobalConfig.maxSearchResults);
+                             req->maxSearchResults);
       return ARG_ERROR;
-    } else if ((arng->limit > RSGlobalConfig.maxAggregateResults) &&
+    } else if ((arng->limit > req->maxAggregateResults) &&
                !(req->reqflags & QEXEC_F_IS_SEARCH)) {
       QueryError_SetErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
-                             RSGlobalConfig.maxAggregateResults);
+                             req->maxAggregateResults);
       return ARG_ERROR;
-    } else if (arng->offset > RSGlobalConfig.maxSearchResults) {
+    } else if (arng->offset > req->maxSearchResults) {
       QueryError_SetErrorFmt(status, QUERY_ELIMIT, "OFFSET exceeds maximum of %llu",
-                             RSGlobalConfig.maxSearchResults);
+                             req->maxSearchResults);
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
@@ -732,6 +735,12 @@ AREQ *AREQ_New(void) {
   req->dialectVersion = RSGlobalConfig.defaultDialectVersion;
   req->reqTimeout = RSGlobalConfig.queryTimeoutMS;
   req->optimizer = QOptimizer_New();
+  req->timeoutPolicy = RSGlobalConfig.timeoutPolicy;
+
+  // TODO: save only one of the configuration paramters according to the query type
+  // once query offset is bounded by both.
+  req->maxSearchResults = RSGlobalConfig.maxSearchResults;
+  req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
   return req;
 }
 
@@ -901,6 +910,10 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
+  
+  // set queryAST configuration parameters
+  queryConfig_init(&ast->config);
+
   return REDISMODULE_OK;
 }
 
@@ -1031,12 +1044,14 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     limit = DEFAULT_LIMIT;
   }
 
-  if (IsSearch(req) && RSGlobalConfig.maxSearchResults != UINT64_MAX) {
-    limit = MIN(limit, RSGlobalConfig.maxSearchResults);
+  // TODO: unify if when req holds only maxResults according to the query type. 
+  //(SEARCH / AGGREGATE)
+  if (IsSearch(req) && req->maxSearchResults != UINT64_MAX) {
+    limit = MIN(limit, req->maxSearchResults);
   }
 
-  if (!IsSearch(req) && RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
-    limit = MIN(limit, RSGlobalConfig.maxAggregateResults);
+  if (!IsSearch(req) && req->maxAggregateResults != UINT64_MAX) {
+    limit = MIN(limit, req->maxAggregateResults);
   }
 
   if (IsCount(req) || !limit) {
@@ -1471,6 +1486,9 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
   if (IsProfile(req) && req->qiter.endProc) {
     Profile_AddRPs(&req->qiter);
   }
+
+  // Copy timeout policy to the parent struct of the result processors
+  req->qiter.timeoutPolicy = req->timeoutPolicy;
 
   return REDISMODULE_OK;
 error:

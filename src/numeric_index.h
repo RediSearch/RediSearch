@@ -17,6 +17,7 @@
 #include "concurrent_ctx.h"
 #include "inverted_index.h"
 #include "numeric_filter.h"
+#include "query_config.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -93,7 +94,7 @@ struct indexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange 
                                               const NumericFilter *f, int skipMulti);
 
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx, FieldType forType);
+                                               ConcurrentSearchCtx *csx, FieldType forType, QueryConfig *config);
 
 /* Add an entry to a numeric range node. Returns the cardinality of the range after the
  * inserstion.

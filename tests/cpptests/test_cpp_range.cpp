@@ -3,13 +3,14 @@
 
 #include "numeric_index.h"
 #include "index.h"
+#include "query_config.h"
 #include "rmutil/alloc.h"
 
 #include <stdio.h>
 
 extern "C" {
 // declaration for an internal function implemented in numeric_index.c
-IndexIterator *createNumericIterator(const IndexSpec* sp, NumericRangeTree *t, const NumericFilter *f);
+IndexIterator *createNumericIterator(const IndexSpec* sp, NumericRangeTree *t, const NumericFilter *f, QueryConfig *config);
 }
 
 // Helper so we get the same pseudo-random numbers
@@ -104,9 +105,10 @@ void testRangeIteratorHelper(bool isMulti) {
         }
       }
     }
-
+    QueryConfig config{};
+    queryConfig_init(&config);
     // printf("Testing range %f..%f, should have %d docs\n", min, max, count);
-    IndexIterator *it = createNumericIterator(NULL, t, flt);
+    IndexIterator *it = createNumericIterator(NULL, t, flt, &config);
 
     int xcount = 0;
     RSIndexResult *res = NULL;

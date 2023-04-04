@@ -10,6 +10,7 @@
 #include "src/metric_iterator.h"
 #include "src/util/arr.h"
 #include "src/util/references.h"
+#include "src/query_config.h"
 
 #include "rmutil/alloc.h"
 
@@ -269,8 +270,9 @@ TEST_F(IndexTest, testUnion) {
     IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
     irs[0] = NewReadIterator(r1);
     irs[1] = NewReadIterator(r2);
-
-    IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 1, QN_UNION, NULL);
+    QueryConfig config{};
+    queryConfig_init(&config);
+    IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 1, QN_UNION, NULL, &config);
     RSIndexResult *h = NULL;
     int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
     int i = 0;
@@ -325,8 +327,9 @@ TEST_F(IndexTest, testWeight) {
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
   irs[1] = NewReadIterator(r2);
-
-  IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 0.8, QN_UNION, NULL);
+  QueryConfig config{};
+  queryConfig_init(&config);
+  IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 0.8, QN_UNION, NULL, &config);
   RSIndexResult *h = NULL;
   int expected[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20};
   int i = 0;

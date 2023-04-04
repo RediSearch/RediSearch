@@ -248,7 +248,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   ResultProcessor *rp = req->qiter.endProc;
 
   if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !(req->reqflags & QEXEC_F_IS_SEARCH)) {
-    limit = RSGlobalConfig.maxAggregateResults;
+    limit = req->maxAggregateResults;
   }
 
   cachedVars cv = {0};
@@ -258,7 +258,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   rc = rp->Next(rp, &r);
   long resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
   if (rc == RS_RESULT_TIMEDOUT && !(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
-      RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+      req->timeoutPolicy == TimeoutPolicy_Fail) {
     resultsLen = 1;
   } else if (rc == RS_RESULT_ERROR) {
     resultsLen = 2;
@@ -269,7 +269,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
     size_t reqOffset = arng && arng->isLimited? arng->offset : 0;
     size_t resultFactor = getResultsFactor(req);
 
-    size_t expected_res = reqLimit + reqOffset <= RSGlobalConfig.maxSearchResults ? req->qiter.totalResults : MIN(RSGlobalConfig.maxSearchResults, req->qiter.totalResults);
+    size_t expected_res = reqLimit + reqOffset <= req->maxSearchResults ? req->qiter.totalResults : MIN(req->maxSearchResults, req->qiter.totalResults);
     size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
 
     resultsLen = 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
@@ -281,7 +281,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
 
   if (rc == RS_RESULT_TIMEDOUT) {
     if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
-        RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+       req->timeoutPolicy == TimeoutPolicy_Fail) {
       RedisModule_ReplyWithSimpleString(outctx, "Timeout limit was reached");
     } else {
       rc = RS_RESULT_OK;

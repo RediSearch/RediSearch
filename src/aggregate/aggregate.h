@@ -123,6 +123,7 @@ typedef struct {
   /** Query timeout in milliseconds */
   int32_t reqTimeout;
   struct timespec timeoutTime;
+  RSTimeoutPolicy timeoutPolicy;
 
   /** Cursor settings */
   unsigned cursorMaxIdle;
@@ -140,6 +141,12 @@ typedef struct {
   const char** requiredFields;
 
   struct QOptimizer *optimizer;        // Hold parameters for query optimizer
+  
+  // Currently we need both because maxSearchResults limits the OFFSET also in
+  // FT.AGGREGATE execution.
+  size_t maxSearchResults;
+  size_t maxAggregateResults;
+  
 } AREQ;
 
 /**
