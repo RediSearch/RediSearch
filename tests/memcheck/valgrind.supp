@@ -74,7 +74,7 @@
 }
 
 {
-   <supression_invalid_read_size_1raxLowWalk>
+   <supression_invalid_read_size_1_raxLowWalk>
    Memcheck:Addr1
    fun:raxLowWalk
    fun:raxSeek
@@ -82,7 +82,7 @@
 }
 
 {
-   <supression_invalid_read_size_1raxSeek>
+   <supression_invalid_read_size_1_raxSeek>
    Memcheck:Addr1
    fun:raxSeek
    fun:RM_DictIteratorStartC
@@ -148,4 +148,13 @@
    fun:vsnprintf
    fun:RM_LogRaw
    fun:RM_Log
+}
+
+{
+   <invalid_read_size_8_dl_catch_exception>
+   Memcheck:Addr8
+   ...
+   fun:decompose_rpath
+   ...
+   fun:_dl_catch_exception
 }
