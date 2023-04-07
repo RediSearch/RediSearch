@@ -892,8 +892,7 @@ on-integ-branch: &on-integ-branch
       only:
         - master
         - /^\d+\.\d+.*$/
-        - /^feature-.*$/
-        - /^feature_.*$/
+        - /^feature.*$/
     tags:
       ignore: /.*/
 
@@ -903,8 +902,7 @@ on-integ-branch-cron: &on-integ-branch-cron
       only:
         - master
         - /^\d+\.\d+.*$/
-        - /^feature-.*$/
-        - /^feature_.*$/
+        - /^feature.*$/
 
 not-on-integ-branch: &not-on-integ-branch
   filters:
@@ -912,8 +910,7 @@ not-on-integ-branch: &not-on-integ-branch
       ignore:
         - master
         - /^\d+\.\d+.*$/
-        - /^feature-.*$/
-        - /^feature_.*$/
+        - /^feature.*$/
     tags:
       ignore: /.*/
 
@@ -930,8 +927,7 @@ on-integ-and-version-tags: &on-integ-and-version-tags
       only:
         - master
         - /^\d+\.\d+.*$/
-        - /^feature-.*$/
-        - /^feature_.*$/
+        - /^feature.*$/
     tags:
       only: /^v[0-9].*/
 

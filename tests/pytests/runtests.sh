@@ -654,7 +654,11 @@ elif [[ $COORD == oss ]]; then
 
 	if [[ $QUICK != 1 ]]; then
 		if [[ -z $CONFIG || $CONFIG == global_password ]]; then
+<<<<<<< HEAD
 			if [[ $SAN != address || $FORCE_SAN == 1 ]]; then
+=======
+			if [[ $SAN != address && $FORCE_SAN != 1 ]]; then
+>>>>>>> 632d22e00 (Build and testing fixes (#3513))
 				{ (MODARGS="${MODARGS} PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
 				   RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} --oss_password password" \
 				   run_tests "OSS cluster tests with password"); (( E |= $? )); } || true
