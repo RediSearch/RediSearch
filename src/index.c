@@ -1984,42 +1984,42 @@ PRINT_PROFILE_FUNC(printMetricIt) {
   RedisModule_ReplySetArrayLength(ctx, (long)nlen);
 }
 
-#define PRINT_PROFILE_SINGLE(name, iterType, text, hasChild)                        \
-PRINT_PROFILE_FUNC(name) {                                                          \
-  size_t nlen = 0;                                                                  \
-  int addChild = hasChild && ((iterType *)root)->child;                             \
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);                 \
-  printProfileType(text);                                                           \
-  nlen += 2;                                                                        \
-  if (config->printProfileClock) {                                                            \
-    printProfileTime(cpuTime);                                                      \
-    nlen += 2;                                                                      \
-  }                                                                                 \
-  printProfileCounter(counter);                                                     \
-  nlen += 2;                                                                        \
-                                                                                    \
-  if (root->type == HYBRID_ITERATOR) {                                              \
-    HybridIterator *hi = root->ctx;                                                 \
-    if (hi->searchMode == VECSIM_HYBRID_BATCHES ||                                  \
-          hi->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF) {                    \
-      printProfileNumBatches(hi);                                                   \
-      nlen += 2;                                                                    \
-    }                                                                               \
-  }                                                                                 \
+#define PRINT_PROFILE_SINGLE(name, iterType, text, hasChild)                                  \
+  PRINT_PROFILE_FUNC(name) {                                                                  \
+    size_t nlen = 0;                                                                          \
+    int addChild = hasChild && ((iterType *)root)->child;                                     \
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);                         \
+    printProfileType(text);                                                                   \
+    nlen += 2;                                                                                \
+    if (config->printProfileClock) {                                                          \
+      printProfileTime(cpuTime);                                                              \
+      nlen += 2;                                                                              \
+    }                                                                                         \
+    printProfileCounter(counter);                                                             \
+    nlen += 2;                                                                                \
+                                                                                      \
+  if (root->type == HYBRID_ITERATOR) {                                                      \
+      HybridIterator *hi = root->ctx;                                                         \
+      if (hi->searchMode == VECSIM_HYBRID_BATCHES ||                                          \
+          hi->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF) {                              \
+      printProfileNumBatches(hi);                                                             \
+      nlen += 2;                                                                              \
+      }                                                                                       \
+    }                                                                                 \
                                                                                     \
   if (root->type == OPTIMUS_ITERATOR) {                                             \
     OptimizerIterator *oi = root->ctx;                                              \
     printProfileOptimizationType(oi);                                               \
     nlen += 2;                                                                      \
-  }                                                                                 \
-                                                                                    \
-  if (addChild) {                                                                   \
-    RedisModule_ReplyWithSimpleString(ctx, "Child iterator");                       \
-    printIteratorProfile(ctx, ((iterType *)root)->child, 0, 0, depth + 1, limited, config); \
-    nlen += 2;                                                                      \
-  }                                                                                 \
-  RedisModule_ReplySetArrayLength(ctx, nlen);                                       \
-}
+  }                                                                                         \
+                                                                                              \
+    if (addChild) {                                                                           \
+      RedisModule_ReplyWithSimpleString(ctx, "Child iterator");                               \
+      printIteratorProfile(ctx, ((iterType *)root)->child, 0, 0, depth + 1, limited, config); \
+      nlen += 2;                                                                              \
+    }                                                                                         \
+    RedisModule_ReplySetArrayLength(ctx, nlen);                                               \
+  }
 
 typedef struct {
   IndexIterator base;
