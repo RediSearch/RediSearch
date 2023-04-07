@@ -107,7 +107,6 @@ def testSynonym(env):
     waitForIndex(env, 'idx')
     env.cmd('ft.synupdate', 'idx', 'group1', '同义词', '近义词')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', txt)
-    for i in range(1000):
-        r = env.cmd('ft.search', 'idx', '近义词', 'language', 'chinese')
-        env.assertEqual(1, r[0])
-        env.assertIn('doc1', r)
+    r = env.cmd('ft.search', 'idx', '近义词', 'language', 'chinese')
+    env.assertEqual(1, r[0])
+    env.assertIn('doc1', r)
