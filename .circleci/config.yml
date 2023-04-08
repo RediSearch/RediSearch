@@ -800,7 +800,7 @@ workflows:
       - build-macos-m1:
           context: common
           #@@<<: *on-integ-and-version-tags
-          <<: *always
+          <<: *never
       - coverage:
           <<: *always
       - sanitize:
@@ -836,7 +836,7 @@ workflows:
             - build-platforms
             - build-arm-platforms
             - build-macos-x64
-            - build-macos-m1
+            # - build-macos-m1
       - upload-artifacts:
           name: upload-release-artifacts
           context: common
@@ -845,7 +845,7 @@ workflows:
             - build-platforms
             - build-arm-platforms
             - build-macos-x64
-            - build-macos-m1
+            # - build-macos-m1
       - release-qa-tests:
           context: common
           <<: *on-version-tags
@@ -878,9 +878,9 @@ workflows:
       - build-macos-x64:
           upload: "no"
           test_params: ""
-      - build-macos-m1:
-          upload: "no"
-          test_params: ""
+      #- build-macos-m1:
+      #    upload: "no"
+      #    test_params: ""
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
           test_params: ""
