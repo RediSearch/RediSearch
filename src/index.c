@@ -152,7 +152,7 @@ static void UI_Rewind(void *ctx) {
 }
 
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int quickExit,
-                                double weight, QueryNodeType type, const char *qstr, QueryConfig *config) {
+                                double weight, QueryNodeType type, const char *qstr, IteratorsConfig *config) {
   // create union context
   UnionIterator *ctx = rm_calloc(1, sizeof(UnionIterator));
   ctx->origits = its;
@@ -1860,7 +1860,7 @@ IndexIterator *NewProfileIterator(IndexIterator *child) {
                                                   double cpuTime,             \
                                                   int depth,                  \
                                                   int limited,                \
-                                                  QueryConfig *config)
+                                                  PrintProfileConfig *config)
 
 PRINT_PROFILE_FUNC(printUnionIt) {
   UnionIterator *ui = (UnionIterator *)root;
@@ -1903,7 +1903,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   nlen += 2;
 
   // if MAXPREFIXEXPANSIONS reached
-  if (ui->norig == config->maxPrefixExpansions) {
+  if (ui->norig == config->iteratorsConfig->maxPrefixExpansions) {
     RedisModule_ReplyWithSimpleString(ctx, "Warning");
     RedisModule_ReplyWithSimpleString(ctx, "Max prefix expansion reached");
     nlen += 2;
@@ -2040,7 +2040,7 @@ PRINT_PROFILE_FUNC(printProfileIt) {
 }
 
 void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t counter,
-                          double cpuTime, int depth, int limited, QueryConfig *config) {
+                          double cpuTime, int depth, int limited, PrintProfileConfig *config) {
   if (root == NULL) return;
 
   // protect against limit of 7 reply layers

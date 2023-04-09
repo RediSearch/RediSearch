@@ -152,16 +152,16 @@ CONFIG_SETTER(setMaxSearchResults) {
   if (newsize == -1) {
     newsize = UINT64_MAX;
   }
-  config->requestConfigParams.maxSearchResults = newsize;
+  config->maxSearchResults = newsize;
   return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getMaxSearchResults) {
   sds ss = sdsempty();
-  if (config->requestConfigParams.maxSearchResults == UINT64_MAX) {
+  if (config->maxSearchResults == UINT64_MAX) {
     return sdscatprintf(ss, "unlimited");
   }
-  return sdscatprintf(ss, "%lu", config->requestConfigParams.maxSearchResults);
+  return sdscatprintf(ss, "%lu", config->maxSearchResults);
 }
 
 // MAXAGGREGATERESULTS
@@ -172,16 +172,16 @@ CONFIG_SETTER(setMaxAggregateResults) {
   if (newsize == -1) {
     newsize = UINT64_MAX;
   }
-  config->requestConfigParams.maxAggregateResults = newsize;
+  config->maxAggregateResults = newsize;
   return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getMaxAggregateResults) {
   sds ss = sdsempty();
-  if (config->requestConfigParams.maxAggregateResults == UINT64_MAX) {
+  if (config->maxAggregateResults == UINT64_MAX) {
     return sdscatprintf(ss, "unlimited");
   }
-  return sdscatprintf(ss, "%lu", config->requestConfigParams.maxAggregateResults);
+  return sdscatprintf(ss, "%lu", config->maxAggregateResults);
 }
 
 // MAXEXPANSIONS MAXPREFIXEXPANSIONS
@@ -381,8 +381,8 @@ CONFIG_BOOLEAN_SETTER(setFreeResourcesThread, freeResourcesThread)
 CONFIG_BOOLEAN_GETTER(getFreeResourcesThread, freeResourcesThread, 0)
 
 // _PRINT_PROFILE_CLOCK
-CONFIG_BOOLEAN_SETTER(setPrintProfileClock, queryConfigParams.printProfileClock)
-CONFIG_BOOLEAN_GETTER(getPrintProfileClock, queryConfigParams.printProfileClock, 0)
+CONFIG_BOOLEAN_SETTER(setPrintProfileClock, requestConfigParams.printProfileClock)
+CONFIG_BOOLEAN_GETTER(getPrintProfileClock, requestConfigParams.printProfileClock, 0)
 
 // RAW_DOCID_ENCODING
 CONFIG_BOOLEAN_SETTER(setRawDocIDEncoding, invertedIndexRawDocidEncoding)
@@ -813,10 +813,10 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   ss = sdscatprintf(ss, "cursor max idle (ms): %lld, ", config->cursorMaxIdle);
   ss = sdscatprintf(ss, "max doctable size: %lu, ", config->maxDocTableSize);
   ss = sdscatprintf(ss, "max number of search results: ");
-  ss = (config->requestConfigParams.maxSearchResults == UINT64_MAX)
+  ss = (config->maxSearchResults == UINT64_MAX)
            ?  // value for MaxSearchResults
            sdscatprintf(ss, "unlimited, ")
-           : sdscatprintf(ss, " %lu, ", config->requestConfigParams.maxSearchResults);
+           : sdscatprintf(ss, " %lu, ", config->maxSearchResults);
   ss = sdscatprintf(ss, "search pool size: %lu, ", config->searchPoolSize);
   ss = sdscatprintf(ss, "index pool size: %lu, ", config->indexPoolSize);
 
@@ -918,8 +918,8 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldLongLong(ctx, "cursor_max_idle_time", RSGlobalConfig.cursorMaxIdle);
 
   RedisModule_InfoAddFieldLongLong(ctx, "max_doc_table_size", RSGlobalConfig.maxDocTableSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "max_search_results", RSGlobalConfig.requestConfigParams.maxSearchResults);
-  RedisModule_InfoAddFieldLongLong(ctx, "max_aggregate_results", RSGlobalConfig.requestConfigParams.maxAggregateResults);
+  RedisModule_InfoAddFieldLongLong(ctx, "max_search_results", RSGlobalConfig.maxSearchResults);
+  RedisModule_InfoAddFieldLongLong(ctx, "max_aggregate_results", RSGlobalConfig.maxAggregateResults);
   RedisModule_InfoAddFieldLongLong(ctx, "search_pool_size", RSGlobalConfig.searchPoolSize);
   RedisModule_InfoAddFieldLongLong(ctx, "index_pool_size", RSGlobalConfig.indexPoolSize);
   RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcConfigParams.gcScanSize);
@@ -956,10 +956,6 @@ RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n) {
     return TimeoutPolicy_Invalid;
   }
 }
-void queryConfig_init(QueryConfig *config) {
-    config->maxPrefixExpansions = RSGlobalConfig.queryConfigParams.maxPrefixExpansions;
-    config->minTermPrefix = RSGlobalConfig.queryConfigParams.minTermPrefix;
-    config->maxResultsToUnsortedMode = RSGlobalConfig.queryConfigParams.maxResultsToUnsortedMode;
-    config->minUnionIterHeap = RSGlobalConfig.queryConfigParams.minUnionIterHeap;
-    config->printProfileClock = RSGlobalConfig.queryConfigParams.printProfileClock;
+void queryConfig_init(IteratorsConfig *config) {
+  *config = RSGlobalConfig.queryConfigParams;
 }

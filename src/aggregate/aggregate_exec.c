@@ -258,7 +258,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   rc = rp->Next(rp, &r);
   long resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
   if (rc == RS_RESULT_TIMEDOUT && !(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
-      req->timeoutPolicy == TimeoutPolicy_Fail) {
+      req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
     resultsLen = 1;
   } else if (rc == RS_RESULT_ERROR) {
     resultsLen = 2;
@@ -281,7 +281,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
 
   if (rc == RS_RESULT_TIMEDOUT) {
     if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
-       req->timeoutPolicy == TimeoutPolicy_Fail) {
+       req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       RedisModule_ReplyWithSimpleString(outctx, "Timeout limit was reached");
     } else {
       rc = RS_RESULT_OK;
@@ -418,7 +418,7 @@ int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status) {
   // TODO: this should be done in `AREQ_execute`, but some of the iterators needs the timeout's
   // value and some of the execution begins in `QAST_Iterate`.
   // Setting the timeout context should be done in the same thread that executes the query.
-  updateTimeout(&req->timeoutTime, req->reqTimeout);
+  updateTimeout(&req->timeoutTime, req->reqConfig.queryTimeoutMS);
   sctx->timeout = req->timeoutTime;
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
@@ -547,8 +547,8 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     goto error;
   }
 
-  SET_DIALECT(r->sctx->spec->used_dialects, r->dialectVersion);
-  SET_DIALECT(RSGlobalConfig.used_dialects, r->dialectVersion);
+  SET_DIALECT(r->sctx->spec->used_dialects, r->reqConfig.defaultDialectVersion);
+  SET_DIALECT(RSGlobalConfig.used_dialects, r->reqConfig.defaultDialectVersion);
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
     if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
@@ -683,7 +683,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
 
   // update timeout for current cursor read
   if (req->qiter.rootProc->type != RP_NETWORK) {
-    updateTimeout(&req->timeoutTime, req->reqTimeout);
+    updateTimeout(&req->timeoutTime, req->reqConfig.queryTimeoutMS);
     updateRPIndexTimeout(req->qiter.rootProc, req->timeoutTime);
   }
   if (!num) {

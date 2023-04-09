@@ -269,7 +269,7 @@ TEST_F(IndexTest, testUnion) {
     IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
     irs[0] = NewReadIterator(r1);
     irs[1] = NewReadIterator(r2);
-    QueryConfig config{};
+    IteratorsConfig config{};
     queryConfig_init(&config);
     IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 1, QN_UNION, NULL, &config);
     RSIndexResult *h = NULL;
@@ -326,7 +326,7 @@ TEST_F(IndexTest, testWeight) {
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
   irs[1] = NewReadIterator(r2);
-  QueryConfig config{};
+  IteratorsConfig config{};
   queryConfig_init(&config);
   IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 0.8, QN_UNION, NULL, &config);
   RSIndexResult *h = NULL;

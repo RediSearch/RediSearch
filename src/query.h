@@ -59,7 +59,7 @@ typedef struct QueryAST {
 
   // Copy of RSGlobalConfig parameters required for query exection,
   // to ensure that they won't change during query execution.
-  QueryConfig config;
+  IteratorsConfig config;
 } QueryAST;
 
 /**

@@ -6,7 +6,7 @@
 
 #include "profile.h"
 
-void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, double cpuTime, QueryConfig *config) {
+void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, double cpuTime, PrintProfileConfig *config) {
   IndexReader *ir = root->ctx;
 
   size_t nlen = 0;
@@ -57,15 +57,15 @@ void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, doubl
   RedisModule_ReplySetArrayLength(ctx, nlen);
 }
 
-static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, size_t *arrlen, QueryConfig *config) {
+static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, size_t *arrlen, int printProfileClock) {
   if (rp == NULL) {
     return 0;
   }
-  double upstreamTime = _recursiveProfilePrint(ctx, rp->upstream, arrlen, config);
+  double upstreamTime = _recursiveProfilePrint(ctx, rp->upstream, arrlen, printProfileClock);
 
   // Array is filled backward in pair of [common, profile] result processors
   if (rp->type != RP_PROFILE) {
-    RedisModule_ReplyWithArray(ctx, (2 + config->printProfileClock) * 2);
+    RedisModule_ReplyWithArray(ctx, (2 + printProfileClock) * 2);
     switch (rp->type) {
       case RP_INDEX:
       case RP_METRICS:
@@ -97,14 +97,14 @@ static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, s
   }
 
   double totalRPTime = RPProfile_GetDurationMSec(rp);
-  if (config->printProfileClock) { printProfileTime(totalRPTime - upstreamTime); }
+  if (printProfileClock) { printProfileTime(totalRPTime - upstreamTime); }
   printProfileCounter(RPProfile_GetCount(rp) - 1);
   ++(*arrlen);
   return totalRPTime;
 }
 
-static double printProfileRP(RedisModuleCtx *ctx, ResultProcessor *rp, size_t *arrlen, QueryConfig *config) {
-  return _recursiveProfilePrint(ctx, rp, arrlen, config);
+static double printProfileRP(RedisModuleCtx *ctx, ResultProcessor *rp, size_t *arrlen, int printProfileClock) {
+  return _recursiveProfilePrint(ctx, rp, arrlen, printProfileClock);
 }
 
 int Profile_Print(RedisModuleCtx *ctx, AREQ *req){
@@ -114,7 +114,7 @@ int Profile_Print(RedisModuleCtx *ctx, AREQ *req){
   req->totalTime += hires_clock_since_msec(&req->initClock);
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-  int profile_verbose = req->ast.config.printProfileClock;
+  int profile_verbose = req->reqConfig.printProfileClock;
   // Print total time
   RedisModule_ReplyWithArray(ctx, 1 + profile_verbose);
   RedisModule_ReplyWithSimpleString(ctx, "Total profile time");
@@ -143,7 +143,9 @@ int Profile_Print(RedisModuleCtx *ctx, AREQ *req){
   if (root) {     // Coordinator does not have iterators
     RedisModule_ReplyWithArray(ctx, 2);
     RedisModule_ReplyWithSimpleString(ctx, "Iterators profile");
-    printIteratorProfile(ctx, root, 0 ,0, 2, (req->reqflags & QEXEC_F_PROFILE_LIMITED), &req->ast.config);
+    PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
+                                 .printProfileClock = profile_verbose};
+    printIteratorProfile(ctx, root, 0 ,0, 2, (req->reqflags & QEXEC_F_PROFILE_LIMITED), &config);
     nelem++;
   }
 
@@ -152,7 +154,7 @@ int Profile_Print(RedisModuleCtx *ctx, AREQ *req){
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   RedisModule_ReplyWithSimpleString(ctx, "Result processors profile");
   size_t alen = 1;
-  printProfileRP(ctx, rp, &alen, &req->ast.config);
+  printProfileRP(ctx, rp, &alen, req->reqConfig.printProfileClock);
   RedisModule_ReplySetArrayLength(ctx, alen);
   nelem++;
 

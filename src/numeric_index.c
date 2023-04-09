@@ -535,7 +535,7 @@ IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
 /* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
  * the filter */
 IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
-                                     const NumericFilter *f, QueryConfig *config) {
+                                     const NumericFilter *f, IteratorsConfig *config) {
 
   Vector *v = NumericRangeTree_Find(t, f);
   if (!v || Vector_Size(v) == 0) {
@@ -601,7 +601,7 @@ static NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString 
 }
 
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx, FieldType forType, QueryConfig *config) {
+                                               ConcurrentSearchCtx *csx, FieldType forType, IteratorsConfig *config) {
   RedisModuleString *s = IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, forType);
   if (!s) {
     return NULL;

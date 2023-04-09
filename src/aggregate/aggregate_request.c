@@ -226,7 +226,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");
       return ARG_ERROR;
     }
-    if (AC_GetInt(ac, &req->reqTimeout, AC_F_GE0) != AC_OK) {
+    if (AC_GetUnsignedLongLong(ac, &req->reqConfig.queryTimeoutMS, AC_F_GE0) != AC_OK) {
       QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a non negative integer");
       return ARG_ERROR;
     }
@@ -249,7 +249,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     req->reqflags |= QEXEC_F_REQUIRED_FIELDS;
   }
     else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
-    if (parseDialect(&req->dialectVersion, ac, status) != REDISMODULE_OK) {
+    if (parseDialect(&req->reqConfig.defaultDialectVersion, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else {
@@ -731,15 +731,20 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
 
 AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
-  req->dialectVersion = RSGlobalConfig.requestConfigParams.defaultDialectVersion;
-  req->reqTimeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
   req->optimizer = QOptimizer_New();
-  req->timeoutPolicy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
+  /*   
+  unsigned int defaultDialectVersion;
+  long long queryTimeoutMS;
+  req->optimizer = QOptimizer_New();
+  RSTimeoutPolicy timeoutPolicy; 
+  int printProfileClock;
+  */
+  req->reqConfig = RSGlobalConfig.requestConfigParams;
 
   // TODO: save only one of the configuration paramters according to the query type
   // once query offset is bounded by both.
-  req->maxSearchResults = RSGlobalConfig.requestConfigParams.maxSearchResults;
-  req->maxAggregateResults = RSGlobalConfig.requestConfigParams.maxAggregateResults;
+  req->maxSearchResults = RSGlobalConfig.maxSearchResults;
+  req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
   return req;
 }
 
@@ -845,7 +850,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
-  sctx->apiVersion = req->dialectVersion;
+  sctx->apiVersion = req->reqConfig.defaultDialectVersion;
   req->sctx = sctx;
 
   if ((index->flags & Index_StoreByteOffsets) == 0 && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
@@ -881,7 +886,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   QueryAST *ast = &req->ast;
 
-  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), req->dialectVersion, status);
+  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), req->reqConfig.defaultDialectVersion, status);
   if (rv != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
@@ -1199,7 +1204,7 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
   // Add a LOAD step...
   const RLookupKey **loadkeys = NULL;
   if (req->outFields.explicitReturn) {
-    bool is_old_json = isSpecJson(req->sctx->spec) && (req->dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST);
+    bool is_old_json = isSpecJson(req->sctx->spec) && (req->reqConfig.defaultDialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST);
     // Go through all the fields and ensure that each one exists in the lookup stage
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       const ReturnedField *rf = req->outFields.fields + ii;
@@ -1487,7 +1492,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
   }
 
   // Copy timeout policy to the parent struct of the result processors
-  req->qiter.timeoutPolicy = req->timeoutPolicy;
+  req->qiter.timeoutPolicy = req->reqConfig.timeoutPolicy;
 
   return REDISMODULE_OK;
 error:

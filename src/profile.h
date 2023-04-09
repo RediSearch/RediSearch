@@ -46,4 +46,4 @@
 int Profile_Print(RedisModuleCtx *ctx, AREQ *req);
 
 void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter,
-                 double cpuTime, QueryConfig *config);
+                 double cpuTime, PrintProfileConfig *config);

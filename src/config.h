@@ -56,27 +56,25 @@ typedef struct {
 
 // Configuration parameters related to aggregate request.
 typedef struct {
-  size_t maxSearchResults;
-  size_t maxAggregateResults;
   // Default dialect level used throughout database lifetime.
   unsigned int defaultDialectVersion;
   // The maximal amount of time a single query can take before timing out, in milliseconds.
   // 0 means unlimited
   long long queryTimeoutMS;
   RSTimeoutPolicy timeoutPolicy;
-} requestConfig;
+  // reply with time on profile
+  int printProfileClock;
+} RequestConfig;
 
 // Configuration parameters related to the query execution.
-typedef struct QueryConfig {
+typedef struct {
   // The maximal number of expansions we allow for a prefix. Default: 200
   long long maxPrefixExpansions;
   // The minimal number of characters we allow expansion for in a prefix search. Default: 2
   long long minTermPrefix;
   long long maxResultsToUnsortedMode;
   long long minUnionIterHeap;
-  // reply with time on profile
-  int printProfileClock;
-} QueryConfig;
+} IteratorsConfig;
 
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module statrtup */
@@ -90,9 +88,9 @@ typedef struct {
   // Path to friso.ini for chinese dictionary file
   const char *frisoIni;
 
-  QueryConfig queryConfigParams;
+  IteratorsConfig queryConfigParams;
 
-  requestConfig requestConfigParams;
+  RequestConfig requestConfigParams;
 
   // Number of rows to read from a cursor if not specified
   long long cursorReadSize;
@@ -102,6 +100,8 @@ typedef struct {
   long long cursorMaxIdle;
 
   size_t maxDocTableSize;
+  size_t maxSearchResults;
+  size_t maxAggregateResults;
   size_t searchPoolSize;
   size_t indexPoolSize;
   int poolSizeNoAuto;  // Don't auto-detect pool size
@@ -130,7 +130,6 @@ typedef struct {
   int numericCompress;
   // keep numeric ranges in parents of leafs
   size_t numericTreeMaxDepthRange;
-
   // disable compression for inverted index DocIdsOnly
   int invertedIndexRawDocidEncoding;
 
@@ -248,12 +247,12 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .gcConfigParams.forkGc.forkGcCleanThreshold = 100,                                                                \
     .noMemPool = 0,                                                                                                   \
     .filterCommands = 0,                                                                                              \
-    .requestConfigParams.maxSearchResults = SEARCH_REQUEST_RESULTS_MAX,                                               \
-    .requestConfigParams.maxAggregateResults = -1,                                                                    \
+    .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX,                                                                   \
+    .maxAggregateResults = -1,                                                                                        \
     .queryConfigParams.minUnionIterHeap = 20,                                                                         \
     .numericCompress = false,                                                                                         \
     .numericTreeMaxDepthRange = 0,                                                                                    \
-    .queryConfigParams.printProfileClock = 1,                                                                         \
+    .requestConfigParams.printProfileClock = 1,                                                                       \
     .invertedIndexRawDocidEncoding = false,                                                                           \
     .gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = true,                                                       \
     .freeResourcesThread = true,                                                                                      \
@@ -276,7 +275,7 @@ static inline int isFeatureSupported(int feature) {
 #ifdef __cplusplus
 extern "C" {
 #endif
-void queryConfig_init(QueryConfig *config);
+void queryConfig_init(IteratorsConfig *config);
 
 #ifdef __cplusplus
 }
