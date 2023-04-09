@@ -17,7 +17,6 @@
 #include "concurrent_ctx.h"
 #include "inverted_index.h"
 #include "numeric_filter.h"
-#include "query_config.h"
 
 #ifdef __cplusplus
 extern "C" {

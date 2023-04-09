@@ -8,7 +8,6 @@
 
 #include "search_options.h"
 #include "util/timeout.h"
-#include "query_config.h"
 
 struct MetricRequest;
 

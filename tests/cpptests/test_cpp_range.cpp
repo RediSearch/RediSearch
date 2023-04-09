@@ -3,7 +3,6 @@
 
 #include "numeric_index.h"
 #include "index.h"
-#include "query_config.h"
 #include "rmutil/alloc.h"
 
 #include <stdio.h>

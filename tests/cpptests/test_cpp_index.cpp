@@ -10,7 +10,6 @@
 #include "src/metric_iterator.h"
 #include "src/util/arr.h"
 #include "src/util/references.h"
-#include "src/query_config.h"
 
 #include "rmutil/alloc.h"
 
@@ -259,7 +258,7 @@ TEST_F(IndexTest, testReadIterator) {
 }
 
 TEST_F(IndexTest, testUnion) {
-  int oldConfig = RSGlobalConfig.minUnionIterHeap;
+  int oldConfig = RSGlobalConfig.queryConfigParams.minUnionIterHeap;
   for (int cfg = 0; cfg < 2; ++cfg) {
     InvertedIndex *w = createIndex(10, 2);
     InvertedIndex *w2 = createIndex(10, 3);
@@ -312,9 +311,9 @@ TEST_F(IndexTest, testUnion) {
     InvertedIndex_Free(w2);
 
     // change config parameter to use UI_ReadHigh and UI_SkipToHigh
-    RSGlobalConfig.minUnionIterHeap = 1;
+    RSGlobalConfig.queryConfigParams.minUnionIterHeap = 1;
   }
-  RSGlobalConfig.minUnionIterHeap = oldConfig;
+  RSGlobalConfig.queryConfigParams.minUnionIterHeap = oldConfig;
 }
 
 TEST_F(IndexTest, testWeight) {

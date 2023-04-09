@@ -15,7 +15,6 @@
 #include "util/logging.h"
 #include "varint.h"
 #include "query_node.h"
-#include "query_config.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>

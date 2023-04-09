@@ -18,7 +18,6 @@
 #include "config.h"
 #include "util/timeout.h"
 #include "query_optimizer.h"
-#include "query_config.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -732,15 +731,15 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
 
 AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
-  req->dialectVersion = RSGlobalConfig.defaultDialectVersion;
-  req->reqTimeout = RSGlobalConfig.queryTimeoutMS;
+  req->dialectVersion = RSGlobalConfig.requestConfigParams.defaultDialectVersion;
+  req->reqTimeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
   req->optimizer = QOptimizer_New();
-  req->timeoutPolicy = RSGlobalConfig.timeoutPolicy;
+  req->timeoutPolicy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
 
   // TODO: save only one of the configuration paramters according to the query type
   // once query offset is bounded by both.
-  req->maxSearchResults = RSGlobalConfig.maxSearchResults;
-  req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
+  req->maxSearchResults = RSGlobalConfig.requestConfigParams.maxSearchResults;
+  req->maxAggregateResults = RSGlobalConfig.requestConfigParams.maxAggregateResults;
   return req;
 }
 

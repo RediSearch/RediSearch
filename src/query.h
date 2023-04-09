@@ -21,7 +21,6 @@
 #include "search_options.h"
 #include "query_error.h"
 #include "query_internal.h"
-#include "query_config.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -115,7 +115,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   int argvOffset = 3;
-  unsigned int dialect = RSGlobalConfig.defaultDialectVersion;
+  unsigned int dialect = RSGlobalConfig.requestConfigParams.defaultDialectVersion;
   int dialectArgIndex = RMUtil_ArgExists("DIALECT", argv, argc, argvOffset);
   if(dialectArgIndex > 0) {
     dialectArgIndex++;

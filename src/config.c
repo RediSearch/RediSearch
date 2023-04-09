@@ -92,11 +92,11 @@ CONFIG_BOOLEAN_GETTER(getConcurentWriteMode, concurrentMode, 0)
 
 // NOGC
 CONFIG_SETTER(setNoGc) {
-  config->enableGC = 0;
+  config->gcConfigParams.enableGC = 0;
   return REDISMODULE_OK;
 }
 
-CONFIG_BOOLEAN_GETTER(getNoGc, enableGC, 1)
+CONFIG_BOOLEAN_GETTER(getNoGc, gcConfigParams.enableGC, 1)
 
 CONFIG_SETTER(setNoMemPools) {
   config->noMemPool = 1;
@@ -107,23 +107,23 @@ CONFIG_BOOLEAN_GETTER(getNoMemPools, noMemPool, 0)
 
 // MINPREFIX
 CONFIG_SETTER(setMinPrefix) {
-  int acrc = AC_GetLongLong(ac, &config->minTermPrefix, AC_F_GE1);
+  int acrc = AC_GetLongLong(ac, &config->queryConfigParams.minTermPrefix, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getMinPrefix) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->minTermPrefix);
+  return sdscatprintf(ss, "%lld", config->queryConfigParams.minTermPrefix);
 }
 
 CONFIG_SETTER(setForkGCSleep) {
-  int acrc = AC_GetSize(ac, &config->forkGcSleepBeforeExit, AC_F_GE0);
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcSleepBeforeExit, AC_F_GE0);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getForkGCSleep) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%zu", config->forkGcSleepBeforeExit);
+  return sdscatprintf(ss, "%zu", config->gcConfigParams.forkGc.forkGcSleepBeforeExit);
 }
 
 // MAXDOCTABLESIZE
@@ -152,16 +152,16 @@ CONFIG_SETTER(setMaxSearchResults) {
   if (newsize == -1) {
     newsize = UINT64_MAX;
   }
-  config->maxSearchResults = newsize;
+  config->requestConfigParams.maxSearchResults = newsize;
   return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getMaxSearchResults) {
   sds ss = sdsempty();
-  if (config->maxSearchResults == UINT64_MAX) {
+  if (config->requestConfigParams.maxSearchResults == UINT64_MAX) {
     return sdscatprintf(ss, "unlimited");
   }
-  return sdscatprintf(ss, "%lu", config->maxSearchResults);
+  return sdscatprintf(ss, "%lu", config->requestConfigParams.maxSearchResults);
 }
 
 // MAXAGGREGATERESULTS
@@ -172,38 +172,38 @@ CONFIG_SETTER(setMaxAggregateResults) {
   if (newsize == -1) {
     newsize = UINT64_MAX;
   }
-  config->maxAggregateResults = newsize;
+  config->requestConfigParams.maxAggregateResults = newsize;
   return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getMaxAggregateResults) {
   sds ss = sdsempty();
-  if (config->maxAggregateResults == UINT64_MAX) {
+  if (config->requestConfigParams.maxAggregateResults == UINT64_MAX) {
     return sdscatprintf(ss, "unlimited");
   }
-  return sdscatprintf(ss, "%lu", config->maxAggregateResults);
+  return sdscatprintf(ss, "%lu", config->requestConfigParams.maxAggregateResults);
 }
 
 // MAXEXPANSIONS MAXPREFIXEXPANSIONS
 CONFIG_SETTER(setMaxExpansions) {
-  int acrc = AC_GetLongLong(ac, &config->maxPrefixExpansions, AC_F_GE1);
+  int acrc = AC_GetLongLong(ac, &config->queryConfigParams.maxPrefixExpansions, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getMaxExpansions) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%llu", config->maxPrefixExpansions);
+  return sdscatprintf(ss, "%llu", config->queryConfigParams.maxPrefixExpansions);
 }
 
 // TIMEOUT
 CONFIG_SETTER(setTimeout) {
-  int acrc = AC_GetLongLong(ac, &config->queryTimeoutMS, AC_F_GE0);
+  int acrc = AC_GetLongLong(ac, &config->requestConfigParams.queryTimeoutMS, AC_F_GE0);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getTimeout) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->queryTimeoutMS);
+  return sdscatprintf(ss, "%lld", config->requestConfigParams.queryTimeoutMS);
 }
 
 // INDEX_THREADS
@@ -270,48 +270,48 @@ CONFIG_SETTER(setOnTimeout) {
   if (top == TimeoutPolicy_Invalid) {
     RETURN_ERROR("Invalid ON_TIMEOUT value");
   }
-  config->timeoutPolicy = top;
+  config->requestConfigParams.timeoutPolicy = top;
   return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getOnTimeout) {
-  return sdsnew(TimeoutPolicy_ToString(config->timeoutPolicy));
+  return sdsnew(TimeoutPolicy_ToString(config->requestConfigParams.timeoutPolicy));
 }
 
 // GC_SCANSIZE
 CONFIG_SETTER(setGcScanSize) {
-  int acrc = AC_GetSize(ac, &config->gcScanSize, AC_F_GE1);
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcScanSize, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getGcScanSize) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->gcScanSize);
+  return sdscatprintf(ss, "%lu", config->gcConfigParams.gcScanSize);
 }
 
 // MIN_PHONETIC_TERM_LEN
 CONFIG_SETTER(setForkGcInterval) {
-  int acrc = AC_GetSize(ac, &config->forkGcRunIntervalSec, AC_F_GE1);
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcRunIntervalSec, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_SETTER(setForkGcCleanThreshold) {
-  int acrc = AC_GetSize(ac, &config->forkGcCleanThreshold, 0);
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcCleanThreshold, 0);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_SETTER(setForkGcRetryInterval) {
-  int acrc = AC_GetSize(ac, &config->forkGcRetryInterval, AC_F_GE1);
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcRetryInterval, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_SETTER(setMaxResultsToUnsortedMode) {
-  int acrc = AC_GetLongLong(ac, &config->maxResultsToUnsortedMode, AC_F_GE1);
+  int acrc = AC_GetLongLong(ac, &config->queryConfigParams.maxResultsToUnsortedMode, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_SETTER(setMinUnionIteratorHeap) {
-  int acrc = AC_GetLongLong(ac, &config->minUnionIterHeap, AC_F_GE1);
+  int acrc = AC_GetLongLong(ac, &config->queryConfigParams.minUnionIterHeap, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
@@ -322,39 +322,39 @@ CONFIG_SETTER(setCursorMaxIdle) {
 
 CONFIG_GETTER(getForkGcCleanThreshold) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->forkGcCleanThreshold);
+  return sdscatprintf(ss, "%lu", config->gcConfigParams.forkGc.forkGcCleanThreshold);
 }
 
 CONFIG_GETTER(getForkGcInterval) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->forkGcRunIntervalSec);
+  return sdscatprintf(ss, "%lu", config->gcConfigParams.forkGc.forkGcRunIntervalSec);
 }
 
 CONFIG_GETTER(getForkGcRetryInterval) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->forkGcRetryInterval);
+  return sdscatprintf(ss, "%lu", config->gcConfigParams.forkGc.forkGcRetryInterval);
 }
 
 // FORK_GC_CLEAN_NUMERIC_EMPTY_NODES
 CONFIG_SETTER(setForkGCCleanNumericEmptyNodes) {
-  config->forkGCCleanNumericEmptyNodes = 1;
+  config->gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = 1;
   return REDISMODULE_OK;
 }
 
-CONFIG_BOOLEAN_GETTER(getForkGCCleanNumericEmptyNodes, forkGCCleanNumericEmptyNodes, 0)
+CONFIG_BOOLEAN_GETTER(getForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes, 0)
 
 // _FORK_GC_CLEAN_NUMERIC_EMPTY_NODES
-CONFIG_BOOLEAN_SETTER(set_ForkGCCleanNumericEmptyNodes, forkGCCleanNumericEmptyNodes)
-CONFIG_BOOLEAN_GETTER(get_ForkGCCleanNumericEmptyNodes, forkGCCleanNumericEmptyNodes, 0)
+CONFIG_BOOLEAN_SETTER(set_ForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes)
+CONFIG_BOOLEAN_GETTER(get_ForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes, 0)
 
 CONFIG_GETTER(getMaxResultsToUnsortedMode) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->maxResultsToUnsortedMode);
+  return sdscatprintf(ss, "%lld", config->queryConfigParams.maxResultsToUnsortedMode);
 }
 
 CONFIG_GETTER(getMinUnionIteratorHeap) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->minUnionIterHeap);
+  return sdscatprintf(ss, "%lld", config->queryConfigParams.minUnionIterHeap);
 }
 
 CONFIG_GETTER(getCursorMaxIdle) {
@@ -381,8 +381,8 @@ CONFIG_BOOLEAN_SETTER(setFreeResourcesThread, freeResourcesThread)
 CONFIG_BOOLEAN_GETTER(getFreeResourcesThread, freeResourcesThread, 0)
 
 // _PRINT_PROFILE_CLOCK
-CONFIG_BOOLEAN_SETTER(setPrintProfileClock, printProfileClock)
-CONFIG_BOOLEAN_GETTER(getPrintProfileClock, printProfileClock, 0)
+CONFIG_BOOLEAN_SETTER(setPrintProfileClock, queryConfigParams.printProfileClock)
+CONFIG_BOOLEAN_GETTER(getPrintProfileClock, queryConfigParams.printProfileClock, 0)
 
 // RAW_DOCID_ENCODING
 CONFIG_BOOLEAN_SETTER(setRawDocIDEncoding, invertedIndexRawDocidEncoding)
@@ -413,13 +413,13 @@ CONFIG_SETTER(setDefaultDialectVersion) {
     QueryError_SetErrorFmt(status, MAX_DIALECT_VERSION, "Default dialect version cannot be higher than %u", MAX_DIALECT_VERSION);
     return REDISMODULE_ERR;
   }
-  config->defaultDialectVersion = defaultDialectVersion;
+  config->requestConfigParams.defaultDialectVersion = defaultDialectVersion;
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getDefaultDialectVersion) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%u", config->defaultDialectVersion);
+  return sdscatprintf(ss, "%u", config->requestConfigParams.defaultDialectVersion);
 }
 
 CONFIG_SETTER(setVSSMaxResize) {
@@ -449,7 +449,7 @@ CONFIG_SETTER(setGcPolicy) {
   int acrc = AC_GetString(ac, &policy, NULL, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
-    config->gcPolicy = GCPolicy_Fork;
+    config->gcConfigParams.gcPolicy = GCPolicy_Fork;
   } else if (!strcasecmp(policy, "LEGACY")) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Legacy GC policy is no longer supported (since 2.6.0)");
     return REDISMODULE_ERR;
@@ -461,7 +461,7 @@ CONFIG_SETTER(setGcPolicy) {
 }
 
 CONFIG_GETTER(getGcPolicy) {
-  return sdsnew(GCPolicy_ToString(config->gcPolicy));
+  return sdsnew(GCPolicy_ToString(config->gcConfigParams.gcPolicy));
 }
 
 CONFIG_SETTER(setFilterCommand) {
@@ -804,19 +804,19 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   sds ss = sdsempty();
 
   ss = sdscatprintf(ss, "concurrent writes: %s, ", config->concurrentMode ? "ON" : "OFF");
-  ss = sdscatprintf(ss, "gc: %s, ", config->enableGC ? "ON" : "OFF");
-  ss = sdscatprintf(ss, "prefix min length: %lld, ", config->minTermPrefix);
-  ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->maxPrefixExpansions);
-  ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->queryTimeoutMS);
-  ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->timeoutPolicy));
+  ss = sdscatprintf(ss, "gc: %s, ", config->gcConfigParams.enableGC ? "ON" : "OFF");
+  ss = sdscatprintf(ss, "prefix min length: %lld, ", config->queryConfigParams.minTermPrefix);
+  ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->queryConfigParams.maxPrefixExpansions);
+  ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->requestConfigParams.queryTimeoutMS);
+  ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->requestConfigParams.timeoutPolicy));
   ss = sdscatprintf(ss, "cursor read size: %lld, ", config->cursorReadSize);
   ss = sdscatprintf(ss, "cursor max idle (ms): %lld, ", config->cursorMaxIdle);
   ss = sdscatprintf(ss, "max doctable size: %lu, ", config->maxDocTableSize);
   ss = sdscatprintf(ss, "max number of search results: ");
-  ss = (config->maxSearchResults == UINT64_MAX)
+  ss = (config->requestConfigParams.maxSearchResults == UINT64_MAX)
            ?  // value for MaxSearchResults
            sdscatprintf(ss, "unlimited, ")
-           : sdscatprintf(ss, " %lu, ", config->maxSearchResults);
+           : sdscatprintf(ss, " %lu, ", config->requestConfigParams.maxSearchResults);
   ss = sdscatprintf(ss, "search pool size: %lu, ", config->searchPoolSize);
   ss = sdscatprintf(ss, "index pool size: %lu, ", config->indexPoolSize);
 
@@ -909,20 +909,20 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
   if (RSGlobalConfig.frisoIni != NULL) {
     RedisModule_InfoAddFieldCString(ctx, "friso_ini", (char*)RSGlobalConfig.frisoIni);
   }
-  RedisModule_InfoAddFieldCString(ctx, "enableGC", RSGlobalConfig.enableGC ? "ON" : "OFF");
-  RedisModule_InfoAddFieldLongLong(ctx, "minimal_term_prefix", RSGlobalConfig.minTermPrefix);
-  RedisModule_InfoAddFieldLongLong(ctx, "maximal_prefix_expansions", RSGlobalConfig.maxPrefixExpansions);
-  RedisModule_InfoAddFieldLongLong(ctx, "query_timeout_ms", RSGlobalConfig.queryTimeoutMS);
-  RedisModule_InfoAddFieldCString(ctx, "timeout_policy", (char*)TimeoutPolicy_ToString(RSGlobalConfig.timeoutPolicy));
+  RedisModule_InfoAddFieldCString(ctx, "enableGC", RSGlobalConfig.gcConfigParams.enableGC ? "ON" : "OFF");
+  RedisModule_InfoAddFieldLongLong(ctx, "minimal_term_prefix", RSGlobalConfig.queryConfigParams.minTermPrefix);
+  RedisModule_InfoAddFieldLongLong(ctx, "maximal_prefix_expansions", RSGlobalConfig.queryConfigParams.maxPrefixExpansions);
+  RedisModule_InfoAddFieldLongLong(ctx, "query_timeout_ms", RSGlobalConfig.requestConfigParams.queryTimeoutMS);
+  RedisModule_InfoAddFieldCString(ctx, "timeout_policy", (char*)TimeoutPolicy_ToString(RSGlobalConfig.requestConfigParams.timeoutPolicy));
   RedisModule_InfoAddFieldLongLong(ctx, "cursor_read_size", RSGlobalConfig.cursorReadSize);
   RedisModule_InfoAddFieldLongLong(ctx, "cursor_max_idle_time", RSGlobalConfig.cursorMaxIdle);
 
   RedisModule_InfoAddFieldLongLong(ctx, "max_doc_table_size", RSGlobalConfig.maxDocTableSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "max_search_results", RSGlobalConfig.maxSearchResults);
-  RedisModule_InfoAddFieldLongLong(ctx, "max_aggregate_results", RSGlobalConfig.maxAggregateResults);
+  RedisModule_InfoAddFieldLongLong(ctx, "max_search_results", RSGlobalConfig.requestConfigParams.maxSearchResults);
+  RedisModule_InfoAddFieldLongLong(ctx, "max_aggregate_results", RSGlobalConfig.requestConfigParams.maxAggregateResults);
   RedisModule_InfoAddFieldLongLong(ctx, "search_pool_size", RSGlobalConfig.searchPoolSize);
   RedisModule_InfoAddFieldLongLong(ctx, "index_pool_size", RSGlobalConfig.indexPoolSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcScanSize);
+  RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcConfigParams.gcScanSize);
   RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length", RSGlobalConfig.minPhoneticTermLen);
 }
 
@@ -955,4 +955,11 @@ RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n) {
   } else {
     return TimeoutPolicy_Invalid;
   }
+}
+void queryConfig_init(QueryConfig *config) {
+    config->maxPrefixExpansions = RSGlobalConfig.queryConfigParams.maxPrefixExpansions;
+    config->minTermPrefix = RSGlobalConfig.queryConfigParams.minTermPrefix;
+    config->maxResultsToUnsortedMode = RSGlobalConfig.queryConfigParams.maxResultsToUnsortedMode;
+    config->minUnionIterHeap = RSGlobalConfig.queryConfigParams.minUnionIterHeap;
+    config->printProfileClock = RSGlobalConfig.queryConfigParams.printProfileClock;
 }

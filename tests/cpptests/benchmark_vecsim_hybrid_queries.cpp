@@ -17,7 +17,6 @@
 
 #include "rmutil/alloc.h"
 #include "index_utils.h"
-#include "src/query_config.h"
 
 #include <cassert>
 #include <vector>

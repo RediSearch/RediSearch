@@ -9,7 +9,6 @@
 
 #include "value.h"
 #include "aggregate/aggregate.h"
-#include "query_config.h"
 
 #define CLOCKS_PER_MILLISEC  (CLOCKS_PER_SEC / 1000)
 

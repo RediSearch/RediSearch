@@ -12,6 +12,8 @@
 #include "query_error.h"
 #include "fields_global_stats.h"
 
+
+
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
   TimeoutPolicy_Fail,         // Just fail without returning anything
@@ -35,6 +37,46 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
       return "huh?";  // LCOV_EXCL_LINE cannot be reached
   }
 }
+typedef struct {
+  size_t forkGcRunIntervalSec;
+  size_t forkGcCleanThreshold;
+  size_t forkGcRetryInterval;
+  size_t forkGcSleepBeforeExit;
+  int forkGCCleanNumericEmptyNodes;
+} forkGcConfig;
+
+typedef struct {
+  // If this is set, GC is enabled on all indexes (default: 1, disable with NOGC)
+  int enableGC;
+  size_t gcScanSize;
+  GCPolicy gcPolicy;
+
+  forkGcConfig forkGc;
+} GCConfig;
+
+// Configuration parameters related to aggregate request.
+typedef struct {
+  size_t maxSearchResults;
+  size_t maxAggregateResults;
+  // Default dialect level used throughout database lifetime.
+  unsigned int defaultDialectVersion;
+  // The maximal amount of time a single query can take before timing out, in milliseconds.
+  // 0 means unlimited
+  long long queryTimeoutMS;
+  RSTimeoutPolicy timeoutPolicy;
+} requestConfig;
+
+// Configuration parameters related to the query execution.
+typedef struct QueryConfig {
+  // The maximal number of expansions we allow for a prefix. Default: 200
+  long long maxPrefixExpansions;
+  // The minimal number of characters we allow expansion for in a prefix search. Default: 2
+  long long minTermPrefix;
+  long long maxResultsToUnsortedMode;
+  long long minUnionIterHeap;
+  // reply with time on profile
+  int printProfileClock;
+} QueryConfig;
 
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module statrtup */
@@ -47,20 +89,10 @@ typedef struct {
   const char *extLoad;
   // Path to friso.ini for chinese dictionary file
   const char *frisoIni;
-  // If this is set, GC is enabled on all indexes (default: 1, disable with NOGC)
-  int enableGC;
 
-  // The minimal number of characters we allow expansion for in a prefix search. Default: 2
-  long long minTermPrefix;
+  QueryConfig queryConfigParams;
 
-  // The maximal number of expansions we allow for a prefix. Default: 200
-  long long maxPrefixExpansions;
-
-  // The maximal amount of time a single query can take before timing out, in milliseconds.
-  // 0 means unlimited
-  long long queryTimeoutMS;
-
-  RSTimeoutPolicy timeoutPolicy;
+  requestConfig requestConfigParams;
 
   // Number of rows to read from a cursor if not specified
   long long cursorReadSize;
@@ -70,8 +102,6 @@ typedef struct {
   long long cursorMaxIdle;
 
   size_t maxDocTableSize;
-  size_t maxSearchResults;
-  size_t maxAggregateResults;
   size_t searchPoolSize;
   size_t indexPoolSize;
   int poolSizeNoAuto;  // Don't auto-detect pool size
@@ -81,24 +111,14 @@ typedef struct {
   int threadsEnabled;
 // #endif
 
-  size_t gcScanSize;
-
   size_t minPhoneticTermLen;
 
-  GCPolicy gcPolicy;
-  size_t forkGcRunIntervalSec;
-  size_t forkGcCleanThreshold;
-  size_t forkGcRetryInterval;
-  size_t forkGcSleepBeforeExit;
-  int forkGCCleanNumericEmptyNodes;
+  GCConfig gcConfigParams;
 
   FieldsGlobalStats fieldsStats;
 
   // Chained configuration data
   void *chainedConfig;
-
-  long long maxResultsToUnsortedMode;
-  long long minUnionIterHeap;
 
   int noMemPool;
 
@@ -110,12 +130,10 @@ typedef struct {
   int numericCompress;
   // keep numeric ranges in parents of leafs
   size_t numericTreeMaxDepthRange;
-  // reply with time on profile
-  int printProfileClock;
+
   // disable compression for inverted index DocIdsOnly
   int invertedIndexRawDocidEncoding;
-  // Default dialect level used throughout database lifetime.
-  unsigned int defaultDialectVersion;
+
   // sets the memory limit for vector indexes to resize by (in bytes).
   // 0 indicates no limit. Default value is 0.
   unsigned int vssMaxResize;
@@ -207,11 +225,11 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define RS_DEFAULT_CONFIG {                                                                                           \
     .concurrentMode = 0,                                                                                              \
     .extLoad = NULL,                                                                                                  \
-    .enableGC = 1,                                                                                                    \
-    .minTermPrefix = 2,                                                                                               \
-    .maxPrefixExpansions = 200,                                                                                       \
-    .queryTimeoutMS = 500,                                                                                            \
-    .timeoutPolicy = TimeoutPolicy_Return,                                                                            \
+    .gcConfigParams.enableGC = 1,                                                                                     \
+    .queryConfigParams.minTermPrefix = 2,                                                                             \
+    .queryConfigParams.maxPrefixExpansions = 200,                                                                     \
+    .requestConfigParams.queryTimeoutMS = 500,                                                                        \
+    .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                                                        \
     .cursorReadSize = 1000,                                                                                           \
     .cursorMaxIdle = 300000,                                                                                          \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                                                        \
@@ -220,26 +238,26 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .poolSizeNoAuto = 0,                                                                                              \
     .numWorkerThreads = 0,                                                                                            \
     .threadsEnabled = 0,                                                                                              \
-    .gcScanSize = GC_SCANSIZE,                                                                                        \
+    .gcConfigParams.gcScanSize = GC_SCANSIZE,                                                                         \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                                                              \
-    .gcPolicy = GCPolicy_Fork,                                                                                        \
-    .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,                                                             \
-    .forkGcSleepBeforeExit = 0,                                                                                       \
-    .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE,                                                 \
-    .forkGcRetryInterval = 5,                                                                                         \
-    .forkGcCleanThreshold = 100,                                                                                      \
+    .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                         \
+    .gcConfigParams.forkGc.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,                                       \
+    .gcConfigParams.forkGc.forkGcSleepBeforeExit = 0,                                                                 \
+    .queryConfigParams.maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE,                               \
+    .gcConfigParams.forkGc.forkGcRetryInterval = 5,                                                                   \
+    .gcConfigParams.forkGc.forkGcCleanThreshold = 100,                                                                \
     .noMemPool = 0,                                                                                                   \
     .filterCommands = 0,                                                                                              \
-    .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX,                                                                   \
-    .maxAggregateResults = -1,                                                                                        \
-    .minUnionIterHeap = 20,                                                                                           \
+    .requestConfigParams.maxSearchResults = SEARCH_REQUEST_RESULTS_MAX,                                               \
+    .requestConfigParams.maxAggregateResults = -1,                                                                    \
+    .queryConfigParams.minUnionIterHeap = 20,                                                                         \
     .numericCompress = false,                                                                                         \
     .numericTreeMaxDepthRange = 0,                                                                                    \
-    .printProfileClock = 1,                                                                                           \
+    .queryConfigParams.printProfileClock = 1,                                                                         \
     .invertedIndexRawDocidEncoding = false,                                                                           \
-    .forkGCCleanNumericEmptyNodes = true,                                                                             \
+    .gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = true,                                                       \
     .freeResourcesThread = true,                                                                                      \
-    .defaultDialectVersion = 1,                                                                                       \
+    .requestConfigParams.defaultDialectVersion = 1,                                                                   \
     .vssMaxResize = 0,                                                                                                \
     .multiTextOffsetDelta = 100,                                                                                      \
     .used_dialects = 0,                                                                                               \
@@ -255,4 +273,12 @@ static inline int isFeatureSupported(int feature) {
 
 #define CONFIG_SETTER(name) int name(RSConfig *config, ArgsCursor *ac, QueryError *status)
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+void queryConfig_init(QueryConfig *config);
+
+#ifdef __cplusplus
+}
+#endif
 #endif
