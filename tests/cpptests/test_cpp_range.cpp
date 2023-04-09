@@ -105,7 +105,7 @@ void testRangeIteratorHelper(bool isMulti) {
       }
     }
     IteratorsConfig config{};
-    queryConfig_init(&config);
+    iteratorsConfig_init(&config);
     // printf("Testing range %f..%f, should have %d docs\n", min, max, count);
     IndexIterator *it = createNumericIterator(NULL, t, flt, &config);
 

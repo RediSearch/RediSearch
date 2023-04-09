@@ -107,13 +107,13 @@ CONFIG_BOOLEAN_GETTER(getNoMemPools, noMemPool, 0)
 
 // MINPREFIX
 CONFIG_SETTER(setMinPrefix) {
-  int acrc = AC_GetLongLong(ac, &config->queryConfigParams.minTermPrefix, AC_F_GE1);
+  int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.minTermPrefix, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getMinPrefix) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->queryConfigParams.minTermPrefix);
+  return sdscatprintf(ss, "%lld", config->iteratorsConfigParams.minTermPrefix);
 }
 
 CONFIG_SETTER(setForkGCSleep) {
@@ -186,13 +186,13 @@ CONFIG_GETTER(getMaxAggregateResults) {
 
 // MAXEXPANSIONS MAXPREFIXEXPANSIONS
 CONFIG_SETTER(setMaxExpansions) {
-  int acrc = AC_GetLongLong(ac, &config->queryConfigParams.maxPrefixExpansions, AC_F_GE1);
+  int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.maxPrefixExpansions, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getMaxExpansions) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%llu", config->queryConfigParams.maxPrefixExpansions);
+  return sdscatprintf(ss, "%llu", config->iteratorsConfigParams.maxPrefixExpansions);
 }
 
 // TIMEOUT
@@ -306,12 +306,12 @@ CONFIG_SETTER(setForkGcRetryInterval) {
 }
 
 CONFIG_SETTER(setMaxResultsToUnsortedMode) {
-  int acrc = AC_GetLongLong(ac, &config->queryConfigParams.maxResultsToUnsortedMode, AC_F_GE1);
+  int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.maxResultsToUnsortedMode, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_SETTER(setMinUnionIteratorHeap) {
-  int acrc = AC_GetLongLong(ac, &config->queryConfigParams.minUnionIterHeap, AC_F_GE1);
+  int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.minUnionIterHeap, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
@@ -349,12 +349,12 @@ CONFIG_BOOLEAN_GETTER(get_ForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.fo
 
 CONFIG_GETTER(getMaxResultsToUnsortedMode) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->queryConfigParams.maxResultsToUnsortedMode);
+  return sdscatprintf(ss, "%lld", config->iteratorsConfigParams.maxResultsToUnsortedMode);
 }
 
 CONFIG_GETTER(getMinUnionIteratorHeap) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->queryConfigParams.minUnionIterHeap);
+  return sdscatprintf(ss, "%lld", config->iteratorsConfigParams.minUnionIterHeap);
 }
 
 CONFIG_GETTER(getCursorMaxIdle) {
@@ -407,19 +407,19 @@ CONFIG_GETTER(getNumericTreeMaxDepthRange) {
 }
 
 CONFIG_SETTER(setDefaultDialectVersion) {
-  unsigned int defaultDialectVersion;
-  int acrc = AC_GetUnsigned(ac, &defaultDialectVersion, AC_F_GE1);
-  if (defaultDialectVersion > MAX_DIALECT_VERSION) {
+  unsigned int dialectVersion;
+  int acrc = AC_GetUnsigned(ac, &dialectVersion, AC_F_GE1);
+  if (dialectVersion > MAX_DIALECT_VERSION) {
     QueryError_SetErrorFmt(status, MAX_DIALECT_VERSION, "Default dialect version cannot be higher than %u", MAX_DIALECT_VERSION);
     return REDISMODULE_ERR;
   }
-  config->requestConfigParams.defaultDialectVersion = defaultDialectVersion;
+  config->requestConfigParams.dialectVersion = dialectVersion;
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getDefaultDialectVersion) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%u", config->requestConfigParams.defaultDialectVersion);
+  return sdscatprintf(ss, "%u", config->requestConfigParams.dialectVersion);
 }
 
 CONFIG_SETTER(setVSSMaxResize) {
@@ -805,8 +805,8 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
 
   ss = sdscatprintf(ss, "concurrent writes: %s, ", config->concurrentMode ? "ON" : "OFF");
   ss = sdscatprintf(ss, "gc: %s, ", config->gcConfigParams.enableGC ? "ON" : "OFF");
-  ss = sdscatprintf(ss, "prefix min length: %lld, ", config->queryConfigParams.minTermPrefix);
-  ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->queryConfigParams.maxPrefixExpansions);
+  ss = sdscatprintf(ss, "prefix min length: %lld, ", config->iteratorsConfigParams.minTermPrefix);
+  ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->iteratorsConfigParams.maxPrefixExpansions);
   ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->requestConfigParams.queryTimeoutMS);
   ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->requestConfigParams.timeoutPolicy));
   ss = sdscatprintf(ss, "cursor read size: %lld, ", config->cursorReadSize);
@@ -910,8 +910,8 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
     RedisModule_InfoAddFieldCString(ctx, "friso_ini", (char*)RSGlobalConfig.frisoIni);
   }
   RedisModule_InfoAddFieldCString(ctx, "enableGC", RSGlobalConfig.gcConfigParams.enableGC ? "ON" : "OFF");
-  RedisModule_InfoAddFieldLongLong(ctx, "minimal_term_prefix", RSGlobalConfig.queryConfigParams.minTermPrefix);
-  RedisModule_InfoAddFieldLongLong(ctx, "maximal_prefix_expansions", RSGlobalConfig.queryConfigParams.maxPrefixExpansions);
+  RedisModule_InfoAddFieldLongLong(ctx, "minimal_term_prefix", RSGlobalConfig.iteratorsConfigParams.minTermPrefix);
+  RedisModule_InfoAddFieldLongLong(ctx, "maximal_prefix_expansions", RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions);
   RedisModule_InfoAddFieldLongLong(ctx, "query_timeout_ms", RSGlobalConfig.requestConfigParams.queryTimeoutMS);
   RedisModule_InfoAddFieldCString(ctx, "timeout_policy", (char*)TimeoutPolicy_ToString(RSGlobalConfig.requestConfigParams.timeoutPolicy));
   RedisModule_InfoAddFieldLongLong(ctx, "cursor_read_size", RSGlobalConfig.cursorReadSize);
@@ -956,6 +956,6 @@ RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n) {
     return TimeoutPolicy_Invalid;
   }
 }
-void queryConfig_init(IteratorsConfig *config) {
-  *config = RSGlobalConfig.queryConfigParams;
+void iteratorsConfig_init(IteratorsConfig *config) {
+  *config = RSGlobalConfig.iteratorsConfigParams;
 }

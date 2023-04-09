@@ -249,7 +249,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     req->reqflags |= QEXEC_F_REQUIRED_FIELDS;
   }
     else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
-    if (parseDialect(&req->reqConfig.defaultDialectVersion, ac, status) != REDISMODULE_OK) {
+    if (parseDialect(&req->reqConfig.dialectVersion, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else {
@@ -733,9 +733,8 @@ AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
   req->optimizer = QOptimizer_New();
   /*   
-  unsigned int defaultDialectVersion;
+  unsigned int dialectVersion;
   long long queryTimeoutMS;
-  req->optimizer = QOptimizer_New();
   RSTimeoutPolicy timeoutPolicy; 
   int printProfileClock;
   */
@@ -850,7 +849,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
-  sctx->apiVersion = req->reqConfig.defaultDialectVersion;
+  sctx->apiVersion = req->reqConfig.dialectVersion;
   req->sctx = sctx;
 
   if ((index->flags & Index_StoreByteOffsets) == 0 && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
@@ -886,7 +885,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   QueryAST *ast = &req->ast;
 
-  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), req->reqConfig.defaultDialectVersion, status);
+  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), req->reqConfig.dialectVersion, status);
   if (rv != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
@@ -916,7 +915,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   
   // set queryAST configuration parameters
-  queryConfig_init(&ast->config);
+  iteratorsConfig_init(&ast->config);
 
   return REDISMODULE_OK;
 }
@@ -1204,7 +1203,7 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
   // Add a LOAD step...
   const RLookupKey **loadkeys = NULL;
   if (req->outFields.explicitReturn) {
-    bool is_old_json = isSpecJson(req->sctx->spec) && (req->reqConfig.defaultDialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST);
+    bool is_old_json = isSpecJson(req->sctx->spec) && (req->reqConfig.dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST);
     // Go through all the fields and ensure that each one exists in the lookup stage
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       const ReturnedField *rf = req->outFields.fields + ii;

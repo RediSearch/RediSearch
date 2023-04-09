@@ -57,7 +57,7 @@ typedef struct {
 // Configuration parameters related to aggregate request.
 typedef struct {
   // Default dialect level used throughout database lifetime.
-  unsigned int defaultDialectVersion;
+  unsigned int dialectVersion;
   // The maximal amount of time a single query can take before timing out, in milliseconds.
   // 0 means unlimited
   long long queryTimeoutMS;
@@ -88,7 +88,7 @@ typedef struct {
   // Path to friso.ini for chinese dictionary file
   const char *frisoIni;
 
-  IteratorsConfig queryConfigParams;
+  IteratorsConfig iteratorsConfigParams;
 
   RequestConfig requestConfigParams;
 
@@ -225,8 +225,8 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .concurrentMode = 0,                                                                                              \
     .extLoad = NULL,                                                                                                  \
     .gcConfigParams.enableGC = 1,                                                                                     \
-    .queryConfigParams.minTermPrefix = 2,                                                                             \
-    .queryConfigParams.maxPrefixExpansions = 200,                                                                     \
+    .iteratorsConfigParams.minTermPrefix = 2,                                                                             \
+    .iteratorsConfigParams.maxPrefixExpansions = 200,                                                                     \
     .requestConfigParams.queryTimeoutMS = 500,                                                                        \
     .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                                                        \
     .cursorReadSize = 1000,                                                                                           \
@@ -242,21 +242,21 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                         \
     .gcConfigParams.forkGc.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,                                       \
     .gcConfigParams.forkGc.forkGcSleepBeforeExit = 0,                                                                 \
-    .queryConfigParams.maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE,                               \
+    .iteratorsConfigParams.maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE,                               \
     .gcConfigParams.forkGc.forkGcRetryInterval = 5,                                                                   \
     .gcConfigParams.forkGc.forkGcCleanThreshold = 100,                                                                \
     .noMemPool = 0,                                                                                                   \
     .filterCommands = 0,                                                                                              \
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX,                                                                   \
     .maxAggregateResults = -1,                                                                                        \
-    .queryConfigParams.minUnionIterHeap = 20,                                                                         \
+    .iteratorsConfigParams.minUnionIterHeap = 20,                                                                         \
     .numericCompress = false,                                                                                         \
     .numericTreeMaxDepthRange = 0,                                                                                    \
     .requestConfigParams.printProfileClock = 1,                                                                       \
     .invertedIndexRawDocidEncoding = false,                                                                           \
     .gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = true,                                                       \
     .freeResourcesThread = true,                                                                                      \
-    .requestConfigParams.defaultDialectVersion = 1,                                                                   \
+    .requestConfigParams.dialectVersion = 1,                                                                   \
     .vssMaxResize = 0,                                                                                                \
     .multiTextOffsetDelta = 100,                                                                                      \
     .used_dialects = 0,                                                                                               \
@@ -275,7 +275,7 @@ static inline int isFeatureSupported(int feature) {
 #ifdef __cplusplus
 extern "C" {
 #endif
-void queryConfig_init(IteratorsConfig *config);
+void iteratorsConfig_init(IteratorsConfig *config);
 
 #ifdef __cplusplus
 }

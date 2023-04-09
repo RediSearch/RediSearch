@@ -547,8 +547,8 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     goto error;
   }
 
-  SET_DIALECT(r->sctx->spec->used_dialects, r->reqConfig.defaultDialectVersion);
-  SET_DIALECT(RSGlobalConfig.used_dialects, r->reqConfig.defaultDialectVersion);
+  SET_DIALECT(r->sctx->spec->used_dialects, r->reqConfig.dialectVersion);
+  SET_DIALECT(RSGlobalConfig.used_dialects, r->reqConfig.dialectVersion);
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
     if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
