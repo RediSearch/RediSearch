@@ -223,7 +223,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   // Init threadpool. 
   // Threadpool size can only be set on load, hence it is not dependent on
   // threadsEnabled flag.
-  if(RSGlobalConfig.numWorkerThreads){
+  if(RSGlobalConfig.numWorkerThreads && !RSGlobalConfig.concurrentMode){
     if(workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
       return REDISMODULE_ERR;
     }
