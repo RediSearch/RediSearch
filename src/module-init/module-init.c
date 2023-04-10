@@ -208,6 +208,12 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   if (RSGlobalConfig.concurrentMode) {
     ConcurrentSearch_ThreadPoolStart();
+    // Do not initialize workers threadpool
+    if (RSGlobalConfig.numWorkerThreads) {
+      DO_LOG("warning",
+             "Worker threads mode is not allowed if concurrentMode is set. Worker threads were not "
+             "initialized.");
+    }
   }
 
   GC_ThreadPoolStart();
