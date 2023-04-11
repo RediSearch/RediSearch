@@ -112,6 +112,8 @@ def testDropReplicate():
   # test for FT.DROPINDEX
   env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
   master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO')
+  waitForIndex(master, 'idx')
+  env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
   master.execute_command('FT.DROPINDEX', 'idx', 'DD')
   env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
 
@@ -291,6 +293,9 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
         env.assertEqual(res, expected_res[0], message=(msg + " slave"))
         res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
         env.assertEqual(res, expected_res[1], message=(msg + " master"))
+
+        # Wait for the master to send the deletion command to the slave
+        env.expect('WAIT', '1', '10000').equal(1)
 
         # Second iteration - only 1 doc is left (master deleted it)
         res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
