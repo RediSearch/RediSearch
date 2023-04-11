@@ -275,6 +275,10 @@ static inline int isFeatureSupported(int feature) {
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// Gets a pointer to an empty IteratorsConfig struct and copy the current
+// RSGlobalConfig.IteratorsConfig parameters values into it.
+// The size of the memory @param config points to must be at least sizeof(IteratorsConfig)
 void iteratorsConfig_init(IteratorsConfig *config);
 
 #ifdef __cplusplus
