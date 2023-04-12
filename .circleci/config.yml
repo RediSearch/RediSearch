@@ -1044,14 +1044,16 @@ workflows:
           <<: *on-version-tags
           requires:
             - upload-release-artifacts
-      - build-linux-debian: #@@
+      - build-linux-debian:
           name: full-with-redis-<<matrix.redis_version>>
+          <<: *never
           test_params: ""
           matrix:
             parameters:
               redis_version: ["6.2", "7.0", "7.2-rc1"]
-      - sanitize: #@@
-          name: full-nightly-sanitize-<< matrix.san-type >>
+      - sanitize:
+          name: full-sanitize-<< matrix.san-type >>
+          <<: *never
           test_params: ""
           matrix:
             parameters:
