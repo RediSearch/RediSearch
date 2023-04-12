@@ -310,3 +310,4 @@ static int checkResult(const GeoFilter *gf, const RSIndexResult *cur) {
   }
   return 0;
 }
+
