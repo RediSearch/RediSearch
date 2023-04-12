@@ -1046,12 +1046,14 @@ workflows:
             - upload-release-artifacts
       - build-linux-debian:
           name: full-with-redis-<<matrix.redis_version>>
+          <<: *never
           test_params: ""
           matrix:
             parameters:
-              redis_version: ["6.2", "7"]
+              redis_version: ["6.2", "7.0", "7.2-rc1"]
       - sanitize:
-          name: full-nightly-sanitize-<< matrix.san-type >>
+          name: full-sanitize-<< matrix.san-type >>
+          <<: *never
           test_params: ""
           matrix:
             parameters:
@@ -1109,6 +1111,7 @@ workflows:
       - benchmark-search-oss-cluster-g6:
           context: common
           <<: *always
+
   nightly:
     triggers:
       - schedule:
@@ -1126,7 +1129,7 @@ workflows:
           test_params: ""
           matrix:
             parameters:
-              redis_version: ["6.0", "6.2", "7", "unstable"]
+              redis_version: ["6.0", "6.2", "7.0", "7.2-rc1", "unstable"]
       - sanitize:
           name: nightly-sanitize-<< matrix.san-type >>
           test_params: ""

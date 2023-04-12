@@ -213,8 +213,10 @@ setup_clang_sanitizer() {
 				--suffix asan --clang-asan --clang-san-blacklist $ignorelist
 		fi
 
+		# RLTest places log file details in ASAN_OPTIONS
 		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1"
 		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp"
+		# :use_tls=0
 
 	elif [[ $SAN == mem || $SAN == memory ]]; then
 		REDIS_SERVER=${REDIS_SERVER:-redis-server-msan-$SAN_REDIS_VER}
@@ -325,7 +327,7 @@ run_tests() {
 		if [[ -n $GITHUB_ACTIONS ]]; then
 			echo "::group::$title"
 		else
-			$READIES/bin/sep -0
+			$READIES/bin/sep1 -0
 			printf "Running $title:\n\n"
 		fi
 	fi
@@ -645,14 +647,14 @@ elif [[ $COORD == oss ]]; then
 		oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 60000"
 	fi
 
-	if [[ $QUICK != "~1" ]]; then
+	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
 		   run_tests "OSS cluster tests"); (( E |= $? )); } || true
 	fi
 
 	if [[ $QUICK != 1 ]]; then
 		if [[ -z $CONFIG || $CONFIG == global_password ]]; then
-			if [[ $SAN != address && $FORCE_SAN != 1 ]]; then
+			if [[ $SAN != address || $FORCE_SAN == 1 ]]; then
 				{ (MODARGS="${MODARGS} PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
 				   RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} --oss_password password" \
 				   run_tests "OSS cluster tests with password"); (( E |= $? )); } || true
