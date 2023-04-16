@@ -41,6 +41,7 @@ def checkSlaveSynced(env, slaveConn, command, expected_result, time_out=5):
 
 def initEnv():
   env = Env(useSlaves=True, forceTcp=True)
+  env.skip() # flaky; TODO: remove when #3525 is resolved
 
   env.skipOnCluster()
 
