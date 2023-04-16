@@ -53,10 +53,10 @@ def dotestSanity(env, dialect):
     # 234x & x234
     start = time.time()
     env.expect('ft.search', index, '*234*', 'LIMIT', 0 , 0).equal([80])
-    print (time.time() - start)
+    # print (time.time() - start)
     start = time.time()
     env.expect('ft.search', index, '*o23*', 'LIMIT', 0 , 0).equal([444])
-    print (time.time() - start)
+    # print (time.time() - start)
     env.expect('ft.search', index, '*oo23*', 'LIMIT', 0 , 0).equal([333])
     env.expect('ft.search', index, '*oo234*', 'LIMIT', 0 , 0).equal([33])
 
@@ -119,7 +119,7 @@ def dotestSanityTag(env, dialect):
 
     # contains
     env.expect('ft.search', index, "@t:{w'*oo*'}", 'LIMIT', 0 , 0).equal([40000])
-    # 55xx & x55x & xx55 - 555x - x555 
+    # 55xx & x55x & xx55 - 555x - x555
     env.expect('ft.search', index, "@t:{w'*55*'}", 'LIMIT', 0 , 0).equal([1120])
     # 555x & x555 - 5555
     env.expect('ft.search', index, "@t:{w'*555*'}", 'LIMIT', 0 , 0).equal([76])
@@ -132,10 +132,10 @@ def dotestSanityTag(env, dialect):
     # 234x & x234
     start = time.time()
     env.expect('ft.search', index, "@t:{w'*234*'}", 'LIMIT', 0 , 0).equal([80])
-    print (time.time() - start)
+    # print (time.time() - start)
     start = time.time()
     env.expect('ft.search', index, "@t:{w'*o23*'}", 'LIMIT', 0 , 0).equal([444])
-    print (time.time() - start)
+    # print (time.time() - start)
     env.expect('ft.search', index, "@t:{w'*oo23*'}", 'LIMIT', 0 , 0).equal([333])
     env.expect('ft.search', index, "@t:{w'*oo234*'}", 'LIMIT', 0 , 0).equal([33])
 
