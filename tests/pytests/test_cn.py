@@ -124,6 +124,7 @@ def testSynonym1(env):
 child
 """ + chr(0)
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'LANGUAGE_FIELD', 'chinese', 'schema', 'txt', 'text')
+    # env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'txt', 'text')
     waitForIndex(env, 'idx')
     env.cmd('ft.synupdate', 'idx', 'group1', 'child' + chr(0), 'boy' + chr(0))
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', txt)

@@ -1129,7 +1129,8 @@ workflows:
               redis_version: ["6.0", "6.2", "7", "unstable"]
       - sanitize:
           name: nightly-sanitize-<< matrix.san-type >>
-          test_params: ""
+          #@@test_params: ""
+          test_params: "TEST=test_cn"
           matrix:
             parameters:
               san-type: [address]
