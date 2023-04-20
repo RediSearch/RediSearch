@@ -58,7 +58,7 @@ add_subdirectory(deps/phonetics)
 option(VECSIM_STATIC "Build as static library" ON)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
-add_subdirectory(deps/VectorSimilarity/src)
+add_subdirectory(deps/VectorSimilarity)
 
 #----------------------------------------------------------------------------------------------
 
