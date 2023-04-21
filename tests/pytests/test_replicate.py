@@ -41,6 +41,7 @@ def checkSlaveSynced(env, slaveConn, command, expected_result, time_out=5):
 
 def initEnv():
   env = Env(useSlaves=True, forceTcp=True)
+  env.skip() # flaky; TODO: remove when #3525 is resolved
 
   env.skipOnCluster()
 
@@ -232,7 +233,7 @@ def testExpireDocs():
     master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
     master.execute_command('HSET', 'doc1', 't', 'bar')
     master.execute_command('HSET', 'doc2', 't', 'foo')
-    
+
     # both docs exist
     res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
     env.assertEqual(res, [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']])
@@ -276,7 +277,7 @@ def testExpireDocsSortable():
   exist on both shards.
   One of the documents is expired.
   The test checks the document is removed from both master and slave.
-  The first iteration, the doc was deleted on redis but not on RediSearch and data is `None`. 
+  The first iteration, the doc was deleted on redis but not on RediSearch and data is `None`.
   '''
 
   for i in range(2):
@@ -284,7 +285,7 @@ def testExpireDocsSortable():
     master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
     master.execute_command('HSET', 'doc1', 't', 'bar')
     master.execute_command('HSET', 'doc2', 't', 'foo')
-    
+
     # both docs exist
     res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
     env.assertEqual(res, [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']])

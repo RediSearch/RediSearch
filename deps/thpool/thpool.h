@@ -170,7 +170,7 @@ void redisearch_thpool_destroy(redisearch_threadpool);
  *    threadpool thpool1 = thpool_init(2);
  *    threadpool thpool2 = thpool_init(2);
  *    ..
- *    printf("Working threads: %d\n", thpool_num_threads_working(thpool1));
+ *    printf("Working threads: %d\n", redisearch_thpool_num_threads_working(thpool1));
  *    ..
  *    return 0;
  * }
@@ -178,7 +178,7 @@ void redisearch_thpool_destroy(redisearch_threadpool);
  * @param threadpool     the threadpool of interest
  * @return integer       number of threads working
  */
-int thpool_num_threads_working(redisearch_threadpool);
+int redisearch_thpool_num_threads_working(redisearch_threadpool);
 
 
 #ifdef __cplusplus
