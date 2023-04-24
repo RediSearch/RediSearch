@@ -52,6 +52,8 @@ int redisPatchVesion = 0;
 
 extern RedisModuleCtx *RSDummyContext;
 
+static int DIST_AGG_THREADPOOL = -1;
+
 // forward declaration
 int allOKReducer(struct MRCtx *mc, int count, MRReply **replies);
 RSValue *MRReply_ToValue(MRReply *r, RSValueType convertType);
@@ -436,7 +438,6 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies);
-static int profileSearchResultReducer(struct MRCtx *mc, int count, MRReply **replies);
 
 static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   req->profileArgs = 0;
@@ -1175,11 +1176,21 @@ static void profileSearchReply(RedisModuleCtx *ctx, searchReducerCtx *rCtx,
   RedisModule_ReplySetArrayLength(ctx, arrLen);
 }
 
+static void searchResultReducer_wrapper(void *mc_v) {
+  struct MRCtx *mc = mc_v;
+  searchResultReducer(mc, MRCtx_GetNumReplied(mc), MRCtx_GetReplies(mc));
+}
+
+static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply **replies) {
+  ConcurrentSearch_ThreadPoolRun(searchResultReducer_wrapper, mc, DIST_AGG_THREADPOOL);
+  return REDISMODULE_OK;
+}
+
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
-  clock_t postProccesTime;
+  clock_t postProccessTime;
   RedisModuleBlockedClient *bc = (RedisModuleBlockedClient *)MRCtx_GetRedisCtx(mc);
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
-  searchRequestCtx *req = MRCtx_GetPrivdata(mc);
+  searchRequestCtx *req = MRCtx_GetPrivData(mc);
   searchReducerCtx rCtx = {NULL};
   int profile = (req->profileArgs > 0);
 
@@ -1250,8 +1261,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   if (!profile) {
     sendSearchResults(ctx, &rCtx);
   } else {
-    postProccesTime = clock();
-    profileSearchReply(ctx, &rCtx, count, replies, req->profileClock, postProccesTime);
+    postProccessTime = clock();
+    profileSearchReply(ctx, &rCtx, count, replies, req->profileClock, postProccessTime);
   }
 
 cleanup:
@@ -1460,7 +1471,6 @@ int FanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx);
-static int DIST_AGG_THREADPOOL = -1;
 
 static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
@@ -1706,7 +1716,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **a
   // we also ask only masters to serve the request, to avoid duplications by random
   MR_SetCoordinationStrategy(mrctx, MRCluster_FlatCoordination | MRCluster_MastersOnly);
 
-  MRCtx_SetReduceFunction(mrctx, searchResultReducer);
+  MRCtx_SetReduceFunction(mrctx, searchResultReducer_background);
   MR_Fanout(mrctx, NULL, cmd, false);
   return REDISMODULE_OK;
 }
@@ -1929,7 +1939,15 @@ int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       tableSize = 16384;
   }
 
-  MRCluster *cl = MR_NewCluster(initialTopology, sf, 2);
+  size_t num_connections_per_shard;
+  if (clusterConfig.connPerShard) {
+    num_connections_per_shard = clusterConfig.connPerShard;
+  } else {
+    // default
+    num_connections_per_shard = RSGlobalConfig.numWorkerThreads + 1;
+  }
+
+  MRCluster *cl = MR_NewCluster(initialTopology, num_connections_per_shard, sf, 2);
   MR_Init(cl, clusterConfig.timeoutMS);
   InitGlobalSearchCluster(clusterConfig.numPartitions, slotTable, tableSize);
 
@@ -2019,7 +2037,7 @@ void setHiredisAllocators(){
 
 void Coordinator_CleanupModule(void) {
   MR_Destroy();
-  GlobalSearchCluser_Release();
+  GlobalSearchCluster_Release();
 }
 
 void Coordinator_ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {

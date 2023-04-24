@@ -98,3 +98,7 @@ void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code) {
 const char *QueryError_GetError(const QueryError *status) {
   return status->detail ? status->detail : QueryError_Strerror(status->code);
 }
+
+QueryErrorCode QueryError_GetCode(const QueryError *status) {
+  return status->code;
+}
