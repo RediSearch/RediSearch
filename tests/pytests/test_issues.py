@@ -552,10 +552,10 @@ def test_sortby_Noexist(env):
 
 def test_sortby_Noexist_Sortables(env):
   ''' issue 3457 '''
-  
+
   conn = getConnectionByEnv(env)
   sortable_options = [[True,True], [True,False], [False,True], [False,False]]
-    
+
   for count, args in enumerate(sortable_options):
     sortable1 = ['SORTABLE'] if args[0] else []
     sortable2 = ['SORTABLE'] if args[1] else []
@@ -567,10 +567,10 @@ def test_sortby_Noexist_Sortables(env):
     conn.execute_command('HSET', '{key1}1', 'numval', '110')
     conn.execute_command('HSET', '{key1}2', 'numval', '108')
     conn.execute_command('HSET', '{key2}1', 'text', 'Meow')
-    conn.execute_command('HSET', '{key2}2', 'text', 'Chirp')  
-  
+    conn.execute_command('HSET', '{key2}2', 'text', 'Chirp')
+
     msg = 'sortable1: {}, sortable2: {}'.format(sortable1, sortable2)
-    
+
     # Check ordering of docs:
     #   In cluster: Docs without sortby field are ordered by key name
     #   In non-cluster: Docs without sortby field are ordered by doc id (order of insertion/update)
@@ -749,3 +749,29 @@ def test_mod4296_badexpr(env):
   env.expect('HSET', 'doc', 't', 'foo').equal(1)
   env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1%0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
   env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1/0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
+
+def test_mod5062(env):
+  env.skipOnCluster()
+  env.expect('FT.CONFIG', 'SET', 'MAXSEARCHRESULTS', '0').ok()
+  env.expect('FT.CONFIG', 'SET', 'MAXAGGREGATERESULTS', '0').ok()
+  n = 100
+
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+
+  for i in range(n):
+    env.expect('HSET', i, 't', 'hello world').equal(1)
+
+  # verify no crash
+  env.expect('FT.SEARCH', 'idx', 'hello').equal([n])
+
+  # verify using counter instead of sorter
+  search_profile = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello')
+  env.assertEquals('Counter', search_profile[1][4][3][1])
+
+  # verify no crash
+  env.expect('FT.AGGREGATE', 'idx', 'hello').noError()
+  env.expect('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0).equal([n])
+
+  # verify using counter instead of sorter, even with explicit sort
+  aggregate_profile = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'hello', 'SORTBY', '1', '@t')
+  env.assertEquals('Counter', aggregate_profile[1][4][2][1])

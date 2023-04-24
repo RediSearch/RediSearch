@@ -1048,24 +1048,23 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     astp = &astp_s;
   }
 
-  if (IsCount(req)) {
-    rp = RPCounter_New();
-    up = pushRP(req, rp, up);
-    return up;
-  }
-
   size_t limit = astp->offset + astp->limit;
   if (!limit) {
     limit = DEFAULT_LIMIT;
   }
 
-  if ((req->reqflags & QEXEC_F_IS_SEARCH) && RSGlobalConfig.maxSearchResults != UINT64_MAX) {
+  if (IsSearch(req) && RSGlobalConfig.maxSearchResults != UINT64_MAX) {
     limit = MIN(limit, RSGlobalConfig.maxSearchResults);
   }
 
-  if (!(req->reqflags & QEXEC_F_IS_SEARCH) && RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
+  if (!IsSearch(req) && RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
     limit = MIN(limit, RSGlobalConfig.maxAggregateResults);
+  }
 
+  if (IsCount(req) || !limit) {
+    rp = RPCounter_New();
+    up = pushRP(req, rp, up);
+    return up;
   }
 
   if (astp->sortKeys) {
