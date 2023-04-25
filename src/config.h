@@ -76,8 +76,10 @@ typedef struct {
   size_t indexPoolSize;
   int poolSizeNoAuto;  // Don't auto-detect pool size
 
+// #ifdef POWER_TO_THE_WORKERS
   size_t numWorkerThreads;
   int threadsEnabled;
+// #endif
 
   size_t gcScanSize;
 

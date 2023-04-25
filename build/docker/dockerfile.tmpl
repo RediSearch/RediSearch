@@ -16,7 +16,7 @@ ADD . /build
 RUN ./deps/readies/bin/getupdates
 RUN VERBOSE=1 ./sbin/setup
 
-RUN make build SHOW=1
+RUN make build SHOW=1 POWER_TO_THE_WORKERS="{{POWER_TO_THE_WORKERS}}"
 
 {% if PACK == "1" %}
 RUN make build LITE=1 SHOW=1
@@ -61,4 +61,8 @@ RUN chown -R redis:redis /var/opt/redislabs
 COPY --from=builder /build/bin/artifacts/ /var/opt/redislabs/artifacts/
 {% endif %}
 
-CMD ["redis-server", "--loadmodule", "{{MODULES_DIR}}/redisearch.so", "ENABLE_THREADS", "TRUE", "WORKER_THREADS", $(nproc), "--loadmodule", "{{MODULES_DIR}}/rejson.so"]
+{% if POWER_TO_THE_WORKERS == "1" %}
+CMD ["sh", "-c", "redis-server --loadmodule {{MODULES_DIR}}/redisearch.so ENABLE_THREADS TRUE WORKER_THREADS $(nproc) --loadmodule {{MODULES_DIR}}/rejson.so"]
+{% else %}
+CMD ["redis-server", "--loadmodule", "{{MODULES_DIR}}/redisearch.so", "--loadmodule {{MODULES_DIR}}/rejson.so"]
+{% endif %}

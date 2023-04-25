@@ -556,6 +556,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     if (rc != REDISMODULE_OK) {
       goto error;
     }
+#ifdef POWER_TO_THE_WORKERS
   } else if (RunInThread(r)) {
     IndexLoadOptions options = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
                                 .name.cstring = r->sctx->spec->name};
@@ -571,6 +572,14 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     }
     AREQ_Execute(r, ctx);
   }
+#else
+  } else {
+    if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
+      goto error;
+    }
+    AREQ_Execute(r, ctx);
+  }
+#endif // POWER_TO_THE_WORKERS
   return REDISMODULE_OK;
 
 error:
@@ -651,8 +660,6 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   AREQ_Free(r);
   return ret;
 }
-
-static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
 
 int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, QueryError *err) {
   Cursor *cursor = Cursors_Reserve(&RSCursors, lookupName, r->cursorMaxIdle, err);

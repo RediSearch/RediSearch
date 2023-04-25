@@ -4,9 +4,12 @@
  * This file is available under the Redis Labs Source Available License Agreement
  */
 
-#include <pthread.h>
 #include "workers.h"
 #include "redismodule.h"
+
+#include <pthread.h>
+
+#ifdef POWER_TO_THE_WORKERS
 
 //------------------------------------------------------------------------------
 // Thread pool
@@ -49,3 +52,5 @@ void workersThreadPool_Wait(void) {
 void workersThreadPool_Destroy(void) {
   redisearch_thpool_destroy(_workers_thpool);
 }
+
+#endif // POWER_TO_THE_WORKERS

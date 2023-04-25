@@ -232,6 +232,8 @@ CONFIG_GETTER(getSearchThreads) {
   return sdscatprintf(ss, "%lu", config->searchPoolSize);
 }
 
+#ifdef POWER_TO_THE_WORKERS
+
 // WORKER_THREADS
 CONFIG_SETTER(setWorkThreads) {
   int acrc = AC_GetSize(ac, &config->numWorkerThreads, AC_F_GE0);
@@ -247,6 +249,8 @@ CONFIG_GETTER(getWorkThreads) {
 CONFIG_BOOLEAN_SETTER(setThreadsEnabled, threadsEnabled)
 
 CONFIG_BOOLEAN_GETTER(getThreadsEnabled, threadsEnabled, 0)
+
+#endif // POWER_TO_THE_WORKERS
 
 // FRISOINI
 CONFIG_SETTER(setFrisoINI) {
@@ -661,6 +665,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getSearchThreads,
          .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
+#ifdef POWER_TO_THE_WORKERS
         {.name = "WORKER_THREADS",
          .helpText = "Create at most this number of search threads",
          .setValue = setWorkThreads,
@@ -673,6 +678,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getThreadsEnabled,
          .flags = RSCONFIGVAR_F_FLAG,
         },
+#endif
         {.name = "FRISOINI",
          .helpText = "Path to Chinese dictionary configuration file (for Chinese tokenization)",
          .setValue = setFrisoINI,
