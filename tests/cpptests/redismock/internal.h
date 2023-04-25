@@ -8,11 +8,12 @@
 #define REDISMOCK_INTERNAL_H
 
 // This is to be included only by redismock.cpp
+#include "redismodule.h"
+
 #include <string>
 #include <map>
 #include <list>
 #include <set>
-#include <redismodule.h>
 #include <vector>
 #include <iostream>
 
