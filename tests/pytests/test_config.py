@@ -28,8 +28,9 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'TIMEOUT').res[0][0] == 'TIMEOUT'
     assert env.expect('ft.config', 'get', 'INDEX_THREADS').res[0][0] == 'INDEX_THREADS'
     assert env.expect('ft.config', 'get', 'SEARCH_THREADS').res[0][0] == 'SEARCH_THREADS'
-    assert env.expect('ft.config', 'get', 'WORKER_THREADS').res[0][0] == 'WORKER_THREADS'
-    assert env.expect('ft.config', 'get', 'ENABLE_THREADS').res[0][0] == 'ENABLE_THREADS'
+    if not POWER_TO_THE_WORKERS:
+        assert env.expect('ft.config', 'get', 'WORKER_THREADS').res[0][0] == 'WORKER_THREADS'
+        assert env.expect('ft.config', 'get', 'ENABLE_THREADS').res[0][0] == 'ENABLE_THREADS'
     assert env.expect('ft.config', 'get', 'FRISOINI').res[0][0] == 'FRISOINI'
     assert env.expect('ft.config', 'get', 'MAXSEARCHRESULTS').res[0][0] == 'MAXSEARCHRESULTS'
     assert env.expect('ft.config', 'get', 'MAXAGGREGATERESULTS').res[0][0] == 'MAXAGGREGATERESULTS'
@@ -67,7 +68,8 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'TIMEOUT', 1).equal('OK')
     env.expect('ft.config', 'set', 'INDEX_THREADS', 1).equal('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'SEARCH_THREADS', 1).equal('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'WORKER_THREADS', 1).equal('Not modifiable at runtime')
+    if not POWER_TO_THE_WORKERS:
+        env.expect('ft.config', 'set', 'WORKER_THREADS', 1).equal('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'FRISOINI', 1).equal('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 1).equal('Success (not an error)')
     env.expect('ft.config', 'set', 'GCSCANSIZE', 1).equal('OK')
@@ -106,8 +108,9 @@ def testAllConfig(env):
     env.assertIn(res_dict['TIMEOUT'][0], ['500', '0'])
     env.assertEqual(res_dict['INDEX_THREADS'][0], '8')
     env.assertEqual(res_dict['SEARCH_THREADS'][0], '20')
-    env.assertEqual(res_dict['WORKER_THREADS'][0], '0')
-    env.assertEqual(res_dict['ENABLE_THREADS'][0], 'false')
+    if not POWER_TO_THE_WORKERS:
+        env.assertEqual(res_dict['WORKER_THREADS'][0], '0')
+        env.assertEqual(res_dict['ENABLE_THREADS'][0], 'false')
     env.assertEqual(res_dict['FRISOINI'][0], None)
     env.assertEqual(res_dict['ON_TIMEOUT'][0], 'return')
     env.assertEqual(res_dict['GCSCANSIZE'][0], '100')
@@ -149,7 +152,8 @@ def testInitConfig(env):
     test_arg_num('MAXPREFIXEXPANSIONS', 5)
     test_arg_num('INDEX_THREADS', 3)
     test_arg_num('SEARCH_THREADS', 3)
-    test_arg_num('WORKER_THREADS', 3)
+    if not POWER_TO_THE_WORKERS:
+        test_arg_num('WORKER_THREADS', 3)
     test_arg_num('GCSCANSIZE', 3)
     test_arg_num('MIN_PHONETIC_TERM_LEN', 3)
     test_arg_num('FORK_GC_RUN_INTERVAL', 3)
@@ -184,7 +188,8 @@ def testInitConfig(env):
         env.stop()
 
     test_arg_str('GC_POLICY', 'fork')
-    test_arg_str('ENABLE_THREADS', 'true')
+    if not POWER_TO_THE_WORKERS:
+        test_arg_str('ENABLE_THREADS', 'true')
     test_arg_str('GC_POLICY', 'default', 'fork')
     test_arg_str('ON_TIMEOUT', 'fail')
     test_arg_str('TIMEOUT', '0', '0')
@@ -211,7 +216,8 @@ def testImmutable(env):
     env.expect('ft.config', 'set', 'MAXDOCTABLESIZE').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'INDEX_THREADS').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'SEARCH_THREADS').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'WORKER_THREADS').error().contains('Not modifiable at runtime')
+    if not POWER_TO_THE_WORKERS:
+        env.expect('ft.config', 'set', 'WORKER_THREADS').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'FRISOINI').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'GC_POLICY').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'NO_MEM_POOLS').error().contains('Not modifiable at runtime')
