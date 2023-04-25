@@ -254,6 +254,8 @@ struct KVDB {
   static std::vector<KVDB *> dbs;
 };
 
+typedef int (*RedisModule_GetApiFunctionType)(const char *name, void *pp);
+
 struct RedisModuleCtx {
   RedisModule_GetApiFunctionType getApi = NULL;
   bool automemory = false;

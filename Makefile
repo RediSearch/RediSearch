@@ -164,7 +164,7 @@ endif # COORD
 export COORD
 export PACKAGE_NAME
 
-ifeq ($(POWER_TO_THE_WORKERS),1)
+ifeq ($(REDISEARCH_POWER_TO_THE_WORKERS),1)
 CC_FLAGS.common += -DPOWER_TO_THE_WORKERS
 endif
 
