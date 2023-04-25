@@ -169,7 +169,7 @@ $ redis-server --loadmodule ./redisearch.so CONCURRENT_WRITE_MODE
 
 {{% alert title="Note" color="info" %}}
 
-* Added in v1.6
+* To be deprecated on v2.8
 
 {{% /alert %}}
 
