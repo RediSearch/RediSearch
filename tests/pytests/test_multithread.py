@@ -83,7 +83,9 @@ def get_pipeline(profile_res):
         if (entry[0] == 'Result processors profile'):
             return entry
 
-def test_pipeline():
+def test_pipeline(env):
+    if not POWER_TO_THE_WORKERS:
+        env.skip()
     env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
     env.skipOnCluster()
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
