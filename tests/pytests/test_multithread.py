@@ -16,9 +16,9 @@ def testEmptyBuffer(env):
     env.expect('ft.search', 'idx', '*', 'sortby', 'n').equal([0])
 
 def CreateAndSearchSortBy(env, docs_count):
-    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
     if not POWER_TO_THE_WORKERS:
         env.skip()
+    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     conn = getConnectionByEnv(env)
 
