@@ -50,7 +50,9 @@ sanitizer_check() {
 		echo "${LIGHTRED}### Sanitizer: ${TYPE} detected:${RED}"
 		grep -l "$1" $logdir/*.asan.log*
 		echo "${NOCOLOR}"
-		E=1
+		if [[ -z $WARN || $WARN != 1 ]]; then
+			E=1
+		fi
 	fi
 }
 
@@ -63,6 +65,7 @@ sanitizer_summary() {
 	TYPE="memory errors" sanitizer_check "memcpy-param-overlap"
 	TYPE="stack use after scope" sanitizer_check "stack-use-after-scope"
 	TYPE="use after free" sanitizer_check "heap-use-after-free"
+	TYPE="signal 11" WARN=1 sanitizer_check "signal 11"
 }
 
 #----------------------------------------------------------------------------------------------
@@ -70,9 +73,9 @@ sanitizer_summary() {
 E=0
 
 DIRS=
-#if [[ $UNIT == 1 ]]; then
-#	DIRS+=" ctests cpptests"
-#fi
+if [[ $UNIT == 1 ]]; then
+	DIRS+=" ."
+fi
 if [[ $FLOW == 1 ]]; then
 	DIRS+=" pytests"
 fi
@@ -85,6 +88,10 @@ elif [[ -n $SAN ]]; then
 	for dir in $DIRS; do
 		DIR="$dir" sanitizer_summary
 	done
+fi
+
+if [[ $E == 0 ]]; then
+	echo "# No leaks detected"
 fi
 
 exit $E

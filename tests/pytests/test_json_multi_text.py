@@ -400,7 +400,7 @@ def sortMulti(env, text_cmd_args, tag_cmd_args):
                         message = '{} text arg `{}` tag arg `{}`'.format('multi TEXT with multi TAG', text_arg, tag_arg))
 
     if not env.isCluster():
-        # (skip this comparison in cluster since score is affected by the numer of shards/distribution of keys across shards)
+        # (skip this comparison in cluster since score is affected by the number of shards/distribution of keys across shards)
         # Check that order and scores are the same
         for i, text_arg in enumerate(text_cmd_args):
             text_arg.append('WITHSCORES')

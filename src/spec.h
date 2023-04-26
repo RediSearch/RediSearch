@@ -408,7 +408,7 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
 IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
                                     RedisModuleString **argv, int argc, QueryError *status);
 
-FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type);
+arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type);
 int isRdbLoading(RedisModuleCtx *ctx);
 
 /* Create a new index spec from redis arguments, set it in a redis key and start its GC.

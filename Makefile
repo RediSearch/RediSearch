@@ -171,8 +171,6 @@ CC_CXX_STD=c++11
 
 CC_STATIC_LIBSTDCXX ?= 1
 
-export OPENSSL_ROOT_DIR:=$(openssl_prefix)
-
 CC_COMMON_H=src/common.h
 
 MACOS_PACKAGS=openssl boost
@@ -535,6 +533,7 @@ COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
 ifeq ($(REJSON_PATH),)
 REJSON_MODULE_FILE:=$(shell mktemp /tmp/rejson.XXXX)
+REJSON_COV_ARG=REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
 endif
 
 coverage:
@@ -544,13 +543,10 @@ endif
 	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)$(MAKE) build COORD=oss COV=1
 	$(SHOW)$(COVERAGE_RESET)
-ifneq ($(REJSON_PATH),)
-	-$(SHOW)$(MAKE) test COV=1
-	-$(SHOW)$(MAKE) test COORD=oss COV=1
-else
-	-$(SHOW)$(MAKE) test COV=1 REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
-	-$(SHOW)$(MAKE) test COORD=oss COV=1 REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
-endif
+	-$(SHOW)$(MAKE) unit-test COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) pytest COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) unit-test COORD=oss COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) pytest COORD=oss COV=1 $(REJSON_COV_ARG)
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
 .PHONY: coverage

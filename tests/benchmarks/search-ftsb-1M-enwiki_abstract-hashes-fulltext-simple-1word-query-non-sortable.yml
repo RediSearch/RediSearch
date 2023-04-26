@@ -1,4 +1,4 @@
-name: "ftsb-1M-enwiki_abstract-hashes-fulltext-simple-1word-query"
+name: "search-ftsb-1M-enwiki_abstract-hashes-fulltext-simple-1word-query-non-sortable"
 description: "
              - name: enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-abstract-benchmark/description.md), 
                      from English-language Wikipedia:Database page abstracts. 
@@ -7,8 +7,8 @@ description: "
                       - Type (read/write/mixed): read
                       - Query type: Simple 1 Word Query
                       - Query sample: Abraham
-             - total docs: 5.9 million
-             - fields per doc: 3 TEXT sortable fields
+             - total docs: 1 million
+             - fields per doc: 3 TEXT fields
              - average doc size: 227 bytes
              "
 remote:
@@ -27,9 +27,9 @@ setups:
   - oss-cluster-32-primaries
 
 dbconfig:
-  - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
+  - dataset_name: "ftsb-1M-enwiki_abstract-hashes-non-sortable"
   - init_commands:
-    - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
+    - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "url" "text" "abstract" "text"'
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64
@@ -39,7 +39,7 @@ clientconfig:
   - benchmark_type: "read-only"
   - tool: ftsb_redisearch
   - parameters:
-    - workers: 64
-    - requests: 500000
+    - workers: 32
+    - requests: 50000
     - reporting-period: 1s
-    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.commands.BENCH.QUERY_simple-1word-query.csv"
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes-text-no-sortable/1M-enwiki_abstract-hashes-text-no-sortable.redisearch.commands.BENCH.QUERY_simple-1word-query.csv"

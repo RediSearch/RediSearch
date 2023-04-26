@@ -186,9 +186,9 @@ IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name
   return sp;
 }
 
-FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type) {
+arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type) {
 #define FIELDS_ARRAY_CAP 2
-  FieldSpec **fields = array_new(FieldSpec *, FIELDS_ARRAY_CAP);
+  arrayof(FieldSpec *) fields = array_new(FieldSpec *, FIELDS_ARRAY_CAP);
   for (int i = 0; i < spec->numFields; ++i) {
     if (FIELD_IS(spec->fields + i, type)) {
       fields = array_append(fields, &(spec->fields[i]));
@@ -1938,14 +1938,16 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   RedisModule_InfoAddSection(ctx, name);
 
   // Index flags
-  if (sp->flags & ~(Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets) || sp->flags & Index_WideSchema) {
+  if (sp->flags & ~(Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreByteOffsets) || sp->flags & Index_WideSchema) {
     RedisModule_InfoBeginDictField(ctx, "index_options");
     if (!(sp->flags & (Index_StoreFreqs)))
       RedisModule_InfoAddFieldCString(ctx, SPEC_NOFREQS_STR, "ON");
     if (!(sp->flags & (Index_StoreFieldFlags)))
       RedisModule_InfoAddFieldCString(ctx, SPEC_NOFIELDS_STR, "ON");
-    if (!(sp->flags & (Index_StoreTermOffsets)))
+    if (!(sp->flags & (Index_StoreTermOffsets | Index_StoreByteOffsets)))
       RedisModule_InfoAddFieldCString(ctx, SPEC_NOOFFSETS_STR, "ON");
+    if (!(sp->flags & (Index_StoreByteOffsets)))
+      RedisModule_InfoAddFieldCString(ctx, SPEC_NOHL_STR, "ON");
     if (sp->flags & Index_WideSchema)
       RedisModule_InfoAddFieldCString(ctx, SPEC_SCHEMA_EXPANDABLE_STR, "ON");
     RedisModule_InfoEndDictField(ctx);
