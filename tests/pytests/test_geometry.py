@@ -9,12 +9,14 @@ def testSanitySearchHashWithin(env):
   conn.execute_command('HSET', 'small', 'geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))')
   conn.execute_command('HSET', 'large', 'geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))')
   expected = ['geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))']
-  env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([1, 'small', expected])
+  env.expect('FT.SEARCH', 'idx', '@geom:[within POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([1, 'small', expected])
+  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[contains POLYGON((2 2, 2 50, 50 50, 50 2, 2 2))]', 'DIALECT', 3)
+  env.assertEqual(res[0], 2)
   
   # TODO: GEOMETRY - Use params
   #env.expect('FT.SEARCH', 'idx', '@geom:[within $POLY]', 'PARAMS', '2', 'POLY', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))').equal([1, 'small', expected])
 
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3)
+  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
 
@@ -25,13 +27,13 @@ def testSanitySearchJsonWithin(env):
   conn.execute_command('JSON.SET', 'small', '$', '{"geom": "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))"}')
   conn.execute_command('JSON.SET', 'large', '$', '{"geom": "POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))"}')
   expected = ['$', '[{"geom":"POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))"}]']
-  env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([1, 'small', expected])
+  env.expect('FT.SEARCH', 'idx', '@geom:[within POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([1, 'small', expected])
   
   # TODO: GEOMETRY - Use params
   #env.expect('FT.SEARCH', 'idx', '@geom:[within $POLY]', 'PARAMS', '2', 'POLY', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))').equal([1, 'small', expected])
 
-  env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'RETURN', 1, 'geom', 'DIALECT', 3).equal([1, 'small', ['geom', json.dumps([json.loads(expected[1])[0]['geom']])]])
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3)
+  env.expect('FT.SEARCH', 'idx', '@geom:[within POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'RETURN', 1, 'geom', 'DIALECT', 3).equal([1, 'small', ['geom', json.dumps([json.loads(expected[1])[0]['geom']])]])
+  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
 
@@ -41,7 +43,7 @@ def testSanitySearchJsonCombined(env):
 
   conn.execute_command('JSON.SET', 'p1', '$', '{"geom": "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))", "name": "Homer"}')
   conn.execute_command('JSON.SET', 'p2', '$', '{"geom": "POLYGON((1 1, 1 100, 90 90, 100 1, 1 1))", "name": "Bart"}')
-  env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'NOCONTENT', 'DIALECT', 2).equal([1, 'p1'])
+  env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'NOCONTENT', 'DIALECT', 2).equal([1, 'p1'])
   
 
 def testWKTIngestError(env):
@@ -79,4 +81,4 @@ def testWKTQueryError(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOMETRY $.name as name TEXT').ok()
 
-  env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within:POLIGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3).error().contains('POLIGON')
+  env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within POLIGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3).error().contains('POLIGON')
