@@ -429,8 +429,10 @@ int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status) {
 
   TimedOut_WithStatus(&req->timeoutTime, status);
 
-  if (QueryError_HasError(status))
+  if (QueryError_HasError(status)) {
     return REDISMODULE_ERR;
+  }
+
   if (IsProfile(req)) {
     // Add a Profile iterators before every iterator in the tree
     Profile_AddIters(&req->rootiter);

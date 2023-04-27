@@ -897,15 +897,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // check possible optimization after creation of QueryNode tree
   OPTMZ(QOptimizer_QueryNodes(req->ast.root, req->optimizer));
 
-  ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
-
   if (QueryError_HasError(status)) {
     return REDISMODULE_ERR;
-  }
-
-  if (IsProfile(req)) {
-    // Add a Profile iterators before every iterator in the tree
-    Profile_AddIters(&req->rootiter);
   }
 
   return REDISMODULE_OK;
