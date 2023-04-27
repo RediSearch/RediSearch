@@ -88,10 +88,6 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, con
 }
 
 static void FieldList_RestrictReturn(FieldList *fields) {
-  if (!fields->explicitReturn) {
-    return;
-  }
-
   size_t oix = 0;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     if (fields->fields[ii].explicitReturn == 0) {
@@ -803,9 +799,6 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     }
   }
 
-  // Set timeout for the query
-  updateTimeout(&req->timeoutTime, req->reqTimeout);
-
   return REDISMODULE_OK;
 
 error:
@@ -844,7 +837,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
-  sctx->timeout = req->timeoutTime;
   sctx->apiVersion = req->dialectVersion;
   req->sctx = sctx;
 
@@ -907,17 +899,10 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
 
-  // moved
-  //req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
-
-  // check possible optimization after creation of IndexIterator tree
-  //OPTMZ(QOptimizer_Iterators(req, req->optimizer));
-
-  TimedOut_WithStatus(&req->timeoutTime, status);
-
   if (QueryError_HasError(status)) {
     return REDISMODULE_ERR;
   }
+
   if (IsProfile(req)) {
     // Add a Profile iterators before every iterator in the tree
     Profile_AddIters(&req->rootiter);
