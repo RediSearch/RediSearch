@@ -186,12 +186,19 @@ commands:
       test_params:
         type: string
         default: ""
+      no_power:
+        type: string
+        default: "no"
     steps:
       - run:
           name: Test (Search)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: make test TEST_PARALLEL=16 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
+          command: |
+            if [[ "<<parameters.no_power>>" == "yes" ]]; then
+                export REDISEARCH_POWER_TO_THE_WORKERS=0
+            fi
+            make test TEST_PARALLEL=16 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
       - run:
           name: Test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
@@ -454,6 +461,7 @@ jobs:
           no_power: <<parameters.upload>>
       - test-steps:
           test_params: <<parameters.test_params>>
+          no_power: <<parameters.upload>>
       - run:
           name: Persist artifacts?
           command: |
@@ -488,6 +496,7 @@ jobs:
           no_power: <<parameters.upload>>
       - test-steps:
           test_params: <<parameters.test_params>>
+          no_power: <<parameters.upload>>
       - run:
           name: Persist artifacts?
           command: |
