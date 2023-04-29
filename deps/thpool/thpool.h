@@ -7,6 +7,8 @@
 #ifndef _THPOOL_
 #define _THPOOL_
 
+#include <stddef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -34,7 +36,7 @@ typedef struct redisearch_thpool_t* redisearch_threadpool;
  * @return threadpool    created threadpool on success,
  *                       NULL on error
  */
-redisearch_threadpool redisearch_thpool_init(int num_threads);
+redisearch_threadpool redisearch_thpool_init(size_t num_threads);
 
 
 /**
@@ -178,7 +180,7 @@ void redisearch_thpool_destroy(redisearch_threadpool);
  * @param threadpool     the threadpool of interest
  * @return integer       number of threads working
  */
-int redisearch_thpool_num_threads_working(redisearch_threadpool);
+size_t redisearch_thpool_num_threads_working(redisearch_threadpool);
 
 
 #ifdef __cplusplus

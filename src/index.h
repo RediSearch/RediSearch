@@ -53,6 +53,13 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int q
 IndexIterator *NewIntersecIterator(IndexIterator **its, size_t num, DocTable *t,
                                    t_fieldMask fieldMask, int maxSlop, int inOrder, double weight);
 
+/* Add an iterator to an intersect iterator */
+void AddIntersectIterator(IndexIterator *parentIter, IndexIterator *childIter);
+
+/* Trim a union iterator to hold minimum iterators that contain `limit` results.
+ * This is used to optimize queries with no additional filters. */
+void trimUnionIterator(IndexIterator *iter, size_t offset, size_t limit, bool asc, bool unsorted);
+
 /* Create a NOT iterator by wrapping another index iterator */
 IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight);
 
