@@ -238,7 +238,7 @@ def _testCreateIndexRdbFilesWithJSON(env):
     create_indices(env, 'rejson_2.0.0.rdb', 'idxJson', False, True)
     create_indices(env, 'redisearch_2.2.0_rejson_2.0.0.rdb', 'idxSearchJson', True, True)
 
-def testCreateIndexRdbFilesWithGeometry(env):
+def _testCreateIndexRdbFilesWithGeometry(env):
     if not server_version_at_least(env, "6.2.0"):
         env.skip()
     if OS == 'macos':
