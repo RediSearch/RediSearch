@@ -164,6 +164,10 @@ endif # COORD
 export COORD
 export PACKAGE_NAME
 
+ifeq ($(REDISEARCH_POWER_TO_THE_WORKERS),1)
+CC_FLAGS.common += -DPOWER_TO_THE_WORKERS
+endif
+
 #----------------------------------------------------------------------------------------------
 
 CC_C_STD=gnu99

@@ -34,7 +34,7 @@ add_compile_definitions(
     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
     "GIT_VERSPEC=\"${GIT_VERSPEC}\""
     "GIT_SHA=\"${GIT_SHA}\""
-    REDISMODULE_EXPERIMENTAL_API
+    REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
 if (USE_REDIS_ALLOCATOR)
@@ -46,6 +46,7 @@ endif()
 include_directories(
     ${root}/src
     ${root}/deps
+    ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
     ${root})
 

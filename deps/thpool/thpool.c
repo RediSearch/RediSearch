@@ -74,8 +74,8 @@ typedef struct thread {
 /* Threadpool */
 typedef struct redisearch_thpool_t {
   thread** threads;                 /* pointer to threads        */
-  volatile int num_threads_alive;   /* threads currently alive   */
-  volatile int num_threads_working; /* threads currently working */
+  volatile size_t num_threads_alive;   /* threads currently alive   */
+  volatile size_t num_threads_working; /* threads currently working */
   volatile int keepalive;           /* keep pool alive           */
   pthread_mutex_t thcount_lock;     /* used for thread count etc */
   pthread_cond_t threads_all_idle;  /* signal to thpool_wait     */
@@ -104,13 +104,9 @@ static void bsem_wait(struct bsem* bsem_p);
 /* ========================== THREADPOOL ============================ */
 
 /* Initialise thread pool */
-struct redisearch_thpool_t* redisearch_thpool_init(int num_threads) {
+struct redisearch_thpool_t* redisearch_thpool_init(size_t num_threads) {
 
   threads_on_hold = 0;
-
-  if (num_threads < 0) {
-    num_threads = 0;
-  }
 
   /* Make new thread pool */
   redisearch_thpool_t* thpool_p;
@@ -143,7 +139,7 @@ struct redisearch_thpool_t* redisearch_thpool_init(int num_threads) {
   pthread_cond_init(&thpool_p->threads_all_idle, NULL);
 
   /* Thread init */
-  int n;
+  size_t n;
   for (n = 0; n < num_threads; n++) {
     thread_init(thpool_p, &thpool_p->threads[n], n);
 #if THPOOL_DEBUG
@@ -192,7 +188,7 @@ void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
   /* No need to destory if it's NULL */
   if (thpool_p == NULL) return;
 
-  volatile int threads_total = thpool_p->num_threads_alive;
+  volatile size_t threads_total = thpool_p->num_threads_alive;
 
   /* End each thread 's infinite loop */
   thpool_p->keepalive = 0;
@@ -217,7 +213,7 @@ void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
   /* Job queue cleanup */
   jobqueue_destroy(&thpool_p->jobqueue);
   /* Deallocs */
-  int n;
+  size_t n;
   for (n = 0; n < threads_total; n++) {
     thread_destroy(thpool_p->threads[n]);
   }
@@ -227,7 +223,7 @@ void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
 
 /* Pause all threads in threadpool */
 void redisearch_thpool_pause(redisearch_thpool_t* thpool_p) {
-  int n;
+  size_t n;
   for (n = 0; n < thpool_p->num_threads_alive; n++) {
     pthread_kill(thpool_p->threads[n]->pthread, SIGUSR2);
   }
@@ -243,7 +239,7 @@ void redisearch_thpool_resume(redisearch_thpool_t* thpool_p) {
   threads_on_hold = 0;
 }
 
-int redisearch_thpool_num_threads_working(redisearch_thpool_t* thpool_p) {
+size_t redisearch_thpool_num_threads_working(redisearch_thpool_t* thpool_p) {
   return thpool_p->num_threads_working;
 }
 
