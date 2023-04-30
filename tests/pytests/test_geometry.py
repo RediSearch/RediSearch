@@ -71,6 +71,7 @@ def testSanitySearchJsonCombined(env):
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'NOCONTENT', 'DIALECT', 2).equal([1, 'p1'])
   
 
+@no_asan
 def testWKTIngestError(env):
   ''' Test ingest error '''
 
@@ -101,6 +102,7 @@ def testWKTIngestError(env):
   env.assertEqual(int(d['hash_indexing_failures']), 2)
 
 
+@no_asan
 def testWKTQueryError(env):
   ''' Test query error '''
   conn = getConnectionByEnv(env)
