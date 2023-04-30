@@ -17,14 +17,16 @@ extern "C" {
 #endif
 
 struct RTree;
+struct RedisModuleCtx;
 
 NODISCARD struct RTree *RTree_New();
 struct RTree *Load_WKT_File(struct RTree *rtree, const char *path);
 void RTree_Free(struct RTree *rtree) NOEXCEPT;
-void RTree_Insert(struct RTree *rtree, struct RTDoc const *doc);
 int RTree_Insert_WKT(struct RTree *rtree, const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg);
 bool RTree_Remove(struct RTree *rtree, struct RTDoc const *doc);
+bool RTree_RemoveByDocId(struct RTree *rtree, t_docId);
 int RTree_Remove_WKT(struct RTree *rtree, const char *wkt, size_t len, t_docId id);
+void RTree_Dump(struct RTree* rtree, RedisModuleCtx *ctx);
 NODISCARD size_t RTree_Size(struct RTree const *rtree) NOEXCEPT;
 NODISCARD bool RTree_IsEmpty(struct RTree const *rtree) NOEXCEPT;
 void RTree_Clear(struct RTree *rtree) NOEXCEPT;

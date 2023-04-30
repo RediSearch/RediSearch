@@ -31,7 +31,7 @@
 #include "rdb.h"
 #include "commands.h"
 #include "rmutil/cxx/chrono-clock.h"
-#include "geometry_index.h"
+#include "geometry/geometry_api.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -757,6 +757,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, FieldSpec *fs, QueryErr
       }
     }
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
+    sp->flags |= Index_HasGeometry;
     fs->types |= INDEXFLD_T_GEOMETRY;
     // TODO: GEMOMETRY - Support more geometry libraries - if an optional successive token exist
     fs->geometryOpts.geometryLibType = GEOMETRY_LIB_TYPE_BOOST_GEOMETRY;
@@ -2620,6 +2621,10 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
         spec->stats.vectorIndexSize += VecSimIndex_DeleteVector(vecsim, id);
       }
     }
+  }
+
+  if (spec->flags & Index_HasGeometry) {
+    GeometryIndex_RemoveId(ctx, spec, id);
   }
   return REDISMODULE_OK;
 }

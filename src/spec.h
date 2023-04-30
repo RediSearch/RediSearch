@@ -149,6 +149,8 @@ typedef enum {
   // If any of the fields has undefined order. This is just a cache for quick lookup
   Index_HasUndefinedOrder = 0x20000,
 
+  Index_HasGeometry = 0x40000,
+
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
