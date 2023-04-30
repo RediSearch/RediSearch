@@ -71,6 +71,7 @@ def testSanitySearchJsonCombined(env):
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'NOCONTENT', 'DIALECT', 2).equal([1, 'p1'])
   
 
+# TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
 @no_asan
 def testWKTIngestError(env):
   ''' Test ingest error '''
@@ -102,6 +103,7 @@ def testWKTIngestError(env):
   env.assertEqual(int(d['hash_indexing_failures']), 2)
 
 
+# TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
 @no_asan
 def testWKTQueryError(env):
   ''' Test query error '''
@@ -138,13 +140,15 @@ def testSimpleUpdate(env):
   res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3)
   env.assertEqual(sortResultByKeyName(res), sortResultByKeyName([2, 'k1', expected1, 'k2', expected2]))
 
-  # Set illegal data to field geom (indexing fails, field should be removed from index)
-  conn.execute_command('HSET', 'k2', 'geom', '')
-  # Dump geometry index
-  assert_index_num_docs(env, 'idx', 'geom', 2)
-  assert_index_num_docs(env, 'idx', 'geom2', 1)
-  # Search
-  env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([1, 'k1', expected1])
+  if not SANITIZER:
+    # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
+    # Set illegal data to field geom (indexing fails, field should be removed from index)
+    conn.execute_command('HSET', 'k2', 'geom', '')
+    # Dump geometry index
+    assert_index_num_docs(env, 'idx', 'geom', 2)
+    assert_index_num_docs(env, 'idx', 'geom2', 1)
+    # Search
+    env.expect('FT.SEARCH', 'idx', '@geom:[within:POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'DIALECT', 3).equal([1, 'k1', expected1])
 
   # Delete key
   conn.execute_command('DEL', 'k2')
