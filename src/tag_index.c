@@ -118,6 +118,7 @@ char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *d
   case FLD_VAR_T_GEO:
   case FLD_VAR_T_NUM:
   case FLD_VAR_T_BLOB_ARRAY:
+  case FLD_VAR_T_GEOMETRY:
     RS_LOG_ASSERT(0, "nope")
   }
   return ret;

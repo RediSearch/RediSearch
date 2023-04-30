@@ -1641,6 +1641,10 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
     RedisModule_SaveUnsigned(rdb, f->vectorOpts.expBlobSize);
     VecSim_RdbSave(rdb, &f->vectorOpts.vecSimParams);
   }
+  // TODO: GEOMETRY - save geometry options if more than one geometry library is supported
+  // if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
+  //   RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryLibType);
+  // }
 }
 
 static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
@@ -1717,9 +1721,13 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
       }
     }
   }
-  // TODO: GEOMETRY: load geometry specific options
-  // if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
-  // }
+  
+  // Load geometry specific options
+  if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
+    // TODO: GEOMETRY - if more than one geometry library is supported - load it from rdb (currently hard-coded)
+    f->geometryOpts.geometryLibType = GEOMETRY_LIB_TYPE_BOOST_GEOMETRY;
+  }
+  
   return REDISMODULE_OK;
 
 fail:

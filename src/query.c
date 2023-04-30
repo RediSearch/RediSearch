@@ -47,6 +47,19 @@ static void QueryTagNode_Free(QueryTagNode *tag) {
   rm_free((char *)tag->fieldName);
 }
 
+static void QueryGeometryNode_Free(QueryGeometryNode *geom) {
+  if (geom->geomq) {
+    if (geom->geomq->str) {
+      rm_free((void*)geom->geomq->str);
+      rm_free((void*)geom->geomq->attr);
+      geom->geomq->str = NULL;
+      geom->geomq->attr = NULL;
+    }
+    rm_free(geom->geomq);
+    geom->geomq = NULL;
+  }
+}
+
 static void QueryLexRangeNode_Free(QueryLexRangeNode *lx) {
   if (lx->begin) rm_free(lx->begin);
   if (lx->end) rm_free(lx->end);
@@ -113,6 +126,9 @@ void QueryNode_Free(QueryNode *n) {
       break;
     case QN_TAG:
       QueryTagNode_Free(&n->tag);
+      break;
+    case QN_GEOMETRY:
+      QueryGeometryNode_Free(&n->gmn);
       break;
     case QN_UNION:
     case QN_NOT:
@@ -1513,6 +1529,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
     case QN_IDS:
     case QN_WILDCARD:
     case QN_WILDCARD_QUERY:
+    case QN_GEOMETRY:
       res = QueryNode_EvalParamsCommon(params, n, status);
       break;
     case QN_UNION:
@@ -1570,6 +1587,7 @@ int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
     case QN_FUZZY:
     case QN_LEXRANGE:
     case QN_VECTOR:
+    case QN_GEOMETRY:
       break;
   }
   // Handle children
@@ -1797,7 +1815,6 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       }
       break;
     case QN_WILDCARD:
-
       s = sdscat(s, "<WILDCARD>");
       break;
     case QN_FUZZY:
@@ -1805,8 +1822,13 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       return s;
     case QN_WILDCARD_QUERY:
       s = sdscatprintf(s, "WILDCARD{%s}\n", qs->verb.tok.str);
+      break;
     case QN_NULL:
       s = sdscat(s, "<empty>");
+      break;
+    case QN_GEOMETRY:
+      s = sdscatprintf(s, "GEOMETRY{%d %s}\n", qs->gmn.geomq->query_type, qs->gmn.geomq->str);
+      break;
   }
 
   s = sdscat(s, "}");

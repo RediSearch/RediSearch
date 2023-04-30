@@ -71,10 +71,12 @@ int bg_addGeom(GeometryIndex *index_, GEOMETRY geom_) {
   auto index = reinterpret_cast<RTree*>(index_);
   auto geom = reinterpret_cast<const RTDoc*>(geom_);
   RTree_Insert(index, geom);
+  return 0;
 }
 
 int bg_delGeom(struct GeometryIndex *index, GEOMETRY geom, void *data) {
   // TODO: GEOMETRY
+  return 0;
 }
 
 GEOMETRY s2_createGeom(GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg) {
