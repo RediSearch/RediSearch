@@ -86,6 +86,8 @@ void testRangeIteratorHelper(bool isMulti) {
     }
   }
 
+    IteratorsConfig config{};
+    iteratorsConfig_init(&config);
   for (size_t i = 0; i < 5; i++) {
     double min = (double)(1 + prng() % (N / 5));
     double max = (double)(1 + prng() % (N / 5));
@@ -104,8 +106,6 @@ void testRangeIteratorHelper(bool isMulti) {
         }
       }
     }
-    IteratorsConfig config{};
-    iteratorsConfig_init(&config);
     // printf("Testing range %f..%f, should have %d docs\n", min, max, count);
     IndexIterator *it = createNumericIterator(NULL, t, flt, &config);
 
@@ -187,11 +187,11 @@ void testRangeIteratorHelper(bool isMulti) {
     for (int j = 0; j < 2; ++j) {   
       // j==1 for ascending order, j==0 for descending order
       NumericFilter *flt = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j);
-      IndexIterator *it = createNumericIterator(NULL, t, flt);
+      IndexIterator *it = createNumericIterator(NULL, t, flt, &config);
       size_t numEstimated = it->NumEstimated(it->ctx);
       NumericFilter *fltLimited = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j);
       fltLimited->limit = 50;
-      IndexIterator *itLimited = createNumericIterator(NULL, t, fltLimited);
+      IndexIterator *itLimited = createNumericIterator(NULL, t, fltLimited, &config);
       size_t numEstimatedLimited = itLimited->NumEstimated(itLimited->ctx);
       // printf("%f %f %ld %ld\n", rangeArray[i][0], rangeArray[i][1], numEstimated, numEstimatedLimited);
       ASSERT_TRUE(numEstimated >= numEstimatedLimited );

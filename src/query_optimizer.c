@@ -219,14 +219,14 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
     // limit range to number of required LIMIT
     case Q_OPT_PARTIAL_RANGE: {
       if (root->type == WILDCARD_ITERATOR) {
-        req->rootiter = NewOptimizerIterator(opt, root);
+        req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
       } else if (req->ast.root->type == QN_NUMERIC) {
         // trim the union numeric iterator to have the minimal number of ranges
         if (root->type == UNION_ITERATOR) {
           trimUnionIterator(root, 0, opt->limit, opt->asc, true);
         }
       } else {
-        req->rootiter = NewOptimizerIterator(opt, root);
+        req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
       }
       return;
     }
@@ -235,13 +235,13 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
         // TODO: For now set to NONE. Maybe add use of FILTER
         opt->type = Q_OPT_NONE;
         IndexIterator *numericIter = NewNumericFilterIterator(req->sctx, opt->sortbyNode->nn.nf,
-                                                             &req->conc, INDEXFLD_T_NUMERIC);
+                                                             &req->conc, INDEXFLD_T_NUMERIC, &req->ast.config);
         updateRootIter(req, root, numericIter);
         return;
       }
       opt->type = Q_OPT_HYBRID;
       // replace root with OptimizerIterator
-      req->rootiter = NewOptimizerIterator(opt, root);
+      req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
     }
   }
 }
