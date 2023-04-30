@@ -80,7 +80,7 @@ GeometryIndex *OpenGeometryIndex(RedisModuleCtx *redisCtx, IndexSpec *spec,
 
 void GeometryIndex_RemoveId(RedisModuleCtx *ctx, IndexSpec *spec, t_docId id) {
   for (int i = 0; i < spec->numFields; ++i) {
-    if (spec->fields[i].types| INDEXFLD_T_GEOMETRY) {
+    if (spec->fields[i].types & INDEXFLD_T_GEOMETRY) {
       const FieldSpec *fs = spec->fields + i;
       GeometryIndex *idx = OpenGeometryIndex(ctx, spec, NULL, fs);
       if (idx) {
