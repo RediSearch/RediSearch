@@ -438,6 +438,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_GEO:
+    case FLD_VAR_T_GEOMETRY:
       return -1;
     case FLD_VAR_T_ARRAY:
     case FLD_VAR_T_CSTR:
@@ -600,11 +601,10 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(geometryIndexer) {
-  GeometryIndex *rt = bulk->indexDatas[INDEXFLD_T_GEOMETRY];
+  GeometryIndex *rt = bulk->indexDatas[IXFLDPOS_GEOMETRY];
   if (!rt) {
-    RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_GEOMETRY);
     rt = bulk->indexDatas[IXFLDPOS_GEOMETRY] =
-        OpenGeometryIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_GEOMETRY], fs);
+        OpenGeometryIndex(ctx->redisCtx, ctx->spec, &bulk->indexKeys[IXFLDPOS_GEOMETRY], fs);
     if (!rt) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open geometry index for indexing");
       return -1;
@@ -619,13 +619,9 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   RedisModuleString *errMsg;
   if (!fdata->isMulti) {
     if (!api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, &errMsg)) {
-      
-      //TODO: GEOMETRY - Should indexing failures be handles also here and not in the preprocessor?
-      // (prefer to delay the parsing of the geometry as much as possible)
       ++ctx->spec->stats.indexingFailures;
-
-      QueryError_SetErrorFmt(status, QUERY_EBADVAL, "Error indexing geometry: %s",
-                             RedisModule_StringPtrLen(errMsg, NULL));
+      // QueryError_SetErrorFmt(status, QUERY_EBADVAL, "Error indexing geometry: %s",
+      //                        RedisModule_StringPtrLen(errMsg, NULL));
       RedisModule_FreeString(NULL, errMsg);
       return -1;
     }
@@ -740,6 +736,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       break;
     case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
+    case FLD_VAR_T_GEOMETRY:
       RS_LOG_ASSERT(0, "Oops");
   }
   
@@ -1093,6 +1090,7 @@ const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len) {
     case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_GEO:
+    case FLD_VAR_T_GEOMETRY:
       RS_LOG_ASSERT(0, "invalid types");
   }
   return NULL;

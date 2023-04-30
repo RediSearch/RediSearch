@@ -24,7 +24,7 @@ extern "C" {
 
 struct RTDoc;
 
-NODISCARD struct RTDoc *From_WKT(const char *wkt, size_t len, t_docId id);
+NODISCARD struct RTDoc *From_WKT(const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg);
 NODISCARD struct RTDoc *RTDoc_Copy(struct RTDoc const *other);
 void RTDoc_Free(struct RTDoc *doc) NOEXCEPT;
 NODISCARD t_docId RTDoc_GetID(struct RTDoc const *doc) NOEXCEPT;

@@ -104,8 +104,6 @@ typedef struct {
   int found;
 } IndexBulkData;
 
-// IndexerBulkAdd(bulk, cur, sctx, doc->fields + ii, fs, fdata, &cur->status);
-
 int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
                    QueryError *status);

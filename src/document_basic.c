@@ -377,6 +377,7 @@ void Document_Clear(Document *d) {
           break;
         case FLD_VAR_T_GEO:
         case FLD_VAR_T_NUM:
+        case FLD_VAR_T_GEOMETRY:
         case FLD_VAR_T_NULL:
           break;
       }
