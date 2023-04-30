@@ -612,7 +612,7 @@ def testCoordinator(env):
             compare_optimized_to_not(env, ['ft.aggregate', 'idx', '*', 'SORTBY', 2, '@n', 'ASC'], params, 'case 11')
 
 def testVector():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK FALSE')
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE idx SCHEMA v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 t TEXT n NUMERIC').ok()
