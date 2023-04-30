@@ -731,7 +731,6 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
 
 AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
-  req->optimizer = QOptimizer_New();
   /*   
   unsigned int dialectVersion;
   long long queryTimeoutMS;
@@ -744,6 +743,7 @@ AREQ *AREQ_New(void) {
   // once query offset is bounded by both.
   req->maxSearchResults = RSGlobalConfig.maxSearchResults;
   req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
+  req->optimizer = QOptimizer_New();
   return req;
 }
 
@@ -903,6 +903,10 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     }
   }
 
+  
+  // set queryAST configuration parameters
+  iteratorsConfig_init(&ast->config);
+  
   // parse inputs for optimizations
   OPTMZ(QOptimizer_Parse(req));
 
@@ -912,10 +916,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   if (QueryError_HasError(status)) {
     return REDISMODULE_ERR;
   }
-
-  
-  // set queryAST configuration parameters
-  iteratorsConfig_init(&ast->config);
 
   return REDISMODULE_OK;
 }
