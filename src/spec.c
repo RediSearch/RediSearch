@@ -11,6 +11,7 @@
 
 #include "util/logging.h"
 #include "util/misc.h"
+#include "util/threadpool_api.h"
 #include "rmutil/vector.h"
 #include "rmutil/util.h"
 #include "rmutil/rm_assert.h"
@@ -31,6 +32,7 @@
 #include "rdb.h"
 #include "commands.h"
 #include "rmutil/cxx/chrono-clock.h"
+#include "util/workers_pool.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -728,7 +730,7 @@ static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
   return parseVectorField_validate_flat(&fs->vectorOpts.vecSimParams, status);
 }
 
-static int parseVectorField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   // this is a vector field
   // init default type, size, distance metric and algorithm
 
@@ -772,6 +774,30 @@ static int parseVectorField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryE
     fs->vectorOpts.vecSimParams.hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
     fs->vectorOpts.vecSimParams.hnswParams.multi = multi;
     return parseVectorField_hnsw(fs, ac, status);
+  } else if (!strncasecmp("ASYNC-HNSW", algStr, len)) {
+    fs->vectorOpts.vecSimParams.algo = VecSimAlgo_HNSWLIB;
+    fs->vectorOpts.vecSimParams.hnswParams.initialCapacity = SIZE_MAX;
+    fs->vectorOpts.vecSimParams.hnswParams.blockSize = 0;
+    fs->vectorOpts.vecSimParams.hnswParams.M = HNSW_DEFAULT_M;
+    fs->vectorOpts.vecSimParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
+    fs->vectorOpts.vecSimParams.hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
+    fs->vectorOpts.vecSimParams.hnswParams.multi = multi;
+    if (!parseVectorField_hnsw(fs, ac, status)) {
+      return 0;
+    }
+    if (_workers_thpool) {
+      VecSimParams *hnswParams = rm_new(VecSimParams);
+      memcpy(hnswParams, &fs->vectorOpts.vecSimParams, sizeof(VecSimParams));
+
+      fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
+      fs->vectorOpts.vecSimParams.tieredParams.primaryIndexParams = hnswParams;
+      fs->vectorOpts.vecSimParams.tieredParams.jobQueue = _workers_thpool;
+      fs->vectorOpts.vecSimParams.tieredParams.jobQueueCtx = StrongRef_Demote(sp_ref).rm;
+      fs->vectorOpts.vecSimParams.tieredParams.submitCb = (SubmitCB)ThreadPoolAPI_SubmitJobs;
+      fs->vectorOpts.vecSimParams.tieredParams.memoryCtx = &fs->vectorOpts.memConsumption;
+      fs->vectorOpts.vecSimParams.tieredParams.UpdateMemCb = VecSim_UpdateMemoryStats;
+    }
+    return 1;
   } else {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", AC_ERR_ENOENT);
     return 0;
@@ -780,7 +806,7 @@ static int parseVectorField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryE
 
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
-static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, FieldSpec *fs, QueryError *status) {
+static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Field `%s` does not have a type", fs->name);
     return 0;
@@ -798,7 +824,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, FieldSpec *fs, QueryErr
   } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field
     sp->flags |= Index_HasVecSim;
     fs->types |= INDEXFLD_T_VECTOR;
-    if (!parseVectorField(sp, fs, ac, status)) {
+    if (!parseVectorField(sp, sp_ref, fs, ac, status)) {
       goto error;
     }
     return 1;
@@ -856,6 +882,18 @@ error:
 }
 
 // Assuming the spec is properly locked before calling this function.
+size_t IndexSpec_VectorIndexSize(const IndexSpec *sp) {
+  size_t size = 0;
+  for (size_t ii = 0; ii < sp->numFields; ++ii) {
+    const FieldSpec *fs = sp->fields + ii;
+    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+      size += fs->vectorOpts.memConsumption;
+    }
+  }
+  return size;
+}
+
+// Assuming the spec is properly locked before calling this function.
 int IndexSpec_CreateTextId(const IndexSpec *sp) {
   int maxId = -1;
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
@@ -880,8 +918,8 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
 /**
  * Add fields to an existing (or newly created) index. If the addition fails,
  */
-static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError *status,
-                                       int isNew) {
+static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCursor *ac,
+                                       QueryError *status, int isNew) {
   if (ac->offset == ac->argc) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Fields arguments are missing");
     return 0;
@@ -922,7 +960,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     }
 
     fs = IndexSpec_CreateField(sp, fieldName, fieldPath);
-    if (!parseFieldSpec(ac, sp, fs, status)) {
+    if (!parseFieldSpec(ac, sp, spec_ref, fs, status)) {
       goto reset;
     }
 
@@ -1039,7 +1077,7 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
                         QueryError *status) {
   setMemoryInfo(ctx);
 
-  int rc = IndexSpec_AddFieldsInternal(sp, ac, status, 0);
+  int rc = IndexSpec_AddFieldsInternal(sp, spec_ref, ac, status, 0);
   if (rc && initialScan) {
     IndexSpec_ScanAndReindex(ctx, spec_ref);
   }
@@ -1130,7 +1168,7 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
     goto failure;
   }
 
-  if (!IndexSpec_AddFieldsInternal(spec, &ac, status, 1)) {
+  if (!IndexSpec_AddFieldsInternal(spec, spec_ref, &ac, status, 1)) {
     goto failure;
   }
 
@@ -1282,10 +1320,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Free fields data
   if (spec->fields != NULL) {
     for (size_t i = 0; i < spec->numFields; i++) {
-      if (spec->fields[i].name != spec->fields[i].path) {
-        rm_free(spec->fields[i].name);
-      }
-      rm_free(spec->fields[i].path);
+      FieldSpec_Cleanup(&spec->fields[i]);
     }
     rm_free(spec->fields);
   }
@@ -2101,7 +2136,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_in_mb");
   RedisModule_InfoAddFieldDouble(ctx, "inverted_size", sp->stats.invertedSize / (float)0x100000);
-  RedisModule_InfoAddFieldDouble(ctx, "vector_index_size", sp->stats.vectorIndexSize / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "vector_index_size", IndexSpec_VectorIndexSize(sp) / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_size", sp->stats.offsetVecsSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", sp->docs.memsize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size", sp->docs.sortablesSize / (float)0x100000);
@@ -2689,7 +2724,8 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
           continue;
         }
         VecSimIndex *vecsim = kdv->p;
-        spec->stats.vectorIndexSize += VecSimIndex_DeleteVector(vecsim, id);
+        size_t mem_usage = VecSimIndex_DeleteVector(vecsim, id);
+        VecSim_UpdateMemoryStats(&spec->fields[i].vectorOpts.memConsumption, mem_usage);
       }
     }
   }

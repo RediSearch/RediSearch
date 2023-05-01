@@ -20,8 +20,8 @@
 struct RefManager {
   void *obj;
   RefManager_Free freeCB;
-  uint16_t strong_refcount;
-  uint16_t weak_refcount;
+  uint64_t weak_refcount;
+  uint32_t strong_refcount;
   bool isInvalid;
 };
 
@@ -34,20 +34,20 @@ static RefManager *RefManager_New(void *obj, RefManager_Free freeCB) {
   RefManager *rm = rm_new(*rm);
   rm->obj = obj;
   rm->freeCB = freeCB;
-  rm->strong_refcount = 1;
   rm->weak_refcount = 1;
+  rm->strong_refcount = 1;
   rm->isInvalid = false;
   return rm;
 }
 
 static void RefManager_ReturnStrongReference(RefManager *rm) {
-  if (__atomic_sub_fetch(&rm->strong_refcount, 1, __ATOMIC_RELAXED) == 0) {
+  if (__atomic_sub_fetch(&rm->strong_refcount, 1, __ATOMIC_SEQ_CST) == 0) {
     rm->freeCB(rm->obj);
   }
 }
 
 static void RefManager_ReturnWeakReference(RefManager *rm) {
-  if (__atomic_sub_fetch(&rm->weak_refcount, 1, __ATOMIC_RELAXED) == 0) {
+  if (__atomic_sub_fetch(&rm->weak_refcount, 1, __ATOMIC_SEQ_CST) == 0) {
     rm_free(rm);
   }
 }
@@ -58,27 +58,29 @@ static void RefManager_ReturnReferences(RefManager *rm) {
 }
 
 static void RefManager_InvalidateObject(RefManager *rm) {
-  __atomic_store_n(&rm->isInvalid, 1, __ATOMIC_RELEASE);
+  __atomic_store_n(&rm->isInvalid, 1, __ATOMIC_SEQ_CST);//RELEASE);
 }
 
 static void RefManager_GetWeakReference(RefManager *rm) {
-  __atomic_add_fetch(&rm->weak_refcount, 1, __ATOMIC_RELAXED);
+  __atomic_add_fetch(&rm->weak_refcount, 1, __ATOMIC_SEQ_CST);//RELEASE);
 }
 
 // Returns false if the object is being freed or marked as invalid,
 // otherwise increases the strong refcount and returns true.
 static bool RefManager_TryGetStrongReference(RefManager *rm) {
   // Attempt to increase the strong refcount by 1 only if it's not 0
-  uint16_t cur_ref = __atomic_load_n(&rm->strong_refcount, __ATOMIC_RELAXED);
+  uint32_t cur_ref = __atomic_load_n(&rm->strong_refcount, __ATOMIC_SEQ_CST);//_ACQUIRE);
   do {
     if (cur_ref == 0) {
       // Refcount was 0, so the object is being freed
       return false;
     }
-  } while (!__atomic_compare_exchange_n(&rm->strong_refcount, &cur_ref, cur_ref + 1, 0, 0, 0));
+  } while (!__atomic_compare_exchange_n(&rm->strong_refcount, &cur_ref, cur_ref + 1, false,
+                                        __ATOMIC_SEQ_CST,//RELEASE,   // If assignment succeeds, use release semantics
+                                        __ATOMIC_SEQ_CST));//ACQUIRE)); // If assignment fails, cur_ref is updated with the current value
 
   // We have a valid strong reference. Check if the object is invalid before returning it
-  if (__atomic_load_n(&rm->isInvalid, __ATOMIC_ACQUIRE)) {
+  if (__atomic_load_n(&rm->isInvalid, __ATOMIC_SEQ_CST)){//ACQUIRE)) {
     RefManager_ReturnStrongReference(rm);
     return false;
   } else {

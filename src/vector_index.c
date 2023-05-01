@@ -40,12 +40,13 @@ static VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyNa
   switch (indexInfo.algo)
   {
     case VecSimAlgo_BF:
-      spec->stats.vectorIndexSize += indexInfo.bfInfo.memory;
+      fieldSpec->vectorOpts.memConsumption += indexInfo.bfInfo.memory;
       break;
     case VecSimAlgo_HNSWLIB:
-      spec->stats.vectorIndexSize += indexInfo.hnswInfo.memory;
+      fieldSpec->vectorOpts.memConsumption += indexInfo.hnswInfo.memory;
       break;
-    default:
+    case VecSimAlgo_TIERED:
+      fieldSpec->vectorOpts.memConsumption += 9999; // TODO: add tiered memory consumption
       break;
   }
   dictAdd(spec->keysDict, keyName, kdv);
@@ -251,6 +252,7 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
   switch (algo) {
     case VecSimAlgo_BF: return VECSIM_ALGORITHM_BF;
     case VecSimAlgo_HNSWLIB: return VECSIM_ALGORITHM_HNSW;
+    case VecSimAlgo_TIERED: return "ASYNC-HNSW";
   }
   return NULL;
 }
@@ -397,6 +399,14 @@ fail:
   return REDISMODULE_ERR;
 }
 
+void VecSimParams_Cleanup(VecSimParams *params) {
+  if (params->algo == VecSimAlgo_TIERED) {
+    WeakRef spec_ref = {params->tieredParams.jobQueueCtx};
+    WeakRef_Release(spec_ref);
+    rm_free(params->tieredParams.primaryIndexParams);
+  }
+}
+
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
                           VecSimQueryParams *qParams, VecsimQueryType queryType, QueryError *status) {
 
@@ -446,4 +456,10 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
   const char *error_msg = QueryError_Strerror(RSErrorCode);
   QueryError_SetErrorFmt(status, RSErrorCode, "Error parsing vector similarity parameters: %s", error_msg);
   return vecSimCode;
+}
+
+int VecSim_UpdateMemoryStats(void *memory_ctx, size_t memory) {
+  size_t *memory_p = (size_t *)memory_ctx;
+  __atomic_store_n(memory_p, memory, __ATOMIC_RELAXED);
+  return 1;
 }

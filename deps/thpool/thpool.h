@@ -6,6 +6,7 @@
 
 #ifndef _THPOOL_
 #define _THPOOL_
+#include <stddef.h>
 
 #include <stddef.h>
 
@@ -74,6 +75,40 @@ redisearch_threadpool redisearch_thpool_init(size_t num_threads);
  */
 typedef void (*redisearch_thpool_proc)(void*);
 int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc function_p, void* arg_p, thpool_priority priority);
+
+/**
+ * @brief Add work to the job queue
+ *
+ * Takes an action and its argument and adds it to the threadpool's job queue.
+ * If you want to add to work a function with more than one arguments then
+ * a way to implement this is by passing a pointer to a structure.
+ *
+ * NOTICE: You have to cast both the function and argument to not get warnings.
+ *
+ * @example
+ *
+ *    void print_num(int num){
+ *       printf("%d\n", num);
+ *    }
+ *
+ *    int main() {
+ *       ..
+ *       int a = 10;
+ *       thpool_add_work(thpool, (void*)print_num, (void*)a);
+ *       ..
+ *    }
+ *
+ * @param  threadpool    threadpool to which the work will be added
+ * @param  function_pp   array of pointers to function to add as work
+ * @param  arg_pp        array of  pointer to an argument
+ * @param  n             number of elements in the array
+ * @return 0 on successs, -1 otherwise.
+ */
+typedef struct thpool_work_t {
+    redisearch_thpool_proc function_p;
+    void* arg_p;
+} redisearch_thpool_work_t;
+int redisearch_thpool_add_n_work(redisearch_threadpool, redisearch_thpool_work_t* jobs, size_t n_jobs);
 
 
 /**

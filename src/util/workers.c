@@ -4,6 +4,7 @@
  * This file is available under the Redis Labs Source Available License Agreement
  */
 
+#include "workers_pool.h"
 #include "workers.h"
 #include "redismodule.h"
 
@@ -15,7 +16,7 @@
 // Thread pool
 //------------------------------------------------------------------------------
 
-static redisearch_threadpool _workers_thpool = NULL;
+redisearch_threadpool _workers_thpool = NULL;
 
 // set up workers' thread pool
 int workersThreadPool_CreatePool(size_t worker_count) {

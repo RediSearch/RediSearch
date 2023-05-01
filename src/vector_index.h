@@ -117,9 +117,13 @@ const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
 
+void VecSimParams_Cleanup(VecSimParams *params);
+
 void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams);
 int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams);
 int VecSim_RdbLoad_v2(RedisModuleIO *rdb, VecSimParams *vecsimParams); // includes multi flag
+
+int VecSim_UpdateMemoryStats(void *memory_ctx, size_t memory);
 
 #ifdef __cplusplus
 extern "C" {

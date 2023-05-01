@@ -121,7 +121,6 @@ typedef struct {
   size_t offsetVecRecords;
   size_t termsSize;
   size_t indexingFailures;
-  size_t vectorIndexSize;
   long double totalIndexTime; // usec
 } IndexStats;
 
@@ -298,7 +297,7 @@ typedef struct IndexSpec {
 
   // read write lock
   pthread_rwlock_t rwlock;
-    
+
   // Current spec version.
   // Should be updated after acquiring the write lock.
   size_t specVersion;
@@ -450,6 +449,11 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
 #endif
 
 /**
+ * Get the total memory usage of all the vector fields in the index (in bytes).
+ */
+size_t IndexSpec_VectorIndexSize(const IndexSpec *sp);
+
+/**
  * Gets the next text id from the index. This does not currently
  * modify the index
  */
@@ -546,8 +550,8 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(StrongRef ref);
 
-// Return the current version of the spec. 
-// Each protected writing increases the version by 1. 
+// Return the current version of the spec.
+// Each protected writing increases the version by 1.
 // If the version number is overflowed we restart the count to zero.
 // Hence, The value of the version number doesn't indicate if the index
 // is newer or older, and should be only tested for inequality.
