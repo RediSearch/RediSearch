@@ -1,5 +1,5 @@
 #include "gtest/gtest.h"
-#include "deps/thpool/thpool.h"
+#include "thpool/thpool.h"
 #include <chrono>
 #include <thread>
 
@@ -7,13 +7,13 @@ class ThpoolTest : public ::testing::Test {
 
 
     public:
-    threadpool pool;
+    redisearch_threadpool pool;
         virtual void SetUp() {
-            this->pool = thpool_init(1);
+            this->pool = redisearch_thpool_init(1);
         }
 
         virtual void TearDown() {
-            thpool_destroy(this->pool);
+            redisearch_thpool_destroy(this->pool);
         }
 };
 
@@ -42,9 +42,9 @@ TEST_F(ThpoolTest, AllLowPriority) {
     for (int i = 0; i < array_len; i++) {
         ts[i].arr = arr;
         ts[i].index = i;
-        thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[i], THPOOL_PRIORITY_LOW);
+        redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[i], THPOOL_PRIORITY_LOW);
     }
-    thpool_wait(this->pool);
+    redisearch_thpool_wait(this->pool);
     for (int i = 0; i < array_len-1; i++) {
         ASSERT_LT(arr[i],  arr[i+1]);
     }  
@@ -61,9 +61,9 @@ TEST_F(ThpoolTest, AllHighPriority) {
     for (int i = 0; i < array_len; i++) {
         ts[i].arr = arr;
         ts[i].index = i;
-        thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[i], THPOOL_PRIORITY_HIGH);
+        redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[i], THPOOL_PRIORITY_HIGH);
     }
-    thpool_wait(this->pool);
+    redisearch_thpool_wait(this->pool);
     for (int i = 0; i < array_len-1; i++) {
         ASSERT_LT(arr[i],  arr[i+1]);
     } 
@@ -86,36 +86,13 @@ TEST_F(ThpoolTest, HighLowHighTest) {
     }
     // The low priority task is added in the middle, but it should run after the high priority tasks
     ts[high_priority_tasks].arr = &low_priority_timestamp;
-    thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[0], THPOOL_PRIORITY_HIGH);
-    thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[2], THPOOL_PRIORITY_LOW);
-    thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[1], THPOOL_PRIORITY_HIGH);
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[0], THPOOL_PRIORITY_HIGH);
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[2], THPOOL_PRIORITY_LOW);
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[1], THPOOL_PRIORITY_HIGH);
 
-    thpool_wait(this->pool);
+    redisearch_thpool_wait(this->pool);
     for (int i = 0; i < high_priority_tasks; i++) {
         ASSERT_LT(arr[i],  low_priority_timestamp);
     } 
 }
-
-
-// TEST_F(ThpoolTest, LowLowHighTest) {
-//     int low_priority_tasks = 2;
-//     std::chrono::time_point<std::chrono::high_resolution_clock> arr[low_priority_tasks];
-//     std::chrono::time_point<std::chrono::high_resolution_clock> high_priority_timestamp;
-//     // Initialize the test_struct array
-//     test_struct ts[low_priority_tasks + 1] = {0};
-//     for (int i = 0; i < low_priority_tasks; i++) {
-//         ts[i].arr = arr;
-//         ts[i].index = i;
-//     }
-//     // The high priority task is added in the middle, so it should run in the middle.
-//     ts[low_priority_tasks].arr = &high_priority_timestamp;
-//     thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[0], THPOOL_PRIORITY_LOW);
-//     thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[1], THPOOL_PRIORITY_LOW);
-//     thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[2], THPOOL_PRIORITY_HIGH);
-
-//     thpool_wait(this->pool);
-//     ASSERT_LT(arr[0],  high_priority_timestamp);
-//     ASSERT_LT(high_priority_timestamp, arr[1]);
-
-// }
 

@@ -86,7 +86,6 @@ typedef struct redisearch_thpool_t {
   pthread_mutex_t thcount_lock;     /* used for thread count etc */
   pthread_cond_t threads_all_idle;  /* signal to thpool_wait     */
   priority_queue jobqueue;          /* job queue                 */
-  jobqueue jobqueue;                /* job queue                 */
 } redisearch_thpool_t;
 
 /* ========================== PROTOTYPES ============================ */
