@@ -144,14 +144,14 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     size_t requiredFieldsCount = array_len(req->requiredFields);
       for(; currentField < requiredFieldsCount; currentField++) {
         count++;
-        const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], 0);
+        const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], RLOOKUP_F_NOFLAGS);
         RSValue *v = (RSValue*)getReplyKey(rlk, r);
         if (v && v->t == RSValue_Duo) {
           // For duo value, we use the value here (not the other value)
           v = RS_DUOVAL_VAL(*v);
         }
         RSValue rsv;
-        if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE) {
+        if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE && !RSValue_IsNull(v)) {
           double d;
           RSValue_ToNumber(v, &d);
           RSValue_SetNumber(&rsv, d);
@@ -410,6 +410,13 @@ int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status) {
   RSSearchOptions *opts = &req->searchopts;
   QueryAST *ast = &req->ast;
 
+  // Set timeout for the query execution
+  // TODO: this should be done in `AREQ_execute`, but some of the iterators needs the timeout's
+  // value and some of the execution begins in `QAST_Iterate`.
+  // Setting the timeout context should be done in the same thread that executes the query.
+  updateTimeout(&req->timeoutTime, req->reqTimeout);
+  sctx->timeout = req->timeoutTime;
+
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
 
@@ -550,7 +557,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     // report block client start time
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, blockedClient);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
-    workersThreadPool_AddWork((thpool_proc)AREQ_Execute_Callback, BCRctx);
+    workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
   } else {
     if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
       goto error;

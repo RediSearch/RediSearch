@@ -17,7 +17,7 @@ int workersThreadPool_CreatePool(size_t worker_count);
 size_t workersThreadPool_WorkingThreadCount(void);
 
 // adds a task
-int workersThreadPool_AddWork(thpool_proc, void *arg_p);
+int workersThreadPool_AddWork(redisearch_thpool_proc, void *arg_p);
 
 // Wait until all jobs have finished
 void workersThreadPool_Wait(void);

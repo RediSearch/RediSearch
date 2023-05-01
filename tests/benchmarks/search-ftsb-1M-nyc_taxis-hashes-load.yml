@@ -17,7 +17,14 @@ metadata:
   component: "search"
 setups:
   - oss-standalone
-  - oss-cluster-03-primaries
+  - oss-cluster-02-primaries
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+  - oss-cluster-16-primaries
+  - oss-cluster-20-primaries
+  - oss-cluster-24-primaries
+  - oss-cluster-32-primaries
+
 dbconfig:
   - init_commands:
       - '"FT.CREATE" "nyc_taxis" "ON" "HASH" "SCHEMA" "vendor_id" "tag" "SORTABLE" "payment_type" "tag" "SORTABLE" "trip_type" "tag" "SORTABLE" "rate_code_id" "tag" "SORTABLE" "store_and_fwd_flag" "tag" "SORTABLE" "pickup_datetime" "text" "SORTABLE" "dropoff_datetime" "text" "SORTABLE" "pickup_location_long_lat" "geo" "SORTABLE" "dropoff_location_long_lat" "geo" "SORTABLE" "passenger_count" "numeric" "SORTABLE" "trip_distance" "numeric" "SORTABLE" "fare_amount" "numeric" "SORTABLE" "mta_tax" "numeric" "SORTABLE" "extra" "numeric" "SORTABLE" "improvement_surcharge" "numeric" "SORTABLE" "tip_amount" "numeric" "SORTABLE" "tolls_amount" "numeric" "SORTABLE" "total_amount" "numeric" "SORTABLE"'

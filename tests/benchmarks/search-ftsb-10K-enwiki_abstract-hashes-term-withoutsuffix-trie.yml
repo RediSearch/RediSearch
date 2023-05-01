@@ -9,6 +9,14 @@ metadata:
   component: "search"
 setups:
   - oss-standalone
+  - oss-cluster-02-primaries
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+  - oss-cluster-16-primaries
+  - oss-cluster-20-primaries
+  - oss-cluster-24-primaries
+  - oss-cluster-32-primaries
+
 dbconfig:
   - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/internal.tasks/withsuffix-github/dump.rdb"
   - dataset_load_timeout_secs: 180

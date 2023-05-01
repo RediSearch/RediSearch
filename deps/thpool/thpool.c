@@ -74,11 +74,11 @@ typedef struct priority_queue {
 typedef struct thread {
   int id;                   /* friendly id               */
   pthread_t pthread;        /* pointer to actual thread  */
-  struct thpool_* thpool_p; /* access to thpool          */
+  struct redisearch_thpool_t* thpool_p; /* access to thpool          */
 } thread;
 
 /* Threadpool */
-typedef struct thpool_ {
+typedef struct redisearch_thpool_t {
   thread** threads;                 /* pointer to threads        */
   volatile size_t num_threads_alive;   /* threads currently alive   */
   volatile size_t num_threads_working; /* threads currently working */
@@ -86,11 +86,12 @@ typedef struct thpool_ {
   pthread_mutex_t thcount_lock;     /* used for thread count etc */
   pthread_cond_t threads_all_idle;  /* signal to thpool_wait     */
   priority_queue jobqueue;          /* job queue                 */
-} thpool_;
+  jobqueue jobqueue;                /* job queue                 */
+} redisearch_thpool_t;
 
 /* ========================== PROTOTYPES ============================ */
 
-static int thread_init(thpool_* thpool_p, struct thread** thread_p, int id);
+static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id);
 static void* thread_do(struct thread* thread_p);
 static void thread_hold(int sig_id);
 static void thread_destroy(struct thread* thread_p);
@@ -117,15 +118,15 @@ static void bsem_wait(struct bsem* bsem_p);
 /* ========================== THREADPOOL ============================ */
 
 /* Initialise thread pool */
-struct thpool_* thpool_init(size_t num_threads) {
+struct redisearch_thpool_t* redisearch_thpool_init(size_t num_threads) {
 
   threads_on_hold = 0;
 
   /* Make new thread pool */
-  thpool_* thpool_p;
-  thpool_p = (struct thpool_*)rm_malloc(sizeof(struct thpool_));
+  redisearch_thpool_t* thpool_p;
+  thpool_p = (struct redisearch_thpool_t*)rm_malloc(sizeof(struct redisearch_thpool_t));
   if (thpool_p == NULL) {
-    err("thpool_init(): Could not allocate memory for thread pool\n");
+    err("redisearch_thpool_init(): Could not allocate memory for thread pool\n");
     return NULL;
   }
   thpool_p->num_threads_alive = 0;
@@ -134,7 +135,7 @@ struct thpool_* thpool_init(size_t num_threads) {
 
   /* Initialise the job queue */
   if(priority_queue_init(&thpool_p->jobqueue) == -1) {
-    err("thpool_init(): Could not allocate memory for priority queue\n");
+    err("redisearch_thpool_init(): Could not allocate memory for job queue\n");
     rm_free(thpool_p);
     return NULL;
   }
@@ -142,7 +143,7 @@ struct thpool_* thpool_init(size_t num_threads) {
   /* Make threads in pool */
   thpool_p->threads = (struct thread**)rm_malloc(num_threads * sizeof(struct thread*));
   if (thpool_p->threads == NULL) {
-    err("thpool_init(): Could not allocate memory for threads\n");
+    err("redisearch_thpool_init(): Could not allocate memory for threads\n");
     priority_queue_destroy(&thpool_p->jobqueue);
     rm_free(thpool_p);
     return NULL;
@@ -168,7 +169,7 @@ struct thpool_* thpool_init(size_t num_threads) {
 }
 
 /* Add work to the thread pool */
-int thpool_add_work(thpool_* thpool_p, void (*function_p)(void*), void* arg_p, thpool_priority priority) {
+int redisearch_thpool_add_work(redisearch_thpool_t* thpool_p, void (*function_p)(void*), void* arg_p, thpool_priority priority) {
   job* newjob;
 
   newjob = (struct job*)rm_malloc(sizeof(struct job));
@@ -188,7 +189,7 @@ int thpool_add_work(thpool_* thpool_p, void (*function_p)(void*), void* arg_p, t
 }
 
 /* Wait until all jobs have finished */
-void thpool_wait(thpool_* thpool_p) {
+void redisearch_thpool_wait(redisearch_thpool_t* thpool_p) {
   pthread_mutex_lock(&thpool_p->thcount_lock);
   while (priority_queue_len(&thpool_p->jobqueue) || thpool_p->num_threads_working) {
     pthread_cond_wait(&thpool_p->threads_all_idle, &thpool_p->thcount_lock);
@@ -197,7 +198,7 @@ void thpool_wait(thpool_* thpool_p) {
 }
 
 /* Destroy the threadpool */
-void thpool_destroy(thpool_* thpool_p) {
+void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
   /* No need to destory if it's NULL */
   if (thpool_p == NULL) return;
 
@@ -235,7 +236,7 @@ void thpool_destroy(thpool_* thpool_p) {
 }
 
 /* Pause all threads in threadpool */
-void thpool_pause(thpool_* thpool_p) {
+void redisearch_thpool_pause(redisearch_thpool_t* thpool_p) {
   size_t n;
   for (n = 0; n < thpool_p->num_threads_alive; n++) {
     pthread_kill(thpool_p->threads[n]->pthread, SIGUSR2);
@@ -243,7 +244,7 @@ void thpool_pause(thpool_* thpool_p) {
 }
 
 /* Resume all threads in threadpool */
-void thpool_resume(thpool_* thpool_p) {
+void redisearch_thpool_resume(redisearch_thpool_t* thpool_p) {
   // resuming a single threadpool hasn't been
   // implemented yet, meanwhile this supresses
   // the warnings
@@ -252,7 +253,7 @@ void thpool_resume(thpool_* thpool_p) {
   threads_on_hold = 0;
 }
 
-size_t thpool_num_threads_working(thpool_* thpool_p) {
+size_t redisearch_thpool_num_threads_working(redisearch_thpool_t* thpool_p) {
   return thpool_p->num_threads_working;
 }
 
@@ -264,7 +265,7 @@ size_t thpool_num_threads_working(thpool_* thpool_p) {
  * @param id            id to be given to the thread
  * @return 0 on success, -1 otherwise.
  */
-static int thread_init(thpool_* thpool_p, struct thread** thread_p, int id) {
+static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id) {
 
   *thread_p = (struct thread*)rm_malloc(sizeof(struct thread));
   if (thread_p == NULL) {
@@ -313,7 +314,7 @@ static void* thread_do(struct thread* thread_p) {
 #endif
 
   /* Assure all threads have been created before starting serving */
-  thpool_* thpool_p = thread_p->thpool_p;
+  redisearch_thpool_t* thpool_p = thread_p->thpool_p;
 
   /* Register signal handler */
   struct sigaction act;

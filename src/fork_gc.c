@@ -708,6 +708,28 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   idx->gcMarker++;
 }
 
+// TODO: this should be removed and replaced with `RedisSearchCtx_LockSpecWrite` only,
+// once we lock the spec for read in the main thread for queries.
+static void FGC_lock(RedisSearchCtx *sctx) {
+  if (sctx->spec->flags & Index_FromLLAPI) {
+    RWLOCK_ACQUIRE_WRITE();
+  } else {
+    RedisModule_ThreadSafeContextLock(sctx->redisCtx);
+  }
+  RedisSearchCtx_LockSpecWrite(sctx);
+}
+
+// TODO: this should be removed and replaced with `RedisSearchCtx_UnlockSpec` only,
+// once we lock the spec for read in the main thread for queries.
+static void FGC_unlock(RedisSearchCtx *sctx) {
+  RedisSearchCtx_UnlockSpec(sctx);
+  if (sctx->spec->flags & Index_FromLLAPI) {
+    RWLOCK_RELEASE();
+  } else {
+    RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
+  }
+}
+
 static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
   size_t len;
@@ -738,7 +760,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   RedisSearchCtx sctx_ = SEARCH_CTX_STATIC(gc->ctx, sp);
   RedisSearchCtx *sctx = &sctx_;
 
-  RedisSearchCtx_LockSpecWrite(sctx);
+  FGC_lock(sctx);
 
   InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, len, 1, NULL, &idxKey);
 
@@ -772,7 +794,7 @@ cleanup:
   if (idxKey) {
     RedisModule_CloseKey(idxKey);
   }
-  RedisSearchCtx_UnlockSpec(sctx);
+  FGC_unlock(sctx);
   if (sp) {
     StrongRef_Release(spec_ref);
   }
@@ -906,7 +928,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     RedisSearchCtx _sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
     RedisSearchCtx *sctx = &_sctx;
 
-    RedisSearchCtx_LockSpecWrite(sctx);
+    FGC_lock(sctx);
 
     RedisModuleString *keyName =
         IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC);
@@ -938,7 +960,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
-    RedisSearchCtx_UnlockSpec(sctx);
+    FGC_unlock(sctx);
     if (sp) {
       StrongRef_Release(cur_iter_spec_ref);
     }
@@ -953,13 +975,13 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       return FGC_SPEC_DELETED;
     }
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
-    RedisSearchCtx_LockSpecWrite(&sctx);
+    FGC_lock(&sctx);
     if (RSGlobalConfig.forkGCCleanNumericEmptyNodes) {
       NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
       rt->numRanges += rv.numRanges;
       rt->emptyLeaves = 0;
     }
-    RedisSearchCtx_UnlockSpec(&sctx);
+    FGC_unlock(&sctx);
     StrongRef_Release(spec_ref);
   }
 
@@ -1012,7 +1034,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
       goto loop_cleanup;
     }
 
-    RedisSearchCtx_LockSpecWrite(sctx);
+    FGC_lock(sctx);
 
     keyName = IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_TAG);
     tagIdx = TagIndex_Open(sctx, keyName, false, &idxKey);
@@ -1044,7 +1066,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
-    RedisSearchCtx_UnlockSpec(sctx);
+    FGC_unlock(sctx);
     StrongRef_Release(cur_iter_spec_ref);
     if (status != FGC_COLLECTED) {
       freeInvIdx(&idxbufs, &info);
