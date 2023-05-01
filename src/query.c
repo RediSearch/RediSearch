@@ -323,7 +323,7 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
 QueryNode *NewGeometryNode_FromWkt(const char *wkt, size_t len) {
   
   QueryNode *ret = NULL;
-  char *delim = strstr(wkt, ":");
+  char *delim = strpbrk(wkt, " \t");
   if (delim) {
     enum QueryType query_type;
     if (strncasecmp(wkt, "WITHIN", delim - wkt) == 0) {

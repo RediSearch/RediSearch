@@ -60,8 +60,7 @@ suffix = (star.term | star.number | star.attr) $1;
 as = 'AS'|'aS'|'As'|'as';
 verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $4;
 wildcard = 'w' . verbatim $4;
-#named_predicate = lsqb.alpha+.space+.((any - rsqb)+).rsqb;
-named_predicate = lsqb.space?.alpha+.space?.colon.space?.((any - rsqb)+).rsqb;
+named_predicate = lsqb.space?.(([Ww][Ii][Tt][Hh][Ii][Nn])|([)Cc][Oo][Nn][Tt][Aa][Ii][Nn][Ss])).space+.((any - rsqb)+).rsqb;
 
 main := |*
 
