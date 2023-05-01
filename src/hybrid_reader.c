@@ -402,7 +402,12 @@ void HybridIterator_Free(struct indexIterator *self) {
   rm_free(it);
 }
 
-IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
+IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status) {
+  // If searchMode is out of the expected range.
+  if (hParams.qParams.searchMode < 0 || hParams.qParams.searchMode >= VECSIM_LAST_SEARCHMODE) {
+    QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Creating new hybrid vector iterator has failed");
+  }
+
   HybridIterator *hi = rm_new(HybridIterator);
   hi->lastDocId = 0;
   hi->child = hParams.childIt;
@@ -424,7 +429,8 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams) {
   hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = 0 };
   hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
 
-  if (hParams.childIt == NULL) {
+  if (hParams.childIt == NULL || hParams.query.k == 0) {
+    // If there is no child iterator, or the query is going to return 0 results, we can use simple KNN.
     hi->searchMode = VECSIM_STANDARD_KNN;
   } else {
     // hi->searchMode is VECSIM_HYBRID_ADHOC_BF || VECSIM_HYBRID_BATCHES

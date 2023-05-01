@@ -360,6 +360,7 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec);
 /**
  * Decrement the reference count of the spec cache. Should be matched
  * with a previous call of GetSpecCache()
+ * Can handle NULL
  */
 void IndexSpecCache_Decref(IndexSpecCache *cache);
 
@@ -408,7 +409,7 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
 StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
                                    RedisModuleString **argv, int argc, QueryError *status);
 
-FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type);
+arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type);
 int isRdbLoading(RedisModuleCtx *ctx);
 
 /* Create a new index spec from redis arguments, set it in a redis key and start its GC.

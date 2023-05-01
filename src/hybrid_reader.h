@@ -54,7 +54,7 @@ typedef struct {
 extern "C" {
 #endif
 
-IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams);
+IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status);
 
 #ifdef __cplusplus
 }

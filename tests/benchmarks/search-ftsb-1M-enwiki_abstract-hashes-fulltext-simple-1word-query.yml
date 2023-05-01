@@ -18,7 +18,14 @@ metadata:
   component: "search"
 setups:
   - oss-standalone
-  - oss-cluster-03-primaries
+  - oss-cluster-02-primaries
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+  - oss-cluster-16-primaries
+  - oss-cluster-20-primaries
+  - oss-cluster-24-primaries
+  - oss-cluster-32-primaries
+
 dbconfig:
   - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
   - init_commands:
@@ -33,6 +40,6 @@ clientconfig:
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64
-    - requests: 50000
+    - requests: 500000
     - reporting-period: 1s
     - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.commands.BENCH.QUERY_simple-1word-query.csv"

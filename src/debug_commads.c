@@ -939,3 +939,7 @@ int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   return REDISMODULE_OK;
 }
+
+#if (defined(DEBUG) || defined(_DEBUG)) && !defined(NDEBUG)
+#include "readies/cetara/diag/gdb.c"
+#endif

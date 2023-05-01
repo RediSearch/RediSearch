@@ -405,11 +405,10 @@ static void sendKht(ForkGC *gc, const khash_t(cardvals) * kh) {
 
 static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   RedisModuleKey *idxKey = NULL;
-  FieldSpec **numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
+  arrayof(FieldSpec*) numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
 
   for (int i = 0; i < array_len(numericFields); ++i) {
-    RedisModuleString *keyName =
-        IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC);
+    RedisModuleString *keyName = IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC);
     NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
     NumericRangeTreeIterator *gcIterator = NumericRangeTreeIterator_New(rt);
@@ -452,17 +451,17 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
     NumericRangeTreeIterator_Free(gcIterator);
   }
 
+  array_free(numericFields);
   // we are done with numeric fields
   FGC_sendTerminator(gc);
 }
 
 static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
   RedisModuleKey *idxKey = NULL;
-  FieldSpec **tagFields = getFieldsByType(sctx->spec, INDEXFLD_T_TAG);
+  arrayof(FieldSpec*) tagFields = getFieldsByType(sctx->spec, INDEXFLD_T_TAG);
   if (array_len(tagFields) != 0) {
     for (int i = 0; i < array_len(tagFields); ++i) {
-      RedisModuleString *keyName =
-          IndexSpec_GetFormattedKey(sctx->spec, tagFields[i], INDEXFLD_T_TAG);
+      RedisModuleString *keyName = IndexSpec_GetFormattedKey(sctx->spec, tagFields[i], INDEXFLD_T_TAG);
       TagIndex *tagIdx = TagIndex_Open(sctx, keyName, false, &idxKey);
       if (!tagIdx) {
         continue;
@@ -495,6 +494,8 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
       }
     }
   }
+
+  array_free(tagFields);
   // we are done with numeric fields
   FGC_sendTerminator(gc);
 }
@@ -708,6 +709,28 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   idx->gcMarker++;
 }
 
+// TODO: this should be removed and replaced with `RedisSearchCtx_LockSpecWrite` only,
+// once we lock the spec for read in the main thread for queries.
+static void FGC_lock(RedisSearchCtx *sctx) {
+  if (sctx->spec->flags & Index_FromLLAPI) {
+    RWLOCK_ACQUIRE_WRITE();
+  } else {
+    RedisModule_ThreadSafeContextLock(sctx->redisCtx);
+  }
+  RedisSearchCtx_LockSpecWrite(sctx);
+}
+
+// TODO: this should be removed and replaced with `RedisSearchCtx_UnlockSpec` only,
+// once we lock the spec for read in the main thread for queries.
+static void FGC_unlock(RedisSearchCtx *sctx) {
+  RedisSearchCtx_UnlockSpec(sctx);
+  if (sctx->spec->flags & Index_FromLLAPI) {
+    RWLOCK_RELEASE();
+  } else {
+    RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
+  }
+}
+
 static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
   size_t len;
@@ -738,7 +761,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   RedisSearchCtx sctx_ = SEARCH_CTX_STATIC(gc->ctx, sp);
   RedisSearchCtx *sctx = &sctx_;
 
-  RedisSearchCtx_LockSpecWrite(sctx);
+  FGC_lock(sctx);
 
   InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, len, 1, NULL, &idxKey);
 
@@ -772,7 +795,7 @@ cleanup:
   if (idxKey) {
     RedisModule_CloseKey(idxKey);
   }
-  RedisSearchCtx_UnlockSpec(sctx);
+  FGC_unlock(sctx);
   if (sp) {
     StrongRef_Release(spec_ref);
   }
@@ -796,8 +819,7 @@ typedef struct {
   double uniqueSum;
 } NumGcInfo;
 
-static int recvCardvals(ForkGC *fgc, arrayof(CardinalityValue) *tgt, size_t *len,
-                        double *uniqueSum) {
+static int recvCardvals(ForkGC *fgc, arrayof(CardinalityValue) *tgt, size_t *len, double *uniqueSum) {
   if (FGC_recvFixed(fgc, len, sizeof(*len)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
@@ -906,10 +928,9 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     RedisSearchCtx _sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
     RedisSearchCtx *sctx = &_sctx;
 
-    RedisSearchCtx_LockSpecWrite(sctx);
+    FGC_lock(sctx);
 
-    RedisModuleString *keyName =
-        IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC);
+    RedisModuleString *keyName = IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC);
     rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
     if (rt->uniqueId != rtUniqueId) {
@@ -938,7 +959,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
-    RedisSearchCtx_UnlockSpec(sctx);
+    FGC_unlock(sctx);
     if (sp) {
       StrongRef_Release(cur_iter_spec_ref);
     }
@@ -953,13 +974,13 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       return FGC_SPEC_DELETED;
     }
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
-    RedisSearchCtx_LockSpecWrite(&sctx);
-    if (RSGlobalConfig.forkGCCleanNumericEmptyNodes) {
+    FGC_lock(&sctx);
+    if (gc->cleanNumericEmptyNodes) {
       NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
       rt->numRanges += rv.numRanges;
       rt->emptyLeaves = 0;
     }
-    RedisSearchCtx_UnlockSpec(&sctx);
+    FGC_unlock(&sctx);
     StrongRef_Release(spec_ref);
   }
 
@@ -1012,7 +1033,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
       goto loop_cleanup;
     }
 
-    RedisSearchCtx_LockSpecWrite(sctx);
+    FGC_lock(sctx);
 
     keyName = IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_TAG);
     tagIdx = TagIndex_Open(sctx, keyName, false, &idxKey);
@@ -1044,7 +1065,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
-    RedisSearchCtx_UnlockSpec(sctx);
+    FGC_unlock(sctx);
     StrongRef_Release(cur_iter_spec_ref);
     if (status != FGC_COLLECTED) {
       freeInvIdx(&idxbufs, &info);
@@ -1104,7 +1125,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   }
   StrongRef_Release(early_check);
 
-  if (gc->deletedDocsFromLastRun < RSGlobalConfig.forkGcCleanThreshold) {
+  if (gc->deletedDocsFromLastRun < RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold) {
     return 1;
   }
 
@@ -1134,7 +1155,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   cpid = FGC_fork(gc, ctx);  // duplicate the current process
 
   if (cpid == -1) {
-    gc->retryInterval.tv_sec = RSGlobalConfig.forkGcRetryInterval;
+    gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRetryInterval;
 
     RedisModule_ThreadSafeContextUnlock(ctx);
 
@@ -1146,9 +1167,10 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 
   gc->deletedDocsFromLastRun = 0;
 
+  gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec;
+  
   RedisModule_ThreadSafeContextUnlock(ctx);
 
-  gc->retryInterval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
 
   if (cpid == 0) {
     setpriority(PRIO_PROCESS, getpid(), 19);
@@ -1168,7 +1190,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 #endif
     FGC_childScanIndexes(gc);
     close(gc->pipefd[GC_WRITERFD]);
-    sleep(RSGlobalConfig.forkGcSleepBeforeExit);
+    sleep(RSGlobalConfig.gcConfigParams.forkGc.forkGcSleepBeforeExit);
     _exit(EXIT_SUCCESS);
   } else {
     // main process
@@ -1180,6 +1202,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     }
 
     gc->execState = FGC_STATE_APPLYING;
+    gc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes;
     if (FGC_parentHandleFromChild(gc) == FGC_SPEC_DELETED) {
       gcrv = 0;
     }
@@ -1309,8 +1332,11 @@ ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
       .index = StrongRef_Demote(spec_ref),
       .deletedDocsFromLastRun = 0,
   };
-  forkGc->retryInterval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
+  forkGc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec;
   forkGc->retryInterval.tv_nsec = 0;
+
+  forkGc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes;
+
   forkGc->ctx = RedisModule_GetThreadSafeContext(NULL);
 
   callbacks->onTerm = onTerminateCb;

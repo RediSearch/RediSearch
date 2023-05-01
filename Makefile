@@ -164,14 +164,16 @@ endif # COORD
 export COORD
 export PACKAGE_NAME
 
+ifeq ($(REDISEARCH_POWER_TO_THE_WORKERS),1)
+CC_FLAGS.common += -DPOWER_TO_THE_WORKERS
+endif
+
 #----------------------------------------------------------------------------------------------
 
 CC_C_STD=gnu99
 CC_CXX_STD=c++11
 
 CC_STATIC_LIBSTDCXX ?= 1
-
-export OPENSSL_ROOT_DIR:=$(LIBSSL_PREFIX)
 
 CC_COMMON_H=src/common.h
 
@@ -215,7 +217,7 @@ endif
 _CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME)
 
 ifeq ($(OS),macos)
-_CMAKE_FLAGS += -DLIBSSL_DIR=$(LIBSSL_PREFIX)
+_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix)
 endif
 
 _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) 
@@ -498,6 +500,7 @@ COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
 ifeq ($(REJSON_PATH),)
 REJSON_MODULE_FILE:=$(shell mktemp /tmp/rejson.XXXX)
+REJSON_COV_ARG=REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
 endif
 
 coverage:
@@ -507,13 +510,10 @@ endif
 	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)$(MAKE) build COORD=oss COV=1
 	$(SHOW)$(COVERAGE_RESET)
-ifneq ($(REJSON_PATH),)
-	-$(SHOW)$(MAKE) test COV=1
-	-$(SHOW)$(MAKE) test COORD=oss COV=1
-else
-	-$(SHOW)$(MAKE) test COV=1 REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
-	-$(SHOW)$(MAKE) test COORD=oss COV=1 REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
-endif
+	-$(SHOW)$(MAKE) unit-test COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) pytest COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) unit-test COORD=oss COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) pytest COORD=oss COV=1 $(REJSON_COV_ARG)
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
 .PHONY: coverage

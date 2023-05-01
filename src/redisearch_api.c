@@ -383,7 +383,7 @@ QueryNode* RediSearch_CreateTagTokenNode(RefManager* rm, const char* token) {
 QueryNode* RediSearch_CreateNumericNode(RefManager* rm, const char* field, double max, double min,
                                         int includeMax, int includeMin) {
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
-  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax);
+  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax, true);
   ret->nn.nf->fieldName = rm_strdup(field);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, strlen(field));
   return ret;
@@ -584,6 +584,9 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
     it->qast.root = input->u.qn;
   }
 
+  // set queryAST configuration parameters
+  iteratorsConfig_init(&it->qast.config);
+
   if (QAST_Expand(&it->qast, NULL, &options, &sctx, &status) != REDISMODULE_OK) {
     goto end;
   }
@@ -680,7 +683,9 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   }
   QAST_Destroy(&iter->qast);
   DMD_Return(iter->lastmd);
-  dictResumeRehashing(iter->sp->keysDict);
+  if (iter->sp && iter->sp->keysDict) {
+    dictResumeRehashing(iter->sp->keysDict);
+  }
   rm_free(iter);
   RWLOCK_RELEASE();
 }
@@ -773,9 +778,9 @@ int RediSearch_ExportCapi(RedisModuleCtx* ctx) {
 
 void RediSearch_SetCriteriaTesterThreshold(size_t num) {
   if (num == 0) {
-    RSGlobalConfig.maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE;
+    RSGlobalConfig.iteratorsConfigParams.maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE;
   } else {
-    RSGlobalConfig.maxResultsToUnsortedMode = num;
+    RSGlobalConfig.iteratorsConfigParams.maxResultsToUnsortedMode = num;
   }
 }
 

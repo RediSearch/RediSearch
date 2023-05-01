@@ -7,7 +7,7 @@
 #ifndef __TRIE_TYPE_H__
 #define __TRIE_TYPE_H__
 
-#include "../redismodule.h"
+#include "redismodule.h"
 
 #include "trie.h"
 #include "levenshtein.h"
