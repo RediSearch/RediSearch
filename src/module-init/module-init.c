@@ -215,13 +215,16 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   CleanPool_ThreadPoolStart();
   
   // Init threadpool. 
-  // Threadpool size can only be set on load, hence it is not dependent on
-  // threadsEnabled flag.
-  if(RSGlobalConfig.numWorkerThreads){
+  // Threadpool size can only be set either on load (threads are always in use), or for operational
+  // tasks only (loading from RDB, trimming after resharding).
+  if(RSGlobalConfig.numWorkerThreads && RSGlobalConfig.threadsEnabled){
     if(workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
       return REDISMODULE_ERR;
     }
+    // Todo: set the global vecsim "write async" flag
     DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
+  } else {
+    // Todo: set the global vecsim "write inplace" flag
   }
   
   // Init cursors mechanism

@@ -7,6 +7,7 @@
 #pragma once
 
 #include "deps/thpool/thpool.h"
+#include "redismodule.h"
 #include <assert.h>
 
 // create workers thread pool
@@ -20,7 +21,7 @@ size_t workersThreadPool_WorkingThreadCount(void);
 int workersThreadPool_AddWork(redisearch_thpool_proc, void *arg_p);
 
 // Wait until all jobs have finished
-void workersThreadPool_Wait(void);
+void workersThreadPool_Wait(RedisModuleCtx *ctx);
 
 // destroys thread pool, allows threads to exit gracefully
 // Can be called on uninitialized threadpool.

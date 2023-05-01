@@ -97,6 +97,13 @@ int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc fun
  */
 void redisearch_thpool_wait(redisearch_threadpool);
 
+int redisearch_thpool_finish(redisearch_threadpool);
+
+void redisearch_thpool_lock_thcount(redisearch_threadpool);
+
+void redisearch_thpool_unlock_thcount(redisearch_threadpool);
+
+void redisearch_thpool_threads_idle_timed_wait(redisearch_threadpool, struct timespec *);
 
 /**
  * @brief Pauses all threads immediately

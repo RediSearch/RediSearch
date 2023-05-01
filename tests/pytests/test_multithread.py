@@ -8,13 +8,13 @@ from RLTest import Env
 
 
 def testEmptyBuffer():
-    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
+    env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
     env.expect('ft.search', 'idx', '*', 'sortby', 'n').equal([0])
 
 def CreateAndSearchSortBy(docs_count):
-    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
+    env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     conn = getConnectionByEnv(env)
 
@@ -80,7 +80,7 @@ def get_pipeline(profile_res):
             return entry
     
 def test_pipeline():
-    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
+    env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
     env.skipOnCluster()
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     
@@ -231,4 +231,11 @@ def test_pipeline():
     expected_pipeline = ['Result processors profile', root, metric, sorter(), buffer_locker(), loader(), unlocker()]
     #sortby NOT SORTABLE NOCONTENT
     env.assertEqual(get_pipeline(res), expected_pipeline)
-    
+
+
+# Temporary sanity test to see that threads are being created and destroyed properly.
+# TODO: test after integration with tiered HNSW index is complete.
+def test_burst_threads_sanity():
+    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 8 ALWAYS_USE_THREADS FALSE')
+    for env in env.retry_with_rdb_reload():
+        pass

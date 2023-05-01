@@ -243,7 +243,7 @@ CONFIG_GETTER(getWorkThreads) {
   return sdscatprintf(ss, "%lu", config->numWorkerThreads);
 }
 
-// ENABLE_THREADS
+// always_use_threads
 CONFIG_BOOLEAN_SETTER(setThreadsEnabled, threadsEnabled)
 
 CONFIG_BOOLEAN_GETTER(getThreadsEnabled, threadsEnabled, 0)
@@ -667,11 +667,13 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getWorkThreads,
          .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
-        {.name = "ENABLE_THREADS",
-         .helpText = "Enables or disables multi-threaded search and indexing",
+        {.name = "ALWAYS_USE_THREADS",
+         .helpText = "Set the mode in which multi-threaded for search and vector indexing is "
+                        "available - always or for operational needs only (upon loading and"
+                        " trimming)",
          .setValue = setThreadsEnabled,
          .getValue = getThreadsEnabled,
-         .flags = RSCONFIGVAR_F_FLAG,
+         .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
         {.name = "FRISOINI",
          .helpText = "Path to Chinese dictionary configuration file (for Chinese tokenization)",

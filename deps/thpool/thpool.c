@@ -183,6 +183,23 @@ void redisearch_thpool_wait(redisearch_thpool_t* thpool_p) {
   pthread_mutex_unlock(&thpool_p->thcount_lock);
 }
 
+int redisearch_thpool_finish(redisearch_thpool_t* thpool_p) {
+  return thpool_p->jobqueue.len == 0 && thpool_p->num_threads_working == 0;
+}
+
+void redisearch_thpool_lock_thcount(redisearch_thpool_t* thpool_p) {
+  pthread_mutex_lock(&thpool_p->thcount_lock);
+}
+
+void redisearch_thpool_unlock_thcount(redisearch_thpool_t* thpool_p) {
+  pthread_mutex_unlock(&thpool_p->thcount_lock);
+}
+
+void redisearch_thpool_threads_idle_timed_wait(redisearch_thpool_t* thpool_p,
+                                               struct timespec *time_to_wait) {
+  pthread_cond_timedwait(&thpool_p->threads_all_idle, &thpool_p->thcount_lock, time_to_wait);
+}
+
 /* Destroy the threadpool */
 void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
   /* No need to destory if it's NULL */

@@ -31,6 +31,7 @@
 #include "rdb.h"
 #include "commands.h"
 #include "rmutil/cxx/chrono-clock.h"
+#include "util/workers.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -2568,6 +2569,13 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
     }
     RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
+    if(RSGlobalConfig.numWorkerThreads && !RSGlobalConfig.threadsEnabled) {
+      // Create the thread pool temporarily for fast RDB loading of vector index (if needed).
+      if(workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
+        return;
+      }
+      RedisModule_Log(RSDummyContext, "notice", "Created workers threadpool of size %lu for loading", RSGlobalConfig.numWorkerThreads);
+    }
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
     int hasLegacyIndexes = dictSize(legacySpecDict);
     Indexes_UpgradeLegacyIndexes();
@@ -2583,6 +2591,14 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     } else {
       RedisModule_Log(ctx, "warning",
                       "Skip background reindex scan, redis version contains loaded event.");
+    }
+    if (RSGlobalConfig.numWorkerThreads && !RSGlobalConfig.threadsEnabled) {
+      // Terminate the temporary thread pool - use YIELD here, with API that waits without blocking
+      workersThreadPool_Wait(ctx);
+      workersThreadPool_Destroy();
+      RedisModule_Log(RSDummyContext, "notice",
+                      "Terminated workers threadpool of size %lu for loading",
+                      RSGlobalConfig.numWorkerThreads);
     }
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
   }

@@ -76,7 +76,7 @@ def test_mod4745(env):
     # fail to send cluster PING on time before we reach cluster-node-timeout.
     waitForIndex(r, 'idx')
 def test_eval_node_errors_async():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKER_THREADS 1 ENABLE_THREADS TRUE ON_TIMEOUT FAIL')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
     dim = 1000
 
