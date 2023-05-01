@@ -1328,6 +1328,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   gc->stats.numCycles++;
   gc->stats.totalMSRun += msRun;
   gc->stats.lastRunTimeMs = msRun;
+  gc->stats.totalDeletedDocs += gc->deletedDocsFromLastRun;
 
   return gcrv;
 }
@@ -1395,6 +1396,8 @@ static void statsCb(RedisModuleCtx *ctx, void *gcCtx) {
     REPLY_KVNUM(n, "last_run_time_ms", (double)gc->stats.lastRunTimeMs);
     REPLY_KVNUM(n, "gc_numeric_trees_missed", (double)gc->stats.gcNumericNodesMissed);
     REPLY_KVNUM(n, "gc_blocks_denied", (double)gc->stats.gcBlocksDenied);
+    REPLY_KVNUM(n, "docs_deleted", gc->stats.totalDeletedDocs);
+    REPLY_KVNUM(n, "average_cycle_docs_deleted", (double)gc->stats.totalDeletedDocs / gc->stats.numCycles);
   }
   RedisModule_ReplySetArrayLength(ctx, n);
 }

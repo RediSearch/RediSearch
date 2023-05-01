@@ -22,6 +22,9 @@ typedef struct {
 
   uint64_t gcNumericNodesMissed;
   uint64_t gcBlocksDenied;
+
+  // total docs deleted
+  t_docId totalDeletedDocs;
 } ForkGCStats;
 
 typedef enum FGCType { FGC_TYPE_INKEYSPACE, FGC_TYPE_NOKEYSPACE } FGCType;
