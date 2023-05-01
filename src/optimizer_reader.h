@@ -40,13 +40,15 @@ typedef struct {
   RSIndexResult *pooledResult;  // memory pool
   
   TimeoutCtx timeoutCtx;        // Timeout parameters
+
+  IteratorsConfig *config;       // Copy of current RSglobalconfig.IteratorsConfig
 } OptimizerIterator;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-IndexIterator *NewOptimizerIterator(QOptimizer *q_opt, IndexIterator *root);
+IndexIterator *NewOptimizerIterator(QOptimizer *q_opt, IndexIterator *root, IteratorsConfig *config);
 
 #ifdef __cplusplus
 }

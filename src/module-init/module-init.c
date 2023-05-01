@@ -105,8 +105,8 @@ static int initAsModule(RedisModuleCtx *ctx) {
 static int initAsLibrary(RedisModuleCtx *ctx) {
   // Disable concurrent mode:
   RSGlobalConfig.concurrentMode = 0;
-  RSGlobalConfig.minTermPrefix = 0;
-  RSGlobalConfig.maxPrefixExpansions = LONG_MAX;
+  RSGlobalConfig.iteratorsConfigParams.minTermPrefix = 0;
+  RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions = LONG_MAX;
   return REDISMODULE_OK;
 }
 

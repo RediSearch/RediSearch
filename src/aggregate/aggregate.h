@@ -120,16 +120,24 @@ typedef struct {
   /** Flags indicating current execution state */
   uint32_t stateflags;
 
-  /** Query timeout in milliseconds */
-  int32_t reqTimeout;
   struct timespec timeoutTime;
+
+  /*  
+  // Dialect version used on this request
+  unsigned int dialectVersion;
+  // Query timeout in milliseconds
+  long long reqTimeout;
+  RSTimeoutPolicy timeoutPolicy; 
+  // reply with time on profile
+  int printProfileClock;
+  */
+
+  RequestConfig reqConfig;
 
   /** Cursor settings */
   unsigned cursorMaxIdle;
   unsigned cursorChunkSize;
 
-  /** Dialect version used on this request **/
-  unsigned int dialectVersion;
 
   /** Profile variables */
   hires_clock_t initClock;  // Time of start. Reset for each cursor call
@@ -140,6 +148,12 @@ typedef struct {
   const char** requiredFields;
 
   struct QOptimizer *optimizer;        // Hold parameters for query optimizer
+  
+  // Currently we need both because maxSearchResults limits the OFFSET also in
+  // FT.AGGREGATE execution.
+  size_t maxSearchResults;
+  size_t maxAggregateResults;
+  
 } AREQ;
 
 /**

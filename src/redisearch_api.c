@@ -584,6 +584,9 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
     it->qast.root = input->u.qn;
   }
 
+  // set queryAST configuration parameters
+  iteratorsConfig_init(&it->qast.config);
+
   if (QAST_Expand(&it->qast, NULL, &options, &sctx, &status) != REDISMODULE_OK) {
     goto end;
   }
@@ -775,9 +778,9 @@ int RediSearch_ExportCapi(RedisModuleCtx* ctx) {
 
 void RediSearch_SetCriteriaTesterThreshold(size_t num) {
   if (num == 0) {
-    RSGlobalConfig.maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE;
+    RSGlobalConfig.iteratorsConfigParams.maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE;
   } else {
-    RSGlobalConfig.maxResultsToUnsortedMode = num;
+    RSGlobalConfig.iteratorsConfigParams.maxResultsToUnsortedMode = num;
   }
 }
 

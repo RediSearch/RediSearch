@@ -100,6 +100,8 @@ typedef struct {
   QITRState state;
 
   struct timespec startTime;
+
+  RSTimeoutPolicy timeoutPolicy;
 } QueryIterator, QueryProcessingCtx;
 
 IndexIterator *QITR_GetRootFilter(QueryIterator *it);

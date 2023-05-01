@@ -44,7 +44,7 @@ void ReadIterator_Free(IndexIterator *it);
 /* Create a new UnionIterator over a list of underlying child iterators.
 It will return each document of the underlying iterators, exactly once */
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int quickExit,
-                                double weight, QueryNodeType type, const char *qstr);
+                                double weight, QueryNodeType type, const char *qstr, IteratorsConfig *config);
 
 /* Create a new intersect iterator over the given list of child iterators. If maxSlop is not a
  * negative number, we will allow at most maxSlop intervening positions between the terms. If
@@ -87,13 +87,18 @@ const char *IndexIterator_GetTypeString(const IndexIterator *it);
 /** Add Profile iterator layer between iterators */
 void Profile_AddIters(IndexIterator **root);
 
+typedef struct {
+    IteratorsConfig *iteratorsConfig;
+    int printProfileClock;    
+} PrintProfileConfig;
 /** Print profile of iterators */
 void printIteratorProfile(RedisModuleCtx *ctx,
                           IndexIterator *root,
                           size_t counter,
                           double cpuTime,
                           int depth,
-                          int limited);
+                          int limited,
+                          PrintProfileConfig *config);
 
 
 #ifdef __cplusplus

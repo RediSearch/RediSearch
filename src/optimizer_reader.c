@@ -77,7 +77,7 @@ static void OPT_Rewind(void *ctx) {
   }
 
   // create new numeric filter
-  optIt->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, qOpt->conc, INDEXFLD_T_NUMERIC);
+  optIt->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, qOpt->conc, INDEXFLD_T_NUMERIC, optIt->config);
 
   optIt->heapOldSize = heap_count(heap);
   optIt->numIterations++;
@@ -208,7 +208,7 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
   }
 }
 
-IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root) {
+IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root, IteratorsConfig *config) {
   OptimizerIterator *oi = rm_calloc(1, sizeof(*oi));
   oi->child = root;
   oi->optim = qOpt;
@@ -232,7 +232,7 @@ IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root) {
   oi->lastLimitEstimate = qOpt->nf->limit =
     QOptimizer_EstimateLimit(oi->numDocs, oi->childEstimate, qOpt->limit);
 
-  oi->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, qOpt->conc, INDEXFLD_T_NUMERIC);
+  oi->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, qOpt->conc, INDEXFLD_T_NUMERIC, config);
   if (!oi->numericIter) {
     oi->base.ctx = oi;
     OptimizerIterator_Free(&oi->base);
@@ -240,6 +240,7 @@ IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root) {
   }
 
   oi->offset = oi->numericIter->NumEstimated(oi->numericIter->ctx);
+  oi->config = config;
 
   IndexIterator *ri = &oi->base;
   ri->ctx = oi;
