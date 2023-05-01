@@ -10,7 +10,7 @@
 #include "cluster.h"
 
 #include "hiredis/hiredis.h"
-#include "../../rmutil/alloc.h"
+#include "rmutil/alloc.h"
 
 void testEndpoint() {
 

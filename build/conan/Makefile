@@ -15,6 +15,10 @@ all: $(BINDIR)/CMakePresets.json
 include $(MK)/rules
 
 $(BINDIR)/CMakePresets.json: conanfile.txt
-	@if [[ ! -e .conan2/profiles/default ]]; then conan profile detect --force; fi
+	@if [[ ! -e $$HOME/.conan2/profiles/default ]]; then conan profile detect --force; fi
 	@mkdir -p $(BINDIR)
-	@conan install . --output-folder=$(BINDIR) --build=missing
+ifeq ($(OSNICK),macos)
+	@conan install . --output-folder=$(BINDIR) --build=missing -s compiler.cppstd=20 -s compiler.libcxx=libc++
+else
+	@conan install . --output-folder=$(BINDIR) --build=missing -s compiler.cppstd=20
+endif

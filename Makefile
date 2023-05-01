@@ -6,6 +6,8 @@ ROOT=.
 MK.cmake=1
 SRCDIR=.
 
+MACOS_PACKAGES=openssl boost
+
 include deps/readies/mk/main
 
 #----------------------------------------------------------------------------------------------
@@ -173,8 +175,6 @@ CC_STATIC_LIBSTDCXX ?= 1
 
 CC_COMMON_H=src/common.h
 
-MACOS_PACKAGS=openssl boost
-
 #----------------------------------------------------------------------------------------------
 
 ifneq ($(NO_TESTS),1)
@@ -215,7 +215,7 @@ endif
 _CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME)
 
 ifeq ($(OS),macos)
-_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix)
+_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DBOOST_DIR=$(boost_prefix)
 endif
 
 _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) 
@@ -568,6 +568,6 @@ SANBOX_ARGS += -v /w:/w
 endif
 
 sanbox:
-	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:13-x64-bullseye bash
+	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:16-x64-bullseye bash
 
 .PHONY: box sanbox

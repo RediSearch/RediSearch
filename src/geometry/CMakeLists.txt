@@ -7,5 +7,7 @@ file(GLOB SOURCES
 
 add_library(redisearch-geometry STATIC ${SOURCES})
 
-include_directories("${absl_INCLUDE_DIR}")
+include_directories(
+	${BOOST_DIR}
+	${absl_INCLUDE_DIR})
 

@@ -54,7 +54,8 @@ include_directories(
     ${root}/src
     ${root}/deps
     ${root}/deps/VectorSimilarity/src
-	${root}/deps/s2geometry/src
+    ${root}/deps/s2geometry/src
+    ${BOOST_DIR}
     ${root})
 
 add_subdirectory(deps/rmutil)
