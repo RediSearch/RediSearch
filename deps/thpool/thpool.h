@@ -72,9 +72,8 @@ redisearch_threadpool redisearch_thpool_init(size_t num_threads);
  * @param  priority      priority of the work, default is high
  * @return 0 on successs, -1 otherwise.
  */
-int thpool_add_work(redisearch_threadpool, redisearch_thpool_proc function_p, void* arg_p, thpool_priority priority);
 typedef void (*redisearch_thpool_proc)(void*);
-int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc function_p, void* arg_p);
+int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc function_p, void* arg_p, thpool_priority priority);
 
 
 /**
