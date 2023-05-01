@@ -100,6 +100,8 @@ typedef struct {
   QITRState state;
 
   struct timespec startTime;
+
+  RSTimeoutPolicy timeoutPolicy;
 } QueryIterator, QueryProcessingCtx;
 
 IndexIterator *QITR_GetRootFilter(QueryIterator *it);
@@ -232,9 +234,9 @@ void SortAscMap_Dump(uint64_t v, size_t n);
  */
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
                                       const RLookupKey **loadKeys, size_t nLoadKeys,
-                                      uint64_t ascmap);
+                                      uint64_t ascendingMap, bool quickExit);
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, bool quickExit);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 

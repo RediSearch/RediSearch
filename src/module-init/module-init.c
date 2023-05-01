@@ -105,8 +105,8 @@ static int initAsModule(RedisModuleCtx *ctx) {
 static int initAsLibrary(RedisModuleCtx *ctx) {
   // Disable concurrent mode:
   RSGlobalConfig.concurrentMode = 0;
-  RSGlobalConfig.minTermPrefix = 0;
-  RSGlobalConfig.maxPrefixExpansions = LONG_MAX;
+  RSGlobalConfig.iteratorsConfigParams.minTermPrefix = 0;
+  RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions = LONG_MAX;
   return REDISMODULE_OK;
 }
 
@@ -213,7 +213,9 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   GC_ThreadPoolStart();
 
   CleanPool_ThreadPoolStart();
-  
+  DO_LOG("notice", "Initialized thread pools!");
+
+#ifdef POWER_TO_THE_WORKERS
   // Init threadpool. 
   // Threadpool size can only be set on load, hence it is not dependent on
   // threadsEnabled flag.
@@ -223,7 +225,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     }
     DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
   }
-  
+#endif
+
   // Init cursors mechanism
   CursorList_Init(&RSCursors);
 
@@ -231,8 +234,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   // Register aggregation functions
   RegisterAllFunctions();
-
-  DO_LOG("notice", "Initialized thread pools!");
 
   /* Load extensions if needed */
   if (RSGlobalConfig.extLoad != NULL) {

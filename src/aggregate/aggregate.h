@@ -22,6 +22,7 @@ extern "C" {
 #define DEFAULT_LIMIT 10
 
 typedef struct Grouper Grouper;
+struct QOptimizer;
 
 typedef enum {
   QEXEC_F_IS_EXTENDED = 0x01,     // Contains aggregations or projections
@@ -61,11 +62,17 @@ typedef enum {
   /* FT.AGGREGATE load all fields */
   QEXEC_AGG_LOAD_ALL = 0x20000,
 
+  /* Optimize query */
+  QEXEC_OPTIMIZE = 0x40000,
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
+#define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
+#define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
+#define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
+
 // These macro should be used only by the main thread since configuration can be changed while running in 
 // backgroud.
 #define RunInThread(r) (RSGlobalConfig.threadsEnabled && RSGlobalConfig.numWorkerThreads && IsSearch(r))
@@ -113,16 +120,24 @@ typedef struct {
   /** Flags indicating current execution state */
   uint32_t stateflags;
 
-  /** Query timeout in milliseconds */
-  int32_t reqTimeout;
   struct timespec timeoutTime;
+
+  /*  
+  // Dialect version used on this request
+  unsigned int dialectVersion;
+  // Query timeout in milliseconds
+  long long reqTimeout;
+  RSTimeoutPolicy timeoutPolicy; 
+  // reply with time on profile
+  int printProfileClock;
+  */
+
+  RequestConfig reqConfig;
 
   /** Cursor settings */
   unsigned cursorMaxIdle;
   unsigned cursorChunkSize;
 
-  /** Dialect version used on this request **/
-  unsigned int dialectVersion;
 
   /** Profile variables */
   hires_clock_t initClock;  // Time of start. Reset for each cursor call
@@ -131,6 +146,14 @@ typedef struct {
   double pipelineBuildTime;  // Time for creating the pipeline
 
   const char** requiredFields;
+
+  struct QOptimizer *optimizer;        // Hold parameters for query optimizer
+  
+  // Currently we need both because maxSearchResults limits the OFFSET also in
+  // FT.AGGREGATE execution.
+  size_t maxSearchResults;
+  size_t maxAggregateResults;
+  
 } AREQ;
 
 /**

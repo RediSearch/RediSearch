@@ -115,7 +115,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   int argvOffset = 3;
-  unsigned int dialect = RSGlobalConfig.defaultDialectVersion;
+  unsigned int dialect = RSGlobalConfig.requestConfigParams.dialectVersion;
   int dialectArgIndex = RMUtil_ArgExists("DIALECT", argv, argc, argvOffset);
   if(dialectArgIndex > 0) {
     dialectArgIndex++;
@@ -1149,7 +1149,9 @@ void RediSearch_CleanupModule(void) {
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
+#ifdef POWER_TO_THE_WORKERS
   workersThreadPool_Destroy();
+#endif
 
   // free global structures
   Extensions_Free();

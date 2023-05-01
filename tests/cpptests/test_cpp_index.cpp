@@ -258,7 +258,7 @@ TEST_F(IndexTest, testReadIterator) {
 }
 
 TEST_F(IndexTest, testUnion) {
-  int oldConfig = RSGlobalConfig.minUnionIterHeap;
+  int oldConfig = RSGlobalConfig.iteratorsConfigParams.minUnionIterHeap;
   for (int cfg = 0; cfg < 2; ++cfg) {
     InvertedIndex *w = createIndex(10, 2);
     InvertedIndex *w2 = createIndex(10, 3);
@@ -269,8 +269,9 @@ TEST_F(IndexTest, testUnion) {
     IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
     irs[0] = NewReadIterator(r1);
     irs[1] = NewReadIterator(r2);
-
-    IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 1, QN_UNION, NULL);
+    IteratorsConfig config{};
+    iteratorsConfig_init(&config);
+    IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 1, QN_UNION, NULL, &config);
     RSIndexResult *h = NULL;
     int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
     int i = 0;
@@ -310,9 +311,9 @@ TEST_F(IndexTest, testUnion) {
     InvertedIndex_Free(w2);
 
     // change config parameter to use UI_ReadHigh and UI_SkipToHigh
-    RSGlobalConfig.minUnionIterHeap = 1;
+    RSGlobalConfig.iteratorsConfigParams.minUnionIterHeap = 1;
   }
-  RSGlobalConfig.minUnionIterHeap = oldConfig;
+  RSGlobalConfig.iteratorsConfigParams.minUnionIterHeap = oldConfig;
 }
 
 TEST_F(IndexTest, testWeight) {
@@ -325,8 +326,9 @@ TEST_F(IndexTest, testWeight) {
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
   irs[1] = NewReadIterator(r2);
-
-  IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 0.8, QN_UNION, NULL);
+  IteratorsConfig config{};
+  iteratorsConfig_init(&config);
+  IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 0.8, QN_UNION, NULL, &config);
   RSIndexResult *h = NULL;
   int expected[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20};
   int i = 0;
@@ -686,7 +688,7 @@ TEST_F(IndexTest, testHybridVector) {
 
   float query[] = {(float)max_id, (float)max_id, (float)max_id, (float)max_id};
   KNNVectorQuery top_k_query = {.vector = query, .vecLen = d, .k = 10, .order = BY_SCORE};
-  VecSimQueryParams queryParams;
+  VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = max_id;
 
   // Run simple top k query.
@@ -700,7 +702,10 @@ TEST_F(IndexTest, testHybridVector) {
                                   .ignoreDocScore = true,
                                   .childIt = NULL
   };
-  IndexIterator *vecIt = NewHybridVectorIterator(hParams);
+  QueryError err = {QUERY_OK};
+  IndexIterator *vecIt = NewHybridVectorIterator(hParams, &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+
   RSIndexResult *h = NULL;
   size_t count = 0;
 
@@ -725,7 +730,9 @@ TEST_F(IndexTest, testHybridVector) {
   // Test in hybrid mode.
   IndexIterator *ir = NewReadIterator(r);
   hParams.childIt = ir;
-  IndexIterator *hybridIt = NewHybridVectorIterator(hParams);
+  IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+
   HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
@@ -777,7 +784,8 @@ TEST_F(IndexTest, testHybridVector) {
   ir = NewReadIterator(r);
   hParams.ignoreDocScore = false;
   hParams.childIt = ir;
-  hybridIt = NewHybridVectorIterator(hParams);
+  hybridIt = NewHybridVectorIterator(hParams, &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
@@ -852,7 +860,9 @@ TEST_F(IndexTest, testInvalidHybridVector) {
                                   .vectorScoreField = (char *)"__v_score",
                                   .ignoreDocScore = true,
                                   .childIt = ii};
-  IndexIterator *hybridIt = NewHybridVectorIterator(hParams);
+  QueryError err = {QUERY_OK};                              
+  IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_FALSE(hybridIt);
 
   ii->Free(ii);

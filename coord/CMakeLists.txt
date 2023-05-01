@@ -34,7 +34,7 @@ project(RSCoordinator)
 #----------------------------------------------------------------------------------------------
 
 add_compile_definitions(
-	REDISMODULE_EXPERIMENTAL_API
+	REDISMODULE_SDK_RLEC
 	_GNU_SOURCE
 	REDIS_MODULE_TARGET
 	RS_COORDINATOR
@@ -54,6 +54,7 @@ include_directories(
 	${root}/coord/src
 	${root}/deps/libuv/include
 	${root}/deps
+	${root}/deps/RedisModulesSDK
 	${root}/src
 	${root}
 	${root}/deps/VectorSimilarity/src)

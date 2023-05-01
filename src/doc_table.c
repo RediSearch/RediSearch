@@ -64,7 +64,11 @@ static RSDocumentMetadata *DocTable_GetOwn(const DocTable *t, t_docId docId) {
   DMDChain *dmdChain = &t->buckets[bucketIndex];
   DLLIST2_FOREACH(it, &dmdChain->lroot) {
     RSDocumentMetadata *dmd = DLLIST2_ITEM(it, RSDocumentMetadata, llnode);
+    
     if (dmd->id == docId) {
+      if (dmd->flags & Document_Deleted) {
+        return NULL;
+      }
       return dmd;
     }
   }

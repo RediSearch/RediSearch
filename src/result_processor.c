@@ -115,11 +115,16 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
         continue;
     }
 
-    dmd = DocTable_Borrow(&RP_SPEC(base)->docs, r->docId);
+    if (r->dmd) {
+      dmd = r->dmd;
+    } else {
+      dmd = DocTable_Borrow(&RP_SPEC(base)->docs, r->docId);
+    }
     if (!dmd || (dmd->flags & Document_Deleted)) {
       DMD_Return(dmd);
       continue;
     }
+
     if (isTrimming && RedisModule_ShardingGetKeySlot) {
       RedisModuleString *key = RedisModule_CreateString(NULL, dmd->keyPtr, sdslen(dmd->keyPtr));
       int slot = RedisModule_ShardingGetKeySlot(key);
@@ -361,6 +366,8 @@ typedef struct {
     size_t nLoadKeys;
   } fieldcmp;
 
+  // return as soon as heap is full
+  bool quickExit;
 } RPSorter;
 
 /* Yield - pops the current top result from the heap */
@@ -411,7 +418,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   int rc = rp->upstream->Next(rp->upstream, h);
 
   // if our upstream has finished - just change the state to not accumulating, and yield
-  if (rc == RS_RESULT_EOF || (rc == RS_RESULT_TIMEDOUT && RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Return)) {
+  if (rc == RS_RESULT_EOF || (rc == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
     // Transition state:
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
@@ -452,7 +459,11 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     if (h->score < rp->parent->minScore) {
       rp->parent->minScore = h->score;
     }
-
+    // collected `limit` results. No need to continue.
+    if (self->quickExit && self->pq->count + 1 == self->pq->size) {
+      rp->Next = rpsortNext_Yield;
+      return rpsortNext_Yield(rp, r);
+    }
   } else {
     // find the min result
     SearchResult *minh = mmh_peek_min(self->pq);
@@ -549,13 +560,14 @@ static void srDtor(void *p) {
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
                                       const RLookupKey **loadKeys, size_t nLoadKeys,
-                                      uint64_t ascmap) {
+                                      uint64_t ascmap, bool quickExit) {
                                         
   assert(nkeys >= nLoadKeys);
 
   RPSorter *ret = rm_calloc(1, sizeof(*ret));
   ret->cmp = nkeys ? cmpByFields : cmpByScore;
   ret->cmpCtx = ret;
+  ret->quickExit = quickExit;
   ret->fieldcmp.ascendMap = ascmap;
   ret->fieldcmp.keys = keys;
   ret->fieldcmp.nkeys = nkeys;
@@ -575,8 +587,8 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   return &ret->base;
 }
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
-  return RPSorter_NewByFields(maxresults, NULL, 0, NULL, 0, 0);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, bool quickExit) {
+  return RPSorter_NewByFields(maxresults, NULL, 0, NULL, 0, 0, quickExit);
 }
 
 void SortAscMap_Dump(uint64_t tt, size_t n) {
@@ -954,7 +966,7 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
 
   // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
   if ((result_status != RS_RESULT_EOF &&
-      !(result_status == RS_RESULT_TIMEDOUT && RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Return)) ||
+      !(result_status == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
       IsBufferEmpty(rpPufferAndLocker)) {
     return result_status;
   }

@@ -7,6 +7,8 @@
 #ifndef _THPOOL_
 #define _THPOOL_
 
+#include <stddef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif

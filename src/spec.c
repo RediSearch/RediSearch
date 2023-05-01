@@ -183,9 +183,9 @@ StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
   return IndexSpec_Parse(RedisModule_StringPtrLen(name, NULL), args, argc, status);
 }
 
-FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type) {
+arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type) {
 #define FIELDS_ARRAY_CAP 2
-  FieldSpec **fields = array_new(FieldSpec *, FIELDS_ARRAY_CAP);
+  arrayof(FieldSpec *) fields = array_new(FieldSpec *, FIELDS_ARRAY_CAP);
   for (int i = 0; i < spec->numFields; ++i) {
     if (FIELD_IS(spec->fields + i, type)) {
       fields = array_append(fields, &(spec->fields[i]));
@@ -248,7 +248,7 @@ static void IndexSpec_TimedOut_Free(IndexSpec *spec) {
     }
     spec->isTimerSet = false;
   }
-  redisearch_thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeTask, rm_strdup(spec->name), THPOOL_PRIORITY_HIGH);
+  redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeTask, rm_strdup(spec->name), THPOOL_PRIORITY_HIGH);
 }
 
 static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
@@ -1618,8 +1618,8 @@ void IndexSpec_StartGCFromSpec(StrongRef global, IndexSpec *sp, uint32_t gcPolic
 void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef global, IndexSpec *sp) {
   RS_LOG_ASSERT(!sp->gc, "GC already exists");
   // we will not create a gc thread on temporary index
-  if (RSGlobalConfig.enableGC && !(sp->flags & Index_Temporary)) {
-    sp->gc = GCContext_CreateGC(global, RSGlobalConfig.gcPolicy);
+  if (RSGlobalConfig.gcConfigParams.enableGC && !(sp->flags & Index_Temporary)) {
+    sp->gc = GCContext_CreateGC(global, RSGlobalConfig.gcConfigParams.gcPolicy);
     GCContext_Start(sp->gc);
     RedisModule_Log(ctx, "verbose", "Starting GC for index %s", sp->name);
   }
@@ -1990,7 +1990,7 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   RedisModule_Log(NULL, "notice", "Register index %s for async scan", ((IndexSpec*)StrongRef_Get(spec_ref))->name);
 #endif
   IndexesScanner *scanner = IndexesScanner_New(spec_ref);
-  redisearch_thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner, THPOOL_PRIORITY_HIGH);
+  redisearch_thpool_add_work(reindexPool, (redisearch_thpool_proc)Indexes_ScanAndReindexTask, scanner, THPOOL_PRIORITY_HIGH);
 }
 
 void ReindexPool_ThreadPoolDestroy() {

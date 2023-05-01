@@ -89,12 +89,14 @@ typedef enum {
   VECSIM_EMPTY_MODE,
   VECSIM_STANDARD_KNN,               // Run k-nn query over the entire vector index.
   VECSIM_HYBRID_ADHOC_BF,            // Measure ad-hoc the distance for every result that passes the filters,
-                                      // and take the top k results.
+                                     //  and take the top k results.
   VECSIM_HYBRID_BATCHES,             // Get the top vector results in batches upon demand, and keep the results that
-                                      // passes the filters until we reach k results.
+                                     //  passes the filters until we reach k results.
   VECSIM_HYBRID_BATCHES_TO_ADHOC_BF, // Start with batches and dynamically switched to ad-hoc BF.
   VECSIM_RANGE_QUERY,                // Run range query, to return all vectors that are within a given range from the
-                                      // query vector.
+                                     //  query vector.
+  VECSIM_LAST_SEARCHMODE,            // Last value of this enum. Can be used to check if a given value resides within 
+                                     //  this enum values range.                                    
 
 } VecSimSearchMode;
 

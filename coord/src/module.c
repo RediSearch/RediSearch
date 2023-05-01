@@ -622,7 +622,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     req->withSortby = false;
   }
 
-  unsigned int dialect = RSGlobalConfig.defaultDialectVersion;
+  unsigned int dialect = RSGlobalConfig.requestConfigParams.dialectVersion;
   int dialectArgIndex = RMUtil_ArgExists("DIALECT", argv, argc, argvOffset);
   if(dialectArgIndex > 0) {
       dialectArgIndex++;
