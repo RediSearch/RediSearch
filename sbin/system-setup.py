@@ -68,6 +68,7 @@ class RediSearchSetup(paella.Setup):
         self.install_gnu_utils()
         self.install("pkg-config")
         self.install("libtool m4 automake")
+        self.run(f"{READIES}/bin/getclang --force --modern")
         self.install("boost")
         self.pip_install("-r %s/tests/pytests/requirements.macos.txt" % ROOT)
         # self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
