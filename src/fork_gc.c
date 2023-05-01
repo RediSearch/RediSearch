@@ -1165,12 +1165,15 @@ static int FGC_fork(ForkGC *gc, RedisModuleCtx *ctx) {
 static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   ForkGC *gc = privdata;
   if (gc->deleting) {
+    RedisModule_Log(ctx, "warning", "GC cycle not running given deleting. Total deleted docs %ld",gc->deletedDocsFromLastRun);
     return 0;
   }
   if (gc->deletedDocsFromLastRun < RSGlobalConfig.forkGcCleanThreshold) {
+    gc->stats.totalDocsPendingDeletion = gc->deletedDocsFromLastRun;
+    RedisModule_Log(ctx, "warning", "GC cycle not running given #docs is bellow threeshold ( %ld < %ld )",gc->deletedDocsFromLastRun,RSGlobalConfig.forkGcCleanThreshold);
     return 1;
   }
-
+  RedisModule_Log(ctx, "warning", "GC cycle STARTING ( deletedDocsFromLastRun: %ld )",gc->deletedDocsFromLastRun);
   int gcrv = 1;
 
   RedisModule_AutoMemory(ctx);
@@ -1243,6 +1246,8 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     return 1;
   }
 
+  gc->stats.totalDocsDeleted += gc->deletedDocsFromLastRun;
+  gc->stats.totalDocsPendingDeletion = 0;
   gc->deletedDocsFromLastRun = 0;
 
   if (gc->type == FGC_TYPE_NOKEYSPACE) {
@@ -1324,11 +1329,11 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   TimeSampler_End(&ts);
 
   long long msRun = TimeSampler_DurationMS(&ts);
+  RedisModule_Log(ctx, "warning", "GC cycle after %ld ms.", msRun);
 
   gc->stats.numCycles++;
   gc->stats.totalMSRun += msRun;
   gc->stats.lastRunTimeMs = msRun;
-  gc->stats.totalDeletedDocs += gc->deletedDocsFromLastRun;
 
   return gcrv;
 }
@@ -1396,8 +1401,9 @@ static void statsCb(RedisModuleCtx *ctx, void *gcCtx) {
     REPLY_KVNUM(n, "last_run_time_ms", (double)gc->stats.lastRunTimeMs);
     REPLY_KVNUM(n, "gc_numeric_trees_missed", (double)gc->stats.gcNumericNodesMissed);
     REPLY_KVNUM(n, "gc_blocks_denied", (double)gc->stats.gcBlocksDenied);
-    REPLY_KVNUM(n, "docs_deleted", gc->stats.totalDeletedDocs);
-    REPLY_KVNUM(n, "average_cycle_docs_deleted", (double)gc->stats.totalDeletedDocs / gc->stats.numCycles);
+    REPLY_KVNUM(n, "docs_pending_deletion", gc->stats.totalDocsPendingDeletion);
+    REPLY_KVNUM(n, "docs_deleted", gc->stats.totalDocsDeleted);
+    REPLY_KVNUM(n, "average_cycle_docs_deleted", (double)gc->stats.totalDocsDeleted / gc->stats.numCycles);
   }
   RedisModule_ReplySetArrayLength(ctx, n);
 }
