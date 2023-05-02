@@ -11,7 +11,6 @@
 
 #include "util/logging.h"
 #include "util/misc.h"
-#include "util/threadpool_api.h"
 #include "rmutil/vector.h"
 #include "rmutil/util.h"
 #include "rmutil/rm_assert.h"
@@ -32,13 +31,12 @@
 #include "rdb.h"
 #include "commands.h"
 #include "rmutil/cxx/chrono-clock.h"
-#include "util/workers_pool.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver);
+static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver);
 
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
 
@@ -785,17 +783,12 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     if (!parseVectorField_hnsw(fs, ac, status)) {
       return 0;
     }
-    if (_workers_thpool) {
-      VecSimParams *hnswParams = rm_new(VecSimParams);
-      memcpy(hnswParams, &fs->vectorOpts.vecSimParams, sizeof(VecSimParams));
+    if (RSGlobalConfig.numWorkerThreads > 0 && RSGlobalConfig.threadsEnabled) {
+      VecSimParams hnswParams = fs->vectorOpts.vecSimParams;
 
       fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
-      fs->vectorOpts.vecSimParams.tieredParams.primaryIndexParams = hnswParams;
-      fs->vectorOpts.vecSimParams.tieredParams.jobQueue = _workers_thpool;
-      fs->vectorOpts.vecSimParams.tieredParams.jobQueueCtx = StrongRef_Demote(sp_ref).rm;
-      fs->vectorOpts.vecSimParams.tieredParams.submitCb = (SubmitCB)ThreadPoolAPI_SubmitJobs;
-      fs->vectorOpts.vecSimParams.tieredParams.memoryCtx = &fs->vectorOpts.memConsumption;
-      fs->vectorOpts.vecSimParams.tieredParams.UpdateMemCb = VecSim_UpdateMemoryStats;
+      VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.tieredParams, fs, sp_ref);
+      memcpy(fs->vectorOpts.vecSimParams.tieredParams.primaryIndexParams, &hnswParams, sizeof(VecSimParams));
     }
     return 1;
   } else {
@@ -1743,7 +1736,7 @@ static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_F
                                          [IDXFLD_LEGACY_TAG] = INDEXFLD_T_TAG};
                                          // CHECKED: Not related to new data types - legacy code
 
-static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
+static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver) {
 
   // Fall back to legacy encoding if needed
   if (encver < INDEX_MIN_TAGFIELD_VERSION) {
@@ -1787,13 +1780,28 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
     if (encver >= INDEX_VECSIM_2_VERSION) {
       f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
     }
-    if (encver >= INDEX_VECSIM_MULTI_VERSION) {
-      if (VecSim_RdbLoad_v2(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
+    if (encver >= INDEX_VECSIM_TIERED_VERSION) {
+      if (VecSim_RdbLoad_v3(rdb, f, sp_ref) != REDISMODULE_OK) {
         goto fail;
       }
     } else {
-      if (VecSim_RdbLoad(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
-        goto fail;
+      if (encver >= INDEX_VECSIM_MULTI_VERSION) {
+        if (VecSim_RdbLoad_v2(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
+          goto fail;
+        }
+      } else {
+        if (VecSim_RdbLoad(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
+          goto fail;
+        }
+      }
+      // If we're loading an old (< 2.8) rdb, we need to convert an HNSW index to a tiered index
+      if (RSGlobalConfig.numWorkerThreads > 0 && RSGlobalConfig.threadsEnabled &&
+          f->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
+        VecSimParams hnswParams = f->vectorOpts.vecSimParams;
+
+        f->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
+        VecSim_TieredParams_Init(&f->vectorOpts.vecSimParams.tieredParams, f, sp_ref);
+        memcpy(f->vectorOpts.vecSimParams.tieredParams.primaryIndexParams, &hnswParams, sizeof(VecSimParams));
       }
     }
     // Calculate blob size limitation on lower encvers.
@@ -2280,7 +2288,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
-    if (FieldSpec_RdbLoad(rdb, sp->fields + i, encver) != REDISMODULE_OK) {
+    if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver) != REDISMODULE_OK) {
       QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Failed to load index field");
       goto cleanup;
     }
@@ -2404,7 +2412,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
-    FieldSpec_RdbLoad(rdb, sp->fields + i, encver);
+    FieldSpec_RdbLoad(rdb, fs, spec_ref, encver);
     sp->fields[i].index = i;
     if (FieldSpec_IsSortable(fs)) {
       RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));

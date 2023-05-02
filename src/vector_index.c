@@ -9,6 +9,8 @@
 #include "metric_iterator.h"
 #include "query_param.h"
 #include "rdb.h"
+#include "util/workers_pool.h"
+#include "util/threadpool_api.h"
 
 static VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName,
                                              int write) {
@@ -260,6 +262,21 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
 void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
   RedisModule_SaveUnsigned(rdb, vecsimParams->algo);
 
+  if (vecsimParams->algo == VecSimAlgo_TIERED) {
+    RedisModule_SaveUnsigned(rdb, vecsimParams->tieredParams.primaryIndexParams->algo);
+    switch (vecsimParams->tieredParams.primaryIndexParams->algo) {
+    case VecSimAlgo_HNSWLIB:
+      RedisModule_SaveUnsigned(rdb, vecsimParams->tieredParams.specificParams.tieredHnswParams.swapJobThreshold);
+      break;
+
+    case VecSimAlgo_BF:
+    case VecSimAlgo_TIERED:
+      return; // Should never happen.
+    }
+    // Set the vecsimParams to the internal primary index params.
+    vecsimParams = vecsimParams->tieredParams.primaryIndexParams;
+  }
+
   switch (vecsimParams->algo) {
   case VecSimAlgo_BF:
     RedisModule_SaveUnsigned(rdb, vecsimParams->bfParams.type);
@@ -279,6 +296,7 @@ void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
     RedisModule_SaveUnsigned(rdb, vecsimParams->hnswParams.efConstruction);
     RedisModule_SaveUnsigned(rdb, vecsimParams->hnswParams.efRuntime);
     break;
+  case VecSimAlgo_TIERED: return; // Should not get here.
   }
 }
 
@@ -336,6 +354,63 @@ static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams 
   return rv;
 }
 
+int VecSim_RdbLoad_v3(RedisModuleIO *rdb, FieldSpec *fs, StrongRef sp_ref) {
+  VecSimParams *vecsimParams = &fs->vectorOpts.vecSimParams;
+
+  vecsimParams->algo = LoadUnsigned_IOError(rdb, goto fail);
+
+  if (vecsimParams->algo == VecSimAlgo_TIERED) {
+    VecSimAlgo primary = LoadUnsigned_IOError(rdb, goto fail);
+    switch (primary) {
+      case VecSimAlgo_HNSWLIB:
+        vecsimParams->tieredParams.specificParams.tieredHnswParams.swapJobThreshold = LoadUnsigned_IOError(rdb, goto fail);
+        break;
+
+      case VecSimAlgo_BF:
+      case VecSimAlgo_TIERED:
+        goto fail;
+    }
+
+    if (RSGlobalConfig.numWorkerThreads > 0 && RSGlobalConfig.threadsEnabled) {
+      VecSim_TieredParams_Init(&vecsimParams->tieredParams, fs, sp_ref);
+      vecsimParams->tieredParams.primaryIndexParams->algo = primary;
+
+      // Sets `vecsimParams` to point to the secondary index params, for the rest of the loading
+      vecsimParams = vecsimParams->tieredParams.primaryIndexParams;
+    } else {
+      // Ignore the tiered index parameters and load the primary index as usual
+      vecsimParams->algo = primary;
+    }
+  }
+
+  switch (vecsimParams->algo) {
+  case VecSimAlgo_BF:
+    vecsimParams->bfParams.type = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->bfParams.dim = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->bfParams.metric = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->bfParams.multi = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->bfParams.initialCapacity = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->bfParams.blockSize = LoadUnsigned_IOError(rdb, goto fail);
+    break;
+  case VecSimAlgo_HNSWLIB:
+    vecsimParams->hnswParams.type = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.dim = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.metric = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.multi = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.initialCapacity = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.M = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.efConstruction = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->hnswParams.efRuntime = LoadUnsigned_IOError(rdb, goto fail);
+    break;
+  case VecSimAlgo_TIERED: goto fail; // Should not get here
+  }
+
+  return VecSimIndex_validate_Rdb_parameters(rdb, vecsimParams);
+
+fail:
+  return REDISMODULE_ERR;
+}
+
 int VecSim_RdbLoad_v2(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
 
   vecsimParams->algo = LoadUnsigned_IOError(rdb, goto fail);
@@ -359,6 +434,7 @@ int VecSim_RdbLoad_v2(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
     vecsimParams->hnswParams.efConstruction = LoadUnsigned_IOError(rdb, goto fail);
     vecsimParams->hnswParams.efRuntime = LoadUnsigned_IOError(rdb, goto fail);
     break;
+  case VecSimAlgo_TIERED: goto fail; // Should not get here
   }
 
   return VecSimIndex_validate_Rdb_parameters(rdb, vecsimParams);
@@ -456,6 +532,15 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
   const char *error_msg = QueryError_Strerror(RSErrorCode);
   QueryError_SetErrorFmt(status, RSErrorCode, "Error parsing vector similarity parameters: %s", error_msg);
   return vecSimCode;
+}
+
+void VecSim_TieredParams_Init(TieredIndexParams *params, FieldSpec *fs, StrongRef sp_ref) {
+  params->primaryIndexParams = rm_new(VecSimParams);
+  params->jobQueue = _workers_thpool;
+  params->jobQueueCtx = StrongRef_Demote(sp_ref).rm;
+  params->submitCb = (SubmitCB)ThreadPoolAPI_SubmitJobs;
+  params->memoryCtx = &fs->vectorOpts.memConsumption;
+  params->UpdateMemCb = VecSim_UpdateMemoryStats;
 }
 
 int VecSim_UpdateMemoryStats(void *memory_ctx, size_t memory) {
