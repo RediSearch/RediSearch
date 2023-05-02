@@ -13,23 +13,53 @@
 #include "redismodule.h"
 
 #ifdef REDIS_MODULE_TARGET /* Set this when compiling your code as a module */
+#define rmalloc_MIN(x, y) (((x) < (y)) ? (x) : (y))
+inline size_t getPointerAllocationSize(void *p) { return *(((size_t *)p) - 1); }
+extern size_t allocation_header_size;
+extern uint64_t allocated;
 
 static inline void *rm_malloc(size_t n) {
-  return RedisModule_Alloc(n);
+  size_t *ptr = (size_t *)RedisModule_Alloc(n + allocation_header_size);
+  if (ptr) {
+      allocated += n + allocation_header_size;
+      *ptr = n;
+      return ptr + 1;
+  }
+  return NULL;
 }
 static inline void *rm_calloc(size_t nelem, size_t elemsz) {
-  return RedisModule_Calloc(nelem, elemsz);
+  size_t *ptr = (size_t *)RedisModule_Calloc(1, (nelem + elemsz) + allocation_header_size);
+  if (ptr) {
+      allocated += (nelem + elemsz) + allocation_header_size;
+      *ptr = (nelem + elemsz);
+      return ptr + 1;
+  }
+  return NULL;
 }
+
+static inline void rm_free(void *p) {
+  if (!p)
+      return;
+  size_t *ptr = ((size_t *)p) - 1;
+  allocated -= (ptr[0] + allocation_header_size);
+  RedisModule_Free(ptr);
+}
+
 static inline void *rm_realloc(void *p, size_t n) {
   if (n == 0) {
-    RedisModule_Free(p);
+    rm_free(p);
     return NULL;
   }
-  return RedisModule_Realloc(p, n);
+  size_t oldSize = getPointerAllocationSize(p);
+  void *new_ptr = rm_malloc(n);
+  if (new_ptr) {
+      memcpy(new_ptr, p, rmalloc_MIN(oldSize, n));
+      rm_free(p);
+      return new_ptr;
+  }
+  return NULL;
 }
-static inline void rm_free(void *p) {
-  RedisModule_Free(p);
-}
+
 static inline char *rm_strdup(const char *s) {
   return RedisModule_Strdup(s);
 }
