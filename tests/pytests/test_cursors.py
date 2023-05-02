@@ -141,3 +141,23 @@ def testLeaked(env):
     # Test ensures in CursorList_Destroy() checks shutdown with remaining cursors
     loadDocs(env)
     env.expect('FT.AGGREGATE idx * LOAD 1 @f1 WITHCURSOR COUNT 1 MAXIDLE 1')
+
+def testNumericCursor(env):
+    # conn = getConnectionByEnv(env)
+    idx = 'foo'
+    field = 'ff'
+    env.expect('FT.CREATE', idx, 'ON', 'HASH', 'prefix', 1, idx, 'SCHEMA', field, 'NUMERIC').ok()
+    for x in range(1, 2):
+        env.cmd('HSET', '{}_{}'.format(idx, x), field, x)
+
+    res = env.cmd('FT.AGGREGATE', idx, '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)
+    env.assertEqual(res[0] ,[1, [field, '1']])
+    cursor = res[1]
+    env.assertNotEqual(cursor, 0)
+
+    res = env.cmd('FT.CURSOR', 'READ', idx, cursor)
+    env.assertEqual(res[0] ,[1, [field, '2']])
+    cursor = res[1]
+    env.assertNotEqual(cursor, 0)
+    
+    env.expect('FT.CURSOR', 'READ', idx, cursor).equal([[0], 0])
