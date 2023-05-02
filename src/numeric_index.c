@@ -857,7 +857,7 @@ void NumericRangeIterator_OnReopen(void *privdata) {
   IndexReader *ir = it->ctx;
 
   RedisSearchCtx sctx = (RedisSearchCtx)SEARCH_CTX_STATIC(RSDummyContext, sp);
-  RedisModuleString *numField = fmtRedisNumericIndexKey(sctx, nu->fieldName);
+  RedisModuleString *numField = fmtRedisNumericIndexKey(&sctx, nu->fieldName);
   NumericRangeTree *rt = openNumericKeysDict(sp, numField, 0);
   RedisModule_FreeString(NULL, numField);
   
