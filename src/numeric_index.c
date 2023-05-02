@@ -856,10 +856,8 @@ void NumericRangeIterator_OnReopen(void *privdata) {
   IndexIterator *it = nu->it;
   IndexReader *ir = it->ctx;
 
-  RedisSearchCtx sctx = (RedisSearchCtx)SEARCH_CTX_STATIC(RSDummyContext, sp);
-  RedisModuleString *numField = fmtRedisNumericIndexKey(&sctx, nu->fieldName);
+  RedisModuleString *numField = IndexSpec_GetFormattedKeyByName(sp, nu->fieldName, FLD_VAR_T_NUM);
   NumericRangeTree *rt = openNumericKeysDict(sp, numField, 0);
-  RedisModule_FreeString(NULL, numField);
   
   if (!rt || rt->revisionId != nu->lastRevId) {
     // The numeric tree was either completely deleted or a node was splitted or removed.
