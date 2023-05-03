@@ -65,7 +65,7 @@ arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t l
 /* Return a list of terms which match the wildcard pattern
  * If pattern does not match using suffix trie, return 0xBAAAAAAD */
 arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
-                                               struct timespec timeout);
+                                               struct timespec timeout, long long maxPrefixExpansions);
 
 /* Breaks wildcard at '*'s and finds the best token to get iterate the suffix trie.
  * tokenIdx and tokenLen arrays should sufficient space for all tokens. Max (len / 2) + 1.

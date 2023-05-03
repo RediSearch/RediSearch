@@ -140,6 +140,9 @@ commands:
       run_pack:
         type: boolean
         default: true
+      no_power:
+        type: string
+        default: "no"
     steps:
       - early-returns
       - checkout-all
@@ -155,6 +158,9 @@ commands:
           name: Build (Search)
           shell: /bin/bash -l -eo pipefail
           command: |
+            if [[ "<<parameters.no_power>>" == "yes" ]]; then
+                export REDISEARCH_POWER_TO_THE_WORKERS=0
+            fi
             make build <<parameters.build_params>> SHOW=1 NPROC=16
       - run:
           name: Build (Search Lite)
@@ -185,12 +191,19 @@ commands:
       test_params:
         type: string
         default: ""
+      no_power:
+        type: string
+        default: "no"
     steps:
       - run:
           name: Test (Search)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: make test TEST_PARALLEL=16 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
+          command: |
+            if [[ "<<parameters.no_power>>" == "yes" ]]; then
+                export REDISEARCH_POWER_TO_THE_WORKERS=0
+            fi
+            make test TEST_PARALLEL=16 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
       - run:
           name: Test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
@@ -213,6 +226,7 @@ commands:
           command: |
             ROOT="$PWD"
             cd build/docker
+            export REDISEARCH_POWER_TO_THE_WORKERS=0
             make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
             cd $ROOT
             mkdir -p tests/pytests/logs
@@ -253,6 +267,7 @@ commands:
           command: |
             ROOT="$PWD"
             cd build/docker
+            export REDISEARCH_POWER_TO_THE_WORKERS=0
             make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
             cd $ROOT
             mkdir -p tests/pytests/logs
@@ -451,9 +466,11 @@ jobs:
       - run:
           name: Set up workspace
           command: mkdir -p ~/workspace
-      - build-steps
+      - build-steps:
+          no_power: <<parameters.upload>>
       - test-steps:
           test_params: <<parameters.test_params>>
+          no_power: <<parameters.upload>>
       - run:
           name: Persist artifacts?
           command: |
@@ -484,9 +501,11 @@ jobs:
       - run:
           name: Set up workspace
           command: mkdir -p ~/workspace
-      - build-steps
+      - build-steps:
+          no_power: <<parameters.upload>>
       - test-steps:
           test_params: <<parameters.test_params>>
+          no_power: <<parameters.upload>>
       - run:
           name: Persist artifacts?
           command: |
@@ -653,6 +672,7 @@ jobs:
           benchmark_glob: "search*.yml"
           benchmark_runner_group_member_id: "1"
           benchmark_runner_group_total: "3"
+
   benchmark-search-oss-standalone-profiler-g2:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -667,6 +687,7 @@ jobs:
           benchmark_glob: "search*.yml"
           benchmark_runner_group_member_id: "2"
           benchmark_runner_group_total: "3"
+
   benchmark-search-oss-standalone-profiler-g3:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -681,6 +702,7 @@ jobs:
           benchmark_glob: "search*.yml"
           benchmark_runner_group_member_id: "3"
           benchmark_runner_group_total: "3"
+
   benchmark-vecsim-oss-standalone-profiler-g1:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -695,6 +717,7 @@ jobs:
           benchmark_glob: "vecsim*.yml"
           benchmark_runner_group_member_id: "1"
           benchmark_runner_group_total: "2"
+
   benchmark-vecsim-oss-standalone-profiler-g2:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
