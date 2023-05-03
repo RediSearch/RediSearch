@@ -48,7 +48,7 @@ class RediSearchSetup(paella.Setup):
         self.run("%s/bin/getgcc --modern" % READIES)
         self.install("libtool m4 automake openssl-devel")
         self.install("python3-devel")
-        self.install("boost169-devel")
+        self.install("--skip-broken boost169-devel")
 
         if not self.platform.is_arm():
             self.install_linux_gnu_tar()
@@ -68,6 +68,7 @@ class RediSearchSetup(paella.Setup):
         self.install_gnu_utils()
         self.install("pkg-config")
         self.install("libtool m4 automake")
+        self.run(f"{READIES}/bin/getclang --force --modern")
         self.install("boost")
         self.pip_install("-r %s/tests/pytests/requirements.macos.txt" % ROOT)
         # self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))

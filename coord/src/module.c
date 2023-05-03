@@ -52,6 +52,8 @@ int redisPatchVesion = 0;
 
 extern RedisModuleCtx *RSDummyContext;
 
+static int DIST_AGG_THREADPOOL = -1;
+
 // forward declaration
 int allOKReducer(struct MRCtx *mc, int count, MRReply **replies);
 RSValue *MRReply_ToValue(MRReply *r, RSValueType convertType);
@@ -436,7 +438,6 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies);
-static int profileSearchResultReducer(struct MRCtx *mc, int count, MRReply **replies);
 
 static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   req->profileArgs = 0;
@@ -621,7 +622,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     req->withSortby = false;
   }
 
-  unsigned int dialect = RSGlobalConfig.defaultDialectVersion;
+  unsigned int dialect = RSGlobalConfig.requestConfigParams.dialectVersion;
   int dialectArgIndex = RMUtil_ArgExists("DIALECT", argv, argc, argvOffset);
   if(dialectArgIndex > 0) {
       dialectArgIndex++;
@@ -667,30 +668,31 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
   const searchResult *r1 = p1, *r2 = p2;
   const searchRequestCtx *req = udata;
   // Compary by sorting keys
-  if ((r1->sortKey || r2->sortKey) && req->withSortby) {
+  if (req->withSortby) {
     int cmp = 0;
-    // Sort by numeric sorting keys
-    if (r1->sortKeyNum != HUGE_VAL && r2->sortKeyNum != HUGE_VAL) {
-      double diff = r2->sortKeyNum - r1->sortKeyNum;
-      cmp = diff < 0 ? -1 : (diff > 0 ? 1 : 0);
-    } else if (r1->sortKey && r2->sortKey) {
+    if ((r1->sortKey || r2->sortKey)) {
+      // Sort by numeric sorting keys
+      if (r1->sortKeyNum != HUGE_VAL && r2->sortKeyNum != HUGE_VAL) {
+        double diff = r2->sortKeyNum - r1->sortKeyNum;
+        cmp = diff < 0 ? -1 : (diff > 0 ? 1 : 0);
+      } else if (r1->sortKey && r2->sortKey) {
 
-      // Sort by string sort keys
-      cmp = cmpStrings(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
-      // printf("Using sortKey!! <N=%lu> %.*s vs <N=%lu> %.*s. Result=%d\n", r2->sortKeyLen,
-      //        (int)r2->sortKeyLen, r2->sortKey, r1->sortKeyLen, (int)r1->sortKeyLen, r1->sortKey,
-      //        cmp);
-    } else {
-      // If at least one of these has a sort key, it gets high value regardless of asc/desc
-      return r2->sortKey ? 1 : -1;
+        // Sort by string sort keys
+        cmp = cmpStrings(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
+        // printf("Using sortKey!! <N=%lu> %.*s vs <N=%lu> %.*s. Result=%d\n", r2->sortKeyLen,
+        //        (int)r2->sortKeyLen, r2->sortKey, r1->sortKeyLen, (int)r1->sortKeyLen, r1->sortKey,
+        //        cmp);
+      } else {
+        // If at least one of these has no sort key, it gets high value regardless of asc/desc
+        return r2->sortKey ? 1 : -1;
+      }
     }
-    // in case of a tie - compare ids
+    // in case of a tie or missing both sorting keys - compare ids
     if (!cmp) {
       // printf("It's a tie! Comparing <N=%lu> %.*s vs <N=%lu> %.*s\n", r2->idLen, (int)r2->idLen,
       //        r2->id, r1->idLen, (int)r1->idLen, r1->id);
       cmp = cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
     }
-
     return (req->sortAscending ? -cmp : cmp);
   }
 
@@ -1068,7 +1070,7 @@ static void sendSearchResults(RedisModuleCtx *ctx, searchReducerCtx *rCtx) {
 
   // Load the results from the heap into a sorted array. Free the items in
   // the heap one-by-one so that we don't have to go through them again
-  searchResult *results[qlen];
+  searchResult **results = rm_malloc(sizeof(*results) * qlen);
   while (pos) {
     results[--pos] = heap_poll(rCtx->pq);
   }
@@ -1117,6 +1119,7 @@ static void sendSearchResults(RedisModuleCtx *ctx, searchReducerCtx *rCtx) {
   for (pos = 0; pos < qlen; pos++) {
     rm_free(results[pos]);
   }
+  rm_free(results);
 }
 
 /**
@@ -1173,11 +1176,21 @@ static void profileSearchReply(RedisModuleCtx *ctx, searchReducerCtx *rCtx,
   RedisModule_ReplySetArrayLength(ctx, arrLen);
 }
 
+static void searchResultReducer_wrapper(void *mc_v) {
+  struct MRCtx *mc = mc_v;
+  searchResultReducer(mc, MRCtx_GetNumReplied(mc), MRCtx_GetReplies(mc));
+}
+
+static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply **replies) {
+  ConcurrentSearch_ThreadPoolRun(searchResultReducer_wrapper, mc, DIST_AGG_THREADPOOL);
+  return REDISMODULE_OK;
+}
+
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
-  clock_t postProccesTime;
+  clock_t postProccessTime;
   RedisModuleBlockedClient *bc = (RedisModuleBlockedClient *)MRCtx_GetRedisCtx(mc);
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
-  searchRequestCtx *req = MRCtx_GetPrivdata(mc);
+  searchRequestCtx *req = MRCtx_GetPrivData(mc);
   searchReducerCtx rCtx = {NULL};
   int profile = (req->profileArgs > 0);
 
@@ -1248,8 +1261,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   if (!profile) {
     sendSearchResults(ctx, &rCtx);
   } else {
-    postProccesTime = clock();
-    profileSearchReply(ctx, &rCtx, count, replies, req->profileClock, postProccesTime);
+    postProccessTime = clock();
+    profileSearchReply(ctx, &rCtx, count, replies, req->profileClock, postProccessTime);
   }
 
 cleanup:
@@ -1458,7 +1471,6 @@ int FanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx);
-static int DIST_AGG_THREADPOOL = -1;
 
 static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
@@ -1704,7 +1716,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, RedisModuleString **a
   // we also ask only masters to serve the request, to avoid duplications by random
   MR_SetCoordinationStrategy(mrctx, MRCluster_FlatCoordination | MRCluster_MastersOnly);
 
-  MRCtx_SetReduceFunction(mrctx, searchResultReducer);
+  MRCtx_SetReduceFunction(mrctx, searchResultReducer_background);
   MR_Fanout(mrctx, NULL, cmd, false);
   return REDISMODULE_OK;
 }
@@ -1927,7 +1939,15 @@ int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       tableSize = 16384;
   }
 
-  MRCluster *cl = MR_NewCluster(initialTopology, sf, 2);
+  size_t num_connections_per_shard;
+  if (clusterConfig.connPerShard) {
+    num_connections_per_shard = clusterConfig.connPerShard;
+  } else {
+    // default
+    num_connections_per_shard = RSGlobalConfig.numWorkerThreads + 1;
+  }
+
+  MRCluster *cl = MR_NewCluster(initialTopology, num_connections_per_shard, sf, 2);
   MR_Init(cl, clusterConfig.timeoutMS);
   InitGlobalSearchCluster(clusterConfig.numPartitions, slotTable, tableSize);
 
@@ -2017,7 +2037,7 @@ void setHiredisAllocators(){
 
 void Coordinator_CleanupModule(void) {
   MR_Destroy();
-  GlobalSearchCluser_Release();
+  GlobalSearchCluster_Release();
 }
 
 void Coordinator_ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {

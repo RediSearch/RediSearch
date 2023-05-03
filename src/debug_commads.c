@@ -499,12 +499,13 @@ DEBUG_COMMAND(IdToDocId) {
     RedisModule_ReplyWithError(sctx->redisCtx, "bad id given");
     goto end;
   }
-  RSDocumentMetadata *doc = DocTable_Get(&sctx->spec->docs, id);
+  const RSDocumentMetadata *doc = DocTable_Borrow(&sctx->spec->docs, id);
   if (!doc || (doc->flags & Document_Deleted)) {
     RedisModule_ReplyWithError(sctx->redisCtx, "document was removed");
   } else {
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, doc->keyPtr, strlen(doc->keyPtr));
   }
+  DMD_Return(doc);
 end:
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -561,11 +562,12 @@ DEBUG_COMMAND(GCForceInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
-    return REDISMODULE_OK;
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
+
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(
       ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, INVOKATION_TIMEOUT);
   GCContext_ForceInvoke(sp->gc, bc);
@@ -576,10 +578,10 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
-    return REDISMODULE_OK;
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
   GCContext_ForceBGInvoke(sp->gc);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -625,26 +627,25 @@ DEBUG_COMMAND(ttl) {
   IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
                             .name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
   lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
-  IndexSpec *sp = IndexSpec_LoadEx(ctx, &lopts);
 
+  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
-    return REDISMODULE_OK;
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
   if (!(sp->flags & Index_Temporary)) {
-    RedisModule_ReplyWithError(ctx, "Index is not temporary");
-    return REDISMODULE_OK;
+    return RedisModule_ReplyWithError(ctx, "Index is not temporary");
   }
 
   uint64_t remaining = 0;
   if (RedisModule_GetTimerInfo(RSDummyContext, sp->timerId, &remaining, NULL) != REDISMODULE_OK) {
-    RedisModule_ReplyWithLongLong(ctx, 0);  // timer was called but free operation is async so its
-                                            // gone be free each moment. lets return 0 timeout.
-    return REDISMODULE_OK;
+    // timer was called but free operation is async so its gone be free each moment.
+    // lets return 0 timeout.
+    return RedisModule_ReplyWithLongLong(ctx, 0);
   }
-  RedisModule_ReplyWithLongLong(ctx, remaining / 1000);  // return the results in seconds
-  return REDISMODULE_OK;
+
+  return RedisModule_ReplyWithLongLong(ctx, remaining / 1000);  // return the results in seconds
 }
 
 DEBUG_COMMAND(GitSha) {
@@ -834,7 +835,7 @@ DEBUG_COMMAND(DocInfo) {
   }
   GET_SEARCH_CTX(argv[0]);
 
-  const RSDocumentMetadata *dmd = DocTable_GetByKeyR(&sctx->spec->docs, argv[1]);
+  const RSDocumentMetadata *dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, argv[1]);
   if (!dmd) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Document not found in index");
@@ -858,7 +859,7 @@ DEBUG_COMMAND(DocInfo) {
   RedisModule_ReplyWithLongLong(ctx, dmd->maxFreq);
   nelem += 2;
   RedisModule_ReplyWithSimpleString(ctx, "refcount");
-  RedisModule_ReplyWithLongLong(ctx, dmd->ref_count);
+  RedisModule_ReplyWithLongLong(ctx, dmd->ref_count - 1); // TODO: should include the refcount of the command call?
   nelem += 2;
   if (dmd->sortVector) {
     RedisModule_ReplyWithSimpleString(ctx, "sortables");
@@ -866,6 +867,7 @@ DEBUG_COMMAND(DocInfo) {
     nelem += 2;
   }
   RedisModule_ReplySetArrayLength(ctx, nelem);
+  DMD_Return(dmd);
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -879,11 +881,15 @@ DEBUG_COMMAND(VecsimInfo) {
   }
   GET_SEARCH_CTX(argv[0]);
 
-  VecSimIndex *vecsimIndex = OpenVectorIndex(sctx, argv[1]);
-  if (!vecsimIndex) {
+  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_VECTOR);
+  if (!keyName) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Vector index not found");
   }
+  // This call can't fail, since we already checked that the key exists
+  // (or should exist, and this call will create it).
+  VecSimIndex *vecsimIndex = OpenVectorIndex(sctx->spec, keyName);
+
   VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(vecsimIndex);
   RedisModule_ReplyWithArray(ctx, VecSimInfoIterator_NumberOfFields(infoIter)*2);
   while(VecSimInfoIterator_HasNextField(infoIter)) {
@@ -968,3 +974,7 @@ int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   return REDISMODULE_OK;
 }
+
+#if (defined(DEBUG) || defined(_DEBUG)) && !defined(NDEBUG)
+#include "readies/cetara/diag/gdb.c"
+#endif

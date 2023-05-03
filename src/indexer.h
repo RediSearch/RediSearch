@@ -16,10 +16,14 @@
 // Preprocessors can store field data to this location
 typedef struct FieldIndexerData {
   int isMulti;
-  union {
+  int isNull;
+  struct {
+    // This is a struct and not a union since when FieldSpec options is `FieldSpec_Dynamic`:
+    // it can store data as several types, e.g., as numeric and as tag)
+
     // Single value
     double numeric;  // i.e. the numeric value of the field
-    char **tags;
+    arrayof(char*) tags;
     struct {
       const void *vector;
       size_t vecLen;

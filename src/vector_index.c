@@ -10,9 +10,8 @@
 #include "query_param.h"
 #include "rdb.h"
 
-static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
+static VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName,
                                              int write) {
-  IndexSpec *spec = ctx->spec;
   KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;
@@ -54,9 +53,8 @@ static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *k
   return kdv->p;
 }
 
-VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
-                            RedisModuleString *keyName) {
-  return openVectorKeysDict(ctx, keyName, 1);
+VecSimIndex *OpenVectorIndex(IndexSpec *sp, RedisModuleString *keyName) {
+  return openVectorKeysDict(sp, keyName, 1);
 }
 
 IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List results,
@@ -86,7 +84,7 @@ IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
-  VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
+  VecSimIndex *vecsim = openVectorKeysDict(ctx->spec, key, 0);
   RedisModule_FreeString(ctx->redisCtx, key);
   if (!vecsim) {
     return NULL;
@@ -135,7 +133,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .childIt = child_it,
                                       .timeout = q->sctx->timeout,
       };
-      return NewHybridVectorIterator(hParams);
+      return NewHybridVectorIterator(hParams, q->status);
     }
     case VECSIM_QT_RANGE: {
       if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {

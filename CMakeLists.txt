@@ -41,7 +41,7 @@ add_compile_definitions(
     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
     "GIT_VERSPEC=\"${GIT_VERSPEC}\""
     "GIT_SHA=\"${GIT_SHA}\""
-    REDISMODULE_EXPERIMENTAL_API
+    REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
 if (USE_REDIS_ALLOCATOR)
@@ -53,8 +53,10 @@ endif()
 include_directories(
     ${root}/src
     ${root}/deps
+    ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
-	${root}/deps/s2geometry/src
+    ${root}/deps/s2geometry/src
+    ${BOOST_DIR}
     ${root})
 
 add_subdirectory(deps/rmutil)
@@ -66,7 +68,7 @@ add_subdirectory(deps/phonetics)
 option(VECSIM_STATIC "Build as static library" ON)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
-add_subdirectory(deps/VectorSimilarity/src)
+add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
 
 #----------------------------------------------------------------------------------------------

@@ -45,11 +45,11 @@ typedef struct {
  *
  * Returns true if the fragmentation succeeded, false otherwise.
  */
-static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char *fieldText,
+static int fragmentizeOffsets(const RLookup *lookup, const char *fieldName, const char *fieldText,
                               size_t fieldLen, const RSIndexResult *indexResult,
                               const RSByteOffsets *byteOffsets, FragmentList *fragList,
                               int options) {
-  const FieldSpec *fs = IndexSpec_GetField(spec, fieldName, strlen(fieldName));
+  const FieldSpec *fs = findFieldInSpecCache(lookup, fieldName);
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
     return 0;
   }
@@ -166,7 +166,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
   return ret;
 }
 
-static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
+static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *fieldInfo,
                                const char *fieldName, const RSValue *returnedField,
                                hlpDocContext *docParams, int options) {
 
@@ -181,7 +181,7 @@ static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
   size_t docLen;
   const char *docStr = RSValue_StringPtrLen(returnedField, &docLen);
   if (docParams->byteOffsets == NULL ||
-      !fragmentizeOffsets(spec, fieldName, docStr, docLen, docParams->indexResult,
+      !fragmentizeOffsets(lookup, fieldName, docStr, docLen, docParams->indexResult,
                           docParams->byteOffsets, &frags, options)) {
     if (fieldInfo->mode == SummarizeMode_Synopsis) {
       // If summarizing is requested then trim the field so that the user isn't
@@ -264,7 +264,7 @@ static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, Returne
   if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
     return;
   }
-  RSValue *v = summarizeField(RP_SPEC(&hlpCtx->base), spec, fName, fieldValue, docParams,
+  RSValue *v = summarizeField(hlpCtx->lookup, spec, fName, fieldValue, docParams,
                               hlpCtx->fragmentizeOptions);
   if (v) {
     RLookup_WriteOwnKey(spec->lookupKey, docParams->row, v);
@@ -303,7 +303,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
 
   size_t numIovsArr = 0;
   const FieldList *fields = hlp->fields;
-  RSDocumentMetadata *dmd = r->dmd;
+  const RSDocumentMetadata *dmd = r->dmd;
   if (!dmd) {
     return RS_RESULT_OK;
   }

@@ -6,8 +6,10 @@
 
 #pragma once
 
-#include <cstdarg>
 #include "point.hpp"
+
+#include <cstdarg>
+#include <ranges>
 
 namespace bg = boost::geometry;
 namespace bgm = bg::model;

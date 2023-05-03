@@ -10,7 +10,7 @@
 #include "cluster.h"
 
 #include "hiredis/hiredis.h"
-#include "../../rmutil/alloc.h"
+#include "rmutil/alloc.h"
 
 void testEndpoint() {
 
@@ -102,7 +102,7 @@ void testCluster() {
   const char *hosts[] = {"localhost:6379", "localhost:6389", "localhost:6399", "localhost:6409"};
   MRClusterTopology *topo = getTopology(4096, n, hosts);
 
-  MRCluster *cl = MR_NewCluster(topo, CRC16ShardFunc,1);
+  MRCluster *cl = MR_NewCluster(topo, 2, CRC16ShardFunc, 1);
   mu_check(cl != NULL);
   mu_check(cl->sf == CRC16ShardFunc);
   //  mu_check(cl->tp == tp);
@@ -127,7 +127,7 @@ void testClusterSharding() {
   const char *hosts[] = {"localhost:6379", "localhost:6389", "localhost:6399", "localhost:6409"};
   MRClusterTopology *topo = getTopology(4096, n, hosts);
 
-  MRCluster *cl = MR_NewCluster(topo, CRC16ShardFunc,1);
+  MRCluster *cl = MR_NewCluster(topo, 2, CRC16ShardFunc, 1);
   MRCommand cmd = MR_NewCommand(4, "_FT.SEARCH", "foob", "bar", "baz");
   mr_slot_t slot = CRC16ShardFunc(&cmd, cl->topo->numSlots);
   printf("%d\n", slot);

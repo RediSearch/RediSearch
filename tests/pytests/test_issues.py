@@ -430,13 +430,12 @@ def testOverMaxResults():
   ]
 
   for c in commands:
-
     env.cmd(*c)
 
     env.cmd('flushall')
 
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
-    
+
     # test with number of documents lesser than MAXSEARCHRESULTS
     for i in range(10):
       conn.execute_command('HSET', i, 't', i)
@@ -551,6 +550,109 @@ def test_sortby_Noexist(env):
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '3').equal([4, 'doc1', ['t', '1'], 'doc3', ['t', '3'], 'doc2', ['somethingelse', '2']])
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '3').equal([4, 'doc3', ['t', '3'], 'doc1', ['t', '1'], 'doc4', ['somethingelse', '4']])
 
+def test_sortby_Noexist_Sortables(env):
+  ''' issue 3457 '''
+
+  conn = getConnectionByEnv(env)
+  sortable_options = [[True,True], [True,False], [False,True], [False,False]]
+
+  for count, args in enumerate(sortable_options):
+    sortable1 = ['SORTABLE'] if args[0] else []
+    sortable2 = ['SORTABLE'] if args[1] else []
+    conn.execute_command('FT.CREATE', 'idx{}'.format(count), 'SCHEMA', 'numval', 'NUMERIC' , *sortable1,
+                                                'text', 'TEXT', *sortable2)
+
+  for count, args in enumerate(sortable_options):
+    # Use cluster {hashtag} to handle which keys are on the same shard (same cluster slot)
+    conn.execute_command('HSET', '{key1}1', 'numval', '110')
+    conn.execute_command('HSET', '{key1}2', 'numval', '108')
+    conn.execute_command('HSET', '{key2}1', 'text', 'Meow')
+    conn.execute_command('HSET', '{key2}2', 'text', 'Chirp')
+
+    msg = 'sortable1: {}, sortable2: {}'.format(sortable1, sortable2)
+
+    # Check ordering of docs:
+    #   In cluster: Docs without sortby field are ordered by key name
+    #   In non-cluster: Docs without sortby field are ordered by doc id (order of insertion/update)
+
+    res = conn.execute_command('FT.SEARCH', 'idx{}'.format(count), '*', 'sortby', 'numval', 'ASC')
+    env.assertEqual(res, [4,
+        '{key1}2', ['numval', '108'], '{key1}1', ['numval', '110'],
+        '{key2}1', ['text', 'Meow'], '{key2}2', ['text', 'Chirp'],
+      ], message=msg)
+
+    res = conn.execute_command('FT.SEARCH', 'idx{}'.format(count), '*', 'sortby', 'numval', 'DESC')
+    env.assertEqual(res, [4,
+        '{key1}1', ['numval', '110'], '{key1}2', ['numval', '108'],
+        '{key2}2', ['text', 'Chirp'], '{key2}1', ['text', 'Meow'],
+      ], message=msg)
+
+  # Add more keys
+  conn.execute_command('HSET', '{key1}3', 'text', 'Bark')
+  conn.execute_command('HSET', '{key1}4', 'text', 'Quack')
+  conn.execute_command('HSET', '{key2}3', 'numval', '109')
+  conn.execute_command('HSET', '{key2}4', 'numval', '111')
+  conn.execute_command('HSET', '{key2}5', 'numval', '108')
+  conn.execute_command('HSET', '{key2}6', 'text', 'Squeak')
+
+  for count, args in enumerate(sortable_options):
+    res = conn.execute_command('FT.SEARCH', 'idx{}'.format(count), '*', 'sortby', 'numval', 'ASC')
+    if env.isCluster():
+      env.assertEqual(res, [10,
+          '{key1}2', ['numval', '108'],
+          '{key2}5', ['numval', '108'],
+          '{key2}3', ['numval', '109'],
+          '{key1}1', ['numval', '110'],
+          '{key2}4', ['numval', '111'],
+          '{key1}3', ['text', 'Bark'],
+          '{key1}4', ['text', 'Quack'],
+          '{key2}1', ['text', 'Meow'],
+          '{key2}2', ['text', 'Chirp'],
+          '{key2}6', ['text', 'Squeak'],
+        ], message=msg)
+    else:
+      env.assertEqual(res, [10,
+          '{key1}2', ['numval', '108'],
+          '{key2}5', ['numval', '108'],
+          '{key2}3', ['numval', '109'],
+          '{key1}1', ['numval', '110'],
+          '{key2}4', ['numval', '111'],
+          '{key2}1', ['text', 'Meow'],
+          '{key2}2', ['text', 'Chirp'],
+          '{key1}3', ['text', 'Bark'],
+          '{key1}4', ['text', 'Quack'],
+          '{key2}6', ['text', 'Squeak'],
+        ], message=msg)
+
+    res = conn.execute_command('FT.SEARCH', 'idx{}'.format(count), '*', 'sortby', 'numval', 'DESC')
+    if env.isCluster():
+      env.assertEqual(res, [10,
+          '{key2}4', ['numval', '111'],
+          '{key1}1', ['numval', '110'],
+          '{key2}3', ['numval', '109'],
+          '{key2}5', ['numval', '108'],
+          '{key1}2', ['numval', '108'],
+          '{key2}6', ['text', 'Squeak'],
+          '{key2}2', ['text', 'Chirp'],
+          '{key2}1', ['text', 'Meow'],
+          '{key1}4', ['text', 'Quack'],
+          '{key1}3', ['text', 'Bark'],
+        ], message=msg)
+    else:
+      env.assertEqual(res, [10,
+          '{key2}4', ['numval', '111'],
+          '{key1}1', ['numval', '110'],
+          '{key2}3', ['numval', '109'],
+          '{key2}5', ['numval', '108'],
+          '{key1}2', ['numval', '108'],
+          '{key2}6', ['text', 'Squeak'],
+          '{key1}4', ['text', 'Quack'],
+          '{key1}3', ['text', 'Bark'],
+          '{key2}2', ['text', 'Chirp'],
+          '{key2}1', ['text', 'Meow'],
+        ], message=msg)
+
+
 def testDeleteIndexes(env):
   # test cleaning of all specs from a prefix
   conn = getConnectionByEnv(env)
@@ -602,7 +704,7 @@ def test_mod_4255(env):
   res = env.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
   cursor = res[1]
   for i in range(3, 1001, 1):
-      conn.execute_command('HSET', 'doc%i' % i, 'test', str(i))
+      conn.execute_command('HSET', f'doc{i}', 'test', str(i))
   res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
   env.assertEqual(res[0] ,[1, ['test', '2']])
   env.assertNotEqual(cursor ,0)
@@ -613,7 +715,7 @@ def test_mod_4255(env):
   cursor = res[1]
   env.assertNotEqual(cursor ,0)
   for i in range(3, 1001, 1):
-    env.cmd('DEL', 'doc%i' % i, 'test', str(i))
+    conn.execute_command('DEL', f'doc{i}', 'test', str(i))
   forceInvokeGC(env, 'idx')
 
   res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
@@ -629,21 +731,47 @@ def test_as_startswith_as(env):
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.attr1', 'AS', 'asa', 'TEXT').equal('OK')
     conn.execute_command('JSON.SET', 'doc2', '$', '{"attr1": "foo", "attr2": "bar"}')
-    
+
     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 1, 'asa').equal([1, 'doc2', ['asa', 'foo']])
     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, 'asa', 'AS', 'asa').equal([1, 'doc2', ['asa', 'foo']])
     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, '$.attr1', 'AS', 'asa').equal([1, 'doc2', ['asa', 'foo']])
     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, '$.attr1', 'AS', '$.attr2').equal([1, 'doc2', ['$.attr2', 'foo']])
     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, 'asa', 'AS', '$.attr2').equal([1, 'doc2', ['$.attr2', 'foo']])
-    
+
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 1, 'asa').equal([1, ['asa', 'foo']])
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, 'asa', 'AS', 'asa').equal([1, ['asa', 'foo']])
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, '$.attr1', 'AS', 'asa').equal([1, ['asa', 'foo']])
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, '$.attr1', 'AS', '$.attr2').equal([1, ['$.attr2', 'foo']])
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, 'asa', 'AS', '$.attr2').equal([1, ['$.attr2', 'foo']])
-    
+
 def test_mod4296_badexpr(env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').equal('OK')
   env.expect('HSET', 'doc', 't', 'foo').equal(1)
   env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1%0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
   env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1/0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
+
+def test_mod5062(env):
+  env.skipOnCluster()
+  env.expect('FT.CONFIG', 'SET', 'MAXSEARCHRESULTS', '0').ok()
+  env.expect('FT.CONFIG', 'SET', 'MAXAGGREGATERESULTS', '0').ok()
+  n = 100
+
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+
+  for i in range(n):
+    env.expect('HSET', i, 't', 'hello world').equal(1)
+
+  # verify no crash
+  env.expect('FT.SEARCH', 'idx', 'hello').equal([n])
+
+  # verify using counter instead of sorter
+  search_profile = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello')
+  env.assertEquals('Counter', search_profile[1][4][3][1])
+
+  # verify no crash
+  env.expect('FT.AGGREGATE', 'idx', 'hello').noError()
+  env.expect('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0).equal([n])
+
+  # verify using counter instead of sorter, even with explicit sort
+  aggregate_profile = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'hello', 'SORTBY', '1', '@t')
+  env.assertEquals('Counter', aggregate_profile[1][4][2][1])

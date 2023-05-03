@@ -64,7 +64,9 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       for (size_t i = 0; i < percent; i++) {
         irs[i] = NewReadIterator(ind_readers[i]);
       }
-      IndexIterator *ui = NewUnionIterator(irs, percent, NULL, 0, 1, QN_UNION, NULL);
+      IteratorsConfig config{};
+      iteratorsConfig_init(&config);
+      IndexIterator *ui = NewUnionIterator(irs, percent, NULL, 0, 1, QN_UNION, NULL, &config);
       std::cout << "Expected child res: " << ui->NumEstimated(ui->ctx) << std::endl;
 
       float query[NUM_ITERATIONS][d];
@@ -80,7 +82,9 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
                                       .ignoreDocScore = true,
                                       .childIt = ui
       };
-      IndexIterator *hybridIt = NewHybridVectorIterator(hParams);
+      QueryError err = {QUERY_OK};
+      IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
+      assert(!QueryError_HasError(&err));
 
       // Run in batches mode.
       HybridIterator *hr = (HybridIterator *)hybridIt->ctx;

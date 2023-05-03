@@ -5,9 +5,9 @@
  */
 
 #include "minunit.h"
-#include <chan.h>
+#include "chan.h"
 #include "rmalloc.h"
-#include "../../rmutil/alloc.h"
+#include "rmutil/alloc.h"
 
 void testChan() {
   MRChannel *c = MR_NewChannel(0);

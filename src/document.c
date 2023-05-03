@@ -49,6 +49,7 @@ static void freeDocumentContext(void *p) {
 #define DUP_FIELD_ERRSTR "Requested to index field twice"
 
 #define FIELD_IS_VALID(aCtx, ix) ((aCtx)->fspecs[ix].name != NULL)
+#define FIELD_IS_NULL(aCtx, ix) ((aCtx)->fdatas[ix].isNull)
 
 static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
   Document *doc = aCtx->doc;
@@ -64,6 +65,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     // left-over tag data here; if we've realloc'd, then this contains
     // garbage
     aCtx->fdatas[ii].tags = NULL;
+    aCtx->fdatas[ii].isNull = 0;
   }
 
   size_t numTextIndexable = 0;
@@ -165,9 +167,8 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   if (!actxPool_g) {
     mempool_options mopts = {.initialCap = 16,
                              .alloc = allocDocumentContext,
-                             .free = freeDocumentContext,
-                             .isGlobal = 1};
-    actxPool_g = mempool_new(&mopts);
+                             .free = freeDocumentContext};
+    mempool_test_set_global(&actxPool_g, &mopts);
   }
 
   // Get a new context
@@ -181,6 +182,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->specFlags = sp->flags;
   aCtx->indexer = sp->indexer;
   aCtx->spec = sp;
+  aCtx->oldMd = NULL;
   if (aCtx->specFlags & Index_Async) {
     size_t len = sp->nameLen + 1;
     if (aCtx->specName == NULL) {
@@ -360,6 +362,8 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   if (!concurrentSearch) {
     Document_AddToIndexes(aCtx, sctx);
   } else {
+    // Deprecated and broken - should pass `DocumentAddCtx` and not `RSAddDocumentCtx`
+    // also, we have to pass a weak ref to the spec, and handle it in the callback.
     ConcurrentSearch_ThreadPoolRun(threadCallback, aCtx, CONCURRENT_POOL_INDEX);
   }
 }
@@ -375,7 +379,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
         TagIndex_FreePreprocessedData(aCtx->fdatas[ii].tags);
         aCtx->fdatas[ii].tags = NULL;
       } else if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_GEO) && aCtx->fdatas[ii].isMulti &&
-                 aCtx->fdatas[ii].arrNumeric) {
+                 aCtx->fdatas[ii].arrNumeric && !FIELD_IS_NULL(aCtx, ii)) {
         array_free(aCtx->fdatas[ii].arrNumeric);
         aCtx->fdatas[ii].arrNumeric = NULL;
       }
@@ -404,7 +408,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   }
 
   if (aCtx->oldMd) {
-    DMD_Decref(aCtx->oldMd);
+    DMD_Return(aCtx->oldMd);
     aCtx->oldMd = NULL;
   }
 
@@ -538,6 +542,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
       fdata->numeric = field->numval;
       break;
     case FLD_VAR_T_NULL:
+      fdata->isNull = 1;
       return 0;
     case FLD_VAR_T_ARRAY:
       fdata->isMulti = 1;
@@ -676,6 +681,7 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
     fdata->vecLen = field->blobSize;
     fdata->numVec = field->blobArrLen;
   } else if (field->unionType == FLD_VAR_T_NULL) {
+    fdata->isNull = 1;
     return 0; // Skipping indexing missing vector
   }
   if (fdata->vecLen != fs->vectorOpts.expBlobSize) {
@@ -688,11 +694,12 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(vectorIndexer) {
+  IndexSpec *sp = ctx->spec;
   VecSimIndex *rt = bulk->indexDatas[IXFLDPOS_VECTOR];
   if (!rt) {
-    RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_VECTOR);
+    RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
     rt = bulk->indexDatas[IXFLDPOS_VECTOR] =
-        OpenVectorIndex(ctx, keyName/*, &bulk->indexKeys[IXFLDPOS_VECTOR]*/);
+        OpenVectorIndex(sp, keyName/*, &bulk->indexKeys[IXFLDPOS_VECTOR]*/);
     if (!rt) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open vector for indexing");
       return -1;
@@ -700,10 +707,10 @@ FIELD_BULK_INDEXER(vectorIndexer) {
   }
   char *curr_vec = (char *)fdata->vector;
   for (size_t i = 0; i < fdata->numVec; i++) {
-    ctx->spec->stats.vectorIndexSize +=  VecSimIndex_AddVector(rt, curr_vec, aCtx->doc->docId);
+    sp->stats.vectorIndexSize +=  VecSimIndex_AddVector(rt, curr_vec, aCtx->doc->docId);
     curr_vec += fdata->vecLen;
   }
-  ctx->spec->stats.numRecords += fdata->numVec;
+  sp->stats.numRecords += fdata->numVec;
   return 0;
 }
 
@@ -715,11 +722,11 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 
   switch (field->unionType) {
     case FLD_VAR_T_GEO:
+      fdata->isMulti = 0;
       geohash = calcGeoHash(field->lon, field->lat);
       if (geohash == INVALID_GEOHASH) {
         return REDISMODULE_ERR;
       }
-      fdata->isMulti = 0;
       fdata->numeric = geohash;
       if (FieldSpec_IsSortable(fs)) {
         RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM, 0);
@@ -730,6 +737,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       str_count = 1;
       break;
     case FLD_VAR_T_NULL:
+      fdata->isNull = 1;
       return REDISMODULE_OK;
     case FLD_VAR_T_ARRAY:
       str_count = field->arrayLen;
@@ -739,10 +747,10 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     case FLD_VAR_T_GEOMETRY:
       RS_LOG_ASSERT(0, "Oops");
   }
-  
+
   const char *str = NULL;
+  fdata->isMulti = 0;
   if (str_count == 1) {
-    fdata->isMulti = 0;
     str = DocumentField_GetValueCStr(field, &len);
     if (parseGeo(str, len, &lon, &lat) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
@@ -753,17 +761,18 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     }
     fdata->numeric = geohash;
   } else if (str_count > 1) {
+    fdata->isMulti = 1;
     arrayof(double) arr = array_new(double, str_count);
     for (size_t i = 0; i < str_count; ++i) {
       const char *cur_str = DocumentField_GetArrayValueCStr(field, &len, i);
       if ((parseGeo(cur_str, len, &lon, &lat) != REDISMODULE_OK) || ((geohash = calcGeoHash(lon, lat)) == INVALID_GEOHASH)) {
         array_free(arr);
+        fdata->arrNumeric = NULL;
         return REDISMODULE_ERR;
       }
       array_ensure_append_1(arr, geohash);
     }
     str = DocumentField_GetArrayValueCStr(field, &len, 0);
-    fdata->isMulti = 1;
     fdata->arrNumeric = arr;
   }
 
@@ -780,19 +789,16 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 }
 
 FIELD_PREPROCESSOR(tagPreprocessor) {
-  fdata->tags = TagIndex_Preprocess(fs->tagOpts.tagSep, fs->tagOpts.tagFlags, field);
-
-  if (fdata->tags == NULL) {
-    return 0;
-  }
-  if (FieldSpec_IsSortable(fs)) {
-    if (field->unionType != FLD_VAR_T_ARRAY) {
-      size_t fl;
-      const char *str = DocumentField_GetValueCStr(field, &fl);
-      RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
-    } else if (field->multisv) {
-      RSSortingVector_Put(aCtx->sv, fs->sortIdx, field->multisv, RS_SORTABLE_RSVAL, 0);
-      field->multisv = NULL;
+  if (TagIndex_Preprocess(fs->tagOpts.tagSep, fs->tagOpts.tagFlags, field, fdata)) {
+    if (FieldSpec_IsSortable(fs)) {
+      if (field->unionType != FLD_VAR_T_ARRAY) {
+        size_t fl;
+        const char *str = DocumentField_GetValueCStr(field, &fl);
+        RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
+      } else if (field->multisv) {
+        RSSortingVector_Put(aCtx->sv, fs->sortIdx, field->multisv, RS_SORTABLE_RSVAL, 0);
+        field->multisv = NULL;
+      }
     }
   }
   return 0;
@@ -886,18 +892,14 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
       PreprocessorFunc pp = preprocessorMap[ii];
       if (pp(aCtx, sctx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
-        if (!AddDocumentCtx_IsBlockable(aCtx)) {
-          ++aCtx->spec->stats.indexingFailures;
-        } else {
-          RedisModule_ThreadSafeContextLock(RSDummyContext);
-          IndexSpec *spec = IndexSpec_Load(RSDummyContext, aCtx->specName, 0);
-          if (spec && aCtx->specId == spec->uniqueId) {
-            ++spec->stats.indexingFailures;
-          }
-          RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-        }
+        ++aCtx->spec->stats.indexingFailures;
         ourRv = REDISMODULE_ERR;
         goto cleanup;
+      }
+      if (!(fs->options & FieldSpec_Dynamic)) {
+        // Non-dynamic fields are only indexed as a single type.
+        // Only dynamic fields may be indexed as multiple index types.
+        break;
       }
     }
   }
@@ -911,7 +913,9 @@ cleanup:
   if (ourRv != REDISMODULE_OK) {
     // if a document did not load properly, it is deleted
     // to prevent mismatch of index and hash
-    IndexSpec_DeleteDoc(aCtx->spec, RSDummyContext, doc->docKey);
+    t_docId docId = DocTable_GetIdR(&aCtx->spec->docs, doc->docKey);
+    if (docId)
+      IndexSpec_DeleteDoc_Unsafe(aCtx->spec, RSDummyContext, doc->docKey, docId);
 
     QueryError_SetCode(&aCtx->status, QUERY_EGENERIC);
     AddDocumentCtx_Finish(aCtx);
@@ -930,22 +934,18 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
                             int *result, QueryError *status) {
 
   int rc = REDISMODULE_ERR;
-  const RSDocumentMetadata *dmd = DocTable_GetByKeyR(&sctx->spec->docs, key);
+  RSExpr *e = NULL;
+  RedisSearchCtx_LockSpecRead(sctx);
+  const RSDocumentMetadata *dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, key);
   if (!dmd) {
     // We don't know the document...
     QueryError_SetError(status, QUERY_ENODOC, "");
-    return REDISMODULE_ERR;
+    goto done;
   }
 
   // Try to parser the expression first, fail if we can't
-  RSExpr *e = ExprAST_Parse(expr, strlen(expr), status);
-  if (!e) {
-    return REDISMODULE_ERR;
-  }
-
-  if (QueryError_HasError(status)) {
-    RSExpr_Free(e);
-    return REDISMODULE_ERR;
+  if (!(e = ExprAST_Parse(expr, strlen(expr), status)) || QueryError_HasError(status)) {
+    goto done;
   }
 
   RLookup lookup_s;
@@ -953,31 +953,31 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
   RLookup_Init(&lookup_s, spcache);
   if (ExprAST_GetLookupKeys(e, &lookup_s, status) == EXPR_EVAL_ERR) {
-    goto done;
+    goto CleanUp;
   }
 
   RLookupLoadOptions loadopts = {.sctx = sctx, .dmd = dmd, .status = status};
   if (RLookup_LoadDocument(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
-    goto done;
+    goto CleanUp;
   }
 
   ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
   RSValue rv = RSVALUE_STATIC;
   if (ExprEval_Eval(&evaluator, &rv) != EXPR_EVAL_OK) {
-    goto done;
+    goto CleanUp;
   }
 
   *result = RSValue_BoolTest(&rv);
   RSValue_Clear(&rv);
   rc = REDISMODULE_OK;
 
-// Clean up:
-done:
-  if (e) {
-    ExprAST_Free(e);
-  }
+CleanUp:
   RLookupRow_Cleanup(&row);
   RLookup_Cleanup(&lookup_s);
+done:
+  ExprAST_Free(e);
+  DMD_Return(dmd);
+  RedisSearchCtx_UnlockSpec(sctx);
   return rc;
 }
 
@@ -986,14 +986,16 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   do {                                                     \
     QueryError_SetError(&aCtx->status, QUERY_EGENERIC, s); \
     goto done;                                             \
-  } while (0);
+  } while (0)
 
+  RSDocumentMetadata *md = NULL;
   Document *doc = aCtx->doc;
   t_docId docId = DocTable_GetIdR(&sctx->spec->docs, doc->docKey);
   if (docId == 0) {
     BAIL("Couldn't load old document");
   }
-  RSDocumentMetadata *md = DocTable_Get(&sctx->spec->docs, docId);
+  // Assumes we are under write lock
+  md = (RSDocumentMetadata *)DocTable_Borrow(&sctx->spec->docs, docId);
   if (!md) {
     BAIL("Couldn't load document metadata");
   }
@@ -1021,7 +1023,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
 
       dedupes[fs->index] = 1;
 
-      int idx = IndexSpec_GetFieldSortingIndex(sctx->spec, f->name, strlen(f->name));
+      int idx = RSSortingTable_GetFieldIdx(sctx->spec->sortables, f->name);
       if (idx < 0) continue;
 
       if (!md->sortVector) {
@@ -1053,6 +1055,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   }
 
 done:
+  DMD_Return(md);
   if (aCtx->donecb) {
     aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
   }
