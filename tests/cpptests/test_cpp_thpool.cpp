@@ -84,6 +84,7 @@ TEST_F(ThpoolTest, HighLowHighTest) {
         ts[i].arr = arr;
         ts[i].index = i;
     }
+    ts[high_priority_tasks] = {&low_priority_timestamp, 0};
     // The low priority task is added in the middle, but it should run after the high priority tasks
     ts[high_priority_tasks].arr = &low_priority_timestamp;
     redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[0], THPOOL_PRIORITY_HIGH);
