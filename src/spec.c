@@ -31,7 +31,7 @@
 #include "rdb.h"
 #include "commands.h"
 #include "rmutil/cxx/chrono-clock.h"
-#include "geometry_index.h"
+#include "geometry/geometry_api.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -757,6 +757,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, FieldSpec *fs, QueryErr
       }
     }
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
+    sp->flags |= Index_HasGeometry;
     fs->types |= INDEXFLD_T_GEOMETRY;
     // TODO: GEMOMETRY - Support more geometry libraries - if an optional successive token exist
     fs->geometryOpts.geometryLibType = GEOMETRY_LIB_TYPE_BOOST_GEOMETRY;
@@ -1641,6 +1642,10 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
     RedisModule_SaveUnsigned(rdb, f->vectorOpts.expBlobSize);
     VecSim_RdbSave(rdb, &f->vectorOpts.vecSimParams);
   }
+  // TODO: GEOMETRY - save geometry options if more than one geometry library is supported
+  // if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
+  //   RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryLibType);
+  // }
 }
 
 static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
@@ -1717,9 +1722,13 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
       }
     }
   }
-  // TODO: GEOMETRY: load geometry specific options
-  // if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
-  // }
+  
+  // Load geometry specific options
+  if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
+    // TODO: GEOMETRY - if more than one geometry library is supported - load it from rdb (currently hard-coded)
+    f->geometryOpts.geometryLibType = GEOMETRY_LIB_TYPE_BOOST_GEOMETRY;
+  }
+  
   return REDISMODULE_OK;
 
 fail:
@@ -2614,6 +2623,10 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
         spec->stats.vectorIndexSize += VecSimIndex_DeleteVector(vecsim, id);
       }
     }
+  }
+
+  if (spec->flags & Index_HasGeometry) {
+    GeometryIndex_RemoveId(ctx, spec, id);
   }
   return REDISMODULE_OK;
 }

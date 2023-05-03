@@ -10,6 +10,8 @@
 #include "redis_index.h"
 #include "tag_index.h"
 #include "numeric_index.h"
+#include "geometry/geometry_api.h"
+#include "geometry_index.h"
 #include "phonetic_manager.h"
 #include "gc.h"
 #include "module.h"
@@ -220,6 +222,38 @@ DEBUG_COMMAND(DumpNumericIndex) {
   }
   RedisModule_ReplySetArrayLength(sctx->redisCtx, resultSize);
   NumericRangeTreeIterator_Free(iter);
+end:
+  if (keyp) {
+    RedisModule_CloseKey(keyp);
+  }
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
+DEBUG_COMMAND(DumpGeometryIndex) {
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0])
+  RedisModuleKey *keyp = NULL;
+  const char *fieldName = RedisModule_StringPtrLen(argv[1], NULL);
+  const FieldSpec *fs = IndexSpec_GetField(sctx->spec, fieldName, strlen(fieldName));
+  if (!fs) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
+    goto end;
+  }
+  GeometryIndex *idx = OpenGeometryIndex(sctx->redisCtx, sctx->spec, &keyp, fs);
+  if (!idx) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "Could not open geometry index");
+    goto end;
+  }
+  GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
+  if (!api) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "Could not get geometry api");
+    goto end;
+  }
+  api->dump(idx, ctx);
+
 end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
@@ -888,6 +922,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree},
                                {"DUMP_TAGIDX", DumpTagIndex},
                                {"INFO_TAGIDX", InfoTagIndex},
+                               {"DUMP_GEOMIDX", DumpGeometryIndex},
                                {"IDTODOCID", IdToDocId},
                                {"DOCIDTOID", DocIdToId},
                                {"DOCINFO", DocInfo},

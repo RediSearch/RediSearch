@@ -13,26 +13,6 @@
 
 GeometryApi* apis[GEOMETRY_LIB_TYPE__NUM] = {0};
 
-GEOMETRY bg_createGeom(GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg) {
-  S2PointIndex<int> s2_index; // TODO: remove
-
-  switch (format) {
-   case GEOMETRY_FORMAT_WKT: {
-    GEOMETRY d = From_WKT(str, len, 0);
-    // TODO: GEOMETRY handle error
-    return d;
-   }
-   case GEOMETRY_FORMAT_GEOJSON:
-    // TODO: GEOMETRY Support GEOJSON
-    return NULL;
-   case GEOMETRY_FORMAT_NONE:
-    RedisModule_Assert(format != GEOMETRY_FORMAT_NONE);
-   default:
-    RedisModule_Log(NULL, "error", "unknown geometry format");
-  }
-  return NULL;
-}
-
 void bg_freeIndex(GeometryIndex *index) {
   RTree_Free(reinterpret_cast<RTree*>(index));
 }
@@ -67,21 +47,12 @@ int bg_addGeomStr(struct GeometryIndex *index, GEOMETRY_FORMAT format, const cha
   return 0;
 }
 
-int bg_addGeom(GeometryIndex *index_, GEOMETRY geom_) {
-  auto index = reinterpret_cast<RTree*>(index_);
-  auto geom = reinterpret_cast<const RTDoc*>(geom_);
-  RTree_Insert(index, geom);
-  return 1;
+int bg_delGeom(struct GeometryIndex *index, t_docId docId) {
+  return RTree_RemoveByDocId(reinterpret_cast<RTree*>(index), docId);
 }
 
-int bg_delGeom(struct GeometryIndex *index, GEOMETRY geom, void *data) {
-  // TODO: GEOMETRY
-  return 0;
-}
-
-GEOMETRY s2_createGeom(GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg) {
-  // TODO: GEOMETRY
-  return NULL;
+void bg_dumpIndex(GeometryIndex *index, RedisModuleCtx *ctx) {
+  RTree_Dump(reinterpret_cast<RTree*>(index), ctx);
 }
 
 void s2_freeIndex(GeometryIndex *index) {
@@ -100,13 +71,12 @@ GeometryApi* GeometryApi_GetOrCreate(GEOMETRY_LIB_TYPE type, __attribute__((__un
   GeometryApi *api = (GeometryApi*)rm_malloc(sizeof(*api));
   switch (type) {
    case GEOMETRY_LIB_TYPE_BOOST_GEOMETRY:
-    api->createGeom = bg_createGeom;
     api->createIndex = bg_createIndex;
     api->freeIndex = bg_freeIndex;
     api->addGeomStr = bg_addGeomStr;
-    api->addGeom = bg_addGeom;
     api->delGeom = bg_delGeom;
     api->query = bg_query;
+    api->dump = bg_dumpIndex;
     break;
    case GEOMETRY_LIB_TYPE_S2:
     api->freeIndex = s2_freeIndex;

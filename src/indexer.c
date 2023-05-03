@@ -286,6 +286,9 @@ static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx
           }
         }
       }
+      if (spec->flags & Index_HasGeometry) {
+        GeometryIndex_RemoveId(sctx->redisCtx, spec, dmd->id);
+      }
     }
   }
 

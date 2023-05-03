@@ -19,7 +19,8 @@ RTree *Load_WKT_File(RTree *rtree, const char *path) {
 
   auto file = std::ifstream{path};
   for (string wkt{}; std::getline(file, wkt, '\n');) {
-    rtree->insert(RTDoc{wkt});
+    auto geometry = Polygon::from_wkt(wkt);
+    rtree->insert(geometry, 0);
   }
 
   return rtree;
@@ -29,13 +30,10 @@ void RTree_Free(RTree *rtree) noexcept {
   delete rtree;
 }
 
-void RTree_Insert(RTree *rtree, RTDoc const *doc) {
-  rtree->insert(*doc);
-}
-
 int RTree_Insert_WKT(RTree *rtree, const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg) {
   try {
-    rtree->insert(RTDoc{std::string_view{wkt, len}, id});
+    auto geometry = Polygon::from_wkt(std::string_view{wkt, len});
+    rtree->insert(geometry, id);
     return 0;
   } catch (const std::exception &e) {
     if (err_msg)
@@ -48,12 +46,27 @@ bool RTree_Remove(RTree *rtree, RTDoc const *doc) {
   return rtree->remove(*doc);
 }
 
+bool RTree_RemoveByDocId(RTree *rtree, t_docId id) {
+  return rtree->remove(id);
+}
+
 int RTree_Remove_WKT(RTree *rtree, const char *wkt, size_t len, t_docId id) {
   try {
-    return rtree->remove(RTDoc{std::string_view{wkt, len}, id});
+    auto geometry = rtree->lookup(id);
+    if (geometry.has_value()) {
+      rtree->removeId(id);
+      return rtree->remove(RTDoc{geometry.value(), id});
+    } else {
+      auto geometry = Polygon::from_wkt(std::string_view{wkt,len});
+      return rtree->remove(RTDoc{geometry, id});
+    }
   } catch (...) {
     return -1;
   }
+}
+
+void RTree_Dump(RTree* rtree, RedisModuleCtx *ctx) {
+  rtree->dump(ctx);
 }
 
 IndexIterator *generate_query_iterator(RTree::ResultsVec&& results) {
@@ -64,13 +77,15 @@ IndexIterator *generate_query_iterator(RTree::ResultsVec&& results) {
 }
 
 IndexIterator *RTree_Query(RTree const *rtree, RTDoc const *queryDoc, QueryType queryType) {
-  return generate_query_iterator(rtree->query(*queryDoc, queryType));
+  auto geometry = rtree->lookup(queryDoc->id());
+  return generate_query_iterator(rtree->query(*queryDoc, queryType, geometry.value()));
 }
 
 IndexIterator *RTree_Query_WKT(RTree const *rtree, const char *wkt, size_t len, enum QueryType queryType, RedisModuleString **err_msg) {
   try
   {
-    auto res = rtree->query(RTDoc{std::string_view{wkt, len}, 0}, queryType);
+    auto geometry = Polygon::from_wkt(wkt);
+    auto res = rtree->query(RTDoc{geometry, 0}, queryType, geometry);
     return generate_query_iterator(std::move(res));
   }
   catch(const std::exception& e)
