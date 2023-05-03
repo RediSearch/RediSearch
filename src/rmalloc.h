@@ -13,6 +13,8 @@
 #include "redismodule.h"
 
 #ifdef REDIS_MODULE_TARGET /* Set this when compiling your code as a module */
+
+#ifdef MEMORY_DEBUG
 #define rmalloc_MIN(x, y) (((x) < (y)) ? (x) : (y))
 size_t getPointerAllocationSize(void *p);
 extern size_t allocation_header_size;
@@ -77,6 +79,36 @@ static char *rm_strndup(const char *s, size_t n) {
 static inline char *rm_strdup(const char *s) {
   return rm_strndup(s, strlen(s));
 }
+
+#else
+
+static inline void *rm_malloc(size_t n) {
+  return RedisModule_Alloc(n);
+}
+
+static inline void *rm_calloc(size_t nelem, size_t elemsz) {
+  return RedisModule_Calloc(nelem, elemsz);
+}
+
+static inline void rm_free(void *p) {
+  RedisModule_Free(p);
+}
+
+static char *rm_strndup(const char *s, size_t n) {
+  char *ret = (char *)rm_malloc(n + 1);
+
+  if (ret) {
+    ret[n] = '\0';
+    memcpy(ret, s, n);
+  }
+  return ret;
+}
+
+static inline char *rm_strdup(const char *s) {
+  return RedisModule_Strdup(s);
+}
+
+#endif /* MEMORY_DEBUG */
 
 static int rm_vasprintf(char **__restrict __ptr, const char *__restrict __fmt, va_list __arg) {
   va_list args_copy;
