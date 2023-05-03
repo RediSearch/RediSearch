@@ -31,7 +31,7 @@ class RediSearchSetup(paella.Setup):
         self.run("%s/bin/getgcc --modern" % READIES)
         self.install("libtool m4 automake libssl-dev")
         self.install("python3-dev")
-        # self.install("libboost-all-dev")
+        self.install("libboost-all-dev")
 
         if self.platform.is_arm():
             if self.dist == 'ubuntu' and self.os_version[0] < 20:
