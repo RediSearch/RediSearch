@@ -213,8 +213,8 @@ endif
 #----------------------------------------------------------------------------------------------
 
 _CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME)
-ifeq ($(OSNICK),bionic)
-_CMAKE_FLAGS += -DCANON_BOOST
+ifneq ($(filter $(OSNICK),bionic amzn2),)
+_CMAKE_FLAGS += -DCANON_BOOST=on
 endif
 
 ifeq ($(OS),macos)
