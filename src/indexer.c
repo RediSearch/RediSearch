@@ -261,8 +261,8 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
 }
 
 /** Assigns a document ID to a single document. */
-static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, IndexSpec *spec, int replace,
-                                          QueryError *status) {
+static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx *aCtx, IndexSpec *spec,
+                                          int replace, QueryError *status) {
   DocTable *table = &spec->docs;
   Document *doc = aCtx->doc;
   if (replace) {
@@ -287,7 +287,7 @@ static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, IndexSpec *spe
         }
       }
       if (spec->flags & Index_HasGeometry) {
-        GeometryIndex_RemoveId(sctx->redisCtx, spec, dmd->id);
+        GeometryIndex_RemoveId(ctx, spec, dmd->id);
       }
     }
   }
@@ -319,7 +319,8 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     }
 
     RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
-    RSDocumentMetadata *md = makeDocumentId(cur, spec, cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
+    RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec, 
+                                            cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
     if (!md) {
       cur->stateFlags |= ACTX_F_ERRORED;
       continue;
