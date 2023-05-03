@@ -79,7 +79,7 @@ TEST_F(ThpoolTest, HighLowHighTest) {
     std::chrono::time_point<std::chrono::high_resolution_clock> arr[high_priority_tasks];
     std::chrono::time_point<std::chrono::high_resolution_clock> low_priority_timestamp;
     // Initialize the test_struct array
-    test_struct ts[high_priority_tasks + 1] = {0};
+    test_struct ts[high_priority_tasks + 1];
     for (int i = 0; i < high_priority_tasks; i++) {
         ts[i].arr = arr;
         ts[i].index = i;
