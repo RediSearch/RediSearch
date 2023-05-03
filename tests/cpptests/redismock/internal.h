@@ -8,11 +8,12 @@
 #define REDISMOCK_INTERNAL_H
 
 // This is to be included only by redismock.cpp
+#include "redismodule.h"
+
 #include <string>
 #include <map>
 #include <list>
 #include <set>
-#include <redismodule.h>
 #include <vector>
 #include <iostream>
 
@@ -253,6 +254,8 @@ struct KVDB {
 
   static std::vector<KVDB *> dbs;
 };
+
+typedef int (*RedisModule_GetApiFunctionType)(const char *name, void *pp);
 
 struct RedisModuleCtx {
   RedisModule_GetApiFunctionType getApi = NULL;

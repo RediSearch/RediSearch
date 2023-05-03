@@ -9,6 +9,7 @@
 #include "src/hybrid_reader.h"
 #include "src/metric_iterator.h"
 #include "src/util/arr.h"
+#include "src/util/references.h"
 
 #include "rmutil/alloc.h"
 
@@ -257,7 +258,7 @@ TEST_F(IndexTest, testReadIterator) {
 }
 
 TEST_F(IndexTest, testUnion) {
-  int oldConfig = RSGlobalConfig.minUnionIterHeap;
+  int oldConfig = RSGlobalConfig.iteratorsConfigParams.minUnionIterHeap;
   for (int cfg = 0; cfg < 2; ++cfg) {
     InvertedIndex *w = createIndex(10, 2);
     InvertedIndex *w2 = createIndex(10, 3);
@@ -268,8 +269,9 @@ TEST_F(IndexTest, testUnion) {
     IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
     irs[0] = NewReadIterator(r1);
     irs[1] = NewReadIterator(r2);
-
-    IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 1, QN_UNION, NULL);
+    IteratorsConfig config{};
+    iteratorsConfig_init(&config);
+    IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 1, QN_UNION, NULL, &config);
     RSIndexResult *h = NULL;
     int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
     int i = 0;
@@ -309,9 +311,9 @@ TEST_F(IndexTest, testUnion) {
     InvertedIndex_Free(w2);
 
     // change config parameter to use UI_ReadHigh and UI_SkipToHigh
-    RSGlobalConfig.minUnionIterHeap = 1;
+    RSGlobalConfig.iteratorsConfigParams.minUnionIterHeap = 1;
   }
-  RSGlobalConfig.minUnionIterHeap = oldConfig;
+  RSGlobalConfig.iteratorsConfigParams.minUnionIterHeap = oldConfig;
 }
 
 TEST_F(IndexTest, testWeight) {
@@ -324,8 +326,9 @@ TEST_F(IndexTest, testWeight) {
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
   irs[1] = NewReadIterator(r2);
-
-  IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 0.8, QN_UNION, NULL);
+  IteratorsConfig config{};
+  iteratorsConfig_init(&config);
+  IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 0.8, QN_UNION, NULL, &config);
   RSIndexResult *h = NULL;
   int expected[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20};
   int i = 0;
@@ -1107,7 +1110,8 @@ TEST_F(IndexTest, testIndexSpec) {
                         "2.0",       foo,      "text",  "sortable", bar,      "numeric",
                         "sortable",  name,     "text",  "nostem"};
   QueryError err = {QUERY_OK};
-  IndexSpec *s = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == 5);
@@ -1117,9 +1121,9 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(s->flags & Index_StoreTermOffsets);
   ASSERT_TRUE(s->flags & Index_HasCustomStopwords);
 
-  ASSERT_TRUE(IndexSpec_IsStopWord(s, "hello", 5));
-  ASSERT_TRUE(IndexSpec_IsStopWord(s, "world", 5));
-  ASSERT_TRUE(!IndexSpec_IsStopWord(s, "werld", 5));
+  ASSERT_TRUE(StopWordList_Contains(s->stopwords, "hello", 5));
+  ASSERT_TRUE(StopWordList_Contains(s->stopwords, "world", 5));
+  ASSERT_TRUE(!StopWordList_Contains(s->stopwords, "werld", 5));
 
   const FieldSpec *f = IndexSpec_GetField(s, body, strlen(body));
   ASSERT_TRUE(f != NULL);
@@ -1168,36 +1172,38 @@ TEST_F(IndexTest, testIndexSpec) {
 
   ASSERT_TRUE(s->sortables != NULL);
   ASSERT_TRUE(s->sortables->len == 2);
-  int rc = IndexSpec_GetFieldSortingIndex(s, foo, strlen(foo));
+  int rc = RSSortingTable_GetFieldIdx(s->sortables, foo);
   ASSERT_EQ(0, rc);
-  rc = IndexSpec_GetFieldSortingIndex(s, bar, strlen(bar));
+  rc = RSSortingTable_GetFieldIdx(s->sortables, bar);
   ASSERT_EQ(1, rc);
-  rc = IndexSpec_GetFieldSortingIndex(s, title, strlen(title));
+  rc = RSSortingTable_GetFieldIdx(s->sortables, title);
   ASSERT_EQ(-1, rc);
 
-  IndexSpec_Free(s);
+  StrongRef_Release(ref);
 
   QueryError_ClearError(&err);
   const char *args2[] = {
       "NOOFFSETS", "NOFIELDS", "SCHEMA", title, "text",
   };
-  s = IndexSpec_Parse("idx", args2, sizeof(args2) / sizeof(const char *), &err);
+  ref = IndexSpec_Parse("idx", args2, sizeof(args2) / sizeof(const char *), &err);
+  s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == 1);
 
   ASSERT_TRUE(!(s->flags & Index_StoreFieldFlags));
   ASSERT_TRUE(!(s->flags & Index_StoreTermOffsets));
-  IndexSpec_Free(s);
+  StrongRef_Release(ref);
 
   // User-reported bug
   const char *args3[] = {"SCHEMA", "ha", "NUMERIC", "hb", "TEXT", "WEIGHT", "1", "NOSTEM"};
   QueryError_ClearError(&err);
-  s = IndexSpec_Parse("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
+  ref = IndexSpec_Parse("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
+  s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(FieldSpec_IsNoStem(s->fields + 1));
-  IndexSpec_Free(s);
+  StrongRef_Release(ref);
 }
 
 static void fillSchema(std::vector<char *> &args, size_t nfields) {
@@ -1240,11 +1246,12 @@ TEST_F(IndexTest, testHugeSpec) {
   fillSchema(args, N);
 
   QueryError err = {QUERY_OK};
-  IndexSpec *s = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
+  StrongRef ref = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
+  IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == N);
-  IndexSpec_Free(s);
+  StrongRef_Release(ref);
   freeSchemaArgs(args);
 
   // test too big a schema
@@ -1252,7 +1259,8 @@ TEST_F(IndexTest, testHugeSpec) {
   fillSchema(args, N);
 
   QueryError_ClearError(&err);
-  s = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
+  ref = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
+  s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_TRUE(s == NULL);
   ASSERT_TRUE(QueryError_HasError(&err));
 #if !defined(__arm__) && !defined(__aarch64__)
@@ -1350,6 +1358,7 @@ TEST_F(IndexTest, testDocTable) {
     size_t nkey = sprintf(buf, "doc_%d", i);
     RSDocumentMetadata *dmd = DocTable_Put(&dt, buf, nkey, (double)i, Document_DefaultFlags, buf, strlen(buf), DocumentType_Hash);
     t_docId nd = dmd->id;
+    DMD_Return(dmd);
     ASSERT_EQ(did + 1, nd);
     did = nd;
   }
@@ -1361,14 +1370,11 @@ TEST_F(IndexTest, testDocTable) {
 #endif
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
-    const char *key = DocTable_GetKey(&dt, i + 1, NULL);
+    const sds key = DocTable_GetKey(&dt, i + 1, NULL);
     ASSERT_STREQ(key, buf);
+    sdsfree(key);
 
-    float score = DocTable_GetScore(&dt, i + 1);
-    ASSERT_EQ((int)score, i);
-
-    RSDocumentMetadata *dmd = DocTable_Get(&dt, i + 1);
-    DMD_Incref(dmd);
+    const RSDocumentMetadata *dmd = DocTable_Borrow(&dt, i + 1);
     ASSERT_TRUE(dmd != NULL);
     ASSERT_TRUE(dmd->flags & Document_HasPayload);
     ASSERT_STREQ(dmd->keyPtr, buf);
@@ -1385,13 +1391,13 @@ TEST_F(IndexTest, testDocTable) {
     int rc = DocTable_Delete(&dt, dmd->keyPtr, sdslen(dmd->keyPtr));
     ASSERT_EQ(1, rc);
     ASSERT_TRUE((int)(dmd->flags & Document_Deleted));
-    DMD_Decref(dmd);
-    dmd = DocTable_Get(&dt, i + 1);
+    DMD_Return(dmd);
+    dmd = DocTable_Borrow(&dt, i + 1);
     ASSERT_TRUE(!dmd);
   }
 
   ASSERT_FALSE(DocIdMap_Get(&dt.dim, "foo bar", strlen("foo bar")));
-  ASSERT_FALSE(DocTable_Get(&dt, N + 2));
+  ASSERT_FALSE(DocTable_Borrow(&dt, N + 2));
 
   RSDocumentMetadata *dmd = DocTable_Put(&dt, "Hello", 5, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   t_docId strDocId = dmd->id;
@@ -1402,12 +1408,14 @@ TEST_F(IndexTest, testDocTable) {
   static const char binBuf[] = {"Hello\x00World"};
   const size_t binBufLen = 11;
   ASSERT_FALSE(DocIdMap_Get(&dt.dim, binBuf, binBufLen));
+  DMD_Return(dmd);
   dmd = DocTable_Put(&dt, binBuf, binBufLen, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   ASSERT_TRUE(dmd);
   ASSERT_EQ(148, (int)dt.memsize);
   ASSERT_NE(dmd->id, strDocId);
   ASSERT_EQ(dmd->id, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
   ASSERT_EQ(strDocId, DocIdMap_Get(&dt.dim, "Hello", 5));
+  DMD_Return(dmd);
   DocTable_Free(&dt);
 }
 

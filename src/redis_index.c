@@ -163,51 +163,63 @@ RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, 
                                         (int)len, term);
 }
 
+void RedisSearchCtx_LockSpecRead(RedisSearchCtx *ctx) {
+  RedisModule_Assert(ctx->flags == RS_CTX_UNSET);
+  pthread_rwlock_rdlock(&ctx->spec->rwlock);
+  // pause rehashing while we're using the dict for reads only
+  // Assert that the pause value before we pause is valid.
+  RedisModule_Assert(dictPauseRehashing(ctx->spec->keysDict));
+  ctx->flags = RS_CTX_READONLY;
+}
+
+void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
+  RedisModule_Assert(ctx->flags == RS_CTX_UNSET);
+  pthread_rwlock_wrlock(&ctx->spec->rwlock);
+  ctx->flags = RS_CTX_READWRITE;
+}
+
+// DOES NOT INCREMENT REF COUNT
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
   IndexLoadOptions loadOpts = {.name = {.cstring = indexName}};
-  IndexSpec *sp = IndexSpec_LoadEx(ctx, &loadOpts);
-
+  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &loadOpts);
+  IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return NULL;
   }
 
-  RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
-  *sctx = (RedisSearchCtx){.spec = sp,  // newline
-                           .redisCtx = ctx,
-                           .key_ = loadOpts.keyp,
-                           .refcount = 1,
-                           .timeout = { 0, 0 } };
+  RedisSearchCtx *sctx = rm_new(RedisSearchCtx);
+  *sctx = SEARCH_CTX_STATIC(ctx, sp);
   return sctx;
 }
 
 RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL) {
-
   return NewSearchCtxC(ctx, RedisModule_StringPtrLen(indexName, NULL), resetTTL);
 }
 
-RedisSearchCtx *SearchCtx_Refresh(RedisSearchCtx *sctx, RedisModuleString *keyName) {
-  // First we close the relevant keys we're touching
-  RedisModuleCtx *redisCtx = sctx->redisCtx;
-  SearchCtx_Free(sctx);
-  // now release the global lock
-  RedisModule_ThreadSafeContextUnlock(redisCtx);
-  // try to acquire it again...
-  RedisModule_ThreadSafeContextLock(redisCtx);
-  // reopen the context - it might have gone away!
-  return NewSearchCtx(redisCtx, keyName, true);
+void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
+  assert(sctx);
+  if (sctx->flags == RS_CTX_UNSET) {
+    return;
+  }
+  if (sctx->flags == RS_CTX_READONLY) {
+    // We paused rehashing when we locked the spec for read. Now we can resume it.
+    // Assert that it was actually previously paused
+    RedisModule_Assert(dictResumeRehashing(sctx->spec->keysDict));
+  }
+  pthread_rwlock_unlock(&sctx->spec->rwlock);
+  sctx->flags = RS_CTX_UNSET;
 }
 
-RedisSearchCtx *NewSearchCtxDefault(RedisModuleCtx *ctx) {
-  RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
-  *sctx = (RedisSearchCtx){.redisCtx = ctx};
-  return sctx;
-}
-
-void SearchCtx_Free(RedisSearchCtx *sctx) {
+void SearchCtx_CleanUp(RedisSearchCtx * sctx) {
   if (sctx->key_) {
     RedisModule_CloseKey(sctx->key_);
     sctx->key_ = NULL;
   }
+  RedisSearchCtx_UnlockSpec(sctx);
+}
+
+void SearchCtx_Free(RedisSearchCtx *sctx) {
+  SearchCtx_CleanUp(sctx);
   rm_free(sctx);
 }
 
@@ -422,19 +434,4 @@ int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr) {
   long long res = RedisModule_CallReplyInteger(rep);
   RedisModule_FreeCallReply(rep);
   return res;
-}
-
-int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
-
-  IndexSpec *spec = ctx->spec;
-
-  SchemaPrefixes_RemoveSpec(spec);
-
-  if (deleteDocuments) {
-    DocTable *dt = &spec->docs;
-    DOCTABLE_FOREACH(dt, Redis_DeleteKeyC(ctx->redisCtx, dmd->keyPtr));
-  }
-
-  IndexSpec_FreeInternals(spec);
-  return REDISMODULE_OK;
 }
