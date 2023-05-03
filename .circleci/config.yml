@@ -150,26 +150,31 @@ commands:
           redis_version: <<parameters.redis_version>>
           getredis_params: <<parameters.getredis_params>>
       - run:
+          name: Prepare Conan dependencies
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make conan <<parameters.build_params>> SHOW=1 NPROC=16
+      - run:
           name: Build (Search)
           shell: /bin/bash -l -eo pipefail
           command: |
             if [[ "<<parameters.no_power>>" == "yes" ]]; then
                 export REDISEARCH_POWER_TO_THE_WORKERS=0
             fi
-            make build <<parameters.build_params>> SHOW=1
+            make build <<parameters.build_params>> SHOW=1 NPROC=16
       - run:
           name: Build (Search Lite)
           shell: /bin/bash -l -eo pipefail
           command: |
-            make build LITE=1 <<parameters.build_params>> SHOW=1
+            make build LITE=1 <<parameters.build_params>> SHOW=1 NPROC=16
       - run:
           name: Build (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
-          command: make build COORD=oss <<parameters.build_params>> SHOW=1
+          command: make build COORD=oss <<parameters.build_params>> SHOW=1 NPROC=16
       - run:
           name: Build (RLEC Coordinator)
           shell: /bin/bash -l -eo pipefail
-          command: make build COORD=rlec <<parameters.build_params>> SHOW=1
+          command: make build COORD=rlec <<parameters.build_params>> SHOW=1 NPROC=16
       - when:
           condition: << parameters.run_pack >>
           steps:
@@ -372,6 +377,7 @@ jobs:
   build-linux-debian:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    resource_class: large
     parameters:
       build_params:
         type: string
@@ -443,7 +449,7 @@ jobs:
 
   build-macos-x64:
     macos:
-      xcode: 12.5.1
+      xcode: 13.2.1
     resource_class: macos.x86.medium.gen2
     parameters:
       test_params:
@@ -454,6 +460,9 @@ jobs:
         default: "yes"
     steps:
       - early-returns
+      - run:
+          name: Brew update
+          command: brew update
       - run:
           name: Set up workspace
           command: mkdir -p ~/workspace
@@ -732,17 +741,22 @@ jobs:
       - checkout-all
       - install-prerequisites
       - run:
+          name: Prepare Conan dependencies
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make conan SHOW=1 NPROC=16
+      - run:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
           command: |
-            make coverage QUICK=1 TEST_PARALLEL=16 SHOW=1
+            make coverage QUICK=1 TEST_PARALLEL=16 NPROC=16 SHOW=1
             make upload-cov SHOW=1
           no_output_timeout: 30m
       - save-tests-logs
 
   sanitize:
     docker:
-      - image: redisfab/clang:13-x64-bullseye
+      - image: redisfab/clang:16-x64-bullseye
     resource_class: large
     parameters:
       san-type:
@@ -754,6 +768,11 @@ jobs:
       - early-returns
       - checkout-all
       - install-prerequisites
+      - run:
+          name: Prepare Conan dependencies
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make conan SAN=<<parameters.san-type>> SHOW=1
       - run:
           name: Build & test (Search)
           shell: /bin/bash -l -eo pipefail
@@ -780,9 +799,16 @@ jobs:
       - early-returns
       - checkout-all
       - run:
+          name: Prepare Conan dependencies
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make conan VG=1 SHOW=1 NPROC=16
+      - run:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
-          command: make VG=1 build test SHOW=1
+          command: |
+            make VG=1 build SHOW=1 NPROC=16
+            make VG=1 test SHOW=1
           no_output_timeout: 30m
       - save-tests-logs
 
@@ -971,7 +997,7 @@ workflows:
           context: common
           matrix:
             parameters:
-              platform: [jammy, focal, bionic, xenial, centos7, rocky8, bullseye, amzn2]
+              platform: [jammy, focal, bionic, centos7, rocky8, bullseye, amzn2]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common

@@ -17,6 +17,7 @@ RUN ./deps/readies/bin/getredis -v {{REDIS_VERSION}}
 
 ENV REDISEARCH_POWER_TO_THE_WORKERS=1
 
+RUN make conan SHOW=1
 RUN make build REDISEARCH_POWER_TO_THE_WORKERS=0 SHOW=1
 
 {% if PACK == "1" %}

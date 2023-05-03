@@ -4,19 +4,10 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
 #include "alloc.h"
 
-#include "rmalloc.h"
-
-/* A patched implementation of strdup that will use our patched calloc */
-char *rmalloc_strndup(const char *s, size_t n) {
-  char *ret = rm_calloc(n + 1, sizeof(char));
-  if (ret) memcpy(ret, s, n);
-  return ret;
-}
+#include <string.h>
+#include <stdlib.h>
 
 /*
  * Re-patching RedisModule_Alloc and friends to the original malloc functions
@@ -29,8 +20,8 @@ char *rmalloc_strndup(const char *s, size_t n) {
  * replaces all malloc functions in redis with the RM_Alloc family of functions,
  * when running that code outside of redis, your app will crash. This function
  * patches the RM_Alloc functions back to the original mallocs. */
-void RMUTil_InitAlloc() {
 
+void RMUTil_InitAlloc() {
   RedisModule_Alloc = malloc;
   RedisModule_Realloc = realloc;
   RedisModule_Calloc = calloc;

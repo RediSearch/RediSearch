@@ -111,6 +111,7 @@ macro(MODULE_TARGET TYPE)
 
     target_link_libraries(${_moduleName}
 		redisearch-${MODULE_NAME_SUFFIX}
+		redisearch-geometry
 		VectorSimilarity
 		${LIBUV_LIBS}
 		${HIREDIS_LIBS}
@@ -132,6 +133,7 @@ if (BUILD_COORD_OSS)
 	target_link_libraries(testdeps
 		${LIBUV_LIBS}
 		redisearch-oss
+		redisearch-geometry
 		redismock
 		VectorSimilarity
 		${HIREDIS_LIBS}
