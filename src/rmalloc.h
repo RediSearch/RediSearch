@@ -14,24 +14,27 @@
 
 #ifdef REDIS_MODULE_TARGET /* Set this when compiling your code as a module */
 #define rmalloc_MIN(x, y) (((x) < (y)) ? (x) : (y))
-inline size_t getPointerAllocationSize(void *p) { return *(((size_t *)p) - 1); }
+size_t getPointerAllocationSize(void *p);
 extern size_t allocation_header_size;
 extern uint64_t allocated;
+extern uint64_t alloc_count;
 
 static inline void *rm_malloc(size_t n) {
   size_t *ptr = (size_t *)RedisModule_Alloc(n + allocation_header_size);
   if (ptr) {
       allocated += n + allocation_header_size;
+      alloc_count++;
       *ptr = n;
       return ptr + 1;
   }
   return NULL;
 }
 static inline void *rm_calloc(size_t nelem, size_t elemsz) {
-  size_t *ptr = (size_t *)RedisModule_Calloc(1, (nelem + elemsz) + allocation_header_size);
+  size_t *ptr = (size_t *)RedisModule_Calloc(1, (nelem * elemsz) + allocation_header_size);
   if (ptr) {
-      allocated += (nelem + elemsz) + allocation_header_size;
-      *ptr = (nelem + elemsz);
+      allocated += (nelem * elemsz) + allocation_header_size;
+      alloc_count++;
+      *ptr = (nelem * elemsz);
       return ptr + 1;
   }
   return NULL;
@@ -42,6 +45,7 @@ static inline void rm_free(void *p) {
       return;
   size_t *ptr = ((size_t *)p) - 1;
   allocated -= (ptr[0] + allocation_header_size);
+  alloc_count--;
   RedisModule_Free(ptr);
 }
 
@@ -50,7 +54,7 @@ static inline void *rm_realloc(void *p, size_t n) {
     rm_free(p);
     return NULL;
   }
-  size_t oldSize = getPointerAllocationSize(p);
+  size_t oldSize = p ? getPointerAllocationSize(p) : 0;
   void *new_ptr = rm_malloc(n);
   if (new_ptr) {
       memcpy(new_ptr, p, rmalloc_MIN(oldSize, n));
@@ -58,10 +62,6 @@ static inline void *rm_realloc(void *p, size_t n) {
       return new_ptr;
   }
   return NULL;
-}
-
-static inline char *rm_strdup(const char *s) {
-  return RedisModule_Strdup(s);
 }
 
 static char *rm_strndup(const char *s, size_t n) {
@@ -72,6 +72,10 @@ static char *rm_strndup(const char *s, size_t n) {
     memcpy(ret, s, n);
   }
   return ret;
+}
+
+static inline char *rm_strdup(const char *s) {
+  return rm_strndup(s, strlen(s));
 }
 
 static int rm_vasprintf(char **__restrict __ptr, const char *__restrict __fmt, va_list __arg) {
