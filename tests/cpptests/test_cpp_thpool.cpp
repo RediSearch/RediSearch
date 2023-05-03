@@ -51,7 +51,7 @@ TEST_F(ThpoolTest, AllLowPriority) {
 }
 
 /* The purpose of the test is to check that tasks with the same priority are handled 
- * in FIFO manner. The test adds 10 tasks with low priority and checks that the
+ * in FIFO manner. The test adds 10 tasks with HIGH priority and checks that the
  * tasks are handled in the order they were added.
  */
 TEST_F(ThpoolTest, AllHighPriority) {
