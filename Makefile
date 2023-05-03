@@ -169,7 +169,7 @@ export PACKAGE_NAME
 #----------------------------------------------------------------------------------------------
 
 CC_C_STD=gnu99
-CC_CXX_STD=c++11
+# CC_CXX_STD=c++11
 
 CC_STATIC_LIBSTDCXX ?= 1
 
@@ -245,8 +245,8 @@ S2GEOMETRY_DIR=$(ROOT)/deps/s2geometry
 export S2GEOMETRY_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/s2geometry
 include build/s2geometry/Makefile.defs
 
-ifeq ($(wildcard $(CONAN)),)
-MISSING_DEPS += $(CONAN)
+ifeq ($(wildcard $(CONAN_PRESETS)),)
+MISSING_DEPS += $(CONAN_PRESETS)
 endif
 
 ifeq ($(wildcard $(S2GEOMETRY)),)
@@ -286,6 +286,11 @@ else
 	$(SHOW)$(MAKE) -C $(BINDIR) clean
 endif
 
+clean-conan:
+	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG='' clean
+
+.PHONY: clean-conan
+
 #----------------------------------------------------------------------------------------------
 
 parsers:
@@ -307,11 +312,11 @@ endif
 
 ifeq ($(DEPS),1)
 
-deps: $(CONAN) $(S2GEOMETRY) $(LIBUV) #@@ $(HIREDIS)
+deps: $(CONAN_PRESETS) $(S2GEOMETRY) $(LIBUV) #@@ $(HIREDIS)
 
-conan: $(CONAN)
+conan: $(CONAN_PRESETS)
 
-$(CONAN):
+$(CONAN_PRESETS):
 	@echo Fetching conan libraries...
 	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG=''
 

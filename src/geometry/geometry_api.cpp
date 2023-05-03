@@ -71,6 +71,7 @@ int bg_addGeom(GeometryIndex *index_, GEOMETRY geom_) {
   auto index = reinterpret_cast<RTree*>(index_);
   auto geom = reinterpret_cast<const RTDoc*>(geom_);
   RTree_Insert(index, geom);
+  return 1;
 }
 
 int bg_delGeom(struct GeometryIndex *index, GEOMETRY geom, void *data) {
