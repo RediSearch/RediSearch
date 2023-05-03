@@ -213,6 +213,9 @@ endif
 #----------------------------------------------------------------------------------------------
 
 _CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME)
+ifeq ($(OSNICK),bionic)
+_CMAKE_FLAGS += -DCANON_BOOST
+endif
 
 ifeq ($(OS),macos)
 _CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DBOOST_DIR=$(boost_prefix)
