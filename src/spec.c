@@ -31,6 +31,7 @@
 #include "rdb.h"
 #include "commands.h"
 #include "rmutil/cxx/chrono-clock.h"
+#include "rmalloc.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -2566,6 +2567,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   spec->stats.totalIndexTime += hires_clock_since_usec(&t0);
 
+  RedisModule_Log(ctx, "warning", "Allocator used: %llu, without overhead %llu", allocated, allocated - alloc_count*allocation_header_size);
   return REDISMODULE_OK;
 }
 

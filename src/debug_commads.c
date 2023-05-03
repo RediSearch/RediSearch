@@ -692,7 +692,10 @@ DEBUG_COMMAND(InfoTagIndex) {
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   RedisModule_ReplyWithSimpleString(ctx, "num_values");
   RedisModule_ReplyWithLongLong(ctx, idx->values->cardinality);
-  nelem += 2;
+  RedisModule_ReplyWithSimpleString(ctx, "memory_usage");
+  RedisModule_ReplyWithLongLong(ctx, TrieMap_MemUsage(idx->values));
+  
+  nelem += 4;
 
   if (options.dumpIdEntries) {
     options.countValueEntries = 1;
