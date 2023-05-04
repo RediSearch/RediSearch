@@ -92,14 +92,14 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'dump_tagidx', 'idx1', 't').raiseError()
 
     def testInfoTagIndex(self):
-        self.env.expect('FT.DEBUG', 'info_tagidx', 'idx', 't').equal(['num_values', 1])
-        self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't').equal(['num_values', 1])
-        self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't', 'dump_id_entries').equal(['num_values', 1, 'values', []])
-        self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't', 'count_value_entries').equal(['num_values', 1, 'values', []])
+        self.env.expect('FT.DEBUG', 'info_tagidx', 'idx', 't').equal(['num_values', 1, 'memory_usage', 29])
+        self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't').equal(['num_values', 1, 'memory_usage', 29])
+        self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't', 'dump_id_entries').equal(['num_values', 1, 'memory_usage', 29, 'values', []])
+        self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't', 'count_value_entries').equal(['num_values', 1, 'memory_usage', 29, 'values', []])
         self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't', 'dump_id_entries', 'limit', '1') \
-            .equal(['num_values', 1, 'values', [['value', 'test', 'num_entries', 1, 'num_blocks', 1, 'entries', [1]]]] )
+            .equal(['num_values', 1, 'memory_usage', 29, 'values', [['value', 'test', 'num_entries', 1, 'num_blocks', 1, 'entries', [1]]]] )
         self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't', 'count_value_entries', 'limit', '1') \
-            .equal(['num_values', 1, 'values', [['value', 'test', 'num_entries', 1, 'num_blocks', 1]]])
+            .equal(['num_values', 1, 'memory_usage', 29,'values', [['value', 'test', 'num_entries', 1, 'num_blocks', 1]]])
         self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't', 'count_value_entries', 'limit', 'abc').raiseError()
 
     def testInfoTagIndexWrongArity(self):
