@@ -787,7 +787,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
       VecSimParams hnswParams = fs->vectorOpts.vecSimParams;
 
       fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
-      VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.tieredParams, fs, sp_ref);
+      VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.tieredParams, sp_ref);
       memcpy(fs->vectorOpts.vecSimParams.tieredParams.primaryIndexParams, &hnswParams, sizeof(VecSimParams));
     }
     return 1;
@@ -876,14 +876,7 @@ error:
 
 // Assuming the spec is properly locked before calling this function.
 size_t IndexSpec_VectorIndexSize(const IndexSpec *sp) {
-  size_t size = 0;
-  for (size_t ii = 0; ii < sp->numFields; ++ii) {
-    const FieldSpec *fs = sp->fields + ii;
-    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-      size += fs->vectorOpts.memConsumption;
-    }
-  }
-  return size;
+  return 42069; // TODO: implement
 }
 
 // Assuming the spec is properly locked before calling this function.
@@ -1781,7 +1774,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
       f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
     }
     if (encver >= INDEX_VECSIM_TIERED_VERSION) {
-      if (VecSim_RdbLoad_v3(rdb, f, sp_ref) != REDISMODULE_OK) {
+      if (VecSim_RdbLoad_v3(rdb, &f->vectorOpts.vecSimParams, sp_ref) != REDISMODULE_OK) {
         goto fail;
       }
     } else {
@@ -1800,7 +1793,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
         VecSimParams hnswParams = f->vectorOpts.vecSimParams;
 
         f->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
-        VecSim_TieredParams_Init(&f->vectorOpts.vecSimParams.tieredParams, f, sp_ref);
+        VecSim_TieredParams_Init(&f->vectorOpts.vecSimParams.tieredParams, sp_ref);
         memcpy(f->vectorOpts.vecSimParams.tieredParams.primaryIndexParams, &hnswParams, sizeof(VecSimParams));
       }
     }
@@ -2732,8 +2725,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
           continue;
         }
         VecSimIndex *vecsim = kdv->p;
-        size_t mem_usage = VecSimIndex_DeleteVector(vecsim, id);
-        VecSim_UpdateMemoryStats(&spec->fields[i].vectorOpts.memConsumption, mem_usage);
+        VecSimIndex_DeleteVector(vecsim, id);
       }
     }
   }

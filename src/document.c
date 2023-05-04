@@ -629,8 +629,7 @@ FIELD_BULK_INDEXER(vectorIndexer) {
   }
   char *curr_vec = (char *)fdata->vector;
   for (size_t i = 0; i < fdata->numVec; i++) {
-    size_t mem_usage = VecSimIndex_AddVector(rt, curr_vec, aCtx->doc->docId);
-    VecSim_UpdateMemoryStats(&((FieldSpec*)fs)->vectorOpts.memConsumption, mem_usage);
+    VecSimIndex_AddVector(rt, curr_vec, aCtx->doc->docId);
     curr_vec += fdata->vecLen;
   }
   sp->stats.numRecords += fdata->numVec;

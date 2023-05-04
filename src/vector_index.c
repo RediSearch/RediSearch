@@ -38,19 +38,7 @@ static VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyNa
   // create new vector data structure
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->p = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
-  VecSimIndexInfo indexInfo = VecSimIndex_Info(kdv->p);
-  switch (indexInfo.algo)
-  {
-    case VecSimAlgo_BF:
-      fieldSpec->vectorOpts.memConsumption += indexInfo.bfInfo.memory;
-      break;
-    case VecSimAlgo_HNSWLIB:
-      fieldSpec->vectorOpts.memConsumption += indexInfo.hnswInfo.memory;
-      break;
-    case VecSimAlgo_TIERED:
-      fieldSpec->vectorOpts.memConsumption += 9999; // TODO: add tiered memory consumption
-      break;
-  }
+
   dictAdd(spec->keysDict, keyName, kdv);
   kdv->dtor = (void (*)(void *))VecSimIndex_Free;
   return kdv->p;
@@ -354,9 +342,7 @@ static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams 
   return rv;
 }
 
-int VecSim_RdbLoad_v3(RedisModuleIO *rdb, FieldSpec *fs, StrongRef sp_ref) {
-  VecSimParams *vecsimParams = &fs->vectorOpts.vecSimParams;
-
+int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref) {
   vecsimParams->algo = LoadUnsigned_IOError(rdb, goto fail);
 
   if (vecsimParams->algo == VecSimAlgo_TIERED) {
@@ -372,7 +358,7 @@ int VecSim_RdbLoad_v3(RedisModuleIO *rdb, FieldSpec *fs, StrongRef sp_ref) {
     }
 
     if (RSGlobalConfig.numWorkerThreads > 0 && RSGlobalConfig.threadsEnabled) {
-      VecSim_TieredParams_Init(&vecsimParams->tieredParams, fs, sp_ref);
+      VecSim_TieredParams_Init(&vecsimParams->tieredParams, sp_ref);
       vecsimParams->tieredParams.primaryIndexParams->algo = primary;
 
       // Sets `vecsimParams` to point to the secondary index params, for the rest of the loading
@@ -534,17 +520,9 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
   return vecSimCode;
 }
 
-void VecSim_TieredParams_Init(TieredIndexParams *params, FieldSpec *fs, StrongRef sp_ref) {
+void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref) {
   params->primaryIndexParams = rm_new(VecSimParams);
   params->jobQueue = _workers_thpool;
   params->jobQueueCtx = StrongRef_Demote(sp_ref).rm;
   params->submitCb = (SubmitCB)ThreadPoolAPI_SubmitJobs;
-  params->memoryCtx = &fs->vectorOpts.memConsumption;
-  params->UpdateMemCb = VecSim_UpdateMemoryStats;
-}
-
-int VecSim_UpdateMemoryStats(void *memory_ctx, size_t memory) {
-  size_t *memory_p = (size_t *)memory_ctx;
-  __atomic_store_n(memory_p, memory, __ATOMIC_RELAXED);
-  return 1;
 }

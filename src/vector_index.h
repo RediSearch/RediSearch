@@ -122,10 +122,9 @@ void VecSimParams_Cleanup(VecSimParams *params);
 void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams);
 int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams);
 int VecSim_RdbLoad_v2(RedisModuleIO *rdb, VecSimParams *vecsimParams); // includes multi flag
-int VecSim_RdbLoad_v3(RedisModuleIO *rdb, FieldSpec *fs, StrongRef spec); // includes tiered index
+int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef spec); // includes tiered index
 
-void VecSim_TieredParams_Init(TieredIndexParams *params, FieldSpec *fs, StrongRef sp_ref);
-int VecSim_UpdateMemoryStats(void *memory_ctx, size_t memory);
+void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref);
 
 #ifdef __cplusplus
 extern "C" {

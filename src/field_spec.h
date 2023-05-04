@@ -100,8 +100,6 @@ typedef struct FieldSpec {
       VecSimParams vecSimParams;
       // expected size of vector blob.
       size_t expBlobSize;
-      // vector index memory consumption.
-      size_t memConsumption;
     } vectorOpts;
   };
 
