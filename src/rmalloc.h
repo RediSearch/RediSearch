@@ -94,6 +94,10 @@ static inline void rm_free(void *p) {
   RedisModule_Free(p);
 }
 
+static inline void *rm_realloc(void *p, size_t n) {
+  return RedisModule_Realloc(p, n);
+}
+
 static char *rm_strndup(const char *s, size_t n) {
   char *ret = (char *)rm_malloc(n + 1);
 
