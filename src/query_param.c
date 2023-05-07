@@ -132,9 +132,6 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
   case QT_PARAM_WILDCARD:
     type = PARAM_WILDCARD;
     break;
-  case QT_PARAM_GEOMETRY:
-    type = PARAM_GEOMETRY;
-    break;
   }
   target_param->type = type;
   target_param->target = target_value;
@@ -176,7 +173,6 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
       return 1;    
 
     case PARAM_TERM_CASE:
-    case PARAM_GEOMETRY:
       *(char**)param->target = rm_strdup(val);
       if (param->target_len) *param->target_len = val_len;
       return 1;

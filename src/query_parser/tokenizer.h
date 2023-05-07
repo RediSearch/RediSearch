@@ -43,7 +43,6 @@ typedef enum {
   QT_PARAM_GEO_UNIT,
   QT_PARAM_VEC,
   QT_PARAM_WILDCARD,
-  QT_PARAM_GEOMETRY,
 } QueryTokenType;
 
 /* A token in the process of parsing a query. Unlike the document tokenizer,  it

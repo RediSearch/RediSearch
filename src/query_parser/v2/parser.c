@@ -2008,7 +2008,8 @@ yylhsminor.yy27 = yymsp[0].minor.yy27;
         break;
       case 63: /* geometry_query ::= LSQB TERM ATTRIBUTE RSQB */
 {
-  yymsp[-1].minor.yy0.type = QT_PARAM_GEOMETRY;
+  // Geometry param is actually a case sensitive term
+  yymsp[-1].minor.yy0.type = QT_PARAM_TERM_CASE;
   yymsp[-3].minor.yy27 = NewGeometryNode_FromWkt_WithParams(ctx, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len, &yymsp[-1].minor.yy0);
   if (!yymsp[-3].minor.yy27) {
     reportSyntaxError(ctx->status, &yymsp[-1].minor.yy0, "Syntax error: Expecting a Geometry predicate");
