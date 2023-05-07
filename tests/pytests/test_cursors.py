@@ -2,7 +2,7 @@ from time import sleep, time
 import unittest
 from redis import ResponseError
 from includes import *
-from common import waitForIndex
+from common import waitForIndex, getConnectionByEnv
 
 
 def to_dict(res):
