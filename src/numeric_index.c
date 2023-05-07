@@ -856,7 +856,7 @@ void NumericRangeIterator_OnReopen(void *privdata) {
   IndexIterator *it = nu->it;
   IndexReader *ir = it->ctx;
 
-  RedisModuleString *numField = IndexSpec_GetFormattedKeyByName(sp, nu->fieldName, FLD_VAR_T_NUM);
+  RedisModuleString *numField = IndexSpec_GetFormattedKeyByName(sp, nu->fieldName, INDEXFLD_T_NUMERIC);
   NumericRangeTree *rt = openNumericKeysDict(sp, numField, 0);
   
   if (!rt || rt->revisionId != nu->lastRevId) {
