@@ -858,7 +858,6 @@ error:
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Could not parse schema for field `%s`",
                            fs->name);
   }
-  FieldSpec_Cleanup(fs);
   return 0;
 }
 
@@ -1028,14 +1027,6 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
   return 1;
 
 reset:
-  // If the current field spec exists, but was not added (i.e. we got an error)
-  // and reached this block, then free it
-  if (fs) {
-    // if we have a field spec it means that we increased the number of fields, so we need to
-    // decreas it.
-    --sp->numFields;
-    FieldSpec_Cleanup(fs);
-  }
   for (size_t ii = prevNumFields; ii < sp->numFields; ++ii) {
     FieldSpec_Cleanup(&sp->fields[ii]);
   }

@@ -96,6 +96,8 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
       type = info.bfInfo.type;
       metric = info.bfInfo.metric;
       break;
+    case VecSimAlgo_TIERED: // TODO: implement
+      break;
   }
 
   VecSimQueryParams qParams = {0};
@@ -363,6 +365,8 @@ int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
     primaryParams->algo = LoadUnsigned_IOError(rdb, goto fail);
     RS_LOG_ASSERT(primaryParams->algo == VecSimAlgo_HNSWLIB,
                   "Tiered index only supports HNSW as primary index in this version");
+    vecsimParams->tieredParams.specificParams.tieredHnswParams.swapJobThreshold = LoadUnsigned_IOError(rdb, goto fail);
+
     primaryParams->hnswParams.type = LoadUnsigned_IOError(rdb, goto fail);
     primaryParams->hnswParams.dim = LoadUnsigned_IOError(rdb, goto fail);
     primaryParams->hnswParams.metric = LoadUnsigned_IOError(rdb, goto fail);
