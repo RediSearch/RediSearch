@@ -80,7 +80,7 @@ static inline char *rm_strdup(const char *s) {
   return rm_strndup(s, strlen(s));
 }
 
-#else
+#else /* MEMORY_DEBUG */
 
 static inline void *rm_malloc(size_t n) {
   return RedisModule_Alloc(n);
