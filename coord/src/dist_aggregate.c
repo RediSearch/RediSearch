@@ -309,6 +309,13 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
     }
   }
 
+  // check for timeout argument and append it to the command
+  int timeout_index = RMUtil_ArgIndex("TIMEOUT", argv, argc);
+  if (timeout_index != -1) {
+    MRCommand_AppendRstr(xcmd, argv[timeout_index]);
+    MRCommand_AppendRstr(xcmd, argv[timeout_index + 1]);
+  }
+
   MRCommand_SetPrefix(xcmd, "_FT");
 
   array_free(tmparr);
