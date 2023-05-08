@@ -172,6 +172,7 @@ endif
 
 
 ifeq ($(MEMORY_DEBUG),1)
+$(warning MEMORY_DEBUG is used - do not use in production!)
 CC_FLAGS.common += -DMEMORY_DEBUG
 endif
 #----------------------------------------------------------------------------------------------
