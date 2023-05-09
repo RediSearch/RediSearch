@@ -197,11 +197,12 @@ def testIssue1497(env):
 
 def testDocTableInfo(env):
     conn = getConnectionByEnv(env)
+    nshards = env.shardsCount
     env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE')
 
     d = ft_info_to_dict(env, 'idx')
     env.assertEqual(int(d['num_docs']), 0)
-    env.assertEqual(float(d['doc_table_size_mb']), 0.0152587890625)
+    env.assertEqual(float(d['doc_table_size_mb']), 0.0152587890625 * nshards)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
 
     conn.execute_command('HSET', 'a', 'txt', 'hello')
@@ -238,7 +239,7 @@ def testDocTableInfo(env):
     conn.execute_command('DEL', 'b')
     d = ft_info_to_dict(env, 'idx')
     env.assertEqual(int(d['num_docs']), 0)
-    env.assertEqual(float(d['doc_table_size_mb']), 0.0152587890625)
+    env.assertEqual(float(d['doc_table_size_mb']), 0.0152587890625 * nshards)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
 
 def testInfoIndexingTime(env):
