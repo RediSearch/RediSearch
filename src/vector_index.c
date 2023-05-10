@@ -12,8 +12,7 @@
 #include "util/workers_pool.h"
 #include "util/threadpool_api.h"
 
-static VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName,
-                                             int write) {
+static VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName, int write) {
   KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;
@@ -497,7 +496,9 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
 
 void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref) {
   params->primaryIndexParams = rm_new(VecSimParams);
+#ifdef POWER_TO_THE_WORKERS
   params->jobQueue = _workers_thpool;
+#endif
   params->jobQueueCtx = StrongRef_Demote(sp_ref).rm;
   params->submitCb = (SubmitCB)ThreadPoolAPI_SubmitJobs;
 }

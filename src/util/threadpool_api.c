@@ -5,8 +5,6 @@
  */
 
 #include "threadpool_api.h"
-#include "workers_pool.h"
-#include "VecSim/vec_sim_common.h"
 #include "rmalloc.h"
 
 static void ThreadPoolAPI_Execute(void *ctx) {
