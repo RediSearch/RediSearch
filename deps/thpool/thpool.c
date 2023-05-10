@@ -188,7 +188,7 @@ int redisearch_thpool_add_work(redisearch_thpool_t* thpool_p, void (*function_p)
 }
 
 /* Add n work to the thread pool */
-int redisearch_thpool_add_n_work(redisearch_threadpool thpool_p, redisearch_thpool_work_t* jobs, size_t n_jobs) {
+int redisearch_thpool_add_n_work(redisearch_threadpool thpool_p, redisearch_thpool_work_t* jobs, size_t n_jobs, thpool_priority priority) {
   if (n_jobs == 0) return 0;
   job* first_newjob = (struct job*)rm_malloc(sizeof(struct job));
   if (first_newjob == NULL) goto fail;
@@ -213,7 +213,7 @@ int redisearch_thpool_add_n_work(redisearch_threadpool thpool_p, redisearch_thpo
   }
 
   /* add jobs to queue */
-  jobqueue_push_chain(&thpool_p->jobqueue, first_newjob, last_newjob, n_jobs);
+  priority_queue_push_chain(&thpool_p->jobqueue, first_newjob, last_newjob, n_jobs, priority);
 
   return 0;
 

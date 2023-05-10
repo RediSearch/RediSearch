@@ -25,6 +25,8 @@ static void ThreadPoolAPI_Execute(void *ctx) {
   rm_free(job);
 }
 
+// For now, we assume that all the jobs that are submitted are low priority jobs (not blocking any client).
+// We can add the priority to the `spec_ctx` (and rename it) if needed.
 int ThreadPoolAPI_SubmitJobs(void *pool, void *spec_ctx, void **ext_jobs,
                                                          ThreadPoolAPI_CB *cbs,
                                                          ThreadPoolAPI_CB *free_cbs, size_t n_jobs) {
@@ -42,8 +44,8 @@ int ThreadPoolAPI_SubmitJobs(void *pool, void *spec_ctx, void **ext_jobs,
     jobs[i].function_p = ThreadPoolAPI_Execute;
   }
 
-  if (redisearch_thpool_add_n_work(pool, jobs, n_jobs) == -1) {
-
+  if (redisearch_thpool_add_n_work(pool, jobs, n_jobs, THPOOL_PRIORITY_LOW) == -1) {
+    // Failed to add jobs to the thread pool, free all the jobs
     for (size_t i = 0; i < n_jobs; i++) {
       ThreadPoolAPI_job *job = jobs[i].arg_p;
       WeakRef_Release(job->spec_ref);

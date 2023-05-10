@@ -108,7 +108,7 @@ typedef struct thpool_work_t {
     redisearch_thpool_proc function_p;
     void* arg_p;
 } redisearch_thpool_work_t;
-int redisearch_thpool_add_n_work(redisearch_threadpool, redisearch_thpool_work_t* jobs, size_t n_jobs);
+int redisearch_thpool_add_n_work(redisearch_threadpool, redisearch_thpool_work_t* jobs, size_t n_jobs, thpool_priority priority);
 
 
 /**
