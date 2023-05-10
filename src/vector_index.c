@@ -82,23 +82,9 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
   }
 
   VecSimIndexInfo info = VecSimIndex_Info(vecsim);
-  size_t dim = 0;
-  VecSimType type = (VecSimType)0;
-  VecSimMetric metric = (VecSimMetric)0;
-  switch (info.algo) {
-    case VecSimAlgo_HNSWLIB:
-      dim = info.hnswInfo.dim;
-      type = info.hnswInfo.type;
-      metric = info.hnswInfo.metric;
-      break;
-    case VecSimAlgo_BF:
-      dim = info.bfInfo.dim;
-      type = info.bfInfo.type;
-      metric = info.bfInfo.metric;
-      break;
-    case VecSimAlgo_TIERED: // TODO: implement
-      break;
-  }
+  size_t dim = info.commonInfo.dim;
+  VecSimType type = info.commonInfo.type;
+  VecSimMetric metric = info.commonInfo.metric;
 
   VecSimQueryParams qParams = {0};
   switch (vq->type) {

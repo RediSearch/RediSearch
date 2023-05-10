@@ -862,8 +862,17 @@ error:
 }
 
 // Assuming the spec is properly locked before calling this function.
-size_t IndexSpec_VectorIndexSize(const IndexSpec *sp) {
-  return 42069; // TODO: implement
+size_t IndexSpec_VectorIndexSize(IndexSpec *sp) {
+  size_t total_memory = 0;
+  for (size_t i = 0; i < sp->numFields; ++i) {
+    const FieldSpec *fs = sp->fields + i;
+    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+      RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
+      VecSimIndex *vecsim = OpenVectorIndex(sp, vecsim_name);
+      total_memory += VecSimIndex_Info(vecsim).commonInfo.memory;
+    }
+  }
+  return total_memory;
 }
 
 // Assuming the spec is properly locked before calling this function.
