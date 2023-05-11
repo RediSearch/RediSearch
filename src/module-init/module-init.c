@@ -224,12 +224,13 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
       return REDISMODULE_ERR;
     }
     DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
-  }
-#else
+  } else
+#endif
+  {
     // If we dont have a thread pool,
     // we have to make sure that we tell the vecsim library to add and delete in place (can't use submit at all)
     VecSim_SetWriteMode(VecSim_WriteInPlace);
-#endif
+  }
 
   // Init cursors mechanism
   CursorList_Init(&RSCursors);
