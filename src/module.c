@@ -647,7 +647,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   }
   RedisSearchCtx_LockSpecWrite(&sctx);
   IndexSpec_AddFields(ref, sp, ctx, &ac, initialScan, &status);
-  
+
   // if adding the fields has failed we return without updating statistics.
   if (QueryError_HasError(&status)) {
     RedisSearchCtx_UnlockSpec(&sctx);
@@ -1150,6 +1150,7 @@ void RediSearch_CleanupModule(void) {
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
 #ifdef POWER_TO_THE_WORKERS
+  workersThreadPool_Wait();
   workersThreadPool_Destroy();
 #endif
 

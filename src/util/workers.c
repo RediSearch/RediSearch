@@ -46,9 +46,8 @@ int workersThreadPool_AddWork(redisearch_thpool_proc function_p, void *arg_p) {
 
 // Wait until all jobs have finished
 void workersThreadPool_Wait(void) {
-  assert(_workers_thpool != NULL);
-
-  redisearch_thpool_wait(_workers_thpool);
+  if (_workers_thpool)
+    redisearch_thpool_wait(_workers_thpool);
 }
 
 void workersThreadPool_Destroy(void) {
