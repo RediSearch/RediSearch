@@ -346,7 +346,7 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
 
 //---------------------------------------------------------------------------------------------
 
-int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver) {
+int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, bool is_dup) {
   SchemaRuleArgs args = {0};
   size_t len;
 #define RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK 32
@@ -386,19 +386,22 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver) {
   double score_default = LoadDouble_IOError(rdb, goto cleanup);
   RSLanguage lang_default = LoadUnsigned_IOError(rdb, goto cleanup);
 
-  QueryError status = {0};
-  SchemaRule *rule = SchemaRule_Create(&args, ref, &status);
-  if (!rule) {
-    RedisModule_LogIOError(rdb, "warning", "%s", QueryError_GetError(&status));
-    RedisModule_Assert(rule);
-  }
-  rule->score_default = score_default;
-  rule->lang_default = lang_default;
+  // If we are loading a duplicate index, we don't need to create the new rule
+  if (!is_dup) {
+    QueryError status = {0};
+    SchemaRule *rule = SchemaRule_Create(&args, ref, &status);
+    if (!rule) {
+      RedisModule_LogIOError(rdb, "warning", "%s", QueryError_GetError(&status));
+      RedisModule_Assert(rule);
+    }
+    rule->score_default = score_default;
+    rule->lang_default = lang_default;
 
-  // No need to validate the reference here, since we are loading it from the RDB
-  IndexSpec *sp = StrongRef_Get(ref);
-  sp->rule = rule;
-  SchemaRule_FilterFields(sp);
+    // No need to validate the reference here, since we are loading it from the RDB
+    IndexSpec *sp = StrongRef_Get(ref);
+    sp->rule = rule;
+    SchemaRule_FilterFields(sp);
+  }
 
 cleanup:
   if (args.type) {
