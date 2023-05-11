@@ -495,7 +495,7 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
 }
 
 void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref) {
-  params->primaryIndexParams = rm_new(VecSimParams);
+  params->primaryIndexParams = rm_calloc(1, sizeof(VecSimParams));
 #ifdef POWER_TO_THE_WORKERS
   params->jobQueue = _workers_thpool;
 #endif
