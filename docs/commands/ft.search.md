@@ -481,7 +481,8 @@ To sum up, the `INORDER` argument or `$inorder` query attribute require the quer
 <details open>
 <summary><b>NEW!!! Polygon Search with WITHIN and CONTAINS operators</b></summary>
 
-Search if a polygon contain or within inside a given geometry
+Query for polygons which contain a given geometry or are within a given geometry
+
 First, create an index using `GEOMETRY`type:
 
 {{< highlight bash >}}
