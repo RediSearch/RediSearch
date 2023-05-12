@@ -478,6 +478,51 @@ To sum up, the `INORDER` argument or `$inorder` query attribute require the quer
 
 </details>
 
+<details open>
+<summary><b>NEW!!! Polygon Search with WITHIN and CONTAINS operators</b></summary>
+
+Search if a polygon contain or within inside a given geometry
+First, create an index using `GEOMETRY`type:
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.CREATE idx SCHEMA geom GEOMETRY
+OK
+{{< / highlight >}}
+
+Adding couple geometries using `HSET`:
+
+{{< highlight bash >}}
+127.0.0.1:6379> HSET small geom 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))'
+(integer) 1
+127.0.0.1:6379> HSET large geom 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))'
+(integer) 1
+{{< / highlight >}}
+
+Query with `WITHIN` operator:
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SEARCH idx '@geom:[WITHIN POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]' DIALECT 3
+1) (integer) 1
+2) "small"
+3) 1) "geom"
+   2) "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))"
+{{< / highlight >}}
+
+Query with `CONTAIN` operator:
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SEARCH idx '@geom:[CONTAINS POLYGON((2 2, 2 50, 50 50, 50 2, 2 2))]' DIALECT 3
+1) (integer) 2
+2) "small"
+3) 1) "geom"
+   2) "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))"
+4) "large"
+5) 1) "geom"
+   2) "POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))"
+{{< / highlight >}}
+
+</details>
+
 ## See also
 
 `FT.CREATE` | `FT.AGGREGATE` 
