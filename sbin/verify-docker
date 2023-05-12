@@ -8,7 +8,7 @@ READIES=$ROOT/deps/readies
 
 echo "Verifying $DOCKER:"
 errfile=$(mktemp /tmp/verify-docker.err.XXXXX)
-if DOCKER="$DOCKER" PORT=6401 $READIES/bin/redis-cmd -- ft.config get timeout 2> $errfile | cat | grep TIMEOUT > /dev/null; then
+if DOCKER="$DOCKER" $READIES/bin/redis-cmd -- ft.config get timeout 2> $errfile | grep TIMEOUT > /dev/null; then
 	echo "OK"
 	E=0
 else

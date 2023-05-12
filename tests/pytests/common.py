@@ -256,6 +256,23 @@ def unstable(f):
         return f(env, *args, **kwargs)
     return wrapper
 
+def skip(always=False, cluster=False, macos=False, asan=False, msan=False):
+    def decorate(f):
+        @wraps(f)
+        def wrapper(x, *args, **kwargs):
+            env = x if isinstance(x, rltestEnv) else x.env
+            if always:
+                env.skip()
+            if cluster and env.isCluster():
+                env.skip()
+            if macos and OS == 'macos':
+                env.skip()
+            if asan and SANITIZER == 'address':
+                env.skip()
+            return f(x, *args, **kwargs)
+        return wrapper
+    return decorate
+
 def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
@@ -359,7 +376,6 @@ def compare_lists(env, list1, list2, delta=0.01, _assert=True):
         return False
 
 class ConditionalExpected:
-
     def __init__(self, env, cond):
         self.env = env
         self.cond_val = cond(env)
