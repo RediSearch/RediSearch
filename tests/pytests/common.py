@@ -1,4 +1,5 @@
 
+from includes import *
 try:
     from collections.abc import Iterable
 except ImportError:
@@ -12,13 +13,14 @@ import itertools
 from redis.client import NEVER_DECODE
 import RLTest
 from typing import Any, Callable
+from RLTest import Env
 from RLTest.env import Query
-from includes import *
 import numpy as np
 from scipy import spatial
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
+
 
 class TimeLimit(object):
     """
@@ -260,7 +262,7 @@ def skip(always=False, cluster=False, macos=False, asan=False, msan=False):
     def decorate(f):
         @wraps(f)
         def wrapper(x, *args, **kwargs):
-            env = x if isinstance(x, rltestEnv) else x.env
+            env = x if isinstance(x, Env) else x.env
             if always:
                 env.skip()
             if cluster and env.isCluster():
