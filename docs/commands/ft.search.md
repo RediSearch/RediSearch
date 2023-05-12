@@ -509,7 +509,8 @@ Query with `WITHIN` operator:
    2) "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))"
 {{< / highlight >}}
 
-Query with `CONTAIN` operator:
+Query with `CONTAINS` operator:
+
 
 {{< highlight bash >}}
 127.0.0.1:6379> FT.SEARCH idx '@geom:[CONTAINS POLYGON((2 2, 2 50, 50 50, 50 2, 2 2))]' DIALECT 3
