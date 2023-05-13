@@ -251,7 +251,7 @@ def skip(always=False, cluster=False, macos=False, asan=False, msan=False):
                 env.skip()
             if asan and SANITIZER == 'address':
                 env.skip()
-            if msan SANITIZER == 'memory':
+            if msan and SANITIZER == 'memory':
                 env.skip()
             return f(x, *args, **kwargs)
         return wrapper
