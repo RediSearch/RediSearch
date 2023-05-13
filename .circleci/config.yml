@@ -268,7 +268,6 @@ commands:
           name: Install Docker
           shell: /bin/bash -l -eo pipefail
           command: ./deps/readies/bin/getdocker
-      - setup-automation
       - run:
           name: Install Redis
           shell: /bin/bash -l -eo pipefail
