@@ -290,6 +290,9 @@ include $(MK)/rules
 clean:
 ifeq ($(ALL),1)
 	$(SHOW)rm -rf $(BINROOT)
+else ifeq ($(ALL),all)
+	$(SHOW)rm -rf $(BINROOT)
+	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG='' clean
 else
 	$(SHOW)$(MAKE) -C $(BINDIR) clean
 endif

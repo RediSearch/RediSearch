@@ -221,16 +221,22 @@ commands:
       - checkout-all
       - setup-automation
       - run:
+          name: Install Redis
+          shell: /bin/bash -l -eo pipefail
+          command: ./deps/readies/bin/getredis
+      - run:
           name: Build for platform
           shell: /bin/bash -l -eo pipefail
           command: |
             ROOT="$PWD"
             cd build/docker
             export REDISEARCH_POWER_TO_THE_WORKERS=0
-            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
+            make build verify OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
             cd $ROOT
-            mkdir -p tests/pytests/logs
-            tar -xzf bin/artifacts/tests/tests-pytests-logs*.tgz
+            if [[ -e bin/artifacts/tests/tests-pytests-logs*.tgz ]]; then
+                mkdir -p tests/pytests/logs
+                tar -xzf bin/artifacts/tests/tests-pytests-logs*.tgz
+            fi
           no_output_timeout: 60m
       - save-tests-logs
       - early-return-for-forked-pull-requests
@@ -273,11 +279,12 @@ commands:
             ROOT="$PWD"
             cd build/docker
             export REDISEARCH_POWER_TO_THE_WORKERS=0
-            #@@ make build verify OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
-            make build verify OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=0 OFFICIAL=1 SHOW=1 VERBOSE=1
+            make build verify OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
             cd $ROOT
-            mkdir -p tests/pytests/logs
-            tar -xzf bin/artifacts/tests/tests-pytests-logs*.tgz
+            if [[ -e bin/artifacts/tests/tests-pytests-logs*.tgz ]]; then
+                mkdir -p tests/pytests/logs
+                tar -xzf bin/artifacts/tests/tests-pytests-logs*.tgz
+            fi
           no_output_timeout: 30m
       - save-tests-logs
       - early-return-for-forked-pull-requests
@@ -437,7 +444,7 @@ jobs:
     machine:
       enabled: true
       image: ubuntu-2004:202010-01
-      resource_class: large
+      resource_class: medium
     steps:
       - vm-build-platforms-steps:
           platform: <<parameters.platform>>
@@ -1007,13 +1014,11 @@ workflows:
               #@@ platform: [jammy, focal, bionic, centos7, rocky8, bullseye, amzn2]
               platform: [focal]
       - build-arm-platforms:
-          #@@<<: *on-integ-and-version-tags
-          <<: *always
+          <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
-              #@@ platform: [jammy, focal, bionic]
-              platform: [jammy]
+              platform: [jammy, focal, bionic]
       - build-macos-x64:
           <<: *on-integ-and-version-tags
           context: common
