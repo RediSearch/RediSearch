@@ -236,17 +236,6 @@ def no_msan(f):
         return f(env, *args, **kwargs)
     return wrapper
 
-def no_asan(f):
-    @wraps(f)
-    def wrapper(env, *args, **kwargs):
-        if SANITIZER in ['address', 'addr']:
-            fname = f.__name__
-            env.debugPrint("skipping {} due to address sanitizer".format(fname), force=True)
-            env.skip()
-            return
-        return f(env, *args, **kwargs)
-    return wrapper
-
 def unstable(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
@@ -270,6 +259,8 @@ def skip(always=False, cluster=False, macos=False, asan=False, msan=False):
             if macos and OS == 'macos':
                 env.skip()
             if asan and SANITIZER == 'address':
+                env.skip()
+            if msan SANITIZER == 'memory':
                 env.skip()
             return f(x, *args, **kwargs)
         return wrapper
