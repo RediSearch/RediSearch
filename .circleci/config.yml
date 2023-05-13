@@ -444,7 +444,7 @@ jobs:
     machine:
       enabled: true
       image: ubuntu-2004:202010-01
-      resource_class: medium
+      resource_class: large
     steps:
       - vm-build-platforms-steps:
           platform: <<parameters.platform>>
@@ -1006,13 +1006,11 @@ workflows:
       - build-linux-arm-ubuntu:
           <<: *never
       - build-platforms:
-          #@@<<: *on-integ-and-version-tags
-          <<: *always
+          <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
-              #@@ platform: [jammy, focal, bionic, centos7, rocky8, bullseye, amzn2]
-              platform: [focal]
+              platform: [jammy, focal, bionic, centos7, rocky8, bullseye, amzn2]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common
