@@ -1,5 +1,5 @@
 [requires]
-abseil/20230125.1
+# abseil/20230125.1
 boost/1.81.0
 
 [generators]

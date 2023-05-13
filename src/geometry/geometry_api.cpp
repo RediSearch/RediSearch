@@ -9,7 +9,7 @@
 #include "rmalloc.h"
 
 // TOD: remove
-#include "s2/s2point_index.h"
+// #include "s2/s2point_index.h"
 
 GeometryApi* apis[GEOMETRY_LIB_TYPE__NUM] = {0};
 
