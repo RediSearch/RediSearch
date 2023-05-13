@@ -82,7 +82,7 @@ commands:
     parameters:
       redis_version:
         type: string
-        default: "6"
+        default: "7"
       getredis_params:
         type: string
         default: ""
@@ -130,7 +130,7 @@ commands:
     parameters:
       redis_version:
         type: string
-        default: "6"
+        default: "7"
       getredis_params:
         type: string
         default: ""
@@ -262,6 +262,11 @@ commands:
           name: Install Docker
           shell: /bin/bash -l -eo pipefail
           command: ./deps/readies/bin/getdocker
+      - setup-automation
+      - run:
+          name: Install Redis
+          shell: /bin/bash -l -eo pipefail
+          command: ./deps/readies/bin/getredis
       - run:
           name: Build for platform
           command: |
@@ -388,7 +393,7 @@ jobs:
         default: "QUICK=1"
       redis_version:
         type: string
-        default: "6"
+        default: "7"
       upload:
         type: string
         default: "yes"
@@ -413,7 +418,7 @@ jobs:
     parameters:
       redis_version:
         type: string
-        default: "6"
+        default: "7"
       persist:
         type: string
         default: "no"
