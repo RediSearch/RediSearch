@@ -33,7 +33,7 @@ make build          # compile and link
   STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
 make parsers       # build parsers code
 make clean         # remove build artifacts
-  ALL=1              # remove entire artifacts directory
+  ALL=1|all          # remove entire artifacts directory (all: remove Conan artifacts)
 
 make run           # run redis with RediSearch
   GDB=1              # invoke using gdb
@@ -84,6 +84,7 @@ make docker        # build for specified platform
   TEST=1             # run tests after build
   PACK=1             # create package
   ARTIFACTS=1        # copy artifacts to host
+  VERIFY=1           # verify docker is intact
 
 make box           # create container with volumen mapping into /search
   OSNICK=nick        # platform spec
@@ -195,8 +196,6 @@ endif
 
 CMAKE_FILES= \
 	CMakeLists.txt \
-	build/cmake/redisearch_cflags.cmake \
-	build/cmake/redisearch_debug.cmake \
 	deps/friso/CMakeLists.txt \
 	deps/phonetics/CMakeLists.txt \
 	deps/snowball/CMakeLists.txt \
@@ -248,17 +247,17 @@ MISSING_DEPS:=
 export CONAN_BINDIR:=$(ROOT)/bin/$(shell $(READIES)/bin/platform -t)/conan
 include build/conan/Makefile.defs
 
-S2GEOMETRY_DIR=$(ROOT)/deps/s2geometry
-export S2GEOMETRY_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/s2geometry
-include build/s2geometry/Makefile.defs
+# S2GEOMETRY_DIR=$(ROOT)/deps/s2geometry
+# export S2GEOMETRY_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/s2geometry
+# include build/s2geometry/Makefile.defs
 
 ifeq ($(wildcard $(CONAN_PRESETS)),)
 MISSING_DEPS += $(CONAN_PRESETS)
 endif
 
-ifeq ($(wildcard $(S2GEOMETRY)),)
-MISSING_DEPS += $(S2GEOMETRY)
-endif
+# ifeq ($(wildcard $(S2GEOMETRY)),)
+# MISSING_DEPS += $(S2GEOMETRY)
+# endif
 
 ifeq ($(wildcard $(LIBUV)),)
 MISSING_DEPS += $(LIBUV)
@@ -272,7 +271,7 @@ ifneq ($(MISSING_DEPS),)
 DEPS=1
 endif
 
-DEPENDENCIES=conan s2geometry libuv #@@ hiredis
+DEPENDENCIES=conan libuv #@@  s2geometry hiredis
 
 ifneq ($(filter all deps $(DEPENDENCIES) pack,$(MAKECMDGOALS)),)
 DEPS=1
@@ -289,6 +288,9 @@ include $(MK)/rules
 clean:
 ifeq ($(ALL),1)
 	$(SHOW)rm -rf $(BINROOT)
+else ifeq ($(ALL),all)
+	$(SHOW)rm -rf $(BINROOT)
+	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG='' clean
 else
 	$(SHOW)$(MAKE) -C $(BINDIR) clean
 endif
@@ -319,7 +321,7 @@ endif
 
 ifeq ($(DEPS),1)
 
-deps: $(CONAN_PRESETS) $(S2GEOMETRY) $(LIBUV) #@@ $(HIREDIS)
+deps: $(CONAN_PRESETS) $(LIBUV) #@@ $(HIREDIS) $(S2GEOMETRY)
 
 conan: $(CONAN_PRESETS)
 
@@ -327,11 +329,11 @@ $(CONAN_PRESETS):
 	@echo Fetching conan libraries...
 	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG=''
 
-s2geometry: $(S2GEOMETRY)
-
-$(S2GEOMETRY):
-	@echo Building s2geometry...
-	$(SHOW)$(MAKE) --no-print-directory -C build/s2geometry DEBUG=''
+# s2geometry: $(S2GEOMETRY)
+# 
+# $(S2GEOMETRY):
+# 	@echo Building s2geometry...
+# 	$(SHOW)$(MAKE) --no-print-directory -C build/s2geometry DEBUG=''
 
 libuv: $(LIBUV)
 
@@ -555,9 +557,9 @@ endif
 	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)$(MAKE) build COORD=oss COV=1
 	$(SHOW)$(COVERAGE_RESET)
-	-$(SHOW)$(MAKE) unit-test COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) unit-tests COV=1 $(REJSON_COV_ARG)
 	-$(SHOW)$(MAKE) pytest COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) unit-test COORD=oss COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) unit-tests COORD=oss COV=1 $(REJSON_COV_ARG)
 	-$(SHOW)$(MAKE) pytest COORD=oss COV=1 $(REJSON_COV_ARG)
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
@@ -567,6 +569,9 @@ endif
 
 docker:
 	$(SHOW)$(MAKE) -C build/docker
+ifeq ($(VERIFY),1)
+	$(SHOW)$(MAKE) -C build/docker verify
+endif
 
 # box:
 # ifneq ($(OSNICK),)
