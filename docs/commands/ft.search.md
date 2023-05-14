@@ -483,14 +483,16 @@ To sum up, the `INORDER` argument or `$inorder` query attribute require the quer
 
 Query for polygons which contain a given geometry or are within a given geometry
 
-First, create an index using `GEOMETRY`type:
+First, create an index using `GEOMETRY` type:
+
 
 {{< highlight bash >}}
 127.0.0.1:6379> FT.CREATE idx SCHEMA geom GEOMETRY
 OK
 {{< / highlight >}}
 
-Adding couple geometries using `HSET`:
+Adding a couple of geometries using `HSET`:
+
 
 {{< highlight bash >}}
 127.0.0.1:6379> HSET small geom 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))'
