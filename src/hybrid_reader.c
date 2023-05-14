@@ -231,10 +231,9 @@ static bool reviewHybridSearchPolicy(HybridIterator *hr, size_t n_res_left, size
 }
 
 static void prepareResults(HybridIterator *hr) {
-    if (hr->searchMode == VECSIM_STANDARD_KNN) {
-      hr->list =
-          VecSimIndex_TopKQuery(hr->index, hr->query.vector, hr->query.k, &(hr->runtimeParams), hr->query.order);
-      hr->iter = VecSimQueryResult_List_GetIterator(hr->list);
+  if (hr->searchMode == VECSIM_STANDARD_KNN) {
+    hr->list = VecSimIndex_TopKQuery(hr->index, hr->query.vector, hr->query.k, &(hr->runtimeParams), hr->query.order);
+    hr->iter = VecSimQueryResult_List_GetIterator(hr->list);
     return;
   }
 
