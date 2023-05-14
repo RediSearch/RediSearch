@@ -17,3 +17,6 @@ REJSON_VERSION=master
 DOCKER_VARS += REJSON_VERSION REDISEARCH_POWER_TO_THE_WORKERS
 
 include $(MK)/module.docker.rules
+
+verify:
+	$(SHOW)DOCKER="$(DEFAULT_TAG)" $(ROOT)/sbin/verify-docker

@@ -15,8 +15,8 @@ jobs:
       with:
         submodules: true
     - run: |
-        git submodule update --init --recursive
         git config --global --add safe.directory '*'
+        git submodule update --init --recursive
     - name: Setup
       run: |
         ./sbin/setup
