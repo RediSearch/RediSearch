@@ -238,12 +238,12 @@ def unstable(f):
         return f(env, *args, **kwargs)
     return wrapper
 
-def skip(always=False, cluster=False, macos=False, asan=False, msan=False):
+def skip(cluster=False, macos=False, asan=False, msan=False):
     def decorate(f):
         @wraps(f)
         def wrapper(x, *args, **kwargs):
             env = x if isinstance(x, Env) else x.env
-            if always:
+            if not (cluster or macos or asan or msan):
                 env.skip()
             if cluster and env.isCluster():
                 env.skip()

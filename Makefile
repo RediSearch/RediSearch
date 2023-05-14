@@ -33,7 +33,7 @@ make build          # compile and link
   STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
 make parsers       # build parsers code
 make clean         # remove build artifacts
-  ALL=1              # remove entire artifacts directory
+  ALL=1|all          # remove entire artifacts directory (all: remove Conan artifacts)
 
 make run           # run redis with RediSearch
   GDB=1              # invoke using gdb
