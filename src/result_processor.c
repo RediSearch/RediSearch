@@ -425,7 +425,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
       rp->parent->minScore = h->score;
     }
     // collected `limit` results. No need to continue.
-    if (self->quickExit && self->pq->count + 1 == self->pq->size) {
+    if (self->quickExit && self->pq->count == self->size) {
       rp->Next = rpsortNext_Yield;
       return rpsortNext_Yield(rp, r);
     }
@@ -495,7 +495,8 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
       } else if (v2) {
         return -1;
       } else {
-        break; // following the existing logic. TODO: if both are NULL, should we continue to the next field?
+        // Both have no sort key, so they are equal. Continue to next sort key
+        continue;
       }
     }
 
