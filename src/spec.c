@@ -910,7 +910,6 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
   const size_t prevNumFields = sp->numFields;
   const size_t prevSortLen = sp->sortables->len;
   const IndexFlags prevFlags = sp->flags;
-  FieldSpec *fs = NULL;
 
   while (!AC_IsAtEnd(ac)) {
     if (sp->numFields == SPEC_MAX_FIELDS) {
@@ -941,7 +940,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       goto reset;
     }
 
-    fs = IndexSpec_CreateField(sp, fieldName, fieldPath);
+    FieldSpec *fs = IndexSpec_CreateField(sp, fieldName, fieldPath);
     if (!parseFieldSpec(ac, sp, spec_ref, fs, status)) {
       goto reset;
     }
@@ -1026,7 +1025,6 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
         sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
       }
     }
-    fs = NULL;
   }
 
   // If we successfully modified the schema, we need to update the spec cache
