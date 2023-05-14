@@ -8,13 +8,13 @@
 #include "references.h"
 
 typedef void (*ThreadPoolAPI_CB)(void *);
-typedef struct ThreadPoolAPI_job {
-  WeakRef spec_ref;
-  ThreadPoolAPI_CB cb;
-  ThreadPoolAPI_CB free_cb;
-  void *arg;
-} ThreadPoolAPI_job;
+typedef struct ThreadPoolAPI_AsyncIndexJob {
+  WeakRef spec_ref;             // A reference to the associated spec of the job
+  ThreadPoolAPI_CB cb;          // callback to execute (gets the external job context)
+  ThreadPoolAPI_CB free_cb;     // free callback for the external job context
+  void *arg;                    // The external job context
+} ThreadPoolAPI_AsyncIndexJob;
 
-int ThreadPoolAPI_SubmitJobs(void *pool, void *spec_ctx, void **ext_jobs,
+int ThreadPoolAPI_SubmitIndexJobs(void *pool, void *spec_ctx, void **ext_jobs,
                                                          ThreadPoolAPI_CB *cbs,
                                                          ThreadPoolAPI_CB* free_cbs, size_t n_jobs);

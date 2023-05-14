@@ -336,6 +336,8 @@ def test_create():
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
+    # A value to use as a dummy value for memory fields in the info command (and any other irrelevant fields)
+    # as we don't care about the actual value of these fields in this test
     dummy_val = 'dummy_supplement'
 
     # Test for INT32, INT64 as well when support for these types is added.

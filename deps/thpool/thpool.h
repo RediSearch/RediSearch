@@ -77,7 +77,7 @@ typedef void (*redisearch_thpool_proc)(void*);
 int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc function_p, void* arg_p, thpool_priority priority);
 
 /**
- * @brief Add work to the job queue
+ * @brief Add n jobs to the job queue
  *
  * Takes an action and its argument and adds it to the threadpool's job queue.
  * If you want to add to work a function with more than one arguments then
@@ -93,8 +93,9 @@ int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc fun
  *
  *    int main() {
  *       ..
- *       int a = 10;
- *       thpool_add_work(thpool, (void*)print_num, (void*)a);
+ *       int jobs[] = {{print_num, 10}, {print_num, 20}, {print_num, 30}};
+ *
+ *       thpool_add_n_work(thpool, jobs, 3, THPOOL_PRIORITY_LOW);
  *       ..
  *    }
  *
@@ -102,6 +103,7 @@ int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc fun
  * @param  function_pp   array of pointers to function to add as work
  * @param  arg_pp        array of  pointer to an argument
  * @param  n             number of elements in the array
+ * @param  priority      priority of the jobs
  * @return 0 on successs, -1 otherwise.
  */
 typedef struct thpool_work_t {
