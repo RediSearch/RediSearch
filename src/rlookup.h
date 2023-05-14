@@ -136,9 +136,9 @@ typedef struct {
 #define RLOOKUP_F_OCREAT 0x02  // Create key if it does not exit
 
 /** The original value of this field is available in the index.
- * Schema fields can be declared as SORTABLE UNF, meaning we don't apply any modifications on them 
+ * Schema fields can be declared as SORTABLE UNF, meaning we don't apply any modifications on them
  * before storing them in the sorting vector. The sorting vector holds their original value.
- * If this field was formatted (normalized, or it is NOT UNF), we need to load it from redis keyspace to 
+ * If this field was formatted (normalized, or it is NOT UNF), we need to load it from redis keyspace to
  * get its original value.
  */
 #define RLOOKUP_F_UNFORMATTED 0x04
@@ -177,14 +177,16 @@ typedef struct {
 #define RLOOKUP_F_EXPLICITRETURN 0x200
 
 /**
- * This key's value is already available in the Rlookup table.
+ * This key's value is already available in the RLookup table.
  * For example, if an upstream result processor already loaded the value from redis keyspace,
  * or if this key was generated during building the query's pipeline (by a metric step, for example).
  */
 #define RLOOKUP_F_ISLOADED 0x400
+// For readability, another name for this flag (used for requesting a key for loading)
+#define RLOOKUP_F_LOAD RLOOKUP_F_ISLOADED
 
 /**
- * This key might have an alias and we pass both its name and path if we ask to 
+ * This key might have an alias and we pass both its name and path if we ask to
  * find an existing key.
  */
 #define RLOOKUP_F_ALIAS 0x800
@@ -199,7 +201,7 @@ typedef struct {
  * the flags.
  *
  * if F_OCREAT without F_OEXCL flags are set, a valid key is always returned.
- * 
+ *
  * This function returns NULL if the F_OCREAT is not set and the key doesn't exist in the schema.
  * A key that was generated from the index spec will be marked with F_SCHEMASRC.
 
@@ -212,14 +214,14 @@ RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags);
 /**
  * Get or create a RLookup key for a given path and name. This function always returns a valid key,
  * hence, F_OCREAT and F_OEXCL are redundant here.
- * 
+ *
  * A key that contains a field from the index will be marked with F_SCHEMASRC.
- * 
+ *
  * This function first looks for an existing key with key->path equals to @path.
- * 
+ *
  * If this path is found, and @name doesn't equal @path, a new key is generated with the same
  * attributes as the found key, but with a different name.
- * 
+ *
  */
 RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char *name, int flags);
 /**
