@@ -216,16 +216,21 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   DO_LOG("notice", "Initialized thread pools!");
 
 #ifdef POWER_TO_THE_WORKERS
-  // Init threadpool. 
+  // Init threadpool.
   // Threadpool size can only be set on load, hence it is not dependent on
   // threadsEnabled flag.
-  if(RSGlobalConfig.numWorkerThreads){
+  if(RSGlobalConfig.numWorkerThreads) {
     if(workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
       return REDISMODULE_ERR;
     }
     DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
-  }
+  } else
 #endif
+  {
+    // If we dont have a thread pool,
+    // we have to make sure that we tell the vecsim library to add and delete in place (can't use submit at all)
+    VecSim_SetWriteMode(VecSim_WriteInPlace);
+  }
 
   // Init cursors mechanism
   CursorList_Init(&RSCursors);

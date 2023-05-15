@@ -36,7 +36,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver);
+static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver);
 
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
 
@@ -555,11 +555,13 @@ int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, Query
     valid = parseVectorField_validate_hnsw(params, status);
   } else if (VecSimAlgo_BF == params->algo) {
     valid = parseVectorField_validate_flat(params, status);
+  } else if (VecSimAlgo_TIERED == params->algo) {
+    return VecSimIndex_validate_params(ctx, params->tieredParams.primaryIndexParams, status);
   }
   return valid ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
-static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor *ac, QueryError *status) {
   int rc;
 
   // HNSW mandatory params.
@@ -581,45 +583,45 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
 
   while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
-      if ((rc = parseVectorField_GetType(ac, &fs->vectorOpts.vecSimParams.hnswParams.type)) != AC_OK) {
+      if ((rc = parseVectorField_GetType(ac, &params->hnswParams.type)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index type", rc);
         return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
-      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.hnswParams.dim, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->hnswParams.dim, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index dim", rc);
         return 0;
       }
       mandsize = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
-      if ((rc = parseVectorField_GetMetric(ac, &fs->vectorOpts.vecSimParams.hnswParams.metric)) != AC_OK) {
+      if ((rc = parseVectorField_GetMetric(ac, &params->hnswParams.metric)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index metric", rc);
         return 0;
       }
       mandmetric = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_INITIAL_CAP)) {
-      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.hnswParams.initialCapacity, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->hnswParams.initialCapacity, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index initial cap", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_M)) {
-      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.hnswParams.M, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->hnswParams.M, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index m", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EFCONSTRUCTION)) {
-      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.hnswParams.efConstruction, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->hnswParams.efConstruction, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index efConstruction", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EFRUNTIME)) {
-      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.hnswParams.efRuntime, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->hnswParams.efRuntime, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index efRuntime", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EPSILON)) {
-      if ((rc = AC_GetDouble(ac, &fs->vectorOpts.vecSimParams.hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
+      if ((rc = AC_GetDouble(ac, &params->hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index epsilon", rc);
         return 0;
       }
@@ -646,12 +648,12 @@ static int parseVectorField_hnsw(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
     return 0;
   }
   // Calculating expected blob size of a vector in bytes.
-  fs->vectorOpts.expBlobSize = fs->vectorOpts.vecSimParams.hnswParams.dim * VecSimType_sizeof(fs->vectorOpts.vecSimParams.hnswParams.type);
+  fs->vectorOpts.expBlobSize = params->hnswParams.dim * VecSimType_sizeof(params->hnswParams.type);
 
-  return parseVectorField_validate_hnsw(&fs->vectorOpts.vecSimParams, status);
+  return parseVectorField_validate_hnsw(params, status);
 }
 
-static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor *ac, QueryError *status) {
   int rc;
 
   // BF mandatory params.
@@ -673,30 +675,30 @@ static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
 
   while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
-      if ((rc = parseVectorField_GetType(ac, &fs->vectorOpts.vecSimParams.bfParams.type)) != AC_OK) {
+      if ((rc = parseVectorField_GetType(ac, &params->bfParams.type)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index type", rc);
         return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
-      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.bfParams.dim, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->bfParams.dim, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index dim", rc);
         return 0;
       }
       mandsize = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
-      if ((rc = parseVectorField_GetMetric(ac, &fs->vectorOpts.vecSimParams.bfParams.metric)) != AC_OK) {
+      if ((rc = parseVectorField_GetMetric(ac, &params->bfParams.metric)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index metric", rc);
         return 0;
       }
       mandmetric = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_INITIAL_CAP)) {
-      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.bfParams.initialCapacity, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->bfParams.initialCapacity, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index initial cap", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_BLOCKSIZE)) {
-      if ((rc = AC_GetSize(ac, &fs->vectorOpts.vecSimParams.bfParams.blockSize, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->bfParams.blockSize, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index blocksize", rc);
         return 0;
       }
@@ -723,12 +725,12 @@ static int parseVectorField_flat(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
     return 0;
   }
   // Calculating expected blob size of a vector in bytes.
-  fs->vectorOpts.expBlobSize = fs->vectorOpts.vecSimParams.bfParams.dim * VecSimType_sizeof(fs->vectorOpts.vecSimParams.bfParams.type);
+  fs->vectorOpts.expBlobSize = params->bfParams.dim * VecSimType_sizeof(params->bfParams.type);
 
   return parseVectorField_validate_flat(&fs->vectorOpts.vecSimParams, status);
 }
 
-static int parseVectorField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   // this is a vector field
   // init default type, size, distance metric and algorithm
 
@@ -762,16 +764,21 @@ static int parseVectorField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryE
     fs->vectorOpts.vecSimParams.bfParams.initialCapacity = SIZE_MAX;
     fs->vectorOpts.vecSimParams.bfParams.blockSize = 0;
     fs->vectorOpts.vecSimParams.bfParams.multi = multi;
-    return parseVectorField_flat(fs, ac, status);
+    return parseVectorField_flat(fs, &fs->vectorOpts.vecSimParams, ac, status);
   } else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) {
-    fs->vectorOpts.vecSimParams.algo = VecSimAlgo_HNSWLIB;
-    fs->vectorOpts.vecSimParams.hnswParams.initialCapacity = SIZE_MAX;
-    fs->vectorOpts.vecSimParams.hnswParams.blockSize = 0;
-    fs->vectorOpts.vecSimParams.hnswParams.M = HNSW_DEFAULT_M;
-    fs->vectorOpts.vecSimParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
-    fs->vectorOpts.vecSimParams.hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
-    fs->vectorOpts.vecSimParams.hnswParams.multi = multi;
-    return parseVectorField_hnsw(fs, ac, status);
+    fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
+    VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.tieredParams, sp_ref);
+    fs->vectorOpts.vecSimParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = 0; // Will be set to default value.
+
+    VecSimParams *params = fs->vectorOpts.vecSimParams.tieredParams.primaryIndexParams;
+    params->algo = VecSimAlgo_HNSWLIB;
+    params->hnswParams.initialCapacity = SIZE_MAX;
+    params->hnswParams.blockSize = 0;
+    params->hnswParams.M = HNSW_DEFAULT_M;
+    params->hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
+    params->hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
+    params->hnswParams.multi = multi;
+    return parseVectorField_hnsw(fs, params, ac, status);
   } else {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", AC_ERR_ENOENT);
     return 0;
@@ -780,7 +787,7 @@ static int parseVectorField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryE
 
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
-static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, FieldSpec *fs, QueryError *status) {
+static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Field `%s` does not have a type", fs->name);
     return 0;
@@ -798,7 +805,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, FieldSpec *fs, QueryErr
   } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field
     sp->flags |= Index_HasVecSim;
     fs->types |= INDEXFLD_T_VECTOR;
-    if (!parseVectorField(sp, fs, ac, status)) {
+    if (!parseVectorField(sp, sp_ref, fs, ac, status)) {
       goto error;
     }
     return 1;
@@ -851,8 +858,21 @@ error:
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Could not parse schema for field `%s`",
                            fs->name);
   }
-  FieldSpec_Cleanup(fs);
   return 0;
+}
+
+// Assuming the spec is properly locked before calling this function.
+size_t IndexSpec_VectorIndexSize(IndexSpec *sp) {
+  size_t total_memory = 0;
+  for (size_t i = 0; i < sp->numFields; ++i) {
+    const FieldSpec *fs = sp->fields + i;
+    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+      RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
+      VecSimIndex *vecsim = OpenVectorIndex(sp, vecsim_name);
+      total_memory += VecSimIndex_Info(vecsim).commonInfo.memory;
+    }
+  }
+  return total_memory;
 }
 
 // Assuming the spec is properly locked before calling this function.
@@ -880,8 +900,8 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
 /**
  * Add fields to an existing (or newly created) index. If the addition fails,
  */
-static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError *status,
-                                       int isNew) {
+static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCursor *ac,
+                                       QueryError *status, int isNew) {
   if (ac->offset == ac->argc) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Fields arguments are missing");
     return 0;
@@ -890,7 +910,6 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
   const size_t prevNumFields = sp->numFields;
   const size_t prevSortLen = sp->sortables->len;
   const IndexFlags prevFlags = sp->flags;
-  FieldSpec *fs = NULL;
 
   while (!AC_IsAtEnd(ac)) {
     if (sp->numFields == SPEC_MAX_FIELDS) {
@@ -921,8 +940,8 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
       goto reset;
     }
 
-    fs = IndexSpec_CreateField(sp, fieldName, fieldPath);
-    if (!parseFieldSpec(ac, sp, fs, status)) {
+    FieldSpec *fs = IndexSpec_CreateField(sp, fieldName, fieldPath);
+    if (!parseFieldSpec(ac, sp, spec_ref, fs, status)) {
       goto reset;
     }
 
@@ -1006,7 +1025,6 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
         sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
       }
     }
-    fs = NULL;
   }
 
   // If we successfully modified the schema, we need to update the spec cache
@@ -1016,14 +1034,6 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
   return 1;
 
 reset:
-  // If the current field spec exists, but was not added (i.e. we got an error)
-  // and reached this block, then free it
-  if (fs) {
-    // if we have a field spec it means that we increased the number of fields, so we need to
-    // decreas it.
-    --sp->numFields;
-    FieldSpec_Cleanup(fs);
-  }
   for (size_t ii = prevNumFields; ii < sp->numFields; ++ii) {
     FieldSpec_Cleanup(&sp->fields[ii]);
   }
@@ -1039,7 +1049,7 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
                         QueryError *status) {
   setMemoryInfo(ctx);
 
-  int rc = IndexSpec_AddFieldsInternal(sp, ac, status, 0);
+  int rc = IndexSpec_AddFieldsInternal(sp, spec_ref, ac, status, 0);
   if (rc && initialScan) {
     IndexSpec_ScanAndReindex(ctx, spec_ref);
   }
@@ -1130,7 +1140,7 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
     goto failure;
   }
 
-  if (!IndexSpec_AddFieldsInternal(spec, &ac, status, 1)) {
+  if (!IndexSpec_AddFieldsInternal(spec, spec_ref, &ac, status, 1)) {
     goto failure;
   }
 
@@ -1282,10 +1292,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Free fields data
   if (spec->fields != NULL) {
     for (size_t i = 0; i < spec->numFields; i++) {
-      if (spec->fields[i].name != spec->fields[i].path) {
-        rm_free(spec->fields[i].name);
-      }
-      rm_free(spec->fields[i].path);
+      FieldSpec_Cleanup(&spec->fields[i]);
     }
     rm_free(spec->fields);
   }
@@ -1708,7 +1715,7 @@ static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_F
                                          [IDXFLD_LEGACY_TAG] = INDEXFLD_T_TAG};
                                          // CHECKED: Not related to new data types - legacy code
 
-static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
+static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver) {
 
   // Fall back to legacy encoding if needed
   if (encver < INDEX_MIN_TAGFIELD_VERSION) {
@@ -1752,26 +1759,41 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
     if (encver >= INDEX_VECSIM_2_VERSION) {
       f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
     }
-    if (encver >= INDEX_VECSIM_MULTI_VERSION) {
-      if (VecSim_RdbLoad_v2(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
+    if (encver >= INDEX_VECSIM_TIERED_VERSION) {
+      if (VecSim_RdbLoad_v3(rdb, &f->vectorOpts.vecSimParams, sp_ref) != REDISMODULE_OK) {
         goto fail;
       }
     } else {
-      if (VecSim_RdbLoad(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
-        goto fail;
+      if (encver >= INDEX_VECSIM_MULTI_VERSION) {
+        if (VecSim_RdbLoad_v2(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
+          goto fail;
+        }
+      } else {
+        if (VecSim_RdbLoad(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
+          goto fail;
+        }
+      }
+      // If we're loading an old (< 2.8) rdb, we need to convert an HNSW index to a tiered index
+      if (f->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
+        VecSimParams hnswParams = f->vectorOpts.vecSimParams;
+
+        f->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
+        VecSim_TieredParams_Init(&f->vectorOpts.vecSimParams.tieredParams, sp_ref);
+        f->vectorOpts.vecSimParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = 0;
+        memcpy(f->vectorOpts.vecSimParams.tieredParams.primaryIndexParams, &hnswParams, sizeof(VecSimParams));
       }
     }
     // Calculate blob size limitation on lower encvers.
     if(encver < INDEX_VECSIM_2_VERSION) {
-      switch (f->vectorOpts.vecSimParams.algo)
-      {
+      switch (f->vectorOpts.vecSimParams.algo) {
       case VecSimAlgo_HNSWLIB:
         f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.hnswParams.type);
         break;
       case VecSimAlgo_BF:
         f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.bfParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.bfParams.type);
         break;
-      default:
+      case VecSimAlgo_TIERED:
+        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.tieredParams.primaryIndexParams->hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.tieredParams.primaryIndexParams->hnswParams.type);
         break;
       }
     }
@@ -2101,7 +2123,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_in_mb");
   RedisModule_InfoAddFieldDouble(ctx, "inverted_size", sp->stats.invertedSize / (float)0x100000);
-  RedisModule_InfoAddFieldDouble(ctx, "vector_index_size", sp->stats.vectorIndexSize / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "vector_index_size", IndexSpec_VectorIndexSize(sp) / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_size", sp->stats.offsetVecsSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", sp->docs.memsize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size", sp->docs.sortablesSize / (float)0x100000);
@@ -2245,7 +2267,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
-    if (FieldSpec_RdbLoad(rdb, sp->fields + i, encver) != REDISMODULE_OK) {
+    if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver) != REDISMODULE_OK) {
       QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Failed to load index field");
       goto cleanup;
     }
@@ -2369,7 +2391,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
-    FieldSpec_RdbLoad(rdb, sp->fields + i, encver);
+    FieldSpec_RdbLoad(rdb, fs, spec_ref, encver);
     sp->fields[i].index = i;
     if (FieldSpec_IsSortable(fs)) {
       RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
@@ -2689,7 +2711,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
           continue;
         }
         VecSimIndex *vecsim = kdv->p;
-        spec->stats.vectorIndexSize += VecSimIndex_DeleteVector(vecsim, id);
+        VecSimIndex_DeleteVector(vecsim, id);
       }
     }
   }

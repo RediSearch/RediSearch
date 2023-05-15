@@ -159,7 +159,7 @@ typedef enum {
   // The result processor might break the pipeline by changing RPStatus.
   // Note that this kind of rp is also responsible to release the spec lock when it breaks the pipeline
   // (declaring EOF or TIMEOUT), by calling UnlockSpec_and_ReturnRPResult.
-  RESULT_PROCESSOR_F_BREAKS_PIPELINE = 0x02 
+  RESULT_PROCESSOR_F_BREAKS_PIPELINE = 0x02
 } BaseRPFlags;
 
 /**
@@ -225,7 +225,7 @@ void SortAscMap_Dump(uint64_t v, size_t n);
 
 /**
  * Creates a sorter result processor.
- * @param keys is an array of RLookupkeys to sort by them, 
+ * @param keys is an array of RLookupkeys to sort by them,
  * @param nkeys is the number of keys.
  * keys will be freed by the arrange step dtor.
  * @param loadKeys is an array of RLookupkeys that their value needs to be loaded from Redis keyspace.
@@ -264,10 +264,10 @@ void RP_DumpChain(const ResultProcessor *rp);
  * Redis keyspace is required.
  *
  * The buffer is responsible for buffering the document that pass the query filters and lock the access
- * to Redis keysapce to allow the downstream result processor a thread safe access to it.
+ * to Redis key-space to allow the downstream result processor a thread safe access to it.
  *
  * Unlocking Redis should be done only by the Unlocker result processor that should be added as well.
- * 
+ *
  * @param BlockSize is the number of results in each buffer block.
  * @param spec_version is the version of the spec during pipeline construction. This version will be compared
  * to the spec version after we unlock the spec, to decide if results' validation is needed.
@@ -283,7 +283,7 @@ ResultProcessor *RPBufferAndLocker_New(size_t BlockSize, size_t spec_version);
  *
  * @param rpBufferAndLocker is a pointer to the buffer and locker result processor
  * that locked the GIL to be released.
- * 
+ *
  * It is responsible for unlocking Redis keyspace lock.
  *
  *******************************************************************************************************************/

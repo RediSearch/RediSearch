@@ -48,7 +48,7 @@ def testInfoModulesBasic(env):
   env.assertEqual(fieldsInfo['search_fields_tag'], 'Tag=2,Sortable=1,CaseSensitive=1')
   env.assertEqual(fieldsInfo['search_fields_numeric'], 'Numeric=2,NoIndex=1')
   env.assertEqual(fieldsInfo['search_fields_geo'], 'Geo=1')
-  env.assertEqual(fieldsInfo['search_fields_vector'], 'Vector=2,Flat=1,HSNW=1')
+  env.assertEqual(fieldsInfo['search_fields_vector'], 'Vector=2,Flat=1,HNSW=1')
 
   configInfo = info['search_runtime_configurations']
   env.assertEqual(configInfo['search_minimal_term_prefix'], '2')
