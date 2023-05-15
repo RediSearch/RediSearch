@@ -154,6 +154,13 @@ typedef struct {
 #define RLOOKUP_F_SCHEMASRC 0x20
 
 /**
+ * This field is NOT part of the index schema, but created by a loader
+ * (we will look for it in the document)
+ */
+// TODO: re-value
+#define RLOOKUP_F_DOCSRC 0x69
+
+/**
  * This field is hidden within the document and is only used as a transient
  * field for another consumer. Don't output this field.
  */
@@ -182,8 +189,6 @@ typedef struct {
  * or if this key was generated during building the query's pipeline (by a metric step, for example).
  */
 #define RLOOKUP_F_ISLOADED 0x400
-// For readability, another name for this flag (used for requesting a key for loading)
-#define RLOOKUP_F_LOAD RLOOKUP_F_ISLOADED
 
 /**
  * This key might have an alias and we pass both its name and path if we ask to
@@ -195,6 +200,11 @@ typedef struct {
  * These flags do not persist to the key, they are just options to GetKey()
  */
 #define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT)
+
+#define RLOOKUP_F_READ 0x01   // Get key for reading (create oly if in schema and sortable)
+#define RLOOKUP_F_WRITE 0x02  // Get key for writing
+#define RLOOKUP_F_LOAD 0x04   // Load key from document (include known information on the key, fail if already loaded)
+#define RLOOKUP_F_EXCL 0x08   // Verify that the key is not already existing nor in the schema (exclusive)
 
 /**
  * Get a RLookup key for a given name. The behavior of this function depends on
