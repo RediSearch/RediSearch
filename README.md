@@ -158,6 +158,10 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [redisearch-api-rs-author]: https://redis.com
 [redisearch-api-rs-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-api-rs.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
+[redi_search-jl-url]: https://github.com/jacksoncalvert/RediSearch.jl
+[redi_search-jl-author]: https://github.com/jacksoncalvertm
+[redi_search-jl-stars]: https://img.shields.io/github/stars/jacksoncalvert/RediSearch.jl.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
 ## RediSearch features
 
 * Full-Text indexing of multiple fields in Redis hashes
