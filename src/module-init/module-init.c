@@ -217,13 +217,20 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
 #ifdef POWER_TO_THE_WORKERS
   // Init threadpool.
-  // Threadpool size can only be set on load, hence it is not dependent on
-  // threadsEnabled flag.
+  // Threadpool size can only be set on load.
+
   if(RSGlobalConfig.numWorkerThreads) {
-    if(workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
+    if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
       return REDISMODULE_ERR;
     }
-    workersThreadPool_InitPool(RSGlobalConfig.numWorkerThreads);
+    if (RSGlobalConfig.alwaysUseThreads) {
+      // Initialize the threads if the module configuration states that worker threads
+      // should always be active.
+      workersThreadPool_InitPool(RSGlobalConfig.numWorkerThreads);
+    } else {
+      // Otherwise, threads are not active, and we're performing inplace writes.
+      VecSim_SetWriteMode(VecSim_WriteInPlace);
+    }
     DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
   } else
 #endif

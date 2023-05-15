@@ -74,8 +74,8 @@ typedef enum {
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
 
 // These macro should be used only by the main thread since configuration can be changed while running in 
-// backgroud.
-#define RunInThread(r) (RSGlobalConfig.threadsEnabled && RSGlobalConfig.numWorkerThreads && IsSearch(r))
+// background.
+#define RunInThread(r) (RSGlobalConfig.alwaysUseThreads && RSGlobalConfig.numWorkerThreads && IsSearch(r))
 
 typedef enum {
   /* Received EOF from iterator */

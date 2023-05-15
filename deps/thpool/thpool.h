@@ -16,6 +16,7 @@ extern "C" {
 
 
 typedef struct redisearch_thpool_t* redisearch_threadpool;
+typedef struct timespec timespec;
 
 typedef enum {
     THPOOL_PRIORITY_HIGH,
@@ -153,7 +154,7 @@ void redisearch_thpool_lock_thcount(redisearch_threadpool);
 
 void redisearch_thpool_unlock_thcount(redisearch_threadpool);
 
-void redisearch_thpool_threads_idle_timed_wait(redisearch_threadpool, struct timespec *);
+void redisearch_thpool_threads_idle_timed_wait(redisearch_threadpool, timespec *timespec);
 
 /**
  * @brief Pauses all threads immediately

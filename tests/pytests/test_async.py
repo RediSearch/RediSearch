@@ -74,7 +74,7 @@ def test_mod4745(env):
 def test_eval_node_errors_async(env):
     if not POWER_TO_THE_WORKERS:
         env.skip()
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKER_THREADS 1 ENABLE_THREADS TRUE ON_TIMEOUT FAIL')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
     dim = 1000
 

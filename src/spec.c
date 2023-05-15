@@ -2595,7 +2595,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     }
     RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
 #ifdef POWER_TO_THE_WORKERS
-    if(RSGlobalConfig.numWorkerThreads && !RSGlobalConfig.threadsEnabled) {
+    if(RSGlobalConfig.numWorkerThreads && !RSGlobalConfig.alwaysUseThreads) {
       // Initialize the thread pool temporarily for fast RDB loading of vector index (if needed).
       workersThreadPool_InitPool(RSGlobalConfig.numWorkerThreads);
       RedisModule_Log(RSDummyContext, "notice", "Created workers threadpool of size %lu for loading", RSGlobalConfig.numWorkerThreads);
@@ -2618,7 +2618,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
                       "Skip background reindex scan, redis version contains loaded event.");
     }
 #ifdef POWER_TO_THE_WORKERS
-    if (RSGlobalConfig.numWorkerThreads && !RSGlobalConfig.threadsEnabled) {
+    if (RSGlobalConfig.numWorkerThreads && !RSGlobalConfig.alwaysUseThreads) {
       // Terminate the temporary thread pool (without deallocating it). Before that, we wait until
       // all the threads are finished the jobs currently in the queue. Note that we call RM_Yield
       // periodically while we wait, so we won't block redis for too long (for answering PING etc.)

@@ -245,10 +245,10 @@ CONFIG_GETTER(getWorkThreads) {
   return sdscatprintf(ss, "%lu", config->numWorkerThreads);
 }
 
-// ENABLE_THREADS
-CONFIG_BOOLEAN_SETTER(setThreadsEnabled, threadsEnabled)
+// ALWAYS_USE_THREADS
+CONFIG_BOOLEAN_SETTER(setThreadsEnabled, alwaysUseThreads)
 
-CONFIG_BOOLEAN_GETTER(getThreadsEnabled, threadsEnabled, 0)
+CONFIG_BOOLEAN_GETTER(getThreadsEnabled, alwaysUseThreads, 0)
 
 #endif // POWER_TO_THE_WORKERS
 
@@ -672,11 +672,12 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getWorkThreads,
          .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
-        {.name = "ENABLE_THREADS",
-         .helpText = "Enables or disables multi-threaded search and indexing",
+        {.name = "ALWAYS_USE_THREADS",
+         .helpText = "Enables or multi-threaded search and indexing as default if set to TRUE, use"
+                        "workers thread pool for operational needs only otherwise",
          .setValue = setThreadsEnabled,
          .getValue = getThreadsEnabled,
-         .flags = RSCONFIGVAR_F_FLAG,
+         .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
 #endif
         {.name = "FRISOINI",

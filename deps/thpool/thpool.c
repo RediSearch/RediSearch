@@ -252,7 +252,7 @@ void redisearch_thpool_unlock_thcount(redisearch_thpool_t* thpool_p) {
 }
 
 void redisearch_thpool_threads_idle_timed_wait(redisearch_thpool_t* thpool_p,
-                                               struct timespec *time_to_wait) {
+                                               timespec *time_to_wait) {
   pthread_cond_timedwait(&thpool_p->threads_all_idle, &thpool_p->thcount_lock, time_to_wait);
 }
 

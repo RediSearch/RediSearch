@@ -10,7 +10,7 @@ from RLTest import Env
 def testEmptyBuffer(env):
     if not POWER_TO_THE_WORKERS:
         env.skip()
-    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
+    env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
     env.expect('ft.search', 'idx', '*', 'sortby', 'n').equal([0])
@@ -18,7 +18,7 @@ def testEmptyBuffer(env):
 def CreateAndSearchSortBy(env, docs_count):
     if not POWER_TO_THE_WORKERS:
         env.skip()
-    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
+    env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     conn = getConnectionByEnv(env)
 
@@ -86,7 +86,7 @@ def get_pipeline(profile_res):
 def test_pipeline(env):
     if not POWER_TO_THE_WORKERS:
         env.skip()
-    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
+    env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
     env.skipOnCluster()
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     
