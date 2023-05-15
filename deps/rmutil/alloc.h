@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef __RMUTIL_ALLOC__
 #define __RMUTIL_ALLOC__
 
@@ -16,36 +22,19 @@
  *
  */
 
-#include <stdlib.h>
-#include <redismodule.h>
-
-char *rmalloc_strndup(const char *s, size_t n);
-
 #ifdef REDIS_MODULE_TARGET /* Set this when compiling your code as a module */
 
-#define malloc(size) RedisModule_Alloc(size)
-#define calloc(count, size) RedisModule_Calloc(count, size)
-#define realloc(ptr, size) RedisModule_Realloc(ptr, size)
-#define free(ptr) RedisModule_Free(ptr)
-
-#ifdef strdup
-#undef strdup
-#endif
-#define strdup(ptr) RedisModule_Strdup(ptr)
-
-/* More overriding */
-// needed to avoid calling strndup->malloc
-#ifdef strndup
-#undef strndup
-#endif
-#define strndup(s, n) rmalloc_strndup(s, n)
+#include "redismodule.h"
+#include "rmalloc.h"
 
 #else
 
-#endif /* REDIS_MODULE_TARGET */
-/* This function shold be called if you are working with malloc-patched code
- * ouside of redis, usually for unit tests. Call it once when entering your unit
- * tests' main() */
+#endif // REDIS_MODULE_TARGET
+
+// This function shold be called if you are working with malloc-patched code
+// ouside of redis, usually for unit tests.
+// Call it once when entering your unit tests' main().
+
 void RMUTil_InitAlloc();
 
-#endif /* __RMUTIL_ALLOC__ */
+#endif // __RMUTIL_ALLOC__

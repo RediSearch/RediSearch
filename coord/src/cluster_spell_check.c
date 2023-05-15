@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #include "cluster_spell_check.h"
 #include "redismodule.h"
@@ -20,14 +26,14 @@ typedef struct {
 
 static spellCheckReducerTerm* spellCheckReducerTerm_Create(const char* termStr) {
   spellCheckReducerTerm* ret = rm_malloc(sizeof(spellCheckReducerTerm));
-  ret->term = strdup(termStr);
+  ret->term = rm_strdup(termStr);
   ret->suggestions = RS_SuggestionsCreate();
   ret->foundInIndex = false;
   return ret;
 }
 
 static void spellCheckReducerTerm_Free(spellCheckReducerTerm* t) {
-  free(t->term);
+  rm_free(t->term);
   RS_SuggestionsFree(t->suggestions);
   rm_free(t);
 }

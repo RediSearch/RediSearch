@@ -1,37 +1,32 @@
 
 ---
-syntax: 
+syntax: |
+  FT.AGGREGATE index query 
+    [VERBATIM] 
+    [ LOAD count field [field ...]] 
+    [TIMEOUT timeout] 
+    [LOAD *] 
+    [ GROUPBY nargs property [property ...] [ REDUCE function nargs arg [arg ...] [AS name] [ REDUCE function nargs arg [arg ...] [AS name] ...]] 
+    [ GROUPBY nargs property [property ...] [ REDUCE function nargs arg [arg ...] [AS name] [ REDUCE function nargs arg [arg ...] [AS name] ...]] ...]] 
+    [ SORTBY nargs [ property ASC | DESC [ property ASC | DESC ...]] [MAX num]] 
+    [ APPLY expression AS name [ APPLY expression AS name ...]] 
+    [ LIMIT offset num] 
+    [FILTER filter] 
+    [ WITHCURSOR [COUNT read_size] [MAXIDLE idle_time]] 
+    [ PARAMS nargs name value [ name value ...]] 
+    [DIALECT dialect]
 ---
 
 Run a search query on an index, and perform aggregate transformations on the results, extracting statistics etc from them
 
-## Syntax
-
-{{< highlight bash >}}
-FT.AGGREGATE index query 
-          [VERBATIM] 
-          [ LOAD count field [field ...]] 
-          [TIMEOUT timeout] 
-          [LOAD *] 
-          [ GROUPBY nargs property [property ...] [ REDUCE function nargs arg [arg ...] [AS name] [ REDUCE function nargs arg [arg ...] [AS name] ...]] 
-          [ GROUPBY nargs property [property ...] [ REDUCE function nargs arg [arg ...] [AS name] [ REDUCE function nargs arg [arg ...] [AS name] ...]] ...]] 
-          [ SORTBY nargs [ property ASC | DESC [ property ASC | DESC ...]] [MAX num]] 
-          [ APPLY expression AS name [ APPLY expression AS name ...]] 
-          [ LIMIT offset num] 
-          [FILTER filter] 
-          [ WITHCURSOR [COUNT read_size] [MAXIDLE idle_time]] 
-          [ PARAMS nargs name value [ name value ...]] 
-          [DIALECT dialect]
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
-<summary><code>index_name</code></summary>
+<summary><code>index</code></summary>
 
-is index against which the query is executed.
+is index name against which the query is executed. You must first create the index using `FT.CREATE`.
 </details>
 
 <details open>
@@ -40,7 +35,7 @@ is index against which the query is executed.
 is base filtering query that retrieves the documents. It follows the exact same syntax as the search query, including filters, unions, not, optional, and so on.
 </details>
 
-## Optional requirements
+## Optional arguments
 
 <details open>
 <summary><code>VERBATIM</code></summary>
@@ -56,7 +51,7 @@ loads document attributes from the source document.
  - `property` is the optional name used in the result. If it is not provided, the `identifier` is used. This should be avoided.
  - If `*` is used as `nargs`, all attributes in a document are loaded.
 
-Attributes needed for aggregations should be stored as `SORTABLE`, where they are available to the aggregation pipeline with very low latency. `LOAD` hurts the   performance of aggregate queries considerably because every processed record needs to execute the equivalent of `HMGET` against a Redis key, which when executed over millions of keys, amounts to high processing times.
+Attributes needed for aggregations should be stored as `SORTABLE`, where they are available to the aggregation pipeline with very low latency. `LOAD` hurts the performance of aggregate queries considerably because every processed record needs to execute the equivalent of `HMGET` against a Redis key, which when executed over millions of keys, amounts to high processing times.
 
 <details open>
 <summary><code>GROUPBY {nargs} {property}</code></summary> 
@@ -68,6 +63,8 @@ groups the results in the pipeline based on one or more properties. Each group s
 <summary><code>REDUCE {func} {nargs} {arg} … [AS {name}]</code></summary>
 
 reduces the matching results in each group into a single record, using a reduction function. For example, `COUNT` counts the number of records in the group. The reducers can have their own property names using the `AS {name}` optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to `COUNT_DISTINCT` by property `@foo`, the resulting name will be `count_distinct(@foo)`.
+  
+See [Supported GROUPBY reducers](/redisearch/reference/aggregations/#supported-groupby-reducers) for more details.   
 </details>
 
 <details open>
@@ -126,7 +123,7 @@ if set, overrides the timeout parameter of the module.
 
 defines one or more value parameters. Each parameter has a name and a value. 
 
-You can reference parameters in the `query` by a `$`, followed by the parameter name, for example, `$user`. Each such reference in the search query to a parameter name is substituted by the corresponding parameter value. For example, with parameter definition `PARAMS 4 lon 29.69465 lat 34.95126`, the expression `@loc:[$lon $lat 10 km]` is evaluated to `@loc:[29.69465 34.95126 10 km]`. You cannot reference parameters in the query string where concrete values are not allowed, such as in field names, for example, `@loc`. To use `PARAMS`, set `DIALECT` to 2.
+You can reference parameters in the `query` by a `$`, followed by the parameter name, for example, `$user`. Each such reference in the search query to a parameter name is substituted by the corresponding parameter value. For example, with parameter definition `PARAMS 4 lon 29.69465 lat 34.95126`, the expression `@loc:[$lon $lat 10 km]` is evaluated to `@loc:[29.69465 34.95126 10 km]`. You cannot reference parameters in the query string where concrete values are not allowed, such as in field names, for example, `@loc`. To use `PARAMS`, set `DIALECT` to `2` or greater than `2`.
 </details>
 
 <details open>
@@ -139,6 +136,37 @@ selects the dialect version under which to execute the query. If not specified, 
 
 FT.AGGREGATE returns an array reply where each row is an array reply and represents a single aggregate result.
 The [integer reply](/docs/reference/protocol-spec/#resp-integers) at position `1` does not represent a valid value.
+
+### Return multiple values
+
+See [Return multiple values](/commands/ft.search#return-multiple-values) in `FT.SEARCH`
+The `DIALECT` can be specified as a parameter in the FT.AGGREGATE command. If it is not specified, the `DEFAULT_DIALECT` is used, which can be set using `FT.CONFIG SET` or by passing it as an argument to the `redisearch` module when it is loaded.
+For example, with the following document and index:
+
+
+```sh
+127.0.0.1:6379> JSON.SET doc:1 $ '[{"arr": [1, 2, 3]}, {"val": "hello"}, {"val": "world"}]'
+OK
+127.0.0.1:6379> FT.CREATE idx ON JSON PREFIX 1 doc: SCHEMA $..arr AS arr NUMERIC $..val AS val TEXT
+OK
+```
+Notice the different replies, with and without `DIALECT 3`:
+
+```sh
+127.0.0.1:6379> FT.AGGREGATE idx * LOAD 2 arr val 
+1) (integer) 1
+2) 1) "arr"
+   2) "[1,2,3]"
+   3) "val"
+   4) "hello"
+
+127.0.0.1:6379> FT.AGGREGATE idx * LOAD 2 arr val DIALECT 3
+1) (integer) 1
+2) 1) "arr"
+   2) "[[1,2,3]]"
+   3) "val"
+   4) "[\"hello\",\"world\"]"
+```
 
 ## Complexity
 

@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #pragma once
 
@@ -48,6 +54,8 @@ typedef enum {
 typedef enum {
   RP_INDEX,
   RP_LOADER,
+  RP_BUFFER_AND_LOCKER,
+  RP_UNLOCKER,
   RP_SCORER,
   RP_SORTER,
   RP_COUNTER,
@@ -58,7 +66,7 @@ typedef enum {
   RP_FILTER,
   RP_PROFILE,
   RP_NETWORK,
-  RP_VECSIM,
+  RP_METRICS,
   RP_MAX,
 } ResultProcessorType;
 
@@ -92,6 +100,8 @@ typedef struct {
   QITRState state;
 
   struct timespec startTime;
+
+  RSTimeoutPolicy timeoutPolicy;
 } QueryIterator, QueryProcessingCtx;
 
 IndexIterator *QITR_GetRootFilter(QueryIterator *it);
@@ -112,7 +122,7 @@ typedef struct {
   double score;
   RSScoreExplain *scoreExplain;
 
-  RSDocumentMetadata *dmd;
+  const RSDocumentMetadata *dmd;
 
   // index result should cover what you need for highlighting,
   // but we will add a method to duplicate index results to make
@@ -143,6 +153,15 @@ typedef enum {
   RS_RESULT_MAX
 } RPStatus;
 
+typedef enum {
+  RESULT_PROCESSOR_F_ACCESS_REDIS = 0x01,  // The result processor requires access to redis keyspace.
+
+  // The result processor might break the pipeline by changing RPStatus.
+  // Note that this kind of rp is also responsible to release the spec lock when it breaks the pipeline
+  // (declaring EOF or TIMEOUT), by calling UnlockSpec_and_ReturnRPResult.
+  RESULT_PROCESSOR_F_BREAKS_PIPELINE = 0x02 
+} BaseRPFlags;
+
 /**
  * Result processor structure. This should be "Subclassed" by the actual
  * implementations
@@ -156,6 +175,8 @@ typedef struct ResultProcessor {
 
   // Type of result processor
   ResultProcessorType type;
+
+  uint32_t flags;
 
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is
@@ -174,8 +195,6 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
-// Get the index spec from the result processor
-#define RP_SPEC(rpctx) ((rpctx)->parent->sctx->spec)
 
 /**
  * This function resets the search result, so that it may be reused again.
@@ -194,7 +213,7 @@ ResultProcessor *RPIndexIterator_New(IndexIterator *itr, struct timespec timeout
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs);
 
-ResultProcessor *RPVecSim_New(const RLookupKey **keys, size_t nkeys);
+ResultProcessor *RPMetricsLoader_New();
 
 /** Functions abstracting the sortmap. Hides the bitwise logic */
 #define SORTASCMAP_INIT 0xFFFFFFFFFFFFFFFF
@@ -204,10 +223,20 @@ ResultProcessor *RPVecSim_New(const RLookupKey **keys, size_t nkeys);
 #define SORTASCMAP_GETASC(mm, pos) ((mm) & (1LLU << (pos)))
 void SortAscMap_Dump(uint64_t v, size_t n);
 
+/**
+ * Creates a sorter result processor.
+ * @param keys is an array of RLookupkeys to sort by them, 
+ * @param nkeys is the number of keys.
+ * keys will be freed by the arrange step dtor.
+ * @param loadKeys is an array of RLookupkeys that their value needs to be loaded from Redis keyspace.
+ * @param nLoadKeys is the length of loadKeys.
+ * If keys and loadKeys doesn't point to the same address, loadKeys will be freed in the sorter dtor.
+ */
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascendingMap);
+                                      const RLookupKey **loadKeys, size_t nLoadKeys,
+                                      uint64_t ascendingMap, bool quickExit);
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, bool quickExit);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
@@ -228,6 +257,38 @@ ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const Fiel
 
 void RP_DumpChain(const ResultProcessor *rp);
 
+/*******************************************************************************************************************
+ *  Buffer and Locker Results Processor
+ *
+ * This component should be added to the query's execution pipeline if a thread safe access to
+ * Redis keyspace is required.
+ *
+ * The buffer is responsible for buffering the document that pass the query filters and lock the access
+ * to Redis keysapce to allow the downstream result processor a thread safe access to it.
+ *
+ * Unlocking Redis should be done only by the Unlocker result processor that should be added as well.
+ * 
+ * @param BlockSize is the number of results in each buffer block.
+ * @param spec_version is the version of the spec during pipeline construction. This version will be compared
+ * to the spec version after we unlock the spec, to decide if results' validation is needed.
+ *******************************************************************************************************************/
+typedef struct RPBufferAndLocker RPBufferAndLocker;
+ResultProcessor *RPBufferAndLocker_New(size_t BlockSize, size_t spec_version);
+
+/*******************************************************************************************************************
+ *  UnLocker Results Processor
+ *
+ * This component should be added to the query's execution pipeline if a thread safe access to
+ * Redis keyspace is required.
+ *
+ * @param rpBufferAndLocker is a pointer to the buffer and locker result processor
+ * that locked the GIL to be released.
+ * 
+ * It is responsible for unlocking Redis keyspace lock.
+ *
+ *******************************************************************************************************************/
+
+ResultProcessor *RPUnlocker_New(RPBufferAndLocker *rpBufferAndLocker);
 
 /*******************************************************************************************************************
  *  Profiling Processor
@@ -250,6 +311,8 @@ void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout);
 
 double RPProfile_GetDurationMSec(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
+
+void Profile_AddRPs(QueryIterator *qiter);
 
 // Return string for RPType
 const char *RPTypeToString(ResultProcessorType type);

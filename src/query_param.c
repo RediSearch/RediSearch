@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "query_param.h"
 #include "query_error.h"
 #include "geo_index.h"
@@ -30,7 +36,7 @@ QueryParam *NewGeoFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToke
 
 QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *min, QueryToken *max, int inclusiveMin, int inclusiveMax) {
   QueryParam *ret = NewQueryParam(QP_NUMERIC_FILTER);
-  NumericFilter *nf = NewNumericFilter(0, 0, inclusiveMin, inclusiveMax);
+  NumericFilter *nf = NewNumericFilter(0, 0, inclusiveMin, inclusiveMax, true);
   ret->nf = nf;
   QueryParam_InitParams(ret, 2);
   QueryParam_SetParam(q, &ret->params[0], &nf->min, NULL, min);

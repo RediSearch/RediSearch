@@ -4,9 +4,14 @@ from RLTest import Env
 import time
 
 def testSanity(env):
+  dotestSanity(env, 2)
+  env.cmd('FLUSHALL')
+  dotestSanity(env, 3)
+
+def dotestSanity(env, dialect):
   env.skipOnCluster()
   env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
-  env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', 2).ok()
+  env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', dialect).ok()
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 100000).ok()
   env.expect('FT.CONFIG', 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
   item_qty = 10000
@@ -48,10 +53,10 @@ def testSanity(env):
     # 234x & x234
     start = time.time()
     env.expect('ft.search', index, '*234*', 'LIMIT', 0 , 0).equal([80])
-    print (time.time() - start)
+    # print(time.time() - start)
     start = time.time()
     env.expect('ft.search', index, '*o23*', 'LIMIT', 0 , 0).equal([444])
-    print (time.time() - start)
+    # print(time.time() - start)
     env.expect('ft.search', index, '*oo23*', 'LIMIT', 0 , 0).equal([333])
     env.expect('ft.search', index, '*oo234*', 'LIMIT', 0 , 0).equal([33])
 
@@ -59,6 +64,9 @@ def testSanity(env):
     env.expect('ft.search', index, "w'*oo234'", 'LIMIT', 0 , 0).equal([3])
     env.expect('ft.search', index, "w'*234'", 'LIMIT', 0 , 0).equal([40])
     env.expect('ft.search', index, "w'*13'", 'LIMIT', 0 , 0).equal([400])
+
+    # all
+    env.expect('ft.search', index, r"@t:(w'*')", 'LIMIT', 0 , 0).equal([4*item_qty])
 
   # test timeout
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
@@ -75,9 +83,14 @@ def testSanity(env):
   #  .contains('Timeout limit was reached')
 
 def testSanityTag(env):
+  dotestSanityTag(env, 2)
+  env.cmd('FLUSHALL')
+  dotestSanityTag(env, 3)
+
+def dotestSanityTag(env, dialect):
   env.skipOnCluster()
   env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
-  env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', 2).ok()
+  env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', dialect).ok()
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 100000).ok()
   env.expect('FT.CONFIG', 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
   item_qty = 10000
@@ -119,10 +132,10 @@ def testSanityTag(env):
     # 234x & x234
     start = time.time()
     env.expect('ft.search', index, "@t:{w'*234*'}", 'LIMIT', 0 , 0).equal([80])
-    print (time.time() - start)
+    # print(time.time() - start)
     start = time.time()
     env.expect('ft.search', index, "@t:{w'*o23*'}", 'LIMIT', 0 , 0).equal([444])
-    print (time.time() - start)
+    # print(time.time() - start)
     env.expect('ft.search', index, "@t:{w'*oo23*'}", 'LIMIT', 0 , 0).equal([333])
     env.expect('ft.search', index, "@t:{w'*oo234*'}", 'LIMIT', 0 , 0).equal([33])
 
@@ -136,6 +149,9 @@ def testSanityTag(env):
     env.expect('ft.search', index, "@t:{w'*oo23?4'}", 'LIMIT', 0 , 0).equal([30])
     env.expect('ft.search', index, "@t:{w'*23?4'}", 'LIMIT', 0 , 0).equal([40])
     env.expect('ft.search', index, "@t:{w'*1?3'}", 'LIMIT', 0 , 0).equal([400])
+
+    # all
+    env.expect('ft.search', index, r"@t:{w'*'}", 'LIMIT', 0 , 0).equal([4*item_qty])
 
   # test timeout
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
@@ -354,3 +370,13 @@ def testBasic():
 
   env.expect('FT.AGGREGATE', 'idx', "w'he*'", 'LOAD', 1, '@t', 'SORTBY', 1, '@t')     \
         .equal([5, ['t', 'heal'], ['t', 'helen'], ['t', 'hell'], ['t', 'hello'], ['t', 'help']])
+
+def testSuffixCleanup(env):
+  conn = getConnectionByEnv(env)
+  env.expect(('_' if env.isCluster() else '') + 'FT.CONFIG SET FORK_GC_CLEAN_THRESHOLD 0').ok()
+
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'WITHSUFFIXTRIE', 't2', 'TEXT')
+  conn.execute_command('HSET', 'doc', 't1', 'foo', 't2', 'bar')
+  conn.execute_command('DEL', 'doc')
+
+  forceInvokeGC(env, 'idx')

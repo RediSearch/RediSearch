@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "numeric_filter.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
@@ -82,7 +88,8 @@ void NumericFilter_Free(NumericFilter *nf) {
   rm_free(nf);
 }
 
-NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax) {
+NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax,
+                                bool asc) {
   NumericFilter *f = rm_malloc(sizeof(NumericFilter));
 
   f->min = min;
@@ -91,5 +98,8 @@ NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int in
   f->inclusiveMax = inclusiveMax;
   f->inclusiveMin = inclusiveMin;
   f->geoFilter = NULL;
+  f->asc = asc;
+  f->offset = 0;
+  f->limit = 0;
   return f;
 }

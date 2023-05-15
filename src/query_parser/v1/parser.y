@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 %left LOWEST.
 %left TILDE.
 %left TAGLIST.
@@ -540,7 +546,7 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
   A = NewQueryParam(QP_NUMERIC_FILTER);
-  A->nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive);
+  A->nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive, true);
 }
 
 /////////////////////////////////////////////////////////////////

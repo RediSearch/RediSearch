@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef __NUMERIC_INDEX_H__
 #define __NUMERIC_INDEX_H__
 
@@ -71,7 +77,6 @@ typedef struct {
   NumericRangeNode *root;
   size_t numRanges;
   size_t numEntries;
-  size_t card;
   t_docId lastDocId;
 
   uint32_t revisionId;
@@ -85,10 +90,10 @@ typedef struct {
 #define NumericRangeNode_IsLeaf(n) (n->left == NULL && n->right == NULL)
 
 struct indexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
-                                              const NumericFilter *f);
+                                              const NumericFilter *f, int skipMulti);
 
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx, FieldType forType);
+                                               ConcurrentSearchCtx *csx, FieldType forType, IteratorsConfig *config);
 
 /* Add an entry to a numeric range node. Returns the cardinality of the range after the
  * inserstion.
@@ -108,7 +113,7 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
 
 /* Recursively find all the leaves under a node that correspond to a given min-max range. Returns a
  * vector with range node pointers.  */
-Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max);
+Vector *NumericRangeNode_FindRange(NumericRangeNode *n, const NumericFilter *nf);
 
 /* Recursively free a node and its children */
 void NumericRangeNode_Free(NumericRangeNode *n);
@@ -120,7 +125,7 @@ NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t);
 NumericRangeTree *NewNumericRangeTree();
 
 /* Add a value to a tree. Returns 0 if no nodes were split, 1 if we splitted nodes */
-NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value);
+NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value, int isMulti);
 
 /* Remove a node containing a range with value.
    Returns 1 if node was found, 0 otherwise */
@@ -128,7 +133,7 @@ int NumericRangeTree_DeleteNode(NumericRangeTree *t, double value);
 
 /* Recursively find all the leaves under tree's root, that correspond to a given min-max range.
  * Returns a vector with range node pointers. */
-Vector *NumericRangeTree_Find(NumericRangeTree *t, double min, double max);
+Vector *NumericRangeTree_Find(NumericRangeTree *t, const NumericFilter *nf);
 
 /* Free the tree and all nodes */
 void NumericRangeTree_Free(NumericRangeTree *t);
@@ -147,6 +152,16 @@ void NumericIndexType_Free(void *value);
 NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t);
 NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter);
 void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter);
+
+#ifdef _DEBUG
+static inline void PRINT_INDENT(int indent) {
+  for (int i = 0; i < indent; ++i)
+    printf("  ");
+}
+
+void NumericRangeNode_Dump(NumericRangeNode *n, int indent);
+void NumericRange_Dump(NumericRange *r, int indent);
+#endif // #ifdef _DEBUG
 
 #ifdef __cplusplus
 }

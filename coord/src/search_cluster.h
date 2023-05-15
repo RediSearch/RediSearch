@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #pragma once
 
@@ -22,6 +28,9 @@ SearchCluster *GetSearchCluster();
  * consolidating the two  */
 SearchCluster NewSearchCluster(size_t size, const char **table, size_t tableSize);
 void InitGlobalSearchCluster(size_t size, const char **table, size_t tableSize);
+
+void SearchCluster_Release(SearchCluster *sc);
+void GlobalSearchCluster_Release();
 /* A command generator that multiplexes a command across multiple partitions by tagging it */
 typedef struct {
   MRCommand *cmd;

@@ -1,16 +1,21 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #ifndef SRC_GC_H_
 #define SRC_GC_H_
 
 #include "redismodule.h"
 #include "util/dllist.h"
+#include "util/references.h"
 #include <time.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-struct IndexSpec;
 
 typedef struct GCCallbacks {
   int (*periodicCallback)(RedisModuleCtx* ctx, void* gcCtx);
@@ -18,9 +23,6 @@ typedef struct GCCallbacks {
   void (*renderStatsForInfo)(RedisModuleInfoCtx* ctx, void* gc);
   void (*onDelete)(void* ctx);
   void (*onTerm)(void* ctx);
-
-  // Send a "kill signal" to the GC, requesting it to terminate asynchronously
-  void (*kill)(void* ctx);
   struct timespec (*getInterval)(void* ctx);
 } GCCallbacks;
 
@@ -28,7 +30,6 @@ typedef struct GCContext {
   void* gcCtx;
   RedisModuleTimerID timerID;
   GCCallbacks callbacks;
-  int stopped;
 } GCContext;
 
 typedef struct GCTask {
@@ -37,9 +38,7 @@ typedef struct GCTask {
   int debug;
 } GCTask;
 
-GCContext* GCContext_CreateGCFromSpec(struct IndexSpec* sp, float initialHZ, uint64_t uniqueId,
-                                      uint32_t gcPolicy);
-GCContext* GCContext_CreateGC(RedisModuleString* keyName, float initialHZ, uint64_t uniqueId);
+GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy);
 void GCContext_Start(GCContext* gc);
 void GCContext_Stop(GCContext* gc);
 void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx);

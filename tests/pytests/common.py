@@ -1,4 +1,5 @@
 
+from includes import *
 try:
     from collections.abc import Iterable
 except ImportError:
@@ -12,10 +13,13 @@ import itertools
 from redis.client import NEVER_DECODE
 import RLTest
 from typing import Any, Callable
+from RLTest import Env
 from RLTest.env import Query
-from includes import *
+import numpy as np
+from scipy import spatial
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
+VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
 
 
 class TimeLimit(object):
@@ -82,11 +86,14 @@ def toSortedFlatList(res):
         return py2sorted(finalList)
     return [res]
 
-def assertInfoField(env, idx, field, expected):
+def assertInfoField(env, idx, field, expected, delta=None):
     if not env.isCluster():
         res = env.cmd('ft.info', idx)
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-        env.assertEqual(d[field], expected)
+        if delta is None:
+            env.assertEqual(d[field], expected)
+        else:
+            env.assertAlmostEqual(float(d[field]), float(expected), delta=delta)
 
 def sortedResults(res):
     n = res[0]
@@ -202,24 +209,18 @@ def collectKeys(env, pattern='*'):
         keys.extend(conn.keys(pattern))
     return sorted(keys)
 
+def ftDebugCmdName(env):
+    return '_ft.debug' if env.isCluster() else 'ft.debug'
+
 def forceInvokeGC(env, idx):
     waitForRdbSaveToFinish(env)
-    env.cmd('ft.debug', 'GC_FORCEINVOKE', idx)
-
-def skip(f, on_cluster=False):
-    @wraps(f)
-    def wrapper(env, *args, **kwargs):
-        if not on_cluster or env.isCluster():
-            env.skip()
-            return
-        return f(env, *args, **kwargs)
-    return wrapper
+    env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx)
 
 def no_msan(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
         if SANITIZER == 'memory':
-            fname = f.func_name
+            fname = f.__name__
             env.debugPrint("skipping {} due to memory sanitizer".format(fname), force=True)
             env.skip()
             return
@@ -229,13 +230,32 @@ def no_msan(f):
 def unstable(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
-        if ONLY_STABLE:
-            fname = f.func_name
+        if UNSTABLE == True:
+            fname = f.__name__
             env.debugPrint("skipping {} because it is unstable".format(fname), force=True)
             env.skip()
             return
         return f(env, *args, **kwargs)
     return wrapper
+
+def skip(cluster=False, macos=False, asan=False, msan=False):
+    def decorate(f):
+        @wraps(f)
+        def wrapper(x, *args, **kwargs):
+            env = x if isinstance(x, Env) else x.env
+            if not (cluster or macos or asan or msan):
+                env.skip()
+            if cluster and env.isCluster():
+                env.skip()
+            if macos and OS == 'macos':
+                env.skip()
+            if asan and SANITIZER == 'address':
+                env.skip()
+            if msan and SANITIZER == 'memory':
+                env.skip()
+            return f(x, *args, **kwargs)
+        return wrapper
+    return decorate
 
 def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
@@ -260,10 +280,86 @@ def module_ver_filter(env, module_name, ver_filter):
     return False
 
 def has_json_api_v2(env):
-    return module_ver_filter(env, 'ReJSON', lambda ver: True if ver == 999999 else False)
+    return module_ver_filter(env, 'ReJSON', lambda ver: True if ver == 999999 or ver >= 20200 else False)
+
+# Helper function to create numpy array vector with a specific type
+def create_np_array_typed(data, data_type='FLOAT32'):
+    if data_type == 'FLOAT32':
+        return np.array(data, dtype=np.float32)
+    if data_type == 'FLOAT64':
+        return np.array(data, dtype=np.float64)
+    return None
+
+def compare_lists_rec(var1, var2, delta):
+    if type(var1) != type(var2):
+        return False
+    try:
+        if type(var1) is not str and len(var1) != len(var2):
+            return False
+    except:
+        pass
+
+    if isinstance(var1, list):
+        #print("compare_lists_rec: list {}".format(var1))
+        for i in range(len(var1)):
+            #print("compare_lists_rec: list: i = {}".format(i))
+            res = compare_lists_rec(var1[i], var2[i], delta)
+            #print("list: var1 = {}, var2 = {}, res = {}".format(var1[i], var2[i], res))
+            if res is False:
+                return False
+
+    elif isinstance(var1, dict):
+        for k in var1:
+            res = compare_lists_rec(var1[k], var2[k], delta)
+            if res is False:
+                return False
+
+    elif isinstance(var1, set):
+        for v in var1:
+            if v not in var2:
+                return False
+
+    elif isinstance(var1, tuple):
+        for i in range(len(var1)):
+            compare_lists_rec(var1[i], var2[i], delta)
+            if res is False:
+                return False
+
+    elif isinstance(var1, float):
+        diff = var1 - var2
+        if diff < 0:
+            diff = -diff
+        #print("diff {} delta {}".format(diff, delta))
+        return diff <= delta
+
+    elif isinstance(var1, str): # float as string
+        try:
+            diff = float(var1) - float(var2)
+            if diff < 0:
+                diff = -diff
+        except:
+            return var1 == var2
+
+        #print("var1 {} var2 {} diff {} delta {}".format(var1, var2, diff, delta))
+        return diff <= delta
+
+    else: # int() | bool() | None:
+        return var1 == var2
+
+    return True
+
+def compare_lists(env, list1, list2, delta=0.01, _assert=True):
+    res = compare_lists_rec(list1, list2, delta + 0.000001)
+    if res:
+        if _assert:
+            env.assertTrue(True, message='%s ~ %s' % (str(list1), str(list2)))
+        return True
+    else:
+        if _assert:
+            env.assertTrue(False, message='%s ~ %s' % (str(list1), str(list2)))
+        return False
 
 class ConditionalExpected:
-    
     def __init__(self, env, cond):
         self.env = env
         self.cond_val = cond(env)

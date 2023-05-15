@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #define __REDISEARCH_STOPORWORDS_C__
 #include "stopwords.h"
 #include "triemap/triemap.h"
@@ -49,20 +55,6 @@ int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) 
   if (len >= 32) rm_free(lowStr);
 
   return ret;
-}
-
-/* Create a new stopword list from a list of redis strings */
-StopWordList *NewStopWordList(RedisModuleString **strs, size_t len) {
-
-  if (len > MAX_STOPWORDLIST_SIZE) {
-    len = MAX_STOPWORDLIST_SIZE;
-  }
-  const char *cstrs[len];
-  for (size_t i = 0; i < len && i < MAX_STOPWORDLIST_SIZE; i++) {
-    cstrs[i] = (char *)RedisModule_StringPtrLen(strs[i], NULL);
-  }
-
-  return NewStopWordListCStr(cstrs, len);
 }
 
 StopWordList *NewStopWordListCStr(const char **strs, size_t len) {

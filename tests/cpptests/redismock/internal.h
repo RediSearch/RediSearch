@@ -1,12 +1,19 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef REDISMOCK_INTERNAL_H
 #define REDISMOCK_INTERNAL_H
 
 // This is to be included only by redismock.cpp
+#include "redismodule.h"
+
 #include <string>
 #include <map>
 #include <list>
 #include <set>
-#include <redismodule.h>
 #include <vector>
 #include <iostream>
 
@@ -247,6 +254,8 @@ struct KVDB {
 
   static std::vector<KVDB *> dbs;
 };
+
+typedef int (*RedisModule_GetApiFunctionType)(const char *name, void *pp);
 
 struct RedisModuleCtx {
   RedisModule_GetApiFunctionType getApi = NULL;

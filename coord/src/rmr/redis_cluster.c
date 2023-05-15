@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "../config.h"
 #include "cluster.h"
 #include "conn.h"
@@ -40,12 +46,12 @@ MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     return NULL;
   }
   // printf("Creating a topology of %zd slots\n", len);
-  MRClusterTopology *topo = calloc(1, sizeof(MRClusterTopology));
+  MRClusterTopology *topo = rm_calloc(1, sizeof(MRClusterTopology));
   topo->hashFunc = MRHashFunc_CRC16;
 
   topo->numSlots = 16384;
   topo->numShards = 0;
-  topo->shards = calloc(len, sizeof(MRClusterShard));
+  topo->shards = rm_calloc(len, sizeof(MRClusterShard));
 
   // iterate each nested array
   for (size_t i = 0; i < len; i++) {
@@ -62,7 +68,7 @@ MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     sh.endSlot = RedisModule_CallReplyInteger(RedisModule_CallReplyArrayElement(e, 1));
     int numNodes = RedisModule_CallReplyLength(e) - 2;
     sh.numNodes = 0;
-    sh.nodes = calloc(numNodes, sizeof(MRClusterNode));
+    sh.nodes = rm_calloc(numNodes, sizeof(MRClusterNode));
     // printf("Parsing slot %zd, %d nodes", i, numNodes);
     // parse the nodes
     for (size_t n = 0; n < numNodes; n++) {
@@ -83,8 +89,8 @@ MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
       MRClusterNode node = {
           .endpoint =
               (MREndpoint){
-                  .host = strndup(host, hostlen), .port = port, .auth = (clusterConfig.globalPass ? strdup(clusterConfig.globalPass) : NULL) , .unixSock = NULL},
-          .id = strndup(id, idlen),
+                  .host = rm_strndup(host, hostlen), .port = port, .auth = (clusterConfig.globalPass ? rm_strdup(clusterConfig.globalPass) : NULL) , .unixSock = NULL},
+          .id = rm_strndup(id, idlen),
           .flags = MRNode_Coordinator,
       };
       // the first node in every shard is the master
@@ -115,7 +121,7 @@ static struct RMUtilTimer *updateTopoTimer;
 
 static int updateTopoCB(RedisModuleCtx *ctx, void *p) {
   RedisModule_ThreadSafeContextLock(ctx);
-  RedisModule_AutoMemory(ctx);
+  RS_AutoMemory(ctx);
 
   RedisModuleCallReply *r = RedisModule_Call(ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH", "");
   if (RedisModule_CallReplyType(r) == REDIS_REPLY_ERROR) {

@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #pragma once
 
@@ -14,6 +20,7 @@ typedef struct {
   MRClusterType type;
   int timeoutMS;
   const char* globalPass;
+  size_t connPerShard;
 } SearchClusterConfig;
 
 extern SearchClusterConfig clusterConfig;
@@ -23,7 +30,11 @@ extern SearchClusterConfig clusterConfig;
 
 #define DEFAULT_CLUSTER_CONFIG                                                             \
   (SearchClusterConfig) {                                                                  \
-    .numPartitions = 0, .type = DetectClusterType(), .timeoutMS = 500, .globalPass = NULL, \
+    .numPartitions = 0,                                                                    \
+    .connPerShard = 0,                                                                     \
+    .type = DetectClusterType(),                                                           \
+    .timeoutMS = 500,                                                                      \
+    .globalPass = NULL,                                                                    \
   }
 
 /* Detect the cluster type, by trying to see if we are running inside RLEC.

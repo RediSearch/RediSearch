@@ -42,6 +42,8 @@ To download and run RediSearch from a precompiled binary:
 
 To build and run RediSearch from the source code:
 
+1. Requirements: `git` & `make`
+
 1. Clone the [RediSearch repository](https://github.com/RediSearch/RediSearch) (make sure you include the `--recursive` option to properly clone submodules):
 
     ```sh
@@ -51,14 +53,8 @@ To build and run RediSearch from the source code:
 
 1. Install dependencies:
 
-    On macOS:
     ```sh
     $ make setup
-    ```
-
-    On Linux:
-    ```sh
-    $ sudo make setup
     ```
 
 1. Build:
@@ -67,6 +63,8 @@ To build and run RediSearch from the source code:
     ```
 
 1. Run Redis with RediSearch:
+    Requirements: [redis-server](https://redis.io/docs/getting-started/)
+
     ```sh
     $ make run
     ```
@@ -113,6 +111,12 @@ To search the index for documents that contain specific words, use the `FT.SEARC
 
 {{% alert title="Note" color="info" %}}
 `FT.SEARCH` expects valid UTF-8 or ASCII as input. The engine cannot handle wide character unicode.
+{{% /alert %}}
+
+{{% alert title="Note" color="info" %}}
+When configuring [ACLs](/docs/management/security/acl/), search-related commands such as `FT.SEARCH` consider the index name to be the "key". Therefore, if you use key patterns in an ACL rule allowing or disallowing search commands, include a pattern matching the index name for the specified commands. 
+
+For example, to enable search on an index `myIdx`, the ACL rule should include a pattern for either 'FT.SEARCH` or a category that includes it. Such ACL rules could be `+ft.search ~myIdx`, `+ft.search ~myId*`, `+@all ~myIdx`, and so on.
 {{% /alert %}}
 
 ## Drop the index

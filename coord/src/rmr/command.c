@@ -1,6 +1,13 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #include "common.h"
 #include "command.h"
+#include "rmalloc.h"
 
 #include "version.h"
 
@@ -127,14 +134,14 @@ void MRCommand_Free(MRCommand *cmd) {
     sdsfree(cmd->cmd);
   }
   for (int i = 0; i < cmd->num; i++) {
-    free(cmd->strs[i]);
+    rm_free(cmd->strs[i]);
   }
-  free(cmd->strs);
-  free(cmd->lens);
+  rm_free(cmd->strs);
+  rm_free(cmd->lens);
 }
 
 static void assignStr(MRCommand *cmd, size_t idx, const char *s, size_t n) {
-  char *news = malloc(n + 1);
+  char *news = rm_malloc(n + 1);
   cmd->strs[idx] = news;
   cmd->lens[idx] = n;
   news[n] = 0;
@@ -160,8 +167,8 @@ static void assignRstr(MRCommand *dst, size_t idx, RedisModuleString *src) {
 
 static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->num = len;
-  cmd->strs = malloc(sizeof(*cmd->strs) * len);
-  cmd->lens = malloc(sizeof(*cmd->lens) * len);
+  cmd->strs = rm_malloc(sizeof(*cmd->strs) * len);
+  cmd->lens = rm_malloc(sizeof(*cmd->lens) * len);
   cmd->id = 0;
   cmd->targetSlot = -1;
   cmd->cmd = NULL;
@@ -226,8 +233,8 @@ MRCommand MR_NewCommandFromRedisStrings(int argc, RedisModuleString **argv) {
 
 static void extendCommandList(MRCommand *cmd, size_t toAdd) {
   cmd->num += toAdd;
-  cmd->strs = realloc(cmd->strs, sizeof(*cmd->strs) * cmd->num);
-  cmd->lens = realloc(cmd->lens, sizeof(*cmd->lens) * cmd->num);
+  cmd->strs = rm_realloc(cmd->strs, sizeof(*cmd->strs) * cmd->num);
+  cmd->lens = rm_realloc(cmd->lens, sizeof(*cmd->lens) * cmd->num);
 }
 
 void MRCommand_AppendStringsArgs(MRCommand *cmd, int num, char **args) {
@@ -301,7 +308,7 @@ void MRCommand_SetPrefix(MRCommand *cmd, const char *newPrefix) {
   }
 
   char *buf = NULL;
-  __ignore__(asprintf(&buf, "%s.%s", newPrefix, suffix));
+  __ignore__(rm_asprintf(&buf, "%s.%s", newPrefix, suffix));
   MRCommand_ReplaceArgNoDup(cmd, 0, buf, strlen(buf));
   _getCommandConfId(cmd);
 }
@@ -313,7 +320,7 @@ void MRCommand_ReplaceArgNoDup(MRCommand *cmd, int index, const char *newArg, si
   char *tmp = cmd->strs[index];
   cmd->strs[index] = (char *)newArg;
   cmd->lens[index] = len;
-  free(tmp);
+  rm_free(tmp);
 
   // if we've replaced the first argument, we need to reconfigure the command
   if (index == 0) {
@@ -321,7 +328,7 @@ void MRCommand_ReplaceArgNoDup(MRCommand *cmd, int index, const char *newArg, si
   }
 }
 void MRCommand_ReplaceArg(MRCommand *cmd, int index, const char *newArg, size_t len) {
-  char *news = malloc(len + 1);
+  char *news = rm_malloc(len + 1);
   news[len] = 0;
   memcpy(news, newArg, len);
   MRCommand_ReplaceArgNoDup(cmd, index, news, len);

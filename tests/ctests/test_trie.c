@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #include "src/trie/trie.h"
 #include "src/trie/levenshtein.h"
@@ -180,29 +186,8 @@ int testTrie() {
   sc = TrieNode_Find(root, runes, rlen);
   ASSERT(sc == 12);
 
-  double score;
-  rune *rstr;
-  t_len l;
-  TrieNode *rn = TrieNode_RandomWalk(root, 10, &rstr, &l);
-  ASSERT(rn != NULL);
-  ASSERT(rstr != NULL);
-  ASSERT(l > 0);
-  // ASSERT(rn->score > 0);
-  size_t sl;
-  char *str = runesToStr(rstr, l, &sl);
-  fprintf(stderr, " found node: %s\n", str);
-  free(rstr);
-  rc = TrieNode_Delete(root, runes, rlen, NULL);
-  ASSERT(rc == 1);
-  rc = TrieNode_Delete(root, runes, rlen, NULL);
-  ASSERT(rc == 0);
-  sc = TrieNode_Find(root, runes, rlen);
-
-  ASSERT(sc == 0);
-
   TrieNode_Free(root, NULL);
   free(runes);
-  free(str);
 
   return 0;
 }

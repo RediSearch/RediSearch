@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef __REDISEARCH_STOPWORDS_H___
 #define __REDISEARCH_STOPWORDS_H___
 
@@ -24,9 +30,6 @@ int StopWordList_Contains(const struct StopWordList *sl, const char *term, size_
 
 struct StopWordList *DefaultStopWordList();
 void StopWordList_FreeGlobals(void);
-
-/* Create a new stopword list from a list of redis strings */
-struct StopWordList *NewStopWordList(RedisModuleString **strs, size_t len);
 
 /* Create a new stopword list from a list of NULL-terminated C strings */
 struct StopWordList *NewStopWordListCStr(const char **strs, size_t len);

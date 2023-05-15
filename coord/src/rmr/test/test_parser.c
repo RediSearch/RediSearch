@@ -1,6 +1,13 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "minunit.h"
-#include <redise_parser/parse.h>
-#include <cluster.h>
+#include "redise_parser/parse.h"
+#include "cluster.h"
+#include "rmutil/alloc.h"
 
 void testParser() {
   const char *q =
@@ -72,7 +79,7 @@ void testParser() {
   mu_check(topo == NULL);
   mu_check(err != NULL);
   printf("\n%s\n", err);
-  free(err);
+  rm_free(err);
 }
 
 void testHashFunc() {
@@ -126,7 +133,7 @@ void testHashFunc() {
   topo = MR_ParseTopologyRequest(q, strlen(q), &err);
   mu_check(topo == NULL);
   mu_check(err != NULL);
-  free(err);
+  rm_free(err);
 
   // Test error in slotnum
   q = "MYID 1 HASHFUNC CRC13 NUMSLOTS 1337 "
@@ -138,11 +145,12 @@ void testHashFunc() {
   topo = MR_ParseTopologyRequest(q, strlen(q), &err);
   mu_check(topo == NULL);
   mu_check(err != NULL);
-  free(err);
+  rm_free(err);
 
   // Test error
 }
 int main(int argc, char **argv) {
+  RMUTil_InitAlloc();
   MU_RUN_TEST(testParser);
   MU_RUN_TEST(testHashFunc);
 

@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #ifndef SRC_FORK_GC_H_
 #define SRC_FORK_GC_H_
@@ -8,8 +14,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-struct IndexSpec;
 
 typedef struct {
   // total bytes collected by the GC
@@ -24,40 +28,30 @@ typedef struct {
   uint64_t gcBlocksDenied;
 } ForkGCStats;
 
-typedef enum FGCType { FGC_TYPE_INKEYSPACE, FGC_TYPE_NOKEYSPACE } FGCType;
-
 /* Internal definition of the garbage collector context (each index has one) */
 typedef struct ForkGC {
 
-  // inverted index key name for reopening the index
-  union {
-    const RedisModuleString *keyName;
-    struct IndexSpec *sp;
-  };
+  // owner of the gc
+  WeakRef index;
 
   RedisModuleCtx *ctx;
-
-  FGCType type;
-
-  uint64_t specUniqueId;
 
   // statistics for reporting
   ForkGCStats stats;
 
-  // flag for rdb loading. Set to 1 initially, but unce it's set to 0 we don't need to check anymore
-  int rdbPossiblyLoading;
-  // Whether the gc has been requested for deletion
-  volatile int deleting;
   int pipefd[2];
   volatile uint32_t pauseState;
   volatile uint32_t execState;
 
   struct timespec retryInterval;
   volatile size_t deletedDocsFromLastRun;
+
+  // current value of RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes
+  // This value is updated during the periodic callback execution.
+  int cleanNumericEmptyNodes;
 } ForkGC;
 
-ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks);
-ForkGC *FGC_NewFromSpec(struct IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks);
+ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks);
 
 typedef enum {
   // Normal "open" state. No pausing will happen

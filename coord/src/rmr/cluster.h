@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #pragma once
 
@@ -123,7 +129,7 @@ size_t MRCluster_NumShards(MRCluster *cl);
 int MRCluster_ConnectAll(MRCluster *cl);
 
 /* Create a new cluster using a node provider */
-MRCluster *MR_NewCluster(MRClusterTopology *topology, ShardFunc sharder,
+MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size, ShardFunc sharder,
                          long long minTopologyUpdateInterval);
 
 /* Update the topology by calling the topology provider explicitly with ctx. If ctx is NULL, the
@@ -141,3 +147,5 @@ typedef struct {
 } MRKey;
 
 void MRKey_Parse(MRKey *key, const char *srckey, size_t srclen);
+
+void MRClust_Free(MRCluster *cl);

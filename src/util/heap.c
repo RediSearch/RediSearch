@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,6 +62,14 @@ heap_t *heap_new(int (*cmp)(const void *, const void *, const void *udata), cons
 
 void heap_free(heap_t *h) {
   rm_free(h);
+}
+
+// Useful when you want to free all the internal data
+void heap_destroy(heap_t *h) {
+  for (size_t i = 0; i < h->count; i++) {
+    rm_free(h->array[i]);
+  }
+  heap_free(h);
 }
 
 /**

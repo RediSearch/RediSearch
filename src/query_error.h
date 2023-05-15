@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef QUERY_ERROR_H
 #define QUERY_ERROR_H
 #include <stdlib.h>
@@ -54,6 +60,7 @@ extern "C" {
   X(QUERY_EHYBRIDNEXIST, "invalid hybrid policy was given")                               \
   X(QUERY_EADHOCWBATCHSIZE, "'batch size' is irrelevant for 'ADHOC_BF' policy")           \
   X(QUERY_EADHOCWEFRUNTIME, "'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")           \
+  X(QUERY_ENRANGE, "range query attributes were sent for a non-range query")              \
 
 typedef enum {
   QUERY_OK = 0,
@@ -139,6 +146,11 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
  * object.
  */
 const char *QueryError_GetError(const QueryError *status);
+
+/**
+ * Retrieve the error code.
+ */
+QueryErrorCode QueryError_GetCode(const QueryError *status);
 
 /**
  * Clear the error state, potentially releasing the embedded string

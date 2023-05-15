@@ -1,9 +1,17 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef __INDEX_ITERATOR_H__
 #define __INDEX_ITERATOR_H__
 
 #include <stdint.h>
 #include "redisearch.h"
 #include "index_result.h"
+
+struct RLookupKey; // Forward declaration
 
 #define INDEXREAD_EOF 0
 #define INDEXREAD_OK 1
@@ -23,7 +31,9 @@ enum iteratorType {
   WILDCARD_ITERATOR,
   EMPTY_ITERATOR,
   ID_LIST_ITERATOR,
+  METRIC_ITERATOR,
   PROFILE_ITERATOR,
+  OPTIMUS_ITERATOR,
   MAX_ITERATOR,
 };
 
@@ -50,6 +60,10 @@ typedef struct indexIterator {
   int mode;
 
   enum iteratorType type;
+
+  // Used if the iterator yields some value.
+  // Consider placing in a union with an array of keys, if a field want to yield multiple metrics
+  struct RLookupKey *ownKey;
 
   size_t (*NumEstimated)(void *ctx);
 

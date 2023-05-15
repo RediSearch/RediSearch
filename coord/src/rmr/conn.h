@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #pragma once
 
@@ -7,8 +13,6 @@
 #include "endpoint.h"
 #include "command.h"
 #include "triemap/triemap.h"
-
-#define MR_CONN_POOL_SIZE 1
 
 /*
  * The state of the connection.
@@ -75,3 +79,5 @@ int MRConnManager_ConnectAll(MRConnManager *m);
 
 /* Disconnect a node */
 int MRConnManager_Disconnect(MRConnManager *m, const char *id);
+
+void MRConnManager_Free(MRConnManager *m);

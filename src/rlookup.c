@@ -1,27 +1,58 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "rlookup.h"
 #include "module.h"
 #include "document.h"
 #include "rmutil/rm_assert.h"
 #include <util/arr.h>
 #include "doc_types.h"
+#include "value.h"
 
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
-                                uint16_t idx) {
+                                uint16_t idx);
+
+// Required attributes of a new rlookupkey to pass createNewLookupKeyFromOptions function 
+// @member name: name to give the rlookup key. 
+// @member path: the original path of this key in Redis key space. If the `name` and `path` point to the 
+// address, the new key will also contain 'name' and 'path' pointing to the same address 
+// (even if name was reallocated - see flags)
+// @member flags: flags to set in the new key. if RLOOKUP_F_NAMEALLOC flag is set, `name` will be reallocated.
+// @member dstidx: the column index of the key in the Rlookup table.
+// @member svidx: If the key contains a sortable field, this is the index of the key's value in the sorting vector
+// @member type: type of the field's value.
+typedef struct {
+  const char *name;
+  size_t namelen;
+
+  const char *path;
+  int flags;
+  uint16_t dstidx;
+  uint16_t svidx;
+  RLookupCoerceType type;
+} RLookupKeyOptions;
+
+static RLookupKey *createNewLookupKeyFromOptions(RLookup *lookup, RLookupKeyOptions *rlookupkey_options) {
   RLookupKey *ret = rm_calloc(1, sizeof(*ret));
 
+   int flags = rlookupkey_options->flags;
+
   ret->flags = (flags & (~RLOOKUP_TRANSIENT_FLAGS));
-  ret->dstidx = idx;
-  ret->refcnt = 1;
+  ret->dstidx = rlookupkey_options->dstidx;
+  ret->svidx = rlookupkey_options->svidx;
+  ret->fieldtype = rlookupkey_options->type;
 
   if (flags & RLOOKUP_F_NAMEALLOC) {
-    ret->name = rm_strndup(name, n);
+    ret->name = rm_strndup(rlookupkey_options->name, rlookupkey_options->namelen);
   } else {
-    ret->name = name;
+    ret->name = rlookupkey_options->name;
   }
-  ret->name_len = n;
+  ret->name_len = rlookupkey_options->namelen;
 
-  // This defaults path a name to the same string. Only changed with `AS` keyword
-  ret->path = ret->name;
+  ret->path = rlookupkey_options->path == rlookupkey_options->name ? ret->name : rlookupkey_options->path;
 
   if (!lookup->head) {
     lookup->head = lookup->tail = ret;
@@ -29,10 +60,15 @@ static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int
     lookup->tail->next = ret;
     lookup->tail = ret;
   }
+
+  // Increase the Rlookup table row length. (all rows have the same length).
+  ++(lookup->rowlen);
+
   return ret;
 }
 
-static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) {
+
+const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
   const IndexSpecCache *cc = lookup->spcache;
   if (!cc) {
     return NULL;
@@ -46,33 +82,158 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) 
     }
   }
 
-  if (!fs) {
-    // Field does not exist in the schema at all
+  return fs;
+
+}
+
+static void Lookupkey_ConfigKeyOptionsFromSpec(RLookupKeyOptions *key_options, const FieldSpec *fs) {
+ 
+  key_options->path = fs->path;
+
+  if (FieldSpec_IsSortable(fs)) {
+    key_options->flags |= RLOOKUP_F_SVSRC;
+    key_options->svidx = fs->sortIdx;
+
+  // If the field is sortable and not normalized (UNF),
+  // we can take its value from the sorting vector.
+  // Otherwise, it needs to be externally loaded from Redis keyspace.
+    if(FieldSpec_IsUnf(fs)) {
+      key_options->flags |= RLOOKUP_F_UNFORMATTED;
+    }
+  }
+  key_options->flags |= RLOOKUP_F_SCHEMASRC;
+  if (fs->types == INDEXFLD_T_NUMERIC) {
+    key_options->type = RLOOKUP_C_DBL;
+  }
+}
+
+static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t name_len, int flags) {
+
+  const FieldSpec *fs = findFieldInSpecCache(lookup, name);
+  if(!fs) {
     return NULL;
   }
 
-  uint16_t idx = lookup->rowlen++;
+  RLookupKeyOptions options = { 
+                              .name = name, 
+                              .namelen = name_len, 
+                              .path = NULL,
+                              .flags = flags,
+                              .dstidx = lookup->rowlen, 
+                              .svidx = 0,
+                              .type = 0,
+                            };
+  Lookupkey_ConfigKeyOptionsFromSpec(&options, fs);
+  return createNewLookupKeyFromOptions(lookup, &options);
 
-  RLookupKey *ret = createNewKey(lookup, name, strlen(name), flags, idx);
-  if (FieldSpec_IsSortable(fs)) {
-    ret->flags |= RLOOKUP_F_SVSRC;
-    ret->svidx = fs->sortIdx;
-  }
-  ret->flags |= RLOOKUP_F_DOCSRC;
-  if (fs->types == INDEXFLD_T_NUMERIC) {
-    ret->fieldtype = RLOOKUP_C_DBL;
-  }
-  return ret;
 }
 
+static RLookupKey *FindLookupKeyWithExistingPath(RLookup *lookup, const char *path, int flags, const FieldSpec** out_spec_field) {
+
+  // Check if path exist in schema (as name).
+  // If the users set an alias for the fields, they should address them by their aliased name,
+  //  otherwise it will be loaded from redis key space (unless already exist in the rlookup)
+
+  // TODO: optimize pipeline: add to documentation that addressing keys by their original path
+  // and not the by their alias can harm performance.
+
+  const FieldSpec *fs = findFieldInSpecCache(lookup, path);
+
+  // If it exists in spec, search for the original path in the rlookup.
+  // If the key doesn't have an alias, we don't want to change the path.
+  if(fs) {
+    if((flags & RLOOKUP_F_ALIAS)) {
+      path = fs->path;
+    }
+    *out_spec_field = fs;
+  }
+
+  // Search for path in the rlookup.
+  for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
+    if (!strcmp(kk->path, path)) {
+      // if the key has NO aliases, keep searching until the exact key is found. 
+      if((flags & RLOOKUP_F_ALIAS) || !strcmp(kk->name, path)) {
+        return kk;
+      }
+    }
+  }
+  return NULL;
+
+
+}  
+
+static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
+                                uint16_t idx) {
+  
+  RLookupKeyOptions options = { 
+                                .name = name, 
+                                .namelen = n, 
+                                .path = name,
+                                .flags = flags,
+                                .dstidx = idx, 
+                                .svidx = 0,
+                                .type = 0,
+                              };
+  return createNewLookupKeyFromOptions(lookup, &options);
+}
+
+static RLookupKey *RLookup_GetOrCreateKeyEx(RLookup *lookup, const char *path, const char *name, size_t name_len, int flags) {
+  const FieldSpec *fs = NULL;
+  RLookupKey *lookupkey = FindLookupKeyWithExistingPath(lookup, path, flags, &fs);
+
+  // if we found a RLookupKey and it has the same name, use it.
+  if(lookupkey) {
+    if (!strcmp(lookupkey->name, name)) {
+      return lookupkey;
+    }
+
+  // Else, generate a new key and copy the meta data of the existing key.
+  // The new key will point to the same RSValue as the existing key, so we can avoid loading
+  // this field twice.
+    RLookupKeyOptions options = { 
+                                  .name = name, 
+                                  .namelen = name_len, 
+                                  .path = lookupkey->path,
+                                  .flags = flags | lookupkey->flags,
+                                  .dstidx = lookupkey->dstidx, 
+                                  .svidx = lookupkey->svidx,
+                                  .type = lookupkey->fieldtype,
+                          };
+    return createNewLookupKeyFromOptions(lookup, &options);
+  } 
+  RLookupKeyOptions options = { 
+                                  .name = name, 
+                                  .namelen = name_len, 
+                                  .path = path,
+                                  .flags = flags & ~RLOOKUP_F_UNRESOLVED,  // If the requester of this key is also its creator, remove the unresolved flag
+                                  .dstidx = lookup->rowlen, 
+                                  .svidx = 0,
+                                  .type = 0,
+                          };
+
+
+  // if we didn't find any key, but the key exists in the schema 
+  // use spec fields
+  if(fs) {
+    Lookupkey_ConfigKeyOptionsFromSpec(&options, fs);
+  }  
+  return createNewLookupKeyFromOptions(lookup, &options);
+}
+
+RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char *name, int flags) {
+ return RLookup_GetOrCreateKeyEx(lookup, path, name, strlen(name), flags);
+}
 RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int flags) {
+  if((flags & RLOOKUP_F_OCREAT) && !(flags & RLOOKUP_F_OEXCL) ) {
+   return RLookup_GetOrCreateKeyEx(lookup, name, name, n, flags);
+  }
+
   RLookupKey *ret = NULL;
-  int isNew = 0;
 
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
     // match `name` to the name/path of the field
     if ((kk->name_len == n && !strncmp(kk->name, name, kk->name_len)) ||
-        (kk->path != kk->name && !strncmp(kk->path, name, n))) {
+        (kk->path != kk->name && !strcmp(kk->path, name))) {
       if (flags & RLOOKUP_F_OEXCL) {
         return NULL;
       }
@@ -82,22 +243,18 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
   }
 
   if (!ret) {
-    ret = genKeyFromSpec(lookup, name, flags);
+    ret = genKeyFromSpec(lookup, name, n, flags);
   }
 
   if (!ret) {
     if (!(flags & RLOOKUP_F_OCREAT) && !(lookup->options & RLOOKUP_OPT_UNRESOLVED_OK)) {
       return NULL;
     } else {
-      ret = createNewKey(lookup, name, n, flags, lookup->rowlen++);
+      ret = createNewKey(lookup, name, n, flags, lookup->rowlen);
       if (!(flags & RLOOKUP_F_OCREAT)) {
         ret->flags |= RLOOKUP_F_UNRESOLVED;
       }
     }
-  }
-
-  if (!(flags & RLOOKUP_F_NOINCREF)) {
-    ret->refcnt++;
   }
 
   if (flags & RLOOKUP_F_OCREAT) {
@@ -144,9 +301,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
 
 void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
   memset(lk, 0, sizeof(*lk));
-  if (spcache) {
-    lk->spcache = spcache;
-  }
+  lk->spcache = spcache;
 }
 
 void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
@@ -168,7 +323,7 @@ void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
 void RLookup_WriteKeyByName(RLookup *lookup, const char *name, RLookupRow *dst, RSValue *v) {
   // Get the key first
   RLookupKey *k =
-      RLookup_GetKey(lookup, name, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
+      RLookup_GetKey(lookup, name, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_OCREAT);
   RS_LOG_ASSERT(k, "failed to get key");
   RLookup_WriteKey(k, dst, v);
 }
@@ -188,10 +343,6 @@ void RLookupRow_Wipe(RLookupRow *r) {
     }
   }
   r->sv = NULL;
-  if (r->rmkey) {
-    RedisModule_CloseKey(r->rmkey);
-    r->rmkey = NULL;
-  }
 }
 
 void RLookupRow_Cleanup(RLookupRow *r) {
@@ -243,10 +394,7 @@ void RLookup_Cleanup(RLookup *lk) {
     RLookupKey_FreeInternal(cur);
     cur = next;
   }
-  if (lk->spcache) {
-    IndexSpecCache_Decref(lk->spcache);
-    lk->spcache = NULL;
-  }
+  IndexSpecCache_Decref(lk->spcache);
 
   lk->head = lk->tail = NULL;
   memset(lk, 0xff, sizeof(*lk));
@@ -271,11 +419,11 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
   char *str;
   const char *constStr;
   RedisModuleString *rstr;
-  RSValue *rs_val;
   long long ll;
   double dd;
   int i;
 
+  // Currently `getJSON` cannot fail here also the other japi APIs below
   switch (japi->getType(json)) {
     case JSONType_String:
       japi->getString(json, &constStr, &len);
@@ -293,14 +441,64 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
     case JSONType_Array:
     case JSONType_Object:
       japi->getJSON(json, ctx, &rstr);
-      rs_val = RS_StealRedisStringVal(rstr);
-      return rs_val;
+      return RS_StealRedisStringVal(rstr);
     case JSONType_Null:
       return RS_NullVal();
     case JSONType__EOF:
-      RS_LOG_ASSERT(0, "Cannot get here");
+      break;
   }
-  return NULL;
+  RS_LOG_ASSERT(0, "Cannot get here");
+}
+
+// Get the value from an iterator and free the iterator
+// Return REDISMODULE_OK, and set rsv to the value, if value exists
+// Return REDISMODULE_ERR otherwise
+//
+// Multi value is supported with apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST
+int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv) {
+
+  int res = REDISMODULE_ERR;
+  RedisModuleString *serialized = NULL;
+
+  if (apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST || japi_ver < 3) {
+    // Preserve single value behavior for backward compatibility
+    RedisJSON json = japi->next(iter);
+    if (!json) {
+      goto done;
+    }
+    *rsv = jsonValToValue(ctx, json);
+    res = REDISMODULE_OK;
+    goto done;
+  }
+
+  size_t len = japi->len(iter);
+  if (len > 0) {
+    // First get the JSON serialized value (since it does not consume the iterator)
+    if (japi->getJSONFromIter(iter, ctx, &serialized) == REDISMODULE_ERR) {
+      goto done;
+    }
+
+    // Second, get the first JSON value
+    RedisJSON json = japi->next(iter);
+    // If the value is an array, we currently try using the first element
+    JSONType type = japi->getType(json);
+    if (type == JSONType_Array) {
+      // Empty array will return NULL
+      json = japi->getAt(json, 0);
+    }
+
+    if (json) {
+      RSValue *val = jsonValToValue(ctx, json);
+      RSValue *otherval = RS_StealRedisStringVal(serialized);
+      *rsv = RS_DuoVal(val, otherval);
+      res = REDISMODULE_OK;
+    } else if (serialized) {
+      RedisModule_FreeString(ctx, serialized);
+    }
+  }
+
+done:
+  return res;
 }
 
 static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
@@ -378,6 +576,9 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   }
 
   if (rc == REDISMODULE_OK && val != NULL) {
+    // `val` was created by `RedisModule_HashGet` and is owned by us.
+    // This function might retain it, but it's thread-safe to free it afterwards without any locks
+    // as it will hold the only reference to it after the next line.
     rsv = hvalToValue(val, kk->fieldtype);
     RedisModule_FreeString(RSDummyContext, val);
   } else if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
@@ -390,8 +591,7 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   }
 
   // Value has a reference count of 1
-  RLookup_WriteKey(kk, dst, rsv);
-  RSValue_Decref(rsv);
+  RLookup_WriteOwnKey(kk, dst, rsv);
   return REDISMODULE_OK;
 }
 
@@ -443,17 +643,15 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
       return REDISMODULE_OK;
     }
   } else {
-    RedisJSON jsonValue = japi->next(jsonIter);
+    int res = jsonIterToValue(ctx, jsonIter, options->sctx->apiVersion, &rsv);
     japi->freeIter(jsonIter);
-    if (!jsonValue) {
+    if (res == REDISMODULE_ERR) {
       return REDISMODULE_OK;
     }
-    rsv = jsonValToValue(ctx, jsonValue);
   }
 
   // Value has a reference count of 1
-  RLookup_WriteKey(kk, dst, rsv);
-  RSValue_Decref(rsv);
+  RLookup_WriteOwnKey(kk, dst, rsv);
   return REDISMODULE_OK;
 }
 
@@ -468,6 +666,10 @@ static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *
   GetKeyFunc getKey = (type == DocumentType_Hash) ? (GetKeyFunc)getKeyCommonHash :
                                                     (GetKeyFunc)getKeyCommonJSON;
   int rc = REDISMODULE_ERR;
+  // On error we silently skip the rest
+  // On success we continue
+  // (success could also be when no value is found and nothing is loaded into `dst`,
+  //  for example, with a JSONPath with no matches)
   if (options->nkeys) {
     for (size_t ii = 0; ii < options->nkeys; ++ii) {
       const RLookupKey *kk = options->keys[ii];
@@ -475,10 +677,10 @@ static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *
         goto done;
       }
     }
-  } else {
+  } else { // If we called load to perform IF operation with FT.ADD command
     for (const RLookupKey *kk = it->head; kk; kk = kk->next) {
       /* key is not part of document schema. no need/impossible to 'load' it */
-      if (!(kk->flags & RLOOKUP_F_DOCSRC)) {
+      if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
         continue;
       }
       if (!options->noSortables) {
@@ -524,6 +726,10 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
   if (pd->options->forceString) {
     ctype = RLOOKUP_C_STR;
   }
+  // This function will retain the value if it's a string. This is thread-safe because
+  // the value was created just before calling this callback and will be freed right after
+  // the callback returns, so this is a thread-local operation that will take ownership of
+  // the string value.
   RSValue *vptr = hvalToValue(value, ctype);
   RLookup_WriteOwnKey(rlk, pd->dst, vptr);
 }
@@ -615,25 +821,18 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
     goto done;
   }
 
-  RedisModuleString *value = NULL;
-  RedisJSON jsonValue = japi->next(jsonIter);
-  if (!jsonValue || japi->getJSON(jsonRoot, ctx, &value) != REDISMODULE_OK) {
-    if (value) {
-      RedisModule_FreeString(ctx, value);
-    }
+  RSValue *vptr;
+  int res = jsonIterToValue(ctx, jsonIter, options->sctx->apiVersion, &vptr);
+  japi->freeIter(jsonIter);
+  if (res == REDISMODULE_ERR) {
     goto done;
   }
-
   RLookupKey *rlk = RLookup_GetKeyEx(it, JSON_ROOT, strlen(JSON_ROOT), RLOOKUP_F_OCREAT);
-  RSValue *vptr = RS_StealRedisStringVal(value);
   RLookup_WriteOwnKey(rlk, dst, vptr);
 
   rc = REDISMODULE_OK;
 
 done:
-  if (jsonIter) {
-    japi->freeIter(jsonIter);
-  }
   return rc;
 }
 
@@ -642,6 +841,7 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
   if (options->dmd) {
     dst->sv = options->dmd->sortVector;
   }
+
   if (options->mode & RLOOKUP_LOAD_ALLKEYS) {
     if (options->dmd->type == DocumentType_Hash) {
       rv = RLookup_HGETALL(it, dst, options);
@@ -651,19 +851,12 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
   } else {
     rv = loadIndividualKeys(it, dst, options);
   }
-  // if loading the document failed b/c it does not exist, delete the document from DocTable
-  // this will mark doc as deleted and reply with `(nil)`
-  if (rv != REDISMODULE_OK) {
-    RedisModuleCtx *ctx = options->sctx->redisCtx;
-    RedisModuleString *rmstr = DMD_CreateKeyString(options->dmd, ctx);
-    IndexSpec_DeleteDoc(options->sctx->spec, ctx, rmstr);
-    RedisModule_FreeString(ctx, rmstr);
-  }
+
   return rv;
 }
 
-int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, SchemaRule *rule, const char *keyptr) {
-  IndexSpec *spec = rule->spec;
+int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *spec, const char *keyptr) {
+  SchemaRule *rule = spec->rule;
 
   // create rlookupkeys
   int nkeys = array_len(rule->filter_fields);
@@ -671,11 +864,11 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, Sc
   for (int i = 0; i < nkeys; ++i) {
     int idx = rule->filter_fields_index[i];
     if (idx == -1) {
-      keys[i] = createNewKey(it, rule->filter_fields[i], strlen(rule->filter_fields[i]), 0, it->rowlen++);
+      keys[i] = createNewKey(it, rule->filter_fields[i], strlen(rule->filter_fields[i]), 0, it->rowlen);
       continue;
     }
     FieldSpec *fs = spec->fields + idx;
-    keys[i] = createNewKey(it, fs->name, strlen(fs->name), 0, it->rowlen++);
+    keys[i] = createNewKey(it, fs->name, strlen(fs->name), 0, it->rowlen);
     keys[i]->path = fs->path;
   }
 

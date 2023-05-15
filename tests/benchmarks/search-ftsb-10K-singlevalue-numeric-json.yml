@@ -1,0 +1,47 @@
+name: "ftsb-10K-singlevalue-numeric-json"
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5
+metadata:
+  component: "search"
+setups:
+  - oss-standalone
+  - oss-cluster-02-primaries
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+  - oss-cluster-16-primaries
+  - oss-cluster-20-primaries
+  - oss-cluster-24-primaries
+  - oss-cluster-32-primaries
+
+dbconfig:
+  - dataset_name: "ftsb-10K-singlevalue-numeric-json"
+  - init_commands:
+    - 'FT.CREATE idx:single ON JSON PREFIX 1 doc:single SCHEMA $.numericInt1 AS numericInt1 NUMERIC $.numericFloat1 AS numericFloat1 NUMERIC $.numericInt2 AS numericInt2 NUMERIC $.numericFloat2 AS numericFloat2 NUMERIC $.numericInt3 AS numericInt3 NUMERIC $.numericFloat3 AS numericFloat3 NUMERIC $.numericInt4 AS numericInt4 NUMERIC $.numericFloat4 AS numericFloat4 NUMERIC $.numericInt5 AS numericInt5 NUMERIC $.numericFloat5 AS numericFloat5 NUMERIC $.numericInt6 AS numericInt6 NUMERIC $.numericFloat6 AS numericFloat6 NUMERIC $.numericInt7 AS numericInt7 NUMERIC $.numericFloat7 AS numericFloat7 NUMERIC $.numericInt8 AS numericInt8 NUMERIC $.numericFloat8 AS numericFloat8 NUMERIC $.numericInt9 AS numericInt9 NUMERIC $.numericFloat9 AS numericFloat9 NUMERIC $.numericInt10 AS numericInt10 NUMERIC $.numericFloat10 AS numericFloat10 NUMERIC'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/10K-singlevalue-numeric-json/10K-singlevalue-numeric-json.redisjson.commands.SETUP.csv"
+  - check:
+      keyspacelen: 10000
+clientconfig:
+  - benchmark_type: "read-only"
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 8
+    - requests: 100000
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/10K-singlevalue-numeric-json/10K-singlevalue-numeric-json.redisjson.commands.BENCH.csv"
+exporter:
+  redistimeseries:
+    break_by:
+      - version
+      - commit
+    timemetric: "$.StartTime"
+    metrics:
+      - "$.OverallRates.overallOpsRate"
+      - "$.OverallQuantiles.allCommands.q50"
+      - "$.OverallQuantiles.allCommands.q95"
+      - "$.OverallQuantiles.allCommands.q99"
+      - "$.OverallQuantiles.allCommands.q999"

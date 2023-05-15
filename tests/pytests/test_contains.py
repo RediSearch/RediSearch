@@ -93,50 +93,50 @@ def testSanity(env):
 
     for i in range(2):
         #prefix
-        env.expect('ft.search', index_list[i], 'f*', 'LIMIT', 0 , 0).equal([40000])
-        env.expect('ft.search', index_list[i], 'foo*', 'LIMIT', 0 , 0).equal([40000])
-        env.expect('ft.search', index_list[i], 'foo1*', 'LIMIT', 0 , 0).equal([1111])
-        env.expect('ft.search', index_list[i], '*ooo1*', 'LIMIT', 0 , 0).equal([2222])
+        env.expect('ft.search', index_list[i], 'f*', 'LIMIT', 0, 0).equal([40000])
+        env.expect('ft.search', index_list[i], 'foo*', 'LIMIT', 0, 0).equal([40000])
+        env.expect('ft.search', index_list[i], 'foo1*', 'LIMIT', 0, 0).equal([1111])
+        env.expect('ft.search', index_list[i], '*ooo1*', 'LIMIT', 0, 0).equal([2222])
 
         # contains
-        env.expect('ft.search', index_list[i], '*oo*', 'LIMIT', 0 , 0).equal([40000])
+        env.expect('ft.search', index_list[i], '*oo*', 'LIMIT', 0, 0).equal([40000])
         # 55xx & x55x & xx55 - 555x - x555 
-        env.expect('ft.search', index_list[i], '*55*', 'LIMIT', 0 , 0).equal([1120])
+        env.expect('ft.search', index_list[i], '*55*', 'LIMIT', 0, 0).equal([1120])
         # 555x & x555 - 5555
-        env.expect('ft.search', index_list[i], '*555*', 'LIMIT', 0 , 0).equal([76])
-        env.expect('ft.search', index_list[i], '*o55*', 'LIMIT', 0 , 0).equal([444])
-        env.expect('ft.search', index_list[i], '*oo55*', 'LIMIT', 0 , 0).equal([333])
-        env.expect('ft.search', index_list[i], '*oo555*', 'LIMIT', 0 , 0).equal([33])
+        env.expect('ft.search', index_list[i], '*555*', 'LIMIT', 0, 0).equal([76])
+        env.expect('ft.search', index_list[i], '*o55*', 'LIMIT', 0, 0).equal([444])
+        env.expect('ft.search', index_list[i], '*oo55*', 'LIMIT', 0, 0).equal([333])
+        env.expect('ft.search', index_list[i], '*oo555*', 'LIMIT', 0, 0).equal([33])
 
         # 23xx & x23x & xx23 - 2323
-        env.expect('ft.search', index_list[i], '*23*', 'LIMIT', 0 , 0).equal([1196])
+        env.expect('ft.search', index_list[i], '*23*', 'LIMIT', 0, 0).equal([1196])
         # 234x & x234
         start = time.time()
-        env.expect('ft.search', index_list[i], '*234*', 'LIMIT', 0 , 0).equal([80])
-        print (time.time() - start)
+        env.expect('ft.search', index_list[i], '*234*', 'LIMIT', 0, 0).equal([80])
+        # print(time.time() - start)
         start = time.time()
-        env.expect('ft.search', index_list[i], '*o23*', 'LIMIT', 0 , 0).equal([444])
-        print (time.time() - start)
-        env.expect('ft.search', index_list[i], '*oo23*', 'LIMIT', 0 , 0).equal([333])
-        env.expect('ft.search', index_list[i], '*oo234*', 'LIMIT', 0 , 0).equal([33])
+        env.expect('ft.search', index_list[i], '*o23*', 'LIMIT', 0, 0).equal([444])
+        # print(time.time() - start)
+        env.expect('ft.search', index_list[i], '*oo23*', 'LIMIT', 0, 0).equal([333])
+        env.expect('ft.search', index_list[i], '*oo234*', 'LIMIT', 0, 0).equal([33])
 
         # suffix
-        env.expect('ft.search', index_list[i], '*oo234', 'LIMIT', 0 , 0).equal([3])
-        env.expect('ft.search', index_list[i], '*234', 'LIMIT', 0 , 0).equal([40])
-        env.expect('ft.search', index_list[i], '*13', 'LIMIT', 0 , 0).equal([400])
+        env.expect('ft.search', index_list[i], '*oo234', 'LIMIT', 0, 0).equal([3])
+        env.expect('ft.search', index_list[i], '*234', 'LIMIT', 0, 0).equal([40])
+        env.expect('ft.search', index_list[i], '*13', 'LIMIT', 0, 0).equal([400])
 
     # test timeout
     env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 'RETURN').ok()
-    env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0 , 0).error() \
+    env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0, 0).error() \
       .contains('Timeout limit was reached')
-    env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
+    env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0, 0).error() \
       .contains('Timeout limit was reached')
 
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
-    env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0 , 0).error() \
+    env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0, 0).error() \
       .contains('Timeout limit was reached')
-    env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
+    env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0, 0).error() \
       .contains('Timeout limit was reached')
 
 def testSanityTags(env):
@@ -163,50 +163,50 @@ def testSanityTags(env):
 
     for i in range(len(index_list)):
         #prefix
-        env.expect('ft.search', index_list[i], '@t:{f*}', 'LIMIT', 0 , 0).equal([40000])
-        env.expect('ft.search', index_list[i], '@t:{foo*}', 'LIMIT', 0 , 0).equal([40000])
-        env.expect('ft.search', index_list[i], '@t:{foo1*}', 'LIMIT', 0 , 0).equal([1111])
-        env.expect('ft.search', index_list[i], '@t:{*ooo1*}', 'LIMIT', 0 , 0).equal([2222])
+        env.expect('ft.search', index_list[i], '@t:{f*}', 'LIMIT', 0, 0).equal([40000])
+        env.expect('ft.search', index_list[i], '@t:{foo*}', 'LIMIT', 0, 0).equal([40000])
+        env.expect('ft.search', index_list[i], '@t:{foo1*}', 'LIMIT', 0, 0).equal([1111])
+        env.expect('ft.search', index_list[i], '@t:{*ooo1*}', 'LIMIT', 0, 0).equal([2222])
 
         # contains
-        env.expect('ft.search', index_list[i], '@t:{*oo*}', 'LIMIT', 0 , 0).equal([40000])
+        env.expect('ft.search', index_list[i], '@t:{*oo*}', 'LIMIT', 0, 0).equal([40000])
         # 55xx & x55x & xx55 - 555x - x555 
-        env.expect('ft.search', index_list[i], '@t:{*55*}', 'LIMIT', 0 , 0).equal([1120])
+        env.expect('ft.search', index_list[i], '@t:{*55*}', 'LIMIT', 0, 0).equal([1120])
         # 555x & x555 - 5555
-        env.expect('ft.search', index_list[i], '@t:{*555*}', 'LIMIT', 0 , 0).equal([76])
-        env.expect('ft.search', index_list[i], '@t:{*o55*}', 'LIMIT', 0 , 0).equal([444])
-        env.expect('ft.search', index_list[i], '@t:{*oo55*}', 'LIMIT', 0 , 0).equal([333])
-        env.expect('ft.search', index_list[i], '@t:{*oo555*}', 'LIMIT', 0 , 0).equal([33])
+        env.expect('ft.search', index_list[i], '@t:{*555*}', 'LIMIT', 0, 0).equal([76])
+        env.expect('ft.search', index_list[i], '@t:{*o55*}', 'LIMIT', 0, 0).equal([444])
+        env.expect('ft.search', index_list[i], '@t:{*oo55*}', 'LIMIT', 0, 0).equal([333])
+        env.expect('ft.search', index_list[i], '@t:{*oo555*}', 'LIMIT', 0, 0).equal([33])
 
         # 23xx & x23x & xx23 - 2323
-        env.expect('ft.search', index_list[i], '@t:{*23*}', 'LIMIT', 0 , 0).equal([1196])
+        env.expect('ft.search', index_list[i], '@t:{*23*}', 'LIMIT', 0, 0).equal([1196])
         # 234x & x234
         start = time.time()
-        env.expect('ft.search', index_list[i], '@t:{*234*}', 'LIMIT', 0 , 0).equal([80])
-        print (time.time() - start)
+        env.expect('ft.search', index_list[i], '@t:{*234*}', 'LIMIT', 0, 0).equal([80])
+        # print(time.time() - start)
         start = time.time()
-        env.expect('ft.search', index_list[i], '@t:{*o23*}', 'LIMIT', 0 , 0).equal([444])
-        print (time.time() - start)
-        env.expect('ft.search', index_list[i], '@t:{*oo23*}', 'LIMIT', 0 , 0).equal([333])
-        env.expect('ft.search', index_list[i], '@t:{*oo234*}', 'LIMIT', 0 , 0).equal([33])
+        env.expect('ft.search', index_list[i], '@t:{*o23*}', 'LIMIT', 0, 0).equal([444])
+        # print(time.time() - start)
+        env.expect('ft.search', index_list[i], '@t:{*oo23*}', 'LIMIT', 0, 0).equal([333])
+        env.expect('ft.search', index_list[i], '@t:{*oo234*}', 'LIMIT', 0, 0).equal([33])
 
         # suffix
-        env.expect('ft.search', index_list[i], '@t:{*oo234}', 'LIMIT', 0 , 0).equal([3])
-        env.expect('ft.search', index_list[i], '@t:{*234}', 'LIMIT', 0 , 0).equal([40])
-        env.expect('ft.search', index_list[i], '@t:{*13}', 'LIMIT', 0 , 0).equal([400])
+        env.expect('ft.search', index_list[i], '@t:{*oo234}', 'LIMIT', 0, 0).equal([3])
+        env.expect('ft.search', index_list[i], '@t:{*234}', 'LIMIT', 0, 0).equal([40])
+        env.expect('ft.search', index_list[i], '@t:{*13}', 'LIMIT', 0, 0).equal([400])
     
     # test timeout
     env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 'RETURN').ok()
-    env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0 , 0).error() \
+    env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0, 0).error() \
       .contains('Timeout limit was reached')
-    env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0 , 0).error() \
+    env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0, 0).error() \
       .contains('Timeout limit was reached')
 
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
-    env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0 , 0).error() \
+    env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0, 0).error() \
       .contains('Timeout limit was reached')
-    env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0 , 0).error() \
+    env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0, 0).error() \
       .contains('Timeout limit was reached')
 
 def testEscape(env):
@@ -364,3 +364,27 @@ def test_params(env):
   env.expect('ft.search', 'idx', '$prefix*', 'PARAMS', 2, 'prefix', 'wor').equal([1, 'doc1', ['t', 'world']])
   env.expect('ft.search', 'idx', '*$contains*', 'PARAMS', 2, 'contains', 'orl').equal([1, 'doc1', ['t', 'world']])
   env.expect('ft.search', 'idx', '*$suffix', 'PARAMS', 2, 'suffix', 'rld').equal([1, 'doc1', ['t', 'world']])
+
+
+def test_issue_3124(env):
+  # test prefix query on field with suffix trie
+  env.skipOnCluster()
+  index_list = ['idx_txt', 'idx_txt_suffix', 'idx_tag', 'idx_tag_suffix']
+  env.cmd('ft.create', 'idx_txt', 'SCHEMA', 't', 'TEXT')
+  env.cmd('ft.create', 'idx_txt_suffix', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
+  env.cmd('ft.create', 'idx_tag', 'SCHEMA', 't', 'TAG')
+  env.cmd('ft.create', 'idx_tag_suffix', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE')
+  conn = getConnectionByEnv(env)
+
+  # insert a single document with value 'hello' in field 't'
+  conn.execute_command('HSET', 'doc', 't', 'hello')
+
+  # test prefix query on field with existing prefix query
+  res_exist1 = env.cmd('ft.search', 'idx_txt', '@t:hell*')
+  res_exist2 = env.cmd('ft.search', 'idx_txt_suffix', '@t:hell*')
+  env.assertEqual(res_exist1, res_exist2)
+
+  # test prefix query on field with non-existing prefix query
+  res_not_exist1 = env.cmd('ft.search', 'idx_txt', '@t:ell*')
+  res_not_exist2 = env.cmd('ft.search', 'idx_txt_suffix', '@t:ell*')
+  env.assertEqual(res_not_exist1, res_not_exist2)

@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef QUERY_INTERNAL_H
 #define QUERY_INTERNAL_H
 
@@ -6,6 +12,7 @@
 #include <query_node.h>
 #include "query_param.h"
 #include "vector_index.h"
+#include "geometry_index.h"
 #include "query_ctx.h"
 
 #ifdef __cplusplus
@@ -61,6 +68,7 @@ QueryNode *NewPhraseNode(int exact);
 QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt, bool prefix, bool suffix);
 QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist);
 QueryNode *NewNumericNode(QueryParam *p);
+QueryNode *NewGeometryNode_FromWkt(const char *geom, size_t len);
 QueryNode *NewGeofilterNode(QueryParam *p);
 QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType type, QueryToken *value, QueryToken *vec);
 QueryNode *NewTagNode(const char *tag, size_t len);

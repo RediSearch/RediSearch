@@ -1,8 +1,16 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef RMUTIL_CMDPARSE_
 #define RMUTIL_CMDPARSE_
 
+#include "redismodule.h"
+
 #include <stdlib.h>
-#include <redismodule.h>
+
 #define CMDPARSE_OK 0
 #define CMDPARSE_ERR 1
 

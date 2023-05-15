@@ -12,7 +12,7 @@ extern "C" {
 
 static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
-  if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION, 
+  if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION,
                        REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
@@ -34,8 +34,8 @@ class MyEnvironment : public ::testing::Environment {
   }
 };
 
-bool RS::deleteDocument(RedisModuleCtx *ctx, IndexSpec *sp, const char *docid) {
-  return RediSearch_DeleteDocument(sp, docid, strlen(docid)) == REDISMODULE_OK;
+bool RS::deleteDocument(RedisModuleCtx *ctx, RSIndex *index, const char *docid) {
+  return RediSearch_DeleteDocument(index, docid, strlen(docid)) == REDISMODULE_OK;
 }
 
 static std::vector<std::string> getResultsCommon(RSIndex *index, RSResultsIterator *it) {

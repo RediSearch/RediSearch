@@ -1,61 +1,13 @@
 
-ifeq (n,$(findstring n,$(firstword -$(MAKEFLAGS))))
-DRY_RUN:=1
-else
-DRY_RUN:=
-endif
-
-ifneq ($(BB),)
-SLOW:=1
-endif
-
-ifneq ($(filter coverage show-cov upload-cov,$(MAKECMDGOALS)),)
-COV=1
-endif
-
-ifneq ($(VG),)
-VALGRIND=$(VG)
-endif
-
-ifeq ($(VALGRIND),1)
-override DEBUG ?= 1
-endif
-
-ifneq ($(SAN),)
-override DEBUG ?= 1
-
-ifeq ($(SAN),mem)
-override SAN=memory
-else ifeq ($(SAN),addr)
-override SAN=address
-endif
-
-ifeq ($(SAN),address)
-CMAKE_SAN=-DUSE_ASAN=ON
-export REDIS_SERVER ?= redis-server-asan-6.2
-
-else ifeq ($(SAN),memory)
-CMAKE_SAN=-DUSE_MSAN=ON -DMSAN_PREFIX=/opt/llvm-project/build-msan
-export REDIS_SERVER ?= redis-server-msan-6.2
-
-else ifeq ($(SAN),leak)
-else ifeq ($(SAN),thread)
-else
-$(error SAN=mem|addr|leak|thread)
-endif
-
-export SAN
-endif # SAN
-
-#----------------------------------------------------------------------------------------------
+.NOTPARALLEL:
 
 ROOT=.
 
-ifeq ($(wildcard $(ROOT)/deps/readies/*),)
-___:=$(shell git submodule update --init --recursive &> /dev/null)
-endif
+MK.cmake=1
+SRCDIR=.
 
-MK.pyver:=3
+MACOS_PACKAGES=openssl boost
+
 include deps/readies/mk/main
 
 #----------------------------------------------------------------------------------------------
@@ -69,7 +21,6 @@ make build          # compile and link
   STATIC=1            # build as static lib
   LITE=1              # build RediSearchLight
   DEBUG=1             # build for debugging
-  STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
   NO_TESTS=1          # disable unit tests
   WHY=1               # explain CMake decisions (in /tmp/cmake-why)
   FORCE=1             # Force CMake rerun (default)
@@ -77,24 +28,25 @@ make build          # compile and link
   VG=1                # build for Valgrind
   SAN=type            # build with LLVM sanitizer (type=address|memory|leak|thread) 
   SLOW=1              # do not parallelize build (for diagnostics)
+  GCC=1               # build with GCC (default unless Sanitizer)
+  CLANG=1             # build with CLang
+  STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
 make parsers       # build parsers code
 make clean         # remove build artifacts
-  ALL=1              # remove entire artifacts directory
+  ALL=1|all          # remove entire artifacts directory (all: remove Conan artifacts)
 
 make run           # run redis with RediSearch
   GDB=1              # invoke using gdb
 
-make test          # run all tests (via ctest)
+make test          # run all tests
   COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
-  TEST=regex         # run tests that match regex
-  TESTDEBUG=1        # be very verbose (CTest-related)
-  CTEST_ARG=...      # pass args to CTest
-  CTEST_PARALLEL=n   # run ctests in n parallel jobs
+  TEST=name          # run specified test
+
 make pytest        # run python tests (tests/pytests)
   COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=name          # e.g. TEST=test:testSearch
   RLTEST_ARGS=...    # pass args to RLTest
-  REJSON=1|0         # also load RedisJSON module
+  REJSON=1|0|get     # also load RedisJSON module (default: 1)
   REJSON_PATH=path   # use RedisJSON module at `path`
   EXT=1              # External (existing) environment
   GDB=1              # RLTest interactive debugging
@@ -102,10 +54,13 @@ make pytest        # run python tests (tests/pytests)
   VG_LEAKS=0         # do not search leaks with Valgrind
   SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
   ONLY_STABLE=1      # skip unstable tests
-make c_tests       # run C tests (from tests/ctests)
-make cpp_tests     # run C++ tests (from tests/cpptests)
+  TEST_PARALLEL=n    # test parallalization
+
+make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
-  BENCHMARK=1		 # run micro-benchmark
+make c-tests       # run C tests (from tests/ctests)
+make cpp-tests     # run C++ tests (from tests/cpptests)
+make vecsim-bench  # run VecSim micro-benchmark
 
 make callgrind     # produce a call graph
   REDIS_ARGS="args"
@@ -129,6 +84,7 @@ make docker        # build for specified platform
   TEST=1             # run tests after build
   PACK=1             # create package
   ARTIFACTS=1        # copy artifacts to host
+  VERIFY=1           # verify docker is intact
 
 make box           # create container with volumen mapping into /search
   OSNICK=nick        # platform spec
@@ -141,31 +97,28 @@ endef
 ifeq ($(COORD),) # Standalone build
 
 	ifeq ($(STATIC),1) # Static build
-		CMAKE_DIR=$(ROOT)
 		BINDIR=$(BINROOT)/search-static
-		SRCDIR=src
+		SRCDIR=.
 		TARGET=$(BINDIR)/redisearch.a
 		PACKAGE_NAME=
-		RAMP_MODULE_NAME=
+		MODULE_NAME=
 		RAMP_YAML=
 
 	else ifneq ($(LITE),1) # OSS Search
-		CMAKE_DIR=$(ROOT)
 		BINDIR=$(BINROOT)/search
-		SRCDIR=src
+		SRCDIR=.
 		TARGET=$(BINDIR)/redisearch.so
 		PACKAGE_NAME=redisearch-oss
-		RAMP_MODULE_NAME=search
+		MODULE_NAME=search
 		RAMP_YAML=pack/ramp.yml
 		PACKAGE_S3_DIR=redisearch-oss
 
 	else # Search Lite
-		CMAKE_DIR=$(ROOT)
 		BINDIR=$(BINROOT)/search-lite
-		SRCDIR=src
+		SRCDIR=.
 		TARGET=$(BINDIR)/redisearch.so
 		PACKAGE_NAME=redisearch-light
-		RAMP_MODULE_NAME=searchlight
+		MODULE_NAME=searchlight
 		RAMP_YAML=pack/ramp-light.yml
 		PACKAGE_S3_DIR=redisearch
 	endif
@@ -181,21 +134,19 @@ else # COORD
 	endif
 
 	ifeq ($(COORD),oss) # OSS Coordinator
-		CMAKE_DIR=$(ROOT)/coord
 		BINDIR=$(BINROOT)/coord-oss
-		SRCDIR=coord/src
+		SRCDIR=coord
 		TARGET=$(BINDIR)/module-oss.so
 		PACKAGE_NAME=redisearch
-		RAMP_MODULE_NAME=search
+		MODULE_NAME=search
 		RAMP_YAML=
 
 	else ifeq ($(COORD),rlec) # RLEC Coordinator
-		CMAKE_DIR=$(ROOT)/coord
 		BINDIR=$(BINROOT)/coord-rlec
-		SRCDIR=coord/src
+		SRCDIR=coord
 		TARGET=$(BINDIR)/module-enterprise.so
 		PACKAGE_NAME=redisearch
-		RAMP_MODULE_NAME=search
+		MODULE_NAME=search
 		RAMP_YAML=coord/pack/ramp.yml
 		PACKAGE_S3_DIR=redisearch
 
@@ -203,70 +154,48 @@ else # COORD
 		___:=$(error COORD should be either oss or rlec)
 	endif
 
-	export LIBUV_BINDIR=$(realpath bin/$(FULL_VARIANT.release)/libuv)
+	LIBUV_DIR=$(ROOT)/deps/libuv
+	export LIBUV_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/libuv
 	include build/libuv/Makefile.defs
 
-	HIREDIS_BINDIR=bin/$(FULL_VARIANT.release)/hiredis
+	HIREDIS_DIR=$(ROOT)/deps/hiredis
+	HIREDIS_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/hiredis
 	include build/hiredis/Makefile.defs
 
 endif # COORD
 
 export COORD
-
-#----------------------------------------------------------------------------------------------
-
 export PACKAGE_NAME
 
+ifeq ($(REDISEARCH_POWER_TO_THE_WORKERS),1)
+CC_FLAGS.common += -DPOWER_TO_THE_WORKERS
+endif
+
 #----------------------------------------------------------------------------------------------
 
-STATIC_LIBSTDCXX ?= 1
+CC_C_STD=gnu99
+# CC_CXX_STD=c++11
 
-ifeq ($(COV),1)
-CMAKE_COV += -DUSE_COVERAGE=ON
-endif
+CC_STATIC_LIBSTDCXX ?= 1
 
-ifneq ($(SAN),)
-CMAKE_SAN += -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
-endif
+CC_COMMON_H=src/common.h
 
-ifeq ($(PROFILE),1)
-CMAKE_PROFILE=-DPROFILE=ON
-endif
-
-ifeq ($(STATIC_LIBSTDCXX),1)
-CMAKE_STATIC_LIBSTDCXX=-DSTATIC_LIBSTDCXX=on
-else
-CMAKE_STATIC_LIBSTDCXX=-DSTATIC_LIBSTDCXX=off
-endif
-
-ifeq ($(DEBUG),1)
-CMAKE_BUILD_TYPE=DEBUG
-else
-CMAKE_BUILD_TYPE=RelWithDebInfo
-endif
-CMAKE_DEBUG=-DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE)
+#----------------------------------------------------------------------------------------------
 
 ifneq ($(NO_TESTS),1)
-CMAKE_TEST=-DRS_RUN_TESTS=ON
-# -DRS_VERBOSE_TESTS=ON
-endif
-
-ifeq ($(WHY),1)
-CMAKE_WHY=--trace-expand > /tmp/cmake-why 2>&1
+CMAKE_TEST=-DBUILD_TESTS=ON
 endif
 
 ifeq ($(STATIC),1)
-CMAKE_STATIC += -DRS_BUILD_STATIC=ON
+CMAKE_STATIC += -DBUILD_STATIC=ON
 endif
 
 ifneq ($(COORD),)
-CMAKE_COORD += -DRS_COORD_TYPE=$(COORD)
+CMAKE_COORD += -DCOORD_TYPE=$(COORD)
 endif
 
 CMAKE_FILES= \
 	CMakeLists.txt \
-	build/cmake/redisearch_cflags.cmake \
-	build/cmake/redisearch_debug.cmake \
 	deps/friso/CMakeLists.txt \
 	deps/phonetics/CMakeLists.txt \
 	deps/snowball/CMakeLists.txt \
@@ -284,31 +213,26 @@ CMAKE_FILES+= \
 	tests/c_utils/CMakeLists.txt
 endif
 
-export OPENSSL_ROOT_DIR:=$(LIBSSL_PREFIX)
-
 #----------------------------------------------------------------------------------------------
 
-HAVE_MARCH_OPTS:=$(shell $(MK)/cc-have-opts)
-CMAKE_CXX_MARCH_FLAGS=$(foreach opt,$(HAVE_MARCH_OPTS),-D$(opt))
-CMAKE_HAVE_MARCH_OPTS=$(foreach opt,$(HAVE_MARCH_OPTS),-D$(opt)=on) -DMARCH_CXX_FLAGS="$(CMAKE_CXX_MARCH_FLAGS)"
-
-#----------------------------------------------------------------------------------------------
-
-CMAKE_FLAGS=\
-	-Wno-dev \
-	-DGIT_SHA=$(GIT_SHA) \
-	-DGIT_VERSPEC=$(GIT_VERSPEC) \
-	-DRS_MODULE_NAME=$(RAMP_MODULE_NAME) \
-	-DOS=$(OS) \
-	-DOSNICK=$(OSNICK) \
-	-DARCH=$(ARCH)
-
-ifeq ($(OS),macos)
-CMAKE_FLAGS += -DLIBSSL_DIR=$(LIBSSL_PREFIX)
+_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME)
+ifneq ($(filter $(OSNICK),bionic amzn2),)
+_CMAKE_FLAGS += -DCANON_BOOST=on
 endif
 
-CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_COV) \
-	$(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE) $(CMAKE_STATIC_LIBSTDCXX)
+ifeq ($(OS),macos)
+_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DBOOST_DIR=$(boost_prefix)
+endif
+
+_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) 
+
+#----------------------------------------------------------------------------------------------
+
+BOOST_INC_PATH.centos:=/usr/include/boost169
+CC_INCLUDES.centos7 += $(BOOST_INC_PATH.centos)
+CC_INCLUDES.centos8 += $(BOOST_INC_PATH.centos)
+
+CC_INCLUDES.macos += $(boost_prefix)/include
 
 #----------------------------------------------------------------------------------------------
 
@@ -319,18 +243,35 @@ MK_CUSTOM_CLEAN=1
 #----------------------------------------------------------------------------------------------
 
 MISSING_DEPS:=
+
+export CONAN_BINDIR:=$(ROOT)/bin/$(shell $(READIES)/bin/platform -t)/conan
+include build/conan/Makefile.defs
+
+# S2GEOMETRY_DIR=$(ROOT)/deps/s2geometry
+# export S2GEOMETRY_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/s2geometry
+# include build/s2geometry/Makefile.defs
+
+ifeq ($(wildcard $(CONAN_PRESETS)),)
+MISSING_DEPS += $(CONAN_PRESETS)
+endif
+
+# ifeq ($(wildcard $(S2GEOMETRY)),)
+# MISSING_DEPS += $(S2GEOMETRY)
+# endif
+
 ifeq ($(wildcard $(LIBUV)),)
 MISSING_DEPS += $(LIBUV)
 endif
+
 ifeq ($(wildcard $(HIREDIS)),)
-MISSING_DEPS += $(HIREDIS)
+#@@ MISSING_DEPS += $(HIREDIS)
 endif
 
 ifneq ($(MISSING_DEPS),)
 DEPS=1
 endif
 
-DEPENDENCIES=libuv hiredis
+DEPENDENCIES=conan libuv #@@  s2geometry hiredis
 
 ifneq ($(filter all deps $(DEPENDENCIES) pack,$(MAKECMDGOALS)),)
 DEPS=1
@@ -344,43 +285,20 @@ all: bindirs $(TARGET)
 
 include $(MK)/rules
 
-FORCE?=1
-
-ifeq ($(SLOW),1)
-MAKE_J=
-else
-MAKE_J:=-j$(shell nproc)
-endif
-
-ifeq ($(FORCE),1)
-.PHONY: __force
-
-$(BINDIR)/Makefile: __force
-else
-$(BINDIR)/Makefile : $(CMAKE_FILES)
-endif
-ifeq ($(WHY),1)
-	@echo CMake log is in /tmp/cmake-why
-endif
-	$(SHOW)mkdir -p $(BINROOT)
-	$(SHOW)cd $(BINDIR) && cmake $(CMAKE_DIR) $(CMAKE_FLAGS)
-
-$(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile
-	@echo Building $(TARGET) ...
-ifneq ($(DRY_RUN),1)
-	$(SHOW)$(MAKE) -C $(BINDIR) $(MAKE_J)
-else
-	@make -C $(BINDIR) $(MAKE_J)
-endif
-
-.PHONY: build clean run 
-
 clean:
 ifeq ($(ALL),1)
 	$(SHOW)rm -rf $(BINROOT)
+else ifeq ($(ALL),all)
+	$(SHOW)rm -rf $(BINROOT)
+	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG='' clean
 else
 	$(SHOW)$(MAKE) -C $(BINDIR) clean
 endif
+
+clean-conan:
+	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG='' clean
+
+.PHONY: clean-conan
 
 #----------------------------------------------------------------------------------------------
 
@@ -403,7 +321,19 @@ endif
 
 ifeq ($(DEPS),1)
 
-deps: $(LIBUV) $(HIREDIS)
+deps: $(CONAN_PRESETS) $(LIBUV) #@@ $(HIREDIS) $(S2GEOMETRY)
+
+conan: $(CONAN_PRESETS)
+
+$(CONAN_PRESETS):
+	@echo Fetching conan libraries...
+	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG=''
+
+# s2geometry: $(S2GEOMETRY)
+# 
+# $(S2GEOMETRY):
+# 	@echo Building s2geometry...
+# 	$(SHOW)$(MAKE) --no-print-directory -C build/s2geometry DEBUG=''
 
 libuv: $(LIBUV)
 
@@ -429,143 +359,97 @@ endif # DEPS
 
 setup:
 	@echo Setting up system...
-	$(SHOW)./deps/readies/bin/getpy3
-	$(SHOW)./sbin/system-setup.py 
-
-#----------------------------------------------------------------------------------------------
+	$(SHOW)./sbin/setup
 
 fetch:
 	-git submodule update --init --recursive
+
+.PHONY: setup fetch
 
 #----------------------------------------------------------------------------------------------
 
 run:
 ifeq ($(GDB),1)
-	gdb -ex r --args redis-server --loadmodule $(abspath $(TARGET))
+ifeq ($(CLANG),1)
+	$(SHOW)lldb -o run -- redis-server --loadmodule $(abspath $(TARGET))
 else
-	@redis-server --loadmodule $(abspath $(TARGET))
+	$(SHOW)gdb -ex r --args redis-server --loadmodule $(abspath $(TARGET))
 endif
+else
+	$(SHOW)redis-server --loadmodule $(abspath $(TARGET))
+endif
+
+.PHONY: run
+
+#----------------------------------------------------------------------------------------------
+
+CTEST_DEFS=\
+	BINROOT=$(BINROOT) \
+	BINDIR=$(BINDIR) \
+	COV=$(COV) \
+	SAN=$(SAN) \
+	SLOW=$(SLOW)
 
 #----------------------------------------------------------------------------------------------
 
 export REJSON ?= 1
 
-ifneq ($(SAN),)
-export ASAN_OPTIONS=detect_odr_violation=0
-endif
-
-ifeq ($(TESTDEBUG),1)
-override CTEST_ARGS.debug += --debug
-endif
-
-ifeq ($(SLOW),1)
-	override CTEST_PARALLEL=
-else
-	ifneq ($(SAN),)
-		override CTEST_PARALLEL=
-	else ifeq ($(COV),1)
-		override CTEST_PARALLEL=
-	else
-		# CTEST_PARALLEL:=$(shell $(ROOT)/deps/readies/bin/nproc)
-		override CTEST_PARALLEL=
-	endif
-endif # !SLOW
-
-ifneq ($(CTEST_PARALLEL),)
-CTEST_ARGS.parallel += -j$(CTEST_PARALLEL)
-endif
-
-override CTEST_ARGS += \
-	--output-on-failure \
-	--timeout 15000 \
-	$(CTEST_ARGS.debug) \
-	$(CTEST_ARGS.parallel)
-
-CTEST_DEFS += \
-	BINROOT=$(BINROOT)
-
-override FLOW_TESTS_ARGS+=\
-	BINROOT=$(BINROOT) \
-	VG=$(VALGRIND) VG_LEAKS=0
-
-ifeq ($(EXT),1)
-FLOW_TESTS_ARGS += EXISTING_ENV=1
-endif
-
-export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
-
 ifneq ($(REJSON),0)
 ifneq ($(SAN),)
 REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
+REJSON_PATH=$(REJSON_SO)
 
 $(REJSON_SO):
 	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
 else
 REJSON_SO=
 endif
-endif
 
-ifeq ($(SLOW),1)
-_RLTEST_PARALLEL=0
-else
-# _RLTEST_PARALLEL=1
-_RLTEST_PARALLEL=8
-endif
-
-test: $(REJSON_SO)
-ifneq ($(TEST),)
-	$(SHOW)set -e; cd $(BINDIR); $(CTEST_DEFS) RLTEST_ARGS+="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
-else
-ifeq ($(ARCH),arm64v8)
-	$(SHOW)$(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
-else
-	$(SHOW)set -e; cd $(BINDIR); $(CTEST_DEFS) ctest $(CTEST_ARGS)
-endif
-ifeq ($(COORD),oss)
-	$(SHOW)$(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
-endif
-endif
-
-pytest: $(REJSON_SO)
-	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' PARALLEL=$(_RLTEST_PARALLEL) $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+endif # REJSON=0
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(GDB),1)
-GDB_CMD=gdb -ex r --args
+FLOW_TESTS_DEFS=\
+	BINROOT=$(BINROOT) \
+	VG=$(VALGRIND) \
+	VG_LEAKS=0 \
+	SAN=$(SAN) \
+	EXT=$(EXT)
+
+export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
+
+ifeq ($(SLOW),1)
+_TEST_PARALLEL=0
+else ifeq ($(TEST_PARALLEL),)
+_TEST_PARALLEL=1
 else
-GDB_CMD=
+_TEST_PARALLEL=$(TEST_PARALLEL)
 endif
 
-c_tests:
-ifeq ($(COORD),)
-ifeq ($(TEST),)
-	$(SHOW)set -e ;\
-	cd tests/ctests ;\
-	find $(abspath $(BINROOT)/search/tests/ctests) -name "test_*" -type f -executable -print0 | xargs -0 -n1 bash -c
-else
-	$(SHOW)set -e ;\
-	cd tests/ctests ;\
-	${GDB_CMD} $(BINROOT)/search/tests/ctests/$(TEST)
-endif
-else ifeq ($(COORD),oss)
-ifeq ($(TEST),)
-	$(SHOW)set -e; find $(abspath $(BINROOT)/coord-oss/tests/unit) -name "test_*" -type f -executable -print0 | xargs -0 -n1 bash -c
-else
-	$(SHOW)${GDB_CMD} $(BINROOT)/coord-oss/tests/unit/$(TEST)
-endif
-endif
+test: unit-tests pytest
 
-cpp_tests:
-ifeq ($(BENCHMARK), 1)
+unit-tests:
+	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+
+pytest: $(REJSON_SO)
+ifneq ($(REJSON_PATH),)
+	@echo Testing with $(REJSON_PATH)
+endif
+	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
+		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+
+#----------------------------------------------------------------------------------------------
+
+c-tests:
+	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) C_TESTS=1 TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+
+cpp-tests:
+	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) CPP_TESTS=1 BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+
+vecsim-bench:
 	$(SHOW)$(BINROOT)/search/tests/cpptests/rsbench
-else ifeq ($(TEST),)
-	$(SHOW)$(BINROOT)/search/tests/cpptests/rstest
-else
-	$(SHOW)$(GDB_CMD) $(abspath $(BINROOT)/search/tests/cpptests/rstest) --gtest_filter=$(TEST)
-endif
 
-.PHONY: test pytest c_tests cpp_tests
+.PHONY: test unit-tests pytest c_tests cpp_tests vecsim-bench
 
 #----------------------------------------------------------------------------------------------
 
@@ -589,20 +473,24 @@ callgrind: $(TARGET)
 
 #----------------------------------------------------------------------------------------------
 
-RAMP_VARIANT=$(subst release,,$(FLAVOR))$(_VARIANT.string)
-
-RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
-
 ifneq ($(RAMP_YAML),)
 
+# RAMP_VARIANT=$(subst release,,$(FLAVOR))$(_VARIANT.string)
+
 PACK_ARGS=\
-	VARIANT=$(RAMP_VARIANT) \
+	VARIANT=$(VARIANT) \
 	PACKAGE_NAME=$(PACKAGE_NAME) \
-	MODULE_NAME=$(RAMP_MODULE_NAME) \
+	MODULE_NAME=$(MODULE_NAME) \
 	RAMP_YAML=$(RAMP_YAML) \
 	RAMP_ARGS=$(RAMP_ARGS)
 
-bin/artifacts/$(RAMP.release) : $(RAMP_YAML) $(TARGET)
+RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 $(PACK_ARGS) $(ROOT)/sbin/pack.sh)
+
+ifneq ($(FORCE),1)
+bin/artifacts/$(RAMP.release): $(RAMP_YAML) # $(TARGET)
+else
+bin/artifacts/$(RAMP.release): __force
+endif
 	@echo Packing module...
 	$(SHOW)$(PACK_ARGS) $(ROOT)/sbin/pack.sh $(TARGET)
 
@@ -650,32 +538,29 @@ benchmark:
 #----------------------------------------------------------------------------------------------
 
 COV_EXCLUDE_DIRS += \
+	bin \
 	deps \
 	tests \
 	coord/tests
 
 COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
-ifneq ($(REJSON_PATH),)
-export REJSON_PATH
-else
+ifeq ($(REJSON_PATH),)
 REJSON_MODULE_FILE:=$(shell mktemp /tmp/rejson.XXXX)
+REJSON_COV_ARG=REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
 endif
 
 coverage:
 ifeq ($(REJSON_PATH),)
-	$(SHOW)MODULE_FILE=$(REJSON_MODULE_FILE) ./sbin/get-redisjson
+	$(SHOW)OSS=1 MODULE_FILE=$(REJSON_MODULE_FILE) ./sbin/get-redisjson
 endif
 	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)$(MAKE) build COORD=oss COV=1
 	$(SHOW)$(COVERAGE_RESET)
-ifneq ($(REJSON_PATH),)
-	-$(SHOW)$(MAKE) test COV=1
-	-$(SHOW)$(MAKE) test COORD=oss COV=1
-else
-	-$(SHOW)$(MAKE) test COV=1 REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
-	-$(SHOW)$(MAKE) test COORD=oss COV=1 REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
-endif
+	-$(SHOW)$(MAKE) unit-tests COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) pytest COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) unit-tests COORD=oss COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) pytest COORD=oss COV=1 $(REJSON_COV_ARG)
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
 .PHONY: coverage
@@ -684,6 +569,9 @@ endif
 
 docker:
 	$(SHOW)$(MAKE) -C build/docker
+ifeq ($(VERIFY),1)
+	$(SHOW)$(MAKE) -C build/docker verify
+endif
 
 # box:
 # ifneq ($(OSNICK),)
@@ -697,6 +585,6 @@ SANBOX_ARGS += -v /w:/w
 endif
 
 sanbox:
-	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:13-x64-bullseye bash
+	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:16-x64-bullseye bash
 
 .PHONY: box sanbox

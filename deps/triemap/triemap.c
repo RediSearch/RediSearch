@@ -79,6 +79,23 @@ TrieMapNode *__trieMapNode_AddChild(TrieMapNode *n, char *str, tm_len_t offset, 
   return n;
 }
 
+TrieMapNode *__trieMapNode_AddChildIdx(TrieMapNode *n, char *str, tm_len_t offset, tm_len_t len,
+                                    void *value, int idx) {
+  // make room for another child
+  n = __trieMapNode_resizeChildren(n, 1);
+
+  // a newly added child must be a terminal node
+  TrieMapNode *child = __newTrieMapNode(str, offset, len, 0, value, 1);
+
+  if (n->numChildren > 1) {
+    memmove(__trieMapNode_childKey(n, idx + 1), __trieMapNode_childKey(n, idx), n->numChildren - idx - 1);
+    memmove(__trieMapNode_children(n) + idx + 1, __trieMapNode_children(n) + idx, (n->numChildren - idx - 1) * sizeof(TrieMapNode *));
+  }
+  *__trieMapNode_childKey(n, idx) = str[offset];
+  __trieMapNode_children(n)[idx] = child;
+  return n;
+}
+
 TrieMapNode *__trieMapNode_Split(TrieMapNode *n, tm_len_t offset) {
   // Copy the current node's data and children to a new child node
   TrieMapNode *newChild = __newTrieMapNode(n->str, offset, n->len, n->numChildren, n->value,
@@ -129,8 +146,9 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
       n->value = value;
       n->flags |= TM_NODE_TERMINAL;
     } else {
-      // we add a child
-      n = __trieMapNode_AddChild(n, str, offset, len, value);
+      // a node after a split has a single child
+      int idx = str[offset] > *__trieMapNode_childKey(n, 0) ? 1 : 0;
+      n = __trieMapNode_AddChildIdx(n, str, offset, len, value, idx);
       rv++;
     }
     *np = n;
@@ -172,7 +190,10 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
     __trieMapNode_children(n)[char_offset] = child;
     return rv;
   }
-  *np = __trieMapNode_AddChild(n, str, offset, len, value);
+  
+  ptr = childKeys; 
+  while(ptr < childKeys + n->numChildren && *ptr < c) {++ptr;}
+  *np = __trieMapNode_AddChildIdx(n, str, offset, len, value, ptr - childKeys);
   return ++rv;
 }
 
@@ -1076,7 +1097,7 @@ int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len,
         }
         case FULL_MATCH: {
           // if query string ends with *, all following children are a match
-          if (it->buf[array_len(it->buf) - 1] == '*') {
+          if (it->prefix[it->prefixLen - 1] == '*') {
             current->found = true;
           }
           // current node is terminal and should be returned
@@ -1198,14 +1219,4 @@ void *TrieMap_RandomValueByPrefix(TrieMap *t, const char *prefix, tm_len_t pflen
     return n->value;
   }
   return NULL;
-}
-
-int TrieMap_RandomKey(TrieMap *t, char **str, tm_len_t *len, void **ptr) {
-  if (t->cardinality == 0) {
-    return 0;
-  }
-  // TODO: deduce steps from cardinality properly
-  TrieMapNode *n = TrieMapNode_RandomWalk(t->root, (int)round(log2(1 + t->cardinality)), str, len);
-  *ptr = n->value;
-  return 1;
 }

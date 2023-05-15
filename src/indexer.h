@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef INDEXER_H
 #define INDEXER_H
 
@@ -6,14 +12,37 @@
 #include "util/block_alloc.h"
 #include "concurrent_ctx.h"
 #include "util/arr.h"
+#include "geometry_index.h"
 // Preprocessors can store field data to this location
 typedef struct FieldIndexerData {
-  double numeric;  // i.e. the numeric value of the field
-  const char *geoSlon;
-  const char *geoSlat;
-  char **tags;
-  const void *vector;
-  size_t vecLen;
+  int isMulti;
+  int isNull;
+  struct {
+    // This is a struct and not a union since when FieldSpec options is `FieldSpec_Dynamic`:
+    // it can store data as several types, e.g., as numeric and as tag)
+
+    // Single value
+    double numeric;  // i.e. the numeric value of the field
+    arrayof(char*) tags;
+    struct {
+      const void *vector;
+      size_t vecLen;
+      size_t numVec;
+    };
+
+    // Multi value
+    arrayof(double) arrNumeric;
+
+    struct {
+      const char *str;
+      size_t strlen;
+      GEOMETRY_FORMAT format;
+    };
+    // struct {
+    //   arrayof(GEOMETRY) arrGeometry;
+    // };
+  };
+
 } FieldIndexerData;
 
 typedef struct DocumentIndexer {
@@ -62,7 +91,7 @@ int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx);
  *
  * This function is called with the GIL released.
  */
-typedef int (*PreprocessorFunc)(RSAddDocumentCtx *aCtx, const DocumentField *field,
+typedef int (*PreprocessorFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, DocumentField *field,
                                 const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 
 /**
@@ -78,8 +107,6 @@ typedef struct {
   FieldType typemask;
   int found;
 } IndexBulkData;
-
-// IndexerBulkAdd(bulk, cur, sctx, doc->fields + ii, fs, fdata, &cur->status);
 
 int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,

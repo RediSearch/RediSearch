@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "forward_index.h"
 #include "stopwords.h"
 #include "tokenize.h"
@@ -188,8 +194,8 @@ RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *s
 RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
   if (!tokpoolCn_g) {
     mempool_options opts = {
-        .isGlobal = 1, .initialCap = 16, .alloc = newCnTokenizerAlloc, .free = tokenizerFree};
-    tokpoolCn_g = mempool_new(&opts);
+        .initialCap = 16, .alloc = newCnTokenizerAlloc, .free = tokenizerFree};
+    mempool_test_set_global(&tokpoolCn_g, &opts);
   }
 
   RSTokenizer *t = mempool_get(tokpoolCn_g);
@@ -200,8 +206,8 @@ RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
 RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
   if (!tokpoolLatin_g) {
     mempool_options opts = {
-        .isGlobal = 1, .initialCap = 16, .alloc = newLatinTokenizerAlloc, .free = tokenizerFree};
-    tokpoolLatin_g = mempool_new(&opts);
+        .initialCap = 16, .alloc = newLatinTokenizerAlloc, .free = tokenizerFree};
+    mempool_test_set_global(&tokpoolLatin_g, &opts);
   }
   RSTokenizer *t = mempool_get(tokpoolLatin_g);
   t->Reset(t, stemmer, stopwords, 0);

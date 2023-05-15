@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 /* Hash Tables Implementation.
  *
  * This file implements in-memory hash tables with insert/del/replace/find/
@@ -147,8 +153,8 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 #define dictSlots(d) ((d)->ht[0].size+(d)->ht[1].size)
 #define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
 #define dictIsRehashing(d) ((d)->rehashidx != -1)
-#define dictPauseRehashing(d) __atomic_add_fetch(&(d)->pauserehash, 1, __ATOMIC_RELAXED)
-#define dictResumeRehashing(d) __atomic_add_fetch(&(d)->pauserehash, -1, __ATOMIC_RELAXED)
+#define dictPauseRehashing(d) (__atomic_fetch_add(&(d)->pauserehash, 1, __ATOMIC_RELAXED) >= 0)
+#define dictResumeRehashing(d) (__atomic_fetch_add(&(d)->pauserehash, -1, __ATOMIC_RELAXED) > 0)
 
 /* API */
 dict *dictCreate(dictType *type, void *privDataPtr);

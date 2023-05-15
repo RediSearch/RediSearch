@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "cluster.h"
 #include "hiredis/adapters/libuv.h"
 #include "triemap/triemap.h"
@@ -61,16 +67,16 @@ void _MRClsuter_UpdateNodes(MRCluster *cl) {
   }
 }
 
-MRCluster *MR_NewCluster(MRClusterTopology *initialTopolgy, ShardFunc sf,
+MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, ShardFunc sf,
                          long long minTopologyUpdateInterval) {
-  MRCluster *cl = malloc(sizeof(MRCluster));
+  MRCluster *cl = rm_malloc(sizeof(MRCluster));
   cl->sf = sf;
   cl->topologyUpdateMinInterval = minTopologyUpdateInterval;
   cl->lastTopologyUpdate = 0;
-  cl->topo = initialTopolgy;
+  cl->topo = initialTopology;
   cl->nodeMap = NULL;
   cl->myNode = NULL;  // tODO: discover local ip/port
-  MRConnManager_Init(&cl->mgr, MR_CONN_POOL_SIZE);
+  MRConnManager_Init(&cl->mgr, conn_pool_size);
 
   if (cl->topo) {
     _MRClsuter_UpdateNodes(cl);
@@ -287,10 +293,10 @@ void MRClusterTopology_Free(MRClusterTopology *t) {
     for (int n = 0; n < t->shards[s].numNodes; n++) {
       MRClusterNode_Free(&t->shards[s].nodes[n]);
     }
-    free(t->shards[s].nodes);
+    rm_free(t->shards[s].nodes);
   }
-  free(t->shards);
-  free(t);
+  rm_free(t->shards);
+  rm_free(t);
 }
 
 int MRClusterTopology_IsValid(MRClusterTopology *t) {
@@ -312,9 +318,10 @@ size_t MRCluster_NumShards(MRCluster *cl) {
   }
   return 0;
 }
+
 void MRClusterNode_Free(MRClusterNode *n) {
   MREndpoint_Free(&n->endpoint);
-  free((char *)n->id);
+  rm_free((char *)n->id);
 }
 
 void _clusterConnectAllCB(uv_work_t *wrk) {
@@ -374,7 +381,7 @@ MRClusterShard MR_NewClusterShard(mr_slot_t startSlot, mr_slot_t endSlot, size_t
       .endSlot = endSlot,
       .capNodes = capNodes,
       .numNodes = 0,
-      .nodes = calloc(capNodes, sizeof(MRClusterNode)),
+      .nodes = rm_calloc(capNodes, sizeof(MRClusterNode)),
   };
   return ret;
 }
@@ -382,24 +389,36 @@ MRClusterShard MR_NewClusterShard(mr_slot_t startSlot, mr_slot_t endSlot, size_t
 void MRClusterShard_AddNode(MRClusterShard *sh, MRClusterNode *n) {
   if (sh->capNodes == sh->numNodes) {
     sh->capNodes += 1;
-    sh->nodes = realloc(sh->nodes, sh->capNodes * sizeof(MRClusterNode));
+    sh->nodes = rm_realloc(sh->nodes, sh->capNodes * sizeof(MRClusterNode));
   }
   sh->nodes[sh->numNodes++] = *n;
 }
 
 MRClusterTopology *MR_NewTopology(size_t numShards, size_t numSlots) {
-  MRClusterTopology *topo = calloc(1, sizeof(*topo));
+  MRClusterTopology *topo = rm_calloc(1, sizeof(*topo));
   topo->capShards = numShards;
   topo->numShards = 0;
   topo->numSlots = numSlots;
-  topo->shards = calloc(topo->capShards, sizeof(MRClusterShard));
+  topo->shards = rm_calloc(topo->capShards, sizeof(MRClusterShard));
   return topo;
 }
 
 void MRClusterTopology_AddShard(MRClusterTopology *topo, MRClusterShard *sh) {
   if (topo->capShards == topo->numShards) {
     topo->capShards++;
-    topo->shards = realloc(topo->shards, topo->capShards * sizeof(MRClusterShard));
+    topo->shards = rm_realloc(topo->shards, topo->capShards * sizeof(MRClusterShard));
   }
   topo->shards[topo->numShards++] = *sh;
+}
+
+void MRClust_Free(MRCluster *cl) {
+  if (cl) {
+    if (cl->topo)
+      MRClusterTopology_Free(cl->topo);
+    if (cl->nodeMap)
+      MRNodeMap_Free(cl->nodeMap);
+    if (cl->mgr.map)
+      MRConnManager_Free(&cl->mgr);
+    rm_free(cl);
+  }
 }

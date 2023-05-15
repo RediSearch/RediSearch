@@ -1,23 +1,24 @@
 ---
-syntax: 
+syntax: |
+  FT.ALTER {index} [SKIPINITIALSCAN] SCHEMA ADD {attribute} {options} ...
 ---
 
 Add a new attribute to the index. Adding an attribute to the index causes any future document updates to use the new attribute when indexing and reindexing existing documents.
 
-## Syntax
-
-{{< highlight bash >}}
-FT.ALTER {index} SCHEMA ADD {attribute} {options} ...
-{{< / highlight >}}
-
 [Examples](#examples)
 
-## Required parameters
+## Required arguments
 
 <details open>
 <summary><code>index</code></summary> 
 
 is index name to create. 
+</details>
+
+<details open>
+<summary><code>SKIPINITIALSCAN</code></summary> 
+
+if set, does not scan and index.
 </details>
 
 <details open>

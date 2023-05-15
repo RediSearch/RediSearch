@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #pragma once
 #include "search_ctx.h"
 #include "VecSim/vec_sim.h"
@@ -22,6 +28,9 @@
 #define VECSIM_M "M"
 #define VECSIM_EFCONSTRUCTION "EF_CONSTRUCTION"
 #define VECSIM_EFRUNTIME "EF_RUNTIME"
+#define VECSIM_EPSILON "EPSILON"
+#define VECSIM_HYBRID_POLICY "HYBRID_POLICY"
+#define VECSIM_BATCH_SIZE "BATCH_SIZE"
 #define VECSIM_TYPE "TYPE"
 #define VECSIM_DIM "DIM"
 #define VECSIM_DISTANCE_METRIC "DISTANCE_METRIC"
@@ -31,6 +40,7 @@
 
 typedef enum {
   VECSIM_QT_KNN,
+  VECSIM_QT_RANGE
 } VectorQueryType;
 
 // This struct holds VecSimRawParam array and bool array.
@@ -53,11 +63,19 @@ typedef struct {
   VecSimQueryResult_Order order;  // specify the result order.
 } KNNVectorQuery;
 
+typedef struct {
+  void *vector;                   // query vector data
+  size_t vecLen;                  // vector length
+  double radius;                  // the radius to search in
+  VecSimQueryResult_Order order;  // specify the result order.
+} RangeVectorQuery;
+
 typedef struct VectorQuery {
   char *property;                     // name of field
   char *scoreField;                   // name of score field
   union {
     KNNVectorQuery knn;
+    RangeVectorQuery range;
   };
   VectorQueryType type;               // vector similarity query type
   VectorQueryParams params;           // generic query params array, for the vecsim library to check
@@ -66,8 +84,24 @@ typedef struct VectorQuery {
   int resultsLen;                     // length of array
 } VectorQuery;
 
+// This enum should match the VecSearchMode enum in VecSim
+typedef enum {
+  VECSIM_EMPTY_MODE,
+  VECSIM_STANDARD_KNN,               // Run k-nn query over the entire vector index.
+  VECSIM_HYBRID_ADHOC_BF,            // Measure ad-hoc the distance for every result that passes the filters,
+                                     //  and take the top k results.
+  VECSIM_HYBRID_BATCHES,             // Get the top vector results in batches upon demand, and keep the results that
+                                     //  passes the filters until we reach k results.
+  VECSIM_HYBRID_BATCHES_TO_ADHOC_BF, // Start with batches and dynamically switched to ad-hoc BF.
+  VECSIM_RANGE_QUERY,                // Run range query, to return all vectors that are within a given range from the
+                                     //  query vector.
+  VECSIM_LAST_SEARCHMODE,            // Last value of this enum. Can be used to check if a given value resides within 
+                                     //  this enum values range.                                    
+
+} VecSimSearchMode;
+
 // TODO: remove idxKey from all OpenFooIndex functions
-VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
+VecSimIndex *OpenVectorIndex(IndexSpec *sp,
   RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
 
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it);
@@ -77,7 +111,7 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
 void VectorQuery_Free(VectorQuery *vq);
 
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
-                                            VecSimQueryParams *qParams, bool hybrid, QueryError *status);
+                                            VecSimQueryParams *qParams, VecsimQueryType queryType, QueryError *status);
 size_t VecSimType_sizeof(VecSimType type);
 const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
@@ -85,3 +119,14 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
 
 void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams);
 int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams);
+int VecSim_RdbLoad_v2(RedisModuleIO *rdb, VecSimParams *vecsimParams); // includes multi flag
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List results,
+                                                          bool yields_metric);
+#ifdef __cplusplus
+}
+#endif

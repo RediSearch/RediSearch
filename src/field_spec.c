@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "field_spec.h"
 #include "indexer.h"
 #include "rmalloc.h"
@@ -14,6 +20,7 @@ RSValueType fieldTypeToValueType(FieldType ft) {
       return RSValue_String;
 
     case INDEXFLD_T_VECTOR: // TODO:
+    case INDEXFLD_T_GEOMETRY: // TODO: GEOMETRY
       return RSValue_Null;
   }
   return RSValue_Null;
@@ -43,6 +50,7 @@ const char *FieldSpec_GetTypeNames(int idx) {
   case IXFLDPOS_NUMERIC:  return SPEC_NUMERIC_STR;
   case IXFLDPOS_GEO:      return SPEC_GEO_STR;
   case IXFLDPOS_VECTOR:   return SPEC_VECTOR_STR;
+  case IXFLDPOS_GEOMETRY: return SPEC_GEOMETRY_STR;
 
   default:
     RS_LOG_ASSERT(0, "oops");

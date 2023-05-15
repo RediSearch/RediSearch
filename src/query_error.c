@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "query_error.h"
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
@@ -91,4 +97,8 @@ void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code) {
 
 const char *QueryError_GetError(const QueryError *status) {
   return status->detail ? status->detail : QueryError_Strerror(status->code);
+}
+
+QueryErrorCode QueryError_GetCode(const QueryError *status) {
+  return status->code;
 }

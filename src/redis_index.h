@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #ifndef __REDIS_INDEX__
 #define __REDIS_INDEX__
 
@@ -16,9 +22,9 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
                               double weight);
 
 InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, size_t len,
-                                         int write, RedisModuleKey **keyp);
-#define Redis_OpenInvertedIndex(ctx, term, len, isWrite) \
-  Redis_OpenInvertedIndexEx(ctx, term, len, isWrite, NULL)
+                                         int write, bool *outIsNew, RedisModuleKey **keyp);
+#define Redis_OpenInvertedIndex(ctx, term, len, isWrite, outIsNew) \
+  Redis_OpenInvertedIndexEx(ctx, term, len, isWrite, outIsNew, NULL)
 void Redis_CloseReader(IndexReader *r);
 
 /*
@@ -43,13 +49,8 @@ int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f, void *op
 /* Optimize the buffers of a speicif term hit */
 int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);
 
-/* Drop the index and all the associated keys.
- *
- * If deleteDocuments is non zero, we will delete the saved documents (if they exist).
- * Only set this if there are no other indexes in the same redis instance.
- */
-int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments);
 int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s);
+int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr);
 
 /* Drop all the index's internal keys using this scan handler */
 int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);

@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 
 #pragma once
 
@@ -28,8 +34,11 @@ typedef enum {
   /* OPTIONAL (should match) node */
   QN_OPTIONAL,
 
-  /* Geo filter node */
+  /* Geo filter node (lon,lat geo coordinates)*/
   QN_GEO,
+
+  /* Geometric shape filter node (line, polygon, etc.)*/
+  QN_GEOMETRY,
 
   /* Prefix selection node */
   QN_PREFIX,
@@ -104,6 +113,10 @@ typedef struct {
 } QueryGeofilterNode;
 
 typedef struct {
+  struct GeometryQuery *geomq;
+} QueryGeometryNode;
+
+typedef struct {
   struct VectorQuery *vq;
 } QueryVectorNode;
 
@@ -126,6 +139,7 @@ typedef struct {
 typedef enum {
   QueryNode_Verbatim = 0x01,
   QueryNode_OverriddenInOrder = 0x02,
+  QueryNode_YieldsDistance = 0x04,
 } QueryNodeFlags;
 
 /* Query attribute is a dynamic attribute that can be applied to any query node.
@@ -142,6 +156,14 @@ typedef struct {
 #define PHONETIC_DISABLED 2
 #define PHONETIC_DEFAULT 0
 
+/* Define the attributes' names */
+#define YIELD_DISTANCE_ATTR "yield_distance_as"
+#define SLOP_ATTR "slop"
+#define INORDER_ATTR "inorder"
+#define WEIGHT_ATTR "weight"
+#define PHONETIC_ATTR "phonetic"
+
+
 /* Various modifiers and options that can apply to the entire query or any sub-query of it */
 typedef struct {
   QueryNodeFlags flags;
@@ -150,6 +172,7 @@ typedef struct {
   int inOrder;
   double weight;
   int phonetic;
+  char *distField;
 } QueryNodeOptions;
 
 typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;
@@ -164,6 +187,7 @@ typedef struct RSQueryNode {
     QueryUnionNode un;
     QueryNumericNode nn;
     QueryGeofilterNode gn;
+    QueryGeometryNode gmn;
     QueryIdFilterNode fn;
     QueryNotNode inverted;
     QueryOptionalNode opt;

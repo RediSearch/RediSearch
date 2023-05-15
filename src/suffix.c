@@ -1,8 +1,13 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "suffix.h"
 #include "rmutil/rm_assert.h"
 #include "config.h"
 #include "wildcard/wildcard.h"
-#include "config.h"
 
 #include <string.h>
 #include <strings.h>
@@ -14,7 +19,6 @@ typedef struct suffixData {
   arrayof(char *) array;   // list of words containing the string. weak pointers
 } suffixData;
 
-#define UNINITIALIZED -1
 #define Suffix_GetData(node) node ? node->payload ? \
                              (suffixData *)node->payload->data : NULL : NULL
 
@@ -110,7 +114,11 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
     TrieNode *node = TrieNode_Get(trie->root, runes + j, rlen - j, 1, NULL);
     suffixData *data = Suffix_GetData(node);
-    RS_LOG_ASSERT(data, "all suffixes must exist");
+    // suffix trie is shared between all text fields in index, even if they don't use it.
+    // if the trie is owned by other fields and not any one containing this suffix,
+    // then failure to find the suffix is not an error. just move along.
+    if (!data) continue;
+    // RS_LOG_ASSERT(data, "all suffixes must exist");
     // suffixData *data = TrieMap_Find(trie, str + j, len - j);
     if (j == 0) {
       // keep pointer to word string to free after it was found in al sub tokens.
@@ -211,7 +219,7 @@ int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *to
 
   // choose best option
   int score = INT32_MIN;
-  int retidx = UNINITIALIZED;
+  int retidx = REDISEARCH_UNINITIALIZED;
   for (int i = 0; i < runner; ++i) {
     if (tokenLen[i] < MIN_SUFFIX) {
       continue;
@@ -269,7 +277,7 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
 
   // choose best option
   int score = INT32_MIN;
-  int retidx = UNINITIALIZED;
+  int retidx = REDISEARCH_UNINITIALIZED;
   for (int i = 0; i < runner; ++i) {
     if (tokenLen[i] < MIN_SUFFIX) {
       continue;
@@ -307,7 +315,7 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload) {
     return REDISMODULE_OK;
   }
 
-  suffixData *data = pl->data;
+  suffixData *data = (suffixData *)pl->data;
   arrayof(char *) array = data->array;
   for (int i = 0; i < array_len(array); ++i) {
     if (Wildcard_MatchChar(sufCtx->cstr, sufCtx->cstrlen, array[i], strlen(array[i]))
@@ -325,7 +333,7 @@ int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
   size_t lens[sufCtx->cstrlen];
   int useIdx = Suffix_ChooseToken_rune(sufCtx->rune, sufCtx->runelen, idx, lens);
 
-  if (useIdx == UNINITIALIZED) {
+  if (useIdx == REDISEARCH_UNINITIALIZED) {
     return 0;
   }
 
@@ -395,7 +403,11 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
   // iterate all matching terms and remove word
   for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
     suffixData *data = TrieMap_Find(trie, str + j, len - j);
-    RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
+    // suffix trie is shared between all tag fields in index, even if they don't use it.
+    // if the trie is owned by other fields and not any one containing this suffix,
+    // then failure to find the suffix is not an error. just move along.
+    if (data == TRIEMAP_NOTFOUND) continue;
+    // RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
     if (j == 0) {
       // keep pointer to word string to free after it was found in al sub tokens.
       oldTerm = data->term;
@@ -448,7 +460,7 @@ arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t l
 /* This function iterates the suffix trie, find matches to a `token` and returns an
  * array with terms matching the pattern.
  * The 'token' address is 'pattern + tokenidx' with length of tokenlen. */
-static arrayof(char*) _getWildcardArray(TrieMapIterator *it, const char *pattern, uint32_t plen) {
+static arrayof(char*) _getWildcardArray(TrieMapIterator *it, const char *pattern, uint32_t plen, long long maxPrefixExpansions) {
   char *s;
   tm_len_t sl;
   suffixData *nodeData;;
@@ -456,7 +468,7 @@ static arrayof(char*) _getWildcardArray(TrieMapIterator *it, const char *pattern
 
   while (TrieMapIterator_NextWildcard(it, &s, &sl, (void **)&nodeData)) {
     for (int i = 0; i < array_len(nodeData->array); ++i) {
-      if (array_len(resArray) > RSGlobalConfig.maxPrefixExpansions) {
+      if (array_len(resArray) > maxPrefixExpansions) {
         goto end;
       }
       if (Wildcard_MatchChar(pattern, plen, nodeData->array[i], strlen(nodeData->array[i])) == FULL_MATCH) {
@@ -472,13 +484,13 @@ end:
 }
 
 arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
-                                              struct timespec timeout) {
+                                              struct timespec timeout, long long maxPrefixExpansions) {
   size_t idx[len];
   size_t lens[len];
   // find best token
   int useIdx = Suffix_ChooseToken(pattern, len, idx, lens);
-  if (useIdx == UNINITIALIZED) {
-    return 0xBAAAAAAD;
+  if (useIdx == REDISEARCH_UNINITIALIZED) {
+    return BAD_POINTER;
   }
 
   size_t tokenidx = idx[useIdx];
@@ -491,7 +503,7 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern
   TrieMapIterator_SetTimeout(it, timeout);
   it->mode = prefix ? TM_WILDCARD_MODE : TM_WILDCARD_FIXED_LEN_MODE;
 
-  arrayof(char*) arr = _getWildcardArray(it, pattern, len);
+  arrayof(char*) arr = _getWildcardArray(it, pattern, len, maxPrefixExpansions);
 
   // token does not have hits
   if (array_len(arr) == 0) {

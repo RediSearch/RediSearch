@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "indexer.h"
 #include "forward_index.h"
 #include "numeric_index.h"
@@ -159,14 +165,14 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
       // Open the inverted index:
       ForwardIndexEntry *fwent = merged->head;
 
-      // Add the term to the prefix trie. This only needs to be done once per term
-      IndexSpec_AddTerm(ctx->spec, fwent->term, fwent->len);
 
       RedisModuleKey *idxKey = NULL;
-      InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, fwent->term, fwent->len, 1, &idxKey);
+      bool isNew;
+      InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, fwent->term, fwent->len, 1, &isNew, &idxKey);
 
-      if (invidx == NULL) {
-        continue;
+      if (isNew) {
+        // Add the term to the prefix trie. This only needs to be done once per term
+        IndexSpec_AddTerm(ctx->spec, fwent->term, fwent->len);
       }
 
       for (; fwent != NULL; fwent = fwent->next) {
@@ -222,9 +228,11 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
 
   while (entry != NULL) {
     RedisModuleKey *idxKey = NULL;
-    IndexSpec_AddTerm(spec, entry->term, entry->len);
-
-    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &idxKey);
+    bool isNew;
+    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &isNew, &idxKey);
+    if (isNew) {
+      IndexSpec_AddTerm(spec, entry->term, entry->len);
+    }
     if (invidx) {
       entry->docId = aCtx->doc->docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
@@ -233,7 +241,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
         invidx->fieldMask |= entry->fieldMask;
       }
     }
-    
+
     if (spec->suffixMask & entry->fieldMask && entry->term[0] != STEM_PREFIX
                                             && entry->term[0] != PHONETIC_PREFIX
                                             && entry->term[0] != SYNONYM_PREFIX_CHAR) {
@@ -253,9 +261,8 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
 }
 
 /** Assigns a document ID to a single document. */
-static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int replace,
-                          QueryError *status) {
-  IndexSpec *spec = sctx->spec;
+static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx *aCtx, IndexSpec *spec,
+                                          int replace, QueryError *status) {
   DocTable *table = &spec->docs;
   Document *doc = aCtx->doc;
   if (replace) {
@@ -263,20 +270,24 @@ static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx
     if (dmd) {
       // decrease the number of documents in the index stats only if the document was there
       --spec->stats.numDocuments;
+      DMD_Return(aCtx->oldMd);
       aCtx->oldMd = dmd;
-      if (sctx->spec->gc) {
-        GCContext_OnDelete(sctx->spec->gc);
+      if (spec->gc) {
+        GCContext_OnDelete(spec->gc);
       }
       if (spec->flags & Index_HasVecSim) {
         for (int i = 0; i < spec->numFields; ++i) {
           if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
             RedisModuleString * rmstr = RedisModule_CreateString(RSDummyContext, spec->fields[i].name, strlen(spec->fields[i].name));
-            VecSimIndex *vecsim = OpenVectorIndex(sctx, rmstr);
+            VecSimIndex *vecsim = OpenVectorIndex(spec, rmstr);
             spec->stats.vectorIndexSize += VecSimIndex_DeleteVector(vecsim, dmd->id);
             RedisModule_FreeString(RSDummyContext, rmstr);
             // TODO: use VecSimReplace instead and if successful, do not insert and remove from doc
           }
         }
+      }
+      if (spec->flags & Index_HasGeometry) {
+        GeometryIndex_RemoveId(ctx, spec, dmd->id);
       }
     }
   }
@@ -308,7 +319,8 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     }
 
     RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
-    RSDocumentMetadata *md = makeDocumentId(cur, ctx, cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
+    RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec, 
+                                            cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
     if (!md) {
       cur->stateFlags |= ACTX_F_ERRORED;
       continue;
@@ -327,6 +339,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       DocTable_SetByteOffsets(&spec->docs, md, cur->byteOffsets);
       cur->byteOffsets = NULL;
     }
+    DMD_Return(md);
   }
 }
 
@@ -345,7 +358,7 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
     for (size_t ii = 0; ii < doc->numFields; ++ii) {
       const FieldSpec *fs = cur->fspecs + ii;
       FieldIndexerData *fdata = cur->fdatas + ii;
-      if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs)) {
+      if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs) || fdata->isNull) {
         continue;
       }
       IndexBulkData *bulk = &bData[fs->index];

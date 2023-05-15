@@ -1,3 +1,9 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
 #include "document.h"
 #include "stemmer.h"
 #include "rmalloc.h"
@@ -202,7 +208,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
 
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
-    if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix]) != REDISMODULE_OK) {
+    if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix], ctx) != REDISMODULE_OK) {
       RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", field->path);
       goto done;
     }
@@ -351,13 +357,27 @@ void Document_Clear(Document *d) {
           rm_free(field->strval);
           break;
         case FLD_VAR_T_ARRAY:
-          for (int i = 0; i < field->arrayLen; ++i) {
-            rm_free(field->multiVal[i]);
+        // TODO: GEOMETRY Handle multi-value geometry fields
+          if (field->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG | INDEXFLD_T_GEO)) {
+            for (int i = 0; i < field->arrayLen; ++i) {
+              rm_free(field->multiVal[i]);
+            }
+            rm_free(field->multiVal);
+            field->arrayLen = 0;
+          } else if (field->indexAs & INDEXFLD_T_NUMERIC) {
+            array_free(field->arrNumval);
           }
-          rm_free(field->multiVal);
-          field->arrayLen = 0;
+          if (field->multisv) {
+            RSValue_Free(field->multisv);
+          }
+          break;
+        case FLD_VAR_T_BLOB_ARRAY:
+          rm_free(field->blobArr);
+          field->blobArrLen = 0;
+          break;
         case FLD_VAR_T_GEO:
         case FLD_VAR_T_NUM:
+        case FLD_VAR_T_GEOMETRY:
         case FLD_VAR_T_NULL:
           break;
       }
@@ -414,28 +434,42 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   arguments = array_append(arguments, opts->keyStr);
   arguments = array_ensure_append_n(arguments, opts->fieldsArray, opts->numFieldElems);
 
+  bool update_spec = false;
+
   if (opts->score != DEFAULT_SCORE || (opts->options & DOCUMENT_ADD_PARTIAL)) {
     arguments = array_append(arguments, globalAddRSstrings[0]);
     arguments = array_append(arguments, opts->scoreStr);
+    RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->score_field == NULL) {
       ctx->spec->rule->score_field = rm_strndup(UNDERSCORE_SCORE, strlen(UNDERSCORE_SCORE));
+      update_spec = true;
     }
+    RedisSearchCtx_UnlockSpec(ctx);
   }
 
   if (opts->languageStr) {
     arguments = array_append(arguments, globalAddRSstrings[1]);
     arguments = array_append(arguments, opts->languageStr);
+    RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->lang_field == NULL) {
       ctx->spec->rule->lang_field = rm_strndup(UNDERSCORE_LANGUAGE, strlen(UNDERSCORE_LANGUAGE));
+      update_spec = true;
     }
+    RedisSearchCtx_UnlockSpec(ctx);
   }
 
   if (opts->payload) {
     arguments = array_append(arguments, globalAddRSstrings[2]);
     arguments = array_append(arguments, opts->payload);
+    RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->payload_field == NULL) {
       ctx->spec->rule->payload_field = rm_strndup(UNDERSCORE_PAYLOAD, strlen(UNDERSCORE_PAYLOAD));
+      update_spec = true;
     }
+    if(update_spec) {
+      IndexSpec_UpdateVersion(ctx->spec);
+    }
+    RedisSearchCtx_UnlockSpec(ctx);
   }
 
   RedisModuleCallReply *rep = NULL;
