@@ -92,8 +92,7 @@ int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc fun
  *    int main() {
  *       ..
  *       int data = {10, 20, 30};
- *       redisearch_thpool_work_t jobs[] = {{print_num, data + 0}, {print_num, data + 1},
- * {print_num, data + 2}};
+ *       redisearch_thpool_work_t jobs[] = {{print_num, data + 0}, {print_num, data + 1}, {print_num, data + 2}};
  *
  *       thpool_add_n_work(thpool, jobs, 3, THPOOL_PRIORITY_LOW);
  *       ..
@@ -104,7 +103,7 @@ int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc fun
  * @param  arg_pp        array of  pointer to an argument
  * @param  n             number of elements in the array
  * @param  priority      priority of the jobs
- * @return 0 on successs, -1 otherwise.
+ * @return 0 on success, -1 otherwise.
  */
 typedef struct thpool_work_t {
   redisearch_thpool_proc function_p;
