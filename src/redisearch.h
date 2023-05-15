@@ -303,6 +303,7 @@ typedef struct RSIndexResult {
    *******************************************************************************/
   /* The docId of the result */
   t_docId docId;
+  const RSDocumentMetadata *dmd;
 
   /* the total frequency of all the records in this result */
   uint32_t freq;

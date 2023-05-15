@@ -7,14 +7,18 @@ from common import *
 from RLTest import Env
 
 
-def testEmptyBuffer():
-    env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
+def testEmptyBuffer(env):
+    if not POWER_TO_THE_WORKERS:
+        env.skip()
+    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
     env.expect('ft.search', 'idx', '*', 'sortby', 'n').equal([0])
 
-def CreateAndSearchSortBy(docs_count):
-    env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
+def CreateAndSearchSortBy(env, docs_count):
+    if not POWER_TO_THE_WORKERS:
+        env.skip()
+    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     conn = getConnectionByEnv(env)
 
@@ -37,13 +41,13 @@ def CreateAndSearchSortBy(docs_count):
         env.assertEqual(result, expected)
         n += 1 
 
-def testSimpleBuffer():
-    CreateAndSearchSortBy(docs_count = 10)
+def testSimpleBuffer(env):
+    CreateAndSearchSortBy(env, docs_count = 10)
 
 # In this test we have more than BlockSize docs to buffer, we want to make sure there are no leaks
 # caused by the buffer memory management.
-def testMultipleBlocksBuffer():
-    CreateAndSearchSortBy(docs_count = 2500)
+def testMultipleBlocksBuffer(env):
+    CreateAndSearchSortBy(env, docs_count = 2500)
     
 ''' 
 Test pipeline:
@@ -78,9 +82,11 @@ def get_pipeline(profile_res):
     for entry in profile_res[1]:
         if (entry[0] == 'Result processors profile'):
             return entry
-    
-def test_pipeline():
-    env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
+
+def test_pipeline(env):
+    if not POWER_TO_THE_WORKERS:
+        env.skip()
+    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
     env.skipOnCluster()
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     
@@ -226,16 +232,8 @@ def test_pipeline():
     metric = ['Type', 'Metrics Applier', 'Counter', docs_count]
     
     res = conn.execute_command(*ft_profile_cmd, '*=>[KNN 3 @v $vec]',
-                                    'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa')   
+                               'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa')   
         
     expected_pipeline = ['Result processors profile', root, metric, sorter(), buffer_locker(), loader(), unlocker()]
     #sortby NOT SORTABLE NOCONTENT
     env.assertEqual(get_pipeline(res), expected_pipeline)
-
-
-# Temporary sanity test to see that threads are being created and destroyed properly.
-# TODO: test after integration with tiered HNSW index is complete.
-def test_burst_threads_sanity():
-    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 8 ALWAYS_USE_THREADS FALSE')
-    for env in env.retry_with_rdb_reload():
-        pass

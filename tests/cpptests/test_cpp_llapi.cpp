@@ -18,8 +18,8 @@
 class LLApiTest : public ::testing::Test {
   virtual void SetUp() {
     RediSearch_Initialize();
-    RSGlobalConfig.minTermPrefix = 0;
-    RSGlobalConfig.maxPrefixExpansions = LONG_MAX;
+    RSGlobalConfig.iteratorsConfigParams.minTermPrefix = 0;
+    RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions = LONG_MAX;
   }
 
   virtual void TearDown() {
@@ -1212,7 +1212,7 @@ TEST_F(LLApiTest, testInfoSize) {
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
   ASSERT_EQ(RediSearch_MemUsage(index), 124);
-  RSGlobalConfig.forkGcCleanThreshold = 0;
+  RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(RSDummyContext, gc->gcCtx);
   ASSERT_EQ(RediSearch_MemUsage(index), 113);

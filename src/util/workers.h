@@ -6,8 +6,10 @@
 
 #pragma once
 
-#include "deps/thpool/thpool.h"
+#ifdef POWER_TO_THE_WORKERS
+
 #include "redismodule.h"
+#include "thpool/thpool.h"
 #include <assert.h>
 
 // create workers thread pool
@@ -26,3 +28,5 @@ void workersThreadPool_Wait(RedisModuleCtx *ctx);
 // destroys thread pool, allows threads to exit gracefully
 // Can be called on uninitialized threadpool.
 void workersThreadPool_Destroy(void);
+
+#endif // POWER_TO_THE_WORKERS

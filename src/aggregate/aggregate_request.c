@@ -17,10 +17,12 @@
 #include "profile.h"
 #include "config.h"
 #include "util/timeout.h"
+#include "query_optimizer.h"
 
 extern RSConfig RSGlobalConfig;
 
 #define DEFAULT_BUFFER_BLOCK_SIZE 1024
+
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
  * in this case refers to reducers which re-create the search results.
@@ -193,19 +195,21 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       // LIMIT 0 0 - only count
       req->reqflags |= QEXEC_F_NOROWS;
       req->reqflags |= QEXEC_F_SEND_NOFIELDS;
-    } else if ((arng->limit > RSGlobalConfig.maxSearchResults) &&
+      // TODO: unify if when req holds only maxResults according to the query type. 
+      //(SEARCH / AGGREGATE)
+    } else if ((arng->limit > req->maxSearchResults) &&
                (req->reqflags & QEXEC_F_IS_SEARCH)) {
       QueryError_SetErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
-                             RSGlobalConfig.maxSearchResults);
+                             req->maxSearchResults);
       return ARG_ERROR;
-    } else if ((arng->limit > RSGlobalConfig.maxAggregateResults) &&
+    } else if ((arng->limit > req->maxAggregateResults) &&
                !(req->reqflags & QEXEC_F_IS_SEARCH)) {
       QueryError_SetErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
-                             RSGlobalConfig.maxAggregateResults);
+                             req->maxAggregateResults);
       return ARG_ERROR;
-    } else if (arng->offset > RSGlobalConfig.maxSearchResults) {
+    } else if (arng->offset > req->maxSearchResults) {
       QueryError_SetErrorFmt(status, QUERY_ELIMIT, "OFFSET exceeds maximum of %llu",
-                             RSGlobalConfig.maxSearchResults);
+                             req->maxSearchResults);
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
@@ -222,7 +226,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");
       return ARG_ERROR;
     }
-    if (AC_GetInt(ac, &req->reqTimeout, AC_F_GE0) != AC_OK) {
+    if (AC_GetUnsignedLongLong(ac, &req->reqConfig.queryTimeoutMS, AC_F_GE0) != AC_OK) {
       QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a non negative integer");
       return ARG_ERROR;
     }
@@ -245,7 +249,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     req->reqflags |= QEXEC_F_REQUIRED_FIELDS;
   }
     else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
-    if (parseDialect(&req->dialectVersion, ac, status) != REDISMODULE_OK) {
+    if (parseDialect(&req->reqConfig.dialectVersion, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else {
@@ -406,6 +410,8 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       {AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)},
       {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopwrods)},
       {AC_MKBITFLAG("EXPLAINSCORE", &req->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
+      {AC_MKBITFLAG("OPTIMIZE", &req->reqflags, QEXEC_OPTIMIZE)},
+      {AC_MKBITFLAG("WITHOUTCOUNT", &req->reqflags, QEXEC_OPTIMIZE)},
       {.name = "PAYLOAD",
        .type = AC_ARGTYPE_STRING,
        .target = &req->ast.udata,
@@ -725,8 +731,19 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
 
 AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
-  req->dialectVersion = RSGlobalConfig.defaultDialectVersion;
-  req->reqTimeout = RSGlobalConfig.queryTimeoutMS;
+  /*   
+  unsigned int dialectVersion;
+  long long queryTimeoutMS;
+  RSTimeoutPolicy timeoutPolicy; 
+  int printProfileClock;
+  */
+  req->reqConfig = RSGlobalConfig.requestConfigParams;
+
+  // TODO: save only one of the configuration paramters according to the query type
+  // once query offset is bounded by both.
+  req->maxSearchResults = RSGlobalConfig.maxSearchResults;
+  req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
+  req->optimizer = QOptimizer_New();
   return req;
 }
 
@@ -832,7 +849,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
-  sctx->apiVersion = req->dialectVersion;
+  sctx->apiVersion = req->reqConfig.dialectVersion;
   req->sctx = sctx;
 
   if ((index->flags & Index_StoreByteOffsets) == 0 && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
@@ -868,7 +885,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   QueryAST *ast = &req->ast;
 
-  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), req->dialectVersion, status);
+  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), req->reqConfig.dialectVersion, status);
   if (rv != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
@@ -885,6 +902,21 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
       return REDISMODULE_ERR;
     }
   }
+
+  
+  // set queryAST configuration parameters
+  iteratorsConfig_init(&ast->config);
+  
+  // parse inputs for optimizations
+  OPTMZ(QOptimizer_Parse(req));
+
+  // check possible optimization after creation of QueryNode tree
+  OPTMZ(QOptimizer_QueryNodes(req->ast.root, req->optimizer));
+
+  if (QueryError_HasError(status)) {
+    return REDISMODULE_ERR;
+  }
+
   return REDISMODULE_OK;
 }
 
@@ -1015,12 +1047,14 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     limit = DEFAULT_LIMIT;
   }
 
-  if (IsSearch(req) && RSGlobalConfig.maxSearchResults != UINT64_MAX) {
-    limit = MIN(limit, RSGlobalConfig.maxSearchResults);
+  // TODO: unify if when req holds only maxResults according to the query type. 
+  //(SEARCH / AGGREGATE)
+  if (IsSearch(req) && req->maxSearchResults != UINT64_MAX) {
+    limit = MIN(limit, req->maxSearchResults);
   }
 
-  if (!IsSearch(req) && RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
-    limit = MIN(limit, RSGlobalConfig.maxAggregateResults);
+  if (!IsSearch(req) && req->maxAggregateResults != UINT64_MAX) {
+    limit = MIN(limit, req->maxAggregateResults);
   }
 
   if (IsCount(req) || !limit) {
@@ -1058,13 +1092,15 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
         sortkey->flags |= RLOOKUP_F_ISLOADED;
       }
     }
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, loadKeys, array_len(loadKeys), astp->sortAscMap);
+    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, loadKeys, array_len(loadKeys),
+	                          astp->sortAscMap, req->optimizer->type == Q_OPT_NO_SORTER);
     up = pushRP(req, rp, up);
   }
 
   // No sort? then it must be sort by score, which is the default.
-  if (rp == NULL && (req->reqflags & QEXEC_F_IS_SEARCH)) {
-    rp = RPSorter_NewByScore(limit);
+  // In optimize mode, add sorter for queries with scorer or for `*`.
+  if (rp == NULL && IsSearch(req) && (!IsOptimized(req) || HasScorer(req) || IsWildcard(req))) {
+    rp = RPSorter_NewByScore(limit, req->optimizer->type == Q_OPT_NO_SORTER);
     up = pushRP(req, rp, up);
   }
 
@@ -1167,7 +1203,7 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
   // Add a LOAD step...
   const RLookupKey **loadkeys = NULL;
   if (req->outFields.explicitReturn) {
-    bool is_old_json = isSpecJson(req->sctx->spec) && (req->dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST);
+    bool is_old_json = isSpecJson(req->sctx->spec) && (req->reqConfig.dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST);
     // Go through all the fields and ensure that each one exists in the lookup stage
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       const ReturnedField *rf = req->outFields.fields + ii;
@@ -1454,6 +1490,9 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
     Profile_AddRPs(&req->qiter);
   }
 
+  // Copy timeout policy to the parent struct of the result processors
+  req->qiter.timeoutPolicy = req->reqConfig.timeoutPolicy;
+
   return REDISMODULE_OK;
 error:
   return REDISMODULE_ERR;
@@ -1470,6 +1509,9 @@ void AREQ_Free(AREQ *req) {
   if (req->rootiter) {
     req->rootiter->Free(req->rootiter);
     req->rootiter = NULL;
+  }
+  if (req->optimizer) {
+    QOptimizer_Free(req->optimizer);
   }
 
   // Go through each of the steps and free it..

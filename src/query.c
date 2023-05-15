@@ -444,7 +444,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist) &&
-         (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
+         (itsSz < q->config->maxPrefixExpansions)) {
 
     // Create a token for the reader
     RSToken tok = (RSToken){
@@ -484,7 +484,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     return NULL;
   }
   QueryNodeType type = prefixMode ? QN_PREFIX : QN_FUZZY;
-  return NewUnionIterator(its, itsSz, q->docTable, 1, opts->weight, type, str);
+  return NewUnionIterator(its, itsSz, q->docTable, 1, opts->weight, type, str, q->config);
 }
 
 typedef struct {
@@ -506,8 +506,8 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload);
 static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_PREFIX, "query node type should be prefix");
 
-  // we allow a minimum of 2 letters in the prefx by default (configurable)
-  if (qn->pfx.tok.len < RSGlobalConfig.minTermPrefix) {
+  // we allow a minimum of 2 letters in the prefix by default (configurable)
+  if (qn->pfx.tok.len < q->config->minTermPrefix) {
     return NULL;
   }
 
@@ -559,7 +559,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight,
-                            QN_PREFIX, qn->pfx.tok.str);
+                            QN_PREFIX, qn->pfx.tok.str, q->config);
   }
 }
 
@@ -623,7 +623,7 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
     return NULL;
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight,
-                            QN_WILDCARD_QUERY, qn->verb.tok.str);
+                            QN_WILDCARD_QUERY, qn->verb.tok.str, q->config);
   }
 }
 
@@ -662,10 +662,10 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
 
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
   LexRangeCtx *ctx = p;
-  if (!RS_IsMock && ctx->nits >= RSGlobalConfig.maxPrefixExpansions) {
+  QueryEvalCtx *q = ctx->q;
+  if (!RS_IsMock && ctx->nits >= q->config->maxPrefixExpansions) {
     return REDISEARCH_ERR;
   }
-  QueryEvalCtx *q = ctx->q;
   RSToken tok = {0};
   tok.str = runesToStr(r, n, &tok.len);
   RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
@@ -683,10 +683,10 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
 
 static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   LexRangeCtx *ctx = p;
-  if (ctx->nits >= RSGlobalConfig.maxPrefixExpansions) {
+  QueryEvalCtx *q = ctx->q;
+  if (ctx->nits >= q->config->maxPrefixExpansions) {
     return REDISEARCH_ERR;
   }
-  QueryEvalCtx *q = ctx->q;
   RSToken tok = {.str = (char *)s, .len = n};
   RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
   IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
@@ -730,7 +730,7 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
     rm_free(ctx.its);
     return NULL;
   } else {
-    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, lx->opts.weight, QN_LEXRANGE, NULL);
+    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, lx->opts.weight, QN_LEXRANGE, NULL, q->config);
   }
 }
 
@@ -794,7 +794,7 @@ static IndexIterator *Query_EvalWildcardNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
 
-  return NewWildcardIterator(q->docTable->maxDocId, q->sctx->spec->docs.size);
+  return NewWildcardIterator(q->docTable->maxDocId, q->docTable->size);
 }
 
 static IndexIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -823,7 +823,7 @@ static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
     return NULL;
   }
-  return NewNumericFilterIterator(q->sctx, node->nn.nf, q->conc, INDEXFLD_T_NUMERIC);
+  return NewNumericFilterIterator(q->sctx, node->nn.nf, q->conc, INDEXFLD_T_NUMERIC, q->config);
 }
 
 static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
@@ -838,7 +838,7 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
     return NULL;
   }
-  return NewGeoRangeIterator(q->sctx, node->gn.gf);
+  return NewGeoRangeIterator(q->sctx, node->gn.gf, q->config);
 }
 
 static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -936,7 +936,7 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
     return ret;
   }
 
-  IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight, QN_UNION, NULL);
+  IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight, QN_UNION, NULL, q->config);
   return ret;
 }
 
@@ -964,7 +964,7 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
     rm_free(ctx.its);
     return NULL;
   } else {
-    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight, QN_LEXRANGE, NULL);
+    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight, QN_LEXRANGE, NULL, q->config);
   }
 }
 
@@ -978,7 +978,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   }
 
   // we allow a minimum of 2 letters in the prefx by default (configurable)
-  if (tok->len < RSGlobalConfig.minTermPrefix) {
+  if (tok->len < q->config->minTermPrefix) {
     return NULL;
   }
   if (!idx || !idx->values) return NULL;
@@ -1009,7 +1009,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
     // Find all completions of the prefix
     while (nextFunc(it, &s, &sl, &ptr) &&
-          (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
+          (itsSz < q->config->maxPrefixExpansions)) {
       IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
       if (!ret) continue;
 
@@ -1029,7 +1029,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
       size_t iarrlen = array_len(arr);
       for (int j = 0; j < array_len(arr[i]); ++j) {
         size_t jarrlen = array_len(arr[i]);
-        if (itsSz >= RSGlobalConfig.maxPrefixExpansions) {
+        if (itsSz >= q->config->maxPrefixExpansions) {
           break;
         }
         IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, arr[i][j], strlen(arr[i][j]), 1);
@@ -1059,7 +1059,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   }
 
   *iterout = array_ensure_append(*iterout, its, itsSz, IndexIterator *);
-  return NewUnionIterator(its, itsSz, q->docTable, 1, weight, QN_PREFIX, qn->pfx.tok.str);
+  return NewUnionIterator(its, itsSz, q->docTable, 1, weight, QN_PREFIX, qn->pfx.tok.str, q->config);
 }
 
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
@@ -1080,7 +1080,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
   if (idx->suffix) {
     // with suffix
     arrayof(char*) arr = GetList_SuffixTrieMap_Wildcard(idx->suffix, tok->str, tok->len,
-                                                        q->sctx->timeout);
+                                                        q->sctx->timeout, q->config->maxPrefixExpansions);
     if (!arr) {
       // No matching terms
       rm_free(its);
@@ -1090,7 +1090,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
       fallbackBruteForce = true;
     } else {
       for (int i = 0; i < array_len(arr); ++i) {
-        if (itsSz >= RSGlobalConfig.maxPrefixExpansions) {
+        if (itsSz >= q->config->maxPrefixExpansions) {
           break;
         }
         IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, arr[i], strlen(arr[i]), 1);
@@ -1120,7 +1120,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
 
     // Find all completions of the prefix
     while (TrieMapIterator_NextWildcard(it, &s, &sl, &ptr) &&
-          (itsSz < RSGlobalConfig.maxPrefixExpansions)) {
+          (itsSz < q->config->maxPrefixExpansions)) {
       IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
       if (!ret) continue;
 
@@ -1146,7 +1146,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
   }
 
   *iterout = array_ensure_append(*iterout, its, itsSz, IndexIterator *);
-  return NewUnionIterator(its, itsSz, q->docTable, 1, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str);
+  return NewUnionIterator(its, itsSz, q->docTable, 1, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str, q->config);
 }
 
 static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
@@ -1278,7 +1278,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     }
   }
 
-  ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight, QN_TAG, NULL);
+  ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight, QN_TAG, NULL, q->config);
 
 done:
   if (k) {
@@ -1384,6 +1384,7 @@ IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
       .status = status,
       .metricRequestsP = &qast->metricRequests,
       .reqFlags = reqflags,
+      .config = &qast->config,
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {

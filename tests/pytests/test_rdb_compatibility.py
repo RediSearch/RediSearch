@@ -82,7 +82,8 @@ def testRDBCompatibility_vecsim():
     dbDir = env.cmd('config', 'get', 'dir')[1]
     rdbFilePath = os.path.join(dbDir, dbFileName)
 
-    rdbs = ['redisearch_2.4.14_with_vecsim.rdb']
+    rdbs = ['redisearch_2.4.14_with_vecsim.rdb',
+            'redisearch_2.6.9_with_vecsim.rdb']
     algorithms = ['FLAT', 'HNSW']
     if not downloadFiles(rdbs):
         if CI:

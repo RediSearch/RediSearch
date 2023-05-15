@@ -59,7 +59,7 @@ class FGCTest : public ::testing::Test {
 
   void SetUp() override {
     ism = createIndex(ctx);
-    RSGlobalConfig.forkGcCleanThreshold = 0;
+    RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
     Spec_AddToDict(ism);
     fgc = reinterpret_cast<ForkGC *>(get_spec(ism)->gc->gcCtx);
     runGcThread(ctx, fgc, ism);

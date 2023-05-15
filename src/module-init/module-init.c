@@ -105,8 +105,8 @@ static int initAsModule(RedisModuleCtx *ctx) {
 static int initAsLibrary(RedisModuleCtx *ctx) {
   // Disable concurrent mode:
   RSGlobalConfig.concurrentMode = 0;
-  RSGlobalConfig.minTermPrefix = 0;
-  RSGlobalConfig.maxPrefixExpansions = LONG_MAX;
+  RSGlobalConfig.iteratorsConfigParams.minTermPrefix = 0;
+  RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions = LONG_MAX;
   return REDISMODULE_OK;
 }
 
@@ -213,20 +213,25 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   GC_ThreadPoolStart();
 
   CleanPool_ThreadPoolStart();
-  
-  // Init threadpool. 
-  // Threadpool size can only be set either on load (threads are always in use), or for operational
-  // tasks only (loading from RDB, trimming after resharding).
-  if(RSGlobalConfig.numWorkerThreads && RSGlobalConfig.threadsEnabled){
+  DO_LOG("notice", "Initialized thread pools!");
+
+#ifdef POWER_TO_THE_WORKERS
+  // Init threadpool.
+  // Threadpool size can only be set on load, hence it is not dependent on
+  // threadsEnabled flag.
+  if(RSGlobalConfig.numWorkerThreads) {
     if(workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
       return REDISMODULE_ERR;
     }
-    // Todo: set the global vecsim "write async" flag
     DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
-  } else {
-    // Todo: set the global vecsim "write inplace" flag
+  } else
+#endif
+  {
+    // If we dont have a thread pool,
+    // we have to make sure that we tell the vecsim library to add and delete in place (can't use submit at all)
+    VecSim_SetWriteMode(VecSim_WriteInPlace);
   }
-  
+
   // Init cursors mechanism
   CursorList_Init(&RSCursors);
 
@@ -234,8 +239,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   // Register aggregation functions
   RegisterAllFunctions();
-
-  DO_LOG("notice", "Initialized thread pools!");
 
   /* Load extensions if needed */
   if (RSGlobalConfig.extLoad != NULL) {

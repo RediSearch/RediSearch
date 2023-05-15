@@ -15,6 +15,7 @@
 #include "score_explain.h"
 #include "commands.h"
 #include "profile.h"
+#include "query_optimizer.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -247,7 +248,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   ResultProcessor *rp = req->qiter.endProc;
 
   if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !(req->reqflags & QEXEC_F_IS_SEARCH)) {
-    limit = RSGlobalConfig.maxAggregateResults;
+    limit = req->maxAggregateResults;
   }
 
   cachedVars cv = {0};
@@ -257,17 +258,18 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   rc = rp->Next(rp, &r);
   long resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
   if (rc == RS_RESULT_TIMEDOUT && !(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
-      RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+      req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
     resultsLen = 1;
   } else if (rc == RS_RESULT_ERROR) {
     resultsLen = 2;
-  } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT) {
+  } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
+             req->optimizer->type != Q_OPT_NO_SORTER) {
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
     size_t reqLimit = arng && arng->isLimited? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited? arng->offset : 0;
     size_t resultFactor = getResultsFactor(req);
 
-    size_t expected_res = reqLimit + reqOffset <= RSGlobalConfig.maxSearchResults ? req->qiter.totalResults : MIN(RSGlobalConfig.maxSearchResults, req->qiter.totalResults);
+    size_t expected_res = reqLimit + reqOffset <= req->maxSearchResults ? req->qiter.totalResults : MIN(req->maxSearchResults, req->qiter.totalResults);
     size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
 
     resultsLen = 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
@@ -275,9 +277,11 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
 
   RedisModule_ReplyWithArray(outctx, resultsLen);
 
+  OPTMZ(QOptimizer_UpdateTotalResults(req));
+
   if (rc == RS_RESULT_TIMEDOUT) {
     if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
-        RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+       req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       RedisModule_ReplyWithSimpleString(outctx, "Timeout limit was reached");
     } else {
       rc = RS_RESULT_OK;
@@ -414,16 +418,21 @@ int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status) {
   // TODO: this should be done in `AREQ_execute`, but some of the iterators needs the timeout's
   // value and some of the execution begins in `QAST_Iterate`.
   // Setting the timeout context should be done in the same thread that executes the query.
-  updateTimeout(&req->timeoutTime, req->reqTimeout);
+  updateTimeout(&req->timeoutTime, req->reqConfig.queryTimeoutMS);
   sctx->timeout = req->timeoutTime;
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
 
+  // check possible optimization after creation of IndexIterator tree
+  OPTMZ(QOptimizer_Iterators(req, req->optimizer));
+
   TimedOut_WithStatus(&req->timeoutTime, status);
 
-  if (QueryError_HasError(status))
+  if (QueryError_HasError(status)) {
     return REDISMODULE_ERR;
+  }
+
   if (IsProfile(req)) {
     // Add a Profile iterators before every iterator in the tree
     Profile_AddIters(&req->rootiter);
@@ -538,8 +547,8 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     goto error;
   }
 
-  SET_DIALECT(r->sctx->spec->used_dialects, r->dialectVersion);
-  SET_DIALECT(RSGlobalConfig.used_dialects, r->dialectVersion);
+  SET_DIALECT(r->sctx->spec->used_dialects, r->reqConfig.dialectVersion);
+  SET_DIALECT(RSGlobalConfig.used_dialects, r->reqConfig.dialectVersion);
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
     if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
@@ -549,6 +558,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     if (rc != REDISMODULE_OK) {
       goto error;
     }
+#ifdef POWER_TO_THE_WORKERS
   } else if (RunInThread(r)) {
     IndexLoadOptions options = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
                                 .name.cstring = r->sctx->spec->name};
@@ -564,6 +574,14 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     }
     AREQ_Execute(r, ctx);
   }
+#else
+  } else {
+    if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
+      goto error;
+    }
+    AREQ_Execute(r, ctx);
+  }
+#endif // POWER_TO_THE_WORKERS
   return REDISMODULE_OK;
 
 error:
@@ -645,8 +663,6 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   return ret;
 }
 
-static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
-
 int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, QueryError *err) {
   Cursor *cursor = Cursors_Reserve(&RSCursors, lookupName, r->cursorMaxIdle, err);
   if (cursor == NULL) {
@@ -667,7 +683,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
 
   // update timeout for current cursor read
   if (req->qiter.rootProc->type != RP_NETWORK) {
-    updateTimeout(&req->timeoutTime, req->reqTimeout);
+    updateTimeout(&req->timeoutTime, req->reqConfig.queryTimeoutMS);
     updateRPIndexTimeout(req->qiter.rootProc, req->timeoutTime);
   }
   if (!num) {

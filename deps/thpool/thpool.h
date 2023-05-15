@@ -6,6 +6,7 @@
 
 #ifndef _THPOOL_
 #define _THPOOL_
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,6 +16,11 @@ extern "C" {
 
 
 typedef struct redisearch_thpool_t* redisearch_threadpool;
+
+typedef enum {
+    THPOOL_PRIORITY_HIGH,
+    THPOOL_PRIORITY_LOW,
+} thpool_priority;
 
 
 /**
@@ -62,10 +68,47 @@ redisearch_threadpool redisearch_thpool_init(size_t num_threads);
  * @param  threadpool    threadpool to which the work will be added
  * @param  function_p    pointer to function to add as work
  * @param  arg_p         pointer to an argument
+ * @param  priority      priority of the work, default is high
  * @return 0 on successs, -1 otherwise.
  */
 typedef void (*redisearch_thpool_proc)(void*);
-int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc function_p, void* arg_p);
+int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc function_p, void* arg_p, thpool_priority priority);
+
+/**
+ * @brief Add n jobs to the job queue
+ *
+ * Takes an action and its argument and adds it to the threadpool's job queue.
+ * If you want to add to work a function with more than one arguments then
+ * a way to implement this is by passing a pointer to a structure.
+ *
+ * NOTICE: You have to cast both the function and argument to not get warnings.
+ *
+ * @example
+ *
+ *    void print_num(int num){
+ *       printf("%d\n", num);
+ *    }
+ *
+ *    int main() {
+ *       ..
+ *       int jobs[] = {{print_num, 10}, {print_num, 20}, {print_num, 30}};
+ *
+ *       thpool_add_n_work(thpool, jobs, 3, THPOOL_PRIORITY_LOW);
+ *       ..
+ *    }
+ *
+ * @param  threadpool    threadpool to which the work will be added
+ * @param  function_pp   array of pointers to function to add as work
+ * @param  arg_pp        array of  pointer to an argument
+ * @param  n             number of elements in the array
+ * @param  priority      priority of the jobs
+ * @return 0 on successs, -1 otherwise.
+ */
+typedef struct thpool_work_t {
+    redisearch_thpool_proc function_p;
+    void* arg_p;
+} redisearch_thpool_work_t;
+int redisearch_thpool_add_n_work(redisearch_threadpool, redisearch_thpool_work_t* jobs, size_t n_jobs, thpool_priority priority);
 
 
 /**

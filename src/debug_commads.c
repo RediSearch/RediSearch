@@ -838,6 +838,31 @@ DEBUG_COMMAND(DocInfo) {
   return REDISMODULE_OK;
 }
 
+static void VecSim_Reply_Info_Iterator(RedisModuleCtx *ctx, VecSimInfoIterator *infoIter) {
+  RedisModule_ReplyWithArray(ctx, VecSimInfoIterator_NumberOfFields(infoIter)*2);
+  while(VecSimInfoIterator_HasNextField(infoIter)) {
+    VecSim_InfoField* infoField = VecSimInfoIterator_NextField(infoIter);
+    RedisModule_ReplyWithSimpleString(ctx, infoField->fieldName);
+    switch (infoField->fieldType) {
+    case INFOFIELD_STRING:
+      RedisModule_ReplyWithSimpleString(ctx, infoField->fieldValue.stringValue);
+      break;
+    case INFOFIELD_FLOAT64:
+      RedisModule_ReplyWithDouble(ctx, infoField->fieldValue.floatingPointValue);
+      break;
+    case INFOFIELD_INT64:
+      RedisModule_ReplyWithLongLong(ctx, infoField->fieldValue.integerValue);
+      break;
+    case INFOFIELD_UINT64:
+      RedisModule_ReplyWithLongLong(ctx, infoField->fieldValue.uintegerValue);
+      break;
+    case INFOFIELD_ITERATOR:
+      VecSim_Reply_Info_Iterator(ctx, infoField->fieldValue.iteratorValue);
+      break;
+    }
+  }
+}
+
 /**
  * FT.DEBUG VECSIM_INFO <index> <field>
  */
@@ -857,29 +882,11 @@ DEBUG_COMMAND(VecsimInfo) {
   VecSimIndex *vecsimIndex = OpenVectorIndex(sctx->spec, keyName);
 
   VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(vecsimIndex);
-  RedisModule_ReplyWithArray(ctx, VecSimInfoIterator_NumberOfFields(infoIter)*2);
-  while(VecSimInfoIterator_HasNextField(infoIter)) {
-    VecSim_InfoField* infoField = VecSimInfoIterator_NextField(infoIter);
-    RedisModule_ReplyWithSimpleString(ctx, infoField->fieldName);
-    switch (infoField->fieldType)
-    {
-    case INFOFIELD_STRING:
-      RedisModule_ReplyWithSimpleString(ctx, infoField->fieldValue.stringValue);
-      break;
-    case INFOFIELD_FLOAT64:
-      RedisModule_ReplyWithDouble(ctx, infoField->fieldValue.floatingPointValue);
-      break;
-    case INFOFIELD_INT64:
-      RedisModule_ReplyWithLongLong(ctx, infoField->fieldValue.integerValue);
-      break;
-    case INFOFIELD_UINT64:
-      RedisModule_ReplyWithLongLong(ctx, infoField->fieldValue.uintegerValue);
-      break;
-    default:
-      break;
-    }
-  }
-  VecSimInfoIterator_Free(infoIter);
+  // Recursively reply with the info iterator
+  VecSim_Reply_Info_Iterator(ctx, infoIter);
+
+  // Cleanup
+  VecSimInfoIterator_Free(infoIter); // Free the iterator (and all its nested children)
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -939,3 +946,7 @@ int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   return REDISMODULE_OK;
 }
+
+#if (defined(DEBUG) || defined(_DEBUG)) && !defined(NDEBUG)
+#include "readies/cetara/diag/gdb.c"
+#endif
