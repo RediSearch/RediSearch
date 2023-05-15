@@ -1235,7 +1235,8 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
 
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
-    cleanPool = redisearch_thpool_init(1);
+    cleanPool = redisearch_thpool_create(1);
+    redisearch_thpool_init(cleanPool, 1);
   }
 }
 
@@ -2007,7 +2008,8 @@ end:
 
 static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   if (!reindexPool) {
-    reindexPool = redisearch_thpool_init(1);
+    reindexPool = redisearch_thpool_create(1);
+    redisearch_thpool_init(reindexPool, 1);
   }
 #ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Register index %s for async scan", ((IndexSpec*)StrongRef_Get(spec_ref))->name);
@@ -2232,7 +2234,8 @@ void Indexes_UpgradeLegacyIndexes() {
 
 void Indexes_ScanAndReindex() {
   if (!reindexPool) {
-    reindexPool = redisearch_thpool_init(1);
+    reindexPool = redisearch_thpool_create(1);
+    redisearch_thpool_init(reindexPool, 1);
   }
 
   RedisModule_Log(NULL, "notice", "Scanning all indexes");
@@ -2593,10 +2596,8 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
 #ifdef POWER_TO_THE_WORKERS
     if(RSGlobalConfig.numWorkerThreads && !RSGlobalConfig.threadsEnabled) {
-      // Create the thread pool temporarily for fast RDB loading of vector index (if needed).
-      if(workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
-        return;
-      }
+      // Initialize the thread pool temporarily for fast RDB loading of vector index (if needed).
+      workersThreadPool_InitPool(RSGlobalConfig.numWorkerThreads);
       RedisModule_Log(RSDummyContext, "notice", "Created workers threadpool of size %lu for loading", RSGlobalConfig.numWorkerThreads);
     }
 #endif
@@ -2618,9 +2619,11 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     }
 #ifdef POWER_TO_THE_WORKERS
     if (RSGlobalConfig.numWorkerThreads && !RSGlobalConfig.threadsEnabled) {
-      // Terminate the temporary thread pool - use YIELD here, with API that waits without blocking
+      // Terminate the temporary thread pool (without deallocating it). Before that, we wait until
+      // all the threads are finished the jobs currently in the queue. Note that we call RM_Yield
+      // periodically while we wait, so we won't block redis for too long (for answering PING etc.)
       workersThreadPool_Wait(ctx);
-      workersThreadPool_Destroy();
+      workersThreadPool_Terminate();
       RedisModule_Log(RSDummyContext, "notice",
                       "Terminated workers threadpool of size %lu for loading",
                       RSGlobalConfig.numWorkerThreads);

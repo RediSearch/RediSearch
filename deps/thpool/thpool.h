@@ -24,9 +24,17 @@ typedef enum {
 
 
 /**
- * @brief  Initialize threadpool
+ * @brief  Create a new threadpool (without initializing the threads)
  *
- * Initializes a threadpool. This function will not return untill all
+ * @param num_threads number of threads to be created in the threadpool
+ * @return Newly allocated threadpool, or NULL if creation failed.
+ */
+redisearch_threadpool redisearch_thpool_create(size_t num_threads);
+
+/**
+ * @brief  Initialize an existing threadpool
+ *
+ * Initializes a threadpool. This function will not return until all
  * threads have initialized successfully.
  *
  * @example
@@ -36,11 +44,10 @@ typedef enum {
  *    thpool = thpool_init(4);               //then we initialize it to 4 threads
  *    ..
  *
- * @param  num_threads   number of threads to be created in the threadpool
- * @return threadpool    created threadpool on success,
- *                       NULL on error
+ * @param threadpool    threadpool to initialize
+ * @param num_threads   number of threads to be created in the threadpool
  */
-redisearch_threadpool redisearch_thpool_init(size_t num_threads);
+void redisearch_thpool_init(redisearch_threadpool, size_t num_threads);
 
 
 /**
@@ -187,6 +194,7 @@ void redisearch_thpool_pause(redisearch_threadpool);
  */
 void redisearch_thpool_resume(redisearch_threadpool);
 
+void redisearch_thpool_terminate_threads(redisearch_threadpool);
 
 /**
  * @brief Destroy the threadpool

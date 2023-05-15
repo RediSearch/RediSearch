@@ -13,8 +13,11 @@
 #include <assert.h>
 
 // create workers thread pool
-// returns REDISMODULE_OK if thread pool initialized, REDISMODULE_ERR otherwise
+// returns REDISMODULE_OK if thread pool created, REDISMODULE_ERR otherwise
 int workersThreadPool_CreatePool(size_t worker_count);
+
+// Initialize an existing worker thread pool.
+void workersThreadPool_InitPool(size_t worker_count);
 
 // return number of currently working threads
 size_t workersThreadPool_WorkingThreadCount(void);
@@ -25,8 +28,10 @@ int workersThreadPool_AddWork(redisearch_thpool_proc, void *arg_p);
 // Wait until all jobs have finished
 void workersThreadPool_Wait(RedisModuleCtx *ctx);
 
-// destroys thread pool, allows threads to exit gracefully
-// Can be called on uninitialized threadpool.
+// Terminate threads, allows threads to exit gracefully (without deallocating).
+void workersThreadPool_Terminate(void);
+
+// Destroys thread pool, can be called on uninitialized threadpool.
 void workersThreadPool_Destroy(void);
 
 #endif // POWER_TO_THE_WORKERS

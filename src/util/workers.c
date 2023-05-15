@@ -23,10 +23,17 @@ int workersThreadPool_CreatePool(size_t worker_count) {
   assert(worker_count);
   assert(_workers_thpool == NULL);
 
-  _workers_thpool = redisearch_thpool_init(worker_count);
+  _workers_thpool = redisearch_thpool_create(worker_count);
   if (_workers_thpool == NULL) return REDISMODULE_ERR;
 
   return REDISMODULE_OK;
+}
+
+void workersThreadPool_InitPool(size_t worker_count) {
+  assert(worker_count);
+  assert(_workers_thpool != NULL);
+
+  redisearch_thpool_init(_workers_thpool, worker_count);
 }
 
 // return number of currently working threads
@@ -46,7 +53,9 @@ int workersThreadPool_AddWork(redisearch_thpool_proc function_p, void *arg_p) {
 
 // Wait until all jobs have finished
 void workersThreadPool_Wait(RedisModuleCtx *ctx) {
-  assert(_workers_thpool != NULL);
+  if (!_workers_thpool) {
+    return;
+  }
 
   redisearch_thpool_lock_thcount(_workers_thpool);
   static struct timespec time_to_wait = {0, 100000000};  // 100 ms
@@ -55,6 +64,10 @@ void workersThreadPool_Wait(RedisModuleCtx *ctx) {
     RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
   }
   redisearch_thpool_unlock_thcount(_workers_thpool);
+}
+
+void workersThreadPool_Terminate(void) {
+  redisearch_thpool_terminate_threads(_workers_thpool);
 }
 
 void workersThreadPool_Destroy(void) {
