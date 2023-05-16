@@ -529,17 +529,7 @@ void SchemaPrefixes_Add(const char *prefix, StrongRef ref) {
     TrieMap_Add(ScemaPrefixes_g, (char *)prefix, nprefix, node, NULL);
   } else {
     SchemaPrefixNode *node = (SchemaPrefixNode *)p;
-    // Make sure the index referenced by `ref` is not already referenced by the list of refs in the node
-    IndexSpec *adding = StrongRef_Get(ref);
-    if (adding) {
-      for (int i = 0; i < array_len(node->index_specs); ++i) {
-        IndexSpec *existing = StrongRef_Get((StrongRef){array_elem(node->index_specs, i)});
-        if (existing && !strcmp(adding->name, existing->name)) {
-          return;
-        }
-      }
-      node->index_specs = array_append(node->index_specs, ref);
-    }
+    node->index_specs = array_append(node->index_specs, ref);
   }
 }
 
