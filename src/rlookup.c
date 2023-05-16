@@ -12,8 +12,13 @@
 #include "doc_types.h"
 #include "value.h"
 
-static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
-                                uint16_t idx);
+static void RLookupKey_Cleanup(RLookupKey *k);
+static void RLookupKey_Free(RLookupKey *k);
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Old API - To be removed  /////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Required attributes of a new rlookupkey to pass createNewLookupKeyFromOptions function
 // @member name: name to give the rlookup key.
@@ -35,24 +40,16 @@ typedef struct {
   RLookupCoerceType type;
 } RLookupKeyOptions;
 
-static RLookupKey *createNewLookupKeyFromOptions(RLookup *lookup, RLookupKeyOptions *rlookupkey_options) {
+static void RLookupKey_ConfigKeyOptionsFromSpec(RLookupKeyOptions *key_options, const FieldSpec *fs);
+static RLookupKey *createNewKey_TEMP(RLookup *lookup, const char *name, size_t n, int flags, uint16_t idx);
+static RLookupKey *createNewLookupKeyFromOptions(RLookup *lookup, RLookupKeyOptions *rlookupkey_options);
+
+// End of old API //
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Allocate a new RLookupKey and add it to the RLookup table.
+static RLookupKey *createNewKey(RLookup *lookup) {
   RLookupKey *ret = rm_calloc(1, sizeof(*ret));
-
-   int flags = rlookupkey_options->flags;
-
-  ret->flags = (flags & (~RLOOKUP_TRANSIENT_FLAGS));
-  ret->dstidx = rlookupkey_options->dstidx;
-  ret->svidx = rlookupkey_options->svidx;
-  ret->fieldtype = rlookupkey_options->type;
-
-  if (flags & RLOOKUP_F_NAMEALLOC) {
-    ret->name = rm_strndup(rlookupkey_options->name, rlookupkey_options->namelen);
-  } else {
-    ret->name = rlookupkey_options->name;
-  }
-  ret->name_len = rlookupkey_options->namelen;
-
-  ret->path = rlookupkey_options->path == rlookupkey_options->name ? ret->name : rlookupkey_options->path;
 
   if (!lookup->head) {
     lookup->head = lookup->tail = ret;
@@ -61,10 +58,28 @@ static RLookupKey *createNewLookupKeyFromOptions(RLookup *lookup, RLookupKeyOpti
     lookup->tail = ret;
   }
 
-  // Increase the Rlookup table row length. (all rows have the same length).
+  // Increase the RLookup table row length. (all rows have the same length).
   ++(lookup->rowlen);
 
   return ret;
+}
+
+static void RLookupKey_SetKey(RLookupKey *key, RLookupKeyOptions *rlookupkey_options) {
+  int flags = rlookupkey_options->flags;
+
+  key->flags = (flags & (~RLOOKUP_TRANSIENT_FLAGS));
+  key->dstidx = rlookupkey_options->dstidx;
+  key->svidx = rlookupkey_options->svidx;
+  key->fieldtype = rlookupkey_options->type;
+
+  if (flags & RLOOKUP_F_NAMEALLOC) {
+    key->name = rm_strndup(rlookupkey_options->name, rlookupkey_options->namelen);
+  } else {
+    key->name = rlookupkey_options->name;
+  }
+  key->name_len = rlookupkey_options->namelen;
+
+  key->path = rlookupkey_options->path == rlookupkey_options->name ? key->name : rlookupkey_options->path;
 }
 
 
@@ -84,6 +99,148 @@ const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
 
   return fs;
 
+}
+
+// Gets a key from the schema if the field is sortable (so its data is available).
+static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t name_len, int flags) {
+  const FieldSpec *fs = findFieldInSpecCache(lookup, name);
+  if(!fs || !FieldSpec_IsSortable(fs)) {
+    return NULL;
+  }
+
+  RLookupKeyOptions options = {
+                              .name = name,
+                              .namelen = name_len,
+                              .path = NULL,
+                              .flags = flags,
+                              .dstidx = lookup->rowlen,
+                              .svidx = 0,
+                              .type = 0,
+                            };
+  RLookupKey_ConfigKeyOptionsFromSpec(&options, fs);
+  return createNewLookupKeyFromOptions(lookup, &options);
+
+}
+
+static void createNewKey_fromKey(RLookup *lookup, RLookupKey *key, const char *name, size_t n, int flags) {
+  RLookupKeyOptions options = {
+                                .name = name,
+                                .namelen = n,
+                                .path = name,
+                                .flags = flags | (key->flags & RLOOKUP_F_NAMEALLOC),
+                                .dstidx = key->dstidx,
+                                .svidx = key->svidx,
+                                .type = key->fieldtype,
+                              };
+  RLookupKey_SetKey(key, &options);
+}
+
+static void setLoadedKey(RLookup *lookup, RLookupKey *key, const char *name, size_t name_len, int flags) {
+  const FieldSpec *fs = findFieldInSpecCache(lookup, name);
+
+  key->flags |= RLOOKUP_F_ISLOADED | RLOOKUP_F_DOCSRC | (flags & ~RLOOKUP_TRANSIENT_FLAGS);
+
+  if (flags & RLOOKUP_F_NAMEALLOC) {
+    key->name = rm_strndup(name, name_len);
+  } else {
+    key->name = name;
+  }
+  key->path = key->name;
+  key->name_len = name_len;
+
+  if (fs) {
+    key->flags |= RLOOKUP_F_SCHEMASRC;
+    if (FieldSpec_IsSortable(fs)) {
+      key->flags |= RLOOKUP_F_SVSRC;
+      key->svidx = fs->sortIdx;
+    }
+    if (FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
+      key->flags |= RLOOKUP_T_NUMERIC;
+    }
+  }
+}
+
+static RLookupKey *RLookup_FindKey(RLookup *lookup, const char *name, size_t n) {
+  for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
+    // match `name` to the name/path of the field
+    if ((kk->name_len == n && !strncmp(kk->name, name, kk->name_len)) ||
+        (kk->path != kk->name && !strcmp(kk->path, name))) { // TODO: Why?
+      return kk;
+    }
+  }
+  return NULL;
+}
+
+RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int flags) {
+  if (flags & RLOOKUP_F_LOAD && lookup->spcache == NULL) {
+    // If there is no schema, we can't load the key - fail (error?)
+    return NULL;
+  }
+  // First, look for the key in the lookup table for an existing key with the same name
+  RLookupKey *key = RLookup_FindKey(lookup, name, n);
+
+  // TODO: consider moving these 3 options to a separate enum and a mode variable
+  if (flags & RLOOKUP_F_LOAD) {
+    // 0. if there is no schema, we can't load the key - fail (error? check earlier?)
+    // 1. if the key is already loaded, return NULL
+    // 2. try generating a key from the schema, including all relevant meta data
+    // 3. if the key is not found in the schema, it might be in the document.
+    //    create a new key with the name of the field, and mark it as doc-source loaded.
+    if (!key) {
+      key = createNewKey(lookup);
+    } else if ((key->flags & RLOOKUP_F_ISLOADED) && (key->flags & RLOOKUP_F_DOCSRC)) {
+      // Already loaded, return NULL
+      return NULL;
+    }
+    setLoadedKey(lookup, key, name, n, flags);
+    return key;
+  } else if (flags & RLOOKUP_F_WRITE) {
+    // A. we found the key at the lookup table:
+    //    1. if we are in exclusive mode, return NULL
+    //    2. if we are in create mode, overwrite the key (remove schema related data, mark with new flags)
+    // B. we didn't find the key at the lookup table:
+    //    create a new key with the name and flags
+    if (key) {
+      if (flags & RLOOKUP_F_OEXCL) {
+        return NULL;
+      }
+      createNewKey_fromKey(lookup, key, name, n, flags);
+      return key;
+    } else {
+      // TODO: if `RLOOKUP_F_OEXCL`, verify against schema?
+      return createNewKey_TEMP(lookup, name, n, flags, lookup->rowlen);
+    }
+  } else if (flags & RLOOKUP_F_READ) {
+    if (!key) {
+      // 1. if we didn't find the key at the lookup table, check if it exists in the schema (SORTABLE), and create only if so.
+      key = genKeyFromSpec(lookup, name, n, flags);
+    }
+    return key;
+  } else {
+    return NULL;
+  }
+  // MORE WORK:
+  // TODO: figure out how to handel:
+  // lookup->options & RLOOKUP_OPT_UNRESOLVED_OK
+}
+
+RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags) {
+  return RLookup_GetKeyEx(lookup, name, strlen(name), flags);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Old API - To be removed  /////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+static RLookupKey *createNewKey_TEMP(RLookup *lookup, const char *name, size_t n, int flags,
+                                uint16_t idx);
+
+static RLookupKey *createNewLookupKeyFromOptions(RLookup *lookup, RLookupKeyOptions *rlookupkey_options) {
+  RLookupKey *ret = createNewKey(lookup);
+  RLookupKey_SetKey(ret, rlookupkey_options);
+  return ret;
 }
 
 static void RLookupKey_ConfigKeyOptionsFromSpec(RLookupKeyOptions *key_options, const FieldSpec *fs) {
@@ -107,7 +264,7 @@ static void RLookupKey_ConfigKeyOptionsFromSpec(RLookupKeyOptions *key_options, 
   }
 }
 
-static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t name_len, int flags) {
+static RLookupKey *genKeyFromSpec_TEMP(RLookup *lookup, const char *name, size_t name_len, int flags) {
 
   const FieldSpec *fs = findFieldInSpecCache(lookup, name);
   if(!fs) {
@@ -128,7 +285,7 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t name
 
 }
 
-static RLookupKey *FindLookupKeyWithExistingPath(RLookup *lookup, const char *path, int flags, const FieldSpec** out_spec_field) {
+static RLookupKey *FindLookupKeyWithExistingPath_TEMP(RLookup *lookup, const char *path, int flags, const FieldSpec** out_spec_field) {
 
   // Check if path exist in schema (as name).
   // If the users set an alias for the fields, they should address them by their aliased name,
@@ -162,7 +319,7 @@ static RLookupKey *FindLookupKeyWithExistingPath(RLookup *lookup, const char *pa
 
 }
 
-static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
+static RLookupKey *createNewKey_TEMP(RLookup *lookup, const char *name, size_t n, int flags,
                                 uint16_t idx) {
 
   RLookupKeyOptions options = {
@@ -177,9 +334,9 @@ static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int
   return createNewLookupKeyFromOptions(lookup, &options);
 }
 
-static RLookupKey *RLookup_GetOrCreateKeyEx(RLookup *lookup, const char *path, const char *name, size_t name_len, int flags) {
+static RLookupKey *RLookup_GetOrCreateKeyEx_TEMP(RLookup *lookup, const char *path, const char *name, size_t name_len, int flags) {
   const FieldSpec *fs = NULL;
-  RLookupKey *lookupkey = FindLookupKeyWithExistingPath(lookup, path, flags, &fs);
+  RLookupKey *lookupkey = FindLookupKeyWithExistingPath_TEMP(lookup, path, flags, &fs);
 
   // if we found a RLookupKey and it has the same name, use it.
   if(lookupkey) {
@@ -220,56 +377,13 @@ static RLookupKey *RLookup_GetOrCreateKeyEx(RLookup *lookup, const char *path, c
   return createNewLookupKeyFromOptions(lookup, &options);
 }
 
-RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char *name, int flags) {
- return RLookup_GetOrCreateKeyEx(lookup, path, name, strlen(name), flags);
+RLookupKey *RLookup_GetOrCreateKey_TEMP(RLookup *lookup, const char *path, const char *name, int flags) {
+ return RLookup_GetOrCreateKeyEx_TEMP(lookup, path, name, strlen(name), flags);
 }
 
-static RLookupKey *RLookup_FindKey(RLookup *lookup, const char *name, size_t n) {
-  for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
-    // match `name` to the name/path of the field
-    if ((kk->name_len == n && !strncmp(kk->name, name, kk->name_len)) ||
-        (kk->path != kk->name && !strcmp(kk->path, name))) { // TODO: Why?
-      return kk;
-    }
-  }
-  return NULL;
-}
-
-RLookupKey *RLookup_GetKeyEx_Alt(RLookup *lookup, const char *name, size_t n, int flags) {
-  // First, look for the key in the lookup table for an existing key with the same name
-  RLookupKey *key = RLookup_FindKey(lookup, name, n);
-
-  // TODO: consider moving these 3 options to a separate enum and a mode variable
-  if (flags & RLOOKUP_F_LOAD) {
-    // 0. if there is no schema, we can't load the key - fail (error? check earlier?)
-    // 1. if the key is already loaded, return NULL
-    // 2. try generating a key from the schema, including all relevant meta data
-    // 3. if the key is not found in the schema, it might be in the document.
-    //    create a new key with the name of the field, and mark it as doc-source loaded.
-  } else if (flags & RLOOKUP_F_WRITE) {
-    // A. we found the key at the lookup table:
-    //    1. if we are in exclusive mode, return NULL
-    //    2. if we are in create mode, overwrite the key (remove schema related data, mark with new flags)
-    // B. we didn't find the key at the lookup table:
-    //    create a new key with the name and flags
-  } else if (flags & RLOOKUP_F_READ) {
-    // 1. if we found the key at the lookup table, return it
-    // 2. if we didn't find the key at the lookup table, check if it exists in the schema (SORTABLE), and create only if so.
-  } else {
-    return NULL;
-  }
-  // MORE WORK:
-  // TODO: figure out how to handel:
-  // lookup->options & RLOOKUP_OPT_UNRESOLVED_OK
-}
-
-RLookupKey *RLookup_GetKey_Alt(RLookup *lookup, const char *name, int flags) {
-  return RLookup_GetKeyEx_Alt(lookup, name, strlen(name), flags);
-}
-
-RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int flags) {
+RLookupKey *RLookup_GetKeyEx_TEMP(RLookup *lookup, const char *name, size_t n, int flags) {
   if((flags & RLOOKUP_F_OCREAT) && !(flags & RLOOKUP_F_OEXCL) ) {
-   return RLookup_GetOrCreateKeyEx(lookup, name, name, n, flags);
+   return RLookup_GetOrCreateKeyEx_TEMP(lookup, name, name, n, flags);
   }
 
   RLookupKey *ret = NULL;
@@ -287,14 +401,14 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
   }
 
   if (!ret) {
-    ret = genKeyFromSpec(lookup, name, n, flags);
+    ret = genKeyFromSpec_TEMP(lookup, name, n, flags);
   }
 
   if (!ret) {
     if (!(flags & RLOOKUP_F_OCREAT) && !(lookup->options & RLOOKUP_OPT_UNRESOLVED_OK)) {
       return NULL;
     } else {
-      ret = createNewKey(lookup, name, n, flags, lookup->rowlen);
+      ret = createNewKey_TEMP(lookup, name, n, flags, lookup->rowlen);
       if (!(flags & RLOOKUP_F_OCREAT)) {
         ret->flags |= RLOOKUP_F_UNRESOLVED;
       }
@@ -309,9 +423,12 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
   return ret;
 }
 
-RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags) {
-  return RLookup_GetKeyEx(lookup, name, strlen(name), flags);
+RLookupKey *RLookup_GetKey_TEMP(RLookup *lookup, const char *name, int flags) {
+  return RLookup_GetKeyEx_TEMP(lookup, name, strlen(name), flags);
 }
+
+// End of old API //
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFieldIndex,
                          int requiredFlags, int excludeFlags, SchemaRule *rule) {
@@ -367,7 +484,7 @@ void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
 void RLookup_WriteKeyByName(RLookup *lookup, const char *name, RLookupRow *dst, RSValue *v) {
   // Get the key first
   RLookupKey *k =
-      RLookup_GetKey(lookup, name, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_OCREAT);
+      RLookup_GetKey_TEMP(lookup, name, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_OCREAT);
   RS_LOG_ASSERT(k, "failed to get key");
   RLookup_WriteKey(k, dst, v);
 }
@@ -424,10 +541,14 @@ void RLookupRow_Dump(const RLookupRow *rr) {
   }
 }
 
-void RLookupKey_FreeInternal(RLookupKey *k) {
+static void RLookupKey_Cleanup(RLookupKey *k) {
   if (k->flags & RLOOKUP_F_NAMEALLOC) {
     rm_free((void *)k->name);
   }
+}
+
+static void RLookupKey_Free(RLookupKey *k) {
+  RLookupKey_Cleanup(k);
   rm_free(k);
 }
 
@@ -435,7 +556,7 @@ void RLookup_Cleanup(RLookup *lk) {
   RLookupKey *next, *cur = lk->head;
   while (cur) {
     next = cur->next;
-    RLookupKey_FreeInternal(cur);
+    RLookupKey_Free(cur);
     cur = next;
   }
   IndexSpecCache_Decref(lk->spcache);
@@ -762,7 +883,7 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
   RLookup_HGETALL_privdata *pd = privdata;
   size_t fieldCStrLen;
   const char *fieldCStr = RedisModule_StringPtrLen(field, &fieldCStrLen);
-  RLookupKey *rlk = RLookup_GetKeyEx(pd->it, fieldCStr, fieldCStrLen, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC);
+  RLookupKey *rlk = RLookup_GetKeyEx_TEMP(pd->it, fieldCStr, fieldCStrLen, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC);
   if (!pd->options->noSortables && (rlk->flags & RLOOKUP_F_SVSRC)) {
     return;  // Can load it from the sort vector on demand.
   }
@@ -804,7 +925,7 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
       RedisModuleCallReply *repv = RedisModule_CallReplyArrayElement(rep, i + 1);
 
       const char *kstr = RedisModule_CallReplyStringPtr(repk, &klen);
-      RLookupKey *rlk = RLookup_GetKeyEx(it, kstr, klen, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC);
+      RLookupKey *rlk = RLookup_GetKeyEx_TEMP(it, kstr, klen, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC);
       if (!options->noSortables && (rlk->flags & RLOOKUP_F_SVSRC)) {
         continue;  // Can load it from the sort vector on demand.
       }
@@ -871,7 +992,7 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   if (res == REDISMODULE_ERR) {
     goto done;
   }
-  RLookupKey *rlk = RLookup_GetKeyEx(it, JSON_ROOT, strlen(JSON_ROOT), RLOOKUP_F_OCREAT);
+  RLookupKey *rlk = RLookup_GetKeyEx_TEMP(it, JSON_ROOT, strlen(JSON_ROOT), RLOOKUP_F_OCREAT);
   RLookup_WriteOwnKey(rlk, dst, vptr);
 
   rc = REDISMODULE_OK;
@@ -908,11 +1029,11 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
   for (int i = 0; i < nkeys; ++i) {
     int idx = rule->filter_fields_index[i];
     if (idx == -1) {
-      keys[i] = createNewKey(it, rule->filter_fields[i], strlen(rule->filter_fields[i]), 0, it->rowlen);
+      keys[i] = createNewKey_TEMP(it, rule->filter_fields[i], strlen(rule->filter_fields[i]), 0, it->rowlen);
       continue;
     }
     FieldSpec *fs = spec->fields + idx;
-    keys[i] = createNewKey(it, fs->name, strlen(fs->name), 0, it->rowlen);
+    keys[i] = createNewKey_TEMP(it, fs->name, strlen(fs->name), 0, it->rowlen);
     keys[i]->path = fs->path;
   }
 

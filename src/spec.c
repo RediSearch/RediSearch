@@ -1789,13 +1789,13 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
       }
     }
   }
-  
+
   // Load geometry specific options
   if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
     // TODO: GEOMETRY - if more than one geometry library is supported - load it from rdb (currently hard-coded)
     f->geometryOpts.geometryLibType = GEOMETRY_LIB_TYPE_BOOST_GEOMETRY;
   }
-  
+
   return REDISMODULE_OK;
 
 fail:
@@ -2772,12 +2772,12 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   dict *specs = res->specs;
 
 #if defined(_DEBUG) && 0
-  RLookupKey *k = RLookup_GetKey(&r->lk, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
+  RLookupKey *k = RLookup_GetKey_TEMP(&r->lk, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
   RSValue *v = RLookup_GetItem(k, &r->row);
   const char *x = RSValue_StringPtrLen(v, NULL);
   RedisModule_Log(NULL, "notice", "Indexes_FindMatchingSchemaRules: x=%s", x);
   const char *f = "name";
-  k = RLookup_GetKey(&r->lk, f, RLOOKUP_F_NOFLAGS);
+  k = RLookup_GetKey_TEMP(&r->lk, f, RLOOKUP_F_NOFLAGS);
   if (k) {
     v = RLookup_GetItem(k, &r->row);
     x = RSValue_StringPtrLen(v, NULL);

@@ -48,7 +48,7 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
   p->counter = 0;
   p->Next = p1_Next;
   p->Free = resultProcessor_GenericFree;
-  p->kout = RLookup_GetKey(&lk, "foo", RLOOKUP_F_OCREAT);
+  p->kout = RLookup_GetKey_TEMP(&lk, "foo", RLOOKUP_F_OCREAT);
   QITR_PushRP(&qitr, p);
 
   processor1Ctx *p2 = new processor1Ctx();

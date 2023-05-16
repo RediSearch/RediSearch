@@ -205,6 +205,7 @@ typedef struct {
 #define RLOOKUP_F_WRITE 0x02  // Get key for writing
 #define RLOOKUP_F_LOAD 0x04   // Load key from document (include known information on the key, fail if already loaded)
 #define RLOOKUP_F_EXCL 0x08   // Verify that the key is not already existing nor in the schema (exclusive)
+#define RLOOKUP_T_NUMERIC 0x10 // Create the key if it doesn't exist in the schema
 
 /**
  * Get a RLookup key for a given name. The behavior of this function depends on
@@ -219,7 +220,7 @@ typedef struct {
  * not be found, unless OPT_UNRESOLVED_OK is set on the lookup itself. In this
  * case, the key is returned, but has the F_UNRESOLVED flag set.
  */
-RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags);
+RLookupKey *RLookup_GetKey_TEMP(RLookup *lookup, const char *name, int flags);
 
 /**
  * Get or create a RLookup key for a given path and name. This function always returns a valid key,
@@ -233,7 +234,7 @@ RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags);
  * attributes as the found key, but with a different name.
  *
  */
-RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char *name, int flags);
+RLookupKey *RLookup_GetOrCreateKey_TEMP(RLookup *lookup, const char *path, const char *name, int flags);
 /**
  * Get the amount of visible fields is the RLookup
  */
@@ -381,9 +382,6 @@ typedef struct {
  * @param options options controlling the load process
  */
 int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
-
-/** Use incref/decref instead! */
-void RLookupKey_FreeInternal(RLookupKey *k);
 
 /**
  * Initialize the lookup. If cache is provided, then it will be used as an
