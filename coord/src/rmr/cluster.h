@@ -129,7 +129,7 @@ size_t MRCluster_NumShards(MRCluster *cl);
 int MRCluster_ConnectAll(MRCluster *cl);
 
 /* Create a new cluster using a node provider */
-MRCluster *MR_NewCluster(MRClusterTopology *topology, ShardFunc sharder,
+MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size, ShardFunc sharder,
                          long long minTopologyUpdateInterval);
 
 /* Update the topology by calling the topology provider explicitly with ctx. If ctx is NULL, the

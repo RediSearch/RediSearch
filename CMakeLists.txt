@@ -5,6 +5,9 @@ include(${root}/deps/readies/cmake/main)
 
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
 
+str_from_env(CONAN_BINDIR)
+set(CMAKE_MODULE_PATH ${CONAN_BINDIR})
+
 #----------------------------------------------------------------------------------------------
 
 option(BUILD_STATIC "Build a static library" OFF)
@@ -27,6 +30,10 @@ endif()
 
 setup_cc_options()
 
+# lists_from_env(S2GEOMETRY)
+
+# set(REDISEARCH_LIBS ${S2GEOMETRY})
+
 # ugly hack for cpu_features::list_cpu_features coming from VecSim
 set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
@@ -34,7 +41,7 @@ add_compile_definitions(
     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
     "GIT_VERSPEC=\"${GIT_VERSPEC}\""
     "GIT_SHA=\"${GIT_SHA}\""
-    REDISMODULE_EXPERIMENTAL_API
+    REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
 if (USE_REDIS_ALLOCATOR)
@@ -46,7 +53,10 @@ endif()
 include_directories(
     ${root}/src
     ${root}/deps
+    ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
+#   ${root}/deps/s2geometry/src
+    ${BOOST_DIR}
     ${root})
 
 add_subdirectory(deps/rmutil)
@@ -59,6 +69,7 @@ option(VECSIM_STATIC "Build as static library" ON)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity)
+add_subdirectory(src/geometry)
 
 #----------------------------------------------------------------------------------------------
 
@@ -125,7 +136,7 @@ elseif (BUILD_STATIC)
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
-    target_link_libraries(redisearch VectorSimilarity ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch redisearch-geometry VectorSimilarity  ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
 
     set(TEST_MODULE "redisearch-static")
     set(TEST_MODULE_SO $<TARGET_FILE:redisearch>)
@@ -135,7 +146,7 @@ else() # OSS RediSearch
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
-    target_link_libraries(redisearch VectorSimilarity ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch redisearch-geometry VectorSimilarity  ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
 
     extract_debug_symbols(redisearch)
     

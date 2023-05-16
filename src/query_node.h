@@ -34,8 +34,11 @@ typedef enum {
   /* OPTIONAL (should match) node */
   QN_OPTIONAL,
 
-  /* Geo filter node */
+  /* Geo filter node (lon,lat geo coordinates)*/
   QN_GEO,
+
+  /* Geometric shape filter node (line, polygon, etc.)*/
+  QN_GEOMETRY,
 
   /* Prefix selection node */
   QN_PREFIX,
@@ -110,6 +113,10 @@ typedef struct {
 } QueryGeofilterNode;
 
 typedef struct {
+  struct GeometryQuery *geomq;
+} QueryGeometryNode;
+
+typedef struct {
   struct VectorQuery *vq;
 } QueryVectorNode;
 
@@ -180,6 +187,7 @@ typedef struct RSQueryNode {
     QueryUnionNode un;
     QueryNumericNode nn;
     QueryGeofilterNode gn;
+    QueryGeometryNode gmn;
     QueryIdFilterNode fn;
     QueryNotNode inverted;
     QueryOptionalNode opt;

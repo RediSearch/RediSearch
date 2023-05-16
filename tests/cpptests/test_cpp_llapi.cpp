@@ -18,8 +18,8 @@
 class LLApiTest : public ::testing::Test {
   virtual void SetUp() {
     RediSearch_Initialize();
-    RSGlobalConfig.minTermPrefix = 0;
-    RSGlobalConfig.maxPrefixExpansions = LONG_MAX;
+    RSGlobalConfig.iteratorsConfigParams.minTermPrefix = 0;
+    RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions = LONG_MAX;
   }
 
   virtual void TearDown() {
@@ -194,7 +194,7 @@ TEST_F(LLApiTest, testAddDocumentGeoField) {
   ASSERT_FALSE(iter);
 
   // 90 > lat > 85
-  // we receive an EOF iterator  
+  // we receive an EOF iterator
   qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 87, 0.123455, 10, RS_GEO_DISTANCE_M);
   iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_TRUE(iter);
@@ -1185,6 +1185,7 @@ TEST_F(LLApiTest, testScore) {
 TEST_F(LLApiTest, testInfoSize) {
   // creating the index
   RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  GCContext *gc;
 
   // adding field to the index
   RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
@@ -1211,14 +1212,16 @@ TEST_F(LLApiTest, testInfoSize) {
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
   ASSERT_EQ(RediSearch_MemUsage(index), 124);
-  RSGlobalConfig.forkGcCleanThreshold = 0;
-  index->gc->callbacks.periodicCallback(RSDummyContext, index->gc->gcCtx);
+  RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
+  gc = get_spec(index)->gc;
+  gc->callbacks.periodicCallback(RSDummyContext, gc->gcCtx);
   ASSERT_EQ(RediSearch_MemUsage(index), 113);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
   ASSERT_EQ(RediSearch_MemUsage(index), 14);
-  index->gc->callbacks.periodicCallback(RSDummyContext, index->gc->gcCtx);
+  gc = get_spec(index)->gc;
+  gc->callbacks.periodicCallback(RSDummyContext, gc->gcCtx);
   ASSERT_EQ(RediSearch_MemUsage(index), 2);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained

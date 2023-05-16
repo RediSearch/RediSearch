@@ -6,6 +6,8 @@ ROOT=.
 MK.cmake=1
 SRCDIR=.
 
+MACOS_PACKAGES=openssl boost
+
 include deps/readies/mk/main
 
 #----------------------------------------------------------------------------------------------
@@ -31,7 +33,7 @@ make build          # compile and link
   STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
 make parsers       # build parsers code
 make clean         # remove build artifacts
-  ALL=1              # remove entire artifacts directory
+  ALL=1|all          # remove entire artifacts directory (all: remove Conan artifacts)
 
 make run           # run redis with RediSearch
   GDB=1              # invoke using gdb
@@ -82,6 +84,7 @@ make docker        # build for specified platform
   TEST=1             # run tests after build
   PACK=1             # create package
   ARTIFACTS=1        # copy artifacts to host
+  VERIFY=1           # verify docker is intact
 
 make box           # create container with volumen mapping into /search
   OSNICK=nick        # platform spec
@@ -164,10 +167,14 @@ endif # COORD
 export COORD
 export PACKAGE_NAME
 
+ifeq ($(REDISEARCH_POWER_TO_THE_WORKERS),1)
+CC_FLAGS.common += -DPOWER_TO_THE_WORKERS
+endif
+
 #----------------------------------------------------------------------------------------------
 
 CC_C_STD=gnu99
-CC_CXX_STD=c++11
+# CC_CXX_STD=c++11
 
 CC_STATIC_LIBSTDCXX ?= 1
 
@@ -189,8 +196,6 @@ endif
 
 CMAKE_FILES= \
 	CMakeLists.txt \
-	build/cmake/redisearch_cflags.cmake \
-	build/cmake/redisearch_debug.cmake \
 	deps/friso/CMakeLists.txt \
 	deps/phonetics/CMakeLists.txt \
 	deps/snowball/CMakeLists.txt \
@@ -211,12 +216,23 @@ endif
 #----------------------------------------------------------------------------------------------
 
 _CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME)
+ifneq ($(filter $(OSNICK),bionic amzn2),)
+_CMAKE_FLAGS += -DCANON_BOOST=on
+endif
 
 ifeq ($(OS),macos)
-_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix)
+_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DBOOST_DIR=$(boost_prefix)
 endif
 
 _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) 
+
+#----------------------------------------------------------------------------------------------
+
+BOOST_INC_PATH.centos:=/usr/include/boost169
+CC_INCLUDES.centos7 += $(BOOST_INC_PATH.centos)
+CC_INCLUDES.centos8 += $(BOOST_INC_PATH.centos)
+
+CC_INCLUDES.macos += $(boost_prefix)/include
 
 #----------------------------------------------------------------------------------------------
 
@@ -227,6 +243,21 @@ MK_CUSTOM_CLEAN=1
 #----------------------------------------------------------------------------------------------
 
 MISSING_DEPS:=
+
+export CONAN_BINDIR:=$(ROOT)/bin/$(shell $(READIES)/bin/platform -t)/conan
+include build/conan/Makefile.defs
+
+# S2GEOMETRY_DIR=$(ROOT)/deps/s2geometry
+# export S2GEOMETRY_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/s2geometry
+# include build/s2geometry/Makefile.defs
+
+ifeq ($(wildcard $(CONAN_PRESETS)),)
+MISSING_DEPS += $(CONAN_PRESETS)
+endif
+
+# ifeq ($(wildcard $(S2GEOMETRY)),)
+# MISSING_DEPS += $(S2GEOMETRY)
+# endif
 
 ifeq ($(wildcard $(LIBUV)),)
 MISSING_DEPS += $(LIBUV)
@@ -240,7 +271,7 @@ ifneq ($(MISSING_DEPS),)
 DEPS=1
 endif
 
-DEPENDENCIES=libuv #@@ hiredis
+DEPENDENCIES=conan libuv #@@  s2geometry hiredis
 
 ifneq ($(filter all deps $(DEPENDENCIES) pack,$(MAKECMDGOALS)),)
 DEPS=1
@@ -257,9 +288,17 @@ include $(MK)/rules
 clean:
 ifeq ($(ALL),1)
 	$(SHOW)rm -rf $(BINROOT)
+else ifeq ($(ALL),all)
+	$(SHOW)rm -rf $(BINROOT)
+	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG='' clean
 else
 	$(SHOW)$(MAKE) -C $(BINDIR) clean
 endif
+
+clean-conan:
+	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG='' clean
+
+.PHONY: clean-conan
 
 #----------------------------------------------------------------------------------------------
 
@@ -282,7 +321,19 @@ endif
 
 ifeq ($(DEPS),1)
 
-deps: $(LIBUV) #@@ $(HIREDIS)
+deps: $(CONAN_PRESETS) $(LIBUV) #@@ $(HIREDIS) $(S2GEOMETRY)
+
+conan: $(CONAN_PRESETS)
+
+$(CONAN_PRESETS):
+	@echo Fetching conan libraries...
+	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG=''
+
+# s2geometry: $(S2GEOMETRY)
+# 
+# $(S2GEOMETRY):
+# 	@echo Building s2geometry...
+# 	$(SHOW)$(MAKE) --no-print-directory -C build/s2geometry DEBUG=''
 
 libuv: $(LIBUV)
 
@@ -506,9 +557,9 @@ endif
 	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)$(MAKE) build COORD=oss COV=1
 	$(SHOW)$(COVERAGE_RESET)
-	-$(SHOW)$(MAKE) unit-test COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) unit-tests COV=1 $(REJSON_COV_ARG)
 	-$(SHOW)$(MAKE) pytest COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) unit-test COORD=oss COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) unit-tests COORD=oss COV=1 $(REJSON_COV_ARG)
 	-$(SHOW)$(MAKE) pytest COORD=oss COV=1 $(REJSON_COV_ARG)
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
@@ -518,6 +569,9 @@ endif
 
 docker:
 	$(SHOW)$(MAKE) -C build/docker
+ifeq ($(VERIFY),1)
+	$(SHOW)$(MAKE) -C build/docker verify
+endif
 
 # box:
 # ifneq ($(OSNICK),)
@@ -531,6 +585,6 @@ SANBOX_ARGS += -v /w:/w
 endif
 
 sanbox:
-	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:13-x64-bullseye bash
+	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:16-x64-bullseye bash
 
 .PHONY: box sanbox

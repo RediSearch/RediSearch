@@ -44,7 +44,7 @@ void ReadIterator_Free(IndexIterator *it);
 /* Create a new UnionIterator over a list of underlying child iterators.
 It will return each document of the underlying iterators, exactly once */
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int quickExit,
-                                double weight, QueryNodeType type, const char *qstr);
+                                double weight, QueryNodeType type, const char *qstr, IteratorsConfig *config);
 
 /* Create a new intersect iterator over the given list of child iterators. If maxSlop is not a
  * negative number, we will allow at most maxSlop intervening positions between the terms. If
@@ -52,6 +52,13 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int q
  * order. I.e anexact match has maxSlop of 0 and inOrder 1.  */
 IndexIterator *NewIntersecIterator(IndexIterator **its, size_t num, DocTable *t,
                                    t_fieldMask fieldMask, int maxSlop, int inOrder, double weight);
+
+/* Add an iterator to an intersect iterator */
+void AddIntersectIterator(IndexIterator *parentIter, IndexIterator *childIter);
+
+/* Trim a union iterator to hold minimum iterators that contain `limit` results.
+ * This is used to optimize queries with no additional filters. */
+void trimUnionIterator(IndexIterator *iter, size_t offset, size_t limit, bool asc, bool unsorted);
 
 /* Create a NOT iterator by wrapping another index iterator */
 IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight);
@@ -80,13 +87,18 @@ const char *IndexIterator_GetTypeString(const IndexIterator *it);
 /** Add Profile iterator layer between iterators */
 void Profile_AddIters(IndexIterator **root);
 
+typedef struct {
+    IteratorsConfig *iteratorsConfig;
+    int printProfileClock;    
+} PrintProfileConfig;
 /** Print profile of iterators */
 void printIteratorProfile(RedisModuleCtx *ctx,
                           IndexIterator *root,
                           size_t counter,
                           double cpuTime,
                           int depth,
-                          int limited);
+                          int limited,
+                          PrintProfileConfig *config);
 
 
 #ifdef __cplusplus

@@ -22,6 +22,7 @@ extern "C" {
 #define DEFAULT_LIMIT 10
 
 typedef struct Grouper Grouper;
+struct QOptimizer;
 
 typedef enum {
   QEXEC_F_IS_EXTENDED = 0x01,     // Contains aggregations or projections
@@ -31,6 +32,7 @@ typedef enum {
   QEXEC_F_SEND_PAYLOADS = 0x10,   // Sent the payload set with ADD
   QEXEC_F_IS_CURSOR = 0x20,       // Is a cursor-type query
   QEXEC_F_REQUIRED_FIELDS = 0x40, // Send multiple required fields
+  QEXEC_F_HAS_THCTX = 0x80,       // Contains threadsafe context
 
   /** Don't use concurrent execution */
   QEXEC_F_SAFEMODE = 0x100,
@@ -60,11 +62,20 @@ typedef enum {
   /* FT.AGGREGATE load all fields */
   QEXEC_AGG_LOAD_ALL = 0x20000,
 
+  /* Optimize query */
+  QEXEC_OPTIMIZE = 0x40000,
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
+#define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
+#define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
+#define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
+
+// These macro should be used only by the main thread since configuration can be changed while running in 
+// backgroud.
+#define RunInThread(r) (RSGlobalConfig.threadsEnabled && RSGlobalConfig.numWorkerThreads && IsSearch(r))
 
 typedef enum {
   /* Received EOF from iterator */
@@ -109,16 +120,24 @@ typedef struct {
   /** Flags indicating current execution state */
   uint32_t stateflags;
 
-  /** Query timeout in milliseconds */
-  int32_t reqTimeout;
   struct timespec timeoutTime;
+
+  /*  
+  // Dialect version used on this request
+  unsigned int dialectVersion;
+  // Query timeout in milliseconds
+  long long reqTimeout;
+  RSTimeoutPolicy timeoutPolicy; 
+  // reply with time on profile
+  int printProfileClock;
+  */
+
+  RequestConfig reqConfig;
 
   /** Cursor settings */
   unsigned cursorMaxIdle;
   unsigned cursorChunkSize;
 
-  /** Dialect version used on this request **/
-  unsigned int dialectVersion;
 
   /** Profile variables */
   hires_clock_t initClock;  // Time of start. Reset for each cursor call
@@ -127,6 +146,14 @@ typedef struct {
   double pipelineBuildTime;  // Time for creating the pipeline
 
   const char** requiredFields;
+
+  struct QOptimizer *optimizer;        // Hold parameters for query optimizer
+  
+  // Currently we need both because maxSearchResults limits the OFFSET also in
+  // FT.AGGREGATE execution.
+  size_t maxSearchResults;
+  size_t maxAggregateResults;
+  
 } AREQ;
 
 /**
@@ -177,12 +204,22 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
 /**
+ * No special flags when building the pipeline
+ */
+#define AREQ_BUILDPIPELINE_NO_FLAGS 0x00
+
+/**
  * Do not create the root result processor. Only process those components
  * which process fully-formed, fully-scored results. This also means
  * that a scorer is not created. It will also not initialize the
  * first step or the initial lookup table
  */
 #define AREQ_BUILDPIPELINE_NO_ROOT 0x01
+
+/**
+ * Add the ability to run the query in a multi threaded environment
+ */
+#define AREQ_BUILD_THREADSAFE_PIPELINE 0x02
 /**
  * Constructs the pipeline objects needed to actually start processing
  * the requests. This does not yet start iterating over the objects
@@ -244,6 +281,7 @@ ResultProcessor *Grouper_GetRP(Grouper *gr);
 void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
+int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status);
 void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit);
 void AREQ_Free(AREQ *req);
 
@@ -265,7 +303,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /**
  * @brief Parse a dialect version from var args
- * 
+ *
  * @param dialect pointer to unsigned int to store the parsed value
  * @param ac ArgsCruser set to point on the dialect version position in the var args list
  * @param status QueryError struct to contain error messages

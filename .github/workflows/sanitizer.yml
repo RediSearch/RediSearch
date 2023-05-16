@@ -11,15 +11,15 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     container:
-      image: redisfab/clang:13-x64-bullseye
+      image: redisfab/clang:16-x64-bullseye
       options: --cpus 2
     steps:
     - uses: actions/checkout@v3
       with:
         submodules: true
     - run: |
-        git submodule update --init --recursive
         git config --global --add safe.directory '*'
+        git submodule update --init --recursive
     - name: Setup
       run: |
         ./sbin/setup
