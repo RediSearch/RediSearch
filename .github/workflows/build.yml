@@ -15,10 +15,11 @@ jobs:
       with:
         submodules: true
     - run: |
-        git submodule update --init --recursive
         git config --global --add safe.directory '*'
+        git submodule update --init --recursive
     - name: Setup
       run: |
+        sudo ./deps/readies/bin/getupdates
         ./sbin/setup
         export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
         ./deps/readies/bin/getredis --with-github-token

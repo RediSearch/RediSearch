@@ -33,6 +33,7 @@
 #include "aggregate/aggregate.h"
 #include "suffix.h"
 #include "wildcard/wildcard.h"
+#include "geometry/geometry_api.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -43,6 +44,19 @@ static void QueryTokenNode_Free(QueryTokenNode *tn) {
 
 static void QueryTagNode_Free(QueryTagNode *tag) {
   rm_free((char *)tag->fieldName);
+}
+
+static void QueryGeometryNode_Free(QueryGeometryNode *geom) {
+  if (geom->geomq) {
+    if (geom->geomq->str) {
+      rm_free((void*)geom->geomq->str);
+      rm_free((void*)geom->geomq->attr);
+      geom->geomq->str = NULL;
+      geom->geomq->attr = NULL;
+    }
+    rm_free(geom->geomq);
+    geom->geomq = NULL;
+  }
 }
 
 static void QueryLexRangeNode_Free(QueryLexRangeNode *lx) {
@@ -111,6 +125,9 @@ void QueryNode_Free(QueryNode *n) {
       break;
     case QN_TAG:
       QueryTagNode_Free(&n->tag);
+      break;
+    case QN_GEOMETRY:
+      QueryGeometryNode_Free(&n->gmn);
       break;
     case QN_UNION:
     case QN_NOT:
@@ -300,6 +317,31 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
   p->gf = NULL;
   p->params = NULL;
   rm_free(p);
+  return ret;
+}
+
+QueryNode *NewGeometryNode_FromWkt(const char *wkt, size_t len) {
+  
+  QueryNode *ret = NULL;
+  char *delim = strpbrk(wkt, " \t");
+  if (delim) {
+    enum QueryType query_type;
+    if (strncasecmp(wkt, "WITHIN", delim - wkt) == 0) {
+      query_type = WITHIN;
+    } else if (strncasecmp(wkt, "CONTAINS", delim - wkt) == 0) {
+      query_type = CONTAINS;
+    } else {
+      return NULL;
+    }
+    ret = NewQueryNode(QN_GEOMETRY);
+    GeometryQuery *geomq = rm_calloc(1, sizeof(*geomq));
+    geomq->format = GEOMETRY_FORMAT_WKT;
+    geomq->query_type = query_type;
+    len = len - (delim - wkt) - 1;
+    geomq->str = rm_strndup(delim + 1, len);
+    geomq->str_len = len;
+    ret->gmn.geomq = geomq;
+  }
   return ret;
 }
 
@@ -841,6 +883,33 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
   return NewGeoRangeIterator(q->sctx, node->gn.gf, q->config);
 }
 
+static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
+  
+  const FieldSpec *fs =
+      IndexSpec_GetField(q->sctx->spec, node->gmn.geomq->attr, strlen(node->gmn.geomq->attr));
+  if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
+    return NULL;
+  }
+  GeometryIndex *index = OpenGeometryIndex(q->sctx->redisCtx, q->sctx->spec, NULL, fs);
+  if (!index) {
+    return NULL;
+  }
+  GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
+  if (!api) {
+    return NULL;
+  }
+  GeometryQuery *gq = node->gmn.geomq;
+  RedisModuleString *errMsg;
+  IndexIterator *ret = api->query(index, gq->query_type, gq->format, gq->str, gq->str_len, &errMsg);
+  if (ret == NULL) {
+    QueryError_SetErrorFmt(q->status, QUERY_EBADVAL, "Error querying geometry index: %s",
+                           RedisModule_StringPtrLen(errMsg, NULL));
+    RedisModule_FreeString(NULL, errMsg);
+  }
+  return ret;
+}
+
+
 static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   if((q->reqFlags & QEXEC_F_IS_EXTENDED)) {
     QueryError_SetErrorFmt(q->status, QUERY_EAGGPLAN, "VSS is not yet supported on FT.AGGREGATE");
@@ -1319,6 +1388,8 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalWildcardNode(q, n);
     case QN_WILDCARD_QUERY:
       return Query_EvalWildcardQueryNode(q,n);
+    case QN_GEOMETRY:
+      return Query_EvalGeometryNode(q, n);
     case QN_NULL:
       return NewEmptyIterator();
   }
@@ -1457,6 +1528,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
     case QN_IDS:
     case QN_WILDCARD:
     case QN_WILDCARD_QUERY:
+    case QN_GEOMETRY:
       res = QueryNode_EvalParamsCommon(params, n, status);
       break;
     case QN_UNION:
@@ -1514,6 +1586,7 @@ int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
     case QN_FUZZY:
     case QN_LEXRANGE:
     case QN_VECTOR:
+    case QN_GEOMETRY:
       break;
   }
   // Handle children
@@ -1741,7 +1814,6 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       }
       break;
     case QN_WILDCARD:
-
       s = sdscat(s, "<WILDCARD>");
       break;
     case QN_FUZZY:
@@ -1749,8 +1821,13 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       return s;
     case QN_WILDCARD_QUERY:
       s = sdscatprintf(s, "WILDCARD{%s}\n", qs->verb.tok.str);
+      break;
     case QN_NULL:
       s = sdscat(s, "<empty>");
+      break;
+    case QN_GEOMETRY:
+      s = sdscatprintf(s, "GEOMETRY{%d %s}\n", qs->gmn.geomq->query_type, qs->gmn.geomq->str);
+      break;
   }
 
   s = sdscat(s, "}");
