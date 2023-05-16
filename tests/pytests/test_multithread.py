@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-
+import time
 from cmath import inf
 from email import message
 from includes import *
@@ -277,3 +277,49 @@ def test_burst_threads_sanity(env):
                 env.assertEqual(res, res_before)
 
             conn.flushall()
+
+
+def test_workers_priority_queue(env):
+    if not POWER_TO_THE_WORKERS:
+        env.skip()
+    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    n_shards = env.shardsCount
+    n_vectors = 50000 * n_shards
+    dim = 16
+    prefix = '_' if env.isCluster() else ''
+
+    for data_type in VECSIM_DATA_TYPES:
+        # Load random vectors into redis, save the first one to use as query vector later on.
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', data_type,
+                   'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+        query_vec = load_vectors_to_redis(env, n_vectors, 0, dim, data_type)
+        assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+
+        debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
+        env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1)
+        vectors_left_to_index = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
+        while debug_info['BACKGROUND_INDEXING'] == 1:
+            start = time.time()
+            res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
+                                              '__vector_score', 'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K',
+                                              10, 'vec_param', query_vec.tobytes())
+            query_time = time.time() - start
+            # Expect that the first result would be the query vector itself (id 0)
+            env.assertEqual(res[1], '0')
+            print(f"query time took {query_time} while {vectors_left_to_index} vectors left to be indexed")
+            debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
+            vectors_left_to_index_new = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
+            env.assertLess(vectors_left_to_index_new, vectors_left_to_index)
+            vectors_left_to_index = vectors_left_to_index_new
+
+        time.sleep(1)
+        start = time.time()
+        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
+                                          '__vector_score', 'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K',
+                                          10, 'vec_param', query_vec.tobytes())
+        query_time = time.time() - start
+        # Expect that the first result would be the query vector itself (id 0)
+        env.assertEqual(res[1], '0')
+        print(f"query time took {query_time} while {vectors_left_to_index} vectors left to be indexed")
+        conn.flushall()
