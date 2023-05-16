@@ -1,13 +1,8 @@
-from time import sleep, time
-import unittest
-from redis import ResponseError
 from includes import *
-from common import waitForIndex, getConnectionByEnv
+from common import *
 
-
-def to_dict(res):
-    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    return d
+from time import sleep, time
+from redis import ResponseError
 
 
 def loadDocs(env, count=100, idx='idx', text='hello world'):
@@ -78,7 +73,8 @@ def testMultipleIndexes(env):
 
 def testCapacities(env):
     if env.is_cluster():
-        raise unittest.SkipTest()
+        env.skip()
+
     loadDocs(env, idx='idx1')
     loadDocs(env, idx='idx2')
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10]
@@ -145,19 +141,18 @@ def testLeaked(env):
 def testNumericCursor(env):
     conn = getConnectionByEnv(env)
     idx = 'foo'
-    field = 'ff'
-    env.expect('FT.CREATE', idx, 'ON', 'HASH', 'SCHEMA', field, 'NUMERIC').ok()
-    for x in range(1, 2):
-        conn.execute_command('HSET', '{idx}_{x}', field, x)
+    ff = 'ff'
+    env.expect('FT.CREATE', idx, 'ON', 'HASH', 'SCHEMA', ff, 'NUMERIC').ok()
+    for x in range(1, 3):
+        conn.execute_command('HSET', f'{idx}_{x}', ff, x)
 
-    res = env.cmd('FT.AGGREGATE', idx, '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)
-    env.assertEqual(res[0], [1, [field, '1']])
-    cursor = res[1]
+    res, cursor = env.cmd('FT.AGGREGATE', idx, '*', 'LOAD', '*', 'SORTBY', 2, '@ff', 'ASC', 'WITHCURSOR', 'COUNT', 1)
+    env.assertEqual(res[1], [ff, '1'])
     env.assertNotEqual(cursor, 0)
 
-    res = env.cmd('FT.CURSOR', 'READ', idx, cursor)
-    env.assertEqual(res[0], [1, [field, '2']])
-    cursor = res[1]
+    res, cursor = env.cmd('FT.CURSOR', 'READ', idx, str(cursor))
+    env.assertEqual(res[1], [ff, '2'])
     env.assertNotEqual(cursor, 0)
 
-    env.expect('FT.CURSOR', 'READ', idx, cursor).equal([[0], 0])
+    res, cursor = env.cmd('FT.CURSOR', 'READ', idx, str(cursor))
+    env.assertEqual(res[1], [0])
