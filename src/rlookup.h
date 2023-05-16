@@ -207,6 +207,10 @@ typedef struct {
 #define RLOOKUP_F_EXCL 0x08   // Verify that the key is not already existing nor in the schema (exclusive)
 #define RLOOKUP_T_NUMERIC 0x10 // Create the key if it doesn't exist in the schema
 
+// Flags that are allowed to be passed to GetKey
+#define RLOOKUP_GET_KEY_FLAGS ~(RLOOKUP_F_SCHEMASRC | RLOOKUP_F_SVSRC | RLOOKUP_F_UNRESOLVED | \
+                                RLOOKUP_F_DOCSRC | RLOOKUP_F_UNFORMATTED | RLOOKUP_F_UNRESOLVED)
+
 /**
  * Get a RLookup key for a given name. The behavior of this function depends on
  * the flags.
