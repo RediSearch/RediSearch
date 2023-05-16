@@ -148,7 +148,7 @@ def testNumericCursor(env):
     field = 'ff'
     env.expect('FT.CREATE', idx, 'ON', 'HASH', 'SCHEMA', field, 'NUMERIC').ok()
     for x in range(1, 2):
-        conn.execute_command('HSET', '{}_{}'.format(idx, x), field, x)
+        conn.execute_command('HSET', '{idx}_{x}', field, x)
 
     res = env.cmd('FT.AGGREGATE', idx, '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)
     env.assertEqual(res[0], [1, [field, '1']])
