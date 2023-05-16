@@ -357,18 +357,28 @@ size_t PrintShardProfile(RedisModuleCtx *ctx, int count, MRReply **replies, int 
 void printAggProfile(RedisModuleCtx *ctx, AREQ *req) {
   size_t nelem = 0;
   clock_t finishTime = clock();
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  if(_ReplyMap(ctx)) {
+    RedisModule_ReplyWithMap(ctx, 2);
+  } else {
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  }
 
   // profileRP replace netRP as end PR
   RPNet *rpnet = (RPNet *)req->qiter.rootProc;
 
   // Print shards profile
+  if(_ReplyMap(ctx)) {
+    RedisModule_ReplyWithSimpleString(ctx, "shards");
+  }
   nelem += PrintShardProfile(ctx, rpnet->shardsProfileIdx, rpnet->shardsProfile, 0);
 
   // Print coordinator profile
   RedisModule_ReplyWithSimpleString(ctx, "Coordinator");
   nelem++;
 
+  if(_ReplyMap(ctx)) {
+    RedisModule_ReplyWithMap(ctx, 2);
+  }
   RedisModule_ReplyWithSimpleString(ctx, "Result processors profile");
   Profile_Print(ctx, req);
   nelem += 2;
@@ -377,7 +387,9 @@ void printAggProfile(RedisModuleCtx *ctx, AREQ *req) {
   RedisModule_ReplyWithDouble(ctx, (double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC);
   nelem += 2;
 
-  RedisModule_ReplySetArrayLength(ctx, nelem);
+  if(!_ReplyMap(ctx)) {
+    RedisModule_ReplySetArrayLength(ctx, nelem);
+  }
 }
 
 static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
@@ -456,14 +468,22 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
       goto err;
     }
   } else if (IsProfile(r)) {
-    RedisModule_ReplyWithArray(ctx, 2);
+    if(_ReplyMap(ctx)) {
+      RedisModule_ReplyWithMap(ctx, 5);
+    } else {
+      RedisModule_ReplyWithArray(ctx, 2);
+    }
     sendChunk(r, ctx, -1);
     printAggProfile(ctx, r);
     AREQ_Free(r);
   } else {
+    if(_ReplyMap(ctx)) {
+      RedisModule_ReplyWithMap(ctx, 4);
+    }
     sendChunk(r, ctx, -1);
     AREQ_Free(r);
   }
+
   return;
 
 // See if we can distribute the plan...

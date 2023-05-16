@@ -9,6 +9,7 @@
 #include "inverted_index.h"
 #include "vector_index.h"
 #include "cursor.h"
+#include "resp3.h"
 
 #define REPLY_KVNUM(n, k, v)                       \
   do {                                             \
@@ -60,7 +61,7 @@ static int renderIndexDefinitions(RedisModuleCtx *ctx, IndexSpec *sp) {
   int n = 0;
   SchemaRule *rule = sp->rule;
   RedisModule_ReplyWithSimpleString(ctx, "index_definition");
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_ReplyWithMapOrArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN, false);
 
   REPLY_KVSTR(n, "key_type", DocumentType_ToString(rule->type));
 
@@ -98,7 +99,7 @@ static int renderIndexDefinitions(RedisModuleCtx *ctx, IndexSpec *sp) {
     REPLY_KVSTR(n, "payload_field", rule->payload_field);
   }
 
-  RedisModule_ReplySetArrayLength(ctx, n);
+  RedisModule_ReplySetMapOrArrayLength(ctx, n, true);
   return 2;
 }
 
@@ -114,7 +115,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_ReplyWithMapOrArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN, false);
   int n = 0;
 
   REPLY_KVSTR(n, "index_name", sp->name);
@@ -126,7 +127,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_ReplyWithSimpleString(ctx, "attributes");
   RedisModule_ReplyWithArray(ctx, sp->numFields);
   for (int i = 0; i < sp->numFields; i++) {
-    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModule_ReplyWithMapOrArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN, false);
     RedisModule_ReplyWithSimpleString(ctx, "identifier");
     RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].path);
     RedisModule_ReplyWithSimpleString(ctx, "attribute");
@@ -157,36 +158,55 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       REPLY_KVNUM(nn, SPEC_WEIGHT_STR, fs->ftWeight);
     }
 
+    bool reply_SPEC_TAG_CASE_SENSITIVE_STR = false;
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
       char buf[2];
       sprintf(buf, "%c", fs->tagOpts.tagSep);
       REPLY_KVSTR(nn, SPEC_TAG_SEPARATOR_STR, buf);
+
       if (fs->tagOpts.tagFlags & TagField_CaseSensitive) {
-        RedisModule_ReplyWithSimpleString(ctx, SPEC_TAG_CASE_SENSITIVE_STR);
-        ++nn;
+        reply_SPEC_TAG_CASE_SENSITIVE_STR = true;
       }
     }
+
+    int nnn = 0;
+    if(_ReplyMap(ctx)) {
+      RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
+      RedisModule_ReplyWithSimpleString(ctx, "args");
+    }
+
+    if(reply_SPEC_TAG_CASE_SENSITIVE_STR) {
+        RedisModule_ReplyWithSimpleString(ctx, SPEC_TAG_CASE_SENSITIVE_STR);
+        ++nnn;
+    }
+
     if (FieldSpec_IsSortable(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);
-      ++nn;
+      ++nnn;
     }
     if (FieldSpec_IsUnf(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_UNF_STR);
-      ++nn;
+      ++nnn;
     }
     if (FieldSpec_IsNoStem(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_NOSTEM_STR);
-      ++nn;
+      ++nnn;
     }
     if (!FieldSpec_IsIndexable(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_NOINDEX_STR);
-      ++nn;
+      ++nnn;
     }
     if (FieldSpec_HasSuffixTrie(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_WITHSUFFIXTRIE_STR);
-      ++nn;
+      ++nnn;
     }
-    RedisModule_ReplySetArrayLength(ctx, nn);
+
+    if(_ReplyMap(ctx)) {
+      RedisModule_ReplySetArrayLength(ctx, nnn);
+    }
+    nn += 2;
+
+    RedisModule_ReplySetMapOrArrayLength(ctx, nn, true);
   }
   n += 2;
 
@@ -243,13 +263,13 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModule_ReplyWithSimpleString(ctx, "dialect_stats");
-  RedisModule_ReplyWithArray(ctx, 2 * (MAX_DIALECT_VERSION - MIN_DIALECT_VERSION + 1));
+  RedisModule_ReplyWithMapOrArray(ctx, 2 * (MAX_DIALECT_VERSION - MIN_DIALECT_VERSION + 1), true);
   for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {
     RedisModule_ReplyWithPrintf(ctx, "dialect_%d", dialect);
     RedisModule_ReplyWithLongLong(ctx, GET_DIALECT(sp->used_dialects, dialect));
   }
   n += 2;
 
-  RedisModule_ReplySetArrayLength(ctx, n);
+  RedisModule_ReplySetMapOrArrayLength(ctx, n, true);
   return REDISMODULE_OK;
 }

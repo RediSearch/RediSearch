@@ -5,6 +5,7 @@
  */
 
 #include "cursor.h"
+#include "resp3.h"
 #include <time.h>
 #include "rmutil/rm_assert.h"
 #include <err.h>
@@ -292,7 +293,7 @@ void Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) 
 
   RedisModule_ReplyWithSimpleString(ctx, "cursor_stats");
 
-  RedisModule_ReplyWithArray(ctx, 8);
+  RedisModule_ReplyWithMapOrArray(ctx, 8, true);
 
   RedisModule_ReplyWithSimpleString(ctx, "global_idle");
   RedisModule_ReplyWithLongLong(ctx, ARRAY_GETSIZE_AS(&cl->idle, Cursor **));

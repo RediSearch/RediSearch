@@ -41,6 +41,7 @@
 #include "info_command.h"
 #include "rejson_api.h"
 #include "geometry/geometry_api.h"
+#include "resp3.h"
 
 
 /* FT.MGET {index} {key} ...
@@ -319,7 +320,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   TagIndex *idx = TagIndex_Open(sctx, rstr, 0, NULL);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
-    RedisModule_ReplyWithArray(ctx, 0);
+    RedisModule_ReplyWithSetOrArray(ctx, 0);
     goto cleanup;
   }
 
@@ -567,7 +568,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   if (!sp->smap) {
-    return RedisModule_ReplyWithArray(ctx, 0);
+    return RedisModule_ReplyWithMapOrArray(ctx, 0, false);
   }
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
@@ -576,7 +577,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t size;
   TermData **terms_data = SynonymMap_DumpAllTerms(sp->smap, &size);
 
-  RedisModule_ReplyWithArray(ctx, size * 2);
+  RedisModule_ReplyWithMapOrArray(ctx, size * 2, true);
 
   for (int i = 0; i < size; ++i) {
     TermData *t_data = terms_data[i];
@@ -821,7 +822,11 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
-  RedisModule_ReplyWithArray(ctx, dictSize(specDict_g));
+  if (_ReplySet(ctx)) {
+    RedisModule_ReplyWithSet(ctx, dictSize(specDict_g));
+  } else {
+    RedisModule_ReplyWithArray(ctx, dictSize(specDict_g));
+  }
 
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;

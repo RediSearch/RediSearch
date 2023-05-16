@@ -1129,8 +1129,14 @@ static void sendSearchResults(RedisModuleCtx *ctx, searchReducerCtx *rCtx) {
 size_t PrintShardProfile(RedisModuleCtx *ctx, int count, MRReply **replies, int isSearch) {
   size_t retLen = 0;
   // Print information for each shard
+  if(_ReplyMap(ctx)) {
+    RedisModule_ReplyWithMap(ctx, count);
+  }
   for (int i = 0; i < count; ++i) {
     RedisModule_ReplyWithPrintf(ctx, "Shard #%d", i + 1);
+    if(_ReplyMap(ctx)) {
+      RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    }
     retLen++;
     // The 1st location always stores the results. On FT.AGGREGATE, the next place stores the
     // cursor ID. The last location (2nd for FT.SEARCH and 3rd for FT.AGGREGATE) stores the
@@ -1142,38 +1148,59 @@ size_t PrintShardProfile(RedisModuleCtx *ctx, int count, MRReply **replies, int 
       MR_ReplyWithMRReply(ctx, MRReply_ArrayElement(reply, j));
     }
     retLen += len;
+    if(_ReplyMap(ctx)) {
+      RedisModule_ReplySetArrayLength(ctx, len);
+    }
   }
+
   return retLen;
 }
 
 static void profileSearchReply(RedisModuleCtx *ctx, searchReducerCtx *rCtx,
                                int count, MRReply **replies,
                                clock_t totalTime, clock_t postProccesTime) {
+  // TODO: Rafie
   RedisModule_ReplyWithArray(ctx, 2);
   // print results
   sendSearchResults(ctx, rCtx);
 
   // print profile of shards
   int arrLen = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  if(_ReplyMap(ctx)) {
+    RedisModule_ReplyWithMap(ctx, 2);
+  } else {
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  }
 
+  if(_ReplyMap(ctx)) {
+    RedisModule_ReplyWithSimpleString(ctx, "shards");
+  }
   arrLen += PrintShardProfile(ctx, count, replies, 1);
 
   // print coordinator stats
   RedisModule_ReplyWithSimpleString(ctx, "Coordinator");
   arrLen++;
+
   // search cmd only do the heap so there is no parsing time
-  RedisModule_ReplyWithArray(ctx, 2);
+  if(_ReplyMap(ctx)) {
+    RedisModule_ReplyWithMap(ctx, 2);
+  } else {
+    RedisModule_ReplyWithArray(ctx, 2);
+  }
   RedisModule_ReplyWithSimpleString(ctx, "Total Coordinator time");
   RedisModule_ReplyWithDouble(ctx, (double)(clock() - totalTime) / CLOCKS_PER_MILLISEC);
   arrLen++;
 
-  RedisModule_ReplyWithArray(ctx, 2);
+  if(!_ReplyMap(ctx)) {
+    RedisModule_ReplyWithArray(ctx, 2);
+  }
   RedisModule_ReplyWithSimpleString(ctx, "Post Proccessing time");
   RedisModule_ReplyWithDouble(ctx, (double)(clock() - postProccesTime) / CLOCKS_PER_MILLISEC);
   arrLen++;
 
-  RedisModule_ReplySetArrayLength(ctx, arrLen);
+  if(!_ReplyMap(ctx)) {
+    RedisModule_ReplySetArrayLength(ctx, arrLen);
+  }
 }
 
 static void searchResultReducer_wrapper(void *mc_v) {

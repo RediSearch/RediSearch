@@ -24,6 +24,7 @@
 #include "module.h"
 #include "rmutil/rm_assert.h"
 #include "suffix.h"
+#include "resp3.h"
 
 #ifdef __linux__
 #include <sys/prctl.h>
@@ -1288,7 +1289,7 @@ static void statsCb(RedisModuleCtx *ctx, void *gcCtx) {
   ForkGC *gc = gcCtx;
 
   int n = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_ReplyWithMapOrArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN, false);
   if (gc) {
     REPLY_KVNUM(n, "bytes_collected", gc->stats.totalCollected);
     REPLY_KVNUM(n, "total_ms_run", gc->stats.totalMSRun);
@@ -1298,7 +1299,7 @@ static void statsCb(RedisModuleCtx *ctx, void *gcCtx) {
     REPLY_KVNUM(n, "gc_numeric_trees_missed", (double)gc->stats.gcNumericNodesMissed);
     REPLY_KVNUM(n, "gc_blocks_denied", (double)gc->stats.gcBlocksDenied);
   }
-  RedisModule_ReplySetArrayLength(ctx, n);
+  RedisModule_ReplySetMapOrArrayLength(ctx, n, true);
 }
 
 #ifdef FTINFO_FOR_INFO_MODULES
