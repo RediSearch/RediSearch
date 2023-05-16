@@ -370,3 +370,14 @@ class ConditionalExpected:
         if cond_val == self.cond_val:
             func(self.env.expect(*self.query))
         return self
+
+
+def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32'):
+    conn = getConnectionByEnv(env)
+    np.random.seed(10)
+    for i in range(n_vec):
+        vector = create_np_array_typed(np.random.rand(vec_size), data_type)
+        if i == query_vec_index:
+            query_vec = vector
+        conn.execute_command('HSET', i, 'vector', vector.tobytes())
+    return query_vec

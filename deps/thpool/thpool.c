@@ -129,7 +129,6 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
   }
   thpool_p->num_threads_alive = 0;
   thpool_p->num_threads_working = 0;
-  thpool_p->keepalive = 1;
 
   /* Initialise the job queue */
   if(priority_queue_init(&thpool_p->jobqueue) == -1) {
@@ -155,6 +154,8 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
 
 /* Initialise thread pool */
 void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p, size_t num_threads) {
+
+  thpool_p->keepalive = 1;
 
   /* Thread init */
   size_t n;
@@ -259,8 +260,6 @@ void redisearch_thpool_threads_idle_timed_wait(redisearch_thpool_t* thpool_p,
 void redisearch_thpool_terminate_threads(redisearch_thpool_t* thpool_p) {
   // No need to terminate if it's NULL
   if (thpool_p == NULL) return;
-
-  volatile size_t threads_total = thpool_p->num_threads_alive;
 
   /* End each thread 's infinite loop */
   thpool_p->keepalive = 0;

@@ -24,17 +24,6 @@ def assert_query_results(env, expected_res, actual_res, error_msg='', data_type=
             env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-9, depth=1, message=error_msg)
 
 
-def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32'):
-    conn = getConnectionByEnv(env)
-    np.random.seed(10)
-    for i in range(n_vec):
-        vector = create_np_array_typed(np.random.rand(vec_size), data_type)
-        if i == query_vec_index:
-            query_vec = vector
-        conn.execute_command('HSET', i, 'vector', vector.tobytes())
-    return query_vec
-
-
 def get_vecsim_memory(env, index_key, field_name):
     return float(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", index_key, field_name))["MEMORY"])/0x100000
 

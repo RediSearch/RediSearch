@@ -237,3 +237,43 @@ def test_pipeline(env):
     expected_pipeline = ['Result processors profile', root, metric, sorter(), buffer_locker(), loader(), unlocker()]
     #sortby NOT SORTABLE NOCONTENT
     env.assertEqual(get_pipeline(res), expected_pipeline)
+
+
+def test_burst_threads_sanity(env):
+    if not POWER_TO_THE_WORKERS:
+        env.skip()
+    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 8 ALWAYS_USE_THREADS FALSE DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    n_shards = env.shardsCount
+    n_vectors = 1000 * n_shards
+    algorithms = ['FLAT', 'HNSW']
+    dim = 10
+    prefix = '_' if env.isCluster() else ''
+
+    for algo in algorithms:
+        for data_type in VECSIM_DATA_TYPES:
+            # Load random vectors into redis, save the first one to use as query vector later on.
+            env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, '6', 'TYPE', data_type,
+                       'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+            query_vec = load_vectors_to_redis(env, n_vectors, 0, dim, data_type)
+
+            res_before = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
+                                              '__vector_score', 'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K',
+                                              n_vectors, 'vec_param', query_vec.tobytes())
+            # Expect that the first result would be the query vector itself (id 0)
+            env.assertEqual(res_before[1], '0')
+
+            for _ in env.retry_with_rdb_reload():
+                debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
+                env.assertEqual(debug_info['ALGORITHM'], 'TIERED' if algo == 'HNSW' else algo)
+                if algo == 'HNSW':
+                    env.assertEqual(debug_info['BACKGROUND_INDEXING'], 0)
+                assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+
+                # Run the same KNN query and see that we are getting the same results after the reload
+                res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
+                                           '__vector_score', 'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K', n_vectors,
+                                           'vec_param', query_vec.tobytes())
+                env.assertEqual(res, res_before)
+
+            conn.flushall()
