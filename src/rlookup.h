@@ -201,15 +201,20 @@ typedef struct {
  */
 #define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT)
 
-#define RLOOKUP_F_READ 0x01   // Get key for reading (create oly if in schema and sortable)
-#define RLOOKUP_F_WRITE 0x02  // Get key for writing
-#define RLOOKUP_F_LOAD 0x04   // Load key from document (include known information on the key, fail if already loaded)
-#define RLOOKUP_F_EXCL 0x08   // Verify that the key is not already existing nor in the schema (exclusive)
-#define RLOOKUP_T_NUMERIC 0x10 // Create the key if it doesn't exist in the schema
+typedef enum {
+  RLOOKUP_M_READ,   // Get key for reading (create oly if in schema and sortable)
+  RLOOKUP_M_WRITE,  // Get key for writing
+  RLOOKUP_M_LOAD,   // Load key from document (include known information on the key, fail if already loaded)
+} RLookupMode;
+
+#define RLOOKUP_F_OVERRIDE 0x01   // Verify that the key is not already existing nor in the schema (exclusive)
+#define RLOOKUP_T_NUMERIC 0x02 // Create the key if it doesn't exist in the schema
+#define RLOOKUP_F_QUERYSRC 0x04  // This key was created by the query itself (not in the document)
 
 // Flags that are allowed to be passed to GetKey
 #define RLOOKUP_GET_KEY_FLAGS ~(RLOOKUP_F_SCHEMASRC | RLOOKUP_F_SVSRC | RLOOKUP_F_UNRESOLVED | \
-                                RLOOKUP_F_DOCSRC | RLOOKUP_F_UNFORMATTED | RLOOKUP_F_UNRESOLVED)
+                                RLOOKUP_F_DOCSRC | RLOOKUP_F_UNFORMATTED | RLOOKUP_F_UNRESOLVED | \
+                                RLOOKUP_F_QUERYSRC | RLOOKUP_F_ISLOADED)
 
 /**
  * Get a RLookup key for a given name. The behavior of this function depends on
