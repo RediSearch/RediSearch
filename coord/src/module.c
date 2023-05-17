@@ -30,6 +30,7 @@
 #include "value.h"
 #include "cluster_spell_check.h"
 #include "profile.h"
+#include "resp3.h"
 
 #include "libuv/include/uv.h"
 

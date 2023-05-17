@@ -171,8 +171,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     int nnn = 0;
     if(_ReplyMap(ctx)) {
+      RedisModule_ReplyWithSimpleString(ctx, "flags");
       RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
-      RedisModule_ReplyWithSimpleString(ctx, "args");
     }
 
     if(reply_SPEC_TAG_CASE_SENSITIVE_STR) {
@@ -203,8 +203,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     if(_ReplyMap(ctx)) {
       RedisModule_ReplySetArrayLength(ctx, nnn);
+      nn += 2;
+    } else {
+      nn += nnn;
     }
-    nn += 2;
 
     RedisModule_ReplySetMapOrArrayLength(ctx, nn, true);
   }

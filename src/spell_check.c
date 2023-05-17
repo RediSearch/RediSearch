@@ -179,7 +179,7 @@ void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_
 #define TERM "TERM"
 
   bool resp3 = _ReplyMap(ctx);
-  RedisModule_ReplyWithMapOrArray(ctx, resp3 ? 3 : 1, false);
+  RedisModule_ReplyWithMapOrArray(ctx, resp3 ? 1 : 3, false);
   if(!resp3) {
     RedisModule_ReplyWithStringBuffer(ctx, TERM, strlen(TERM));
   }

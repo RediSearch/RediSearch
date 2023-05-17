@@ -332,6 +332,10 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
     }
   }
 
+  if(!_ReplyMap(outctx)) {
+    RedisModule_ReplyWithArray(outctx, resultsLen);
+  }
+
   OPTMZ(QOptimizer_UpdateTotalResults(req));
 
   if(_ReplyMap(outctx)) {
@@ -407,16 +411,14 @@ done:
     req->stateflags |= QEXEC_S_ITERDONE;
   }
 
-  if(!_ReplyMap(outctx)) {
-    // Reset the total results length:
-    req->qiter.totalResults = 0;
-    if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN) {
-      RedisModule_ReplySetArrayLength(outctx, nelem);
-    } else {
-      if (resultsLen != nelem) {
-        RedisModule_Log(RSDummyContext, "warning", "Failed predict number of replied, prediction=%ld, actual_number=%ld.", resultsLen, nelem);
-        RS_LOG_ASSERT(0, "Precalculated number of replies must be equal to actual number");
-      }
+  // Reset the total results length:
+  req->qiter.totalResults = 0;
+  if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN) {
+    RedisModule_ReplySetArrayLength(outctx, nelem);
+  } else if(!_ReplyMap(outctx)) {
+    if (resultsLen != nelem) {
+      RedisModule_Log(RSDummyContext, "warning", "Failed predict number of replied, prediction=%ld, actual_number=%ld.", resultsLen, nelem);
+      RS_LOG_ASSERT(0, "Precalculated number of replies must be equal to actual number");
     }
   }
 }

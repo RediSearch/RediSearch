@@ -1,4 +1,5 @@
 from common import *
+import operator
 
 def redis_version(con, is_cluster=False):
     res = con.execute_command('INFO')
@@ -17,7 +18,7 @@ class testResp3():
     def __init__(self):
         self.env = Env(protocol=3)
 
-    def test_resp3(self):
+    def test_search(self):
         env = self.env
         r_ver = redis_version(env)
         if r_ver < version.parse("7.0.0"):
@@ -34,33 +35,34 @@ class testResp3():
         env.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
         env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
                             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
+
         res = env.execute_command('FT.search', 'idx1', "*")
-        assert res == {'fields_names': [], 'error': [], 'total_results': 2, 
-                       'results': 
-                       [{'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []}, 
+        assert res == {'fields_names': [], 'error': [], 'total_results': 2,
+                       'results':
+                       [{'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []},
                         {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []}]}
 
         # test withscores
         res = env.execute_command('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "EXPLAINSCORE", "WITHPAYLOADS", "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2')
-        assert res == {'fields_names': [], 'error': [], 'total_results': 2, 'results': 
-         [{'id': 'doc2', 
-           'score': 
-           [1.0, ['Final TFIDF : words TFIDF 1.00 * document score 1.00 / norm 1 / slop 1', 
-                  ['(TFIDF 1.00 = Weight 1.00 * Frequency 1)']]], 
+        assert res == {'fields_names': [], 'error': [], 'total_results': 2, 'results':
+         [{'id': 'doc2',
+           'score':
+           [1.0, ['Final TFIDF : words TFIDF 1.00 * document score 1.00 / norm 1 / slop 1',
+                  ['(TFIDF 1.00 = Weight 1.00 * Frequency 1)']]],
                   'payload': None, 'sortkey': None, 'fields': {'f1': '3', 'f2': '2'}, 'fields_values': []
-            }, 
-            {'id': 'doc1', 'score': 
-             [0.5, ['Final TFIDF : words TFIDF 1.00 * document score 1.00 / norm 2 / slop 1', 
-                    ['(TFIDF 1.00 = Weight 1.00 * Frequency 1)']]], 
-                     'payload': None, 'sortkey': None, 'fields': {'f1': '3', 'f2': '3'}, 
+            },
+            {'id': 'doc1', 'score':
+             [0.5, ['Final TFIDF : words TFIDF 1.00 * document score 1.00 / norm 2 / slop 1',
+                    ['(TFIDF 1.00 = Weight 1.00 * Frequency 1)']]],
+                     'payload': None, 'sortkey': None, 'fields': {'f1': '3', 'f2': '3'},
                      'fields_values': []}]}
-        
+
         # test with sortby
         res = env.execute_command('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "WITHPAYLOADS", "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC")
-        assert res == {'fields_names': [], 'error': [], 'total_results': 2, 'results': 
-                       [{'id': 'doc1', 'score': 0.5, 'payload': None, 'sortkey': '$3', 
-                         'fields': {'f2': '3', 'f1': '3'}, 'fields_values': []}, 
-                         {'id': 'doc2', 'score': 1.0, 'payload': None, 'sortkey': '$2', 
+        assert res == {'fields_names': [], 'error': [], 'total_results': 2, 'results':
+                       [{'id': 'doc1', 'score': 0.5, 'payload': None, 'sortkey': '$3',
+                         'fields': {'f2': '3', 'f1': '3'}, 'fields_values': []},
+                         {'id': 'doc2', 'score': 1.0, 'payload': None, 'sortkey': '$2',
                           'fields': {'f2': '2', 'f1': '3'}, 'fields_values': []}]}
 
         # test with limit 0 0
@@ -69,23 +71,26 @@ class testResp3():
 
         # test without RETURN
         res = env.execute_command('FT.search', 'idx1', "*")
-        assert res == {'fields_names': [], 'error': [], 'total_results': 2, 
-                       'results': 
-                       [{'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 
-                         'fields_values': []}, {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 
+        assert res == {'fields_names': [], 'error': [], 'total_results': 2,
+                       'results':
+                       [{'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'},
+                         'fields_values': []}, {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'},
                                                 'fields_values': []}]}
 
         # test with profile
-        res = env.execute_command('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "WITHPAYLOADS", "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC")
-        assert res == {'fields_names': [], 'error': [], 'total_results': 2, 'results': 
-                       [{'id': 'doc1', 'score': 0.5, 'payload': None, 'sortkey': '$3', 
-                         'fields': {'f2': '3', 'f1': '3'}, 'fields_values': []}, 
-                         {'id': 'doc2', 'score': 1.0, 'payload': None, 'sortkey': '$2', 
-                          'fields': {'f2': '2', 'f1': '3'}, 'fields_values': []}]}
-    
-        #res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', "*", "VERBATIM", "WITHSCORES", "WITHPAYLOADS", "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC")
-        #res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', "*")
-        #print(res)
+        res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', "*")
+        assert res == \
+            {'fields_names': [], 'error': [], 'total_results': 2, 'results':
+             [{'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []},
+              {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []}],
+              'profile':
+              [['Total profile time', 0.0], ['Parsing time', 0.0],
+               ['Pipeline creation time', 0.0],
+               ['Iterators profile', ['Type', 'WILDCARD', 'Time', 0.0, 'Counter', 2]],
+               ['Result processors profile', ['Type', 'Index', 'Time', 0.0, 'Counter', 2],
+                ['Type', 'Scorer', 'Time', 0.0, 'Counter', 2],
+                ['Type', 'Sorter', 'Time', 0.0, 'Counter', 2],
+                ['Type', 'Loader', 'Time', 0.0, 'Counter', 2]]]}
 
         # test with timeout
         num_range = 1000
@@ -101,3 +106,33 @@ class testResp3():
         env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1)    \
         .error().contains('Timeout limit was reached')
 
+    def test_aggregated(self):
+        env = self.env
+        r_ver = redis_version(env)
+        if r_ver < version.parse("7.0.0"):
+            env.skip()
+        # if r_ver >= version.parse("7.0.0"):
+        #     env.skipOnCluster() # TODO: remove when redis-py is fixed
+        with env.getClusterConnectionIfNeeded() as r:
+            r_ver = redis_version(r)
+            if r_ver < version.parse("7.0.0"):
+                env.skip()
+
+        env.cmd('FLUSHALL')
+        env.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
+        env.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
+        env.execute_command('HSET', 'doc3', 'f5', '4')
+        env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
+                            "SCHEMA", "f1", "TEXT", "f2", "TEXT")
+
+        res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 2, "f1", "f2")
+        res['results'].sort()
+        #print(res)
+        #assert res == {'fields_names': [], 'error': [], 'total_results': 1,
+        #               'results':
+        #               [{'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []},
+        #                {'fields': {}, 'fields_values': []},
+        #                {'fields': {'f1': '3', 'f2': '2'}, 'fields_values': []}]}
+
+        #res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 2, "f1", "f2", "f3")
+        #print(res)
