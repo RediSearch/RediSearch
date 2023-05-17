@@ -13,6 +13,7 @@
 #include "dist_plan.h"
 #include "profile.h"
 #include "util/timeout.h"
+#include "resp3.h"
 #include <err.h>
 
 /* Get cursor command using a cursor id and an existing aggregate command */

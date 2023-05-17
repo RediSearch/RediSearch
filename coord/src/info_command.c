@@ -5,6 +5,7 @@
  */
 
 #include "info_command.h"
+#include "resp3.h"
 
 // Type of field returned in INFO
 typedef enum {
