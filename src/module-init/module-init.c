@@ -232,11 +232,11 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
       // Initialize the threads if the module configuration states that worker threads
       // should always be active.
       workersThreadPool_InitPool(RSGlobalConfig.numWorkerThreads);
+      DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
     } else {
       // Otherwise, threads are not active, and we're performing inplace writes.
       VecSim_SetWriteMode(VecSim_WriteInPlace);
     }
-    DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
   } else
 #endif
   {

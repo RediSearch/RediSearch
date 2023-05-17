@@ -8,6 +8,8 @@ from includes import *
 from common import *
 from RLTest import Env
 
+POWER_TO_THE_WORKERS = True  # temporary, for testing in CI
+
 
 @pytest.mark.skipif(not POWER_TO_THE_WORKERS)
 def testEmptyBuffer():

@@ -673,8 +673,8 @@ RSConfigOptions RSGlobalConfigOptions = {
          .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
         {.name = "ALWAYS_USE_THREADS",
-         .helpText = "Enables or multi-threaded search and indexing as default if set to TRUE, use"
-                        "workers thread pool for operational needs only otherwise",
+         .helpText = "Let ft.search and vector indexing be done in backgroun threads as default if"
+                        "set to TRUE, use workers thread pool for operational needs only otherwise",
          .setValue = setThreadsEnabled,
          .getValue = getThreadsEnabled,
          .flags = RSCONFIGVAR_F_IMMUTABLE,
