@@ -14,15 +14,13 @@ extern "C" {
 
 /* =================================== API ======================================= */
 
-
 typedef struct redisearch_thpool_t* redisearch_threadpool;
 typedef struct timespec timespec;
 
 typedef enum {
-    THPOOL_PRIORITY_HIGH,
-    THPOOL_PRIORITY_LOW,
+  THPOOL_PRIORITY_HIGH,
+  THPOOL_PRIORITY_LOW,
 } thpool_priority;
-
 
 /**
  * @brief  Create a new threadpool (without initializing the threads)
@@ -49,7 +47,6 @@ redisearch_threadpool redisearch_thpool_create(size_t num_threads);
  * @param num_threads   number of threads to be created in the threadpool
  */
 void redisearch_thpool_init(redisearch_threadpool, size_t num_threads);
-
 
 /**
  * @brief Add work to the job queue
@@ -80,7 +77,8 @@ void redisearch_thpool_init(redisearch_threadpool, size_t num_threads);
  * @return 0 on successs, -1 otherwise.
  */
 typedef void (*redisearch_thpool_proc)(void*);
-int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc function_p, void* arg_p, thpool_priority priority);
+int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc function_p,
+                               void* arg_p, thpool_priority priority);
 
 /**
  * @brief Add n jobs to the job queue
@@ -99,7 +97,8 @@ int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc fun
  *
  *    int main() {
  *       ..
- *       int jobs[] = {{print_num, 10}, {print_num, 20}, {print_num, 30}};
+ *       int data = {10, 20, 30};
+ *       redisearch_thpool_work_t jobs[] = {{print_num, data + 0}, {print_num, data + 1}, {print_num, data + 2}};
  *
  *       thpool_add_n_work(thpool, jobs, 3, THPOOL_PRIORITY_LOW);
  *       ..
@@ -110,14 +109,14 @@ int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc fun
  * @param  arg_pp        array of  pointer to an argument
  * @param  n             number of elements in the array
  * @param  priority      priority of the jobs
- * @return 0 on successs, -1 otherwise.
+ * @return 0 on success, -1 otherwise.
  */
 typedef struct thpool_work_t {
-    redisearch_thpool_proc function_p;
-    void* arg_p;
+  redisearch_thpool_proc function_p;
+  void* arg_p;
 } redisearch_thpool_work_t;
-int redisearch_thpool_add_n_work(redisearch_threadpool, redisearch_thpool_work_t* jobs, size_t n_jobs, thpool_priority priority);
-
+int redisearch_thpool_add_n_work(redisearch_threadpool, redisearch_thpool_work_t* jobs,
+                                 size_t n_jobs, thpool_priority priority);
 
 /**
  * @brief Wait for all queued jobs to finish
@@ -148,12 +147,25 @@ int redisearch_thpool_add_n_work(redisearch_threadpool, redisearch_thpool_work_t
  */
 void redisearch_thpool_wait(redisearch_threadpool);
 
+/**
+ * @brief Return 1 if there are no more jobs in the queue and all threads are done their jobs.
+ */
 int redisearch_thpool_finish(redisearch_threadpool);
 
+/**
+ * @brief Acquire the thread pool thcount mutex
+ */
 void redisearch_thpool_lock_thcount(redisearch_threadpool);
 
+/**
+ * @brief Release the thread pool thcount mutex
+ */
 void redisearch_thpool_unlock_thcount(redisearch_threadpool);
 
+/**
+ * @brief Wait for the condition variable that receives a signal whenever all threads in the
+ * queue are idle. Return when condition is met OR whenever timeout is reached.
+ */
 void redisearch_thpool_threads_idle_timed_wait(redisearch_threadpool, timespec *timespec);
 
 /**
@@ -179,7 +191,6 @@ void redisearch_thpool_threads_idle_timed_wait(redisearch_threadpool, timespec *
  */
 void redisearch_thpool_pause(redisearch_threadpool);
 
-
 /**
  * @brief Unpauses all threads if they are paused
  *
@@ -195,6 +206,9 @@ void redisearch_thpool_pause(redisearch_threadpool);
  */
 void redisearch_thpool_resume(redisearch_threadpool);
 
+/**
+ * @brief Terminate the working threads (without deallocating the job queue and the thread objects).
+ */
 void redisearch_thpool_terminate_threads(redisearch_threadpool);
 
 /**
@@ -238,7 +252,6 @@ void redisearch_thpool_destroy(redisearch_threadpool);
  * @return integer       number of threads working
  */
 size_t redisearch_thpool_num_threads_working(redisearch_threadpool);
-
 
 #ifdef __cplusplus
 }
