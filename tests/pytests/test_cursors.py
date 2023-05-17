@@ -155,4 +155,4 @@ def testNumericCursor(env):
     env.assertNotEqual(cursor, 0)
 
     res, cursor = env.cmd('FT.CURSOR', 'READ', idx, str(cursor))
-    env.assertEqual(res[1], [0])
+    env.assertEqual(res, [0])
