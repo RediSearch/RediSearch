@@ -19,6 +19,7 @@
 extern "C" {
 #endif
 
+// TODO: remove this
 typedef enum {
   RLOOKUP_C_STR = 0,
   RLOOKUP_C_INT = 1,
@@ -77,6 +78,7 @@ typedef struct RLookupKey {
    */
   uint16_t flags;
 
+  // TODO: remove this
   /** Type this lookup should be coerced to */
   RLookupCoerceType fieldtype : 16;
 
@@ -235,7 +237,7 @@ typedef enum {
   RLOOKUP_M_LOAD,   // Load key from document (include known information on the key, fail if already loaded)
 } RLookupMode;
 
-#define RLOOKUP_F_NOFLAGS 0x0 // No special flags to pass.
+// #define RLOOKUP_F_NOFLAGS 0x0 // No special flags to pass.
 
 /**
  * This field is NOT part of the index schema, but created by a loader
@@ -296,6 +298,8 @@ typedef enum {
 
 // Flags that are allowed to be passed to GetKey
 #define RLOOKUP_GET_KEY_FLAGS (RLOOKUP_F_NAMEALLOC | RLOOKUP_F_OVERRIDE | RLOOKUP_F_HIDDEN | RLOOKUP_F_EXPLICITRETURN)
+// Flags do not persist to the key, they are just options to GetKey()
+// #define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OVERRIDE)
 
 /**
  * Get the amount of visible fields is the RLookup

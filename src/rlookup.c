@@ -52,8 +52,8 @@ const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
 
 }
 
-// Overrides (or sets) the key's flags, and sets the key according to the flags.
-static void overrideKey(RLookupKey *key, int flags) {
+// Sets (or overrides) the key's flags, and sets the key according to the flags.
+static void setKeyByFlags(RLookupKey *key, int flags) {
   // case 1: need to allocate name and it wasn't allocated before       - allocate it
   // case 2: need to allocate name and it was allocated before          - do nothing
   // case 3: don't need to allocate name and it wasn't allocated before - do nothing
@@ -95,7 +95,7 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t name
   }
 
   RLookupKey *key = createNewKey(lookup, name, name_len);
-  overrideKey(key, flags);
+  setKeyByFlags(key, flags);
 
   setKeyByFieldSpec(key, fs);
   return key;
@@ -144,7 +144,7 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, RLooku
       // Already loaded or created for writing, return NULL (no override)
       return NULL;
     }
-    overrideKey(key, flags);
+    setKeyByFlags(key, flags);
     setLoadedKey(lookup, key, name, n);
     return key;
 
@@ -159,7 +159,7 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, RLooku
     } else if (!(flags & RLOOKUP_F_OVERRIDE)) {
       return NULL;
     }
-    overrideKey(key, flags); // overriding the key in the case it was just created is also OK
+    setKeyByFlags(key, flags);
     key->flags |= RLOOKUP_F_QUERYSRC;
     return key;
 
