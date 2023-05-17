@@ -170,14 +170,16 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, RLooku
       // the schema as SORTABLE, and create only if so.
       key = genKeyFromSpec(lookup, name, n, flags);
     }
+    // If we didn't find the key in the schema (there is no schema) and unresolved is OK, create an unresolved key.
+    if (!key && (lookup->options & RLOOKUP_OPT_UNRESOLVED_OK)) {
+      key = createNewKey(lookup, name, n);
+      setKeyByFlags(key, flags);
+      key->flags |= RLOOKUP_F_UNRESOLVED;
+    }
     return key;
-
-  default:
-    return NULL;
   }
-  // MORE WORK:
-  // TODO: figure out how to handel:
-  // lookup->options & RLOOKUP_OPT_UNRESOLVED_OK
+
+  return NULL;
 }
 
 RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, RLookupMode mode, int flags) {
