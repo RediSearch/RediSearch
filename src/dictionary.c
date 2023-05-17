@@ -9,6 +9,7 @@
 #include "rmalloc.h"
 #include "util/dict.h"
 #include "rdb.h"
+#include "resp3.h"
 
 dict *spellCheckDicts = NULL;
 
@@ -68,7 +69,7 @@ int Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
   int dist = 0;
   size_t termLen;
 
-  RedisModule_ReplyWithArray(ctx, t->size);
+  RedisModule_ReplyWithSetOrArray(ctx, t->size);
 
   TrieIterator *it = Trie_Iterate(t, "", 0, 0, 1);
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {

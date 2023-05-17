@@ -232,7 +232,7 @@ static size_t replyKvArray(InfoFields *fields, RedisModuleCtx *ctx, InfoValue *v
 }
 
 static void generateFieldsReply(InfoFields *fields, RedisModuleCtx *ctx) {
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_ReplyWithMapOrArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN, false);
   size_t n = 0;
 
   // Respond with the name, schema, and options
@@ -279,7 +279,7 @@ static void generateFieldsReply(InfoFields *fields, RedisModuleCtx *ctx) {
   n += 2;
 
   n += replyKvArray(fields, ctx, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);
-  RedisModule_ReplySetArrayLength(ctx, n);
+  RedisModule_ReplySetMapOrArrayLength(ctx, n, true);
 }
 
 int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {

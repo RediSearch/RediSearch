@@ -112,6 +112,7 @@ int Profile_Print(RedisModuleCtx *ctx, AREQ *req){
 
   hires_clock_t now;
   req->totalTime += hires_clock_since_msec(&req->initClock);
+  RedisModule_ReplyWithSimpleString(ctx, "profile");
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   int profile_verbose = req->reqConfig.printProfileClock;

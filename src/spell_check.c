@@ -7,6 +7,7 @@
 #include "spell_check.h"
 #include "util/arr.h"
 #include "dictionary.h"
+#include "resp3.h"
 #include <stdbool.h>
 
 /** Forward declaration **/
@@ -176,8 +177,12 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
 void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_Suggestions *s,
                                 uint64_t totalDocNumber) {
 #define TERM "TERM"
-  RedisModule_ReplyWithArray(ctx, 3);
-  RedisModule_ReplyWithStringBuffer(ctx, TERM, strlen(TERM));
+
+  bool resp3 = _ReplyMap(ctx);
+  RedisModule_ReplyWithMapOrArray(ctx, resp3 ? 1 : 3, false);
+  if(!resp3) {
+    RedisModule_ReplyWithStringBuffer(ctx, TERM, strlen(TERM));
+  }
   RedisModule_ReplyWithStringBuffer(ctx, term, len);
 
   RS_Suggestion **suggestions = spellCheck_GetSuggestions(s);
@@ -193,10 +198,16 @@ void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_
     }
     RedisModule_ReplyWithArray(ctx, array_len(suggestions));
     for (int i = 0; i < array_len(suggestions); ++i) {
-      RedisModule_ReplyWithArray(ctx, 2);
-      RedisModule_ReplyWithDouble(ctx, suggestions[i]->score == -1 ? 0 :
-                                       suggestions[i]->score / totalDocNumber);
-      RedisModule_ReplyWithStringBuffer(ctx, suggestions[i]->suggestion, suggestions[i]->len);
+      RedisModule_ReplyWithMapOrArray(ctx, 2, true);
+      if(resp3) {
+        RedisModule_ReplyWithStringBuffer(ctx, suggestions[i]->suggestion, suggestions[i]->len);
+        RedisModule_ReplyWithDouble(ctx, suggestions[i]->score == -1 ? 0 :
+                                        suggestions[i]->score / totalDocNumber);
+      } else {
+        RedisModule_ReplyWithDouble(ctx, suggestions[i]->score == -1 ? 0 :
+                                        suggestions[i]->score / totalDocNumber);
+        RedisModule_ReplyWithStringBuffer(ctx, suggestions[i]->suggestion, suggestions[i]->len);
+      }
     }
   }
 
@@ -212,8 +223,12 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
     if (scCtx->fullScoreInfo) {
       // if a full score info is requested we need to send information that
       // we found the term as is on the index
-      RedisModule_ReplyWithArray(scCtx->sctx->redisCtx, 3);
-      RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, TERM, strlen(TERM));
+
+      bool resp3 = _ReplyMap(scCtx->sctx->redisCtx);
+      RedisModule_ReplyWithMapOrArray(scCtx->sctx->redisCtx, resp3 ? 3 : 1, false);
+      if(!resp3) {
+        RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, TERM, strlen(TERM));
+      }
       RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, term, len);
       RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, FOUND_TERM_IN_INDEX,
                                         strlen(FOUND_TERM_IN_INDEX));
@@ -309,6 +324,12 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryAST *q) {
 
   QueryNode_ForEach(q->root, forEachCallback, scCtx, 1);
 
-  RedisModule_ReplySetArrayLength(scCtx->sctx->redisCtx,
-                                  scCtx->results + (scCtx->fullScoreInfo ? 1 : 0));
+  long array_len = scCtx->fullScoreInfo ? 1 : 0;
+  if (_ReplyMap(scCtx->sctx->redisCtx)) {
+    array_len++;
+  } else {
+    array_len += scCtx->results;
+  }
+
+  RedisModule_ReplySetArrayLength(scCtx->sctx->redisCtx, array_len);
 }

@@ -14,6 +14,7 @@
 #include "util/misc.h"
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
+#include "resp3.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -315,14 +316,14 @@ void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
   char *str;
   tm_len_t slen;
   void *ptr;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_ReplyWithSetOrArray(ctx, REDISMODULE_POSTPONED_LEN);
   long long count = 0;
   while (TrieMapIterator_Next(it, &str, &slen, &ptr)) {
     ++count;
     RedisModule_ReplyWithStringBuffer(ctx, str, slen);
   }
 
-  RedisModule_ReplySetArrayLength(ctx, count);
+  RedisModule_ReplySetSetOrArrayLength(ctx, count);
 
   TrieMapIterator_Free(it);
 }
