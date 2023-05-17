@@ -760,11 +760,15 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", rc);
     return 0;
   }
+  VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
+  logCtx->index_field_name = fs->name;
+
   if (!strncasecmp(VECSIM_ALGORITHM_BF, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_BF;
     fs->vectorOpts.vecSimParams.bfParams.initialCapacity = SIZE_MAX;
     fs->vectorOpts.vecSimParams.bfParams.blockSize = 0;
     fs->vectorOpts.vecSimParams.bfParams.multi = multi;
+    fs->vectorOpts.vecSimParams.logCtx = logCtx;
     return parseVectorField_flat(fs, &fs->vectorOpts.vecSimParams, ac, status);
   } else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
@@ -779,6 +783,8 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
     params->hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
     params->hnswParams.multi = multi;
+    params->logCtx = logCtx;
+
     return parseVectorField_hnsw(fs, params, ac, status);
   } else {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", AC_ERR_ENOENT);
@@ -1762,7 +1768,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
       f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
     }
     if (encver >= INDEX_VECSIM_TIERED_VERSION) {
-      if (VecSim_RdbLoad_v3(rdb, &f->vectorOpts.vecSimParams, sp_ref) != REDISMODULE_OK) {
+      if (VecSim_RdbLoad_v3(rdb, &f->vectorOpts.vecSimParams, sp_ref, f->name) != REDISMODULE_OK) {
         goto fail;
       }
     } else {
@@ -1776,6 +1782,9 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
         }
       }
       // If we're loading an old (< 2.8) rdb, we need to convert an HNSW index to a tiered index
+      VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
+      logCtx->index_field_name = f->name;
+      f->vectorOpts.vecSimParams.logCtx = logCtx;
       if (f->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
         VecSimParams hnswParams = f->vectorOpts.vecSimParams;
 

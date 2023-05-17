@@ -2,6 +2,7 @@ import unittest
 import random
 import time
 import numpy as np
+import pytest
 from RLTest import Env
 
 from includes import *
@@ -71,9 +72,9 @@ def test_mod4745(env):
     # fail to send cluster PING on time before we reach cluster-node-timeout.
     waitForIndex(r, 'idx')
 
-def test_eval_node_errors_async(env):
-    if not POWER_TO_THE_WORKERS:
-        env.skip()
+
+@pytest.mark.skipif(not POWER_TO_THE_WORKERS)
+def test_eval_node_errors_async():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
     dim = 1000

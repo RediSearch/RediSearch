@@ -331,8 +331,12 @@ static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams 
   return rv;
 }
 
-int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref) {
+int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
+                      const char *field_name) {
   vecsimParams->algo = LoadUnsigned_IOError(rdb, goto fail);
+  VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
+  logCtx->index_field_name = field_name;
+  vecsimParams->logCtx = logCtx;
 
   switch (vecsimParams->algo) {
   case VecSimAlgo_BF:
@@ -441,6 +445,7 @@ void VecSimParams_Cleanup(VecSimParams *params) {
     WeakRef_Release(spec_ref);
     rm_free(params->tieredParams.primaryIndexParams);
   }
+  rm_free(params->logCtx);
 }
 
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
@@ -504,5 +509,5 @@ void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref) {
 #endif
   params->jobQueueCtx = StrongRef_Demote(sp_ref).rm;
   params->submitCb = (SubmitCB)ThreadPoolAPI_SubmitIndexJobs;
-  params->flatBufferLimit = SIZE_MAX;  // Todo: decide on this default value
+  params->flatBufferLimit = 1000;  // Todo: decide on this default value
 }

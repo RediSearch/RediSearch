@@ -2,22 +2,22 @@
 import time
 from cmath import inf
 from email import message
+
+import pytest
 from includes import *
 from common import *
 from RLTest import Env
 
 
-def testEmptyBuffer(env):
-    if not POWER_TO_THE_WORKERS:
-        env.skip()
+@pytest.mark.skipif(not POWER_TO_THE_WORKERS)
+def testEmptyBuffer():
     env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
     env.expect('ft.search', 'idx', '*', 'sortby', 'n').equal([0])
 
-def CreateAndSearchSortBy(env, docs_count):
-    if not POWER_TO_THE_WORKERS:
-        env.skip()
+
+def CreateAndSearchSortBy(docs_count):
     env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     conn = getConnectionByEnv(env)
@@ -39,15 +39,19 @@ def CreateAndSearchSortBy(env, docs_count):
         # each result should contain the doc name, the field name and its value 
         expected = [f'doc{n}', ['n', f'{n}']]
         env.assertEqual(result, expected)
-        n += 1 
+        n += 1
 
-def testSimpleBuffer(env):
-    CreateAndSearchSortBy(env, docs_count = 10)
+
+@pytest.mark.skipif(not POWER_TO_THE_WORKERS)
+def testSimpleBuffer():
+    CreateAndSearchSortBy(docs_count = 10)
+
 
 # In this test we have more than BlockSize docs to buffer, we want to make sure there are no leaks
 # caused by the buffer memory management.
-def testMultipleBlocksBuffer(env):
-    CreateAndSearchSortBy(env, docs_count = 2500)
+@pytest.mark.skipif(not POWER_TO_THE_WORKERS)
+def testMultipleBlocksBuffer():
+    CreateAndSearchSortBy(docs_count = 2500)
     
 ''' 
 Test pipeline:
@@ -83,9 +87,9 @@ def get_pipeline(profile_res):
         if (entry[0] == 'Result processors profile'):
             return entry
 
-def test_pipeline(env):
-    if not POWER_TO_THE_WORKERS:
-        env.skip()
+
+@pytest.mark.skipif(not POWER_TO_THE_WORKERS)
+def test_pipeline():
     env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
     env.skipOnCluster()
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
@@ -239,9 +243,8 @@ def test_pipeline(env):
     env.assertEqual(get_pipeline(res), expected_pipeline)
 
 
-def test_burst_threads_sanity(env):
-    if not POWER_TO_THE_WORKERS:
-        env.skip()
+@pytest.mark.skipif(not POWER_TO_THE_WORKERS)
+def test_burst_threads_sanity():
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 8 ALWAYS_USE_THREADS FALSE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
@@ -279,47 +282,100 @@ def test_burst_threads_sanity(env):
             conn.flushall()
 
 
-def test_workers_priority_queue(env):
-    if not POWER_TO_THE_WORKERS:
-        env.skip()
+@pytest.mark.skipif(not POWER_TO_THE_WORKERS)
+def test_workers_priority_queue():
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
     n_vectors = 50000 * n_shards
     dim = 16
     prefix = '_' if env.isCluster() else ''
-
+    time.sleep(10)
     for data_type in VECSIM_DATA_TYPES:
-        # Load random vectors into redis, save the first one to use as query vector later on.
+        # Load random vectors into redis, save the last one to use as query vector later on.
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', data_type,
                    'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
-        query_vec = load_vectors_to_redis(env, n_vectors, 0, dim, data_type)
+        query_vec = load_vectors_to_redis(env, n_vectors, n_vectors-1, dim, data_type)
         assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
 
+        # Expect that some vectors are still being indexed in the background after we are done loading.
         debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
         env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1)
         vectors_left_to_index = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
+
+        # Run queries during indexing
         while debug_info['BACKGROUND_INDEXING'] == 1:
             start = time.time()
-            res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
-                                              '__vector_score', 'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K',
-                                              10, 'vec_param', query_vec.tobytes())
+            res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY', '__vector_score',
+                                       'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10,
+                                       'vec_param', query_vec.tobytes())
             query_time = time.time() - start
-            # Expect that the first result would be the query vector itself (id 0)
-            env.assertEqual(res[1], '0')
-            print(f"query time took {query_time} while {vectors_left_to_index} vectors left to be indexed")
+            # Expect that the first result would be the query vector itself (last id)
+            env.assertEqual(res[1], str(n_vectors-1))
+            # Validate that queries get priority and are executed before indexing finishes.
+            env.assertLess(query_time, 1)
+
+            # We expect that the number of vectors left to index will decrease from one iteration to another.
             debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
             vectors_left_to_index_new = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
             env.assertLess(vectors_left_to_index_new, vectors_left_to_index)
             vectors_left_to_index = vectors_left_to_index_new
 
-        time.sleep(1)
-        start = time.time()
-        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
-                                          '__vector_score', 'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K',
-                                          10, 'vec_param', query_vec.tobytes())
-        query_time = time.time() - start
-        # Expect that the first result would be the query vector itself (id 0)
-        env.assertEqual(res[1], '0')
-        print(f"query time took {query_time} while {vectors_left_to_index} vectors left to be indexed")
+        conn.flushall()
+
+
+@pytest.mark.skipif(not POWER_TO_THE_WORKERS)
+def test_async_updates_sanity():
+    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    n_shards = env.shardsCount
+    n_vectors = 10000 * n_shards
+    dim = 32
+    prefix = '_' if env.isCluster() else ''
+    block_size = 1024
+
+    for data_type in VECSIM_DATA_TYPES:
+        # Load random vectors into redis
+        load_vectors_to_redis(env, n_vectors, 0, dim, data_type)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
+                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', '64').ok()
+        waitForIndex(env, 'idx')
+        assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+
+        # Wait until al vectors are indexed into HNSW.
+        debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
+        while debug_info['BACKGROUND_INDEXING'] == 1:
+            time.sleep(1)
+            debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
+
+        # Overwrite vectors - trigger background delete and ingest jobs.
+        query_vec = load_vectors_to_redis(env, n_vectors, 0, dim, data_type)
+        assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+        debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
+        marked_deleted_vectors = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
+        env.assertGreater(marked_deleted_vectors, block_size)
+
+        # We dispose marked deleted vectors whenever we have at least <block_size> vectors that are ready
+        # (that is, no other node in HNSW is pointing to the deleted node)
+        while marked_deleted_vectors > block_size:
+            start = time.time()
+            res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
+                                       '__vector_score', 'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K',
+                                       10, 'vec_param', query_vec.tobytes())
+            query_time = time.time() - start
+            # Validate that queries get priority and are executed before indexing/deletion is finished.
+            env.assertLess(query_time, 1)
+
+            # Expect that the first result would be the query vector itself (id 0)
+            env.assertEqual(res[1], '0')
+
+            # Overwrite another vector to trigger swap jobs.
+            conn.execute_command("HSET", 1, 'vector', create_np_array_typed(np.random.rand(dim), data_type).tobytes())
+            debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
+            marked_deleted_vectors_new = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
+
+            # After overwriting 1, there may be another one zombie.
+            env.assertLessEqual(marked_deleted_vectors_new, marked_deleted_vectors + 1)
+            marked_deleted_vectors = marked_deleted_vectors_new
+
         conn.flushall()

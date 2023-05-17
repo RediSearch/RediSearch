@@ -163,6 +163,11 @@ static inline const char* RS_GetExtraVersion() {
 #endif
 }
 
+static void VecSimLogCallback(void *ctx, const char *message) {
+  VecSimLogCtx *log_ctx = (VecSimLogCtx *)ctx;
+  RedisModule_Log(NULL, "notice", "vector index '%s' - %s", log_ctx->index_field_name, message);
+}
+
 int RS_Initialized = 0;
 RedisModuleCtx *RSDummyContext = NULL;
 
@@ -281,5 +286,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   VecSimMemoryFunctions vecsimMemoryFunctions = {.allocFunction = rm_malloc, .callocFunction = rm_calloc, .reallocFunction = rm_realloc, .freeFunction = rm_free};
   VecSim_SetMemoryFunctions(vecsimMemoryFunctions);
   VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
+  VecSim_SetLogCallbackFunction(VecSimLogCallback);
   return REDISMODULE_OK;
 }

@@ -101,6 +101,12 @@ typedef enum {
 
 } VecSimSearchMode;
 
+// External log ctx to be sent to the log callback that vecsim is using internally.
+// Created upon creating a new vecsim index
+typedef struct VecSimLogCtx {
+    const char *index_field_name;  // should point to the field_spec name string.
+} VecSimLogCtx;
+
 // TODO: remove idxKey from all OpenFooIndex functions
 VecSimIndex *OpenVectorIndex(IndexSpec *sp,
   RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
@@ -123,7 +129,8 @@ void VecSimParams_Cleanup(VecSimParams *params);
 void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams);
 int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams);
 int VecSim_RdbLoad_v2(RedisModuleIO *rdb, VecSimParams *vecsimParams); // includes multi flag
-int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef spec); // includes tiered index
+int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef spec,
+                      const char *field_name); // includes tiered index
 
 void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref);
 
