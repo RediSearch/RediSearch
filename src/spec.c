@@ -2345,6 +2345,9 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     // setting unique id to zero will make sure index will not be removed from global
     // cursor map and aliases.
     sp->uniqueId = 0;
+    // Remove the new spec from the global prefixes dictionary.
+    // This is the only global structure that we added the new spec to at this point
+    SchemaPrefixes_RemoveSpec(spec_ref);
     StrongRef_Release(spec_ref);
     spec_ref = (StrongRef){oldSpec};
   } else {
