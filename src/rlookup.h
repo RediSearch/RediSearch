@@ -130,6 +130,9 @@ typedef struct {
   size_t ndyn;
 } RLookupRow;
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Old flags. Move or remove later
+
 #define RLOOKUP_F_NOFLAGS 0x0 // No special flags to pass.
 
 #define RLOOKUP_F_OEXCL 0x01   // Error if name exists already
@@ -152,13 +155,6 @@ typedef struct {
  * This field is part of the index schema.
  */
 #define RLOOKUP_F_SCHEMASRC 0x20
-
-/**
- * This field is NOT part of the index schema, but created by a loader
- * (we will look for it in the document)
- */
-// TODO: re-value
-#define RLOOKUP_F_DOCSRC 0x69
 
 /**
  * This field is hidden within the document and is only used as a transient
@@ -201,21 +197,6 @@ typedef struct {
  */
 #define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT)
 
-typedef enum {
-  RLOOKUP_M_READ,   // Get key for reading (create oly if in schema and sortable)
-  RLOOKUP_M_WRITE,  // Get key for writing
-  RLOOKUP_M_LOAD,   // Load key from document (include known information on the key, fail if already loaded)
-} RLookupMode;
-
-#define RLOOKUP_F_OVERRIDE 0x01   // Verify that the key is not already existing nor in the schema (exclusive)
-#define RLOOKUP_T_NUMERIC 0x02 // Create the key if it doesn't exist in the schema
-#define RLOOKUP_F_QUERYSRC 0x04  // This key was created by the query itself (not in the document)
-
-// Flags that are allowed to be passed to GetKey
-#define RLOOKUP_GET_KEY_FLAGS ~(RLOOKUP_F_SCHEMASRC | RLOOKUP_F_SVSRC | RLOOKUP_F_UNRESOLVED | \
-                                RLOOKUP_F_DOCSRC | RLOOKUP_F_UNFORMATTED | RLOOKUP_F_UNRESOLVED | \
-                                RLOOKUP_F_QUERYSRC | RLOOKUP_F_ISLOADED)
-
 /**
  * Get a RLookup key for a given name. The behavior of this function depends on
  * the flags.
@@ -244,6 +225,78 @@ RLookupKey *RLookup_GetKey_TEMP(RLookup *lookup, const char *name, int flags);
  *
  */
 RLookupKey *RLookup_GetOrCreateKey_TEMP(RLookup *lookup, const char *path, const char *name, int flags);
+
+// End of old flags. Remove later and uncomment the following flags
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+typedef enum {
+  RLOOKUP_M_READ,   // Get key for reading (create oly if in schema and sortable)
+  RLOOKUP_M_WRITE,  // Get key for writing
+  RLOOKUP_M_LOAD,   // Load key from document (include known information on the key, fail if already loaded)
+} RLookupMode;
+
+#define RLOOKUP_F_NOFLAGS 0x0 // No special flags to pass.
+
+/**
+ * This field is NOT part of the index schema, but created by a loader
+ * (we will look for it in the document)
+ */
+#define RLOOKUP_F_DOCSRC 0x01
+
+/**
+ * This field is part of the index schema.
+ */
+// #define RLOOKUP_F_SCHEMASRC 0x02
+
+/** Check the sorting table, if necessary, for the index of the key. */
+// #define RLOOKUP_F_SVSRC 0x04
+
+/**
+ * This key was created by the query itself (not in the document)
+ */
+#define RLOOKUP_F_QUERYSRC 0x08
+
+/** Copy the key string via strdup. `name` may be freed */
+// #define RLOOKUP_F_NAMEALLOC 0x10
+
+/**
+ * If the key is already present, then overwrite it (relevant only for LOAD or WRITE modes)
+ */
+#define RLOOKUP_F_OVERRIDE 0x20
+
+/**
+ * This key type is numeric
+ */
+#define RLOOKUP_T_NUMERIC 0x40
+
+/**
+ * This key is unresolved. It source needs to be derived from elsewhere
+ */
+// #define RLOOKUP_F_UNRESOLVED 0x80
+
+/**
+ * This field is hidden within the document and is only used as a transient
+ * field for another consumer. Don't output this field.
+ */
+// #define RLOOKUP_F_HIDDEN 0x100
+
+/**
+ * The opposite of F_HIDDEN. This field is specified as an explicit return in
+ * the RETURN list, so ensure that this gets emitted. Only set if
+ * explicitReturn is true in the aggregation request.
+ */
+// #define RLOOKUP_F_EXPLICITRETURN 0x200
+
+/**
+ * This key's value is already available in the RLookup table.
+ * For example, if an upstream result processor already loaded the value from redis key-space,
+ * or it was opened for read but the field is sortable and not normalized.
+ */
+// #define RLOOKUP_F_ISLOADED 0x400
+
+// Flags that are allowed to be passed to GetKey
+#define RLOOKUP_GET_KEY_FLAGS (RLOOKUP_F_NAMEALLOC | RLOOKUP_F_OVERRIDE | RLOOKUP_F_HIDDEN | RLOOKUP_F_EXPLICITRETURN)
+
 /**
  * Get the amount of visible fields is the RLookup
  */
