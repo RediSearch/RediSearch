@@ -141,6 +141,8 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, RLooku
     if (!key) {
       key = createNewKey(lookup, name, n);
     } else if ((key->flags & RLOOKUP_F_ISLOADED || key->flags & RLOOKUP_F_QUERYSRC) && !(flags & RLOOKUP_F_OVERRIDE)) {
+      // If the caller wanted to mark this key as explicit return, mark it as such even if we don't return it.
+      key->flags |= (flags & RLOOKUP_F_EXPLICITRETURN);
       // Already loaded or created for writing, return NULL (no override)
       return NULL;
     }
