@@ -1808,55 +1808,77 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 int ClusterInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
   RS_AutoMemory(ctx);
 
-  int n = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_Reply reply = RedisModule_NewReply(ctx);
 
-  RedisModule_ReplyWithSimpleString(ctx, "num_partitions");
-  n++;
-  RedisModule_ReplyWithLongLong(ctx, GetSearchCluster()->size);
-  n++;
-  RedisModule_ReplyWithSimpleString(ctx, "cluster_type");
-  n++;
-  RedisModule_ReplyWithSimpleString(
-      ctx, clusterConfig.type == ClusterType_RedisLabs ? "redislabs" : "redis_oss");
-  n++;
+  RedisModule_ReplyKV_LongLong(&reply, "num_partitions", GetSearchCluster()->size);
+  RedisModule_ReplyKV_SimpleString(&reply, "cluster_type", 
+                                   clusterConfig.type == ClusterType_RedisLabs ? "redislabs" : "redis_oss");
 
   // Report hash func
   MRClusterTopology *topo = MR_GetCurrentTopology();
-  RedisModule_ReplyWithSimpleString(ctx, "hash_func");
-  n++;
-  if (topo) {
-    RedisModule_ReplyWithSimpleString(
-        ctx, topo->hashFunc == MRHashFunc_CRC12
-                 ? MRHASHFUNC_CRC12_STR
-                 : (topo->hashFunc == MRHashFunc_CRC16 ? MRHASHFUNC_CRC16_STR : "n/a"));
-  } else {
-    RedisModule_ReplyWithSimpleString(ctx, "n/a");
+  const char *hash_func_str;
+  switch (topo ? topo->hashFunc : MRHashFunc_None) {
+  case MRHashFunc_CRC12:
+    hash_func_str = MRHASHFUNC_CRC12_STR;
+    break;
+  case MRHashFunc_CRC16:
+    hash_func_str = MRHASHFUNC_CRC16_STR;
+    break;
+  default:
+    hash_func_str = "n/a";
+    break;
   }
-  n++;
+  RedisModule_ReplyKV_SimpleString(&reply, "hash_func", hash_func_str);
 
   // Report topology
-  RedisModule_ReplyWithSimpleString(ctx, "num_slots");
-  n++;
-  RedisModule_ReplyWithLongLong(ctx, topo ? (long long)topo->numSlots : 0);
-  n++;
-
-  RedisModule_ReplyWithSimpleString(ctx, "slots");
-  n++;
+  RedisModule_ReplyKV_LongLong(&reply, "num_slots", topo ? (long long)topo->numSlots : 0);
 
   if (!topo) {
-    RedisModule_ReplyWithNull(ctx);
-    n++;
+    RedisModule_ReplyKV_Null(&reply, "slots");
+    RedisModule_EndReply(&reply);
+    return REDISMODULE_OK;    
+  }
+
+  if (reply.resp3) {
+    RedisModule_ReplyKV_Array(&reply, "slots");
+    for (int i = 0; i < topo->numShards; i++) {
+      MRClusterShard *sh = &topo->shards[i];
+  
+      RedisModule_Reply_Map(&reply); // (shards)
+      RedisModule_ReplyKV_LongLong(&reply, "start", sh->startSlot);
+      RedisModule_ReplyKV_LongLong(&reply, "end", sh->endSlot);
+
+      RedisModule_ReplyKV_Array(&reply, "nodes");
+      for (int j = 0; j < sh->numNodes; j++) {
+        MRClusterNode *node = &sh->nodes[j];
+        RedisModule_Reply_Map(&reply);
+
+        RedisModule_ReplyKV_SimpleString(&reply, "id", node->id);
+        RedisModule_ReplyKV_SimpleString(&reply, "host", node->endpoint.host);
+        RedisModule_ReplyKV_LongLong(&reply, "port", node->endpoint.port);
+        RedisModuleString *role = RedisModule_CreateStringPrintf(ctx, "%s%s",
+          node->flags & MRNode_Master ? "master " : "slave ", node->flags & MRNode_Self ? "self" : "");
+        RedisModule_ReplyKV_String(&reply, "role", role);
+
+        RedisModule_Reply_MapEnd(&reply);
+      }
+      RedisModule_Reply_ArrayEnd(&reply); // nodes
+    
+      RedisModule_Reply_MapEnd(&reply); // (shards)
+    }
+    RedisModule_Reply_ArrayEnd(&reply); // slots
 
   } else {
+    RedisModule_ReplyWithSimpleString(ctx, "slots");
+    ++reply.count;
 
     for (int i = 0; i < topo->numShards; i++) {
       MRClusterShard *sh = &topo->shards[i];
       RedisModule_ReplyWithArray(ctx, 2 + sh->numNodes);
-      n++;
+      ++reply.count;
+  
       RedisModule_ReplyWithLongLong(ctx, sh->startSlot);
       RedisModule_ReplyWithLongLong(ctx, sh->endSlot);
       for (int j = 0; j < sh->numNodes; j++) {
@@ -1873,7 +1895,8 @@ int ClusterInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
   }
 
-  RedisModule_ReplySetArrayLength(ctx, n);
+  RedisModule_EndReply(&reply);
+
   return REDISMODULE_OK;
 }
 

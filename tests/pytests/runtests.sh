@@ -82,6 +82,7 @@ help() {
 		STATFILE=file         Write test status (0|1) into `file`
 
 		LIST=1                List all tests and exit
+		ENV_ONLY=1            Just start environment, run no tests
 		VERBOSE=1             Print commands and Redis output
 		LOG=1                 Send results to log (even on single-test mode)
 		KEEP=1                Do not remove intermediate files
@@ -316,6 +317,54 @@ setup_redisjson() {
 		RLTEST_REJSON_ARGS+=" --module-args '$REJSON_MODARGS'"
 		XREDIS_REJSON_ARGS+=" $REJSON_MODARGS"
 	fi
+}
+
+#----------------------------------------------------------------------------------------------
+
+run_env() {
+	if [[ $COORD == oss ]]; then
+		oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
+		RLTEST_ARGS+=" ${oss_cluster_args}"
+	fi
+
+	rltest_config=$(mktemp "${TMPDIR:-/tmp}/rltest.XXXXXXX")
+	rm -f $rltest_config
+	cat <<-EOF > $rltest_config
+		--env-only
+		--oss-redis-path=$REDIS_SERVER
+		--module $MODULE
+		--module-args '$MODARGS'
+		$RLTEST_ARGS
+		$RLTEST_TEST_ARGS
+		$RLTEST_PARALLEL_ARG
+		$RLTEST_REJSON_ARGS
+		$RLTEST_VG_ARGS
+		$RLTEST_SAN_ARGS
+		$RLTEST_COV_ARGS
+
+		EOF
+
+	# Use configuration file in the current directory if it exists
+	if [[ -n $CONFIG_FILE && -e $CONFIG_FILE ]]; then
+		cat $CONFIG_FILE >> $rltest_config
+	fi
+
+	if [[ $VERBOSE == 1 || $NOP == 1 ]]; then
+		echo "RLTest configuration:"
+		cat $rltest_config
+		[[ -n $VG_OPTIONS ]] && { echo "VG_OPTIONS: $VG_OPTIONS"; echo; }
+	fi
+
+	local E=0
+	if [[ $NOP != 1 ]]; then
+		{ $OP python3 -m RLTest @$rltest_config; (( E |= $? )); } || true
+	else
+		$OP python3 -m RLTest @$rltest_config
+	fi
+
+	[[ $KEEP != 1 ]] && rm -f $rltest_config
+
+	return $E
 }
 
 #----------------------------------------------------------------------------------------------
@@ -593,6 +642,13 @@ fi
 
 if [[ $RLEC != 1 ]]; then
 	setup_redis_server
+fi
+
+#------------------------------------------------------------------------------------- Env only
+
+if [[ $ENV_ONLY == 1 ]]; then
+	run_env
+	exit 0
 fi
 
 #-------------------------------------------------------------------------------- Running tests

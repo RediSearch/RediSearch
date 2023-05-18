@@ -6,11 +6,14 @@
 
 #define __RMR_REPLY_C__
 #include "reply.h"
+#include "resp3.h"
+
+#include "redismodule.h"
 #include "hiredis/hiredis.h"
+
 #include <string.h>
 #include <errno.h>
 #include <limits.h>
-#include <redismodule.h>
 
 
 int MRReply_StringEquals(MRReply *r, const char *s, int caseSensitive) {
@@ -25,6 +28,7 @@ int MRReply_StringEquals(MRReply *r, const char *s, int caseSensitive) {
     return !strncasecmp(s, rs, slen);
   }
 }
+
 void MRReply_Print(FILE *fp, MRReply *r) {
   if (!r) {
     fprintf(fp, "NULL");
@@ -35,16 +39,20 @@ void MRReply_Print(FILE *fp, MRReply *r) {
     case MR_REPLY_INTEGER:
       fprintf(fp, "INT(%lld)", MRReply_Integer(r));
       break;
+
     case MR_REPLY_STRING:
     case MR_REPLY_STATUS:
       fprintf(fp, "STR(%s)", MRReply_String(r, NULL));
       break;
+
     case MR_REPLY_ERROR:
       fprintf(fp, "ERR(%s)", MRReply_String(r, NULL));
       break;
+
     case MR_REPLY_NIL:
       fprintf(fp, "(nil)");
       break;
+
     case MR_REPLY_ARRAY:
       fprintf(fp, "ARR(%zd):[ ", MRReply_Length(r));
       for (size_t i = 0; i < MRReply_Length(r); i++) {
@@ -89,7 +97,6 @@ int _parseFloat(const char *str, size_t len, double *d) {
 }
 
 int MRReply_ToInteger(MRReply *reply, long long *i) {
-
   if (reply == NULL) return 0;
 
   switch (MRReply_Type(reply)) {
@@ -132,8 +139,8 @@ int MR_ReplyWithMRReply(RedisModuleCtx *ctx, MRReply *rep) {
   if (rep == NULL) {
     return RedisModule_ReplyWithNull(ctx);
   }
-  switch (MRReply_Type(rep)) {
 
+  switch (MRReply_Type(rep)) {
     case MR_REPLY_STRING: {
       size_t len;
       char *str = MRReply_String(rep, &len);
@@ -162,4 +169,17 @@ int MR_ReplyWithMRReply(RedisModuleCtx *ctx, MRReply *rep) {
       return RedisModule_ReplyWithNull(ctx);
   }
   return REDISMODULE_ERR;
+}
+
+int RedisModule_ReplyKV_MRReply(RedisModule_Reply *reply, const char *key, MRReply *rep) {
+  RedisModule_ReplyWithSimpleString(reply->ctx, key);
+  MR_ReplyWithMRReply(reply->ctx, rep);
+  _RedisModule_ReplyKV_Next(reply);
+  return REDISMODULE_OK;
+}
+
+int RedisModule_Reply_MRReply(RedisModule_Reply *reply, MRReply *rep) {
+  MR_ReplyWithMRReply(reply->ctx, rep);
+  _RedisModule_ReplyKV_Next(reply);
+  return REDISMODULE_OK;
 }
