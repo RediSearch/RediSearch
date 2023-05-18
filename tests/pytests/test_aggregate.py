@@ -3,7 +3,7 @@ import json
 import itertools
 import os
 from RLTest import Env
-import pprint
+import unittest
 from includes import *
 from common import getConnectionByEnv, toSortedFlatList
 import numpy as np
@@ -898,7 +898,7 @@ def testResultCounter(env):
 def test_aggregate_timeout():
     if VALGRIND:
         # You don't want to run this under valgrind, it will take forever
-        return
+        raise unittest.SkipTest("Skipping timeout test under valgrind")
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT')
@@ -911,7 +911,7 @@ def test_aggregate_timeout():
             pipeline.execute()
             pipeline = conn.pipeline(transaction=False)
     pipeline.execute()
-    
+
 
     env.expect('FT.AGGREGATE', 'idx', '*', 'groupby', '1', '@t1', 'REDUCE', 'count', '0', 'AS', 'count', 'TIMEOUT', '1'). \
         equal( ['Timeout limit was reached'] if not env.isCluster() else [1, ['t1', None, 'count', '0']])
