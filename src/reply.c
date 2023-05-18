@@ -12,31 +12,17 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx) {
-  RedisModule_Reply reply = { ctx, _ReplyMap(ctx), 0, NULL };
-/*
-  if (reply.resp3) {
-    RedisModule_ReplyWithMap(ctx, REDISMODULE_POSTPONED_LEN);
-  } else {
-    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  }
-*/
+  RedisModule_Reply reply = { ctx, _ReplyMap(ctx), 0, false, NULL };
   return reply;
 }
 
 int RedisModule_EndReply(RedisModule_Reply *reply) {
-  if (!(!reply->stack || !array_len(reply->stack))) { _BB; }
-  RedisModule_Assert(!reply->stack || !array_len(reply->stack));
+  if (reply->top_level_container || reply->stack && array_len(reply->stack) > 0) { _BB; }
+  RedisModule_Assert(!reply->top_level_container && (!reply->stack || !array_len(reply->stack)));
   if (reply->stack) {
     array_free(reply->stack);
   }
   reply->stack = 0;
-/*
-  if (reply->resp3) {
-    RedisModule_ReplySetMapLength(reply->ctx, reply->count);
-  } else {
-    RedisModule_ReplySetArrayLength(reply->ctx, reply->count);
-  }
-*/
   return REDISMODULE_OK;
 }
 
@@ -70,10 +56,16 @@ void _RedisModule_Reply_Push(RedisModule_Reply *reply) {
 }
 
 int _RedisModule_Reply_Pop(RedisModule_Reply *reply) {
-  RedisModule_Assert(reply->stack && array_len(reply->stack) > 0);
-  int count = array_tail(reply->stack);
-  reply->stack = array_trimm_len(reply->stack, 1);
-  return count;
+  if (!reply->top_level_container && (!reply->stack || !array_len(reply->stack))) { _BB; }
+  RedisModule_Assert(reply->top_level_container || reply->stack && array_len(reply->stack) > 0);
+  if (reply->stack && array_len(reply->stack) > 0) {
+    int count = array_tail(reply->stack);
+    reply->stack = array_trimm_len(reply->stack, 1);
+    return count;
+  } else {
+    reply->top_level_container = false;
+    return reply->count;
+  }
 }
 
 //---------------------------------------------------------------------------------------------
@@ -121,6 +113,7 @@ int RedisModule_Reply_Map(RedisModule_Reply *reply) {
     RedisModule_ReplyWithArray(reply->ctx, REDISMODULE_POSTPONED_LEN);
   }
   if (reply->count == 0 && !reply->stack) {
+    reply->top_level_container = true;
     _RedisModule_Reply_Next(reply);
   } else {
     _RedisModule_Reply_Next(reply);
@@ -142,6 +135,7 @@ int RedisModule_Reply_MapEnd(RedisModule_Reply *reply) {
 int RedisModule_Reply_Array(RedisModule_Reply *reply) {
   RedisModule_ReplyWithArray(reply->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   if (reply->count == 0 && !reply->stack) {
+    reply->top_level_container = true;
     _RedisModule_Reply_Next(reply);
   } else {
     _RedisModule_Reply_Next(reply);

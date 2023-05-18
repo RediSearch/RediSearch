@@ -15,6 +15,7 @@ typedef struct RedisModule_Reply {
   RedisModuleCtx *ctx;
   bool resp3;
   int count;
+  bool top_level_container;
   arrayof(int) stack;
   //arrayof(char) json;
 } RedisModule_Reply;
