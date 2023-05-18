@@ -55,8 +55,12 @@ def waitForIndex(env, idx):
     waitForRdbSaveToFinish(env)
     while True:
         res = env.execute_command('ft.info', idx)
-        if int(res[res.index('indexing') + 1]) == 0:
-            break
+        try:
+            if int(res[res.index('indexing') + 1]) == 0:
+                break
+        except:
+            if int(res['indexing']) == 0:
+                break
         time.sleep(0.1)
 
 def py2sorted(x):
