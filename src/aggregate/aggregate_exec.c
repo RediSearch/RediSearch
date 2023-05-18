@@ -205,6 +205,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     if (dmd && dmd->flags & Document_Deleted) {
       if(_ReplyMap(outctx)) {
         RedisModule_ReplyWithArray(outctx, 0);
+        goto _out;
       } else {
         RedisModule_ReplyWithNull(outctx);
       }
@@ -239,6 +240,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     }
   }
 
+_out:
   if(_ReplyMap(outctx)) {
     // placeholder for fields_values. (possible optimization)
     RedisModule_ReplyWithSimpleString(outctx, "fields_values");

@@ -838,12 +838,15 @@ static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, Red
 
   if(!_ReplyMap(ctx)) {
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    numElems++;
   }
+
   RedisModule_ReplyWithSimpleString(ctx, var->name);
+
   if(_ReplyMap(ctx)) {
     RedisModule_ReplyWithMap(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   }
-  numElems++;
+
   if (isHelp) {
     RedisModule_ReplyWithSimpleString(ctx, "Description");
     RedisModule_ReplyWithSimpleString(ctx, var->helpText);
@@ -855,6 +858,10 @@ static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, Red
     }
     numElems += 4;
   } else {
+    if(_ReplyMap(ctx)) {
+      RedisModule_ReplyWithSimpleString(ctx, "Value");
+      numElems++;
+    }
     if (currValue) {
       RedisModule_ReplyWithSimpleString(ctx, currValue);
     } else {
