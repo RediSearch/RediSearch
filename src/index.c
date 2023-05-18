@@ -1876,6 +1876,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   char *unionTypeStr;
   switch (ui->origType) {
   case QN_GEO : unionTypeStr = "GEO"; break;
+  case QN_GEOMETRY : unionTypeStr = "GEOMETRY"; break;
   case QN_TAG : unionTypeStr = "TAG"; break;
   case QN_UNION : unionTypeStr = "UNION"; break;
   case QN_FUZZY : unionTypeStr = "FUZZY"; break;

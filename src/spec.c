@@ -31,6 +31,7 @@
 #include "rdb.h"
 #include "commands.h"
 #include "rmutil/cxx/chrono-clock.h"
+#include "geometry/geometry_api.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -832,6 +833,11 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
         break;
       }
     }
+  } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
+    sp->flags |= Index_HasGeometry;
+    fs->types |= INDEXFLD_T_GEOMETRY;
+    // TODO: GEMOMETRY - Support more geometry libraries - if an optional successive token exist
+    fs->geometryOpts.geometryLibType = GEOMETRY_LIB_TYPE_BOOST_GEOMETRY;
   } else {  // nothing more supported currently
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;
@@ -1493,6 +1499,9 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
         // NOT NECESSARY ANYMORE - used when field were in keyspace
         ret = RedisModule_CreateString(sctx.redisCtx, fs->name, strlen(fs->name));
         break;
+      case INDEXFLD_T_GEOMETRY:
+        ret = fmtRedisGeometryIndexKey(&sctx, fs->name);
+        break;
       case INDEXFLD_T_FULLTEXT:  // Text fields don't get a per-field index
       default:
         ret = NULL;
@@ -1707,6 +1716,10 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
     RedisModule_SaveUnsigned(rdb, f->vectorOpts.expBlobSize);
     VecSim_RdbSave(rdb, &f->vectorOpts.vecSimParams);
   }
+  // TODO: GEOMETRY - save geometry options if more than one geometry library is supported
+  // if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
+  //   RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryLibType);
+  // }
 }
 
 static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
@@ -1798,6 +1811,13 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
       }
     }
   }
+  
+  // Load geometry specific options
+  if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
+    // TODO: GEOMETRY - if more than one geometry library is supported - load it from rdb (currently hard-coded)
+    f->geometryOpts.geometryLibType = GEOMETRY_LIB_TYPE_BOOST_GEOMETRY;
+  }
+  
   return REDISMODULE_OK;
 
 fail:
@@ -2347,6 +2367,9 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     // setting unique id to zero will make sure index will not be removed from global
     // cursor map and aliases.
     sp->uniqueId = 0;
+    // Remove the new spec from the global prefixes dictionary.
+    // This is the only global structure that we added the new spec to at this point
+    SchemaPrefixes_RemoveSpec(spec_ref);
     StrongRef_Release(spec_ref);
     spec_ref = (StrongRef){oldSpec};
   } else {
@@ -2714,6 +2737,10 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
         VecSimIndex_DeleteVector(vecsim, id);
       }
     }
+  }
+
+  if (spec->flags & Index_HasGeometry) {
+    GeometryIndex_RemoveId(ctx, spec, id);
   }
 }
 
