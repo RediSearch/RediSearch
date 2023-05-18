@@ -763,13 +763,13 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   }
   VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
   logCtx->index_field_name = fs->name;
+  fs->vectorOpts.vecSimParams.logCtx = logCtx;
 
   if (!strncasecmp(VECSIM_ALGORITHM_BF, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_BF;
     fs->vectorOpts.vecSimParams.bfParams.initialCapacity = SIZE_MAX;
     fs->vectorOpts.vecSimParams.bfParams.blockSize = 0;
     fs->vectorOpts.vecSimParams.bfParams.multi = multi;
-    fs->vectorOpts.vecSimParams.logCtx = logCtx;
     return parseVectorField_flat(fs, &fs->vectorOpts.vecSimParams, ac, status);
   } else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
@@ -784,6 +784,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
     params->hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
     params->hnswParams.multi = multi;
+    // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
     params->logCtx = logCtx;
 
     return parseVectorField_hnsw(fs, params, ac, status);

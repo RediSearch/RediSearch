@@ -1,12 +1,10 @@
-import unittest
 import random
 import time
 import numpy as np
-import pytest
 from RLTest import Env
 
 from includes import *
-from common import getConnectionByEnv, waitForIndex, create_np_array_typed
+from common import *
 
 def testCreateIndex(env):
     conn = getConnectionByEnv(env)
@@ -73,8 +71,9 @@ def test_mod4745(env):
     waitForIndex(r, 'idx')
 
 
-@pytest.mark.skipif(not POWER_TO_THE_WORKERS)
 def test_eval_node_errors_async():
+    if not POWER_TO_THE_WORKERS:
+        raise unittest.SkipTest("Skipping since worker threads are not enabled")
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
     dim = 1000

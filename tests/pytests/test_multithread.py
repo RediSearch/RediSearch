@@ -2,17 +2,14 @@
 import time
 from cmath import inf
 from email import message
-
-import pytest
 from includes import *
 from common import *
 from RLTest import Env
 
-POWER_TO_THE_WORKERS = True  # temporary, for testing in CI
 
-
-@pytest.mark.skipif(not POWER_TO_THE_WORKERS)
 def testEmptyBuffer():
+    if not POWER_TO_THE_WORKERS:
+        raise unittest.SkipTest("Skipping since worker threads are not enabled")
     env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
@@ -44,15 +41,17 @@ def CreateAndSearchSortBy(docs_count):
         n += 1
 
 
-@pytest.mark.skipif(not POWER_TO_THE_WORKERS)
 def testSimpleBuffer():
+    if not POWER_TO_THE_WORKERS:
+        raise unittest.SkipTest("Skipping since worker threads are not enabled")
     CreateAndSearchSortBy(docs_count = 10)
 
 
 # In this test we have more than BlockSize docs to buffer, we want to make sure there are no leaks
 # caused by the buffer memory management.
-@pytest.mark.skipif(not POWER_TO_THE_WORKERS)
 def testMultipleBlocksBuffer():
+    if not POWER_TO_THE_WORKERS:
+        raise unittest.SkipTest("Skipping since worker threads are not enabled")
     CreateAndSearchSortBy(docs_count = 2500)
     
 ''' 
@@ -90,8 +89,9 @@ def get_pipeline(profile_res):
             return entry
 
 
-@pytest.mark.skipif(not POWER_TO_THE_WORKERS)
 def test_pipeline():
+    if not POWER_TO_THE_WORKERS:
+        raise unittest.SkipTest("Skipping since worker threads are not enabled")
     env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
     env.skipOnCluster()
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
@@ -245,8 +245,9 @@ def test_pipeline():
     env.assertEqual(get_pipeline(res), expected_pipeline)
 
 
-@pytest.mark.skipif(not POWER_TO_THE_WORKERS)
 def test_burst_threads_sanity():
+    if not POWER_TO_THE_WORKERS:
+        raise unittest.SkipTest("Skipping since worker threads are not enabled")
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 8 ALWAYS_USE_THREADS FALSE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
@@ -284,15 +285,15 @@ def test_burst_threads_sanity():
             conn.flushall()
 
 
-@pytest.mark.skipif(not POWER_TO_THE_WORKERS)
 def test_workers_priority_queue():
+    if not POWER_TO_THE_WORKERS:
+        raise unittest.SkipTest("Skipping since worker threads are not enabled")
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
     n_vectors = 50000 * n_shards
     dim = 16
     prefix = '_' if env.isCluster() else ''
-    time.sleep(10)
     for data_type in VECSIM_DATA_TYPES:
         # Load random vectors into redis, save the last one to use as query vector later on.
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', data_type,
@@ -326,8 +327,9 @@ def test_workers_priority_queue():
         conn.flushall()
 
 
-@pytest.mark.skipif(not POWER_TO_THE_WORKERS)
 def test_async_updates_sanity():
+    if not POWER_TO_THE_WORKERS:
+        raise unittest.SkipTest("Skipping since worker threads are not enabled")
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
@@ -367,12 +369,14 @@ def test_async_updates_sanity():
             query_time = time.time() - start
             # Validate that queries get priority and are executed before indexing/deletion is finished.
             env.assertLess(query_time, 1)
+            print(f"query time took {query_time} where there are {marked_deleted_vectors}")
 
             # Expect that the first result would be the query vector itself (id 0)
             env.assertEqual(res[1], '0')
 
             # Overwrite another vector to trigger swap jobs.
-            conn.execute_command("HSET", 1, 'vector', create_np_array_typed(np.random.rand(dim), data_type).tobytes())
+            conn.execute_command("HSET", np.random.randint(1, n_vectors), 'vector',
+                                 create_np_array_typed(np.random.rand(dim), data_type).tobytes())
             debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
             marked_deleted_vectors_new = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
 

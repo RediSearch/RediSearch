@@ -445,6 +445,8 @@ void VecSimParams_Cleanup(VecSimParams *params) {
     WeakRef_Release(spec_ref);
     rm_free(params->tieredParams.primaryIndexParams);
   }
+  // Note that for tiered index, this would free both params->logCtx and
+  // params->tieredParams.primaryIndexParams->logCtx that point to the same object.
   rm_free(params->logCtx);
 }
 
