@@ -249,15 +249,22 @@ def test_pipeline():
 def test_burst_threads_sanity():
     if not POWER_TO_THE_WORKERS:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
+
+    # Invalid 0 worker threads with ALWAYS_USE_THREADS set to true configuration.
+    try:
+        env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 0 ALWAYS_USE_THREADS TRUE')
+        env.assertFalse(True)  # shouldn't get here, env creation should fail.
+    except Exception:
+        pass
+
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 8 ALWAYS_USE_THREADS FALSE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
     n_vectors = 1000 * n_shards
-    algorithms = ['FLAT', 'HNSW']
     dim = 10
     prefix = '_' if env.isCluster() else ''
 
-    for algo in algorithms:
+    for algo in VECSIM_ALGOS:
         for data_type in VECSIM_DATA_TYPES:
             # Load random vectors into redis, save the first one to use as query vector later on.
             env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, '6', 'TYPE', data_type,

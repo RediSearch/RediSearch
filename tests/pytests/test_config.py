@@ -188,8 +188,6 @@ def testInitConfig(env):
         env.stop()
 
     test_arg_str('GC_POLICY', 'fork')
-    if POWER_TO_THE_WORKERS:
-        test_arg_str('ALWAYS_USE_THREADS', 'true')
     test_arg_str('GC_POLICY', 'default', 'fork')
     test_arg_str('ON_TIMEOUT', 'fail')
     test_arg_str('TIMEOUT', '0', '0')

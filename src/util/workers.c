@@ -7,6 +7,7 @@
 #include "workers_pool.h"
 #include "workers.h"
 #include "redismodule.h"
+#include "config.h"
 
 #include <pthread.h>
 
@@ -17,6 +18,11 @@
 //------------------------------------------------------------------------------
 
 redisearch_threadpool _workers_thpool = NULL;
+
+static void yieldCallback(void *yieldCtx) {
+  RedisModuleCtx *ctx = yieldCtx;
+  RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
+}
 
 // set up workers' thread pool
 int workersThreadPool_CreatePool(size_t worker_count) {
@@ -29,11 +35,10 @@ int workersThreadPool_CreatePool(size_t worker_count) {
   return REDISMODULE_OK;
 }
 
-void workersThreadPool_InitPool(size_t worker_count) {
-  assert(worker_count);
+void workersThreadPool_InitPool() {
   assert(_workers_thpool != NULL);
 
-  redisearch_thpool_init(_workers_thpool, worker_count);
+  redisearch_thpool_init(_workers_thpool);
 }
 
 // return number of currently working threads
@@ -59,13 +64,8 @@ void workersThreadPool_Wait(RedisModuleCtx *ctx) {
   // Wait until all the threads in the pool finish the remaining jobs. Periodically return and call
   // RedisModule_Yield even if threads are not done yet, so redis can answer PINGs (and other stuff)
   // so that the node-watch dog won't kill redis, for example.
-  redisearch_thpool_lock_thcount(_workers_thpool);
   static struct timespec time_to_wait = {0, 100000000};  // 100 ms
-  while (!redisearch_thpool_finish(_workers_thpool)) {
-    redisearch_thpool_threads_idle_timed_wait(_workers_thpool, &time_to_wait);
-    RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
-  }
-  redisearch_thpool_unlock_thcount(_workers_thpool);
+  redisearch_thpool_timedwait(_workers_thpool, &time_to_wait, yieldCallback, ctx);
 }
 
 void workersThreadPool_Terminate(void) {
@@ -74,6 +74,28 @@ void workersThreadPool_Terminate(void) {
 
 void workersThreadPool_Destroy(void) {
   redisearch_thpool_destroy(_workers_thpool);
+}
+
+void workersThreadPool_InitIfRequired() {
+  if(RSGlobalConfig.numWorkerThreads && !RSGlobalConfig.alwaysUseThreads) {
+    // Initialize the thread pool temporarily for fast RDB loading of vector index (if needed).
+    workersThreadPool_InitPool();
+    RedisModule_Log(RSDummyContext, "notice", "Created workers threadpool of size %lu for loading",
+                    RSGlobalConfig.numWorkerThreads);
+  }
+}
+
+void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx) {
+  if (RSGlobalConfig.numWorkerThreads && !RSGlobalConfig.alwaysUseThreads) {
+    // Terminate the temporary thread pool (without deallocating it). Before that, we wait until
+    // all the threads are finished the jobs currently in the queue. Note that we call RM_Yield
+    // periodically while we wait, so we won't block redis for too long (for answering PING etc.)
+    workersThreadPool_Wait(ctx);
+    workersThreadPool_Terminate();
+    RedisModule_Log(RSDummyContext, "notice",
+                    "Terminated workers threadpool of size %lu for loading",
+                    RSGlobalConfig.numWorkerThreads);
+  }
 }
 
 #endif // POWER_TO_THE_WORKERS

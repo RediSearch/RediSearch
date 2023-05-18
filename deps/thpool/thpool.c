@@ -80,6 +80,7 @@ typedef struct thread {
 /* Threadpool */
 typedef struct redisearch_thpool_t {
   thread** threads;                 /* pointer to threads        */
+  size_t total_threads_count;
   volatile size_t num_threads_alive;   /* threads currently alive   */
   volatile size_t num_threads_working; /* threads currently working */
   volatile int keepalive;           /* keep pool alive           */
@@ -127,6 +128,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
     err("redisearch_thpool_create(): Could not allocate memory for thread pool\n");
     return NULL;
   }
+  thpool_p->total_threads_count = num_threads;
   thpool_p->num_threads_alive = 0;
   thpool_p->num_threads_working = 0;
 
@@ -153,13 +155,13 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
 }
 
 /* Initialise thread pool */
-void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p, size_t num_threads) {
+void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p) {
 
   thpool_p->keepalive = 1;
 
   /* Thread init */
   size_t n;
-  for (n = 0; n < num_threads; n++) {
+  for (n = 0; n < thpool_p->total_threads_count; n++) {
     thread_init(thpool_p, &thpool_p->threads[n], n);
 #if THPOOL_DEBUG
     printf("THPOOL_DEBUG: Created thread %d in pool \n", n);
@@ -167,7 +169,7 @@ void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p, size_t num_thr
   }
 
   /* Wait for threads to initialize */
-  while (thpool_p->num_threads_alive != num_threads) {
+  while (thpool_p->num_threads_alive != thpool_p->total_threads_count) {
   }
 }
 
@@ -240,20 +242,14 @@ void redisearch_thpool_wait(redisearch_thpool_t* thpool_p) {
   pthread_mutex_unlock(&thpool_p->thcount_lock);
 }
 
-int redisearch_thpool_finish(redisearch_thpool_t* thpool_p) {
-  return priority_queue_len(&thpool_p->jobqueue) == 0 && thpool_p->num_threads_working == 0;
-}
-
-void redisearch_thpool_lock_thcount(redisearch_thpool_t* thpool_p) {
+void redisearch_thpool_timedwait(redisearch_thpool_t* thpool_p, struct timespec *timeout,
+                                 yieldFunc yieldCB, void *yield_ctx) {
   pthread_mutex_lock(&thpool_p->thcount_lock);
-}
-
-void redisearch_thpool_unlock_thcount(redisearch_thpool_t* thpool_p) {
+  while (priority_queue_len(&thpool_p->jobqueue) || thpool_p->num_threads_working) {
+    pthread_cond_timedwait(&thpool_p->threads_all_idle, &thpool_p->thcount_lock, timeout);
+    yieldCB(yield_ctx);
+  }
   pthread_mutex_unlock(&thpool_p->thcount_lock);
-}
-
-void redisearch_thpool_threads_idle_timed_wait(redisearch_thpool_t* thpool_p, timespec *time_to_wait) {
-  pthread_cond_timedwait(&thpool_p->threads_all_idle, &thpool_p->thcount_lock, time_to_wait);
 }
 
 void redisearch_thpool_terminate_threads(redisearch_thpool_t* thpool_p) {

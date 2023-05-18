@@ -513,3 +513,8 @@ void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref) {
   params->submitCb = (SubmitCB)ThreadPoolAPI_SubmitIndexJobs;
   params->flatBufferLimit = 1000;  // Todo: decide on this default value
 }
+
+void VecSimLogCallback(void *ctx, const char *message) {
+  VecSimLogCtx *log_ctx = (VecSimLogCtx *)ctx;
+  RedisModule_Log(NULL, "notice", "vector index '%s' - %s", log_ctx->index_field_name, message);
+}

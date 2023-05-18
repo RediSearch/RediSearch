@@ -677,7 +677,7 @@ RSConfigOptions RSGlobalConfigOptions = {
                         "set to TRUE, use workers thread pool for operational needs only otherwise",
          .setValue = setThreadsEnabled,
          .getValue = getThreadsEnabled,
-         .flags = RSCONFIGVAR_F_IMMUTABLE,
+         .flags = RSCONFIGVAR_F_IMMUTABLE | RSCONFIGVAR_F_FLAG,
         },
 #endif
         {.name = "FRISOINI",

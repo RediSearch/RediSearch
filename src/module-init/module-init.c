@@ -163,11 +163,6 @@ static inline const char* RS_GetExtraVersion() {
 #endif
 }
 
-static void VecSimLogCallback(void *ctx, const char *message) {
-  VecSimLogCtx *log_ctx = (VecSimLogCtx *)ctx;
-  RedisModule_Log(NULL, "notice", "vector index '%s' - %s", log_ctx->index_field_name, message);
-}
-
 int RS_Initialized = 0;
 RedisModuleCtx *RSDummyContext = NULL;
 
@@ -231,7 +226,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     if (RSGlobalConfig.alwaysUseThreads) {
       // Initialize the threads if the module configuration states that worker threads
       // should always be active.
-      workersThreadPool_InitPool(RSGlobalConfig.numWorkerThreads);
+      workersThreadPool_InitPool();
       DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
     } else {
       // Otherwise, threads are not active, and we're performing inplace writes.
@@ -240,6 +235,11 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   } else
 #endif
   {
+    if (RSGlobalConfig.alwaysUseThreads) {
+      DO_LOG("warning", "Invalid configuration - cannot set ALWAYS_USE_THREADS while WORKERS_THREADS"
+             " number is set to zero");
+      return REDISMODULE_ERR;
+    }
     // If we don't have a thread pool,
     // we have to make sure that we tell the vecsim library to add and delete in place (can't use submit at all)
     VecSim_SetWriteMode(VecSim_WriteInPlace);

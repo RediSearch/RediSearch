@@ -133,6 +133,7 @@ int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
                       const char *field_name); // includes tiered index
 
 void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref);
+void VecSimLogCallback(void *ctx, const char *message);
 
 #ifdef __cplusplus
 extern "C" {
