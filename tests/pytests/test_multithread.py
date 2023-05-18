@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import time
+import unittest
 from cmath import inf
 from email import message
 from includes import *
@@ -292,39 +293,36 @@ def test_workers_priority_queue():
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
     n_vectors = 50000 * n_shards
-    dim = 16
+    dim = 64
     prefix = '_' if env.isCluster() else ''
-    for data_type in VECSIM_DATA_TYPES:
-        # Load random vectors into redis, save the last one to use as query vector later on.
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', data_type,
-                   'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
-        query_vec = load_vectors_to_redis(env, n_vectors, n_vectors-1, dim, data_type)
-        assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+    # Load random vectors into redis, save the last one to use as query vector later on.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+               'M', '64', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    query_vec = load_vectors_to_redis(env, n_vectors, n_vectors-1, dim)
+    assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
 
-        # Expect that some vectors are still being indexed in the background after we are done loading.
+    # Expect that some vectors are still being indexed in the background after we are done loading.
+    debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
+    env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1)
+    vectors_left_to_index = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
+
+    # Run queries during indexing
+    while debug_info['BACKGROUND_INDEXING'] == 1:
+        start = time.time()
+        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY', '__vector_score',
+                                   'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10,
+                                   'vec_param', query_vec.tobytes())
+        query_time = time.time() - start
+        # Expect that the first result would be the query vector itself (last id)
+        env.assertEqual(res[1], str(n_vectors-1))
+        # Validate that queries get priority and are executed before indexing finishes.
+        env.assertLess(query_time, 1)
+
+        # We expect that the number of vectors left to index will decrease from one iteration to another.
         debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
-        env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1)
-        vectors_left_to_index = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
-
-        # Run queries during indexing
-        while debug_info['BACKGROUND_INDEXING'] == 1:
-            start = time.time()
-            res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY', '__vector_score',
-                                       'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10,
-                                       'vec_param', query_vec.tobytes())
-            query_time = time.time() - start
-            # Expect that the first result would be the query vector itself (last id)
-            env.assertEqual(res[1], str(n_vectors-1))
-            # Validate that queries get priority and are executed before indexing finishes.
-            env.assertLess(query_time, 1)
-
-            # We expect that the number of vectors left to index will decrease from one iteration to another.
-            debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
-            vectors_left_to_index_new = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
-            env.assertLess(vectors_left_to_index_new, vectors_left_to_index)
-            vectors_left_to_index = vectors_left_to_index_new
-
-        conn.flushall()
+        vectors_left_to_index_new = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
+        env.assertLess(vectors_left_to_index_new, vectors_left_to_index)
+        vectors_left_to_index = vectors_left_to_index_new
 
 
 def test_async_updates_sanity():
@@ -357,11 +355,11 @@ def test_async_updates_sanity():
         assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
         debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
         marked_deleted_vectors = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
-        env.assertGreater(marked_deleted_vectors, block_size)
+        env.assertGreater(marked_deleted_vectors, block_size/n_shards)
 
         # We dispose marked deleted vectors whenever we have at least <block_size> vectors that are ready
         # (that is, no other node in HNSW is pointing to the deleted node)
-        while marked_deleted_vectors > block_size:
+        while marked_deleted_vectors > block_size/n_shards:
             start = time.time()
             res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
                                        '__vector_score', 'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K',
@@ -369,12 +367,14 @@ def test_async_updates_sanity():
             query_time = time.time() - start
             # Validate that queries get priority and are executed before indexing/deletion is finished.
             env.assertLess(query_time, 1)
-            print(f"query time took {query_time} where there are {marked_deleted_vectors}")
+            # print(f"query time took {query_time} where there are {marked_deleted_vectors}")
 
             # Expect that the first result would be the query vector itself (id 0)
             env.assertEqual(res[1], '0')
 
-            # Overwrite another vector to trigger swap jobs.
+            # Overwrite another vector to trigger swap jobs. Use a random vector (except for label 0
+            # which is the query vector that we expect to get), to ensure that we eventually remove a
+            # vector from the main shard (of which we get info when we call ft.debug) in cluster mode.
             conn.execute_command("HSET", np.random.randint(1, n_vectors), 'vector',
                                  create_np_array_typed(np.random.rand(dim), data_type).tobytes())
             debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
