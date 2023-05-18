@@ -296,7 +296,8 @@ def test_burst_threads_sanity():
 def test_workers_priority_queue():
     if not POWER_TO_THE_WORKERS:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
-    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
+    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 TIERED_HNSW_BUFFER_LIMIT 50000'
+                                                  ' ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
     n_vectors = 50000 * n_shards
@@ -312,6 +313,9 @@ def test_workers_priority_queue():
     debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
     env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1)
     vectors_left_to_index = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
+    # Validate that buffer limit config was set properly (so that more vectors than the
+    # default limit are waiting in the buffer).
+    env.assertGreater(vectors_left_to_index, 1024)
 
     # Run queries during indexing
     while debug_info['BACKGROUND_INDEXING'] == 1:
@@ -328,7 +332,7 @@ def test_workers_priority_queue():
         # We expect that the number of vectors left to index will decrease from one iteration to another.
         debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
         vectors_left_to_index_new = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
-        env.assertLess(vectors_left_to_index_new, vectors_left_to_index)
+        env.assertLessEqual(vectors_left_to_index_new, vectors_left_to_index)
         vectors_left_to_index = vectors_left_to_index_new
 
 

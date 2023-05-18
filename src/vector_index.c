@@ -511,7 +511,7 @@ void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref) {
 #endif
   params->jobQueueCtx = StrongRef_Demote(sp_ref).rm;
   params->submitCb = (SubmitCB)ThreadPoolAPI_SubmitIndexJobs;
-  params->flatBufferLimit = 1000;  // Todo: decide on this default value
+  params->flatBufferLimit = RSGlobalConfig.tieredVecSimIndexBufferLimit;
 }
 
 void VecSimLogCallback(void *ctx, const char *message) {

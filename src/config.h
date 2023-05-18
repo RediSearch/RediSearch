@@ -109,6 +109,7 @@ typedef struct {
 // #ifdef POWER_TO_THE_WORKERS
   size_t numWorkerThreads;
   int alwaysUseThreads;
+  size_t tieredVecSimIndexBufferLimit;
 // #endif
 
   size_t minPhoneticTermLen;
@@ -236,7 +237,8 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE,                                                              \
     .poolSizeNoAuto = 0,                                                                                              \
     .numWorkerThreads = 0,                                                                                            \
-    .alwaysUseThreads = 0,                                                                                              \
+    .alwaysUseThreads = 0,                                                                                            \
+    .tieredVecSimIndexBufferLimit = 1024,                                                                                      \
     .gcConfigParams.gcScanSize = GC_SCANSIZE,                                                                                        \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                                                              \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                                        \

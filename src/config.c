@@ -250,6 +250,16 @@ CONFIG_BOOLEAN_SETTER(setThreadsEnabled, alwaysUseThreads)
 
 CONFIG_BOOLEAN_GETTER(getThreadsEnabled, alwaysUseThreads, 0)
 
+// TIERED_HNSW_BUFFER_LIMIT
+CONFIG_SETTER(setTieredIndexBufferLimit) {
+  int acrc = AC_GetSize(ac, &config->tieredVecSimIndexBufferLimit, AC_F_GE0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getTieredIndexBufferLimit) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->tieredVecSimIndexBufferLimit);
+}
 #endif // POWER_TO_THE_WORKERS
 
 // FRISOINI
@@ -673,11 +683,20 @@ RSConfigOptions RSGlobalConfigOptions = {
          .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
         {.name = "ALWAYS_USE_THREADS",
-         .helpText = "Let ft.search and vector indexing be done in backgroun threads as default if"
+         .helpText = "Let ft.search and vector indexing be done in background threads as default if"
                         "set to TRUE, use workers thread pool for operational needs only otherwise",
          .setValue = setThreadsEnabled,
          .getValue = getThreadsEnabled,
          .flags = RSCONFIGVAR_F_IMMUTABLE | RSCONFIGVAR_F_FLAG,
+        },
+        {.name = "TIERED_HNSW_BUFFER_LIMIT",
+            .helpText = "Use for setting the buffer limit threshold for vector similarity tiered"
+                        " HNSW index, so that if we are using WORKER_THREADS for indexing, and the"
+                        " number of vectors waiting in the buffer to be indexed exceeds this limit, "
+                        " we insert new vectors directly into HNSW",
+            .setValue = setTieredIndexBufferLimit,
+            .getValue = getTieredIndexBufferLimit,
+            .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
         },
 #endif
         {.name = "FRISOINI",
