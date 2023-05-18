@@ -151,6 +151,11 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
     fs->types |= INDEXFLD_T_TAG;
     numTypes++;
   }
+  // TODO: GEOMETRY
+  // if (types & RSFLDTYPE_GEOMETRY) {
+  //   fs->types |= INDEXFLD_T_GEOMETRY;
+  //   numTypes++;
+  // }
 
   if (numTypes > 1) {
     fs->options |= FieldSpec_Dynamic;
@@ -807,6 +812,11 @@ void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
   if (specField->types & INDEXFLD_T_GEO) {
     infoField->types |= RSFLDTYPE_GEO;
   }
+  // TODO: GEMOMETRY
+  // if (specField->types & INDEXFLD_T_GEOMETRY) {
+  //   infoField->types |= RSFLDTYPE_GEOMETRY;
+  // }
+
 
   if (FieldSpec_IsSortable(specField)) {
     infoField->options |= RSFLDOPT_SORTABLE;
