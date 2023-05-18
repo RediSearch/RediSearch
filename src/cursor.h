@@ -177,7 +177,7 @@ int Cursors_CollectIdle(CursorList *cl);
 /** Remove all cursors with the given lookup name */
 void Cursors_PurgeWithName(CursorList *cl, const char *lookupName);
 
-void Cursors_RenderStats(CursorList *cl, const char *key, RedisModuleCtx *ctx);
+void Cursors_RenderStats(RedisModule_Reply *reply, CursorList *cl, const char *name);
 
 #ifdef FTINFO_FOR_INFO_MODULES
 void Cursors_RenderStatsForInfo(CursorList *cl, const char *name, RedisModuleInfoCtx *ctx);

@@ -233,12 +233,13 @@ static size_t replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoVal
 
 static void generateFieldsReply(InfoFields *fields, RedisModuleCtx *ctx) {
   RedisModule_Reply reply = RedisModule_NewReply(ctx);
+  RedisModule_Reply_Map(&reply);
 
   // Respond with the name, schema, and options
   if (fields->indexName) {
     RedisModule_ReplyKV_StringBuffer(&reply, "index_name", fields->indexName, fields->indexNameLen);
   }
-
+  
   if (fields->indexDef) {
     RedisModule_ReplyKV_MRReply(&reply, "index_definition", fields->indexDef);
   }
@@ -265,6 +266,7 @@ static void generateFieldsReply(InfoFields *fields, RedisModuleCtx *ctx) {
 
   replyKvArray(&reply, fields, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);
 
+  RedisModule_Reply_Map(&reply);
   RedisModule_EndReply(&reply);
 }
 
