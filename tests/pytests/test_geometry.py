@@ -238,3 +238,41 @@ def testFieldUpdate(env):
   # Search within on geom2 field
   env.expect('FT.SEARCH', 'idx', '@geom2:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((1 1, 1 170, 170 170, 170 1, 1 1))', 'DIALECT', 3).equal([0])
 
+def testFtInfo(env):
+  ''' Test FT.INFO on Geometry '''
+  
+  conn = getConnectionByEnv(env)
+  info_key_name = 'total_geometries_index_size_mb'
+  
+  env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'geom', 'GEOMETRY', 'txt', 'TEXT').ok()
+  env.expect('FT.CREATE', 'idx2_no_geom', 'SCHEMA', 'txt', 'TEXT').ok()
+  res = to_dict(env.cmd('FT.INFO idx1'))
+  env.assertEqual(int(res[info_key_name]), 0)
+
+  # Ingest of a non-geometry attribute should not affect mem usage
+  conn.execute_command('HSET', 'doc1', 'txt', 'Not a real POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))')
+  res = to_dict(env.cmd('FT.INFO idx1'))
+  env.assertEqual(int(res[info_key_name]), 0)
+
+  # Ingest of a geometry attribute should increase mem usage
+  conn.execute_command('HSET', 'doc1', 'geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))')
+  res = to_dict(env.cmd('FT.INFO idx1'))
+  usage = float(res[info_key_name])
+  env.assertGreater(usage, 0)
+  # Ingest of another geometry attribute should increase mem usage
+  conn.execute_command('HSET', 'doc2', 'geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))')
+  res = to_dict(env.cmd('FT.INFO idx1'))
+  cur_usage = float(res[info_key_name])
+  env.assertGreater(cur_usage, usage)
+  usage = cur_usage
+  
+  # Same mem usage also shown by another index
+  res = to_dict(env.cmd('FT.INFO idx2_no_geom'))
+  cur_usage = float(res[info_key_name])
+  env.assertEqual(cur_usage, usage)
+
+  # Dropping the geometry index should reset mem usage
+  conn.execute_command('FT.DROPINDEX', 'idx1')
+  res = to_dict(env.cmd('FT.INFO idx2_no_geom'))
+  cur_usage = float(res[info_key_name])
+  env.assertEqual(cur_usage, 0)
