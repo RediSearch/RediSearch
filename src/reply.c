@@ -11,14 +11,20 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+bool RedisModule_HasMap(RedisModule_Reply *reply) {
+  return _ReplyMap(reply->ctx);
+}
+
+//---------------------------------------------------------------------------------------------
+
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx) {
-  RedisModule_Reply reply = { ctx, _ReplyMap(ctx), 0, false, NULL };
+  RedisModule_Reply reply = { ctx, _ReplyMap(ctx), 0, NULL };
   return reply;
 }
 
 int RedisModule_EndReply(RedisModule_Reply *reply) {
-  if (reply->top_level_container || reply->stack && array_len(reply->stack) > 0) { _BB; }
-  RedisModule_Assert(!reply->top_level_container && (!reply->stack || !array_len(reply->stack)));
+  if (reply->stack && array_len(reply->stack) > 0) { _BB; }
+  RedisModule_Assert(!reply->stack || !array_len(reply->stack));
   if (reply->stack) {
     array_free(reply->stack);
   }
@@ -26,7 +32,7 @@ int RedisModule_EndReply(RedisModule_Reply *reply) {
   return REDISMODULE_OK;
 }
 
-void _RedisModule_Reply_Next(RedisModule_Reply *reply) {
+static void _RedisModule_Reply_Next(RedisModule_Reply *reply) {
   int *count, n;
   if (reply->stack) {
     if (!array_len(reply->stack)) {
@@ -40,7 +46,7 @@ void _RedisModule_Reply_Next(RedisModule_Reply *reply) {
   ++*count;
 }
 
-void _RedisModule_ReplyKV_Next(RedisModule_Reply *reply) {
+static void _RedisModule_ReplyKV_Next(RedisModule_Reply *reply) {
   int *count, n;
   if (reply->stack && array_len(reply->stack)) {
     count = &array_tail(reply->stack);
@@ -50,20 +56,19 @@ void _RedisModule_ReplyKV_Next(RedisModule_Reply *reply) {
   *count += reply->resp3 ? 1 : 2;
 }
 
-void _RedisModule_Reply_Push(RedisModule_Reply *reply) {
+static void _RedisModule_Reply_Push(RedisModule_Reply *reply) {
   int *count = array_ensure_tail(&reply->stack, int);
   *count = 0;
 }
 
-int _RedisModule_Reply_Pop(RedisModule_Reply *reply) {
-  if (!reply->top_level_container && (!reply->stack || !array_len(reply->stack))) { _BB; }
-  RedisModule_Assert(reply->top_level_container || reply->stack && array_len(reply->stack) > 0);
+static int _RedisModule_Reply_Pop(RedisModule_Reply *reply) {
+  if (!reply->stack || !array_len(reply->stack)) { _BB; }
+  RedisModule_Assert(reply->stack && array_len(reply->stack) > 0);
   if (reply->stack && array_len(reply->stack) > 0) {
     int count = array_tail(reply->stack);
     reply->stack = array_trimm_len(reply->stack, 1);
     return count;
   } else {
-    reply->top_level_container = false;
     return reply->count;
   }
 }
@@ -94,6 +99,18 @@ int RedisModule_Reply_StringBuffer(RedisModule_Reply *reply, const char *val, si
   return REDISMODULE_OK;
 }
 
+int RedisModule_Reply_Stringf(RedisModule_Reply *reply, const char *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  char *p;
+  vasprintf(&p, fmt, args);
+  RedisModule_ReplyWithSimpleString(reply->ctx, p);
+  rm_free(p);
+  _RedisModule_Reply_Next(reply);
+  va_end(args);
+  return REDISMODULE_OK;
+}
+
 int RedisModule_Reply_String(RedisModule_Reply *reply, RedisModuleString *val) {
   RedisModule_ReplyWithString(reply->ctx, val);
   _RedisModule_Reply_Next(reply);
@@ -106,19 +123,20 @@ int RedisModule_Reply_Null(RedisModule_Reply *reply) {
   return REDISMODULE_OK;
 }
 
+int RedisModule_Reply_Error(RedisModule_Reply *reply, const char *error) {
+  RedisModule_ReplyWithError(reply->ctx, error);
+  _RedisModule_Reply_Next(reply);
+  return REDISMODULE_OK;
+}
+
 int RedisModule_Reply_Map(RedisModule_Reply *reply) {
   if (reply->resp3) {
     RedisModule_ReplyWithMap(reply->ctx, REDISMODULE_POSTPONED_LEN);
   } else {
     RedisModule_ReplyWithArray(reply->ctx, REDISMODULE_POSTPONED_LEN);
   }
-  if (reply->count == 0 && !reply->stack) {
-    reply->top_level_container = true;
-    _RedisModule_Reply_Next(reply);
-  } else {
-    _RedisModule_Reply_Next(reply);
-    _RedisModule_Reply_Push(reply);
-  }
+  _RedisModule_Reply_Next(reply);
+  _RedisModule_Reply_Push(reply);
   return REDISMODULE_OK;
 }
 
@@ -134,19 +152,20 @@ int RedisModule_Reply_MapEnd(RedisModule_Reply *reply) {
 
 int RedisModule_Reply_Array(RedisModule_Reply *reply) {
   RedisModule_ReplyWithArray(reply->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  if (reply->count == 0 && !reply->stack) {
-    reply->top_level_container = true;
-    _RedisModule_Reply_Next(reply);
-  } else {
-    _RedisModule_Reply_Next(reply);
-    _RedisModule_Reply_Push(reply);
-  }
+  _RedisModule_Reply_Next(reply);
+  _RedisModule_Reply_Push(reply);
   return REDISMODULE_OK;
 }
 
 int RedisModule_Reply_ArrayEnd(RedisModule_Reply *reply) {
   int count = _RedisModule_Reply_Pop(reply);
   RedisModule_ReplySetArrayLength(reply->ctx, count);
+  return REDISMODULE_OK;
+}
+
+int RedisModule_Reply_EmptyArray(RedisModule_Reply *reply) {
+  RedisModule_ReplyWithArray(reply->ctx, 0);
+  _RedisModule_Reply_Next(reply);
   return REDISMODULE_OK;
 }
 

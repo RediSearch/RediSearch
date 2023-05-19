@@ -43,6 +43,7 @@ static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
 static int renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
   SchemaRule *rule = sp->rule;
 
+  _BB;
   RedisModule_ReplyKV_Map(reply, "index_definition"); // index_definition
 
   REPLY_KVSTR("key_type", DocumentType_ToString(rule->type));
@@ -97,6 +98,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   _BB;
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  //reply->resp3 = false;
   RedisModule_Reply_Map(reply); // top
 
   REPLY_KVSTR("index_name", sp->name);
@@ -225,9 +227,12 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   REPLY_KVMAP("dialect_stats");
   for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {
-    RedisModule_ReplyWithPrintf(ctx, "dialect_%d", dialect);
-    RedisModule_ReplyWithLongLong(ctx, GET_DIALECT(sp->used_dialects, dialect));
+    char *dialect_i;
+    rm_asprintf(&dialect_i, "dialect_%d", dialect);
+    REPLY_KVINT(dialect_i, GET_DIALECT(sp->used_dialects, dialect));
+    rm_free(dialect_i);
   }
+  REPLY_MAP_END;
 
   RedisModule_Reply_MapEnd(reply); // top
   RedisModule_EndReply(reply);

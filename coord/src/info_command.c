@@ -105,8 +105,8 @@ static void processKvArray(InfoFields *fields, MRReply *array, InfoValue *dsts,
                            InfoFieldSpec *specs, size_t numFields, int onlyScalars);
 
 /** Reply with a KV array, the values are emitted per name and type */
-static size_t replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue *values,
-                           InfoFieldSpec *specs, size_t numFields);
+static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue *values,
+                         InfoFieldSpec *specs, size_t numFields);
 
 // Writes field data to the target
 static void convertField(InfoValue *dst, MRReply *src, const InfoFieldSpec *spec) {
@@ -170,7 +170,7 @@ static void handleSpecialField(InfoFields *fields, const char *name, MRReply *va
 
 static void processKvArray(InfoFields *fields, MRReply *array, InfoValue *dsts, InfoFieldSpec *specs,
                            size_t numFields, int onlyScalarValues) {
-  if (MRReply_Type(array) != MR_REPLY_ARRAY) {
+  if (MRReply_Type(array) != MR_REPLY_ARRAY) { //@@ MAP!
     return;
   }
   size_t numElems = MRReply_Length(array);
@@ -202,9 +202,8 @@ static void cleanInfoReply(InfoFields *fields) {
   rm_free(fields->errorIndexes);
 }
 
-static size_t replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue *values,
+static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue *values,
                            InfoFieldSpec *specs, size_t numSpecs) {
-  size_t n = 0;
   for (size_t ii = 0; ii < numSpecs; ++ii) {
     InfoValue *source = values + ii;
     if (!source->isSet) {
@@ -228,46 +227,46 @@ static size_t replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoVal
       RedisModule_ReplyKV_Null(reply, key);
     }
   }
-  return n;
 }
 
-static void generateFieldsReply(InfoFields *fields, RedisModuleCtx *ctx) {
-  RedisModule_Reply reply = RedisModule_NewReply(ctx);
-  RedisModule_Reply_Map(&reply);
+static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
+  _BB;
+  reply->resp3 = false; //@@ TODO: remove
+  RedisModule_Reply_Map(reply);
 
   // Respond with the name, schema, and options
   if (fields->indexName) {
-    RedisModule_ReplyKV_StringBuffer(&reply, "index_name", fields->indexName, fields->indexNameLen);
+    RedisModule_ReplyKV_StringBuffer(reply, "index_name", fields->indexName, fields->indexNameLen);
   }
   
   if (fields->indexDef) {
-    RedisModule_ReplyKV_MRReply(&reply, "index_definition", fields->indexDef);
+    RedisModule_ReplyKV_MRReply(reply, "index_definition", fields->indexDef);
   }
 
   if (fields->indexSchema) {
-    RedisModule_ReplyKV_MRReply(&reply, "attributes", fields->indexSchema);
+    RedisModule_ReplyKV_MRReply(reply, "attributes", fields->indexSchema);
   }
 
   if (fields->indexOptions) {
-    RedisModule_ReplyKV_MRReply(&reply, "index_options", fields->indexOptions);
+    RedisModule_ReplyKV_MRReply(reply, "index_options", fields->indexOptions);
   }
 
-  RedisModule_ReplyKV_Map(&reply, "gc_stats");
-  replyKvArray(&reply, fields, fields->gcValues, gcSpecs, NUM_GC_FIELDS_SPEC);
-  RedisModule_Reply_MapEnd(&reply);
+  RedisModule_ReplyKV_Map(reply, "gc_stats");
+  replyKvArray(reply, fields, fields->gcValues, gcSpecs, NUM_GC_FIELDS_SPEC);
+  RedisModule_Reply_MapEnd(reply);
 
-  RedisModule_ReplyKV_Map(&reply, "cursor_stats");
-  replyKvArray(&reply, fields, fields->cursorValues, cursorSpecs, NUM_CURSOR_FIELDS_SPEC);
-  RedisModule_Reply_MapEnd(&reply);
+  RedisModule_ReplyKV_Map(reply, "cursor_stats");
+  replyKvArray(reply, fields, fields->cursorValues, cursorSpecs, NUM_CURSOR_FIELDS_SPEC);
+  RedisModule_Reply_MapEnd(reply);
 
-  RedisModule_ReplyKV_Map(&reply, "dialect_stats");
-  replyKvArray(&reply, fields, fields->dialectValues, dialectSpecs, NUM_DIALECT_FIELDS_SPEC);
-  RedisModule_Reply_MapEnd(&reply);
+  RedisModule_ReplyKV_Map(reply, "dialect_stats");
+  replyKvArray(reply, fields, fields->dialectValues, dialectSpecs, NUM_DIALECT_FIELDS_SPEC);
+  RedisModule_Reply_MapEnd(reply);
 
-  replyKvArray(&reply, fields, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);
+  replyKvArray(reply, fields, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);
 
-  RedisModule_Reply_Map(&reply);
-  RedisModule_EndReply(&reply);
+  RedisModule_Reply_MapEnd(reply);
+  RedisModule_EndReply(reply);
 }
 
 int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
@@ -280,6 +279,8 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   if (count == 0) {
     return RedisModule_ReplyWithError(ctx, "ERR no responses received");
   }
+
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   for (size_t ii = 0; ii < count; ++ii) {
     if (MRReply_Type(replies[ii]) == MR_REPLY_ERROR) {
@@ -301,18 +302,18 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
     if (numElems % 2 != 0) {
       printf("Uneven INFO Reply!!!?\n");
     }
-    processKvArray(&fields, replies[ii], fields.toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC,
-                   0);
+    processKvArray(&fields, replies[ii], fields.toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC, 0);
   }
 
   // Now we've received all the replies.
   if (numErrored == count) {
     // Reply with error
-    MR_ReplyWithMRReply(ctx, firstError);
+    MR_ReplyWithMRReply(reply, firstError);
   } else {
-    generateFieldsReply(&fields, ctx);
+    generateFieldsReply(&fields, reply);
   }
 
   cleanInfoReply(&fields);
+  RedisModule_EndReply(reply);
   return REDISMODULE_OK;
 }

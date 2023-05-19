@@ -135,51 +135,55 @@ int MRReply_ToDouble(MRReply *reply, double *d) {
   }
 }
 
-int MR_ReplyWithMRReply(RedisModuleCtx *ctx, MRReply *rep) {
+int MR_ReplyWithMRReply(RedisModule_Reply *reply, MRReply *rep) {
   if (rep == NULL) {
-    return RedisModule_ReplyWithNull(ctx);
+    return RedisModule_Reply_Null(reply);
   }
 
   switch (MRReply_Type(rep)) {
     case MR_REPLY_STRING: {
       size_t len;
       char *str = MRReply_String(rep, &len);
-      return RedisModule_ReplyWithStringBuffer(ctx, str, len);
+      return RedisModule_Reply_StringBuffer(reply, str, len);
     }
 
     case MR_REPLY_STATUS:
-      return RedisModule_ReplyWithSimpleString(ctx, MRReply_String(rep, NULL));
+      return RedisModule_Reply_SimpleString(reply, MRReply_String(rep, NULL));
 
     case MR_REPLY_ARRAY: {
-      RedisModule_ReplyWithArray(ctx, MRReply_Length(rep));
+      RedisModule_Reply_Array(reply);
       for (size_t i = 0; i < MRReply_Length(rep); i++) {
-        MR_ReplyWithMRReply(ctx, MRReply_ArrayElement(rep, i));
+        MR_ReplyWithMRReply(reply, MRReply_ArrayElement(rep, i));
       }
+      RedisModule_Reply_ArrayEnd(reply);
       return REDISMODULE_OK;
     }
 
     case MR_REPLY_INTEGER:
-      return RedisModule_ReplyWithLongLong(ctx, MRReply_Integer(rep));
+      return RedisModule_Reply_LongLong(reply, MRReply_Integer(rep));
 
     case MR_REPLY_ERROR:
-      return RedisModule_ReplyWithError(ctx, MRReply_String(rep, NULL));
+      return RedisModule_Reply_Error(reply, MRReply_String(rep, NULL));
+
+    case MR_REPLY_DOUBLE:
+    case MR_REPLY_BOOL:
+    case MR_REPLY_MAP:
+    case MR_REPLY_SET:
+    case MR_REPLY_ATTR:
+    case MR_REPLY_PUSH:
+    case MR_REPLY_BIGNUM:
+      _BB; //@@
+      return RedisModule_Reply_Null(reply);
 
     case MR_REPLY_NIL:
     default:
-      return RedisModule_ReplyWithNull(ctx);
+      return RedisModule_Reply_Null(reply);
   }
   return REDISMODULE_ERR;
 }
 
 int RedisModule_ReplyKV_MRReply(RedisModule_Reply *reply, const char *key, MRReply *rep) {
-  RedisModule_ReplyWithSimpleString(reply->ctx, key);
-  MR_ReplyWithMRReply(reply->ctx, rep);
-  _RedisModule_ReplyKV_Next(reply);
-  return REDISMODULE_OK;
-}
-
-int RedisModule_Reply_MRReply(RedisModule_Reply *reply, MRReply *rep) {
-  MR_ReplyWithMRReply(reply->ctx, rep);
-  _RedisModule_ReplyKV_Next(reply);
+  RedisModule_Reply_SimpleString(reply, key);
+  MR_ReplyWithMRReply(reply, rep);
   return REDISMODULE_OK;
 }

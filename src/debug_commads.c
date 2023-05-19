@@ -841,6 +841,8 @@ DEBUG_COMMAND(DocInfo) {
     return RedisModule_ReplyWithError(ctx, "Document not found in index");
   }
 
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+
   size_t nelem = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   RedisModule_ReplyWithSimpleString(ctx, "internal_id");
@@ -869,6 +871,8 @@ DEBUG_COMMAND(DocInfo) {
   RedisModule_ReplySetArrayLength(ctx, nelem);
   DMD_Return(dmd);
   SearchCtx_Free(sctx);
+
+  RedisModule_EndReply(repl);
   return REDISMODULE_OK;
 }
 

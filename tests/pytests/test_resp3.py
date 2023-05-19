@@ -1,6 +1,21 @@
+from includes import *
 from common import *
 from unittest.mock import ANY
 import operator
+from pprint import pprint
+
+
+def test_1():
+    env = Env(protocol=2)
+    env.cmd('SEARCH.CLUSTERINFO')
+
+def test_2(env):
+    BB()
+    env = Env(protocol=3)
+    env.cmd('FT.CREATE', 'doc', 'PREFIX', 1, 'doc:', 'SCHEMA', 'name', 'TEXT')
+    res = env.cmd('ft.info', 'doc')
+    pprint(res)
+    print('done')
 
 def redis_version(con, is_cluster=False):
     res = con.execute_command('INFO')
@@ -32,7 +47,6 @@ class testResp3():
     def __init__(self):
         self.env = Env(protocol=3)
 
-
     def test_search(self):
         env = self.env
         if should_skip(env):
@@ -42,14 +56,13 @@ class testResp3():
         env.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
         env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
                             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
-
         waitForIndex(env, 'idx1')
 
-        res = env.execute_command('FT.search', 'idx1', "*")
-        assert res == {'fields_names': [], 'error': [], 'total_results': 2,
-                       'results':
-                       [{'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []},
-                        {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []}]}
+        env.expect('FT.search', 'idx1', "*").equal(\
+                   {'fields_names': [], 'error': [], 'total_results': 2,
+                    'results':
+                      [{'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []},
+                       {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []}]})
 
         # test withscores
         res = env.execute_command('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "EXPLAINSCORE", "WITHPAYLOADS", "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2')
@@ -163,8 +176,7 @@ class testResp3():
                             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
         env.execute_command('FT.create', 'idx2', "PREFIX", 1, "doc",
                             "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
-        res = env.execute_command('FT._LIST')
-        assert res == {'idx2', 'idx1'}
+        env.expect('FT._LIST').equal({'idx2', 'idx1'})
 
     def test_info(self):
         env = self.env
@@ -176,8 +188,6 @@ class testResp3():
         env.execute_command('HSET', 'doc3', 'f5', '4')
         env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
                             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
-        
-        
         res = env.execute_command('FT.info', 'idx1')
 
     def test_config(self):

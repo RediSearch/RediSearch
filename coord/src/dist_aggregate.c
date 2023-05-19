@@ -14,6 +14,7 @@
 #include "profile.h"
 #include "util/timeout.h"
 #include "resp3.h"
+
 #include <err.h>
 
 /* Get cursor command using a cursor id and an existing aggregate command */
@@ -353,44 +354,32 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, SearchCluster *sc,
   }
 }
 
-size_t PrintShardProfile(RedisModuleCtx *ctx, int count, MRReply **replies, int isSearch);
+size_t PrintShardProfile(RedisModule_Reply *reply, int count, MRReply **replies, int isSearch);
 
-void printAggProfile(RedisModuleCtx *ctx, AREQ *req) {
-  size_t nelem = 0;
+void printAggProfile(RedisModule_Reply *reply, AREQ *req) {
   clock_t finishTime = clock();
-  if(_ReplyMap(ctx)) {
-    RedisModule_ReplyWithMap(ctx, 2);
-  } else {
-    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  }
 
-  // profileRP replace netRP as end PR
-  RPNet *rpnet = (RPNet *)req->qiter.rootProc;
+  RedisModule_Reply_Map(reply); // root
 
-  // Print shards profile
-  if(_ReplyMap(ctx)) {
-    RedisModule_ReplyWithSimpleString(ctx, "shards");
-  }
-  nelem += PrintShardProfile(ctx, rpnet->shardsProfileIdx, rpnet->shardsProfile, 0);
+    // profileRP replace netRP as end PR
+    RPNet *rpnet = (RPNet *)req->qiter.rootProc;
 
-  // Print coordinator profile
-  RedisModule_ReplyWithSimpleString(ctx, "Coordinator");
-  nelem++;
+    // Print shards profile
+    PrintShardProfile(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile, 0);
 
-  if(_ReplyMap(ctx)) {
-    RedisModule_ReplyWithMap(ctx, 2);
-  }
-  RedisModule_ReplyWithSimpleString(ctx, "Result processors profile");
-  Profile_Print(ctx, req);
-  nelem += 2;
+    // Print coordinator profile
 
-  RedisModule_ReplyWithSimpleString(ctx, "Total Coordinator time");
-  RedisModule_ReplyWithDouble(ctx, (double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC);
-  nelem += 2;
+    RedisModule_ReplyKV_Map(reply, "Coordinator"); // >coordinator
 
-  if(!_ReplyMap(ctx)) {
-    RedisModule_ReplySetArrayLength(ctx, nelem);
-  }
+      RedisModule_ReplyKV_Map(reply, "Result processors profile");
+      Profile_Print(reply, req);
+      RedisModule_Reply_MapEnd(reply);
+
+      RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC);
+
+    RedisModule_Reply_MapEnd(reply); // >coordinator
+
+  RedisModule_Reply_MapEnd(reply); // root
 }
 
 static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
@@ -414,6 +403,9 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
 
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx) {
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  bool has_map = RedisModule_HasMap(reply);
+
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
   QueryError status = {0};
@@ -463,28 +455,29 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     r->sctx = NewSearchCtxC(ctx, ixname, true);
     RedisModule_ThreadSafeContextUnlock(ctx);
 
-    rc = AREQ_StartCursor(r, ctx, ixname, &status);
+    rc = AREQ_StartCursor(r, reply, ixname, &status);
 
     if (rc != REDISMODULE_OK) {
       goto err;
     }
   } else if (IsProfile(r)) {
-    if(_ReplyMap(ctx)) {
-      RedisModule_ReplyWithMap(ctx, 5);
-    } else {
-      RedisModule_ReplyWithArray(ctx, 2);
-    }
-    sendChunk(r, ctx, -1);
-    printAggProfile(ctx, r);
+    RedisModule_Reply_Map(reply);
+      sendChunk(r, reply, -1);
+      printAggProfile(reply, r);
+    RedisModule_Reply_MapEnd(reply);
     AREQ_Free(r);
   } else {
-    if(_ReplyMap(ctx)) {
-      RedisModule_ReplyWithMap(ctx, 4);
+    if (has_map) {
+      RedisModule_Reply_Map(reply);
     }
-    sendChunk(r, ctx, -1);
+    sendChunk(r, reply, -1);
+    if (has_map) {
+      RedisModule_Reply_MapEnd(reply);
+    }
     AREQ_Free(r);
   }
 
+  RedisModule_EndReply(reply);
   return;
 
 // See if we can distribute the plan...
@@ -492,5 +485,6 @@ err:
   assert(QueryError_HasError(&status));
   QueryError_ReplyAndClear(ctx, &status);
   AREQ_Free(r);
+  RedisModule_EndReply(reply);
   return;
 }

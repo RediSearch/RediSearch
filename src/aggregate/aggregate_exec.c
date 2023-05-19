@@ -47,31 +47,32 @@ typedef struct {
   const PLN_ArrangeStep *lastAstp;
 } cachedVars;
 
-static void reeval_key(RedisModuleCtx *outctx, const RSValue *key) {
+static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
+  RedisModuleCtx *outctx = reply->ctx;
   RedisModuleString *rskey = NULL;
   if (!key) {
-    RedisModule_ReplyWithNull(outctx);
+    RedisModule_Reply_Null(reply);
   }
   else {
-    if(key->t == RSValue_Reference) {
+    if (key->t == RSValue_Reference) {
       key = RSValue_Dereference(key);
     } else if (key->t == RSValue_Duo) {
       key = RS_DUOVAL_VAL(*key);
     }
     switch (key->t) {
       case RSValue_Number:
-        /* Serialize double - by prepending "#" to the number, so the coordinator/client can
-          * tell it's a double and not just a numeric string value */
+        // Serialize double - by prepending "#" to the number, so the coordinator/client can
+        // tell it's a double and not just a numeric string value
         rskey = RedisModule_CreateStringPrintf(outctx, "#%.17g", key->numval);
         break;
       case RSValue_String:
-        /* Serialize string - by prepending "$" to it */
+        // Serialize string - by prepending "$" to it
         rskey = RedisModule_CreateStringPrintf(outctx, "$%s", key->strval.str);
         break;
       case RSValue_RedisString:
       case RSValue_OwnRstring:
         rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
-                                                RedisModule_StringPtrLen(key->rstrval, NULL));
+                                               RedisModule_StringPtrLen(key->rstrval, NULL));
         break;
       case RSValue_Null:
       case RSValue_Undef:
@@ -81,135 +82,125 @@ static void reeval_key(RedisModuleCtx *outctx, const RSValue *key) {
         break;
     }
     if (rskey) {
-      RedisModule_ReplyWithString(outctx, rskey);
+      RedisModule_Reply_String(reply, rskey);
       RedisModule_FreeString(outctx, rskey);
     } else {
-      RedisModule_ReplyWithNull(outctx);
+      RedisModule_Reply_Null(reply);
     }
   }
 }
 
-static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchResult *r,
+static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
                               const cachedVars *cv) {
   const uint32_t options = req->reqflags;
   const RSDocumentMetadata *dmd = r->dmd;
-  size_t count = 0;
+  size_t count0 = reply->count;
+  bool has_map = RedisModule_HasMap(reply);
 
-  if(_ReplyMap(outctx)) {
-    RedisModule_ReplyWithMap(outctx, REDISMODULE_POSTPONED_LEN);
+  if (has_map) {
+    RedisModule_Reply_Map(reply);
   }
 
-  int map_len = 0;
   if (dmd && (options & QEXEC_F_IS_SEARCH)) {
     size_t n;
     const char *s = DMD_KeyPtrLen(dmd, &n);
-    if(_ReplyMap(outctx)) {
-      RedisModule_ReplyWithSimpleString(outctx, "id");
-      map_len++;
+    if (has_map) {
+      RedisModule_ReplyKV_StringBuffer(reply, "id", s, n);
+    } else {
+      RedisModule_Reply_StringBuffer(reply, s, n);
     }
-    RedisModule_ReplyWithStringBuffer(outctx, s, n);
-    count++;
   }
 
   if (options & QEXEC_F_SEND_SCORES) {
-    if(_ReplyMap(outctx)) {
-      RedisModule_ReplyWithSimpleString(outctx, "score");
-      map_len++;
+    if (has_map) {
+      RedisModule_Reply_SimpleString(reply, "score");
     }
     if (!(options & QEXEC_F_SEND_SCOREEXPLAIN)) {
-      RedisModule_ReplyWithDouble(outctx, r->score);
+      RedisModule_Reply_Double(reply, r->score);
     } else {
-      RedisModule_ReplyWithArray(outctx, 2);
-      RedisModule_ReplyWithDouble(outctx, r->score);
-      SEReply(outctx, r->scoreExplain);
+      RedisModule_Reply_Array(reply);
+        RedisModule_Reply_Double(reply, r->score);
+        SEReply(reply, r->scoreExplain);
+	    RedisModule_Reply_ArrayEnd(reply);
     }
-    count++;
   }
 
   if (options & QEXEC_F_SENDRAWIDS) {
-    if(_ReplyMap(outctx)) {
-      RedisModule_ReplyWithSimpleString(outctx, "id");
-      map_len++;
+    if (has_map) {
+      RedisModule_ReplyKV_LongLong(reply, "id", r->docId);
+    } else {
+      RedisModule_Reply_LongLong(reply, r->docId);
     }
-    RedisModule_ReplyWithLongLong(outctx, r->docId);
-    count++;
   }
 
   if (options & QEXEC_F_SEND_PAYLOADS) {
-    count++;
-    if(_ReplyMap(outctx)) {
-      RedisModule_ReplyWithSimpleString(outctx, "payload");
-      map_len++;
+    if (has_map) {
+      RedisModule_Reply_SimpleString(reply, "payload");
     }
     if (dmd && hasPayload(dmd->flags)) {
-      RedisModule_ReplyWithStringBuffer(outctx, dmd->payload->data, dmd->payload->len);
+      RedisModule_Reply_StringBuffer(reply, dmd->payload->data, dmd->payload->len);
     } else {
-      RedisModule_ReplyWithNull(outctx);
+      RedisModule_Reply_Null(reply);
     }
   }
 
   // Coordinator only - sortkey will be sent on the required fields.
   // Non Coordinator modes will require this condition.
   if ((options & QEXEC_F_SEND_SORTKEYS)) {
-    count++;
-    if(_ReplyMap(outctx)) {
-      RedisModule_ReplyWithSimpleString(outctx, "sortkey");
-      map_len++;
+    if (has_map) {
+      RedisModule_Reply_SimpleString(reply, "sortkey");
     }
     const RSValue *sortkey = NULL;
-    if((cv->lastAstp) && (cv->lastAstp->sortkeysLK)) {
+    if (cv->lastAstp && cv->lastAstp->sortkeysLK) {
       const RLookupKey *kk = cv->lastAstp->sortkeysLK[0];
       sortkey = getReplyKey(kk, r);
     }
-    reeval_key(outctx, sortkey);
+    reeval_key(reply, sortkey);
   }
 
-  // Coordinator only - handle required fields for coordinator request.
-  if(options & QEXEC_F_REQUIRED_FIELDS) {
-    if(_ReplyMap(outctx)) {
-      RedisModule_ReplyWithSimpleString(outctx, "required_fields");
-      map_len++;
-      // TODO: this is a bug, not sure what should I do here
+  // Coordinator only - handle required fields for coordinator request
+  if (options & QEXEC_F_REQUIRED_FIELDS) {
+    if (has_map) {
+      RedisModule_Reply_SimpleString(reply, "required_fields");
+      // @@TODO: this is a bug, not sure what should I do here
     }
 
     // Sortkey is the first key to reply on the required fields, if the we already replied it, continue to the next one.
     size_t currentField = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
     size_t requiredFieldsCount = array_len(req->requiredFields);
-      for(; currentField < requiredFieldsCount; currentField++) {
-        count++;
-        const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], RLOOKUP_F_NOFLAGS);
-        RSValue *v = (RSValue*)getReplyKey(rlk, r);
-        if (v && v->t == RSValue_Duo) {
-          // For duo value, we use the value here (not the other value)
-          v = RS_DUOVAL_VAL(*v);
-        }
-        RSValue rsv;
-        if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE && !RSValue_IsNull(v)) {
-          double d;
-          RSValue_ToNumber(v, &d);
-          RSValue_SetNumber(&rsv, d);
-          v = &rsv;
-        }
-        reeval_key(outctx, v);
+    for(; currentField < requiredFieldsCount; currentField++) {
+      const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], RLOOKUP_F_NOFLAGS);
+      RSValue *v = (RSValue*) getReplyKey(rlk, r);
+      if (v && v->t == RSValue_Duo) {
+        // For duo value, we use the value here (not the other value)
+        v = RS_DUOVAL_VAL(*v);
       }
+      RSValue rsv;
+      if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE && !RSValue_IsNull(v)) {
+        double d;
+        RSValue_ToNumber(v, &d);
+        RSValue_SetNumber(&rsv, d);
+        v = &rsv;
+      }
+      reeval_key(reply, v);
+    }
   }
 
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
     const RLookup *lk = cv->lastLk;
-    count++;
-    if(_ReplyMap(outctx)) {
-      RedisModule_ReplyWithSimpleString(outctx, "fields");
-      map_len++;
+    if (has_map) {
+      RedisModule_Reply_SimpleString(reply, "fields");
     }
 
     if (dmd && dmd->flags & Document_Deleted) {
-      if(_ReplyMap(outctx)) {
-        RedisModule_ReplyWithArray(outctx, 0);
+      if (has_map) {
+        RedisModule_Reply_Array(reply);
+        RedisModule_Reply_ArrayEnd(reply);
         goto _out;
       } else {
-        RedisModule_ReplyWithNull(outctx);
+        RedisModule_Reply_Null(reply);
       }
-      return count;
+      return reply->count - count0;
     }
 
     // Get the number of fields in the reply.
@@ -221,35 +212,36 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
     size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
 
-    RedisModule_ReplyWithMapOrArray(outctx, nfields * 2, true);
-    int i = 0;
-    for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-      if (!skipFieldIndex[i++]) {
-        continue;
-      }
-      const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
-      RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
+    RedisModule_Reply_Map(reply);
+      int i = 0;
+      for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+        if (!skipFieldIndex[i++]) {
+          continue;
+        }
+        const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
+        RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
-      if (v && v->t == RSValue_Duo && req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST) {
-        // For duo value, we use the value here (not the other value)
-        v = RS_DUOVAL_VAL(*v);
-      }
+        if (v && v->t == RSValue_Duo && req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST) {
+          // For duo value, we use the value here (not the other value)
+          v = RS_DUOVAL_VAL(*v);
+        }
 
-      RedisModule_ReplyWithStringBuffer(outctx, kk->name, kk->name_len);
-      RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
-    }
+        RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
+        RSValue_SendReply(reply, v, req->reqflags & QEXEC_F_TYPED);
+      }
+    RedisModule_Reply_MapEnd(reply);
   }
 
 _out:
-  if(_ReplyMap(outctx)) {
+  if (has_map) {
     // placeholder for fields_values. (possible optimization)
-    RedisModule_ReplyWithSimpleString(outctx, "fields_values");
-    RedisModule_ReplyWithArray(outctx, 0);
-    map_len++;
+    RedisModule_Reply_SimpleString(reply, "fields_values");
+    RedisModule_Reply_EmptyArray(reply);
 
-    RedisModule_ReplySetMapLength(outctx, map_len);
+    RedisModule_Reply_MapEnd(reply);
   }
-  return count;
+
+  return reply->count - count0;
 }
 
 static size_t getResultsFactor(AREQ *req) {
@@ -275,7 +267,7 @@ static size_t getResultsFactor(AREQ *req) {
     count++;
   }
 
-  if(req->reqflags & QEXEC_F_REQUIRED_FIELDS) {
+  if (req->reqflags & QEXEC_F_REQUIRED_FIELDS) {
     count+= array_len(req->requiredFields);
     if (req->reqflags & QEXEC_F_SEND_SORTKEYS) {
       count--;
@@ -291,12 +283,13 @@ static size_t getResultsFactor(AREQ *req) {
 /**
  * Sends a chunk of <n> rows, optionally also sending the preamble
  */
-void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
+void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   size_t nrows = 0;
   size_t nelem = 0;
   SearchResult r = {0};
   int rc = RS_RESULT_EOF;
   ResultProcessor *rp = req->qiter.endProc;
+  bool has_map = RedisModule_HasMap(reply);
 
   if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !(req->reqflags & QEXEC_F_IS_SEARCH)) {
     limit = req->maxAggregateResults;
@@ -306,18 +299,15 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   cv.lastLk = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_LAST);
   cv.lastAstp = AGPLN_GetArrangeStep(&req->ap);
 
-    if(_ReplyMap(outctx)) {
-      RedisModule_ReplyWithSimpleString(outctx, "fields_names");
-      RedisModule_ReplyWithArray(outctx, 0);
-    }
+  if (has_map) {
+    RedisModule_ReplyKV_Array(reply, "fields_names");
+    RedisModule_Reply_ArrayEnd(reply);
+  }
 
   rc = rp->Next(rp, &r);
-  long resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
   if (rc == RS_RESULT_TIMEDOUT && !(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
       req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-    resultsLen = _ReplyMap(outctx) ? 0 : 1;
   } else if (rc == RS_RESULT_ERROR) {
-    resultsLen = _ReplyMap(outctx) ? 0 : 2;
   } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
              req->optimizer->type != Q_OPT_NO_SORTER) {
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
@@ -327,70 +317,70 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
 
     size_t expected_res = reqLimit + reqOffset <= req->maxSearchResults ? req->qiter.totalResults : MIN(req->maxSearchResults, req->qiter.totalResults);
     size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
-
-    resultsLen = MIN(limit, MIN(reqLimit, reqResults));
-    if(!_ReplyMap(outctx)) {
-      resultsLen = resultsLen * resultFactor + 1;
-    }
   }
 
-  if(!_ReplyMap(outctx)) {
-    RedisModule_ReplyWithArray(outctx, resultsLen);
+  if (!has_map) {
+    RedisModule_Reply_Array(reply);
   }
 
   OPTMZ(QOptimizer_UpdateTotalResults(req));
 
-  if(_ReplyMap(outctx)) {
-    RedisModule_ReplyWithSimpleString(outctx, "error");
+  if (has_map) {
+    RedisModule_Reply_SimpleString(reply, "error");
+  } else {
+    RedisModule_Reply_ArrayEnd(reply);
   }
+
   if (rc == RS_RESULT_TIMEDOUT) {
     if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
        req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-      if(_ReplyMap(outctx)) {
-        RedisModule_ReplyWithArray(outctx, 1);
+      if (has_map) {
+        RedisModule_Reply_Array(reply);
       }
-      RedisModule_ReplyWithSimpleString(outctx, "Timeout limit was reached");
-      if(_ReplyMap(outctx)) {
-        RedisModule_ReplyWithSimpleString(outctx, "total_results");
-        RedisModule_ReplyWithLongLong(outctx, 0);
+      RedisModule_Reply_SimpleString(reply, "Timeout limit was reached");
+      if (has_map) {
+        RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
+        RedisModule_Reply_ArrayEnd(reply);
       }
     } else {
       rc = RS_RESULT_OK;
-      if(_ReplyMap(outctx)) {
-        RedisModule_ReplyWithArray(outctx, 0);
-        RedisModule_ReplyWithSimpleString(outctx, "total_results");
+      if (has_map) {
+        RedisModule_Reply_Map(reply);
+        RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
       }
-      RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
+      if (has_map) {
+        RedisModule_Reply_MapEnd(reply);
+      }
     }
   } else if (rc == RS_RESULT_ERROR) {
-    if(!_ReplyMap(outctx)) {
+    if (!has_map) {
       RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
     }
-    RedisModule_ReplyWithArray(outctx, 1);
+    RedisModule_Reply_Array(reply);
     QueryError_ReplyAndClear(outctx, req->qiter.err);
-    if(_ReplyMap(outctx)) {
-      RedisModule_ReplyWithSimpleString(outctx, "total_results");
-      RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
+    RedisModule_Reply_ArrayEnd(reply);
+    if (has_map) {
+      RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
     }
     nelem++;
   } else {
-    if(_ReplyMap(outctx)) {
-      RedisModule_ReplyWithArray(outctx, 0);
-      RedisModule_ReplyWithSimpleString(outctx, "total_results");
+    if (has_map) {
+      RedisModule_Reply_Array(reply);
+      RedisModule_Reply_ArrayEnd(reply);
+      RedisModule_Reply_SimpleString(reply, "total_results");
     }
-    RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
+    RedisModule_ReplyWithLongLong(reply, req->qiter.totalResults);
   }
   nelem++;
 
-  if(_ReplyMap(outctx)) {
-    RedisModule_ReplyWithSimpleString(outctx, "results");
-    RedisModule_ReplyWithArray(outctx, resultsLen);
+  if (has_map) {
+    RedisModule_ReplyKV_Array(reply, "results");
     nelem = 0;
   }
 
   if (rc == RS_RESULT_OK && nrows++ < limit && !(req->reqflags & QEXEC_F_NOROWS)) {
     int _nelem = serializeResult(req, outctx, &r, &cv);
-    nelem = nelem + (!_ReplyMap(outctx) ? _nelem : 1);
+    nelem = nelem + (!has_map ? _nelem : 1);
   }
 
   SearchResult_Clear(&r);
@@ -400,8 +390,8 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
 
   while (nrows++ < limit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
     if (!(req->reqflags & QEXEC_F_NOROWS)) {
-      int _nelem = serializeResult(req, outctx, &r, &cv);
-      nelem = nelem + (!_ReplyMap(outctx) ? _nelem : 1);
+      int _nelem = serializeResult(req, reply, &r, &cv);
+      nelem = nelem + (!has_map ? _nelem : 1);
     }
     // Serialize it as a search result
     SearchResult_Clear(&r);
@@ -416,8 +406,8 @@ done:
   // Reset the total results length:
   req->qiter.totalResults = 0;
   if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN) {
-    RedisModule_ReplySetArrayLength(outctx, nelem);
-  } else if(!_ReplyMap(outctx)) {
+    RedisModule_Reply_ArrayEnd(reoky);
+  } else if (!has_map) {
     if (resultsLen != nelem) {
       RedisModule_Log(RSDummyContext, "warning", "Failed predict number of replied, prediction=%ld, actual_number=%ld.", resultsLen, nelem);
       RS_LOG_ASSERT(0, "Precalculated number of replies must be equal to actual number");
@@ -425,19 +415,15 @@ done:
   }
 }
 
-void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
+void AREQ_Execute(AREQ *req, RedisModule_Reply *reply) {
   if (IsProfile(req)) {
-    if(_ReplyMap(outctx)) {
-      RedisModule_ReplyWithMap(outctx, 5);
-    } else {
-      RedisModule_ReplyWithArray(outctx, 2);
-    }
-  } else if(_ReplyMap(outctx)) {
-    RedisModule_ReplyWithMap(outctx, 4);
+    RedisModule_Reply_Map(reply);
+  } else if (RedisModule_HasMap(reply)) {
+    RedisModule_Reply_Map(reply);
   }
-  sendChunk(req, outctx, -1);
+  sendChunk(req, reply, -1);
   if (IsProfile(req)) {
-    Profile_Print(outctx, req);
+    Profile_Print(reply, req);
   }
   AREQ_Free(req);
 }
@@ -798,7 +784,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   }
   // return array of [results, cursorID]. (the typical result reply is in the first reply)
   // for profile, we return array of [results, cursorID, profile]
-  if(_ReplyMap(outputCtx)) {
+  if (_ReplyMap(outputCtx)) {
       RedisModule_ReplyWithMap(outputCtx, IsProfile(req) ? 6 : 5);
   } else {
     RedisModule_ReplyWithArray(outputCtx, arrayLen);

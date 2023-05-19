@@ -7,19 +7,22 @@
 #ifndef RS_VALUE_H_
 #define RS_VALUE_H_
 
+#include "redisearch.h"
+#include "rmalloc.h"
+#include "query_error.h"
+#include "reply.h"
+
+#include "util/fnv.h"
+
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "rmutil/sds.h"
+
 #include <string.h>
 #include <sys/param.h>
 #include <stdarg.h>
 #include <errno.h>
 #include <math.h>
-
-#include "rmutil/sds.h"
-#include "redisearch.h"
-#include "util/fnv.h"
-#include "rmutil/args.h"
-#include "rmalloc.h"
-#include "query_error.h"
-#include "rmutil/rm_assert.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -397,7 +400,7 @@ static inline uint32_t RSValue_ArrayLen(const RSValue *arr) {
 }
 
 /* Based on the value type, serialize the value into redis client response */
-int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v, int typed);
+int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, int typed);
 
 void RSValue_Print(const RSValue *v);
 
