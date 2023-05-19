@@ -23,13 +23,14 @@ static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n) {
     lookup->tail = ret;
   }
 
-  // Increase the RLookup table row length. (all rows have the same length).
-  ++(lookup->rowlen);
-
   // Set the name of the key.
   ret->name = name;
   ret->name_len = n;
   ret->path = name;
+  ret->dstidx = lookup->rowlen;
+
+  // Increase the RLookup table row length. (all rows have the same length).
+  ++(lookup->rowlen);
 
   return ret;
 }
