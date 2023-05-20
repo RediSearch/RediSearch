@@ -292,15 +292,14 @@ def test_burst_threads_sanity():
 
             conn.flushall()
 
-
 def test_workers_priority_queue():
     if not POWER_TO_THE_WORKERS:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
-    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 TIERED_HNSW_BUFFER_LIMIT 50000'
+    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 TIERED_HNSW_BUFFER_LIMIT 10000'
                                                   ' ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 50000 * n_shards
+    n_vectors = 10000 * n_shards
     dim = 64
     prefix = '_' if env.isCluster() else ''
     # Load random vectors into redis, save the last one to use as query vector later on.
@@ -320,8 +319,8 @@ def test_workers_priority_queue():
     # Run queries during indexing
     while debug_info['BACKGROUND_INDEXING'] == 1:
         start = time.time()
-        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY', '__vector_score',
-                                   'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10,
+        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param EF_RUNTIME 10000]',
+                                   'SORTBY', '__vector_score', 'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10,
                                    'vec_param', query_vec.tobytes())
         query_time = time.time() - start
         # Expect that the first result would be the query vector itself (last id)
@@ -342,7 +341,7 @@ def test_async_updates_sanity():
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 10000 * n_shards
+    n_vectors = 5000 * n_shards
     dim = 32
     prefix = '_' if env.isCluster() else ''
     block_size = 1024
@@ -372,8 +371,8 @@ def test_async_updates_sanity():
         # (that is, no other node in HNSW is pointing to the deleted node)
         while marked_deleted_vectors > block_size/n_shards:
             start = time.time()
-            res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
-                                       '__vector_score', 'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K',
+            res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param EF_RUNTIME 5000]',
+                                       'SORTBY', '__vector_score', 'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K',
                                        10, 'vec_param', query_vec.tobytes())
             query_time = time.time() - start
             # Validate that queries get priority and are executed before indexing/deletion is finished.

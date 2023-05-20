@@ -148,6 +148,19 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
     return NULL;
   }
 
+  for (size_t i = 0; i < num_threads; i++) {
+    thpool_p->threads[i] = (struct thread*)rm_malloc(sizeof(struct thread));
+    if (thpool_p->threads[i] == NULL) {
+      err("thread_create(): Could not allocate memory for thread\n");
+      priority_queue_destroy(&thpool_p->jobqueue);
+      for (size_t j = 0; j < i; j++) {
+        rm_free(thpool_p->threads[j]);
+      }
+      rm_free(thpool_p);
+      return NULL;
+    }
+  }
+
   pthread_mutex_init(&(thpool_p->thcount_lock), NULL);
   pthread_cond_init(&thpool_p->threads_all_idle, NULL);
 
@@ -328,12 +341,6 @@ size_t redisearch_thpool_num_threads_working(redisearch_thpool_t* thpool_p) {
  * @return 0 on success, -1 otherwise.
  */
 static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id) {
-
-  *thread_p = (struct thread*)rm_malloc(sizeof(struct thread));
-  if (thread_p == NULL) {
-    err("thread_init(): Could not allocate memory for thread\n");
-    return -1;
-  }
 
   (*thread_p)->thpool_p = thpool_p;
   (*thread_p)->id = id;
