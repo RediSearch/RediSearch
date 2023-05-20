@@ -73,6 +73,7 @@ static void setKeyByFlags(RLookupKey *key, uint32_t flags) {
 
 static void setKeyByFieldSpec(RLookupKey *key, const FieldSpec *fs) {
   key->flags |= RLOOKUP_F_DOCSRC | RLOOKUP_F_SCHEMASRC;
+  key->path = fs->path;
   if (FieldSpec_IsSortable(fs)) {
     key->flags |= RLOOKUP_F_SVSRC;
     key->svidx = fs->sortIdx;
@@ -85,6 +86,7 @@ static void setKeyByFieldSpec(RLookupKey *key, const FieldSpec *fs) {
   }
   if (FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
     key->flags |= RLOOKUP_T_NUMERIC;
+    key->fieldtype = RLOOKUP_C_DBL; // TODO: remove this
   }
 }
 
@@ -112,7 +114,7 @@ static RLookupKey *RLookup_FindKey(RLookup *lookup, const char *name, size_t nam
   return NULL;
 }
 
-RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t name_len, RLookupMode mode, uint32_t flags) {
+static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size_t name_len, const char *field_name, RLookupMode mode, uint32_t flags) {
   // remove all flags that are not relevant to getting a key
   flags &= RLOOKUP_GET_KEY_FLAGS;
   // First, look for the key in the lookup table for an existing key with the same name
@@ -139,7 +141,7 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t name_len,
     // At this point we know for sure that it is not marked as loaded.
     setKeyByFlags(key, flags);
 
-    const FieldSpec *fs = findFieldInSpecCache(lookup, name);
+    const FieldSpec *fs = findFieldInSpecCache(lookup, field_name);
     if (fs) {
       setKeyByFieldSpec(key, fs);
       if (key->flags & RLOOKUP_F_ISLOADED) {
@@ -147,6 +149,8 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t name_len,
         // so we can use the sorting vector as the source, and we don't need to load it from the document.
         return NULL;
       }
+    } else {
+      key->path = field_name;
     }
     // Mark the key as loaded from the document (for the rest of the pipeline usage).
     key->flags |= RLOOKUP_F_DOCSRC | RLOOKUP_F_ISLOADED;
@@ -186,8 +190,22 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t name_len,
   return NULL;
 }
 
+RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len, const char *field_name, uint32_t flags) {
+  return RLookup_GetKey_common(lookup, name, name_len, field_name, RLOOKUP_M_LOAD, flags);
+}
+
+RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *field_name, uint32_t flags) {
+  return RLookup_GetKey_common(lookup, name, strlen(name), field_name, RLOOKUP_M_LOAD, flags);
+}
+
+RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t name_len, RLookupMode mode, uint32_t flags) {
+  assert(mode != RLOOKUP_M_LOAD);
+  return RLookup_GetKey_common(lookup, name, name_len, NULL, mode, flags);
+}
+
 RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, RLookupMode mode, uint32_t flags) {
-  return RLookup_GetKeyEx(lookup, name, strlen(name), mode, flags);
+  assert(mode != RLOOKUP_M_LOAD);
+  return RLookup_GetKey_common(lookup, name, strlen(name), NULL, mode, flags);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -728,14 +746,6 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   RSValue *rsv = NULL;
 
   rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, kk->path, &val, NULL);
-  if (!val && options->sctx->spec->flags & Index_HasFieldAlias) {
-    // name of field is the alias given on FT.CREATE
-    // get the the actual path
-    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->path, strlen(kk->path));
-    if (fs) {
-      rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, fs->path, &val, NULL);
-    }
-  }
 
   if (rc == REDISMODULE_OK && val != NULL) {
     // `val` was created by `RedisModule_HashGet` and is owned by us.
@@ -788,14 +798,6 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   RSValue *rsv = NULL;
 
   JSONResultsIterator jsonIter = (*kk->path == '$') ? japi->get(*keyobj, kk->path) : NULL;
-  if (!jsonIter) {
-    // name of field is the alias given on FT.CREATE
-    // get the the actual path
-    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->path, strlen(kk->path));
-    if (fs) {
-      jsonIter = japi->get(*keyobj, fs->path);
-    }
-  }
 
   if (!jsonIter) {
     // The field does not exist and and it isn't `__key`
