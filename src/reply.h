@@ -22,6 +22,7 @@ typedef struct RedisModule_Reply {
 //---------------------------------------------------------------------------------------------
 
 bool RedisModule_HasMap(RedisModule_Reply *reply);
+int RedisModule_Reply_LocalCount(RedisModule_Reply *reply);
 
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx);
 int RedisModule_EndReply(RedisModule_Reply *reply);

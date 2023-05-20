@@ -27,7 +27,7 @@ typedef struct {
   WeakRef spec_ref;
 } blockedClientReqCtx;
 
-static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
+static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 
 /**
  * Get the sorting key of the result. This will be the sorting key of the last
@@ -305,9 +305,12 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   }
 
   rc = rp->Next(rp, &r);
+  long resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
   if (rc == RS_RESULT_TIMEDOUT && !(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
       req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+    resultsLen = has_map ? 0 : 1;
   } else if (rc == RS_RESULT_ERROR) {
+    resultsLen = has_map ? 0 : 2;
   } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
              req->optimizer->type != Q_OPT_NO_SORTER) {
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
@@ -317,6 +320,11 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
     size_t expected_res = reqLimit + reqOffset <= req->maxSearchResults ? req->qiter.totalResults : MIN(req->maxSearchResults, req->qiter.totalResults);
     size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
+
+    resultsLen = MIN(limit, MIN(reqLimit, reqResults));
+    if(!has_map) {
+      resultsLen = resultsLen * resultFactor + 1;
+    }
   }
 
   if (!has_map) {
@@ -354,10 +362,10 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
   } else if (rc == RS_RESULT_ERROR) {
     if (!has_map) {
-      RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
+      RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
     }
     RedisModule_Reply_Array(reply);
-    QueryError_ReplyAndClear(outctx, req->qiter.err);
+    QueryError_ReplyAndClear(reply->ctx, req->qiter.err);
     RedisModule_Reply_ArrayEnd(reply);
     if (has_map) {
       RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
@@ -369,7 +377,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
       RedisModule_Reply_ArrayEnd(reply);
       RedisModule_Reply_SimpleString(reply, "total_results");
     }
-    RedisModule_ReplyWithLongLong(reply, req->qiter.totalResults);
+    RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
   }
   nelem++;
 
@@ -379,7 +387,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   }
 
   if (rc == RS_RESULT_OK && nrows++ < limit && !(req->reqflags & QEXEC_F_NOROWS)) {
-    int _nelem = serializeResult(req, outctx, &r, &cv);
+    int _nelem = serializeResult(req, reply, &r, &cv);
     nelem = nelem + (!has_map ? _nelem : 1);
   }
 
@@ -406,16 +414,18 @@ done:
   // Reset the total results length:
   req->qiter.totalResults = 0;
   if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN) {
-    RedisModule_Reply_ArrayEnd(reoky);
+    RedisModule_Reply_ArrayEnd(reply);
   } else if (!has_map) {
-    if (resultsLen != nelem) {
+    if (resultsLen != reply->count) {
       RedisModule_Log(RSDummyContext, "warning", "Failed predict number of replied, prediction=%ld, actual_number=%ld.", resultsLen, nelem);
       RS_LOG_ASSERT(0, "Precalculated number of replies must be equal to actual number");
     }
   }
 }
 
-void AREQ_Execute(AREQ *req, RedisModule_Reply *reply) {
+void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+
   if (IsProfile(req)) {
     RedisModule_Reply_Map(reply);
   } else if (RedisModule_HasMap(reply)) {
@@ -426,6 +436,7 @@ void AREQ_Execute(AREQ *req, RedisModule_Reply *reply) {
     Profile_Print(reply, req);
   }
   AREQ_Free(req);
+  RedisModule_EndReply(reply);
 }
 
 static blockedClientReqCtx *blockedClientReqCtx_New(AREQ *req,
@@ -622,6 +633,8 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_WrongArity(ctx);
   }
 
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+
   AREQ *r = AREQ_New();
   QueryError status = {0};
   if (parseProfile(r, withProfile, argv, argc, &status) != REDISMODULE_OK) {
@@ -639,7 +652,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
       goto error;
     }
-    int rc = AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status);
+    int rc = AREQ_StartCursor(r, reply, r->sctx->spec->name, &status);
     if (rc != REDISMODULE_OK) {
       goto error;
     }
@@ -670,6 +683,8 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 
 error:
+  RedisModule_EndReply(reply);
+
   if (r) {
     AREQ_Free(r);
   }
@@ -679,6 +694,7 @@ error:
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return execCommandCommon(ctx, argv, argc, COMMAND_AGGREGATE, NO_PROFILE);
 }
+
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return execCommandCommon(ctx, argv, argc, COMMAND_SEARCH, NO_PROFILE);
 }
@@ -748,18 +764,19 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   return ret;
 }
 
-int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, QueryError *err) {
+int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, const char *lookupName, QueryError *err) {
   Cursor *cursor = Cursors_Reserve(&RSCursors, lookupName, r->cursorMaxIdle, err);
   if (cursor == NULL) {
     return REDISMODULE_ERR;
   }
   cursor->execState = r;
-  runCursor(outctx, cursor, 0);
+  runCursor(reply, cursor, 0);
   return REDISMODULE_OK;
 }
 
-static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
+static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
+  bool has_map = RedisModule_HasMap(reply);
 
   // reset profile clock for cursor reads except for 1st
   if (IsProfile(req) && req->totalTime != 0) {
@@ -784,25 +801,25 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   }
   // return array of [results, cursorID]. (the typical result reply is in the first reply)
   // for profile, we return array of [results, cursorID, profile]
-  if (_ReplyMap(outputCtx)) {
-      RedisModule_ReplyWithMap(outputCtx, IsProfile(req) ? 6 : 5);
+  if (has_map) {
+      RedisModule_Reply_Map(reply);
   } else {
-    RedisModule_ReplyWithArray(outputCtx, arrayLen);
+    RedisModule_Reply_Array(reply);
   }
 
-  sendChunk(req, outputCtx, num);
+  sendChunk(req, reply, num);
 
   if (req->stateflags & QEXEC_S_ITERDONE) {
     // Write the count!
-    RedisModule_ReplyWithLongLong(outputCtx, 0);
+    RedisModule_Reply_LongLong(reply, 0);
     if (IsProfile(req)) {
-      Profile_Print(outputCtx, req);
+      Profile_Print(reply, req);
     }
   } else {
-    RedisModule_ReplyWithLongLong(outputCtx, cursor->id);
+    RedisModule_Reply_LongLong(reply, cursor->id);
     if (IsProfile(req)) {
       // If the cursor is still alive, don't print profile info to save bandwidth
-      RedisModule_ReplyWithNull(outputCtx);
+      RedisModule_Reply_Null(reply);
     }
   }
 
@@ -827,17 +844,17 @@ delcursor:
  * FT.CURSOR DEL {index} {CID}
  * FT.CURSOR GC {index}
  */
-static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
+static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count) {
   Cursor *cursor = Cursors_TakeForExecution(&RSCursors, cid);
   if (cursor == NULL) {
-    RedisModule_ReplyWithError(ctx, "Cursor not found");
+    RedisModule_Reply_Error(reply, "Cursor not found");
     return;
   }
   QueryError status = {0};
   AREQ *req = cursor->execState;
   req->qiter.err = &status;
   ConcurrentSearchCtx_ReopenKeys(&req->conc);
-  runCursor(ctx, cursor, count);
+  runCursor(reply, cursor, count);
 }
 
 int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -857,6 +874,8 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
   }
 
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+
   char cmdc = toupper(*cmd);
 
   if (cmdc == 'R') {
@@ -868,22 +887,23 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return REDISMODULE_OK;
       }
     }
-    cursorRead(ctx, cid, count);
+    cursorRead(reply, cid, count);
 
   } else if (cmdc == 'D') {
     int rc = Cursors_Purge(&RSCursors, cid);
     if (rc != REDISMODULE_OK) {
-      RedisModule_ReplyWithError(ctx, "Cursor does not exist");
+      RedisModule_Reply_Error(reply, "Cursor does not exist");
     } else {
-      RedisModule_ReplyWithSimpleString(ctx, "OK");
+      RedisModule_Reply_SimpleString(reply, "OK");
     }
 
   } else if (cmdc == 'G') {
     int rc = Cursors_CollectIdle(&RSCursors);
-    RedisModule_ReplyWithLongLong(ctx, rc);
+    RedisModule_Reply_LongLong(reply, rc);
   } else {
-    RedisModule_ReplyWithError(ctx, "Unknown subcommand");
+    RedisModule_Reply_Error(reply, "Unknown subcommand");
   }
+  RedisModule_EndReply(reply);
   return REDISMODULE_OK;
 }
 

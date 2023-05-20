@@ -23,9 +23,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
 /* Free the internal data of an index hit. Since index hits are usually on the
-stack,
-this does not actually free the hit itself */
+stack, this does not actually free the hit itself */
 void IndexResult_Terminate(RSIndexResult *h);
 
 /** Load document metadata for an index hit, marking it as having metadata.
@@ -91,17 +91,13 @@ typedef struct {
     IteratorsConfig *iteratorsConfig;
     int printProfileClock;    
 } PrintProfileConfig;
-/** Print profile of iterators */
-void printIteratorProfile(RedisModuleCtx *ctx,
-                          IndexIterator *root,
-                          size_t counter,
-                          double cpuTime,
-                          int depth,
-                          int limited,
-                          PrintProfileConfig *config);
 
+// Print profile of iterators
+void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter,
+                          double cpuTime, int depth, int limited, PrintProfileConfig *config);
 
 #ifdef __cplusplus
 }
 #endif
-#endif
+
+#endif // __INDEX_H__

@@ -42,7 +42,7 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
 
   printProfileCounter(counter);
 
-  RedisModule_ReplyKV_SimpleString(reply, "Size", root->NumEstimated(ir));
+  RedisModule_ReplyKV_LongLong(reply, "Size", root->NumEstimated(ir));
 
   RedisModule_Reply_ArrayEnd(reply);
 }
@@ -51,7 +51,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
   if (rp == NULL) {
     return 0;
   }
-  double upstreamTime = _recursiveProfilePrint(reply, rp->upstream, arrlen, printProfileClock);
+  double upstreamTime = _recursiveProfilePrint(reply, rp->upstream, printProfileClock);
 
   // Array is filled backward in pair of [common, profile] result processors
   if (rp->type != RP_PROFILE) {
@@ -89,9 +89,10 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
   }
 
   double totalRPTime = RPProfile_GetDurationMSec(rp);
-  if (printProfileClock) { printProfileTime(totalRPTime - upstreamTime); }
+  if (printProfileClock) {
+    printProfileTime(totalRPTime - upstreamTime); 
+  }
   printProfileCounter(RPProfile_GetCount(rp) - 1);
-  ++(*arrlen);
   return totalRPTime;
 }
 
@@ -108,7 +109,7 @@ int Profile_Print(RedisModule_Reply *reply, AREQ *req){
     int profile_verbose = req->reqConfig.printProfileClock;
     // Print total time
     if (profile_verbose)
-      RedisModule_ReplyKV_WithDouble(reply, "Total profile time", (double)req->totalTime);
+      RedisModule_ReplyKV_Double(reply, "Total profile time", (double)req->totalTime);
     else
       RedisModule_ReplyKV_Null(reply, "Total profile time");
 
@@ -142,8 +143,7 @@ int Profile_Print(RedisModule_Reply *reply, AREQ *req){
     ResultProcessor *rp = req->qiter.endProc;
     RedisModule_Reply_Array(reply);
       RedisModule_Reply_SimpleString(reply, "Result processors profile");
-      size_t alen = 1;
-      printProfileRP(reply, rp, &alen, req->reqConfig.printProfileClock);
+      printProfileRP(reply, rp, req->reqConfig.printProfileClock);
     RedisModule_Reply_ArrayEnd(reply);
 
   RedisModule_Reply_MapEnd(reply); // profile

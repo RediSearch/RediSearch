@@ -22,5 +22,5 @@
 
 int Profile_Print(RedisModule_Reply *reply, AREQ *req);
 
-void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter,
+void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter,
                  double cpuTime, PrintProfileConfig *config);

@@ -634,18 +634,19 @@ int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, int isTyped) {
       RSValue_NumToString(v->numval, buf);
 
       if (isTyped) {
-        return RedisModule_Reply_WithError(reply, buf);
+        return RedisModule_Reply_Error(reply, buf);
       } else {
         return RedisModule_Reply_StringBuffer(reply, buf, strlen(buf));
       }
     }
     case RSValue_Null:
-      return RedisModule_ReplyWithNull(ctx);
+      return RedisModule_Reply_Null(reply);
     case RSValue_Array:
-      RedisModule_ReplyWithArray(ctx, v->arrval.len);
-      for (uint32_t i = 0; i < v->arrval.len; i++) {
-        RSValue_SendReply(reply, v->arrval.vals[i], isTyped);
-      }
+      RedisModule_Reply_Array(reply);
+        for (uint32_t i = 0; i < v->arrval.len; i++) {
+          RSValue_SendReply(reply, v->arrval.vals[i], isTyped);
+        }
+      RedisModule_Reply_ArrayEnd(reply);
       return REDISMODULE_OK;
     case RSValue_Duo:
       return RSValue_SendReply(reply, RS_DUOVAL_OTHERVAL(*v), isTyped);

@@ -1866,7 +1866,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   UnionIterator *ui = (UnionIterator *)root;
   int printFull = !limited  || (ui->origType & QN_UNION);
 
-  RedisModule_Reply_WithArray(reply);
+  RedisModule_Reply_Array(reply);
 
   printProfileType("UNION");
 
@@ -1909,12 +1909,11 @@ PRINT_PROFILE_FUNC(printUnionIt) {
     for (int i = 0; i < ui->norig; i++) {
       printIteratorProfile(reply, ui->origits[i], 0, 0, depth + 1, limited, config);
     }
-    nlen += ui->norig;
   } else {
-    RedisModule_Reply_Printf(reply, "The number of iterators in the union is %d", ui->norig);
+    RedisModule_Reply_Stringf(reply, "The number of iterators in the union is %d", ui->norig);
   }
 
-  RedisModule_Reply_ArrayEnd(reply)
+  RedisModule_Reply_ArrayEnd(reply);
 }
 
 PRINT_PROFILE_FUNC(printIntersectIt) {
@@ -1939,7 +1938,7 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
     }
   }
 
-  RedisModule_Reply_ArrayEnd(reply)
+  RedisModule_Reply_ArrayEnd(reply);
 }
 
 PRINT_PROFILE_FUNC(printMetricIt) {
@@ -2014,7 +2013,7 @@ PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator, "OPTIMIZER", 1);
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
-  printIteratorProfile(ctx, pi->child, pi->counter - pi->eof, (double)pi->cpuTime, depth, limited, config);
+  printIteratorProfile(reply, pi->child, pi->counter - pi->eof, (double)pi->cpuTime, depth, limited, config);
 }
 
 void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter,
