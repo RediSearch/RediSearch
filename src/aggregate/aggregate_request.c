@@ -1010,16 +1010,16 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
   MetricRequest *requests = req->ast.metricRequests;
   for (size_t i = 0; i < array_len(requests); i++) {
     char *name = requests[i].metric_name;
-    if (IndexSpec_GetField(req->sctx->spec, name, strlen(name))) {
+    size_t name_len = strlen(name);
+    if (IndexSpec_GetField(req->sctx->spec, name, name_len)) {
       QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", name);
       return NULL;
     }
-    RLookupKey *key = RLookup_GetKey_TEMP(rl, name, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
+    RLookupKey *key = RLookup_GetKeyEx(rl, name, name_len, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
     if (!key) {
       QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", name);
       return NULL;
     }
-    key->flags |= RLOOKUP_F_ISLOADED;
 
     // In some cases the iterator that requested the additional field can be NULL (if some other iterator knows early
     // that it has no results), but we still want the rest of the pipline to know about the additional field name,
@@ -1075,25 +1075,28 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
 
     for (size_t ii = 0; ii < nkeys; ++ii) {
       const char *keystr = astp->sortKeys[ii];
-      RLookupKey *sortkey = RLookup_GetKey_TEMP(lk, keystr, RLOOKUP_F_NOFLAGS);
+      RLookupKey *sortkey = RLookup_GetKey(lk, keystr, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!sortkey) {
-        QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", keystr);
-        return NULL;
+        // if the key is not sortable, and also not loaded by another result processor,
+        // add it to the loadkeys list.
+        sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
+        if (!sortkey) {
+          QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", keystr);
+          return NULL;
+        }
+        *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
       }
       sortkeys[ii] = sortkey;
-      // if the key is not sortable, and also not loaded by another result processor,
-      // add it to the loadkeys list.
-      if(!(sortkey->flags & RLOOKUP_F_SVSRC) &&
-         !(sortkey->flags & RLOOKUP_F_ISLOADED)) {
-
-        *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
-
-        // Update lookupkey's flag to loaded
-        sortkey->flags |= RLOOKUP_F_ISLOADED;
-      }
     }
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, loadKeys, array_len(loadKeys),
-	                          astp->sortAscMap, req->optimizer->type == Q_OPT_NO_SORTER);
+    if (loadKeys) {
+      // If we have keys to load, add a loader step.
+      ResultProcessor *rpLoader = RPLoader_New(lk, loadKeys, array_len(loadKeys));
+      array_free(loadKeys);
+      RS_LOG_ASSERT(rpLoader, "RPLoader_New failed");
+      up = pushRP(req, rpLoader, up);
+    }
+    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap,
+                              req->optimizer->type == Q_OPT_NO_SORTER);
     up = pushRP(req, rp, up);
   }
 
@@ -1203,19 +1206,29 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
   // Add a LOAD step...
   const RLookupKey **loadkeys = NULL;
   if (req->outFields.explicitReturn) {
-    bool is_old_json = isSpecJson(req->sctx->spec) && (req->reqConfig.dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST);
     // Go through all the fields and ensure that each one exists in the lookup stage
-    for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
-      const ReturnedField *rf = req->outFields.fields + ii;
-
-      RLookupKey *lk = RLookup_GetOrCreateKey_TEMP(lookup, rf->path, rf->name, RLOOKUP_F_ALIAS);
-      lk->flags |= RLOOKUP_F_EXPLICITRETURN;
-      if (is_old_json ||
-      ((!(lk->flags & RLOOKUP_F_ISLOADED) && !(lk->flags & RLOOKUP_F_UNFORMATTED)))) {
-        *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
-        lk->flags|= RLOOKUP_F_ISLOADED;
+    if (isSpecJson(req->sctx->spec) && (req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST)) {
+      // If we have a JSON spec and an "old" API version, we don't store all the data of a multi-value field
+      // in the SV, so we need to load and override all requested return fields that are SV source.
+      for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
+        const ReturnedField *rf = req->outFields.fields + ii;
+        RLookupKey *lk = RLookup_GetKey(lookup, rf->name, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
+        if (!lk || (lk->flags & RLOOKUP_F_SVSRC)) {
+          lk = RLookup_GetKey_Load(lookup, rf->name, rf->path, RLOOKUP_F_EXPLICITRETURN | RLOOKUP_F_OVERRIDE);
+          *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
+        } else {
+          lk->flags |= RLOOKUP_F_EXPLICITRETURN;
+        }
       }
-
+    } else {
+      // If we have a HASH spec or a "new" JSON API version, we simply load all requested and missing fields.
+      for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
+        const ReturnedField *rf = req->outFields.fields + ii;
+        RLookupKey *lk = RLookup_GetKey_Load(lookup, rf->name, rf->path, RLOOKUP_F_EXPLICITRETURN);
+        if (lk) {
+          *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
+        }
+      }
     }
   }
 
@@ -1306,7 +1319,7 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
   // Keep searching until we get to the root rp.
   curr_rp = curr_rp->upstream;
 
-  while (curr_rp != req->qiter.rootProc){
+  while (curr_rp != req->qiter.rootProc) {
     if (curr_rp->flags & RESULT_PROCESSOR_F_ACCESS_REDIS) {
       upstream_is_buffer_locker = curr_rp;
     }
