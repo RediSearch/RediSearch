@@ -80,10 +80,10 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
     return NULL;
   }
 
-  VecSimIndexInfo info = VecSimIndex_Info(vecsim);
-  size_t dim = info.commonInfo.dim;
-  VecSimType type = info.commonInfo.type;
-  VecSimMetric metric = info.commonInfo.metric;
+  VecSimIndexStaticInfo info = VecSimIndex_StaticInfo(vecsim);
+  size_t dim = info.dim;
+  VecSimType type = info.type;
+  VecSimMetric metric = info.metric;
 
   VecSimQueryParams qParams = {0};
   switch (vq->type) {
