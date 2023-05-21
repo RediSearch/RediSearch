@@ -76,7 +76,7 @@ typedef struct RLookupKey {
    * Can be F_SVSRC which means the target array is a sorting vector, or
    * F_OUTPUT which means that the t
    */
-  uint16_t flags;
+  uint32_t flags;
 
   // TODO: remove this
   /** Type this lookup should be coerced to */
@@ -232,16 +232,16 @@ RLookupKey *RLookup_GetOrCreateKey_TEMP(RLookup *lookup, const char *path, const
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 typedef enum {
-  RLOOKUP_M_READ,   // Get key for reading (create oly if in schema and sortable)
+  RLOOKUP_M_READ,   // Get key for reading (create only if in schema and sortable)
   RLOOKUP_M_WRITE,  // Get key for writing
-  RLOOKUP_M_LOAD,   // Load key from document (include known information on the key, fail if already loaded)
+  RLOOKUP_M_LOAD,   // Load key from redis key-space (include known information on the key, fail if already loaded)
 } RLookupMode;
 
 // #define RLOOKUP_F_NOFLAGS 0x0 // No special flags to pass.
 
 /**
- * This field is NOT part of the index schema, but created by a loader
- * (we will look for it in the document)
+ * This field is (or assumed to be) part of the document itself.
+ * This is a basic flag for a loaded key.
  */
 #define RLOOKUP_F_DOCSRC 0x01
 
@@ -267,34 +267,34 @@ typedef enum {
 #define RLOOKUP_F_OVERRIDE 0x20
 
 /**
- * This key type is numeric
+ * This key is unresolved. Its source needs to be derived from elsewhere
  */
-#define RLOOKUP_T_NUMERIC 0x40
-
-/**
- * This key is unresolved. It source needs to be derived from elsewhere
- */
-// #define RLOOKUP_F_UNRESOLVED 0x80
+// #define RLOOKUP_F_UNRESOLVED 0x40
 
 /**
  * This field is hidden within the document and is only used as a transient
  * field for another consumer. Don't output this field.
  */
-// #define RLOOKUP_F_HIDDEN 0x100
+// #define RLOOKUP_F_HIDDEN 0x80
 
 /**
  * The opposite of F_HIDDEN. This field is specified as an explicit return in
  * the RETURN list, so ensure that this gets emitted. Only set if
  * explicitReturn is true in the aggregation request.
  */
-// #define RLOOKUP_F_EXPLICITRETURN 0x200
+// #define RLOOKUP_F_EXPLICITRETURN 0x100
 
 /**
  * This key's value is already available in the RLookup table.
  * For example, if an upstream result processor already loaded the value from redis key-space,
  * or it was opened for read but the field is sortable and not normalized.
  */
-// #define RLOOKUP_F_ISLOADED 0x400
+// #define RLOOKUP_F_ISLOADED 0x200
+
+/**
+ * This key type is numeric
+ */
+#define RLOOKUP_T_NUMERIC 0x400
 
 // Flags that are allowed to be passed to GetKey
 #define RLOOKUP_GET_KEY_FLAGS (RLOOKUP_F_NAMEALLOC | RLOOKUP_F_OVERRIDE | RLOOKUP_F_HIDDEN | RLOOKUP_F_EXPLICITRETURN)
