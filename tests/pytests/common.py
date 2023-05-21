@@ -61,6 +61,7 @@ def waitForIndex(env, idx):
             if int(res[res.index('indexing') + 1]) == 0:
                 break
         except:
+            # RESP3
             if int(res['indexing']) == 0:
                 break
         time.sleep(0.1)

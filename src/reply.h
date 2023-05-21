@@ -11,6 +11,8 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+#define REDISMODULE_REPLY_DEBUG 1
+
 enum ContainerType {
     ContainerType_Array,
     ContainerType_Map,
@@ -27,7 +29,9 @@ typedef struct RedisModule_Reply {
   bool resp3;
   int count;
   arrayof(struct RedisModule_Reply_StackEntry) stack;
+#ifdef REDISMODULE_REPLY_DEBUG
   arrayof(char) json;
+#endif
 } RedisModule_Reply;
 
 //---------------------------------------------------------------------------------------------
