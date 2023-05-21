@@ -57,6 +57,14 @@ def waitForIndex(env, idx):
             break
         time.sleep(0.1)
 
+def waitForNoCleanup(env, idx):
+    waitForRdbSaveToFinish(env)
+    while True:
+        res = env.execute_command('ft.info', idx)
+        if int(res[res.index('cleanup_working') + 1]) == 0:
+            break
+        time.sleep(0.1)
+
 def py2sorted(x):
     it = iter(x)
     groups = [[next(it)]]

@@ -254,25 +254,29 @@ def testFtInfo(env):
   res = to_dict(env.cmd('FT.INFO idx1'))
   env.assertEqual(int(res[info_key_name]), 0)
 
-  # Ingest of a geometry attribute should increase mem usage
-  conn.execute_command('HSET', 'doc1', 'geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))')
-  res = to_dict(env.cmd('FT.INFO idx1'))
-  usage = float(res[info_key_name])
-  env.assertGreater(usage, 0)
-  # Ingest of another geometry attribute should increase mem usage
-  conn.execute_command('HSET', 'doc2', 'geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))')
-  res = to_dict(env.cmd('FT.INFO idx1'))
-  cur_usage = float(res[info_key_name])
-  env.assertGreater(cur_usage, usage)
-  usage = cur_usage
-  
-  # Same mem usage also shown by another index
-  res = to_dict(env.cmd('FT.INFO idx2_no_geom'))
-  cur_usage = float(res[info_key_name])
-  env.assertEqual(cur_usage, usage)
+  doc_num = 100
 
-  # Dropping the geometry index should reset mem usage
+  # Memory usage should increase
+  usage = 0
+  for i in range(1, doc_num + 1):
+    conn.execute_command('HSET', f'doc{i}', 'geom', f'POLYGON(({2*i} {2*i}, {2*i} {100+2*i}, {100+2*i} {100+2*i}, {2*i} {100+2*i}, {2*i} {2*i}))')
+    # Ingest of geometry attribute should increase mem usage
+    res = to_dict(env.cmd('FT.INFO idx1'))
+    cur_usage = float(res[info_key_name])
+    env.assertGreater(cur_usage, usage)
+    usage = cur_usage
+
+  # Memory usage should decrease
+  for i in range(1, int(doc_num / 2)):
+    conn.execute_command('DEL', f'doc{i}')
+    res = to_dict(env.cmd('FT.INFO idx1'))
+    cur_usage = float(res[info_key_name])
+    env.assertLess(cur_usage, usage)
+    usage = cur_usage
+
+  # Dropping the geometry index should reset memory usage
   conn.execute_command('FT.DROPINDEX', 'idx1')
+  waitForNoCleanup(env, 'idx2_no_geom')
   res = to_dict(env.cmd('FT.INFO idx2_no_geom'))
   cur_usage = float(res[info_key_name])
   env.assertEqual(cur_usage, 0)

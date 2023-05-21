@@ -230,6 +230,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   REPLY_KVINT(n, "number_of_uses", sp->counter);
 
+  REPLY_KVINT(n, "cleanup_working", CleanPool_WorkingThreadCount());
+
   if (sp->gc) {
     RedisModule_ReplyWithSimpleString(ctx, "gc_stats");
     GCContext_RenderStats(sp->gc, ctx);

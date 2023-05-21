@@ -1246,6 +1246,12 @@ void CleanPool_ThreadPoolDestroy() {
   }
 }
 
+size_t CleanPool_WorkingThreadCount() {
+  if (cleanPool) {
+    return redisearch_thpool_num_threads_working(cleanPool);
+  }
+}
+
 /*
  * Free resources of unlinked index spec
  */
