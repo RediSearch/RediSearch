@@ -151,6 +151,29 @@ class testResp3():
                            {'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []}, 
                            {'fields': {}, 'fields_values': []}]}
 
+    def test_cursor(self):
+        env = self.env
+        if should_skip(env):
+            env.skip()
+
+        env.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
+        env.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
+        env.execute_command('HSET', 'doc3', 'f5', '4')
+        env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
+                            "SCHEMA", "f1", "TEXT", "f2", "TEXT")
+
+        waitForIndex(env, 'idx1')
+
+        res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "SORTBY", 2, "@f2", "DESC", "WITHCURSOR", 'COUNT', 1)
+        assert res == {'fields_names': [], 'error': [], 'total_results': 3, 'results': [{'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []}], 'cursor': ANY}
+        
+        res = env.execute_command('FT.CURSOR', 'READ', 'idx1', res['cursor'])
+        assert res == {'fields_names': [], 'error': [], 'total_results': 0, 'results': [{'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []}], 'cursor': ANY}
+        res = env.execute_command('FT.CURSOR', 'READ', 'idx1', res['cursor'])
+        assert res == {'fields_names': [], 'error': [], 'total_results': 0, 'results': [{'fields': {}, 'fields_values': []}], 'cursor': ANY}
+        res = env.execute_command('FT.CURSOR', 'READ', 'idx1', res['cursor'])
+        assert res == {'fields_names': [], 'error': [], 'total_results': 0, 'results': [], 'cursor': 0}
+
     def test_list(self):
         env = self.env
         if should_skip(env):

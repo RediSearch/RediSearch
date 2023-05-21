@@ -329,7 +329,6 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
       size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
   
       resultsLen = MIN(limit, MIN(reqLimit, reqResults));
-      resultsLen = resultsLen * resultFactor + 1;
     }
   
     OPTMZ(QOptimizer_UpdateTotalResults(req));
@@ -367,7 +366,8 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
     nelem = 0;
   
     if (rc == RS_RESULT_OK && nrows++ < limit && !(req->reqflags & QEXEC_F_NOROWS)) {
-      nelem = 1 + serializeResult(req, outctx, &r, &cv);
+      serializeResult(req, outctx, &r, &cv);
+      nelem++;
     }
   
     SearchResult_Clear(&r);
@@ -377,7 +377,8 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   
     while (nrows++ < limit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
       if (!(req->reqflags & QEXEC_F_NOROWS)) {
-        nelem = 1 + serializeResult(req, outctx, &r, &cv);
+        serializeResult(req, outctx, &r, &cv);
+        nelem++;
       }
       // Serialize it as a search result
       SearchResult_Clear(&r);
@@ -855,6 +856,10 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   }
 
   sendChunk(req, outputCtx, num);
+
+  if(_ReplyMap(outputCtx)) {
+    RedisModule_ReplyWithSimpleString(outputCtx, "cursor");
+  }
 
   if (req->stateflags & QEXEC_S_ITERDONE) {
     // Write the count!
