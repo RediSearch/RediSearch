@@ -3,9 +3,10 @@ import json
 import itertools
 import os
 from RLTest import Env
-import pprint
+import unittest
 from includes import *
 from common import getConnectionByEnv, toSortedFlatList
+import numpy as np
 
 def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
@@ -893,3 +894,24 @@ def testResultCounter(env):
     # no match. max docID is 4
     env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([4])
     #env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([0])
+
+def test_aggregate_timeout():
+    if VALGRIND:
+        # You don't want to run this under valgrind, it will take forever
+        raise unittest.SkipTest("Skipping timeout test under valgrind")
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT')
+    nshards = env.shardsCount
+    num_docs = 10000 * nshards
+    pipeline = conn.pipeline(transaction=False)
+    for i in range(num_docs):
+        pipeline.hset (f'doc_{i}', 't1', str(np.random.rand(1, 1024)))
+        if i % 1000 == 0:
+            pipeline.execute()
+            pipeline = conn.pipeline(transaction=False)
+    pipeline.execute()
+
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'groupby', '1', '@t1', 'REDUCE', 'count', '0', 'AS', 'count', 'TIMEOUT', '1'). \
+        equal( ['Timeout limit was reached'] if not env.isCluster() else [0])
