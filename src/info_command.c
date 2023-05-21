@@ -43,7 +43,6 @@ static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
 static int renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
   SchemaRule *rule = sp->rule;
 
-  _BB;
   RedisModule_ReplyKV_Map(reply, "index_definition"); // index_definition
 
   REPLY_KVSTR("key_type", DocumentType_ToString(rule->type));
@@ -96,8 +95,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
-  _BB;
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  bool has_map = RedisModule_HasMap(reply);
+
   //reply->resp3 = false;
   RedisModule_Reply_Map(reply); // top
 
@@ -148,7 +148,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       }
     }
 
-    RedisModule_ReplyKV_Array(reply, "flags"); // >>>flags
+    if (has_map) {
+      RedisModule_ReplyKV_Array(reply, "flags"); // >>>flags
+    }
 
     if (reply_SPEC_TAG_CASE_SENSITIVE_STR) {
         RedisModule_Reply_SimpleString(reply, SPEC_TAG_CASE_SENSITIVE_STR);
@@ -169,7 +171,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_Reply_SimpleString(reply, SPEC_WITHSUFFIXTRIE_STR);
     }
 
-    RedisModule_Reply_ArrayEnd(reply); // >>>flags
+    if (has_map) {
+      RedisModule_Reply_ArrayEnd(reply); // >>>flags
+    }
     RedisModule_Reply_MapEnd(reply); // >>field
   }
 

@@ -84,7 +84,6 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
         break;
     }
 
-    RedisModule_Reply_ArrayEnd(reply);
     return upstreamTime;
   }
 
@@ -93,6 +92,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     printProfileTime(totalRPTime - upstreamTime); 
   }
   printProfileCounter(RPProfile_GetCount(rp) - 1);
+  RedisModule_Reply_ArrayEnd(reply);
   return totalRPTime;
 }
 
@@ -101,29 +101,54 @@ static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int 
 }
 
 int Profile_Print(RedisModule_Reply *reply, AREQ *req){
+  bool has_map = RedisModule_HasMap(reply);
   hires_clock_t now;
 
   req->totalTime += hires_clock_since_msec(&req->initClock);
-  RedisModule_ReplyKV_Map(reply, "profile");
+  _BB;
+
+  if (has_map) {
+    RedisModule_ReplyKV_Map(reply, "profile");
+  } else {
+    RedisModule_Reply_Array(reply);
+  }
 
     int profile_verbose = req->reqConfig.printProfileClock;
     // Print total time
-    if (profile_verbose)
-      RedisModule_ReplyKV_Double(reply, "Total profile time", (double)req->totalTime);
-    else
-      RedisModule_ReplyKV_Null(reply, "Total profile time");
+    if (has_map) {
+      if (profile_verbose)
+        RedisModule_ReplyKV_Double(reply, "Total profile time", (double)req->totalTime);
+    } else {
+      RedisModule_Reply_Array(reply);
+        RedisModule_Reply_SimpleString(reply, "Total profile time");
+        if (profile_verbose)
+          RedisModule_Reply_Double(reply, (double)req->totalTime);
+      RedisModule_Reply_ArrayEnd(reply);
+    }
 
     // Print query parsing time
-    if (profile_verbose)
-      RedisModule_ReplyKV_Double(reply, "Parsing time", (double)req->parseTime);
-    else
-      RedisModule_ReplyKV_Null(reply, "Parsing time");
+    if (has_map) {
+      if (profile_verbose)
+        RedisModule_ReplyKV_Double(reply, "Parsing time", (double)req->parseTime);
+    } else {
+      RedisModule_Reply_Array(reply);
+        RedisModule_Reply_SimpleString(reply, "Parsing time");
+        if (profile_verbose)
+          RedisModule_Reply_Double(reply, (double)req->parseTime);
+      RedisModule_Reply_ArrayEnd(reply);
+    }
 
     // Print iterators creation time
-    if (profile_verbose)
-      RedisModule_ReplyKV_Double(reply, "Pipeline creation time", (double)req->pipelineBuildTime);
-    else
-      RedisModule_ReplyKV_Null(reply, "Pipeline creation time");
+    if (has_map) {
+      if (profile_verbose)
+        RedisModule_ReplyKV_Double(reply, "Pipeline creation time", (double)req->pipelineBuildTime);
+    } else {
+      RedisModule_Reply_Array(reply);
+        RedisModule_Reply_SimpleString(reply, "Pipeline creation time");
+        if (profile_verbose)
+          RedisModule_Reply_Double(reply, (double)req->pipelineBuildTime);
+      RedisModule_Reply_ArrayEnd(reply);
+    }
 
     // print into array with a recursive function over result processors
 
@@ -131,22 +156,41 @@ int Profile_Print(RedisModule_Reply *reply, AREQ *req){
     IndexIterator *root = QITR_GetRootFilter(&req->qiter);
     // Coordinator does not have iterators
     if (root) {
-      RedisModule_Reply_Array(reply);
-        RedisModule_Reply_SimpleString(reply, "Iterators profile");
-        PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
-                                     .printProfileClock = profile_verbose};
-        printIteratorProfile(reply, root, 0 ,0, 2, (req->reqflags & QEXEC_F_PROFILE_LIMITED), &config);
-      RedisModule_Reply_ArrayEnd(reply);
+      if (has_map) {
+        RedisModule_ReplyKV_Array(reply, "Iterators profile");
+          PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
+                                       .printProfileClock = profile_verbose};
+          printIteratorProfile(reply, root, 0, 0, 2, req->reqflags & QEXEC_F_PROFILE_LIMITED, &config);
+        RedisModule_Reply_ArrayEnd(reply);
+      } else {
+        RedisModule_Reply_Array(reply);
+          RedisModule_Reply_SimpleString(reply, "Iterators profile");
+          PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
+                                       .printProfileClock = profile_verbose};
+          printIteratorProfile(reply, root, 0, 0, 2, req->reqflags & QEXEC_F_PROFILE_LIMITED, &config);
+        RedisModule_Reply_ArrayEnd(reply);
+      }
     }
 
     // Print profile of result processors
+    _BB;
     ResultProcessor *rp = req->qiter.endProc;
-    RedisModule_Reply_Array(reply);
-      RedisModule_Reply_SimpleString(reply, "Result processors profile");
-      printProfileRP(reply, rp, req->reqConfig.printProfileClock);
-    RedisModule_Reply_ArrayEnd(reply);
+    if (has_map) {
+      RedisModule_ReplyKV_Array(reply, "Result processors profile");
+        printProfileRP(reply, rp, req->reqConfig.printProfileClock);
+      RedisModule_Reply_ArrayEnd(reply);
+    } else {
+      RedisModule_Reply_Array(reply);
+        RedisModule_Reply_SimpleString(reply, "Result processors profile");
+        printProfileRP(reply, rp, req->reqConfig.printProfileClock);
+      RedisModule_Reply_ArrayEnd(reply);
+    }
 
-  RedisModule_Reply_MapEnd(reply); // profile
+  if (has_map) {
+    RedisModule_Reply_MapEnd(reply); // profile
+  } else {
+    RedisModule_Reply_ArrayEnd(reply);
+  }
 
   return REDISMODULE_OK;
 }

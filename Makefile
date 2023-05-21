@@ -369,6 +369,16 @@ fetch:
 
 #----------------------------------------------------------------------------------------------
 
+CMAKE_TARGET=rscore
+
+cc:
+	@$(READIES)/bin/sep1
+	$(SHOW)$(MAKE) -C $(BINDIR) -f CMakeFiles/$(CMAKE_TARGET).dir/build.make CMakeFiles/$(CMAKE_TARGET).dir/$(FILE).o
+
+.PHONY: cc
+
+#----------------------------------------------------------------------------------------------
+
 run:
 ifeq ($(GDB),1)
 ifeq ($(CLANG),1)

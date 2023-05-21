@@ -11,7 +11,8 @@ READIES=$ROOT/deps/readies
 export PYTHONUNBUFFERED=1
 
 VALGRIND_REDIS_VER=7.2
-SAN_REDIS_VER=6.2
+SAN_REDIS_VER=7.2-rc2
+SAN_REDIS_SUFFIX=7.2
 
 cd $HERE
 
@@ -207,11 +208,11 @@ setup_clang_sanitizer() {
 	fi
 
 	if [[ $SAN == addr || $SAN == address ]]; then
-		REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-$SAN_REDIS_VER}
+		REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-$SAN_REDIS_SUFFIX}
 		if ! command -v $REDIS_SERVER > /dev/null; then
 			echo Building Redis for clang-asan ...
-			$READIES/bin/getredis --force -v $SAN_REDIS_VER --own-openssl --no-run \
-				--suffix asan --clang-asan --clang-san-blacklist $ignorelist
+			runn $READIES/bin/getredis --force -v $SAN_REDIS_VER --own-openssl --no-run \
+				--suffix asan-${SAN_REDIS_SUFFIX} --clang-asan --clang-san-blacklist $ignorelist
 		fi
 
 		# RLTest places log file details in ASAN_OPTIONS

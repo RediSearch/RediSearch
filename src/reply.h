@@ -11,12 +11,23 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+enum ContainerType {
+    ContainerType_Array,
+    ContainerType_Map,
+    ContainerType_Set
+};
+
+struct RedisModule_Reply_StackEntry {
+    int count;
+    int type; // REDISMODULE_REPLY_ARRAY|MAP|SET
+};
+
 typedef struct RedisModule_Reply {
   RedisModuleCtx *ctx;
   bool resp3;
   int count;
-  arrayof(int) stack;
-  //arrayof(char) json;
+  arrayof(struct RedisModule_Reply_StackEntry) stack;
+  arrayof(char) json;
 } RedisModule_Reply;
 
 //---------------------------------------------------------------------------------------------
