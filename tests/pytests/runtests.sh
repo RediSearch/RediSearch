@@ -602,10 +602,10 @@ if [[ $CLEAR_LOGS != 0 ]]; then
 fi
 
 E=0
+MODARGS="timeout 0;"
 
 if [[ -z $COORD ]]; then
-	MODARGS="timeout 0;"
-	
+
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 	fi

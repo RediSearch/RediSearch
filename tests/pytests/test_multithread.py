@@ -246,8 +246,8 @@ def test_pipeline():
     env.assertEqual(get_pipeline(res), expected_pipeline)
 
 
-def test_burst_threads_sanity():
-    if not POWER_TO_THE_WORKERS:
+def test_invalid_config():
+    if not POWER_TO_THE_WORKERS or SANITIZER == 'address':
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
 
     # Invalid 0 worker threads with ALWAYS_USE_THREADS set to true configuration.
@@ -256,6 +256,11 @@ def test_burst_threads_sanity():
         env.assertFalse(True)  # shouldn't get here, env creation should fail.
     except Exception:
         pass
+
+
+def test_burst_threads_sanity():
+    if not POWER_TO_THE_WORKERS:
+        raise unittest.SkipTest("Skipping since worker threads are not enabled")
 
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 8 ALWAYS_USE_THREADS FALSE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -300,7 +305,7 @@ def test_workers_priority_queue():
                                                   ' ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 10000 * n_shards
+    n_vectors = 50000 * n_shards
     dim = 64
 
     # Load random vectors into redis, save the last one to use as query vector later on.
@@ -320,6 +325,7 @@ def test_workers_priority_queue():
     # Run queries during indexing
     while debug_info['BACKGROUND_INDEXING'] == 1:
         start = time.time()
+        print(env.cmd("ft.config", "get", "timeout"))
         res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param EF_RUNTIME 10000]',
                                    'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, 10,
                                    'PARAMS', 4, 'K', 10, 'vec_param', query_vec.tobytes())
