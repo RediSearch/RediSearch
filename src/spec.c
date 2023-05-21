@@ -31,7 +31,6 @@
 #include "rdb.h"
 #include "commands.h"
 #include "rmutil/cxx/chrono-clock.h"
-#include "geometry/geometry_api.h"
 #include "util/workers.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000

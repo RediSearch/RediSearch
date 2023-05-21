@@ -12,8 +12,6 @@
 #include "query_error.h"
 #include "fields_global_stats.h"
 
-
-
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
   TimeoutPolicy_Fail,         // Just fail without returning anything
@@ -220,6 +218,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define DIALECT_OFFSET(d) (1ULL << (d - MIN_DIALECT_VERSION))// offset of the d'th bit. begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
 #define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
 #define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
+#define VECSIM_DEFAULT_BLOCK_SIZE   1024
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                                                           \
@@ -238,7 +237,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .poolSizeNoAuto = 0,                                                                                              \
     .numWorkerThreads = 0,                                                                                            \
     .alwaysUseThreads = 0,                                                                                            \
-    .tieredVecSimIndexBufferLimit = 1024,                                                                                      \
+    .tieredVecSimIndexBufferLimit = VECSIM_DEFAULT_BLOCK_SIZE,                                                                                      \
     .gcConfigParams.gcScanSize = GC_SCANSIZE,                                                                                        \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                                                              \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                                        \

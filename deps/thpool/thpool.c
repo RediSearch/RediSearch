@@ -19,10 +19,10 @@
 #include <time.h>
 #if defined(__linux__)
 #include <sys/prctl.h>
+#include <assert.h>
 #endif
 
 #include "thpool.h"
-
 #include "rmalloc.h"
 
 #ifdef THPOOL_DEBUG
@@ -131,6 +131,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
   thpool_p->total_threads_count = num_threads;
   thpool_p->num_threads_alive = 0;
   thpool_p->num_threads_working = 0;
+  thpool_p->keepalive = 0;
 
   /* Initialise the job queue */
   if(priority_queue_init(&thpool_p->jobqueue) == -1) {
@@ -169,7 +170,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
 
 /* Initialise thread pool */
 void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p) {
-
+  assert(thpool_p->keepalive == 0);
   thpool_p->keepalive = 1;
 
   /* Thread init */
@@ -266,8 +267,7 @@ void redisearch_thpool_timedwait(redisearch_thpool_t* thpool_p, struct timespec 
 }
 
 void redisearch_thpool_terminate_threads(redisearch_thpool_t* thpool_p) {
-  // No need to terminate if it's NULL
-  if (thpool_p == NULL) return;
+  if(thpool_p == NULL) return;
 
   /* End each thread 's infinite loop */
   thpool_p->keepalive = 0;

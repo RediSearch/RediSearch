@@ -218,7 +218,11 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 #ifdef POWER_TO_THE_WORKERS
   // Init threadpool.
   // Threadpool size can only be set on load.
-
+  if (RSGlobalConfig.alwaysUseThreads && RSGlobalConfig.numWorkerThreads == 0) {
+    DO_LOG("warning", "Invalid configuration - cannot set ALWAYS_USE_THREADS while WORKERS_THREADS"
+           " number is set to zero");
+    return REDISMODULE_ERR;
+  }
   if(RSGlobalConfig.numWorkerThreads) {
     if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
       return REDISMODULE_ERR;
@@ -230,16 +234,12 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
       DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
     } else {
       // Otherwise, threads are not active, and we're performing inplace writes.
+      // VSS lib is async by default.
       VecSim_SetWriteMode(VecSim_WriteInPlace);
     }
   } else
 #endif
   {
-    if (RSGlobalConfig.alwaysUseThreads) {
-      DO_LOG("warning", "Invalid configuration - cannot set ALWAYS_USE_THREADS while WORKERS_THREADS"
-             " number is set to zero");
-      return REDISMODULE_ERR;
-    }
     // If we don't have a thread pool,
     // we have to make sure that we tell the vecsim library to add and delete in place (can't use submit at all)
     VecSim_SetWriteMode(VecSim_WriteInPlace);

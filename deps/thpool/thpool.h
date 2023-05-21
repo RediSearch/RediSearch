@@ -167,7 +167,6 @@ typedef void (*yieldFunc)(void *);
  *    ..
  *    struct timespec time_to_wait = {0, 100000000};  // 100 ms
  *    redisearch_thpool_timedwait(&thpool, &time_to_wait, yieldCallback, ctx);
- *    thpool_wait(thpool);
  *
  *    puts("All added work has finished");
  *    ..

@@ -690,13 +690,13 @@ RSConfigOptions RSGlobalConfigOptions = {
          .flags = RSCONFIGVAR_F_IMMUTABLE | RSCONFIGVAR_F_FLAG,
         },
         {.name = "TIERED_HNSW_BUFFER_LIMIT",
-            .helpText = "Use for setting the buffer limit threshold for vector similarity tiered"
+        .helpText = "Use for setting the buffer limit threshold for vector similarity tiered"
                         " HNSW index, so that if we are using WORKER_THREADS for indexing, and the"
                         " number of vectors waiting in the buffer to be indexed exceeds this limit, "
                         " we insert new vectors directly into HNSW",
-            .setValue = setTieredIndexBufferLimit,
-            .getValue = getTieredIndexBufferLimit,
-            .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
+        .setValue = setTieredIndexBufferLimit,
+        .getValue = getTieredIndexBufferLimit,
+        .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
         },
 #endif
         {.name = "FRISOINI",

@@ -10,7 +10,10 @@
 
 #include "redismodule.h"
 #include "thpool/thpool.h"
+#include "config.h"
 #include <assert.h>
+
+#define USE_BURST_THREADS() (RSGlobalConfig.numWorkerThreads && !RSGlobalConfig.alwaysUseThreads)
 
 // create workers thread pool
 // returns REDISMODULE_OK if thread pool created, REDISMODULE_ERR otherwise

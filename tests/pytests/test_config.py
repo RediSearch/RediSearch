@@ -218,6 +218,7 @@ def testImmutable(env):
     env.expect('ft.config', 'set', 'INDEX_THREADS').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'SEARCH_THREADS').error().contains('Not modifiable at runtime')
     if POWER_TO_THE_WORKERS:
+        env.expect('ft.config', 'set', 'ALWAYS_USE_THREADS').error().contains('Not modifiable at runtime')
         env.expect('ft.config', 'set', 'WORKER_THREADS').error().contains('Not modifiable at runtime')
         env.expect('ft.config', 'set', 'TIERED_HNSW_BUFFER_LIMIT').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'FRISOINI').error().contains('Not modifiable at runtime')

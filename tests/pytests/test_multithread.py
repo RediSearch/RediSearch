@@ -262,7 +262,6 @@ def test_burst_threads_sanity():
     n_shards = env.shardsCount
     n_vectors = 1000 * n_shards
     dim = 10
-    prefix = '_' if env.isCluster() else ''
 
     for algo in VECSIM_ALGOS:
         for data_type in VECSIM_DATA_TYPES:
@@ -279,7 +278,7 @@ def test_burst_threads_sanity():
             env.assertAlmostEqual(float(res_before[2][1]), 0, 1e-5)
 
             for _ in env.retry_with_rdb_reload():
-                debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
+                debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
                 env.assertEqual(debug_info['ALGORITHM'], 'TIERED' if algo == 'HNSW' else algo)
                 if algo == 'HNSW':
                     env.assertEqual(debug_info['BACKGROUND_INDEXING'], 0)
@@ -303,7 +302,7 @@ def test_workers_priority_queue():
     n_shards = env.shardsCount
     n_vectors = 10000 * n_shards
     dim = 64
-    prefix = '_' if env.isCluster() else ''
+
     # Load random vectors into redis, save the last one to use as query vector later on.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
                'M', '64', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
@@ -311,7 +310,7 @@ def test_workers_priority_queue():
     assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
 
     # Expect that some vectors are still being indexed in the background after we are done loading.
-    debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
+    debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
     env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1)
     vectors_left_to_index = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
     # Validate that buffer limit config was set properly (so that more vectors than the
@@ -332,7 +331,7 @@ def test_workers_priority_queue():
         env.assertLess(query_time, 1)
 
         # We expect that the number of vectors left to index will decrease from one iteration to another.
-        debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
+        debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
         vectors_left_to_index_new = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
         env.assertLessEqual(vectors_left_to_index_new, vectors_left_to_index)
         vectors_left_to_index = vectors_left_to_index_new
@@ -346,7 +345,6 @@ def test_async_updates_sanity():
     n_shards = env.shardsCount
     n_vectors = 5000 * n_shards
     dim = 32
-    prefix = '_' if env.isCluster() else ''
     block_size = 1024
 
     for data_type in VECSIM_DATA_TYPES:
@@ -358,15 +356,15 @@ def test_async_updates_sanity():
         assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
 
         # Wait until al vectors are indexed into HNSW.
-        debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
+        debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
         while debug_info['BACKGROUND_INDEXING'] == 1:
             time.sleep(1)
-            debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
+            debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
 
         # Overwrite vectors - trigger background delete and ingest jobs.
         query_vec = load_vectors_to_redis(env, n_vectors, 0, dim, data_type)
         assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
-        debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
+        debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
         marked_deleted_vectors = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
         env.assertGreater(marked_deleted_vectors, block_size/n_shards)
 
@@ -391,7 +389,7 @@ def test_async_updates_sanity():
             # vector from the main shard (of which we get info when we call ft.debug) in cluster mode.
             conn.execute_command("HSET", np.random.randint(1, n_vectors), 'vector',
                                  create_np_array_typed(np.random.rand(dim), data_type).tobytes())
-            debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
+            debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
             marked_deleted_vectors_new = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
 
             # After overwriting 1, there may be another one zombie.

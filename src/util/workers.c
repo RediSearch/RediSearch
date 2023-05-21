@@ -77,7 +77,7 @@ void workersThreadPool_Destroy(void) {
 }
 
 void workersThreadPool_InitIfRequired() {
-  if(RSGlobalConfig.numWorkerThreads && !RSGlobalConfig.alwaysUseThreads) {
+  if(USE_BURST_THREADS()) {
     // Initialize the thread pool temporarily for fast RDB loading of vector index (if needed).
     workersThreadPool_InitPool();
     RedisModule_Log(RSDummyContext, "notice", "Created workers threadpool of size %lu for loading",
@@ -86,7 +86,7 @@ void workersThreadPool_InitIfRequired() {
 }
 
 void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx) {
-  if (RSGlobalConfig.numWorkerThreads && !RSGlobalConfig.alwaysUseThreads) {
+  if (USE_BURST_THREADS()) {
     // Terminate the temporary thread pool (without deallocating it). Before that, we wait until
     // all the threads are finished the jobs currently in the queue. Note that we call RM_Yield
     // periodically while we wait, so we won't block redis for too long (for answering PING etc.)
