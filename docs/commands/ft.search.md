@@ -155,7 +155,7 @@ uses a custom query expander instead of the stemmer. See [Extensions](/redisearc
 <details open>
 <summary><code>SCORER {scorer}</code></summary>
 
-uses a custom scoring function you define. See [Extensions](/redisearch/reference/extensions).
+uses a [built-in](/redisearch/reference/scoring/) or a [user-provided](/redisearch/reference/extensions) scoring function.
 </details>
 
 <details open>
