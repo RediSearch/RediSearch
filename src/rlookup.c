@@ -119,10 +119,11 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t name_len,
   RLookupKey *key = RLookup_FindKey(lookup, name, name_len);
 
   switch (mode) {
-  // 1. if the key is already loaded, or it has created by earlier RP for writing, return NULL
-  // 2. try generating a key from the schema, including all relevant meta data
-  // 3. if the key is not found in the schema, it might be in the document.
-  //    create a new key with the name of the field, and mark it as doc-source loaded.
+  // 1. if the key is already loaded, or it has created by earlier RP for writing, return NULL (unless override was requested)
+  // 2. create a new key with the name of the field, and mark it as doc-source.
+  // 3. if the key is in the schema, mark it as schema-source and apply all the relevant flags according to the field spec.
+  // 4. if the key is "loaded" at this point (in schema, sortable and un-normalized), create the key but return NULL
+  //    (no need to load it from the document).
   case RLOOKUP_M_LOAD:
     // NOTICE: you should not call GetKey for loading if it's illegal to load the key at the given state.
     // The responsibility of checking this is on the caller.
