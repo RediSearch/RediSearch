@@ -255,6 +255,8 @@ def test_invalid_config():
         env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 0 ALWAYS_USE_THREADS TRUE')
         env.assertFalse(True)  # shouldn't get here, env creation should fail.
     except Exception:
+        # Create dummy env to collect exit gracefully.
+        env = Env()
         pass
 
 
@@ -325,7 +327,6 @@ def test_workers_priority_queue():
     # Run queries during indexing
     while debug_info['BACKGROUND_INDEXING'] == 1:
         start = time.time()
-        print(env.cmd("ft.config", "get", "timeout"))
         res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param EF_RUNTIME 10000]',
                                    'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, 10,
                                    'PARAMS', 4, 'K', 10, 'vec_param', query_vec.tobytes())
