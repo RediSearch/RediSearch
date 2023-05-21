@@ -914,4 +914,4 @@ def test_aggregate_timeout():
 
 
     env.expect('FT.AGGREGATE', 'idx', '*', 'groupby', '1', '@t1', 'REDUCE', 'count', '0', 'AS', 'count', 'TIMEOUT', '1'). \
-        equal( ['Timeout limit was reached'] if not env.isCluster() else [1, ['t1', None, 'count', '0']])
+        equal( ['Timeout limit was reached'] if not env.isCluster() else [0])
