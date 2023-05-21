@@ -272,10 +272,11 @@ def test_burst_threads_sanity():
             query_vec = load_vectors_to_redis(env, n_vectors, 0, dim, data_type)
 
             res_before = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
-                                              '__vector_score', 'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K',
-                                              n_vectors, 'vec_param', query_vec.tobytes())
-            # Expect that the first result would be the query vector itself (id 0)
-            env.assertEqual(res_before[1], '0')
+                                              '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, 10,
+                                              'PARAMS', 4, 'K', n_vectors, 'vec_param', query_vec.tobytes())
+            # Expect that the first result's would be around zero, since the query vector itself exists in the
+            # index (id 0)
+            env.assertAlmostEqual(float(res_before[2][1]), 0, 1e-5)
 
             for _ in env.retry_with_rdb_reload():
                 debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vector"))
@@ -286,11 +287,12 @@ def test_burst_threads_sanity():
 
                 # Run the same KNN query and see that we are getting the same results after the reload
                 res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
-                                           '__vector_score', 'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K', n_vectors,
-                                           'vec_param', query_vec.tobytes())
+                                           '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, 10,
+                                           'PARAMS', 4, 'K', n_vectors, 'vec_param', query_vec.tobytes())
                 env.assertEqual(res, res_before)
 
             conn.flushall()
+
 
 def test_workers_priority_queue():
     if not POWER_TO_THE_WORKERS:
@@ -320,11 +322,12 @@ def test_workers_priority_queue():
     while debug_info['BACKGROUND_INDEXING'] == 1:
         start = time.time()
         res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param EF_RUNTIME 10000]',
-                                   'SORTBY', '__vector_score', 'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10,
-                                   'vec_param', query_vec.tobytes())
+                                   'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, 10,
+                                   'PARAMS', 4, 'K', 10, 'vec_param', query_vec.tobytes())
         query_time = time.time() - start
-        # Expect that the first result would be the query vector itself (last id)
-        env.assertEqual(res[1], str(n_vectors-1))
+        # Expect that the first result's would be around zero, since the query vector itself exists in the
+        # index (last id)
+        env.assertAlmostEqual(float(res[2][1]), 0, 1e-5)
         # Validate that queries get priority and are executed before indexing finishes.
         env.assertLess(query_time, 1)
 
@@ -372,15 +375,16 @@ def test_async_updates_sanity():
         while marked_deleted_vectors > block_size/n_shards:
             start = time.time()
             res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param EF_RUNTIME 5000]',
-                                       'SORTBY', '__vector_score', 'NOCONTENT', 'LIMIT', 0, 10, 'PARAMS', 4, 'K',
-                                       10, 'vec_param', query_vec.tobytes())
+                                       'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score',
+                                       'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10, 'vec_param', query_vec.tobytes())
             query_time = time.time() - start
             # Validate that queries get priority and are executed before indexing/deletion is finished.
             env.assertLess(query_time, 1)
             # print(f"query time took {query_time} where there are {marked_deleted_vectors}")
 
-            # Expect that the first result would be the query vector itself (id 0)
-            env.assertEqual(res[1], '0')
+            # Expect that the first result's would be around zero, since the query vector itself exists in the
+            # index (id 0)
+            env.assertAlmostEqual(float(res[2][1]), 0, 1e-5)
 
             # Overwrite another vector to trigger swap jobs. Use a random vector (except for label 0
             # which is the query vector that we expect to get), to ensure that we eventually remove a
