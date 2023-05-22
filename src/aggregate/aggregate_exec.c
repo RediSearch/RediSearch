@@ -145,7 +145,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     size_t requiredFieldsCount = array_len(req->requiredFields);
       for(; currentField < requiredFieldsCount; currentField++) {
         count++;
-        const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], RLOOKUP_F_NOFLAGS);
+        const RLookupKey *rlk = RLookup_GetKey_TEMP(cv->lastLk, req->requiredFields[currentField], RLOOKUP_F_NOFLAGS);
         RSValue *v = (RSValue*)getReplyKey(rlk, r);
         if (v && v->t == RSValue_Duo) {
           // For duo value, we use the value here (not the other value)

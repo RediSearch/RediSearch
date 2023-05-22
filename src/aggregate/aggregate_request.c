@@ -195,7 +195,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       // LIMIT 0 0 - only count
       req->reqflags |= QEXEC_F_NOROWS;
       req->reqflags |= QEXEC_F_SEND_NOFIELDS;
-      // TODO: unify if when req holds only maxResults according to the query type. 
+      // TODO: unify if when req holds only maxResults according to the query type.
       //(SEARCH / AGGREGATE)
     } else if ((arng->limit > req->maxSearchResults) &&
                (req->reqflags & QEXEC_F_IS_SEARCH)) {
@@ -731,10 +731,10 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
 
 AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
-  /*   
+  /*
   unsigned int dialectVersion;
   long long queryTimeoutMS;
-  RSTimeoutPolicy timeoutPolicy; 
+  RSTimeoutPolicy timeoutPolicy;
   int printProfileClock;
   */
   req->reqConfig = RSGlobalConfig.requestConfigParams;
@@ -903,10 +903,10 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     }
   }
 
-  
+
   // set queryAST configuration parameters
   iteratorsConfig_init(&ast->config);
-  
+
   // parse inputs for optimizations
   OPTMZ(QOptimizer_Parse(req));
 
@@ -924,12 +924,12 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
   const RLookupKey *srckeys[gstp->nproperties], *dstkeys[gstp->nproperties];
   for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
     const char *fldname = gstp->properties[ii] + 1;  // account for the @-
-    srckeys[ii] = RLookup_GetKey(srclookup, fldname, RLOOKUP_F_NOFLAGS);
+    srckeys[ii] = RLookup_GetKey_TEMP(srclookup, fldname, RLOOKUP_F_NOFLAGS);
     if (!srckeys[ii]) {
       QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "No such property `%s`", fldname);
       return NULL;
     }
-    dstkeys[ii] = RLookup_GetKey(&gstp->lookup, fldname, RLOOKUP_F_OCREAT);
+    dstkeys[ii] = RLookup_GetKey_TEMP(&gstp->lookup, fldname, RLOOKUP_F_OCREAT);
   }
 
   Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties);
@@ -954,7 +954,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
 
     // Set the destination key for the grouper!
     RLookupKey *dstkey =
-        RLookup_GetKey(&gstp->lookup, pr->alias, RLOOKUP_F_OCREAT);
+        RLookup_GetKey_TEMP(&gstp->lookup, pr->alias, RLOOKUP_F_OCREAT);
     Grouper_AddReducer(grp, rr, dstkey);
   }
 
@@ -1014,7 +1014,7 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
       QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", name);
       return NULL;
     }
-    RLookupKey *key = RLookup_GetKey(rl, name, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
+    RLookupKey *key = RLookup_GetKey_TEMP(rl, name, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
     if (!key) {
       QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", name);
       return NULL;
@@ -1047,7 +1047,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     limit = DEFAULT_LIMIT;
   }
 
-  // TODO: unify if when req holds only maxResults according to the query type. 
+  // TODO: unify if when req holds only maxResults according to the query type.
   //(SEARCH / AGGREGATE)
   if (IsSearch(req) && req->maxSearchResults != UINT64_MAX) {
     limit = MIN(limit, req->maxSearchResults);
@@ -1075,7 +1075,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
 
     for (size_t ii = 0; ii < nkeys; ++ii) {
       const char *keystr = astp->sortKeys[ii];
-      RLookupKey *sortkey = RLookup_GetKey(lk, keystr, RLOOKUP_F_NOFLAGS);
+      RLookupKey *sortkey = RLookup_GetKey_TEMP(lk, keystr, RLOOKUP_F_NOFLAGS);
       if (!sortkey) {
         QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", keystr);
         return NULL;
@@ -1208,9 +1208,9 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       const ReturnedField *rf = req->outFields.fields + ii;
 
-      RLookupKey *lk = RLookup_GetOrCreateKey(lookup, rf->path, rf->name, RLOOKUP_F_ALIAS);
+      RLookupKey *lk = RLookup_GetOrCreateKey_TEMP(lookup, rf->path, rf->name, RLOOKUP_F_ALIAS);
       lk->flags |= RLOOKUP_F_EXPLICITRETURN;
-      if (is_old_json || 
+      if (is_old_json ||
       ((!(lk->flags & RLOOKUP_F_ISLOADED) && !(lk->flags & RLOOKUP_F_UNFORMATTED)))) {
         *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
         lk->flags|= RLOOKUP_F_ISLOADED;
@@ -1231,7 +1231,7 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
     RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       ReturnedField *ff = req->outFields.fields + ii;
-      RLookupKey *kk = RLookup_GetKey(lookup, ff->name, RLOOKUP_F_NOFLAGS);
+      RLookupKey *kk = RLookup_GetKey_TEMP(lookup, ff->name, RLOOKUP_F_NOFLAGS);
       if (!kk) {
         QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "No such property `%s`", ff->name);
         goto error;
@@ -1264,26 +1264,26 @@ static void PushUpStream(ResultProcessor *rp_to_place, ResultProcessor *rp) {
 // The Unlocker is placed so that its upstream rp will be the last to access Redis keyspace.
 // Main assumptions: 1. the rootProc dosn't access redis 2. rootProc != endProc
 static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
-  
+
   // Go over the pipeline and find the result processors that are the first and last to access redis.
   // We mark the first rp that accesses redis with upstream_is_buffer_locker.
   // We need to store the rp that its upstream is the result processor that is the last rp to access redis
   // in order to push the unlocker as its upstream.
 
-  // for example if the pipline is 
+  // for example if the pipline is
   // root<-sorter<-loader (an arrow signs the upstream direction)
   // upstream_is_buffer_locker = sorter, upstream_is_unlcoker = dummy
   // and the finale pipeline is:
   // root<-buffer-locker<-sorter<-loader<-unlocker
   ResultProcessor *upstream_is_buffer_locker = NULL;
   ResultProcessor *upstream_is_unlcoker = NULL;
- 
+
   ResultProcessor dummy_rp = {.upstream = req->qiter.endProc};
   ResultProcessor *curr_rp = &dummy_rp;
   // Start from the end processor and iterate beackward until the next rp
   // is the last to access redis or its a pipeline breaker.
 
-  while (curr_rp != req->qiter.rootProc && 
+  while (curr_rp != req->qiter.rootProc &&
         !(curr_rp->upstream->flags & (RESULT_PROCESSOR_F_ACCESS_REDIS | RESULT_PROCESSOR_F_BREAKS_PIPELINE))) {
     curr_rp = curr_rp->upstream;
   }
@@ -1296,7 +1296,7 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
   // The upstream rp of the curr_rp is the last to access redis, or a pipline breaker
   // we want to place the unlocker between curr_rp and its upstream.
   upstream_is_unlcoker = curr_rp;
-  
+
   // The last to access redis might be also the first to access redis.
   // We mark it to push the buffer-locker as its upstream.
   curr_rp = curr_rp->upstream;
@@ -1313,7 +1313,7 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
     curr_rp = curr_rp->upstream;
   }
 
-  // If in the first loop we stored a rp with RESULT_PROCESSOR_F_BREAKS_PIPELINE flag, 
+  // If in the first loop we stored a rp with RESULT_PROCESSOR_F_BREAKS_PIPELINE flag,
   // and the second loop didn't find any rp that needs to access redis,
   // we don't need the buffer.
   if(!(upstream_is_buffer_locker->flags & RESULT_PROCESSOR_F_ACCESS_REDIS)) {
@@ -1371,7 +1371,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
         }
         hasArrange = 1;
         rpUpstream = rp;
-        
+
         break;
       }
 
@@ -1391,7 +1391,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
 
         if (stp->type == PLN_T_APPLY) {
           RLookupKey *dstkey =
-              RLookup_GetKey(curLookup, stp->alias, RLOOKUP_F_OCREAT);
+              RLookup_GetKey_TEMP(curLookup, stp->alias, RLOOKUP_F_OCREAT);
           rp = RPEvaluator_NewProjector(mstp->parsedExpr, curLookup, dstkey);
         } else {
           rp = RPEvaluator_NewFilter(mstp->parsedExpr, curLookup);
@@ -1417,7 +1417,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
           }
           const char *name = path;
 
-          RLookupKey *kk = RLookup_GetKey(curLookup, path, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
+          RLookupKey *kk = RLookup_GetKey_TEMP(curLookup, path, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
           if (!kk) {
             // We only get a NULL return if the key already exists, which means
             // that we don't need to retrieve it again.
