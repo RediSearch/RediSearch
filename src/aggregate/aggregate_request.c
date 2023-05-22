@@ -1204,27 +1204,18 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
   const RLookupKey **loadkeys = NULL;
   if (req->outFields.explicitReturn) {
     // Go through all the fields and ensure that each one exists in the lookup stage
+    uint32_t flags = RLOOKUP_F_EXPLICITRETURN;
+    // If we have a HASH spec or a "new" JSON API version (DIALECT), we simply load all requested and missing fields.
     if (isSpecJson(req->sctx->spec) && (req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST)) {
-      // If we have a JSON spec and an "old" API version, we don't store all the data of a multi-value field
-      // in the SV, so we need to load and override all requested return fields that are SV source.
-      for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
-        const ReturnedField *rf = req->outFields.fields + ii;
-        RLookupKey *lk = RLookup_GetKey(lookup, rf->name, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
-        if (!lk || ((lk->flags & RLOOKUP_F_SVSRC) && !(lk->flags & RLOOKUP_F_ISLOADED))) {
-          lk = RLookup_GetKey_Load(lookup, rf->name, rf->path, RLOOKUP_F_EXPLICITRETURN | RLOOKUP_F_FORCE_LOAD);
-          *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
-        } else {
-          lk->flags |= RLOOKUP_F_EXPLICITRETURN;
-        }
-      }
-    } else {
-      // If we have a HASH spec or a "new" JSON API version, we simply load all requested and missing fields.
-      for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
-        const ReturnedField *rf = req->outFields.fields + ii;
-        RLookupKey *lk = RLookup_GetKey_Load(lookup, rf->name, rf->path, RLOOKUP_F_EXPLICITRETURN);
-        if (lk) {
-          *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
-        }
+      // If we have a JSON spec and an "old" API version (DIALECT), we don't store all the data of a multi-value field
+      // in the SV as we want to return it, so we need to load and override all requested return fields that are SV source.
+      flags |= RLOOKUP_F_FORCE_LOAD;
+    }
+    for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
+      const ReturnedField *rf = req->outFields.fields + ii;
+      RLookupKey *lk = RLookup_GetKey_Load(lookup, rf->name, rf->path, flags);
+      if (lk) {
+        *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
       }
     }
   }
