@@ -81,7 +81,7 @@ static void setKeyByFieldSpec(RLookupKey *key, const FieldSpec *fs) {
     if (FieldSpec_IsUnf(fs)) {
       // If the field is sortable and not normalized (UNF), the available data in the
       // sorting vector is the same as the data in the document.
-      key->flags |= RLOOKUP_F_ISLOADED;
+      key->flags |= RLOOKUP_F_VAL_AVAILABLE;
     }
   }
   if (FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
@@ -131,10 +131,17 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
     // The responsibility of checking this is on the caller.
     if (!key) {
       key = createNewKey(lookup, name, name_len);
-    } else if ((key->flags & RLOOKUP_F_ISLOADED || key->flags & RLOOKUP_F_QUERYSRC) && !(flags & RLOOKUP_F_OVERRIDE)) {
+    } else if ((key->flags & RLOOKUP_F_VAL_AVAILABLE) && !(flags & (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)) ||
+               (key->flags & RLOOKUP_F_ISLOADED &&       !(flags &  RLOOKUP_F_OVERRIDE)) ||
+               (key->flags & RLOOKUP_F_QUERYSRC &&       !(flags &  RLOOKUP_F_OVERRIDE))) {
+      // We found a key with the same name. We return NULL if:
+      // 1. The key has the origin data available (from the sorting vector, UNF) and the caller didn't
+      //    request to override or forced loading.
+      // 2. The key is already loaded (from the document) and the caller didn't request to override.
+      // 3. The key was created by the query (upstream) and the caller didn't request to override.
+
       // If the caller wanted to mark this key as explicit return, mark it as such even if we don't return it.
       key->flags |= (flags & RLOOKUP_F_EXPLICITRETURN);
-      // Already loaded or created for writing, return NULL (no override)
       return NULL;
     }
     // Sets or overrides the key's flags, and sets the key according to the flags.
@@ -144,8 +151,8 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
     const FieldSpec *fs = findFieldInSpecCache(lookup, field_name);
     if (fs) {
       setKeyByFieldSpec(key, fs);
-      if (key->flags & RLOOKUP_F_ISLOADED) {
-        // If the key is marked as loaded, it means that it is sortable and un-normalized,
+      if (key->flags & RLOOKUP_F_VAL_AVAILABLE && !(flags & RLOOKUP_F_FORCE_LOAD)) {
+        // If the key is marked as "value available", it means that it is sortable and un-normalized.
         // so we can use the sorting vector as the source, and we don't need to load it from the document.
         return NULL;
       }
