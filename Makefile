@@ -36,6 +36,8 @@ make clean         # remove build artifacts
   ALL=1|all          # remove entire artifacts directory (all: remove Conan artifacts)
 
 make run           # run redis with RediSearch
+  COORD=1|oss        # run cluster
+  WITH_RLTEST=1      # run with RLTest wapper
   GDB=1              # invoke using gdb
 
 make test          # run all tests
@@ -368,6 +370,16 @@ fetch:
 
 #----------------------------------------------------------------------------------------------
 
+CMAKE_TARGET=rscore
+
+cc:
+	@$(READIES)/bin/sep1
+	$(SHOW)$(MAKE) -C $(BINDIR) -f CMakeFiles/$(CMAKE_TARGET).dir/build.make CMakeFiles/$(CMAKE_TARGET).dir/$(FILE).o
+
+.PHONY: cc
+
+#----------------------------------------------------------------------------------------------
+
 run:
 ifeq ($(GDB),1)
 ifeq ($(CLANG),1)
@@ -375,6 +387,9 @@ ifeq ($(CLANG),1)
 else
 	$(SHOW)gdb -ex r --args redis-server --loadmodule $(abspath $(TARGET))
 endif
+else ifeq ($(RLTEST),1)
+	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) FORCE='' RLTEST= ENV_ONLY=1 \
+		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 else
 	$(SHOW)redis-server --loadmodule $(abspath $(TARGET))
 endif
@@ -585,6 +600,6 @@ SANBOX_ARGS += -v /w:/w
 endif
 
 sanbox:
-	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:16-x64-bullseye bash
+	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:16-$(ARCH)-bullseye bash
 
 .PHONY: box sanbox
