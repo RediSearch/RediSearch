@@ -91,6 +91,7 @@ static bool spellCheckReplySanity(int count, MRReply** replies, uint64_t* totalD
       return false;
     }
 
+    if (MRReply_Type(replies[i]) == MR_REPLY_MAP) { _BB; } //@@
     if (MRReply_Type(replies[i]) != MR_REPLY_ARRAY) {
       QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected array. Got %d",
                              MRReply_Type(replies[i]));
@@ -135,6 +136,7 @@ static bool spellCheckAnalizeResult(spellcheckReducerCtx* ctx, MRReply* reply) {
     return true;
   }
 
+  if (MRReply_Type(termSuggestionsReply) == MR_REPLY_MAP) { _BB; } //@@
   if (MRReply_Type(termSuggestionsReply) != MR_REPLY_ARRAY) {
     return false;
   }
@@ -142,6 +144,7 @@ static bool spellCheckAnalizeResult(spellcheckReducerCtx* ctx, MRReply* reply) {
   int i;
   for (i = 0; i < MRReply_Length(termSuggestionsReply); ++i) {
     MRReply* termSuggestionReply = MRReply_ArrayElement(termSuggestionsReply, i);
+    if (MRReply_Type(termSuggestionsReply) == MR_REPLY_MAP) { _BB; } //@@
     if (MRReply_Type(termSuggestionReply) != MR_REPLY_ARRAY) {
       return false;
     }
@@ -213,6 +216,7 @@ int spellCheckReducer(struct MRCtx* mc, int count, MRReply** replies) {
   for (int i = 0; i < count; ++i) {
     for (int j = 1; j < MRReply_Length(replies[i]); ++j) {
       MRReply* termReply = MRReply_ArrayElement(replies[i], j);
+      if (MRReply_Type(termReply) == MR_REPLY_MAP) { _BB; } //@@
       if (MRReply_Type(termReply) != MR_REPLY_ARRAY) {
         spellcheckReducerCtx_Free(spellcheckCtx);
         RedisModule_ReplyWithError(ctx, "bad reply returned");

@@ -70,16 +70,19 @@ static inline void json_add_close(RedisModule_Reply *reply, const char *s) {
 #else
 
 static inline void json_add(RedisModule_Reply *reply, const char *fmt, ...) {}
+static inline void json_add_close(RedisModule_Reply *reply, const char *s) {}
 
 #endif
 
 //---------------------------------------------------------------------------------------------
 
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx) {
-  RedisModule_Reply reply = { ctx, _ReplyMap(ctx), 0, NULL, NULL };
 #ifdef REDISMODULE_REPLY_DEBUG
+  RedisModule_Reply reply = { ctx, _ReplyMap(ctx), 0, NULL, NULL };
   reply.json = array_ensure_tail(&reply.json, char);
   *reply.json = '\0';
+#else
+  RedisModule_Reply reply = { ctx, _ReplyMap(ctx), 0, NULL };
 #endif
   return reply;
 }
@@ -313,9 +316,9 @@ int RedisModule_ReplyKV_SimpleString(RedisModule_Reply *reply, const char *key, 
   RedisModule_ReplyWithSimpleString(reply->ctx, key);
   RedisModule_ReplyWithSimpleString(reply->ctx, val);
   if (reply->resp3) {
-    json_add(reply, "\"%s\": %s", key, val);
+    json_add(reply, "\"%s\": \"%s\"", key, val);
   } else {
-    json_add(reply, "\"%s\", %s", key, val);
+    json_add(reply, "\"%s\", \"%s\"", key, val);
   }
   _RedisModule_ReplyKV_Next(reply);
   return REDISMODULE_OK;
@@ -325,9 +328,9 @@ int RedisModule_ReplyKV_StringBuffer(RedisModule_Reply *reply, const char *key, 
   RedisModule_ReplyWithSimpleString(reply->ctx, key);
   RedisModule_ReplyWithStringBuffer(reply->ctx, val, len);
   if (reply->resp3) {
-    json_add(reply, "\"%s\": %s", key, len, val);
+    json_add(reply, "\"%s\": \"%*s\"", key, len, val);
   } else {
-    json_add(reply, "\"%s\", %s", key, len, val);
+    json_add(reply, "\"%s\", \"%*s\"", key, len, val);
   }
   _RedisModule_ReplyKV_Next(reply);
   return REDISMODULE_OK;
@@ -393,6 +396,8 @@ int RedisModule_ReplyKV_Map(RedisModule_Reply *reply, const char *key) {
 
 //---------------------------------------------------------------------------------------------
 
+#ifdef REDISMODULE_REPLY_DEBUG
+
 void print_reply(RedisModule_Reply *reply) {
   puts("");
   printf("count: %d\n", reply->count);
@@ -425,5 +430,7 @@ void print_reply(RedisModule_Reply *reply) {
   }
   puts("\n");
 }
+
+#endif // REDISMODULE_REPLY_DEBUG
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

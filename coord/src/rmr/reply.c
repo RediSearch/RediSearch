@@ -61,6 +61,10 @@ void MRReply_Print(FILE *fp, MRReply *r) {
       }
       fprintf(fp, "]");
       break;
+
+    case MR_REPLY_MAP: //@@
+      _BB;
+      break;
   }
 }
 

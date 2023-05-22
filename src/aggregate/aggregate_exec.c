@@ -289,6 +289,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   SearchResult r = {0};
   int rc = RS_RESULT_EOF;
   ResultProcessor *rp = req->qiter.endProc;
+  bool has_map = RedisModule_HasMap(reply);
 
   if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !(req->reqflags & QEXEC_F_IS_SEARCH)) {
     limit = req->maxAggregateResults;
@@ -298,91 +299,178 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   cv.lastLk = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_LAST);
   cv.lastAstp = AGPLN_GetArrangeStep(&req->ap);
 
-  rc = rp->Next(rp, &r);
-  long resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
-  if (rc == RS_RESULT_TIMEDOUT && !(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
-      req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-    resultsLen = 1;
-  } else if (rc == RS_RESULT_ERROR) {
-    resultsLen = 2;
-  } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
-             req->optimizer->type != Q_OPT_NO_SORTER) {
-    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
-    size_t reqLimit = arng && arng->isLimited? arng->limit : DEFAULT_LIMIT;
-    size_t reqOffset = arng && arng->isLimited? arng->offset : 0;
-    size_t resultFactor = getResultsFactor(req);
+  //-------------------------------------------------------------------------------------------
+  if (has_map) { // RESP3 variant
+    RedisModule_ReplyKV_Array(reply, "fields_names");
+    RedisModule_Reply_ArrayEnd(reply);
 
-    size_t expected_res = reqLimit + reqOffset <= req->maxSearchResults ? req->qiter.totalResults : MIN(req->maxSearchResults, req->qiter.totalResults);
-    size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
+    rc = rp->Next(rp, &r);
+    long resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
+    if (rc == RS_RESULT_TIMEDOUT && !(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
+        req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+      resultsLen = 0;
+    } else if (rc == RS_RESULT_ERROR) {
+      resultsLen = 0;
+    } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
+               req->optimizer->type != Q_OPT_NO_SORTER) {
+      PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
+      size_t reqLimit = arng && arng->isLimited? arng->limit : DEFAULT_LIMIT;
+      size_t reqOffset = arng && arng->isLimited? arng->offset : 0;
+      size_t resultFactor = getResultsFactor(req);
+  
+      size_t expected_res = reqLimit + reqOffset <= req->maxSearchResults ? req->qiter.totalResults : MIN(req->maxSearchResults, req->qiter.totalResults);
+      size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
+  
+      resultsLen = MIN(limit, MIN(reqLimit, reqResults));
+    }
+  
+    OPTMZ(QOptimizer_UpdateTotalResults(req));
+  
+    RedisModule_ReplyKV_Array(reply, "error");
+      if (rc == RS_RESULT_TIMEDOUT) {
+        RedisModule_Reply_SimpleString(reply, "Timeout limit was reached");
+      } else if (rc == RS_RESULT_ERROR) {
+        RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
+        QueryError_ClearError(req->qiter.err);
+      }
+    RedisModule_Reply_ArrayEnd(reply);
 
-    resultsLen = 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
-  }
-
-  RedisModule_Reply_Array(reply); // results
-
-  OPTMZ(QOptimizer_UpdateTotalResults(req));
-
-  if (rc == RS_RESULT_TIMEDOUT) {
-    if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
-       req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-      RedisModule_Reply_SimpleString(reply, "Timeout limit was reached");
+    if (rc == RS_RESULT_TIMEDOUT) {
+      if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
+          req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+        RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
+      } else {
+        rc = RS_RESULT_OK;
+        RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
+      }
+    } else if (rc == RS_RESULT_ERROR) {
+      RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
+      nelem++;
     } else {
-      rc = RS_RESULT_OK;
+      RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
+    }
+    nelem++;
+  
+    RedisModule_ReplyKV_Array(reply, "results");
+    nelem = 0;
+  
+    if (rc == RS_RESULT_OK && nrows++ < limit && !(req->reqflags & QEXEC_F_NOROWS)) {
+      serializeResult(req, reply, &r, &cv);
+      nelem++;
+    }
+  
+    SearchResult_Clear(&r);
+    if (rc != RS_RESULT_OK) {
+      goto done_3;
+    }
+  
+    while (nrows++ < limit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+      if (!(req->reqflags & QEXEC_F_NOROWS)) {
+        serializeResult(req, reply, &r, &cv);
+        nelem++;
+      }
+      // Serialize it as a search result
+      SearchResult_Clear(&r);
+    }
+  
+done_3:
+    SearchResult_Destroy(&r);
+    if (rc != RS_RESULT_OK) {
+      req->stateflags |= QEXEC_S_ITERDONE;
+    }
+  
+    // Reset the total results length:
+    req->qiter.totalResults = 0;
+    if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN) {
+      RedisModule_Reply_ArrayEnd(reply);
+    }
+  } 
+  //-------------------------------------------------------------------------------------------
+  else // ! has_map (RESP2 variant)
+  { 
+    rc = rp->Next(rp, &r);
+    long resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
+    if (rc == RS_RESULT_TIMEDOUT && !(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
+        req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+      resultsLen = 1;
+    } else if (rc == RS_RESULT_ERROR) {
+      resultsLen = 2;
+    } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
+               req->optimizer->type != Q_OPT_NO_SORTER) {
+      PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
+      size_t reqLimit = arng && arng->isLimited? arng->limit : DEFAULT_LIMIT;
+      size_t reqOffset = arng && arng->isLimited? arng->offset : 0;
+      size_t resultFactor = getResultsFactor(req);
+  
+      size_t expected_res = reqLimit + reqOffset <= req->maxSearchResults ? req->qiter.totalResults : MIN(req->maxSearchResults, req->qiter.totalResults);
+      size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
+  
+      resultsLen = 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
+    }
+  
+    RedisModule_Reply_Array(reply); // results
+  
+    OPTMZ(QOptimizer_UpdateTotalResults(req));
+  
+    if (rc == RS_RESULT_TIMEDOUT) {
+      if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
+         req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+        RedisModule_Reply_SimpleString(reply, "Timeout limit was reached");
+      } else {
+        rc = RS_RESULT_OK;
+        RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
+      }
+    } else if (rc == RS_RESULT_ERROR) {
+      RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
+      RedisModule_Reply_Array(reply);
+        // QueryError_ReplyAndClear(reply->ctx, req->qiter.err);
+        RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
+        QueryError_ClearError(req->qiter.err);
+      RedisModule_Reply_ArrayEnd(reply);
+      nelem++;
+    } else {
       RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
     }
-  } else if (rc == RS_RESULT_ERROR) {
-    RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
-    RedisModule_Reply_Array(reply);
-      // QueryError_ReplyAndClear(reply->ctx, req->qiter.err);
-      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
-      QueryError_ClearError(req->qiter.err);
-    RedisModule_Reply_ArrayEnd(reply);
     nelem++;
-  } else {
-    RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
-  }
-  nelem++;
-
-  if (rc == RS_RESULT_OK && nrows++ < limit && !(req->reqflags & QEXEC_F_NOROWS)) {
-    nelem += serializeResult(req, reply, &r, &cv);
-  }
-
-  SearchResult_Clear(&r);
-  if (rc != RS_RESULT_OK) {
-    goto done;
-  }
-
-  while (nrows++ < limit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
-    if (!(req->reqflags & QEXEC_F_NOROWS)) {
+  
+    if (rc == RS_RESULT_OK && nrows++ < limit && !(req->reqflags & QEXEC_F_NOROWS)) {
       nelem += serializeResult(req, reply, &r, &cv);
     }
-    // Serialize it as a search result
+  
     SearchResult_Clear(&r);
-  }
-
-done:
-  RedisModule_Reply_ArrayEnd(reply); // results
-  SearchResult_Destroy(&r);
-  if (rc != RS_RESULT_OK) {
-    req->stateflags |= QEXEC_S_ITERDONE;
-  }
-
-  // Reset the total results length:
-  req->qiter.totalResults = 0;
-  if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN || rc != RS_RESULT_OK) {
-    return;
-  }
-  if (resultsLen != nelem) {
-    _BB;
-    RedisModule_Log(RSDummyContext, "warning", "Failed predict number of replied, prediction=%ld, actual_number=%ld.", resultsLen, nelem);
-    RS_LOG_ASSERT(0, "Precalculated number of replies must be equal to actual number");
+    if (rc != RS_RESULT_OK) {
+      goto done_2;
+    }
+  
+    while (nrows++ < limit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+      if (!(req->reqflags & QEXEC_F_NOROWS)) {
+        nelem += serializeResult(req, reply, &r, &cv);
+      }
+      // Serialize it as a search result
+      SearchResult_Clear(&r);
+    }
+  
+done_2:
+    RedisModule_Reply_ArrayEnd(reply); // results
+    SearchResult_Destroy(&r);
+    if (rc != RS_RESULT_OK) {
+      req->stateflags |= QEXEC_S_ITERDONE;
+    }
+  
+    // Reset the total results length:
+    req->qiter.totalResults = 0;
+    if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN || rc != RS_RESULT_OK) {
+      return;
+    }
+    if (resultsLen != nelem) {
+      RedisModule_Log(RSDummyContext, "warning", "Failed predict number of replied, prediction=%ld, actual_number=%ld.", resultsLen, nelem);
+      RS_LOG_ASSERT(0, "Precalculated number of replies must be equal to actual number");
+    }
   }
 }
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
-  _BB;
   if (IsProfile(req)) {
     RedisModule_Reply_Map(reply);
   }/* else if (RedisModule_HasMap(reply)) {
@@ -591,8 +679,6 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_WrongArity(ctx);
   }
 
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
   AREQ *r = AREQ_New();
   QueryError status = {0};
   if (parseProfile(r, withProfile, argv, argc, &status) != REDISMODULE_OK) {
@@ -610,7 +696,9 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
       goto error;
     }
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     int rc = AREQ_StartCursor(r, reply, r->sctx->spec->name, &status);
+    RedisModule_EndReply(reply);
     if (rc != REDISMODULE_OK) {
       goto error;
     }
@@ -641,8 +729,6 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 
 error:
-  RedisModule_EndReply(reply);
-
   if (r) {
     AREQ_Free(r);
   }
@@ -650,7 +736,6 @@ error:
 }
 
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  _BB;
   return execCommandCommon(ctx, argv, argc, COMMAND_AGGREGATE, NO_PROFILE);
 }
 

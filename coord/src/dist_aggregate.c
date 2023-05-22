@@ -46,6 +46,7 @@ static int getCursorCommand(MRReply *prev, MRCommand *cmd) {
 
 static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd) {
   // Should we assert this??
+  if (MRReply_Type(rep) == MR_REPLY_MAP) { _BB; } //@@
   if (!rep || MRReply_Type(rep) != MR_REPLY_ARRAY || 
              (MRReply_Length(rep) != 2 && MRReply_Length(rep) != 3)) {
     if (MRReply_Type(rep) == MR_REPLY_ERROR) {
@@ -63,6 +64,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand
 
   // Push the reply down the chain
   MRReply *arr = MRReply_ArrayElement(rep, 0);
+  if (MRReply_Type(arr) == MR_REPLY_MAP) { _BB; } //@@
   if (arr && MRReply_Type(arr) == MR_REPLY_ARRAY && MRReply_Length(arr) > 1) {
     MRIteratorCallback_AddReply(ctx, rep);
     // User code now owns the reply, so we can't free it here ourselves!
@@ -117,6 +119,10 @@ RSValue *MRReply_ToValue(MRReply *r) {
       v = RSValue_NewArrayEx(arr, MRReply_Length(r), RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
       break;
     }
+    case MR_REPLY_MAP:
+      _BB; //@@
+      break;
+
     case MR_REPLY_NIL:
     default:
       v = RS_NullVal();
@@ -154,6 +160,7 @@ static int getNextReply(RPNet *nc) {
     }
 
     MRReply *rows = MRReply_ArrayElement(root, 0);
+    if (MRReply_Type(rows) == MR_REPLY_MAP) { _BB; } //@@
     if (rows == NULL || MRReply_Type(rows) != MR_REPLY_ARRAY || MRReply_Length(rows) == 0) {
       MRReply_Free(root);
       RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");

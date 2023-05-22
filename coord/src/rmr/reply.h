@@ -25,6 +25,7 @@
 #define MR_REPLY_BOOL 8
 #define MR_REPLY_MAP 9
 #define MR_REPLY_SET 10
+
 #define MR_REPLY_ATTR 11
 #define MR_REPLY_PUSH 12
 #define MR_REPLY_BIGNUM 13

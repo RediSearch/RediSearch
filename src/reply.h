@@ -9,9 +9,15 @@
 #include "util/arr.h"
 #include "redismodule.h"
 
+#ifndef __cplusplus
+#include <stdbool.h>
+#endif
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+#ifdef _DEBUG
 #define REDISMODULE_REPLY_DEBUG 1
+#endif
 
 enum ContainerType {
     ContainerType_Array,

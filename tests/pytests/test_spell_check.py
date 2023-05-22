@@ -80,6 +80,7 @@ def testBasicSpellCheckWithNoResult():
 
 
 def testSpellCheckOnExistingTerm():
+    BB()
     env = Env()
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     waitForIndex(env, 'idx')

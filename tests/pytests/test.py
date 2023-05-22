@@ -9,6 +9,7 @@ from RLTest import Env
 from includes import *
 from common import *
 
+
 # this tests is not longer relevant
 # def testAdd(env):
 #     if env.is_cluster():
@@ -750,7 +751,7 @@ def testPrefixNodeCaseSensitive(env):
     # can check both prefix and suffix modes.
     queries_expectations = {
         "TEXT": {
-            "lowercase": 
+            "lowercase":
             {  "query": ["@t:(*el*)"],
                 "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
             },
@@ -758,7 +759,7 @@ def testPrefixNodeCaseSensitive(env):
             {  "query": ["@t:(*$p*)", "PARAMS", "2", "p", "el", "DIALECT", "2" ],
                 "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
             },
-            "uppercase": 
+            "uppercase":
             {  "query": ["@t:(*EL*)"],
                 "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
             },
@@ -1394,6 +1395,7 @@ def testExpander(env):
     env.assertEqual(1, res[0])
 
 def testNumericRange(env):
+    BB()
     r = env
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'score', 'numeric', 'price', 'numeric').ok()
 

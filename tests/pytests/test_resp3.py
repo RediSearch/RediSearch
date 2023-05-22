@@ -2,11 +2,11 @@ from includes import *
 from common import *
 from unittest.mock import ANY
 import operator
-from pprint import pprint
 
 
 def test_1():
-    env = Env(protocol=2)
+    BB()
+    env = Env(protocol=3)
     env.cmd('SEARCH.CLUSTERINFO')
 
 def test_2(env):
@@ -14,7 +14,7 @@ def test_2(env):
     env = Env(protocol=3)
     env.cmd('FT.CREATE', 'doc', 'PREFIX', 1, 'doc:', 'SCHEMA', 'name', 'TEXT')
     res = env.cmd('ft.info', 'doc')
-    pprint(res)
+    pp(res)
     print('done')
 
 def redis_version(con, is_cluster=False):
@@ -102,16 +102,16 @@ class testResp3():
         # test with profile
         res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', "*")
         assert res == \
-            {'fields_names': [], 'error': [], 'total_results': 2, 'results': 
-             [{'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []}, 
-              {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []}], 
-              'profile': 
-              [['Total profile time', ANY], ['Parsing time', ANY], 
-               ['Pipeline creation time', ANY], 
-               ['Iterators profile', ['Type', 'WILDCARD', 'Time', ANY, 'Counter', 2]], 
-               ['Result processors profile', ['Type', 'Index', 'Time', ANY, 'Counter', 2], 
-                ['Type', 'Scorer', 'Time', ANY, 'Counter', 2], 
-                ['Type', 'Sorter', 'Time', ANY, 'Counter', 2], 
+            {'fields_names': [], 'error': [], 'total_results': 2, 'results':
+             [{'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []},
+              {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []}],
+              'profile':
+              [['Total profile time', ANY], ['Parsing time', ANY],
+               ['Pipeline creation time', ANY],
+               ['Iterators profile', ['Type', 'WILDCARD', 'Time', ANY, 'Counter', 2]],
+               ['Result processors profile', ['Type', 'Index', 'Time', ANY, 'Counter', 2],
+                ['Type', 'Scorer', 'Time', ANY, 'Counter', 2],
+                ['Type', 'Sorter', 'Time', ANY, 'Counter', 2],
                 ['Type', 'Loader', 'Time', ANY, 'Counter', 2]]]}
 
         # test with timeout
@@ -144,25 +144,48 @@ class testResp3():
         res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 2, "f1", "f2")
 
         res['results'].sort(key=lambda x: "" if x['fields'].get('f2') == None else x['fields'].get('f2'))
-        assert res == {'fields_names': [], 'error': [], 'total_results': 1, 
-                       'results': [{'fields': {}, 'fields_values': []}, 
-                                   {'fields': {'f1': '3', 'f2': '2'}, 'fields_values': []}, 
+        assert res == {'fields_names': [], 'error': [], 'total_results': 1,
+                       'results': [{'fields': {}, 'fields_values': []},
+                                   {'fields': {'f1': '3', 'f2': '2'}, 'fields_values': []},
                                    {'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []}]}
 
         res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3")
         res['results'].sort(key=lambda x: "" if x['fields'].get('f2') == None else x['fields'].get('f2'))
-        assert res == {'fields_names': [], 'error': [], 'total_results': 1, 'results': 
-                       [{'fields': {}, 'fields_values': []}, 
-                        {'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []}, 
+        assert res == {'fields_names': [], 'error': [], 'total_results': 1, 'results':
+                       [{'fields': {}, 'fields_values': []},
+                        {'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []},
                         {'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []}]}
 
         # test with sortby
         res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "SORTBY", 2, "@f2", "DESC")
-        assert res == {'fields_names': [], 'error': [], 'total_results': 3, 
+        assert res == {'fields_names': [], 'error': [], 'total_results': 3,
                        'results': [
-                           {'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []}, 
-                           {'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []}, 
+                           {'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []},
+                           {'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []},
                            {'fields': {}, 'fields_values': []}]}
+
+    def test_cursor(self):
+        env = self.env
+        if should_skip(env):
+            env.skip()
+
+        env.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
+        env.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
+        env.execute_command('HSET', 'doc3', 'f5', '4')
+        env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
+                            "SCHEMA", "f1", "TEXT", "f2", "TEXT")
+
+        waitForIndex(env, 'idx1')
+
+        res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "SORTBY", 2, "@f2", "DESC", "WITHCURSOR", 'COUNT', 1)
+        assert res == {'fields_names': [], 'error': [], 'total_results': 3, 'results': [{'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []}], 'cursor': ANY}
+
+        res = env.execute_command('FT.CURSOR', 'READ', 'idx1', res['cursor'])
+        assert res == {'fields_names': [], 'error': [], 'total_results': 0, 'results': [{'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []}], 'cursor': ANY}
+        res = env.execute_command('FT.CURSOR', 'READ', 'idx1', res['cursor'])
+        assert res == {'fields_names': [], 'error': [], 'total_results': 0, 'results': [{'fields': {}, 'fields_values': []}], 'cursor': ANY}
+        res = env.execute_command('FT.CURSOR', 'READ', 'idx1', res['cursor'])
+        assert res == {'fields_names': [], 'error': [], 'total_results': 0, 'results': [], 'cursor': 0}
 
     def test_list(self):
         env = self.env
@@ -257,7 +280,7 @@ class testResp3():
         env.assertEqual(env.execute_command('ft.synupdate', 'idx', 'id2', 'baby', 'child'), 'OK')
         env.assertEqual(env.execute_command('ft.synupdate', 'idx', 'id3', 'tree', 'wood'), 'OK')
         res = env.execute_command('ft.syndump', 'idx')
-        assert res == {'baby': ['id2'], 'wood': ['id3'], 'boy': ['id1'], 
+        assert res == {'baby': ['id2'], 'wood': ['id3'], 'boy': ['id1'],
                        'tree': ['id3'], 'child': ['id1', 'id2'], 'offspring': ['id1']}
 
     def test_tagvals(self):

@@ -170,6 +170,7 @@ static void handleSpecialField(InfoFields *fields, const char *name, MRReply *va
 
 static void processKvArray(InfoFields *fields, MRReply *array, InfoValue *dsts, InfoFieldSpec *specs,
                            size_t numFields, int onlyScalarValues) {
+  if (MRReply_Type(array) == MR_REPLY_MAP) { _BB; } //@@
   if (MRReply_Type(array) != MR_REPLY_ARRAY) { //@@ MAP!
     return;
   }
@@ -230,8 +231,7 @@ static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue
 }
 
 static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
-  _BB;
-  reply->resp3 = false; //@@ TODO: remove
+  //reply->resp3 = false; //@@ TODO: remove
   RedisModule_Reply_Map(reply);
 
   // Respond with the name, schema, and options
@@ -281,6 +281,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  // _BB;
 
   for (size_t ii = 0; ii < count; ++ii) {
     if (MRReply_Type(replies[ii]) == MR_REPLY_ERROR) {
@@ -294,6 +295,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
       }
       continue;
     }
+    if (MRReply_Type(replies[ii]) == MR_REPLY_MAP) { _BB; } //@@
     if (MRReply_Type(replies[ii]) != MR_REPLY_ARRAY) {
       continue;  // Ooops!
     }
