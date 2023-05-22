@@ -430,7 +430,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         PLN_LoadStep *lstp = (PLN_LoadStep *)cur;
         for (size_t ii = 0; ii < AC_NumArgs(&lstp->args); ++ii) {
           const char *s = stripAtPrefix(AC_StringArg(&lstp->args, ii));
-          RLookup_GetKey(lookup, s, RLOOKUP_F_OCREAT);
+          RLookup_GetKey_TEMP(lookup, s, RLOOKUP_F_OCREAT);
         }
         break;
       }
@@ -438,18 +438,18 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         PLN_GroupStep *gstp = (PLN_GroupStep *)cur;
         for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
           const char *propname = stripAtPrefix(gstp->properties[ii]);
-          RLookup_GetKey(lookup, propname, RLOOKUP_F_OCREAT);
+          RLookup_GetKey_TEMP(lookup, propname, RLOOKUP_F_OCREAT);
         }
         for (size_t ii = 0; ii < array_len(gstp->reducers); ++ii) {
           PLN_Reducer *r = gstp->reducers + ii;
           // Register the aliases they are registered under as well
-          RLookup_GetKey(lookup, r->alias, RLOOKUP_F_OCREAT);
+          RLookup_GetKey_TEMP(lookup, r->alias, RLOOKUP_F_OCREAT);
         }
         break;
       }
       case PLN_T_APPLY: {
         PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)cur;
-        RLookup_GetKey(lookup, mstp->base.alias, RLOOKUP_F_OCREAT);
+        RLookup_GetKey_TEMP(lookup, mstp->base.alias, RLOOKUP_F_OCREAT);
         break;
       }
       case PLN_T_FILTER:

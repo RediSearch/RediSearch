@@ -87,9 +87,9 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
     case '*':
       res = n1 * n2;
       break;
-    case '%':	      
+    case '%':
         // workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=30484
-        if (n2 == -1){ 
+        if (n2 == -1){
           res = 0;
         } else if (n2 != 0) {
           res = (long long)n1 % (long long)n2;
@@ -116,7 +116,7 @@ cleanup:
 
 static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *r, RSCondition op) {
   QueryError *qerr = eval ? eval->err : NULL;
-  
+
   l = RSValue_Dereference(l);
   r = RSValue_Dereference(r);
 
@@ -265,7 +265,7 @@ int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
 
   switch (expr->t) {
     case RSExpr_Property:
-      expr->property.lookupObj = RLookup_GetKey(lookup, expr->property.key, RLOOKUP_F_NOFLAGS);
+      expr->property.lookupObj = RLookup_GetKey_TEMP(lookup, expr->property.key, RLOOKUP_F_NOFLAGS);
       if (!expr->property.lookupObj) {
         QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "Property `%s` not loaded in pipeline",
                                expr->property.key);
@@ -367,7 +367,7 @@ void EvalCtx_Destroy(EvalCtx *r) {
 //---------------------------------------------------------------------------------------------
 
 RLookupKey *EvalCtx_Set(EvalCtx *r, const char *name, RSValue *val) {
-  RLookupKey *lkk = RLookup_GetKey(&r->lk, name, RLOOKUP_F_OCREAT);
+  RLookupKey *lkk = RLookup_GetKey_TEMP(&r->lk, name, RLOOKUP_F_OCREAT);
   if (lkk != NULL) {
     RLookup_WriteOwnKey(lkk, &r->row, val);
   }
