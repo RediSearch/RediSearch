@@ -681,7 +681,7 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
   sc->loadopts.forceString = 1;
   sc->loadopts.noSortables = 1;
   sc->loadopts.status = &sc->status;
-  sc->loadopts.sctx = NULL;
+  sc->loadopts.sctx = NULL; // TODO: can be set in the constructor
   sc->loadopts.dmd = NULL;
   sc->loadopts.keys = sc->fields;
   sc->loadopts.nkeys = sc->nfields;
