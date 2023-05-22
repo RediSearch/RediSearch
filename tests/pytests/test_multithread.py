@@ -335,7 +335,8 @@ def test_workers_priority_queue():
         # index (last id)
         env.assertAlmostEqual(float(res[2][1]), 0, 1e-5)
         # Validate that queries get priority and are executed before indexing finishes.
-        env.assertLess(query_time, 1)
+        if not SANITIZER and not CODE_COVERAGE:
+            env.assertLess(query_time, 1)
 
         # We expect that the number of vectors left to index will decrease from one iteration to another.
         debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
@@ -384,8 +385,8 @@ def test_async_updates_sanity():
                                        'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10, 'vec_param', query_vec.tobytes())
             query_time = time.time() - start
             # Validate that queries get priority and are executed before indexing/deletion is finished.
-            env.assertLess(query_time, 1)
-            # print(f"query time took {query_time} where there are {marked_deleted_vectors}")
+            if not SANITIZER and not CODE_COVERAGE:
+                env.assertLess(query_time, 1)
 
             # Expect that the first result's would be around zero, since the query vector itself exists in the
             # index (id 0)
