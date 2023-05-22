@@ -231,16 +231,14 @@ typedef enum {
 #define RLOOKUP_F_EXPLICITRETURN 0x200
 
 /**
- * This key's value is already available in the RLookup table.
- * For example, if an upstream result processor already loaded the value from redis key-space,
- * or it was opened for read but the field is sortable and not normalized.
+ * This key's value is already available in the RLookup table,
+ * if it was opened for read but the field is sortable and not normalized,
+ * so the data should be exactly the same as in the doc.
  */
 #define RLOOKUP_F_VAL_AVAILABLE 0x400
 
 /**
- * This key's value is already available in the RLookup table.
- * For example, if an upstream result processor already loaded the value from redis key-space,
- * or it was opened for read but the field is sortable and not normalized.
+ * This key's value was loaded (by a loader) from the document itself.
  */
 #define RLOOKUP_F_ISLOADED 0x800
 
