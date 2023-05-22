@@ -81,7 +81,7 @@ def expireDocs(env, isSortable, expected_results):
     '''
     This test creates an index and two documents
     We disable active expiration
-    One of the documents is expired. As a result we fail to open the key in Redis key-space.
+    One of the documents is expired. As a result we fail to open the key in Redis keyspace.
     The test checks the expected output, which depends on wether the field is sortable and if the query should be sorted by this field.
     The document will be loaded in the loader, which doesn't discard results in case that the load fails, but no data is stored in the look up table,
     hence we return 'None'.

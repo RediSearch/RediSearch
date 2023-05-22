@@ -131,9 +131,10 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
     // The responsibility of checking this is on the caller.
     if (!key) {
       key = createNewKey(lookup, name, name_len);
-    } else if ((key->flags & RLOOKUP_F_VAL_AVAILABLE) && !(flags & (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)) ||
-               (key->flags & RLOOKUP_F_ISLOADED &&       !(flags &  RLOOKUP_F_OVERRIDE)) ||
-               (key->flags & RLOOKUP_F_QUERYSRC &&       !(flags &  RLOOKUP_F_OVERRIDE))) {
+    } else if (((key->flags & RLOOKUP_F_VAL_AVAILABLE) && !(key->flags & RLOOKUP_F_ISLOADED)) &&
+                                                          !(flags & (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)) ||
+                (key->flags & RLOOKUP_F_ISLOADED &&       !(flags &  RLOOKUP_F_OVERRIDE)) ||
+                (key->flags & RLOOKUP_F_QUERYSRC &&       !(flags &  RLOOKUP_F_OVERRIDE))) {
       // We found a key with the same name. We return NULL if:
       // 1. The key has the origin data available (from the sorting vector, UNF) and the caller didn't
       //    request to override or forced loading.

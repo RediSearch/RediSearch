@@ -830,7 +830,7 @@ ResultProcessor *RPCounter_New() {
  * Redis keyspace is required.
  *
  * The buffer is responsible for buffering the document that pass the query filters and lock the access
- * to Redis keysapce to allow the downstream result processor a thread safe access to it.
+ * to Redis keyspace to allow the downstream result processor a thread safe access to it.
  *
  * Unlocking Redis should be done only by the Unlocker result processor.
  *******************************************************************************************************************/

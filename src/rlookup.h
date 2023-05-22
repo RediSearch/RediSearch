@@ -175,7 +175,7 @@ RLookupKey *RLookup_GetOrCreateKey_TEMP(RLookup *lookup, const char *path, const
 typedef enum {
   RLOOKUP_M_READ,   // Get key for reading (create only if in schema and sortable)
   RLOOKUP_M_WRITE,  // Get key for writing
-  RLOOKUP_M_LOAD,   // Load key from redis key-space (include known information on the key, fail if already loaded)
+  RLOOKUP_M_LOAD,   // Load key from redis keyspace (include known information on the key, fail if already loaded)
 } RLookupMode;
 
 #define RLOOKUP_F_NOFLAGS 0x0 // No special flags to pass.
