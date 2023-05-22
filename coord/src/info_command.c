@@ -32,6 +32,7 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "doc_table_size_mb", .type = InfoField_DoubleSum},
     {.name = "sortable_values_size_mb", .type = InfoField_DoubleSum},
     {.name = "key_table_size_mb", .type = InfoField_DoubleSum},
+    {.name = "total_geometries_index_size_mb", .type = InfoField_DoubleSum},
     {.name = "records_per_doc_avg", .type = InfoField_DoubleAverage},
     {.name = "bytes_per_record_avg", .type = InfoField_DoubleAverage},
     {.name = "offsets_per_term_avg", .type = InfoField_DoubleAverage},
@@ -39,7 +40,8 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "indexing", .type = InfoField_WholeSum},
     {.name = "percent_indexed", .type = InfoField_DoubleAverage},
     {.name = "hash_indexing_failures", .type = InfoField_WholeSum},
-    {.name = "number_of_uses", .type = InfoField_Max}};
+    {.name = "number_of_uses", .type = InfoField_Max},
+    {.name = "cleanup_working", .type = InfoField_WholeSum}};
 
 static InfoFieldSpec gcSpecs[] = {
     {.name = "current_hz", .type = InfoField_DoubleAverage},

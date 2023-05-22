@@ -9,6 +9,7 @@
 #include "inverted_index.h"
 #include "vector_index.h"
 #include "cursor.h"
+#include "geometry/geometry_api.h"
 
 #define REPLY_KVNUM(n, k, v)                       \
   do {                                             \
@@ -210,6 +211,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM(n, "sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
 
   REPLY_KVNUM(n, "key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
+  REPLY_KVNUM(n, "total_geometries_index_size_mb", GeometryTotalMemUsage() / (float)0x100000);
   REPLY_KVNUM(n, "records_per_doc_avg",
               (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
   REPLY_KVNUM(n, "bytes_per_record_avg",
@@ -227,6 +229,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM(n, "percent_indexed", percent_indexed);
 
   REPLY_KVINT(n, "number_of_uses", sp->counter);
+
+  REPLY_KVINT(n, "cleanup_working", CleanPool_WorkingThreadCount());
 
   if (sp->gc) {
     RedisModule_ReplyWithSimpleString(ctx, "gc_stats");
