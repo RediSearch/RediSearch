@@ -1079,11 +1079,8 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
       if (!sortkey) {
         // if the key is not sortable, and also not loaded by another result processor,
         // add it to the loadkeys list.
+        // We failed to get the key for reading, so we can't fail to get it for loading.
         sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
-        if (!sortkey) {
-          QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", keystr);
-          return NULL;
-        }
         *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
       }
       sortkeys[ii] = sortkey;
@@ -1213,8 +1210,8 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
       for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
         const ReturnedField *rf = req->outFields.fields + ii;
         RLookupKey *lk = RLookup_GetKey(lookup, rf->name, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
-        if (!lk || (lk->flags & RLOOKUP_F_SVSRC)) {
-          lk = RLookup_GetKey_Load(lookup, rf->name, rf->path, RLOOKUP_F_EXPLICITRETURN | RLOOKUP_F_OVERRIDE);
+        if (!lk || ((lk->flags & RLOOKUP_F_SVSRC) && !(lk->flags & RLOOKUP_F_ISLOADED))) {
+          lk = RLookup_GetKey_Load(lookup, rf->name, rf->path, RLOOKUP_F_EXPLICITRETURN | RLOOKUP_F_FORCE_LOAD);
           *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
         } else {
           lk->flags |= RLOOKUP_F_EXPLICITRETURN;
