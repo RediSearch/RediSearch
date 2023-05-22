@@ -247,13 +247,14 @@ def test_pipeline():
 
 
 def test_invalid_config():
-    if not POWER_TO_THE_WORKERS or SANITIZER == 'address':
+    if not POWER_TO_THE_WORKERS:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
-
     # Invalid 0 worker threads with ALWAYS_USE_THREADS set to true configuration.
     try:
         env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 0 ALWAYS_USE_THREADS TRUE')
-        env.assertFalse(True)  # shouldn't get here, env creation should fail.
+        prefix = '_' if env.isCluster() else ''
+        env.cmd(f"{prefix}ft.config", "get", "WORKER_THREADS")
+        env.assertFalse(True)   # We shouldn't get here
     except Exception:
         # Create dummy env to collect exit gracefully.
         env = Env()
@@ -269,7 +270,6 @@ def test_burst_threads_sanity():
     n_shards = env.shardsCount
     n_vectors = 1000 * n_shards
     dim = 10
-
     for algo in VECSIM_ALGOS:
         for data_type in VECSIM_DATA_TYPES:
             # Load random vectors into redis, save the first one to use as query vector later on.
