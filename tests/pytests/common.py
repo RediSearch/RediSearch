@@ -57,13 +57,21 @@ def waitForIndex(env, idx):
             break
         time.sleep(0.1)
 
-def waitForNoCleanup(env, idx):
+def waitForNoCleanup(env, idx, max_wait=30):
+    ''' Wait for the index to finish cleanup
+
+    Parameters:
+        max_wait - max duration in seconds to wait
+    '''
     waitForRdbSaveToFinish(env)
-    while True:
+    retry_wait = 0.1
+    max_wait = max(max_wait, retry_wait)
+    while max_wait >= 0:
         res = env.execute_command('ft.info', idx)
         if int(res[res.index('cleanup_working') + 1]) == 0:
             break
-        time.sleep(0.1)
+        time.sleep(retry_wait)
+        max_wait -= retry_wait
 
 def py2sorted(x):
     it = iter(x)
