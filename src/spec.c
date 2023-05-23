@@ -45,6 +45,7 @@ RedisModuleType *IndexSpecType;
 static uint64_t spec_unique_ids = 1;
 
 dict *specDict_g;
+uint16_t pendingIndexDropCount_g = 0;
 IndexesScanner *global_spec_scanner = NULL;
 size_t pending_global_indexing_ops = 0;
 dict *legacySpecDict;
@@ -1246,16 +1247,35 @@ void CleanPool_ThreadPoolDestroy() {
   }
 }
 
-size_t CleanPool_WorkingThreadCount() {
-  if (cleanPool) {
-    return redisearch_thpool_num_threads_working(cleanPool);
-  }
+size_t getPendingIndexDrop() {
+  return __atomic_load_n(&pendingIndexDropCount_g, __ATOMIC_RELAXED);
+}
+
+size_t addPendingIndexDrop() {
+  __atomic_fetch_add(&pendingIndexDropCount_g, 1, __ATOMIC_RELAXED);
+}
+
+void removePendingIndexDrop() {
+  uint16_t current = __atomic_load_n(&pendingIndexDropCount_g, __ATOMIC_RELAXED);
+  do {
+    if (current == 0) {
+      return;
+    }
+  } while (!__atomic_compare_exchange_n(&pendingIndexDropCount_g, &current, current - 1, 0, 0, 0));
+
+}
+
+size_t CleanInProgressOrPending() {
+  return getPendingIndexDrop() || (cleanPool && !redisearch_thpool_is_idle(cleanPool));
 }
 
 /*
  * Free resources of unlinked index spec
  */
 static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
+
+  removePendingIndexDrop();
+
   // Free all documents metadata
   DocTable_Free(&spec->docs);
   // Free TEXT field trie and inverted indexes
@@ -1390,6 +1410,10 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
   }
 
   SchemaPrefixes_RemoveSpec(spec_ref);
+
+  // Mark there are pending index drops.
+  // if ref count is > 1, the actual cleanup will be done only when StrongRefs are released. 
+  addPendingIndexDrop();
 
   // mark the spec as deleted and decrement the ref counts owned by the global dictionaries
   StrongRef_Invalidate(spec_ref);

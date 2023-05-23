@@ -278,7 +278,6 @@ def testFtInfo(env):
   # Dropping the geometry index should reset memory usage
   conn.execute_command('FT.DROPINDEX', 'idx1')
   waitForNoCleanup(env, 'idx2_no_geom')
-  time.sleep(10)
   res = to_dict(env.cmd('FT.INFO idx2_no_geom'))
   cur_usage = float(res[info_key_name])
   env.assertEqual(cur_usage, 0)
