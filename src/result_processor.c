@@ -685,10 +685,12 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
   sc->loadopts.dmd = NULL;
   sc->loadopts.keys = sc->fields;
   sc->loadopts.nkeys = sc->nfields;
-  if (nkeys)
+  if (nkeys) {
     sc->loadopts.mode = RLOOKUP_LOAD_KEYLIST;
-  else
+  } else {
     sc->loadopts.mode = RLOOKUP_LOAD_ALLKEYS;
+    lk->options |= RLOOKUP_OPT_ALL_LOADED;
+  }
 
   sc->lk = lk;
   sc->base.Next = rploaderNext;
