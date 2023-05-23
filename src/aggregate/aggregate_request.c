@@ -1238,13 +1238,12 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
     RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       ReturnedField *ff = req->outFields.fields + ii;
-      RLookupKey *kk = RLookup_GetKey_TEMP(lookup, ff->name, RLOOKUP_F_NOFLAGS);
+      RLookupKey *kk = RLookup_GetKey(lookup, ff->name, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!kk) {
         QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "No such property `%s`", ff->name);
         goto error;
-      } else if (!(kk->flags & (RLOOKUP_F_SCHEMASRC | RLOOKUP_F_SVSRC))) {
-        // TODO: this is a dead code
-        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Property `%s` is not in document", ff->name);
+      } else if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
+        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Property `%s` is not known to schema", ff->name);
         goto error;
       }
       ff->lookupKey = kk;
