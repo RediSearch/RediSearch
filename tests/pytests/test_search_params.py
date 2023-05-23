@@ -459,8 +459,8 @@ def aliasing(env, is_sortable, is_sortable_unf):
     # As no return is specified, returns indexed fields + all the documents' fields.
     res = env.execute_command('FT.SEARCH', 'idx', '*', 'sortby', 'numval_name', 'ASC')
     unsorted_expected = ['key5', ['text', 'Meow'],
-                'key3', ['numval_name', '108'],
-                'key4', ['x', '107']]
+                         'key3', ['numval_name', '108'],
+                         'key4', ['x', '107']]
 
     # First results should be the indexed documents that contains the numeric that determines the sorting order,
     # sorted by their value in ascending order
@@ -479,8 +479,8 @@ def aliasing(env, is_sortable, is_sortable_unf):
                                         'numval_name', 'AS', 'numval_new_name2',
                                         'text_name')
     unsorted_expected = ['key5', ['text_name', 'Meow'],
-                        'key3', [],
-                        'key4', []]
+                         'key3', [],
+                         'key4', []]
     # First results should be the indexed documents that contains the numeric that determines the sorting order,
     # sorted by their value in ascending order
     env.assertEqual(res[1:5], ['key2', ['numval_name', '109', 'numval_new_name', '109', 'numval_new_name2', '109'],
@@ -496,10 +496,10 @@ def aliasing(env, is_sortable, is_sortable_unf):
                               'RETURN', 4,'numval',
                                           'numval_name', 'AS', 'numval_new_name')
     env.assertEqual(res, [docs_num, 'key1', ['numval', '110', 'numval_new_name', '110'],
-                             'key2', ['numval', '109', 'numval_new_name', '109'],
-                             'key3', [],
-                             'key4', [],
-                             'key5', []])
+                                    'key2', ['numval', '109', 'numval_new_name', '109'],
+                                    'key3', [],
+                                    'key4', [],
+                                    'key5', []])
 
     # `RETURN b as x
     #         x as y` is allowed and yields: title = x, val = b title = y, val = x
@@ -507,10 +507,10 @@ def aliasing(env, is_sortable, is_sortable_unf):
                               'RETURN', 6,'numval_name','AS', 'x',
                                           'x', 'AS', 'y')
     env.assertEqual(res, [docs_num, 'key1', ['x', '110'],
-                             'key2', ['x', '109'],
-                             'key3', [],
-                             'key4', ['y', '107'],
-                             'key5', []])
+                                    'key2', ['x', '109'],
+                                    'key3', [],
+                                    'key4', ['y', '107'],
+                                    'key5', []])
 
     # Test order of return - shouldn't change the result.
     res2 = env.execute_command('FT.SEARCH', 'idx', '*',

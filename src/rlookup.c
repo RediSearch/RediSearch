@@ -90,10 +90,12 @@ static void setKeyByFieldSpec(RLookupKey *key, const FieldSpec *fs) {
   }
 }
 
-// Gets a key from the schema if the field is sortable (so its data is available).
+// Gets a key from the schema if the field is sortable (so its data is available), unless an RP upstream
+// has promised to load the entire document.
 static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t name_len, uint32_t flags) {
   const FieldSpec *fs = findFieldInSpecCache(lookup, name);
-  if(!fs || !FieldSpec_IsSortable(fs)) {
+  // TODO: verify this mechanism works (that the loader will always load the field)
+  if(!fs || (!FieldSpec_IsSortable(fs) && !(lookup->options & RLOOKUP_OPT_ALL_LOADED))) {
     return NULL;
   }
 
@@ -158,7 +160,13 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
         return NULL;
       }
     } else {
-      key->path = field_name;
+      if (!(flags & RLOOKUP_F_NAMEALLOC)) {
+        key->path = field_name;
+      } else if (name != field_name) {
+        key->path = rm_strndup(field_name, strlen(field_name));
+      } // else
+        // If the caller requested to allocate the name, and the name is the same as the path,
+        // it was already set to the same allocation for the name, so we don't need to do anything.
     }
     // Mark the key as loaded from the document (for the rest of the pipeline usage).
     key->flags |= RLOOKUP_F_DOCSRC | RLOOKUP_F_ISLOADED;
@@ -566,6 +574,11 @@ void RLookupRow_Dump(const RLookupRow *rr) {
 
 static void RLookupKey_Cleanup(RLookupKey *k) {
   if (k->flags & RLOOKUP_F_NAMEALLOC) {
+    // nobody uses this today, so no leak.
+    // TODO: uncomment when the old API is removed (currently it will cause a segfault)
+    // if (k->name != k->path) {
+    //   rm_free((void *)k->path);
+    // }
     rm_free((void *)k->name);
   }
 }
@@ -890,13 +903,22 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
   RLookup_HGETALL_privdata *pd = privdata;
   size_t fieldCStrLen;
   const char *fieldCStr = RedisModule_StringPtrLen(field, &fieldCStrLen);
-  RLookupKey *rlk = RLookup_GetKeyEx_TEMP(pd->it, fieldCStr, fieldCStrLen, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC);
-  if (!pd->options->noSortables && (rlk->flags & RLOOKUP_F_SVSRC)) {
-    return;  // Can load it from the sort vector on demand.
+  RLookupKey *rlk = RLookup_FindKey(pd->it, fieldCStr, fieldCStrLen);
+  if (!rlk) {
+    // First returned document, create the key.
+    uint32_t flags = pd->options->noSortables ? RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NAMEALLOC;
+    rlk = RLookup_GetKey_LoadEx(pd->it, fieldCStr, fieldCStrLen, fieldCStr, flags);
+    if (!rlk) {
+      return; // Key is sortable, can load it from the sort vector on demand.
+    }
+  } else if ((rlk->flags & RLOOKUP_F_QUERYSRC) ||
+             (!pd->options->noSortables && rlk->flags & RLOOKUP_F_SVSRC && !(rlk->flags & RLOOKUP_F_VAL_AVAILABLE))) {
+    return; // Key name is already taken by a query key, or it's already loaded.
   }
-  RLookupCoerceType ctype = rlk->fieldtype;
-  if (pd->options->forceString) {
-    ctype = RLOOKUP_C_STR;
+
+  RLookupCoerceType ctype = RLOOKUP_C_STR;
+  if (!pd->options->forceString && rlk->flags & RLOOKUP_T_NUMERIC) {
+    ctype = RLOOKUP_C_DBL;
   }
   // This function will retain the value if it's a string. This is thread-safe because
   // the value was created just before calling this callback and will be freed right after
@@ -932,13 +954,21 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
       RedisModuleCallReply *repv = RedisModule_CallReplyArrayElement(rep, i + 1);
 
       const char *kstr = RedisModule_CallReplyStringPtr(repk, &klen);
-      RLookupKey *rlk = RLookup_GetKeyEx_TEMP(it, kstr, klen, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC);
-      if (!options->noSortables && (rlk->flags & RLOOKUP_F_SVSRC)) {
-        continue;  // Can load it from the sort vector on demand.
+      RLookupKey *rlk = RLookup_FindKey(it, kstr, klen);
+      if (!rlk) {
+        // First returned document, create the key.
+        uint32_t flags = options->noSortables ? RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NAMEALLOC;
+        rlk = RLookup_GetKey_LoadEx(it, kstr, klen, kstr, flags);
+        if (!rlk) {
+          continue; // Key is sortable, can load it from the sort vector on demand.
+        }
+      } else if ((rlk->flags & RLOOKUP_F_QUERYSRC) ||
+                 (!options->noSortables && rlk->flags & RLOOKUP_F_SVSRC && !(rlk->flags & RLOOKUP_F_VAL_AVAILABLE))) {
+        continue; // Key name is already taken by a query key, or it's already loaded.
       }
-      RLookupCoerceType ctype = rlk->fieldtype;
-      if (options->forceString) {
-        ctype = RLOOKUP_C_STR;
+      RLookupCoerceType ctype = RLOOKUP_C_STR;
+      if (!options->forceString && rlk->flags & RLOOKUP_T_NUMERIC) {
+        ctype = RLOOKUP_C_DBL;
       }
       RSValue *vptr = replyElemToValue(repv, ctype);
       RLookup_WriteOwnKey(rlk, dst, vptr);
@@ -999,7 +1029,11 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   if (res == REDISMODULE_ERR) {
     goto done;
   }
-  RLookupKey *rlk = RLookup_GetKeyEx_TEMP(it, JSON_ROOT, strlen(JSON_ROOT), RLOOKUP_F_OCREAT);
+  RLookupKey *rlk = RLookup_FindKey(it, JSON_ROOT, strlen(JSON_ROOT));
+  if (!rlk) {
+    // First returned document, create the key.
+    rlk = RLookup_GetKey_LoadEx(it, JSON_ROOT, strlen(JSON_ROOT), JSON_ROOT, RLOOKUP_F_NOFLAGS);
+  }
   RLookup_WriteOwnKey(rlk, dst, vptr);
 
   rc = REDISMODULE_OK;
@@ -1036,11 +1070,11 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
   for (int i = 0; i < nkeys; ++i) {
     int idx = rule->filter_fields_index[i];
     if (idx == -1) {
-      keys[i] = createNewKey_TEMP(it, rule->filter_fields[i], strlen(rule->filter_fields[i]), 0, it->rowlen);
+      keys[i] = createNewKey(it, rule->filter_fields[i], strlen(rule->filter_fields[i]));
       continue;
     }
     FieldSpec *fs = spec->fields + idx;
-    keys[i] = createNewKey_TEMP(it, fs->name, strlen(fs->name), 0, it->rowlen);
+    keys[i] = createNewKey(it, fs->name, strlen(fs->name));
     keys[i]->path = fs->path;
   }
 
