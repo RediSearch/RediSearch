@@ -261,6 +261,26 @@ def test_invalid_config():
         pass
 
 
+def test_reload_index_while_indexing():
+    if not POWER_TO_THE_WORKERS:
+        raise unittest.SkipTest("Skipping since worker threads are not enabled")
+
+    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    n_shards = env.shardsCount
+    n_vectors = 50000 * n_shards
+    dim = 64
+    # Load random vectors into redis.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'M', '64',
+               'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    load_vectors_to_redis(env, n_vectors, 0, dim)
+    for i in env.reloadingIterator():
+        debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
+        # At first, we expect to see background indexing, but after RDB load, we expect that all vectors
+        # are indexed before RDB loading ends
+        env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1 if i == 1 else 0)
+
+
 def test_delete_index_while_indexing():
     if not POWER_TO_THE_WORKERS:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
@@ -274,12 +294,9 @@ def test_delete_index_while_indexing():
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'M', '64',
                'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
     load_vectors_to_redis(env, n_vectors, 0, dim)
-    # Delete index while vectors are being indexed (validate proper cleanup of background jobs).
-    for i in env.reloadingIterator():
-        debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
-        # At first, we expect to see background indexing, but after RDB load, we expect that all vectors
-        # are indexed before RDB loading ends
-        env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1 if i == 1 else 0)
+    # Delete index while vectors are being indexed (to validate proper cleanup of background jobs in sanitizer).
+    debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
+    env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1)
     conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 

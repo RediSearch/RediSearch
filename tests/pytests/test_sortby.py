@@ -98,8 +98,6 @@ def testSortby(env):
     params = ['limit', 0 , 0]
 
     for _ in env.retry_with_rdb_reload():
-        waitForIndex(env, 'idx')
-        waitForIndex(env, 'idx_sortable')
         for i in range(len(limits)):
             params[1] = limits[i][0]
             params[2] = limits[i][1]
@@ -132,8 +130,6 @@ def testSortby(env):
     params = ['limit', 0 , 0, 'LOAD', 4, '@__key', '@n', '@t', '@tag']
 
     for _ in env.retry_with_rdb_reload():
-        waitForIndex(env, 'idx')
-        waitForIndex(env, 'idx_sortable')
         for i in range(len(limits)):
             params[1] = limits[i][0]
             params[2] = limits[i][1]
