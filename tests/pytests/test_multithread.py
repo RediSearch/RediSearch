@@ -268,19 +268,19 @@ def test_delete_index_while_indexing():
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 10000 * n_shards
-    dim = 32
-    for data_type in VECSIM_DATA_TYPES:
-        # Load random vectors into redis.
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', data_type,
-                   'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
-        load_vectors_to_redis(env, n_vectors, 0, dim, data_type)
-
-        # Delete index while vectors are being indexed (validate proper cleanup of background jobs).
-        for _ in env.reloadingIterator():
-            debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
-            env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1)
-        conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+    n_vectors = 50000 * n_shards
+    dim = 64
+    # Load random vectors into redis.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'M', '64',
+               'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    load_vectors_to_redis(env, n_vectors, 0, dim)
+    # Delete index while vectors are being indexed (validate proper cleanup of background jobs).
+    for i in env.reloadingIterator():
+        debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
+        # At first, we expect to see background indexing, but after RDB load, we expect that all vectors
+        # are indexed before RDB loading ends
+        env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1 if i == 1 else 0)
+    conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
 def test_burst_threads_sanity():

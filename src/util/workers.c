@@ -86,11 +86,14 @@ void workersThreadPool_InitIfRequired() {
 }
 
 void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx) {
-  if (USE_BURST_THREADS()) {
-    // Terminate the temporary thread pool (without deallocating it). Before that, we wait until
-    // all the threads are finished the jobs currently in the queue. Note that we call RM_Yield
-    // periodically while we wait, so we won't block redis for too long (for answering PING etc.)
+    // Wait until all the threads are finished the jobs currently in the queue. Note that we call
+    // RM_Yield periodically while we wait, so we won't block redis for too long
+    // (for answering PING etc.)
+    if (RSGlobalConfig.numWorkerThreads == 0) return;
     workersThreadPool_Wait(ctx);
+    RedisModule_Log(RSDummyContext, "notice",
+                    "Done background indexing of vector into HNSW vector index");
+    if (USE_BURST_THREADS()) {
     workersThreadPool_Terminate();
     RedisModule_Log(RSDummyContext, "notice",
                     "Terminated workers threadpool of size %lu for loading",
