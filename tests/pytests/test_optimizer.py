@@ -532,7 +532,7 @@ def testAggregate(env):
             compare_optimized_to_not(env, ['ft.aggregate', 'idx', '*'], params, 'case 12')
         #input('stop')
 
-
+@skip  # TODO: solve flakiness
 def testCoordinator(env):
     env.skip() # TODO: Fix flaky test (MOD-5257)
 

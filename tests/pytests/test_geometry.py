@@ -68,7 +68,7 @@ def testSanitySearchJsonCombined(env):
   
 
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
-@no_asan
+@skip(asan=True)
 def testWKTIngestError(env):
   ''' Test ingest error '''
 
@@ -100,7 +100,7 @@ def testWKTIngestError(env):
 
 
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
-@no_asan
+@skip(asan=True)
 def testWKTQueryError(env):
   ''' Test query error '''
   conn = getConnectionByEnv(env)
