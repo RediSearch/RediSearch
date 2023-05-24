@@ -17,6 +17,8 @@ from RLTest import Env
 from RLTest.env import Query
 import numpy as np
 from scipy import spatial
+from pprint import pprint as pp
+
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']

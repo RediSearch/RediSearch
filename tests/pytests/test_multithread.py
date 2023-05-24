@@ -361,7 +361,7 @@ def test_workers_priority_queue():
     vectors_left_to_index = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
     # Validate that buffer limit config was set properly (so that more vectors than the
     # default limit are waiting in the buffer).
-    env.assertGreater(vectors_left_to_index, 1024)
+    env.assertGreater(vectors_left_to_index, 1024/n_shards)
 
     # Run queries during indexing
     while debug_info['BACKGROUND_INDEXING'] == 1:
