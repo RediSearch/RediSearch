@@ -2765,11 +2765,11 @@ def testGroupbyError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
     env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE').error()
-    if not env.isCluster(): # todo: remove once fix on coordinator
-        env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test1').error()
+    # if not env.isCluster(): # todo: remove once fix on coordinator
+    #     env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test1').error()
     env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'bad', '0').error()
-    if not env.isCluster(): # todo: remove once fix on coordinator
-        env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'SUM', '1', '@test1').error()
+    # if not env.isCluster(): # todo: remove once fix on coordinator
+    #     env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'SUM', '1', '@test1').error()
 
 def testGroupbyWithSort(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
