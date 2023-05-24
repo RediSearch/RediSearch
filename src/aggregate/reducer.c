@@ -69,11 +69,17 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   if (*s == '@') {
     s++;
   }
-  *out = RLookup_GetKey_TEMP(options->srclookup, s, RLOOKUP_F_HIDDEN);
+  *out = RLookup_GetKey(options->srclookup, s, RLOOKUP_M_READ, RLOOKUP_F_HIDDEN);
   if (!*out) {
-    QueryError_SetErrorFmt(options->status, QUERY_ENOPROPKEY,
-                           "Property `%s` not present in document or pipeline", s);
-    return 0;
+    if (options->loadKeys) {
+      // TODO: load only if in schema?
+      *out = RLookup_GetKey_Load(options->srclookup, s, s, RLOOKUP_F_HIDDEN);
+      *options->loadKeys = array_ensure_append_1(*options->loadKeys, *out);
+    } else {
+      QueryError_SetErrorFmt(options->status, QUERY_ENOPROPKEY,
+                            "Property `%s` not present in document or pipeline", s);
+      return 0;
+    }
   }
   return 1;
 }
