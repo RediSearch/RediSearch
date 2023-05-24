@@ -65,6 +65,7 @@ You can use any standard Redis client library to run RediSearch commands, but it
 | Project | Language | License | Author | Stars | Comment |
 |----------|---------|--------|---------|-------|------- |
 | [jedis][jedis-url] | Java | MIT | [Redis][redis-url] | ![Stars][jedis-stars] | |
+| [redisson][redisson-url] | Java | MIT | [Redisson][redisson-url] | ![Stars][redisson-stars] | |
 | [redis-py][redis-py-url] | Python | MIT | [Redis][redis-url] | ![Stars][redis-py-stars] | |
 | [node-redis][node-redis-url] | Node.js | MIT | [Redis][redis-url] | ![Stars][node-redis-stars] | |
 | [nredisstack][nredisstack-url] | .NET | MIT | [Redis][redis-url] | ![Stars][nredisstack-stars] | |
@@ -92,6 +93,10 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [jedis-url]: https://github.com/redis/jedis
 [jedis-stars]: https://img.shields.io/github/stars/redis/jedis.svg?style=social&amp;label=Star&amp;maxAge=2592000
 [Jedis-package]: https://search.maven.org/artifact/redis.clients/jedis
+
+[redisson-url]: https://github.com/redisson/redisson
+[redisson-stars]: https://img.shields.io/github/stars/redisson/redisson.svg?style=social&amp;label=Star&amp;maxAge=2592000
+[redisson-package]: https://central.sonatype.com/artifact/org.redisson/redisson
 
 [nredisstack-url]: https://github.com/redis/nredisstack
 [nredisstack-stars]: https://img.shields.io/github/stars/redis/nredisstack.svg?style=social&amp;label=Star&amp;maxAge=2592000
