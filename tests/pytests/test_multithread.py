@@ -262,7 +262,7 @@ def test_invalid_config():
 
 
 def test_reload_index_while_indexing():
-    if not POWER_TO_THE_WORKERS:
+    if not POWER_TO_THE_WORKERS or CODE_COVERAGE:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
 
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
@@ -282,7 +282,7 @@ def test_reload_index_while_indexing():
 
 
 def test_delete_index_while_indexing():
-    if not POWER_TO_THE_WORKERS:
+    if not POWER_TO_THE_WORKERS or CODE_COVERAGE:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
 
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
