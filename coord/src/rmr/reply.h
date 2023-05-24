@@ -7,9 +7,12 @@
 
 #pragma once
 
-#include <stdlib.h>
+#include "resp3.h"
+
 #include "redismodule.h"
 #include "hiredis/hiredis.h"
+
+#include <stdlib.h>
 
 #define MR_REPLY_STRING 1
 #define MR_REPLY_ARRAY 2
@@ -17,6 +20,16 @@
 #define MR_REPLY_NIL 4
 #define MR_REPLY_STATUS 5
 #define MR_REPLY_ERROR 6
+
+#define MR_REPLY_DOUBLE 7
+#define MR_REPLY_BOOL 8
+#define MR_REPLY_MAP 9
+#define MR_REPLY_SET 10
+
+#define MR_REPLY_ATTR 11
+#define MR_REPLY_PUSH 12
+#define MR_REPLY_BIGNUM 13
+#define MR_REPLY_VERB 14
 
 typedef struct redisReply MRReply;
 
@@ -53,4 +66,6 @@ static inline MRReply *MRReply_ArrayElement(MRReply *reply, size_t idx) {
 void MRReply_Print(FILE *fp, MRReply *r);
 int MRReply_ToInteger(MRReply *reply, long long *i);
 int MRReply_ToDouble(MRReply *reply, double *d);
-int MR_ReplyWithMRReply(RedisModuleCtx *ctx, MRReply *rep);
+int MR_ReplyWithMRReply(RedisModule_Reply *reply, MRReply *rep);
+
+int RedisModule_ReplyKV_MRReply(RedisModule_Reply *reply, const char *key, MRReply *rep);

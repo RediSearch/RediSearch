@@ -196,7 +196,8 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                          .includeDict = includeDict,
                          .excludeDict = excludeDict,
                          .distance = distance,
-                         .fullScoreInfo = fullScoreInfo};
+                         .fullScoreInfo = fullScoreInfo,
+                         .reply = NULL};
 
   SpellCheck_Reply(&scCtx, &qast);
 
