@@ -602,7 +602,6 @@ if [[ $CLEAR_LOGS != 0 ]]; then
 fi
 
 E=0
-MODARGS="timeout 0;"
 
 if [[ -z $COORD ]]; then
 
@@ -645,6 +644,7 @@ elif [[ $COORD == oss ]]; then
 	if [[ $SAN == address || $COV == 1 ]]; then
 		# Increase timeout for tests with sanitizer in which commands execution takes longer
 		oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 60000"
+		MODARGS="${MODARGS}; timeout 0;"
 	fi
 
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then

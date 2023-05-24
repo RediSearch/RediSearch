@@ -61,11 +61,16 @@ void workersThreadPool_Wait(RedisModuleCtx *ctx) {
   if (!_workers_thpool) {
     return;
   }
-  // Wait until all the threads in the pool finish the remaining jobs. Periodically return and call
-  // RedisModule_Yield even if threads are not done yet, so redis can answer PINGs (and other stuff)
-  // so that the node-watch dog won't kill redis, for example.
-  static struct timespec time_to_wait = {0, 100000000};  // 100 ms
-  redisearch_thpool_timedwait(_workers_thpool, &time_to_wait, yieldCallback, ctx);
+  if (RedisModule_Yield) {
+    // Wait until all the threads in the pool finish the remaining jobs. Periodically return and
+    // call RedisModule_Yield even if threads are not done yet, so redis can answer PINGs
+    // (and other stuff) so that the node-watch dog won't kill redis, for example.
+    static struct timespec time_to_wait = {0, 100000000};  // 100 ms
+    redisearch_thpool_timedwait(_workers_thpool, &time_to_wait, yieldCallback, ctx);
+  } else {
+    // In Redis versions < 7, RedisModule_Yield doesn't exist. Just wait for without yield.
+    redisearch_thpool_wait(_workers_thpool);
+  }
 }
 
 void workersThreadPool_Terminate(void) {

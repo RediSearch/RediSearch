@@ -269,7 +269,6 @@ void redisearch_thpool_timedwait(redisearch_thpool_t* thpool_p, struct timespec 
 
 void redisearch_thpool_terminate_threads(redisearch_thpool_t* thpool_p) {
   RedisModule_Assert(thpool_p);
-  RedisModule_Assert(thpool_p->keepalive == 1);
 
   /* End each thread 's infinite loop */
   thpool_p->keepalive = 0;
