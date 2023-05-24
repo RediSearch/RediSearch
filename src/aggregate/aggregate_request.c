@@ -563,6 +563,22 @@ static RLookup *groupStepGetLookup(PLN_BaseStep *bstp) {
   return &((PLN_GroupStep *)bstp)->lookup;
 }
 
+
+PLN_Reducer *PLNGroupStep_FindReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac) {
+  long long nvars;
+  if (AC_GetLongLong(ac, &nvars, 0) != AC_OK) {
+    return NULL;
+  }
+  size_t nreducers = array_len(gstp->reducers);
+  for (size_t ii = 0; ii < nreducers; ++ii) {
+    PLN_Reducer *gr = gstp->reducers + ii;
+    if (nvars == AC_NumArgs(&gr->args) && !strcasecmp(gr->name, name) && AC_Equals(ac, &gr->args)) {
+      return gr;
+    }
+  }
+  return NULL;
+}
+
 int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac,
                             QueryError *status) {
   // Just a list of functions..

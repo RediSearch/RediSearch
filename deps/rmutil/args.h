@@ -86,6 +86,8 @@ int AC_GetU32(ArgsCursor *ac, uint32_t *u, int flags);
 int AC_GetU64(ArgsCursor *ac, uint64_t *u, int flags);
 int AC_GetSize(ArgsCursor *ac, size_t *sz, int flags);
 
+int AC_Equals(ArgsCursor *ac, ArgsCursor *other);
+
 // Gets the string (and optionally the length). If the string does not exist,
 // it returns NULL. Used when caller is sure the arg exists
 const char *AC_GetStringNC(ArgsCursor *ac, size_t *len);

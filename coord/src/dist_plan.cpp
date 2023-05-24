@@ -48,11 +48,7 @@ struct ReducerDistCtx {
     return args;
   }
 
-  template <typename... T>
-  bool add(PLN_GroupStep *gstp, const char *name, const char **alias, QueryError *status,
-           T... uargs) {
-    ArgsCursorCXX args(uargs...);
-    ArgsCursor *cargs = copyArgs(&args);
+  bool add(PLN_GroupStep *gstp, const char *name, const char **alias, QueryError *status, ArgsCursor *cargs) {
     if (PLNGroupStep_AddReducer(gstp, name, cargs, status) != REDISMODULE_OK) {
       return false;
     }
@@ -63,12 +59,28 @@ struct ReducerDistCtx {
   }
 
   template <typename... T>
+  bool add(PLN_GroupStep *gstp, const char *name, const char **alias, QueryError *status,
+           T... uargs) {
+    ArgsCursorCXX args(uargs...);
+    ArgsCursor *cargs = copyArgs(&args);
+    return add(gstp, name, alias, status, cargs);
+  }
+
+  template <typename... T>
   bool addLocal(const char *name, QueryError *status, T... uargs) {
     return add(localGroup, name, NULL, status, uargs...);
   }
   template <typename... T>
   bool addRemote(const char *name, const char **alias, QueryError *status, T... uargs) {
-    return add(remoteGroup, name, alias, status, uargs...);
+    ArgsCursorCXX args(uargs...);
+    ArgsCursor tmp = args;
+    auto existing = PLNGroupStep_FindReducer(remoteGroup, name, &tmp);
+    if (existing) {
+      if (alias) *alias = existing->alias;
+      return true;
+    }
+    ArgsCursor *cargs = copyArgs(&args);
+    return add(remoteGroup, name, alias, status, cargs);
   }
 
   const char *srcarg(size_t n) const {
