@@ -1,9 +1,13 @@
 ---
-title: RediSearch
-description: Queries, secondary indexing, and full-text search for Redis
-linkTitle: Search
+title: "Query and search"
+linkTitle: "Query and search"
+description: Querying and searching Redis data
 type: docs
+weight: 50
 ---
+
+
+
 
 [![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/xTbqgTB)
 [![Github](https://img.shields.io/static/v1?label=&message=repository&color=5961FF&logo=github)](https://github.com/RediSearch/RediSearch/)

@@ -1,9 +1,9 @@
 ---
-title: "Query syntax"
-linkTitle: "Query syntax"
-weight: 1
+title: "Query"
+linkTitle: "Query"
+weight: 5
 description: >
-    Learn how to use search query syntax
+    Learn how to use query syntax
 ---
 
 You can use simple syntax for complex queries using these rules:
