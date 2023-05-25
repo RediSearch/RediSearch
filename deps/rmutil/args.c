@@ -11,17 +11,15 @@
 #include <string.h>
 #include <assert.h>
 
-int AC_Equals(ArgsCursor *ac_, ArgsCursor *other_) {
-  ArgsCursor ac = *ac_, other = *other_;
-  if (AC_NumRemaining(&ac) != AC_NumRemaining(&other)) {
+int AC_Equals(ArgsCursor *first_, ArgsCursor *second_) {
+  if (AC_NumRemaining(first_) != AC_NumRemaining(second_)) {
     return 0;
   }
-  for (size_t ii = 0; ii < AC_NumRemaining(&ac); ++ii) {
-    const char *cur, *otherCur;
-    size_t curLen, otherLen;
-    AC_GetString(&ac, &cur, &curLen, 0);
-    AC_GetString(&other, &otherCur, &otherLen, 0);
-    if (curLen != otherLen || strcmp(cur, otherCur)) {
+  ArgsCursor first = *first_, second = *second_;
+  while (!AC_IsAtEnd(&first)) {
+    size_t f_len, s_len;
+    const char *f_cur = AC_GetStringNC(&first, &f_len), *s_cur = AC_GetStringNC(&second, &s_len);
+    if (f_len != s_len || strcmp(f_cur, s_cur)) {
       return 0;
     }
   }

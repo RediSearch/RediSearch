@@ -86,7 +86,8 @@ int AC_GetU32(ArgsCursor *ac, uint32_t *u, int flags);
 int AC_GetU64(ArgsCursor *ac, uint64_t *u, int flags);
 int AC_GetSize(ArgsCursor *ac, size_t *sz, int flags);
 
-int AC_Equals(ArgsCursor *ac, ArgsCursor *other);
+// Returns 1 if the cursors are at an equal state (same number of args left, same args), 0 otherwise
+int AC_Equals(ArgsCursor *first, ArgsCursor *second);
 
 // Gets the string (and optionally the length). If the string does not exist,
 // it returns NULL. Used when caller is sure the arg exists

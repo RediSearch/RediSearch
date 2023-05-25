@@ -1021,7 +1021,7 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
   RLookup *lookup = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_PREV);
   RLookup *firstLk = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_FIRST); // first lookup can load fields from redis
   const RLookupKey **loadKeys = NULL;
-  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, firstLk == lookup ? &loadKeys : NULL, status);
+  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, (firstLk == lookup && firstLk->spcache) ? &loadKeys : NULL, status);
 
   if (!groupRP) {
     array_free(loadKeys);
