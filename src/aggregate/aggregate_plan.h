@@ -120,6 +120,7 @@ typedef struct {
   struct PLN_Reducer {
     const char *name;  // Name of function
     char *alias;       // Output key
+    bool isHidden;     // If the output key is hidden. Used by the coordinator
     ArgsCursor args;
   } * reducers;
   int idx;

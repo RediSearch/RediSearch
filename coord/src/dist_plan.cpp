@@ -322,9 +322,11 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   if (!rdctx->add(local, "SUM", &localCountSumAlias, status, "1", remoteCountAlias)) {
     return REDISMODULE_ERR;
   }
+  array_tail(rdctx->localGroup->reducers).isHidden = 1; // Don't show this in the output
   if (!rdctx->add(local, "SUM", &localSumSumAlias, status, "1", remoteSumAlias)) {
     return REDISMODULE_ERR;
   }
+  array_tail(rdctx->localGroup->reducers).isHidden = 1; // Don't show this in the output
   std::string ss = std::string("(@") + localSumSumAlias + "/@" + localCountSumAlias + ")";
   char *expr = rm_strdup(ss.c_str());
   PLN_MapFilterStep *applyStep = PLNMapFilterStep_New(expr, PLN_T_APPLY);

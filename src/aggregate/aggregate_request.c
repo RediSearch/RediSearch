@@ -605,6 +605,7 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
   } else {
     gr->alias = rm_strdup(alias);
   }
+  gr->isHidden = 0; // By default, reducers are not hidden
   return REDISMODULE_OK;
 
 error:
@@ -990,7 +991,8 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     }
 
     // Set the destination key for the grouper!
-    RLookupKey *dstkey = RLookup_GetKey(&gstp->lookup, pr->alias, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+    uint32_t flags = pr->isHidden ? RLOOKUP_F_HIDDEN : RLOOKUP_F_NOFLAGS;
+    RLookupKey *dstkey = RLookup_GetKey(&gstp->lookup, pr->alias, RLOOKUP_M_WRITE, flags);
     if (!dstkey) {
       Grouper_Free(grp);
       QueryError_SetErrorFmt(err, QUERY_EDUPFIELD, "Property `%s` specified more than once", pr->alias);
