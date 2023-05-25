@@ -66,7 +66,7 @@ typedef struct ConcurrentCmdCtx {
 /* Run a function on the concurrent thread pool */
 void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
   redisearch_threadpool p = threadpools_g[type];
-  redisearch_thpool_add_work(p, func, arg);
+  redisearch_thpool_add_work(p, func, arg, THPOOL_PRIORITY_HIGH);
 }
 
 static void threadHandleCommand(void *p) {

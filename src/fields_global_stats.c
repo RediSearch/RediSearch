@@ -19,8 +19,10 @@ void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd) {
     RSGlobalConfig.fieldsStats.numVectorFields += toAdd;
     if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_BF)
       RSGlobalConfig.fieldsStats.numVectorFieldsFlat += toAdd;
-    else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB)
-      RSGlobalConfig.fieldsStats.numVectorFieldsHSNW += toAdd;
+    else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED) {
+      if (fs->vectorOpts.vecSimParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB)
+        RSGlobalConfig.fieldsStats.numVectorFieldsHNSW += toAdd;
+    }
   } else if (fs->types & INDEXFLD_T_TAG) {  // tag field
     RSGlobalConfig.fieldsStats.numTagFields += toAdd;
     if (fs->tagOpts.tagFlags & TagField_CaseSensitive) {
@@ -96,8 +98,8 @@ void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
     RedisModule_InfoAddFieldLongLong(ctx, "Vector", RSGlobalConfig.fieldsStats.numVectorFields);
     if (RSGlobalConfig.fieldsStats.numVectorFieldsFlat > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "Flat", RSGlobalConfig.fieldsStats.numVectorFieldsFlat);
-    if (RSGlobalConfig.fieldsStats.numVectorFieldsHSNW > 0)
-      RedisModule_InfoAddFieldLongLong(ctx, "HSNW", RSGlobalConfig.fieldsStats.numVectorFieldsHSNW);
+    if (RSGlobalConfig.fieldsStats.numVectorFieldsHNSW > 0)
+      RedisModule_InfoAddFieldLongLong(ctx, "HNSW", RSGlobalConfig.fieldsStats.numVectorFieldsHNSW);
     RedisModule_InfoEndDictField(ctx);
   }
 
