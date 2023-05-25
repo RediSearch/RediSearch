@@ -19,7 +19,7 @@ static void ThreadPoolAPI_Execute(void *ctx) {
 
   // Free the job
   WeakRef_Release(job->spec_ref);
-  job->free_cb(job->arg);
+//  job->free_cb(job->arg);
   rm_free(job);
 }
 
@@ -27,7 +27,7 @@ static void ThreadPoolAPI_Execute(void *ctx) {
 // We can add the priority to the `spec_ctx` (and rename it) if needed.
 int ThreadPoolAPI_SubmitIndexJobs(void *pool, void *spec_ctx, void **ext_jobs,
                                                               ThreadPoolAPI_CB *cbs,
-                                                              ThreadPoolAPI_CB *free_cbs, size_t n_jobs) {
+                                                              size_t n_jobs) {
   WeakRef spec_ref = {spec_ctx};
 
   redisearch_thpool_work_t jobs[n_jobs];
@@ -35,7 +35,7 @@ int ThreadPoolAPI_SubmitIndexJobs(void *pool, void *spec_ctx, void **ext_jobs,
     ThreadPoolAPI_AsyncIndexJob *job = rm_new(ThreadPoolAPI_AsyncIndexJob);
     job->spec_ref = WeakRef_Clone(spec_ref);
     job->cb = cbs[i];
-    job->free_cb = free_cbs[i];
+//    job->free_cb = free_cbs[i];
     job->arg = ext_jobs[i];
 
     jobs[i].arg_p = job;
@@ -47,7 +47,7 @@ int ThreadPoolAPI_SubmitIndexJobs(void *pool, void *spec_ctx, void **ext_jobs,
     for (size_t i = 0; i < n_jobs; i++) {
       ThreadPoolAPI_AsyncIndexJob *job = jobs[i].arg_p;
       WeakRef_Release(job->spec_ref);
-      job->free_cb(job->arg);
+//      job->free_cb(job->arg);
       rm_free(job);
     }
     return REDISMODULE_ERR;

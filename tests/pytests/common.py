@@ -22,7 +22,7 @@ from pprint import pprint as pp
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
-
+VECSIM_ALGOS = ['FLAT', 'HNSW']
 
 class TimeLimit(object):
     """
@@ -213,6 +213,11 @@ def collectKeys(env, pattern='*'):
 
 def ftDebugCmdName(env):
     return '_ft.debug' if env.isCluster() else 'ft.debug'
+
+
+def get_vecsim_debug_dict(env, index_name, vector_field):
+    return to_dict(env.cmd(ftDebugCmdName(env), "VECSIM_INFO", index_name, vector_field))
+
 
 def forceInvokeGC(env, idx):
     waitForRdbSaveToFinish(env)

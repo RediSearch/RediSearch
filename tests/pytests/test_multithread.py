@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import time
 import unittest
 from cmath import inf
 from email import message
@@ -239,10 +240,11 @@ def test_pipeline(env):
     env.assertEqual(get_pipeline(res), expected_pipeline)
 
 
-def test_reload_index_while_indexing(env):
+def test_reload_index_while_indexing():
     if not POWER_TO_THE_WORKERS or CODE_COVERAGE:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
 
+    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ENABLE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
     n_vectors = 50000 * n_shards
@@ -252,13 +254,17 @@ def test_reload_index_while_indexing(env):
                'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
     load_vectors_to_redis(env, n_vectors, 0, dim)
     for i in env.reloadingIterator():
-        pass
+        debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
+        # At first, we expect to see background indexing, but after RDB load, we expect that all vectors
+        # are indexed before RDB loading ends
+        # env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1 if i == 1 else 0)
 
 
-def test_delete_index_while_indexing(env):
+def test_delete_index_while_indexing():
     if not POWER_TO_THE_WORKERS or CODE_COVERAGE:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
 
+    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ENABLE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
     n_vectors = 50000 * n_shards
@@ -268,13 +274,15 @@ def test_delete_index_while_indexing(env):
                'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
     load_vectors_to_redis(env, n_vectors, 0, dim)
     # Delete index while vectors are being indexed (to validate proper cleanup of background jobs in sanitizer).
+    debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
+    env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1)
     conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
-def test_workers_priority_queue(env):
+def test_workers_priority_queue():
     if not POWER_TO_THE_WORKERS:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
-
+    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ENABLE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
     n_vectors = 50000 * n_shards
@@ -287,15 +295,16 @@ def test_workers_priority_queue(env):
     assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
 
     # Expect that some vectors are still being indexed in the background after we are done loading.
-    # Validate that buffer limit config was set properly (so that more vectors than the
-    # default limit are waiting in the buffer).
+    debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
+    env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1)
+    vectors_left_to_index = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
 
     # Run queries during indexing
-    for _ in range(10):
+    while debug_info['BACKGROUND_INDEXING'] == 1:
         start = time.time()
         res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param EF_RUNTIME 10000]',
                                    'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, 10,
-                                   'PARAMS', 4, 'K', 10, 'vec_param', query_vec.tobytes(), 'DIALECT', 2)
+                                   'PARAMS', 4, 'K', 10, 'vec_param', query_vec.tobytes())
         query_time = time.time() - start
         # Expect that the first result's would be around zero, since the query vector itself exists in the
         # index (last id)
@@ -305,11 +314,16 @@ def test_workers_priority_queue(env):
             env.assertLess(query_time, 1)
 
         # We expect that the number of vectors left to index will decrease from one iteration to another.
+        debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
+        vectors_left_to_index_new = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
+        env.assertLessEqual(vectors_left_to_index_new, vectors_left_to_index)
+        vectors_left_to_index = vectors_left_to_index_new
 
 
-def test_async_updates_sanity(env):
+def test_async_updates_sanity():
     if not POWER_TO_THE_WORKERS:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
+    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ENABLE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
     n_vectors = 5000 * n_shards
@@ -325,18 +339,25 @@ def test_async_updates_sanity(env):
         assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
 
         # Wait until al vectors are indexed into HNSW.
+        debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
+        while debug_info['BACKGROUND_INDEXING'] == 1:
+            time.sleep(1)
+            debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
 
         # Overwrite vectors - trigger background delete and ingest jobs.
         query_vec = load_vectors_to_redis(env, n_vectors, 0, dim, data_type)
         assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+        debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
+        marked_deleted_vectors = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
+        # env.assertGreater(marked_deleted_vectors, block_size/n_shards)
 
         # We dispose marked deleted vectors whenever we have at least <block_size> vectors that are ready
         # (that is, no other node in HNSW is pointing to the deleted node)
-        for _ in range(10):
+        while marked_deleted_vectors > block_size/n_shards:
             start = time.time()
             res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param EF_RUNTIME 5000]',
                                        'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score',
-                                       'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10, 'vec_param', query_vec.tobytes(), 'DIALECT', 2)
+                                       'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10, 'vec_param', query_vec.tobytes())
             query_time = time.time() - start
             # Validate that queries get priority and are executed before indexing/deletion is finished.
             if not SANITIZER and not CODE_COVERAGE:
@@ -351,7 +372,11 @@ def test_async_updates_sanity(env):
             # vector from the main shard (of which we get info when we call ft.debug) in cluster mode.
             conn.execute_command("HSET", np.random.randint(1, n_vectors), 'vector',
                                  create_np_array_typed(np.random.rand(dim), data_type).tobytes())
+            debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
+            marked_deleted_vectors_new = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
 
             # After overwriting 1, there may be another one zombie.
+            env.assertLessEqual(marked_deleted_vectors_new, marked_deleted_vectors + 1)
+            marked_deleted_vectors = marked_deleted_vectors_new
 
         conn.flushall()

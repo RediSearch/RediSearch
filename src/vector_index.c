@@ -80,10 +80,10 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
     return NULL;
   }
 
-  VecSimIndexInfo info = VecSimIndex_Info(vecsim);
-  size_t dim = info.commonInfo.dim;
-  VecSimType type = info.commonInfo.type;
-  VecSimMetric metric = info.commonInfo.metric;
+  VecSimIndexBasicInfo info = VecSimIndex_BasicInfo(vecsim);
+  size_t dim = info.dim;
+  VecSimType type = info.type;
+  VecSimMetric metric = info.metric;
 
   VecSimQueryParams qParams = {0};
   switch (vq->type) {
@@ -501,6 +501,7 @@ void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref) {
   // throughout the lifetime of the module. It can be initialized to NULL.
   // The `jobQueue` value will be NULL if `POWER_TO_THE_WORKERS` is not defined as well.
   params->jobQueue = _workers_thpool;
+  params->flatBufferLimit = 1024;
 #endif
   params->jobQueueCtx = StrongRef_Demote(sp_ref).rm;
   params->submitCb = (SubmitCB)ThreadPoolAPI_SubmitIndexJobs;
