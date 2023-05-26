@@ -658,7 +658,8 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   lc->loadopts.sctx = lc->base.parent->sctx; // TODO: can be set in the constructor
   lc->loadopts.dmd = r->dmd;
 
-  // if loading the document has failed, we return an empty array
+  // if loading the document has failed, we return an empty array.
+  // Error code and message are ignored.
   if (RLookup_LoadDocument(lc->lk, &r->rowdata, &lc->loadopts) != REDISMODULE_OK) {
     QueryError_ClearError(&lc->status);
   }

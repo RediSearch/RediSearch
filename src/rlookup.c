@@ -160,6 +160,8 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
         return NULL;
       }
     } else {
+      // Field not found in the schema.
+      // We assume `field_name` is the path to load from in the document.
       if (!(flags & RLOOKUP_F_NAMEALLOC)) {
         key->path = field_name;
       } else if (name != field_name) {
