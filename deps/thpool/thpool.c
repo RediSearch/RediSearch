@@ -297,14 +297,13 @@ void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
   // No need to destroy if it's NULL
   if (!thpool_p) return;
 
-  size_t threads_total = thpool_p->num_threads_alive;
   redisearch_thpool_terminate_threads(thpool_p);
 
   /* Job queue cleanup */
   priority_queue_destroy(&thpool_p->jobqueue);
   /* Deallocs */
   size_t n;
-  for (n = 0; n < threads_total; n++) {
+  for (n = 0; n < thpool_p->total_threads_count; n++) {
     thread_destroy(thpool_p->threads[n]);
   }
   rm_free(thpool_p->threads);
