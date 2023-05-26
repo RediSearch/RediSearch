@@ -38,7 +38,7 @@ make cc            # compile a single file
   FILE=file          # source of file to build
 make run           # run redis with RediSearch
   COORD=1|oss        # run cluster
-  WITH_RLTEST=1      # run with RLTest wapper
+  WITH_RLTEST=1      # run with RLTest wrapper
   GDB=1              # invoke using gdb
 
 make test          # run all tests
@@ -402,7 +402,7 @@ ifeq ($(CLANG),1)
 else
 	$(SHOW)gdb -ex r --args redis-server --loadmodule $(abspath $(TARGET))
 endif
-else 
+else
 	$(SHOW)redis-server --loadmodule $(abspath $(TARGET))
 endif
 endif

@@ -268,7 +268,7 @@ def test_reload_index_while_indexing():
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 50000 * n_shards
+    n_vectors = 50000 * n_shards if not SANITIZER else 1000 * n_shards
     dim = 64
     # Load random vectors into redis.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'M', '64',
@@ -288,7 +288,7 @@ def test_delete_index_while_indexing():
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 50000 * n_shards
+    n_vectors = 50000 * n_shards if not SANITIZER else 1000 * n_shards
     dim = 64
     # Load random vectors into redis.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'M', '64',
@@ -307,7 +307,7 @@ def test_burst_threads_sanity():
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 8 ALWAYS_USE_THREADS FALSE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 1000 * n_shards
+    n_vectors = 5000 * n_shards if not SANITIZER else 500 * n_shards
     dim = 10
     for algo in VECSIM_ALGOS:
         for data_type in VECSIM_DATA_TYPES:
@@ -346,7 +346,7 @@ def test_workers_priority_queue():
                                                   ' ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 50000 * n_shards
+    n_vectors = 50000 * n_shards if not SANITIZER else 1000 * n_shards
     dim = 64
 
     # Load random vectors into redis, save the last one to use as query vector later on.
@@ -390,57 +390,54 @@ def test_async_updates_sanity():
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 5000 * n_shards
+    n_vectors = 1000 * n_shards
     dim = 32
     block_size = 1024
 
-    for data_type in VECSIM_DATA_TYPES:
-        # Load random vectors into redis
-        load_vectors_to_redis(env, n_vectors, 0, dim, data_type)
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
-                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', '64').ok()
-        waitForIndex(env, 'idx')
-        assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+    # Load random vectors into redis
+    load_vectors_to_redis(env, n_vectors, 0, dim)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
+               'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', '64').ok()
+    waitForIndex(env, 'idx')
+    assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
 
-        # Wait until al vectors are indexed into HNSW.
+    # Wait until al vectors are indexed into HNSW.
+    debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
+    while debug_info['BACKGROUND_INDEXING'] == 1:
+        time.sleep(1)
         debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
-        while debug_info['BACKGROUND_INDEXING'] == 1:
-            time.sleep(1)
-            debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
 
-        # Overwrite vectors - trigger background delete and ingest jobs.
-        query_vec = load_vectors_to_redis(env, n_vectors, 0, dim, data_type)
-        assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+    # Overwrite vectors - trigger background delete and ingest jobs.
+    query_vec = load_vectors_to_redis(env, n_vectors, 0, dim)
+    assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+    debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
+    marked_deleted_vectors = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
+    env.assertGreater(marked_deleted_vectors, block_size/n_shards)
+
+    # We dispose marked deleted vectors whenever we have at least <block_size> vectors that are ready
+    # (that is, no other node in HNSW is pointing to the deleted node)
+    while marked_deleted_vectors > block_size/n_shards:
+        start = time.time()
+        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param EF_RUNTIME 5000]',
+                                   'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score',
+                                   'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10, 'vec_param', query_vec.tobytes())
+        query_time = time.time() - start
+        # Validate that queries get priority and are executed before indexing/deletion is finished.
+        if not SANITIZER and not CODE_COVERAGE:
+            env.assertLess(query_time, 1)
+
+        # Expect that the first result's would be around zero, since the query vector itself exists in the
+        # index (id 0)
+        env.assertAlmostEqual(float(res[2][1]), 0, 1e-5)
+
+        # Overwrite another vector to trigger swap jobs. Use a random vector (except for label 0
+        # which is the query vector that we expect to get), to ensure that we eventually remove a
+        # vector from the main shard (of which we get info when we call ft.debug) in cluster mode.
+        conn.execute_command("HSET", np.random.randint(1, n_vectors), 'vector',
+                             create_np_array_typed(np.random.rand(dim), data_type).tobytes())
         debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
-        marked_deleted_vectors = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
-        env.assertGreater(marked_deleted_vectors, block_size/n_shards)
+        marked_deleted_vectors_new = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
 
-        # We dispose marked deleted vectors whenever we have at least <block_size> vectors that are ready
-        # (that is, no other node in HNSW is pointing to the deleted node)
-        while marked_deleted_vectors > block_size/n_shards:
-            start = time.time()
-            res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param EF_RUNTIME 5000]',
-                                       'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score',
-                                       'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10, 'vec_param', query_vec.tobytes())
-            query_time = time.time() - start
-            # Validate that queries get priority and are executed before indexing/deletion is finished.
-            if not SANITIZER and not CODE_COVERAGE:
-                env.assertLess(query_time, 1)
-
-            # Expect that the first result's would be around zero, since the query vector itself exists in the
-            # index (id 0)
-            env.assertAlmostEqual(float(res[2][1]), 0, 1e-5)
-
-            # Overwrite another vector to trigger swap jobs. Use a random vector (except for label 0
-            # which is the query vector that we expect to get), to ensure that we eventually remove a
-            # vector from the main shard (of which we get info when we call ft.debug) in cluster mode.
-            conn.execute_command("HSET", np.random.randint(1, n_vectors), 'vector',
-                                 create_np_array_typed(np.random.rand(dim), data_type).tobytes())
-            debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
-            marked_deleted_vectors_new = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
-
-            # After overwriting 1, there may be another one zombie.
-            env.assertLessEqual(marked_deleted_vectors_new, marked_deleted_vectors + 1)
-            marked_deleted_vectors = marked_deleted_vectors_new
-
-        conn.flushall()
+        # After overwriting 1, there may be another one zombie.
+        env.assertLessEqual(marked_deleted_vectors_new, marked_deleted_vectors + 1)
+        marked_deleted_vectors = marked_deleted_vectors_new

@@ -661,7 +661,7 @@ fi
 E=0
 
 if [[ $COV == 1 || -n $SAN || $VG == 1 ]]; then
-  MODARGS="${MODARGS}; timeout 0;"
+	MODARGS="${MODARGS}; timeout 0;"
 fi
 
 if [[ -z $COORD ]]; then
@@ -702,7 +702,7 @@ if [[ -z $COORD ]]; then
 elif [[ $COORD == oss ]]; then
 	oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
 
-	if [[ $SAN == address || $COV == 1 ]]; then
+	if [[ $SAN == address ]]; then
 		# Increase timeout for tests with sanitizer in which commands execution takes longer
 		oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 60000"
 	fi
