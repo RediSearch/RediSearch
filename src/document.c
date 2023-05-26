@@ -600,7 +600,7 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 
   // TODO: GEOMETRY
   // If this is a sortable geomtry value - copy the value to the sorting vector
-  
+
 
   return 0;
 }
@@ -952,7 +952,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   RLookupRow row = {0};
   IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
   RLookup_Init(&lookup_s, spcache);
-  if (ExprAST_GetLookupKeys(e, &lookup_s, status) == EXPR_EVAL_ERR) {
+  if (ExprAST_GetLookupKeys(e, &lookup_s, 0, status) == EXPR_EVAL_ERR) {
     goto CleanUp;
   }
 

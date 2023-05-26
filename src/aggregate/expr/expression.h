@@ -161,7 +161,7 @@ int EvalCtx_EvalExprStr(EvalCtx *r, const char *exprstr);
  * @param err If this fails, EXPR_EVAL_ERR is returned, and this variable contains
  *  the error.
  */
-int ExprAST_GetLookupKeys(RSExpr *root, RLookup *lookup, QueryError *err);
+int ExprAST_GetLookupKeys(RSExpr *root, RLookup *lookup, uint32_t readFlags, QueryError *err);
 int ExprEval_Eval(ExprEval *evaluator, RSValue *result);
 
 void ExprAST_Free(RSExpr *expr);
@@ -188,11 +188,11 @@ void ExprEval_Cleanup(ExprEval *ev);
  * Creates a new result processor in the form of a projector. The projector will
  * execute the expression in `ast` and write the result of that expression to the
  * appropriate place.
- * 
+ *
  * @param ast the parsed expression
  * @param lookup the lookup registry that contains the keys to search for
  * @param dstkey the target key (in lookup) to store the result.
- * 
+ *
  * @note The ast needs to be paired with the appropriate RLookupKey objects. This
  * can be done by calling EXPR_GetLookupKeys()
  */
@@ -202,15 +202,15 @@ ResultProcessor *RPEvaluator_NewProjector(const RSExpr *ast, const RLookup *look
  * Creates a new result processor in the form of a filter. The filter will
  * execute the expression in `ast` on each upstream result. If the expression
  * evaluates to false, the result will not be propagated to the next processor.
- * 
+ *
  * @param ast the parsed expression
  * @param lookup lookup used to find the key for the value
- * 
+ *
  * See notes for NewProjector()
  */
 ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup);
 
-/** 
+/**
  * Reply with a string which describes the result processor.
  */
 void RPEvaluator_Reply(RedisModuleCtx *ctx, const ResultProcessor *rp);

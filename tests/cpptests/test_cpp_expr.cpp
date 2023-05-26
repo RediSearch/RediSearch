@@ -41,7 +41,7 @@ struct TEvalCtx : ExprEval {
 
   int bindLookupKeys() {
     assert(lookup);
-    return ExprAST_GetLookupKeys((RSExpr *)root, (RLookup *)lookup, &status_s);
+    return ExprAST_GetLookupKeys((RSExpr *)root, (RLookup *)lookup, 0, &status_s);
   }
 
   int eval() {
@@ -122,7 +122,7 @@ TEST_F(ExprTest, testGetFields) {
   auto *kfoo = RLookup_GetKey_TEMP(&lk, "foo", RLOOKUP_F_OCREAT);
   auto *kbar = RLookup_GetKey_TEMP(&lk, "bar", RLOOKUP_F_OCREAT);
   auto *kbaz = RLookup_GetKey_TEMP(&lk, "baz", RLOOKUP_F_OCREAT);
-  int rc = ExprAST_GetLookupKeys(root, &lk, &status);
+  int rc = ExprAST_GetLookupKeys(root, &lk, 0, &status);
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   RLookup_Cleanup(&lk);
   ExprAST_Free(root);

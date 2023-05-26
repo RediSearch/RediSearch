@@ -83,11 +83,10 @@ typedef struct {
   PLN_BaseStep base;
   const char *rawExpr;
   RSExpr *parsedExpr;
-  int shouldFreeRaw;  // Whether we own the raw expression, used on coordinator only
+  bool shouldFreeRaw;  // Whether we own the raw expression, used on coordinator only
+  bool noOverride;     // Whether we should override the alias if it exists. We allow it by default
+  bool readHidden;     // Whether we should read hidden fields or expose them
 } PLN_MapFilterStep;
-
-// Magic value -- will sort by score. For use in SEARCH mode
-#define PLN_SORTKEYS_DFLSCORE (const char **)0xdeadbeef
 
 /** ARRANGE covers sort, limit, and so on */
 typedef struct {
