@@ -390,8 +390,8 @@ def test_async_updates_sanity():
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 1000 * n_shards
-    dim = 32
+    n_vectors = 5000 * n_shards
+    dim = 4
     block_size = 1024
 
     # Load random vectors into redis
@@ -412,11 +412,11 @@ def test_async_updates_sanity():
     assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
     debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
     marked_deleted_vectors = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
-    env.assertGreater(marked_deleted_vectors, 0)
+    env.assertGreater(marked_deleted_vectors, block_size/n_shards)
 
     # We dispose marked deleted vectors whenever we have at least <block_size> vectors that are ready
     # (that is, no other node in HNSW is pointing to the deleted node)
-    while marked_deleted_vectors > 0:
+    while marked_deleted_vectors > block_size/n_shards:
         start = time.time()
         res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param EF_RUNTIME 5000]',
                                    'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score',
@@ -434,7 +434,7 @@ def test_async_updates_sanity():
         # which is the query vector that we expect to get), to ensure that we eventually remove a
         # vector from the main shard (of which we get info when we call ft.debug) in cluster mode.
         conn.execute_command("HSET", np.random.randint(1, n_vectors), 'vector',
-                             create_np_array_typed(np.random.rand(dim), data_type).tobytes())
+                             create_np_array_typed(np.random.rand(dim)).tobytes())
         debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
         marked_deleted_vectors_new = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
 
