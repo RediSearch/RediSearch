@@ -72,12 +72,13 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   *out = RLookup_GetKey(options->srclookup, s, RLOOKUP_M_READ, RLOOKUP_F_HIDDEN);
   if (!*out) {
     if (options->loadKeys) {
-      // TODO: load only if in schema?
       *out = RLookup_GetKey_Load(options->srclookup, s, s, RLOOKUP_F_HIDDEN);
       *options->loadKeys = array_ensure_append_1(*options->loadKeys, *out);
-    } else {
-      QueryError_SetErrorFmt(options->status, QUERY_ENOPROPKEY,
-                            "Property `%s` not present in document or pipeline", s);
+    }
+    // We currently allow implicit loading only for known fields from the schema.
+    // If we can't load keys, or the key we loaded is not in the schema, we fail.
+    if (!options->loadKeys || !((*out)->flags & RLOOKUP_F_SCHEMASRC)) {
+      QueryError_SetErrorFmt(options->status, QUERY_ENOPROPKEY, "Property `%s` not present in document or pipeline", s);
       return 0;
     }
   }

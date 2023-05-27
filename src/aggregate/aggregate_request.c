@@ -954,11 +954,13 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     srckeys[ii] = RLookup_GetKeyEx(srclookup, fldname, fldname_len, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
     if (!srckeys[ii]) {
       if (loadKeys) {
-        // TODO: load only if in schema?
         // We faild to get the key for reading, so we know getting it for loading will succeed.
         srckeys[ii] = RLookup_GetKey_LoadEx(srclookup, fldname, fldname_len, fldname, RLOOKUP_F_NOFLAGS);
         *loadKeys = array_ensure_append_1(*loadKeys, srckeys[ii]);
-      } else {
+      }
+      // We currently allow implicit loading only for known fields from the schema.
+      // If we can't load keys, or the key we loaded is not in the schema, we fail.
+      if (!loadKeys || !(srckeys[ii]->flags & RLOOKUP_F_SCHEMASRC)) {
         QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "No such property `%s`", fldname);
         return NULL;
       }
