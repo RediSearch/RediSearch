@@ -16,7 +16,6 @@
 #include "commands.h"
 #include "profile.h"
 #include "query_optimizer.h"
-#include "resp3.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -121,7 +120,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_Reply_Array(reply);
         RedisModule_Reply_Double(reply, r->score);
         SEReply(reply, r->scoreExplain);
-	    RedisModule_Reply_ArrayEnd(reply);
+	  RedisModule_Reply_ArrayEnd(reply);
     }
   }
 
@@ -438,24 +437,20 @@ done_3:
     }
   
     SearchResult_Clear(&r);
-    if (rc != RS_RESULT_OK) {
-      goto done_2;
-    }
-  
-    while (nrows++ < limit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
-      if (!(req->reqflags & QEXEC_F_NOROWS)) {
-        nelem += serializeResult(req, reply, &r, &cv);
+    if (rc == RS_RESULT_OK) {
+      while (nrows++ < limit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+        if (!(req->reqflags & QEXEC_F_NOROWS)) {
+          nelem += serializeResult(req, reply, &r, &cv);
+        }
+        // Serialize it as a search result
+        SearchResult_Clear(&r);
       }
-      // Serialize it as a search result
-      SearchResult_Clear(&r);
-    }
-  
-done_2:
-    RedisModule_Reply_ArrayEnd(reply); // results
-    SearchResult_Destroy(&r);
-    if (rc != RS_RESULT_OK) {
+	} else {
       req->stateflags |= QEXEC_S_ITERDONE;
     }
+  
+    RedisModule_Reply_ArrayEnd(reply); // results
+    SearchResult_Destroy(&r);
   
     // Reset the total results length:
     req->qiter.totalResults = 0;
@@ -471,9 +466,10 @@ done_2:
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  bool has_map = RedisModule_HasMap(reply);
   if (IsProfile(req)) {
     RedisModule_Reply_Map(reply);
-  }/* else if (RedisModule_HasMap(reply)) {
+  }/* else if (has_map) {
     RedisModule_Reply_Map(reply);
   }*/ //@@
   sendChunk(req, reply, -1);

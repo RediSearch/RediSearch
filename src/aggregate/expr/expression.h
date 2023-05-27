@@ -10,6 +10,7 @@
 #include "redisearch.h"
 #include "value.h"
 #include "aggregate/functions/function.h"
+#include "reply.h"
 
 #ifdef __cplusplus
 extern "C" {

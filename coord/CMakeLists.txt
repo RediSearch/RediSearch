@@ -38,7 +38,8 @@ add_compile_definitions(
 	_GNU_SOURCE
 	REDIS_MODULE_TARGET
 	RS_COORDINATOR
-	RMUTIL_NO_SDS)
+	RMUTIL_NO_SDS
+	READIES_ALLOW_BB)
 
 setup_cc_options()
 

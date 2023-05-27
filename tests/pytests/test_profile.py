@@ -7,7 +7,6 @@ from time import sleep
 from RLTest import Env
 
 def testProfileSearch(env):
-  BB()
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')

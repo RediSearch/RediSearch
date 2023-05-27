@@ -2013,7 +2013,8 @@ PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator, "OPTIMIZER", 1);
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
-  printIteratorProfile(reply, pi->child, pi->counter - pi->eof, (double)pi->cpuTime, depth, limited, config);
+  printIteratorProfile(reply, pi->child, pi->counter - pi->eof, \
+                       (double)pi->cpuTime, depth, limited, config);
 }
 
 void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter,

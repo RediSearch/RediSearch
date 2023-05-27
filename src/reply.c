@@ -198,7 +198,7 @@ int RedisModule_Reply_String(RedisModule_Reply *reply, RedisModuleString *val) {
 #ifdef REDISMODULE_REPLY_DEBUG
   size_t n;
   const char *p = RedisModule_StringPtrLen(val, &n);
-  json_add(reply, "\"%*s\"", n, val);
+  json_add(reply, "\"%*s\"", n, p);
 #endif
   _RedisModule_Reply_Next(reply);
   return REDISMODULE_OK;

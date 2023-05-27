@@ -283,7 +283,7 @@ ResultProcessor *Grouper_GetRP(Grouper *gr);
  */
 void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
-void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx);
+void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
 void AREQ_Free(AREQ *req);

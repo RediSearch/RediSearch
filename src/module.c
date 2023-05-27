@@ -41,6 +41,7 @@
 #include "info_command.h"
 #include "rejson_api.h"
 #include "geometry/geometry_api.h"
+#include "reply.h"
 #include "resp3.h"
 
 

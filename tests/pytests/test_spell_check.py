@@ -80,7 +80,6 @@ def testBasicSpellCheckWithNoResult():
 
 
 def testSpellCheckOnExistingTerm():
-    BB()
     env = Env()
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     waitForIndex(env, 'idx')
@@ -98,7 +97,7 @@ def testSpellCheckWithIncludeDict():
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
     env.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
-    
+
     res = env.cmd('ft.spellcheck', 'idx', 'name', 'TERMS', 'INCLUDE', 'dict')
     compare_lists(env, res, [['TERM', 'name', [['0.66666666666666663', 'name2'], ['0.33333333333333331', 'name1'],
                                                ['0', 'name3'], ['0', 'name4'], ['0', 'name5']]]])
@@ -116,7 +115,7 @@ def testSpellCheckWithDuplications():
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
     env.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
-    
+
     res = env.cmd('ft.spellcheck', 'idx', 'name', 'TERMS', 'INCLUDE', 'dict')
     compare_lists(env, res, [['TERM', 'name', [['0.66666666666666663', 'name2'],
                                                ['0.33333333333333331', 'name1'],

@@ -225,7 +225,7 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
       // we found the term as is on the index
 
       bool resp3 = _ReplyMap(scCtx->sctx->redisCtx);
-      RedisModule_ReplyWithMapOrArray(scCtx->sctx->redisCtx, resp3 ? 3 : 1, false);
+      RedisModule_ReplyWithMapOrArray(scCtx->sctx->redisCtx, resp3 ? 1 : 3, false);
       if(!resp3) {
         RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, TERM, strlen(TERM));
       }

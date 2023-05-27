@@ -127,7 +127,8 @@ static bool spellCheckAnalizeResult(spellcheckReducerCtx* ctx, MRReply* reply) {
   const char* termValue = MRReply_String(termValueReply, NULL);
 
   MRReply* termSuggestionsReply = MRReply_ArrayElement(reply, 2);
-  if (MRReply_Type(termSuggestionsReply) == MR_REPLY_STRING) {
+  int type = MRReply_Type(termSuggestionsReply);
+  if (type == MR_REPLY_STRING || type == MR_REPLY_STATUS) {
     const char* msg = MRReply_String(termSuggestionsReply, NULL);
     if (strcmp(msg, FOUND_TERM_IN_INDEX) == 0) {
       spellcheckReducerCtx_AddTermAsFoundInIndex(ctx, termValue);
@@ -179,10 +180,10 @@ static bool spellCheckAnalizeResult(spellcheckReducerCtx* ctx, MRReply* reply) {
   return true;
 }
 
-void spellCheckSendResult(RedisModuleCtx* ctx, spellcheckReducerCtx* spellCheckCtx,
+void spellCheckSendResult(RedisModule_Reply* reply, spellcheckReducerCtx* spellCheckCtx,
                           uint64_t totalDocNum) {
 
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_Reply_Array(reply);
   size_t numOfTerms = 0;
   for (int i = 0; i < array_len(spellCheckCtx->terms); ++i) {
     if (spellCheckCtx->terms[i]->foundInIndex) {
@@ -190,11 +191,11 @@ void spellCheckSendResult(RedisModuleCtx* ctx, spellcheckReducerCtx* spellCheckC
     }
     ++numOfTerms;
 
-    SpellCheck_SendReplyOnTerm(ctx, spellCheckCtx->terms[i]->term,
+    SpellCheck_SendReplyOnTerm(reply, spellCheckCtx->terms[i]->term,
                                strlen(spellCheckCtx->terms[i]->term),
                                spellCheckCtx->terms[i]->suggestions, totalDocNum);
   }
-  RedisModule_ReplySetArrayLength(ctx, numOfTerms);
+  RedisModule_Reply_ArrayEnd(reply);
 }
 
 int spellCheckReducer(struct MRCtx* mc, int count, MRReply** replies) {
@@ -222,6 +223,7 @@ int spellCheckReducer(struct MRCtx* mc, int count, MRReply** replies) {
         RedisModule_ReplyWithError(ctx, "bad reply returned");
         return REDISMODULE_OK;
       }
+
       if (!spellCheckAnalizeResult(spellcheckCtx, termReply)) {
         spellcheckReducerCtx_Free(spellcheckCtx);
         RedisModule_ReplyWithError(ctx, "could not analyze term result");
@@ -230,7 +232,9 @@ int spellCheckReducer(struct MRCtx* mc, int count, MRReply** replies) {
     }
   }
 
-  spellCheckSendResult(ctx, spellcheckCtx, totalDocNum);
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  spellCheckSendResult(reply, spellcheckCtx, totalDocNum);
+  RedisModule_EndReply(reply);
 
   spellcheckReducerCtx_Free(spellcheckCtx);
 

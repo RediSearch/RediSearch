@@ -167,12 +167,11 @@ void StopWordList_RdbSave(RedisModuleIO *rdb, StopWordList *sl) {
 }
 
 void ReplyWithStopWordsList(RedisModule_Reply *reply, struct StopWordList *sl) {
-  RedisModule_ReplyKV_Array(reply, "stopwords_list");
+  RedisModule_Reply_SimpleString(reply, "stopwords_list");
 
   if (sl == NULL) {
-    if (!reply->resp3) {
+    RedisModule_Reply_Array(reply);
       RedisModule_Reply_Null(reply);
-    }
     RedisModule_Reply_ArrayEnd(reply);
     return;
   }
@@ -182,12 +181,14 @@ void ReplyWithStopWordsList(RedisModule_Reply *reply, struct StopWordList *sl) {
   tm_len_t len;
   void *ptr;
 
-  for (size_t i = 0; TrieMapIterator_Next(it, &str, &len, &ptr); ++i) {
-    RedisModule_Reply_StringBuffer(reply, str, len);
-  }
+  RedisModule_Reply_Array(reply);
+    for (size_t i = 0; TrieMapIterator_Next(it, &str, &len, &ptr); ++i) {
+      RedisModule_Reply_StringBuffer(reply, str, len);
+    }
+  RedisModule_Reply_ArrayEnd(reply);
+  
   TrieMapIterator_Free(it);
 
-  RedisModule_Reply_ArrayEnd(reply);
 }
 
 #ifdef FTINFO_FOR_INFO_MODULES

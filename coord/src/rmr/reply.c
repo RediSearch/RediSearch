@@ -6,7 +6,6 @@
 
 #define __RMR_REPLY_C__
 #include "reply.h"
-#include "resp3.h"
 
 #include "redismodule.h"
 #include "hiredis/hiredis.h"
@@ -67,6 +66,15 @@ void MRReply_Print(FILE *fp, MRReply *r) {
       break;
   }
 }
+
+#if DEBUG
+
+void print_mr_reply(MRReply *r) {
+  MRReply_Print(stdout, r);
+  puts("");
+}
+
+#endif // DEBUG
 
 int _parseInt(const char *str, size_t len, long long *i) {
   errno = 0; /* To distinguish success/failure after call */
