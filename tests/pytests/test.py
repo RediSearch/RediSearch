@@ -1803,8 +1803,8 @@ def testSortbyMissingField(env):
 
     env.expect('ft.search', 'ix', 'foo', 'sortby', 'num')                       \
         .equal([1, 'doc1', ['txt', 'foo', 'noexist', '3.14']])
-    env.expect('ft.search', 'ix', 'foo', 'sortby', 'noexist')                   \
-        .equal([1, 'doc1', ['noexist', '3.14', 'txt', 'foo']])
+    env.expect('ft.search', 'ix', 'foo', 'sortby', 'noexist').error()           \
+        .contains('Property `noexist` not loaded nor in schema')
 
     env.expect('ft.aggregate', 'ix', 'foo', 'load', 2, '@__key', '@num', 'sortby', 2, '@num', 'asc')            \
         .equal([1, ['__key', 'doc1']])
@@ -2609,6 +2609,7 @@ def testIssue_865(env):
     env.expect('ft.search', 'idx', 'foo*', 'SORTBY', '1', 'DESC').equal([2, 'doc2', ['1', 'foo2'], 'doc1', ['1', 'foo1']])
     env.expect('ft.search', 'idx', 'foo*', 'SORTBY', '1', 'bad').error()
     env.expect('ft.search', 'idx', 'foo*', 'SORTBY', 'bad', 'bad').error()
+    env.expect('ft.search', 'idx', 'foo*', 'SORTBY', 'bad').error()
     env.expect('ft.search', 'idx', 'foo*', 'SORTBY').error()
 
 def testIssue_779(env):
@@ -3253,16 +3254,16 @@ def testFieldsCaseSensetive(env):
     env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'N').equal([1, 'doc4', []])
 
     # make sure SORTBY are case sensitive
-    conn.execute_command('hset', 'doc7', 'n', '0.9')
-    env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'n').equal([2, 'doc7', ['n', '0.9'], 'doc4', ['n', '1.0']])
-    env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'N').equal([2, 'doc4', ['n', '1.0'], 'doc7', ['n', '0.9']])
+    conn.execute_command('hset', 'doc7', 'n', '1.1')
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'n').equal([2, 'doc4', ['n', '1.0'], 'doc7', ['n', '1.1']])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'N').error().contains('not loaded nor in schema')
 
     # make sure aggregation load are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n').equal([1, ['n', '1'], ['n', '0.9']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n').equal([1, ['n', '1'], ['n', '1.1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@N').equal([1, [], []])
 
     # make sure aggregation apply are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@n', 'as', 'r').equal([1, ['n', '1', 'r', '1'], ['n', '0.9', 'r', '0.9']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@n', 'as', 'r').equal([1, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@N', 'as', 'r').error().contains('not loaded in pipeline')
 
     # make sure aggregation filter are case sensitive
@@ -3270,12 +3271,12 @@ def testFieldsCaseSensetive(env):
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@N==1.0').error().contains('not loaded in pipeline')
 
     # make sure aggregation groupby are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2, ['n', '1', 'count', '1'], ['n', '0.9', 'count', '1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'groupby', '1', '@N', 'reduce', 'count', 0, 'as', 'count').error().contains('No such property')
 
     # make sure aggregation sortby are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'sortby', '2', '@n', 'DESC').equal([2, ['n', '1'], ['n', '0.9']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'sortby', '2', '@N', 'DESC').equal([2, ['n', '0.9'], ['n', '1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'sortby', '1', '@n').equal([2, ['n', '1'], ['n', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'sortby', '1', '@N').error().contains('not loaded')
 
 def testSortedFieldsCaseSensetive(env):
     # this test will not pass on coordinator coorently as if one shard return empty results coordinator
@@ -3317,12 +3318,12 @@ def testSortedFieldsCaseSensetive(env):
     env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'N').equal([1, 'doc4', []])
 
     # make sure SORTBY are case sensitive
-    conn.execute_command('hset', 'doc7', 'n', '0.9')
-    env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'n').equal([2, 'doc7', ['n', '0.9'], 'doc4', ['n', '1.0']])
-    env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'N').equal([2, 'doc4', ['n', '1.0'], 'doc7', ['n', '0.9']])
+    conn.execute_command('hset', 'doc7', 'n', '1.1')
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'n').equal([2, 'doc4', ['n', '1.0'], 'doc7', ['n', '1.1']])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'N').error().contains('not loaded nor in schema')
 
     # make sure aggregation apply are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@n', 'as', 'r').equal([1, ['n', '1', 'r', '1'], ['n', '0.9', 'r', '0.9']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@n', 'as', 'r').equal([1, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@N', 'as', 'r').error().contains('not loaded in pipeline')
 
     # make sure aggregation filter are case sensitive
@@ -3330,12 +3331,12 @@ def testSortedFieldsCaseSensetive(env):
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@N==1.0').error().contains('not loaded in pipeline')
 
     # make sure aggregation groupby are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2, ['n', '1', 'count', '1'], ['n', '0.9', 'count', '1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@N', 'reduce', 'count', 0, 'as', 'count').error().contains('No such property')
 
     # make sure aggregation sortby are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'sortby', '1', '@n').equal([2, ['n', '0.9'], ['n', '1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'sortby', '1', '@N').equal([2, [], []])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'sortby', '1', '@n').equal([2, ['n', '1'], ['n', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'sortby', '1', '@N').error().contains('not loaded')
 
 def testScoreLangPayloadAreReturnedIfCaseNotMatchToSpecialFields(env):
     conn = getConnectionByEnv(env)

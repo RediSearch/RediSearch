@@ -1081,6 +1081,12 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
         // add it to the loadkeys list.
         // We failed to get the key for reading, so we can't fail to get it for loading.
         sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
+        // We currently allow implicit loading only for known fields from the schema.
+        // If the key we loaded is not in the schema, we fail.
+        if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
+          QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", keystr);
+          return NULL;
+        }
         *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
       }
       sortkeys[ii] = sortkey;
