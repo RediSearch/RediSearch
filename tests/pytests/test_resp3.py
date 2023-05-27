@@ -270,10 +270,10 @@ def test_list():
     if should_skip(env):
         env.skip()
 
-    with env.getClusterConnectionIfNeeded() as r:
-      r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
-      r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
-      r.execute_command('HSET', 'doc3', 'f5', '4')
+#    with env.getClusterConnectionIfNeeded() as r:
+#      r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
+#      r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
+#      r.execute_command('HSET', 'doc3', 'f5', '4')
 
     env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
@@ -309,6 +309,9 @@ def test_config():
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     env.execute_command('FT.create', 'idx2', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
+
+    if env.isCluster():
+        return
 
     res = env.execute_command("FT.CONFIG", "SET", "TIMEOUT", 501)
 

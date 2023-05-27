@@ -1,8 +1,6 @@
+from common import *
 from time import sleep, time
-import unittest
 from redis import ResponseError
-from includes import *
-from common import waitForIndex
 
 
 def to_dict(res):
@@ -78,7 +76,7 @@ def testMultipleIndexes(env):
 
 def testCapacities(env):
     if env.is_cluster():
-        raise unittest.SkipTest()
+        env.skip()
     loadDocs(env, idx='idx1')
     loadDocs(env, idx='idx2')
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10]

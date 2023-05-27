@@ -52,7 +52,7 @@ static inline void json_add(RedisModule_Reply *reply, const char *fmt, ...) {
   if (count > 0) {
      n += 2;
   }
-  reply->json = array_grow(reply->json, n);
+  reply->json = array_grow(reply->json, n + 1);
   if (count > 0) {
     strcat(reply->json, ", ");
   }
@@ -79,7 +79,7 @@ static inline void json_add_close(RedisModule_Reply *reply, const char *s) {}
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx) {
 #ifdef REDISMODULE_REPLY_DEBUG
   RedisModule_Reply reply = { ctx, _ReplyMap(ctx), 0, NULL, NULL };
-  reply.json = array_ensure_tail(&reply.json, char);
+  reply.json = array_new(char, 1);
   *reply.json = '\0';
 #else
   RedisModule_Reply reply = { ctx, _ReplyMap(ctx), 0, NULL };
@@ -175,7 +175,7 @@ int RedisModule_Reply_SimpleString(RedisModule_Reply *reply, const char *val) {
 
 int RedisModule_Reply_StringBuffer(RedisModule_Reply *reply, const char *val, size_t len) {
   RedisModule_ReplyWithStringBuffer(reply->ctx, val, len);
-  json_add(reply, "\"%*s\"", len, val);
+  json_add(reply, "\"%.*s\"", len, val);
   _RedisModule_Reply_Next(reply);
   return REDISMODULE_OK;
 }
@@ -198,7 +198,7 @@ int RedisModule_Reply_String(RedisModule_Reply *reply, RedisModuleString *val) {
 #ifdef REDISMODULE_REPLY_DEBUG
   size_t n;
   const char *p = RedisModule_StringPtrLen(val, &n);
-  json_add(reply, "\"%*s\"", n, p);
+  json_add(reply, "\"%.*s\"", n, p);
 #endif
   _RedisModule_Reply_Next(reply);
   return REDISMODULE_OK;
@@ -328,9 +328,9 @@ int RedisModule_ReplyKV_StringBuffer(RedisModule_Reply *reply, const char *key, 
   RedisModule_ReplyWithSimpleString(reply->ctx, key);
   RedisModule_ReplyWithStringBuffer(reply->ctx, val, len);
   if (reply->resp3) {
-    json_add(reply, "\"%s\": \"%*s\"", key, len, val);
+    json_add(reply, "\"%s\": \"%.*s\"", key, len, val);
   } else {
-    json_add(reply, "\"%s\", \"%*s\"", key, len, val);
+    json_add(reply, "\"%s\", \"%.*s\"", key, len, val);
   }
   _RedisModule_ReplyKV_Next(reply);
   return REDISMODULE_OK;
@@ -343,9 +343,9 @@ int RedisModule_ReplyKV_String(RedisModule_Reply *reply, const char *key, RedisM
   size_t n;
   const char *p = RedisModule_StringPtrLen(val, &n);
   if (reply->resp3) {
-    json_add(reply, "\"%s\": \"%s\"", key, n, p);
+    json_add(reply, "\"%s\": \"%.*s\"", key, n, p);
   } else {
-    json_add(reply, "\"%s\", \"%s\"", key, n, p);
+    json_add(reply, "\"%s\", \"%.*s\"", key, n, p);
   }
 #endif
   _RedisModule_ReplyKV_Next(reply);

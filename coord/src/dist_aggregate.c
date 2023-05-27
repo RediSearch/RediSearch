@@ -164,7 +164,6 @@ static int getNextReply(RPNet *nc) {
     if (rows == NULL || MRReply_Type(rows) != MR_REPLY_ARRAY || MRReply_Length(rows) == 0) {
       MRReply_Free(root);
       RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
-      ;
     }
     nc->current.root = root;
     nc->current.rows = rows;
