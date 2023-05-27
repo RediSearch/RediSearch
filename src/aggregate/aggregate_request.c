@@ -1037,6 +1037,8 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
   PLN_ArrangeStep astp_s = {.base = {.type = PLN_T_ARRANGE}};
   PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
   IndexSpec *spec = req->sctx ? req->sctx->spec : NULL; // check for sctx?
+  // Store and count keys that require loading from Redis.
+  const RLookupKey **loadKeys = NULL;
 
   if (!astp) {
     astp = &astp_s;
@@ -1069,8 +1071,6 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
 
     const RLookupKey **sortkeys = astp->sortkeysLK;
 
-    // Store and count keys that require loading from Redis.
-    const RLookupKey **loadKeys = NULL;
     RLookup *lk = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
 
     for (size_t ii = 0; ii < nkeys; ++ii) {
