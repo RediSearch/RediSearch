@@ -47,7 +47,7 @@ static int getCursorCommand(MRReply *prev, MRCommand *cmd) {
 static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd) {
   // Should we assert this??
   if (MRReply_Type(rep) == MR_REPLY_MAP) { _BB; } //@@
-  if (!rep || MRReply_Type(rep) != MR_REPLY_ARRAY || 
+  if (!rep || MRReply_Type(rep) != MR_REPLY_ARRAY ||
              (MRReply_Length(rep) != 2 && MRReply_Length(rep) != 3)) {
     if (MRReply_Type(rep) == MR_REPLY_ERROR) {
       //      printf("Error is '%s'\n", MRReply_String(rep, NULL));
@@ -164,7 +164,7 @@ static int getNextReply(RPNet *nc) {
     if (rows == NULL || MRReply_Type(rows) != MR_REPLY_ARRAY || MRReply_Length(rows) == 0) {
       MRReply_Free(root);
       RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
-      ;    
+      ;
     }
     nc->current.root = root;
     nc->current.rows = rows;
@@ -188,7 +188,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     long long cursorId = MRReply_Integer(MRReply_ArrayElement(nc->current.root, 1));
     // in profile mode, save shard's profile info to be returned later
     if (cursorId == 0 && nc->shardsProfile) {
-      nc->shardsProfile[nc->shardsProfileIdx++] = nc->current.root; 
+      nc->shardsProfile[nc->shardsProfileIdx++] = nc->current.root;
     } else {
       MRReply_Free(nc->current.root);
     }
@@ -288,7 +288,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
     }
     tmparr = array_append(tmparr, "QUERY");
   }
-  
+
   tmparr = array_append(tmparr, RedisModule_StringPtrLen(argv[2 + profileArgs], NULL));  // Query
   tmparr = array_append(tmparr, "WITHCURSOR");
   // Numeric responses are encoded as simple strings.
@@ -316,6 +316,13 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
     for (int i = 0; i < nargs + 2; ++i) {
       MRCommand_AppendRstr(xcmd, argv[loc + 3 + i + profileArgs]);
     }
+  }
+
+  // check for timeout argument and append it to the command
+  int timeout_index = RMUtil_ArgIndex("TIMEOUT", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  if (timeout_index != -1) {
+    MRCommand_AppendRstr(xcmd, argv[timeout_index]);
+    MRCommand_AppendRstr(xcmd, argv[timeout_index + 1]);
   }
 
   MRCommand_SetPrefix(xcmd, "_FT");
