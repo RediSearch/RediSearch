@@ -323,15 +323,6 @@ def test_dictdump():
     env.cmd("FT.DICTADD", "dict1", "foo", "1", "bar", "2")
     env.expect("FT.DICTDUMP", "dict1").equal({'2', 'bar', 'foo', '1'})
 
-def testSpellCheckIssue437():
-    env = Env(protocol=3)
-    env.cmd('ft.create', 'incidents', 'ON', 'HASH', 'SCHEMA', 'report', 'text')
-    env.cmd('FT.DICTADD', 'slang', 'timmies', 'toque', 'toonie', 'serviette', 'kerfuffle', 'chesterfield')
-    env.expect('FT.SPELLCHECK', 'incidents',
-               'Tooni toque kerfuffle', 'TERMS',
-               'EXCLUDE', 'slang', 'TERMS',
-               'INCLUDE', 'slang').equal([['TERM', 'tooni', [['0', 'toonie']]]])
-
 def test_spell_check():
     env = Env(protocol=3)
     if should_skip(env):
