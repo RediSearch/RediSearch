@@ -75,7 +75,7 @@ def test_search():
         }
       ]
     }
-    env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "EXPLAINSCORE", "WITHPAYLOADS", 
+    env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "EXPLAINSCORE", "WITHPAYLOADS",
                "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2').equal(expected)
 
     # test with sortby
@@ -89,7 +89,7 @@ def test_search():
           'fields': {'f2': '3', 'f1': '3'},
           'fields_values': []
         },
-        { 'id': 'doc2', 
+        { 'id': 'doc2',
           'score': 1.0,
           'payload': None,
           'sortkey': '$2',
@@ -164,7 +164,7 @@ def test_aggregate():
     res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 2, "f1", "f2")
     res['results'].sort(key=lambda x: "" if x['fields'].get('f2') == None else x['fields'].get('f2'))
     expected = \
-      { 'fields_names': [], 
+      { 'fields_names': [],
         'error': [],
         'total_results': 1,
         'results': [
@@ -191,8 +191,8 @@ def test_aggregate():
 
     # test with sortby
     expected = \
-      { 'fields_names': [], 
-        'error': [], 
+      { 'fields_names': [],
+        'error': [],
         'total_results': 3,
         'results': [
           {'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []},
@@ -225,7 +225,7 @@ def test_cursor():
         {'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []}
       ],
       'cursor': ANY}
-    res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", 
+    res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3",
                   "SORTBY", 2, "@f2", "DESC", "WITHCURSOR", 'COUNT', 1)
     env.assertEqual(res, expected)
 
@@ -258,7 +258,7 @@ def test_list():
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
       r.execute_command('HSET', 'doc3', 'f5', '4')
-    
+
     env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     env.cmd('FT.create', 'idx2', "PREFIX", 1, "doc",
@@ -288,14 +288,14 @@ def test_config():
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
       r.execute_command('HSET', 'doc3', 'f5', '4')
-    
+
     env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     env.execute_command('FT.create', 'idx2', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
 
     res = env.execute_command("FT.CONFIG", "SET", "TIMEOUT", 501)
-    
+
     res = env.execute_command("FT.CONFIG", "GET", "*")
     env.assertEqual(res['TIMEOUT'], {'Value': '501'})
 

@@ -264,7 +264,7 @@ def testGFreeEmpryTerms(env):
     forceInvokeGC(env, 'idx')
     env.expect('FT.DEBUG', 'DUMP_TERMS', 'idx').equal([])
 
-def testAutoMemory_MOD_3951():    
+def testAutoMemory_MOD_3951():
     env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
