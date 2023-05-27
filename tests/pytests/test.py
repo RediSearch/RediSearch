@@ -1,13 +1,10 @@
 # -*- coding: utf-8 -*-
 
+from common import *
 import redis
-import unittest
 from hotels import hotels
 import random
 import time
-from RLTest import Env
-from includes import *
-from common import *
 
 
 # this tests is not longer relevant
@@ -1192,8 +1189,8 @@ def testTagErrors(env):
 
 def testGeoDeletion(env):
     if env.is_cluster():
-        raise unittest.SkipTest()
         # Can't properly test if deleted on cluster
+        env.skip()
 
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema',
@@ -1395,7 +1392,6 @@ def testExpander(env):
     env.assertEqual(1, res[0])
 
 def testNumericRange(env):
-    BB()
     r = env
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'score', 'numeric', 'price', 'numeric').ok()
 
@@ -1553,7 +1549,8 @@ def testGarbageCollector(env):
     env.skipOnCluster()
     if env.moduleArgs is not None and 'GC_POLICY FORK' in env.moduleArgs:
         # this test is not relevent for fork gc cause its not cleaning the last block
-        raise unittest.SkipTest()
+        env.skip()
+
     N = 100
     r = env
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text').ok()
