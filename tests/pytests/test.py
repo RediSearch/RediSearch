@@ -1,13 +1,11 @@
 # -*- coding: utf-8 -*-
 
+from common import *
 import redis
-import unittest
 from hotels import hotels
 import random
 import time
-from RLTest import Env
-from includes import *
-from common import *
+
 
 # this tests is not longer relevant
 # def testAdd(env):
@@ -750,7 +748,7 @@ def testPrefixNodeCaseSensitive(env):
     # can check both prefix and suffix modes.
     queries_expectations = {
         "TEXT": {
-            "lowercase": 
+            "lowercase":
             {  "query": ["@t:(*el*)"],
                 "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
             },
@@ -758,7 +756,7 @@ def testPrefixNodeCaseSensitive(env):
             {  "query": ["@t:(*$p*)", "PARAMS", "2", "p", "el", "DIALECT", "2" ],
                 "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
             },
-            "uppercase": 
+            "uppercase":
             {  "query": ["@t:(*EL*)"],
                 "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
             },
@@ -1191,8 +1189,8 @@ def testTagErrors(env):
 
 def testGeoDeletion(env):
     if env.is_cluster():
-        raise unittest.SkipTest()
         # Can't properly test if deleted on cluster
+        env.skip()
 
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema',
@@ -1551,7 +1549,8 @@ def testGarbageCollector(env):
     env.skipOnCluster()
     if env.moduleArgs is not None and 'GC_POLICY FORK' in env.moduleArgs:
         # this test is not relevent for fork gc cause its not cleaning the last block
-        raise unittest.SkipTest()
+        env.skip()
+
     N = 100
     r = env
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text').ok()

@@ -1248,7 +1248,6 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   rCtx.processReply = (void (*)(struct redisReply *, struct searchReducerCtx *, RedisModuleCtx *))processSearchReply;
   rCtx.postProcess = (void (*)(struct searchReducerCtx *))noOpPostProcess;
 
-
   if(req->specialCases) {
     size_t nSpecialCases = array_len(req->specialCases);
     for(size_t i =0; i < nSpecialCases; i++) {

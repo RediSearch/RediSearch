@@ -36,7 +36,7 @@ static inline int RedisModule_ReplyWithMapOrArray(RedisModuleCtx *ctx, long len,
     }
 }
 
-static void RedisModule_ReplySetSetOrArrayLength(RedisModuleCtx *ctx, long len) {
+static inline void RedisModule_ReplySetSetOrArrayLength(RedisModuleCtx *ctx, long len) {
     if (_ReplySet(ctx)) {
         RedisModule_ReplySetSetLength(ctx, len);
     } else {
@@ -44,7 +44,7 @@ static void RedisModule_ReplySetSetOrArrayLength(RedisModuleCtx *ctx, long len) 
     }
 }
 
-static void RedisModule_ReplyWithSetOrArray(RedisModuleCtx *ctx, long len) {
+static inline void RedisModule_ReplyWithSetOrArray(RedisModuleCtx *ctx, long len) {
     if (_ReplySet(ctx)) {
         RedisModule_ReplyWithSet(ctx, len);
     } else {
