@@ -213,7 +213,6 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
                                             t_fieldMask fieldMask) {
   RedisModule_Reply *reply = scCtx->reply;
 
-  _BB;
   // searching the term on the term trie, if its there we just return false
   // because there is no need to return suggestions on it.
   if (SpellCheck_IsTermExistsInTrie(scCtx->sctx->spec->terms, term, len, NULL)) {

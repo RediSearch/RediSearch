@@ -379,8 +379,7 @@ void printAggProfile(RedisModule_Reply *reply, AREQ *req) {
     RedisModule_ReplyKV_Map(reply, "Coordinator"); // >coordinator
 
       RedisModule_ReplyKV_Map(reply, "Result processors profile");
-      //@@ Profile_Print(reply, req);
-      _BB;
+      Profile_Print(reply, req);
       RedisModule_Reply_MapEnd(reply);
 
       RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC);
@@ -463,16 +462,14 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     r->sctx = NewSearchCtxC(ctx, ixname, true);
     RedisModule_ThreadSafeContextUnlock(ctx);
 
-    //@@ rc = AREQ_StartCursor(r, reply, ixname, &status);
-    _BB;
+    rc = AREQ_StartCursor(r, reply, ixname, &status);
 
     if (rc != REDISMODULE_OK) {
       goto err;
     }
   } else if (IsProfile(r)) {
     RedisModule_Reply_Map(reply);
-      //@@sendChunk(r, reply, -1);
-      _BB;
+      sendChunk(r, reply, -1);
       printAggProfile(reply, r);
     RedisModule_Reply_MapEnd(reply);
     AREQ_Free(r);
@@ -480,8 +477,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     if (has_map) {
       RedisModule_Reply_Map(reply);
     }
-    //@@sendChunk(r, reply, -1);
-    _BB;
+    sendChunk(r, reply, -1);
     if (has_map) {
       RedisModule_Reply_MapEnd(reply);
     }

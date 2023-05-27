@@ -127,7 +127,6 @@ static bool spellCheckAnalizeResult(spellcheckReducerCtx* ctx, MRReply* reply) {
   const char* termValue = MRReply_String(termValueReply, NULL);
 
   MRReply* termSuggestionsReply = MRReply_ArrayElement(reply, 2);
-  _BB;
   int type = MRReply_Type(termSuggestionsReply);
   if (type == MR_REPLY_STRING || type == MR_REPLY_STATUS) {
     const char* msg = MRReply_String(termSuggestionsReply, NULL);
@@ -200,7 +199,6 @@ void spellCheckSendResult(RedisModule_Reply* reply, spellcheckReducerCtx* spellC
 }
 
 int spellCheckReducer(struct MRCtx* mc, int count, MRReply** replies) {
-  _BB;
   RedisModuleCtx* ctx = MRCtx_GetRedisCtx(mc);
   if (count == 0) {
     RedisModule_ReplyWithError(ctx, "Could not distribute command");
@@ -225,7 +223,7 @@ int spellCheckReducer(struct MRCtx* mc, int count, MRReply** replies) {
         RedisModule_ReplyWithError(ctx, "bad reply returned");
         return REDISMODULE_OK;
       }
-      _BB;
+
       if (!spellCheckAnalizeResult(spellcheckCtx, termReply)) {
         spellcheckReducerCtx_Free(spellcheckCtx);
         RedisModule_ReplyWithError(ctx, "could not analyze term result");

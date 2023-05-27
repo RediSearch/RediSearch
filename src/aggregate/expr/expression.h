@@ -10,6 +10,7 @@
 #include "redisearch.h"
 #include "value.h"
 #include "aggregate/functions/function.h"
+#include "reply.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -213,7 +214,7 @@ ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup)
 /** 
  * Reply with a string which describes the result processor.
  */
-void RPEvaluator_Reply(RedisModuleCtx *ctx, const ResultProcessor *rp);
+void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const ResultProcessor *rp);
 
 #ifdef __cplusplus
 }

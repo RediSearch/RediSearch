@@ -110,23 +110,22 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
       RedisModule_Reply_Array(reply);
       RedisModule_Reply_ArrayEnd(reply);
     } else {
-      TrieMap_Free(dict, NULL);
       RedisModule_ReplyWithError(ctx, err ? (const char *)err : "Could not perfrom query");
     }
     goto cleanup;
   }
 
-  char *s;
-  tm_len_t sl;
-  void *p;
   // Iterate the dict and reply with all values
-  TrieMapIterator *it = TrieMap_Iterate(dict, "", 0);
   RedisModule_Reply_Array(reply);
+    char *s;
+    tm_len_t sl;
+    void *p;
+    TrieMapIterator *it = TrieMap_Iterate(dict, "", 0);
     while (TrieMapIterator_Next(it, &s, &sl, &p)) {
       RedisModule_Reply_StringBuffer(reply, s, sl);
     }
+    TrieMapIterator_Free(it);
   RedisModule_Reply_ArrayEnd(reply);
-  TrieMapIterator_Free(it);
 
 cleanup:
   TrieMap_Free(dict, NULL);
@@ -1126,6 +1125,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
       if (req->withExplainScores) {
         RedisModule_Reply_Array(reply);
           RedisModule_Reply_Double(reply, res->score);
+          MR_ReplyWithMRReply(reply, res->explainScores);
         RedisModule_Reply_ArrayEnd(reply);
       } else {
         RedisModule_Reply_Double(reply, res->score);
@@ -1247,7 +1247,6 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     goto cleanup;
   }
 
-  //_BB;
   rCtx.searchCtx = req;
 
   // Get reply offsets
@@ -1303,7 +1302,6 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     sendSearchResults(reply, &rCtx);
   } else {
     postProccessTime = clock();
-    _BB;
     profileSearchReply(reply, &rCtx, count, replies, req->profileClock, postProccessTime);
   }
 
@@ -1544,7 +1542,6 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 }
 
 int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1860,6 +1857,7 @@ int ClusterInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   
     if (!topo) {
       RedisModule_ReplyKV_Null(reply, "slots");
+      RedisModule_Reply_MapEnd(reply); // root
       RedisModule_EndReply(reply);
       return REDISMODULE_OK;    
     }
@@ -1901,6 +1899,8 @@ int ClusterInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   //-------------------------------------------------------------------------------------------
   else // ! has_map (RESP2 variant)
   {
+    RedisModule_Reply_Array(reply); // root
+
     RedisModule_ReplyKV_LongLong(reply, "num_partitions", GetSearchCluster()->size);
     RedisModule_ReplyKV_SimpleString(reply, "cluster_type", 
                                      clusterConfig.type == ClusterType_RedisLabs ? "redislabs" : "redis_oss");
@@ -1915,31 +1915,33 @@ int ClusterInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   
     if (!topo) {
       RedisModule_Reply_Null(reply);
+      RedisModule_Reply_ArrayEnd(reply); // root
       RedisModule_EndReply(reply);
       return REDISMODULE_OK;    
     }
   
     for (int i = 0; i < topo->numShards; i++) {
       MRClusterShard *sh = &topo->shards[i];
-      RedisModule_Reply_Array(reply);
+      RedisModule_Reply_Array(reply); // >shards
   
       RedisModule_Reply_LongLong(reply, sh->startSlot);
       RedisModule_Reply_LongLong(reply, sh->endSlot);
       for (int j = 0; j < sh->numNodes; j++) {
         MRClusterNode *node = &sh->nodes[j];
-        RedisModule_Reply_Array(reply);
+        RedisModule_Reply_Array(reply); // >>node
           RedisModule_Reply_SimpleString(reply, node->id);
           RedisModule_Reply_SimpleString(reply, node->endpoint.host);
           RedisModule_Reply_LongLong(reply, node->endpoint.port);
           RedisModule_Reply_Stringf(reply, "%s%s",
                                     node->flags & MRNode_Master ? "master " : "slave ",
                                     node->flags & MRNode_Self ? "self" : "");
+        RedisModule_Reply_ArrayEnd(reply); // >>node
       }
       
-      RedisModule_Reply_ArrayEnd(reply);
+      RedisModule_Reply_ArrayEnd(reply); // >shards
     }
   
-    RedisModule_Reply_ArrayEnd(reply);
+    RedisModule_Reply_ArrayEnd(reply); // root
   }
   //-------------------------------------------------------------------------------------------
 

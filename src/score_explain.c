@@ -8,19 +8,20 @@
 #include "rmalloc.h"
 #include "config.h"
 
-static void recExplainReply(RedisModuleCtx *ctx, RSScoreExplain *scrExp, int depth) {
+static void recExplainReply(RedisModule_Reply *reply, RSScoreExplain *scrExp, int depth) {
   int numChildren = scrExp->numChildren;
 
   if (numChildren == 0 ||
      (depth >= REDIS_ARRAY_LIMIT - 1 && !isFeatureSupported(NO_REPLY_DEPTH_LIMIT))) {
-    RedisModule_ReplyWithSimpleString(ctx, scrExp->str);
+    RedisModule_Reply_SimpleString(reply, scrExp->str);
   } else {
-    RedisModule_ReplyWithArray(ctx, 2);
-    RedisModule_ReplyWithSimpleString(ctx, scrExp->str);
-    RedisModule_ReplyWithArray(ctx, numChildren);
-    for (int i = 0; i < numChildren; i++) {
-      recExplainReply(ctx, &scrExp->children[i], depth + 2);
-    }
+    RedisModule_Reply_Array(reply);
+      RedisModule_ReplyKV_Array(reply, scrExp->str);
+      for (int i = 0; i < numChildren; i++) {
+        recExplainReply(reply, &scrExp->children[i], depth + 2);
+      }
+      RedisModule_Reply_ArrayEnd(reply);
+    RedisModule_Reply_ArrayEnd(reply);
   }
 }
 
@@ -32,9 +33,9 @@ static void recExplainDestroy(RSScoreExplain *scrExp) {
   rm_free(scrExp->str);
 }
 
-void SEReply(RedisModuleCtx *ctx, RSScoreExplain *scrExp) {
+void SEReply(RedisModule_Reply *reply, RSScoreExplain *scrExp) {
   if (scrExp != NULL) {
-    recExplainReply(ctx, scrExp, 1);
+    recExplainReply(reply, scrExp, 1);
   }
 }
 

@@ -266,7 +266,6 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
   replyKvArray(reply, fields, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);
 
   RedisModule_Reply_MapEnd(reply);
-  RedisModule_EndReply(reply);
 }
 
 int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
@@ -281,7 +280,6 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  // _BB;
 
   for (size_t ii = 0; ii < count; ++ii) {
     if (MRReply_Type(replies[ii]) == MR_REPLY_ERROR) {
