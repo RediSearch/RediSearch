@@ -1,12 +1,10 @@
-import time
-import unittest
 from common import *
-from RLTest import Env
+
 
 def testExpireIndex(env):
     # temporary indexes
     if env.isCluster():
-        raise unittest.SkipTest()
+        env.skip()
     env.cmd('ft.create', 'idx', 'TEMPORARY', '4', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
     ttl = env.cmd('ft.debug', 'TTL', 'idx')
     env.assertTrue(ttl > 2)

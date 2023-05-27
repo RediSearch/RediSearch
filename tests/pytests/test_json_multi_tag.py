@@ -147,7 +147,6 @@ def searchMultiTagAuthor(env):
     env.assertEqual(int(index_info(env, 'idx_author_arr')['hash_indexing_failures']), 3)
 
     for idx in ['idx_author_flat']:
-        env.debugPrint(idx, force=True)
         env.expect('FT.SEARCH', idx, '@author:{Donald\ Knuth}', 'NOCONTENT').equal([1, 'doc:1'])
         
         # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)

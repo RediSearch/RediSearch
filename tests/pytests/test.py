@@ -10,7 +10,7 @@ import time
 # this tests is not longer relevant
 # def testAdd(env):
 #     if env.is_cluster():
-#         raise unittest.SkipTest()
+#         env.skip()
 
 #     r = env
 #     env.expect('ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text').ok()
@@ -543,7 +543,7 @@ def testExplain(env):
 
     # expected = ['INTERSECT {', '  UNION {', '    hello', '    <HL(expanded)', '    +hello(expanded)', '  }', '  UNION {', '    world', '    <ARLT(expanded)', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      <HL(expanded)', '      +hello(expanded)', '    }', '    UNION {', '      world', '      <ARLT(expanded)', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
     if env.is_cluster():
-        raise unittest.SkipTest()
+        env.skip()
     res = env.cmd('ft.explainCli', 'idx', q)
     expected = ['INTERSECT {', '  UNION {', '    hello', '    +hello(expanded)', '  }', '  UNION {', '    world', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
     env.assertEqual(expected, res)
@@ -1900,7 +1900,7 @@ def testBinaryKeys(env):
 
 def testNonDefaultDb(env):
     if env.is_cluster():
-        raise unittest.SkipTest()
+        env.skip()
 
     # Should be ok
     env.cmd('FT.CREATE', 'idx1', 'ON', 'HASH', 'schema', 'txt', 'text')
@@ -1951,7 +1951,7 @@ def testSortbyMissingFieldSparse(env):
 def testLuaAndMulti(env):
     env.skip() # addhash isn't supported
     if env.is_cluster():
-        raise unittest.SkipTest()
+        env.skip()
     # Ensure we can work in Lua and Multi environments without crashing
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'f1', 'text', 'n1', 'numeric')
     env.cmd('HMSET', 'hashDoc', 'f1', 'v1', 'n1', 4)
