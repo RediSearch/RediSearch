@@ -1085,7 +1085,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
         // If the key we loaded is not in the schema, we fail.
         if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
           QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", keystr);
-          return NULL;
+          goto end;
         }
         *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
       }
@@ -1094,8 +1094,6 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     if (loadKeys) {
       // If we have keys to load, add a loader step.
       ResultProcessor *rpLoader = RPLoader_New(lk, loadKeys, array_len(loadKeys));
-      array_free(loadKeys);
-      RS_LOG_ASSERT(rpLoader, "RPLoader_New failed");
       up = pushRP(req, rpLoader, up);
     }
     rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap,
@@ -1115,6 +1113,8 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     up = pushRP(req, rp, up);
   }
 
+end:
+  array_free(loadKeys);
   return rp;
 }
 
