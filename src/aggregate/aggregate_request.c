@@ -1237,7 +1237,7 @@ int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status) {
         QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "No such property `%s`", ff->name);
         goto error;
       } else if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
-        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Property `%s` is not known to schema", ff->name);
+        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Property `%s` is not in schema", ff->name);
         goto error;
       }
       ff->lookupKey = kk;
