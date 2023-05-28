@@ -28,6 +28,8 @@ typedef struct {
   int targetSlot;
 
   sds cmd;
+
+  int protocol; // 0 (undetermined), 2, or 3
 } MRCommand;
 
 /* Free the command and all its strings. Doesn't free the actual commmand struct, as it is usually

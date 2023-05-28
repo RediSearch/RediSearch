@@ -111,6 +111,9 @@ RSValue *MRReply_ToValue(MRReply *r) {
     case MR_REPLY_INTEGER:
       v = RS_NumVal((double)MRReply_Integer(r));
       break;
+    case MR_REPLY_DOUBLE:
+      v = RS_NumVal(MRReply_Double(r));
+      break;
     case MR_REPLY_ARRAY: {
       RSValue **arr = rm_calloc(MRReply_Length(r), sizeof(*arr));
       for (size_t i = 0; i < MRReply_Length(r); i++) {
@@ -124,7 +127,10 @@ RSValue *MRReply_ToValue(MRReply *r) {
       break;
 
     case MR_REPLY_NIL:
+      v = RS_NullVal();
+      break;
     default:
+      _BB; //@@
       v = RS_NullVal();
       break;
   }

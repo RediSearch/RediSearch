@@ -45,6 +45,10 @@ static inline long long MRReply_Integer(MRReply *reply) {
   return reply->integer;
 }
 
+static inline double MRReply_Double(MRReply *reply) {
+  return reply->dval;
+}
+
 static inline size_t MRReply_Length(MRReply *reply) {
   return reply->elements;
 }

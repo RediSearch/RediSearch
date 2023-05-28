@@ -34,9 +34,14 @@ void MRReply_Print(FILE *fp, MRReply *r) {
     return;
   }
 
+  size_t len;
   switch (MRReply_Type(r)) {
     case MR_REPLY_INTEGER:
       fprintf(fp, "INT(%lld)", MRReply_Integer(r));
+      break;
+
+    case MR_REPLY_DOUBLE:
+      fprintf(fp, "DOUBLE(%f)", MRReply_Double(r));
       break;
 
     case MR_REPLY_STRING:
@@ -53,16 +58,33 @@ void MRReply_Print(FILE *fp, MRReply *r) {
       break;
 
     case MR_REPLY_ARRAY:
-      fprintf(fp, "ARR(%zd):[ ", MRReply_Length(r));
-      for (size_t i = 0; i < MRReply_Length(r); i++) {
+      len = MRReply_Length(r);
+      fprintf(fp, "ARR(%zd):[ ", len);
+      for (size_t i = 0; i < len; i++) {
         MRReply_Print(fp, MRReply_ArrayElement(r, i));
         fprintf(fp, ", ");
       }
       fprintf(fp, "]");
       break;
 
-    case MR_REPLY_MAP: //@@
-      _BB;
+    case MR_REPLY_MAP:
+      len = MRReply_Length(r);
+      fprintf(fp, "MAP(%zd):{ ", len);
+      for (size_t i = 0; i < len; i++) {
+        MRReply_Print(fp, MRReply_ArrayElement(r, i++));
+        fprintf(fp, ": ");
+        if (i < len) {
+          MRReply_Print(fp, MRReply_ArrayElement(r, i));
+          fprintf(fp, ", ");
+        } else {
+          fprintf(fp, "(none), ");
+        }
+      }
+      fprintf(fp, "}");
+      break;
+
+    default:
+      _BB; //@@
       break;
   }
 }
@@ -115,13 +137,20 @@ int MRReply_ToInteger(MRReply *reply, long long *i) {
     case MR_REPLY_INTEGER:
       *i = MRReply_Integer(reply);
       return 1;
+
+    case MR_REPLY_DOUBLE:
+      *i = (int) MRReply_Double(reply);
+      return 1;
+
     case MR_REPLY_STRING:
     case MR_REPLY_STATUS: {
       size_t n;
       const char *s = MRReply_String(reply, &n);
       return _parseInt(s, n, i);
     }
+    
     default:
+      _BB; //@@
       return 0;
   }
 }
@@ -134,6 +163,10 @@ int MRReply_ToDouble(MRReply *reply, double *d) {
       *d = (double)MRReply_Integer(reply);
       return 1;
 
+    case MR_REPLY_DOUBLE:
+      *d = MRReply_Double(reply);
+      return 1;
+
     case MR_REPLY_STRING:
     case MR_REPLY_STATUS:
     case MR_REPLY_ERROR: {
@@ -143,6 +176,7 @@ int MRReply_ToDouble(MRReply *reply, double *d) {
     }
 
     default:
+      _BB; //@@
       return 0;
   }
 }
@@ -162,9 +196,30 @@ int MR_ReplyWithMRReply(RedisModule_Reply *reply, MRReply *rep) {
     case MR_REPLY_STATUS:
       return RedisModule_Reply_SimpleString(reply, MRReply_String(rep, NULL));
 
+    case MR_REPLY_MAP: {
+      RedisModule_Reply_Map(reply);
+      size_t len = MRReply_Length(rep);
+      for (size_t i = 0; i < len; i++) {
+        MR_ReplyWithMRReply(reply, MRReply_ArrayElement(rep, i));
+      }
+      RedisModule_Reply_MapEnd(reply);
+      return REDISMODULE_OK;
+    }
+
+    case MR_REPLY_SET: {
+      RedisModule_Reply_Set(reply);
+      size_t len = MRReply_Length(rep);
+      for (size_t i = 0; i < len; i++) {
+        MR_ReplyWithMRReply(reply, MRReply_ArrayElement(rep, i));
+      }
+      RedisModule_Reply_SetEnd(reply);
+      return REDISMODULE_OK;
+    }
+
     case MR_REPLY_ARRAY: {
       RedisModule_Reply_Array(reply);
-      for (size_t i = 0; i < MRReply_Length(rep); i++) {
+      size_t len = MRReply_Length(rep);
+      for (size_t i = 0; i < len; i++) {
         MR_ReplyWithMRReply(reply, MRReply_ArrayElement(rep, i));
       }
       RedisModule_Reply_ArrayEnd(reply);
@@ -172,23 +227,25 @@ int MR_ReplyWithMRReply(RedisModule_Reply *reply, MRReply *rep) {
     }
 
     case MR_REPLY_INTEGER:
+    case MR_REPLY_BOOL:
       return RedisModule_Reply_LongLong(reply, MRReply_Integer(rep));
 
     case MR_REPLY_ERROR:
       return RedisModule_Reply_Error(reply, MRReply_String(rep, NULL));
 
     case MR_REPLY_DOUBLE:
-    case MR_REPLY_BOOL:
-    case MR_REPLY_MAP:
-    case MR_REPLY_SET:
+      return RedisModule_Reply_Double(reply, MRReply_Double(rep));
+  
     case MR_REPLY_ATTR:
     case MR_REPLY_PUSH:
     case MR_REPLY_BIGNUM:
       _BB; //@@
-      return RedisModule_Reply_Null(reply);
+      return REDISMODULE_ERR;
 
     case MR_REPLY_NIL:
+      return RedisModule_Reply_Null(reply);
     default:
+      _BB; //@@
       return RedisModule_Reply_Null(reply);
   }
   return REDISMODULE_ERR;

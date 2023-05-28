@@ -56,6 +56,7 @@ typedef struct {
   redisAsyncContext *conn;
   MRConnState state;
   void *timer;
+  int protocol; // 0 (undetermined), 2, or 3
 } MRConn;
 
 /* A pool indexes connections by the node id */

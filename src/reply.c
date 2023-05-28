@@ -49,7 +49,11 @@ static inline void json_add(RedisModule_Reply *reply, const char *fmt, ...) {
   char *p = 0;
   int n = vasprintf(&p, fmt, args);
   int count = RedisModule_Reply_LocalCount(reply);
+  StackEntry *e = reply->stack ? &array_tail(reply->stack) : 0;
   if (count > 0) {
+     n += 2;
+  }
+  if (e && e->type == REDISMODULE_REPLY_MAP && count % 2 == 0) {
      n += 2;
   }
   reply->json = array_grow(reply->json, n + 1);
@@ -57,6 +61,9 @@ static inline void json_add(RedisModule_Reply *reply, const char *fmt, ...) {
     strcat(reply->json, ", ");
   }
   strcat(reply->json, p);
+  if (e && e->type == REDISMODULE_REPLY_MAP && count % 2 == 0) {
+    strcat(reply->json, ": ");
+  }
   va_end(args);
   free(p);
 }
@@ -104,7 +111,7 @@ int RedisModule_EndReply(RedisModule_Reply *reply) {
 }
 
 static void _RedisModule_Reply_Next(RedisModule_Reply *reply) {
-  StackEntry *e;
+  StackEntry *e = 0;
   int *count;
   if (reply->stack) {
     if (!array_len(reply->stack)) {
@@ -116,7 +123,11 @@ static void _RedisModule_Reply_Next(RedisModule_Reply *reply) {
   } else {
     count = &reply->count;
   }
-  ++*count;
+  if (e && e->type != REDISMODULE_REPLY_MAP) {
+    ++*count;
+  } else if (*count % 2 == 0) {
+    ++*count;
+  }
 }
 
 static void _RedisModule_ReplyKV_Next(RedisModule_Reply *reply) {
@@ -128,7 +139,7 @@ static void _RedisModule_ReplyKV_Next(RedisModule_Reply *reply) {
   } else {
     count = &reply->count;
   }
-  *count += reply->resp3 ? 1 : 2;
+  *count += 2;
 }
 
 static void _RedisModule_Reply_Push(RedisModule_Reply *reply, int type) {
@@ -242,7 +253,7 @@ int RedisModule_Reply_MapEnd(RedisModule_Reply *reply) {
   }
   int count = _RedisModule_Reply_Pop(reply);
   if (reply->resp3) {
-    RedisModule_ReplySetMapLength(reply->ctx, count);
+    RedisModule_ReplySetMapLength(reply->ctx, count / 2);
   } else {
     RedisModule_ReplySetArrayLength(reply->ctx, count);
   }
@@ -271,15 +282,50 @@ int RedisModule_Reply_EmptyArray(RedisModule_Reply *reply) {
   return REDISMODULE_OK;
 }
 
+int RedisModule_Reply_Set(RedisModule_Reply *reply) {
+  int type;
+  if (reply->resp3) {
+    RedisModule_ReplyWithSet(reply->ctx, REDISMODULE_POSTPONED_LEN);
+    json_add(reply, "{ ");
+    type = REDISMODULE_REPLY_SET;
+  } else {
+    RedisModule_ReplyWithArray(reply->ctx, REDISMODULE_POSTPONED_LEN);
+    json_add(reply, "[ ");
+    type = REDISMODULE_REPLY_ARRAY;
+  }
+  _RedisModule_Reply_Next(reply);
+  _RedisModule_Reply_Push(reply, type);
+  return REDISMODULE_OK;
+}
+
+int RedisModule_Reply_SetEnd(RedisModule_Reply *reply) {
+  if (reply->resp3) {
+    json_add_close(reply, " }");
+  } else {
+    json_add_close(reply, " ]");
+  }
+  int count = _RedisModule_Reply_Pop(reply);
+  if (reply->resp3) {
+    RedisModule_ReplySetSetLength(reply->ctx, count);
+  } else {
+    RedisModule_ReplySetArrayLength(reply->ctx, count);
+  }
+  return REDISMODULE_OK;
+}
+
 //---------------------------------------------------------------------------------------------
 
 int RedisModule_ReplyKV_LongLong(RedisModule_Reply *reply, const char *key, long long val) {
   RedisModule_ReplyWithSimpleString(reply->ctx, key);
   RedisModule_ReplyWithLongLong(reply->ctx, val);
   if (reply->resp3) {
-    json_add(reply, "\"%s\": %ld", key, val);
+    //json_add(reply, "\"%s\": %ld", key, val);
+    json_add(reply, "\"%s\"", key);
+    json_add(reply, "%ld", val);
   } else {
-    json_add(reply, "\"%s\", %ld", key, val);
+    // json_add(reply, "\"%s\", %ld", key, val);
+    json_add(reply, "\"%s\"", key);
+    json_add(reply, "%ld", val);
   }
   _RedisModule_ReplyKV_Next(reply);
   return REDISMODULE_OK;
@@ -304,9 +350,13 @@ int RedisModule_ReplyKV_Double(RedisModule_Reply *reply, const char *key, double
   }
 #endif
   if (reply->resp3) {
-    json_add(reply, "\"%s\": %f", key, val);
+    // json_add(reply, "\"%s\": %f", key, val);
+    json_add(reply, "\"%s\"", key);
+    json_add(reply, "%f", val);
   } else {
-    json_add(reply, "\"%s\", %f", key, val);
+    // json_add(reply, "\"%s\", %f", key, val);
+    json_add(reply, "\"%s\"", key);
+    json_add(reply, "%f", val);
   }
   _RedisModule_ReplyKV_Next(reply);
   return REDISMODULE_OK;
@@ -316,9 +366,12 @@ int RedisModule_ReplyKV_SimpleString(RedisModule_Reply *reply, const char *key, 
   RedisModule_ReplyWithSimpleString(reply->ctx, key);
   RedisModule_ReplyWithSimpleString(reply->ctx, val);
   if (reply->resp3) {
-    json_add(reply, "\"%s\": \"%s\"", key, val);
+    // json_add(reply, "\"%s\": \"%s\"", key, val);
+    json_add(reply, "\"%s\"", key);
+    json_add(reply, "\"%s\"", val);
   } else {
-    json_add(reply, "\"%s\", \"%s\"", key, val);
+    json_add(reply, "\"%s\"", key);
+    json_add(reply, "\"%s\"", val);
   }
   _RedisModule_ReplyKV_Next(reply);
   return REDISMODULE_OK;
@@ -328,9 +381,13 @@ int RedisModule_ReplyKV_StringBuffer(RedisModule_Reply *reply, const char *key, 
   RedisModule_ReplyWithSimpleString(reply->ctx, key);
   RedisModule_ReplyWithStringBuffer(reply->ctx, val, len);
   if (reply->resp3) {
-    json_add(reply, "\"%s\": \"%.*s\"", key, len, val);
+    // json_add(reply, "\"%s\": \"%.*s\"", key, len, val);
+    json_add(reply, "\"%s\"", key);
+    json_add(reply, "\"%.*s\"", len, val);
   } else {
-    json_add(reply, "\"%s\", \"%.*s\"", key, len, val);
+    // json_add(reply, "\"%s\", \"%.*s\"", key, len, val);
+    json_add(reply, "\"%s\"", key);
+    json_add(reply, "\"%.*s\"", len, val);
   }
   _RedisModule_ReplyKV_Next(reply);
   return REDISMODULE_OK;
@@ -343,9 +400,13 @@ int RedisModule_ReplyKV_String(RedisModule_Reply *reply, const char *key, RedisM
   size_t n;
   const char *p = RedisModule_StringPtrLen(val, &n);
   if (reply->resp3) {
-    json_add(reply, "\"%s\": \"%.*s\"", key, n, p);
+    // json_add(reply, "\"%s\": \"%.*s\"", key, n, p);
+    json_add(reply, "\"%s\"", key);
+    json_add(reply, "\"%.*s\"", n, p);
   } else {
-    json_add(reply, "\"%s\", \"%.*s\"", key, n, p);
+    // json_add(reply, "\"%s\", \"%.*s\"", key, n, p);
+    json_add(reply, "\"%s\"", key);
+    json_add(reply, "\"%.*s\"", n, p);
   }
 #endif
   _RedisModule_ReplyKV_Next(reply);
@@ -356,9 +417,13 @@ int RedisModule_ReplyKV_Null(RedisModule_Reply *reply, const char *key) {
   RedisModule_ReplyWithSimpleString(reply->ctx, key);
   RedisModule_ReplyWithNull(reply->ctx);
   if (reply->resp3) {
-    json_add(reply, "\"%s\": null", key);
+    // json_add(reply, "\"%s\": null", key);
+    json_add(reply, "\"%s\"", key);
+    json_add(reply, "null", key);
   } else {
-    json_add(reply, "\"%s\", null", key);
+    // json_add(reply, "\"%s\", null", key);
+    json_add(reply, "\"%s\"", key);
+    json_add(reply, "null", key);
   }
   _RedisModule_ReplyKV_Next(reply);
   return REDISMODULE_OK;
@@ -368,9 +433,11 @@ int RedisModule_ReplyKV_Array(RedisModule_Reply *reply, const char *key) {
   RedisModule_ReplyWithSimpleString(reply->ctx, key);
   RedisModule_ReplyWithArray(reply->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   if (reply->resp3) {
-    json_add(reply, "\"%s\": ", key);
+    // json_add(reply, "\"%s\": [", key);
+    json_add(reply, "\"%s\"", key);
   } else {
-    json_add(reply, "\"%s\", ", key);
+    // json_add(reply, "\"%s\", [", key);
+    json_add(reply, "\"%s\"", key);
   }
   _RedisModule_ReplyKV_Next(reply);
   _RedisModule_Reply_Push(reply, REDISMODULE_REPLY_ARRAY);
@@ -385,9 +452,11 @@ int RedisModule_ReplyKV_Map(RedisModule_Reply *reply, const char *key) {
     RedisModule_ReplyWithArray(reply->ctx, REDISMODULE_POSTPONED_LEN);
   }
   if (reply->resp3) {
-    json_add(reply, "\"%s\": ", key);
+    // json_add(reply, "\"%s\": {", key);
+    json_add(reply, "\"%s\"", key);
   } else {
-    json_add(reply, "\"%s\", ", key);
+    // json_add(reply, "\"%s\", [", key);
+    json_add(reply, "\"%s\"", key);
   }
   _RedisModule_ReplyKV_Next(reply);
   _RedisModule_Reply_Push(reply, REDISMODULE_REPLY_MAP);

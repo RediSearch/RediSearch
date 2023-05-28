@@ -124,7 +124,7 @@ MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
 
 /* Send a command to the connection */
 int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *privdata) {
-
+  //_BB;
   /* Only send to connected nodes */
   if (c->state != MRConn_Connected) {
     return REDIS_ERR;
@@ -135,6 +135,11 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
     if (redisFormatSdsCommandArgv(&cmd->cmd, cmd->num, (const char **)cmd->strs, cmd->lens) == REDIS_ERR) {
       return REDIS_ERR;
     }
+  }
+
+  if (cmd->protocol != 0 && (!c->protocol || c->protocol != cmd->protocol)) {
+    int rc = redisAsyncCommand(c->conn, NULL, NULL, "HELLO %d", cmd->protocol);
+    c->protocol = cmd->protocol;
   }
   return redisAsyncFormattedCommand(c->conn, fn, privdata, cmd->cmd, sdslen(cmd->cmd));
 }
@@ -148,7 +153,6 @@ static void *replaceConnPool(void *oldval, void *newval) {
 }
 /* Add a node to the connection manager. Return 1 if it's been added or 0 if it hasn't */
 int MRConnManager_Add(MRConnManager *m, const char *id, MREndpoint *ep, int connect) {
-
   /* First try to see if the connection is already in the manager */
   void *ptr = TrieMap_Find(m->map, (char *)id, strlen(id));
   if (ptr != TRIEMAP_NOTFOUND) {
@@ -511,13 +515,14 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
 
 static MRConn *MR_NewConn(MREndpoint *ep) {
   MRConn *conn = rm_malloc(sizeof(MRConn));
-  *conn = (MRConn){.state = MRConn_Disconnected, .conn = NULL};
+  *conn = (MRConn){.state = MRConn_Disconnected, .conn = NULL, .protocol = 0};
   MREndpoint_Copy(&conn->ep, ep);
   return conn;
 }
 
 /* Connect to a cluster node. Return REDIS_OK if either connected, or if  */
 static int MRConn_Connect(MRConn *conn) {
+  //_BB;
   assert(!conn->conn);
   // fprintf(stderr, "Connectig to %s:%d\n", conn->ep.host, conn->ep.port);
 

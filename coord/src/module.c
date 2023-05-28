@@ -251,7 +251,7 @@ int synonymUpdateFanOutReducer(struct MRCtx *mc, int count, MRReply **replies) {
     RedisModule_UnblockClient(bc, mc);
     return REDISMODULE_OK;
   }
-  if (MRReply_Type(replies[0]) != MR_REPLY_INTEGER) {
+  if (MRReply_Type(replies[0]) != MR_REPLY_INTEGER && MRReply_Type(replies[0]) != MR_REPLY_DOUBLE) {
     RedisModuleBlockedClient *bc = (RedisModuleBlockedClient *)ctx;
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
     RedisModule_UnblockClient(bc, mc);
@@ -298,6 +298,7 @@ int synonymUpdateFanOutReducer(struct MRCtx *mc, int count, MRReply **replies) {
 }
 
 int singleReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
+  _BB;
   RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
@@ -321,19 +322,29 @@ int allOKReducer(struct MRCtx *mc, int count, MRReply **replies) {
     goto end;
   }
 
-  bool isIntegerReply = false;
+  bool isIntegerReply = false, isDoubleReply = false;
   long long integerReply = 0;
+  double doubleReply = 0;
   for (int i = 0; i < count; i++) {
     if (MRReply_Type(replies[i]) == MR_REPLY_ERROR) {
       MR_ReplyWithMRReply(reply, replies[i]);
       goto end;
     }
     if (MRReply_Type(replies[i]) == MR_REPLY_INTEGER) {
-      long long currIntegerReply = MRReply_Integer(replies[i]);
+      long long n = MRReply_Integer(replies[i]);
       if (!isIntegerReply) {
-        integerReply = currIntegerReply;
+        integerReply = n;
         isIntegerReply = true;
-      } else if (currIntegerReply != integerReply) {
+      } else if (n != integerReply) {
+        RedisModule_Reply_SimpleString(reply, "not all results are the same");
+        goto end;
+      }
+    } else if (MRReply_Type(replies[i]) == MR_REPLY_DOUBLE) {
+      double n = MRReply_Double(replies[i]);
+      if (!isDoubleReply) {
+        doubleReply = n;
+        isDoubleReply = true;
+      } else if (n != doubleReply) {
         RedisModule_Reply_SimpleString(reply, "not all results are the same");
         goto end;
       }
@@ -342,6 +353,8 @@ int allOKReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   if (isIntegerReply) {
     RedisModule_Reply_LongLong(reply, integerReply);
+  } else if (isDoubleReply) {
+    RedisModule_Reply_Double(reply, doubleReply);
   } else {
     RedisModule_Reply_SimpleString(reply, "OK");
   }
@@ -1328,7 +1341,10 @@ cleanup:
 int FirstPartitionCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                  MRReduceFunc reducer, struct MRCtx *mrCtx) {
 
+  bool resp3 = _is_resp3(ctx);
+  //_BB;
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
+  cmd.protocol = resp3 ? 3 : 2;
   /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
 
@@ -1341,7 +1357,7 @@ int FirstPartitionCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, 
 }
 
 int FirstShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
+  bool resp3 = _is_resp3(ctx);
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
@@ -1463,6 +1479,7 @@ static int mastersCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, i
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
   }
+  _BB;
   // Check that the cluster state is valid
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);

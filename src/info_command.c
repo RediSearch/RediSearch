@@ -98,7 +98,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   bool has_map = RedisModule_HasMap(reply);
 
-  //reply->resp3 = false;
+  _BB;
   RedisModule_Reply_Map(reply); // top
 
   REPLY_KVSTR("index_name", sp->name);

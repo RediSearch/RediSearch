@@ -170,8 +170,7 @@ static void handleSpecialField(InfoFields *fields, const char *name, MRReply *va
 
 static void processKvArray(InfoFields *fields, MRReply *array, InfoValue *dsts, InfoFieldSpec *specs,
                            size_t numFields, int onlyScalarValues) {
-  if (MRReply_Type(array) == MR_REPLY_MAP) { _BB; } //@@
-  if (MRReply_Type(array) != MR_REPLY_ARRAY) { //@@ MAP!
+  if (MRReply_Type(array) != MR_REPLY_ARRAY && MRReply_Type(array) != MR_REPLY_MAP) {
     return;
   }
   size_t numElems = MRReply_Length(array);
@@ -184,6 +183,7 @@ static void processKvArray(InfoFields *fields, MRReply *array, InfoValue *dsts, 
     const char *s = MRReply_String(MRReply_ArrayElement(array, ii), NULL);
 
     for (size_t jj = 0; jj < numFields; ++jj) {
+      const char *name = specs[jj].name;
       if (!strcmp(s, specs[jj].name)) {
         convertField(dsts + jj, value, specs + jj);
         goto next_elem;
@@ -194,8 +194,8 @@ static void processKvArray(InfoFields *fields, MRReply *array, InfoValue *dsts, 
       handleSpecialField(fields, s, value);
     }
 
-  next_elem:
-    continue;
+next_elem:
+      continue;
   }
 }
 
@@ -231,7 +231,7 @@ static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue
 }
 
 static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
-  //reply->resp3 = false; //@@ TODO: remove
+  _BB;
   RedisModule_Reply_Map(reply);
 
   // Respond with the name, schema, and options
@@ -269,6 +269,7 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
 }
 
 int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
+  _BB;
   // Summarize all aggregate replies
   InfoFields fields = {0};
   size_t numErrored = 0;
@@ -280,7 +281,6 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  // _BB;
 
   for (size_t ii = 0; ii < count; ++ii) {
     if (MRReply_Type(replies[ii]) == MR_REPLY_ERROR) {
@@ -294,14 +294,16 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
       }
       continue;
     }
-    if (MRReply_Type(replies[ii]) == MR_REPLY_MAP) { _BB; } //@@
-    if (MRReply_Type(replies[ii]) != MR_REPLY_ARRAY) {
+
+    if (MRReply_Type(replies[ii]) != MR_REPLY_ARRAY && MRReply_Type(replies[ii]) != MR_REPLY_MAP) {
       continue;  // Ooops!
     }
 
-    size_t numElems = MRReply_Length(replies[ii]);
-    if (numElems % 2 != 0) {
-      printf("Uneven INFO Reply!!!?\n");
+    if (MRReply_Type(replies[ii]) == MR_REPLY_ARRAY) {
+      size_t numElems = MRReply_Length(replies[ii]);
+      if (numElems % 2 != 0) {
+        printf("Uneven INFO Reply!!!?\n");
+      }
     }
     processKvArray(&fields, replies[ii], fields.toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC, 0);
   }

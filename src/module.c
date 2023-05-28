@@ -823,21 +823,18 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
-  if (_ReplySet(ctx)) {
-    RedisModule_ReplyWithSet(ctx, dictSize(specDict_g));
-  } else {
-    RedisModule_ReplyWithArray(ctx, dictSize(specDict_g));
-  }
-
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry = NULL;
-  while ((entry = dictNext(iter))) {
-    StrongRef ref = dictGetRef(entry);
-    IndexSpec *sp = StrongRef_Get(ref);
-    RedisModule_ReplyWithCString(ctx, sp->name);
-  }
-  dictReleaseIterator(iter);
-
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  RedisModule_Reply_Set(reply);
+    dictIterator *iter = dictGetIterator(specDict_g);
+    dictEntry *entry = NULL;
+    while ((entry = dictNext(iter))) {
+      StrongRef ref = dictGetRef(entry);
+      IndexSpec *sp = StrongRef_Get(ref);
+      RedisModule_Reply_SimpleString(reply, sp->name);
+    }
+    dictReleaseIterator(iter);
+  RedisModule_Reply_SetEnd(reply);
+  RedisModule_EndReply(reply);
   return REDISMODULE_OK;
 }
 
