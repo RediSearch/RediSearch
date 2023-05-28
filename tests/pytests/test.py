@@ -600,7 +600,7 @@ def testNoIndex(env):
     if not env.isCluster():
         # to specific check on cluster, todo : change it to be generic enough
         res = env.cmd('ft.info', 'idx')
-        env.assertEqual(res[7][1][7], 'NOINDEX')
+        env.assertEqual(res[7][1][8], 'NOINDEX')
         env.assertEqual(res[7][2][9], 'NOINDEX')
 
     env.expect('ft.add', 'idx', 'doc1', '0.1', 'fields',
@@ -750,7 +750,7 @@ def testPrefixNodeCaseSensitive(env):
     # can check both prefix and suffix modes.
     queries_expectations = {
         "TEXT": {
-            "lowercase": 
+            "lowercase":
             {  "query": ["@t:(*el*)"],
                 "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
             },
@@ -758,7 +758,7 @@ def testPrefixNodeCaseSensitive(env):
             {  "query": ["@t:(*$p*)", "PARAMS", "2", "p", "el", "DIALECT", "2" ],
                 "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
             },
-            "uppercase": 
+            "uppercase":
             {  "query": ["@t:(*EL*)"],
                 "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
             },

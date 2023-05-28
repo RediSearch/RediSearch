@@ -860,7 +860,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
                                   .vectorScoreField = (char *)"__v_score",
                                   .ignoreDocScore = true,
                                   .childIt = ii};
-  QueryError err = {QUERY_OK};                              
+  QueryError err = {QUERY_OK};
   IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_FALSE(hybridIt);
@@ -1157,7 +1157,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_NUMERIC));
 
   ASSERT_TRUE(strcmp(f->name, bar) == 0);
-  ASSERT_TRUE(f->options == FieldSpec_Sortable);
+  ASSERT_TRUE(f->options == FieldSpec_Sortable | FieldSpec_UNF); // UNF is set implicitly for sortable numerics
   ASSERT_TRUE(f->sortIdx == 1);
   ASSERT_TRUE(IndexSpec_GetField(s, "fooz", 4) == NULL);
 

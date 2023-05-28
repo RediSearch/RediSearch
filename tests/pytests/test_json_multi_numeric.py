@@ -704,7 +704,8 @@ def checkMultiNumericReturn(env, expected, default_dialect, is_sortable):
 
     dialect_param = ['DIALECT', 3] if not default_dialect else []
     sortable_param = ['SORTABLE'] if is_sortable else []
-    env.assertEqual(len(expected), 3, message='dialect {}, sortable {}'.format(dialect_param, is_sortable))
+    message='dialect {}, sortable {}'.format('default' if default_dialect else 3, is_sortable)
+    env.assertEqual(len(expected), 3, message=message)
 
     env.expect('FT.CREATE', 'idx_flat', 'ON', 'JSON', 'SCHEMA', '$.arr[*]', 'AS', 'val', 'NUMERIC', *sortable_param).ok()
     env.expect('FT.CREATE', 'idx_arr', 'ON', 'JSON', 'SCHEMA', '$.arr', 'AS', 'val', 'NUMERIC', *sortable_param).ok()
@@ -712,30 +713,30 @@ def checkMultiNumericReturn(env, expected, default_dialect, is_sortable):
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
 
     # Multi flat
-    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
-               'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', *dialect_param).equal(expected[0])
-    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
-               'RETURN', '1', 'val', *dialect_param).equal(expected[1])
-    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
-               'RETURN', '3', '$.arr[*]', 'AS', 'val', *dialect_param).equal(expected[1])
-    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
-               'RETURN', '3', '$.arr', 'AS', 'val', *dialect_param).equal(expected[2])
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]', 'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', *dialect_param),
+                    expected[0], message=message)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]', 'RETURN', '1', 'val', *dialect_param),
+                    expected[1], message=message)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]', 'RETURN', '3', '$.arr[*]', 'AS', 'val', *dialect_param),
+                    expected[1], message=message)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]', 'RETURN', '3', '$.arr', 'AS', 'val', *dialect_param),
+                    expected[2], message=message)
 
-    env.expect('FT.AGGREGATE', 'idx_flat',
-               '@val:[2 3]', 'LOAD', '1', '@val', *dialect_param).equal([1, ['val', expected[1][2][1]]])
+    env.assertEqual(conn.execute_command('FT.AGGREGATE', 'idx_flat', '@val:[2 3]', 'LOAD', '1', '@val', *dialect_param),
+                    [1, ['val', expected[1][2][1]]], message=message)
 
-    env.expect('FT.AGGREGATE', 'idx_flat',
-               '@val:[2 3]', 'GROUPBY', '1', '@val', *dialect_param).equal([1, ['val', expected[1][2][1]]])
+    env.assertEqual(conn.execute_command('FT.AGGREGATE', 'idx_flat', '@val:[2 3]', 'GROUPBY', '1', '@val', *dialect_param),
+                    [1, ['val', expected[1][2][1]]], message=message)
 
     # Array
-    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
-               'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', *dialect_param).equal(expected[0])
-    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
-               'RETURN', '1', 'val', *dialect_param).equal(expected[2])
-    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
-               'RETURN', '3', '$.arr[*]', 'AS', 'val', *dialect_param).equal(expected[1])
-    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
-               'RETURN', '3', '$.arr', 'AS', 'val', *dialect_param).equal(expected[2])
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx_arr', '@val:[2 3]', 'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', *dialect_param),
+                    expected[0], message=message)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx_arr', '@val:[2 3]', 'RETURN', '1', 'val', *dialect_param),
+                    expected[2], message=message)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx_arr', '@val:[2 3]', 'RETURN', '3', '$.arr[*]', 'AS', 'val', *dialect_param),
+                    expected[1], message=message)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx_arr', '@val:[2 3]', 'RETURN', '3', '$.arr', 'AS', 'val', *dialect_param),
+                    expected[2], message=message)
 
     res = conn.execute_command('FT.AGGREGATE', 'idx_arr',
         '@val:[2 3]', 'GROUPBY', '1', '@val', *dialect_param)
@@ -745,8 +746,8 @@ def checkMultiNumericReturn(env, expected, default_dialect, is_sortable):
         env.assertEqual(res, [1, ['val', expected[2][2][1]]])
 
 
-    env.expect('FT.AGGREGATE', 'idx_arr',
-               '@val:[2 3]', 'LOAD', '1', '@val', *dialect_param).equal([1, ['val', expected[2][2][1]]])
+    env.assertEqual(conn.execute_command('FT.AGGREGATE', 'idx_arr', '@val:[2 3]', 'LOAD', '1', '@val', *dialect_param),
+                    [1, ['val', expected[2][2][1]]], message=message)
 
     # RETURN ALL
     res = conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]', *dialect_param)

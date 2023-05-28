@@ -98,6 +98,7 @@ def testOptimizer(env):
                         ['Type', 'TEXT', 'Term', 'foo', 'Counter', 801, 'Size', 10000]]],
                 ['Result processors profile',
                     ['Type', 'Index', 'Counter', 10],
+                    ['Type', 'Loader', 'Counter', 10],
                     ['Type', 'Sorter', 'Counter', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo @n:[10 15]', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '10', '110', '210', '310', '410', '510', '610', '710', '810', '910'])
@@ -137,6 +138,7 @@ def testOptimizer(env):
                         ['Type', 'TAG', 'Term', 'foo', 'Counter', 1401, 'Size', 10000]]],
                 ['Result processors profile',
                     ['Type', 'Index', 'Counter', 10],
+                    ['Type', 'Loader', 'Counter', 10],
                     ['Type', 'Sorter', 'Counter', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '10', '110', '210', '310', '410', '510', '610', '710', '810', '910'])
@@ -178,6 +180,7 @@ def testOptimizer(env):
                         ['Type', 'NUMERIC', 'Term', '14 - 50', 'Counter', 400, 'Size', 7600]]],
                 ['Result processors profile',
                     ['Type', 'Index', 'Counter', 1200],
+                    ['Type', 'Loader', 'Counter', 1200],
                     ['Type', 'Sorter', 'Counter', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@n:[10 15]', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '10', '11', '110', '111', '210', '211', '310', '311', '410', '411'])
@@ -216,6 +219,7 @@ def testOptimizer(env):
                         ['Type', 'TEXT', 'Term', 'foo', 'Counter', 800, 'Size', 10000]]],
                 ['Result processors profile',
                     ['Type', 'Index', 'Counter', 10],
+                    ['Type', 'Loader', 'Counter', 10],
                     ['Type', 'Sorter', 'Counter', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '0', '100', '200', '300', '400', '500', '600', '700', '800', '900'])
@@ -255,6 +259,7 @@ def testOptimizer(env):
                         ['Type', 'TAG', 'Term', 'foo', 'Counter', 800, 'Size', 10000]]],
                 ['Result processors profile',
                     ['Type', 'Index', 'Counter', 10],
+                    ['Type', 'Loader', 'Counter', 10],
                     ['Type', 'Sorter', 'Counter', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo}', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '0', '100', '200', '300', '400', '500', '600', '700', '800', '900'])
@@ -291,6 +296,7 @@ def testOptimizer(env):
                         ['Type', 'WILDCARD', 'Counter', 1400]]],
                     ['Result processors profile',
                         ['Type', 'Index', 'Counter', 10],
+                        ['Type', 'Loader', 'Counter', 10],
                         ['Type', 'Sorter', 'Counter', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '*', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '0', '1', '100', '101', '200', '201', '300', '301', '400', '401'])
