@@ -18,6 +18,7 @@ def testNumEntries(env):
 	loops = 15
 	hashes_number = 10_000
 	expected_depth = 17
+ 
 	for i in range(loops):
 		# In each loop re-index 0, 1,...,`hashes_number`-1 entries with increasing values
 		for i in range(hashes_number):
@@ -34,9 +35,6 @@ def testNumEntries(env):
 		numeric_tree_depth = dump_numeric_index_tree_root(env, 'idx', 'num')[
                     'maxDepth']
 		env.assertGreaterEqual(expected_depth, numeric_tree_depth)
-
-	env.cmd('flushall')
-  
 
 def testCompression(env):
 	accuracy = 0.000001
