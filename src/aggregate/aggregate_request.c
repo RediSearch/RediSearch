@@ -1201,7 +1201,7 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
  * This handles the RETURN and SUMMARIZE keywords, which operate on the result
  * which is about to be returned. It is only used in FT.SEARCH mode
  */
-int buildOutputPipeline(AREQ *req, QueryError *status) {
+int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status) {
   AGGPlan *pln = &req->ap;
   ResultProcessor *rp = NULL, *rpUpstream = req->qiter.endProc;
 
@@ -1210,16 +1210,10 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
   const RLookupKey **loadkeys = NULL;
   if (req->outFields.explicitReturn) {
     // Go through all the fields and ensure that each one exists in the lookup stage
-    uint32_t flags = RLOOKUP_F_EXPLICITRETURN;
-    // If we have a HASH spec or a "new" JSON API version (DIALECT), we simply load all requested and missing fields.
-    if (isSpecJson(req->sctx->spec) && (req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST)) {
-      // If we have a JSON spec and an "old" API version (DIALECT), we don't store all the data of a multi-value field
-      // in the SV as we want to return it, so we need to load and override all requested return fields that are SV source.
-      flags |= RLOOKUP_F_FORCE_LOAD;
-    }
+    loadFlags |= RLOOKUP_F_EXPLICITRETURN;
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       const ReturnedField *rf = req->outFields.fields + ii;
-      RLookupKey *lk = RLookup_GetKey_Load(lookup, rf->name, rf->path, flags);
+      RLookupKey *lk = RLookup_GetKey_Load(lookup, rf->name, rf->path, loadFlags);
       if (lk) {
         *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
       }
@@ -1230,6 +1224,10 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
   // or if we don't have explicit return, meaning we use LOAD ALL
   if (loadkeys || !req->outFields.explicitReturn) {
     rp = RPLoader_New(lookup, loadkeys, array_len(loadkeys));
+    if (isSpecJson(req->sctx->spec)) {
+      // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
+      lookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
+    }
     array_free(loadkeys);
     PUSH_RP();
   }
@@ -1238,13 +1236,12 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
     RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       ReturnedField *ff = req->outFields.fields + ii;
-      RLookupKey *kk = RLookup_GetKey_TEMP(lookup, ff->name, RLOOKUP_F_NOFLAGS);
+      RLookupKey *kk = RLookup_GetKey(lookup, ff->name, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!kk) {
         QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "No such property `%s`", ff->name);
         goto error;
-      } else if (!(kk->flags & (RLOOKUP_F_SCHEMASRC | RLOOKUP_F_SVSRC))) {
-        // TODO: this is a dead code
-        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Property `%s` is not in document", ff->name);
+      } else if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
+        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Property `%s` is not in schema", ff->name);
         goto error;
       }
       ff->lookupKey = kk;
@@ -1355,6 +1352,11 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
   AGGPlan *pln = &req->ap;
   ResultProcessor *rp = NULL, *rpUpstream = req->qiter.endProc;
 
+  // If we have a JSON spec, and an "old" API version (DIALECT < 3), we don't store all the data of a multi-value field
+  // in the SV as we want to return it, so we need to load and override all requested return fields that are SV source.
+  uint32_t loadFlags = req->sctx && isSpecJson(req->sctx->spec) && (req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST) ?
+                       RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NOFLAGS;
+
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
 
@@ -1418,21 +1420,14 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
         }
         // Get all the keys for this lookup...
         while (!AC_IsAtEnd(&lstp->args)) {
-          const char *path = AC_GetStringNC(&lstp->args, NULL);
+          size_t name_len;
+          const char *name, *path = AC_GetStringNC(&lstp->args, &name_len);
           if (*path == '@') {
             path++;
+            name_len--;
           }
-          const char *name = path;
-
-          RLookupKey *kk = RLookup_GetKey_TEMP(curLookup, path, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
-          if (!kk) {
-            // We only get a NULL return if the key already exists, which means
-            // that we don't need to retrieve it again.
-            continue;
-          }
-
           if (AC_AdvanceIfMatch(&lstp->args, SPEC_AS_STR)) {
-            int rv = AC_GetString(&lstp->args, &name, NULL, 0);
+            int rv = AC_GetString(&lstp->args, &name, &name_len, 0);
             if (rv != AC_OK) {
               QERR_MKBADARGS_FMT(status, "LOAD path AS name - must be accompanied with NAME");
               return REDISMODULE_ERR;
@@ -1440,17 +1435,24 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
               QERR_MKBADARGS_FMT(status, "Alias for LOAD cannot be `AS`");
               return REDISMODULE_ERR;
             }
+          } else {
+            // Set the name to the path. name_len is already the length of the path.
+            name = path;
           }
-          // set lookupkey name to name.
-          // by defualt "name = path"
-          kk->name = name;
-          kk->name_len = strlen(name);
 
-          kk->flags |= RLOOKUP_F_ISLOADED;
-          lstp->keys[lstp->nkeys++] = kk;
+          RLookupKey *kk = RLookup_GetKey_LoadEx(curLookup, name, name_len, path, loadFlags);
+          // We only get a NULL return if the key already exists, which means
+          // that we don't need to retrieve it again.
+          if (kk) {
+            lstp->keys[lstp->nkeys++] = kk;
+          }
         }
         if (lstp->nkeys || lstp->base.flags & PLN_F_LOAD_ALL) {
           rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
+          if (isSpecJson(req->sctx->spec)) {
+            // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
+            curLookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
+          }
           PUSH_RP();
         }
         break;
@@ -1481,7 +1483,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
   // If this is an FT.SEARCH command which requires returning of some of the
   // document fields, handle those options in this function
   if (IsSearch(req) && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
-    if (buildOutputPipeline(req, status) != REDISMODULE_OK) {
+    if (buildOutputPipeline(req, loadFlags, status) != REDISMODULE_OK) {
       goto error;
     }
   }
