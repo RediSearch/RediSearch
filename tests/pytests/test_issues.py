@@ -198,8 +198,9 @@ def testIssue2104(env):
   # load a field implicitly with `APPLY`
   res = env.cmd('FT.AGGREGATE', 'hash_idx', '*', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')
   env.assertEqual(toSortedFlatList([1, ['subj1', '20', 'avg', '20']]), toSortedFlatList(res))
-  env.expect('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg') \
-      .equal([1, ['a', '20', 'avg', '20']])
+
+  res = env.cmd('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')
+  env.assertEqual(toSortedFlatList([1, ['a', '20', 'subj1', '20', 'avg', '20']]), toSortedFlatList(res))
 
   # json
   env.execute_command('FT.CREATE', 'json_idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT', 'SORTABLE',

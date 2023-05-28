@@ -3020,8 +3020,8 @@ def testErrorOnOpperation(env):
     err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', '!(split("bad" + "bad"))', 'as', 'a')[1]
     assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
 
-    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'APPLY', '!@test', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    if not env.isCluster():
+        env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'APPLY', '!@test', 'as', 'a').error().contains('not loaded in pipeline')
 
 
 def testSortkeyUnsortable(env):

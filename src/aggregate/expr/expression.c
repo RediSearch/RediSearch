@@ -253,19 +253,19 @@ int ExprEval_Eval(ExprEval *evaluator, RSValue *result) {
   return evalInternal(evaluator, evaluator->root, result);
 }
 
-int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, uint32_t readFlags, QueryError *err) {
+int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
 #define RECURSE(v)                                                                             \
   if (!v) {                                                                                    \
     QueryError_SetErrorFmt(err, QUERY_EEXPR, "Missing (or badly formatted) value for %s", #v); \
     return EXPR_EVAL_ERR;                                                                      \
   }                                                                                            \
-  if (ExprAST_GetLookupKeys(v, lookup, readFlags, err) != EXPR_EVAL_OK) {                      \
+  if (ExprAST_GetLookupKeys(v, lookup, err) != EXPR_EVAL_OK) {                                 \
     return EXPR_EVAL_ERR;                                                                      \
   }
 
   switch (expr->t) {
     case RSExpr_Property:
-      expr->property.lookupObj = RLookup_GetKey(lookup, expr->property.key, RLOOKUP_M_READ, readFlags);
+      expr->property.lookupObj = RLookup_GetKey(lookup, expr->property.key, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!expr->property.lookupObj) {
         QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "Property `%s` not loaded in pipeline",
                                expr->property.key);
@@ -381,7 +381,7 @@ int EvalCtx_Eval(EvalCtx *r) {
     return REDISMODULE_ERR;
   }
   r->ee.root = r->_expr;
-  if (ExprAST_GetLookupKeys((RSExpr *) r->ee.root, (RLookup *) r->ee.lookup, 0, r->ee.err) != EXPR_EVAL_OK) {
+  if (ExprAST_GetLookupKeys((RSExpr *) r->ee.root, (RLookup *) r->ee.lookup, r->ee.err) != EXPR_EVAL_OK) {
     return REDISMODULE_ERR;
   }
   return ExprEval_Eval(&r->ee, &r->res);

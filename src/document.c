@@ -952,7 +952,8 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   RLookupRow row = {0};
   IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
   RLookup_Init(&lookup_s, spcache);
-  if (ExprAST_GetLookupKeys(e, &lookup_s, 0, status) == EXPR_EVAL_ERR) {
+  lookup_s.options |= RLOOKUP_OPT_ALL_LOADED; // Setting this option will cause creating keys of non-sortable fields possible
+  if (ExprAST_GetLookupKeys(e, &lookup_s, status) == EXPR_EVAL_ERR) {
     goto CleanUp;
   }
 

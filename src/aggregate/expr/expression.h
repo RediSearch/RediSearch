@@ -161,7 +161,7 @@ int EvalCtx_EvalExprStr(EvalCtx *r, const char *exprstr);
  * @param err If this fails, EXPR_EVAL_ERR is returned, and this variable contains
  *  the error.
  */
-int ExprAST_GetLookupKeys(RSExpr *root, RLookup *lookup, uint32_t readFlags, QueryError *err);
+int ExprAST_GetLookupKeys(RSExpr *root, RLookup *lookup, QueryError *err);
 int ExprEval_Eval(ExprEval *evaluator, RSValue *result);
 
 void ExprAST_Free(RSExpr *expr);

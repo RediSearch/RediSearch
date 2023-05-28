@@ -1432,7 +1432,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
 
         // Ensure the lookups can actually find what they need
         RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
-        if (!ExprAST_GetLookupKeys(mstp->parsedExpr, curLookup, RLOOKUP_F_HIDDEN, status)) {
+        if (!ExprAST_GetLookupKeys(mstp->parsedExpr, curLookup, status)) {
           goto error;
         }
 

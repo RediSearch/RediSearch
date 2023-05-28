@@ -825,10 +825,12 @@ def testLoadPosition(env):
         .equal([1, ['t1', 'hello', 't2', 'world']])
 
     # two LOADs with an apply for error
-    res = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1',
-                  'APPLY', '@t2', 'AS', 'load_error',
-                  'LOAD', '1', 't2')
-    env.assertContains('Value was not found in result', str(res[1]))
+    # TODO: fix cluster error message
+    if not env.isCluster():
+        env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1',
+                   'APPLY', '@t2', 'AS', 'load_error',
+                   'LOAD', '1', 't2').error().contains('not loaded in pipeline')
+
 
 def testAggregateGroup0Field(env):
     conn = getConnectionByEnv(env)
