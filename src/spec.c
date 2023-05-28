@@ -846,7 +846,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
     sp->flags |= Index_HasGeometry;
     fs->types |= INDEXFLD_T_GEOMETRY;
-    // TODO: GEMOMETRY - Support more geometry libraries - if an optional successive token exist
+    // TODO: GEOMETRY - Support more geometry libraries - if an optional successive token exist
     fs->geometryOpts.geometryLibType = GEOMETRY_LIB_TYPE_BOOST_GEOMETRY;
   } else {  // nothing more supported currently
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
@@ -856,7 +856,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
       FieldSpec_SetSortable(fs);
-      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR)) {
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) || FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
         fs->options |= FieldSpec_UNF;
       }
       continue;
