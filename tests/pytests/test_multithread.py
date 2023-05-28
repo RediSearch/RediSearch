@@ -266,19 +266,25 @@ def test_reload_index_while_indexing():
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
 
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
-    conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
     n_vectors = 50000 * n_shards if not SANITIZER else 1000 * n_shards
     dim = 64
     # Load random vectors into redis.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'M', '64',
                'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
-    load_vectors_to_redis(env, n_vectors, 0, dim)
-    for i in env.reloadingIterator():
-        debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
-        # At first, we expect to see background indexing, but after RDB load, we expect that all vectors
-        # are indexed before RDB loading ends
-        env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1 if i == 1 else 0)
+
+    # Run DEBUG RELOAD twice to see that the thread pool is running as expected
+    # (even after threads are terminated once).
+    for it in range(2):
+        # At first iteration insert vectors 0,1,...,n_vectors-1, and the second insert ids
+        # n_vectors, n_vector+1,...,2*n_vectors-1.
+        load_vectors_to_redis(env, n_vectors, 0, dim, ids_offset=it*n_vectors)
+        for i in env.reloadingIterator():
+            assertInfoField(env, 'idx', 'num_docs', str(n_vectors*(it+1)))
+            debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
+            # At first, we expect to see background indexing, but after RDB load, we expect that all vectors
+            # are indexed before RDB loading ends
+            env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1 if i == 1 else 0)
 
 
 def test_delete_index_while_indexing():
@@ -297,7 +303,7 @@ def test_delete_index_while_indexing():
     # Delete index while vectors are being indexed (to validate proper cleanup of background jobs in sanitizer).
     debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
     env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1)
-    conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+    conn.execute_command('FT.DROPINDEX', 'idx')
 
 
 def test_burst_threads_sanity():

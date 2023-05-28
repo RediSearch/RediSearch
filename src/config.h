@@ -237,7 +237,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .poolSizeNoAuto = 0,                                                                                              \
     .numWorkerThreads = 0,                                                                                            \
     .alwaysUseThreads = 0,                                                                                            \
-    .tieredVecSimIndexBufferLimit = VECSIM_DEFAULT_BLOCK_SIZE,                                                                                      \
+    .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                                                      \
     .gcConfigParams.gcScanSize = GC_SCANSIZE,                                                                                        \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                                                              \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                                        \
