@@ -701,11 +701,8 @@ if [[ -z $COORD ]]; then
 
 elif [[ $COORD == oss ]]; then
 	oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
-
-	if [[ $SAN == address ]]; then
-		# Increase timeout for tests with sanitizer in which commands execution takes longer
-		oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 60000"
-	fi
+  # Increase timeout for tests with sanitizer in which commands execution takes longer
+  oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 60000"
 
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
