@@ -650,7 +650,7 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   }
 
   // Current behavior skips entire result if document does not exist.
-  // I'm unusre if that's intentional or an oversight.
+  // I'm unsure if that's intentional or an oversight.
   if (r->dmd == NULL || (r->dmd->flags & Document_Deleted)) {
     return RS_RESULT_OK;
   }
@@ -658,7 +658,8 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   lc->loadopts.sctx = lc->base.parent->sctx; // TODO: can be set in the constructor
   lc->loadopts.dmd = r->dmd;
 
-  // if loading the document has failed, we return an empty array
+  // if loading the document has failed, we return an empty array.
+  // Error code and message are ignored.
   if (RLookup_LoadDocument(lc->lk, &r->rowdata, &lc->loadopts) != REDISMODULE_OK) {
     r->flags |= SEARCHRESULT_VAL_IS_NULL;
     QueryError_ClearError(&lc->status);
@@ -679,17 +680,19 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
   sc->fields = rm_calloc(nkeys, sizeof(*sc->fields));
   memcpy(sc->fields, keys, sizeof(*keys) * nkeys);
 
-  sc->loadopts.forceString = 1;
-  sc->loadopts.noSortables = 1;
+  sc->loadopts.forceString = 1; // used in `LOAD_ALLKEYS` mode.
+  sc->loadopts.forceLoad = 1;   // used in `LOAD_ALLKEYS` mode. TODO: use only with JSON specs and DIALECT<3
   sc->loadopts.status = &sc->status;
   sc->loadopts.sctx = NULL; // TODO: can be set in the constructor
   sc->loadopts.dmd = NULL;
   sc->loadopts.keys = sc->fields;
   sc->loadopts.nkeys = sc->nfields;
-  if (nkeys)
+  if (nkeys) {
     sc->loadopts.mode = RLOOKUP_LOAD_KEYLIST;
-  else
+  } else {
     sc->loadopts.mode = RLOOKUP_LOAD_ALLKEYS;
+    lk->options |= RLOOKUP_OPT_ALL_LOADED; // TODO: turn on only for HASH specs
+  }
 
   sc->lk = lk;
   sc->base.Next = rploaderNext;
