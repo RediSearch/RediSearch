@@ -665,7 +665,6 @@ if [[ $COV == 1 || -n $SAN || $VG == 1 ]]; then
 fi
 
 if [[ -z $COORD ]]; then
-	MODARGS="timeout 0;"
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 	fi
