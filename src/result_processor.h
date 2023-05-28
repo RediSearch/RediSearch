@@ -243,7 +243,6 @@ void SortAscMap_Dump(uint64_t v, size_t n);
  * If keys and loadKeys doesn't point to the same address, loadKeys will be freed in the sorter dtor.
  */
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      const RLookupKey **loadKeys, size_t nLoadKeys,
                                       uint64_t ascendingMap, bool quickExit);
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults, bool quickExit);

@@ -447,6 +447,7 @@ def testconfigMultiTextOffsetDelta(env):
 
     env.expect(getFtConfigCmd(env), 'SET', 'MULTI_TEXT_SLOP', '101').error().contains("Not modifiable at runtime")
 
+
     # MULTI_TEXT_SLOP = 100 (Default)
     #
     # Offsets:
@@ -537,7 +538,8 @@ def checkMultiTextReturn(env, expected, default_dialect, is_sortable, is_sortabl
     dialect_param = ['DIALECT', 3] if not default_dialect else []
     env.assertTrue(not is_sortable_unf or is_sortable)
     sortable_param = ['SORTABLE', 'UNF'] if is_sortable_unf else (['SORTABLE'] if is_sortable else [])
-    env.assertEqual(len(expected), 4, message='dialect {}, sortable {}, unf {}'.format(dialect_param, is_sortable, is_sortable_unf))
+    message = 'dialect {}, sortable {}, unf {}'.format('default' if default_dialect else 3, is_sortable, is_sortable_unf)
+    env.assertEqual(len(expected), 4, message=message)
 
     doc1_content = {
         "Name": "Product1",
@@ -564,37 +566,47 @@ def checkMultiTextReturn(env, expected, default_dialect, is_sortable, is_sortabl
     expr = '@val:(al)'
 
     # Multi flat
-    env.expect('FT.SEARCH', 'idx_flat', expr,
-               'RETURN', '3', '$.Sellers[0].Locations[1]', 'AS', 'arr_1', *dialect_param).equal(expect_case(expected[0]))
-    env.expect('FT.SEARCH', 'idx_flat', expr,
-               'RETURN', '1', 'val', *dialect_param).equal(expect_case(expected[3]))
-    env.expect('FT.SEARCH', 'idx_flat', expr,
-               'RETURN', '3', '$.Sellers[*].Locations[*]', 'AS', 'val', *dialect_param).equal(expect_case(expected[3]))
-    env.expect('FT.SEARCH', 'idx_flat', expr,
-               'RETURN', '3', '$.Sellers[0].Locations[*]', 'AS', 'val', *dialect_param).equal(expect_case(expected[1]))
-    env.expect('FT.SEARCH', 'idx_flat', expr,
-        'RETURN', '3', '$.Sellers[0].Locations', 'AS', 'val', *dialect_param).equal(expect_case(expected[2]))
+    env.assertEqual(conn.execute_command(
+        'FT.SEARCH', 'idx_flat', expr, 'RETURN', '3', '$.Sellers[0].Locations[1]', 'AS', 'arr_1', *dialect_param),
+                    expect_case(expected[0]), message=message)
+    env.assertEqual(conn.execute_command(
+        'FT.SEARCH', 'idx_flat', expr, 'RETURN', '1', 'val', *dialect_param),
+                    expect_case(expected[3]), message=message)
+    env.assertEqual(conn.execute_command(
+        'FT.SEARCH', 'idx_flat', expr,
+               'RETURN', '3', '$.Sellers[*].Locations[*]', 'AS', 'val', *dialect_param),
+    expect_case(expected[3]), message=message)
+    env.assertEqual(conn.execute_command(
+        'FT.SEARCH', 'idx_flat', expr, 'RETURN', '3', '$.Sellers[0].Locations[*]', 'AS', 'val', *dialect_param),
+    expect_case(expected[1]), message=message)
+    env.assertEqual(conn.execute_command(
+        'FT.SEARCH', 'idx_flat', expr, 'RETURN', '3', '$.Sellers[0].Locations', 'AS', 'val', *dialect_param),
+    expect_case(expected[2]), message=message)
 
     # Currently not considering `UNF` with multi value (MOD-4345)
     res = conn.execute_command('FT.AGGREGATE', 'idx_flat',
         expr, 'LOAD', '1', '@val', *dialect_param)
-    env.assertEqual(res[1][1].lower(), expected[3][2][1].lower())
+    env.assertEqual(res[1][1].lower(), expected[3][2][1].lower(), message=message)
 
     res = conn.execute_command('FT.AGGREGATE', 'idx_flat',
         expr, 'GROUPBY', '1', '@val', *dialect_param)
-    env.assertEqual(res[1][1].lower(), expected[3][2][1].lower())
+    env.assertEqual(res[1][1].lower(), expected[3][2][1].lower(), message=message)
 
     # Array
-    env.expect('FT.SEARCH', 'idx_arr', expr,
-               'RETURN', '3', '$.Sellers[0].Locations[1]', 'AS', 'arr_1', *dialect_param).equal(expect_case(expected[0]))
-    env.expect('FT.SEARCH', 'idx_arr', expr,
-               'RETURN', '1', 'val', *dialect_param).equal(expect_case(expected[2]))
-    env.expect('FT.SEARCH', 'idx_arr', expr,
-               'RETURN', '3', '$.Sellers[*].Locations[*]', 'AS', 'val', *dialect_param).equal(expect_case(expected[3]))
-    env.expect('FT.SEARCH', 'idx_arr', expr,
-               'RETURN', '3', '$.Sellers[0].Locations[*]', 'AS', 'val', *dialect_param).equal(expect_case(expected[1]))
-    env.expect('FT.SEARCH', 'idx_arr', expr,
-               'RETURN', '3', '$.Sellers[0].Locations', 'AS', 'val', *dialect_param).equal(expect_case(expected[2]))
+    env.assertEqual(conn.execute_command(
+        'FT.SEARCH', 'idx_arr', expr, 'RETURN', '3', '$.Sellers[0].Locations[1]', 'AS', 'arr_1', *dialect_param),
+                    expect_case(expected[0]), message=message)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx_arr', expr, 'RETURN', '1', 'val', *dialect_param),
+                    expect_case(expected[2]), message=message)
+    env.assertEqual(conn.execute_command(
+        'FT.SEARCH', 'idx_arr', expr, 'RETURN', '3', '$.Sellers[*].Locations[*]', 'AS', 'val', *dialect_param),
+                    expect_case(expected[3]), message=message)
+    env.assertEqual(conn.execute_command(
+        'FT.SEARCH', 'idx_arr', expr, 'RETURN', '3', '$.Sellers[0].Locations[*]', 'AS', 'val', *dialect_param),
+                    expect_case(expected[1]), message=message)
+    env.assertEqual(conn.execute_command(
+        'FT.SEARCH', 'idx_arr', expr, 'RETURN', '3', '$.Sellers[0].Locations', 'AS', 'val', *dialect_param),
+                    expect_case(expected[2]), message=message)
 
     res = conn.execute_command('FT.AGGREGATE', 'idx_arr',
         expr, 'GROUPBY', '1', '@val', *dialect_param)
