@@ -804,7 +804,7 @@ def testPrefixNodeCaseSensitive(env):
             }
         }
     }
-    time.sleep(10)
+
     for mode in modes:
         env.expect(*create_functions[mode]).ok()
         conn.execute_command('HSET', 'doc1', 't', 'hello')
