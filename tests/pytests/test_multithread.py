@@ -390,7 +390,7 @@ def test_async_updates_sanity():
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 5000 * n_shards
+    n_vectors = 10000 * n_shards if not SANITIZER else 5000 * n_shards
     dim = 4
     block_size = 1024
 
