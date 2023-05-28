@@ -726,18 +726,24 @@ def testStrLen(env):
 def testLoadAll(env):
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')
-    conn.execute_command('HSET', 'doc1', 't', 'hello', 'n', 42)
-    conn.execute_command('HSET', 'doc2', 't', 'world', 'n', 3.141)
-    conn.execute_command('HSET', 'doc3', 't', 'hello world', 'n', 17.8)
+    conn.execute_command('HSET', 'doc1', 't', 'hello', 'n', 42, 'notIndexed', 'ccc')
+    conn.execute_command('HSET', 'doc2', 't', 'world', 'n', 3.141, 'notIndexed', 'bbb')
+    conn.execute_command('HSET', 'doc3', 't', 'hello world', 'n', 17.8, 'notIndexed', 'aaa')
     # without LOAD
     env.expect('FT.AGGREGATE', 'idx', '*').equal([1, [], [], []])
     # use LOAD with narg or ALL
-    res = [3, ['__key', 'doc1', 't', 'hello', 'n', '42'],
-               ['__key', 'doc2', 't', 'world', 'n', '3.141'],
-               ['__key', 'doc3', 't', 'hello world', 'n', '17.8']]
+    res = [3, ['__key', 'doc1', 't', 'hello', 'n', '42', 'notIndexed', 'ccc'],
+              ['__key', 'doc2', 't', 'world', 'n', '3.141', 'notIndexed', 'bbb'],
+              ['__key', 'doc3', 't', 'hello world', 'n', '17.8', 'notIndexed', 'aaa']]
 
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 3, '__key', 't', 'n', 'SORTBY', 1, '@__key').equal(res)
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 4, '__key', 't', 'n', 'notIndexed', 'SORTBY', 1, '@__key').equal(res)
     env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'LOAD', 1, '@__key', 'SORTBY', 1, '@__key').equal(res)
+
+    if not env.isCluster(): # TODO: fix error message in cluster
+        env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'SORTBY', 1, '@notIndexed').error().contains('not loaded nor in schema') # can be enabled in the future
+        env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', 1, '@notIndexed').error().contains('not loaded nor in schema') # without LOAD it's an error (unless we enable implicit LOAD of any field for SORTBY)
+        env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'SORTBY', 1, '@notExists').error().contains('not loaded nor in schema') # can be enabled in the future - should pass even if notExists doesn't exist
+        env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', 1, '@notExists').error().contains('not loaded nor in schema') # without LOAD it's an error (unless we enable implicit LOAD of any field for SORTBY)
 
 def testLimitIssue(env):
     #ticket 66895
