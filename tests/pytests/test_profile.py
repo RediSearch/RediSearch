@@ -303,7 +303,7 @@ def testProfileVector(env):
   # Ask explicitly to run in batches mode, with batch size of 100.
   # After 200 iterations, we should go over the entire index.
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello other)=>[KNN 2 @v $vec HYBRID_POLICY BATCHES BATCH_SIZE 100]',
-                                    'SORTBY', '__v_score', 'PARAMS', '2', 'vec', '????????', 'nocontent')
+                                    'SORTBY', '__v_score', 'PARAMS', '2', 'vec', '????????', 'nocontent', 'timeout', '100000')
   expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 0, 'Batches number', 200, 'Child iterator',
                                                   ['Type', 'INTERSECT', 'Counter', 199, 'Child iterators',
                                                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 399, 'Size', 10000],

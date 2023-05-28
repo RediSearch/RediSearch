@@ -182,7 +182,6 @@ void redisearch_thpool_destroy(redisearch_threadpool);
  */
 size_t redisearch_thpool_num_threads_working(redisearch_threadpool);
 
-
 #ifdef __cplusplus
 }
 #endif
