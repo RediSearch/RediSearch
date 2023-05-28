@@ -94,7 +94,8 @@ static void setKeyByFieldSpec(RLookupKey *key, const FieldSpec *fs) {
 // has promised to load the entire document.
 static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t name_len, uint32_t flags) {
   const FieldSpec *fs = findFieldInSpecCache(lookup, name);
-  // TODO: verify this mechanism works (that the loader will always load the field)
+  // FIXME: LOAD ALL loads the key properties by their name, and we won't find their value by the field name
+  //        if the field has a different name (alias) than its path.
   if(!fs || (!FieldSpec_IsSortable(fs) && !(lookup->options & RLOOKUP_OPT_ALL_LOADED))) {
     return NULL;
   }
