@@ -7,19 +7,20 @@ from time import sleep
 from RLTest import Env
 import math
 
+
 def testNumEntries(env):
 	env.skipOnCluster()
-    
+
 	env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD',0).equal('OK')
-	
+
 	env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'numeric').ok()
- 
+
 	loops = 15
 	hashes_number = 10_000
-	expected_depth = 17 
+	expected_depth = 17
 	for i in range(loops):
 		# In each loop re-index 0, 1,...,`hashes_number`-1 entries with increasing values
-		for i in range (hashes_number):
+		for i in range(hashes_number):
 			env.cmd('hset', f'{i}', 'num', f'{i}')
 
 		# explicitly run gc to update spec stats and the inverted index number of entries.
@@ -32,7 +33,7 @@ def testNumEntries(env):
 		# the tree depth was experimentally calculated, and should remain constant since we are using the same values.
 		numeric_tree_depth = dump_numeric_index_tree_root(env, 'idx', 'num')['maxDepth']
 		env.assertGreaterEqual(expected_depth, numeric_tree_depth)
-		
+
 	env.cmd('flushall')
   
 
