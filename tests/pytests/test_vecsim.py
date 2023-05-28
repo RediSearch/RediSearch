@@ -24,17 +24,6 @@ def assert_query_results(env, expected_res, actual_res, error_msg='', data_type=
             env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-9, depth=1, message=error_msg)
 
 
-def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32'):
-    conn = getConnectionByEnv(env)
-    np.random.seed(10)
-    for i in range(n_vec):
-        vector = create_np_array_typed(np.random.rand(vec_size), data_type)
-        if i == query_vec_index:
-            query_vec = vector
-        conn.execute_command('HSET', i, 'vector', vector.tobytes())
-    return query_vec
-
-
 def get_vecsim_memory(env, index_key, field_name):
     return float(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", index_key, field_name))["MEMORY"])/0x100000
 
@@ -87,11 +76,9 @@ def test_sanity_cosine():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
-    index_types = ['FLAT', 'HNSW']
-    data_types = ['FLOAT32', 'FLOAT64']
     score_field_syntaxs = ['AS dist]', ']=>{$yield_distance_as:dist}']
-    for index_type in index_types:
-        for data_type in data_types:
+    for index_type in VECSIM_ALGOS:
+        for data_type in VECSIM_DATA_TYPES:
             for i, score_field_syntax in enumerate(score_field_syntaxs):
                 env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index_type, '6', 'TYPE', data_type,
                            'DIM', '2', 'DISTANCE_METRIC', 'COSINE').ok()
@@ -157,10 +144,8 @@ def test_sanity_l2():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
-    index_types = ['FLAT', 'HNSW']
-    data_types = ['FLOAT32', 'FLOAT64']
-    for index_type in index_types:
-        for data_type in data_types:
+    for index_type in VECSIM_ALGOS:
+        for data_type in VECSIM_DATA_TYPES:
             env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index_type, '6', 'TYPE', data_type,
                        'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
             conn.execute_command('HSET', 'a', 'v', create_np_array_typed([0.1, 0.1], data_type).tobytes())
@@ -225,10 +210,8 @@ def test_sanity_zero_results():
     conn = getConnectionByEnv(env)
     dim = 4
 
-    index_types = ['FLAT', 'HNSW']
-    data_types = ['FLOAT32', 'FLOAT64']
-    for index_type in index_types:
-        for data_type in data_types:
+    for index_type in VECSIM_ALGOS:
+        for data_type in VECSIM_DATA_TYPES:
             env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index_type, '6', 'TYPE', data_type,
                        'DIM', dim, 'DISTANCE_METRIC', 'L2', 'n', 'NUMERIC').ok()
             conn.execute_command('HSET', 'a', 'n', 0xa, 'v', create_np_array_typed(np.random.rand(dim), data_type).tobytes())
@@ -348,7 +331,7 @@ def test_create():
         conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'v_FLAT', 'VECTOR', 'FLAT', '8', 'TYPE', data_type,
                              'DIM', '1024', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', '10')
 
-        expected_HNSW = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'HNSW', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'EPSILON', '0.01', 'NUMBER_OF_MARKED_DELETED', 0]]
+        expected_HNSW = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'HNSW', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'EPSILON', '0.01', 'NUMBER_OF_MARKED_DELETED', 0], 'TIERED_HNSW_SWAP_JOBS_THRESHOLD', 1024]
         expected_FLAT = ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024]
 
         for _ in env.retry_with_rdb_reload():
@@ -1511,7 +1494,7 @@ def test_default_block_size_and_initial_capacity():
         exp_block_size = default_blockSize
 
         for data_type, data_byte_size in zip(VECSIM_DATA_TYPES, [float32_byte_size, float64_byte_size]):
-            for algo in ['FLAT', 'HNSW']:
+            for algo in VECSIM_ALGOS:
                 if with_memory_limit:
                     exp_block_size = set_memory_limit(data_byte_size)
                     env.assertLess(exp_block_size, default_blockSize)
@@ -1698,7 +1681,6 @@ def test_create_multi_value_json():
     conn = getConnectionByEnv(env)
     prefix = '_' if env.isCluster() else ''
     dim = 4
-    algos = ['FLAT', 'HNSW']
     multi_paths = ['$..vec', '$.vecs[*]', '$.*.vec']
     single_paths = ['$.path.to.vec', '$.vecs[0]']
 
@@ -1707,7 +1689,7 @@ def test_create_multi_value_json():
                '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).error().equal(
                 f"Invalid JSONPath '{path}' in attribute 'vec' in index 'idx'")
 
-    for algo in algos:
+    for algo in VECSIM_ALGOS:
         for path in multi_paths:
             conn.flushall()
             env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
@@ -1847,7 +1829,7 @@ def test_range_query_basic():
     n = 999
 
     for data_type in VECSIM_DATA_TYPES:
-        for index in ['FLAT', 'HNSW']:
+        for index in VECSIM_ALGOS:
             env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index, '6', 'TYPE', data_type, 'DIM',
                        dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT').ok()
 

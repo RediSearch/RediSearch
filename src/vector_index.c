@@ -80,10 +80,10 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
     return NULL;
   }
 
-  VecSimIndexInfo info = VecSimIndex_Info(vecsim);
-  size_t dim = info.commonInfo.dim;
-  VecSimType type = info.commonInfo.type;
-  VecSimMetric metric = info.commonInfo.metric;
+  VecSimIndexBasicInfo info = VecSimIndex_BasicInfo(vecsim);
+  size_t dim = info.dim;
+  VecSimType type = info.type;
+  VecSimMetric metric = info.metric;
 
   VecSimQueryParams qParams = {0};
   switch (vq->type) {
@@ -331,8 +331,12 @@ static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams 
   return rv;
 }
 
-int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref) {
+int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
+                      const char *field_name) {
   vecsimParams->algo = LoadUnsigned_IOError(rdb, goto fail);
+  VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
+  logCtx->index_field_name = field_name;
+  vecsimParams->logCtx = logCtx;
 
   switch (vecsimParams->algo) {
   case VecSimAlgo_BF:
@@ -441,6 +445,9 @@ void VecSimParams_Cleanup(VecSimParams *params) {
     WeakRef_Release(spec_ref);
     rm_free(params->tieredParams.primaryIndexParams);
   }
+  // Note that for tiered index, this would free both params->logCtx and
+  // params->tieredParams.primaryIndexParams->logCtx that point to the same object.
+  rm_free(params->logCtx);
 }
 
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
@@ -504,4 +511,10 @@ void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref) {
 #endif
   params->jobQueueCtx = StrongRef_Demote(sp_ref).rm;
   params->submitCb = (SubmitCB)ThreadPoolAPI_SubmitIndexJobs;
+  params->flatBufferLimit = RSGlobalConfig.tieredVecSimIndexBufferLimit;
+}
+
+void VecSimLogCallback(void *ctx, const char *message) {
+  VecSimLogCtx *log_ctx = (VecSimLogCtx *)ctx;
+  RedisModule_Log(NULL, "notice", "vector index '%s' - %s", log_ctx->index_field_name, message);
 }

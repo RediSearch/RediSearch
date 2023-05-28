@@ -15,6 +15,7 @@ extern "C" {
 /* =================================== API ======================================= */
 
 typedef struct redisearch_thpool_t* redisearch_threadpool;
+typedef struct timespec timespec;
 
 typedef enum {
   THPOOL_PRIORITY_HIGH,
@@ -22,23 +23,30 @@ typedef enum {
 } thpool_priority;
 
 /**
- * @brief  Initialize threadpool
+ * @brief  Create a new threadpool (without initializing the threads)
  *
- * Initializes a threadpool. This function will not return untill all
+ * @param num_threads number of threads to be created in the threadpool
+ * @return Newly allocated threadpool, or NULL if creation failed.
+ */
+redisearch_threadpool redisearch_thpool_create(size_t num_threads);
+
+/**
+ * @brief  Initialize an existing threadpool
+ *
+ * Initializes a threadpool. This function will not return until all
  * threads have initialized successfully.
  *
  * @example
  *
  *    ..
- *    threadpool thpool;                     //First we declare a threadpool
- *    thpool = thpool_init(4);               //then we initialize it to 4 threads
+ *    threadpool thpool;                       //First we declare a threadpool
+ *    thpool = thpool_create(4);               //Next we create it with 4 threads
+ *    thpool_init(&thpool);                    //Then we initialize the threads
  *    ..
  *
- * @param  num_threads   number of threads to be created in the threadpool
- * @return threadpool    created threadpool on success,
- *                       NULL on error
+ * @param threadpool    threadpool to initialize
  */
-redisearch_threadpool redisearch_thpool_init(size_t num_threads);
+void redisearch_thpool_init(redisearch_threadpool);
 
 /**
  * @brief Add work to the job queue
@@ -139,6 +147,41 @@ int redisearch_thpool_add_n_work(redisearch_threadpool, redisearch_thpool_work_t
  */
 void redisearch_thpool_wait(redisearch_threadpool);
 
+// A callback to be called periodically when waiting for the thread pool to finish.
+typedef void (*yieldFunc)(void *);
+
+/**
+ * @brief Wait for all queued jobs to finish, yield periodically while we wait.
+ *
+ * The same as redisearch_thpool_wait, but with a timeout, so that if time passed and
+ * we're still waiting, we run a yield callback function, and go back waiting again.
+ * We do so until the queue is empty and all work has completed.
+ *
+ * @example
+ *
+ *    ..
+ *    threadpool thpool = thpool_create(4);
+ *    thpool_init(&thpool);
+ *    ..
+ *    // Add a bunch of work
+ *    ..
+ *    struct timespec time_to_wait = {0, 100000000};  // 100 ms
+ *    redisearch_thpool_timedwait(&thpool, &time_to_wait, yieldCallback, ctx);
+ *
+ *    puts("All added work has finished");
+ *    ..
+ *
+ * @param threadpool    the threadpool to wait for it to finish
+ * @param timeout       indicates the time to wait before we wake up and call yieldCB
+ * @param yieldCB       A callback to be called periodically whenever we wait for the jobs
+ *                      to finish, every <x> time (as specified in timeout).
+ * @param yieldCtx      The context to send to yieldCB
+ * @return nothing
+ */
+
+void redisearch_thpool_timedwait(redisearch_threadpool, struct timespec *timeout, yieldFunc yieldCB,
+                                 void *yieldCtx);
+
 /**
  * @brief Pauses all threads immediately
  *
@@ -178,6 +221,11 @@ void redisearch_thpool_pause(redisearch_threadpool);
 void redisearch_thpool_resume(redisearch_threadpool);
 
 /**
+ * @brief Terminate the working threads (without deallocating the job queue and the thread objects).
+ */
+void redisearch_thpool_terminate_threads(redisearch_threadpool);
+
+/**
  * @brief Destroy the threadpool
  *
  * This will wait for the currently active threads to finish and then 'kill'
@@ -197,6 +245,7 @@ void redisearch_thpool_resume(redisearch_threadpool);
  * @return nothing
  */
 void redisearch_thpool_destroy(redisearch_threadpool);
+
 
 /**
  * @brief Show currently working threads
