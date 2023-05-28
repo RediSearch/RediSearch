@@ -70,7 +70,7 @@ def waitForNoCleanup(env, idx, max_wait=30):
     max_wait = max(max_wait, retry_wait)
     while max_wait >= 0:
         res = env.execute_command('ft.info', idx)
-        if int(res[res.index('cleanup_working') + 1]) == 0:
+        if int(res[res.index('cleaning') + 1]) == 0:
             break
         time.sleep(retry_wait)
         max_wait -= retry_wait

@@ -279,4 +279,8 @@ def testFtInfo(env):
   waitForNoCleanup(env, 'idx2_no_geom')
   res = to_dict(env.cmd('FT.INFO idx2_no_geom'))
   cur_usage = float(res[info_key_name])
-  env.assertEqual(cur_usage, 0)
+  if not env.isCluster():
+    env.assertEqual(cur_usage, 0)
+  else:
+    # TODO: in cluster - be able to wait for cleaning of the index (would wait for freeing the Geometry index memory)
+    env.assertLess(cur_usage, usage)
