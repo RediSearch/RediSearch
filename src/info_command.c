@@ -230,7 +230,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   REPLY_KVINT(n, "number_of_uses", sp->counter);
 
-  REPLY_KVINT(n, "cleanup_working", CleanInProgressOrPending());
+  REPLY_KVINT(n, "cleaning", CleanInProgressOrPending());
 
   if (sp->gc) {
     RedisModule_ReplyWithSimpleString(ctx, "gc_stats");

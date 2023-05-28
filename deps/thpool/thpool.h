@@ -182,28 +182,6 @@ void redisearch_thpool_destroy(redisearch_threadpool);
  */
 size_t redisearch_thpool_num_threads_working(redisearch_threadpool);
 
-
-/**
- * @brief Show is idle
- *
- * Is job queue not empty or there are working threads
- *
- * @example
- * int main() {
- *    threadpool thpool1 = thpool_init(2);
- *    threadpool thpool2 = thpool_init(2);
- *    ..
- *    printf("Is idle pool 1: %d\n", redisearch_thpool_is_idle(thpool1));
- *    ..
- *    return 0;
- * }
- *
- * @param threadpool     the threadpool of interest
- * @return integer       0 if idle, 1 otherwise
- */
-size_t redisearch_thpool_is_idle(redisearch_threadpool);
-
-
 #ifdef __cplusplus
 }
 #endif

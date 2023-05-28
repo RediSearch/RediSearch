@@ -45,11 +45,13 @@ RedisModuleType *IndexSpecType;
 static uint64_t spec_unique_ids = 1;
 
 dict *specDict_g;
-uint16_t pendingIndexDropCount_g = 0;
 IndexesScanner *global_spec_scanner = NULL;
 size_t pending_global_indexing_ops = 0;
 dict *legacySpecDict;
 dict *legacySpecRules;
+
+// Pending or in-progress index drops
+uint16_t pendingIndexDropCount_g = 0;
 
 Version redisVersion;
 Version rlecVersion;
@@ -1247,34 +1249,26 @@ void CleanPool_ThreadPoolDestroy() {
   }
 }
 
-size_t getPendingIndexDrop() {
+uint16_t getPendingIndexDrop() {
   return __atomic_load_n(&pendingIndexDropCount_g, __ATOMIC_RELAXED);
 }
 
-size_t addPendingIndexDrop() {
-  __atomic_fetch_add(&pendingIndexDropCount_g, 1, __ATOMIC_RELAXED);
+void addPendingIndexDrop() {
+  __atomic_add_fetch(&pendingIndexDropCount_g, 1, __ATOMIC_RELAXED);
 }
 
 void removePendingIndexDrop() {
-  uint16_t current = __atomic_load_n(&pendingIndexDropCount_g, __ATOMIC_RELAXED);
-  do {
-    if (current == 0) {
-      return;
-    }
-  } while (!__atomic_compare_exchange_n(&pendingIndexDropCount_g, &current, current - 1, 0, 0, 0));
-
+  __atomic_sub_fetch(&pendingIndexDropCount_g, 1, __ATOMIC_RELAXED);
 }
 
 size_t CleanInProgressOrPending() {
-  return getPendingIndexDrop() || (cleanPool && !redisearch_thpool_is_idle(cleanPool));
+  return getPendingIndexDrop();
 }
 
 /*
  * Free resources of unlinked index spec
  */
 static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
-
-  removePendingIndexDrop();
 
   // Free all documents metadata
   DocTable_Free(&spec->docs);
@@ -1334,6 +1328,8 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   }
   // Free spec struct
   rm_free(spec);
+  
+  removePendingIndexDrop();
 }
 
 /*
