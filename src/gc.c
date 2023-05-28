@@ -167,7 +167,8 @@ void GCContext_ForceBGInvoke(GCContext* gc) {
 
 void GC_ThreadPoolStart() {
   if (gcThreadpool_g == NULL) {
-    gcThreadpool_g = redisearch_thpool_init(1);
+    gcThreadpool_g = redisearch_thpool_create(1);
+    redisearch_thpool_init(gcThreadpool_g);
   }
 }
 

@@ -31,7 +31,7 @@
 #include "rdb.h"
 #include "commands.h"
 #include "rmutil/cxx/chrono-clock.h"
-#include "geometry/geometry_api.h"
+#include "util/workers.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -760,6 +760,10 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", rc);
     return 0;
   }
+  VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
+  logCtx->index_field_name = fs->name;
+  fs->vectorOpts.vecSimParams.logCtx = logCtx;
+
   if (!strncasecmp(VECSIM_ALGORITHM_BF, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_BF;
     fs->vectorOpts.vecSimParams.bfParams.initialCapacity = SIZE_MAX;
@@ -779,6 +783,9 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
     params->hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
     params->hnswParams.multi = multi;
+    // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
+    params->logCtx = logCtx;
+
     return parseVectorField_hnsw(fs, params, ac, status);
   } else {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", AC_ERR_ENOENT);
@@ -1240,7 +1247,8 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
 
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
-    cleanPool = redisearch_thpool_init(1);
+    cleanPool = redisearch_thpool_create(1);
+    redisearch_thpool_init(cleanPool);
   }
 }
 
@@ -1773,7 +1781,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
       f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
     }
     if (encver >= INDEX_VECSIM_TIERED_VERSION) {
-      if (VecSim_RdbLoad_v3(rdb, &f->vectorOpts.vecSimParams, sp_ref) != REDISMODULE_OK) {
+      if (VecSim_RdbLoad_v3(rdb, &f->vectorOpts.vecSimParams, sp_ref, f->name) != REDISMODULE_OK) {
         goto fail;
       }
     } else {
@@ -1787,6 +1795,9 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
         }
       }
       // If we're loading an old (< 2.8) rdb, we need to convert an HNSW index to a tiered index
+      VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
+      logCtx->index_field_name = f->name;
+      f->vectorOpts.vecSimParams.logCtx = logCtx;
       if (f->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
         VecSimParams hnswParams = f->vectorOpts.vecSimParams;
 
@@ -1811,13 +1822,13 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
       }
     }
   }
-  
+
   // Load geometry specific options
   if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
     // TODO: GEOMETRY - if more than one geometry library is supported - load it from rdb (currently hard-coded)
     f->geometryOpts.geometryLibType = GEOMETRY_LIB_TYPE_BOOST_GEOMETRY;
   }
-  
+
   return REDISMODULE_OK;
 
 fail:
@@ -2026,7 +2037,8 @@ end:
 
 static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   if (!reindexPool) {
-    reindexPool = redisearch_thpool_init(1);
+    reindexPool = redisearch_thpool_create(1);
+    redisearch_thpool_init(reindexPool);
   }
 #ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Register index %s for async scan", ((IndexSpec*)StrongRef_Get(spec_ref))->name);
@@ -2251,7 +2263,8 @@ void Indexes_UpgradeLegacyIndexes() {
 
 void Indexes_ScanAndReindex() {
   if (!reindexPool) {
-    reindexPool = redisearch_thpool_init(1);
+    reindexPool = redisearch_thpool_create(1);
+    redisearch_thpool_init(reindexPool);
   }
 
   RedisModule_Log(NULL, "notice", "Scanning all indexes");
@@ -2613,6 +2626,9 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
     }
     RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
+#ifdef POWER_TO_THE_WORKERS
+    workersThreadPool_InitIfRequired();
+#endif
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
     int hasLegacyIndexes = dictSize(legacySpecDict);
     Indexes_UpgradeLegacyIndexes();
@@ -2629,6 +2645,9 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       RedisModule_Log(ctx, "warning",
                       "Skip background reindex scan, redis version contains loaded event.");
     }
+#ifdef POWER_TO_THE_WORKERS
+    workersThreadPool_waitAndTerminate(ctx);
+#endif
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
   }
 }
