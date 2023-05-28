@@ -199,7 +199,8 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
     } else {
       // If we found the requested key, and the caller didn't request to hide it,
       // remove the hidden flag (if it was set).
-      key->flags &= ~(flags & RLOOKUP_F_HIDDEN);
+      if (!(flags & RLOOKUP_F_HIDDEN))
+        key->flags &= ~RLOOKUP_F_HIDDEN;
     }
     // If we didn't find the key in the schema (there is no schema) and unresolved is OK, create an unresolved key.
     if (!key && (lookup->options & RLOOKUP_OPT_UNRESOLVED_OK)) {
