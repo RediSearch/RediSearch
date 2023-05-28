@@ -402,10 +402,10 @@ typedef struct {
   RLookupLoadFlags mode;
 
   /**
-   * Don't use sortables when loading documents. This might be used to ensure
-   * that only the exact document and not a normalized version is employed
+   * Don't use sortables when loading documents. This will enforce the loader to load
+   * the fields from the document itself, even if they are sortables abd un-normalized.
    */
-  int noSortables;
+  int forceLoad;
 
   /**
    * Force string return; don't coerce to native type

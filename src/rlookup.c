@@ -740,7 +740,7 @@ static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType ot
 
 static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
                         RedisModuleKey **keyobj) {
-  if (!options->noSortables && (kk->flags & RLOOKUP_F_SVSRC)) {
+  if (!options->forceLoad && (kk->flags & RLOOKUP_F_VAL_AVAILABLE)) {
     // No need to "write" this key. It's always implicitly loaded!
     return REDISMODULE_OK;
   }
@@ -799,7 +799,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     return REDISMODULE_ERR;
   }
 
-  if (!options->noSortables && (kk->flags & RLOOKUP_F_SVSRC)) {
+  if (!options->forceLoad && (kk->flags & RLOOKUP_F_VAL_AVAILABLE)) {
     // No need to "write" this key. It's always implicitly loaded!
     return REDISMODULE_OK;
   }
@@ -870,7 +870,7 @@ static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *
       if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
         continue;
       }
-      if (!options->noSortables) {
+      if (!options->forceLoad) {
         /* wanted a sort key, but field is not sortable */
         if ((options->mode & RLOOKUP_LOAD_SVKEYS) && !(kk->flags & RLOOKUP_F_SVSRC)) {
           continue;
@@ -908,13 +908,14 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
   RLookupKey *rlk = RLookup_FindKey(pd->it, fieldCStr, fieldCStrLen);
   if (!rlk) {
     // First returned document, create the key.
-    uint32_t flags = pd->options->noSortables ? RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NAMEALLOC;
+    uint32_t flags = pd->options->forceLoad ? RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NAMEALLOC;
     rlk = RLookup_GetKey_LoadEx(pd->it, fieldCStr, fieldCStrLen, fieldCStr, flags);
     if (!rlk) {
       return; // Key is sortable, can load it from the sort vector on demand.
     }
   } else if ((rlk->flags & RLOOKUP_F_QUERYSRC) ||
-             (!pd->options->noSortables && rlk->flags & RLOOKUP_F_SVSRC && !(rlk->flags & RLOOKUP_F_VAL_AVAILABLE))) {
+             (!pd->options->forceLoad && rlk->flags & RLOOKUP_F_VAL_AVAILABLE && !(rlk->flags & RLOOKUP_F_ISLOADED))
+            /* || (rlk->flags & RLOOKUP_F_ISLOADED) TODO: skip loaded keys, EXCLUDING keys that were opened by this function*/) {
     return; // Key name is already taken by a query key, or it's already loaded.
   }
 
@@ -959,13 +960,14 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
       RLookupKey *rlk = RLookup_FindKey(it, kstr, klen);
       if (!rlk) {
         // First returned document, create the key.
-        uint32_t flags = options->noSortables ? RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NAMEALLOC;
+        uint32_t flags = options->forceLoad ? RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NAMEALLOC;
         rlk = RLookup_GetKey_LoadEx(it, kstr, klen, kstr, flags);
         if (!rlk) {
           continue; // Key is sortable, can load it from the sort vector on demand.
         }
       } else if ((rlk->flags & RLOOKUP_F_QUERYSRC) ||
-                 (!options->noSortables && rlk->flags & RLOOKUP_F_SVSRC && !(rlk->flags & RLOOKUP_F_VAL_AVAILABLE))) {
+                 (!options->forceLoad && rlk->flags & RLOOKUP_F_VAL_AVAILABLE && !(rlk->flags & RLOOKUP_F_ISLOADED))
+                 /* || (rlk->flags & RLOOKUP_F_ISLOADED) TODO: skip loaded keys, EXCLUDING keys that were opened by this function*/) {
         continue; // Key name is already taken by a query key, or it's already loaded.
       }
       RLookupCoerceType ctype = RLOOKUP_C_STR;
@@ -1089,7 +1091,7 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
                             .keyPtr = keyptr,
                             .type = rule->type,
                             .status = &status,
-                            .noSortables = 1,
+                            .forceLoad = 1,
                             .mode = RLOOKUP_LOAD_KEYLIST };
   int rv = loadIndividualKeys(it, dst, &opt);
   QueryError_ClearError(&status);

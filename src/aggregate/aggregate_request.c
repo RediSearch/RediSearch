@@ -1224,6 +1224,10 @@ int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status) {
   // or if we don't have explicit return, meaning we use LOAD ALL
   if (loadkeys || !req->outFields.explicitReturn) {
     rp = RPLoader_New(lookup, loadkeys, array_len(loadkeys));
+    if (isSpecJson(req->sctx->spec)) {
+      // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
+      lookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
+    }
     array_free(loadkeys);
     PUSH_RP();
   }
@@ -1445,6 +1449,10 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
         }
         if (lstp->nkeys || lstp->base.flags & PLN_F_LOAD_ALL) {
           rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
+          if (isSpecJson(req->sctx->spec)) {
+            // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
+            curLookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
+          }
           PUSH_RP();
         }
         break;
