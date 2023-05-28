@@ -11,7 +11,7 @@ import math
 def testNumEntries(env):
 	env.skipOnCluster()
 
-	env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD',0).equal('OK')
+	env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
 	env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'numeric').ok()
 
@@ -28,10 +28,11 @@ def testNumEntries(env):
 
 		# num records should be equal to the number of indexed hashes.
 		info = index_info(env, 'idx')
-		env.assertEqual(int(info['num_records']),hashes_number)
+		env.assertEqual(int(info['num_records']), hashes_number)
 
 		# the tree depth was experimentally calculated, and should remain constant since we are using the same values.
-		numeric_tree_depth = dump_numeric_index_tree_root(env, 'idx', 'num')['maxDepth']
+		numeric_tree_depth = dump_numeric_index_tree_root(env, 'idx', 'num')[
+                    'maxDepth']
 		env.assertGreaterEqual(expected_depth, numeric_tree_depth)
 
 	env.cmd('flushall')
