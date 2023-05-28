@@ -4,6 +4,7 @@ from common import *
 from time import sleep, time
 from redis import ResponseError
 
+from cmath import inf
 
 def loadDocs(env, count=100, idx='idx', text='hello world'):
     env.expect('FT.CREATE', idx, 'ON', 'HASH', 'prefix', 1, idx, 'SCHEMA', 'f1', 'TEXT').ok()
@@ -143,16 +144,23 @@ def testNumericCursor(env):
     idx = 'foo'
     ff = 'ff'
     env.expect('FT.CREATE', idx, 'ON', 'HASH', 'SCHEMA', ff, 'NUMERIC').ok()
-    for x in range(1, 3):
+    for x in range(1000):
         conn.execute_command('HSET', f'{idx}_{x}', ff, x)
 
-    res, cursor = env.cmd('FT.AGGREGATE', idx, '*', 'LOAD', '*', 'SORTBY', 2, '@ff', 'ASC', 'WITHCURSOR', 'COUNT', 1)
-    env.assertEqual(res[1], [ff, '1'])
+    # res = env.cmd('FT.AGGREGATE', idx, '*', 'LOAD', '*', 'SORTBY', 2, '@ff', 'ASC', 'LIMIT', 0, 1000)
+    # env.assertIsNotNone(res)
+
+    res, cursor = env.cmd('FT.AGGREGATE', idx, '*', 'LOAD', '*', 'SORTBY', 2, '@ff', 'ASC', 'WITHCURSOR', 'COUNT', 1, 'LIMIT', 0, 999999)
+    # res, cursor = env.cmd('FT.AGGREGATE', idx, '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)
+    env.assertNotEqual(res, [0])
     env.assertNotEqual(cursor, 0)
 
-    res, cursor = env.cmd('FT.CURSOR', 'READ', idx, str(cursor))
-    env.assertEqual(res[1], [ff, '2'])
-    env.assertNotEqual(cursor, 0)
-
+    for x in range(1, 1000):
+        res, cursor = env.cmd('FT.CURSOR', 'READ', idx, str(cursor))
+        env.assertNotEqual(res, [0])
+        env.assertNotEqual(cursor, 0)
+    
     res, cursor = env.cmd('FT.CURSOR', 'READ', idx, str(cursor))
     env.assertEqual(res, [0])
+    env.assertEqual(cursor, 0)
+

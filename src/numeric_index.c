@@ -859,7 +859,7 @@ void NumericRangeIterator_OnReopen(void *privdata) {
   RedisModuleString *numField = IndexSpec_GetFormattedKeyByName(sp, nu->fieldName, INDEXFLD_T_NUMERIC);
   NumericRangeTree *rt = openNumericKeysDict(sp, numField, 0);
   
-  if (!rt || rt->revisionId != nu->lastRevId) {
+  if (!rt || rt->revisionId != nu->lastRevId /* || ir->gcMarker != ir->idx->gcMarker */) {
     // The numeric tree was either completely deleted or a node was splitted or removed.
     // The cursor is invalidated.
     it->Abort(ir);
