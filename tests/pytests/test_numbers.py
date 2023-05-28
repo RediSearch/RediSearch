@@ -8,6 +8,8 @@ from RLTest import Env
 import math
 
 def testNumEntries(env):
+	env.skipOnCluster()
+    
 	env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD',0).equal('OK')
 	
 	env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'numeric').ok()
