@@ -17,11 +17,11 @@
 #include <pthread.h>
 #include <errno.h>
 #include <time.h>
+#include <sys/time.h>
 #include <assert.h>
 
 #if defined(__linux__)
 #include <sys/prctl.h>
-#include <sys/time.h>
 #endif
 
 #include "thpool.h"
