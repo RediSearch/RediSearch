@@ -1,7 +1,6 @@
 from RLTest import Env
 from common import *
 import json
-import time
 
 def sortResultByKeyName(res):
   '''

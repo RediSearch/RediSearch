@@ -1328,7 +1328,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   }
   // Free spec struct
   rm_free(spec);
-  
+
   removePendingIndexDrop();
 }
 
@@ -2374,6 +2374,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     // Remove the new spec from the global prefixes dictionary.
     // This is the only global structure that we added the new spec to at this point
     SchemaPrefixes_RemoveSpec(spec_ref);
+    addPendingIndexDrop();
     StrongRef_Release(spec_ref);
     spec_ref = (StrongRef){oldSpec};
   } else {
@@ -2387,6 +2388,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   return REDISMODULE_OK;
 
 cleanup:
+  addPendingIndexDrop();
   StrongRef_Release(spec_ref);
   QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "while reading an index");
   return REDISMODULE_ERR;
