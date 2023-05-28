@@ -21,6 +21,7 @@
 
 #if defined(__linux__)
 #include <sys/prctl.h>
+#include <sys/time.h>
 #endif
 
 #include "thpool.h"
@@ -257,12 +258,43 @@ void redisearch_thpool_wait(redisearch_thpool_t* thpool_p) {
   pthread_mutex_unlock(&thpool_p->thcount_lock);
 }
 
-void redisearch_thpool_timedwait(redisearch_thpool_t* thpool_p, struct timespec *timeout,
+void redisearch_thpool_timedwait(redisearch_thpool_t* thpool_p, long timeout,
                                  yieldFunc yieldCB, void *yield_ctx) {
+
+  // Set the *absolute* time for waiting the condition variable
+  struct timespec time_spec;
+  struct timeval tp;
+  gettimeofday(&tp, NULL);
+  time_spec.tv_sec = tp.tv_sec;
+  time_spec.tv_nsec = tp.tv_usec * 1000;
+  time_spec.tv_nsec += timeout * 1000000;
+  // Check if the nanoseconds field has a carry-out (it cannot hold a value which is lager
+  // than 1 sec).
+  if (time_spec.tv_nsec >= 1000000000) {
+    time_spec.tv_sec++;
+    time_spec.tv_nsec -= 1000000000;
+  }
+
   pthread_mutex_lock(&thpool_p->thcount_lock);
   while (priority_queue_len(&thpool_p->jobqueue) || thpool_p->num_threads_working) {
-    pthread_cond_timedwait(&thpool_p->threads_all_idle, &thpool_p->thcount_lock, timeout);
-    yieldCB(yield_ctx);
+    int rc = pthread_cond_timedwait(&thpool_p->threads_all_idle, &thpool_p->thcount_lock, &time_spec);
+    if (rc == ETIMEDOUT) {
+      pthread_mutex_unlock(&thpool_p->thcount_lock);
+      yieldCB(yield_ctx);
+      gettimeofday(&tp, NULL);
+      time_spec.tv_sec = tp.tv_sec;
+      time_spec.tv_nsec = tp.tv_usec * 1000;
+      time_spec.tv_nsec += timeout * 1000000;
+      // Check if the nanoseconds field has a carry-out (it cannot hold a value which is lager
+      // than 1 sec).
+      if (time_spec.tv_nsec >= 1000000000) {
+        time_spec.tv_sec++;
+        time_spec.tv_nsec -= 1000000000;
+      }
+      pthread_mutex_lock(&thpool_p->thcount_lock);
+    } else {
+      assert(rc == 0);
+    }
   }
   pthread_mutex_unlock(&thpool_p->thcount_lock);
 }

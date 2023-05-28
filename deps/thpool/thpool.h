@@ -165,21 +165,21 @@ typedef void (*yieldFunc)(void *);
  *    ..
  *    // Add a bunch of work
  *    ..
- *    struct timespec time_to_wait = {0, 100000000};  // 100 ms
- *    redisearch_thpool_timedwait(&thpool, &time_to_wait, yieldCallback, ctx);
+ *    long time_to_wait = 100;  // 100 ms
+ *    redisearch_thpool_timedwait(&thpool, time_to_wait, yieldCallback, ctx);
  *
  *    puts("All added work has finished");
  *    ..
  *
  * @param threadpool    the threadpool to wait for it to finish
- * @param timeout       indicates the time to wait before we wake up and call yieldCB
+ * @param timeout       indicates the time in ms to wait before we wake up and call yieldCB
  * @param yieldCB       A callback to be called periodically whenever we wait for the jobs
  *                      to finish, every <x> time (as specified in timeout).
  * @param yieldCtx      The context to send to yieldCB
  * @return nothing
  */
 
-void redisearch_thpool_timedwait(redisearch_threadpool, struct timespec *timeout, yieldFunc yieldCB,
+void redisearch_thpool_timedwait(redisearch_threadpool, long timeout, yieldFunc yieldCB,
                                  void *yieldCtx);
 
 /**

@@ -21,6 +21,7 @@ redisearch_threadpool _workers_thpool = NULL;
 
 static void yieldCallback(void *yieldCtx) {
   RedisModuleCtx *ctx = yieldCtx;
+  RedisModule_Log(RSDummyContext, "notice", "Yield to allow redis server run while waiting workers to finish");
   RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
 }
 
@@ -65,8 +66,7 @@ void workersThreadPool_Wait(RedisModuleCtx *ctx) {
     // Wait until all the threads in the pool finish the remaining jobs. Periodically return and
     // call RedisModule_Yield even if threads are not done yet, so redis can answer PINGs
     // (and other stuff) so that the node-watch dog won't kill redis, for example.
-    static struct timespec time_to_wait = {0, 100000000};  // 100 ms
-    redisearch_thpool_timedwait(_workers_thpool, &time_to_wait, yieldCallback, ctx);
+    redisearch_thpool_timedwait(_workers_thpool, 100, yieldCallback, ctx);
   } else {
     // In Redis versions < 7, RedisModule_Yield doesn't exist. Just wait for without yield.
     redisearch_thpool_wait(_workers_thpool);
