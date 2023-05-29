@@ -216,16 +216,34 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   DO_LOG("notice", "Initialized thread pools!");
 
 #ifdef POWER_TO_THE_WORKERS
-  // Init threadpool. 
-  // Threadpool size can only be set on load, hence it is not dependent on
-  // threadsEnabled flag.
-  if(RSGlobalConfig.numWorkerThreads){
-    if(workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
+  // Init threadpool.
+  // Threadpool size can only be set on load.
+  if (RSGlobalConfig.alwaysUseThreads && RSGlobalConfig.numWorkerThreads == 0) {
+    DO_LOG("warning", "Invalid configuration - cannot set ALWAYS_USE_THREADS while WORKERS_THREADS"
+           " number is set to zero");
+    return REDISMODULE_ERR;
+  }
+  if(RSGlobalConfig.numWorkerThreads) {
+    if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
       return REDISMODULE_ERR;
     }
-    DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
-  }
+    if (RSGlobalConfig.alwaysUseThreads) {
+      // Initialize the threads if the module configuration states that worker threads
+      // should always be active.
+      workersThreadPool_InitPool();
+      DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
+    } else {
+      // Otherwise, threads are not active, and we're performing inplace writes.
+      // VSS lib is async by default.
+      VecSim_SetWriteMode(VecSim_WriteInPlace);
+    }
+  } else
 #endif
+  {
+    // If we don't have a thread pool,
+    // we have to make sure that we tell the vecsim library to add and delete in place (can't use submit at all)
+    VecSim_SetWriteMode(VecSim_WriteInPlace);
+  }
 
   // Init cursors mechanism
   CursorList_Init(&RSCursors);
@@ -268,5 +286,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   VecSimMemoryFunctions vecsimMemoryFunctions = {.allocFunction = rm_malloc, .callocFunction = rm_calloc, .reallocFunction = rm_realloc, .freeFunction = rm_free};
   VecSim_SetMemoryFunctions(vecsimMemoryFunctions);
   VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
+  VecSim_SetLogCallbackFunction(VecSimLogCallback);
   return REDISMODULE_OK;
 }

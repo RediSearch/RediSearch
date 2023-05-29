@@ -534,6 +534,8 @@ def testAggregate(env):
 
 @skip  # TODO: solve flakiness
 def testCoordinator(env):
+    env.skip() # TODO: Fix flaky test (MOD-5257)
+
     # separate test which only has queries with sortby since otherwise the coordinator has random results
     repeat = 10000
     conn = getConnectionByEnv(env)
