@@ -1326,7 +1326,7 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
   // is the last to access redis or its a pipeline breaker.
 
   while (curr_rp != req->qiter.rootProc &&
-        !(curr_rp->upstream->flags & (RESULT_PROCESSOR_F_ACCESS_REDIS | RESULT_PROCESSOR_F_BREAKS_PIPELINE))) {
+        !(curr_rp->upstream->flags & (RESULT_PROCESSOR_F_ACCESS_REDIS | RESULT_PROCESSOR_F_ABORTER))) {
     curr_rp = curr_rp->upstream;
   }
 
@@ -1355,12 +1355,13 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
     curr_rp = curr_rp->upstream;
   }
 
-  // If in the first loop we stored a rp with RESULT_PROCESSOR_F_BREAKS_PIPELINE flag,
+  // If in the first loop we stored a rp with RESULT_PROCESSOR_F_ABORTER flag,
   // and the second loop didn't find any rp that needs to access redis,
   // we don't need the buffer.
   if(!(upstream_is_buffer_locker->flags & RESULT_PROCESSOR_F_ACCESS_REDIS)) {
     return;
   }
+
   // TODO: multithreaded: Add better estimation to the buffer initial size
   ResultProcessor *rpBufferAndLocker = RPBufferAndLocker_New(DEFAULT_BUFFER_BLOCK_SIZE, IndexSpec_GetVersion(req->sctx->spec));
 
