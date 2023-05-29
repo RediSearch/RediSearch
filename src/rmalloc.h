@@ -56,12 +56,15 @@ static inline void *rm_realloc(void *p, size_t n) {
     rm_free(p);
     return NULL;
   }
-  size_t oldSize = p ? getPointerAllocationSize(p) : 0;
   void *new_ptr = rm_malloc(n);
+  if(!p) {
+    return new_ptr;
+  }
+  size_t oldSize = getPointerAllocationSize(p);
   if (new_ptr) {
-      memcpy(new_ptr, p, rmalloc_MIN(oldSize, n));
-      rm_free(p);
-      return new_ptr;
+    memcpy(new_ptr, p, rmalloc_MIN(oldSize, n));
+    rm_free(p);
+    return new_ptr;
   }
   return NULL;
 }
