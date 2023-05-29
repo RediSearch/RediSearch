@@ -255,11 +255,11 @@ def testMerge(env):
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.details.a', 'AS', 'a', 'NUMERIC')
 
     env.execute_command('JSON.MERGE', 'doc:1', '$', r'{"t":"ReJSON","details":{"a":1}}')
-    res = [1, 'doc:1', ['$', '{"t":"ReJSON", "details":{"a":1}}']]
+    res = [1, 'doc:1', ['$', '{"t":"ReJSON","details":{"a":1}}']]
     env.expect('ft.search', 'idx', 'ReJSON').equal(res)
 
     env.execute_command('JSON.MERGE', 'doc:1', '$', r'{"t":"ReJSON","details":{"a":8, "b":3}}')
-    res = [1, 'doc:1', ['$', '{"t":"newReJSON", "details":{"a":8, "b":3}}']]
+    res = [1, 'doc:1', ['$', '{"t":"newReJSON","details":{"a":8, "b":3}}']]
     env.expect('ft.search', 'idx', '@a:[7 9]').equal(res)
 
 @no_msan
