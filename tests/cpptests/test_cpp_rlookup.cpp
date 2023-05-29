@@ -12,14 +12,17 @@ TEST_F(RLookupTest, testInit) {
 TEST_F(RLookupTest, testFlags) {
   RLookup lk = {0};
   RLookup_Init(&lk, NULL);
-  RLookupKey *fook = RLookup_GetKey_TEMP(&lk, "foo", 0);
+  RLookupKey *fook = RLookup_GetKey(&lk, "foo", RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
   ASSERT_EQ(NULL, fook);
-  // Try with O_CREAT
-  fook = RLookup_GetKey_TEMP(&lk, "foo", RLOOKUP_F_OCREAT);
+  // Try with M_WRITE
+  fook = RLookup_GetKey(&lk, "foo", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(fook);
-
-  RLookupKey *tmpk = RLookup_GetKey_TEMP(&lk, "foo", RLOOKUP_F_OEXCL);
+  // Try again with M_WRITE
+  RLookupKey *tmpk = RLookup_GetKey(&lk, "foo", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   ASSERT_EQ(NULL, tmpk);
+  // Try again with M_WRITE and OVERWRITE
+  RLookupKey *tmpk2 = RLookup_GetKey(&lk, "foo", RLOOKUP_M_WRITE, RLOOKUP_F_OVERRIDE);
+  ASSERT_TRUE(tmpk2);
 
   RLookup_Cleanup(&lk);
 }
@@ -27,8 +30,8 @@ TEST_F(RLookupTest, testFlags) {
 TEST_F(RLookupTest, testRow) {
   RLookup lk = {0};
   RLookup_Init(&lk, NULL);
-  RLookupKey *fook = RLookup_GetKey_TEMP(&lk, "foo", RLOOKUP_F_OCREAT);
-  RLookupKey *bark = RLookup_GetKey_TEMP(&lk, "bar", RLOOKUP_F_OCREAT);
+  RLookupKey *fook = RLookup_GetKey(&lk, "foo", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  RLookupKey *bark = RLookup_GetKey(&lk, "bar", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   RLookupRow rr = {0};
   RSValue *vfoo = RS_Int64Val(42);
   RSValue *vbar = RS_Int64Val(666);
