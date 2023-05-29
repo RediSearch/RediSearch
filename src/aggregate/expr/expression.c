@@ -366,16 +366,6 @@ void EvalCtx_Destroy(EvalCtx *r) {
 
 //---------------------------------------------------------------------------------------------
 
-RLookupKey *EvalCtx_Set(EvalCtx *r, const char *name, RSValue *val) {
-  RLookupKey *lkk = RLookup_GetKey_TEMP(&r->lk, name, RLOOKUP_F_OCREAT);
-  if (lkk != NULL) {
-    RLookup_WriteOwnKey(lkk, &r->row, val);
-  }
-  return lkk;
-}
-
-//---------------------------------------------------------------------------------------------
-
 int EvalCtx_Eval(EvalCtx *r) {
   if (!r->_expr) {
     return REDISMODULE_ERR;
