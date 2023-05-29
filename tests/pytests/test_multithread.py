@@ -267,7 +267,7 @@ def test_reload_index_while_indexing():
 
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     n_shards = env.shardsCount
-    n_vectors = 5000 * n_shards if not SANITIZER or CODE_COVERAGE else 1000 * n_shards
+    n_vectors = 5000 * n_shards if not SANITIZER and not CODE_COVERAGE else 1000 * n_shards
     dim = 64
     # Load random vectors into redis.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'M', '64',
@@ -300,7 +300,7 @@ def test_delete_index_while_indexing():
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 50000 * n_shards if not SANITIZER or CODE_COVERAGE else 1000 * n_shards
+    n_vectors = 50000 * n_shards if not SANITIZER and not CODE_COVERAGE else 1000 * n_shards
     dim = 64
     # Load random vectors into redis.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'M', '64',
@@ -320,7 +320,7 @@ def test_burst_threads_sanity():
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 8 ALWAYS_USE_THREADS FALSE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 5000 * n_shards if not SANITIZER or CODE_COVERAGE else 500 * n_shards
+    n_vectors = 5000 * n_shards if not SANITIZER and not CODE_COVERAGE else 500 * n_shards
     dim = 10
     for algo in VECSIM_ALGOS:
         for data_type in VECSIM_DATA_TYPES:
@@ -359,7 +359,7 @@ def test_workers_priority_queue():
                                                   ' ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 100000 * n_shards if not SANITIZER or CODE_COVERAGE else 5000 * n_shards
+    n_vectors = 100000 * n_shards if not SANITIZER and not CODE_COVERAGE else 5000 * n_shards
     dim = 64
 
     # Load random vectors into redis, save the last one to use as query vector later on.
@@ -404,7 +404,7 @@ def test_async_updates_sanity():
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 10000 * n_shards if not SANITIZER or CODE_COVERAGE else 5000 * n_shards
+    n_vectors = 10000 * n_shards if not SANITIZER and not CODE_COVERAGE else 5000 * n_shards
     dim = 4
     block_size = 1024
 
