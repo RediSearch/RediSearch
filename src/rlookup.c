@@ -43,16 +43,16 @@ static RLookupKey *overrideKey(RLookup *lk, RLookupKey *old, uint32_t flags) {
   // Copy the old key to the new one
   new->name = old->name; // taking ownership of the name
   new->name_len = old->name_len;
-  new->path = old->path; // taking ownership of the path
+  new->path = new->name; // keeping the default of path = name
   new->dstidx = old->dstidx;
 
   // Set the new flags
   new->flags = flags & ~RLOOKUP_TRANSIENT_FLAGS;
-  // If the old key was allocated, we take ownership of the name and path
+  // If the old key was allocated, we take ownership of the name.
   new->flags |= old->flags & RLOOKUP_F_NAMEALLOC;
-  old->flags &= ~RLOOKUP_F_NAMEALLOC;
 
   // Make the old key inaccessible for new lookups
+  old->flags &= (old->path == old->name) ? ~RLOOKUP_F_NAMEALLOC : UINT32_MAX; // If the old key allocated the name and not the path, we take ownership of the allocation
   old->name = NULL;
   old->name_len = -1; // 0 is a valid length if the user provided an empty string as a name
   old->flags |= RLOOKUP_F_HIDDEN; // Mark the old key as hidden so it won't be attempted to be returned
@@ -177,7 +177,7 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
     } else {
       // Field not found in the schema.
       // We assume `field_name` is the path to load from in the document.
-      if (!(flags & RLOOKUP_F_NAMEALLOC)) {
+      if (!(key->flags & RLOOKUP_F_NAMEALLOC)) {
         key->path = field_name;
       } else if (name != field_name) {
         key->path = rm_strdup(field_name);
@@ -486,6 +486,9 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
   int i = 0;
   size_t nfields = 0;
   for (const RLookupKey *kk = lookup->head; kk; kk = kk->next, ++i) {
+    if (kk->name == NULL) {
+      continue;
+    }
     if (requiredFlags && !(kk->flags & requiredFlags)) {
       continue;
     }
