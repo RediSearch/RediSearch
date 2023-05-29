@@ -487,6 +487,8 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
   size_t nfields = 0;
   for (const RLookupKey *kk = lookup->head; kk; kk = kk->next, ++i) {
     if (kk->name == NULL) {
+      // Overriden key. Skip without incrementing the index
+      --i;
       continue;
     }
     if (requiredFlags && !(kk->flags & requiredFlags)) {
@@ -510,7 +512,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
     skipFieldIndex[i] = 1;
     ++nfields;
   }
-  RS_LOG_ASSERT(i >= lookup->rowlen, "'i' should be at least lookup len");
+  RS_LOG_ASSERT(i == lookup->rowlen, "'i' should be equal to lookup len");
   return nfields;
 }
 
@@ -599,9 +601,9 @@ static void RLookupKey_Cleanup(RLookupKey *k) {
   if (k->flags & RLOOKUP_F_NAMEALLOC) {
     // nobody uses this today, so no leak.
     // TODO: uncomment when the old API is removed (currently it will cause a segfault)
-    // if (k->name != k->path) {
-    //   rm_free((void *)k->path);
-    // }
+    if (k->name != k->path) {
+      rm_free((void *)k->path);
+    }
     rm_free((void *)k->name);
   }
 }
