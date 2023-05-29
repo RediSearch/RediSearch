@@ -45,7 +45,10 @@ help() {
 sanitizer_defs() {
 	if [[ -n $SAN ]]; then
 		ASAN_LOG=${LOGS_DIR}/${TEST_NAME}.asan.log
-		export ASAN_OPTIONS="log_path=${ASAN_LOG}:detect_odr_violation=0"
+		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1:log_path=${ASAN_LOG}"
+		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp"
+		# :use_tls=0
+
 	fi
 }
 
@@ -115,7 +118,7 @@ E=0
 
 if [[ -z $COORD ]]; then
 	if [[ $C_TESTS == 1 ]]; then
-		$READIES/bin/sep
+		$READIES/bin/sep1
 		echo "# Running C unit tests"
 		TESTS_DIR="$(cd $BINROOT/search/tests/ctests; pwd)"
 		cd $ROOT/tests/ctests
@@ -137,20 +140,20 @@ if [[ -z $COORD ]]; then
 	fi
 
 	if [[ $CPP_TESTS == 1 ]]; then
-		$READIES/bin/sep
+		$READIES/bin/sep1
 		echo "# Running C++ unit tests"
 		TESTS_DIR="$(cd $BINROOT/search/tests/cpptests; pwd)"
 		cd $ROOT/tests/cpptests
 		TEST_NAME=rstest sanitizer_defs
 		if [[ -z $TEST ]]; then
-			{ $OP $TESTS_DIR/rstest --gtest_filter="-$SKIP_CPP_TESTS"; (( E |= $? )); } || true
+			{ $OP $GDB_CMD $TESTS_DIR/rstest --gtest_filter="-$SKIP_CPP_TESTS"; (( E |= $? )); } || true
 		else
-			{ $OP $TESTS_DIR/rstest --gtest_filter=$TEST; (( E |= $? )); } || true
+			{ $OP $GDB_CMD $TESTS_DIR/rstest --gtest_filter=$TEST; (( E |= $? )); } || true
 		fi
 	fi
 
 elif [[ $COORD == oss ]]; then
-	$READIES/bin/sep
+	$READIES/bin/sep1
 	echo "# Running coordinator unit tests"
 	TESTS_DIR="$(cd $BINROOT/coord-oss/tests/unit; pwd)"
 	cd $ROOT/coord/tests/unit

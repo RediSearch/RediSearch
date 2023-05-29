@@ -56,6 +56,10 @@ typedef struct QueryAST {
   // then it explodes
   char *query;
   size_t nquery;
+
+  // Copy of RSGlobalConfig parameters required for query execution,
+  // to ensure that they won't change during query execution.
+  IteratorsConfig config;
 } QueryAST;
 
 /**

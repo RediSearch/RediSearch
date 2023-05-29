@@ -22,7 +22,7 @@ extern "C" {
 #define MODULE_API_FUNC(T, N) T N
 #endif
 
-typedef struct IndexSpec RSIndex;
+typedef struct RefManager RSIndex;
 typedef size_t RSFieldID;
 #define RSFIELD_INVALID SIZE_MAX
 
@@ -59,6 +59,7 @@ typedef struct RSIdxOptions RSIndexOptions;
 #define RSFLDTYPE_GEO 0x04
 #define RSFLDTYPE_TAG 0x08
 #define RSFLDTYPE_VECTOR 0x10
+// TODO: GEOMETRY #define RSFLDTYPE_GEOMETRY 0x20
 
 #define RSFLDOPT_NONE 0x00
 #define RSFLDOPT_SORTABLE 0x01
@@ -205,6 +206,9 @@ MODULE_API_FUNC(RSFieldID, RediSearch_CreateField)
   RediSearch_CreateField(idx, name, RSFLDTYPE_GEO, RSFLDOPT_NONE)
 #define RediSearch_CreateVectorField(idx, name) \
   RediSearch_CreateField(idx, name, RSFLDTYPE_VECTOR, RSFLDOPT_NONE)
+// TODO: GEOMETRY 
+// #define RediSearch_CreateGeometryField(idx, name) \
+//   RediSearch_CreateField(idx, name, RSFLDTYPE_GEOMETRY, RSFLDOPT_NONE)
 
 MODULE_API_FUNC(void, RediSearch_TextFieldSetWeight)(RSIndex* sp, RSFieldID fs, double w);
 MODULE_API_FUNC(void, RediSearch_TagFieldSetSeparator)(RSIndex* sp, RSFieldID fs, char sep);

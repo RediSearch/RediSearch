@@ -13,3 +13,9 @@
 [submodule "deps/VectorSimilarity"]
 	path = deps/VectorSimilarity
 	url = https://github.com/RedisAI/VectorSimilarity.git
+[submodule "deps/s2geometry"]
+	path = deps/s2geometry
+	url = https://github.com/google/s2geometry.git
+[submodule "deps/RedisModulesSDK"]
+	path = deps/RedisModulesSDK
+	url = https://github.com/RedisLabs/RedisModulesSDK.git

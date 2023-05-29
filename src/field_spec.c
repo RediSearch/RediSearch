@@ -8,6 +8,7 @@
 #include "indexer.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
+#include "vector_index.h"
 
 RSValueType fieldTypeToValueType(FieldType ft) {
   switch (ft) {
@@ -20,6 +21,7 @@ RSValueType fieldTypeToValueType(FieldType ft) {
       return RSValue_String;
 
     case INDEXFLD_T_VECTOR: // TODO:
+    case INDEXFLD_T_GEOMETRY: // TODO: GEOMETRY
       return RSValue_Null;
   }
   return RSValue_Null;
@@ -35,6 +37,10 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
     rm_free(fs->name);
     fs->name = NULL;
   }
+
+  if (fs->types & INDEXFLD_T_VECTOR) {
+    VecSimParams_Cleanup(&fs->vectorOpts.vecSimParams);
+  }
 }
 
 void FieldSpec_SetSortable(FieldSpec* fs) {
@@ -49,6 +55,7 @@ const char *FieldSpec_GetTypeNames(int idx) {
   case IXFLDPOS_NUMERIC:  return SPEC_NUMERIC_STR;
   case IXFLDPOS_GEO:      return SPEC_GEO_STR;
   case IXFLDPOS_VECTOR:   return SPEC_VECTOR_STR;
+  case IXFLDPOS_GEOMETRY: return SPEC_GEOMETRY_STR;
 
   default:
     RS_LOG_ASSERT(0, "oops");

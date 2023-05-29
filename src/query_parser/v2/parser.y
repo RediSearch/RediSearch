@@ -184,6 +184,9 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 %type geo_filter { QueryParam *}
 %destructor geo_filter { QueryParam_Free($$); }
 
+%type geometry_query { QueryNode *}
+%destructor geometry_query { QueryNode_Free($$); }
+
 %type vector_query { QueryNode *}
 %destructor vector_query { QueryNode_Free($$); }
 
@@ -829,6 +832,29 @@ geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB
     E.type = QT_PARAM_GEO_UNIT;
 
   A = NewGeoFilterQueryParam_WithParams(ctx, &B, &C, &D, &E);
+}
+
+/////////////////////////////////////////////////////////////////
+// Geomtriy Queries
+/////////////////////////////////////////////////////////////////
+expr(A) ::= modifier(B) COLON geometry_query(C). {
+  if (C) {
+    // we keep the capitalization as is
+    C->gmn.geomq->attr = rm_strndup(B.s, B.len);
+    A = C;
+  } else {
+    A = NewQueryNode(QN_NULL);
+  }
+}
+
+
+geometry_query(A) ::= LSQB TERM(B) ATTRIBUTE(C) RSQB . {
+  // Geometry param is actually a case sensitive term
+  C.type = QT_PARAM_TERM_CASE;
+  A = NewGeometryNode_FromWkt_WithParams(ctx, B.s, B.len, &C);
+  if (!A) {
+    reportSyntaxError(ctx->status, &C, "Syntax error: Expecting a Geometry predicate");
+  }
 }
 
 /////////////////////////////////////////////////////////////////

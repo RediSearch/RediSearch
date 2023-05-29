@@ -21,6 +21,7 @@
 #include "rwlock.h"
 #include "json.h"
 #include "VecSim/vec_sim.h"
+#include "util/workers.h"
 
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -104,8 +105,8 @@ static int initAsModule(RedisModuleCtx *ctx) {
 static int initAsLibrary(RedisModuleCtx *ctx) {
   // Disable concurrent mode:
   RSGlobalConfig.concurrentMode = 0;
-  RSGlobalConfig.minTermPrefix = 0;
-  RSGlobalConfig.maxPrefixExpansions = LONG_MAX;
+  RSGlobalConfig.iteratorsConfigParams.minTermPrefix = 0;
+  RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions = LONG_MAX;
   return REDISMODULE_OK;
 }
 
@@ -144,8 +145,11 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   dictEntry *entry;
   int count = 5;
   while (count-- && (entry = dictNext(iter))) {
-    IndexSpec *spec = dictGetVal(entry);
-    IndexSpec_AddToInfo(ctx, spec);
+    StrongRef ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(ref);
+    if (sp) {
+      IndexSpec_AddToInfo(ctx, sp);
+    }
   }
   dictReleaseIterator(iter);
   #endif
@@ -209,6 +213,38 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   GC_ThreadPoolStart();
 
   CleanPool_ThreadPoolStart();
+  DO_LOG("notice", "Initialized thread pools!");
+
+#ifdef POWER_TO_THE_WORKERS
+  // Init threadpool.
+  // Threadpool size can only be set on load.
+  if (RSGlobalConfig.alwaysUseThreads && RSGlobalConfig.numWorkerThreads == 0) {
+    DO_LOG("warning", "Invalid configuration - cannot set ALWAYS_USE_THREADS while WORKERS_THREADS"
+           " number is set to zero");
+    return REDISMODULE_ERR;
+  }
+  if(RSGlobalConfig.numWorkerThreads) {
+    if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
+      return REDISMODULE_ERR;
+    }
+    if (RSGlobalConfig.alwaysUseThreads) {
+      // Initialize the threads if the module configuration states that worker threads
+      // should always be active.
+      workersThreadPool_InitPool();
+      DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
+    } else {
+      // Otherwise, threads are not active, and we're performing inplace writes.
+      // VSS lib is async by default.
+      VecSim_SetWriteMode(VecSim_WriteInPlace);
+    }
+  } else
+#endif
+  {
+    // If we don't have a thread pool,
+    // we have to make sure that we tell the vecsim library to add and delete in place (can't use submit at all)
+    VecSim_SetWriteMode(VecSim_WriteInPlace);
+  }
+
   // Init cursors mechanism
   CursorList_Init(&RSCursors);
 
@@ -216,8 +252,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   // Register aggregation functions
   RegisterAllFunctions();
-
-  DO_LOG("notice", "Initialized thread pool!");
 
   /* Load extensions if needed */
   if (RSGlobalConfig.extLoad != NULL) {
@@ -252,5 +286,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   VecSimMemoryFunctions vecsimMemoryFunctions = {.allocFunction = rm_malloc, .callocFunction = rm_calloc, .reallocFunction = rm_realloc, .freeFunction = rm_free};
   VecSim_SetMemoryFunctions(vecsimMemoryFunctions);
   VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
+  VecSim_SetLogCallbackFunction(VecSimLogCallback);
   return REDISMODULE_OK;
 }

@@ -1,4 +1,5 @@
 
+from includes import *
 try:
     from collections.abc import Iterable
 except ImportError:
@@ -12,13 +13,16 @@ import itertools
 from redis.client import NEVER_DECODE
 import RLTest
 from typing import Any, Callable
+from RLTest import Env
 from RLTest.env import Query
-from includes import *
 import numpy as np
 from scipy import spatial
+from pprint import pprint as pp
+
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
+VECSIM_ALGOS = ['FLAT', 'HNSW']
 
 class TimeLimit(object):
     """
@@ -56,6 +60,22 @@ def waitForIndex(env, idx):
         if int(res[res.index('indexing') + 1]) == 0:
             break
         time.sleep(0.1)
+
+def waitForNoCleanup(env, idx, max_wait=30):
+    ''' Wait for the index to finish cleanup
+
+    Parameters:
+        max_wait - max duration in seconds to wait
+    '''
+    waitForRdbSaveToFinish(env)
+    retry_wait = 0.1
+    max_wait = max(max_wait, retry_wait)
+    while max_wait >= 0:
+        res = env.execute_command('ft.info', idx)
+        if int(res[res.index('cleaning') + 1]) == 0:
+            break
+        time.sleep(retry_wait)
+        max_wait -= retry_wait
 
 def py2sorted(x):
     it = iter(x)
@@ -161,6 +181,20 @@ def index_info(env, idx):
     res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return res
 
+
+def dump_numeric_index_tree(env, idx, numeric_field):
+    res = env.cmd('FT.DEBUG', 'DUMP_NUMIDXTREE', idx, numeric_field)
+    tree_dump = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+    return tree_dump
+
+
+def dump_numeric_index_tree_root(env, idx, numeric_field):
+    tree_root_stats = dump_numeric_index_tree(env, idx, numeric_field)['root']
+    root_dump = {tree_root_stats[i]: tree_root_stats[i + 1]
+                 for i in range(0, len(tree_root_stats), 2)}
+    return root_dump
+
+
 def skipOnExistingEnv(env):
     if 'existing' in env.env:
         env.skip()
@@ -207,18 +241,17 @@ def collectKeys(env, pattern='*'):
         keys.extend(conn.keys(pattern))
     return sorted(keys)
 
+def ftDebugCmdName(env):
+    return '_ft.debug' if env.isCluster() else 'ft.debug'
+
+
+def get_vecsim_debug_dict(env, index_name, vector_field):
+    return to_dict(env.cmd(ftDebugCmdName(env), "VECSIM_INFO", index_name, vector_field))
+
+
 def forceInvokeGC(env, idx):
     waitForRdbSaveToFinish(env)
-    env.cmd(('_' if env.isCluster() else '') + 'ft.debug', 'GC_FORCEINVOKE', idx)
-
-def skip(f, on_cluster=False):
-    @wraps(f)
-    def wrapper(env, *args, **kwargs):
-        if not on_cluster or env.isCluster():
-            env.skip()
-            return
-        return f(env, *args, **kwargs)
-    return wrapper
+    env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx)
 
 def no_msan(f):
     @wraps(f)
@@ -226,17 +259,6 @@ def no_msan(f):
         if SANITIZER == 'memory':
             fname = f.__name__
             env.debugPrint("skipping {} due to memory sanitizer".format(fname), force=True)
-            env.skip()
-            return
-        return f(env, *args, **kwargs)
-    return wrapper
-
-def no_asan(f):
-    @wraps(f)
-    def wrapper(env, *args, **kwargs):
-        if SANITIZER in ['address', 'addr']:
-            fname = f.__name__
-            env.debugPrint("skipping {} due to address sanitizer".format(fname), force=True)
             env.skip()
             return
         return f(env, *args, **kwargs)
@@ -252,6 +274,25 @@ def unstable(f):
             return
         return f(env, *args, **kwargs)
     return wrapper
+
+def skip(cluster=False, macos=False, asan=False, msan=False):
+    def decorate(f):
+        @wraps(f)
+        def wrapper(x, *args, **kwargs):
+            env = x if isinstance(x, Env) else x.env
+            if not (cluster or macos or asan or msan):
+                env.skip()
+            if cluster and env.isCluster():
+                env.skip()
+            if macos and OS == 'macos':
+                env.skip()
+            if asan and SANITIZER == 'address':
+                env.skip()
+            if msan and SANITIZER == 'memory':
+                env.skip()
+            return f(x, *args, **kwargs)
+        return wrapper
+    return decorate
 
 def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
@@ -356,7 +397,6 @@ def compare_lists(env, list1, list2, delta=0.01, _assert=True):
         return False
 
 class ConditionalExpected:
-
     def __init__(self, env, cond):
         self.env = env
         self.cond_val = cond(env)
@@ -370,3 +410,14 @@ class ConditionalExpected:
         if cond_val == self.cond_val:
             func(self.env.expect(*self.query))
         return self
+
+
+def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32', ids_offset=0):
+    conn = getConnectionByEnv(env)
+    np.random.seed(10)
+    for i in range(n_vec):
+        vector = create_np_array_typed(np.random.rand(vec_size), data_type)
+        if i == query_vec_index:
+            query_vec = vector
+        conn.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
+    return query_vec
