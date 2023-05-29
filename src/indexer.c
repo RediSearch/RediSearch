@@ -280,7 +280,7 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
           if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
             RedisModuleString * rmstr = RedisModule_CreateString(RSDummyContext, spec->fields[i].name, strlen(spec->fields[i].name));
             VecSimIndex *vecsim = OpenVectorIndex(spec, rmstr);
-            spec->stats.vectorIndexSize += VecSimIndex_DeleteVector(vecsim, dmd->id);
+            VecSimIndex_DeleteVector(vecsim, dmd->id);
             RedisModule_FreeString(RSDummyContext, rmstr);
             // TODO: use VecSimReplace instead and if successful, do not insert and remove from doc
           }

@@ -707,7 +707,7 @@ FIELD_BULK_INDEXER(vectorIndexer) {
   }
   char *curr_vec = (char *)fdata->vector;
   for (size_t i = 0; i < fdata->numVec; i++) {
-    sp->stats.vectorIndexSize +=  VecSimIndex_AddVector(rt, curr_vec, aCtx->doc->docId);
+    VecSimIndex_AddVector(rt, curr_vec, aCtx->doc->docId);
     curr_vec += fdata->vecLen;
   }
   sp->stats.numRecords += fdata->numVec;
