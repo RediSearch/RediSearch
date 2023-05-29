@@ -40,24 +40,29 @@ static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t name_l
 static RLookupKey *overrideKey(RLookup *lk, RLookupKey *old, uint32_t flags) {
   RLookupKey *new = rm_calloc(1, sizeof(*new));
 
-  // Copy the old key to the new one
+  /* Copy the old key to the new one */
   new->name = old->name; // taking ownership of the name
   new->name_len = old->name_len;
-  new->path = new->name; // keeping the default of path = name
+  new->path = new->name; // keeping the initial default of path = name. Path resolution will happen later.
   new->dstidx = old->dstidx;
 
-  // Set the new flags
+  /* Set the new flags */
   new->flags = flags & ~RLOOKUP_TRANSIENT_FLAGS;
   // If the old key was allocated, we take ownership of the name.
   new->flags |= old->flags & RLOOKUP_F_NAMEALLOC;
 
-  // Make the old key inaccessible for new lookups
-  old->flags &= (old->path == old->name) ? ~RLOOKUP_F_NAMEALLOC : UINT32_MAX; // If the old key allocated the name and not the path, we take ownership of the allocation
+  /* Make the old key inaccessible for new lookups */
+  if (old->path == old->name) {
+    // If the old key allocated the name and not the path, we take ownership of the allocation
+    old->flags &= ~RLOOKUP_F_NAMEALLOC;
+  }
   old->name = NULL;
-  old->name_len = -1; // 0 is a valid length if the user provided an empty string as a name
+  // 0 is a valid length if the user provided an empty string as a name.
+  // This is safe as whenever we compare key names, we first check that the length are equal.
+  old->name_len = -1;
   old->flags |= RLOOKUP_F_HIDDEN; // Mark the old key as hidden so it won't be attempted to be returned
 
-  // Add the new key to the lookup table
+  /* Add the new key to the lookup table */
   new->next = old->next;
   old->next = new;
   // If the old key was the tail, set the new key as the tail
