@@ -73,9 +73,9 @@ typedef enum {
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
 
-// These macro should be used only by the main thread since configuration can be changed while running in 
-// backgroud.
-#define RunInThread(r) (RSGlobalConfig.threadsEnabled && RSGlobalConfig.numWorkerThreads && IsSearch(r))
+// These macro should be used only by the main thread since configuration can be changed while running in
+// background.
+#define RunInThread(r) (RSGlobalConfig.threadsEnabled && RSGlobalConfig.numWorkerThreads)
 
 typedef enum {
   /* Received EOF from iterator */
@@ -122,12 +122,12 @@ typedef struct {
 
   struct timespec timeoutTime;
 
-  /*  
+  /*
   // Dialect version used on this request
   unsigned int dialectVersion;
   // Query timeout in milliseconds
   long long reqTimeout;
-  RSTimeoutPolicy timeoutPolicy; 
+  RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   int printProfileClock;
   */
@@ -148,12 +148,12 @@ typedef struct {
   const char** requiredFields;
 
   struct QOptimizer *optimizer;        // Hold parameters for query optimizer
-  
+
   // Currently we need both because maxSearchResults limits the OFFSET also in
   // FT.AGGREGATE execution.
   size_t maxSearchResults;
   size_t maxAggregateResults;
-  
+
 } AREQ;
 
 /**

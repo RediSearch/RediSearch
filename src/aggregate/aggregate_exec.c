@@ -568,20 +568,13 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, blockedClient);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
-  } else {
-    if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
-      goto error;
-    }
-    AREQ_Execute(r, ctx);
-  }
-#else
-  } else {
-    if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
-      goto error;
-    }
-    AREQ_Execute(r, ctx);
-  }
 #endif // POWER_TO_THE_WORKERS
+  } else {
+    if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
+      goto error;
+    }
+    AREQ_Execute(r, ctx);
+  }
   return REDISMODULE_OK;
 
 error:
