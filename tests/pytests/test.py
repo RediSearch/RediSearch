@@ -2993,7 +2993,7 @@ def testParseTime(env):
 
     # valid test
     res = env.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(@test, "%Y%m%d")', 'as', 'a')
-    assertEqualIgnoreCluster(env, res, [1, ['test', '20210401', 'a', '1617235200']])
+    env.assertEqual(res, [1, ['test', '20210401', 'a', '1617235200']])
 
 def testMathFunctions(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
