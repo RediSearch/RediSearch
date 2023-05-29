@@ -333,7 +333,6 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   applyStep->shouldFreeRaw = 1;
   applyStep->noOverride = 1; // Don't override the alias. Usually we do, but in this case we don't because reducers
                              // are not allowed to override aliases
-  applyStep->readHidden = 1; // Keep the hidden reducers hidden
   applyStep->base.alias = rm_strdup(src->alias);
 
   assert(rdctx->currentLocal);

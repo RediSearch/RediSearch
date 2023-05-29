@@ -85,7 +85,6 @@ typedef struct {
   RSExpr *parsedExpr;
   bool shouldFreeRaw;  // Whether we own the raw expression, used on coordinator only
   bool noOverride;     // Whether we should override the alias if it exists. We allow it by default
-  bool readHidden;     // Whether we should read hidden fields or expose them
 } PLN_MapFilterStep;
 
 /** ARRANGE covers sort, limit, and so on */
@@ -94,7 +93,7 @@ typedef struct {
   const RLookupKey **sortkeysLK;  // simple array
   const char **sortKeys;          // array_*
   uint64_t sortAscMap;            // Mapping of ascending/descending. Bitwise
-  int isLimited;                  // Flag if `LIMIT` keyward was used.
+  int isLimited;                  // Flag if `LIMIT` keyword was used.
   uint64_t offset;                // Seek results. If 0, then no paging is applied
   uint64_t limit;                 // Number of rows to output
 } PLN_ArrangeStep;
