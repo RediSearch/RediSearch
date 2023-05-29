@@ -17,8 +17,8 @@ syntax: |
     [NOFREQS] 
     [STOPWORDS count [stopword ...]] 
     [SKIPINITIALSCAN]
-    SCHEMA field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] 
-    [NOINDEX] [ field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR [ SORTABLE [UNF]] [NOINDEX] ...]
+    SCHEMA field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR | GEOMETRY [ SORTABLE [UNF]] 
+    [NOINDEX] [ field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR | GEOMETRY [ SORTABLE [UNF]] [NOINDEX] ...]
 ---
 
 ## Description
@@ -30,7 +30,8 @@ Create an index with the given specification. For usage, see [Examples](#example
 <a name="index"></a><details open>
 <summary><code>index</code></summary>
 
-is index name to create. If it exists, the old specification is overwritten.
+is index name to create.
+If such index already exists, returns an error reply `(error) Index already exists`.
 </details>
 
 <a name="SCHEMA"></a><details open>
@@ -51,10 +52,12 @@ after the SCHEMA keyword, declares which fields to index:
 
  - `NUMERIC` - Allows numeric range queries against the value in this attribute. See [query syntax docs](/redisearch/reference/query_syntax) for details on how to use numeric ranges.
 
- - `GEO` - Allows geographic range queries against the value in this attribute. The value of the attribute must be a string containing a longitude (first) and latitude separated by a comma.
+ - `GEO` - Allows radius range queries against the value (point) in this attribute. The value of the attribute must be a string containing a longitude (first) and latitude separated by a comma.
 
  - `VECTOR` - Allows vector similarity queries against the value in this attribute. For more information, see [Vector Fields](/redisearch/reference/vectors).
 
+ - `GEOMETRY`- Allows polygon queries against the value in this attribute. The value of the attribute must follow [WKT notation](https://en.wikipedia.org/wiki/Well-known_text_representation_of_geometry) a list of 2D points representing the polygon edges `POLYGON((x1 y1, x2 y2, ...)` separated by a comma. Current not support JSON multi-value and `SORTABLE` option.
+`
  Field options are:
 
  - `SORTABLE` - `NUMERIC`, `TAG`, `TEXT`, or `GEO` attributes can have an optional **SORTABLE** argument. As the user [sorts the results by the value of this attribute](/redisearch/reference/sorting), the results are available with very low latency. Note that his adds memory overhead, so consider not declaring it on large text attributes. You can sort an attribute without the `SORTABLE` option, but the latency is not as good as with `SORTABLE`.

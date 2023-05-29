@@ -50,6 +50,9 @@ size_t pending_global_indexing_ops = 0;
 dict *legacySpecDict;
 dict *legacySpecRules;
 
+// Pending or in-progress index drops
+uint16_t pendingIndexDropCount_g = 0;
+
 Version redisVersion;
 Version rlecVersion;
 bool isCrdt;
@@ -1246,17 +1249,34 @@ void CleanPool_ThreadPoolDestroy() {
   }
 }
 
+uint16_t getPendingIndexDrop() {
+  return __atomic_load_n(&pendingIndexDropCount_g, __ATOMIC_RELAXED);
+}
+
+void addPendingIndexDrop() {
+  __atomic_add_fetch(&pendingIndexDropCount_g, 1, __ATOMIC_RELAXED);
+}
+
+void removePendingIndexDrop() {
+  __atomic_sub_fetch(&pendingIndexDropCount_g, 1, __ATOMIC_RELAXED);
+}
+
+size_t CleanInProgressOrPending() {
+  return getPendingIndexDrop();
+}
+
 /*
  * Free resources of unlinked index spec
  */
 static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
+
   // Free all documents metadata
   DocTable_Free(&spec->docs);
   // Free TEXT field trie and inverted indexes
   if (spec->terms) {
     TrieType_Free(spec->terms);
   }
-  // Free NUMERIC, TAG and GEO fields trie and inverted indexes
+  // Free TEXT TAG NUMERIC VECTOR and GEOMETRY fields trie and inverted indexes
   if (spec->keysDict) {
     dictRelease(spec->keysDict);
   }
@@ -1308,6 +1328,8 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   }
   // Free spec struct
   rm_free(spec);
+
+  removePendingIndexDrop();
 }
 
 /*
@@ -1384,6 +1406,10 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
   }
 
   SchemaPrefixes_RemoveSpec(spec_ref);
+
+  // Mark there are pending index drops.
+  // if ref count is > 1, the actual cleanup will be done only when StrongRefs are released. 
+  addPendingIndexDrop();
 
   // mark the spec as deleted and decrement the ref counts owned by the global dictionaries
   StrongRef_Invalidate(spec_ref);
@@ -2345,6 +2371,10 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     // setting unique id to zero will make sure index will not be removed from global
     // cursor map and aliases.
     sp->uniqueId = 0;
+    // Remove the new spec from the global prefixes dictionary.
+    // This is the only global structure that we added the new spec to at this point
+    SchemaPrefixes_RemoveSpec(spec_ref);
+    addPendingIndexDrop();
     StrongRef_Release(spec_ref);
     spec_ref = (StrongRef){oldSpec};
   } else {
@@ -2358,6 +2388,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   return REDISMODULE_OK;
 
 cleanup:
+  addPendingIndexDrop();
   StrongRef_Release(spec_ref);
   QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "while reading an index");
   return REDISMODULE_ERR;
