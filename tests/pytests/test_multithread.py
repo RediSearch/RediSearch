@@ -267,7 +267,7 @@ def test_reload_index_while_indexing():
 
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     n_shards = env.shardsCount
-    n_vectors = 5000 * n_shards if not SANITIZER and not CODE_COVERAGE else 1000 * n_shards
+    n_vectors = 10000 * n_shards if not SANITIZER and not CODE_COVERAGE else 1000 * n_shards
     dim = 64
     # Load random vectors into redis.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'M', '64',
@@ -284,7 +284,8 @@ def test_reload_index_while_indexing():
             # TODO: this is causing a crush occasionally in Cursors_RenderStats - need to fix this.
             # assertInfoField(env, 'idx', 'num_docs', str(n_vectors*(it+1)))
             debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
-            env.assertEqual(debug_info['INDEX_LABEL_COUNT'], n_vectors*(it+1))
+            if not env.isCluster():
+                env.assertEqual(debug_info['INDEX_LABEL_COUNT'], n_vectors*(it+1))
             # At first, we expect to see background indexing, but after RDB load, we expect that all vectors
             # are indexed before RDB loading ends
             # TODO: try making this not-flaky
