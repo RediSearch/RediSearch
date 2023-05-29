@@ -11,6 +11,21 @@
 #include <string.h>
 #include <assert.h>
 
+int AC_Equals(ArgsCursor *first_, ArgsCursor *second_) {
+  if (AC_NumRemaining(first_) != AC_NumRemaining(second_)) {
+    return 0;
+  }
+  ArgsCursor first = *first_, second = *second_;
+  while (!AC_IsAtEnd(&first)) {
+    size_t f_len, s_len;
+    const char *f_cur = AC_GetStringNC(&first, &f_len), *s_cur = AC_GetStringNC(&second, &s_len);
+    if (f_len != s_len || strcmp(f_cur, s_cur)) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
 int AC_Advance(ArgsCursor *ac) {
   return AC_AdvanceBy(ac, 1);
 }
