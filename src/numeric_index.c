@@ -859,7 +859,11 @@ void NumericRangeIterator_OnReopen(void *privdata) {
   RedisModuleString *numField = IndexSpec_GetFormattedKeyByName(sp, nu->fieldName, INDEXFLD_T_NUMERIC);
   NumericRangeTree *rt = openNumericKeysDict(sp, numField, 0);
   
-  if (!rt || rt->revisionId != nu->lastRevId /* || ir->gcMarker != ir->idx->gcMarker */) {
+  if (!rt || rt->revisionId != nu->lastRevId
+      // TODO: find and fix where invalid cursors are being generated.
+      // coordinator pulls out an invalid cursor which will segfault if we allow it progress further.
+      // see as reference, segfault on test_sortby:testSortby
+      || ir->gcMarker != ir->idx->gcMarker) {
     // The numeric tree was either completely deleted or a node was splitted or removed.
     // The cursor is invalidated.
     it->Abort(ir);
