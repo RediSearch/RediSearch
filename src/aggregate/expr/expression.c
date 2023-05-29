@@ -481,6 +481,7 @@ static ResultProcessor *RPEvaluator_NewCommon(const RSExpr *ast, const RLookup *
   rp->base.Next = isFilter ? rpevalNext_filter : rpevalNext_project;
   rp->base.Free = rpevalFree;
   rp->base.type = isFilter ? RP_FILTER : RP_PROJECTOR;
+  rp->base.flags = RESULT_PROCESSOR_F_ABORTER; // we currently abort on expression evaluation errors
   rp->eval.lookup = lookup;
   rp->eval.root = ast;
   rp->outkey = dstkey;

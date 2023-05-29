@@ -156,10 +156,13 @@ typedef enum {
 typedef enum {
   RESULT_PROCESSOR_F_ACCESS_REDIS = 0x01,  // The result processor requires access to redis keyspace.
 
-  // The result processor might break the pipeline by changing RPStatus.
+  // The result processor might abort the pipeline by changing RPStatus.
   // Note that this kind of rp is also responsible to release the spec lock when it breaks the pipeline
   // (declaring EOF or TIMEOUT), by calling UnlockSpec_and_ReturnRPResult.
-  RESULT_PROCESSOR_F_BREAKS_PIPELINE = 0x02
+  RESULT_PROCESSOR_F_ABORTER = 0x02,
+
+  // The result processor accumulates results (asks for all results from upstream before returning the first one)
+  RESULT_PROCESSOR_F_ACCUMULATOR = 0x04,
 } BaseRPFlags;
 
 /**
