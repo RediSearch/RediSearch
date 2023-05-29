@@ -44,7 +44,7 @@ static int getCursorCommand(MRReply *prev, MRCommand *cmd) {
 
 static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd) {
   // Should we assert this??
-  if (!rep || MRReply_Type(rep) != MR_REPLY_ARRAY || 
+  if (!rep || MRReply_Type(rep) != MR_REPLY_ARRAY ||
              (MRReply_Length(rep) != 2 && MRReply_Length(rep) != 3)) {
     if (MRReply_Type(rep) == MR_REPLY_ERROR) {
       //      printf("Error is '%s'\n", MRReply_String(rep, NULL));
@@ -155,7 +155,6 @@ static int getNextReply(RPNet *nc) {
     if (rows == NULL || MRReply_Type(rows) != MR_REPLY_ARRAY || MRReply_Length(rows) == 0) {
       MRReply_Free(root);
       RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
-      ;    
     }
     nc->current.root = root;
     nc->current.rows = rows;
@@ -179,7 +178,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     long long cursorId = MRReply_Integer(MRReply_ArrayElement(nc->current.root, 1));
     // in profile mode, save shard's profile info to be returned later
     if (cursorId == 0 && nc->shardsProfile) {
-      nc->shardsProfile[nc->shardsProfileIdx++] = nc->current.root; 
+      nc->shardsProfile[nc->shardsProfileIdx++] = nc->current.root;
     } else {
       MRReply_Free(nc->current.root);
     }
@@ -198,13 +197,14 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   MRReply *rep = MRReply_ArrayElement(nc->current.rows, nc->curIdx++);
   for (size_t i = 0; i < MRReply_Length(rep); i += 2) {
-    const char *c = MRReply_String(MRReply_ArrayElement(rep, i), NULL);
+    size_t len;
+    const char *c = MRReply_String(MRReply_ArrayElement(rep, i), &len);
     RSValue *v = RS_NullVal();
     if (i + 1 < MRReply_Length(rep)) {
       MRReply *val = MRReply_ArrayElement(rep, i + 1);
       v = MRReply_ToValue(val);
     }
-    RLookup_WriteOwnKeyByName(nc->lookup, c, &r->rowdata, v);
+    RLookup_WriteOwnKeyByName(nc->lookup, c, len, &r->rowdata, v);
   }
   return RS_RESULT_OK;
 }
@@ -279,7 +279,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
     }
     tmparr = array_append(tmparr, "QUERY");
   }
-  
+
   tmparr = array_append(tmparr, RedisModule_StringPtrLen(argv[2 + profileArgs], NULL));  // Query
   tmparr = array_append(tmparr, "WITHCURSOR");
   // Numeric responses are encoded as simple strings.

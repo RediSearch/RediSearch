@@ -542,16 +542,17 @@ void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
   RSValue_IncrRef(v);
 }
 
-void RLookup_WriteKeyByName(RLookup *lookup, const char *name, RLookupRow *dst, RSValue *v) {
+void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *dst, RSValue *v) {
   // Get the key first
-  RLookupKey *k =
-      RLookup_GetKey_TEMP(lookup, name, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_OCREAT);
-  RS_LOG_ASSERT(k, "failed to get key");
+  RLookupKey *k = RLookup_FindKey(lookup, name, len);
+  if (!k) {
+    k = RLookup_GetKeyEx(lookup, name, len, RLOOKUP_M_WRITE, RLOOKUP_F_NAMEALLOC);
+  }
   RLookup_WriteKey(k, dst, v);
 }
 
-void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, RLookupRow *row, RSValue *value) {
-  RLookup_WriteKeyByName(lookup, name, row, value);
+void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value) {
+  RLookup_WriteKeyByName(lookup, name, len, row, value);
   RSValue_Decref(value);
 }
 
