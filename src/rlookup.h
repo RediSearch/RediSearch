@@ -131,46 +131,6 @@ typedef struct {
   size_t ndyn;
 } RLookupRow;
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Old flags. Move or remove later
-
-#define RLOOKUP_F_OEXCL (1 << 31)   // Error if name exists already
-#define RLOOKUP_F_OCREAT (1 << 30)  // Create key if it does not exit
-#define RLOOKUP_F_UNFORMATTED (1 << 29)
-#define RLOOKUP_F_ALIAS (1 << 28)
-
-/**
- * Get a RLookup key for a given name. The behavior of this function depends on
- * the flags.
- *
- * if F_OCREAT without F_OEXCL flags are set, a valid key is always returned.
- *
- * This function returns NULL if the F_OCREAT is not set and the key doesn't exist in the schema.
- * A key that was generated from the index spec will be marked with F_SCHEMASRC.
-
- * If F_OCREAT is not used, then this function will return NULL if a key could
- * not be found, unless OPT_UNRESOLVED_OK is set on the lookup itself. In this
- * case, the key is returned, but has the F_UNRESOLVED flag set.
- */
-RLookupKey *RLookup_GetKey_TEMP(RLookup *lookup, const char *name, int flags);
-
-/**
- * Get or create a RLookup key for a given path and name. This function always returns a valid key,
- * hence, F_OCREAT and F_OEXCL are redundant here.
- *
- * A key that contains a field from the index will be marked with F_SCHEMASRC.
- *
- * This function first looks for an existing key with key->path equals to @path.
- *
- * If this path is found, and @name doesn't equal @path, a new key is generated with the same
- * attributes as the found key, but with a different name.
- *
- */
-RLookupKey *RLookup_GetOrCreateKey_TEMP(RLookup *lookup, const char *path, const char *name, int flags);
-
-// End of old flags. Remove later and uncomment the following flags
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
 typedef enum {
   RLOOKUP_M_READ,   // Get key for reading (create only if in schema and sortable)
   RLOOKUP_M_WRITE,  // Get key for writing
@@ -250,7 +210,7 @@ typedef enum {
 #define RLOOKUP_GET_KEY_FLAGS (RLOOKUP_F_NAMEALLOC | RLOOKUP_F_OVERRIDE | RLOOKUP_F_HIDDEN | RLOOKUP_F_EXPLICITRETURN | \
                                RLOOKUP_F_FORCE_LOAD)
 // Flags do not persist to the key, they are just options to GetKey()
-#define RLOOKUP_TRANSIENT_FLAGS ((RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD) | (RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT))
+#define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)
 
 /**
  * Get a RLookup key for a given name. The behavior of this function depends on
