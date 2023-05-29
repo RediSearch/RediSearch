@@ -120,6 +120,7 @@ typedef struct {
   struct PLN_Reducer {
     const char *name;  // Name of function
     char *alias;       // Output key
+    bool isHidden;     // If the output key is hidden. Used by the coordinator
     ArgsCursor args;
   } * reducers;
   int idx;
@@ -147,6 +148,15 @@ typedef PLN_GroupStep::PLN_Reducer PLN_Reducer;
 #else
 typedef struct PLN_Reducer PLN_Reducer;
 #endif
+
+/**
+ * Find a reducer by name and args in the group step
+ * @param gstp the group step
+ * @param name the name of the reducer
+ * @param ac arguments to the reducer; if an alias is used, it is provided
+ *  here as well.
+ */
+PLN_Reducer *PLNGroupStep_FindReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac);
 
 /* A plan is a linked list of all steps */
 struct AGGPlan {

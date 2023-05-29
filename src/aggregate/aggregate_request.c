@@ -563,6 +563,22 @@ static RLookup *groupStepGetLookup(PLN_BaseStep *bstp) {
   return &((PLN_GroupStep *)bstp)->lookup;
 }
 
+
+PLN_Reducer *PLNGroupStep_FindReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac) {
+  long long nvars;
+  if (AC_GetLongLong(ac, &nvars, 0) != AC_OK) {
+    return NULL;
+  }
+  size_t nreducers = array_len(gstp->reducers);
+  for (size_t ii = 0; ii < nreducers; ++ii) {
+    PLN_Reducer *gr = gstp->reducers + ii;
+    if (nvars == AC_NumArgs(&gr->args) && !strcasecmp(gr->name, name) && AC_Equals(ac, &gr->args)) {
+      return gr;
+    }
+  }
+  return NULL;
+}
+
 int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac,
                             QueryError *status) {
   // Just a list of functions..
@@ -589,6 +605,7 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
   } else {
     gr->alias = rm_strdup(alias);
   }
+  gr->isHidden = 0; // By default, reducers are not hidden
   return REDISMODULE_OK;
 
 error:
@@ -618,6 +635,14 @@ static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
   if (rv != AC_OK) {
     QERR_MKBADARGS_AC(status, "GROUPBY", rv);
     return REDISMODULE_ERR;
+  }
+
+  for (size_t ii = 0; ii < groupArgs.argc; ++ii) {
+    if (*(char*)groupArgs.objs[ii] != '@') {
+      QERR_MKBADARGS_FMT(status, "Bad arguments for GROUPBY: Unknown property `%s`. Did you mean `@%s`?",
+                         groupArgs.objs[ii], groupArgs.objs[ii]);
+      return REDISMODULE_ERR;
+    }
   }
 
   // Number of fields.. now let's see the reducers
@@ -920,16 +945,31 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, QueryError *err) {
+static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
+                                     const RLookupKey ***loadKeys, QueryError *err) {
   const RLookupKey *srckeys[gstp->nproperties], *dstkeys[gstp->nproperties];
   for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
     const char *fldname = gstp->properties[ii] + 1;  // account for the @-
-    srckeys[ii] = RLookup_GetKey_TEMP(srclookup, fldname, RLOOKUP_F_NOFLAGS);
+    size_t fldname_len = strlen(fldname);
+    srckeys[ii] = RLookup_GetKeyEx(srclookup, fldname, fldname_len, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
     if (!srckeys[ii]) {
-      QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "No such property `%s`", fldname);
+      if (loadKeys) {
+        // We faild to get the key for reading, so we know getting it for loading will succeed.
+        srckeys[ii] = RLookup_GetKey_LoadEx(srclookup, fldname, fldname_len, fldname, RLOOKUP_F_NOFLAGS);
+        *loadKeys = array_ensure_append_1(*loadKeys, srckeys[ii]);
+      }
+      // We currently allow implicit loading only for known fields from the schema.
+      // If we can't load keys, or the key we loaded is not in the schema, we fail.
+      if (!loadKeys || !(srckeys[ii]->flags & RLOOKUP_F_SCHEMASRC)) {
+        QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "No such property `%s`", fldname);
+        return NULL;
+      }
+    }
+    dstkeys[ii] = RLookup_GetKeyEx(&gstp->lookup, fldname, fldname_len, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+    if (!dstkeys[ii]) {
+      QueryError_SetErrorFmt(err, QUERY_EDUPFIELD, "Property `%s` specified more than once", fldname);
       return NULL;
     }
-    dstkeys[ii] = RLookup_GetKey_TEMP(&gstp->lookup, fldname, RLOOKUP_F_OCREAT);
   }
 
   Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties);
@@ -938,7 +978,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
   for (size_t ii = 0; ii < nreducers; ++ii) {
     // Build the actual reducer
     PLN_Reducer *pr = gstp->reducers + ii;
-    ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, err);
+    ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, loadKeys, err);
     ReducerFactory ff = RDCR_GetFactory(pr->name);
     if (!ff) {
       // No such reducer!
@@ -953,9 +993,15 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
     }
 
     // Set the destination key for the grouper!
-    RLookupKey *dstkey =
-        RLookup_GetKey_TEMP(&gstp->lookup, pr->alias, RLOOKUP_F_OCREAT);
+    uint32_t flags = pr->isHidden ? RLOOKUP_F_HIDDEN : RLOOKUP_F_NOFLAGS;
+    RLookupKey *dstkey = RLookup_GetKey(&gstp->lookup, pr->alias, RLOOKUP_M_WRITE, flags);
+    // Adding the reducer before validating the key, so we free the reducer if the key is invalid
     Grouper_AddReducer(grp, rr, dstkey);
+    if (!dstkey) {
+      Grouper_Free(grp);
+      QueryError_SetErrorFmt(err, QUERY_EDUPFIELD, "Property `%s` specified more than once", pr->alias);
+      return NULL;
+    }
   }
 
   return Grouper_GetRP(grp);
@@ -978,29 +1024,21 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
                                    QueryError *status) {
   AGGPlan *pln = &req->ap;
   RLookup *lookup = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_PREV);
-  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, status);
+  RLookup *firstLk = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_FIRST); // first lookup can load fields from redis
+  const RLookupKey **loadKeys = NULL;
+  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, (firstLk == lookup && firstLk->spcache) ? &loadKeys : NULL, status);
 
   if (!groupRP) {
+    array_free(loadKeys);
     return NULL;
   }
 
   // See if we need a LOADER group here...?
-  RLookup *firstLk = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_FIRST);
-
-  if (firstLk == lookup) {
-    // See if we need a loader step?
-    const RLookupKey **kklist = NULL;
-    for (RLookupKey *kk = firstLk->head; kk; kk = kk->next) {
-      if ((kk->flags & RLOOKUP_F_SCHEMASRC) && (!(kk->flags & RLOOKUP_F_SVSRC))) {
-        *array_ensure_tail(&kklist, const RLookupKey *) = kk;
-      }
-    }
-    if (kklist != NULL) {
-      ResultProcessor *rpLoader = RPLoader_New(firstLk, kklist, array_len(kklist));
-      array_free(kklist);
-      RS_LOG_ASSERT(rpLoader, "RPLoader_New failed");
-      rpUpstream = pushRP(req, rpLoader, rpUpstream);
-    }
+  if (loadKeys) {
+    ResultProcessor *rpLoader = RPLoader_New(firstLk, loadKeys, array_len(loadKeys));
+    array_free(loadKeys);
+    RS_LOG_ASSERT(rpLoader, "RPLoader_New failed");
+    rpUpstream = pushRP(req, rpLoader, rpUpstream);
   }
 
   return pushRP(req, groupRP, rpUpstream);

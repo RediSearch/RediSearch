@@ -196,6 +196,11 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
       // If we didn't find the key at the lookup table, check if it exists in
       // the schema as SORTABLE, and create only if so.
       key = genKeyFromSpec(lookup, name, name_len, flags);
+    } else {
+      // If we found the requested key, and the caller didn't request to hide it,
+      // remove the hidden flag (if it was set).
+      if (!(flags & RLOOKUP_F_HIDDEN))
+        key->flags &= ~RLOOKUP_F_HIDDEN;
     }
     // If we didn't find the key in the schema (there is no schema) and unresolved is OK, create an unresolved key.
     if (!key && (lookup->options & RLOOKUP_OPT_UNRESOLVED_OK)) {
