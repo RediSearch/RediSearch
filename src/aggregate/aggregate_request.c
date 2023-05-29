@@ -995,12 +995,13 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     // Set the destination key for the grouper!
     uint32_t flags = pr->isHidden ? RLOOKUP_F_HIDDEN : RLOOKUP_F_NOFLAGS;
     RLookupKey *dstkey = RLookup_GetKey(&gstp->lookup, pr->alias, RLOOKUP_M_WRITE, flags);
+    // Adding the reducer before validating the key, so we free the reducer if the key is invalid
+    Grouper_AddReducer(grp, rr, dstkey);
     if (!dstkey) {
       Grouper_Free(grp);
       QueryError_SetErrorFmt(err, QUERY_EDUPFIELD, "Property `%s` specified more than once", pr->alias);
       return NULL;
     }
-    Grouper_AddReducer(grp, rr, dstkey);
   }
 
   return Grouper_GetRP(grp);
