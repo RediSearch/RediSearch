@@ -20,7 +20,9 @@ int ConcurrentSearch_CreatePool(int numThreads) {
     threadpools_g = array_new(redisearch_threadpool, 4);
   }
   int poolId = array_len(threadpools_g);
-  threadpools_g = array_append(threadpools_g, redisearch_thpool_init(numThreads));
+  threadpools_g = array_append(threadpools_g, redisearch_thpool_create(numThreads));
+  redisearch_thpool_init(threadpools_g[poolId]);
+
   return poolId;
 }
 
@@ -66,7 +68,7 @@ typedef struct ConcurrentCmdCtx {
 /* Run a function on the concurrent thread pool */
 void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
   redisearch_threadpool p = threadpools_g[type];
-  redisearch_thpool_add_work(p, func, arg);
+  redisearch_thpool_add_work(p, func, arg, THPOOL_PRIORITY_HIGH);
 }
 
 static void threadHandleCommand(void *p) {

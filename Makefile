@@ -407,7 +407,7 @@ ifeq ($(CLANG),1)
 else
 	$(SHOW)gdb -ex r --args redis-server --loadmodule $(abspath $(TARGET))
 endif
-else 
+else
 	$(SHOW)redis-server --loadmodule $(abspath $(TARGET))
 endif
 endif
