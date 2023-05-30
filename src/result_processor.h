@@ -41,16 +41,6 @@ extern "C" {
  *
  ********************************************************************************/
 
-/* Query processing state */
-typedef enum {
-  QITR_S_RUNNING,
-  QITR_S_ABORTED,
-
-  // TimedOut state differs from aborted in that it lets the processors drain their accumulated
-  // results instead of stopping in our tracks and returning nothing.
-  QITR_S_TIMEDOUT
-} QITRState;
-
 typedef enum {
   RP_INDEX,
   RP_LOADER,
@@ -93,11 +83,12 @@ typedef struct {
   // others who might disqualify results
   uint32_t totalResults;
 
+  // the number of results we requested to return at the current chunk. This value may be used by
+  // processors to optimize their work and to signal RP in the upstream their limit.
+  uint32_t resultLimit;
+
   // Object which contains the error
   QueryError *err;
-
-  // the state - used for aborting queries
-  QITRState state;
 
   struct timespec startTime;
 
@@ -282,11 +273,9 @@ void RP_DumpChain(const ResultProcessor *rp);
  * Unlocking Redis should be done only by the Unlocker result processor that should be added as well.
  *
  * @param BlockSize is the number of results in each buffer block.
- * @param spec_version is the version of the spec during pipeline construction. This version will be compared
- * to the spec version after we unlock the spec, to decide if results' validation is needed.
  *******************************************************************************************************************/
 typedef struct RPBufferAndLocker RPBufferAndLocker;
-ResultProcessor *RPBufferAndLocker_New(size_t BlockSize, size_t spec_version);
+ResultProcessor *RPBufferAndLocker_New(size_t BlockSize);
 
 /*******************************************************************************************************************
  *  UnLocker Results Processor

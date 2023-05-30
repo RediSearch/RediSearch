@@ -78,7 +78,7 @@ typedef enum {
 
 // Indicates whether a query should run in the background (only when the immutable alwaysUseThreads
 // config is set). This will also guarantee that there is a running thread pool with al least 1 thread.
-#define RunInThread(r) (RSGlobalConfig.alwaysUseThreads)
+#define RunInThread() (RSGlobalConfig.alwaysUseThreads)
 
 typedef enum {
   /* Received EOF from iterator */
