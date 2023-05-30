@@ -1345,7 +1345,7 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
   }
 
   // TODO: multithreaded: Add better estimation to the buffer initial size
-  ResultProcessor *rpBufferAndLocker = RPBufferAndLocker_New(DEFAULT_BUFFER_BLOCK_SIZE, IndexSpec_GetVersion(req->sctx->spec));
+  ResultProcessor *rpBufferAndLocker = RPBufferAndLocker_New(DEFAULT_BUFFER_BLOCK_SIZE);
 
   // Place buffer and locker as the upstream of the first_to_access_redis result processor.
   PushUpStream(rpBufferAndLocker, upstream_is_buffer_locker);

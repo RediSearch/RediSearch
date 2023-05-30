@@ -75,7 +75,7 @@ typedef enum {
 
 // These macro should be used only by the main thread since configuration can be changed while running in
 // background.
-#define RunInThread(r) (RSGlobalConfig.threadsEnabled && RSGlobalConfig.numWorkerThreads)
+#define RunInThread() (RSGlobalConfig.threadsEnabled && RSGlobalConfig.numWorkerThreads)
 
 typedef enum {
   /* Received EOF from iterator */
