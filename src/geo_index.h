@@ -49,14 +49,6 @@ typedef struct GeoFilter {
 /* Create a geo filter from parsed strings and numbers */
 GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t unit_len);
 
-/*
- * Substitute parameters with actual values used by geo filter
- * If a parameters is missing, has wrong kind, or the resulting geo filter is invalid
- * Returns REDISMODULE_ERR
- * Otherwise, returns REDISMODULE_OK
- */
-int GeoFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
-
 /** @param s CString (null-terminated string) */
 GeoDistance GeoDistance_Parse(const char *s);
 const char *GeoDistance_ToString(GeoDistance dist);

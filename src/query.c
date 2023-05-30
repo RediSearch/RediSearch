@@ -320,28 +320,25 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
   return ret;
 }
 
-QueryNode *NewGeometryNode_FromWkt(const char *wkt, size_t len) {
+QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const char *predicate, size_t len, QueryToken *wkt) {
   
   QueryNode *ret = NULL;
-  char *delim = strpbrk(wkt, " \t");
-  if (delim) {
-    enum QueryType query_type;
-    if (strncasecmp(wkt, "WITHIN", delim - wkt) == 0) {
-      query_type = WITHIN;
-    } else if (strncasecmp(wkt, "CONTAINS", delim - wkt) == 0) {
-      query_type = CONTAINS;
-    } else {
-      return NULL;
-    }
-    ret = NewQueryNode(QN_GEOMETRY);
-    GeometryQuery *geomq = rm_calloc(1, sizeof(*geomq));
-    geomq->format = GEOMETRY_FORMAT_WKT;
-    geomq->query_type = query_type;
-    len = len - (delim - wkt) - 1;
-    geomq->str = rm_strndup(delim + 1, len);
-    geomq->str_len = len;
-    ret->gmn.geomq = geomq;
+  
+  enum QueryType query_type;
+  if (!strncasecmp(predicate, "WITHIN", len)) {
+    query_type = WITHIN;
+  } else if (!strncasecmp(predicate, "CONTAINS", len)) {
+    query_type = CONTAINS;
+  } else {
+    return NULL;
   }
+  ret = NewQueryNode(QN_GEOMETRY);
+  GeometryQuery *geomq = rm_calloc(1, sizeof(*geomq));
+  geomq->format = GEOMETRY_FORMAT_WKT;
+  geomq->query_type = query_type;
+  QueryNode_InitParams(ret, 1);
+  QueryNode_SetParam(q, &ret->params[0], &geomq->str, &geomq->str_len, wkt);
+  ret->gmn.geomq = geomq;
   return ret;
 }
 
@@ -1510,12 +1507,10 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
   int withChildren = 1;
   int res = REDISMODULE_OK;
   switch(n->type) {
-    case QN_GEO:
-      res = GeoFilter_EvalParams(params, n, status);
-      break;
     case QN_VECTOR:
       res = VectorQuery_EvalParams(params, n, status);
       break;
+    case QN_GEO:
     case QN_TOKEN:
     case QN_NUMERIC:
     case QN_TAG:
