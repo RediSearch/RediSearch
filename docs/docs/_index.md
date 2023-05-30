@@ -3,9 +3,10 @@ title: "Query and search"
 linkTitle: "Query and search"
 description: Querying and searching Redis data
 type: docs
-weight: 50
+weight: 40
 aliases: 
     - /docs/stack/search
+stack: true
 ---
 
 
