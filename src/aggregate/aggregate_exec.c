@@ -241,7 +241,6 @@ static size_t getResultsFactor(AREQ *req) {
  * Sends a chunk of <n> rows, optionally also sending the preamble
  */
 void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
-  size_t nrows = 0;
   size_t nelem = 0;
   SearchResult r = {0};
   int rc = RS_RESULT_EOF;
@@ -255,6 +254,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   cv.lastLk = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_LAST);
   cv.lastAstp = AGPLN_GetArrangeStep(&req->ap);
 
+  rp->parent->resultLimit = limit;
   rc = rp->Next(rp, &r);
   long resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
   if (rc == RS_RESULT_TIMEDOUT && !(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
@@ -297,7 +297,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   }
   nelem++;
 
-  if (rc == RS_RESULT_OK && nrows++ < limit && !(req->reqflags & QEXEC_F_NOROWS)) {
+  if (rc == RS_RESULT_OK && rp->parent->resultLimit-- && !(req->reqflags & QEXEC_F_NOROWS)) {
     nelem += serializeResult(req, outctx, &r, &cv);
   }
 
@@ -306,7 +306,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
     goto done;
   }
 
-  while (nrows++ < limit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+  while (rp->parent->resultLimit-- && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
     if (!(req->reqflags & QEXEC_F_NOROWS)) {
       nelem += serializeResult(req, outctx, &r, &cv);
     }
@@ -364,7 +364,7 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
   if (BCRctx->req) {
     AREQ_Free(BCRctx->req);
   }
-  RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, BCRctx->blockedClient);
+  RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
   RedisModule_UnblockClient(BCRctx->blockedClient, NULL);
   WeakRef_Release(BCRctx->spec_ref);
   rm_free(BCRctx);
@@ -390,18 +390,34 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   RedisSearchCtx_LockSpecRead(BCRctx->req->sctx);
   QueryError status = {0};
   if (prepareExecutionPlan(req, AREQ_BUILD_THREADSAFE_PIPELINE, &status) != REDISMODULE_OK) {
-    // Enrich the error message that was caught to include the fact that the query ran
-    // in a background thread.
-    QueryError detailed_status = {0};
-    QueryError_SetErrorFmt(&detailed_status, QueryError_GetCode(&status),
-                           "The following error was caught upon running the query asynchronously: %s", QueryError_GetError(&status));
-    QueryError_ClearError(&status);
-    QueryError_ReplyAndClear(req->sctx->redisCtx, &detailed_status);
-  } else {
-    AREQ_Execute(req, req->sctx->redisCtx);
-    blockedClientReqCtx_setRequest(BCRctx, NULL); // The request was freed by AREQ_Execute
+    goto error;
   }
 
+  if (req->reqflags & QEXEC_F_IS_CURSOR) {
+    if (AREQ_StartCursor(req, req->sctx->redisCtx, req->sctx->spec->name, &status) != REDISMODULE_OK) {
+      goto error;
+    }
+  } else {
+    AREQ_Execute(req, req->sctx->redisCtx);
+  }
+
+  // If the execution was successful, we either:
+  // 1. Freed the request (if it was a regular query)
+  // 2. Kept it as the cursor's state (if it was a cursor query)
+  // Either way, we don't want to free it here. we set it to NULL so that it won't be freed with the context.
+  blockedClientReqCtx_setRequest(BCRctx, NULL);
+  goto cleanup;
+
+error:
+  // Enrich the error message that was caught to include the fact that the query ran
+  // in a background thread.
+  QueryError detailed_status = {0};
+  QueryError_SetErrorFmt(&detailed_status, QueryError_GetCode(&status),
+                          "The following error was caught upon running the query asynchronously: %s", QueryError_GetError(&status));
+  QueryError_ClearError(&status);
+  QueryError_ReplyAndClear(req->sctx->redisCtx, &detailed_status);
+
+cleanup:
   // No need to unlock spec as it was unlocked by `AREQ_Execute` or will be unlocked by `blockedClientReqCtx_destroy`
   StrongRef_Release(execution_ref);
   blockedClientReqCtx_destroy(BCRctx);
@@ -550,30 +566,31 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   SET_DIALECT(r->sctx->spec->used_dialects, r->reqConfig.dialectVersion);
   SET_DIALECT(RSGlobalConfig.used_dialects, r->reqConfig.dialectVersion);
 
-  if (r->reqflags & QEXEC_F_IS_CURSOR) {
-    if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
-      goto error;
-    }
-    int rc = AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status);
-    if (rc != REDISMODULE_OK) {
-      goto error;
-    }
 #ifdef POWER_TO_THE_WORKERS
-  } else if (RunInThread(r)) {
+  if (RunInThread()) {
+    // Prepare context for the worker thread
     IndexLoadOptions options = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
                                 .name.cstring = r->sctx->spec->name};
     StrongRef spec_ref = IndexSpec_LoadUnsafeEx(ctx, &options);
     RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
     // report block client start time
-    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, blockedClient);
+    RedisModule_BlockedClientMeasureTimeStart(blockedClient);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
+
     workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
+  } else
 #endif // POWER_TO_THE_WORKERS
-  } else {
+  {
     if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
       goto error;
     }
-    AREQ_Execute(r, ctx);
+    if (r->reqflags & QEXEC_F_IS_CURSOR) {
+      if (AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status) != REDISMODULE_OK) {
+        goto error;
+      }
+    } else {
+      AREQ_Execute(r, ctx);
+    }
   }
   return REDISMODULE_OK;
 
@@ -656,6 +673,7 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   return ret;
 }
 
+// Assumes that the cursor has a strong ref to the relevant spec and that it is already locked.
 int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, QueryError *err) {
   Cursor *cursor = Cursors_Reserve(&RSCursors, lookupName, r->cursorMaxIdle, err);
   if (cursor == NULL) {
@@ -666,6 +684,7 @@ int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, Qu
   return REDISMODULE_OK;
 }
 
+// Assumes that the cursor has a strong ref to the relevant spec and that it is already locked.
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
 
@@ -725,17 +744,13 @@ delcursor:
   Cursor_Free(cursor);
 }
 
-/**
- * FT.CURSOR READ {index} {CID} {ROWCOUNT} [MAXIDLE]
- * FT.CURSOR DEL {index} {CID}
- * FT.CURSOR GC {index}
- */
 static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
-  Cursor *cursor = Cursors_TakeForExecution(&RSCursors, cid);
+  Cursor *cursor = Cursors_TakeForExecution(&RSCursors, cid); // TODO: thread safety
   if (cursor == NULL) {
     RedisModule_ReplyWithError(ctx, "Cursor not found");
     return;
   }
+  // TODO: verify spec strong ref, and release it at the end
   QueryError status = {0};
   AREQ *req = cursor->execState;
   req->qiter.err = &status;
@@ -743,6 +758,25 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
   runCursor(ctx, cursor, count);
 }
 
+typedef struct {
+  RedisModuleBlockedClient *bc;
+  uint64_t cid;
+  size_t count;
+} CursorReadCtx;
+
+static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
+  cursorRead(ctx, cr_ctx->cid, cr_ctx->count);
+  RedisModule_FreeThreadSafeContext(ctx);
+  RedisModule_UnblockClient(cr_ctx->bc, NULL);
+  rm_free(cr_ctx);
+}
+
+/**
+ * FT.CURSOR READ {index} {CID} {ROWCOUNT} [MAXIDLE]
+ * FT.CURSOR DEL {index} {CID}
+ * FT.CURSOR GC {index}
+ */
 int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
@@ -771,7 +805,18 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return REDISMODULE_OK;
       }
     }
-    cursorRead(ctx, cid, count);
+#ifdef POWER_TO_THE_WORKERS
+    if (RunInThread()) {
+      CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
+      cr_ctx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+      cr_ctx->cid = cid;
+      cr_ctx->count = count;
+      workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
+    } else
+#endif
+    {
+      cursorRead(ctx, cid, count);
+    }
 
   } else if (cmdc == 'D') {
     int rc = Cursors_Purge(&RSCursors, cid);
