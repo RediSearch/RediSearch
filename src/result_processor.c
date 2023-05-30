@@ -896,9 +896,8 @@ ResultProcessor *RPBufferAndLocker_New(size_t BlockSize) {
   ret->base.Free = RPBufferAndLocker_Free;
   ret->base.type = RP_BUFFER_AND_LOCKER;
 
-  // Initialize the blocks' array to contain memory for one block pointer.
-  ret->BufferBlocks = array_new(SearchResult *, 1);
   ret->BlockSize = BlockSize;
+  ret->BufferBlocks = NULL;
 
   ret->buffer_results_count = 0;
   ret->curr_result_index = 0;
@@ -956,7 +955,7 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   rp->parent->resultLimit = bufferLimit; // Restore the result limit
 
   // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
-  if ((result_status != RS_RESULT_EOF &&
+  if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK &&
       !(result_status == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
       IsBufferEmpty(rpPufferAndLocker)) {
     return result_status;
