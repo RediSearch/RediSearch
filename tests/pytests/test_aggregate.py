@@ -829,7 +829,7 @@ def testLoadPosition(env):
     if not env.isCluster():
         env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1',
                    'APPLY', '@t2', 'AS', 'load_error',
-                   'LOAD', '1', 't2').error().contains('not loaded in pipeline')
+                   'LOAD', '1', 't2').error().contains('not loaded nor in pipeline')
 
 
 def testAggregateGroup0Field(env):
