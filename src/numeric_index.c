@@ -893,6 +893,6 @@ void NumericRangeIterator_OnReopen(void *privdata) {
   if (it->type == READ_ITERATOR) {
     IndexReader_Reopen(it->ctx, nu);
   } else if (it->type == UNION_ITERATOR) {
-    UI_Foreach(it, IndexReader_Reopen, (void*)nu);
+    UI_Foreach(it, IndexReader_Reopen, nu);
   }
 }
