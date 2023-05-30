@@ -1208,7 +1208,6 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
     return;
   }
 
-  bool resp3;
   if (MRReply_Type(arr) == MR_REPLY_MAP) {
     return processSearchReply_resp3(arr, rCtx, ctx);
   } else if (MRReply_Type(arr) != MR_REPLY_ARRAY || MRReply_Length(arr) == 0) {

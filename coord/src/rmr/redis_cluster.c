@@ -133,7 +133,7 @@ static int updateTopoCB(RedisModuleCtx *ctx, void *p) {
 }
 
 int InitRedisTopologyUpdater() {
-#if 0 //@@
+#if 1 //@@
   updateTopoTimer =
       RMUtil_NewPeriodicTimer(updateTopoCB, NULL, NULL, (struct timespec){.tv_sec = 1});
 #endif

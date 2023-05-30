@@ -795,5 +795,4 @@ if [[ $NOFAIL == 1 ]]; then
 	exit 0
 fi
 
-stop
 exit $E
