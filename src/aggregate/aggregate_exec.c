@@ -557,7 +557,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   blockedClientReqCtx_setRequest(BCRctx, NULL);
   goto cleanup;
 
-error:
+error:;
   // Enrich the error message that was caught to include the fact that the query ran
   // in a background thread.
   QueryError detailed_status = {0};
