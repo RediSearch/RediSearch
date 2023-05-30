@@ -324,13 +324,6 @@ def test_pipeline(env):
     env.assertEqual(get_pipeline(res), expected_pipeline)
 
     '''case 4: with pager, with loader
-        expected pipeline: root<-buffer-locker<-loader<-unlocker<-sorter<-pager '''
-    expected_pipeline = ['Result processors profile', root, buffer_locker(), loader(), unlocker(), sorter(paged), pager]
-    # (sortby NOTSORTABLE LIMIT 1 1)
-    res = conn.execute_command(*ft_profile_aggregate_cmd, search_UNF_sortable, *sortby_not_sortable_a, 'LIMIT', 1, 1)
-    env.assertEqual(get_pipeline(res), expected_pipeline)
-
-    '''case 4.1: with pager, with loader
         expected pipeline: root<-buffer-locker<-loader<-sorter<-pager<-loader<-unlocker '''
     expected_pipeline = ['Result processors profile', root, buffer_locker(), loader(), sorter(paged), pager, loader(paged), unlocker(paged)]
     # (sortby NOTSORTABLE LIMIT 1 1 loadall)

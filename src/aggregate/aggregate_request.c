@@ -1313,10 +1313,10 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
   // in order to push the unlocker as its upstream.
 
   // for example if the pipline is
-  // root<-sorter<-loader (an arrow signs the upstream direction)
-  // upstream_is_buffer_locker = sorter, upstream_is_unlcoker = dummy
+  // root<-loader1<-sorter<-loader2 (an arrow signs the upstream direction)
+  // upstream_is_buffer_locker = loader1, upstream_is_unlcoker = dummy
   // and the finale pipeline is:
-  // root<-buffer-locker<-sorter<-loader<-unlocker
+  // root<-buffer-locker<-loader<-sorter<-loader<-unlocker
   ResultProcessor *upstream_is_buffer_locker = NULL;
   ResultProcessor *upstream_is_unlcoker = NULL;
 
