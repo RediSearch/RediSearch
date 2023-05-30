@@ -460,10 +460,13 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
 }
 
 static int rpsortNext_Accum(ResultProcessor *rp, SearchResult *r) {
+  uint32_t chunkLimit = rp->parent->resultLimit;
+  rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
   int rc;
   while ((rc = rpsortNext_innerLoop(rp, r)) == RESULT_QUEUED) {
     // Do nothing.
   }
+  rp->parent->resultLimit = chunkLimit; // restore the limit
   return rc;
 }
 
@@ -853,8 +856,8 @@ struct RPBufferAndLocker{
   // Redis's lock status
   bool isRedisLocked;
 
-  // Spec version before unlocking the spec.
-  size_t spec_version;
+  // Last buffered result code. To know weather to return OK or EOF.
+  char last_buffered_rc;
 };
 /*********** Buffered and locker functions declarations ***********/
 
@@ -868,6 +871,7 @@ static int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res);
 static int rpbufferNext_Yield(ResultProcessor *rp, SearchResult *result_output);
 static int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_output);
 static bool isResultValid(const SearchResult *res);
+static int ResetAndReturnCode(ResultProcessor *rp);
 
 // Redis lock management
 static bool isRedisLocked(RPBufferAndLocker *bufferAndLocker);
@@ -875,7 +879,7 @@ static void LockRedis(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redi
 static void UnLockRedis(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx);
 
 /*********** Buffered results blocks management functions declarations ***********/
-static SearchResult *NewResultsBlock(RPBufferAndLocker *rpPufferAndLocker);
+static SearchResult *GetResultsBlock(RPBufferAndLocker *rpPufferAndLocker, size_t bloc_idx);
 
 // Insert result to the buffer.
 //If @param CurrBlock is full we add a new block and return it, otherwise returns @param CurrBlock.
@@ -885,7 +889,7 @@ static bool IsBufferEmpty(RPBufferAndLocker *rpPufferAndLocker);
 static SearchResult *GetNextResult(RPBufferAndLocker *rpPufferAndLocker);
 /*******************************************************************************/
 
-ResultProcessor *RPBufferAndLocker_New(size_t BlockSize, size_t spec_version) {
+ResultProcessor *RPBufferAndLocker_New(size_t BlockSize) {
   RPBufferAndLocker *ret = rm_calloc(1, sizeof(RPBufferAndLocker));
 
   ret->base.Next = rpbufferNext_bufferDocs;
@@ -900,9 +904,21 @@ ResultProcessor *RPBufferAndLocker_New(size_t BlockSize, size_t spec_version) {
   ret->curr_result_index = 0;
 
   ret->isRedisLocked = false;
+  ret->last_buffered_rc = RS_RESULT_OK;
 
-  ret->spec_version = spec_version;
   return &ret->base;
+}
+
+static int RPBufferAndLocker_ResetAndReturnLastCode(ResultProcessor *rp) {
+  RPBufferAndLocker *rpPufferAndLocker = (RPBufferAndLocker *)rp;
+
+  rp->Next = rpbufferNext_bufferDocs; // Reset the next function, in case we are in cursor mode
+  rpPufferAndLocker->buffer_results_count = 0;
+  rpPufferAndLocker->curr_result_index = 0;
+
+  int rc = rpPufferAndLocker->last_buffered_rc;
+  rpPufferAndLocker->last_buffered_rc = RS_RESULT_OK;
+  return rc;
 }
 
 
@@ -922,11 +938,14 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   RPBufferAndLocker *rpPufferAndLocker = (RPBufferAndLocker *)rp;
 
   // Keep fetching results from the upstream result processor until EOF is reached
+  RedisSearchCtx *sctx = RP_SCTX(rp);
   int result_status;
+  uint32_t bufferLimit = rp->parent->resultLimit;
   SearchResult resToBuffer = {0};
   SearchResult *CurrBlock = NULL;
+  size_t init_spec_version = IndexSpec_GetVersion(sctx->spec);
   // Get the next result and save it in the buffer
-  while((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK) {
+  while(rp->parent->resultLimit-- && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
 
     // Buffer the result.
     CurrBlock = InsertResult(rpPufferAndLocker, &resToBuffer, CurrBlock);
@@ -934,6 +953,7 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
     memset(&resToBuffer, 0, sizeof(SearchResult));
 
   }
+  rp->parent->resultLimit = bufferLimit; // Restore the result limit
 
   // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
   if ((result_status != RS_RESULT_EOF &&
@@ -941,18 +961,18 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
       IsBufferEmpty(rpPufferAndLocker)) {
     return result_status;
   }
+  // save the last buffered result code to return when we done yielding the buffered results.
+  rpPufferAndLocker->last_buffered_rc = result_status;
 
   // Now we have the data of all documents that pass the query filters,
   // let's lock Redis to provide safe access to Redis keyspace
 
-  RedisSearchCtx *Sctx = RP_SCTX(rp);
-
-  // Lock Redis to gurentee safe access to Redis keyspace
-  LockRedis(rpPufferAndLocker, Sctx->redisCtx);
+  // Lock Redis to guarantee safe access to Redis keyspace
+  LockRedis(rpPufferAndLocker, sctx->redisCtx);
 
   // If the spec has been changed since we released the spec lock,
   // we need to validate every buffered result
-  if (rpPufferAndLocker->spec_version != IndexSpec_GetVersion(Sctx->spec)) {
+  if (init_spec_version != IndexSpec_GetVersion(sctx->spec)) {
     rp->Next = rpbufferNext_ValidateAndYield;
   } else { // Else we just return the results one by one
     rp->Next = rpbufferNext_Yield;
@@ -997,18 +1017,17 @@ void UnLockRedis(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx)
 
   rpBufferAndLocker->isRedisLocked = false;
 }
-/*********** Yeild results phase functions ***********/
+/*********** Yield results phase functions ***********/
 
 int rpbufferNext_Yield(ResultProcessor *rp, SearchResult *result_output) {
   RPBufferAndLocker *RPBuffer = (RPBufferAndLocker *)rp;
   SearchResult *curr_res = GetNextResult(RPBuffer);
 
   if(!curr_res) {
-    return RS_RESULT_EOF;
+    return RPBufferAndLocker_ResetAndReturnLastCode(rp);
   }
- SetResult(curr_res, result_output);
- return RS_RESULT_OK;
-
+  SetResult(curr_res, result_output);
+  return RS_RESULT_OK;
 }
 
 int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_output) {
@@ -1029,17 +1048,20 @@ int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_outp
 
   }
 
-  return RS_RESULT_EOF;
+  return RPBufferAndLocker_ResetAndReturnLastCode(rp);
 }
 
 /*********** Buffered and locker functions ***********/
-SearchResult *NewResultsBlock(RPBufferAndLocker *rpPufferAndLocker) {
-  // Get new results block
-  SearchResult *ret = array_new(SearchResult, rpPufferAndLocker->BlockSize);
-  // Append the block to the blocks array and update the pointer that might have benn
-  // reallocated.
-  rpPufferAndLocker->BufferBlocks = array_ensure_append_1(rpPufferAndLocker->BufferBlocks, ret);
-  return ret;
+SearchResult *GetResultsBlock(RPBufferAndLocker *rpPufferAndLocker, size_t idx) {
+  // Get a pointer to the block at the given index
+  SearchResult **ret = array_ensure_at(&rpPufferAndLocker->BufferBlocks, idx, SearchResult*);
+
+  // If the block is not allocated, allocate it
+  if (!*ret) {
+    *ret = array_new(SearchResult, rpPufferAndLocker->BlockSize);
+  }
+
+  return *ret;
 
 }
 
@@ -1047,12 +1069,11 @@ SearchResult *NewResultsBlock(RPBufferAndLocker *rpPufferAndLocker) {
 SearchResult *InsertResult(RPBufferAndLocker *rpPufferAndLocker, SearchResult *resToBuffer, SearchResult *CurrBlock) {
   size_t idx_in_curr_block = rpPufferAndLocker->buffer_results_count % rpPufferAndLocker->BlockSize;
   // if the block is full, allocate a new one
-  if(idx_in_curr_block  == 0) {
-    // alocate new block
-    CurrBlock = NewResultsBlock(rpPufferAndLocker);
-
+  if (idx_in_curr_block == 0) {
+    // get the curr block, allocate new block if needed
+    CurrBlock = GetResultsBlock(rpPufferAndLocker, rpPufferAndLocker->buffer_results_count / rpPufferAndLocker->BlockSize);
   }
-  // append the result to the current block at rp->curr_idx_at_blocck
+  // append the result to the current block at rp->curr_idx_at_block
   // this operation takes ownership of the result's allocated data
   CurrBlock[idx_in_curr_block] = *resToBuffer;
   ++rpPufferAndLocker->buffer_results_count;
