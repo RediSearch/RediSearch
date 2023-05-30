@@ -102,7 +102,7 @@ RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx) {
   reply.json = array_new(char, 1);
   *reply.json = '\0';
 #else
-  RedisModule_Reply reply = { ctx, _ReplyMap(ctx), 0, NULL };
+  RedisModule_Reply reply = { ctx, _ReplyMap(ctx) && _ReplySet(ctx), 0, NULL };
 #endif
   return reply;
 }
