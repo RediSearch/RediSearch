@@ -22,6 +22,7 @@
 
 #define VECSIM_ALGORITHM_BF "FLAT"
 #define VECSIM_ALGORITHM_HNSW "HNSW"
+#define VECSIM_ALGORITHM_TIERED "TIERED"
 
 #define VECSIM_INITIAL_CAP "INITIAL_CAP"
 #define VECSIM_BLOCKSIZE "BLOCK_SIZE"
@@ -95,10 +96,16 @@ typedef enum {
   VECSIM_HYBRID_BATCHES_TO_ADHOC_BF, // Start with batches and dynamically switched to ad-hoc BF.
   VECSIM_RANGE_QUERY,                // Run range query, to return all vectors that are within a given range from the
                                      //  query vector.
-  VECSIM_LAST_SEARCHMODE,            // Last value of this enum. Can be used to check if a given value resides within 
-                                     //  this enum values range.                                    
+  VECSIM_LAST_SEARCHMODE,            // Last value of this enum. Can be used to check if a given value resides within
+                                     //  this enum values range.
 
 } VecSimSearchMode;
+
+// External log ctx to be sent to the log callback that vecsim is using internally.
+// Created upon creating a new vecsim index
+typedef struct VecSimLogCtx {
+    const char *index_field_name;  // should point to the field_spec name string.
+} VecSimLogCtx;
 
 // TODO: remove idxKey from all OpenFooIndex functions
 VecSimIndex *OpenVectorIndex(IndexSpec *sp,
@@ -117,9 +124,16 @@ const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
 
+void VecSimParams_Cleanup(VecSimParams *params);
+
 void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams);
 int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams);
 int VecSim_RdbLoad_v2(RedisModuleIO *rdb, VecSimParams *vecsimParams); // includes multi flag
+int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef spec,
+                      const char *field_name); // includes tiered index
+
+void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref);
+void VecSimLogCallback(void *ctx, const char *message);
 
 #ifdef __cplusplus
 extern "C" {

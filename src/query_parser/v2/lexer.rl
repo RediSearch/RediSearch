@@ -60,7 +60,6 @@ suffix = (star.term | star.number | star.attr) $1;
 as = 'AS'|'aS'|'As'|'as';
 verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $4;
 wildcard = 'w' . verbatim $4;
-named_predicate = lsqb.space?.(([Ww][Ii][Tt][Hh][Ii][Nn])|([)Cc][Oo][Nn][Tt][Aa][Ii][Nn][Ss])).space+.((any - rsqb)+).rsqb;
 
 main := |*
 
@@ -315,18 +314,6 @@ main := |*
       fbreak;
     }
   };
-
-  named_predicate => {
-    tok.pos = ts-q->raw + 2;
-    tok.len = te - ts - 2;
-    tok.s = ts + 1;
-    tok.numval = 0;
-    RSQuery_Parse_v2(pParser, NAMED_PREDICATE, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-  };
-
   
 *|;
 }%%

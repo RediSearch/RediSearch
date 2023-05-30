@@ -82,7 +82,8 @@ def testRDBCompatibility_vecsim():
     dbDir = env.cmd('config', 'get', 'dir')[1]
     rdbFilePath = os.path.join(dbDir, dbFileName)
 
-    rdbs = ['redisearch_2.4.14_with_vecsim.rdb']
+    rdbs = ['redisearch_2.4.14_with_vecsim.rdb',
+            'redisearch_2.6.9_with_vecsim.rdb']
     algorithms = ['FLAT', 'HNSW']
     if not downloadFiles(rdbs):
         if CI:
@@ -102,12 +103,25 @@ def testRDBCompatibility_vecsim():
         env.start()
         waitForIndex(env, 'idx')
         env.expect('FT.SEARCH idx * LIMIT 0 0').equal([100])
-        for vec_field in [alg.lower() + '_vec' for alg in algorithms]:
+
+        vec_fields = [alg.lower() + '_vec' for alg in algorithms]
+        for vec_field in vec_fields:
             env.expect('FT.SEARCH', 'idx', f'*=>[KNN 1000 @{vec_field} $b]', 'PARAMS', '2', 'b', '<<????>>', 'LIMIT', '0', '0').equal([100])
         env.expect('DBSIZE').equal(100)
         res = to_dict(env.cmd('FT.INFO idx'))
         env.assertEqual(res['num_docs'], '100')
         env.assertEqual(res['hash_indexing_failures'], '0')
+        infos = {}
+        for vec_field, algo in zip(vec_fields, algorithms):
+            infos[algo] = to_dict(env.cmd('FT.DEBUG VECSIM_INFO idx ' + vec_field))
+            for k, v in infos[algo].items():
+                if k in ['BACKEND_INDEX', 'FRONTEND_INDEX']:
+                    infos[algo][k] = to_dict(v)
+
+        infos['FLAT']['ALGORITHM'] = 'FLAT'
+        infos['HNSW']['ALGORITHM'] = 'TIERED'
+        infos['HNSW']['BACKEND_INDEX']['ALGORITHM'] = 'HNSW'
+
 
         env.cmd('flushall')
         env.assertTrue(env.checkExitCode())
