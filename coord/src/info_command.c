@@ -231,7 +231,6 @@ static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue
 }
 
 static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
-  _BB;
   RedisModule_Reply_Map(reply);
 
   // Respond with the name, schema, and options
@@ -269,7 +268,6 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
 }
 
 int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
-  _BB;
   // Summarize all aggregate replies
   InfoFields fields = {0};
   size_t numErrored = 0;

@@ -8,6 +8,7 @@
 #include "common.h"
 #include "command.h"
 #include "rmalloc.h"
+#include "resp3.h"
 
 #include "version.h"
 
@@ -373,6 +374,10 @@ int MRCommand_IsUnsharded(MRCommand *cmd) {
   return __commandConfig[cmd->id].keyPos <= 0;
 }
 
+void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx) {
+  cmd->protocol = _is_resp3(ctx) ? 3 : 2;
+}
+
 void MRCommand_Print(MRCommand *cmd) {
   MRCommand_FPrint(stdout, cmd);
 }
@@ -382,4 +387,8 @@ void MRCommand_FPrint(FILE *fd, MRCommand *cmd) {
     fprintf(fd, "%.*s ", (int)cmd->lens[i], cmd->strs[i]);
   }
   fprintf(fd, "\n");
+}
+
+void print_mr_cmd(MRCommand *cmd) {
+  MRCommand_FPrint(stdout, cmd);
 }

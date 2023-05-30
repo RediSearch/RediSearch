@@ -16,7 +16,7 @@
 
 
 int MRReply_StringEquals(MRReply *r, const char *s, int caseSensitive) {
-  if (!r || MRReply_Type(r) != MR_REPLY_STRING) return 0;
+  if (!r || MRReply_Type(r) != MR_REPLY_STRING && MRReply_Type(r) != MR_REPLY_STATUS) return 0;
   size_t len;
   const char *rs = MRReply_String(r, &len);
   size_t slen = strlen(s);
@@ -148,7 +148,7 @@ int MRReply_ToInteger(MRReply *reply, long long *i) {
       const char *s = MRReply_String(reply, &n);
       return _parseInt(s, n, i);
     }
-    
+
     default:
       _BB; //@@
       return 0;

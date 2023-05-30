@@ -67,6 +67,17 @@ static inline MRReply *MRReply_ArrayElement(MRReply *reply, size_t idx) {
   return reply->element[idx];
 }
 
+static inline MRReply *MRReply_MapElement(MRReply *reply, const char *key) {
+  if (reply->type != MR_REPLY_MAP) return NULL;
+  for (int i = 0; i < reply->elements; i += 2) {
+    if (MRReply_StringEquals(reply->element[i], key, false)) {
+      ++i;
+      return i < reply->elements ? reply->element[i] : NULL;
+    }
+  }
+  return NULL;
+}
+
 void MRReply_Print(FILE *fp, MRReply *r);
 int MRReply_ToInteger(MRReply *reply, long long *i);
 int MRReply_ToDouble(MRReply *reply, double *d);

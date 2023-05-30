@@ -300,6 +300,8 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
   //-------------------------------------------------------------------------------------------
   if (has_map) { // RESP3 variant
+    RedisModule_Reply_Map(reply); // root
+
     RedisModule_ReplyKV_Array(reply, "fields_names");
     RedisModule_Reply_ArrayEnd(reply);
 
@@ -325,14 +327,15 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   
     OPTMZ(QOptimizer_UpdateTotalResults(req));
   
-    RedisModule_ReplyKV_Array(reply, "error");
+    _BB;
+    RedisModule_ReplyKV_Array(reply, "error"); // >errors
       if (rc == RS_RESULT_TIMEDOUT) {
         RedisModule_Reply_SimpleString(reply, "Timeout limit was reached");
       } else if (rc == RS_RESULT_ERROR) {
         RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
         QueryError_ClearError(req->qiter.err);
       }
-    RedisModule_Reply_ArrayEnd(reply);
+    RedisModule_Reply_ArrayEnd(reply); // >errors
 
     if (rc == RS_RESULT_TIMEDOUT) {
       if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
@@ -350,7 +353,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
     nelem++;
   
-    RedisModule_ReplyKV_Array(reply, "results");
+    RedisModule_ReplyKV_Array(reply, "results"); // >results
     nelem = 0;
   
     if (rc == RS_RESULT_OK && nrows++ < limit && !(req->reqflags & QEXEC_F_NOROWS)) {
@@ -380,9 +383,11 @@ done_3:
   
     // Reset the total results length:
     req->qiter.totalResults = 0;
-    if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN) {
-      RedisModule_Reply_ArrayEnd(reply);
-    }
+    //if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN) {
+    RedisModule_Reply_ArrayEnd(reply); // >results
+    //}
+
+    RedisModule_Reply_MapEnd(reply); // root
   } 
   //-------------------------------------------------------------------------------------------
   else // ! has_map (RESP2 variant)
@@ -462,9 +467,11 @@ done_3:
       RS_LOG_ASSERT(0, "Precalculated number of replies must be equal to actual number");
     }
   }
+  //-------------------------------------------------------------------------------------------
 }
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
+  _BB;
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   bool has_map = RedisModule_HasMap(reply);
   if (IsProfile(req)) {
@@ -692,6 +699,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
       goto error;
     }
+    _BB;
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     int rc = AREQ_StartCursor(r, reply, r->sctx->spec->name, &status);
     RedisModule_EndReply(reply);

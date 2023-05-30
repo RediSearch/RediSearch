@@ -124,19 +124,20 @@ MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
 
 /* Send a command to the connection */
 int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *privdata) {
-  //_BB;
+  //1_BB;
   /* Only send to connected nodes */
   if (c->state != MRConn_Connected) {
     return REDIS_ERR;
   }
-  // printf("Sending to %s:%d\n", c->ep.host, c->ep.port);
-  // MRCommand_Print(cmd);
+  printf("Sending to %s:%d\n", c->ep.host, c->ep.port);
+  MRCommand_Print(cmd);
   if (!cmd->cmd) {
     if (redisFormatSdsCommandArgv(&cmd->cmd, cmd->num, (const char **)cmd->strs, cmd->lens) == REDIS_ERR) {
       return REDIS_ERR;
     }
   }
 
+  if (cmd->protocol != 3) _BB;
   if (cmd->protocol != 0 && (!c->protocol || c->protocol != cmd->protocol)) {
     int rc = redisAsyncCommand(c->conn, NULL, NULL, "HELLO %d", cmd->protocol);
     c->protocol = cmd->protocol;
@@ -522,7 +523,7 @@ static MRConn *MR_NewConn(MREndpoint *ep) {
 
 /* Connect to a cluster node. Return REDIS_OK if either connected, or if  */
 static int MRConn_Connect(MRConn *conn) {
-  //_BB;
+  //1 _BB;
   assert(!conn->conn);
   // fprintf(stderr, "Connectig to %s:%d\n", conn->ep.host, conn->ep.port);
 

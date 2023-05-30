@@ -10,7 +10,8 @@ READIES=$ROOT/deps/readies
 
 export PYTHONUNBUFFERED=1
 
-VALGRIND_REDIS_VER=7.2
+VG_REDIS_VER=7.2-rc2
+VG_REDIS_SUFFIX=7.2
 SAN_REDIS_VER=7.2-rc2
 SAN_REDIS_SUFFIX=7.2
 
@@ -211,7 +212,7 @@ setup_clang_sanitizer() {
 		REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-$SAN_REDIS_SUFFIX}
 		if ! command -v $REDIS_SERVER > /dev/null; then
 			echo Building Redis for clang-asan ...
-			runn $READIES/bin/getredis --force -v $SAN_REDIS_VER --own-openssl --no-run \
+			V="$VERBOSE" runn $READIES/bin/getredis --force -v $SAN_REDIS_VER --own-openssl --no-run \
 				--suffix asan-${SAN_REDIS_SUFFIX} --clang-asan --clang-san-blacklist $ignorelist
 		fi
 
@@ -245,10 +246,10 @@ setup_redis_server() {
 #----------------------------------------------------------------------------------------------
 
 setup_valgrind() {
-	REDIS_SERVER=${REDIS_SERVER:-redis-server-vg}
+	REDIS_SERVER=${REDIS_SERVER:-redis-server-vg-$VG_REDIS_SUFFIX}
 	if ! is_command $REDIS_SERVER; then
 		echo Building Redis for Valgrind ...
-		$READIES/bin/getredis -v $VALGRIND_REDIS_VER --valgrind --suffix vg
+		V="$VERBOSE" runn $READIES/bin/getredis -v ${VG_REDIS_VER} --valgrind --suffix vg-${VG_REDIS_VER}
 	fi
 
 	if [[ $VG_LEAKS == 0 ]]; then
@@ -794,4 +795,5 @@ if [[ $NOFAIL == 1 ]]; then
 	exit 0
 fi
 
+stop
 exit $E

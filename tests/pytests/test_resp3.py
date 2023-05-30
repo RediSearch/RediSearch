@@ -45,6 +45,7 @@ def test_search():
     if should_skip(env):
         env.skip()
 
+    BB()
     with env.getClusterConnectionIfNeeded() as r:
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
@@ -147,6 +148,8 @@ def test_search():
           ['Type', 'Scorer', 'Time', ANY, 'Counter', 2],
           ['Type', 'Sorter', 'Time', ANY, 'Counter', 2],
           ['Type', 'Loader', 'Time', ANY, 'Counter', 2]]]}
+    res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', "*")
+    BB()
     env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', "*").equal(expected)
 
     # test with timeout
@@ -270,11 +273,6 @@ def test_list():
     if should_skip(env):
         env.skip()
 
-#    with env.getClusterConnectionIfNeeded() as r:
-#      r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
-#      r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
-#      r.execute_command('HSET', 'doc3', 'f5', '4')
-
     env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     env.cmd('FT.create', 'idx2', "PREFIX", 1, "doc",
@@ -293,7 +291,36 @@ def test_info():
 
     env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT")
-    res = env.execute_command('FT.info', 'idx1')
+    waitForIndex(env, 'idx1')
+    expected = {
+      'attributes': [{'WEIGHT': 1.0, 'attribute': 'f1', 'flags': [], 'identifier': 'f1', 'type': 'TEXT'},
+                     {'WEIGHT': 1.0, 'attribute': 'f2', 'flags': [], 'identifier': 'f2', 'type': 'TEXT'}],
+      'bytes_per_record_avg': ANY,
+      'cursor_stats': {'global_idle': 0, 'global_total': 0, 'index_capacity': ANY, 'index_total': 0},
+      'dialect_stats': {'dialect_1': 0, 'dialect_2': 0, 'dialect_3': 0},
+      'doc_table_size_mb': ANY,
+      'gc_stats': ANY,
+      'hash_indexing_failures': 0,
+      'index_definition': {'default_score': 1.0, 'key_type': 'HASH', 'prefixes': ['doc'] },
+      'index_name': 'idx1',
+      'index_options': [],
+      'indexing': 0,
+      'inverted_sz_mb': ANY,
+      'key_table_size_mb': ANY,
+      'max_doc_id': 2,
+      'num_docs': 3,
+      'num_records': 3,
+      'num_terms': 3,
+      'number_of_uses': ANY,
+      'offset_bits_per_record_avg': ANY,
+      'offset_vectors_sz_mb': ANY,
+      'offsets_per_term_avg': ANY,
+      'percent_indexed': 1.0,
+      'records_per_doc_avg': ANY,
+      'sortable_values_size_mb': 0.0,
+      'total_inverted_index_blocks': 3,
+      'vector_index_sz_mb': 0.0}
+    env.expect('FT.info', 'idx1').equal(expected)
 
 def test_config():
     env = Env(protocol=3)
