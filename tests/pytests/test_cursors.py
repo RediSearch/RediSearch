@@ -2,7 +2,8 @@ from time import sleep, time
 import unittest
 from redis import ResponseError
 from includes import *
-from common import waitForIndex
+from common import waitForIndex, skip
+from RLTest import Env
 
 
 def to_dict(res):
@@ -57,6 +58,12 @@ def testCursors(env):
 
     resp = exhaustCursor(env, 'idx', resp)
     env.assertEqual(11, len(resp))
+
+@skip(noWorkers=True)
+def testCursorsBG():
+    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
+    testCursors(env)
+
 
 def testMultipleIndexes(env):
     loadDocs(env, idx='idx2', text='goodbye')

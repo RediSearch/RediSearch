@@ -7,17 +7,15 @@ from common import *
 from RLTest import Env
 
 
-def testEmptyBuffer(env):
-    if not POWER_TO_THE_WORKERS:
-        env.skip()
+@skip(noWorkers=True)
+def testEmptyBuffer():
     env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
     env.expect('ft.search', 'idx', '*', 'sortby', 'n').equal([0])
 
-def CreateAndSearchSortBy(env, docs_count):
-    if not POWER_TO_THE_WORKERS:
-        env.skip()
+
+def CreateAndSearchSortBy(docs_count):
     env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     conn = getConnectionByEnv(env)
@@ -41,13 +39,15 @@ def CreateAndSearchSortBy(env, docs_count):
         env.assertEqual(result, expected)
         n += 1
 
-def testSimpleBuffer(env):
-    CreateAndSearchSortBy(env, docs_count = 10)
+@skip(noWorkers=True)
+def testSimpleBuffer():
+    CreateAndSearchSortBy(docs_count = 10)
 
 # In this test we have more than BlockSize docs to buffer, we want to make sure there are no leaks
 # caused by the buffer memory management.
-def testMultipleBlocksBuffer(env):
-    CreateAndSearchSortBy(env, docs_count = 2500)
+@skip(noWorkers=True)
+def testMultipleBlocksBuffer():
+    CreateAndSearchSortBy(docs_count = 2500)
 
 '''
 Test pipeline:
@@ -83,9 +83,9 @@ def get_pipeline(profile_res):
         if (entry[0] == 'Result processors profile'):
             return entry
 
-def test_pipeline(env):
-    if not POWER_TO_THE_WORKERS:
-        env.skip()
+
+@skip(noWorkers=True)
+def test_pipeline():
     env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
     env.skipOnCluster()
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
