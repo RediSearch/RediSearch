@@ -177,7 +177,7 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
 void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len, RS_Suggestions *s,
                                 uint64_t totalDocNumber) {
 #define TERM "TERM"
-  bool has_map = RedisModule_HasMap(reply);
+  bool resp3 = RedisModule_HasMap(reply);
 
   RedisModule_Reply_Array(reply);
     RedisModule_Reply_SimpleString(reply, TERM);
@@ -196,11 +196,17 @@ void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len
       }
       RedisModule_Reply_Array(reply);
       for (int i = 0; i < array_len(suggestions); ++i) {
-        RedisModule_Reply_Array(reply);
+        RedisModule_Reply_Map(reply);
+        if (resp3) {
+          RedisModule_Reply_StringBuffer(reply, suggestions[i]->suggestion, suggestions[i]->len);
+          RedisModule_Reply_Double(reply, suggestions[i]->score == -1 ? 0 :
+                                          suggestions[i]->score / totalDocNumber);
+        } else {
           RedisModule_Reply_Double(reply, suggestions[i]->score == -1 ? 0 :
                                           suggestions[i]->score / totalDocNumber);
           RedisModule_Reply_StringBuffer(reply, suggestions[i]->suggestion, suggestions[i]->len);
-        RedisModule_Reply_ArrayEnd(reply);
+        }
+        RedisModule_Reply_MapEnd(reply);
       }
       RedisModule_Reply_ArrayEnd(reply);
   }
@@ -222,11 +228,15 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
 
     // if a full score info is requested we need to send information that
     // we found the term as is on the index
-    RedisModule_Reply_Array(reply);
-      RedisModule_Reply_SimpleString(reply, TERM);
+
+    bool resp3 = RedisModule_HasMap(reply);
+    RedisModule_Reply_Map(reply);
+      if (!resp3) {
+        RedisModule_Reply_SimpleString(reply, TERM);
+      }
       RedisModule_Reply_StringBuffer(reply, term, len);
       RedisModule_Reply_SimpleString(reply, FOUND_TERM_IN_INDEX);
-    RedisModule_Reply_ArrayEnd(reply);
+    RedisModule_Reply_MapEnd(reply);
     return true;
   }
 
