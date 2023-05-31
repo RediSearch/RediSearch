@@ -865,11 +865,11 @@ static void RPBufferAndLocker_Free(ResultProcessor *base);
 // Buffer phase
 static int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res);
 
-// Yeild results phase functions
+// Yield results phase functions
 static int rpbufferNext_Yield(ResultProcessor *rp, SearchResult *result_output);
 static int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_output);
 static bool isResultValid(const SearchResult *res);
-static int ResetAndReturnCode(ResultProcessor *rp);
+static int RPBufferAndLocker_ResetAndReturnLastCode(ResultProcessor *rp);
 
 // Redis lock management
 static bool isRedisLocked(RPBufferAndLocker *bufferAndLocker);
@@ -1097,7 +1097,7 @@ SearchResult *GetNextResult(RPBufferAndLocker *rpPufferAndLocker) {
   assert(curr_elem_index <= rpPufferAndLocker->buffer_results_count);
 
   // if we reached to the end of the buffer return NULL
-  if(curr_elem_index == rpPufferAndLocker->buffer_results_count) {
+  if (curr_elem_index == rpPufferAndLocker->buffer_results_count) {
     return NULL;
   }
 

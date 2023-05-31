@@ -54,6 +54,12 @@ def testCursors(env):
     res = exhaustCursor(env, 'idx', res)
     env.assertEqual(11, len(res))
 
+@skip(noWorkers=True)
+def testCursorsBG():
+    env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
+    testCursors(env)
+
+
 def testMultipleIndexes(env):
     loadDocs(env, idx='idx2', text='goodbye')
     loadDocs(env, idx='idx1', text='hello')
@@ -163,4 +169,3 @@ def testNumericCursor(env):
     res, cursor = env.cmd('FT.CURSOR', 'READ', idx, str(cursor))
     env.assertEqual(res, [0])
     env.assertEqual(cursor, 0)
-
