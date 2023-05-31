@@ -123,9 +123,8 @@ static void cursorGcCb(CursorList *cl, Cursor *cur, void *arg) {
  */
 static int Cursors_GCInternal(CursorList *cl, int force) {
   uint64_t now = curTimeNs();
-  if (cl->nextIdleTimeoutNs && cl->nextIdleTimeoutNs > now) {
-    return -1;
-  } else if (!force && now - cl->lastCollect < RSCURSORS_SWEEP_THROTTLE) {
+  if ((cl->nextIdleTimeoutNs && cl->nextIdleTimeoutNs > now) 
+    || (!force && now - cl->lastCollect < RSCURSORS_SWEEP_THROTTLE)) {
     return -1;
   }
 
@@ -142,26 +141,12 @@ int Cursors_CollectIdle(CursorList *cl) {
   return rc;
 }
 
-void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity) {
-  CursorSpecInfo *info = findInfo(cl, k);
-  if (!info) {
-    info = rm_malloc(sizeof(*info));
-    info->keyName = rm_strdup(k);
-    info->used = 0;
-    dictAdd(cl->specsDict, (void *)k, info);
-  }
-  info->cap = capacity;
+void Cursors_initSpec(IndexSpec *spec, size_t capacity) {
+  spec->activeCursors = 0;
+  spec->cursorsCap = capacity;
 }
 
-void CursorList_RemoveSpec(CursorList *cl, const char *k) {
-  CursorSpecInfo *info = findInfo(cl, k);
-  if (info) {
-    dictDelete(cl->specsDict, k);
-    rm_free(info->keyName);
-    rm_free(info);
-  }
-}
-
+// The cursors list is assumed to be locked upon calling this function
 static void CursorList_IncrCounter(CursorList *cl) {
   if (++cl->counter % RSCURSORS_SWEEP_INTERVAL == 0) {
     Cursors_GCInternal(cl, 0);

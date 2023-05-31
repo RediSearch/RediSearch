@@ -363,7 +363,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // Start the garbage collector
   IndexSpec_StartGC(ctx, spec_ref, sp);
 
-  CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
+  Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
 
   // Create the indexer
   sp->indexer = NewIndexer(sp);
@@ -1341,7 +1341,6 @@ void IndexSpec_Free(IndexSpec *spec) {
     // If uniqueid is 0, it means the index was not initialized
     // and is being freed now during an error.
     Cursors_PurgeWithName(&RSCursors, spec->name);
-    CursorList_RemoveSpec(&RSCursors, spec->name);
   }
   // Free stopwords list (might use global pointer to default list)
   if (spec->stopwords) {
@@ -2312,7 +2311,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->uniqueId = spec_unique_ids++;
 
   IndexSpec_StartGC(ctx, spec_ref, sp);
-  CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
+  Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
 
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
@@ -2462,7 +2461,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   // start the gc and add the spec to the cursor list
   IndexSpec_StartGC(RSDummyContext, spec_ref, sp);
-  CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
+  Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
 
   dictAdd(legacySpecDict, sp->name, spec_ref.rm);
   return spec_ref.rm;

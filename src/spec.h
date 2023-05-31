@@ -305,6 +305,10 @@ typedef struct IndexSpec {
   // Current spec version.
   // Should be updated after acquiring the write lock.
   size_t specVersion;
+
+  // Cursors counters
+  size_t cursorsCap;
+  size_t activeCursors;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;

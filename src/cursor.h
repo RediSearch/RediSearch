@@ -13,6 +13,7 @@
 #include "util/array.h"
 #include "search_ctx.h"
 
+TODO: remove!~
 typedef struct {
   char *keyName; /** Name of the key that refers to the spec */
   size_t cap;    /** Maximum number of cursors for the spec */
@@ -132,12 +133,11 @@ void CursorList_Empty(CursorList *cl);
 #define RSCURSORS_SWEEP_THROTTLE (1 * (1000000000)) /* Throttle, in NS */
 
 /**
- * Add an index spec to the cursor list. This has the effect of adding the
- * spec (via its key) along with its capacity
+ * Upon creating a new spec - Initialize the spec fields
+ * that are related to the cursors.
  */
-void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity);
+void Cursors_initSpec(IndexSpec *spec, size_t capacity);
 
-void CursorList_RemoveSpec(CursorList *cl, const char *k);
 
 /**
  * Reserve a cursor for use with a given query.
