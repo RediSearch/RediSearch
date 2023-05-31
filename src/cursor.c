@@ -10,7 +10,7 @@
 #include <err.h>
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
-CursorList RSCursors;
+CursorList g_CursorsList;
 
 static uint64_t curTimeNs() {
   struct timespec tv;
@@ -32,15 +32,11 @@ void CursorList_Init(CursorList *cl) {
   cl->lookup = kh_init(cursors);
   Array_Init(&cl->idle);
   srand48(getpid());
-  cl->specsDict = dictCreate(&dictTypeHeapStrings, NULL);
-}
-
-static CursorSpecInfo *findInfo(const CursorList *cl, const char *keyName) {
-  return dictFetchValue(cl->specsDict, keyName);;
 }
 
 static void Cursor_RemoveFromIdle(Cursor *cur) {
-  Array *idle = &cur->parent->idle;
+  CursorList *cl = &g_CursorsList;
+  Array *idle = &cl->idle;
   Cursor **ll = ARRAY_GETARRAY_AS(idle, Cursor **);
   size_t n = ARRAY_GETSIZE_AS(idle, Cursor *);
 
@@ -51,26 +47,33 @@ static void Cursor_RemoveFromIdle(Cursor *cur) {
   }
 
   Array_Resize(idle, sizeof(Cursor *) * (n - 1));
-  if (cur->nextTimeoutNs == cur->parent->nextIdleTimeoutNs) {
-    cur->parent->nextIdleTimeoutNs = 0;
+  if (cur->nextTimeoutNs == cl->nextIdleTimeoutNs) {
+    cl->nextIdleTimeoutNs = 0;
   }
   cur->pos = -1;
 }
 
-/* Doesn't lock - simply deallocates and decrements */
+/* Assumed to be called under the cursors global lock or upon server shut down. */
 static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
+  CursorList *cl = &g_CursorsList;
   /* Decrement the used count */
-  RS_LOG_ASSERT(khi != kh_end(cur->parent->lookup), "Iterator shouldn't be at end of cursor list");
-  RS_LOG_ASSERT(kh_get(cursors, cur->parent->lookup, cur->id) != kh_end(cur->parent->lookup),
+  RS_LOG_ASSERT(khi != kh_end(cl->lookup), "Iterator shouldn't be at end of cursor list");
+  RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) != kh_end(cl->lookup),
                                                     "Cursor was not found");
-  kh_del(cursors, cur->parent->lookup, khi);
-  RS_LOG_ASSERT(kh_get(cursors, cur->parent->lookup, cur->id) == kh_end(cur->parent->lookup),
+  kh_del(cursors, cl->lookup, khi);
+  RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
-  cur->specInfo->used--;
   if (cur->execState) {
     Cursor_FreeExecState(cur->execState);
     cur->execState = NULL;
   }
+  StrongRef spec_ref = WeakRef_Promote(cur->spec_ref);
+  IndexSpec *spec = StrongRef_Get(spec_ref);
+  // the spec may have been dropped, so we need to make sure it is still valid. 
+  if(spec) {
+    spec->activeCursors--;
+  }
+  WeakRef_Release(cur->spec_ref);
   rm_free(cur);
 }
 
@@ -120,6 +123,9 @@ static void cursorGcCb(CursorList *cl, Cursor *cur, void *arg) {
  * - If NextTimeout is set and is earlier than the current time.
  *
  * Garbage collection is throttled within a given interval as well.
+ * 
+ * Assumed to be called under the cursors global lock or upon server shut down. 
+ * 
  */
 static int Cursors_GCInternal(CursorList *cl, int force) {
   uint64_t now = curTimeNs();
@@ -165,49 +171,42 @@ static uint64_t CursorList_GenerateId(CursorList *curlist) {
   return id;
 }
 
-Cursor *Cursors_Reserve(CursorList *cl, const char *lookupName, unsigned interval,
+Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned interval,
                         QueryError *status) {
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
-  CursorSpecInfo *spec = findInfo(cl, lookupName);
   Cursor *cur = NULL;
 
-  if (spec == NULL) {
-    QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "Index `%s` does not have cursors enabled",
-                           lookupName);
-    goto done;
-  }
+  // We assume that global_spec_ref points to a valid spec.
+  IndexSpec *spec = StrongRef_Get(global_spec_ref);
 
-  if (spec->used >= spec->cap) {
+  if (spec->activeCursors >= spec->cursorsCap) {
     /** Collect idle cursors now */
     Cursors_GCInternal(cl, 0);
-    if (spec->used >= spec->cap) {
+    if (spec->activeCursors >= spec->cursorsCap) {
       QueryError_SetError(status, QUERY_ELIMIT, "Too many cursors allocated for index");
       goto done;
     }
   }
 
   cur = rm_calloc(1, sizeof(*cur));
-  cur->parent = cl;
-  cur->specInfo = spec;
   cur->id = CursorList_GenerateId(cl);
   cur->pos = -1;
   cur->timeoutIntervalMs = interval;
+  cur->spec_ref = StrongRef_Demote(global_spec_ref);
 
   int dummy;
   khiter_t iter = kh_put(cursors, cl->lookup, cur->id, &dummy);
   kh_value(cl->lookup, iter) = cur;
+  spec->activeCursors++;
 
 done:
-  if (cur) {
-    cur->specInfo->used++;
-  }
   CursorList_Unlock(cl);
   return cur;
 }
 
 int Cursor_Pause(Cursor *cur) {
-  CursorList *cl = cur->parent;
+  CursorList *cl = &g_CursorsList;
   cur->nextTimeoutNs = curTimeNs() + ((uint64_t)cur->timeoutIntervalMs * 1000000);
 
   CursorList_Lock(cl);
@@ -268,12 +267,11 @@ int Cursors_Purge(CursorList *cl, uint64_t cid) {
 }
 
 int Cursor_Free(Cursor *cur) {
-  return Cursors_Purge(cur->parent, cur->id);
+  return Cursors_Purge(&g_CursorsList, cur->id);
 }
 
-void Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) {
+void Cursors_RenderStats(CursorList *cl, IndexSpec *spec, RedisModuleCtx *ctx) {
   CursorList_Lock(cl);
-  CursorSpecInfo *info = findInfo(cl, name);
 
   RedisModule_ReplyWithSimpleString(ctx, "cursor_stats");
 
@@ -286,53 +284,28 @@ void Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) 
   RedisModule_ReplyWithLongLong(ctx, kh_size(cl->lookup));
 
   RedisModule_ReplyWithSimpleString(ctx, "index_capacity");
-  RedisModule_ReplyWithLongLong(ctx, info->cap);
+  RedisModule_ReplyWithLongLong(ctx, spec->cursorsCap);
 
   RedisModule_ReplyWithSimpleString(ctx, "index_total");
-  RedisModule_ReplyWithLongLong(ctx, info->used);
+  RedisModule_ReplyWithLongLong(ctx, spec->activeCursors);
 
   CursorList_Unlock(cl);
 }
 
 #ifdef FTINFO_FOR_INFO_MODULES
-void Cursors_RenderStatsForInfo(CursorList *cl, const char *name, RedisModuleInfoCtx *ctx) {
+void Cursors_RenderStatsForInfo(CursorList *cl, IndexSpec *spec, RedisModuleInfoCtx *ctx) {
   CursorList_Lock(cl);
-  CursorSpecInfo *info = findInfo(cl, name);
 
   RedisModule_InfoBeginDictField(ctx, "cursor_stats");
   RedisModule_InfoAddFieldLongLong(ctx, "global_idle", ARRAY_GETSIZE_AS(&cl->idle, Cursor **));
   RedisModule_InfoAddFieldLongLong(ctx, "global_total", kh_size(cl->lookup));
-  RedisModule_InfoAddFieldLongLong(ctx, "index_capacity", info->cap);
-  RedisModule_InfoAddFieldLongLong(ctx, "index_total", info->used);
+  RedisModule_InfoAddFieldLongLong(ctx, "index_capacity", spec->cursorsCap);
+  RedisModule_InfoAddFieldLongLong(ctx, "index_total", spec->activeCursors);
   RedisModule_InfoEndDictField(ctx);
 
   CursorList_Unlock(cl);
 }
 #endif // FTINFO_FOR_INFO_MODULES
-
-static void purgeCb(CursorList *cl, Cursor *cur, void *arg) {
-  CursorSpecInfo *info = arg;
-  if (cur->specInfo != info) {
-    return;
-  }
-
-  Cursor_RemoveFromIdle(cur);
-  Cursor_FreeInternal(cur, kh_get(cursors, cl->lookup, cur->id));
-}
-
-void Cursors_PurgeWithName(CursorList *cl, const char *lookupName) {
-  CursorSpecInfo *info = findInfo(cl, lookupName);
-  if (!info) {
-    return;
-  }
-  Cursors_ForEach(cl, purgeCb, info);
-}
-
-void CursorList_Empty(CursorList *cl) {
-  CursorList_Destroy(cl);
-  Array_Free(&cl->idle);
-  CursorList_Init(cl);
-}
 
 void CursorList_Destroy(CursorList *cl) {
   Cursors_GCInternal(cl, 1);
@@ -341,21 +314,16 @@ void CursorList_Destroy(CursorList *cl) {
       continue;
     }
     Cursor *c = kh_val(cl->lookup, ii);
-    fprintf(stderr, "[redisearch] leaked cursor at %p\n", c);
     Cursor_FreeInternal(c, ii);
   }
   kh_destroy(cursors, cl->lookup);
 
-  // free the dictionary
-  dictIterator *iter = dictGetIterator(cl->specsDict);
-  dictEntry *entry;
-  while ((entry = dictNext(iter))) {
-    CursorSpecInfo *sp = dictGetVal(entry);
-    rm_free(sp->keyName);
-    rm_free(sp);
-  }
-  dictReleaseIterator(iter);
-  dictRelease(cl->specsDict);
-
   pthread_mutex_destroy(&cl->lock);
+  Array_Free(&cl->idle);
 }
+
+void CursorList_Empty(CursorList *cl) {
+  CursorList_Destroy(cl);
+  CursorList_Init(cl);
+}
+

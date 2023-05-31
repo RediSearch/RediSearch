@@ -13,24 +13,15 @@
 #include "util/array.h"
 #include "search_ctx.h"
 
-TODO: remove!~
-typedef struct {
-  char *keyName; /** Name of the key that refers to the spec */
-  size_t cap;    /** Maximum number of cursors for the spec */
-  size_t used;   /** Number of cursors currently open */
-} CursorSpecInfo;
-
 struct CursorList;
 
 typedef struct Cursor {
   /**
-   * Link to info on parent. This is used to increment/decrement the count,
-   * and also to reopen the spec
+   * The cursor is holding a weak reference to spec. When read cursor is called
+   * we will try to promote the reference to a strong reference. if the promotion fails -
+   *  it means that the index was dropped. The cursor is no longer valid and should be freed.
    */
-  CursorSpecInfo *specInfo;
-
-  /** Parent - used for deletion, etc */
-  struct CursorList *parent;
+  WeakRef spec_ref;
 
   /** Execution state. Opaque to the cursor - managed by consumer */
   void *execState;
@@ -56,9 +47,6 @@ KHASH_MAP_INIT_INT64(cursors, Cursor *);
 typedef struct CursorList {
   /** Cursor lookup by ID */
   khash_t(cursors) * lookup;
-
-  /** List of spec infos; we just iterate over this */
-  dict *specsDict;
 
   /** List of idle cursors */
   Array idle;
@@ -86,7 +74,7 @@ typedef struct CursorList {
 
 // This resides in the background as a global. We could in theory make this
 // part of the spec structure
-extern CursorList RSCursors;
+extern CursorList g_CursorsList;
 
 /**
  * Threading/Concurrency behavior
@@ -124,7 +112,9 @@ void CursorList_Init(CursorList *cl);
 void CursorList_Destroy(CursorList *cl);
 
 /**
- * Empty the cursor list
+ * Empty the cursor list.
+ * It is assumed that this function is called from the main thread, and that
+ * are are no cursors that run in the background. 
  */
 void CursorList_Empty(CursorList *cl);
 
@@ -147,7 +137,7 @@ void Cursors_initSpec(IndexSpec *spec, size_t capacity);
  * Timeout is the max idle timeout (activated at each call to Pause()) in
  * milliseconds.
  */
-Cursor *Cursors_Reserve(CursorList *cl, const char *lookupName, unsigned timeout,
+Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned timeout,
                         QueryError *status);
 
 /**
@@ -174,13 +164,13 @@ int Cursors_Purge(CursorList *cl, uint64_t cid);
 
 int Cursors_CollectIdle(CursorList *cl);
 
-/** Remove all cursors with the given lookup name */
-void Cursors_PurgeWithName(CursorList *cl, const char *lookupName);
-
-void Cursors_RenderStats(CursorList *cl, const char *key, RedisModuleCtx *ctx);
+/**
+ * Assumed to be called by the main thread with a valid spec, under the cursors lock.
+ */
+void Cursors_RenderStats(CursorList *cl, IndexSpec *spec, RedisModuleCtx *ctx);
 
 #ifdef FTINFO_FOR_INFO_MODULES
-void Cursors_RenderStatsForInfo(CursorList *cl, const char *name, RedisModuleInfoCtx *ctx);
+void Cursors_RenderStatsForInfo(CursorList *cl, IndexSpec *spec, RedisModuleInfoCtx *ctx);
 #endif
 
 void Cursor_FreeExecState(void *);

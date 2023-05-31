@@ -309,6 +309,9 @@ typedef struct IndexSpec {
   // Cursors counters
   size_t cursorsCap;
   size_t activeCursors;
+
+  // Quick access to the spec's strong ref
+  StrongRef own_ref;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;

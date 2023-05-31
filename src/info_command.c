@@ -234,7 +234,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     n += 2;
   }
 
-  Cursors_RenderStats(&RSCursors, sp->name, ctx);
+  Cursors_RenderStats(&g_CursorsList, sp, ctx);
   n += 2;
 
   if (sp->flags & Index_HasCustomStopwords) {

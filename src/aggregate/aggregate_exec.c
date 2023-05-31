@@ -397,7 +397,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   }
 
   if (req->reqflags & QEXEC_F_IS_CURSOR) {
-    if (AREQ_StartCursor(req, outctx, req->sctx->spec->name, &status) != REDISMODULE_OK) {
+    if (AREQ_StartCursor(req, outctx, execution_ref, &status) != REDISMODULE_OK) {
       goto error;
     }
   } else {
@@ -571,9 +571,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 #ifdef POWER_TO_THE_WORKERS
   if (RunInThread()) {
     // Prepare context for the worker thread
-    IndexLoadOptions options = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
-                                .name.cstring = r->sctx->spec->name};
-    StrongRef spec_ref = IndexSpec_LoadUnsafeEx(ctx, &options);
+    StrongRef spec_ref = r->sctx->spec->own_ref;
     RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
     // report block client start time
     RedisModule_BlockedClientMeasureTimeStart(blockedClient);
@@ -587,7 +585,8 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       goto error;
     }
     if (r->reqflags & QEXEC_F_IS_CURSOR) {
-      if (AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status) != REDISMODULE_OK) {
+      StrongRef spec_ref = r->sctx->spec->own_ref;
+      if (AREQ_StartCursor(r, ctx, spec_ref, &status) != REDISMODULE_OK) {
         goto error;
       }
     } else {
@@ -676,8 +675,8 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 // Assumes that the cursor has a strong ref to the relevant spec and that it is already locked.
-int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, QueryError *err) {
-  Cursor *cursor = Cursors_Reserve(&RSCursors, lookupName, r->cursorMaxIdle, err);
+int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, StrongRef spec_ref, QueryError *err) {
+  Cursor *cursor = Cursors_Reserve(&g_CursorsList, spec_ref, r->cursorMaxIdle, err);
   if (cursor == NULL) {
     return REDISMODULE_ERR;
   }
@@ -747,17 +746,26 @@ delcursor:
 }
 
 static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
-  Cursor *cursor = Cursors_TakeForExecution(&RSCursors, cid); // TODO: thread safety
+  Cursor *cursor = Cursors_TakeForExecution(&g_CursorsList, cid);
   if (cursor == NULL) {
     RedisModule_ReplyWithError(ctx, "Cursor not found");
     return;
   }
-  // TODO: verify spec strong ref, and release it at the end
+  StrongRef execution_ref = WeakRef_Promote(cursor->spec_ref);
   QueryError status = {0};
+  if (!StrongRef_Get(execution_ref)) {
+    // The index was dropped while the cursor was idle.
+    // Notify the client that the query was aborted.
+    QueryError_SetError(&status, QUERY_ENOINDEX, "The index was dropped while the cursor was idle");
+    QueryError_ReplyAndClear(ctx, &status);
+    return;
+  }
+
   AREQ *req = cursor->execState;
   req->qiter.err = &status;
   ConcurrentSearchCtx_ReopenKeys(&req->conc);
   runCursor(ctx, cursor, count);
+  StrongRef_Release(execution_ref);
 }
 
 typedef struct {
@@ -822,7 +830,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
 
   } else if (cmdc == 'D') {
-    int rc = Cursors_Purge(&RSCursors, cid);
+    int rc = Cursors_Purge(&g_CursorsList, cid);
     if (rc != REDISMODULE_OK) {
       RedisModule_ReplyWithError(ctx, "Cursor does not exist");
     } else {
@@ -830,7 +838,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
 
   } else if (cmdc == 'G') {
-    int rc = Cursors_CollectIdle(&RSCursors);
+    int rc = Cursors_CollectIdle(&g_CursorsList);
     RedisModule_ReplyWithLongLong(ctx, rc);
   } else {
     RedisModule_ReplyWithError(ctx, "Unknown subcommand");
