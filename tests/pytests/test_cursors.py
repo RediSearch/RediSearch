@@ -24,7 +24,7 @@ def exhaustCursor(env, idx, res, *args):
     first, cid = res
     rows = [res]
     while cid:
-        res, cid=env.cmd('FT.CURSOR', 'READ', idx, cid, *args)
+        res, cid = env.cmd('FT.CURSOR', 'READ', idx, cid, *args)
         rows.append([res, cid])
     return rows
 

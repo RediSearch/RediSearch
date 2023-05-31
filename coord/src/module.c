@@ -1074,112 +1074,37 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   }
 }
 
-static void processSearchReply_resp2(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
-  // _BB;
-  searchRequestCtx *req = rCtx->searchCtx;
-
-  // first element is always the total count
-  rCtx->totalReplies += MRReply_Integer(MRReply_ArrayElement(arr, 0));
-  size_t len = MRReply_Length(arr);
-
-  int step = rCtx->offsets.step;
-  // fprintf(stderr, "Step %d, scoreOffset %d, fieldsOffset %d, sortKeyOffset %d\n", step,
-  //         scoreOffset, fieldsOffset, sortKeyOffset);
-  for (int j = 1; j < len; j += step) {
-    if (j + step > len) {
-      RedisModule_Log(ctx, "warning",
-        "got a bad reply from redisearch, reply contains less parameters then expected");
-      rCtx->errorOccured = true;
-      break;
-    }
-    searchResult *res = newResult_resp2(rCtx->cachedResult, arr, j, &rCtx->offsets , rCtx->searchCtx->withExplainScores);
-    if (!res || !res->id) {
-      RedisModule_Log(ctx, "warning", "got an unexpected argument when parsing redisearch results");
-      rCtx->errorOccured = true;
-      // invalid result - usually means something is off with the response, and we should just
-      // quit this response
-      rCtx->cachedResult = res;
-      break;
-    } else {
-      rCtx->cachedResult = NULL;
-    }
-
-    // fprintf(stderr, "Result %d Reply docId %s score: %f sortkey %f\n", j, res->id, res->score, res->sortKeyNum);
-
-    // TODO: minmax_heap?
-    if (heap_count(rCtx->pq) < heap_size(rCtx->pq)) {
-      // printf("Offering result score %f\n", res->score);
-      heap_offerx(rCtx->pq, res);
-
-    } else {
-      searchResult *smallest = heap_peek(rCtx->pq);
-      int c = cmp_results(res, smallest, rCtx->searchCtx);
-      if (c < 0) {
-        smallest = heap_poll(rCtx->pq);
-        heap_offerx(rCtx->pq, res);
-        rCtx->cachedResult = smallest;
-      } else {
-        rCtx->cachedResult = res;
-        if (rCtx->searchCtx->withSortby) {
-          // If the result is lower than the last result in the heap,
-          // AND there is a user-defined sort order - we can stop now
-          break;
-        }
-      }
-    }
-  }
-}
-
-static void processSearchReply_resp3(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
-  searchRequestCtx *req = rCtx->searchCtx;
-
-  MRReply *total_results = MRReply_MapElement(arr, "total_results");
-  if (!total_results) {
+static void processSerchReplyResult(searchResult *res, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
+  if (!res || !res->id) {
+    RedisModule_Log(ctx, "warning", "got an unexpected argument when parsing redisearch results");
     rCtx->errorOccured = true;
+    // invalid result - usually means something is off with the response, and we should just
+    // quit this response
+    rCtx->cachedResult = res;
     return;
   }
-  rCtx->totalReplies += MRReply_Integer(total_results);
-  MRReply *results = MRReply_MapElement(arr, "results");
-  if (!results) {
-    rCtx->errorOccured = true;
-    return;
-  }
-  size_t len = MRReply_Length(results);
 
-  for (int i = 0; i < len; ++i) {
-    searchResult *res = newResult_resp3(rCtx->cachedResult, results, i, rCtx->searchCtx->withExplainScores);
-    if (!res || !res->id) {
-      RedisModule_Log(ctx, "warning", "got an unexpected argument when parsing redisearch results");
-      rCtx->errorOccured = true;
-      // invalid result - usually means something is off with the response, and we should just
-      // quit this response
-      rCtx->cachedResult = res;
-      break;
-    } else {
-      rCtx->cachedResult = NULL;
-    }
+  rCtx->cachedResult = NULL;
 
-    // fprintf(stderr, "Result %d Reply docId %s score: %f sortkey %f\n", i, res->id, res->score, res->sortKeyNum);
+  // fprintf(stderr, "Result %d Reply docId %s score: %f sortkey %f\n", i, res->id, res->score, res->sortKeyNum);
 
-    // TODO: minmax_heap?
-    if (heap_count(rCtx->pq) < heap_size(rCtx->pq)) {
-      // printf("Offering result score %f\n", res->score);
+  // TODO: minmax_heap?
+  if (heap_count(rCtx->pq) < heap_size(rCtx->pq)) {
+    // printf("Offering result score %f\n", res->score);
+    heap_offerx(rCtx->pq, res);
+  } else {
+    searchResult *smallest = heap_peek(rCtx->pq);
+    int c = cmp_results(res, smallest, rCtx->searchCtx);
+    if (c < 0) {
+      smallest = heap_poll(rCtx->pq);
       heap_offerx(rCtx->pq, res);
-
+      rCtx->cachedResult = smallest;
     } else {
-      searchResult *smallest = heap_peek(rCtx->pq);
-      int c = cmp_results(res, smallest, rCtx->searchCtx);
-      if (c < 0) {
-        smallest = heap_poll(rCtx->pq);
-        heap_offerx(rCtx->pq, res);
-        rCtx->cachedResult = smallest;
-      } else {
-        rCtx->cachedResult = res;
-        if (rCtx->searchCtx->withSortby) {
-          // If the result is lower than the last result in the heap,
-          // AND there is a user-defined sort order - we can stop now
-          break;
-        }
+      rCtx->cachedResult = res;
+      if (rCtx->searchCtx->withSortby) {
+        // If the result is lower than the last result in the heap,
+        // AND there is a user-defined sort order - we can stop now
+        return;
       }
     }
   }
@@ -1194,13 +1119,54 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
     return;
   }
 
-  if (MRReply_Type(arr) == MR_REPLY_MAP) {
-    return processSearchReply_resp3(arr, rCtx, ctx);
-  } else if (MRReply_Type(arr) != MR_REPLY_ARRAY || MRReply_Length(arr) == 0) {
+  bool resp3 = MRReply_Type(arr) == MR_REPLY_MAP;
+  if (!resp3 && (MRReply_Type(arr) != MR_REPLY_ARRAY || MRReply_Length(arr) == 0)) {
     // Empty reply??
     return;
-  } else {
-    return processSearchReply_resp2(arr, rCtx, ctx);
+  }
+
+  searchRequestCtx *req = rCtx->searchCtx;
+
+  if (resp3) // RESP3
+  {
+    MRReply *total_results = MRReply_MapElement(arr, "total_results");
+    if (!total_results) {
+      rCtx->errorOccured = true;
+      return;
+    }
+    rCtx->totalReplies += MRReply_Integer(total_results);
+    MRReply *results = MRReply_MapElement(arr, "results");
+    if (!results) {
+      rCtx->errorOccured = true;
+      return;
+    }
+    size_t len = MRReply_Length(results);
+
+    for (int i = 0; i < len; ++i) {
+      searchResult *res = newResult_resp3(rCtx->cachedResult, results, i, rCtx->searchCtx->withExplainScores);
+      processSerchReplyResult(res, rCtx, ctx);
+    }
+  }
+  else // RESP2
+  {
+    // first element is always the total count
+    rCtx->totalReplies += MRReply_Integer(MRReply_ArrayElement(arr, 0));
+    size_t len = MRReply_Length(arr);
+
+    int step = rCtx->offsets.step;
+    // fprintf(stderr, "Step %d, scoreOffset %d, fieldsOffset %d, sortKeyOffset %d\n", step,
+    //         scoreOffset, fieldsOffset, sortKeyOffset);
+
+    for (int j = 1; j < len; j += step) {
+      if (j + step > len) {
+        RedisModule_Log(ctx, "warning",
+          "got a bad reply from redisearch, reply contains less parameters then expected");
+        rCtx->errorOccured = true;
+        break;
+      }
+      searchResult *res = newResult_resp2(rCtx->cachedResult, arr, j, &rCtx->offsets , rCtx->searchCtx->withExplainScores);
+      processSerchReplyResult(res, rCtx, ctx);
+    }
   }
 }
 

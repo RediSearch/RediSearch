@@ -853,6 +853,10 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 
   sendChunk(req, reply, num);
 
+  if (has_map) {
+    RedisModule_Reply_SimpleString(reply, "cursor");
+  }
+
   if (req->stateflags & QEXEC_S_ITERDONE) {
     // Write the count!
     RedisModule_Reply_LongLong(reply, 0);
@@ -867,17 +871,17 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
     }
   }
 
+  RedisModule_Reply_MapEnd(reply);
+
   if (req->stateflags & QEXEC_S_ITERDONE) {
     goto delcursor;
-  } else {
-    RedisModule_Reply_MapEnd(reply);
-    // Update the idle timeout
-    Cursor_Pause(cursor);
-    return;
   }
 
+  // Update the idle timeout
+  Cursor_Pause(cursor);
+  return;
+
 delcursor:
-  RedisModule_Reply_MapEnd(reply);
   AREQ_Free(req);
   if (cursor) {
     cursor->execState = NULL;
