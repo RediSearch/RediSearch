@@ -1,11 +1,9 @@
 from common import *
+
 from time import sleep, time
 from redis import ResponseError
 
-
-def to_dict(res):
-    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    return d
+from cmath import inf
 
 
 def loadDocs(env, count=100, idx='idx', text='hello world'):
@@ -77,6 +75,7 @@ def testMultipleIndexes(env):
 def testCapacities(env):
     if env.is_cluster():
         env.skip()
+
     loadDocs(env, idx='idx1')
     loadDocs(env, idx='idx2')
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10]
@@ -139,3 +138,29 @@ def testLeaked(env):
     # Test ensures in CursorList_Destroy() checks shutdown with remaining cursors
     loadDocs(env)
     env.expect('FT.AGGREGATE idx * LOAD 1 @f1 WITHCURSOR COUNT 1 MAXIDLE 1')
+
+def testNumericCursor(env):
+    conn = getConnectionByEnv(env)
+    idx = 'foo'
+    ff = 'ff'
+    env.expect('FT.CREATE', idx, 'ON', 'HASH', 'SCHEMA', ff, 'NUMERIC').ok()
+    for x in range(1000):
+        conn.execute_command('HSET', f'{idx}_{x}', ff, x)
+
+    # res = env.cmd('FT.AGGREGATE', idx, '*', 'LOAD', '*', 'SORTBY', 2, '@ff', 'ASC', 'LIMIT', 0, 1000)
+    # env.assertIsNotNone(res)
+
+    res, cursor = env.cmd('FT.AGGREGATE', idx, '*', 'LOAD', '*', 'SORTBY', 2, '@ff', 'ASC', 'WITHCURSOR', 'COUNT', 1, 'LIMIT', 0, 999999)
+    # res, cursor = env.cmd('FT.AGGREGATE', idx, '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)
+    env.assertNotEqual(res, [0])
+    env.assertNotEqual(cursor, 0)
+
+    for x in range(1, 1000):
+        res, cursor = env.cmd('FT.CURSOR', 'READ', idx, str(cursor))
+        env.assertNotEqual(res, [0])
+        env.assertNotEqual(cursor, 0)
+
+    res, cursor = env.cmd('FT.CURSOR', 'READ', idx, str(cursor))
+    env.assertEqual(res, [0])
+    env.assertEqual(cursor, 0)
+

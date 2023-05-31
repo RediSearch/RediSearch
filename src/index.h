@@ -11,6 +11,7 @@
 #include "forward_index.h"
 #include "index_result.h"
 #include "index_iterator.h"
+#include "inverted_index.h"
 #include "redisearch.h"
 #include "varint.h"
 #include "query_node.h"
@@ -48,6 +49,8 @@ void ReadIterator_Free(IndexIterator *it);
 It will return each document of the underlying iterators, exactly once */
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int quickExit,
                                 double weight, QueryNodeType type, const char *qstr, IteratorsConfig *config);
+
+void UI_Foreach(IndexIterator *it, void (*callback)(IndexReader *it, void *privdata), void *privdata);
 
 /* Create a new intersect iterator over the given list of child iterators. If maxSlop is not a
  * negative number, we will allow at most maxSlop intervening positions between the terms. If

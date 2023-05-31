@@ -76,9 +76,10 @@ typedef enum {
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
 
-// These macro should be used only by the main thread since configuration can be changed while running in 
-// backgroud.
-#define RunInThread(r) (RSGlobalConfig.threadsEnabled && RSGlobalConfig.numWorkerThreads && IsSearch(r))
+// Indicates whether a query should run in the background (allowed currently for
+// FT.SEARCH queries, only when the immutable alwaysUseThreads config is set). This
+// will also guarantee that there is a running thread pool with al least 1 thread.
+#define RunInThread(r) (RSGlobalConfig.alwaysUseThreads && IsSearch(r))
 
 typedef enum {
   /* Received EOF from iterator */

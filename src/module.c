@@ -651,7 +651,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   }
   RedisSearchCtx_LockSpecWrite(&sctx);
   IndexSpec_AddFields(ref, sp, ctx, &ac, initialScan, &status);
-  
+
   // if adding the fields has failed we return without updating statistics.
   if (QueryError_HasError(&status)) {
     RedisSearchCtx_UnlockSpec(&sctx);
@@ -1141,6 +1141,13 @@ void RediSearch_CleanupModule(void) {
   dictRelease(specDict_g);
   specDict_g = NULL;
 
+// Let the workers finish BEFORE we call CursorList_Destroy, since it frees a global
+// data structure that is accessed upon releasing the spec (and running thread might hold
+// a reference to the spec bat this time).
+#ifdef POWER_TO_THE_WORKERS
+  workersThreadPool_Wait(RSDummyContext);
+  workersThreadPool_Destroy();
+#endif
   CursorList_Destroy(&RSCursors);
 
   if (legacySpecDict) {
@@ -1154,9 +1161,6 @@ void RediSearch_CleanupModule(void) {
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
-#ifdef POWER_TO_THE_WORKERS
-  workersThreadPool_Destroy();
-#endif
 
   // free global structures
   Extensions_Free();
