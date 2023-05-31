@@ -1131,12 +1131,13 @@ static int RPUnlocker_Next(ResultProcessor *rp, SearchResult *res) {
   // call the next result processor
   int result_status = rp->upstream->Next(rp->upstream, res);
 
-  // Finish the search
-  if(result_status != REDISMODULE_OK) {
+  // Finish the search, either because we reached the end of the results or because we reached the
+  // limit (it's the last result we are going to return).
+  if (result_status != RS_RESULT_OK || rp->parent->resultLimit == 1) {
     RPUnlocker *unlocker = (RPUnlocker *)rp;
 
     // Unlock Redis if it was locked
-    if(isRedisLocked(unlocker->rpBufferAndLocker)){
+    if (isRedisLocked(unlocker->rpBufferAndLocker)) {
       UnLockRedis(unlocker->rpBufferAndLocker, unlocker->base.parent->sctx->redisCtx);
     }
 

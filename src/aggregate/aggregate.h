@@ -35,7 +35,6 @@ typedef enum {
   QEXEC_F_SEND_PAYLOADS = 0x10,   // Sent the payload set with ADD
   QEXEC_F_IS_CURSOR = 0x20,       // Is a cursor-type query
   QEXEC_F_REQUIRED_FIELDS = 0x40, // Send multiple required fields
-  QEXEC_F_HAS_THCTX = 0x80,       // Contains threadsafe context
 
   /** Don't use concurrent execution */
   QEXEC_F_SAFEMODE = 0x100,
