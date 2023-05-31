@@ -707,14 +707,13 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
     }
   }
   req->cursorChunkSize = num;
-  int arrayLen = 2;
-  if (IsProfile(req)) {
-    arrayLen = 3;
-  }
+  int arrayLen = IsProfile(req) ? 3 : 2;
+
   // return array of [results, cursorID]. (the typical result reply is in the first reply)
   // for profile, we return array of [results, cursorID, profile]
   RedisModule_ReplyWithArray(outputCtx, arrayLen);
   sendChunk(req, outputCtx, num);
+  RedisSearchCtx_UnlockSpec(req->sctx); // TODO: add a way to know whether we need to unlock or not
 
   if (req->stateflags & QEXEC_S_ITERDONE) {
     // Write the count!
@@ -722,28 +721,21 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
     if (IsProfile(req)) {
       Profile_Print(outputCtx, req);
     }
+
+    // Free the cursor and the request
+    AREQ_Free(req);
+    cursor->execState = NULL;
+    Cursor_Free(cursor);
+
   } else {
     RedisModule_ReplyWithLongLong(outputCtx, cursor->id);
     if (IsProfile(req)) {
       // If the cursor is still alive, don't print profile info to save bandwidth
       RedisModule_ReplyWithNull(outputCtx);
     }
-  }
-
-  if (req->stateflags & QEXEC_S_ITERDONE) {
-    goto delcursor;
-  } else {
     // Update the idle timeout
     Cursor_Pause(cursor);
-    return;
   }
-
-delcursor:
-  AREQ_Free(req);
-  if (cursor) {
-    cursor->execState = NULL;
-  }
-  Cursor_Free(cursor);
 }
 
 static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
@@ -756,6 +748,7 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
   QueryError status = {0};
   AREQ *req = cursor->execState;
   req->qiter.err = &status;
+  RedisSearchCtx_LockSpecRead(req->sctx); // TODO: add a way to know whether we need to lock or not
   ConcurrentSearchCtx_ReopenKeys(&req->conc);
   runCursor(ctx, cursor, count);
 }
