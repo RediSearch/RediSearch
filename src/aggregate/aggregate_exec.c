@@ -470,7 +470,7 @@ done_3:
 }
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
-  _BB;
+  //_BB;
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   RedisModule_Reply_Map(reply);
     sendChunk(req, reply, -1);

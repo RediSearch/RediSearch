@@ -987,6 +987,7 @@ static int cmp_scored_results(const void *p1, const void *p2, const void *udata)
 }
 
 static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
+  _BB;
   if (arr == NULL) {
     return;
   }
@@ -995,7 +996,6 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
     return;
   }
 
-  _BB;
   bool resp3;
   if (MRReply_Type(arr) == MR_REPLY_MAP) {
     resp3 = true;
@@ -1075,7 +1075,7 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
 }
 
 static void processSearchReply_resp2(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
-  _BB;
+  // _BB;
   searchRequestCtx *req = rCtx->searchCtx;
 
   // first element is always the total count
@@ -1412,7 +1412,7 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
                                int count, MRReply **replies,
                                clock_t totalTime, clock_t postProccesTime) {
   bool has_map = RedisModule_HasMap(reply); 
-  _BB;
+  // _BB;
   RedisModule_Reply_Map(reply); // root
     // print results
     sendSearchResults(reply, rCtx);
@@ -1469,7 +1469,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   int profile = req->profileArgs > 0;
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
-  _BB;
+  // _BB;
   int res = REDISMODULE_OK;
   // got no replies - this means timeout
   if (count == 0 || req->limit < 0) {
@@ -1514,7 +1514,6 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     }
   }
 
-  _BB; // **1
   for (int i = 0; i < count; ++i) {
     MRReply *mr_reply;
     if (reply->resp3) {
