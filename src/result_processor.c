@@ -1021,10 +1021,12 @@ int rpbufferNext_Yield(ResultProcessor *rp, SearchResult *result_output) {
   RPBufferAndLocker *RPBuffer = (RPBufferAndLocker *)rp;
   SearchResult *curr_res = GetNextResult(RPBuffer);
 
-  if(!curr_res) {
+  if (curr_res) {
+    SetResult(curr_res, result_output);
+  }
+  if (!curr_res || rp->parent->resultLimit <= 1) {
     return RPBufferAndLocker_ResetAndReturnLastCode(rp);
   }
-  SetResult(curr_res, result_output);
   return RS_RESULT_OK;
 }
 
@@ -1037,7 +1039,11 @@ int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_outp
     // Skip invalid results
     if (isResultValid(curr_res)) {
       SetResult(curr_res, result_output);
-      return RS_RESULT_OK;
+      if (rp->parent->resultLimit <= 1) {
+        return RPBufferAndLocker_ResetAndReturnLastCode(rp);
+      } else {
+        return RS_RESULT_OK;
+      }
     }
 
     // If the result is invalid discard it.
@@ -1130,12 +1136,13 @@ static int RPUnlocker_Next(ResultProcessor *rp, SearchResult *res) {
   // call the next result processor
   int result_status = rp->upstream->Next(rp->upstream, res);
 
-  // Finish the search
-  if(result_status != REDISMODULE_OK) {
+  // Finish the search, either because we reached the end of the results or because we reached the
+  // limit (it's the last result we are going to return).
+  if (result_status != RS_RESULT_OK || rp->parent->resultLimit <= 1) {
     RPUnlocker *unlocker = (RPUnlocker *)rp;
 
     // Unlock Redis if it was locked
-    if(isRedisLocked(unlocker->rpBufferAndLocker)){
+    if (isRedisLocked(unlocker->rpBufferAndLocker)) {
       UnLockRedis(unlocker->rpBufferAndLocker, unlocker->base.parent->sctx->redisCtx);
     }
 

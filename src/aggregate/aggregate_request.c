@@ -1564,7 +1564,7 @@ void AREQ_Free(AREQ *req) {
   // we need also to detach the ("Thread Safe") context.
   RedisModuleCtx *thctx = NULL;
   if (req->sctx) {
-    if (req->reqflags & QEXEC_F_HAS_THCTX || req->reqflags & QEXEC_F_IS_CURSOR) {
+    if (req->reqflags & QEXEC_F_IS_CURSOR) {
       thctx = req->sctx->redisCtx;
       req->sctx->redisCtx = NULL;
     }
