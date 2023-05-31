@@ -16,6 +16,7 @@ from typing import Any, Callable
 from RLTest import Env
 from RLTest.env import Query
 import numpy as np
+from scipy import spatial
 from unittest import SkipTest
 import inspect
 
