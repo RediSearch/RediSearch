@@ -865,57 +865,53 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   if (has_map) // RESP3
   {
     RedisModule_Reply_Array(reply);
-      RedisModule_Reply_Map(reply);
-        sendChunk(req, reply, num);
-        bool cursor_done = !!(req->stateflags & QEXEC_S_ITERDONE);
+    RedisModule_Reply_Map(reply);
+    sendChunk(req, reply, num);
+    RedisSearchCtx_UnlockSpec(req->sctx); // TODO: add a way to know whether we need to unlock or not
+    bool cursor_done = !!(req->stateflags & QEXEC_S_ITERDONE);
 
-        // If the cursor is still alive, don't print profile info to save bandwidth
-        if (IsProfile(req) && cursor_done) {
-          Profile_Print(reply, req);
-        }
-      RedisModule_Reply_MapEnd(reply);
+    // If the cursor is still alive, don't print profile info to save bandwidth
+    if (IsProfile(req) && cursor_done) {
+      Profile_Print(reply, req);
+    }
+    RedisModule_Reply_MapEnd(reply);
 
-      RedisModule_Reply_LongLong(reply, cursor_done ? 0 : cursor->id);
-     RedisModule_Reply_ArrayEnd(reply);
+    RedisModule_Reply_LongLong(reply, cursor_done ? 0 : cursor->id);
+    RedisModule_Reply_ArrayEnd(reply);
   }
   else // RESP2
   {
     // return array of [results, cursorID]. (the typical result reply is in the first reply)
     // for profile, we return array of [results, cursorID, profile]
     RedisModule_Reply_Array(reply);
-      sendChunk(req, reply, num);
-      bool cursor_done = !!(req->stateflags & QEXEC_S_ITERDONE);
+    sendChunk(req, reply, num);
+    RedisSearchCtx_UnlockSpec(req->sctx); // TODO: add a way to know whether we need to unlock or not
+    bool cursor_done = !!(req->stateflags & QEXEC_S_ITERDONE);
 
-      if (cursor_done) {
-        // Write the count!
-        RedisModule_Reply_LongLong(reply, 0);
-        if (IsProfile(req)) {
-          Profile_Print(reply, req);
-        }
-      } else {
-        RedisModule_Reply_LongLong(reply, cursor->id);
-        if (IsProfile(req)) {
-          // If the cursor is still alive, don't print profile info to save bandwidth
-          RedisModule_Reply_Null(reply);
-        }
+    if (cursor_done) {
+      // Write the count!
+      RedisModule_Reply_LongLong(reply, 0);
+      if (IsProfile(req)) {
+        Profile_Print(reply, req);
       }
+    } else {
+      RedisModule_Reply_LongLong(reply, cursor->id);
+      if (IsProfile(req)) {
+        // If the cursor is still alive, don't print profile info to save bandwidth
+        RedisModule_Reply_Null(reply);
+      }
+    }
     RedisModule_Reply_ArrayEnd(reply);
   }
 
   if (req->stateflags & QEXEC_S_ITERDONE) {
-    goto delcursor;
-  }
-
-  // Update the idle timeout
-  Cursor_Pause(cursor);
-  return;
-
-delcursor:
-  AREQ_Free(req);
-  if (cursor) {
+    AREQ_Free(req);
     cursor->execState = NULL;
+    Cursor_Free(cursor);
+  } else {
+    // Update the idle timeout
+    Cursor_Pause(cursor);
   }
-  Cursor_Free(cursor);
 }
 
 static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count) {
@@ -928,6 +924,7 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count) {
   QueryError status = {0};
   AREQ *req = cursor->execState;
   req->qiter.err = &status;
+  RedisSearchCtx_LockSpecRead(req->sctx); // TODO: add a way to know whether we need to lock or not
   ConcurrentSearchCtx_ReopenKeys(&req->conc);
   runCursor(reply, cursor, count);
 }
