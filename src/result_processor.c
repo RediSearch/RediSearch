@@ -69,9 +69,7 @@ void SearchResult_Destroy(SearchResult *r) {
 #define RP_SPEC(rpctx) (RP_SCTX(rpctx)->spec)
 
 static int UnlockSpec_and_ReturnRPResult(ResultProcessor *base, int result_status) {
-  if(RP_SCTX(base)) {
-    RedisSearchCtx_UnlockSpec(RP_SCTX(base));
-  }
+  RedisSearchCtx_UnlockSpec(RP_SCTX(base));
   return result_status;
 }
 typedef struct {
@@ -605,7 +603,7 @@ static int rppagerNext(ResultProcessor *base, SearchResult *r) {
 
   // If we've reached LIMIT:
   if (self->count >= self->limit + self->offset) {
-    return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_EOF);
+    return RS_RESULT_EOF;
   }
 
   self->count++;
@@ -943,7 +941,7 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   SearchResult *CurrBlock = NULL;
   size_t init_spec_version = IndexSpec_GetVersion(sctx->spec);
   // Get the next result and save it in the buffer
-  while(rp->parent->resultLimit-- && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
+  while (rp->parent->resultLimit-- && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
 
     // Buffer the result.
     CurrBlock = InsertResult(rpPufferAndLocker, &resToBuffer, CurrBlock);
@@ -965,7 +963,10 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   // Now we have the data of all documents that pass the query filters,
   // let's lock Redis to provide safe access to Redis keyspace
 
-  // Lock Redis to guarantee safe access to Redis keyspace
+  // First, we verify that we unlocked the spec before we lock Redis.
+  RedisSearchCtx_UnlockSpec(sctx);
+
+  // Then, lock Redis to guarantee safe access to Redis keyspace
   LockRedis(rpPufferAndLocker, sctx->redisCtx);
 
   // If the spec has been changed since we released the spec lock,
@@ -1035,7 +1036,7 @@ int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_outp
   SearchResult *curr_res;
 
   // iterate the buffer.
-  while((curr_res = GetNextResult(RPBuffer))) {
+  while ((curr_res = GetNextResult(RPBuffer))) {
     // Skip invalid results
     if (isResultValid(curr_res)) {
       SetResult(curr_res, result_output);
