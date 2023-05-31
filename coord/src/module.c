@@ -444,6 +444,7 @@ typedef struct {
 } searchRequestCtx;
 
 typedef struct{
+  MRReply *fieldNames;
   MRReply *lastError;
   searchResult *cachedResult;
   searchRequestCtx *searchCtx;
@@ -451,6 +452,7 @@ typedef struct{
   size_t totalReplies;
   bool errorOccured;
   searchReplyOffsets offsets;
+
   processReplyCB processReply;
   postProcessReplyCB postProcess;
   specialCaseCtx* reduceSpecialCaseCtx;
@@ -460,7 +462,6 @@ typedef struct {
   searchResult* result;
   double score;
 } scoredSearchResultWrapper;
-
 
 specialCaseCtx* SpecialCaseCtx_New() {
   specialCaseCtx* ctx = rm_calloc(1, sizeof(specialCaseCtx));
@@ -831,67 +832,65 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
   return res;
 }
 
-searchResult *newResult_resp3(searchResult *cached, MRReply *arr, int j, searchReplyOffsets* offsets, int explainScores) {
-  _BB;
-  int scoreOffset = offsets->score;
-  int fieldsOffset = offsets->firstField;
-  int payloadOffset = offsets->payload;
-  int sortKeyOffset = offsets->sortKey;
+searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, bool explainScores) {
+  //_BB;
   searchResult *res = cached ? cached : rm_malloc(sizeof *res);
   res->sortKey = NULL;
   res->sortKeyNum = HUGE_VAL;
-  if (MRReply_Type(MRReply_ArrayElement(arr, j)) != MR_REPLY_STRING) {
+
+  MRReply *result_j = MRReply_ArrayElement(results, j);
+  if (MRReply_Type(result_j) != MR_REPLY_MAP) {
     res->id = NULL;
     return res;
   }
-  res->id = MRReply_String(MRReply_ArrayElement(arr, j), &res->idLen);
+
+  MRReply *result_id = MRReply_MapElement(result_j, "id");
+  res->id = MRReply_String(result_id, &res->idLen);
   if (!res->id) {
     return res;
   }
+
   // parse socre
+  MRReply *score = MRReply_MapElement(result_j, "score");
   if (explainScores) {
-    MRReply *scoreReply = MRReply_ArrayElement(arr, j + scoreOffset);
-    if (MRReply_Type(scoreReply) == MR_REPLY_MAP) { _BB; } //@@
-    if (MRReply_Type(scoreReply) != MR_REPLY_ARRAY) {
+    if (MRReply_Type(score) != MR_REPLY_ARRAY) {
       res->id = NULL;
       return res;
     }
-    if (MRReply_Length(scoreReply) != 2) {
+    if (!MRReply_ToDouble(MRReply_ArrayElement(score, 0), &res->score)) {
       res->id = NULL;
       return res;
     }
-    if (!MRReply_ToDouble(MRReply_ArrayElement(scoreReply, 0), &res->score)) {
-      res->id = NULL;
-      return res;
-    }
-    res->explainScores = MRReply_ArrayElement(scoreReply, 1);
-    // Parse scores only if they were are part of the shard's response.
-  } else if (scoreOffset > 0 &&
-             !MRReply_ToDouble(MRReply_ArrayElement(arr, j + scoreOffset), &res->score)) {
+    res->explainScores = MRReply_ArrayElement(score, 1);
+
+  } else if (!MRReply_ToDouble(score, &res->score)) {
       res->id = NULL;
       return res;
   }
+
   // get fields
-  res->fields = fieldsOffset > 0 ? MRReply_ArrayElement(arr, j + fieldsOffset) : NULL;
+  res->fields = MRReply_MapElement(result_j, "fields");
+
   // get payloads
-  res->payload = payloadOffset > 0 ? MRReply_ArrayElement(arr, j + payloadOffset) : NULL;
-  if (sortKeyOffset > 0) {
-    res->sortKey = MRReply_String(MRReply_ArrayElement(arr, j + sortKeyOffset), &res->sortKeyLen);
-  } else {
-    res->sortKey = NULL;
-  }
-  if (res->sortKey) {
-    if (res->sortKey[0] == '#') {
-      char *eptr;
-      double d = strtod(res->sortKey + 1, &eptr);
-      if (eptr != res->sortKey + 1 && *eptr == 0) {
-        res->sortKeyNum = d;
+  res->payload = MRReply_MapElement(result_j, "payload");
+
+  MRReply *sortkey = MRReply_MapElement(result_j, "sortkey");
+  if (sortkey) {
+    res->sortKey = MRReply_String(sortkey, &res->sortKeyLen);
+    if (res->sortKey) {
+      if (res->sortKey[0] == '#') {
+        char *eptr;
+        double d = strtod(res->sortKey + 1, &eptr);
+        if (eptr != res->sortKey + 1 && *eptr == 0) {
+          res->sortKeyNum = d;
+        }
+      } else if (!strncmp(res->sortKey, "none", 4)) {
+        res->sortKey = NULL;
       }
-    } else if (!strncmp(res->sortKey, "none", 4)) {
-      res->sortKey = NULL;
+      // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
     }
-    // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
   }
+
   return res;
 }
 
@@ -932,13 +931,13 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
   // Update the offsets for the special case after determining score, payload, field.
   size_t specialCaseStartOffset = offsets->firstField;
   size_t specialCasesMaxOffset = 0;
-  if(ctx->specialCases) {
+  if (ctx->specialCases) {
     size_t nSpecialCases = array_len(ctx->specialCases);
     for(size_t i = 0; i < nSpecialCases; i++) {
       switch (ctx->specialCases[i]->specialCaseType)
       {
       case SPECIAL_CASE_KNN: {
-        ctx->specialCases[i]->knn.offset+=specialCaseStartOffset;
+        ctx->specialCases[i]->knn.offset += specialCaseStartOffset;
         specialCasesMaxOffset = MAX(specialCasesMaxOffset, ctx->specialCases[i]->knn.offset);
         break;
       }
@@ -1024,9 +1023,9 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
     }
     searchResult *res;
     if (resp3) {
-      res = newResult_resp3(rCtx->cachedResult, arr, j, &rCtx->offsets , rCtx->searchCtx->withExplainScores);
+      res = newResult_resp3(rCtx->cachedResult, arr, j, rCtx->searchCtx->withExplainScores);
     } else {
-      res = newResult_resp2(rCtx->cachedResult, arr, j, &rCtx->offsets , rCtx->searchCtx->withExplainScores);
+      res = newResult_resp2(rCtx->cachedResult, arr, j, &rCtx->offsets, rCtx->searchCtx->withExplainScores);
     }
     if (!res || !res->id) {
       RedisModule_Log(ctx, "warning", "got an unexpected argument when parsing redisearch results");
@@ -1105,8 +1104,7 @@ static void processSearchReply_resp2(MRReply *arr, searchReducerCtx *rCtx, Redis
       rCtx->cachedResult = NULL;
     }
 
-    // fprintf(stderr, "Response %d result %d Reply docId %s score: %f sortkey %f\n", i, j,
-    //         res->id, res->score, res->sortKeyNum);
+    // fprintf(stderr, "Result %d Reply docId %s score: %f sortkey %f\n", j, res->id, res->score, res->sortKeyNum);
 
     // TODO: minmax_heap?
     if (heap_count(rCtx->pq) < heap_size(rCtx->pq)) {
@@ -1135,8 +1133,6 @@ static void processSearchReply_resp2(MRReply *arr, searchReducerCtx *rCtx, Redis
 static void processSearchReply_resp3(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
   searchRequestCtx *req = rCtx->searchCtx;
 
-  // first element is always the total count
-  _BB;
   MRReply *total_results = MRReply_MapElement(arr, "total_results");
   if (!total_results) {
     rCtx->errorOccured = true;
@@ -1150,17 +1146,8 @@ static void processSearchReply_resp3(MRReply *arr, searchReducerCtx *rCtx, Redis
   }
   size_t len = MRReply_Length(results);
 
-  int step = rCtx->offsets.step;
-  // fprintf(stderr, "Step %d, scoreOffset %d, fieldsOffset %d, sortKeyOffset %d\n", step,
-  //         scoreOffset, fieldsOffset, sortKeyOffset);
-  for (int j = 1; j < len; j += step) {
-    if (j + step > len) {
-      RedisModule_Log(ctx, "warning",
-        "got a bad reply from redisearch, reply contains less parameters then expected");
-      rCtx->errorOccured = true;
-      break;
-    }
-    searchResult *res = newResult_resp3(rCtx->cachedResult, arr, j, &rCtx->offsets , rCtx->searchCtx->withExplainScores);
+  for (int i = 0; i < len; ++i) {
+    searchResult *res = newResult_resp3(rCtx->cachedResult, results, i, rCtx->searchCtx->withExplainScores);
     if (!res || !res->id) {
       RedisModule_Log(ctx, "warning", "got an unexpected argument when parsing redisearch results");
       rCtx->errorOccured = true;
@@ -1172,8 +1159,7 @@ static void processSearchReply_resp3(MRReply *arr, searchReducerCtx *rCtx, Redis
       rCtx->cachedResult = NULL;
     }
 
-    // fprintf(stderr, "Response %d result %d Reply docId %s score: %f sortkey %f\n", i, j,
-    //         res->id, res->score, res->sortKeyNum);
+    // fprintf(stderr, "Result %d Reply docId %s score: %f sortkey %f\n", i, res->id, res->score, res->sortKeyNum);
 
     // TODO: minmax_heap?
     if (heap_count(rCtx->pq) < heap_size(rCtx->pq)) {
@@ -1277,37 +1263,105 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   heap_free(rCtx->pq);
   rCtx->pq = NULL;
 
-  RedisModule_Reply_Array(reply);
-  RedisModule_Reply_LongLong(reply, rCtx->totalReplies);
+  //_BB;
+  //-------------------------------------------------------------------------------------------
+  if (reply->resp3) // RESP3
+  {
+    RedisModule_Reply_SimpleString(reply, "field_names");
+    if (rCtx->fieldNames) {
+      MR_ReplyWithMRReply(reply, rCtx->fieldNames);
+    } else {
+      RedisModule_Reply_EmptyArray(reply);
+    }
 
-  for (pos = rCtx->searchCtx->offset; pos < qlen && pos < num; pos++) {
-    searchResult *res = results[pos];
-    RedisModule_Reply_StringBuffer(reply, res->id, res->idLen);
-    if (req->withScores) {
-      if (req->withExplainScores) {
-        RedisModule_Reply_Array(reply);
+    RedisModule_Reply_SimpleString(reply, "error"); // >errors
+    if (rCtx->lastError) {
+      MR_ReplyWithMRReply(reply, rCtx->lastError);
+    } else {
+      RedisModule_Reply_EmptyArray(reply);
+    }
+
+    RedisModule_ReplyKV_LongLong(reply, "total_results", rCtx->totalReplies);
+
+    RedisModule_ReplyKV_Array(reply, "results"); // >results
+
+      for (int i = 0; i < qlen && i < num; ++i) {
+        RedisModule_Reply_Map(reply); // >> result
+          searchResult *res = results[i];
+
+          RedisModule_ReplyKV_StringBuffer(reply, "id", res->id, res->idLen);
+
+          if (req->withScores) {
+            RedisModule_Reply_SimpleString(reply, "score");
+
+            if (req->withExplainScores) {
+              RedisModule_Reply_Array(reply);
+                RedisModule_Reply_Double(reply, res->score);
+                MR_ReplyWithMRReply(reply, res->explainScores);
+              RedisModule_Reply_ArrayEnd(reply);
+            } else {
+              RedisModule_Reply_Double(reply, res->score);
+            }
+          }
+
+          if (req->withPayload) {
+            RedisModule_Reply_SimpleString(reply, "payload");
+            MR_ReplyWithMRReply(reply, res->payload);
+          }
+
+          if (req->withSortingKeys || req->withSortby) {
+            RedisModule_Reply_SimpleString(reply, "sortkey");
+            if (res->sortKey) {
+              RedisModule_Reply_StringBuffer(reply, res->sortKey, res->sortKeyLen);
+            } else {
+              RedisModule_Reply_Null(reply);
+            }
+          }
+          if (!req->noContent) {
+            RedisModule_ReplyKV_MRReply(reply, "fields", res->fields); // >> fields
+          }
+
+          RedisModule_Reply_SimpleString(reply, "field_values");
+          RedisModule_Reply_EmptyArray(reply);
+        RedisModule_Reply_MapEnd(reply); // >>result
+      }
+
+    RedisModule_Reply_ArrayEnd(reply); // >results
+  }
+  //-------------------------------------------------------------------------------------------
+  else // RESP2
+  {
+    RedisModule_Reply_LongLong(reply, rCtx->totalReplies);
+
+    for (pos = rCtx->searchCtx->offset; pos < qlen && pos < num; pos++) {
+      searchResult *res = results[pos];
+      RedisModule_Reply_StringBuffer(reply, res->id, res->idLen);
+      if (req->withScores) {
+        if (req->withExplainScores) {
+          RedisModule_Reply_Array(reply);
+            RedisModule_Reply_Double(reply, res->score);
+            MR_ReplyWithMRReply(reply, res->explainScores);
+          RedisModule_Reply_ArrayEnd(reply);
+        } else {
           RedisModule_Reply_Double(reply, res->score);
-          MR_ReplyWithMRReply(reply, res->explainScores);
-        RedisModule_Reply_ArrayEnd(reply);
-      } else {
-        RedisModule_Reply_Double(reply, res->score);
+        }
       }
-    }
-    if (req->withPayload) {
-      MR_ReplyWithMRReply(reply, res->payload);
-    }
-    if (req->withSortingKeys && req->withSortby) {
-      if (res->sortKey) {
-        RedisModule_Reply_StringBuffer(reply, res->sortKey, res->sortKeyLen);
-      } else {
-        RedisModule_Reply_Null(reply);
+      if (req->withPayload) {
+        MR_ReplyWithMRReply(reply, res->payload);
       }
-    }
-    if (!req->noContent) {
-      MR_ReplyWithMRReply(reply, res->fields);
+      if (req->withSortingKeys && req->withSortby) {
+        if (res->sortKey) {
+          RedisModule_Reply_StringBuffer(reply, res->sortKey, res->sortKeyLen);
+        } else {
+          RedisModule_Reply_Null(reply);
+        }
+      }
+      if (!req->noContent) {
+        MR_ReplyWithMRReply(reply, res->fields);
+      }
     }
   }
-  RedisModule_Reply_ArrayEnd(reply);
+  //-------------------------------------------------------------------------------------------
 
   // Free the sorted results
   for (pos = 0; pos < qlen; pos++) {
@@ -1320,60 +1374,78 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
  * This function is used to print profiles received from the shards.
  * It is used by both SEARCH and AGGREGATE.
  */
-void PrintShardProfile(RedisModule_Reply *reply, int count, MRReply **replies, int isSearch) {
-  RedisModule_ReplyKV_Map(reply, "shards");
-
+void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, int isSearch) {
   for (int i = 0; i < count; ++i) {
     char *shard_i;
     rm_asprintf(&shard_i, "Shard #%d", i + 1);
-    RedisModule_ReplyKV_Array(reply, shard_i);
+    RedisModule_Reply_SimpleString(reply, shard_i);
     rm_free(shard_i);
   
     // The 1st location always stores the results. On FT.AGGREGATE, the next place stores the
     // cursor ID. The last location (2nd for FT.SEARCH and 3rd for FT.AGGREGATE) stores the
     // profile information of the shard.
-  
+    
     int idx = isSearch ? 1 : 2;
     MRReply *mr_reply = MRReply_ArrayElement(replies[i], idx);
     int len = MRReply_Length(mr_reply);
     for (int j = 0; j < len; ++j) {
       MR_ReplyWithMRReply(reply, MRReply_ArrayElement(mr_reply, j));
     }
-
-    RedisModule_Reply_ArrayEnd(reply);
   }
+}
 
-  RedisModule_Reply_MapEnd(reply);
+void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies) {
+  for (int i = 0; i < count; ++i) {
+    char *shard_i;
+    rm_asprintf(&shard_i, "Shard #%d", i + 1);
+    RedisModule_Reply_SimpleString(reply, shard_i);
+    rm_free(shard_i);
+  
+    MRReply *profile = MRReply_MapElement(replies[i], "profile");
+    if (profile) {
+      MR_ReplyWithMRReply(reply, profile);
+    }
+  }
 }
 
 static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
                                int count, MRReply **replies,
                                clock_t totalTime, clock_t postProccesTime) {
   bool has_map = RedisModule_HasMap(reply); 
+  _BB;
   RedisModule_Reply_Map(reply); // root
-
     // print results
     sendSearchResults(reply, rCtx);
 
-    // print profile of shards
-    RedisModule_Reply_Map(reply); // >shards
-      PrintShardProfile(reply, count, replies, 1);
+    // print profile of shards & coordinator
+    if (has_map) {
+      RedisModule_ReplyKV_Map(reply, "shards"); // >shards
+    } else {
+      RedisModule_Reply_Map(reply); // >shards
+    }
 
-      // print coordinator stats
-      if (has_map) {
-        RedisModule_ReplyKV_Map(reply, "Coordinator");
-          // search cmd only do the heap so there is no parsing time
-          RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - totalTime) / CLOCKS_PER_MILLISEC);
-          RedisModule_ReplyKV_Double(reply, "Post Proccessing time", (double)(clock() - postProccesTime) / CLOCKS_PER_MILLISEC);
-        RedisModule_Reply_MapEnd(reply);
-      } else {
-        RedisModule_Reply_SimpleString(reply, "Coordinator");
-        RedisModule_Reply_Array(reply);
-          // search cmd only do the heap so there is no parsing time
-          RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - totalTime) / CLOCKS_PER_MILLISEC);
-          RedisModule_ReplyKV_Double(reply, "Post Proccessing time", (double)(clock() - postProccesTime) / CLOCKS_PER_MILLISEC);
-        RedisModule_Reply_ArrayEnd(reply);
-      }
+    if (has_map) {
+      PrintShardProfile_resp3(reply, count, replies);
+	} else {
+      PrintShardProfile_resp2(reply, count, replies, 1);
+    }
+
+    // print coordinator stats
+    if (has_map) {
+      RedisModule_ReplyKV_Map(reply, "Coordinator");
+        // search cmd only do the heap so there is no parsing time
+        RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - totalTime) / CLOCKS_PER_MILLISEC);
+        RedisModule_ReplyKV_Double(reply, "Post Proccessing time", (double)(clock() - postProccesTime) / CLOCKS_PER_MILLISEC);
+      RedisModule_Reply_MapEnd(reply);
+    } else {
+      RedisModule_Reply_SimpleString(reply, "Coordinator");
+      RedisModule_Reply_Array(reply);
+        // search cmd only do the heap so there is no parsing time
+        RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - totalTime) / CLOCKS_PER_MILLISEC);
+        RedisModule_ReplyKV_Double(reply, "Post Proccessing time", (double)(clock() - postProccesTime) / CLOCKS_PER_MILLISEC);
+      RedisModule_Reply_ArrayEnd(reply);
+    }
+
     RedisModule_Reply_MapEnd(reply); // >shards
   RedisModule_Reply_MapEnd(reply); // root
 }
@@ -1397,7 +1469,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   int profile = req->profileArgs > 0;
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
-  //1 _BB;
+  _BB;
   int res = REDISMODULE_OK;
   // got no replies - this means timeout
   if (count == 0 || req->limit < 0) {
@@ -1424,14 +1496,14 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   rCtx.processReply = (processReplyCB) processSearchReply;
   rCtx.postProcess = (postProcessReplyCB) noOpPostProcess;
 
-  if(req->specialCases) {
+  if (req->specialCases) {
     size_t nSpecialCases = array_len(req->specialCases);
-    for(size_t i =0; i < nSpecialCases; i++) {
-      if(req->specialCases[i]->specialCaseType == SPECIAL_CASE_KNN) {
+    for (size_t i = 0; i < nSpecialCases; ++i) {
+      if (req->specialCases[i]->specialCaseType == SPECIAL_CASE_KNN) {
         specialCaseCtx* knnCtx = req->specialCases[i];
         rCtx.postProcess = (postProcessReplyCB) knnPostProcess;
         rCtx.reduceSpecialCaseCtx = knnCtx;
-        if(knnCtx->knn.shouldSort) {
+        if (knnCtx->knn.shouldSort) {
           knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCtx->knn.k));
           heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCtx->knn.k);
           rCtx.processReply = (processReplyCB) proccessKNNSearchReply;
@@ -1442,13 +1514,21 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     }
   }
 
-  for (int i = 0; i < count; i++) {
-    MRReply *reply = (!profile) ? replies[i] : MRReply_ArrayElement(replies[i], 0);
-    rCtx.processReply(reply, (struct searchReducerCtx *)&rCtx, ctx);
+  _BB; // **1
+  for (int i = 0; i < count; ++i) {
+    MRReply *mr_reply;
+    if (reply->resp3) {
+      mr_reply = replies[i];
+    } else {
+      mr_reply = !profile ? replies[i] : MRReply_ArrayElement(replies[i], 0);
+    }
+    rCtx.processReply(mr_reply, (struct searchReducerCtx *)&rCtx, ctx);
   }
+
   if (rCtx.cachedResult) {
     rm_free(rCtx.cachedResult);
   }
+
   // If we didn't get any results and we got an error - return it.
   // If some shards returned results and some errors - we prefer to show the results we got an not
   // return an error. This might change in the future
@@ -1462,13 +1542,17 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   if (!profile) {
-    sendSearchResults(reply, &rCtx);
+    RedisModule_Reply_Map(reply);
+      sendSearchResults(reply, &rCtx);
+    RedisModule_Reply_MapEnd(reply);
   } else {
     postProccessTime = clock();
     profileSearchReply(reply, &rCtx, count, replies, req->profileClock, postProccessTime);
   }
 
 cleanup:
+  RedisModule_EndReply(reply);
+
   if (rCtx.pq) {
     heap_destroy(rCtx.pq);
   }
@@ -1484,7 +1568,6 @@ cleanup:
   RedisModule_FreeThreadSafeContext(ctx);
   MR_requestCompleted();
   MRCtx_Free(mc);
-  RedisModule_EndReply(reply);
   return res;
 }
 

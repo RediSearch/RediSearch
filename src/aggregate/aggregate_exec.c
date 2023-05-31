@@ -160,8 +160,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
   // Coordinator only - handle required fields for coordinator request
   if (options & QEXEC_F_REQUIRED_FIELDS) {
     if (has_map) {
-      RedisModule_Reply_SimpleString(reply, "required_fields");
-      // @@TODO: this is a bug, not sure what should I do here
+      RedisModule_ReplyKV_Array(reply, "required_fields"); // >required_fields
     }
 
     // Sortkey is the first key to reply on the required fields, if the we already replied it, continue to the next one.
@@ -182,6 +181,9 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         v = &rsv;
       }
       reeval_key(reply, v);
+    }
+    if (has_map) {
+      RedisModule_Reply_ArrayEnd(reply); // >required_fields
     }
   }
 
@@ -234,7 +236,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
 _out:
   if (has_map) {
     // placeholder for fields_values. (possible optimization)
-    RedisModule_Reply_SimpleString(reply, "fields_values");
+    RedisModule_Reply_SimpleString(reply, "field_values");
     RedisModule_Reply_EmptyArray(reply);
 
     RedisModule_Reply_MapEnd(reply);
@@ -267,7 +269,7 @@ static size_t getResultsFactor(AREQ *req) {
   }
 
   if (req->reqflags & QEXEC_F_REQUIRED_FIELDS) {
-    count+= array_len(req->requiredFields);
+    count += array_len(req->requiredFields);
     if (req->reqflags & QEXEC_F_SEND_SORTKEYS) {
       count--;
     }
@@ -299,10 +301,9 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   cv.lastAstp = AGPLN_GetArrangeStep(&req->ap);
 
   //-------------------------------------------------------------------------------------------
-  if (has_map) { // RESP3 variant
-    RedisModule_Reply_Map(reply); // root
-
-    RedisModule_ReplyKV_Array(reply, "fields_names");
+  if (has_map)  // RESP3 variant
+  {
+    RedisModule_ReplyKV_Array(reply, "field_names");
     RedisModule_Reply_ArrayEnd(reply);
 
     rc = rp->Next(rp, &r);
@@ -327,7 +328,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   
     OPTMZ(QOptimizer_UpdateTotalResults(req));
   
-    _BB;
+    //_BB;
     RedisModule_ReplyKV_Array(reply, "error"); // >errors
       if (rc == RS_RESULT_TIMEDOUT) {
         RedisModule_Reply_SimpleString(reply, "Timeout limit was reached");
@@ -386,8 +387,6 @@ done_3:
     //if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN) {
     RedisModule_Reply_ArrayEnd(reply); // >results
     //}
-
-    RedisModule_Reply_MapEnd(reply); // root
   } 
   //-------------------------------------------------------------------------------------------
   else // ! has_map (RESP2 variant)
@@ -473,19 +472,14 @@ done_3:
 void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   _BB;
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  bool has_map = RedisModule_HasMap(reply);
-  if (IsProfile(req)) {
-    RedisModule_Reply_Map(reply);
-  }/* else if (has_map) {
-    RedisModule_Reply_Map(reply);
-  }*/ //@@
-  sendChunk(req, reply, -1);
-  if (IsProfile(req)) {
-    Profile_Print(reply, req);
-    RedisModule_Reply_MapEnd(reply);
-  }
-  AREQ_Free(req);
+  RedisModule_Reply_Map(reply);
+    sendChunk(req, reply, -1);
+    if (IsProfile(req)) {
+      Profile_Print(reply, req);
+    }
+  RedisModule_Reply_MapEnd(reply);
   RedisModule_EndReply(reply);
+  AREQ_Free(req);
 }
 
 static blockedClientReqCtx *blockedClientReqCtx_New(AREQ *req,
@@ -699,7 +693,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
       goto error;
     }
-    _BB;
+    //_BB;
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     int rc = AREQ_StartCursor(r, reply, r->sctx->spec->name, &status);
     RedisModule_EndReply(reply);

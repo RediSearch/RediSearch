@@ -9,7 +9,7 @@
 void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime, PrintProfileConfig *config) {
   IndexReader *ir = root->ctx;
 
-  RedisModule_Reply_Array(reply);
+  RedisModule_Reply_Map(reply);
 
   if (ir->idx->flags == Index_DocIdsOnly) {
     printProfileType("TAG");
@@ -44,7 +44,7 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
 
   RedisModule_ReplyKV_LongLong(reply, "Size", root->NumEstimated(ir));
 
-  RedisModule_Reply_ArrayEnd(reply);
+  RedisModule_Reply_MapEnd(reply);
 }
 
 static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *rp, int printProfileClock) {
@@ -55,7 +55,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
 
   // Array is filled backward in pair of [common, profile] result processors
   if (rp->type != RP_PROFILE) {
-    RedisModule_Reply_Array(reply);
+    RedisModule_Reply_Map(reply); // start of resursive map
 
     switch (rp->type) {
       case RP_INDEX:
@@ -92,7 +92,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     printProfileTime(totalRPTime - upstreamTime); 
   }
   printProfileCounter(RPProfile_GetCount(rp) - 1);
-  RedisModule_Reply_ArrayEnd(reply);
+  RedisModule_Reply_MapEnd(reply); // end of resursive map
   return totalRPTime;
 }
 
@@ -100,7 +100,7 @@ static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int 
   return _recursiveProfilePrint(reply, rp, printProfileClock);
 }
 
-int Profile_Print(RedisModule_Reply *reply, AREQ *req){
+int Profile_Print(RedisModule_Reply *reply, AREQ *req) {
   bool has_map = RedisModule_HasMap(reply);
 
   //-------------------------------------------------------------------------------------------

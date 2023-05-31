@@ -373,7 +373,8 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, SearchCluster *sc,
   }
 }
 
-size_t PrintShardProfile(RedisModule_Reply *reply, int count, MRReply **replies, int isSearch);
+size_t PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, int isSearch);
+size_t PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies);
 
 void printAggProfile(RedisModule_Reply *reply, AREQ *req) {
   clock_t finishTime = clock();
@@ -384,7 +385,11 @@ void printAggProfile(RedisModule_Reply *reply, AREQ *req) {
     RPNet *rpnet = (RPNet *)req->qiter.rootProc;
 
     // Print shards profile
-    PrintShardProfile(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile, 0);
+    if (reply->resp3) {
+      PrintShardProfile_resp3(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile);
+    } else {
+      PrintShardProfile_resp2(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile, 0);
+    }
 
     // Print coordinator profile
 
@@ -479,20 +484,13 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     if (rc != REDISMODULE_OK) {
       goto err;
     }
-  } else if (IsProfile(r)) {
+  } else {
     RedisModule_Reply_Map(reply);
       sendChunk(r, reply, -1);
-      printAggProfile(reply, r);
+      if (IsProfile(r)) {
+        printAggProfile(reply, r);
+      }
     RedisModule_Reply_MapEnd(reply);
-    AREQ_Free(r);
-  } else {
-    if (has_map) {
-      RedisModule_Reply_Map(reply);
-    }
-    sendChunk(r, reply, -1);
-    if (has_map) {
-      RedisModule_Reply_MapEnd(reply);
-    }
     AREQ_Free(r);
   }
 
