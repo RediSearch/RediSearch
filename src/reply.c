@@ -98,7 +98,7 @@ static inline void json_add_close(RedisModule_Reply *reply, const char *s) {}
 
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx) {
 #ifdef REDISMODULE_REPLY_DEBUG
-  RedisModule_Reply reply = { ctx, _ReplyMap(ctx), 0, NULL, NULL };
+  RedisModule_Reply reply = { ctx, _ReplyMap(ctx) && _ReplySet(ctx), 0, NULL, NULL };
   reply.json = array_new(char, 1);
   *reply.json = '\0';
 #else

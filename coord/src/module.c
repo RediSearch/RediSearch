@@ -74,7 +74,7 @@ int chainReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   return REDISMODULE_OK;
 }
 
-// A reducer that just merges N arrays of strings by chaining them into one big array with no
+// A reducer that just merges N sets of strings by chaining them into one big array with no
 // duplicates
 
 int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
@@ -85,10 +85,10 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   TrieMap *dict = NewTrieMap();
   int nArrs = 0;
-  // Add all the array elements into the dedup dict
+  // Add all the set elements into the dedup dict
   for (int i = 0; i < count; i++) {
-  if (MRReply_Type(replies[i]) == MR_REPLY_MAP) { _BB; } //@@
-    if (replies[i] && MRReply_Type(replies[i]) == MR_REPLY_ARRAY) {
+    if (replies[i] && (MRReply_Type(replies[i]) == MR_REPLY_ARRAY 
+    || MRReply_Type(replies[i]) == MR_REPLY_SET)) {
       nArrs++;
       for (size_t j = 0; j < MRReply_Length(replies[i]); j++) {
         size_t sl = 0;
@@ -102,13 +102,13 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
     }
   }
 
-  // if there are no values - either reply with an empty array or an error
+  // if there are no values - either reply with an empty set or an error
   if (dict->cardinality == 0) {
 
     if (nArrs > 0) {
-      // the arrays were empty - return an empty array
-      RedisModule_Reply_Array(reply);
-      RedisModule_Reply_ArrayEnd(reply);
+      // the sets were empty - return an empty set
+      RedisModule_Reply_Set(reply);
+      RedisModule_Reply_SetEnd(reply);
     } else {
       RedisModule_ReplyWithError(ctx, err ? (const char *)err : "Could not perfrom query");
     }
@@ -116,7 +116,7 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   // Iterate the dict and reply with all values
-  RedisModule_Reply_Array(reply);
+  RedisModule_Reply_Set(reply);
     char *s;
     tm_len_t sl;
     void *p;
@@ -125,7 +125,7 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
       RedisModule_Reply_StringBuffer(reply, s, sl);
     }
     TrieMapIterator_Free(it);
-  RedisModule_Reply_ArrayEnd(reply);
+  RedisModule_Reply_SetEnd(reply);
 
 cleanup:
   TrieMap_Free(dict, NULL);
