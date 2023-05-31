@@ -69,9 +69,7 @@ void SearchResult_Destroy(SearchResult *r) {
 #define RP_SPEC(rpctx) (RP_SCTX(rpctx)->spec)
 
 static int UnlockSpec_and_ReturnRPResult(ResultProcessor *base, int result_status) {
-  if(RP_SCTX(base)) {
-    RedisSearchCtx_UnlockSpec(RP_SCTX(base));
-  }
+  RedisSearchCtx_UnlockSpec(RP_SCTX(base));
   return result_status;
 }
 typedef struct {
@@ -605,7 +603,7 @@ static int rppagerNext(ResultProcessor *base, SearchResult *r) {
 
   // If we've reached LIMIT:
   if (self->count >= self->limit + self->offset) {
-    return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_EOF);
+    return RS_RESULT_EOF;
   }
 
   self->count++;
@@ -966,7 +964,10 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   // Now we have the data of all documents that pass the query filters,
   // let's lock Redis to provide safe access to Redis keyspace
 
-  // Lock Redis to guarantee safe access to Redis keyspace
+  // First, we verify that we unlocked the spec before we lock Redis.
+  RedisSearchCtx_UnlockSpec(sctx);
+
+  // Then, lock Redis to guarantee safe access to Redis keyspace
   LockRedis(rpPufferAndLocker, sctx->redisCtx);
 
   // If the spec has been changed since we released the spec lock,
