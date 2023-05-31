@@ -411,7 +411,7 @@ done_3:
       resultsLen = 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
     }
   
-    RedisModule_Reply_Array(reply); // results
+    RedisModule_Reply_Array(reply); // results @@
   
     OPTMZ(QOptimizer_UpdateTotalResults(req));
   
@@ -453,7 +453,7 @@ done_3:
       req->stateflags |= QEXEC_S_ITERDONE;
     }
   
-    RedisModule_Reply_ArrayEnd(reply); // results
+    RedisModule_Reply_ArrayEnd(reply); // results @@
     SearchResult_Destroy(&r);
   
     // Reset the total results length:
@@ -470,14 +470,19 @@ done_3:
 }
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
-  //_BB;
+  _BB;
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  RedisModule_Reply_Map(reply);
+  
+  if (reply->resp3 || IsProfile(req)) {
+    RedisModule_Reply_Map(reply);
+  }
     sendChunk(req, reply, -1);
     if (IsProfile(req)) {
       Profile_Print(reply, req);
     }
-  RedisModule_Reply_MapEnd(reply);
+  if (reply->resp3 || IsProfile(req)) {
+    RedisModule_Reply_MapEnd(reply);
+  }
   RedisModule_EndReply(reply);
   AREQ_Free(req);
 }
@@ -817,6 +822,7 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, const char *lookupName, 
 }
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
+  _BB;
   AREQ *req = cursor->execState;
   bool has_map = RedisModule_HasMap(reply);
 
