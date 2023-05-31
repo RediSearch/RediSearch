@@ -88,6 +88,7 @@ static int renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
  *  Provide info and stats about an index
  */
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  _BB;
   if (argc < 2) return RedisModule_WrongArity(ctx);
 
   StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
@@ -184,7 +185,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM("num_terms", sp->stats.numTerms);
   REPLY_KVNUM("num_records", sp->stats.numRecords);
   REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
-  REPLY_KVNUM("vector_index_sz_mb", sp->stats.vectorIndexSize / (float)0x100000);
+  REPLY_KVNUM("vector_index_sz_mb", IndexSpec_VectorIndexSize(sp) / (float)0x100000);
   REPLY_KVNUM("total_inverted_index_blocks", TotalIIBlocks);
   // REPLY_KVNUM("inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
 
@@ -218,7 +219,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   REPLY_KVINT("number_of_uses", sp->counter);
 
-  REPLY_KVINT(n, "cleaning", CleanInProgressOrPending());
+  REPLY_KVINT("cleaning", CleanInProgressOrPending());
 
   if (sp->gc) {
     RedisModule_ReplyKV_Map(reply, "gc_stats");

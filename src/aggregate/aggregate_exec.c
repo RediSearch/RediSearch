@@ -843,10 +843,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
     }
   }
   req->cursorChunkSize = num;
-  int arrayLen = 2;
-  if (IsProfile(req)) {
-    arrayLen = 3;
-  }
+
   // return array of [results, cursorID]. (the typical result reply is in the first reply)
   // for profile, we return array of [results, cursorID, profile]
   RedisModule_Reply_Map(reply);
