@@ -944,7 +944,7 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   SearchResult *CurrBlock = NULL;
   size_t init_spec_version = IndexSpec_GetVersion(sctx->spec);
   // Get the next result and save it in the buffer
-  while(rp->parent->resultLimit-- && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
+  while (rp->parent->resultLimit-- && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
 
     // Buffer the result.
     CurrBlock = InsertResult(rpPufferAndLocker, &resToBuffer, CurrBlock);
@@ -1036,7 +1036,7 @@ int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_outp
   SearchResult *curr_res;
 
   // iterate the buffer.
-  while((curr_res = GetNextResult(RPBuffer))) {
+  while ((curr_res = GetNextResult(RPBuffer))) {
     // Skip invalid results
     if (isResultValid(curr_res)) {
       SetResult(curr_res, result_output);
