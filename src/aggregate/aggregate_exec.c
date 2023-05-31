@@ -297,16 +297,16 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   }
   nelem++;
 
-  if (rc == RS_RESULT_OK && rp->parent->resultLimit-- && !(req->reqflags & QEXEC_F_NOROWS)) {
+  if (rc == RS_RESULT_OK && rp->parent->resultLimit && !(req->reqflags & QEXEC_F_NOROWS)) {
     nelem += serializeResult(req, outctx, &r, &cv);
   }
 
   SearchResult_Clear(&r);
-  if (rc != RS_RESULT_OK) {
+  if (rc != RS_RESULT_OK || !rp->parent->resultLimit) {
     goto done;
   }
 
-  while (rp->parent->resultLimit-- && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+  while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
     if (!(req->reqflags & QEXEC_F_NOROWS)) {
       nelem += serializeResult(req, outctx, &r, &cv);
     }
@@ -372,53 +372,56 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
-  req->sctx->redisCtx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
-  BCRctx->req->reqflags |= QEXEC_F_HAS_THCTX;
+  RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
+  QueryError status = {0}, detailed_status = {0};
 
   StrongRef execution_ref = WeakRef_Promote(BCRctx->spec_ref);
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the query was in the job queue.
     // Notify the client that the query was aborted
-    QueryError status = {0};
     QueryError_SetError(&status, QUERY_ENOINDEX, "The index was dropped before the query could be executed");
-    QueryError_ReplyAndClear(req->sctx->redisCtx, &status);
+    QueryError_ReplyAndClear(outctx, &status);
+    RedisModule_FreeThreadSafeContext(outctx);
     blockedClientReqCtx_destroy(BCRctx);
     return;
   }
+  // Cursors are created with a thread-safe context, so we don't want to replace it
+  if (!(req->reqflags & QEXEC_F_IS_CURSOR)) {
+    req->sctx->redisCtx = outctx;
+  }
 
   // lock spec
-  RedisSearchCtx_LockSpecRead(BCRctx->req->sctx);
-  QueryError status = {0};
+  RedisSearchCtx_LockSpecRead(req->sctx);
   if (prepareExecutionPlan(req, AREQ_BUILD_THREADSAFE_PIPELINE, &status) != REDISMODULE_OK) {
     goto error;
   }
 
   if (req->reqflags & QEXEC_F_IS_CURSOR) {
-    if (AREQ_StartCursor(req, req->sctx->redisCtx, req->sctx->spec->name, &status) != REDISMODULE_OK) {
+    if (AREQ_StartCursor(req, outctx, req->sctx->spec->name, &status) != REDISMODULE_OK) {
       goto error;
     }
   } else {
-    AREQ_Execute(req, req->sctx->redisCtx);
+    AREQ_Execute(req, outctx);
   }
 
   // If the execution was successful, we either:
   // 1. Freed the request (if it was a regular query)
   // 2. Kept it as the cursor's state (if it was a cursor query)
-  // Either way, we don't want to free it here. we set it to NULL so that it won't be freed with the context.
+  // Either way, we don't want to free `req` here. we set it to NULL so that it won't be freed with the context.
   blockedClientReqCtx_setRequest(BCRctx, NULL);
   goto cleanup;
 
-error:;
+error:
   // Enrich the error message that was caught to include the fact that the query ran
   // in a background thread.
-  QueryError detailed_status = {0};
   QueryError_SetErrorFmt(&detailed_status, QueryError_GetCode(&status),
                           "The following error was caught upon running the query asynchronously: %s", QueryError_GetError(&status));
   QueryError_ClearError(&status);
-  QueryError_ReplyAndClear(req->sctx->redisCtx, &detailed_status);
+  QueryError_ReplyAndClear(outctx, &detailed_status);
 
 cleanup:
   // No need to unlock spec as it was unlocked by `AREQ_Execute` or will be unlocked by `blockedClientReqCtx_destroy`
+  RedisModule_FreeThreadSafeContext(outctx);
   StrongRef_Release(execution_ref);
   blockedClientReqCtx_destroy(BCRctx);
 }
@@ -491,8 +494,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   // Prepare the query.. this is where the context is applied.
   if ((*r)->reqflags & QEXEC_F_IS_CURSOR) {
-    RedisModuleCtx *newctx = RedisModule_GetThreadSafeContext(NULL);
-    (*r)->reqflags |= QEXEC_F_HAS_THCTX;
+    RedisModuleCtx *newctx = RedisModule_GetDetachedThreadSafeContext(ctx);
     RedisModule_SelectDb(newctx, RedisModule_GetSelectedDb(ctx));
     ctx = thctx = newctx;  // In case of error!
   }
@@ -768,6 +770,7 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
   cursorRead(ctx, cr_ctx->cid, cr_ctx->count);
   RedisModule_FreeThreadSafeContext(ctx);
+  RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
   RedisModule_UnblockClient(cr_ctx->bc, NULL);
   rm_free(cr_ctx);
 }
