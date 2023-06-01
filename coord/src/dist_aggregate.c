@@ -450,7 +450,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     r->sctx = NewSearchCtxC(ctx, ixname, true);
     RedisModule_ThreadSafeContextUnlock(ctx);
 
-    rc = AREQ_StartCursor(r, ctx, ixname, &status);
+    rc = AREQ_StartCursor(r, ctx, r->sctx->spec->own_ref, &status);
 
     if (rc != REDISMODULE_OK) {
       goto err;
