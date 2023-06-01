@@ -560,22 +560,13 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
     const char *ixname = RedisModule_StringPtrLen(argv[1 + profileArgs], NULL);
-//    const char *partTag = PartitionTag(&sc->part, sc->myPartition);
-//    size_t dummy;
-//    char *tagged = writeTaggedId(ixname, strlen(ixname), partTag, strlen(partTag), &dummy);
 
     // Keep the original concurrent context
     ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
 
-    /**
-     * The next three lines are a hack to ensure that the cursor retains a valid
-     * RedisModuleCtx object. We rely on the existing mechanism of AREQ to free
-     * the Ctx object used by NewSearchCtx. We don't actually read the spec
-     * at all.
-     */
-    RedisModule_ThreadSafeContextLock(ctx);
-    r->sctx = NewSearchCtxC(ctx, ixname, true);
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    // We rely on the existing mechanism of AREQ to free the ctx object when the cursor is exhausted
+    r->sctx = rm_new(RedisSearchCtx);
+    *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
 
     rc = AREQ_StartCursor(r, reply, ixname, &status);
 
