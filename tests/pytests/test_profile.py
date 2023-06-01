@@ -230,7 +230,7 @@ def testProfileVector(env):
   env.assertEqual(actual_res[0], [3, '4', '2', '1'])
   env.assertEqual(actual_res[1][3], expected_iterators_res)
   env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
-  env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'STANDARD_KNN')
+  env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'STANDARD_KNN')
 
   # Range query - uses metric iterator. Radius is set so that the closest 2 vectors will be inthe range
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@v:[VECTOR_RANGE 3e36 $vec]=>{$yield_distance_as:dist}',
@@ -240,7 +240,7 @@ def testProfileVector(env):
   env.assertEqual(actual_res[0], [2, '4', '2'])
   env.assertEqual(actual_res[1][3], expected_iterators_res)
   env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
-  env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'RANGE_QUERY')
+  env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'RANGE_QUERY')
 
 # Test with hybrid query variations
   # Expect ad-hoc BF to take place - going over child iterator exactly once (reading 2 results)
@@ -254,7 +254,7 @@ def testProfileVector(env):
   env.assertEqual(actual_res[0], [2, '4', '5'])
   env.assertEqual(actual_res[1][3], expected_iterators_res)
   env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
-  env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
+  env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_ADHOC_BF')
 
   for i in range(6, 10001):
     conn.execute_command('hset', str(i), 'v', 'bababada', 't', "hello world")
@@ -271,7 +271,7 @@ def testProfileVector(env):
   expected_vecsim_rp_res = ['Type', 'Metrics Applier', 'Counter', 3]
   env.assertEqual(actual_res[1][3], expected_iterators_res)
   env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
-  env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
+  env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES')
 
   # Add another 10K vectors with a different tag.
   for i in range(10001, 20001):
@@ -286,7 +286,7 @@ def testProfileVector(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello other)=>[KNN 3 @v $vec]',
                                       'SORTBY', '__v_score', 'PARAMS', '2', 'vec', '????????', 'nocontent')
   env.assertEqual(actual_res[1][3], expected_iterators_res)
-  env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES_TO_ADHOC_BF')
+  env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES_TO_ADHOC_BF')
 
   # Ask explicitly to run in batches mode, without asking for a certain batch size.
   # First batch size is 4, and every batch should be double in its size from its previous one. We go over the entire
@@ -298,18 +298,18 @@ def testProfileVector(env):
                                                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 25, 'Size', 10000],
                                                     ['Type', 'TEXT', 'Term', 'other', 'Counter', 13, 'Size', 10000]]]]
   env.assertEqual(actual_res[1][3], expected_iterators_res)
-  env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
+  env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES')
 
   # Ask explicitly to run in batches mode, with batch size of 100.
   # After 200 iterations, we should go over the entire index.
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello other)=>[KNN 2 @v $vec HYBRID_POLICY BATCHES BATCH_SIZE 100]',
-                                    'SORTBY', '__v_score', 'PARAMS', '2', 'vec', '????????', 'nocontent')
+                                    'SORTBY', '__v_score', 'PARAMS', '2', 'vec', '????????', 'nocontent', 'timeout', '100000')
   expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 0, 'Batches number', 200, 'Child iterator',
                                                   ['Type', 'INTERSECT', 'Counter', 199, 'Child iterators',
                                                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 399, 'Size', 10000],
                                                    ['Type', 'TEXT', 'Term', 'other', 'Counter', 200, 'Size', 10000]]]]
   env.assertEqual(actual_res[1][3], expected_iterators_res)
-  env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
+  env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES')
 
   # Asking only for a batch size without asking for batches policy. While batchs mode is on, the bacth size will be as
   # requested, but the mode can change dynamically to ADHOC-BF.
@@ -322,7 +322,7 @@ def testProfileVector(env):
                                                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 5, 'Size', 10000],
                                                    ['Type', 'TEXT', 'Term', 'other', 'Counter', 3, 'Size', 10000]]]]
   env.assertEqual(actual_res[1][3], expected_iterators_res)
-  env.assertEqual(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES_TO_ADHOC_BF')
+  env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES_TO_ADHOC_BF')
 
 
 def testResultProcessorCounter(env):

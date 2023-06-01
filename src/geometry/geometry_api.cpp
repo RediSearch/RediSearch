@@ -8,9 +8,6 @@
 #include "geometry.h"
 #include "rmalloc.h"
 
-// TOD: remove
-// #include "s2/s2point_index.h"
-
 GeometryApi* apis[GEOMETRY_LIB_TYPE__NUM] = {0};
 
 void bg_freeIndex(GeometryIndex *index) {
@@ -57,6 +54,10 @@ void bg_dumpIndex(GeometryIndex *index, RedisModuleCtx *ctx) {
 
 void s2_freeIndex(GeometryIndex *index) {
   // TODO: GEOMETRY
+}
+
+size_t GeometryTotalMemUsage() {
+  return RTree_TotalMemUsage();
 }
 
 extern "C"
