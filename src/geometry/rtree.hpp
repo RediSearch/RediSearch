@@ -179,4 +179,8 @@ struct RTree {
   void operator delete(void* p) noexcept {
     rm_allocator<Self>().deallocate(static_cast<Self*>(p), 1);
   }
+
+  [[nodiscard]] static size_t reportTotal() noexcept {
+    return rm_allocator<Self>().report();
+  }
 };

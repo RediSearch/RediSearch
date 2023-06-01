@@ -191,6 +191,8 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
  ********************************************************/
   if (!strncmp(event, "json.", strlen("json."))) {
     if (!strncmp(event + JSON_LEN, "set", strlen("set")) ||
+        !strncmp(event + JSON_LEN, "merge", strlen("merge")) ||
+        !strncmp(event + JSON_LEN, "mset", strlen("mset")) ||
         !strncmp(event + JSON_LEN, "del", strlen("del")) ||
         !strncmp(event + JSON_LEN, "numincrby", strlen("incrby")) ||
         !strncmp(event + JSON_LEN, "nummultby", strlen("nummultby")) ||

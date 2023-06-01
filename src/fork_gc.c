@@ -886,7 +886,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   InvIdxBuffers *idxbufs = &ninfo->idxbufs;
   MSG_IndexInfo *info = &ninfo->info;
   FGC_applyInvertedIndex(gc, idxbufs, info, currNode->range->entries);
-
+  currNode->range->entries->numEntries -= info->nentriesCollected;
   currNode->range->invertedIndexSize -= info->nbytesCollected;
   FGC_updateStats(gc, sctx, info->nentriesCollected, info->nbytesCollected);
 
