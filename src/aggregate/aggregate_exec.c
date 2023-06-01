@@ -173,7 +173,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
 
     // Get the number of fields in the reply.
     // Excludes hidden fields, fields not included in RETURN and, score and language fields.
-    SchemaRule *rule = req->sctx ? req->sctx->spec->rule : NULL;
+    SchemaRule *rule = (req->sctx && req->sctx->spec) ? req->sctx->spec->rule : NULL;
     int excludeFlags = RLOOKUP_F_HIDDEN;
     int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
     int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
@@ -748,7 +748,9 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
   QueryError status = {0};
   AREQ *req = cursor->execState;
   req->qiter.err = &status;
-  RedisSearchCtx_LockSpecRead(req->sctx); // TODO: add a way to know whether we need to lock or not
+  if (req->sctx && req->sctx->spec) {
+    RedisSearchCtx_LockSpecRead(req->sctx); // TODO: add a way to know whether we need to lock or not
+  }
   ConcurrentSearchCtx_ReopenKeys(&req->conc);
   runCursor(ctx, cursor, count);
 }
@@ -769,7 +771,7 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
 }
 
 /**
- * FT.CURSOR READ {index} {CID} {ROWCOUNT} [MAXIDLE]
+ * FT.CURSOR READ {index} {CID} {COUNT} [MAXIDLE]
  * FT.CURSOR DEL {index} {CID}
  * FT.CURSOR GC {index}
  */
@@ -780,7 +782,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   const char *cmd = RedisModule_StringPtrLen(argv[1], NULL);
   long long cid = 0;
-  // argv[1] - FT.CURSOR
+  // argv[0] - FT.CURSOR
   // argv[1] - subcommand
   // argv[2] - index
   // argv[3] - cursor ID
@@ -802,11 +804,13 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       }
     }
 #ifdef POWER_TO_THE_WORKERS
-    if (RunInThread()) {
+    // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
+    if (RunInThread() && !RedisModule_GetBlockedClientHandle(ctx)) {
       CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
       cr_ctx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
       cr_ctx->cid = cid;
       cr_ctx->count = count;
+      RedisModule_BlockedClientMeasureTimeStart(cr_ctx->bc);
       workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
     } else
 #endif
