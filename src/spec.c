@@ -2595,6 +2595,8 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
 
     LegacySchemaRulesArgs_Free(ctx);
 //TODO: destroy cursors after we waited for the job to be done.
+      CursorList_Empty(&g_CursorsList);
+
     if (hasLegacyIndexes || CompareVestions(redisVersion, noScanVersion) < 0) {
       Indexes_ScanAndReindex();
     } else {
