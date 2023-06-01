@@ -180,7 +180,9 @@ void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len
   bool resp3 = RedisModule_HasMap(reply);
 
   RedisModule_Reply_Array(reply);
-    RedisModule_Reply_SimpleString(reply, TERM);
+    if (!resp3) {
+      RedisModule_Reply_SimpleString(reply, TERM);
+    }
     RedisModule_Reply_StringBuffer(reply, term, len);
 
     RS_Suggestion **suggestions = spellCheck_GetSuggestions(s);
