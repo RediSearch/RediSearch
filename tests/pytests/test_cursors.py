@@ -14,7 +14,7 @@ def loadDocs(env, count=100, idx='idx', text='hello world'):
     env.expect('FT.CREATE', idx, 'ON', 'HASH', 'prefix', 1, idx, 'SCHEMA', 'f1', 'TEXT').ok()
     waitForIndex(env, idx)
     for x in range(count):
-        cmd = ['FT.ADD', idx, '{}_doc{}'.format(idx, x), 1.0, 'FIELDS', 'f1', text]
+        cmd = ['hset', '{}_doc{}'.format(idx, x), 'f1', text]
         env.cmd(*cmd)
     r1 = env.cmd('ft.search', idx, text)
     r2 = list(set(map(lambda x: x[1], filter(lambda x: isinstance(x, list), r1))))
@@ -141,3 +141,21 @@ def testLeaked(env):
     # Test ensures in CursorList_Destroy() checks shutdown with remaining cursors
     loadDocs(env)
     env.expect('FT.AGGREGATE idx * LOAD 1 @f1 WITHCURSOR COUNT 1 MAXIDLE 1')
+
+def testIndexDropWhileIdle(env):
+    env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
+    env.expect('HSET doc1 t foo').equal(1)
+    env.expect('HSET doc2 t foo').equal(1)
+
+    res, cursor = env.cmd('FT.AGGREGATE idx foo WITHCURSOR COUNT 1')
+    env.assertEqual(res, [1, []])
+
+    # drop the index while the cursor is idle
+    env.cmd('ft.drop', 'idx')
+    
+    # Try to read from the cursor
+    
+    env.expect('FT.CURSOR READ idx %d' % cursor).error().contains('The index was dropped while the cursor was idle')
+
+
+    
