@@ -66,19 +66,19 @@ If you have a more detailed question, drop us a line on the [RediSearch Discussi
 |  [NRedisStack][dotnet-quickstart] | [Jedis][java-quickstart]                                                                                                                 | [node-redis][nodejs-quickstart]  |  [redis-py][python-quickstart] |
 |  [Redis.OM][dotnet-om] | [Redis OM Spring][java-om]                                                                                                               | [redis-om-node][nodejs-om]  |  [redis-om][python-om] |
 
-[dotnet-quickstart]: https://redis.io/docs/redis-clients/dotnet/
+[dotnet-quickstart]: https://redis.io/docs/clients/dotnet/
 [dotnet-om]: https://github.com/redis/redis-om-dotnet
 
-[java-quickstart]: https://redis.io/docs/redis-clients/java/
+[java-quickstart]: https://redis.io/docs/clients/java/
 [java-om]: https://github.com/redis/redis-om-spring
 
-[nodejs-quickstart]: https://redis.io/docs/redis-clients/nodejs/
+[nodejs-quickstart]: https://redis.io/docs/clients/nodejs/
 [nodejs-om]: https://github.com/redis/redis-om-node
 
-[python-quickstart]: https://redis.io/docs/redis-clients/python/
+[python-quickstart]: https://redis.io/docs/clients/python/
 [python-om]: https://github.com/redis/redis-om-python
 
-### Community supported clients
+### Community-maintained clients
 
 | Project | Language | License | Author                                         | Stars |
 |----------|---------|--------|------------------------------------------------|-------|
