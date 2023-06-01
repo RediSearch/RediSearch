@@ -84,7 +84,7 @@ static void spellcheckReducerCtx_AddTermAsFoundInIndex(spellcheckReducerCtx* ctx
 }
 
 static bool spellCheckReplySanity(int count, MRReply** replies, uint64_t* totalDocNum,
-                                  QueryError* qerr) {
+                                  QueryError* qerr, bool resp3) {
   for (int i = 0; i < count; ++i) {
     if (MRReply_Type(replies[i]) == MR_REPLY_ERROR) {
       QueryError_SetError(qerr, QUERY_EGENERIC, MRReply_String(replies[i], NULL));
@@ -92,8 +92,8 @@ static bool spellCheckReplySanity(int count, MRReply** replies, uint64_t* totalD
     }
 
     if (MRReply_Type(replies[i]) == MR_REPLY_MAP) { _BB; } //@@
-    if (MRReply_Type(replies[i]) != MR_REPLY_ARRAY) {
-      QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected array. Got %d",
+    if (resp3 && MRReply_Type(replies[i]) != MR_REPLY_MAP || !resp3 && MRReply_Type(replies[i]) != MR_REPLY_ARRAY) {
+      QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected map. Got %d",
                              MRReply_Type(replies[i]));
       return false;
     }
@@ -180,10 +180,63 @@ static bool spellCheckAnalizeResult(spellcheckReducerCtx* ctx, MRReply* reply) {
   return true;
 }
 
+static bool spellCheckAnalizeResult_resp3(spellcheckReducerCtx* ctx, MRReply* termValueReply, MRReply* suggestionArray) {
+  const char* termValue = MRReply_String(termValueReply, NULL);
+
+  int type = MRReply_Type(suggestionArray);
+
+  // TODO: check if the following section correct, not sure why it's needed
+  if (type == MR_REPLY_STRING || type == MR_REPLY_STATUS) {
+    const char* msg = MRReply_String(suggestionArray, NULL);
+    if (strcmp(msg, FOUND_TERM_IN_INDEX) == 0) {
+      spellcheckReducerCtx_AddTermAsFoundInIndex(ctx, termValue);
+      return true;
+    }
+    return true;
+  }
+
+  if (MRReply_Type(suggestionArray) == MR_REPLY_MAP) { _BB; } //@@
+  if (MRReply_Type(suggestionArray) != MR_REPLY_ARRAY) {
+    return false;
+  }
+
+  int i;
+  for (i = 0; i < MRReply_Length(suggestionArray); ++i) {
+    MRReply* termSuggestionReply = MRReply_ArrayElement(suggestionArray, i);
+    if (MRReply_Type(suggestionArray) == MR_REPLY_MAP) { _BB; } //@@
+    if (MRReply_Type(termSuggestionReply) != MR_REPLY_MAP) {
+      return false;
+    }
+    if (MRReply_Length(termSuggestionReply) != 2) {
+      return false;
+    }
+
+    MRReply* suggestionReply = MRReply_ArrayElement(termSuggestionReply, 0);
+    MRReply* scoreReply = MRReply_ArrayElement(termSuggestionReply, 1);
+  
+    if (MRReply_Type(scoreReply) != MR_REPLY_DOUBLE) {
+      return false;
+    }
+    if (MRReply_Type(suggestionReply) != MR_REPLY_STRING) {
+      return false;
+    }
+
+    double score = MRReply_Double(scoreReply);
+    const char* suggestionStr = MRReply_String(suggestionReply, NULL);
+
+    spellcheckReducerCtx_AddTermSuggestion(ctx, termValue, suggestionStr, score);
+  }
+
+  if (i == 0) {
+    spellcheckReducerCtx_GetOrCreateTermSuggerstions(ctx, termValue);
+  }
+
+  return true;
+}
+
 void spellCheckSendResult(RedisModule_Reply* reply, spellcheckReducerCtx* spellCheckCtx,
                           uint64_t totalDocNum) {
-
-  RedisModule_Reply_Array(reply);
+  RedisModule_Reply_Map(reply);
   size_t numOfTerms = 0;
   for (int i = 0; i < array_len(spellCheckCtx->terms); ++i) {
     if (spellCheckCtx->terms[i]->foundInIndex) {
@@ -195,7 +248,7 @@ void spellCheckSendResult(RedisModule_Reply* reply, spellcheckReducerCtx* spellC
                                strlen(spellCheckCtx->terms[i]->term),
                                spellCheckCtx->terms[i]->suggestions, totalDocNum);
   }
-  RedisModule_Reply_ArrayEnd(reply);
+  RedisModule_Reply_MapEnd(reply);
 }
 
 int spellCheckReducer(struct MRCtx* mc, int count, MRReply** replies) {
@@ -207,7 +260,7 @@ int spellCheckReducer(struct MRCtx* mc, int count, MRReply** replies) {
 
   uint64_t totalDocNum = 0;
   QueryError qerr = {0};
-  if (!spellCheckReplySanity(count, replies, &totalDocNum, &qerr)) {
+  if (!spellCheckReplySanity(count, replies, &totalDocNum, &qerr, false)) {
     QueryError_ReplyAndClear(ctx, &qerr);
     return REDISMODULE_OK;
   }
@@ -225,6 +278,63 @@ int spellCheckReducer(struct MRCtx* mc, int count, MRReply** replies) {
       }
 
       if (!spellCheckAnalizeResult(spellcheckCtx, termReply)) {
+        spellcheckReducerCtx_Free(spellcheckCtx);
+        RedisModule_ReplyWithError(ctx, "could not analyze term result");
+        return REDISMODULE_OK;
+      }
+    }
+  }
+
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  spellCheckSendResult(reply, spellcheckCtx, totalDocNum);
+  RedisModule_EndReply(reply);
+
+  spellcheckReducerCtx_Free(spellcheckCtx);
+
+  return REDISMODULE_OK;
+}
+
+int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies) {
+  RedisModuleCtx* ctx = MRCtx_GetRedisCtx(mc);
+  if (count == 0) {
+    RedisModule_ReplyWithError(ctx, "Could not distribute command");
+    return REDISMODULE_OK;
+  }
+
+  uint64_t totalDocNum = 0;
+  QueryError qerr = {0};
+  if (!spellCheckReplySanity(count, replies, &totalDocNum, &qerr, true)) {
+    QueryError_ReplyAndClear(ctx, &qerr);
+    return REDISMODULE_OK;
+  }
+
+  spellcheckReducerCtx* spellcheckCtx = spellcheckReducerCtx_Create();
+
+  for (int i = 0; i < count; ++i) {
+    int j = 0;
+    MRReply* dictReply = replies[i];
+
+    if (MRReply_Type(dictReply) != MR_REPLY_MAP) {
+      spellcheckReducerCtx_Free(spellcheckCtx);
+      RedisModule_ReplyWithError(ctx, "bad reply returned");
+      return REDISMODULE_OK;
+    }
+
+    // ignore garbage field if exist
+    if (MRReply_Type(MRReply_ArrayElement(dictReply, 0)) == MR_REPLY_INTEGER) {
+      j+=2;
+    }
+
+    for (; j < MRReply_Length(dictReply); j += 2) {
+      MRReply* termReply = MRReply_ArrayElement(dictReply, j);
+      MRReply* suggestionArray = MRReply_ArrayElement(dictReply, j+1);
+      if (MRReply_Type(termReply) != MR_REPLY_STRING || MRReply_Type(suggestionArray) != MR_REPLY_ARRAY) {
+        spellcheckReducerCtx_Free(spellcheckCtx);
+        RedisModule_ReplyWithError(ctx, "bad reply returned");
+        return REDISMODULE_OK;
+      }
+
+      if (!spellCheckAnalizeResult_resp3(spellcheckCtx, termReply, suggestionArray)) {
         spellcheckReducerCtx_Free(spellcheckCtx);
         RedisModule_ReplyWithError(ctx, "could not analyze term result");
         return REDISMODULE_OK;

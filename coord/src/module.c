@@ -1671,7 +1671,7 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
   struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL);
   MR_SetCoordinationStrategy(mrctx, MRCluster_MastersOnly | MRCluster_FlatCoordination);
-  MR_Map(mrctx, spellCheckReducer, cg, true);
+  MR_Map(mrctx, _is_resp3(ctx) ? spellCheckReducer_resp3 : spellCheckReducer, cg, true);
   cg.Free(cg.ctx);
   return REDISMODULE_OK;
 }

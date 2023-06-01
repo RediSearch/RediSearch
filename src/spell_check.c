@@ -179,7 +179,6 @@ void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len
 #define TERM "TERM"
   bool resp3 = RedisModule_HasMap(reply);
 
-  RedisModule_Reply_Array(reply);
     if (!resp3) {
       RedisModule_Reply_SimpleString(reply, TERM);
     }
@@ -212,7 +211,6 @@ void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len
       }
       RedisModule_Reply_ArrayEnd(reply);
   }
-  RedisModule_Reply_ArrayEnd(reply);
 
   array_free_ex(suggestions, RS_SuggestionFree(*(RS_Suggestion **)ptr));
 }
@@ -232,13 +230,11 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
     // we found the term as is on the index
 
     bool resp3 = RedisModule_HasMap(reply);
-    RedisModule_Reply_Map(reply);
       if (!resp3) {
         RedisModule_Reply_SimpleString(reply, TERM);
       }
       RedisModule_Reply_StringBuffer(reply, term, len);
       RedisModule_Reply_SimpleString(reply, FOUND_TERM_IN_INDEX);
-    RedisModule_Reply_MapEnd(reply);
     return true;
   }
 
@@ -320,17 +316,21 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryAST *q) {
   }
   RedisModule_Reply _reply = RedisModule_NewReply(scCtx->sctx->redisCtx), *reply = &_reply;
 
-  RedisModule_Reply_Array(reply);
+  RedisModule_Reply_Map(reply);
 
   if (scCtx->fullScoreInfo) {
     // sending the total number of docs for the ability to calculate score on cluster
     RedisModule_Reply_LongLong(reply, scCtx->sctx->spec->docs.size - 1);
+    if (reply->resp3) {
+      RedisModule_Reply_LongLong(reply, 0); // Just a padd because it's part of map
+    }
   }
+
 
   scCtx->reply = reply; // this is stack-allocated, should be reset immediately after use
   QueryNode_ForEach(q->root, forEachCallback, scCtx, 1);
   scCtx->reply = NULL;
 
-  RedisModule_Reply_ArrayEnd(reply);
+  RedisModule_Reply_MapEnd(reply);
   RedisModule_EndReply(reply);
 }

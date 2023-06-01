@@ -33,6 +33,8 @@
 
 typedef struct redisReply MRReply;
 
+void print_mr_reply(MRReply *r);
+
 static inline void MRReply_Free(MRReply *reply) {
   freeReplyObject(reply);
 }

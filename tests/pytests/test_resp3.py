@@ -436,17 +436,11 @@ def test_spell_check():
     env.cmd('FT.DICTADD', 'dict1', 'timmies', 'toque', 'toonie', 'Toonif', 'serviette', 'kerfuffle', 'chesterfield')
     env.cmd('FT.DICTADD', 'dict2', 'timmies', 'toque', 'toonie', 'serviette', 'kerfuffle', 'chesterfield')
 
-    exp = [
-      0, {
-        'tooni': [{'Toonif': 0.0}, {'toonie': 0.0}]
-      }
-    ]
-    env.expect('FT.SPELLCHECK', 'incidents', 'Tooni toque kerfuffle', 'TERMS',
-               'INCLUDE', 'dict1', 'dict2', 'FULLSCOREINFO').equal(exp)
-
-    exp = [
-      {'tooni': [{'Toonif': 0.0}, {'toonie': 0.0}]}
-    ]
+    exp = {
+        'tooni': [{'Toonif': 0.0}, {'toonie': 0.0}], 
+        'toque': [{'toque': 0.0}], 
+        'kerfuffle': [{'kerfuffle': 0.0}]
+        }
     env.expect('FT.SPELLCHECK', 'incidents', 'Tooni toque kerfuffle', 'TERMS',
                'INCLUDE', 'dict1', 'dict2').equal(exp)
 
