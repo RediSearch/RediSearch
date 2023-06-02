@@ -989,3 +989,67 @@ def testGroupProperties(env):
                                            'REDUCE', 'COUNT', '0', 'AS', 'my_output',
                                            'REDUCE', 'AVG', '1', '@n', 'AS', 'my_output').error().contains(
                'Property `my_output` specified more than once')
+
+def testGroupAfterSort(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'n', 'NUMERIC')
+    conn.execute_command('HSET', 'doc1', 't', 'AAAA', 'n', '0')
+    conn.execute_command('HSET', 'doc2', 't', 'AAAA', 'n', '1')
+    conn.execute_command('HSET', 'doc3', 't', 'BBBB', 'n', '0')
+    conn.execute_command('HSET', 'doc4', 't', 'BBBB', 'n', '1')
+
+    # CASE 1 #
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
+                               'SORTBY', '1', '@n', 'MAX', '2',
+                               'GROUPBY', '1', '@t',
+                               'REDUCE', 'COUNT', '0', 'AS', 'c')
+
+    # On a standalone mode this is strait forward:
+    # 1. we sort by `n` and take the first 2 results (doc1 and doc3)
+    # 2. we group by `t` and add a `COUNT` reducer as `c`
+    # 3. since doc1 and doc3 has different `t` value, we get two rows, each of COUNT 1.
+    # so the expected result is:
+    expected = [2, ['t', 'AAAA', 'c', '1'], ['t', 'BBBB', 'c', '1']]
+
+    # We expect to get the same results from the coordinator, no matter what is the distribution of the docs between the shards.
+    # Before the logic fix, the pipeline of ->sortby(n, limit(2))->group(t, COUNT() AS c) was changed to
+    #
+    # |--------------- on the shards ---------------|->|----------- on the coordinator -----------|
+    # ->sortby(n, limit(2))->group(t, COUNT() AS tmp)->sortby(n, limit(2))->group(t, SUM(tmp) AS c)
+    #
+    # and since `n` is not in the scope when we get to the second sorter, the query fails. ([0] is returned)
+
+    env.assertEqual(res, expected)
+
+    # CASE 2 #
+    conn.execute_command('HSET', 'doc5', 't', 'AAAA', 'n', '0')
+    conn.execute_command('HSET', 'doc6', 't', 'BBBB', 'n', '1')
+
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
+                               'SORTBY', '3', '@n', '@t', 'DESC', 'MAX', '3',
+                               'GROUPBY', '2', '@t', '@n',
+                               'REDUCE', 'COUNT', '0', 'AS', 'c')
+
+    # On a standalone mode this is strait forward:
+    # 1. we sort by `n` and take the first 3 results (doc1, doc3 and doc5)
+    # 2. we group by `t` and `n`, and add a `COUNT` reducer as `c`
+    # 3. since doc1, doc3 and doc5 has different `t` value, we get two rows, one of COUNT 2 and one of 1.
+    # 4. both rows has `n == 0` so it does not affect the aggregation
+    # so the expected result is:
+    expected = [2, ['t', 'AAAA', 'n', '0', 'c', '2'], ['t', 'BBBB', 'n', '0', 'c', '1']]
+
+    # We expect to get the same results from the coordinator, no matter what is the distribution of the docs between the shards.
+    # Before the logic fix, the pipeline of ->sortby(n, t, limit(3)->group(t, n, COUNT() AS c) was changed to
+    #
+    # |------------------ on the shards ------------------|->|-------------- on the coordinator --------------|
+    # ->sortby(n, t, limit(3))->group(t, n, COUNT() AS tmp)->sortby(n, t, limit(3))->group(t, n, SUM(tmp) AS c)
+    #
+    # now, no matter the docs distribution (unless they all in the same shard), some rows with `n == 1` will pass the first limit,
+    # will get their own row and get to the coordinator. then, we have 2 options:
+    # 1. doc1 doc3 and doc5 are all in different shards. the coordinator will get 3 rows with `n == 0` and only them will pass the second
+    #    sort and limit, and the second aggregation will results with the same result as in a standalone (lucky).
+    # 2. some of doc1 doc3 and doc5 are in the same shard. we won't get 3 rows of `n == 0` at the second sort and limit, so a row
+    #    with `n == 1` will get the the last aggregation and the final result will include 3 row:
+    #    one for (t == AAAA, n == 0), one for (t == BBBB, n == 0), and one for (t == ????, n == 1)
+
+    env.assertEqual(res, expected)
