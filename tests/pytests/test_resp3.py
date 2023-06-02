@@ -1,6 +1,27 @@
 from common import *
-from unittest.mock import ANY
+from unittest.mock import ANY, _ANY
 import operator
+from deepdiff import DeepDiff
+
+#class __ANY(object):
+#    def __eq__(self, other):
+#        return True
+#
+#    def __ne__(self, other):
+#        return False
+#
+#    def __repr__(self):
+#        return '<ANY>'
+#        
+#    def __hash__(self):
+#        return 0
+#    def __iter__(self):
+#        return self
+#
+#    def __next__(self):
+#        raise StopIteration
+
+#ANY = _ANY()
 
 
 def redis_version(con, is_cluster=False):
@@ -237,6 +258,7 @@ def test_aggregate():
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     waitForIndex(env, 'idx1')
 
+    BB()
     res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 2, "f1", "f2")
     res['results'].sort(key=lambda x: "" if x['fields'].get('f2') == None else x['fields'].get('f2'))
     exp = {
@@ -279,6 +301,32 @@ def test_aggregate():
     res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "SORTBY", 2, "@f2", "DESC")
     env.assertEqual(res, exp)
 
+def test_cursor_1():
+    env = Env(protocol=3)
+    if should_skip(env):
+        env.skip()
+
+    with env.getClusterConnectionIfNeeded() as r:
+      r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
+      r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
+      r.execute_command('HSET', 'doc3', 'f5', '4')
+
+    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
+            "SCHEMA", "f1", "TEXT", "f2", "TEXT")
+    waitForIndex(env, 'idx1')
+
+    res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3",
+                  "SORTBY", 2, "@f2", "DESC", "WITHCURSOR", 'COUNT', 1)
+    BB()
+    exp = {
+      'field_names': [], 'error': [], 'total_results': 0,
+      'results': [
+          {'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []}
+        ]}
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', res[1])#res['cursor'])
+    pp(res)
+    env.assertEqual(res, exp)
+
 def test_cursor():
     env = Env(protocol=3)
     if should_skip(env):
@@ -299,31 +347,29 @@ def test_cursor():
       'total_results': 3,
       'results': [
         {'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
-      ],
-      'cursor': ANY}
-    res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3",
-                  "SORTBY", 2, "@f2", "DESC", "WITHCURSOR", 'COUNT', 1)
+      ]}
+    res, cursor = env.cmd('FT.aggregate', 'idx1', '*', 'LOAD', 3, 'f1', 'f2', 'f3',
+                          'SORTBY', 2, '@f2', 'DESC', 'WITHCURSOR', 'COUNT', 1)
     env.assertEqual(res, exp)
 
     exp = {
       'field_names': [], 'error': [], 'total_results': 0,
       'results': [
           {'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []}
-        ],
-        'cursor': ANY}
-    res = env.cmd('FT.CURSOR', 'READ', 'idx1', res['cursor'])
+        ]}
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
     env.assertEqual(res, exp)
 
     exp = {
       'field_names': [], 'error': [], 'total_results': 0,
-      'results': [{'fields': {}, 'field_values': []}],
-      'cursor': ANY}
-    res = env.cmd('FT.CURSOR', 'READ', 'idx1', res['cursor'])
+      'results': [{'fields': {}, 'field_values': []}]}
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
     env.assertEqual(res, exp)
 
     exp = {'field_names': [], 'error': [], 'total_results': 0, 'results': [], 'cursor': 0}
-    res = env.cmd('FT.CURSOR', 'READ', 'idx1', res['cursor'])
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
     env.assertEqual(res, exp)
+    env.assertEqual(cursor, 0)
 
 def test_list():
     env = Env(protocol=3)
@@ -342,7 +388,6 @@ def test_info():
         env.skip()
 
     with env.getClusterConnectionIfNeeded() as r:
-
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
       r.execute_command('HSET', 'doc3', 'f5', '4')
@@ -350,10 +395,12 @@ def test_info():
     env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     waitForIndex(env, 'idx1')
+
     exp = {
       'attributes': [{'WEIGHT': 1.0, 'attribute': 'f1', 'flags': [], 'identifier': 'f1', 'type': 'TEXT'},
                      {'WEIGHT': 1.0, 'attribute': 'f2', 'flags': [], 'identifier': 'f2', 'type': 'TEXT'}],
       'bytes_per_record_avg': ANY,
+      'cleaning': 0,
       'cursor_stats': {'global_idle': 0, 'global_total': 0, 'index_capacity': ANY, 'index_total': 0},
       'dialect_stats': {'dialect_1': 0, 'dialect_2': 0, 'dialect_3': 0},
       'doc_table_size_mb': ANY,
@@ -376,9 +423,15 @@ def test_info():
       'percent_indexed': 1.0,
       'records_per_doc_avg': ANY,
       'sortable_values_size_mb': 0.0,
+      'total_geometries_index_size_mb': 0.0,
       'total_inverted_index_blocks': ANY,
       'vector_index_sz_mb': 0.0}
-    env.expect('FT.info', 'idx1').equal(exp)
+    res = env.cmd('FT.info', 'idx1')
+    res = dict(sorted(res.items()))
+    dd = DeepDiff(res, exp, exclude_types={_ANY})
+    if dd != {}:
+        pp(dd)
+    env.assertEqual(res, exp)
 
 def test_config():
     env = Env(protocol=3)
@@ -427,6 +480,15 @@ def test_dictdump():
     env.cmd("FT.DICTADD", "dict1", "foo", "1", "bar", "2")
     env.expect("FT.DICTDUMP", "dict1").equal({'2', 'bar', 'foo', '1'})
 
+def testSpellCheckIssue437():
+    env = Env(protocol=3)
+    env.cmd('ft.create', 'incidents', 'ON', 'HASH', 'SCHEMA', 'report', 'text')
+    env.cmd('FT.DICTADD', 'slang', 'timmies', 'toque', 'toonie', 'serviette', 'kerfuffle', 'chesterfield')
+    env.expect('FT.SPELLCHECK', 'incidents',
+               'Tooni toque kerfuffle', 'TERMS',
+               'EXCLUDE', 'slang', 'TERMS',
+               'INCLUDE', 'slang').equal([['TERM', 'tooni', [['0', 'toonie']]]])
+
 def test_spell_check():
     env = Env(protocol=3)
     if should_skip(env):
@@ -437,8 +499,8 @@ def test_spell_check():
     env.cmd('FT.DICTADD', 'dict2', 'timmies', 'toque', 'toonie', 'serviette', 'kerfuffle', 'chesterfield')
 
     exp = {
-        'tooni': [{'Toonif': 0.0}, {'toonie': 0.0}], 
-        'toque': [{'toque': 0.0}], 
+        'tooni': [{'Toonif': 0.0}, {'toonie': 0.0}],
+        'toque': [{'toque': 0.0}],
         'kerfuffle': [{'kerfuffle': 0.0}]
         }
     env.expect('FT.SPELLCHECK', 'incidents', 'Tooni toque kerfuffle', 'TERMS',

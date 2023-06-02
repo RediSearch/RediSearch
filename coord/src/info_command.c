@@ -181,12 +181,13 @@ static void processKvArray(InfoFields *fields, MRReply *array, InfoValue *dsts, 
   }
 
   for (size_t ii = 0; ii < numElems; ii += 2) {
+    // @@ MapElementByIndex
     MRReply *value = MRReply_ArrayElement(array, ii + 1);
     const char *s = MRReply_String(MRReply_ArrayElement(array, ii), NULL);
 
     for (size_t jj = 0; jj < numFields; ++jj) {
       const char *name = specs[jj].name;
-      if (!strcmp(s, specs[jj].name)) {
+      if (!strcmp(s, name)) {
         convertField(dsts + jj, value, specs + jj);
         goto next_elem;
       }
@@ -299,7 +300,8 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
       continue;  // Ooops!
     }
 
-    if (MRReply_Type(replies[ii]) == MR_REPLY_ARRAY) {
+    int type = MRReply_Type(replies[ii]);
+    if (type == MR_REPLY_ARRAY || type == MR_REPLY_MAP) {
       size_t numElems = MRReply_Length(replies[ii]);
       if (numElems % 2 != 0) {
         printf("Uneven INFO Reply!!!?\n");

@@ -300,13 +300,14 @@ MRClusterNode *MR_GetMyNode() {
   return cluster_g ? cluster_g->myNode : NULL;
 }
 
+//#ifef DEBUG_MR
+
 static void helloCallback(redisAsyncContext *c, void *r, void *privdata) {
-  //_BB;
-  void print_mr_reply(MRReply*);
   MRCtx *ctx = privdata;
   MRReply *reply = r;
 }
 
+//#endif DEBUG_MG
 
 /* The fanout request received in the event loop in a thread safe manner */
 static void uvFanoutRequest(struct MRRequestCtx *mc) {
@@ -322,7 +323,7 @@ static void uvFanoutRequest(struct MRRequestCtx *mc) {
   if (mc->numCmds > 0) {
     // @@TODO: this may not be requires as we're hello-ing before command_send
     int cmd_proto = mc->cmds[0].protocol;
-    if (cmd_proto != 3) _BB;
+    //if (cmd_proto != 3) _BB;
     if (cmd_proto != mc->protocol) {
       MRCommand hello = MR_NewCommand(2, "HELLO", cmd_proto == 3 ? "3" : "2");
       int rc = MRCluster_SendCommand(cluster_g, MRCluster_FlatCoordination, &hello, helloCallback, mrctx);
@@ -362,7 +363,7 @@ static void uvMapRequest(struct MRRequestCtx *mc) {
 
   if (mc->numCmds > 0) {
     int cmd_proto = mc->cmds[0].protocol;
-    if (cmd_proto != 3) _BB;
+    //if (cmd_proto != 3) _BB;
     // @@TODO: this may not be requires as we're hello-ing before command_send
     if (cmd_proto != mc->protocol) {
       MRCommand hello = MR_NewCommand(2, "HELLO", cmd_proto == 3 ? "3" : "2");
@@ -617,7 +618,6 @@ MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb, void *privd
 }
 
 MRReply *MRIterator_Next(MRIterator *it) {
-
   void *p = MRChannel_Pop(it->ctx.chan);
   // fprintf(stderr, "POP: %s\n", p == MRCHANNEL_CLOSED ? "CLOSED" : "ITER");
   if (p == MRCHANNEL_CLOSED) {

@@ -203,7 +203,7 @@ int MRCluster_FanoutCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCo
     // printf("Sending fanout command to %s:%d\n", conn->ep.host, conn->ep.port);
     if (conn) {
       //@@TODO: maybe not required
-      if (cmd_proto != 3) _BB;
+      //if (cmd_proto != 3) _BB;
       if (!conn->protocol || cmd_proto != conn->protocol) {
         MRCommand hello = MR_NewCommand(2, "HELLO", cmd_proto == 3 ? "3" : "2");
         int rc = MRConn_SendCommand(conn, &hello, NULL, privdata);

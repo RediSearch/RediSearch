@@ -1,16 +1,13 @@
+from common import *
+
 import bz2
 import json
-import itertools
-import os
-from RLTest import Env
 import unittest
-from includes import *
-from common import getConnectionByEnv, toSortedFlatList
-import numpy as np
 
-def to_dict(res):
-    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    return d
+
+#def to_dict(res):
+#    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+#    return d
 
 
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
@@ -713,7 +710,8 @@ def testContains(env):
                                                                  ['t', 'abba'], \
                                                                  ['t', 'abbabb']]))
 
-def testStrLen(env):
+def testStrLen():
+    env = Env(protocol=2)
     conn = getConnectionByEnv(env)
     env.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
     conn.execute_command('hset', 'doc1', 't', 'aa')

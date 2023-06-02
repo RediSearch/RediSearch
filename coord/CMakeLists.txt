@@ -39,7 +39,7 @@ add_compile_definitions(
 	REDIS_MODULE_TARGET
 	RS_COORDINATOR
 	RMUTIL_NO_SDS
-	READIES_ALLOW_BB)
+	READIES_ALLOW_BB) # @@ remove
 
 setup_cc_options()
 

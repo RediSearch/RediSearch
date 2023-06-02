@@ -179,37 +179,37 @@ void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len
 #define TERM "TERM"
   bool resp3 = RedisModule_HasMap(reply);
 
-    if (!resp3) {
-      RedisModule_Reply_SimpleString(reply, TERM);
+  if (!resp3) {
+    RedisModule_Reply_SimpleString(reply, TERM);
+  }
+  RedisModule_Reply_StringBuffer(reply, term, len);
+
+  RS_Suggestion **suggestions = spellCheck_GetSuggestions(s);
+
+  qsort(suggestions, array_len(suggestions), sizeof(RS_Suggestion *), RS_SuggestionCompare);
+
+  if (array_len(suggestions) == 0) {
+    // no results found, we return an empty array
+    RedisModule_Reply_EmptyArray(reply);
+  } else {
+    if (totalDocNumber == 0) { // Can happen with FT.DICTADD
+      totalDocNumber = 1;
     }
-    RedisModule_Reply_StringBuffer(reply, term, len);
-
-    RS_Suggestion **suggestions = spellCheck_GetSuggestions(s);
-
-    qsort(suggestions, array_len(suggestions), sizeof(RS_Suggestion *), RS_SuggestionCompare);
-
-    if (array_len(suggestions) == 0) {
-      // no results found, we return an empty array
-      RedisModule_Reply_EmptyArray(reply);
-    } else {
-      if (totalDocNumber == 0) { // Can happen with FT.DICTADD
-        totalDocNumber = 1;
+    RedisModule_Reply_Array(reply);
+    for (int i = 0; i < array_len(suggestions); ++i) {
+      RedisModule_Reply_Map(reply);
+      if (resp3) {
+        RedisModule_Reply_StringBuffer(reply, suggestions[i]->suggestion, suggestions[i]->len);
+        RedisModule_Reply_Double(reply, suggestions[i]->score == -1 ? 0 :
+                                        suggestions[i]->score / totalDocNumber);
+      } else {
+        RedisModule_Reply_Double(reply, suggestions[i]->score == -1 ? 0 :
+                                        suggestions[i]->score / totalDocNumber);
+        RedisModule_Reply_StringBuffer(reply, suggestions[i]->suggestion, suggestions[i]->len);
       }
-      RedisModule_Reply_Array(reply);
-      for (int i = 0; i < array_len(suggestions); ++i) {
-        RedisModule_Reply_Map(reply);
-        if (resp3) {
-          RedisModule_Reply_StringBuffer(reply, suggestions[i]->suggestion, suggestions[i]->len);
-          RedisModule_Reply_Double(reply, suggestions[i]->score == -1 ? 0 :
-                                          suggestions[i]->score / totalDocNumber);
-        } else {
-          RedisModule_Reply_Double(reply, suggestions[i]->score == -1 ? 0 :
-                                          suggestions[i]->score / totalDocNumber);
-          RedisModule_Reply_StringBuffer(reply, suggestions[i]->suggestion, suggestions[i]->len);
-        }
-        RedisModule_Reply_MapEnd(reply);
-      }
-      RedisModule_Reply_ArrayEnd(reply);
+      RedisModule_Reply_MapEnd(reply);
+    }
+    RedisModule_Reply_ArrayEnd(reply);
   }
 
   array_free_ex(suggestions, RS_SuggestionFree(*(RS_Suggestion **)ptr));

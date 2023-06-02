@@ -157,7 +157,6 @@ int mergeArraysReducer(struct MRCtx *mc, int count, MRReply **replies) {
     stillValid = 0;
 
     for (int i = 0; i < count; i++) {
-      if (MRReply_Type(replies[i]) == MR_REPLY_MAP) { _BB; } //@@
       // if this is not an array - ignore it
       if (MRReply_Type(replies[i]) != MR_REPLY_ARRAY) continue;
       // if we've overshot the array length - ignore this one
@@ -833,7 +832,6 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
 }
 
 searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, bool explainScores) {
-  //_BB;
   searchResult *res = cached ? cached : rm_malloc(sizeof *res);
   res->sortKey = NULL;
   res->sortKeyNum = HUGE_VAL;
@@ -987,7 +985,7 @@ static int cmp_scored_results(const void *p1, const void *p2, const void *udata)
 }
 
 static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
-  _BB;
+  _BB; //@@ TODO
   if (arr == NULL) {
     return;
   }
@@ -1671,7 +1669,7 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
   struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL);
   MR_SetCoordinationStrategy(mrctx, MRCluster_MastersOnly | MRCluster_FlatCoordination);
-  MR_Map(mrctx, _is_resp3(ctx) ? spellCheckReducer_resp3 : spellCheckReducer, cg, true);
+  MR_Map(mrctx, _is_resp3(ctx) ? spellCheckReducer_resp3 : spellCheckReducer_resp2, cg, true);
   cg.Free(cg.ctx);
   return REDISMODULE_OK;
 }
@@ -1736,7 +1734,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
                          struct ConcurrentCmdCtx *cmdCtx);
 
 static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
+  _BB;
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }

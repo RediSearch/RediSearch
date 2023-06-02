@@ -263,6 +263,7 @@ Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid) {
 }
 
 int Cursors_Purge(CursorList *cl, uint64_t cid) {
+  //2 _BB;
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
 
@@ -293,10 +294,10 @@ void Cursors_RenderStats(RedisModule_Reply *reply, CursorList *cl, const char *n
 
   RedisModule_ReplyKV_Map(reply, "cursor_stats");
 
-  RedisModule_ReplyKV_LongLong(reply, "global_idle", ARRAY_GETSIZE_AS(&cl->idle, Cursor **));
-  RedisModule_ReplyKV_LongLong(reply, "global_total", kh_size(cl->lookup));
-  RedisModule_ReplyKV_LongLong(reply, "index_capacity", info->cap);
-  RedisModule_ReplyKV_LongLong(reply, "index_total", info->used);
+    RedisModule_ReplyKV_LongLong(reply, "global_idle", ARRAY_GETSIZE_AS(&cl->idle, Cursor **));
+    RedisModule_ReplyKV_LongLong(reply, "global_total", kh_size(cl->lookup));
+    RedisModule_ReplyKV_LongLong(reply, "index_capacity", info->cap);
+    RedisModule_ReplyKV_LongLong(reply, "index_total", info->used);
 
   RedisModule_Reply_MapEnd(reply);
 

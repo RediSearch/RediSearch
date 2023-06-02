@@ -190,6 +190,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
     const RLookup *lk = cv->lastLk;
     if (has_map) {
+      _BB;
       RedisModule_Reply_SimpleString(reply, "fields");
     }
 
@@ -470,19 +471,32 @@ done_3:
 }
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
-  _BB;
+  //2 _BB;
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   
-  if (reply->resp3 || IsProfile(req)) {
+  if (reply->resp3) // RESP3
+  {
     RedisModule_Reply_Map(reply);
-  }
     sendChunk(req, reply, -1);
     if (IsProfile(req)) {
       Profile_Print(reply, req);
     }
-  if (reply->resp3 || IsProfile(req)) {
     RedisModule_Reply_MapEnd(reply);
   }
+  else // RESP2
+  {
+    if (IsProfile(req)) {
+      RedisModule_Reply_Map(reply);
+    }
+    sendChunk(req, reply, -1);
+    if (IsProfile(req)) {
+      Profile_Print(reply, req);
+    }
+    if (IsProfile(req)) {
+      RedisModule_Reply_MapEnd(reply);
+    }
+  }
+
   RedisModule_EndReply(reply);
   AREQ_Free(req);
 }
@@ -676,6 +690,7 @@ static int parseProfile(AREQ *r, int withProfile, RedisModuleString **argv, int 
 
 static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              CommandType type, int withProfile) {
+  _BB;
   // Index name is argv[1]
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
@@ -844,31 +859,44 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
   req->cursorChunkSize = num;
 
-  // return array of [results, cursorID]. (the typical result reply is in the first reply)
-  // for profile, we return array of [results, cursorID, profile]
-  RedisModule_Reply_Map(reply);
-
-  sendChunk(req, reply, num);
-
-  if (has_map) {
-    RedisModule_Reply_SimpleString(reply, "cursor");
+  bool cursor_done = !!(req->stateflags & QEXEC_S_ITERDONE);
+  
+  if (has_map) // RESP3
+  {
+    RedisModule_Reply_Array(reply);
+      RedisModule_Reply_Map(reply);
+        sendChunk(req, reply, num);
+        // If the cursor is still alive, don't print profile info to save bandwidth
+        if (IsProfile(req) && cursor_done) {
+          Profile_Print(reply, req);
+        }
+      RedisModule_Reply_MapEnd(reply);
+  
+      RedisModule_Reply_LongLong(reply, cursor_done ? 0 : cursor->id);
+     RedisModule_Reply_ArrayEnd(reply);
   }
+  else // RESP2
+  {
+    // return array of [results, cursorID]. (the typical result reply is in the first reply)
+    // for profile, we return array of [results, cursorID, profile]
+    RedisModule_Reply_Array(reply);
+      sendChunk(req, reply, num);
 
-  if (req->stateflags & QEXEC_S_ITERDONE) {
-    // Write the count!
-    RedisModule_Reply_LongLong(reply, 0);
-    if (IsProfile(req)) {
-      Profile_Print(reply, req);
-    }
-  } else {
-    RedisModule_Reply_LongLong(reply, cursor->id);
-    if (IsProfile(req)) {
-      // If the cursor is still alive, don't print profile info to save bandwidth
-      RedisModule_Reply_Null(reply);
-    }
+      if (cursor_done) {
+        // Write the count!
+        RedisModule_Reply_LongLong(reply, 0);
+        if (IsProfile(req)) {
+          Profile_Print(reply, req);
+        }
+      } else {
+        RedisModule_Reply_LongLong(reply, cursor->id);
+        if (IsProfile(req)) {
+          // If the cursor is still alive, don't print profile info to save bandwidth
+          RedisModule_Reply_Null(reply);
+        }
+      }
+    RedisModule_Reply_ArrayEnd(reply);
   }
-
-  RedisModule_Reply_MapEnd(reply);
 
   if (req->stateflags & QEXEC_S_ITERDONE) {
     goto delcursor;

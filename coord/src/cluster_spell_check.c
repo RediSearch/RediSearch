@@ -91,10 +91,10 @@ static bool spellCheckReplySanity(int count, MRReply** replies, uint64_t* totalD
       return false;
     }
 
-    if (MRReply_Type(replies[i]) == MR_REPLY_MAP) { _BB; } //@@
-    if (resp3 && MRReply_Type(replies[i]) != MR_REPLY_MAP || !resp3 && MRReply_Type(replies[i]) != MR_REPLY_ARRAY) {
-      QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected map. Got %d",
-                             MRReply_Type(replies[i]));
+    int type = MRReply_Type(replies[i]);
+    const char *expected = resp3 ? "map" : "array";
+    if (resp3 && type != MR_REPLY_MAP || !resp3 && type != MR_REPLY_ARRAY) {
+      QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected %s. Got %d", expected, type);
       return false;
     }
 
@@ -128,7 +128,7 @@ static bool spellCheckAnalizeResult(spellcheckReducerCtx* ctx, MRReply* reply) {
 
   MRReply* termSuggestionsReply = MRReply_ArrayElement(reply, 2);
   int type = MRReply_Type(termSuggestionsReply);
-  if (type == MR_REPLY_STRING || type == MR_REPLY_STATUS) {
+  if (type == MR_REPLY_STRING || type == MR_REPLY_STATUS) { //@@
     const char* msg = MRReply_String(termSuggestionsReply, NULL);
     if (strcmp(msg, FOUND_TERM_IN_INDEX) == 0) {
       spellcheckReducerCtx_AddTermAsFoundInIndex(ctx, termValue);
@@ -137,16 +137,14 @@ static bool spellCheckAnalizeResult(spellcheckReducerCtx* ctx, MRReply* reply) {
     return true;
   }
 
-  if (MRReply_Type(termSuggestionsReply) == MR_REPLY_MAP) { _BB; } //@@
-  if (MRReply_Type(termSuggestionsReply) != MR_REPLY_ARRAY) {
+  if (type != MR_REPLY_ARRAY) { // RESP2/3
     return false;
   }
 
   int i;
   for (i = 0; i < MRReply_Length(termSuggestionsReply); ++i) {
     MRReply* termSuggestionReply = MRReply_ArrayElement(termSuggestionsReply, i);
-    if (MRReply_Type(termSuggestionsReply) == MR_REPLY_MAP) { _BB; } //@@
-    if (MRReply_Type(termSuggestionReply) != MR_REPLY_ARRAY) {
+    if (MRReply_Type(termSuggestionReply) != MR_REPLY_ARRAY) { // RESP2/3 - @@ verify!
       return false;
     }
     if (MRReply_Length(termSuggestionReply) != 2) {
@@ -169,7 +167,6 @@ static bool spellCheckAnalizeResult(spellcheckReducerCtx* ctx, MRReply* reply) {
     }
 
     const char* suggestionStr = MRReply_String(suggestionReply, NULL);
-
     spellcheckReducerCtx_AddTermSuggestion(ctx, termValue, suggestionStr, score);
   }
 
@@ -195,24 +192,22 @@ static bool spellCheckAnalizeResult_resp3(spellcheckReducerCtx* ctx, MRReply* te
     return true;
   }
 
-  if (MRReply_Type(suggestionArray) == MR_REPLY_MAP) { _BB; } //@@
   if (MRReply_Type(suggestionArray) != MR_REPLY_ARRAY) {
     return false;
   }
 
   int i;
   for (i = 0; i < MRReply_Length(suggestionArray); ++i) {
-    MRReply* termSuggestionReply = MRReply_ArrayElement(suggestionArray, i);
-    if (MRReply_Type(suggestionArray) == MR_REPLY_MAP) { _BB; } //@@
-    if (MRReply_Type(termSuggestionReply) != MR_REPLY_MAP) {
+    MRReply* termSuggestion = MRReply_ArrayElement(suggestionArray, i);
+    if (MRReply_Type(termSuggestion) != MR_REPLY_MAP) {
       return false;
     }
-    if (MRReply_Length(termSuggestionReply) != 2) {
+    if (MRReply_Length(termSuggestion) != 2) {
       return false;
     }
 
-    MRReply* suggestionReply = MRReply_ArrayElement(termSuggestionReply, 0);
-    MRReply* scoreReply = MRReply_ArrayElement(termSuggestionReply, 1);
+    MRReply* suggestionReply = MRReply_ArrayElement(termSuggestion, 0);
+    MRReply* scoreReply = MRReply_ArrayElement(termSuggestion, 1);
   
     if (MRReply_Type(scoreReply) != MR_REPLY_DOUBLE) {
       return false;
@@ -222,9 +217,9 @@ static bool spellCheckAnalizeResult_resp3(spellcheckReducerCtx* ctx, MRReply* te
     }
 
     double score = MRReply_Double(scoreReply);
-    const char* suggestionStr = MRReply_String(suggestionReply, NULL);
+    const char* suggestion = MRReply_String(suggestionReply, NULL);
 
-    spellcheckReducerCtx_AddTermSuggestion(ctx, termValue, suggestionStr, score);
+    spellcheckReducerCtx_AddTermSuggestion(ctx, termValue, suggestion, score);
   }
 
   if (i == 0) {
@@ -251,7 +246,7 @@ void spellCheckSendResult(RedisModule_Reply* reply, spellcheckReducerCtx* spellC
   RedisModule_Reply_MapEnd(reply);
 }
 
-int spellCheckReducer(struct MRCtx* mc, int count, MRReply** replies) {
+int spellCheckReducer_resp2(struct MRCtx* mc, int count, MRReply** replies) {
   RedisModuleCtx* ctx = MRCtx_GetRedisCtx(mc);
   if (count == 0) {
     RedisModule_ReplyWithError(ctx, "Could not distribute command");
@@ -270,7 +265,6 @@ int spellCheckReducer(struct MRCtx* mc, int count, MRReply** replies) {
   for (int i = 0; i < count; ++i) {
     for (int j = 1; j < MRReply_Length(replies[i]); ++j) {
       MRReply* termReply = MRReply_ArrayElement(replies[i], j);
-      if (MRReply_Type(termReply) == MR_REPLY_MAP) { _BB; } //@@
       if (MRReply_Type(termReply) != MR_REPLY_ARRAY) {
         spellcheckReducerCtx_Free(spellcheckCtx);
         RedisModule_ReplyWithError(ctx, "bad reply returned");

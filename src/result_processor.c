@@ -868,7 +868,7 @@ ResultProcessor *RPCounter_New() {
  * Unlocking Redis should be done only by the Unlocker result processor.
  *******************************************************************************************************************/
 
-struct RPBufferAndLocker{
+struct RPBufferAndLocker {
   ResultProcessor base;
 
   // Buffer management
@@ -885,6 +885,7 @@ struct RPBufferAndLocker{
   // Spec version before unlocking the spec.
   size_t spec_version;
 };
+
 /*********** Buffered and locker functions declarations ***********/
 
 // Destroy
@@ -904,6 +905,7 @@ static void LockRedis(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redi
 static void UnLockRedis(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx);
 
 /*********** Buffered results blocks management functions declarations ***********/
+
 static SearchResult *NewResultsBlock(RPBufferAndLocker *rpPufferAndLocker);
 
 // Insert result to the buffer.
@@ -912,6 +914,7 @@ static SearchResult *InsertResult(RPBufferAndLocker *rpPufferAndLocker, SearchRe
 static bool IsBufferEmpty(RPBufferAndLocker *rpPufferAndLocker);
 
 static SearchResult *GetNextResult(RPBufferAndLocker *rpPufferAndLocker);
+
 /*******************************************************************************/
 
 ResultProcessor *RPBufferAndLocker_New(size_t BlockSize, size_t spec_version) {
@@ -933,7 +936,6 @@ ResultProcessor *RPBufferAndLocker_New(size_t BlockSize, size_t spec_version) {
   ret->spec_version = spec_version;
   return &ret->base;
 }
-
 
 void RPBufferAndLocker_Free(ResultProcessor *base) {
   RPBufferAndLocker *bufferAndLocker = (RPBufferAndLocker *)base;
@@ -1003,6 +1005,7 @@ static void InvalidateBufferedResult(SearchResult *buffered_result) {
   buffered_result->scoreExplain = NULL;
   memset(&buffered_result->rowdata, 0, sizeof(RLookupRow));
 }
+
 static void SetResult(SearchResult *buffered_result,  SearchResult *result_output) {
   // Free the RLookup row before overriding it.
   RLookupRow_Cleanup(&result_output->rowdata);
@@ -1010,7 +1013,9 @@ static void SetResult(SearchResult *buffered_result,  SearchResult *result_outpu
 
   InvalidateBufferedResult(buffered_result);
 }
+
 /*********** Redis lock management ***********/
+
 bool isRedisLocked(RPBufferAndLocker *bufferAndLocker) {
   return bufferAndLocker->isRedisLocked;
 }
@@ -1026,6 +1031,7 @@ void UnLockRedis(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx)
 
   rpBufferAndLocker->isRedisLocked = false;
 }
+
 /*********** Yeild results phase functions ***********/
 
 int rpbufferNext_Yield(ResultProcessor *rp, SearchResult *result_output) {
@@ -1062,6 +1068,7 @@ int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_outp
 }
 
 /*********** Buffered and locker functions ***********/
+
 SearchResult *NewResultsBlock(RPBufferAndLocker *rpPufferAndLocker) {
   // Get new results block
   SearchResult *ret = array_new(SearchResult, rpPufferAndLocker->BlockSize);
