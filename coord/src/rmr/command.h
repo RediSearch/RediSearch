@@ -28,6 +28,8 @@ typedef struct {
   int targetSlot;
 
   sds cmd;
+
+  int protocol; // 0 (undetermined), 2, or 3
 } MRCommand;
 
 /* Free the command and all its strings. Doesn't free the actual commmand struct, as it is usually
@@ -88,6 +90,7 @@ void MRCommand_WriteTaggedKey(MRCommand *cmd, int index, const char *newarg, con
 MRCommandGenerator *MRCommand_GetCommandGenerator(MRCommand *cmd);
 int MRCommand_GetShardingKey(MRCommand *cmd);
 int MRCommand_GetPartitioningKey(MRCommand *cmd);
+
 typedef enum {
   MRCommand_SingleKey = 0x01,
   MRCommand_MultiKey = 0x02,
@@ -103,6 +106,8 @@ MRCommandFlags MRCommand_GetFlags(MRCommand *cmd);
 
 /* Return 1 if the command should not be sharded */
 int MRCommand_IsUnsharded(MRCommand *cmd);
+
+void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx);
 
 void MRCommand_Print(MRCommand *cmd);
 void MRCommand_FPrint(FILE *fd, MRCommand *cmd);

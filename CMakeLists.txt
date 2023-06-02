@@ -42,7 +42,8 @@ add_compile_definitions(
     "GIT_VERSPEC=\"${GIT_VERSPEC}\""
     "GIT_SHA=\"${GIT_SHA}\""
     REDISMODULE_SDK_RLEC
-    _GNU_SOURCE)
+    _GNU_SOURCE
+    READIES_ALLOW_BB) # @@ remove
 
 if (USE_REDIS_ALLOCATOR)
     add_compile_definitions(REDIS_MODULE_TARGET)

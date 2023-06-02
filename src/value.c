@@ -620,37 +620,38 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
 }
 
 /* Based on the value type, serialize the value into redis client response */
-int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v, int isTyped) {
+int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, int isTyped) {
   v = RSValue_Dereference(v);
 
   switch (v->t) {
     case RSValue_String:
-      return RedisModule_ReplyWithStringBuffer(ctx, v->strval.str, v->strval.len);
+      return RedisModule_Reply_StringBuffer(reply, v->strval.str, v->strval.len);
     case RSValue_RedisString:
     case RSValue_OwnRstring:
-      return RedisModule_ReplyWithString(ctx, v->rstrval);
+      return RedisModule_Reply_String(reply, v->rstrval);
     case RSValue_Number: {
       char buf[128] = {0};
       RSValue_NumToString(v->numval, buf);
 
       if (isTyped) {
-        return RedisModule_ReplyWithError(ctx, buf);
+        return RedisModule_Reply_Error(reply, buf);
       } else {
-        return RedisModule_ReplyWithStringBuffer(ctx, buf, strlen(buf));
+        return RedisModule_Reply_StringBuffer(reply, buf, strlen(buf));
       }
     }
     case RSValue_Null:
-      return RedisModule_ReplyWithNull(ctx);
+      return RedisModule_Reply_Null(reply);
     case RSValue_Array:
-      RedisModule_ReplyWithArray(ctx, v->arrval.len);
-      for (uint32_t i = 0; i < v->arrval.len; i++) {
-        RSValue_SendReply(ctx, v->arrval.vals[i], isTyped);
-      }
+      RedisModule_Reply_Array(reply);
+        for (uint32_t i = 0; i < v->arrval.len; i++) {
+          RSValue_SendReply(reply, v->arrval.vals[i], isTyped);
+        }
+      RedisModule_Reply_ArrayEnd(reply);
       return REDISMODULE_OK;
     case RSValue_Duo:
-      return RSValue_SendReply(ctx, RS_DUOVAL_OTHERVAL(*v), isTyped);
+      return RSValue_SendReply(reply, RS_DUOVAL_OTHERVAL(*v), isTyped);
     default:
-      RedisModule_ReplyWithNull(ctx);
+      RedisModule_Reply_Null(reply);
   }
   return REDISMODULE_OK;
 }

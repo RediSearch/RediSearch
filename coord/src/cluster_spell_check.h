@@ -17,7 +17,7 @@
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
 
-int spellCheckReducer(struct MRCtx *mc, int count, MRReply **replies);
-
+int spellCheckReducer_resp2(struct MRCtx *mc, int count, MRReply **replies);
+int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies);
 
 #endif /* SRC_CLUSTER_SPELL_CHECK_H_ */

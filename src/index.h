@@ -13,9 +13,12 @@
 #include "index_iterator.h"
 #include "inverted_index.h"
 #include "redisearch.h"
-#include "util/logging.h"
 #include "varint.h"
 #include "query_node.h"
+#include "reply.h"
+
+#include "util/logging.h"
+
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -95,15 +98,9 @@ typedef struct {
     int printProfileClock;    
 } PrintProfileConfig;
 
-/** Print profile of iterators */
-void printIteratorProfile(RedisModuleCtx *ctx,
-                          IndexIterator *root,
-                          size_t counter,
-                          double cpuTime,
-                          int depth,
-                          int limited,
-                          PrintProfileConfig *config);
-
+// Print profile of iterators
+void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter,
+                          double cpuTime, int depth, int limited, PrintProfileConfig *config);
 
 #ifdef __cplusplus
 }

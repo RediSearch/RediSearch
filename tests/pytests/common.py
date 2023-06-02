@@ -300,6 +300,8 @@ def skip(cluster=False, macos=False, asan=False, msan=False):
     return decorate
 
 def to_dict(res):
+    if type(res) == dict:
+        return res
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
 

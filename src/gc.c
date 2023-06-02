@@ -136,8 +136,8 @@ void GCContext_Stop(GCContext* gc) {
   }
 }
 
-void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx) {
-  gc->callbacks.renderStats(ctx, gc->gcCtx);
+void GCContext_RenderStats(GCContext* gc, RedisModule_Reply* reply) {
+  gc->callbacks.renderStats(reply, gc->gcCtx);
 }
 
 #ifdef FTINFO_FOR_INFO_MODULES

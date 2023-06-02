@@ -8,6 +8,8 @@
 #define RS_RESP3_H_
 
 #include "redismodule.h"
+#include "reply.h"
+
 
 static inline bool _is_resp3(RedisModuleCtx *ctx) {
     int ctxFlags = RedisModule_GetContextFlags(ctx);

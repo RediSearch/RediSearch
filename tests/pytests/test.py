@@ -2586,7 +2586,7 @@ def testMod_309(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     conn = getConnectionByEnv(env)
     for i in range(n):
-        conn.execute_command('HSET', 'doc%d'%i, 'test', 'foo')
+        conn.execute_command('HSET', f'doc{i}', 'test', 'foo')
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
     env.assertEqual(len(res), n + 1)
 

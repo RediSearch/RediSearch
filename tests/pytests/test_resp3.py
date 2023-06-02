@@ -1,6 +1,7 @@
 from common import *
-from unittest.mock import ANY
+from unittest.mock import ANY, _ANY
 import operator
+from deepdiff import DeepDiff
 
 def redis_version(con, is_cluster=False):
     res = con.execute_command('INFO')
@@ -37,17 +38,17 @@ def test_search():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     waitForIndex(env, 'idx1')
 
-    expected = {
-      'fields_names': [], 'error': [], 'total_results': 2,
+    exp = {
+      'field_names': [], 'error': [], 'total_results': 2,
       'results': [
-        {'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []},
-        {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []}
+        {'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []},
+        {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
       ]}
-    env.expect('FT.search', 'idx1', "*").equal(expected)
+    env.expect('FT.search', 'idx1', "*").equal(exp)
 
     # test withscores
-    expected = {
-      'fields_names': [], 'error': [], 'total_results': 2,
+    exp = {
+      'field_names': [], 'error': [], 'total_results': 2,
       'results': [
         { 'id': 'doc2',
           'score': [
@@ -59,7 +60,7 @@ def test_search():
            'payload': None,
            'sortkey': None,
            'fields': {'f1': '3', 'f2': '2'},
-           'fields_values': []
+           'field_values': []
         },
         { 'id': 'doc1',
           'score': [
@@ -71,67 +72,67 @@ def test_search():
           'payload': None,
           'sortkey': None,
           'fields': {'f1': '3', 'f2': '3'},
-          'fields_values': []
+          'field_values': []
         }
       ]
     }
-    env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "EXPLAINSCORE", "WITHPAYLOADS", 
-               "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2').equal(expected)
+
+    env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "EXPLAINSCORE", "WITHPAYLOADS",
+               "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2').equal(exp)
 
     # test with sortby
-    expected = {
-      'fields_names': [], 'error': [], 'total_results': 2,
+    exp = {
+      'field_names': [], 'error': [], 'total_results': 2,
       'results': [
         { 'id': 'doc1',
           'score': 0.5,
           'payload': None,
           'sortkey': '$3',
           'fields': {'f2': '3', 'f1': '3'},
-          'fields_values': []
+          'field_values': []
         },
-        { 'id': 'doc2', 
+        { 'id': 'doc2',
           'score': 1.0,
           'payload': None,
           'sortkey': '$2',
           'fields': {'f2': '2', 'f1': '3'},
-          'fields_values': []
+          'field_values': []
         }
       ]
     }
     env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "WITHPAYLOADS", "WITHSORTKEYS",
-               "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC").equal(expected)
+               "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC").equal(exp)
 
     # test with limit 0 0
-    expected = {'fields_names': [], 'error': [], 'total_results': 2, 'results': []}
+    exp = {'field_names': [], 'error': [], 'total_results': 2, 'results': []}
     env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "WITHPAYLOADS",
-               "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC", "LIMIT", 0, 0).equal(expected)
+               "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC", "LIMIT", 0, 0).equal(exp)
 
     # test without RETURN
-    expected = \
-      {'fields_names': [],
-       'error': [],
-       'total_results': 2,
-       'results': [
-         {'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []},
-         {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []}
-       ]
-      }
-    res = env.cmd('FT.search', 'idx1', "*")
+    exp = {
+      'field_names': [],
+      'error': [],
+      'total_results': 2,
+      'results': [
+        {'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []},
+        {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
+      ]
+    }
+    env.expect('FT.search', 'idx1', "*").equal(exp)
 
-    # test with profile
-    expected = \
-      {'fields_names': [], 'error': [], 'total_results': 2, 'results':
-       [{'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []},
-        {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []}],
-        'profile':
-        [['Total profile time', ANY], ['Parsing time', ANY],
-         ['Pipeline creation time', ANY],
-         ['Iterators profile', ['Type', 'WILDCARD', 'Time', ANY, 'Counter', 2]],
-         ['Result processors profile', ['Type', 'Index', 'Time', ANY, 'Counter', 2],
-          ['Type', 'Scorer', 'Time', ANY, 'Counter', 2],
-          ['Type', 'Sorter', 'Time', ANY, 'Counter', 2],
-          ['Type', 'Loader', 'Time', ANY, 'Counter', 2]]]}
-    env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', "*").equal(expected)
+@skip(cluster=True)
+def test_search_timeout():
+    env = Env(protocol=3)
+    if should_skip(env):
+        env.skip()
+
+    with env.getClusterConnectionIfNeeded() as r:
+      r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
+      r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
+
+    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
+            "SCHEMA", "f1", "TEXT", "f2", "TEXT")
+    waitForIndex(env, 'idx1')
 
     # test with timeout
     num_range = 1000
@@ -146,6 +147,81 @@ def test_search():
       contains('Timeout limit was reached')
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1).\
       error().contains('Timeout limit was reached')
+
+@skip(cluster=True)
+def test_profile(env):
+    env = Env(protocol=3)
+    if should_skip(env):
+        env.skip()
+
+    with env.getClusterConnectionIfNeeded() as r:
+      r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
+      r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
+
+    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
+            "SCHEMA", "f1", "TEXT", "f2", "TEXT")
+    waitForIndex(env, 'idx1')
+
+    # test with profile
+    exp = {
+      'field_names': [], 'error': [], 'total_results': 2,
+      'results': [
+        {'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []},
+        {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
+      ],
+      'profile': {
+        'Total profile time': ANY,
+        'Parsing time': ANY,
+        'Pipeline creation time': ANY,
+        'Iterators profile': [
+          {'Type': 'WILDCARD', 'Time': ANY, 'Counter': 2}
+        ],
+        'Result processors profile': [
+          {'Type': 'Index',  'Time': ANY, 'Counter': 2},
+          {'Type': 'Scorer', 'Time': ANY, 'Counter': 2},
+          {'Type': 'Sorter', 'Time': ANY, 'Counter': 2},
+          {'Type': 'Loader', 'Time': ANY, 'Counter': 2}
+        ]
+      }
+    }
+    env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*').equal(exp)
+
+def test_coord_profile():
+    env = Env(protocol=3)
+    if should_skip(env):
+        env.skip()
+
+    with env.getClusterConnectionIfNeeded() as r:
+      r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
+      r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
+
+    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
+            "SCHEMA", "f1", "TEXT", "f2", "TEXT")
+    waitForIndex(env, 'idx1')
+
+    # test with profile
+    exp = {
+      'field_names': [], 'error': [], 'total_results': 2,
+      'results': [
+        {'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []},
+        {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
+      ],
+      'profile': {
+        'Total profile time': ANY,
+        'Parsing time': ANY,
+        'Pipeline creation time': ANY,
+        'Iterators profile': [
+          {'Type': 'WILDCARD', 'Time': ANY, 'Counter': 2}
+        ],
+        'Result processors profile': [
+          {'Type': 'Index',  'Time': ANY, 'Counter': 2},
+          {'Type': 'Scorer', 'Time': ANY, 'Counter': 2},
+          {'Type': 'Sorter', 'Time': ANY, 'Counter': 2},
+          {'Type': 'Loader', 'Time': ANY, 'Counter': 2}
+        ]
+      }
+    }
+    env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*').equal(exp)
 
 def test_aggregate():
     env = Env(protocol=3)
@@ -163,45 +239,45 @@ def test_aggregate():
 
     res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 2, "f1", "f2")
     res['results'].sort(key=lambda x: "" if x['fields'].get('f2') == None else x['fields'].get('f2'))
-    expected = \
-      { 'fields_names': [], 
-        'error': [],
-        'total_results': 1,
-        'results': [
-          {'fields': {}, 'fields_values': []},
-          {'fields': {'f1': '3', 'f2': '2'}, 'fields_values': []},
-          {'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []}
-        ]
-       }
-    env.assertEqual(res, expected)
+    exp = {
+      'field_names': [],
+      'error': [],
+      'total_results': 1,
+      'results': [
+        {'fields': {}, 'field_values': []},
+        {'fields': {'f1': '3', 'f2': '2'}, 'field_values': []},
+        {'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
+      ]
+    }
+    env.assertEqual(res, exp)
 
     res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3")
-    expected = \
-      { 'fields_names': [],
-        'error': [],
-        'total_results': 1,
-        'results': [
-          {'fields': {}, 'fields_values': []},
-          {'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []},
-          {'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []}
-        ]
-      }
+    exp = {
+      'field_names': [],
+      'error': [],
+      'total_results': 1,
+      'results': [
+        {'fields': {}, 'field_values': []},
+        {'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []},
+        {'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
+      ]
+    }
     res['results'].sort(key=lambda x: "" if x['fields'].get('f2') == None else x['fields'].get('f2'))
-    env.assertEqual(res, expected)
+    env.assertEqual(res, exp)
 
     # test with sortby
-    expected = \
-      { 'fields_names': [], 
-        'error': [], 
-        'total_results': 3,
-        'results': [
-          {'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []},
-          {'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []},
-          {'fields': {}, 'fields_values': []}
-        ]
-      }
+    exp = {
+      'field_names': [],
+      'error': [],
+      'total_results': 3,
+      'results': [
+        {'fields': {'f1': '3', 'f2': '3'}, 'field_values': []},
+        {'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []},
+        {'fields': {}, 'field_values': []}
+      ]
+    }
     res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "SORTBY", 2, "@f2", "DESC")
-    env.assertEqual(res, expected)
+    env.assertEqual(res, exp)
 
 def test_cursor():
     env = Env(protocol=3)
@@ -217,48 +293,41 @@ def test_cursor():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     waitForIndex(env, 'idx1')
 
-    expected = {
-      'fields_names': [],
+    exp = {
+      'field_names': [],
       'error': [],
       'total_results': 3,
       'results': [
-        {'fields': {'f1': '3', 'f2': '3'}, 'fields_values': []}
-      ],
-      'cursor': ANY}
-    res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", 
-                  "SORTBY", 2, "@f2", "DESC", "WITHCURSOR", 'COUNT', 1)
-    env.assertEqual(res, expected)
+        {'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
+      ]}
+    res, cursor = env.cmd('FT.aggregate', 'idx1', '*', 'LOAD', 3, 'f1', 'f2', 'f3',
+                          'SORTBY', 2, '@f2', 'DESC', 'WITHCURSOR', 'COUNT', 1)
+    env.assertEqual(res, exp)
 
-    expected = {
-      'fields_names': [], 'error': [], 'total_results': 0,
+    exp = {
+      'field_names': [], 'error': [], 'total_results': 0,
       'results': [
-          {'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'fields_values': []}
-        ],
-        'cursor': ANY}
-    res = env.cmd('FT.CURSOR', 'READ', 'idx1', res['cursor'])
-    env.assertEqual(res, expected)
+          {'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []}
+        ]}
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
+    env.assertEqual(res, exp)
 
-    expected = {
-      'fields_names': [], 'error': [], 'total_results': 0,
-      'results': [{'fields': {}, 'fields_values': []}],
-      'cursor': ANY}
-    res = env.cmd('FT.CURSOR', 'READ', 'idx1', res['cursor'])
-    env.assertEqual(res, expected)
+    exp = {
+      'field_names': [], 'error': [], 'total_results': 0,
+      'results': [{'fields': {}, 'field_values': []}]}
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
+    env.assertEqual(res, exp)
 
-    expected = {'fields_names': [], 'error': [], 'total_results': 0, 'results': [], 'cursor': 0}
-    res = env.cmd('FT.CURSOR', 'READ', 'idx1', res['cursor'])
-    env.assertEqual(res, expected)
+    exp = {'field_names': [], 'error': [], 'total_results': 0, 'results': [], 'cursor': 0}
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
+    env.assertEqual(res, exp)
+    env.assertEqual(cursor, 0)
 
 def test_list():
     env = Env(protocol=3)
     if should_skip(env):
         env.skip()
 
-    with env.getClusterConnectionIfNeeded() as r:
-      r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
-      r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
-      r.execute_command('HSET', 'doc3', 'f5', '4')
-    
     env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     env.cmd('FT.create', 'idx2', "PREFIX", 1, "doc",
@@ -277,7 +346,44 @@ def test_info():
 
     env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT")
-    res = env.execute_command('FT.info', 'idx1')
+    waitForIndex(env, 'idx1')
+
+    exp = {
+      'attributes': [{'WEIGHT': 1.0, 'attribute': 'f1', 'flags': [], 'identifier': 'f1', 'type': 'TEXT'},
+                     {'WEIGHT': 1.0, 'attribute': 'f2', 'flags': [], 'identifier': 'f2', 'type': 'TEXT'}],
+      'bytes_per_record_avg': ANY,
+      'cleaning': 0,
+      'cursor_stats': {'global_idle': 0, 'global_total': 0, 'index_capacity': ANY, 'index_total': 0},
+      'dialect_stats': {'dialect_1': 0, 'dialect_2': 0, 'dialect_3': 0},
+      'doc_table_size_mb': ANY,
+      'gc_stats': ANY,
+      'hash_indexing_failures': 0,
+      'index_definition': {'default_score': 1.0, 'key_type': 'HASH', 'prefixes': ['doc'] },
+      'index_name': 'idx1',
+      'index_options': [],
+      'indexing': 0,
+      'inverted_sz_mb': ANY,
+      'key_table_size_mb': ANY,
+      'max_doc_id': ANY,
+      'num_docs': 3,
+      'num_records': 3,
+      'num_terms': ANY,
+      'number_of_uses': ANY,
+      'offset_bits_per_record_avg': ANY,
+      'offset_vectors_sz_mb': ANY,
+      'offsets_per_term_avg': ANY,
+      'percent_indexed': 1.0,
+      'records_per_doc_avg': ANY,
+      'sortable_values_size_mb': 0.0,
+      'total_geometries_index_size_mb': 0.0,
+      'total_inverted_index_blocks': ANY,
+      'vector_index_sz_mb': 0.0}
+    res = env.cmd('FT.info', 'idx1')
+    res = dict(sorted(res.items()))
+    dd = DeepDiff(res, exp, exclude_types={_ANY})
+    if dd != {}:
+        pp(dd)
+    env.assertEqual(res, exp)
 
 def test_config():
     env = Env(protocol=3)
@@ -288,14 +394,17 @@ def test_config():
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
       r.execute_command('HSET', 'doc3', 'f5', '4')
-    
+
     env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     env.execute_command('FT.create', 'idx2', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
 
+    if env.isCluster():
+        return
+
     res = env.execute_command("FT.CONFIG", "SET", "TIMEOUT", 501)
-    
+
     res = env.execute_command("FT.CONFIG", "GET", "*")
     env.assertEqual(res['TIMEOUT'], {'Value': '501'})
 
@@ -341,19 +450,13 @@ def test_spell_check():
     env.cmd('FT.DICTADD', 'dict1', 'timmies', 'toque', 'toonie', 'Toonif', 'serviette', 'kerfuffle', 'chesterfield')
     env.cmd('FT.DICTADD', 'dict2', 'timmies', 'toque', 'toonie', 'serviette', 'kerfuffle', 'chesterfield')
 
-    expected = [
-      0, {
-        'tooni': [{'Toonif': 0.0}, {'toonie': 0.0}]
-      }
-    ]
+    exp = {
+        'tooni': [{'Toonif': 0.0}, {'toonie': 0.0}],
+        'toque': [{'toque': 0.0}],
+        'kerfuffle': [{'kerfuffle': 0.0}]
+        }
     env.expect('FT.SPELLCHECK', 'incidents', 'Tooni toque kerfuffle', 'TERMS',
-               'INCLUDE', 'dict1', 'dict2', 'FULLSCOREINFO').equal(expected)
-
-    expected = [
-      {'tooni': [{'Toonif': 0.0}, {'toonie': 0.0}]}
-    ]
-    env.expect('FT.SPELLCHECK', 'incidents', 'Tooni toque kerfuffle', 'TERMS',
-               'INCLUDE', 'dict1', 'dict2').equal(expected)
+               'INCLUDE', 'dict1', 'dict2').equal(exp)
 
 def test_syndump():
     env = Env(protocol=3)
@@ -364,9 +467,10 @@ def test_syndump():
     env.expect('ft.synupdate', 'idx', 'id1', 'boy', 'child', 'offspring').ok()
     env.expect('ft.synupdate', 'idx', 'id2', 'baby', 'child').ok()
     env.expect('ft.synupdate', 'idx', 'id3', 'tree', 'wood').ok()
-    expected = {'baby': ['id2'], 'wood': ['id3'], 'boy': ['id1'],
-                'tree': ['id3'], 'child': ['id1', 'id2'], 'offspring': ['id1']}
-    env.expect('ft.syndump', 'idx').equal(expected)
+    exp = {
+      'baby': ['id2'], 'wood': ['id3'], 'boy': ['id1'],
+      'tree': ['id3'], 'child': ['id1', 'id2'], 'offspring': ['id1']}
+    env.expect('ft.syndump', 'idx').equal(exp)
 
 def test_tagvals():
     env = Env(protocol=3)
@@ -384,3 +488,46 @@ def test_tagvals():
     env.expect('FT.TAGVALS', 'idx1', 'f1').equal({'3'})
     env.expect('FT.TAGVALS', 'idx1', 'f2').equal({'2', '3'})
     env.expect('FT.TAGVALS', 'idx1', 'f5').equal(set())
+
+def test_clusterinfo(env):
+    if not env.isCluster() or env.numShards != 3:
+        env.skip()
+    env = Env(protocol=3)
+    exp = {
+      'cluster_type': 'redis_oss',
+      'hash_func': 'CRC16',
+      'num_partitions': 3,
+      'num_slots': 16384,
+      'slots': [
+        { 'end': 5461,
+          'nodes': [
+            { 'host': '127.0.0.1',
+              'id': ANY,
+              'port': 6379,
+              'role': 'master self'
+            }
+          ],
+          'start': 0
+        },
+        { 'end': 10923,
+          'nodes': [
+            {'host': '127.0.0.1',
+             'id': ANY,
+             'port': 6381,
+             'role': 'master '}
+          ],
+          'start': 5462
+        },
+        { 'end': 16383,
+          'nodes': [
+            { 'host': '127.0.0.1',
+              'id': ANY,
+              'port': 6383,
+              'role': 'master '
+            }
+          ],
+          'start': 10924
+        }
+      ]
+    }
+    env.expect('SEARCH.CLUSTERINFO').equal(exp)

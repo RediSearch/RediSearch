@@ -87,3 +87,11 @@ void RMUtil_StringConvert(RedisModuleString **rs, const char **ss, size_t n, int
     ss[ii] = p;
   }
 }
+
+void print_rms(RedisModuleString *rms) {
+    size_t n;
+    const char *p = RedisModule_StringPtrLen(rms, &n);
+    if (p) {
+        printf("%.*s\n", (int) n, p);
+    }
+}
