@@ -855,7 +855,7 @@ DEBUG_COMMAND(DocInfo) {
     if (dmd->sortVector) {
       replySortVector("sortables", dmd, sctx, reply);
     }
-  RedisModule_Reply_Map(reply);
+  RedisModule_Reply_MapEnd(reply);
 
   RedisModule_EndReply(reply);
   DMD_Return(dmd);
