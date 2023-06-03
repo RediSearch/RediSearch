@@ -1,0 +1,35 @@
+version: 0.2
+name: "search-filtering-tag-numeric-filter-pipeline"
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5
+metadata:
+  component: "search"
+setups:
+  - oss-standalone
+  - oss-cluster-02-primaries
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+  - oss-cluster-16-primaries
+  - oss-cluster-20-primaries
+  - oss-cluster-24-primaries
+  - oss-cluster-32-primaries
+
+dbconfig:
+  - dataset_name: "1M-cardinality_numeric_and_tags_25x"
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - requests: 1000000
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-cardinality_numeric_and_tags_25x/1M-cardinality_numeric_and_tags_25x.redisearch.commands.SETUP.csv"
+  - init_commands:
+      - '"FT.CREATE" "idx:cardinality" "SCHEMA" "numeric_field" "NUMERIC" "SORTABLE" "tag_field" "TAG"'
+  - dataset_load_timeout_secs: 180
+  - check:
+      keyspacelen: 1000000
+
+clientconfig:
+  benchmark_type: "read-only"
+  tool: memtier_benchmark
+  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.AGGREGATE idx:cardinality @tag_field:{1} LOAD * FILTER \"@numeric_field>=1 && @numeric_field <=1000000\" SORTBY 2 @numeric_field DESC MAX 1000'"
