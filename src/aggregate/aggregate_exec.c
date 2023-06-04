@@ -838,13 +838,13 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
   req->cursorChunkSize = num;
 
-  bool cursor_done = !!(req->stateflags & QEXEC_S_ITERDONE);
-  
   if (has_map) // RESP3
   {
     RedisModule_Reply_Array(reply);
       RedisModule_Reply_Map(reply);
         sendChunk(req, reply, num);
+        bool cursor_done = !!(req->stateflags & QEXEC_S_ITERDONE);
+        
         // If the cursor is still alive, don't print profile info to save bandwidth
         if (IsProfile(req) && cursor_done) {
           Profile_Print(reply, req);
@@ -860,6 +860,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
     // for profile, we return array of [results, cursorID, profile]
     RedisModule_Reply_Array(reply);
       sendChunk(req, reply, num);
+      bool cursor_done = !!(req->stateflags & QEXEC_S_ITERDONE);
 
       if (cursor_done) {
         // Write the count!
