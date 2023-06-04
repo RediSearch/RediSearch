@@ -743,14 +743,18 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
     RedisModule_ReplyWithError(ctx, "Cursor not found");
     return;
   }
-  StrongRef execution_ref = WeakRef_Promote(cursor->spec_ref);
   QueryError status = {0};
-  if (!StrongRef_Get(execution_ref)) {
-    // The index was dropped while the cursor was idle.
-    // Notify the client that the query was aborted.
-    QueryError_SetError(&status, QUERY_ENOINDEX, "The index was dropped while the cursor was idle");
-    QueryError_ReplyAndClear(ctx, &status);
-    return;
+  StrongRef execution_ref = {0};
+  // If the cursor is associated with a spec
+  if(cursor->spec_ref.rm) {
+    execution_ref = WeakRef_Promote(cursor->spec_ref);
+    if (!StrongRef_Get(execution_ref)) {
+      // The index was dropped while the cursor was idle.
+      // Notify the client that the query was aborted.
+      QueryError_SetError(&status, QUERY_ENOINDEX, "The index was dropped while the cursor was idle");
+      QueryError_ReplyAndClear(ctx, &status);
+      return;
+    }
   }
 
   AREQ *req = cursor->execState;
@@ -760,7 +764,9 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
   }
   ConcurrentSearchCtx_ReopenKeys(&req->conc);
   runCursor(ctx, cursor, count);
-  StrongRef_Release(execution_ref);
+  if(cursor->spec_ref.rm) {
+    StrongRef_Release(execution_ref);
+  }
 }
 
 typedef struct {

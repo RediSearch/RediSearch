@@ -2,7 +2,7 @@ from time import sleep, time
 import unittest
 from redis import ResponseError
 from includes import *
-from common import waitForIndex, skip
+from common import *
 from RLTest import Env
 
 
@@ -150,19 +150,22 @@ def testLeaked(env):
     env.expect('FT.AGGREGATE idx * LOAD 1 @f1 WITHCURSOR COUNT 1 MAXIDLE 1')
 
 def testIndexDropWhileIdle(env):
-    env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
-    env.expect('HSET doc1 t foo').equal(1)
-    env.expect('HSET doc2 t foo').equal(1)
+    conn = getConnectionByEnv(env)
 
-    res, cursor = env.cmd('FT.AGGREGATE idx foo WITHCURSOR COUNT 1')
+    env.expect('FT.CREATE idx SCHEMA t numeric').ok()
+    conn.execute_command('HSET', 'doc1' ,'t', 1)
+
+    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1)
     env.assertEqual(res, [1, []])
 
     # drop the index while the cursor is idle
-    env.cmd('ft.drop', 'idx')
+    conn.execute_command('ft.drop', 'idx')
     
     # Try to read from the cursor
     
-    env.expect('FT.CURSOR READ idx %d' % cursor).error().contains('The index was dropped while the cursor was idle')
-
-
-    
+    if env.is_cluster():
+        res, cursor = env.cmd(f'FT.CURSOR READ idx {str(cursor)}')
+        env.assertEqual(res, [0])
+    else:
+        env.expect(f'FT.CURSOR READ idx {str(cursor)}').error().contains('The index was dropped while the cursor was idle')
+        
