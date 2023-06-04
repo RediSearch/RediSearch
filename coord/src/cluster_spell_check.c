@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #include "cluster_spell_check.h"
 #include "redismodule.h"
 #include "spell_check.h"

@@ -74,6 +74,7 @@ OSNICK=$($READIES/bin/platform --osnick)
 [[ $OSNICK == rocky8 ]]  && OSNICK=rhel8
 
 [[ $OSNICK == bigsur ]]  && OSNICK=catalina
+[[ $OSNICK == ventura ]] && OSNICK=catalina
 
 PLATFORM="$OS-$OSNICK-$ARCH"
 
