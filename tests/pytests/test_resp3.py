@@ -1,7 +1,6 @@
 from common import *
-from unittest.mock import ANY, _ANY
 import operator
-from deepdiff import DeepDiff
+
 
 def redis_version(con, is_cluster=False):
     res = con.execute_command('INFO')

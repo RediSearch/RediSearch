@@ -18,6 +18,8 @@ from RLTest.env import Query
 import numpy as np
 from scipy import spatial
 from pprint import pprint as pp
+from deepdiff import DeepDiff
+from unittest.mock import ANY, _ANY
 
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
@@ -428,3 +430,9 @@ def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOA
             query_vec = vector
         conn.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
     return query_vec
+
+def dict_diff(res, exp, ignore_order=True):
+    dd = DeepDiff(res, exp, exclude_types={_ANY}, ignore_order=ignore_order)
+    if dd != {}:
+        pp(dd)
+    return dd

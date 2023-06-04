@@ -17,20 +17,13 @@
 
 #include <err.h>
 
-/* Get cursor command using a cursor id and an existing aggregate command */
+// Get cursor command using a cursor id and an existing aggregate command
+
 static int getCursorCommand(MRReply *res, MRCommand *cmd) {
   long long cursorId;
-  if (MRReply_Type(res) == MR_REPLY_ARRAY) {
-    if (!MRReply_ToInteger(MRReply_ArrayElement(res, 1), &cursorId)) {
-      // Invalid format?!
-      return 0;
-    }
-  } else {
-    MRReply *cursor = MRReply_MapElement(res, "cursor");
-    if (!MRReply_ToInteger(cursor, &cursorId)) {
-      // Invalid format?!
-      return 0;
-    }
+  if (!MRReply_ToInteger(MRReply_ArrayElement(res, 1), &cursorId)) {
+    // Invalid format?!
+    return 0;
   }
 
   if (cursorId == 0) {
@@ -78,20 +71,25 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand
   bool done = !getCursorCommand(rep, cmd);
 
   // Push the reply down the chain
-  if (cmd->protocol == 3) {
+  if (cmd->protocol == 3) // RESP3
+  {
     MRReply *map = MRReply_ArrayElement(rep, 0);
     MRReply *results = NULL;
-    if (map && MRReply_Type(results) == MR_REPLY_ARRAY) {
-      results = MRReply_MapElement(rep, "results");
-    }
-    if (results && MRReply_Length(results) > 1) {
-      MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
-      // User code now owns the reply, so we can't free it here ourselves!
-      rep = NULL;
+    if (map && MRReply_Type(map) == MR_REPLY_MAP) {
+      results = MRReply_MapElement(map, "results");
+      if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 1) {
+        MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
+        // User code now owns the reply, so we can't free it here ourselves!
+        rep = NULL;
+      } else {
+        done = true;
+      }
     } else {
       done = true;
     }
-  } else {
+  }
+  else // RESP2
+  {
     MRReply *results = MRReply_ArrayElement(rep, 0);
     if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 1) {
       MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
@@ -191,11 +189,11 @@ static int getNextReply(RPNet *nc) {
     }
 
     MRReply *rows = MRReply_ArrayElement(root, 0);
-    if (rows == NULL 
-        //|| (MRReply_Type(rows) != MR_REPLY_ARRAY && MRReply_Type(rows) != MR_REPLY_MAP) 
-		|| MRReply_Type(rows) != MR_REPLY_ARRAY
-        || MRReply_Length(rows) == 0) {
+    if (rows == NULL || (MRReply_Type(rows) != MR_REPLY_ARRAY
+	    && MRReply_Type(rows) != MR_REPLY_MAP) || MRReply_Length(rows) == 0) {
       MRReply_Free(root);
+	  root = NULL;
+	  rows = NULL;
       RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
     }
     nc->current.root = root;
@@ -215,37 +213,94 @@ static const RLookupKey *keyForField(RPNet *nc, const char *s) {
 
 static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   RPNet *nc = (RPNet *)self;
-  // if we've consumed the last reply - free it
-  if (nc->current.rows && nc->curIdx == MRReply_Length(nc->current.rows)) {
-    long long cursorId = MRReply_Integer(MRReply_ArrayElement(nc->current.root, 1));
-    // in profile mode, save shard's profile info to be returned later
-    if (cursorId == 0 && nc->shardsProfile) {
-      nc->shardsProfile[nc->shardsProfileIdx++] = nc->current.root;
-    } else {
-      MRReply_Free(nc->current.root);
+  MRReply *root = nc->current.root, *rows = nc->current.rows;
+
+  // an array (root) is received with similar structure for RESP2/3:
+  // - results array (rows) of either maps (RESP3) or arrays (RESP2)
+  // - cursor (int)
+
+  int nrows = 0;
+  if (rows) {
+    _BB;
+    if (MRReply_Type(rows) == MR_REPLY_MAP) { // RESP3
+      MRReply *results = MRReply_MapElement(rows, "results");
+      nrows = MRReply_Length(results) / 2;
+    } else { // RESP2
+      nrows = MRReply_Length(rows);
     }
-    nc->current.root = nc->current.rows = NULL;
+
+    // if we've consumed the last reply - free it
+    if (nc->curIdx == nrows) {
+      long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
+      // in profile mode, save shard's profile info to be returned later
+      if (cursorId == 0 && nc->shardsProfile) {
+        nc->shardsProfile[nc->shardsProfileIdx++] = root;
+      } else {
+        MRReply_Free(root);
+      }
+      nc->current.root = nc->current.rows = root = rows = NULL;
+    }
   }
 
   // get the next reply from the channel
-  if (!nc->current.root) {
+  if (!root) {
     if (!getNextReply(nc)) {
       return RS_RESULT_EOF;
     }
-    // Get the index from the first
-    nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(nc->current.rows, 0));
+    root = nc->current.root;
+    rows = nc->current.rows;
+
+    if (rows) {
+      if (MRReply_Type(rows) == MR_REPLY_MAP) { // RESP3
+        MRReply *total_results = MRReply_MapElement(rows, "total_results");
+        if (total_results) {
+          nc->base.parent->totalResults += MRReply_Integer(total_results);
+        }
+      } else { // RESP2
+        // Get the index from the first
+        nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
+      }
+	}
     nc->curIdx = 1;
   }
 
-  MRReply *rep = MRReply_ArrayElement(nc->current.rows, nc->curIdx++);
-  for (size_t i = 0; i < MRReply_Length(rep); i += 2) {
-    const char *c = MRReply_String(MRReply_ArrayElement(rep, i), NULL);
-    RSValue *v = RS_NullVal();
-    if (i + 1 < MRReply_Length(rep)) {
-      MRReply *val = MRReply_ArrayElement(rep, i + 1);
-      v = MRReply_ToValue(val);
+  if (!rows) {
+    return RS_RESULT_OK;
+  }
+
+  if (MRReply_Type(rows) == MR_REPLY_MAP) // RESP3
+  {
+    MRReply *row = MRReply_ArrayElement(rows, nc->curIdx++);
+    MRReply *results = MRReply_MapElement(row, "results");
+    if (results && MRReply_Type(results) == MR_REPLY_ARRAY) {
+      for (size_t i = 0; i < MRReply_Length(results); ++i) {
+        MRReply *result = MRReply_ArrayElement(results, i);
+        if (result && MRReply_Type(result) == MR_REPLY_MAP) {
+          MRReply *fields = MRReply_MapElement(result, "fields");
+          if (fields && MRReply_Type(fields) == MR_REPLY_MAP) {
+            for (size_t j = 0; j < MRReply_Length(fields); j += 2) {
+              const char *field = MRReply_String(MRReply_ArrayElement(fields, j), NULL);
+              MRReply *val = MRReply_ArrayElement(fields, j + 1);
+              RSValue *v = MRReply_ToValue(val);
+              RLookup_WriteOwnKeyByName(nc->lookup, field, &r->rowdata, v);
+            }
+          }
+        }
+      }
     }
-    RLookup_WriteOwnKeyByName(nc->lookup, c, &r->rowdata, v);
+  } 
+  else // RESP2
+  {
+    MRReply *rep = MRReply_ArrayElement(rows, nc->curIdx++);
+    for (size_t i = 0; i < MRReply_Length(rep); i += 2) {
+      const char *field = MRReply_String(MRReply_ArrayElement(rep, i), NULL);
+      RSValue *v = RS_NullVal();
+      if (i + 1 < MRReply_Length(rep)) {
+        MRReply *val = MRReply_ArrayElement(rep, i + 1);
+        v = MRReply_ToValue(val);
+      }
+      RLookup_WriteOwnKeyByName(nc->lookup, field, &r->rowdata, v);
+    }
   }
   return RS_RESULT_OK;
 }
@@ -513,12 +568,16 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
       goto err;
     }
   } else {
-    RedisModule_Reply_Map(reply);
-      sendChunk(r, reply, -1);
-      if (IsProfile(r)) {
-        printAggProfile(reply, r);
-      }
-    RedisModule_Reply_MapEnd(reply);
+    if (reply->resp3 || IsProfile(r)) {
+      RedisModule_Reply_Map(reply);
+    }
+    sendChunk(r, reply, -1);
+    if (IsProfile(r)) {
+      printAggProfile(reply, r);
+    }
+    if (reply->resp3 || IsProfile(r)) {
+      RedisModule_Reply_MapEnd(reply);
+    }
     AREQ_Free(r);
   }
 
