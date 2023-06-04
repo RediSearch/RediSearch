@@ -440,8 +440,9 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     // We rely on the existing mechanism of AREQ to free the ctx object when the cursor is exhausted
     r->sctx = rm_new(RedisSearchCtx);
     *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
+    StrongRef dummy_spec_ref = {.rm = NULL};
 
-    rc = AREQ_StartCursor(r, ctx, r->sctx->spec->own_ref, &status);
+    rc = AREQ_StartCursor(r, ctx, dummy_spec_ref, &status);
 
     if (rc != REDISMODULE_OK) {
       goto err;

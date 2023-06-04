@@ -67,13 +67,17 @@ static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
     Cursor_FreeExecState(cur->execState);
     cur->execState = NULL;
   }
-  StrongRef spec_ref = WeakRef_Promote(cur->spec_ref);
-  IndexSpec *spec = StrongRef_Get(spec_ref);
-  // the spec may have been dropped, so we need to make sure it is still valid. 
-  if(spec) {
-    spec->activeCursors--;
+  // if There's a spec associated with the cursor
+  if(cur->spec_ref.rm) { 
+    StrongRef spec_ref = WeakRef_Promote(cur->spec_ref);
+    IndexSpec *spec = StrongRef_Get(spec_ref);
+    // the spec may have been dropped, so we need to make sure it is still valid. 
+    if(spec) {
+      spec->activeCursors--;
+    }
+    WeakRef_Release(cur->spec_ref);
+
   }
-  WeakRef_Release(cur->spec_ref);
   rm_free(cur);
 }
 
@@ -177,28 +181,34 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
   CursorList_IncrCounter(cl);
   Cursor *cur = NULL;
 
-  // We assume that global_spec_ref points to a valid spec.
+  // If the cursor should be associated with a spec, 
+  // we assume that global_spec_ref points to a valid spec, else the function returns NULL.
   IndexSpec *spec = StrongRef_Get(global_spec_ref);
 
-  if (spec->activeCursors >= spec->cursorsCap) {
+  // If we are in a coordinator ctx, the spec is NULL
+  if (spec && (spec->activeCursors >= spec->cursorsCap)) {
     /** Collect idle cursors now */
     Cursors_GCInternal(cl, 0);
     if (spec->activeCursors >= spec->cursorsCap) {
       QueryError_SetError(status, QUERY_ELIMIT, "Too many cursors allocated for index");
       goto done;
     }
+    
   }
 
   cur = rm_calloc(1, sizeof(*cur));
   cur->id = CursorList_GenerateId(cl);
   cur->pos = -1;
   cur->timeoutIntervalMs = interval;
-  cur->spec_ref = StrongRef_Demote(global_spec_ref);
+  if(spec) {
+    cur->spec_ref = StrongRef_Demote(global_spec_ref);
+  } else {
+    cur->spec_ref.rm = NULL;
+  }
 
   int dummy;
   khiter_t iter = kh_put(cursors, cl->lookup, cur->id, &dummy);
   kh_value(cl->lookup, iter) = cur;
-  spec->activeCursors++;
 
 done:
   CursorList_Unlock(cl);
