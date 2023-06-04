@@ -179,9 +179,13 @@ void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len
 #define TERM "TERM"
   bool resp3 = RedisModule_HasMap(reply);
 
-  if (!resp3) {
+  if (resp3) {
+    RedisModule_Reply_Map(reply);
+  } else {
+    RedisModule_Reply_Array(reply);
     RedisModule_Reply_SimpleString(reply, TERM);
   }
+
   RedisModule_Reply_StringBuffer(reply, term, len);
 
   RS_Suggestion **suggestions = spellCheck_GetSuggestions(s);
@@ -192,10 +196,11 @@ void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len
     // no results found, we return an empty array
     RedisModule_Reply_EmptyArray(reply);
   } else {
+    RedisModule_Reply_Array(reply);
+
     if (totalDocNumber == 0) { // Can happen with FT.DICTADD
       totalDocNumber = 1;
     }
-    RedisModule_Reply_Array(reply);
     for (int i = 0; i < array_len(suggestions); ++i) {
       RedisModule_Reply_Map(reply);
       if (resp3) {
@@ -209,6 +214,13 @@ void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len
       }
       RedisModule_Reply_MapEnd(reply);
     }
+    
+    RedisModule_Reply_ArrayEnd(reply);
+  }
+
+  if (resp3) {
+    RedisModule_Reply_MapEnd(reply);
+  } else {
     RedisModule_Reply_ArrayEnd(reply);
   }
 
@@ -316,21 +328,17 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryAST *q) {
   }
   RedisModule_Reply _reply = RedisModule_NewReply(scCtx->sctx->redisCtx), *reply = &_reply;
 
-  RedisModule_Reply_Map(reply);
+  RedisModule_Reply_Array(reply);
 
-  if (scCtx->fullScoreInfo) {
-    // sending the total number of docs for the ability to calculate score on cluster
-    RedisModule_Reply_LongLong(reply, scCtx->sctx->spec->docs.size - 1);
-    if (reply->resp3) {
-      RedisModule_Reply_LongLong(reply, 0); // Just a padd because it's part of map
+    if (scCtx->fullScoreInfo) {
+      // sending the total number of docs for the ability to calculate score on cluster
+      RedisModule_Reply_LongLong(reply, scCtx->sctx->spec->docs.size - 1);
     }
-  }
 
+    scCtx->reply = reply; // this is stack-allocated, should be reset immediately after use
+    QueryNode_ForEach(q->root, forEachCallback, scCtx, 1);
+    scCtx->reply = NULL;
 
-  scCtx->reply = reply; // this is stack-allocated, should be reset immediately after use
-  QueryNode_ForEach(q->root, forEachCallback, scCtx, 1);
-  scCtx->reply = NULL;
-
-  RedisModule_Reply_MapEnd(reply);
+  RedisModule_Reply_ArrayEnd(reply);
   RedisModule_EndReply(reply);
 }

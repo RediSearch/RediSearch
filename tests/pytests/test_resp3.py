@@ -436,9 +436,9 @@ def testSpellCheckIssue437():
     env.cmd('ft.create', 'incidents', 'ON', 'HASH', 'SCHEMA', 'report', 'text')
     env.cmd('FT.DICTADD', 'slang', 'timmies', 'toque', 'toonie', 'serviette', 'kerfuffle', 'chesterfield')
     env.expect('FT.SPELLCHECK', 'incidents',
-               'Tooni toque kerfuffle', 'TERMS',
-               'EXCLUDE', 'slang', 'TERMS',
-               'INCLUDE', 'slang').equal([['TERM', 'tooni', [['0', 'toonie']]]])
+               'Tooni toque kerfuffle',
+               'TERMS', 'EXCLUDE', 'slang',
+               'TERMS', 'INCLUDE', 'slang').equal([{'tooni': 0.0 }])
 
 def test_spell_check():
     env = Env(protocol=3)
@@ -449,11 +449,11 @@ def test_spell_check():
     env.cmd('FT.DICTADD', 'dict1', 'timmies', 'toque', 'toonie', 'Toonif', 'serviette', 'kerfuffle', 'chesterfield')
     env.cmd('FT.DICTADD', 'dict2', 'timmies', 'toque', 'toonie', 'serviette', 'kerfuffle', 'chesterfield')
 
-    exp = {
-        'tooni': [{'Toonif': 0.0}, {'toonie': 0.0}],
-        'toque': [{'toque': 0.0}],
-        'kerfuffle': [{'kerfuffle': 0.0}]
-        }
+    exp = [{
+        'tooni':     [ {'Toonif': 0.0}, {'toonie': 0.0} ],
+        'toque':     [ {'toque': 0.0} ],
+        'kerfuffle': [ {'kerfuffle': 0.0} ]
+        }]
     env.expect('FT.SPELLCHECK', 'incidents', 'Tooni toque kerfuffle', 'TERMS',
                'INCLUDE', 'dict1', 'dict2').equal(exp)
 

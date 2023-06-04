@@ -148,7 +148,11 @@ def testSpellCheckResultsOrder(env):
     waitForIndex(env, 'idx')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'Elior', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'Hila', 'body', 'body2')
-    env.expect('ft.spellcheck', 'idx', 'Elioh Hilh').equal([['TERM', 'elioh', [['0.5', 'elior']]], ['TERM', 'hilh', [['0.5', 'hila']]]])
+    exp = [
+        ['TERM', 'elioh', [['0.5', 'elior']]],
+        ['TERM', 'hilh', [['0.5', 'hila']]]
+    ]
+    env.expect('ft.spellcheck', 'idx', 'Elioh Hilh').equal(exp)
 
 def testSpellCheckDictReleadRDB(env):
     env.expect('FT.DICTADD test 1 2 3').equal(3)

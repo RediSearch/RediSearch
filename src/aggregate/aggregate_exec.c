@@ -859,9 +859,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
     // return array of [results, cursorID]. (the typical result reply is in the first reply)
     // for profile, we return array of [results, cursorID, profile]
     RedisModule_Reply_Array(reply);
-      //RedisModule_Reply_Array(reply);
-        sendChunk(req, reply, num);
-      //RedisModule_Reply_ArrayEnd(reply);
+      sendChunk(req, reply, num);
 
       if (cursor_done) {
         // Write the count!
