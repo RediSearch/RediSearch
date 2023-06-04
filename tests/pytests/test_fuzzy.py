@@ -87,7 +87,7 @@ def testFuzzyWithNumbersOnly(env):
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12345').equal('OK')
     env.expect('ft.search', 'idx', '%%21345%%').equal([1, 'doc1', ['test', '12345']])
 
-@skip
+@skip()
 def testTagFuzzy(env):
     # TODO: fuzzy on tag is broken?
 

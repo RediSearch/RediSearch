@@ -538,7 +538,7 @@ def testAggregate(env):
             compare_optimized_to_not(env, ['ft.aggregate', 'idx', '*'], params, 'case 12')
         #input('stop')
 
-@skip  # TODO: solve flakiness
+@skip()  # TODO: solve flakiness
 def testCoordinator(env):
     # separate test which only has queries with sortby since otherwise the coordinator has random results
     repeat = 10000
