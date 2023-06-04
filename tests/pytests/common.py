@@ -420,7 +420,6 @@ class ConditionalExpected:
             func(self.env.expect(*self.query))
         return self
 
-
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32', ids_offset=0):
     conn = getConnectionByEnv(env)
     np.random.seed(10)
@@ -431,8 +430,8 @@ def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOA
         conn.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
     return query_vec
 
-def dict_diff(res, exp, ignore_order=True):
-    dd = DeepDiff(res, exp, exclude_types={_ANY}, ignore_order=ignore_order)
+def dict_diff(res, exp, ignore_order=True, significant_digits=7):
+    dd = DeepDiff(res, exp, exclude_types={_ANY}, ignore_order=ignore_order, significant_digits=significant_digits)
     if dd != {}:
         pp(dd)
     return dd

@@ -2583,18 +2583,20 @@ def testIssue_848(env):
 
 def testMod_309(env):
     n = 10000 if VALGRIND else 100000
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').ok()
     conn = getConnectionByEnv(env)
     for i in range(n):
         conn.execute_command('HSET', f'doc{i}', 'test', 'foo')
+    waitForIndex(conn, 'idx')
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
     env.assertEqual(len(res), n + 1)
 
     # test with cursor
-    env.skipOnCluster()
-    res = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR')
-    l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
-    cursor = res[1]
+    if env.isCluster():
+        return
+
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR')
+    l = len(res) - 1  # do not count the number of results (the first element in the results)
     while cursor != 0:
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor))
         l += len(r) - 1

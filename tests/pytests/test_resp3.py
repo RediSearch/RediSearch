@@ -119,11 +119,11 @@ def test_search():
     }
     env.expect('FT.search', 'idx1', "*").equal(exp)
 
-@skip(cluster=True)
 def test_search_timeout():
     env = Env(protocol=3)
     if should_skip(env):
         env.skip()
+    env.skipOnCluster()
 
     with env.getClusterConnectionIfNeeded() as r:
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
@@ -317,7 +317,7 @@ def test_cursor():
     res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
     env.assertEqual(res, exp)
 
-    exp = {'field_names': [], 'error': [], 'total_results': 0, 'results': [], 'cursor': 0}
+    exp = {'field_names': [], 'error': [], 'total_results': 0, 'results': []}
     res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
     env.assertEqual(res, exp)
     env.assertEqual(cursor, 0)
@@ -378,10 +378,8 @@ def test_info():
       'total_inverted_index_blocks': ANY,
       'vector_index_sz_mb': 0.0}
     res = env.cmd('FT.info', 'idx1')
+    dd = dict_diff(res, exp)
     res = dict(sorted(res.items()))
-    dd = DeepDiff(res, exp, exclude_types={_ANY})
-    if dd != {}:
-        pp(dd)
     env.assertEqual(res, exp)
 
 def test_config():
@@ -438,7 +436,17 @@ def testSpellCheckIssue437():
     env.expect('FT.SPELLCHECK', 'incidents',
                'Tooni toque kerfuffle',
                'TERMS', 'EXCLUDE', 'slang',
-               'TERMS', 'INCLUDE', 'slang').equal([{'tooni': 0.0 }])
+               'TERMS', 'INCLUDE', 'slang').equal({'tooni': [{'toonie': 0.0}]})
+
+def testSpellCheckOnExistingTerm(env):
+    env = Env(protocol=3)
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
+    with env.getClusterConnectionIfNeeded() as r:
+        r.execute_command('hset', 'doc1', 'name', 'name', 'body', 'body1')
+        r.execute_command('hset', 'doc2', 'name', 'name2', 'body', 'body2')
+        r.execute_command('hset', 'doc3', 'name', 'name2', 'body', 'name2')
+    waitForIndex(env, 'idx')
+    env.expect('ft.spellcheck', 'idx', 'name').equal({})
 
 def test_spell_check():
     env = Env(protocol=3)
@@ -449,11 +457,11 @@ def test_spell_check():
     env.cmd('FT.DICTADD', 'dict1', 'timmies', 'toque', 'toonie', 'Toonif', 'serviette', 'kerfuffle', 'chesterfield')
     env.cmd('FT.DICTADD', 'dict2', 'timmies', 'toque', 'toonie', 'serviette', 'kerfuffle', 'chesterfield')
 
-    exp = [{
+    exp = {
         'tooni':     [ {'Toonif': 0.0}, {'toonie': 0.0} ],
         'toque':     [ {'toque': 0.0} ],
         'kerfuffle': [ {'kerfuffle': 0.0} ]
-        }]
+        }
     env.expect('FT.SPELLCHECK', 'incidents', 'Tooni toque kerfuffle', 'TERMS',
                'INCLUDE', 'dict1', 'dict2').equal(exp)
 
@@ -489,7 +497,7 @@ def test_tagvals():
     env.expect('FT.TAGVALS', 'idx1', 'f5').equal(set())
 
 def test_clusterinfo(env):
-    if not env.isCluster() or env.numShards != 3:
+    if not env.isCluster() or env.shardsCount != 3:
         env.skip()
     env = Env(protocol=3)
     exp = {
