@@ -202,6 +202,7 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
   cur->timeoutIntervalMs = interval;
   if(spec) {
     cur->spec_ref = StrongRef_Demote(global_spec_ref);
+    spec->activeCursors++;
   } else {
     cur->spec_ref.rm = NULL;
   }
