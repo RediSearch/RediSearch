@@ -2572,7 +2572,8 @@ int CompareVestions(Version v1, Version v2) {
 
   return 0;
 }
-
+// This funciton is called in case the server is started or 
+// when the replica is loading the RDB file from the master.
 static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
                                  void *data) {
   if (subevent == REDISMODULE_SUBEVENT_LOADING_RDB_START ||
@@ -2594,8 +2595,8 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     legacySpecDict = NULL;
 
     LegacySchemaRulesArgs_Free(ctx);
-//TODO: destroy cursors after we waited for the job to be done.
-      CursorList_Destroy(&g_CursorsList);
+
+    CursorList_Empty(&g_CursorsList);
 
     if (hasLegacyIndexes || CompareVestions(redisVersion, noScanVersion) < 0) {
       Indexes_ScanAndReindex();
@@ -2747,7 +2748,8 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   }
   Indexes_Free(specDict_g);
   Dictionary_Clear();
-  RSGlobalConfig.used_dialects = 0;
+  RSGlobalConfig.used_dialects = 0;        
+  CursorList_Empty(&g_CursorsList);
 }
 
 void Indexes_Init(RedisModuleCtx *ctx) {
