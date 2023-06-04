@@ -4,7 +4,7 @@ from redis import ResponseError
 from includes import *
 from common import *
 from RLTest import Env
-
+from time import sleep, time
 
 def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
@@ -15,7 +15,7 @@ def loadDocs(env, count=100, idx='idx', text='hello world'):
     env.expect('FT.CREATE', idx, 'ON', 'HASH', 'prefix', 1, idx, 'SCHEMA', 'f1', 'TEXT').ok()
     waitForIndex(env, idx)
     for x in range(count):
-        cmd = ['hset', '{}_doc{}'.format(idx, x), 'f1', text]
+        cmd = ['FT.ADD', idx, '{}_doc{}'.format(idx, x), 1.0, 'FIELDS', 'f1', text]
         env.cmd(*cmd)
     r1 = env.cmd('ft.search', idx, text)
     r2 = list(set(map(lambda x: x[1], filter(lambda x: isinstance(x, list), r1))))
