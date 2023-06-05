@@ -168,4 +168,3 @@ def testIndexDropWhileIdle(env):
         env.assertEqual(res, [0])
     else:
         env.expect(f'FT.CURSOR READ idx {str(cursor)}').error().contains('The index was dropped while the cursor was idle')
-        

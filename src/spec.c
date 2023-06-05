@@ -1393,7 +1393,7 @@ void Indexes_Free(dict *d) {
 
   // cursor list is iterating through the list as well and consuming a lot of CPU
   CursorList_Empty(&g_CursorsList);
-  
+
   arrayof(StrongRef) specs = array_new(StrongRef, dictSize(d));
   dictIterator *iter = dictGetIterator(d);
   dictEntry *entry = NULL;
@@ -2749,7 +2749,7 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   }
   Indexes_Free(specDict_g);
   Dictionary_Clear();
-  RSGlobalConfig.used_dialects = 0;        
+  RSGlobalConfig.used_dialects = 0;
 }
 
 void Indexes_Init(RedisModuleCtx *ctx) {
