@@ -129,10 +129,12 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
   if (c->state != MRConn_Connected) {
     return REDIS_ERR;
   }
-//#ifdef DEBUG_MR
+
+#ifdef DEBUG_MR
   printf("Sending to %s:%d\n", c->ep.host, c->ep.port);
   MRCommand_Print(cmd);
-//#endif
+#endif
+
   if (!cmd->cmd) {
     if (redisFormatSdsCommandArgv(&cmd->cmd, cmd->num, (const char **)cmd->strs, cmd->lens) == REDIS_ERR) {
       return REDIS_ERR;

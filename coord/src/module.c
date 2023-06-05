@@ -1734,7 +1734,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
                          struct ConcurrentCmdCtx *cmdCtx);
 
 static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  _BB;
+  //_BB;
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }

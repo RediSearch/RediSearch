@@ -5,10 +5,6 @@ import json
 import unittest
 
 
-#def to_dict(res):
-#    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-#    return d
-
 
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
 
@@ -710,8 +706,7 @@ def testContains(env):
                                                                  ['t', 'abba'], \
                                                                  ['t', 'abbabb']]))
 
-def testStrLen():
-    env = Env(protocol=2)
+def testStrLen(env):
     conn = getConnectionByEnv(env)
     env.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
     conn.execute_command('hset', 'doc1', 't', 'aa')
@@ -719,9 +714,10 @@ def testStrLen():
     conn.execute_command('hset', 'doc3', 't', '')
 
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'strlen(@t)', 'as', 'length')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, ['t', 'aa', 'length', '2'], \
-                                                                ['t', 'aaa', 'length', '3'], \
-                                                                ['t', '', 'length', '0']]))
+    exp = [1, ['t', 'aa', 'length', '2'],
+              ['t', 'aaa', 'length', '3'],
+              ['t', '', 'length', '0']]
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(exp))
 
 def testLoadAll(env):
     conn = getConnectionByEnv(env)

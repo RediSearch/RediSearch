@@ -2006,10 +2006,10 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, IndexIterator *root, si
   RedisModule_Reply_MapEnd(reply);
 }
 
-#define PRINT_PROFILE_SINGLE(name, iterType, text, hasChild)                   \
-  PRINT_PROFILE_FUNC(name) {                                                   \
+#define PRINT_PROFILE_SINGLE(name, IterType, text, hasChild)                           \
+  PRINT_PROFILE_FUNC(name) {                                                           \
     PrintIteratorChildProfile(reply, (root), counter, cpuTime, depth, limited, config, \
-      ((iterType *)(root))->child, (text), (hasChild));                \
+      ((IterType *)(root))->child, (text), (hasChild));                                \
   }
 
 typedef struct {

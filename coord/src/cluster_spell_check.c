@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #include "cluster_spell_check.h"
 #include "redismodule.h"
 #include "spell_check.h"
@@ -86,33 +85,35 @@ static void spellcheckReducerCtx_AddTermAsFoundInIndex(spellcheckReducerCtx* ctx
 static bool spellCheckReplySanity(int count, MRReply** replies, uint64_t* totalDocNum,
                                   QueryError* qerr, bool resp3) {
   for (int i = 0; i < count; ++i) {
-    if (MRReply_Type(replies[i]) == MR_REPLY_ERROR) {
+  int type = MRReply_Type(replies[i]);
+
+    if (type == MR_REPLY_ERROR) {
       QueryError_SetError(qerr, QUERY_EGENERIC, MRReply_String(replies[i], NULL));
       return false;
     }
 
-    int type = MRReply_Type(replies[i]);
-    const char *expected = resp3 ? "map" : "array";
-    if (resp3 && type != MR_REPLY_MAP || !resp3 && type != MR_REPLY_ARRAY) {
-      QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected %s. Got %d", expected, type);
+    if (type != MR_REPLY_ARRAY) {
+      QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected array. Got %d",
+                             MRReply_Type(replies[i]));
       return false;
     }
 
-    MRReply* numOfDocReply = MRReply_ArrayElement(replies[i], 0);
+    MRReply *ndocs = MRReply_ArrayElement(replies[i], 0);
 
-    if (MRReply_Type(numOfDocReply) != MR_REPLY_INTEGER) {
+    if (MRReply_Type(ndocs) != MR_REPLY_INTEGER) {
       QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "Expected first reply as integer. Have %d",
-                             MRReply_Type(numOfDocReply));
+                             MRReply_Type(ndocs));
       return false;
     }
 
-    (*totalDocNum) += MRReply_Integer(numOfDocReply);
+    (*totalDocNum) += MRReply_Integer(ndocs);
   }
 
   return true;
 }
 
-static bool spellCheckAnalizeResult(spellcheckReducerCtx* ctx, MRReply* reply) {
+static bool spellCheckAnalizeResult_resp2(spellcheckReducerCtx* ctx, MRReply* reply) {
+  //_BB;
   if (MRReply_Length(reply) != 3) {
     return false;
   }
@@ -177,7 +178,8 @@ static bool spellCheckAnalizeResult(spellcheckReducerCtx* ctx, MRReply* reply) {
   return true;
 }
 
-static bool spellCheckAnalizeResult_resp3(spellcheckReducerCtx* ctx, MRReply* termValueReply, MRReply* suggestionArray) {
+static bool spellCheckAnalizeResult_resp3(spellcheckReducerCtx *ctx, MRReply *termValueReply, MRReply *suggestionArray) {
+  //_BB;
   const char* termValue = MRReply_String(termValueReply, NULL);
 
   int type = MRReply_Type(suggestionArray);
@@ -198,16 +200,13 @@ static bool spellCheckAnalizeResult_resp3(spellcheckReducerCtx* ctx, MRReply* te
 
   int i;
   for (i = 0; i < MRReply_Length(suggestionArray); ++i) {
-    MRReply* termSuggestion = MRReply_ArrayElement(suggestionArray, i);
-    if (MRReply_Type(termSuggestion) != MR_REPLY_MAP) {
-      return false;
-    }
-    if (MRReply_Length(termSuggestion) != 2) {
+    MRReply *termSuggestion = MRReply_ArrayElement(suggestionArray, i);
+    if (MRReply_Type(termSuggestion) != MR_REPLY_MAP && MRReply_Length(termSuggestion) != 2) {
       return false;
     }
 
-    MRReply* suggestionReply = MRReply_ArrayElement(termSuggestion, 0);
-    MRReply* scoreReply = MRReply_ArrayElement(termSuggestion, 1);
+    MRReply *suggestionReply = MRReply_ArrayElement(termSuggestion, 0);
+    MRReply *scoreReply = MRReply_ArrayElement(termSuggestion, 1);
   
     if (MRReply_Type(scoreReply) != MR_REPLY_DOUBLE) {
       return false;
@@ -229,9 +228,11 @@ static bool spellCheckAnalizeResult_resp3(spellcheckReducerCtx* ctx, MRReply* te
   return true;
 }
 
-void spellCheckSendResult(RedisModule_Reply* reply, spellcheckReducerCtx* spellCheckCtx,
+void spellCheckSendResult(RedisModule_Reply *reply, spellcheckReducerCtx* spellCheckCtx,
                           uint64_t totalDocNum) {
-  RedisModule_Reply_Map(reply);
+  if (reply->resp3) {
+    RedisModule_Reply_Map(reply);
+  }
   size_t numOfTerms = 0;
   for (int i = 0; i < array_len(spellCheckCtx->terms); ++i) {
     if (spellCheckCtx->terms[i]->foundInIndex) {
@@ -243,10 +244,13 @@ void spellCheckSendResult(RedisModule_Reply* reply, spellcheckReducerCtx* spellC
                                strlen(spellCheckCtx->terms[i]->term),
                                spellCheckCtx->terms[i]->suggestions, totalDocNum);
   }
-  RedisModule_Reply_MapEnd(reply);
+  if (reply->resp3) {
+    RedisModule_Reply_MapEnd(reply);
+  }
 }
 
 int spellCheckReducer_resp2(struct MRCtx* mc, int count, MRReply** replies) {
+  //_BB;
   RedisModuleCtx* ctx = MRCtx_GetRedisCtx(mc);
   if (count == 0) {
     RedisModule_ReplyWithError(ctx, "Could not distribute command");
@@ -271,7 +275,7 @@ int spellCheckReducer_resp2(struct MRCtx* mc, int count, MRReply** replies) {
         return REDISMODULE_OK;
       }
 
-      if (!spellCheckAnalizeResult(spellcheckCtx, termReply)) {
+      if (!spellCheckAnalizeResult_resp2(spellcheckCtx, termReply)) {
         spellcheckReducerCtx_Free(spellcheckCtx);
         RedisModule_ReplyWithError(ctx, "could not analyze term result");
         return REDISMODULE_OK;
@@ -280,7 +284,9 @@ int spellCheckReducer_resp2(struct MRCtx* mc, int count, MRReply** replies) {
   }
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  spellCheckSendResult(reply, spellcheckCtx, totalDocNum);
+  RedisModule_Reply_Array(reply);
+    spellCheckSendResult(reply, spellcheckCtx, totalDocNum);
+  RedisModule_Reply_ArrayEnd(reply);
   RedisModule_EndReply(reply);
 
   spellcheckReducerCtx_Free(spellcheckCtx);
@@ -289,6 +295,7 @@ int spellCheckReducer_resp2(struct MRCtx* mc, int count, MRReply** replies) {
 }
 
 int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies) {
+  //_BB;
   RedisModuleCtx* ctx = MRCtx_GetRedisCtx(mc);
   if (count == 0) {
     RedisModule_ReplyWithError(ctx, "Could not distribute command");
@@ -302,36 +309,35 @@ int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies) {
     return REDISMODULE_OK;
   }
 
-  spellcheckReducerCtx* spellcheckCtx = spellcheckReducerCtx_Create();
+  const char *error = NULL;
+  spellcheckReducerCtx *spellcheckCtx = spellcheckReducerCtx_Create();
 
   for (int i = 0; i < count; ++i) {
     int j = 0;
-    MRReply* dictReply = replies[i];
+    MRReply *dictReply = replies[i];
 
-    if (MRReply_Type(dictReply) != MR_REPLY_MAP) {
-      spellcheckReducerCtx_Free(spellcheckCtx);
-      RedisModule_ReplyWithError(ctx, "bad reply returned");
-      return REDISMODULE_OK;
+    if (MRReply_Type(dictReply) != MR_REPLY_ARRAY) {
+      error = "bad reply returned";
+      goto finish;
     }
 
-    // ignore garbage field if exist
-    if (MRReply_Type(MRReply_ArrayElement(dictReply, 0)) == MR_REPLY_INTEGER) {
-      j+=2;
+    MRReply *termMap = MRReply_ArrayElement(dictReply, 1);
+    if (MRReply_Type(termMap) != MR_REPLY_MAP) {
+      error = "bad reply returned";
+      goto finish;
     }
 
-    for (; j < MRReply_Length(dictReply); j += 2) {
-      MRReply* termReply = MRReply_ArrayElement(dictReply, j);
-      MRReply* suggestionArray = MRReply_ArrayElement(dictReply, j+1);
-      if (MRReply_Type(termReply) != MR_REPLY_STRING || MRReply_Type(suggestionArray) != MR_REPLY_ARRAY) {
-        spellcheckReducerCtx_Free(spellcheckCtx);
-        RedisModule_ReplyWithError(ctx, "bad reply returned");
-        return REDISMODULE_OK;
+    for (int j = 0; j < MRReply_Length(termMap); j += 2) {
+      MRReply *term = MRReply_ArrayElement(termMap, j);
+      MRReply *suggestions = MRReply_ArrayElement(termMap, j + 1);
+      if (MRReply_Type(term) != MR_REPLY_STRING || MRReply_Type(suggestions) != MR_REPLY_ARRAY) {
+        error = "bad reply returned";
+        goto finish;
       }
 
-      if (!spellCheckAnalizeResult_resp3(spellcheckCtx, termReply, suggestionArray)) {
-        spellcheckReducerCtx_Free(spellcheckCtx);
-        RedisModule_ReplyWithError(ctx, "could not analyze term result");
-        return REDISMODULE_OK;
+      if (!spellCheckAnalizeResult_resp3(spellcheckCtx, term, suggestions)) {
+        error = "could not analyze term result";
+        goto finish;
       }
     }
   }
@@ -340,7 +346,11 @@ int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies) {
   spellCheckSendResult(reply, spellcheckCtx, totalDocNum);
   RedisModule_EndReply(reply);
 
+finish:
   spellcheckReducerCtx_Free(spellcheckCtx);
+  if (error) {
+    RedisModule_ReplyWithError(ctx, error);
+  }
 
   return REDISMODULE_OK;
 }

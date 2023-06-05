@@ -300,7 +300,7 @@ MRClusterNode *MR_GetMyNode() {
   return cluster_g ? cluster_g->myNode : NULL;
 }
 
-//#ifef DEBUG_MR
+//#ifef DEBUG_MR // @@
 
 static void helloCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRCtx *ctx = privdata;
@@ -629,6 +629,7 @@ MRReply *MRIterator_Next(MRIterator *it) {
 void MRIterator_WaitDone(MRIterator *it) {
   MRChannel_WaitClose(it->ctx.chan);
 }
+
 void MRIterator_Free(MRIterator *it) {
   if (!it) return;
   for (size_t i = 0; i < it->len; i++) {

@@ -89,10 +89,71 @@ void MRReply_Print(FILE *fp, MRReply *r) {
   }
 }
 
+void MRReply_Print_1(FILE *fp, MRReply *r) {
+  if (!r) {
+    fprintf(fp, "NULL");
+    return;
+  }
+
+  size_t len;
+  switch (MRReply_Type(r)) {
+    case MR_REPLY_INTEGER:
+      fprintf(fp, "%lld", MRReply_Integer(r));
+      break;
+
+    case MR_REPLY_DOUBLE:
+      fprintf(fp, "%f", MRReply_Double(r));
+      break;
+
+    case MR_REPLY_STRING:
+    case MR_REPLY_STATUS:
+      fprintf(fp, "'%s'", MRReply_String(r, NULL));
+      break;
+
+    case MR_REPLY_ERROR:
+      fprintf(fp, "ERR(%s)", MRReply_String(r, NULL));
+      break;
+
+    case MR_REPLY_NIL:
+      fprintf(fp, "(nil)");
+      break;
+
+    case MR_REPLY_ARRAY:
+      len = MRReply_Length(r);
+      fprintf(fp, "[ ");
+      for (size_t i = 0; i < len; i++) {
+        MRReply_Print_1(fp, MRReply_ArrayElement(r, i));
+        fprintf(fp, ", ");
+      }
+      fprintf(fp, " ]");
+      break;
+
+    case MR_REPLY_MAP:
+      len = MRReply_Length(r);
+      fprintf(fp, "{ ");
+      for (size_t i = 0; i < len; i++) {
+        MRReply_Print_1(fp, MRReply_ArrayElement(r, i++));
+        fprintf(fp, ": ");
+        if (i < len) {
+          MRReply_Print_1(fp, MRReply_ArrayElement(r, i));
+          fprintf(fp, ", ");
+        } else {
+          fprintf(fp, "(none), ");
+        }
+      }
+      fprintf(fp, "}");
+      break;
+
+    default:
+      _BB; //@@
+      break;
+  }
+}
+
 #if DEBUG
 
 void print_mr_reply(MRReply *r) {
-  MRReply_Print(stdout, r);
+  MRReply_Print_1(stderr, r);
   puts("");
 }
 

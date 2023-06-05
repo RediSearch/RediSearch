@@ -73,7 +73,14 @@ OSNICK=$($READIES/bin/platform --osnick)
 [[ $OSNICK == ol8 ]]     && OSNICK=rhel8
 [[ $OSNICK == rocky8 ]]  && OSNICK=rhel8
 
-[[ $OSNICK == bigsur ]]  && OSNICK=catalina
+if [[ $OS == macos ]]; then
+	# as we don't build on macOS for every platform, we converge to a least common denominator
+	if [[ $ARCH == x86_64 ]]; then
+		[[ $OSNICK == bigsur || $OSNICK == ventura ]] && OSNICK=catalina
+	else
+		[[ $OSNICK == ventura ]] && OSNICK=monterey
+	fi
+fi
 
 PLATFORM="$OS-$OSNICK-$ARCH"
 

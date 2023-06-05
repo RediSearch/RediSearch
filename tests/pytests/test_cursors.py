@@ -15,8 +15,8 @@ def loadDocs(env, count=100, idx='idx', text='hello world'):
     r1 = env.cmd('ft.search', idx, text)
     r2 = list(set(map(lambda x: x[1], filter(lambda x: isinstance(x, list), r1))))
     env.assertEqual([text], r2)
-    r3 = env.cmd('ft.info', idx)
-    env.assertEqual(count, int(r3[r3.index('num_docs') + 1]))
+    r3 = to_dict(env.cmd('ft.info', idx))
+    env.assertEqual(count, int(r3['num_docs']))
 
 def exhaustCursor(env, idx, res, *args):
     first, cid = res
