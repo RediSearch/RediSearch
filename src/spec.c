@@ -1390,7 +1390,8 @@ void Indexes_Free(dict *d) {
   // spec<-->prefix
   SchemaPrefixes_Free(ScemaPrefixes_g);
   SchemaPrefixes_Create();
-
+  // cursor list is iterating through the list as well and consuming a lot of CPU
+  CursorList_Empty(&g_CursorsList);
   arrayof(StrongRef) specs = array_new(StrongRef, dictSize(d));
   dictIterator *iter = dictGetIterator(d);
   dictEntry *entry = NULL;
