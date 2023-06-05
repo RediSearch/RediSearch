@@ -32,6 +32,7 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 | [redi_search_rails][redi_search_rails-url] | Ruby | MIT | [Dmitry Polyakovsky][redi_search_rails-author] | [![redi_search_rails-stars]][redi_search_rails-url]|
 | [redisearch-rb][redisearch-rb-url] | Ruby | MIT | [Victor Ruiz][redisearch-rb-author] | [![redisearch-rb-stars]][redisearch-rb-url]|
 | [redi_search][redi_search-url] | Ruby | MIT | [Nick Pezza][redi_search-author] | [![redi_search-stars]][redi_search-url] |
+| [coredis][coredis-url] | Python | MIT | [Ali-Akber Saifee][coredis-author] | [![coredis-stars]][coredis-url] | [Documentation][coredis-documentation]
 
 [redis-url]: https://redis.com
 
@@ -107,3 +108,8 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 [redisearch-api-rs-url]: https://github.com/RediSearch/redisearch-api-rs
 [redisearch-api-rs-author]: https://redis.com
 [redisearch-api-rs-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-api-rs.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+[coredis-url]: https://github.com/alisaifee/coredis
+[coredis-author]: https://github.com/alisaifee
+[coredis-stars]: https://img.shields.io/github/stars/alisaifee/coredis.svg?style=social&amp;label=Star&amp;maxAge=2592000
+[coredis-documentation]: https://coredis.readthedocs.io/en/stable/handbook/modules.html#redisearch

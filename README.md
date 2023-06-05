@@ -65,6 +65,7 @@ You can use any standard Redis client library to run RediSearch commands, but it
 | Project | Language | License | Author | Stars | Comment |
 |----------|---------|--------|---------|-------|------- |
 | [jedis][jedis-url] | Java | MIT | [Redis][redis-url] | ![Stars][jedis-stars] | |
+| [redisson][redisson-url] | Java | MIT | [Redisson][redisson-url] | ![Stars][redisson-stars] | |
 | [redis-py][redis-py-url] | Python | MIT | [Redis][redis-url] | ![Stars][redis-py-stars] | |
 | [node-redis][node-redis-url] | Node.js | MIT | [Redis][redis-url] | ![Stars][node-redis-stars] | |
 | [nredisstack][nredisstack-url] | .NET | MIT | [Redis][redis-url] | ![Stars][nredisstack-stars] | |
@@ -82,6 +83,7 @@ You can use any standard Redis client library to run RediSearch commands, but it
 | [redi_search_rails][redi_search_rails-url] | Ruby | MIT | [Dmitry Polyakovsky][redi_search_rails-author] | [![redi_search_rails-stars]][redi_search_rails-url]|
 | [redisearch-rb][redisearch-rb-url] | Ruby | MIT | [Victor Ruiz][redisearch-rb-author] | [![redisearch-rb-stars]][redisearch-rb-url]|
 | [redi_search][redi_search-url] | Ruby | MIT | [Nick Pezza][redi_search-author] | [![redi_search-stars]][redi_search-url] |
+| [coredis][coredis-url] | Python | MIT | [Ali-Akber Saifee][coredis-author] | [![coredis-stars]][coredis-url] | [Documentation][coredis-documentation]
 
 [redis-url]: https://redis.com
 
@@ -92,6 +94,10 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [jedis-url]: https://github.com/redis/jedis
 [jedis-stars]: https://img.shields.io/github/stars/redis/jedis.svg?style=social&amp;label=Star&amp;maxAge=2592000
 [Jedis-package]: https://search.maven.org/artifact/redis.clients/jedis
+
+[redisson-url]: https://github.com/redisson/redisson
+[redisson-stars]: https://img.shields.io/github/stars/redisson/redisson.svg?style=social&amp;label=Star&amp;maxAge=2592000
+[redisson-package]: https://central.sonatype.com/artifact/org.redisson/redisson
 
 [nredisstack-url]: https://github.com/redis/nredisstack
 [nredisstack-stars]: https://img.shields.io/github/stars/redis/nredisstack.svg?style=social&amp;label=Star&amp;maxAge=2592000
@@ -157,6 +163,11 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [redisearch-api-rs-url]: https://github.com/RediSearch/redisearch-api-rs
 [redisearch-api-rs-author]: https://redis.com
 [redisearch-api-rs-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-api-rs.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+[coredis-url]: https://github.com/alisaifee/coredis
+[coredis-author]: https://github.com/alisaifee
+[coredis-stars]: https://img.shields.io/github/stars/alisaifee/coredis.svg?style=social&amp;label=Star&amp;maxAge=2592000
+[coredis-documentation]: https://coredis.readthedocs.io/en/stable/handbook/modules.html#redisearch
 
 ## RediSearch features
 
