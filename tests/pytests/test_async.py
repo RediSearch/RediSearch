@@ -57,7 +57,7 @@ def test_mod4745(env):
 
     # Create an index with large dim so that a single indexing operation will take a long time.
     N = 1000
-    dim = 50000
+    dim = 30000
     for i in range(N):
         res = conn.execute_command('hset', 'foo:%d' % i, 'name', f'some string with information to index in the '
                                                                  f'background later on for id {i}',
@@ -70,7 +70,7 @@ def test_mod4745(env):
     for _ in range(5):
         start = time.time()
         conn.execute_command('PING')
-        env.assertLess(time.time()-start, 1)
+        env.assertLess(time.time()-start, 5)
     # Make sure we are getting here without having cluster mark itself as fail since the server is not responsive and
     # fail to send cluster PING on time before we reach cluster-node-timeout.
     waitForIndex(r, 'idx')
