@@ -70,7 +70,7 @@ def test_mod4745(env):
     for _ in range(5):
         start = time.time()
         conn.execute_command('PING')
-        env.assertLess(time.time()-start, 5)
+        env.assertLess(time.time()-start, 1)
     # Make sure we are getting here without having cluster mark itself as fail since the server is not responsive and
     # fail to send cluster PING on time before we reach cluster-node-timeout.
     waitForIndex(r, 'idx')
