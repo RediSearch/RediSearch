@@ -90,6 +90,7 @@ void workersThreadPool_Destroy(void) {
 void workersThreadPool_InitIfRequired() {
   if(USE_BURST_THREADS()) {
     // Initialize the thread pool temporarily for fast RDB loading of vector index (if needed).
+    VecSim_SetWriteMode(VecSim_WriteAsync);
     workersThreadPool_InitPool();
     RedisModule_Log(RSDummyContext, "notice", "Created workers threadpool of size %lu for loading",
                     RSGlobalConfig.numWorkerThreads);
@@ -105,10 +106,11 @@ void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx) {
     RedisModule_Log(RSDummyContext, "notice",
                     "Done running pending background workers jobs");
     if (USE_BURST_THREADS()) {
-    workersThreadPool_Terminate();
-    RedisModule_Log(RSDummyContext, "notice",
-                    "Terminated workers threadpool of size %lu for loading",
-                    RSGlobalConfig.numWorkerThreads);
+      VecSim_SetWriteMode(VecSim_WriteInPlace);
+      workersThreadPool_Terminate();
+      RedisModule_Log(RSDummyContext, "notice",
+                      "Terminated workers threadpool of size %lu for loading",
+                      RSGlobalConfig.numWorkerThreads);
   }
 }
 
