@@ -2023,13 +2023,20 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_Log(ctx, "notice", "Scanning index %s in background", scanner->spec_name);
   }
 
+  size_t counter = 0;
   while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB)Indexes_ScanProc, scanner)) {
     RedisModule_ThreadSafeContextUnlock(ctx);
-    // Sleep for one microsecond to allow redis server to acquire the GIL while we release it.
-    // Note that previously the 'usleep(1)' was replaced with 'sched_yield()', but it turns out that
-    // 'sched_yield()' doesn't give up the processor for enough time to ensure that other threads
-    // that are waiting for the GIL will actually have the chance to take it.
-    usleep(1);
+    counter++;
+    if (counter % RSGlobalConfig.numBGIndexingIterationsBeforeSleep == 0) {
+      // Sleep for one microsecond to allow redis server to acquire the GIL while we release it.
+      // We do that periodically every X iterations (100 as default), otherwise we call
+      // 'sched_yield()'. That is since 'sched_yield()' doesn't give up the processor for enough
+      // time to ensure that other threads that are waiting for the GIL will actually have the
+      // chance to take it.
+      usleep(1);
+    } else {
+      sched_yield();
+    }
     RedisModule_ThreadSafeContextLock(ctx);
 
     if (scanner->cancelled) {
