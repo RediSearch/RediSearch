@@ -152,11 +152,6 @@ int Cursors_CollectIdle(CursorList *cl) {
   return rc;
 }
 
-void Cursors_initSpec(IndexSpec *spec, size_t capacity) {
-  spec->activeCursors = 0;
-  spec->cursorsCap = capacity;
-}
-
 // The cursors list is assumed to be locked upon calling this function
 static void CursorList_IncrCounter(CursorList *cl) {
   if (++cl->counter % RSCURSORS_SWEEP_INTERVAL == 0) {
@@ -202,10 +197,10 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
   cur->pos = -1;
   cur->timeoutIntervalMs = interval;
   if(spec) {
+    // Get a a weak reference to the spec out of the strong ref, and save it in the
+    // cursor's struct.
     cur->spec_ref = StrongRef_Demote(global_spec_ref);
     spec->activeCursors++;
-  } else {
-    cur->spec_ref.rm = NULL;
   }
 
   int dummy;

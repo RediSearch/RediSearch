@@ -80,6 +80,15 @@ static void setMemoryInfo(RedisModuleCtx *ctx) {
 }
 
 /*
+ * Initialize the spec's fields that are related to the cursors.
+ */
+
+static void Cursors_initSpec(IndexSpec *spec, size_t capacity) {
+  spec->activeCursors = 0;
+  spec->cursorsCap = capacity;
+}
+
+/*
  * Get a field spec by field name. Case sensetive!
  * Return the field spec if found, NULL if not.
  * Assuming the spec is properly locked before calling this function.

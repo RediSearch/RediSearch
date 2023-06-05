@@ -745,8 +745,8 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
   }
   QueryError status = {0};
   StrongRef execution_ref = {0};
-  bool has_spec = cursor->spec_ref.rm != NULL;
-  // If the cursor is associated with a spec
+  bool has_spec = cursor_HasSpecWeakRef(cursor);
+  // If the cursor is associated with a spec, e.g a coordinator ctx.
   if(has_spec) {
     execution_ref = WeakRef_Promote(cursor->spec_ref);
     if (!StrongRef_Get(execution_ref)) {

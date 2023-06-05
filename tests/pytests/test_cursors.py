@@ -153,18 +153,53 @@ def testIndexDropWhileIdle(env):
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE idx SCHEMA t numeric').ok()
-    conn.execute_command('HSET', 'doc1' ,'t', 1)
+    
+    num_docs = 3
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}' ,'t', i)
 
-    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1)
-    env.assertEqual(res, [1, []])
+    count = 1
+    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', count)
+    
+    # Results length should equal the requested count + additional field for the number of results
+    # (which is meaningless is ft.aggregate)
+    env.assertEqual(len(res), count + 1)
 
-    # drop the index while the cursor is idle
+    # drop the index while the cursor is idle/ running in bg
     conn.execute_command('ft.drop', 'idx')
     
     # Try to read from the cursor
     
     if env.is_cluster():
         res, cursor = env.cmd(f'FT.CURSOR READ idx {str(cursor)}')
-        env.assertEqual(res, [0])
+        
+        # Return the next results. count should equal the count at the first cursor's call.
+        env.assertEqual(len(res), count + 1)
+
     else:
         env.expect(f'FT.CURSOR READ idx {str(cursor)}').error().contains('The index was dropped while the cursor was idle')
+
+@skip(noWorkers=True)
+def testIndexDropWhileIdleBG():
+    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
+    testIndexDropWhileIdle(env)
+
+def testExceedCursorCapacity(env):
+    env.skipOnCluster()
+    
+    env.expect('FT.CREATE idx SCHEMA t numeric').ok()
+    env.cmd('HSET', 'doc1' ,'t', 1)
+    
+    index_cap = getCursorStats(env, 'idx')['index_capacity']
+    
+    # reach the spec's cursors maximum capacity
+    for i in range(index_cap):
+        env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1)
+        
+    # Trying to create another cursor should fail
+    env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1).error().contains('Too many cursors allocated for index')
+
+@skip(noWorkers=True)
+def testExceedCursorCapacityBG():
+    env = Env(moduleArgs='WORKER_THREADS 1 ENABLE_THREADS TRUE')
+    testExceedCursorCapacity(env)        

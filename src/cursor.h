@@ -123,11 +123,11 @@ void CursorList_Empty(CursorList *cl);
 #define RSCURSORS_SWEEP_THROTTLE (1 * (1000000000)) /* Throttle, in NS */
 
 /**
- * Upon creating a new spec - Initialize the spec fields
- * that are related to the cursors.
+ * Check if the cursor has a reference to a spec. 
  */
-void Cursors_initSpec(IndexSpec *spec, size_t capacity);
-
+static inline bool cursor_HasSpecWeakRef(const Cursor *cursor) {
+  return cursor->spec_ref.rm != NULL;
+}
 
 /**
  * Reserve a cursor for use with a given query.
@@ -165,7 +165,7 @@ int Cursors_Purge(CursorList *cl, uint64_t cid);
 int Cursors_CollectIdle(CursorList *cl);
 
 /**
- * Assumed to be called by the main thread with a valid spec, under the cursors lock.
+ * Assumed to be called by the main thread with a valid locked spec, under the cursors lock.
  */
 void Cursors_RenderStats(CursorList *cl, IndexSpec *spec, RedisModuleCtx *ctx);
 
