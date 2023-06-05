@@ -200,26 +200,34 @@ def test_coord_profile():
 
     # test with profile
     exp = {
-      'field_names': [], 'error': [], 'total_results': 2,
-      'results': [
-        {'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []},
-        {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
-      ],
-      'profile': {
-        'Total profile time': ANY,
-        'Parsing time': ANY,
-        'Pipeline creation time': ANY,
-        'Iterators profile': [
-          {'Type': 'WILDCARD', 'Time': ANY, 'Counter': 2}
-        ],
-        'Result processors profile': [
-          {'Type': 'Index',  'Time': ANY, 'Counter': 2},
-          {'Type': 'Scorer', 'Time': ANY, 'Counter': 2},
-          {'Type': 'Sorter', 'Time': ANY, 'Counter': 2},
-          {'Type': 'Loader', 'Time': ANY, 'Counter': 2}
-        ]
-      }
-    }
+        'field_names': [], 
+        'error': [], 
+        'total_results': 2, 
+        'results': 
+        [
+            {'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []}, 
+            {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
+        ], 
+        'shards': 
+        {'Shard #1': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 
+                      'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Counter': 0}], 
+                      'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': 0}, 
+                                                    {'Type': 'Scorer', 'Time': ANY, 'Counter': 0}, 
+                                                    {'Type': 'Sorter', 'Time': ANY, 'Counter': 0}, 
+                                                    {'Type': 'Loader', 'Time': ANY, 'Counter': 0}]}, 
+        'Shard #2': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 
+                     'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Counter': 1}], 
+                     'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': 1}, 
+                                                   {'Type': 'Scorer', 'Time': ANY, 'Counter': 1}, 
+                                                   {'Type': 'Sorter', 'Time': ANY, 'Counter': 1}, 
+                                                   {'Type': 'Loader', 'Time': ANY, 'Counter': 1}]}, 
+        'Shard #3': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 
+                     'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Counter': 1}], 
+                     'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': 1}, 
+                                                   {'Type': 'Scorer', 'Time': ANY, 'Counter': 1}, 
+                                                   {'Type': 'Sorter', 'Time': ANY, 'Counter': 1}, 
+                                                   {'Type': 'Loader', 'Time': ANY, 'Counter': 1}]}, 
+        'Coordinator': {'Total Coordinator time': ANY, 'Post Proccessing time': ANY}}}
     env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*').equal(exp)
 
 def test_aggregate():
