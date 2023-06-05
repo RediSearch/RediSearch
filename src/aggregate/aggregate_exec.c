@@ -745,8 +745,9 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
   }
   QueryError status = {0};
   StrongRef execution_ref = {0};
+  bool has_spec = cursor->spec_ref.rm != NULL;
   // If the cursor is associated with a spec
-  if(cursor->spec_ref.rm) {
+  if(has_spec) {
     execution_ref = WeakRef_Promote(cursor->spec_ref);
     if (!StrongRef_Get(execution_ref)) {
       // The index was dropped while the cursor was idle.
@@ -764,7 +765,7 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
   }
   ConcurrentSearchCtx_ReopenKeys(&req->conc);
   runCursor(ctx, cursor, count);
-  if(cursor->spec_ref.rm) {
+  if(has_spec) {
     StrongRef_Release(execution_ref);
   }
 }
