@@ -432,8 +432,6 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (IsProfile(r)) r->parseTime = clock() - r->initClock;
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
-    const char *ixname = RedisModule_StringPtrLen(argv[1 + profileArgs], NULL);
-
     // Keep the original concurrent context
     ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
 

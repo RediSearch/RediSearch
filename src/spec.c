@@ -1390,8 +1390,10 @@ void Indexes_Free(dict *d) {
   // spec<-->prefix
   SchemaPrefixes_Free(ScemaPrefixes_g);
   SchemaPrefixes_Create();
+
   // cursor list is iterating through the list as well and consuming a lot of CPU
   CursorList_Empty(&g_CursorsList);
+  
   arrayof(StrongRef) specs = array_new(StrongRef, dictSize(d));
   dictIterator *iter = dictGetIterator(d);
   dictEntry *entry = NULL;
@@ -2597,8 +2599,6 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
 
     LegacySchemaRulesArgs_Free(ctx);
 
-    CursorList_Empty(&g_CursorsList);
-
     if (hasLegacyIndexes || CompareVestions(redisVersion, noScanVersion) < 0) {
       Indexes_ScanAndReindex();
     } else {
@@ -2750,7 +2750,6 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   Indexes_Free(specDict_g);
   Dictionary_Clear();
   RSGlobalConfig.used_dialects = 0;        
-  CursorList_Empty(&g_CursorsList);
 }
 
 void Indexes_Init(RedisModuleCtx *ctx) {

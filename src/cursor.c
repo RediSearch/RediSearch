@@ -74,8 +74,8 @@ static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
     // the spec may have been dropped, so we need to make sure it is still valid. 
     if(spec) {
       spec->activeCursors--;
+      StrongRef_Release(spec_ref);
     }
-    StrongRef_Release(spec_ref);
     WeakRef_Release(cur->spec_ref);
 
   }
