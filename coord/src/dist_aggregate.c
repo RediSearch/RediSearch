@@ -189,15 +189,29 @@ static int getNextReply(RPNet *nc) {
     }
 
     MRReply *rows = MRReply_ArrayElement(root, 0);
-    if (rows == NULL || (MRReply_Type(rows) != MR_REPLY_ARRAY
-	    && MRReply_Type(rows) != MR_REPLY_MAP) || MRReply_Length(rows) == 0) {
+    if (   rows == NULL
+        || (MRReply_Type(rows) != MR_REPLY_ARRAY && MRReply_Type(rows) != MR_REPLY_MAP)
+        || MRReply_Length(rows) == 0) {
       MRReply_Free(root);
-	  root = NULL;
-	  rows = NULL;
+      root = NULL;
+      rows = NULL;
       RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
     }
+
+    // invariant: either rows == NULL or least one row exists
+
     nc->current.root = root;
-    nc->current.rows = rows;
+
+    if (rows) {
+      MRReply *row0 = MRReply_ArrayElement(rows, 0);
+      if (MRReply_Type(rows) == MR_REPLY_MAP) { // RESP3
+        nc->current.rows = rows = root;
+      } else { // RESP2
+        nc->current.rows = rows;
+      }
+    }
+  
+    assert(MRReply_Type(nc->current.rows) == MR_REPLY_ARRAY);
     return 1;
   }
 }
@@ -215,16 +229,18 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   RPNet *nc = (RPNet *)self;
   MRReply *root = nc->current.root, *rows = nc->current.rows;
 
-  // an array (root) is received with similar structure for RESP2/3:
-  // - results array (rows) of either maps (RESP3) or arrays (RESP2)
-  // - cursor (int)
+  // root (array) has similar structure for RESP2/3:
+  // [0] array of results (rows) described right below
+  // [1] cursor (int)
+  
+  // rows:
+  // RESP2: [ num_results, [ field, value, ... ], ... ]
+  // RESP3: [ { ..., "results": { field: value, ... }, ... }, ... ]
 
-  int nrows = 0;
-  if (rows) {
-    _BB;
-    if (MRReply_Type(rows) == MR_REPLY_MAP) { // RESP3
-      MRReply *results = MRReply_MapElement(rows, "results");
-      nrows = MRReply_Length(results) / 2;
+  if (rows && MRReply_Length(rows) > 0) {
+    int nrows = 0;
+    if (MRReply_Type(MRReply_ArrayElement(rows, 0)) == MR_REPLY_MAP) { // RESP3
+      nrows = MRReply_Length(rows);
     } else { // RESP2
       nrows = MRReply_Length(rows);
     }
@@ -232,6 +248,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     // if we've consumed the last reply - free it
     if (nc->curIdx == nrows) {
       long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
+
       // in profile mode, save shard's profile info to be returned later
       if (cursorId == 0 && nc->shardsProfile) {
         nc->shardsProfile[nc->shardsProfileIdx++] = root;
@@ -242,33 +259,34 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     }
   }
 
+  int new_reply = !root;
+
   // get the next reply from the channel
-  if (!root) {
-    if (!getNextReply(nc)) {
-      return RS_RESULT_EOF;
-    }
-    root = nc->current.root;
-    rows = nc->current.rows;
-
-    if (rows) {
-      if (MRReply_Type(rows) == MR_REPLY_MAP) { // RESP3
-        MRReply *total_results = MRReply_MapElement(rows, "total_results");
-        if (total_results) {
-          nc->base.parent->totalResults += MRReply_Integer(total_results);
-        }
-      } else { // RESP2
-        // Get the index from the first
-        nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
+  while (!root || !rows || MRReply_Length(rows) == 0) {
+      if (!getNextReply(nc)) {
+        return RS_RESULT_EOF;
       }
-	}
-    nc->curIdx = 1;
+
+      root = nc->current.root;
+      rows = nc->current.rows;
   }
 
-  if (!rows) {
-    return RS_RESULT_OK;
+  // invariant: at least one row exists
+
+  MRReply *row0 = MRReply_ArrayElement(rows, 0);
+  int resp3 = MRReply_Type(MRReply_ArrayElement(rows, 0)) == MR_REPLY_MAP;;
+  if (new_reply) {
+    if (resp3) { // RESP3
+      nc->base.parent->totalResults += MRReply_Length(rows);
+      nc->curIdx = 0;
+    } else { // RESP2
+      // Get the index from the first
+      nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
+      nc->curIdx = 1;
+    }
   }
 
-  if (MRReply_Type(rows) == MR_REPLY_MAP) // RESP3
+  if (resp3) // RESP3
   {
     MRReply *row = MRReply_ArrayElement(rows, nc->curIdx++);
     MRReply *results = MRReply_MapElement(row, "results");
