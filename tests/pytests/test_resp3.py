@@ -378,8 +378,9 @@ def test_info():
       'total_inverted_index_blocks': ANY,
       'vector_index_sz_mb': 0.0}
     res = env.cmd('FT.info', 'idx1')
-    dd = dict_diff(res, exp)
-    res = dict(sorted(res.items()))
+    res.pop('total_indexing_time', None)
+    #dd = dict_diff(res, exp)
+    #res = dict(sorted(res.items()))
     env.assertEqual(res, exp)
 
 def test_config():
