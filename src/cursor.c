@@ -75,6 +75,7 @@ static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
     if(spec) {
       spec->activeCursors--;
     }
+    StrongRef_Release(spec_ref);
     WeakRef_Release(cur->spec_ref);
 
   }
