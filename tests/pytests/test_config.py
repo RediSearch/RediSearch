@@ -51,6 +51,7 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'FORK_GC_CLEAN_NUMERIC_EMPTY_NODES').res[0][0] == 'FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
     assert env.expect('ft.config', 'get', '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES').res[0][0] == '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
     assert env.expect('ft.config', 'get', '_FREE_RESOURCE_ON_THREAD').res[0][0] == '_FREE_RESOURCE_ON_THREAD'
+    assert env.expect('ft.config', 'get', 'BG_INDEX_SLEEP_GAP').res[0][0] == 'BG_INDEX_SLEEP_GAP'
 
 '''
 
@@ -128,8 +129,9 @@ def testAllConfig(env):
     env.assertEqual(res_dict['FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'][0], 'true')
     env.assertEqual(res_dict['_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'][0], 'true')
     env.assertEqual(res_dict['_FREE_RESOURCE_ON_THREAD'][0], 'true')
+    env.assertEqual(res_dict['BG_INDEX_SLEEP_GAP'][0], '100')
 
-    # skip ctest configured tests
+# skip ctest configured tests
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
     #env.assertEqual(res_dict['_MAX_RESULTS_TO_UNSORTED_MODE'][0], '1000')
     #env.assertEqual(res_dict['SAFEMODE'][0], 'true')
@@ -165,8 +167,9 @@ def testInitConfig(env):
     test_arg_num('_MAX_RESULTS_TO_UNSORTED_MODE', 3)
     test_arg_num('UNION_ITERATOR_HEAP', 20)
     test_arg_num('_NUMERIC_RANGES_PARENTS', 1)
+    test_arg_num('BG_INDEX_SLEEP_GAP', 15)
 
-    # True/False arguments
+# True/False arguments
     def test_arg_true_false(arg_name, res):
         env = Env(moduleArgs=arg_name, noDefaultModuleArgs=True)
         if env.env == 'existing-env':
@@ -227,3 +230,4 @@ def testImmutable(env):
     env.expect('ft.config', 'set', 'PARTIAL_INDEXED_DOCS').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'UPGRADE_INDEX').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'RAW_DOCID_ENCODING').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'BG_INDEX_SLEEP_GAP').error().contains('Not modifiable at runtime')
