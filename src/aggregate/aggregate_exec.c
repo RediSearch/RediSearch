@@ -561,6 +561,9 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     goto error;
   }
 
+  // This function also builds the RedisSearchCtx. 
+  // It will search for the spec according the the name given in the argv array, 
+  // and ensure the spec is valid.
   if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
     goto error;
   }
@@ -571,7 +574,10 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 #ifdef POWER_TO_THE_WORKERS
   if (RunInThread()) {
     // Prepare context for the worker thread
-    StrongRef spec_ref = r->sctx->spec->own_ref;
+    // Since we are still in the main thread, and we already validated the
+    // spec'c existence, it is safe to directly get the strong reference from the spec
+    // found in buildRequest.
+    StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(r->sctx->spec);
     RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
     // report block client start time
     RedisModule_BlockedClientMeasureTimeStart(blockedClient);
@@ -585,7 +591,10 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       goto error;
     }
     if (r->reqflags & QEXEC_F_IS_CURSOR) {
-      StrongRef spec_ref = r->sctx->spec->own_ref;
+      // Since we are still in the main thread, and we already validated the
+      // spec'c existence, it is safe to directly get the strong reference from the spec
+      // found in buildRequest
+      StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(r->sctx->spec);
       if (AREQ_StartCursor(r, ctx, spec_ref, &status) != REDISMODULE_OK) {
         goto error;
       }

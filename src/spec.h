@@ -527,6 +527,14 @@ StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name, int openWr
 StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
 
 /**
+ * Quick access to the spec's strong reference. This function should be called only if 
+ * the spec is valid and protected (by the GIL or the spec's lock). 
+ * The call does not increase the spec's reference counters. 
+ * @return a strong reference to the spec.
+ */
+StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec);
+
+/**
  * @brief Removes the spec from the global data structures
  *
  * @param ref a strong reference to the spec

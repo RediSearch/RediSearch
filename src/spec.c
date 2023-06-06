@@ -1366,6 +1366,9 @@ void IndexSpec_Free(IndexSpec *spec) {
   }
 
   pthread_rwlock_destroy(&spec->rwlock);
+
+  // Nullify the spec's quick access to the strong ref. (doesn't decrements refrences count).
+  spec->own_ref = (StrongRef){0};
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1470,6 +1473,10 @@ StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options)
   }
 
   return spec_ref;
+}
+
+StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec) { 
+  return spec->own_ref;
 }
 
 // Assuming the spec is properly locked before calling this function.
