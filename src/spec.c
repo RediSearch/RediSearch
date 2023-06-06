@@ -1366,9 +1366,6 @@ void IndexSpec_Free(IndexSpec *spec) {
   }
 
   pthread_rwlock_destroy(&spec->rwlock);
-
-  // Nullify the spec's quick access to the strong ref. (doesn't decrements refrences count).
-  spec->own_ref = (StrongRef){0};
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1391,6 +1388,9 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
   }
 
   SchemaPrefixes_RemoveSpec(spec_ref);
+
+  // Nullify the spec's quick access to the strong ref. (doesn't decrements refrences count).
+  spec->own_ref = (StrongRef){0};
 
   // mark the spec as deleted and decrement the ref counts owned by the global dictionaries
   StrongRef_Invalidate(spec_ref);
