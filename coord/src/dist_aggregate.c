@@ -93,7 +93,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand
     MRReply *results = NULL;
     if (map && MRReply_Type(map) == MR_REPLY_MAP) {
       results = MRReply_MapElement(map, "results");
-      if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 1) {
+      if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 0) {
         MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
         // User code now owns the reply, so we can't free it here ourselves!
         rep = NULL;
@@ -219,18 +219,12 @@ static int getNextReply(RPNet *nc) {
     // invariant: either rows == NULL or least one row exists
 
     nc->current.root = root;
-
-    if (rows) {
-      MRReply *row0 = MRReply_ArrayElement(rows, 0);
-      if (MRReply_Type(rows) == MR_REPLY_MAP) { // RESP3
-        nc->current.rows = rows = root;
-      } else { // RESP2
-        nc->current.rows = rows;
-      }
-    }
+    nc->current.rows = rows;
   
-    if (MRReply_Type(rows) != MR_REPLY_ARRAY) _BB;
-    assert(MRReply_Type(nc->current.rows) == MR_REPLY_ARRAY);
+    if (!nc->current.rows || MRReply_Type(rows) != MR_REPLY_ARRAY || MRReply_Type(nc->current.rows) == MR_REPLY_MAP) _BB;
+    assert(   !nc->current.rows
+           || MRReply_Type(nc->current.rows) == MR_REPLY_ARRAY
+           || MRReply_Type(nc->current.rows) == MR_REPLY_MAP);
     return 1;
   }
 }
@@ -254,36 +248,37 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   
   // rows:
   // RESP2: [ num_results, [ field, value, ... ], ... ]
-  // RESP3: [ { ..., "results": { field: value, ... }, ... }, ... ]
+  // RESP3: { ..., "results": [ { field: value, ... }, ... ], ... }
 
   _BB;
 
-  if (rows && MRReply_Length(rows) > 0) {
-    int nrows = 0;
-    if (MRReply_Type(MRReply_ArrayElement(rows, 0)) == MR_REPLY_MAP) { // RESP3
-      nrows = MRReply_Length(rows);
-    } else { // RESP2
-      nrows = MRReply_Length(rows);
-    }
-
-    // if we've consumed the last reply - free it
-    if (nc->curIdx == nrows) {
-      long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
-
-      // in profile mode, save shard's profile info to be returned later
-      if (cursorId == 0 && nc->shardsProfile) {
-        nc->shardsProfile[nc->shardsProfileIdx++] = root;
+  if (rows) {
+      int resp3 = MRReply_Type(rows) == MR_REPLY_MAP;
+      size_t len;
+      if (resp3) {
+        MRReply *results = MRReply_MapElement(rows, "results");
+        len = MRReply_Length(results);
       } else {
-        MRReply_Free(root);
+        len = MRReply_Length(rows);
       }
-      nc->current.root = nc->current.rows = root = rows = NULL;
-    }
+
+      if (nc->curIdx == len) {
+        long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
+
+        // in profile mode, save shard's profile info to be returned later
+        if (cursorId == 0 && nc->shardsProfile) {
+          nc->shardsProfile[nc->shardsProfileIdx++] = root;
+        } else {
+          MRReply_Free(root);
+        }
+        nc->current.root = nc->current.rows = root = rows = NULL;
+      }
   }
 
   int new_reply = !root;
 
   // get the next reply from the channel
-  while (!root || !rows || MRReply_Length(rows) == 0) {
+  while (!root) {
       if (!getNextReply(nc)) {
         return RS_RESULT_EOF;
       }
@@ -294,12 +289,12 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // invariant: at least one row exists
 
-  MRReply *row0 = MRReply_ArrayElement(rows, 0);
-  int resp3 = MRReply_Type(MRReply_ArrayElement(rows, 0)) == MR_REPLY_MAP;;
+  int resp3 = MRReply_Type(rows) == MR_REPLY_MAP;
   if (new_reply) {
     if (resp3) { // RESP3
-      nc->base.parent->totalResults += MRReply_Length(rows);
       nc->curIdx = 0;
+      MRReply *results = MRReply_MapElement(rows, "results");
+      nc->base.parent->totalResults += MRReply_Length(results);
     } else { // RESP2
       // Get the index from the first
       nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
@@ -310,25 +305,22 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   if (resp3) // RESP3
   {
     _BB;
-    MRReply *row = MRReply_ArrayElement(rows, nc->curIdx++);
-    MRReply *results = MRReply_MapElement(row, "results");
+    MRReply *results = MRReply_MapElement(rows, "results");
     if (results && MRReply_Type(results) == MR_REPLY_ARRAY) {
-      for (size_t i = 0; i < MRReply_Length(results); ++i) {
-        MRReply *result = MRReply_ArrayElement(results, i);
-        if (result && MRReply_Type(result) == MR_REPLY_MAP) {
-          MRReply *fields = MRReply_MapElement(result, "fields");
-          if (fields && MRReply_Type(fields) == MR_REPLY_MAP) {
-            for (size_t j = 0; j < MRReply_Length(fields); j += 2) {
-              const char *field = MRReply_String(MRReply_ArrayElement(fields, j), NULL);
-              MRReply *val = MRReply_ArrayElement(fields, j + 1);
-              RSValue *v = MRReply_ToValue(val);
-              RLookup_WriteOwnKeyByName(nc->lookup, field, &r->rowdata, v);
-            }
+      MRReply *result = MRReply_ArrayElement(results, nc->curIdx++);
+      if (result && MRReply_Type(result) == MR_REPLY_MAP) {
+        MRReply *fields = MRReply_MapElement(result, "fields");
+        if (fields && MRReply_Type(fields) == MR_REPLY_MAP) {
+          for (size_t j = 0; j < MRReply_Length(fields); j += 2) {
+            const char *field = MRReply_String(MRReply_ArrayElement(fields, j), NULL);
+            MRReply *val = MRReply_ArrayElement(fields, j + 1);
+            RSValue *v = MRReply_ToValue(val);
+            RLookup_WriteOwnKeyByName(nc->lookup, field, &r->rowdata, v);
           }
         }
       }
     }
-  } 
+  }
   else // RESP2
   {
     MRReply *rep = MRReply_ArrayElement(rows, nc->curIdx++);
@@ -344,7 +336,6 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   }
   return RS_RESULT_OK;
 }
-
 
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;

@@ -124,15 +124,15 @@ MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
 
 /* Send a command to the connection */
 int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *privdata) {
-  //1_BB;
+  // _BB;
   /* Only send to connected nodes */
   if (c->state != MRConn_Connected) {
     return REDIS_ERR;
   }
 
 #ifdef DEBUG_MR
-  printf("Sending to %s:%d\n", c->ep.host, c->ep.port);
-  MRCommand_Print(cmd);
+  fprintf(stderr, "Sending to %s:%d\n", c->ep.host, c->ep.port);
+  MRCommand_FPrint(stderr, cmd);
 #endif
 
   if (!cmd->cmd) {
@@ -141,7 +141,7 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
     }
   }
 
-  //if (cmd->protocol != 3) _BB;
+  if (cmd->protocol != 3) _BB;
   if (cmd->protocol != 0 && (!c->protocol || c->protocol != cmd->protocol)) {
     int rc = redisAsyncCommand(c->conn, NULL, NULL, "HELLO %d", cmd->protocol);
     c->protocol = cmd->protocol;

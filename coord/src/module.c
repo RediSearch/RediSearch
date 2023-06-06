@@ -1660,7 +1660,7 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
   RS_AutoMemory(ctx);
 
-  //1 _BB;
+  _BB;
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);
   /* Replace our own FT command with _FT. command */
@@ -2397,7 +2397,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   */
 
-  printf("RSValue size: %lu\n", sizeof(RSValue));
+  printf("RSValue size: %lu\n", sizeof(RSValue)); //@@ log?
 
   if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION,
                        REDISMODULE_APIVER_1) == REDISMODULE_ERR) {

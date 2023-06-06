@@ -575,7 +575,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
   }
 
   if (getenv("RS_MIN_THREADS")) {
-    printf("Setting thread pool sizes to 1\n");
+    printf("Setting thread pool sizes to 1\n"); //@@ log
     RSGlobalConfig.searchPoolSize = 1;
     RSGlobalConfig.indexPoolSize = 1;
     RSGlobalConfig.poolSizeNoAuto = 1;

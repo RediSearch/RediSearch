@@ -7,6 +7,8 @@
 #include "reply.h"
 #include "resp3.h"
 
+#include "rmutil/rm_assert.h"
+
 #include <math.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -37,6 +39,16 @@ int RedisModule_Reply_LocalType(RedisModule_Reply *reply) {
     }
   }
   return 0;
+}
+
+bool RedisModule_Reply_LocalIsKey(RedisModule_Reply *reply) {
+  if (reply->stack) {
+    if (array_len(reply->stack) > 0) {
+      StackEntry *e = &array_tail(reply->stack);
+      return e->type == REDISMODULE_REPLY_MAP && e->count % 2 == 0;
+    }
+  }
+  return false;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -227,6 +239,8 @@ int RedisModule_Reply_Error(RedisModule_Reply *reply, const char *error) {
 }
 
 int RedisModule_Reply_Map(RedisModule_Reply *reply) {
+  RS_LOG_ASSERT(!RedisModule_Reply_LocalIsKey(reply), "reply: should not write a map as a key");
+
   int type;
   if (reply->resp3) {
     RedisModule_ReplyWithMap(reply->ctx, REDISMODULE_POSTPONED_LEN);
@@ -258,6 +272,8 @@ int RedisModule_Reply_MapEnd(RedisModule_Reply *reply) {
 }
 
 int RedisModule_Reply_Array(RedisModule_Reply *reply) {
+  RS_LOG_ASSERT(!RedisModule_Reply_LocalIsKey(reply), "reply: should not write an array as a key");
+
   RedisModule_ReplyWithArray(reply->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   json_add(reply, true, "[ ");
   _RedisModule_Reply_Next(reply);
@@ -408,11 +424,6 @@ int RedisModule_ReplyKV_Map(RedisModule_Reply *reply, const char *key) {
   json_add(reply, false, "\"%s\"", key);
   _RedisModule_Reply_Next(reply);
 
-/*  if (reply->resp3) {
-    RedisModule_ReplyWithMap(reply->ctx, REDISMODULE_POSTPONED_LEN);
-  } else {
-    RedisModule_ReplyWithArray(reply->ctx, REDISMODULE_POSTPONED_LEN);
-  }*/
   //_RedisModule_Reply_Push(reply, REDISMODULE_REPLY_MAP);
   RedisModule_Reply_Map(reply);
   return REDISMODULE_OK;

@@ -12,7 +12,9 @@
 #include "query.h"
 #include "reply.h"
 
-#define FOUND_TERM_IN_INDEX "term exists in index"
+#define SPELL_CHECK_TERM_CONST "TERM"
+
+#define SPELL_CHECK_FOUND_TERM_IN_INDEX "term exists in index"
 
 typedef struct RS_Suggestion {
   double score;

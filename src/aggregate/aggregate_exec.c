@@ -440,21 +440,25 @@ done_3:
     }
   
     SearchResult_Clear(&r);
-    if (rc == RS_RESULT_OK) {
-      while (nrows++ < limit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
-        if (!(req->reqflags & QEXEC_F_NOROWS)) {
-          nelem += serializeResult(req, reply, &r, &cv);
-        }
-        // Serialize it as a search result
-        SearchResult_Clear(&r);
+    if (rc != RS_RESULT_OK) {
+      goto done_2;
+    }
+
+    while (nrows++ < limit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+      if (!(req->reqflags & QEXEC_F_NOROWS)) {
+        nelem += serializeResult(req, reply, &r, &cv);
       }
-	} else {
+      // Serialize it as a search result
+      SearchResult_Clear(&r);
+    }
+
+  done_2:
+    SearchResult_Destroy(&r);
+    if (rc != RS_RESULT_OK) {
       req->stateflags |= QEXEC_S_ITERDONE;
     }
-  
+    
     RedisModule_Reply_ArrayEnd(reply); // results @@
-    SearchResult_Destroy(&r);
-  
     // Reset the total results length:
     req->qiter.totalResults = 0;
     if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN || rc != RS_RESULT_OK) {

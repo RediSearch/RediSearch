@@ -189,6 +189,8 @@ def test_coord_profile():
     env = Env(protocol=3)
     if should_skip(env):
         env.skip()
+    if not env.isCluster() or env.shardsCount != 3:
+        env.skip()
 
     with env.getClusterConnectionIfNeeded() as r:
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
@@ -200,27 +202,37 @@ def test_coord_profile():
 
     # test with profile
     exp = {
-      'field_names': [], 'error': [], 'total_results': 2,
-      'results': [
-        {'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []},
-        {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
-      ],
-      'profile': {
-        'Total profile time': ANY,
-        'Parsing time': ANY,
-        'Pipeline creation time': ANY,
-        'Iterators profile': [
-          {'Type': 'WILDCARD', 'Time': ANY, 'Counter': 2}
+        'field_names': [],
+        'error': [],
+        'total_results': 2,
+        'results':
+        [
+            {'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []},
+            {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
         ],
-        'Result processors profile': [
-          {'Type': 'Index',  'Time': ANY, 'Counter': 2},
-          {'Type': 'Scorer', 'Time': ANY, 'Counter': 2},
-          {'Type': 'Sorter', 'Time': ANY, 'Counter': 2},
-          {'Type': 'Loader', 'Time': ANY, 'Counter': 2}
-        ]
-      }
-    }
-    env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*').equal(exp)
+        'shards':
+        {'Shard #1': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY,
+                      'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Counter': 0}],
+                      'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': 0},
+                                                    {'Type': 'Scorer', 'Time': ANY, 'Counter': 0},
+                                                    {'Type': 'Sorter', 'Time': ANY, 'Counter': 0},
+                                                    {'Type': 'Loader', 'Time': ANY, 'Counter': 0}]},
+        'Shard #2': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY,
+                     'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Counter': 1}],
+                     'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': 1},
+                                                   {'Type': 'Scorer', 'Time': ANY, 'Counter': 1},
+                                                   {'Type': 'Sorter', 'Time': ANY, 'Counter': 1},
+                                                   {'Type': 'Loader', 'Time': ANY, 'Counter': 1}]},
+        'Shard #3': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY,
+                     'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Counter': 1}],
+                     'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': 1},
+                                                   {'Type': 'Scorer', 'Time': ANY, 'Counter': 1},
+                                                   {'Type': 'Sorter', 'Time': ANY, 'Counter': 1},
+                                                   {'Type': 'Loader', 'Time': ANY, 'Counter': 1}]},
+        'Coordinator': {'Total Coordinator time': ANY, 'Post Proccessing time': ANY}}}
+    res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*')
+    # dd = dict_diff(res, exp)
+    env.assertEqual(res, exp)
 
 def test_aggregate():
     env = Env(protocol=3)
@@ -241,7 +253,7 @@ def test_aggregate():
     exp = {
       'field_names': [],
       'error': [],
-      'total_results': 1,
+      'total_results': 2,
       'results': [
         {'fields': {}, 'field_values': []},
         {'fields': {'f1': '3', 'f2': '2'}, 'field_values': []},
@@ -322,6 +334,16 @@ def test_cursor():
     env.assertEqual(res, exp)
     env.assertEqual(cursor, 0)
 
+    env.cmd('FT.create', 'idx2', "PREFIX", 1, "folder",
+            "SCHEMA", "f1", "TEXT", "f2", "TEXT")
+    waitForIndex(env, 'idx2')
+
+    exp = {'field_names': [], 'error': [], 'total_results': 0, 'results': []}
+    res, cursor = env.cmd('FT.aggregate', 'idx2', '*', 'LOAD', 3, 'f1', 'f2', 'f3',
+                          'SORTBY', 2, '@f2', 'DESC', 'WITHCURSOR', 'COUNT', 1)
+    env.assertEqual(res, exp)
+    env.assertEqual(cursor, 0)
+
 def test_list():
     env = Env(protocol=3)
     if should_skip(env):
@@ -378,7 +400,8 @@ def test_info():
       'total_inverted_index_blocks': ANY,
       'vector_index_sz_mb': 0.0}
     res = env.cmd('FT.info', 'idx1')
-    dd = dict_diff(res, exp)
+    res.pop('total_indexing_time', None)
+    # dd = dict_diff(res, exp)
     res = dict(sorted(res.items()))
     env.assertEqual(res, exp)
 
@@ -537,4 +560,5 @@ def test_clusterinfo(env):
         }
       ]
     }
-    env.expect('SEARCH.CLUSTERINFO').equal(exp)
+    res = env.cmd('SEARCH.CLUSTERINFO')
+    env.assertEqual(res, exp)

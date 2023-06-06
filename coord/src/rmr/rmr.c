@@ -273,13 +273,13 @@ void MR_Init(MRCluster *cl, long long timeoutMS) {
   rq_g = RQ_New(cl->mgr.nodeConns * 50);
 
   // MRCluster_ConnectAll(cluster_g);
-  printf("Creating thread...\n");
+  printf("Creating thread...\n"); //@@ debug or log
 
   if (uv_thread_create(&loop_th, sideThread, NULL) != 0) {
     perror("thread create");
     exit(-1);
   }
-  printf("Thread created\n");
+  printf("Thread created\n"); //@@ debug or log
 }
 void MR_Destroy() {
   if (rq_g) {
@@ -353,7 +353,7 @@ static void uvFanoutRequest(struct MRRequestCtx *mc) {
 }
 
 static void uvMapRequest(struct MRRequestCtx *mc) {
-  //1 _BB;
+  // _BB;
   MRCtx *mrctx = mc->ctx;
   mrctx->numReplied = 0;
   mrctx->reducer = mc->f;

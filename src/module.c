@@ -110,9 +110,11 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 #define STRINGIFY(x) __STRINGIFY(x)
 
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+
 #define DICT_INITIAL_SIZE 5
 #define DEFAULT_LEV_DISTANCE 1
 #define MAX_LEV_DISTANCE 4
+
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
