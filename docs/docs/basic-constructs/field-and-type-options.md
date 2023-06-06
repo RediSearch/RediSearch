@@ -24,6 +24,24 @@ Where:
 - `SORTABLE` indicates that the field can be sorted. This is useful for performing range queries and sorting search results based on numeric values.
 - `NOINDEX` indicates that the field is not indexed. This is useful for storing numeric values that you don't want to search for, but you still want to retrieve them in search results.
 
+You can search for documents with specific numeric values using the `@<field_name>:[<min> <max>]` query syntax. For example, this query finds documents with a price between 10 and 20:
+
+```
+FT.SEARCH products "@price:[200 300]"
+```
+
+You can also use the following query syntax to perform more complex numeric queries:  
+
+
+| **Comparison operator** | **Query string**   | **Comment**           |
+|-------------------------|--------------------|-----------------------|
+| min &lt;= x &lt;= max   | @field:[min max]   | Fully inclusive range |
+| min &lt; x &lt; max     | @field:[(min (max] | Fully exclusive range |
+| x >= min                | @field:[min +inf]  | Upper open range      |
+| x &lt;= max             | @field:[-inf max]  | Lower open range      |
+| x == val                | @field:[val val]   | Equal                 |
+| x != val                | -@field:[val val]  | Not equal             |
+
 
 ## Geo Fields
 
@@ -91,21 +109,17 @@ FT.CREATE ... SCHEMA ... {field_name} TAG [SEPARATOR {sep}] [CASESENSITIVE]
 
 Where:
 
-- `SEPARATOR` defaults to a comma (`,`), and can be any printable ASCII character. For example:
-
-    ```
-    FT.CREATE idx ON HASH PREFIX 1 test: SCHEMA tags TAG SEPARATOR ";"
+- `SEPARATOR` defaults to a comma (`,`), and can be any printable ASCII character. It is used to separate tags in the field value. For example, if the field value is `hello,world`, the tags are `hello` and `world`.
     ```
 - `CASESENSITIVE` indicates that the field is case-sensitive. By default, tag fields are case-insensitive.
 
-You can search for documents with specific tags using the `@<field_name>:{ <tag> | <tag> | ...}` query syntax. For example, this query finds documents with the tag `hello world` or `foo bar`:
+You can search for documents with specific tags using the `@<field_name>:{<tag>}` query syntax. For example, this query finds documents with the tag `blue`:
 
 ```
-FT.SEARCH idx "@tags:{ hello world | foo bar }"
+FT.SEARCH idx "@tags:{blue}"
 ```
 
 For more information about tag fields, see [Tag Fields](/docs/query-and-search/advanced-concepts/tags/).
-
 
 ## Text Fields
 
@@ -132,15 +146,15 @@ Where:
 - `NOINDEX` indicates that the field is not indexed. This is useful for storing text that you don't want to search for, but you still want to retrieve it in search results.
 - `WITHSUFFIXTRIE` indicates that the field will be indexed with a suffix trie. The index will keep a suffix trie with all terms which match the suffix. It is used to optimize `contains (*foo*)` and `suffix (*foo)` queries. Otherwise, a brute-force search on the trie is performed. If suffix trie exists for some fields, these queries will be disabled for other fields.
 
-You can search for documents with specific text values using the `@<field_name>:{ <term>}` query syntax. Let's look at a few examples:
+You can search for documents with specific text values using the `<term>` or the `@<field_name>:{<term>}` query syntax. Let's look at a few examples:
 
 
 - Search for a term in every text attribute:
-```
-FT.SEARCH books-idx "wizard"
-```
+    ```
+    FT.SEARCH books-idx "wizard"
+    ```
 
 - Search for a term only in the `title` attribute
-```
-FT.SEARCH books-idx "@title:dogs"
-```
+    ```
+    FT.SEARCH books-idx "@title:dogs"
+    ```
