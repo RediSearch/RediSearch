@@ -448,7 +448,7 @@ done_3:
       }
       // Serialize it as a search result
       SearchResult_Clear(&r);
-	}
+    }
 
   done_2:
     SearchResult_Destroy(&r);
