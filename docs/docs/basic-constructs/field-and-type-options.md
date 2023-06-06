@@ -110,7 +110,7 @@ FT.CREATE ... SCHEMA ... {field_name} TAG [SEPARATOR {sep}] [CASESENSITIVE]
 Where:
 
 - `SEPARATOR` defaults to a comma (`,`), and can be any printable ASCII character. It is used to separate tags in the field value. For example, if the field value is `hello,world`, the tags are `hello` and `world`.
-    ```
+
 - `CASESENSITIVE` indicates that the field is case-sensitive. By default, tag fields are case-insensitive.
 
 You can search for documents with specific tags using the `@<field_name>:{<tag>}` query syntax. For example, this query finds documents with the tag `blue`:

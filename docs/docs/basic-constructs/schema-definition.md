@@ -43,14 +43,14 @@ SCHEMA
 
 Index the `sku` attribute from a hash as both a `TAG` and as `TEXT`:
 
-    ```
-    FT.CREATE idx 
-        ON HASH 
-        PREFIX 1 blog:post: 
-    SCHEMA 
-        sku AS sku_text TEXT 
-        sku AS sku_tag TAG SORTABLE
-    ```
+```
+FT.CREATE idx 
+    ON HASH 
+    PREFIX 1 blog:post: 
+SCHEMA 
+    sku AS sku_text TEXT 
+    sku AS sku_tag TAG SORTABLE
+```
 
 ##### Index documents with multiple prefixes
 
@@ -88,7 +88,8 @@ FT.CREATE subtitled-books-idx
     ON HASH 
     PREFIX 1 book:details 
     FILTER '@subtitle != ""' 
-SCHEMA title TEXT
+SCHEMA 
+    title TEXT
 ```
 
 
