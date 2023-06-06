@@ -74,6 +74,16 @@ typedef struct {
   long long minUnionIterHeap;
 } IteratorsConfig;
 
+
+#ifdef MT_BUILD
+typdef enum {
+  MT_MODE_OSS,
+  MT_MODE_RCE,
+  MT_MODE_RCP
+} MTMode;
+#endif
+
+
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module statrtup */
 typedef struct {
@@ -104,11 +114,11 @@ typedef struct {
   size_t indexPoolSize;
   int poolSizeNoAuto;  // Don't auto-detect pool size
 
-// #ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
   size_t numWorkerThreads;
-  int alwaysUseThreads;
+  MTMode mt_mode;
   size_t tieredVecSimIndexBufferLimit;
-// #endif
+#endif
 
   size_t minPhoneticTermLen;
 

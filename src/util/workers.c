@@ -11,7 +11,7 @@
 
 #include <pthread.h>
 
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
 
 //------------------------------------------------------------------------------
 // Thread pool
@@ -112,4 +112,4 @@ void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx) {
   }
 }
 
-#endif // POWER_TO_THE_WORKERS
+#endif // MT_BUILD

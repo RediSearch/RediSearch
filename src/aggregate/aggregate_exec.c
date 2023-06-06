@@ -558,7 +558,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     if (rc != REDISMODULE_OK) {
       goto error;
     }
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
   } else if (RunInThread(r)) {
     IndexLoadOptions options = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
                                 .name.cstring = r->sctx->spec->name};
@@ -581,7 +581,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     }
     AREQ_Execute(r, ctx);
   }
-#endif // POWER_TO_THE_WORKERS
+#endif // MT_BUILD
   return REDISMODULE_OK;
 
 error:

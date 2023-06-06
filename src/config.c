@@ -232,7 +232,7 @@ CONFIG_GETTER(getSearchThreads) {
   return sdscatprintf(ss, "%lu", config->searchPoolSize);
 }
 
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
 
 // WORKER_THREADS
 CONFIG_SETTER(setWorkThreads) {
@@ -260,7 +260,7 @@ CONFIG_GETTER(getTieredIndexBufferLimit) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->tieredVecSimIndexBufferLimit);
 }
-#endif // POWER_TO_THE_WORKERS
+#endif // MT_BUILD
 
 // FRISOINI
 CONFIG_SETTER(setFrisoINI) {
@@ -688,7 +688,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getSearchThreads,
          .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
         {.name = "WORKER_THREADS",
          .helpText = "Create at most this number of search threads",
          .setValue = setWorkThreads,

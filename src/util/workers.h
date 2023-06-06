@@ -6,7 +6,7 @@
 
 #pragma once
 
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
 
 #include "redismodule.h"
 #include "thpool/thpool.h"
@@ -43,4 +43,4 @@ void workersThreadPool_InitIfRequired(void);
 // Terminates the running workers pool after all pending jobs are done.
 void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx);
 
-#endif // POWER_TO_THE_WORKERS
+#endif // MT_BUILD

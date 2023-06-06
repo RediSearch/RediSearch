@@ -9,7 +9,7 @@ from RLTest import Env
 
 
 def testEmptyBuffer():
-    if not POWER_TO_THE_WORKERS:
+    if not MT_BUILD:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
     env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
@@ -43,7 +43,7 @@ def CreateAndSearchSortBy(docs_count):
 
 
 def testSimpleBuffer():
-    if not POWER_TO_THE_WORKERS:
+    if not MT_BUILD:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
     CreateAndSearchSortBy(docs_count = 10)
 
@@ -51,7 +51,7 @@ def testSimpleBuffer():
 # In this test we have more than BlockSize docs to buffer, we want to make sure there are no leaks
 # caused by the buffer memory management.
 def testMultipleBlocksBuffer():
-    if not POWER_TO_THE_WORKERS:
+    if not MT_BUILD:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
     CreateAndSearchSortBy(docs_count = 2500)
     
@@ -91,7 +91,7 @@ def get_pipeline(profile_res):
 
 
 def test_pipeline():
-    if not POWER_TO_THE_WORKERS:
+    if not MT_BUILD:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
     env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
     env.skipOnCluster()
@@ -247,7 +247,7 @@ def test_pipeline():
 
 
 def test_invalid_config():
-    if not POWER_TO_THE_WORKERS:
+    if not MT_BUILD:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
     # Invalid 0 worker threads with ALWAYS_USE_THREADS set to true configuration.
     try:
@@ -262,7 +262,7 @@ def test_invalid_config():
 
 
 def test_reload_index_while_indexing():
-    if not POWER_TO_THE_WORKERS or CODE_COVERAGE:
+    if not MT_BUILD or CODE_COVERAGE:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
 
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
@@ -295,7 +295,7 @@ def test_reload_index_while_indexing():
 
 
 def test_delete_index_while_indexing():
-    if not POWER_TO_THE_WORKERS or CODE_COVERAGE:
+    if not MT_BUILD or CODE_COVERAGE:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
 
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
@@ -315,7 +315,7 @@ def test_delete_index_while_indexing():
 
 
 def test_burst_threads_sanity():
-    if not POWER_TO_THE_WORKERS:
+    if not MT_BUILD:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
 
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 8 ALWAYS_USE_THREADS FALSE DEFAULT_DIALECT 2')
@@ -356,7 +356,7 @@ def test_burst_threads_sanity():
 
 
 def test_workers_priority_queue():
-    if not POWER_TO_THE_WORKERS:
+    if not MT_BUILD:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 TIERED_HNSW_BUFFER_LIMIT 10000'
                                                   ' ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
@@ -402,7 +402,7 @@ def test_workers_priority_queue():
 
 
 def test_async_updates_sanity():
-    if not POWER_TO_THE_WORKERS:
+    if not MT_BUILD:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
     env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)

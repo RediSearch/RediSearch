@@ -215,7 +215,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   CleanPool_ThreadPoolStart();
   DO_LOG("notice", "Initialized thread pools!");
 
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
   // Init threadpool.
   // Threadpool size can only be set on load.
   if (RSGlobalConfig.alwaysUseThreads && RSGlobalConfig.numWorkerThreads == 0) {
