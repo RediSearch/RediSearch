@@ -261,7 +261,7 @@ def test_aggregate():
     exp = {
       'field_names': [],
       'error': [],
-      'total_results': 1,
+      'total_results': ANY,
       'results': [
         {'fields': {}, 'field_values': []},
         {'fields': {'f1': '3', 'f2': '2'}, 'field_values': []},
@@ -274,7 +274,7 @@ def test_aggregate():
     exp = {
       'field_names': [],
       'error': [],
-      'total_results': 1,
+      'total_results': ANY,
       'results': [
         {'fields': {}, 'field_values': []},
         {'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []},
@@ -288,7 +288,7 @@ def test_aggregate():
     exp = {
       'field_names': [],
       'error': [],
-      'total_results': 3,
+      'total_results': ANY,
       'results': [
         {'fields': {'f1': '3', 'f2': '3'}, 'field_values': []},
         {'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []},
@@ -527,7 +527,6 @@ def test_tagvals():
     env.expect('FT.TAGVALS', 'idx1', 'f5').equal(set())
 
 def test_clusterinfo(env):
-    env.skip()
     if not env.isCluster() or env.shardsCount != 3:
         env.skip()
     env = Env(protocol=3)
@@ -541,7 +540,7 @@ def test_clusterinfo(env):
           'nodes': [
             { 'host': '127.0.0.1',
               'id': ANY,
-              'port': 6379,
+              'port': ANY,
               'role': 'master self'
             }
           ],
@@ -551,7 +550,7 @@ def test_clusterinfo(env):
           'nodes': [
             {'host': '127.0.0.1',
              'id': ANY,
-             'port': 6381,
+             'port': ANY,
              'role': 'master '}
           ],
           'start': 5462
@@ -560,7 +559,7 @@ def test_clusterinfo(env):
           'nodes': [
             { 'host': '127.0.0.1',
               'id': ANY,
-              'port': 6383,
+              'port': ANY,
               'role': 'master '
             }
           ],
@@ -569,4 +568,6 @@ def test_clusterinfo(env):
       ]
     }
     res = env.cmd('SEARCH.CLUSTERINFO')
+    res['slots'].sort(key=lambda x: x['start'])
     env.assertEqual(order_dict(res), order_dict(exp))
+

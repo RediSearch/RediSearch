@@ -243,7 +243,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
         RS_LOG_ASSERT(results, "invalid results record: missing 'results' key");
         len = MRReply_Length(results);
       } else {
-        len = MRReply_Length(rows); // FIXME: len includes num_results
+        len = MRReply_Length(rows);
       }
 
       if (nc->curIdx == len) {
