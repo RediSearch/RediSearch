@@ -508,10 +508,10 @@ void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref) {
   // throughout the lifetime of the module. It can be initialized to NULL.
   // The `jobQueue` value will be NULL if `MT_BUILD` is not defined as well.
   params->jobQueue = _workers_thpool;
+  params->flatBufferLimit = RSGlobalConfig.tieredVecSimIndexBufferLimit;
 #endif
   params->jobQueueCtx = StrongRef_Demote(sp_ref).rm;
   params->submitCb = (SubmitCB)ThreadPoolAPI_SubmitIndexJobs;
-  params->flatBufferLimit = RSGlobalConfig.tieredVecSimIndexBufferLimit;
 }
 
 void VecSimLogCallback(void *ctx, const char *message) {
