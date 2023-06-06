@@ -30,7 +30,7 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'SEARCH_THREADS').res[0][0] == 'SEARCH_THREADS'
     if MT_BUILD:
         assert env.expect('ft.config', 'get', 'WORKER_THREADS').res[0][0] == 'WORKER_THREADS'
-        assert env.expect('ft.config', 'get', 'ALWAYS_USE_THREADS').res[0][0] == 'ALWAYS_USE_THREADS'
+        assert env.expect('ft.config', 'get', 'MT_MODE').res[0][0] == 'MT_MODE'
         assert env.expect('ft.config', 'get', 'TIERED_HNSW_BUFFER_LIMIT').res[0][0] == 'TIERED_HNSW_BUFFER_LIMIT'
     assert env.expect('ft.config', 'get', 'FRISOINI').res[0][0] == 'FRISOINI'
     assert env.expect('ft.config', 'get', 'MAXSEARCHRESULTS').res[0][0] == 'MAXSEARCHRESULTS'
@@ -112,7 +112,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['SEARCH_THREADS'][0], '20')
     if MT_BUILD:
         env.assertEqual(res_dict['WORKER_THREADS'][0], '0')
-        env.assertEqual(res_dict['ALWAYS_USE_THREADS'][0], 'false')
+        env.assertEqual(res_dict['MT_MODE'][0], 'MT_MODE_OSS')
         env.assertEqual(res_dict['TIERED_HNSW_BUFFER_LIMIT'][0], '1024')
     env.assertEqual(res_dict['FRISOINI'][0], None)
     env.assertEqual(res_dict['ON_TIMEOUT'][0], 'return')
