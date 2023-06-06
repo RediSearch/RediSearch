@@ -131,8 +131,8 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
   }
 
 #ifdef DEBUG_MR
-  printf("Sending to %s:%d\n", c->ep.host, c->ep.port);
-  MRCommand_Print(cmd);
+  fprintf(stderr, "Sending to %s:%d\n", c->ep.host, c->ep.port);
+  MRCommand_FPrint(stderr, cmd);
 #endif
 
   if (!cmd->cmd) {

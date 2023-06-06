@@ -624,6 +624,7 @@ MRReply *MRIterator_Next(MRIterator *it) {
 void MRIterator_WaitDone(MRIterator *it) {
   MRChannel_WaitClose(it->ctx.chan);
 }
+
 void MRIterator_Free(MRIterator *it) {
   if (!it) return;
   for (size_t i = 0; i < it->len; i++) {

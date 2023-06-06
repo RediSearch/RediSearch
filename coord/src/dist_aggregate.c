@@ -193,6 +193,8 @@ static int getNextReply(RPNet *nc) {
         || (MRReply_Type(rows) != MR_REPLY_ARRAY && MRReply_Type(rows) != MR_REPLY_MAP)
         || MRReply_Length(rows) == 0) {
       MRReply_Free(root);
+      root = NULL;
+      rows = NULL;
       RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
     }
 
@@ -200,6 +202,10 @@ static int getNextReply(RPNet *nc) {
 
     nc->current.root = root;
     nc->current.rows = rows;
+  
+    assert(   !nc->current.rows
+           || MRReply_Type(nc->current.rows) == MR_REPLY_ARRAY
+           || MRReply_Type(nc->current.rows) == MR_REPLY_MAP);
     return 1;
   }
 }
@@ -223,19 +229,19 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   
   // rows:
   // RESP2: [ num_results, [ field, value, ... ], ... ]
-  // RESP3: [ { ..., "results": { field: value, ... }, ... }, ... ]
+  // RESP3: { ..., "results": [ { field: value, ... }, ... ], ... }
 
   if (rows) {
       int resp3 = MRReply_Type(rows) == MR_REPLY_MAP;
       size_t len;
-      if(resp3) {
+      if (resp3) {
         MRReply *results = MRReply_MapElement(rows, "results");
         len = MRReply_Length(results);
       } else {
         len = MRReply_Length(rows);
       }
 
-      if(nc->curIdx == len) {
+      if (nc->curIdx == len) {
         long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
 
         // in profile mode, save shard's profile info to be returned later

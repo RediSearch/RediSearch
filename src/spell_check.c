@@ -13,8 +13,6 @@
 /** Forward declaration **/
 static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len, double *outScore);
 
-#define TERM_CONST "TERM"
-
 
 int RS_SuggestionCompare(const void *val1, const void *val2) {
   const RS_Suggestion **a = (const RS_Suggestion **)val1;
@@ -190,9 +188,11 @@ void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len
 
   if (resp3) // RESP3
   {
+    // we assume we're in the terms' map
+
     RedisModule_Reply_StringBuffer(reply, term, len);
 
-      RedisModule_Reply_Array(reply);
+    RedisModule_Reply_Array(reply);
 
       int n = array_len(suggestions);
       for (int i = 0; i < n; ++i) {
@@ -203,12 +203,12 @@ void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len
         RedisModule_Reply_MapEnd(reply);
       }
 
-      RedisModule_Reply_ArrayEnd(reply);
+    RedisModule_Reply_ArrayEnd(reply);
   }
   else // RESP2
   {
     RedisModule_Reply_Array(reply);
-    RedisModule_Reply_SimpleString(reply, TERM_CONST);
+    RedisModule_Reply_SimpleString(reply, SPELL_CHECK_TERM_CONST);
 
     RedisModule_Reply_StringBuffer(reply, term, len);
 
@@ -246,15 +246,13 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
     // we found the term as is on the index
 
     if (reply->resp3) {
-      RedisModule_Reply_Map(reply);
-        RedisModule_Reply_StringBuffer(reply, term, len);
-        RedisModule_Reply_SimpleString(reply, FOUND_TERM_IN_INDEX);
-      RedisModule_Reply_MapEnd(reply);
+      RedisModule_Reply_StringBuffer(reply, term, len);
+      RedisModule_Reply_Error(reply, SPELL_CHECK_FOUND_TERM_IN_INDEX);
     } else {
       RedisModule_Reply_Array(reply);
-        RedisModule_Reply_SimpleString(reply, TERM_CONST);
+        RedisModule_Reply_SimpleString(reply, SPELL_CHECK_TERM_CONST);
         RedisModule_Reply_StringBuffer(reply, term, len);
-        RedisModule_Reply_SimpleString(reply, FOUND_TERM_IN_INDEX);
+        RedisModule_Reply_SimpleString(reply, SPELL_CHECK_FOUND_TERM_IN_INDEX);
       RedisModule_Reply_ArrayEnd(reply);
     }
     return true;
