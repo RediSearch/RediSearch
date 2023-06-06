@@ -76,7 +76,7 @@ def test_mod4745(env):
 def test_eval_node_errors_async():
     if not MT_BUILD:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE ON_TIMEOUT FAIL')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKER_THREADS 1 MT_MODE MT_MODE_RCP ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
     dim = 1000
 

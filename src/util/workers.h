@@ -13,7 +13,7 @@
 #include "config.h"
 #include <assert.h>
 
-#define USE_BURST_THREADS() (RSGlobalConfig.numWorkerThreads && !RSGlobalConfig.alwaysUseThreads)
+#define USE_BURST_THREADS() (RSGlobalConfig.numWorkerThreads && RSGlobalConfig.mt_mode == MT_MODE_RCE)
 
 // create workers thread pool
 // returns REDISMODULE_OK if thread pool created, REDISMODULE_ERR otherwise

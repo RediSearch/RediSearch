@@ -245,10 +245,40 @@ CONFIG_GETTER(getWorkThreads) {
   return sdscatprintf(ss, "%lu", config->numWorkerThreads);
 }
 
-// ALWAYS_USE_THREADS
-CONFIG_BOOLEAN_SETTER(setThreadsEnabled, alwaysUseThreads)
+// MT_MODE
 
-CONFIG_BOOLEAN_GETTER(getThreadsEnabled, alwaysUseThreads, 0)
+CONFIG_SETTER(setMtMode) {
+  const char *mt_mode;
+  int acrc = AC_GetString(ac, &mt_mode, NULL, 0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (!strcasecmp(mt_mode, "MT_MODE_OSS")) {
+    config->mt_mode = MT_MODE_OSS;
+  } else if (!strcasecmp(mt_mode, "MT_MODE_RCE")){
+    config->mt_mode = MT_MODE_RCE;
+  } else if (!strcasecmp(mt_mode, "MT_MODE_RCP")){
+    config->mt_mode = MT_MODE_RCP;
+  } else {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalie MT mode");
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+static inline const char *MTMode_ToString(MTMode mt_mode) {
+  switch (mt_mode) {
+    case MT_MODE_OSS:
+      return "MT_MODE_OSS";
+    case MT_MODE_RCE:
+      return "MT_MODE_RCE";
+    case MT_MODE_RCP:
+      return "MT_MODE_RCP";
+    default:          // LCOV_EXCL_LINE cannot be reached
+      return "huh?";  // LCOV_EXCL_LINE cannot be reached
+  }
+}
+
+CONFIG_GETTER(getMtMode) {
+  return sdsnew(MTMode_ToString(config->mt_mode));
+}
 
 // TIERED_HNSW_BUFFER_LIMIT
 CONFIG_SETTER(setTieredIndexBufferLimit) {
@@ -695,11 +725,11 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getWorkThreads,
          .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
-        {.name = "ALWAYS_USE_THREADS",
+        {.name = "MT_MODE",
          .helpText = "Let ft.search and vector indexing be done in background threads as default if"
-                        "set to TRUE, use workers thread pool for operational needs only otherwise",
-         .setValue = setThreadsEnabled,
-         .getValue = getThreadsEnabled,
+                        "set to MT_MODE_RCP. MT_MODE_RCE use workers thread pool for operational needs only otherwise",
+         .setValue = setMtMode,
+         .getValue = getMtMode,
          .flags = RSCONFIGVAR_F_IMMUTABLE | RSCONFIGVAR_F_FLAG,
         },
         {.name = "TIERED_HNSW_BUFFER_LIMIT",
