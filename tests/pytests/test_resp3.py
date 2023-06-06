@@ -332,6 +332,16 @@ def test_cursor():
     env.assertEqual(res, exp)
     env.assertEqual(cursor, 0)
 
+    env.cmd('FT.create', 'idx2', "PREFIX", 1, "folder",
+            "SCHEMA", "f1", "TEXT", "f2", "TEXT")
+    waitForIndex(env, 'idx2')
+
+    exp = {'field_names': [], 'error': [], 'total_results': 0, 'results': []}
+    res, cursor = env.cmd('FT.aggregate', 'idx2', '*', 'LOAD', 3, 'f1', 'f2', 'f3',
+                          'SORTBY', 2, '@f2', 'DESC', 'WITHCURSOR', 'COUNT', 1)
+    env.assertEqual(res, exp)
+    env.assertEqual(cursor, 0)
+
 def test_list():
     env = Env(protocol=3)
     if should_skip(env):
