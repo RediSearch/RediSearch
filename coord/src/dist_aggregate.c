@@ -231,14 +231,19 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // RESP2: [ num_results, [ field, value, ... ], ... ]
   // RESP3: { ..., "results": [ { field: value, ... }, ... ], ... }
 
+  // can also get an empty row:
+  // RESP2: [] or [ 0 ]
+  // RESP3: {}
+
   if (rows) {
-      int resp3 = MRReply_Type(rows) == MR_REPLY_MAP;
+      bool resp3 = MRReply_Type(rows) == MR_REPLY_MAP;
       size_t len;
       if (resp3) {
         MRReply *results = MRReply_MapElement(rows, "results");
+        RS_LOG_ASSERT(results, "invalid results record: missing 'results' key");
         len = MRReply_Length(results);
       } else {
-        len = MRReply_Length(rows);
+        len = MRReply_Length(rows); // FIXME: len includes num_results
       }
 
       if (nc->curIdx == len) {
@@ -257,7 +262,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   int new_reply = !root;
 
   // get the next reply from the channel
-  while (!root) {
+  while (!root || !rows || MRReply_Length(rows) == 0) {
       if (!getNextReply(nc)) {
         return RS_RESULT_EOF;
       }
@@ -268,11 +273,12 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // invariant: at least one row exists
 
-  int resp3 = MRReply_Type(rows) == MR_REPLY_MAP;
+  bool resp3 = MRReply_Type(rows) == MR_REPLY_MAP;
   if (new_reply) {
     if (resp3) { // RESP3
       nc->curIdx = 0;
       MRReply *results = MRReply_MapElement(rows, "results");
+      RS_LOG_ASSERT(results, "invalid results record: missing 'results' key");
       nc->base.parent->totalResults += MRReply_Length(results);
     } else { // RESP2
       // Get the index from the first
@@ -284,19 +290,16 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   if (resp3) // RESP3
   {
     MRReply *results = MRReply_MapElement(rows, "results");
-    if (results && MRReply_Type(results) == MR_REPLY_ARRAY) {
-      MRReply *result = MRReply_ArrayElement(results, nc->curIdx++);
-      if (result && MRReply_Type(result) == MR_REPLY_MAP) {
-        MRReply *fields = MRReply_MapElement(result, "fields");
-        if (fields && MRReply_Type(fields) == MR_REPLY_MAP) {
-          for (size_t j = 0; j < MRReply_Length(fields); j += 2) {
-            const char *field = MRReply_String(MRReply_ArrayElement(fields, j), NULL);
-            MRReply *val = MRReply_ArrayElement(fields, j + 1);
-            RSValue *v = MRReply_ToValue(val);
-            RLookup_WriteOwnKeyByName(nc->lookup, field, &r->rowdata, v);
-          }
-        }
-      }
+    RS_LOG_ASSERT(results && MRReply_Type(results) == MR_REPLY_ARRAY, "invalid results record");
+    MRReply *result = MRReply_ArrayElement(results, nc->curIdx++);
+    RS_LOG_ASSERT(result && MRReply_Type(result) == MR_REPLY_MAP, "invalid result record");
+    MRReply *fields = MRReply_MapElement(result, "fields");
+    RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
+    for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
+      const char *field = MRReply_String(MRReply_ArrayElement(fields, i), NULL);
+      MRReply *val = MRReply_ArrayElement(fields, i + 1);
+      RSValue *v = MRReply_ToValue(val);
+      RLookup_WriteOwnKeyByName(nc->lookup, field, &r->rowdata, v);
     }
   }
   else // RESP2
