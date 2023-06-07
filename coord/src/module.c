@@ -985,7 +985,6 @@ static int cmp_scored_results(const void *p1, const void *p2, const void *udata)
 }
 
 static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
-  _BB; //@@ TODO
   if (arr == NULL) {
     return;
   }

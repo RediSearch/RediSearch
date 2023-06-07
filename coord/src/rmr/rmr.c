@@ -327,6 +327,7 @@ static void uvFanoutRequest(struct MRRequestCtx *mc) {
     if (cmd_proto != mc->protocol) {
       MRCommand hello = MR_NewCommand(2, "HELLO", cmd_proto == 3 ? "3" : "2");
       int rc = MRCluster_SendCommand(cluster_g, MRCluster_FlatCoordination, &hello, helloCallback, mrctx);
+      MRCommand_Free(&hello);
     }
   }
 
@@ -368,6 +369,7 @@ static void uvMapRequest(struct MRRequestCtx *mc) {
     if (cmd_proto != mc->protocol) {
       MRCommand hello = MR_NewCommand(2, "HELLO", cmd_proto == 3 ? "3" : "2");
       int rc = MRCluster_SendCommand(cluster_g, MRCluster_FlatCoordination, &hello, helloCallback, mrctx);
+      MRCommand_Free(&hello);
     }
   }
 
