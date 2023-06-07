@@ -121,8 +121,7 @@ RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx) {
 
 int RedisModule_EndReply(RedisModule_Reply *reply) {
   int n = reply->stack ? array_len(reply->stack) : -1;
-  if (reply->stack && array_len(reply->stack) > 0) { _BB; }
-  RedisModule_Assert(!reply->stack || !array_len(reply->stack));
+  RS_LOG_ASSERT(!reply->stack || !array_len(reply->stack), "incomplete reply")
   if (reply->stack) {
     array_free(reply->stack);
   }
@@ -158,8 +157,7 @@ static void _RedisModule_Reply_Push(RedisModule_Reply *reply, int type) {
 }
 
 static int _RedisModule_Reply_Pop(RedisModule_Reply *reply) {
-  if (!reply->stack || !array_len(reply->stack)) { _BB; }
-  RedisModule_Assert(reply->stack && array_len(reply->stack) > 0);
+  RS_LOG_ASSERT(reply->stack && array_len(reply->stack) > 0, "incomplete reply");
   if (reply->stack && array_len(reply->stack) > 0) {
     StackEntry *e = &array_tail(reply->stack);
     int count = e->count;

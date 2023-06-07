@@ -209,7 +209,6 @@ int MRReply_ToInteger(MRReply *reply, long long *i) {
     }
 
     default:
-      _BB; //@@
       return 0;
   }
 }
@@ -235,7 +234,6 @@ int MRReply_ToDouble(MRReply *reply, double *d) {
     }
 
     default:
-      _BB; //@@
       return 0;
   }
 }
@@ -298,13 +296,10 @@ int MR_ReplyWithMRReply(RedisModule_Reply *reply, MRReply *rep) {
     case MR_REPLY_ATTR:
     case MR_REPLY_PUSH:
     case MR_REPLY_BIGNUM:
-      _BB; //@@
       return REDISMODULE_ERR;
 
     case MR_REPLY_NIL:
-      return RedisModule_Reply_Null(reply);
     default:
-      _BB; //@@
       return RedisModule_Reply_Null(reply);
   }
   return REDISMODULE_ERR;

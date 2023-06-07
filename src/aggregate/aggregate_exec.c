@@ -456,7 +456,7 @@ done_3:
       req->stateflags |= QEXEC_S_ITERDONE;
     }
     
-    RedisModule_Reply_ArrayEnd(reply); // results @@
+    RedisModule_Reply_ArrayEnd(reply); // results
     // Reset the total results length:
     req->qiter.totalResults = 0;
     if (resultsLen == REDISMODULE_POSTPONED_ARRAY_LEN || rc != RS_RESULT_OK) {
