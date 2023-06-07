@@ -68,7 +68,7 @@ QueryNode *NewPhraseNode(int exact);
 QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt, bool prefix, bool suffix);
 QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist);
 QueryNode *NewNumericNode(QueryParam *p);
-QueryNode *NewGeometryNode_FromWkt(const char *geom, size_t len);
+QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const char *predicate, size_t len, QueryToken *wkt);
 QueryNode *NewGeofilterNode(QueryParam *p);
 QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType type, QueryToken *value, QueryToken *vec);
 QueryNode *NewTagNode(const char *tag, size_t len);

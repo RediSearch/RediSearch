@@ -38,7 +38,6 @@
 %left PERCENT.
 %left ATTRIBUTE.
 %left VERBATIM WILDCARD.
-%left NAMED_PREDICATE.
 
 // Thanks to these fallback directives, Any "as" appearing in the query,
 // other than in a vector_query, Will either be considered as a term,
@@ -849,8 +848,13 @@ expr(A) ::= modifier(B) COLON geometry_query(C). {
 }
 
 
-geometry_query(A) ::= NAMED_PREDICATE(B) . [NUMBER] {
-  A = NewGeometryNode_FromWkt(B.s, B.len);
+geometry_query(A) ::= LSQB TERM(B) ATTRIBUTE(C) RSQB . {
+  // Geometry param is actually a case sensitive term
+  C.type = QT_PARAM_TERM_CASE;
+  A = NewGeometryNode_FromWkt_WithParams(ctx, B.s, B.len, &C);
+  if (!A) {
+    reportSyntaxError(ctx->status, &C, "Syntax error: Expecting a Geometry predicate");
+  }
 }
 
 /////////////////////////////////////////////////////////////////

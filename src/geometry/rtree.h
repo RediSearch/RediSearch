@@ -38,6 +38,10 @@ NODISCARD IndexIterator *RTree_Query(struct RTree const *rtree, struct RTDoc con
 NODISCARD IndexIterator *RTree_Query_WKT(struct RTree const *rtree, const char *wkt, size_t len, enum QueryType queryType, RedisModuleString **err_msg);
 
 NODISCARD size_t RTree_MemUsage(struct RTree const *rtree);
+
+// Return the total memory usage of all RTree instances
+NODISCARD size_t RTree_TotalMemUsage();
+
 #ifdef __cplusplus
 }
 #endif

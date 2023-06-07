@@ -8,6 +8,7 @@
 #include "indexer.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
+#include "vector_index.h"
 
 RSValueType fieldTypeToValueType(FieldType ft) {
   switch (ft) {
@@ -35,6 +36,10 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
   if (fs->name) {
     rm_free(fs->name);
     fs->name = NULL;
+  }
+
+  if (fs->types & INDEXFLD_T_VECTOR) {
+    VecSimParams_Cleanup(&fs->vectorOpts.vecSimParams);
   }
 }
 

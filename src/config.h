@@ -12,8 +12,6 @@
 #include "query_error.h"
 #include "fields_global_stats.h"
 
-
-
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
   TimeoutPolicy_Fail,         // Just fail without returning anything
@@ -108,7 +106,8 @@ typedef struct {
 
 // #ifdef POWER_TO_THE_WORKERS
   size_t numWorkerThreads;
-  int threadsEnabled;
+  int alwaysUseThreads;
+  size_t tieredVecSimIndexBufferLimit;
 // #endif
 
   size_t minPhoneticTermLen;
@@ -142,6 +141,10 @@ typedef struct {
   unsigned int multiTextOffsetDelta;
   // bitarray of dialects used by all indices
   uint_least8_t used_dialects;
+  // The number of iterations to run while performing background indexing
+  // before we call usleep(1) (sleep for 1 micro-second) and make sure that
+  // we allow redis process other commands.
+  unsigned int numBGIndexingIterationsBeforeSleep;
 } RSConfig;
 
 typedef enum {
@@ -219,6 +222,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define DIALECT_OFFSET(d) (1ULL << (d - MIN_DIALECT_VERSION))// offset of the d'th bit. begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
 #define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
 #define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
+#define VECSIM_DEFAULT_BLOCK_SIZE   1024
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                                                           \
@@ -236,7 +240,8 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE,                                                              \
     .poolSizeNoAuto = 0,                                                                                              \
     .numWorkerThreads = 0,                                                                                            \
-    .threadsEnabled = 0,                                                                                              \
+    .alwaysUseThreads = 0,                                                                                            \
+    .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                                                      \
     .gcConfigParams.gcScanSize = GC_SCANSIZE,                                                                                        \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                                                              \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                                        \
@@ -260,6 +265,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .vssMaxResize = 0,                                                                                                \
     .multiTextOffsetDelta = 100,                                                                                      \
     .used_dialects = 0,                                                                                               \
+    .numBGIndexingIterationsBeforeSleep = 100,                                                                         \
   }
 
 #define REDIS_ARRAY_LIMIT 7
