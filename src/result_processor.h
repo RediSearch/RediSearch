@@ -110,7 +110,7 @@ void QITR_FreeChain(QueryIterator *qitr);
 
 
 /*
- * Flags related to the a search results.
+ * Flags related to the search results.
  */
 
 #define SEARCHRESULT_VAL_IS_NULL 0x01
