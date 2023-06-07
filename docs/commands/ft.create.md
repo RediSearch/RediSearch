@@ -30,7 +30,8 @@ Create an index with the given specification. For usage, see [Examples](#example
 <a name="index"></a><details open>
 <summary><code>index</code></summary>
 
-is index name to create. If it exists, the old specification is overwritten.
+is index name to create.
+If such index already exists, returns an error reply `(error) Index already exists`.
 </details>
 
 <a name="SCHEMA"></a><details open>

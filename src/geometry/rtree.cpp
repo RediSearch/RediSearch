@@ -115,3 +115,7 @@ void RTree_Clear(RTree *rtree) noexcept {
 size_t RTree_MemUsage(RTree const *rtree) {
   return rtree->report();
 }
+
+size_t RTree_TotalMemUsage() {
+  return RTree::reportTotal();
+}

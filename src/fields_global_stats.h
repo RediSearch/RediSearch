@@ -28,12 +28,12 @@ typedef struct {
   size_t numTagFieldsCaseSensitive;
   size_t numVectorFields;
   size_t numVectorFieldsFlat;
-  size_t numVectorFieldsHSNW;
+  size_t numVectorFieldsHNSW;
 } FieldsGlobalStats;
 
 /**
  * Check the type of the the given field and update RSGlobalConfig.fieldsStats
- * according to the givan toAdd value.
+ * according to the given toAdd value.
  */
 void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd);
 
