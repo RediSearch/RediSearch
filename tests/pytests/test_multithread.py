@@ -337,11 +337,12 @@ def test_burst_threads_sanity():
             # index (id 0)
             env.assertAlmostEqual(float(res_before[2][1]), 0, 1e-5)
             waitForRdbSaveToFinish(env)
-            for _ in env.retry_with_rdb_reload():
+            for i in env.retry_with_rdb_reload():
                 debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
                 env.assertEqual(debug_info['ALGORITHM'], 'TIERED' if algo == 'HNSW' else algo)
                 if algo == 'HNSW':
-                    env.assertEqual(debug_info['BACKGROUND_INDEXING'], 0)
+                    env.assertEqual(debug_info['BACKGROUND_INDEXING'], 0,
+                                    message=f"{'before loading' if i==1 else 'after loading'}")
                 # TODO: this is causing a crush occasionally in Cursors_RenderStats - need to fix this.
                 # assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
                 if not env.isCluster():
