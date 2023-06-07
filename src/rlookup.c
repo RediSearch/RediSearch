@@ -548,7 +548,7 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     RedisModuleCtx *ctx = options->sctx->redisCtx;
     RedisModuleString *keyName =
         RedisModule_CreateString(ctx, keyPtr, strlen(keyPtr));
-    *keyobj = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
+    *keyobj = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
     RedisModule_FreeString(ctx, keyName);
     if (!*keyobj) {
       QueryError_SetCode(options->status, QUERY_ENODOC);
@@ -772,7 +772,7 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
       RLookup_WriteOwnKey(rlk, dst, vptr);
     }
   } else {
-    RedisModuleKey *key = RedisModule_OpenKey(ctx, krstr, REDISMODULE_READ);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, krstr, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
     if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
       // key does not exist or is not a hash
       if (key) {
