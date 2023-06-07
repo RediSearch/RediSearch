@@ -1,12 +1,10 @@
-import time
-import unittest
 from common import *
-from RLTest import Env
+
 
 def testExpireIndex(env):
     # temporary indexes
     if env.isCluster():
-        raise unittest.SkipTest()
+        env.skip()
     env.cmd('ft.create', 'idx', 'TEMPORARY', '4', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
     ttl = env.cmd('ft.debug', 'TTL', 'idx')
     env.assertTrue(ttl > 2)
@@ -47,9 +45,9 @@ res_score_and_explanation = ['1', ['Final TFIDF : words TFIDF 1.00 * document sc
 
 def testExpireDocs(env):
     expected_results = [res_doc1_is_None, # Without sortby -  both docs exist but we failed to load doc1 since it was expired lazily
-                        res_doc1_is_discarded, # With sortby - when the sorter fails to do that, it discards the result.    
+                        res_doc1_is_discarded, # With sortby - when the sorter fails to do that, it discards the result.
                         # WITHSCORES, EXPLAINSCORE
-                        [2, 'doc2', res_score_and_explanation, ['t', 'foo'], #  without sortby 
+                        [2, 'doc2', res_score_and_explanation, ['t', 'foo'], #  without sortby
                         'doc1', res_score_and_explanation, None],
                         [1, 'doc2', res_score_and_explanation, ['t', 'foo']]] #  with sortby
 
@@ -63,9 +61,9 @@ def testExpireDocsSortable(env):
     '''
 
     expected_results = [res_doc1_is_None, # without sortby
-                        res_doc1_is_None, # With sortby 
+                        res_doc1_is_None, # With sortby
                         # WITHSCORES, EXPLAINSCORE
-                        [2, 'doc2', res_score_and_explanation, ['t', 'foo'], #  without sortby 
+                        [2, 'doc2', res_score_and_explanation, ['t', 'foo'], #  without sortby
                         'doc1', res_score_and_explanation, None],
                         [2, 'doc2', res_score_and_explanation, ['t', 'foo'], #  with sortby
                         'doc1', res_score_and_explanation, None]]
@@ -74,11 +72,11 @@ def testExpireDocsSortable(env):
                # The documents data exists in the index.
                # Since we are not trying to load the document in the sorter, it is not discarded from the results,
                # but it is marked as deleted and we reply with None.
-               expected_results)  
+               expected_results)
 
 def expireDocs(env, isSortable, expected_results):
     '''
-    This test creates an index and two documents 
+    This test creates an index and two documents
     We disable active expiration
     One of the documents is expired. As a result we fail to open the key in Redis keyspace.
     The test checks the expected output, which depends on wether the field is sortable and if the query should be sorted by this field.
@@ -130,11 +128,11 @@ def expireDocs(env, isSortable, expected_results):
 
         # test with SCOREEXPLAIN and EXPLAINSCORE - make sure all memory is released
         conn.execute_command('HSET', 'doc1', 't', 'zoo')
-    
+
         # both docs exist
         expected_res = [2, 'doc2', res_score_and_explanation, ['t', 'foo'],
                 'doc1', res_score_and_explanation, ['t', 'zoo']]
-    
+
         res = conn.execute_command('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'EXPLAINSCORE')
         env.assertEqual(res, expected_res)
 

@@ -24,6 +24,7 @@
 #include "module.h"
 #include "rmutil/rm_assert.h"
 #include "suffix.h"
+#include "resp3.h"
 
 #ifdef __linux__
 #include <sys/prctl.h>
@@ -1280,25 +1281,17 @@ static void onTerminateCb(void *privdata) {
   rm_free(gc);
 }
 
-static void statsCb(RedisModuleCtx *ctx, void *gcCtx) {
-#define REPLY_KVNUM(n, k, v)                   \
-  RedisModule_ReplyWithSimpleString(ctx, k);   \
-  RedisModule_ReplyWithDouble(ctx, (double)v); \
-  n += 2
+static void statsCb(RedisModule_Reply *reply, void *gcCtx) {
+#define REPLY_KVNUM(k, v) RedisModule_ReplyKV_Double(reply, (k), (v))
   ForkGC *gc = gcCtx;
-
-  int n = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  if (gc) {
-    REPLY_KVNUM(n, "bytes_collected", gc->stats.totalCollected);
-    REPLY_KVNUM(n, "total_ms_run", gc->stats.totalMSRun);
-    REPLY_KVNUM(n, "total_cycles", gc->stats.numCycles);
-    REPLY_KVNUM(n, "average_cycle_time_ms", (double)gc->stats.totalMSRun / gc->stats.numCycles);
-    REPLY_KVNUM(n, "last_run_time_ms", (double)gc->stats.lastRunTimeMs);
-    REPLY_KVNUM(n, "gc_numeric_trees_missed", (double)gc->stats.gcNumericNodesMissed);
-    REPLY_KVNUM(n, "gc_blocks_denied", (double)gc->stats.gcBlocksDenied);
-  }
-  RedisModule_ReplySetArrayLength(ctx, n);
+  if (!gc) return;
+  REPLY_KVNUM("bytes_collected", gc->stats.totalCollected);
+  REPLY_KVNUM("total_ms_run", gc->stats.totalMSRun);
+  REPLY_KVNUM("total_cycles", gc->stats.numCycles);
+  REPLY_KVNUM("average_cycle_time_ms", (double)gc->stats.totalMSRun / gc->stats.numCycles);
+  REPLY_KVNUM("last_run_time_ms", (double)gc->stats.lastRunTimeMs);
+  REPLY_KVNUM("gc_numeric_trees_missed", (double)gc->stats.gcNumericNodesMissed);
+  REPLY_KVNUM("gc_blocks_denied", (double)gc->stats.gcBlocksDenied);
 }
 
 #ifdef FTINFO_FOR_INFO_MODULES
