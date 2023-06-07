@@ -2302,23 +2302,6 @@ static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
   return f;
 }
 
-/**
- * Because our indexes are in the form of IDX{something}, a single real index might
- * appear as multiple indexes, using more memory and essentially disabling rate
- * limiting.
- *
- * This works as a hook after every new index is created, to strip the '{' from the
- * cursor name, and use the real name as the entry.
- */
-static void addIndexCursor(const IndexSpec *sp) {
-  char *s = rm_strdup(sp->name);
-  char *end = strchr(s, '{');
-  if (end) {
-    *end = '\0';
-    CursorList_AddSpec(&RSCursors, s, RSCURSORS_DEFAULT_CAPACITY);
-  }
-  rm_free(s);
-}
 
 #define RM_TRY(expr)                                                  \
   if (expr == REDISMODULE_ERR) {                                      \

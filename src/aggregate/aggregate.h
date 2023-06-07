@@ -291,7 +291,8 @@ void AREQ_Free(AREQ *req);
  * Start the cursor on the current request
  * @param r the request
  * @param reply the context used for replies (only used in current command)
- * @param lookupName the name of the index used for the cursor reservation
+ * @param spec_ref a strong reference to the spec. The cursor saves a weak reference to the spec
+ * to be promoted when cursor read is called.
  * @param status if this function errors, this contains the message
  * @return REDISMODULE_OK or REDISMODULE_ERR
  *
@@ -299,7 +300,7 @@ void AREQ_Free(AREQ *req);
  * freed. If it returns REDISMODULE_ERR, then the cursor is still valid
  * and must be freed manually.
  */
-int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, const char *lookupName, QueryError *status);
+int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *status);
 
 int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 

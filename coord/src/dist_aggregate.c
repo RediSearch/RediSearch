@@ -559,16 +559,15 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (IsProfile(r)) r->parseTime = clock() - r->initClock;
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
-    const char *ixname = RedisModule_StringPtrLen(argv[1 + profileArgs], NULL);
-
     // Keep the original concurrent context
     ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
 
     // We rely on the existing mechanism of AREQ to free the ctx object when the cursor is exhausted
     r->sctx = rm_new(RedisSearchCtx);
     *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
+    StrongRef dummy_spec_ref = {.rm = NULL};
 
-    rc = AREQ_StartCursor(r, reply, ixname, &status);
+    rc = AREQ_StartCursor(r, reply, dummy_spec_ref, &status);
 
     if (rc != REDISMODULE_OK) {
       goto err;
