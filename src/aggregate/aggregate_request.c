@@ -1319,6 +1319,8 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
   // root<-buffer-locker<-loader<-sorter<-loader<-unlocker
   ResultProcessor *upstream_is_buffer_locker = NULL;
   ResultProcessor *upstream_is_unlcoker = NULL;
+  char wrapsLastAccumulator = 2; // 0 - no, 1 - yes, 2 - unset. 0 and 1 are "terminal states".
+  bool seenAccumulatorBeforeUnlcoker = false;
 
   ResultProcessor dummy_rp = {.upstream = req->qiter.endProc};
 
@@ -1328,9 +1330,17 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
     if (curr_rp->behavior == RESULT_PROCESSOR_B_ACCESS_REDIS) {
       // If we found (another) RP that accesses redis, update the upstream_is_buffer_locker.
       upstream_is_buffer_locker = curr_rp;
-    } else if (curr_rp->behavior == RESULT_PROCESSOR_B_ACCUMULATOR && !upstream_is_buffer_locker) {
+      if (seenAccumulatorBeforeUnlcoker && wrapsLastAccumulator > 1) {
+        wrapsLastAccumulator = 1;
+      }
+    } else if (curr_rp->behavior == RESULT_PROCESSOR_B_ACCUMULATOR) {
       // If we found an accumulator and we didn't find any RP that accesses redis yet, reset the upstream_is_unlcoker.
-      upstream_is_unlcoker = NULL;
+      if (!upstream_is_buffer_locker) {
+        upstream_is_unlcoker = NULL;
+        wrapsLastAccumulator = 0;
+      } else {
+        seenAccumulatorBeforeUnlcoker = true;
+      }
     }
     // If we didn't find a relevant RP for unlocker yet and the next RP access redis or is an aborter, set the upstream_is_unlcoker.
     if (!upstream_is_unlcoker && (curr_rp->upstream->behavior == RESULT_PROCESSOR_B_ACCESS_REDIS ||
@@ -1342,6 +1352,12 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
   // If we didn't find any RP that accesses redis, we don't need to add the buffer-locker and unlocker.
   if (!upstream_is_buffer_locker) {
     return;
+  }
+
+  // If we need to add the buffer-locker before the last accumulator and the unlocker after it,
+  // on cursor mode we need to reevaluate the buffer location.
+  if (wrapsLastAccumulator == 1) {
+    req->stateflags |= QEXEC_S_NEEDS_BUFFER_REEVAL;
   }
 
   // TODO: multithreaded: Add better estimation to the buffer initial size

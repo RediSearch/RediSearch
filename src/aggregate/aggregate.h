@@ -82,6 +82,7 @@ typedef enum {
 typedef enum {
   /* Received EOF from iterator */
   QEXEC_S_ITERDONE = 0x02,
+  QEXEC_S_NEEDS_BUFFER_REEVAL = 0x04,
 } QEStateFlags;
 
 typedef struct {

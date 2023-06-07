@@ -281,6 +281,51 @@ static size_t getResultsFactor(AREQ *req) {
   return count;
 }
 
+// Finds the buffer RP and moves it to after the last accumulator.
+// Assumptions:
+// 1. We already have exactly one buffer and exactly one unlocker
+// 2. We have an accumulator between the buffer and the unlocker, and it's the last accumulator in the pipeline
+// 3. We have at least one loader after the accumulator (and before the unlocker)
+static void SafeRedisKeyspaceAccessPipeline_ReEval(AREQ *req) {
+  ResultProcessor *cur = req->qiter.endProc, *newBufferDownstream;
+  // Run to the unlocker
+  while (cur->type != RP_UNLOCKER) {
+    cur = cur->upstream;
+  }
+  // find the first redis access after the last accumulator between the buffer and the unlocker
+  for (; cur->superClass != RESULT_PROCESSOR_C_ACCUMULATOR; cur = cur->upstream) {
+    if (cur->superClass == RESULT_PROCESSOR_C_ACCESS_REDIS) {
+      newBufferDownstream = cur;
+    }
+  }
+
+  if (IsProfile(req)) {
+    // Find the buffer's downstream
+    while (cur->upstream->upstream->type != RP_BUFFER_AND_LOCKER) {
+      cur = cur->upstream;
+    }
+    ResultProcessor *buffers_profile = cur->upstream;
+    // Pop the buffer and its profile RP
+    cur->upstream->upstream = buffers_profile->upstream->upstream;
+
+    // Push the buffer to its new location
+    buffers_profile->upstream->upstream = newBufferDownstream->upstream;
+    newBufferDownstream->upstream = buffers_profile;
+  } else {
+    // Find the buffer's downstream
+    while (cur->upstream->type != RP_BUFFER_AND_LOCKER) {
+      cur = cur->upstream;
+    }
+    ResultProcessor *buffer = cur->upstream;
+    // Pop the buffer
+    cur->upstream = buffer->upstream;
+
+    // Push the buffer to its new location
+    buffer->upstream = newBufferDownstream->upstream;
+    newBufferDownstream->upstream = buffer;
+  }
+}
+
 /**
  * Sends a chunk of <n> rows, optionally also sending the preamble
  */
@@ -381,6 +426,9 @@ done_3:
     SearchResult_Destroy(&r);
     if (rc != RS_RESULT_OK) {
       req->stateflags |= QEXEC_S_ITERDONE;
+    } else if (req->stateflags & QEXEC_S_NEEDS_BUFFER_REEVAL) {
+      SafeRedisKeyspaceAccessPipeline_ReEval(req);
+      req->stateflags &= ~QEXEC_S_NEEDS_BUFFER_REEVAL;
     }
 
     // Reset the total results length:
@@ -456,6 +504,9 @@ done_3:
     SearchResult_Destroy(&r);
     if (rc != RS_RESULT_OK) {
       req->stateflags |= QEXEC_S_ITERDONE;
+    } else if (req->stateflags & QEXEC_S_NEEDS_BUFFER_REEVAL) {
+      feRedisKeyspaceAccessPipeline_ReEval(req);
+      req->stateflags &= ~QEXEC_S_NEEDS_BUFFER_REEVAL;
     }
 
     RedisModule_Reply_ArrayEnd(reply); // results
