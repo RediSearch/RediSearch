@@ -59,6 +59,22 @@ def testCursorsBG():
     env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
     testCursors(env)
 
+    # TODO: use profile to verify that the pipeline was changed.
+    query = ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 10, 'SORTBY', 1, '@f1', 'MAX', '1000000', 'LOAD', 1, 'irrelevant']
+
+    # First call. Create and start reading the cursor.
+    # We expect that the first results are calculated with the pipeline looking like this:
+    # iterator -> buffer -> load -> sort -> load -> unlock
+    # after we get the first results, we expect to modify the pipeline. it should look like this:
+    # iterator -> load -> sort -> buffer -> load -> unlock
+    resp = env.cmd(*query)
+
+    # For the rest of the test, we expect the pipeline to look like this:
+    # iterator -> load -> sort -> buffer -> load -> unlock
+    # The buffer was moved to after the last accumulator.
+    resp = exhaustCursor(env, 'idx', resp)
+    env.assertEqual(11, len(resp))
+
 
 def testMultipleIndexes(env):
     loadDocs(env, idx='idx2', text='goodbye')
