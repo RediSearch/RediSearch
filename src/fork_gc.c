@@ -796,8 +796,8 @@ cleanup:
   if (idxKey) {
     RedisModule_CloseKey(idxKey);
   }
-  FGC_unlock(sctx);
   if (sp) {
+    FGC_unlock(sctx);
     StrongRef_Release(spec_ref);
   }
   rm_free(term);

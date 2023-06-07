@@ -552,6 +552,19 @@ CONFIG_GETTER(getUpgradeIndex) {
 
 CONFIG_BOOLEAN_GETTER(getFilterCommand, filterCommands, 0)
 
+// BG_INDEX_SLEEP_GAP
+CONFIG_SETTER(setBGIndexSleepGap) {
+  unsigned int sleep_gap;
+  int acrc = AC_GetUnsigned(ac, &sleep_gap, AC_F_GE1);
+  config->numBGIndexingIterationsBeforeSleep = sleep_gap;
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getBGIndexSleepGap) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->numBGIndexingIterationsBeforeSleep);
+}
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -810,6 +823,13 @@ RSConfigOptions RSGlobalConfigOptions = {
                       "Can control the level of separation between phrases in different array slots (related to the SLOP parameter of ft.search command)",
          .setValue = setMultiTextOffsetDelta,
          .getValue = getMultiTextOffsetDelta,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "BG_INDEX_SLEEP_GAP",
+         .helpText = "The number of iterations to run while performing background indexing"
+                     " before we call usleep(1) (sleep for 1 micro-second) and make sure that we"
+                     " allow redis process other commands.",
+         .setValue = setBGIndexSleepGap,
+         .getValue = getBGIndexSleepGap,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = NULL}}};
 

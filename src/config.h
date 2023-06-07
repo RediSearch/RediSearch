@@ -141,6 +141,10 @@ typedef struct {
   unsigned int multiTextOffsetDelta;
   // bitarray of dialects used by all indices
   uint_least8_t used_dialects;
+  // The number of iterations to run while performing background indexing
+  // before we call usleep(1) (sleep for 1 micro-second) and make sure that
+  // we allow redis process other commands.
+  unsigned int numBGIndexingIterationsBeforeSleep;
 } RSConfig;
 
 typedef enum {
@@ -261,6 +265,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .vssMaxResize = 0,                                                                                                \
     .multiTextOffsetDelta = 100,                                                                                      \
     .used_dialects = 0,                                                                                               \
+    .numBGIndexingIterationsBeforeSleep = 100,                                                                         \
   }
 
 #define REDIS_ARRAY_LIMIT 7
