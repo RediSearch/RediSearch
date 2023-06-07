@@ -1,5 +1,7 @@
 packaging >= 20.8
-redis ~= 4.5.0
-RLTest ~= 0.6.0
-ramp-packer ~= 2.5.2
 gevent
+deepdiff
+
+# redis ~= 4.5.0
+# RLTest ~= 0.6.0
+# ramp-packer ~= 2.5.2

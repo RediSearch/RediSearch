@@ -179,6 +179,8 @@ int MRCluster_FanoutCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCo
     return 0;
   }
 
+  int cmd_proto = cmd->protocol;
+
   MRNodeMapIterator it;
   switch (strategy & ~(MRCluster_MastersOnly)) {
     case MRCluster_RemoteCoordination:
@@ -200,6 +202,14 @@ int MRCluster_FanoutCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCo
     MRConn *conn = MRConn_Get(&cl->mgr, n->id);
     // printf("Sending fanout command to %s:%d\n", conn->ep.host, conn->ep.port);
     if (conn) {
+      //@@TODO: maybe not required
+      if (!conn->protocol || cmd_proto != conn->protocol) {
+        MRCommand hello = MR_NewCommand(2, "HELLO", cmd_proto == 3 ? "3" : "2");
+        int rc = MRConn_SendCommand(conn, &hello, NULL, privdata);
+        MRCommand_Free(&hello);
+        conn->protocol = cmd_proto;
+      }
+
       if (MRConn_SendCommand(conn, cmd, fn, privdata) != REDIS_ERR) {
         ret++;
       }
