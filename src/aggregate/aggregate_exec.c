@@ -166,7 +166,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     const RLookup *lk = cv->lastLk;
     count++;
 
-    if (dmd && dmd->flags & Document_Deleted) {
+    if (r->flags & SEARCHRESULT_VAL_IS_NULL) {
       RedisModule_ReplyWithNull(outctx);
       return count;
     }
