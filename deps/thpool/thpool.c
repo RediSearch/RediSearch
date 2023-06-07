@@ -86,6 +86,7 @@ typedef struct redisearch_thpool_t {
   volatile size_t num_threads_alive;   /* threads currently alive   */
   volatile size_t num_threads_working; /* threads currently working */
   volatile int keepalive;           /* keep pool alive           */
+  volatile int terminate_when_empty; /* terminate thread when there are no more pending jobs */
   pthread_mutex_t thcount_lock;     /* used for thread count etc */
   pthread_cond_t threads_all_idle;  /* signal to thpool_wait     */
   priority_queue jobqueue;          /* job queue                 */
@@ -134,6 +135,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
   thpool_p->num_threads_alive = 0;
   thpool_p->num_threads_working = 0;
   thpool_p->keepalive = 0;
+  thpool_p->terminate_when_empty = 0;
 
   /* Initialise the job queue */
   if(priority_queue_init(&thpool_p->jobqueue) == -1) {
@@ -174,6 +176,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
 void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p) {
   assert(thpool_p->keepalive == 0);
   thpool_p->keepalive = 1;
+  thpool_p->terminate_when_empty = 0;
 
   /* Thread init */
   size_t n;
@@ -323,6 +326,10 @@ void redisearch_thpool_terminate_threads(redisearch_thpool_t* thpool_p) {
   }
 }
 
+void redisearch_thpool_terminate_when_empty(redisearch_thpool_t* thpool_p) {
+  thpool_p->terminate_when_empty = 1;
+}
+
 /* Destroy the threadpool */
 void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
 
@@ -461,6 +468,9 @@ static void* thread_do(struct thread* thread_p) {
         pthread_cond_signal(&thpool_p->threads_all_idle);
       }
       pthread_mutex_unlock(&thpool_p->thcount_lock);
+    }
+    if (thpool_p->terminate_when_empty && !thpool_p->num_threads_working) {
+      thpool_p->keepalive = 0;
     }
   }
   pthread_mutex_lock(&thpool_p->thcount_lock);
