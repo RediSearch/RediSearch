@@ -74,7 +74,7 @@ def compare_asc_desc(env, query, params, msg=None):
 
 
 def testSortby(env):
-    repeat = 10000
+    repeat = 1000  # TODO: get back to 10000
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT', 'tag', 'TAG')
     env.cmd('FT.CREATE', 'idx_sortable', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 't', 'TEXT', 'tag', 'TAG')

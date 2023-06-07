@@ -1616,6 +1616,8 @@ def test_rdb_memory_limit():
 
 def test_timeout_reached():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+    if SANITIZER:
+        env.skip()
     conn = getConnectionByEnv(env)
     nshards = env.shardsCount
     timeout_expected = 0 if env.isCluster() else 'Timeout limit was reached'

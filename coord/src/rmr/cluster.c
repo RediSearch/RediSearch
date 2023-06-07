@@ -206,6 +206,7 @@ int MRCluster_FanoutCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCo
       if (!conn->protocol || cmd_proto != conn->protocol) {
         MRCommand hello = MR_NewCommand(2, "HELLO", cmd_proto == 3 ? "3" : "2");
         int rc = MRConn_SendCommand(conn, &hello, NULL, privdata);
+        MRCommand_Free(&hello);
         conn->protocol = cmd_proto;
       }
 
