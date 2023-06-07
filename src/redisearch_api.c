@@ -816,7 +816,7 @@ void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
   // if (specField->types & INDEXFLD_T_GEOMETRY) {
   //   infoField->types |= RSFLDTYPE_GEOMETRY;
   // }
-  
+
 
   if (FieldSpec_IsSortable(specField)) {
     infoField->options |= RSFLDOPT_SORTABLE;

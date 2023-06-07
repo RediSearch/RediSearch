@@ -34,8 +34,11 @@ make build          # compile and link
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1|all          # remove entire artifacts directory (all: remove Conan artifacts)
-
+make cc            # compile a single file
+  FILE=file          # source of file to build
 make run           # run redis with RediSearch
+  COORD=1|oss        # run cluster
+  WITH_RLTEST=1      # run with RLTest wrapper
   GDB=1              # invoke using gdb
 
 make test          # run all tests
@@ -281,8 +284,6 @@ endif
 
 #----------------------------------------------------------------------------------------------
 
-all: bindirs $(TARGET)
-
 include $(MK)/rules
 
 clean:
@@ -368,7 +369,33 @@ fetch:
 
 #----------------------------------------------------------------------------------------------
 
+ifeq ($(COORD),)
+CMAKE_TARGET=rscore
+CMAKE_TARGET_DIR=
+else
+CMAKE_TARGET=coordinator-core
+CMAKE_TARGET_DIR=src/
+endif
+
+CMAKE_TARGET_BUILD_DIR=$(CMAKE_TARGET_DIR)CMakeFiles/$(CMAKE_TARGET).dir
+
+cc:
+	@$(READIES)/bin/sep1
+	$(SHOW)$(MAKE) -C $(BINDIR) -f $(CMAKE_TARGET_BUILD_DIR)/build.make $(CMAKE_TARGET_BUILD_DIR)/$(FILE).o
+
+.PHONY: cc
+
+#----------------------------------------------------------------------------------------------
+
+ifeq ($(COORD),oss)
+WITH_RLTEST=1
+endif
+
 run:
+ifeq ($(WITH_RLTEST),1)
+	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) FORCE='' RLTEST= ENV_ONLY=1 \
+		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+else
 ifeq ($(GDB),1)
 ifeq ($(CLANG),1)
 	$(SHOW)lldb -o run -- redis-server --loadmodule $(abspath $(TARGET))
@@ -377,6 +404,7 @@ else
 endif
 else
 	$(SHOW)redis-server --loadmodule $(abspath $(TARGET))
+endif
 endif
 
 .PHONY: run
@@ -585,6 +613,6 @@ SANBOX_ARGS += -v /w:/w
 endif
 
 sanbox:
-	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:16-x64-bullseye bash
+	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:16-$(ARCH)-bullseye bash
 
 .PHONY: box sanbox

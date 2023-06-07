@@ -48,12 +48,13 @@ def testDeleteIndex(env):
     r.expect('ft.info', 'idx').equal('Unknown index name')
     # time.sleep(1)
 
+
 def test_mod4745(env):
     conn = getConnectionByEnv(env)
     r = env
     # Create an index with large dim so that a single indexing operation will take a long time
-    N = 1000
-    dim = 50000
+    N = 1000 * env.shardsCount
+    dim = 30000
     for i in range(N):
         res = conn.execute_command('hset', 'foo:%d' % i, 'name', f'some string with information to index in the '
                                                                  f'background later on for id {i}',
@@ -71,10 +72,11 @@ def test_mod4745(env):
     # fail to send cluster PING on time before we reach cluster-node-timeout.
     waitForIndex(r, 'idx')
 
-def test_eval_node_errors_async(env):
+
+def test_eval_node_errors_async():
     if not POWER_TO_THE_WORKERS:
-        env.skip()
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKER_THREADS 1 ENABLE_THREADS TRUE ON_TIMEOUT FAIL')
+        raise unittest.SkipTest("Skipping since worker threads are not enabled")
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
     dim = 1000
 

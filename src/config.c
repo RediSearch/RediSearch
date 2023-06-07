@@ -16,6 +16,7 @@
 #include "rules.h"
 #include "spec.h"
 #include "util/dict.h"
+#include "resp3.h"
 
 #define RETURN_ERROR(s) return REDISMODULE_ERR;
 #define RETURN_PARSE_ERROR(rc)                                    \
@@ -245,11 +246,21 @@ CONFIG_GETTER(getWorkThreads) {
   return sdscatprintf(ss, "%lu", config->numWorkerThreads);
 }
 
-// ENABLE_THREADS
-CONFIG_BOOLEAN_SETTER(setThreadsEnabled, threadsEnabled)
+// ALWAYS_USE_THREADS
+CONFIG_BOOLEAN_SETTER(setThreadsEnabled, alwaysUseThreads)
 
-CONFIG_BOOLEAN_GETTER(getThreadsEnabled, threadsEnabled, 0)
+CONFIG_BOOLEAN_GETTER(getThreadsEnabled, alwaysUseThreads, 0)
 
+// TIERED_HNSW_BUFFER_LIMIT
+CONFIG_SETTER(setTieredIndexBufferLimit) {
+  int acrc = AC_GetSize(ac, &config->tieredVecSimIndexBufferLimit, AC_F_GE0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getTieredIndexBufferLimit) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->tieredVecSimIndexBufferLimit);
+}
 #endif // POWER_TO_THE_WORKERS
 
 // FRISOINI
@@ -541,6 +552,19 @@ CONFIG_GETTER(getUpgradeIndex) {
 
 CONFIG_BOOLEAN_GETTER(getFilterCommand, filterCommands, 0)
 
+// BG_INDEX_SLEEP_GAP
+CONFIG_SETTER(setBGIndexSleepGap) {
+  unsigned int sleep_gap;
+  int acrc = AC_GetUnsigned(ac, &sleep_gap, AC_F_GE1);
+  config->numBGIndexingIterationsBeforeSleep = sleep_gap;
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getBGIndexSleepGap) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->numBGIndexingIterationsBeforeSleep);
+}
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -672,11 +696,21 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getWorkThreads,
          .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
-        {.name = "ENABLE_THREADS",
-         .helpText = "Enables or disables multi-threaded search and indexing",
+        {.name = "ALWAYS_USE_THREADS",
+         .helpText = "Let ft.search and vector indexing be done in background threads as default if"
+                        "set to TRUE, use workers thread pool for operational needs only otherwise",
          .setValue = setThreadsEnabled,
          .getValue = getThreadsEnabled,
-         .flags = RSCONFIGVAR_F_FLAG,
+         .flags = RSCONFIGVAR_F_IMMUTABLE | RSCONFIGVAR_F_FLAG,
+        },
+        {.name = "TIERED_HNSW_BUFFER_LIMIT",
+        .helpText = "Use for setting the buffer limit threshold for vector similarity tiered"
+                        " HNSW index, so that if we are using WORKER_THREADS for indexing, and the"
+                        " number of vectors waiting in the buffer to be indexed exceeds this limit, "
+                        " we insert new vectors directly into HNSW",
+        .setValue = setTieredIndexBufferLimit,
+        .getValue = getTieredIndexBufferLimit,
+        .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
         },
 #endif
         {.name = "FRISOINI",
@@ -790,6 +824,13 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setMultiTextOffsetDelta,
          .getValue = getMultiTextOffsetDelta,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "BG_INDEX_SLEEP_GAP",
+         .helpText = "The number of iterations to run while performing background indexing"
+                     " before we call usleep(1) (sleep for 1 micro-second) and make sure that we"
+                     " allow redis process other commands.",
+         .setValue = setBGIndexSleepGap,
+         .getValue = getBGIndexSleepGap,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -835,9 +876,17 @@ static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, Red
   size_t numElems = 0;
   sds currValue = var->getValue(config);
 
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  if(!_ReplyMap(ctx)) {
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    numElems++;
+  }
+
   RedisModule_ReplyWithSimpleString(ctx, var->name);
-  numElems++;
+
+  if(_ReplyMap(ctx)) {
+    RedisModule_ReplyWithMap(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  }
+
   if (isHelp) {
     RedisModule_ReplyWithSimpleString(ctx, "Description");
     RedisModule_ReplyWithSimpleString(ctx, var->helpText);
@@ -849,6 +898,10 @@ static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, Red
     }
     numElems += 4;
   } else {
+    if(_ReplyMap(ctx)) {
+      RedisModule_ReplyWithSimpleString(ctx, "Value");
+      numElems++;
+    }
     if (currValue) {
       RedisModule_ReplyWithSimpleString(ctx, currValue);
     } else {
@@ -857,13 +910,13 @@ static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, Red
     numElems++;
   }
   sdsfree(currValue);
-  RedisModule_ReplySetArrayLength(ctx, numElems);
+  RedisModule_ReplySetMapOrArrayLength(ctx, numElems, true);
 }
 
 void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, const char *name,
                         RedisModuleCtx *ctx, int isHelp) {
   size_t numElems = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_ReplyWithMapOrArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN, false);
   if (!strcmp("*", name)) {
     for (const RSConfigOptions *curOpts = options; curOpts; curOpts = curOpts->next) {
       for (const RSConfigVar *cur = &curOpts->vars[0]; cur->name; cur++) {
@@ -878,7 +931,7 @@ void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, 
       dumpConfigOption(config, v, ctx, isHelp);
     }
   }
-  RedisModule_ReplySetArrayLength(ctx, numElems);
+  RedisModule_ReplySetMapOrArrayLength(ctx, numElems, false);
 }
 
 int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *name,

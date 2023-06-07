@@ -214,6 +214,13 @@ int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *spec, boo
 void QueryNode_AddChildren(QueryNode *parent, QueryNode **children, size_t n);
 void QueryNode_AddChild(QueryNode *parent, QueryNode *child);
 void QueryNode_ClearChildren(QueryNode *parent, int shouldFree);
+
+/*
+ * Substitute parameters with actual values
+ * If a parameters is missing, has wrong kind, or the resulting value is invalid
+ * Returns REDISMODULE_ERR
+ * Otherwise, returns REDISMODULE_OK
+ */
 int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, QueryError *status);
 
 #define QueryNode_NumChildren(qn) ((qn)->children ? array_len((qn)->children) : 0)

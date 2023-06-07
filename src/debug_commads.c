@@ -149,6 +149,7 @@ DEBUG_COMMAND(DumpInvertedIndex) {
   }
   IndexReader *reader = NewTermIndexReader(invidx, NULL, RS_FIELDMASK_ALL, NULL, 1);
   ReplyReaderResults(reader, sctx->redisCtx);
+
 end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
@@ -787,7 +788,7 @@ end:
   return REDISMODULE_OK;
 }
 
-static void replyDocFlags(const RSDocumentMetadata *dmd, RedisModuleCtx *ctx) {
+static void replyDocFlags(const char *name, const RSDocumentMetadata *dmd, RedisModule_Reply *reply) {
   char buf[1024] = {0};
   sprintf(buf, "(0x%x):", dmd->flags);
   if (dmd->flags & Document_Deleted) {
@@ -802,28 +803,29 @@ static void replyDocFlags(const RSDocumentMetadata *dmd, RedisModuleCtx *ctx) {
   if (dmd->flags & Document_HasOffsetVector) {
     strcat(buf, "HasOffsetVector,");
   }
-  RedisModule_ReplyWithSimpleString(ctx, buf);
+  RedisModule_ReplyKV_SimpleString(reply, name, buf);
 }
 
-static void replySortVector(const RSDocumentMetadata *dmd, RedisSearchCtx *sctx) {
+static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
+                            RedisSearchCtx *sctx, RedisModule_Reply *reply) {
   RSSortingVector *sv = dmd->sortVector;
-  RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  size_t nelem = 0;
+  RedisModule_ReplyKV_Array(reply, name);
   for (size_t ii = 0; ii < sv->len; ++ii) {
     if (!sv->values[ii]) {
       continue;
     }
-    RedisModule_ReplyWithArray(sctx->redisCtx, 6);
-    RedisModule_ReplyWithSimpleString(sctx->redisCtx, "index");
-    RedisModule_ReplyWithLongLong(sctx->redisCtx, ii);
-    RedisModule_ReplyWithSimpleString(sctx->redisCtx, "field");
-    const FieldSpec *fs = IndexSpec_GetFieldBySortingIndex(sctx->spec, ii);
-    RedisModule_ReplyWithPrintf(sctx->redisCtx, "%s AS %s", fs ? fs->path : "!!!", fs ? fs->name : "???");
-    RedisModule_ReplyWithSimpleString(sctx->redisCtx, "value");
-    RSValue_SendReply(sctx->redisCtx, sv->values[ii], 0);
-    nelem++;
+    RedisModule_Reply_Array(reply);
+      RedisModule_ReplyKV_LongLong(reply, "index", ii);
+
+      RedisModule_Reply_SimpleString(reply, "field");
+      const FieldSpec *fs = IndexSpec_GetFieldBySortingIndex(sctx->spec, ii);
+      RedisModule_Reply_Stringf(reply, "%s AS %s", fs ? fs->path : "!!!", fs ? fs->name : "???");
+
+      RedisModule_Reply_SimpleString(reply, "value");
+      RSValue_SendReply(reply, sv->values[ii], 0);
+    RedisModule_Reply_ArrayEnd(reply);
   }
-  RedisModule_ReplySetArrayLength(sctx->redisCtx, nelem);
+  RedisModule_Reply_ArrayEnd(reply);
 }
 
 /**
@@ -841,35 +843,50 @@ DEBUG_COMMAND(DocInfo) {
     return RedisModule_ReplyWithError(ctx, "Document not found in index");
   }
 
-  size_t nelem = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  RedisModule_ReplyWithSimpleString(ctx, "internal_id");
-  RedisModule_ReplyWithLongLong(ctx, dmd->id);
-  nelem += 2;
-  RedisModule_ReplyWithSimpleString(ctx, "flags");
-  replyDocFlags(dmd, ctx);
-  nelem += 2;
-  RedisModule_ReplyWithSimpleString(ctx, "score");
-  RedisModule_ReplyWithDouble(ctx, dmd->score);
-  nelem += 2;
-  RedisModule_ReplyWithSimpleString(ctx, "num_tokens");
-  RedisModule_ReplyWithLongLong(ctx, dmd->len);
-  nelem += 2;
-  RedisModule_ReplyWithSimpleString(ctx, "max_freq");
-  RedisModule_ReplyWithLongLong(ctx, dmd->maxFreq);
-  nelem += 2;
-  RedisModule_ReplyWithSimpleString(ctx, "refcount");
-  RedisModule_ReplyWithLongLong(ctx, dmd->ref_count - 1); // TODO: should include the refcount of the command call?
-  nelem += 2;
-  if (dmd->sortVector) {
-    RedisModule_ReplyWithSimpleString(ctx, "sortables");
-    replySortVector(dmd, sctx);
-    nelem += 2;
-  }
-  RedisModule_ReplySetArrayLength(ctx, nelem);
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+
+  RedisModule_Reply_Map(reply);
+    RedisModule_ReplyKV_LongLong(reply, "internal_id", dmd->id);
+    replyDocFlags("flags", dmd, reply);
+    RedisModule_ReplyKV_Double(reply, "score", dmd->score);
+    RedisModule_ReplyKV_LongLong(reply, "num_tokens", dmd->len);
+    RedisModule_ReplyKV_LongLong(reply, "max_freq", dmd->maxFreq);
+    RedisModule_ReplyKV_LongLong(reply, "refcount", dmd->ref_count - 1); // TODO: should include the refcount of the command call?
+    if (dmd->sortVector) {
+      replySortVector("sortables", dmd, sctx, reply);
+    }
+  RedisModule_Reply_MapEnd(reply);
+
+  RedisModule_EndReply(reply);
   DMD_Return(dmd);
   SearchCtx_Free(sctx);
+
   return REDISMODULE_OK;
+}
+
+static void VecSim_Reply_Info_Iterator(RedisModuleCtx *ctx, VecSimInfoIterator *infoIter) {
+  RedisModule_ReplyWithArray(ctx, VecSimInfoIterator_NumberOfFields(infoIter)*2);
+  while(VecSimInfoIterator_HasNextField(infoIter)) {
+    VecSim_InfoField* infoField = VecSimInfoIterator_NextField(infoIter);
+    RedisModule_ReplyWithSimpleString(ctx, infoField->fieldName);
+    switch (infoField->fieldType) {
+    case INFOFIELD_STRING:
+      RedisModule_ReplyWithSimpleString(ctx, infoField->fieldValue.stringValue);
+      break;
+    case INFOFIELD_FLOAT64:
+      RedisModule_ReplyWithDouble(ctx, infoField->fieldValue.floatingPointValue);
+      break;
+    case INFOFIELD_INT64:
+      RedisModule_ReplyWithLongLong(ctx, infoField->fieldValue.integerValue);
+      break;
+    case INFOFIELD_UINT64:
+      RedisModule_ReplyWithLongLong(ctx, infoField->fieldValue.uintegerValue);
+      break;
+    case INFOFIELD_ITERATOR:
+      VecSim_Reply_Info_Iterator(ctx, infoField->fieldValue.iteratorValue);
+      break;
+    }
+  }
 }
 
 /**
@@ -891,29 +908,11 @@ DEBUG_COMMAND(VecsimInfo) {
   VecSimIndex *vecsimIndex = OpenVectorIndex(sctx->spec, keyName);
 
   VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(vecsimIndex);
-  RedisModule_ReplyWithArray(ctx, VecSimInfoIterator_NumberOfFields(infoIter)*2);
-  while(VecSimInfoIterator_HasNextField(infoIter)) {
-    VecSim_InfoField* infoField = VecSimInfoIterator_NextField(infoIter);
-    RedisModule_ReplyWithSimpleString(ctx, infoField->fieldName);
-    switch (infoField->fieldType)
-    {
-    case INFOFIELD_STRING:
-      RedisModule_ReplyWithSimpleString(ctx, infoField->fieldValue.stringValue);
-      break;
-    case INFOFIELD_FLOAT64:
-      RedisModule_ReplyWithDouble(ctx, infoField->fieldValue.floatingPointValue);
-      break;
-    case INFOFIELD_INT64:
-      RedisModule_ReplyWithLongLong(ctx, infoField->fieldValue.integerValue);
-      break;
-    case INFOFIELD_UINT64:
-      RedisModule_ReplyWithLongLong(ctx, infoField->fieldValue.uintegerValue);
-      break;
-    default:
-      break;
-    }
-  }
-  VecSimInfoIterator_Free(infoIter);
+  // Recursively reply with the info iterator
+  VecSim_Reply_Info_Iterator(ctx, infoIter);
+
+  // Cleanup
+  VecSimInfoIterator_Free(infoIter); // Free the iterator (and all its nested children)
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }

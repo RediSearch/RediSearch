@@ -227,6 +227,14 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   return it;
 }
 
+void UI_Foreach(IndexIterator *index_it, void (*callback)(IndexReader *it, void *privdata), void *privdata) {
+  UnionIterator *ui = index_it->ctx;
+  for (int i = 0; i < ui->num; ++i) {
+    IndexIterator *it = ui->its[i];
+    callback(it->ctx, privdata);
+  }
+}
+
 typedef struct {
   IndexCriteriaTester base;
   IndexCriteriaTester **children;
@@ -1854,7 +1862,7 @@ IndexIterator *NewProfileIterator(IndexIterator *child) {
   return ret;
 }
 
-#define PRINT_PROFILE_FUNC(name) static void name(RedisModuleCtx *ctx,        \
+#define PRINT_PROFILE_FUNC(name) static void name(RedisModule_Reply *reply,   \
                                                   IndexIterator *root,        \
                                                   size_t counter,             \
                                                   double cpuTime,             \
@@ -1866,13 +1874,11 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   UnionIterator *ui = (UnionIterator *)root;
   int printFull = !limited  || (ui->origType & QN_UNION);
 
-  int nlen = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_Reply_Map(reply);
 
   printProfileType("UNION");
-  nlen += 2;
 
-  RedisModule_ReplyWithSimpleString(ctx, "Query type");
+  RedisModule_Reply_SimpleString(reply, "Query type");
   char *unionTypeStr;
   switch (ui->origType) {
   case QN_GEO : unionTypeStr = "GEO"; break;
@@ -1889,83 +1895,68 @@ PRINT_PROFILE_FUNC(printUnionIt) {
     break;
   }
   if (!ui->qstr) {
-    RedisModule_ReplyWithSimpleString(ctx, unionTypeStr);
+    RedisModule_Reply_SimpleString(reply, unionTypeStr);
   } else {
-    RedisModule_ReplyWithPrintf(ctx, "%s - %s", unionTypeStr, ui->qstr);
+    RedisModule_Reply_Stringf(reply, "%s - %s", unionTypeStr, ui->qstr);
   }
-  nlen += 2;
 
   if (config->printProfileClock) {
     printProfileTime(cpuTime);
-    nlen += 2;
   }
 
   printProfileCounter(counter);
-  nlen += 2;
 
   // if MAXPREFIXEXPANSIONS reached
   if (ui->norig == config->iteratorsConfig->maxPrefixExpansions) {
-    RedisModule_ReplyWithSimpleString(ctx, "Warning");
-    RedisModule_ReplyWithSimpleString(ctx, "Max prefix expansion reached");
-    nlen += 2;
+    RedisModule_Reply_SimpleString(reply, "Warning");
+    RedisModule_Reply_SimpleString(reply, "Max prefix expansion reached");
   }
 
-  RedisModule_ReplyWithSimpleString(ctx, "Child iterators");
-  nlen++;
+  RedisModule_Reply_SimpleString(reply, "Child iterators");
   if (printFull) {
     for (int i = 0; i < ui->norig; i++) {
-      printIteratorProfile(ctx, ui->origits[i], 0, 0, depth + 1, limited, config);
+      printIteratorProfile(reply, ui->origits[i], 0, 0, depth + 1, limited, config);
     }
-    nlen += ui->norig;
   } else {
-    RedisModule_ReplyWithPrintf(ctx, "The number of iterators in the union is %d", ui->norig);
-    nlen++;
+    RedisModule_Reply_Stringf(reply, "The number of iterators in the union is %d", ui->norig);
   }
 
-  RedisModule_ReplySetArrayLength(ctx, nlen);
+  RedisModule_Reply_MapEnd(reply);
 }
 
 PRINT_PROFILE_FUNC(printIntersectIt) {
   IntersectIterator *ii = (IntersectIterator *)root;
 
-  size_t nlen = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_Reply_Map(reply);
 
   printProfileType("INTERSECT");
-  nlen += 2;
 
   if (config->printProfileClock) {
     printProfileTime(cpuTime);
-    nlen += 2;
   }
 
   printProfileCounter(counter);
-  nlen += 2;
 
-  RedisModule_ReplyWithSimpleString(ctx, "Child iterators");
-  nlen++;
+  RedisModule_Reply_SimpleString(reply, "Child iterators");
   for (int i = 0; i < ii->num; i++) {
     if (ii->its[i]) {
-      printIteratorProfile(ctx, ii->its[i], 0, 0, depth + 1, limited, config);
+      printIteratorProfile(reply, ii->its[i], 0, 0, depth + 1, limited, config);
     } else {
-      RedisModule_ReplyWithNull(ctx);
+      RedisModule_Reply_Null(reply);
     }
   }
-  nlen += ii->num;
 
-  RedisModule_ReplySetArrayLength(ctx, nlen);
+  RedisModule_Reply_MapEnd(reply);
 }
 
 PRINT_PROFILE_FUNC(printMetricIt) {
   MetricIterator *mi = (MetricIterator *)root;
 
-  size_t nlen = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_Reply_Map(reply);
 
   switch (mi->type) {
     case VECTOR_DISTANCE: {
       printProfileType("METRIC - VECTOR DISTANCE");
-      nlen += 2;
       break;
     }
     default: {
@@ -1976,50 +1967,49 @@ PRINT_PROFILE_FUNC(printMetricIt) {
 
   if (config->printProfileClock) {
     printProfileTime(cpuTime);
-    nlen += 2;
   }
 
   printProfileCounter(counter);
-  nlen += 2;
 
-  RedisModule_ReplySetArrayLength(ctx, (long)nlen);
+  RedisModule_Reply_MapEnd(reply);
 }
 
-#define PRINT_PROFILE_SINGLE(name, iterType, text, hasChild)                                  \
-  PRINT_PROFILE_FUNC(name) {                                                                  \
-    size_t nlen = 0;                                                                          \
-    int addChild = hasChild && ((iterType *)root)->child;                                     \
-    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);                         \
-    printProfileType(text);                                                                   \
-    nlen += 2;                                                                                \
-    if (config->printProfileClock) {                                                          \
-      printProfileTime(cpuTime);                                                              \
-      nlen += 2;                                                                              \
-    }                                                                                         \
-    printProfileCounter(counter);                                                             \
-    nlen += 2;                                                                                \
-                                                                                      \
-  if (root->type == HYBRID_ITERATOR) {                                                      \
-      HybridIterator *hi = root->ctx;                                                         \
-      if (hi->searchMode == VECSIM_HYBRID_BATCHES ||                                          \
-          hi->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF) {                              \
-      printProfileNumBatches(hi);                                                             \
-      nlen += 2;                                                                              \
-      }                                                                                       \
-    }                                                                                 \
-                                                                                    \
-  if (root->type == OPTIMUS_ITERATOR) {                                             \
-    OptimizerIterator *oi = root->ctx;                                              \
-    printProfileOptimizationType(oi);                                               \
-    nlen += 2;                                                                      \
-  }                                                                                         \
-                                                                                              \
-    if (addChild) {                                                                           \
-      RedisModule_ReplyWithSimpleString(ctx, "Child iterator");                               \
-      printIteratorProfile(ctx, ((iterType *)root)->child, 0, 0, depth + 1, limited, config); \
-      nlen += 2;                                                                              \
-    }                                                                                         \
-    RedisModule_ReplySetArrayLength(ctx, nlen);                                               \
+void PrintIteratorChildProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter,
+    double cpuTime, int depth, int limited, PrintProfileConfig *config,
+    IndexIterator *child, const char *text, bool hasChild) {
+  size_t nlen = 0;
+  int addChild = hasChild && child;
+  RedisModule_Reply_Map(reply);
+    printProfileType(text);
+    if (config->printProfileClock) {
+      printProfileTime(cpuTime);
+    }
+    printProfileCounter(counter);
+
+    if (root->type == HYBRID_ITERATOR) {
+      HybridIterator *hi = root->ctx;
+      if (hi->searchMode == VECSIM_HYBRID_BATCHES ||
+          hi->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF) {
+        printProfileNumBatches(hi);
+      }
+    }
+
+    if (root->type == OPTIMUS_ITERATOR) {
+      OptimizerIterator *oi = root->ctx;
+      printProfileOptimizationType(oi);
+    }
+                                                                        
+    if (addChild) {
+      RedisModule_Reply_SimpleString(reply, "Child iterator");
+      printIteratorProfile(reply, child, 0, 0, depth + 1, limited, config);
+    }
+  RedisModule_Reply_MapEnd(reply);
+}
+
+#define PRINT_PROFILE_SINGLE(name, IterType, text, hasChild)                           \
+  PRINT_PROFILE_FUNC(name) {                                                           \
+    PrintIteratorChildProfile(reply, (root), counter, cpuTime, depth, limited, config, \
+      ((IterType *)(root))->child, (text), (hasChild));                                \
   }
 
 typedef struct {
@@ -2037,35 +2027,36 @@ PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator, "OPTIMIZER", 1);
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
-  printIteratorProfile(ctx, pi->child, pi->counter - pi->eof, (double)pi->cpuTime, depth, limited, config);
+  printIteratorProfile(reply, pi->child, pi->counter - pi->eof, \
+                       (double)pi->cpuTime, depth, limited, config);
 }
 
-void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t counter,
+void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter,
                           double cpuTime, int depth, int limited, PrintProfileConfig *config) {
   if (root == NULL) return;
 
   // protect against limit of 7 reply layers
   if (depth == REDIS_ARRAY_LIMIT && !isFeatureSupported(NO_REPLY_DEPTH_LIMIT)) {
-    RedisModule_ReplyWithNull(ctx);
+    RedisModule_Reply_Null(reply);
     return;
   }
 
   switch (root->type) {
     // Reader
-    case READ_ITERATOR:       { printReadIt(ctx, root, counter, cpuTime, config);                       break; }
+    case READ_ITERATOR:       { printReadIt(reply, root, counter, cpuTime, config);                       break; }
     // Multi values
-    case UNION_ITERATOR:      { printUnionIt(ctx, root, counter, cpuTime, depth, limited, config);      break; }
-    case INTERSECT_ITERATOR:  { printIntersectIt(ctx, root, counter, cpuTime, depth, limited, config);  break; }
+    case UNION_ITERATOR:      { printUnionIt(reply, root, counter, cpuTime, depth, limited, config);      break; }
+    case INTERSECT_ITERATOR:  { printIntersectIt(reply, root, counter, cpuTime, depth, limited, config);  break; }
     // Single value
-    case NOT_ITERATOR:        { printNotIt(ctx, root, counter, cpuTime, depth, limited, config);        break; }
-    case OPTIONAL_ITERATOR:   { printOptionalIt(ctx, root, counter, cpuTime, depth, limited, config);   break; }
-    case WILDCARD_ITERATOR:   { printWildcardIt(ctx, root, counter, cpuTime, depth, limited, config);   break; }
-    case EMPTY_ITERATOR:      { printEmptyIt(ctx, root, counter, cpuTime, depth, limited, config);      break; }
-    case ID_LIST_ITERATOR:    { printIdListIt(ctx, root, counter, cpuTime, depth, limited, config);     break; }
-    case PROFILE_ITERATOR:    { printProfileIt(ctx, root, 0, 0, depth, limited, config);                break; }
-    case HYBRID_ITERATOR:     { printHybridIt(ctx, root, counter, cpuTime, depth, limited, config);     break; }
-    case METRIC_ITERATOR:     { printMetricIt(ctx, root, counter, cpuTime, depth, limited, config);     break; }
-    case OPTIMUS_ITERATOR:    { printOptimusIt(ctx, root, counter, cpuTime, depth, limited, config);    break; }
+    case NOT_ITERATOR:        { printNotIt(reply, root, counter, cpuTime, depth, limited, config);        break; }
+    case OPTIONAL_ITERATOR:   { printOptionalIt(reply, root, counter, cpuTime, depth, limited, config);   break; }
+    case WILDCARD_ITERATOR:   { printWildcardIt(reply, root, counter, cpuTime, depth, limited, config);   break; }
+    case EMPTY_ITERATOR:      { printEmptyIt(reply, root, counter, cpuTime, depth, limited, config);      break; }
+    case ID_LIST_ITERATOR:    { printIdListIt(reply, root, counter, cpuTime, depth, limited, config);     break; }
+    case PROFILE_ITERATOR:    { printProfileIt(reply, root, 0, 0, depth, limited, config);                break; }
+    case HYBRID_ITERATOR:     { printHybridIt(reply, root, counter, cpuTime, depth, limited, config);     break; }
+    case METRIC_ITERATOR:     { printMetricIt(reply, root, counter, cpuTime, depth, limited, config);     break; }
+    case OPTIMUS_ITERATOR:    { printOptimusIt(reply, root, counter, cpuTime, depth, limited, config);    break; }
     case MAX_ITERATOR:        { RS_LOG_ASSERT(0, "nope");   break; }
   }
 }
