@@ -30,7 +30,8 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'SEARCH_THREADS').res[0][0] == 'SEARCH_THREADS'
     if POWER_TO_THE_WORKERS:
         assert env.expect('ft.config', 'get', 'WORKER_THREADS').res[0][0] == 'WORKER_THREADS'
-        assert env.expect('ft.config', 'get', 'ENABLE_THREADS').res[0][0] == 'ENABLE_THREADS'
+        assert env.expect('ft.config', 'get', 'ALWAYS_USE_THREADS').res[0][0] == 'ALWAYS_USE_THREADS'
+        assert env.expect('ft.config', 'get', 'TIERED_HNSW_BUFFER_LIMIT').res[0][0] == 'TIERED_HNSW_BUFFER_LIMIT'
     assert env.expect('ft.config', 'get', 'FRISOINI').res[0][0] == 'FRISOINI'
     assert env.expect('ft.config', 'get', 'MAXSEARCHRESULTS').res[0][0] == 'MAXSEARCHRESULTS'
     assert env.expect('ft.config', 'get', 'MAXAGGREGATERESULTS').res[0][0] == 'MAXAGGREGATERESULTS'
@@ -50,6 +51,7 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'FORK_GC_CLEAN_NUMERIC_EMPTY_NODES').res[0][0] == 'FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
     assert env.expect('ft.config', 'get', '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES').res[0][0] == '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
     assert env.expect('ft.config', 'get', '_FREE_RESOURCE_ON_THREAD').res[0][0] == '_FREE_RESOURCE_ON_THREAD'
+    assert env.expect('ft.config', 'get', 'BG_INDEX_SLEEP_GAP').res[0][0] == 'BG_INDEX_SLEEP_GAP'
 
 '''
 
@@ -110,7 +112,8 @@ def testAllConfig(env):
     env.assertEqual(res_dict['SEARCH_THREADS'][0], '20')
     if POWER_TO_THE_WORKERS:
         env.assertEqual(res_dict['WORKER_THREADS'][0], '0')
-        env.assertEqual(res_dict['ENABLE_THREADS'][0], 'false')
+        env.assertEqual(res_dict['ALWAYS_USE_THREADS'][0], 'false')
+        env.assertEqual(res_dict['TIERED_HNSW_BUFFER_LIMIT'][0], '1024')
     env.assertEqual(res_dict['FRISOINI'][0], None)
     env.assertEqual(res_dict['ON_TIMEOUT'][0], 'return')
     env.assertEqual(res_dict['GCSCANSIZE'][0], '100')
@@ -126,8 +129,9 @@ def testAllConfig(env):
     env.assertEqual(res_dict['FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'][0], 'true')
     env.assertEqual(res_dict['_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'][0], 'true')
     env.assertEqual(res_dict['_FREE_RESOURCE_ON_THREAD'][0], 'true')
+    env.assertEqual(res_dict['BG_INDEX_SLEEP_GAP'][0], '100')
 
-    # skip ctest configured tests
+# skip ctest configured tests
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
     #env.assertEqual(res_dict['_MAX_RESULTS_TO_UNSORTED_MODE'][0], '1000')
     #env.assertEqual(res_dict['SAFEMODE'][0], 'true')
@@ -154,6 +158,7 @@ def testInitConfig(env):
     test_arg_num('SEARCH_THREADS', 3)
     if POWER_TO_THE_WORKERS:
         test_arg_num('WORKER_THREADS', 3)
+        test_arg_num('TIERED_HNSW_BUFFER_LIMIT', 50000)
     test_arg_num('GCSCANSIZE', 3)
     test_arg_num('MIN_PHONETIC_TERM_LEN', 3)
     test_arg_num('FORK_GC_RUN_INTERVAL', 3)
@@ -162,8 +167,9 @@ def testInitConfig(env):
     test_arg_num('_MAX_RESULTS_TO_UNSORTED_MODE', 3)
     test_arg_num('UNION_ITERATOR_HEAP', 20)
     test_arg_num('_NUMERIC_RANGES_PARENTS', 1)
+    test_arg_num('BG_INDEX_SLEEP_GAP', 15)
 
-    # True/False arguments
+# True/False arguments
     def test_arg_true_false(arg_name, res):
         env = Env(moduleArgs=arg_name, noDefaultModuleArgs=True)
         if env.env == 'existing-env':
@@ -188,8 +194,6 @@ def testInitConfig(env):
         env.stop()
 
     test_arg_str('GC_POLICY', 'fork')
-    if POWER_TO_THE_WORKERS:
-        test_arg_str('ENABLE_THREADS', 'true')
     test_arg_str('GC_POLICY', 'default', 'fork')
     test_arg_str('ON_TIMEOUT', 'fail')
     test_arg_str('TIMEOUT', '0', '0')
@@ -217,10 +221,13 @@ def testImmutable(env):
     env.expect('ft.config', 'set', 'INDEX_THREADS').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'SEARCH_THREADS').error().contains('Not modifiable at runtime')
     if POWER_TO_THE_WORKERS:
+        env.expect('ft.config', 'set', 'ALWAYS_USE_THREADS').error().contains('Not modifiable at runtime')
         env.expect('ft.config', 'set', 'WORKER_THREADS').error().contains('Not modifiable at runtime')
+        env.expect('ft.config', 'set', 'TIERED_HNSW_BUFFER_LIMIT').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'FRISOINI').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'GC_POLICY').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'NO_MEM_POOLS').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'PARTIAL_INDEXED_DOCS').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'UPGRADE_INDEX').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'RAW_DOCID_ENCODING').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'BG_INDEX_SLEEP_GAP').error().contains('Not modifiable at runtime')

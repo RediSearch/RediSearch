@@ -5,6 +5,15 @@
  */
 
 #define RMR_C__
+#include "rmr.h"
+#include "reply.h"
+#include "redismodule.h"
+#include "cluster.h"
+#include "chan.h"
+#include "rq.h"
+#include "rmutil/rm_assert.h"
+#include "resp3.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,14 +27,6 @@
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
 #include "hiredis/adapters/libuv.h"
-
-#include "rmr.h"
-#include "reply.h"
-#include "redismodule.h"
-#include "cluster.h"
-#include "chan.h"
-#include "rq.h"
-#include "rmutil/rm_assert.h"
 
 extern int redisMajorVesion;
 
@@ -48,10 +49,12 @@ typedef struct MRCtx {
   int repliesCap;
   MRReduceFunc reducer;
   void *privdata;
-  void *redisCtx;
+  RedisModuleCtx *redisCtx;
+  RedisModuleBlockedClient *bc;
   MRCoordinationStrategy strategy;
   MRCommand *cmds;
   int numCmds;
+  int protocol;
 
   /**
    * This is a reduce function inside the MRCtx.
@@ -77,7 +80,7 @@ void MR_SetCoordinationStrategy(MRCtx *ctx, MRCoordinationStrategy strategy) {
 
 static int totalAllocd = 0;
 /* Create a new MapReduce context */
-MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, void *privdata) {
+MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *privdata) {
   MRCtx *ret = rm_malloc(sizeof(MRCtx));
   clock_gettime(CLOCK_REALTIME, &ret->startTime);
   ret->endTime = ret->startTime;
@@ -91,6 +94,9 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, void *privdata) {
   ret->privdata = privdata;
   ret->strategy = MRCluster_FlatCoordination;
   ret->redisCtx = ctx;
+  ret->bc = bc;
+  RedisModule_Assert(ctx || bc);
+  ret->protocol = ctx ? (_is_resp3(ctx) ? 3 : 2) : 0;
   ret->fn = NULL;
   totalAllocd++;
 
@@ -135,6 +141,18 @@ RedisModuleCtx *MRCtx_GetRedisCtx(struct MRCtx *ctx) {
 
 void MRCtx_SetRedisCtx(struct MRCtx *ctx, void* rctx){
   ctx->redisCtx = rctx;
+}
+
+RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx) {
+  return ctx->bc;
+}
+
+int MRCtx_GetProtocol(struct MRCtx *ctx) {
+    return ctx->protocol;
+}
+
+void MRCtx_SetProtocol(struct MRCtx *ctx, int protocol) {
+    ctx->protocol = protocol;
 }
 
 MRCommand *MRCtx_GetCmds(struct MRCtx *ctx) {
@@ -207,7 +225,8 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
     if (ctx->fn) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
     } else {
-      RedisModuleBlockedClient *bc = ctx->redisCtx;
+      RedisModuleBlockedClient *bc = ctx->bc;
+      RedisModule_Assert(bc);
       RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
       RedisModule_UnblockClient(bc, ctx);
     }
@@ -221,6 +240,7 @@ struct MRRequestCtx {
   MRCommand *cmds;
   int numCmds;
   void (*cb)(struct MRRequestCtx *);
+  int protocol;
 };
 
 void requestCb(void *p) {
@@ -279,6 +299,15 @@ MRClusterNode *MR_GetMyNode() {
   return cluster_g ? cluster_g->myNode : NULL;
 }
 
+//#ifef DEBUG_MR // @@
+
+static void helloCallback(redisAsyncContext *c, void *r, void *privdata) {
+  MRCtx *ctx = privdata;
+  MRReply *reply = r;
+}
+
+//#endif DEBUG_MG
+
 /* The fanout request received in the event loop in a thread safe manner */
 static void uvFanoutRequest(struct MRRequestCtx *mc) {
 
@@ -289,6 +318,15 @@ static void uvFanoutRequest(struct MRRequestCtx *mc) {
 
   mrctx->numCmds = mc->numCmds;
   mrctx->cmds = rm_calloc(mrctx->numCmds, sizeof(MRCommand));
+
+  if (mc->numCmds > 0) {
+    // @@TODO: this may not be requires as we're hello-ing before command_send
+    int cmd_proto = mc->cmds[0].protocol;
+    if (cmd_proto != mc->protocol) {
+      MRCommand hello = MR_NewCommand(2, "HELLO", cmd_proto == 3 ? "3" : "2");
+      int rc = MRCluster_SendCommand(cluster_g, MRCluster_FlatCoordination, &hello, helloCallback, mrctx);
+    }
+  }
 
   if (cluster_g->topo) {
     MRCommand *cmd = &mc->cmds[0];
@@ -301,7 +339,8 @@ static void uvFanoutRequest(struct MRRequestCtx *mc) {
   }
 
   if (mrctx->numExpected == 0) {
-    RedisModuleBlockedClient *bc = mrctx->redisCtx;
+    RedisModuleBlockedClient *bc = mrctx->bc;
+    RedisModule_Assert(bc);
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
     RedisModule_UnblockClient(bc, mrctx);
     // printf("could not send single command. hande fail please\n");
@@ -319,10 +358,20 @@ static void uvMapRequest(struct MRRequestCtx *mc) {
   mrctx->numCmds = mc->numCmds;
   mrctx->cmds = rm_calloc(mrctx->numCmds, sizeof(MRCommand));
 
-  for (int i = 0; i < mc->numCmds; i++) {
+  if (mc->numCmds > 0) {
+    int cmd_proto = mc->cmds[0].protocol;
+    // @@TODO: this may not be requires as we're hello-ing before command_send
+    if (cmd_proto != mc->protocol) {
+      MRCommand hello = MR_NewCommand(2, "HELLO", cmd_proto == 3 ? "3" : "2");
+      int rc = MRCluster_SendCommand(cluster_g, MRCluster_FlatCoordination, &hello, helloCallback, mrctx);
+    }
+  }
 
-    if (MRCluster_SendCommand(cluster_g, mrctx->strategy, &mc->cmds[i], fanoutCallback, mrctx) ==
-        REDIS_OK) {
+  for (int i = 0; i < mc->numCmds; i++) {
+    if (!mc->cmds[i].protocol) {
+      mc->cmds[i].protocol = mc->protocol; //@@ needed?
+    }
+    if (MRCluster_SendCommand(cluster_g, mrctx->strategy, &mc->cmds[i], fanoutCallback, mrctx) == REDIS_OK) {
       mrctx->numExpected++;
     }
   }
@@ -332,7 +381,8 @@ static void uvMapRequest(struct MRRequestCtx *mc) {
   }
 
   if (mrctx->numExpected == 0) {
-    RedisModuleBlockedClient *bc = mrctx->redisCtx;
+    RedisModuleBlockedClient *bc = mrctx->bc;
+    RedisModule_Assert(bc);
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
     RedisModule_UnblockClient(bc, mrctx);
     // printf("could not send single command. hande fail please\n");
@@ -340,8 +390,6 @@ static void uvMapRequest(struct MRRequestCtx *mc) {
 
   rm_free(mc->cmds);
   rm_free(mc);
-
-  // return REDIS_OK;
 }
 
 void MR_requestCompleted() {
@@ -350,17 +398,20 @@ void MR_requestCompleted() {
 
 /* Fanout map - send the same command to all the shards, sending the collective
  * reply to the reducer callback */
-int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd, bool block) {
+int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool block) {
 
   struct MRRequestCtx *rc = rm_malloc(sizeof(struct MRRequestCtx));
+  rc->protocol = MRCtx_GetProtocol(mrctx);
+
   if (block) {
-    ctx->redisCtx = RedisModule_BlockClient(
-        ctx->redisCtx, unblockHandler, timeoutHandler,
+    RedisModule_Assert(!mrctx->bc);
+    mrctx->bc = RedisModule_BlockClient(
+        mrctx->redisCtx, unblockHandler, timeoutHandler,
         redisMajorVesion < 5 ? (void (*)(RedisModuleCtx *, void *))freePrivDataCB : freePrivDataCB_V5,
         timeout_g);
-    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, ctx->redisCtx);
+    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, mrctx->bc);
   }
-  rc->ctx = ctx;
+  rc->ctx = mrctx;
   rc->f = reducer;
   rc->cmds = rm_calloc(1, sizeof(MRCommand));
   rc->numCmds = 1;
@@ -376,6 +427,7 @@ int MR_Map(struct MRCtx *ctx, MRReduceFunc reducer, MRCommandGenerator cmds, boo
   rc->f = reducer;
   rc->cmds = rm_calloc(cmds.Len(cmds.ctx), sizeof(MRCommand));
   rc->numCmds = cmds.Len(cmds.ctx);
+  rc->protocol = MRCtx_GetProtocol(ctx);
 
   // copy the commands from the iterator to the conext's array
   for (int i = 0; i < rc->numCmds; i++) {
@@ -383,15 +435,15 @@ int MR_Map(struct MRCtx *ctx, MRReduceFunc reducer, MRCommandGenerator cmds, boo
       rc->numCmds = i;
       break;
     }
+    rc->cmds[i].protocol = rc->protocol;
   }
 
   if (block) {
-    ctx->redisCtx = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler,
-                                            redisMajorVesion < 5
-                                                ? (void (*)(RedisModuleCtx *, void *))freePrivDataCB
-                                                : freePrivDataCB_V5,
-                                            timeout_g);
-    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, ctx->redisCtx);
+    RedisModule_Assert(!ctx->bc);
+    ctx->bc = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler,
+      redisMajorVesion < 5 ? (void (*)(RedisModuleCtx *, void *))freePrivDataCB : freePrivDataCB_V5,
+      timeout_g);
+    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, ctx->bc);
   }
 
   rc->cb = uvMapRequest;
@@ -408,11 +460,12 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
   rc->cmds = rm_calloc(1, sizeof(MRCommand));
   rc->numCmds = 1;
   rc->cmds[0] = cmd;
-  ctx->redisCtx = RedisModule_BlockClient(
-      ctx->redisCtx, unblockHandler, timeoutHandler,
+  rc->protocol = MRCtx_GetProtocol(ctx);
+  RedisModule_Assert(!ctx->bc);
+  ctx->bc = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler,
       redisMajorVesion < 5 ? (void (*)(RedisModuleCtx *, void *))freePrivDataCB : freePrivDataCB_V5,
       timeout_g);
-  RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, ctx->redisCtx);
+  RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, ctx->bc);
 
   rc->cb = uvMapRequest;
   RQ_Push(rq_g, requestCb, rc);
@@ -440,11 +493,11 @@ int MR_UpdateTopology(MRClusterTopology *newTopo) {
     return REDIS_ERR;
   }
 
-
   // enqueue a request on the io thread, this can't be done from the main thread
   struct MRRequestCtx *rc = rm_calloc(1, sizeof(*rc));
   rc->ctx = newTopo;
   rc->cb = uvUpdateTopologyRequest;
+  rc->protocol = 0;
   RQ_Push(rq_g, requestCb, rc);
   return REDIS_OK;
 }
@@ -560,7 +613,6 @@ MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb, void *privd
 }
 
 MRReply *MRIterator_Next(MRIterator *it) {
-
   void *p = MRChannel_Pop(it->ctx.chan);
   // fprintf(stderr, "POP: %s\n", p == MRCHANNEL_CLOSED ? "CLOSED" : "ITER");
   if (p == MRCHANNEL_CLOSED) {
@@ -572,6 +624,7 @@ MRReply *MRIterator_Next(MRIterator *it) {
 void MRIterator_WaitDone(MRIterator *it) {
   MRChannel_WaitClose(it->ctx.chan);
 }
+
 void MRIterator_Free(MRIterator *it) {
   if (!it) return;
   for (size_t i = 0; i < it->len; i++) {

@@ -206,14 +206,19 @@ int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct Docume
   size_t dim;
   getJSONElementFunc getElement;
 
-  switch (fs->vectorOpts.vecSimParams.algo) {
+  VecSimParams *params = &fs->vectorOpts.vecSimParams;
+  if (params->algo == VecSimAlgo_TIERED) {
+    params = params->tieredParams.primaryIndexParams;
+  }
+
+  switch (params->algo) {
     case VecSimAlgo_HNSWLIB:
-      type = fs->vectorOpts.vecSimParams.hnswParams.type;
-      dim = fs->vectorOpts.vecSimParams.hnswParams.dim;
+      type = params->hnswParams.type;
+      dim = params->hnswParams.dim;
       break;
     case VecSimAlgo_BF:
-      type = fs->vectorOpts.vecSimParams.bfParams.type;
-      dim = fs->vectorOpts.vecSimParams.bfParams.dim;
+      type = params->bfParams.type;
+      dim = params->bfParams.dim;
       break;
     default: return REDISMODULE_ERR;
   }
@@ -246,16 +251,21 @@ int JSON_StoreMultiVectorInDocField(FieldSpec *fs, JSONIterable *itr, size_t len
   getJSONElementFunc getElement;
   RedisJSON element;
 
-  switch (fs->vectorOpts.vecSimParams.algo) {
+  VecSimParams *params = &fs->vectorOpts.vecSimParams;
+  if (params->algo == VecSimAlgo_TIERED) {
+    params = params->tieredParams.primaryIndexParams;
+  }
+
+switch (params->algo) {
     case VecSimAlgo_HNSWLIB:
-      type = fs->vectorOpts.vecSimParams.hnswParams.type;
-      dim = fs->vectorOpts.vecSimParams.hnswParams.dim;
-      multi = fs->vectorOpts.vecSimParams.hnswParams.multi;
+      type = params->hnswParams.type;
+      dim = params->hnswParams.dim;
+      multi = params->hnswParams.multi;
       break;
     case VecSimAlgo_BF:
-      type = fs->vectorOpts.vecSimParams.bfParams.type;
-      dim = fs->vectorOpts.vecSimParams.bfParams.dim;
-      multi = fs->vectorOpts.vecSimParams.bfParams.multi;
+      type = params->bfParams.type;
+      dim = params->bfParams.dim;
+      multi = params->bfParams.multi;
       break;
     default: goto fail;
   }

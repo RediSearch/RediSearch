@@ -10,7 +10,8 @@ READIES=$ROOT/deps/readies
 
 export PYTHONUNBUFFERED=1
 
-VALGRIND_REDIS_VER=7.2
+VG_REDIS_VER=7.2-rc2
+VG_REDIS_SUFFIX=7.2
 SAN_REDIS_VER=7.2-rc2
 SAN_REDIS_SUFFIX=7.2
 
@@ -211,7 +212,7 @@ setup_clang_sanitizer() {
 		REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-$SAN_REDIS_SUFFIX}
 		if ! command -v $REDIS_SERVER > /dev/null; then
 			echo Building Redis for clang-asan ...
-			runn $READIES/bin/getredis --force -v $SAN_REDIS_VER --own-openssl --no-run \
+			V="$VERBOSE" runn $READIES/bin/getredis --force -v $SAN_REDIS_VER --own-openssl --no-run \
 				--suffix asan-${SAN_REDIS_SUFFIX} --clang-asan --clang-san-blacklist $ignorelist
 		fi
 
@@ -245,10 +246,10 @@ setup_redis_server() {
 #----------------------------------------------------------------------------------------------
 
 setup_valgrind() {
-	REDIS_SERVER=${REDIS_SERVER:-redis-server-vg}
+	REDIS_SERVER=${REDIS_SERVER:-redis-server-vg-$VG_REDIS_SUFFIX}
 	if ! is_command $REDIS_SERVER; then
 		echo Building Redis for Valgrind ...
-		$READIES/bin/getredis -v $VALGRIND_REDIS_VER --valgrind --suffix vg
+		V="$VERBOSE" runn $READIES/bin/getredis -v ${VG_REDIS_VER} --valgrind --suffix vg-${VG_REDIS_VER}
 	fi
 
 	if [[ $VG_LEAKS == 0 ]]; then
@@ -664,7 +665,12 @@ if [[ $COV == 1 || -n $SAN || $VG == 1 ]]; then
 	MODARGS="${MODARGS}; timeout 0;"
 fi
 
+if [[ $GC == 0 ]]; then
+	MODARGS="${MODARGS}; NOGC;"
+fi
+
 if [[ -z $COORD ]]; then
+
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 	fi
@@ -700,11 +706,8 @@ if [[ -z $COORD ]]; then
 
 elif [[ $COORD == oss ]]; then
 	oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
-
-	if [[ $SAN == address ]]; then
-		# Increase timeout for tests with sanitizer in which commands execution takes longer
-		oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 60000"
-	fi
+  # Increase timeout for tests with sanitizer in which commands execution takes longer
+  oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 60000"
 
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \

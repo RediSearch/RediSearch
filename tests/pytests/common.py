@@ -18,11 +18,13 @@ from RLTest.env import Query
 import numpy as np
 from scipy import spatial
 from pprint import pprint as pp
+from deepdiff import DeepDiff
+from unittest.mock import ANY, _ANY
 
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
-
+VECSIM_ALGOS = ['FLAT', 'HNSW']
 
 class TimeLimit(object):
     """
@@ -57,9 +59,30 @@ def waitForIndex(env, idx):
     waitForRdbSaveToFinish(env)
     while True:
         res = env.execute_command('ft.info', idx)
-        if int(res[res.index('indexing') + 1]) == 0:
-            break
+        try:
+            if int(res[res.index('indexing') + 1]) == 0:
+                break
+        except:
+            # RESP3
+            if int(res['indexing']) == 0:
+                break
         time.sleep(0.1)
+
+def waitForNoCleanup(env, idx, max_wait=30):
+    ''' Wait for the index to finish cleanup
+
+    Parameters:
+        max_wait - max duration in seconds to wait
+    '''
+    waitForRdbSaveToFinish(env)
+    retry_wait = 0.1
+    max_wait = max(max_wait, retry_wait)
+    while max_wait >= 0:
+        res = env.execute_command('ft.info', idx)
+        if int(res[res.index('cleaning') + 1]) == 0:
+            break
+        time.sleep(retry_wait)
+        max_wait -= retry_wait
 
 def py2sorted(x):
     it = iter(x)
@@ -228,6 +251,11 @@ def collectKeys(env, pattern='*'):
 def ftDebugCmdName(env):
     return '_ft.debug' if env.isCluster() else 'ft.debug'
 
+
+def get_vecsim_debug_dict(env, index_name, vector_field):
+    return to_dict(env.cmd(ftDebugCmdName(env), "VECSIM_INFO", index_name, vector_field))
+
+
 def forceInvokeGC(env, idx):
     waitForRdbSaveToFinish(env)
     env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx)
@@ -274,6 +302,8 @@ def skip(cluster=False, macos=False, asan=False, msan=False):
     return decorate
 
 def to_dict(res):
+    if type(res) == dict:
+        return res
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
 
@@ -389,3 +419,19 @@ class ConditionalExpected:
         if cond_val == self.cond_val:
             func(self.env.expect(*self.query))
         return self
+
+def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32', ids_offset=0):
+    conn = getConnectionByEnv(env)
+    np.random.seed(10)
+    for i in range(n_vec):
+        vector = create_np_array_typed(np.random.rand(vec_size), data_type)
+        if i == query_vec_index:
+            query_vec = vector
+        conn.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
+    return query_vec
+
+def dict_diff(res, exp, ignore_order=True, significant_digits=7):
+    dd = DeepDiff(res, exp, exclude_types={_ANY}, ignore_order=ignore_order, significant_digits=significant_digits)
+    if dd != {}:
+        pp(dd)
+    return dd

@@ -847,26 +847,9 @@ void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter) {
   rm_free(iter);
 }
 
-/* A callback called after a concurrent context regains execution context. When this happen we need
- * to make sure the key hasn't been deleted or its structure changed, which will render the
- * underlying iterators invalid */
-void NumericRangeIterator_OnReopen(void *privdata) {
+
+void IndexReader_Reopen(IndexReader *ir, void *privdata) {
   NumericUnionCtx *nu = privdata;
-  IndexSpec *sp = nu->sp;
-  IndexIterator *it = nu->it;
-  IndexReader *ir = it->ctx;
-
-  RedisModuleString *numField = RedisModule_CreateString(NULL, nu->fieldName, strlen(nu->fieldName));
-  NumericRangeTree *rt = openNumericKeysDict(sp, numField, 0);
-  RedisModule_FreeString(NULL, numField);
-  
-  if (!rt || rt->revisionId != nu->lastRevId) {
-    // The numeric tree was either completely deleted or a node was splitted or removed.
-    // The cursor is invalidated.
-    it->Abort(ir);
-    return;
-  }
-
   // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
   if (ir->gcMarker == ir->idx->gcMarker) {
     // no GC - we just go to the same offset we were at
@@ -886,5 +869,30 @@ void NumericRangeIterator_OnReopen(void *privdata) {
     // seek to the previous last id
     RSIndexResult *dummy = NULL;
     IR_SkipTo(ir, lastId, &dummy);
+  }
+}
+
+/* A callback called after a concurrent context regains execution context. When this happen we need
+ * to make sure the key hasn't been deleted or its structure changed, which will render the
+ * underlying iterators invalid */
+void NumericRangeIterator_OnReopen(void *privdata) {
+  NumericUnionCtx *nu = privdata;
+  IndexSpec *sp = nu->sp;
+  IndexIterator *it = nu->it;
+
+  RedisModuleString *numField = IndexSpec_GetFormattedKeyByName(sp, nu->fieldName, INDEXFLD_T_NUMERIC);
+  NumericRangeTree *rt = openNumericKeysDict(sp, numField, 0);
+
+  if (!rt || rt->revisionId != nu->lastRevId) {
+    // The numeric tree was either completely deleted or a node was splitted or removed.
+    // The cursor is invalidated.
+    it->Abort(it->ctx);
+    return;
+  }
+
+  if (it->type == READ_ITERATOR) {
+    IndexReader_Reopen(it->ctx, nu);
+  } else if (it->type == UNION_ITERATOR) {
+    UI_Foreach(it, IndexReader_Reopen, nu);
   }
 }

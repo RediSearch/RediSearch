@@ -50,12 +50,6 @@ When combined with the [RedisJSON](/docs/stack/json) module, which is included w
 
 To learn how to use RediSearch with JSON documents, see [Indexing JSON documents](/docs/stack/search/indexing_json).
 
-## Client libraries
-
-Official and community client libraries are available for Python, Java, JavaScript, Ruby, Go, C#, and PHP.
-
-See the [clients page](clients) for the full list.
-
 ## Cluster support
 
 RediSearch provides a distributed cluster version that scales to billions of documents and hundreds of servers.
