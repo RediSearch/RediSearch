@@ -547,6 +547,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->base.Next = rpsortNext_Accum;
   ret->base.Free = rpsortFree;
   ret->base.type = RP_SORTER;
+  ret->base.behavior = RESULT_PROCESSOR_B_ACCUMULATOR;
   return &ret->base;
 }
 
@@ -623,7 +624,7 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
   ret->base.Free = rppagerFree;
 
   // If the pager reaches the limit, it will declare EOF, without an additional call to its upstream.next.
-  ret->base.flags |= RESULT_PROCESSOR_F_BREAKS_PIPELINE;
+  ret->base.behavior = RESULT_PROCESSOR_B_ABORTER;
   return &ret->base;
 }
 
@@ -698,8 +699,7 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
   sc->base.Next = rploaderNext;
   sc->base.Free = rploaderFree;
   sc->base.type = RP_LOADER;
-
-  sc->base.flags |= RESULT_PROCESSOR_F_ACCESS_REDIS;
+  sc->base.behavior = RESULT_PROCESSOR_B_ACCESS_REDIS;
   return &sc->base;
 }
 
