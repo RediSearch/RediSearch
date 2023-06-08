@@ -1313,54 +1313,37 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
   // in order to push the unlocker as its upstream.
 
   // for example if the pipline is
-  // root<-sorter<-loader (an arrow signs the upstream direction)
-  // upstream_is_buffer_locker = sorter, upstream_is_unlcoker = dummy
+  // root<-loader1<-sorter<-loader2 (an arrow signs the upstream direction)
+  // upstream_is_buffer_locker = loader1, upstream_is_unlcoker = dummy
   // and the finale pipeline is:
-  // root<-buffer-locker<-sorter<-loader<-unlocker
+  // root<-buffer-locker<-loader<-sorter<-loader<-unlocker
   ResultProcessor *upstream_is_buffer_locker = NULL;
   ResultProcessor *upstream_is_unlcoker = NULL;
 
   ResultProcessor dummy_rp = {.upstream = req->qiter.endProc};
-  ResultProcessor *curr_rp = &dummy_rp;
+
   // Start from the end processor and iterate beackward until the next rp
   // is the last to access redis or its a pipeline breaker.
-
-  while (curr_rp != req->qiter.rootProc &&
-        !(curr_rp->upstream->flags & (RESULT_PROCESSOR_F_ACCESS_REDIS | RESULT_PROCESSOR_F_BREAKS_PIPELINE))) {
-    curr_rp = curr_rp->upstream;
-  }
-
-  // if we got the root proc, redis access in not needed, return.
-  if (curr_rp == req->qiter.rootProc) {
-    return;
-  }
-
-  // The upstream rp of the curr_rp is the last to access redis, or a pipline breaker
-  // we want to place the unlocker between curr_rp and its upstream.
-  upstream_is_unlcoker = curr_rp;
-
-  // The last to access redis might be also the first to access redis.
-  // We mark it to push the buffer-locker as its upstream.
-  curr_rp = curr_rp->upstream;
-
-  upstream_is_buffer_locker = curr_rp;
-
-  // Keep searching until we get to the root rp.
-  curr_rp = curr_rp->upstream;
-
-  while (curr_rp != req->qiter.rootProc) {
-    if (curr_rp->flags & RESULT_PROCESSOR_F_ACCESS_REDIS) {
+  for (ResultProcessor *curr_rp = &dummy_rp; curr_rp != req->qiter.rootProc; curr_rp = curr_rp->upstream) {
+    if (curr_rp->behavior == RESULT_PROCESSOR_B_ACCESS_REDIS) {
+      // If we found (another) RP that accesses redis, update the upstream_is_buffer_locker.
       upstream_is_buffer_locker = curr_rp;
+    } else if (curr_rp->behavior == RESULT_PROCESSOR_B_ACCUMULATOR && !upstream_is_buffer_locker) {
+      // If we found an accumulator and we didn't find any RP that accesses redis yet, reset the upstream_is_unlcoker.
+      upstream_is_unlcoker = NULL;
     }
-    curr_rp = curr_rp->upstream;
+    // If we didn't find a relevant RP for unlocker yet and the next RP access redis or is an aborter, set the upstream_is_unlcoker.
+    if (!upstream_is_unlcoker && (curr_rp->upstream->behavior == RESULT_PROCESSOR_B_ACCESS_REDIS ||
+                                  curr_rp->upstream->behavior == RESULT_PROCESSOR_B_ABORTER)) {
+      upstream_is_unlcoker = curr_rp;
+    }
   }
 
-  // If in the first loop we stored a rp with RESULT_PROCESSOR_F_BREAKS_PIPELINE flag,
-  // and the second loop didn't find any rp that needs to access redis,
-  // we don't need the buffer.
-  if(!(upstream_is_buffer_locker->flags & RESULT_PROCESSOR_F_ACCESS_REDIS)) {
+  // If we didn't find any RP that accesses redis, we don't need to add the buffer-locker and unlocker.
+  if (!upstream_is_buffer_locker) {
     return;
   }
+
   // TODO: multithreaded: Add better estimation to the buffer initial size
   ResultProcessor *rpBufferAndLocker = RPBufferAndLocker_New(DEFAULT_BUFFER_BLOCK_SIZE, IndexSpec_GetVersion(req->sctx->spec));
 
