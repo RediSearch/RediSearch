@@ -311,7 +311,7 @@ Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, siz
   g->base.type = RP_GROUP;
   g->base.Next = Grouper_rpAccum;
   g->base.Free = Grouper_rpFree;
-  g->base.superClass = RESULT_PROCESSOR_C_ACCUMULATOR;
+  g->base.behavior = RESULT_PROCESSOR_B_ACCUMULATOR;
   return g;
 }
 

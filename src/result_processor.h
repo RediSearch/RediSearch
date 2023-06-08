@@ -154,17 +154,17 @@ typedef enum {
 } RPStatus;
 
 typedef enum {
-  RESULT_PROCESSOR_C_DEFAULT = 0,   // Default result processor class. nothing special.
-  RESULT_PROCESSOR_C_ACCESS_REDIS,  // The result processor requires access to redis keyspace.
+  RESULT_PROCESSOR_B_DEFAULT = 0,   // Default result processor class. nothing special.
+  RESULT_PROCESSOR_B_ACCESS_REDIS,  // The result processor requires access to redis keyspace.
 
   // The result processor might abort the pipeline by changing RPStatus.
   // Note that this kind of rp is also responsible to release the spec lock when it breaks the pipeline
   // (declaring EOF or TIMEOUT), by calling UnlockSpec_and_ReturnRPResult.
-  RESULT_PROCESSOR_C_ABORTER,
+  RESULT_PROCESSOR_B_ABORTER,
 
   // The result processor accumulates results (asks for all results from upstream before returning the first one)
-  RESULT_PROCESSOR_C_ACCUMULATOR,
-} BaseRPClass;
+  RESULT_PROCESSOR_B_ACCUMULATOR,
+} TypicalRPBehavior;
 
 /**
  * Result processor structure. This should be "Subclassed" by the actual
@@ -179,8 +179,8 @@ typedef struct ResultProcessor {
 
   // Type of result processor
   ResultProcessorType type;
-  // "Class" of result processor - see BaseRPClass
-  BaseRPClass superClass;
+  // Typical behavior of result processor - see BaseRPClass
+  TypicalRPBehavior behavior;
 
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is

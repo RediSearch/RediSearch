@@ -1325,16 +1325,16 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
   // Start from the end processor and iterate beackward until the next rp
   // is the last to access redis or its a pipeline breaker.
   for (ResultProcessor *curr_rp = &dummy_rp; curr_rp != req->qiter.rootProc; curr_rp = curr_rp->upstream) {
-    if (curr_rp->superClass == RESULT_PROCESSOR_C_ACCESS_REDIS) {
+    if (curr_rp->behavior == RESULT_PROCESSOR_B_ACCESS_REDIS) {
       // If we found (another) RP that accesses redis, update the upstream_is_buffer_locker.
       upstream_is_buffer_locker = curr_rp;
-    } else if (curr_rp->superClass == RESULT_PROCESSOR_C_ACCUMULATOR && !upstream_is_buffer_locker) {
+    } else if (curr_rp->behavior == RESULT_PROCESSOR_B_ACCUMULATOR && !upstream_is_buffer_locker) {
       // If we found an accumulator and we didn't find any RP that accesses redis yet, reset the upstream_is_unlcoker.
       upstream_is_unlcoker = NULL;
     }
     // If we didn't find a relevant RP for unlocker yet and the next RP access redis or is an aborter, set the upstream_is_unlcoker.
-    if (!upstream_is_unlcoker && (curr_rp->upstream->superClass == RESULT_PROCESSOR_C_ACCESS_REDIS ||
-                                  curr_rp->upstream->superClass == RESULT_PROCESSOR_C_ABORTER)) {
+    if (!upstream_is_unlcoker && (curr_rp->upstream->behavior == RESULT_PROCESSOR_B_ACCESS_REDIS ||
+                                  curr_rp->upstream->behavior == RESULT_PROCESSOR_B_ABORTER)) {
       upstream_is_unlcoker = curr_rp;
     }
   }
