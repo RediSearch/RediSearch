@@ -107,7 +107,7 @@ def expireDocs(env, isSortable, expected_results):
 
         conn.execute_command('PEXPIRE', 'doc1', 1)
         # ensure expiration before search
-        time.sleep(0.5)
+        time.sleep(0.01)
 
         msg = '{}{} sortby'.format(
             'SORTABLE ' if isSortable else '', 'without' if i == 0 else 'with')
@@ -142,7 +142,7 @@ def expireDocs(env, isSortable, expected_results):
         # expire doc1
         conn.execute_command('PEXPIRE', 'doc1', 1)
         # ensure expiration before search
-        time.sleep(0.5)
+        time.sleep(0.01)
 
         res = conn.execute_command('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'EXPLAINSCORE', *sortby_cmd)
         env.assertEqual(res, expected_results[i + 2], message=(msg + ' WITHSCORES, EXPLAINSCORE'))
