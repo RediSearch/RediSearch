@@ -8,6 +8,8 @@
 #ifndef SRC_GC_H_
 #define SRC_GC_H_
 
+#include "reply.h"
+
 #include "redismodule.h"
 #include "util/dllist.h"
 #include "util/references.h"
@@ -19,7 +21,7 @@ extern "C" {
 
 typedef struct GCCallbacks {
   int (*periodicCallback)(RedisModuleCtx* ctx, void* gcCtx);
-  void (*renderStats)(RedisModuleCtx* ctx, void* gc);
+  void (*renderStats)(RedisModule_Reply* reply, void* gc);
   void (*renderStatsForInfo)(RedisModuleInfoCtx* ctx, void* gc);
   void (*onDelete)(void* ctx);
   void (*onTerm)(void* ctx);
@@ -41,7 +43,7 @@ typedef struct GCTask {
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy);
 void GCContext_Start(GCContext* gc);
 void GCContext_Stop(GCContext* gc);
-void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx);
+void GCContext_RenderStats(GCContext* gc, RedisModule_Reply* ctx);
 #ifdef FTINFO_FOR_INFO_MODULES
 void GCContext_RenderStatsForInfo(GCContext* gc, RedisModuleInfoCtx* ctx);
 #endif
