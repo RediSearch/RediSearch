@@ -707,7 +707,9 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
     loadopts.mode |= RLOOKUP_LOAD_ALLKEYS;
   }
   // if loading the document has failed, we return an empty array
-  RLookup_LoadDocument(lc->lk, &r->rowdata, &loadopts);
+  if (REDISMODULE_ERR == RLookup_LoadDocument(lc->lk, &r->rowdata, &loadopts)) {
+    r->flags |= SEARCHRESULT_VAL_IS_NULL;
+  }
   return RS_RESULT_OK;
 }
 
