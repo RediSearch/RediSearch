@@ -11,6 +11,7 @@
 #include "commands.h"
 #include "aggregate/aggregate.h"
 #include "dist_plan.h"
+#include "coord_module.h"
 #include "profile.h"
 #include "util/timeout.h"
 #include <err.h>
@@ -411,9 +412,22 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (profileArgs == -1) goto err;
   int rc = AREQ_Compile(r, argv + 2 + profileArgs, argc - 2 - profileArgs, &status);
   if (rc != REDISMODULE_OK) goto err;
-  // TODO: parse query as we do in ft.search and see if we have KNN, and figure out the relevant info (k, score field)
-  //  If we found KNN, add a arange step using AGPLN_AddStep so it will be the first step after the root (which is first plan step to be executed)
-  //  Add in the arrage step an indication that this should not run both in shard and local, but only local.
+
+  unsigned int dialect = r->reqConfig.dialectVersion;
+  if(dialect >= 2) {
+    // Check if we have KNN in the query string, and if so, parse the query string to see if it is
+    // a KNN section in the query. IN that case, we treat this as a SORTBY+LIMIT step.
+    if(strcasestr(r->query, "KNN")) {
+      specialCaseCtx *knnCtx = prepareOptionalTopKCase(r->query, argv, argc, &status);
+      if (QueryError_HasError(&status)) {
+        goto err;
+      }
+      if (knnCtx != NULL) {
+        // TODO: If we found KNN, add a arange step using AGPLN_AddStep so it will be the first step after the root (which is first plan step to be executed)
+        //  Add in the arrage step an indication that this should not run both in shard and local, but only local.
+      }
+    }
+  }
   rc = AGGPLN_Distribute(&r->ap, &status);
   if (rc != REDISMODULE_OK) goto err;
 

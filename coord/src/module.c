@@ -18,10 +18,9 @@
 #include "rmr/redis_cluster.h"
 #include "rmr/redise.h"
 #include "fnv32.h"
-#include "util/heap.h"
 #include "search_cluster.h"
 #include "config.h"
-#include "module.h"
+#include "coord_module.h"
 #include "info_command.h"
 #include "version.h"
 #include "cursor.h"
@@ -327,36 +326,6 @@ typedef struct {
   double sortKeyNum;
 } searchResult;
 
-typedef enum {
-  SPECIAL_CASE_NONE,
-  SPECIAL_CASE_KNN,
-  SPECIAL_CASE_SORTBY
-} searchRequestSpecialCase;
-
-
-typedef struct {
-      size_t k;               // K value
-      const char* fieldName;  // Field name
-      bool shouldSort;        // Should run presort before the coordinator sort
-      size_t offset;          // Reply offset
-      heap_t *pq;             // Priority queue
-      QueryNode* queryNode;   // Query node
-} knnContext;
-
-typedef struct {
-  const char* sortKey;  // SortKey name;
-  bool asc;             // Sort order ASC/DESC
-  size_t offset;        // SortKey reply offset
-} sortbyContext;
-
-typedef struct {
-  union {
-    knnContext knn;
-    sortbyContext sortby;
-  };
-  searchRequestSpecialCase specialCaseType;
-} specialCaseCtx;
-
 struct searchReducerCtx; // Predecleration
 typedef void (*processReplyCB)(MRReply *arr, struct searchReducerCtx *rCtx, RedisModuleCtx *ctx);
 typedef void (*postProcessReplyCB)( struct searchReducerCtx *rCtx);
@@ -367,28 +336,6 @@ typedef struct {
   int payload;
   int sortKey;
 } searchReplyOffsets;
-
-typedef struct {
-  char *queryString;
-  long long offset;
-  long long limit;
-  long long requestedResultsCount;
-  int withScores;
-  int withExplainScores;
-  int withPayload;
-  int withSortby;
-  int sortAscending;
-  int withSortingKeys;
-  int noContent;
-
-  specialCaseCtx** specialCases;
-  const char** requiredFields;
-  // used to signal profile flag and count related args
-  int profileArgs;
-  int profileLimited;
-  clock_t profileClock;
-  void *reducer;
-} searchRequestCtx;
 
 typedef struct{
   MRReply *lastError;
@@ -455,8 +402,39 @@ static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   return REDISMODULE_OK;
 }
 
-// Prepare a TOPK special case.
-void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, int argc, QueryError *status) {
+
+void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
+  if(!req->specialCases) {
+    req->specialCases = array_new(specialCaseCtx*, 1);
+  }
+  req->specialCases = array_append(req->specialCases, knn_ctx);
+  // Default: No SORTBY is given, or SORTBY is given by other field
+  // When first sorting by different field, the topk vectors should be passed to the coordinator heap
+  knn_ctx->knn.shouldSort = true;
+  // We need to get K results from the shards
+  // For example the command request SORTBY text_field LIMIT 2 3
+  // In this case the top 5 results relevant for this sort might be the in the last 5 results of the TOPK
+  long long requestedResultsCount = req->requestedResultsCount;
+  req->requestedResultsCount = MAX(knn_ctx->knn.k, requestedResultsCount);
+  if(array_len(req->specialCases) > 1) {
+    specialCaseCtx* optionalSortCtx = req->specialCases[0];
+    if(optionalSortCtx->specialCaseType == SPECIAL_CASE_SORTBY) {
+      if(strcmp(optionalSortCtx->sortby.sortKey, knn_ctx->knn.fieldName) == 0){
+        // If SORTBY is done by the vector score field, the coordinator will do it and no special operation is needed.
+        knn_ctx->knn.shouldSort = false;
+        // The requested results should be at most K
+        req->requestedResultsCount = MIN(knn_ctx->knn.k, requestedResultsCount);
+      }
+    }
+  }
+}
+
+
+// Prepare a TOPK special case, return a context with the required KNN fields if query is
+// valid and contains KNN section, NULL otherwise (and set proper error in *status* if error
+// was found.
+specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc,
+                                        QueryError *status) {
 
   // First, parse the query params if exists, to set the params in the query parser ctx.
   dict *params = NULL;
@@ -465,15 +443,15 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
     ArgsCursor ac;
     ArgsCursor_InitRString(&ac, argv+paramsOffset, argc-paramsOffset);
     if (parseParams(&params, &ac, status) != REDISMODULE_OK) {
-        return;
+        return NULL;
     }
   }
   RedisSearchCtx sctx = {0};
   RSSearchOptions opts = {0};
   opts.params = params;
   QueryParseCtx qpCtx = {
-      .raw = req->queryString,
-      .len = strlen(req->queryString),
+      .raw = query_string,
+      .len = strlen(query_string),
       .sctx = &sctx,
       .opts = &opts,
       .status = status,
@@ -507,30 +485,9 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
     ctx->knn.pq = NULL;
     ctx->knn.queryNode = queryNode;
     ctx->specialCaseType = SPECIAL_CASE_KNN;
-    if(!req->specialCases) {
-      req->specialCases = array_new(specialCaseCtx*, 1);
-    }
-    req->specialCases = array_append(req->specialCases, ctx);
-    // Default: No SORTBY is given, or SORTBY is given by other field
-    // When first sorting by different field, the topk vectors should be passed to the coordinator heap
-    ctx->knn.shouldSort = true;
-    // We need to get K results from the shards
-    // For example the command request SORTBY text_field LIMIT 2 3
-    // In this case the top 5 results relevant for this sort might be the in the last 5 results of the TOPK
-    long long requestedResultsCount = req->requestedResultsCount;
-    req->requestedResultsCount = MAX(k, requestedResultsCount);
-    if(array_len(req->specialCases) > 1) {
-      specialCaseCtx* optionalSortCtx = req->specialCases[0];
-      if(optionalSortCtx->specialCaseType == SPECIAL_CASE_SORTBY) {
-        if(strcmp(optionalSortCtx->sortby.sortKey, ctx->knn.fieldName) == 0){
-          // If SORTBY is done by the vector score field, the coordinator will do it and no special operation is needed.
-          ctx->knn.shouldSort = false;
-          // The requested results should be at most K
-          req->requestedResultsCount = MIN(k, requestedResultsCount);
-        }
-      }
-    }
+    return ctx;
   }
+  return NULL;
 }
 
 // Prepare a sortby special case.
@@ -637,10 +594,13 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   if(dialect >= 2) {
     // Note: currently there is only one single case. For extending those cases we should use a trie here.
     if(strcasestr(req->queryString, "KNN")) {
-      prepareOptionalTopKCase(req, argv, argc, status);
+      specialCaseCtx *knnCtx = prepareOptionalTopKCase(req->queryString, argv, argc, status);
       if (QueryError_HasError(status)) {
         searchRequestCtx_Free(req);
         return NULL;
+      }
+      if (knnCtx != NULL) {
+        setKNNSpecialCase(req, knnCtx);
       }
     }
   }
