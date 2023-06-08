@@ -77,9 +77,9 @@ typedef struct {
 
 #ifdef MT_BUILD
 typedef enum {
-  MT_MODE_OSS,
-  MT_MODE_RCE,
-  MT_MODE_RCP
+  MT_MODE_OFF,
+  MT_MODE_ONLY_ON_OPERATIONS,
+  MT_MODE_FULL
 } MTMode;
 #endif
 
@@ -235,11 +235,11 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 
 #ifdef MT_BUILD  
-#define MT_BUILD_CONFIG() .numWorkerThreads = 0,                                                                     \
-    .mt_mode = MT_MODE_OSS,                                                                                                     \
+#define MT_BUILD_CONFIG .numWorkerThreads = 0,                                                                     \
+    .mt_mode = MT_MODE_OFF,                                                                                                     \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               
 #else 
-#define MT_BUILD_CONFIG()
+#define MT_BUILD_CONFIG
 #endif 
 
 // default configuration
@@ -257,7 +257,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .searchPoolSize = CONCURRENT_SEARCH_POOL_DEFAULT_SIZE,                                                            \
     .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE,                                                              \
     .poolSizeNoAuto = 0,   \
-    MT_BUILD_CONFIG()                                                                                                 \
+    MT_BUILD_CONFIG                                                                                                 \
     .gcConfigParams.gcScanSize = GC_SCANSIZE,                                                                                        \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                                                              \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                                        \

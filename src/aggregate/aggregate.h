@@ -81,7 +81,7 @@ typedef enum {
 // Indicates whether a query should run in the background (allowed currently for
 // FT.SEARCH queries, only when the immutable alwaysUseThreads config is set). This
 // will also guarantee that there is a running thread pool with al least 1 thread.
-#define RunInThread(r) (RSGlobalConfig.mt_mode == MT_MODE_RCP && IsSearch(r))
+#define RunInThread(r) (RSGlobalConfig.mt_mode == MT_MODE_FULL && IsSearch(r))
 #endif
 typedef enum {
   /* Received EOF from iterator */

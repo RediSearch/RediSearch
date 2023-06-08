@@ -112,7 +112,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['SEARCH_THREADS'][0], '20')
     if MT_BUILD:
         env.assertEqual(res_dict['WORKER_THREADS'][0], '0')
-        env.assertEqual(res_dict['MT_MODE'][0], 'MT_MODE_OSS')
+        env.assertEqual(res_dict['MT_MODE'][0], 'MT_MODE_OFF')
         env.assertEqual(res_dict['TIERED_HNSW_BUFFER_LIMIT'][0], '1024')
     env.assertEqual(res_dict['FRISOINI'][0], None)
     env.assertEqual(res_dict['ON_TIMEOUT'][0], 'return')

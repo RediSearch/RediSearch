@@ -252,12 +252,12 @@ CONFIG_SETTER(setMtMode) {
   const char *mt_mode;
   int acrc = AC_GetString(ac, &mt_mode, NULL, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  if (!strcasecmp(mt_mode, "MT_MODE_OSS")) {
-    config->mt_mode = MT_MODE_OSS;
-  } else if (!strcasecmp(mt_mode, "MT_MODE_RCE")){
-    config->mt_mode = MT_MODE_RCE;
-  } else if (!strcasecmp(mt_mode, "MT_MODE_RCP")){
-    config->mt_mode = MT_MODE_RCP;
+  if (!strcasecmp(mt_mode, "MT_MODE_OFF")) {
+    config->mt_mode = MT_MODE_OFF;
+  } else if (!strcasecmp(mt_mode, "MT_MODE_ONLY_ON_OPERATIONS")){
+    config->mt_mode = MT_MODE_ONLY_ON_OPERATIONS;
+  } else if (!strcasecmp(mt_mode, "MT_MODE_FULL")){
+    config->mt_mode = MT_MODE_FULL;
   } else {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Invalie MT mode");
     return REDISMODULE_ERR;
@@ -266,14 +266,13 @@ CONFIG_SETTER(setMtMode) {
 }
 static inline const char *MTMode_ToString(MTMode mt_mode) {
   switch (mt_mode) {
-    case MT_MODE_OSS:
-      return "MT_MODE_OSS";
-    case MT_MODE_RCE:
-      return "MT_MODE_RCE";
-    case MT_MODE_RCP:
-      return "MT_MODE_RCP";
-    default:          // LCOV_EXCL_LINE cannot be reached
-      return "huh?";  // LCOV_EXCL_LINE cannot be reached
+    case MT_MODE_OFF:
+      return "MT_MODE_OFF";
+    case MT_MODE_ONLY_ON_OPERATIONS:
+      return "MT_MODE_ONLY_ON_OPERATIONS";
+    case MT_MODE_FULL:
+      return "MT_MODE_FULL";
+    // No default so the compiler will warn us if we forget to handle a case
   }
 }
 
@@ -728,10 +727,10 @@ RSConfigOptions RSGlobalConfigOptions = {
         },
         {.name = "MT_MODE",
          .helpText = "Let ft.search and vector indexing be done in background threads as default if"
-                        "set to MT_MODE_RCP. MT_MODE_RCE use workers thread pool for operational needs only otherwise",
+                        "set to MT_MODE_FULL. MT_MODE_ONLY_ON_OPERATIONS use workers thread pool for operational needs only otherwise",
          .setValue = setMtMode,
          .getValue = getMtMode,
-         .flags = RSCONFIGVAR_F_IMMUTABLE | RSCONFIGVAR_F_FLAG,
+         .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
         {.name = "TIERED_HNSW_BUFFER_LIMIT",
         .helpText = "Use for setting the buffer limit threshold for vector similarity tiered"

@@ -218,7 +218,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 #ifdef MT_BUILD
   // Init threadpool.
   // Threadpool size can only be set on load.
-  if ((RSGlobalConfig.mt_mode == MT_MODE_RCE || RSGlobalConfig.mt_mode == MT_MODE_RCP)  && RSGlobalConfig.numWorkerThreads == 0) {
+  if ((RSGlobalConfig.mt_mode == MT_MODE_ONLY_ON_OPERATIONS || RSGlobalConfig.mt_mode == MT_MODE_FULL)  && RSGlobalConfig.numWorkerThreads == 0) {
     DO_LOG("warning", "Invalid configuration - cannot run in MT_MODE (RCE/RCP) while WORKERS_THREADS"
            " number is set to zero");
     return REDISMODULE_ERR;
@@ -227,7 +227,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
       return REDISMODULE_ERR;
     }
-    if (RSGlobalConfig.mt_mode == MT_MODE_RCP) {
+    if (RSGlobalConfig.mt_mode == MT_MODE_FULL) {
       // Initialize the threads if the module configuration states that worker threads
       // should always be active.
       workersThreadPool_InitPool();
