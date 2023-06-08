@@ -940,7 +940,6 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   uint32_t bufferLimit = rp->parent->resultLimit;
   SearchResult resToBuffer = {0};
   SearchResult *CurrBlock = NULL;
-  size_t init_spec_version = IndexSpec_GetVersion(sctx->spec);
   // Get the next result and save it in the buffer
   while (rp->parent->resultLimit-- && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
 
@@ -972,7 +971,7 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
 
   // If the spec has been changed since we released the spec lock,
   // we need to validate every buffered result
-  if (init_spec_version != IndexSpec_GetVersion(sctx->spec)) {
+  if (rp->parent->initialSpecVersion != IndexSpec_GetVersion(sctx->spec)) {
     rp->Next = rpbufferNext_ValidateAndYield;
   } else { // Else we just return the results one by one
     rp->Next = rpbufferNext_Yield;

@@ -87,6 +87,9 @@ typedef struct {
   // processors to optimize their work and to signal RP in the upstream their limit.
   uint32_t resultLimit;
 
+  // The spec version at the start of the query. Used to check if the spec changed during the query
+  size_t initialSpecVersion;
+
   // Object which contains the error
   QueryError *err;
 

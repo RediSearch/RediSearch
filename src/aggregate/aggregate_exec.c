@@ -641,6 +641,7 @@ int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status) {
   sctx->timeout = req->timeoutTime;
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
+  req->qiter.initialSpecVersion = IndexSpec_GetVersion(sctx->spec);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
 
   // check possible optimization after creation of IndexIterator tree

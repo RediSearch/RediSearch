@@ -1300,6 +1300,15 @@ static void PushUpStream(ResultProcessor *rp_to_place, ResultProcessor *rp) {
   rp_to_place->parent = rp->parent;
 }
 
+// We need to know if the last accumulator is wrapped by a result processor that accesses redis, and therefore
+// is wrapped by a buffer locker and an unlocker. If so, and we are in cursor mode, we need to push the buffer locker
+// downstream after the first cursor read (before the first `FT.CURSOR READ` command). We therefore turn on the flag
+// QEXEC_S_NEEDS_BUFFER_REEVAL in the query execution state.
+// To follow the pipeline and find out whether we wrap the last accumulator or not, we use the following state machine:
+typedef enum { WRAPPING, NOT_WRAPPING, UNSET, SEEN_ACCUMULATOR_BEFORE_UNLOCKER } WrapsLastAccumulatorState;
+// the `WRAPPING` and `NOT_WRAPPING` states are terminal states, and the `UNSET` state is the initial state.
+// the `WRAPPING` state is the only accepting state.
+
 // Add Buffer-Locker and Unlocker result processors to the pipeline.
 // The Buffer-Locker rp is added as the upstream of the first result processor that might
 // access Redis keyspace.
@@ -1319,8 +1328,7 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
   // root<-buffer-locker<-loader<-sorter<-loader<-unlocker
   ResultProcessor *upstream_is_buffer_locker = NULL;
   ResultProcessor *upstream_is_unlcoker = NULL;
-  char wrapsLastAccumulator = 2; // 0 - no, 1 - yes, 2 - unset. 0 and 1 are "terminal states".
-  bool seenAccumulatorBeforeUnlcoker = false;
+  WrapsLastAccumulatorState state = UNSET;
 
   ResultProcessor dummy_rp = {.upstream = req->qiter.endProc};
 
@@ -1330,16 +1338,16 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
     if (curr_rp->behavior == RESULT_PROCESSOR_B_ACCESS_REDIS) {
       // If we found (another) RP that accesses redis, update the upstream_is_buffer_locker.
       upstream_is_buffer_locker = curr_rp;
-      if (seenAccumulatorBeforeUnlcoker && wrapsLastAccumulator > 1) {
-        wrapsLastAccumulator = 1;
+      if (state == SEEN_ACCUMULATOR_BEFORE_UNLOCKER) {
+        state = WRAPPING;
       }
     } else if (curr_rp->behavior == RESULT_PROCESSOR_B_ACCUMULATOR) {
       // If we found an accumulator and we didn't find any RP that accesses redis yet, reset the upstream_is_unlcoker.
       if (!upstream_is_buffer_locker) {
         upstream_is_unlcoker = NULL;
-        wrapsLastAccumulator = 0;
+        state = NOT_WRAPPING;
       } else {
-        seenAccumulatorBeforeUnlcoker = true;
+        state = SEEN_ACCUMULATOR_BEFORE_UNLOCKER;
       }
     }
     // If we didn't find a relevant RP for unlocker yet and the next RP access redis or is an aborter, set the upstream_is_unlcoker.
@@ -1356,7 +1364,7 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
 
   // If we need to add the buffer-locker before the last accumulator and the unlocker after it,
   // on cursor mode we need to reevaluate the buffer location.
-  if (wrapsLastAccumulator == 1) {
+  if (state == WRAPPING) {
     req->stateflags |= QEXEC_S_NEEDS_BUFFER_REEVAL;
   }
 
