@@ -3020,8 +3020,8 @@ def testErrorOnOpperation(env):
     err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', '!(split("bad" + "bad"))', 'as', 'a')[1]
     assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
 
-    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'APPLY', '!@test', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    if not env.isCluster():
+        env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'APPLY', '!@test', 'as', 'a').error().contains('not loaded nor in pipeline')
 
 
 def testSortkeyUnsortable(env):
@@ -3264,11 +3264,11 @@ def testFieldsCaseSensetive(env):
 
     # make sure aggregation apply are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@n', 'as', 'r').equal([1, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@N', 'as', 'r').error().contains('not loaded in pipeline')
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@N', 'as', 'r').error().contains('not loaded nor in pipeline')
 
     # make sure aggregation filter are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@n==1.0').equal([1, ['n', '1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@N==1.0').error().contains('not loaded in pipeline')
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@N==1.0').error().contains('not loaded nor in pipeline')
 
     # make sure aggregation groupby are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
@@ -3324,11 +3324,11 @@ def testSortedFieldsCaseSensetive(env):
 
     # make sure aggregation apply are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@n', 'as', 'r').equal([1, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@N', 'as', 'r').error().contains('not loaded in pipeline')
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@N', 'as', 'r').error().contains('not loaded nor in pipeline')
 
     # make sure aggregation filter are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@n==1.0').equal([1, ['n', '1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@N==1.0').error().contains('not loaded in pipeline')
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@N==1.0').error().contains('not loaded nor in pipeline')
 
     # make sure aggregation groupby are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])

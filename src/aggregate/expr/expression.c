@@ -265,9 +265,9 @@ int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
 
   switch (expr->t) {
     case RSExpr_Property:
-      expr->property.lookupObj = RLookup_GetKey_TEMP(lookup, expr->property.key, RLOOKUP_F_NOFLAGS);
+      expr->property.lookupObj = RLookup_GetKey(lookup, expr->property.key, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!expr->property.lookupObj) {
-        QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "Property `%s` not loaded in pipeline",
+        QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in pipeline",
                                expr->property.key);
         return EXPR_EVAL_ERR;
       }
@@ -362,16 +362,6 @@ void EvalCtx_Destroy(EvalCtx *r) {
   RLookupRow_Cleanup(&r->row);
   RLookup_Cleanup(&r->lk);
   rm_free(r);
-}
-
-//---------------------------------------------------------------------------------------------
-
-RLookupKey *EvalCtx_Set(EvalCtx *r, const char *name, RSValue *val) {
-  RLookupKey *lkk = RLookup_GetKey_TEMP(&r->lk, name, RLOOKUP_F_OCREAT);
-  if (lkk != NULL) {
-    RLookup_WriteOwnKey(lkk, &r->row, val);
-  }
-  return lkk;
 }
 
 //---------------------------------------------------------------------------------------------

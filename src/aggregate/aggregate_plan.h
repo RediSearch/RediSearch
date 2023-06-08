@@ -83,11 +83,9 @@ typedef struct {
   PLN_BaseStep base;
   const char *rawExpr;
   RSExpr *parsedExpr;
-  int shouldFreeRaw;  // Whether we own the raw expression, used on coordinator only
+  bool shouldFreeRaw;  // Whether we own the raw expression, used on coordinator only
+  bool noOverride;     // Whether we should override the alias if it exists. We allow it by default
 } PLN_MapFilterStep;
-
-// Magic value -- will sort by score. For use in SEARCH mode
-#define PLN_SORTKEYS_DFLSCORE (const char **)0xdeadbeef
 
 /** ARRANGE covers sort, limit, and so on */
 typedef struct {
@@ -95,7 +93,7 @@ typedef struct {
   const RLookupKey **sortkeysLK;  // simple array
   const char **sortKeys;          // array_*
   uint64_t sortAscMap;            // Mapping of ascending/descending. Bitwise
-  int isLimited;                  // Flag if `LIMIT` keyward was used.
+  int isLimited;                  // Flag if `LIMIT` keyword was used.
   uint64_t offset;                // Seek results. If 0, then no paging is applied
   uint64_t limit;                 // Number of rows to output
 } PLN_ArrangeStep;
