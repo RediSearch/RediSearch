@@ -41,7 +41,7 @@ def checkSlaveSynced(env, slaveConn, command, expected_result, time_out=5):
 
 def initEnv(skip=True):
   env = Env(useSlaves=True, forceTcp=True)
-  
+
   if(skip):
     env.skip() # flaky; TODO: remove when #3525 is resolved
 
@@ -217,13 +217,14 @@ def testDropWith__FORCEKEEPDOCS():
 
 def testExpireDocs():
     expireDocs(False,  # Without SORTABLE -
-               # Without sortby -
-               # both docs exist but we failed to load doc1 since it was found to be expired during the query
-                [2, 'doc1', None, 'doc2', ['t', 'foo']],  
-               # With sortby -
-               # since the fields are not SORTABLE, we need to load the results from Redis Keyspace
-               # when the sorter fails to do that, it discards the result.
-                [1, 'doc2', ['t', 'foo']])  
+              # Without sortby -
+              # both docs exist but we failed to load doc1 since it was found to be expired during the query
+              [2, 'doc1', None, 'doc2', ['t', 'foo']],
+              # With sortby -
+              # since the fields are not SORTABLE, we need to load the results from Redis Keyspace
+              # when the sorter fails to do that, it sets the sortby value to NULL and gives the document the
+              # lowest possible score upon sorting, so doc1 is returned last.
+              [2, 'doc2', ['t', 'foo'], 'doc1', None])
 
 
 def testExpireDocsSortable():
@@ -234,8 +235,8 @@ def testExpireDocsSortable():
                # Since we are not trying to load the document in the sorter, it is not discarded from the results.
                # The loader fails to load doc1 since it was found to be expired during the query
               [2, 'doc1', None, 'doc2', ['t', 'foo']],  # Without sortby
-              [2, 'doc1', None, 'doc2', ['t', 'foo']]) # With sortby
-                
+              [2, 'doc1', None, 'doc2', ['t', 'foo']])  # With sortby
+
 def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_sortby):
     '''
     This test creates an index and two documents and check they exist on both shards.
@@ -253,7 +254,7 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
         # Use "lazy" expire (expire only when key is accessed)
         master.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
         slave.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
-        
+
         sortby_cmd = [] if i == 0 else ['SORTBY', 't']
         sortable_arg = [] if not isSortable else ['SORTABLE']
         master.execute_command(
@@ -287,7 +288,7 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
         env.assertEqual(res, expected_res, message=(msg + " slave"))
         res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
         env.assertEqual(res, expected_res, message=(msg + " master"))
-        
+
         # Cancel lazy expire to allow the deletion of the key
         master.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
         slave.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
@@ -297,7 +298,7 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
         # enforce sync.
         res = master.execute_command('WAIT', '1', '10000')
         env.assertEqual(res, 1)
-        
+
         # Second iteration - only 1 doc is left (master deleted it)
         res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
         env.assertEqual(res, [1, 'doc2', ['t', 'foo']],
