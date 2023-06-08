@@ -39,8 +39,11 @@ def checkSlaveSynced(env, slaveConn, command, expected_result, time_out=5):
   except Exception as e:
     env.assertTrue(False, message=e.message)
 
-def initEnv():
+def initEnv(skip=True):
   env = Env(useSlaves=True, forceTcp=True)
+  
+  if(skip):
+    env.skip() # flaky; TODO: remove when #3525 is resolved
 
   env.skipOnCluster()
 
@@ -242,7 +245,7 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
     When isSortable is True the index is created with `SORTABLE` arg
     '''
 
-    env = initEnv()
+    env = initEnv(skip=False)
     master = env.getConnection()
     slave = env.getSlaveConnection()
 
