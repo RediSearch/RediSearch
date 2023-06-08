@@ -19,7 +19,6 @@
 extern "C" {
 #endif
 
-// TODO: remove this
 typedef enum {
   RLOOKUP_C_STR = 0,
   RLOOKUP_C_INT = 1,
@@ -77,10 +76,6 @@ typedef struct RLookupKey {
    * F_OUTPUT which means that the t
    */
   uint32_t flags;
-
-  // TODO: remove this
-  /** Type this lookup should be coerced to */
-  RLookupCoerceType fieldtype : 16;
 
   /** Path and name of this field
    *  path AS name */

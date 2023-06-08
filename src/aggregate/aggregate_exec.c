@@ -167,14 +167,14 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     size_t currentField = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
     size_t requiredFieldsCount = array_len(req->requiredFields);
     for(; currentField < requiredFieldsCount; currentField++) {
-      const RLookupKey *rlk = RLookup_GetKey_TEMP(cv->lastLk, req->requiredFields[currentField], RLOOKUP_F_NOFLAGS);
-      RSValue *v = (RSValue*) getReplyKey(rlk, r);
+      const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
+      RSValue *v = rlk ? (RSValue*)getReplyKey(rlk, r) : NULL;
       if (v && v->t == RSValue_Duo) {
         // For duo value, we use the value here (not the other value)
         v = RS_DUOVAL_VAL(*v);
       }
       RSValue rsv;
-      if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE && !RSValue_IsNull(v)) {
+      if (rlk && (rlk->flags & RLOOKUP_T_NUMERIC) && v && v->t != RSVALTYPE_DOUBLE && !RSValue_IsNull(v)) {
         double d;
         RSValue_ToNumber(v, &d);
         RSValue_SetNumber(&rsv, d);
@@ -714,20 +714,13 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, blockedClient);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
-  } else {
-    if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
-      goto error;
-    }
-    AREQ_Execute(r, ctx);
-  }
-#else
-  } else {
-    if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
-      goto error;
-    }
-    AREQ_Execute(r, ctx);
-  }
 #endif // POWER_TO_THE_WORKERS
+  } else {
+    if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
+      goto error;
+    }
+    AREQ_Execute(r, ctx);
+  }
   return REDISMODULE_OK;
 
 error:

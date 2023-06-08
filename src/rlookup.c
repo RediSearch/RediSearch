@@ -106,7 +106,6 @@ static void setKeyByFieldSpec(RLookupKey *key, const FieldSpec *fs) {
   }
   if (FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
     key->flags |= RLOOKUP_T_NUMERIC;
-    key->fieldtype = RLOOKUP_C_DBL; // TODO: remove this
   }
 }
 
@@ -279,7 +278,7 @@ static void RLookupKey_SetKey_TEMP(RLookupKey *key, RLookupKeyOptions *rlookupke
   key->flags = (flags & (~RLOOKUP_TRANSIENT_FLAGS));
   key->dstidx = rlookupkey_options->dstidx;
   key->svidx = rlookupkey_options->svidx;
-  key->fieldtype = rlookupkey_options->type;
+  key->flags |= rlookupkey_options->type ? RLOOKUP_T_NUMERIC : 0;
 
   if (flags & RLOOKUP_F_NAMEALLOC) {
     key->name = rm_strndup(rlookupkey_options->name, rlookupkey_options->namelen);
@@ -410,7 +409,7 @@ static RLookupKey *RLookup_GetOrCreateKeyEx_TEMP(RLookup *lookup, const char *pa
                                   .flags = flags | lookupkey->flags,
                                   .dstidx = lookupkey->dstidx,
                                   .svidx = lookupkey->svidx,
-                                  .type = lookupkey->fieldtype,
+                                  .type = (lookupkey->flags & RLOOKUP_T_NUMERIC) ? RLOOKUP_C_DBL : RLOOKUP_C_STR,
                           };
     return createNewLookupKeyFromOptions(lookup, &options);
   }
@@ -605,8 +604,6 @@ void RLookupRow_Dump(const RLookupRow *rr) {
 
 static void RLookupKey_Cleanup(RLookupKey *k) {
   if (k->flags & RLOOKUP_F_NAMEALLOC) {
-    // nobody uses this today, so no leak.
-    // TODO: uncomment when the old API is removed (currently it will cause a segfault)
     if (k->name != k->path) {
       rm_free((void *)k->path);
     }
@@ -803,7 +800,7 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     // `val` was created by `RedisModule_HashGet` and is owned by us.
     // This function might retain it, but it's thread-safe to free it afterwards without any locks
     // as it will hold the only reference to it after the next line.
-    rsv = hvalToValue(val, kk->fieldtype);
+    rsv = hvalToValue(val, (kk->flags & RLOOKUP_T_NUMERIC) ? RLOOKUP_C_DBL : RLOOKUP_C_STR);
     RedisModule_FreeString(RSDummyContext, val);
   } else if (!strncmp(kk->path, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
     RedisModuleString *keyName = RedisModule_CreateString(options->sctx->redisCtx,
