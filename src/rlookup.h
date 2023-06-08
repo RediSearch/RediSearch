@@ -319,12 +319,12 @@ void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
  *
  * The reference count of the value will be incremented.
  */
-void RLookup_WriteKeyByName(RLookup *lookup, const char *name, RLookupRow *row, RSValue *value);
+void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
 
 /**
  * Like WriteKeyByName, but consumes a refcount
  */
-void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, RLookupRow *row, RSValue *value);
+void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
 
 /** Get a value from the row, provided the key.
  *

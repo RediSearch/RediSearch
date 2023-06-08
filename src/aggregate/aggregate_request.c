@@ -1425,20 +1425,25 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
       case PLN_T_APPLY:
       case PLN_T_FILTER: {
         PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)stp;
-        // Ensure the lookups can actually find what they need
-        RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
         mstp->parsedExpr = ExprAST_Parse(mstp->rawExpr, strlen(mstp->rawExpr), status);
         if (!mstp->parsedExpr) {
           goto error;
         }
 
+        // Ensure the lookups can actually find what they need
+        RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
         if (!ExprAST_GetLookupKeys(mstp->parsedExpr, curLookup, status)) {
           goto error;
         }
 
         if (stp->type == PLN_T_APPLY) {
-          RLookupKey *dstkey =
-              RLookup_GetKey_TEMP(curLookup, stp->alias, RLOOKUP_F_OCREAT);
+          uint32_t flags = mstp->noOverride ? RLOOKUP_F_NOFLAGS : RLOOKUP_F_OVERRIDE;
+          RLookupKey *dstkey = RLookup_GetKey(curLookup, stp->alias, RLOOKUP_M_WRITE, flags);
+          if (!dstkey) {
+            // Can only happen if we're in noOverride mode
+            QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", stp->alias);
+            goto error;
+          }
           rp = RPEvaluator_NewProjector(mstp->parsedExpr, curLookup, dstkey);
         } else {
           rp = RPEvaluator_NewFilter(mstp->parsedExpr, curLookup);
