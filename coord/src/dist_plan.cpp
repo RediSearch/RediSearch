@@ -331,6 +331,8 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   char *expr = rm_strdup(ss.c_str());
   PLN_MapFilterStep *applyStep = PLNMapFilterStep_New(expr, PLN_T_APPLY);
   applyStep->shouldFreeRaw = 1;
+  applyStep->noOverride = 1; // Don't override the alias. Usually we do, but in this case we don't because reducers
+                             // are not allowed to override aliases
   applyStep->base.alias = rm_strdup(src->alias);
 
   assert(rdctx->currentLocal);
