@@ -216,7 +216,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     RedisModule_Reply_Map(reply);
       int i = 0;
       for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-        if (kk->name || !skipFieldIndex[i++]) {
+        if (!kk->name || !skipFieldIndex[i++]) {
           continue;
         }
         const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
