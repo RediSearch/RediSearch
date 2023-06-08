@@ -40,7 +40,7 @@ def check_info_commandstats(env, cmd):
 
 def testCommandStatsOnRedis(env):
     # This test checks the total time spent on the Coordinator is greater then
-    # on a single shard 
+    # on a single shard
     SkipOnNonCluster(env)
     if not server_version_at_least(env, "6.2.0"):
         env.skip()
@@ -55,7 +55,7 @@ def testCommandStatsOnRedis(env):
     env.expect('FT.SEARCH', 'idx', 'hello', 'LIMIT', 0, 0).equal([100])
     check_info_commandstats(env, 'FT.SEARCH')
 
-    env.expect('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0).equal([3])
+    env.expect('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0).equal([env.shardsCount])
     check_info_commandstats(env, 'FT.AGGREGATE')
 
     conn.execute_command('FT.INFO', 'idx')
@@ -77,5 +77,5 @@ def test_MOD_3540(env):
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
     for i in range(100):
         conn.execute_command('HSET', i, 't', i)
-    
+
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'MAX', '20')

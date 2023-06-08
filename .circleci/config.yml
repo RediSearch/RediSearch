@@ -1017,11 +1017,11 @@ workflows:
             parameters:
               platform: [jammy, focal, bionic]
       - build-macos-x64:
-          <<: *on-integ-and-version-tags
+          <<: *on-version-tags
           context: common
       - build-macos-m1:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *on-version-tags
       - coverage:
           <<: *always
       - sanitize:
@@ -1089,8 +1089,8 @@ workflows:
           requires:
             - build-platforms
             - build-arm-platforms
-            - build-macos-x64
-            - build-macos-m1
+            # - build-macos-x64
+            # - build-macos-m1
       - upload-artifacts:
           name: upload-release-artifacts
           context: common
@@ -1111,7 +1111,7 @@ workflows:
           test_params: ""
           matrix:
             parameters:
-              redis_version: ["6.2", "7.0", "7.2-rc1"]
+              redis_version: ["7.2-rc2"]
       - sanitize:
           name: full-sanitize-<< matrix.san-type >>
           <<: *never
@@ -1190,13 +1190,26 @@ workflows:
           test_params: ""
           matrix:
             parameters:
-              redis_version: ["6.0", "6.2", "7.0", "7.2-rc1", "unstable"]
+              redis_version: ["7.2-rc2", "unstable"]
       - sanitize:
           name: nightly-sanitize-<< matrix.san-type >>
           test_params: ""
           matrix:
             parameters:
               san-type: [address]
+
+  nightly-twice-a-week:
+    triggers:
+      - schedule:
+          cron: "20 17 * * 0,3"
+          <<: *on-integ-branch-cron
+    jobs:
+      - build-macos-x64:
+          name: nightly-build-macos-x64
+          context: common
+      - build-macos-m1:
+          name: nightly-build-macos-m1
+          context: common
 
   nightly-benchmarks:
     triggers:

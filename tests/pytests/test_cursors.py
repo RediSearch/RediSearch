@@ -1,10 +1,10 @@
-from includes import *
 from common import *
 
 from time import sleep, time
 from redis import ResponseError
 
 from cmath import inf
+
 
 def loadDocs(env, count=100, idx='idx', text='hello world'):
     env.expect('FT.CREATE', idx, 'ON', 'HASH', 'prefix', 1, idx, 'SCHEMA', 'f1', 'TEXT').ok()
@@ -15,15 +15,15 @@ def loadDocs(env, count=100, idx='idx', text='hello world'):
     r1 = env.cmd('ft.search', idx, text)
     r2 = list(set(map(lambda x: x[1], filter(lambda x: isinstance(x, list), r1))))
     env.assertEqual([text], r2)
-    r3 = env.cmd('ft.info', idx)
-    env.assertEqual(count, int(r3[r3.index('num_docs') + 1]))
+    r3 = to_dict(env.cmd('ft.info', idx))
+    env.assertEqual(count, int(r3['num_docs']))
 
-def exhaustCursor(env, idx, resp, *args):
-    first, cid = resp
-    rows = [resp]
+def exhaustCursor(env, idx, res, *args):
+    first, cid = res
+    rows = [res]
     while cid:
-        resp, cid=env.cmd('FT.CURSOR', 'READ', idx, cid, *args)
-        rows.append([resp, cid])
+        res, cid = env.cmd('FT.CURSOR', 'READ', idx, cid, *args)
+        rows.append([res, cid])
     return rows
 
 def getCursorStats(env, idx='idx'):
@@ -37,22 +37,22 @@ def getCursorStats(env, idx='idx'):
 def testCursors(env):
     loadDocs(env)
     query = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@f1', 'WITHCURSOR']
-    resp = env.cmd(*query)
+    res = env.cmd(*query)
 
     # Check info and see if there are other cursors
     info = getCursorStats(env)
     env.assertEqual(0, info['global_total'])
 
-    resp = exhaustCursor(env, 'idx', resp)
-    env.assertEqual(1, len(resp)) # Only one response
-    env.assertEqual(0, resp[0][1])
-    env.assertEqual(101, len(resp[0][0]))
+    res = exhaustCursor(env, 'idx', res)
+    env.assertEqual(1, len(res)) # Only one response
+    env.assertEqual(0, res[0][1])
+    env.assertEqual(101, len(res[0][0]))
 
     # Issue the same query, but using a specified count
-    resp = env.cmd(*(query[::]+['COUNT', 10]))
+    res = env.cmd(*(query[::]+['COUNT', 10]))
 
-    resp = exhaustCursor(env, 'idx', resp)
-    env.assertEqual(11, len(resp))
+    res = exhaustCursor(env, 'idx', res)
+    env.assertEqual(11, len(res))
 
 def testMultipleIndexes(env):
     loadDocs(env, idx='idx2', text='goodbye')
@@ -117,7 +117,7 @@ def testTimeout(env):
     loadDocs(env, idx='idx1')
     # Maximum idle of 1ms
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10, 'MAXIDLE', 1]
-    resp = env.cmd(*q1)
+    res = env.cmd(*q1)
     exptime = time() + 2.5
     rv = 1
     while time() < exptime:
@@ -159,7 +159,7 @@ def testNumericCursor(env):
         res, cursor = env.cmd('FT.CURSOR', 'READ', idx, str(cursor))
         env.assertNotEqual(res, [0])
         env.assertNotEqual(cursor, 0)
-    
+
     res, cursor = env.cmd('FT.CURSOR', 'READ', idx, str(cursor))
     env.assertEqual(res, [0])
     env.assertEqual(cursor, 0)

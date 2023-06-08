@@ -6,8 +6,10 @@
 
 #ifndef RS_SCORE_EXPLAIN_H_
 #define RS_SCORE_EXPLAIN_H_
+
 #include "redismodule.h"
 #include "redisearch.h"
+#include "reply.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,7 +24,7 @@ typedef struct RSScoreExplain {
 /*
  * RedisModule_reply.
  */
-void SEReply(RedisModuleCtx *ctx, RSScoreExplain *scrExp);
+void SEReply(RedisModule_Reply *reply, RSScoreExplain *scrExp);
 
 /*
  * Release allocated resources.

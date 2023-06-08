@@ -507,32 +507,37 @@ ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup)
   return RPEvaluator_NewCommon(ast, lookup, NULL, 1);
 }
 
-void RPEvaluator_Reply(RedisModuleCtx *ctx, const ResultProcessor *rp) {
+void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const ResultProcessor *rp) {
+  if (title) {
+    RedisModule_Reply_SimpleString(reply, title);
+  }
+
   ResultProcessorType type = rp->type;
   const char *typeStr = RPTypeToString(rp->type);
   RS_LOG_ASSERT (type == RP_PROJECTOR || type == RP_FILTER, "Error");
 
   char buf[32];
+  const char *literal;
   RPEvaluator *rpEval = (RPEvaluator *)rp;
   const RSExpr *expr = rpEval->eval.root;
   switch (expr->t) {
     case RSExpr_Literal:
-      RedisModule_ReplyWithPrintf(ctx, "%s - Literal %s", typeStr, 
-                  RSValue_ConvertStringPtrLen(&expr->literal, NULL, buf, sizeof(buf)));
+      literal = RSValue_ConvertStringPtrLen(&expr->literal, NULL, buf, sizeof(buf));
+      RedisModule_Reply_Stringf(reply, "%s - Literal %s", typeStr, literal);
     case RSExpr_Property:
-      RedisModule_ReplyWithPrintf(ctx, "%s - Property %s", typeStr, expr->property.key);
+      RedisModule_Reply_Stringf(reply, "%s - Property %s", typeStr, expr->property.key);
       break;
     case RSExpr_Op:
-      RedisModule_ReplyWithPrintf(ctx, "%s - Operator %c", typeStr, expr->op.op);
+      RedisModule_Reply_Stringf(reply, "%s - Operator %c", typeStr, expr->op.op);
       break;
     case RSExpr_Function:
-      RedisModule_ReplyWithPrintf(ctx, "%s - Function %s", typeStr, expr->func.name);
+      RedisModule_Reply_Stringf(reply, "%s - Function %s", typeStr, expr->func.name);
       break;
     case RSExpr_Predicate:
-      RedisModule_ReplyWithPrintf(ctx, "%s - Predicate %s", typeStr, getRSConditionStrings(expr->pred.cond));
+      RedisModule_Reply_Stringf(reply, "%s - Predicate %s", typeStr, getRSConditionStrings(expr->pred.cond));
       break;
     case RSExpr_Inverted:
-      RedisModule_ReplyWithPrintf(ctx, "%s - Inverted", typeStr);
+      RedisModule_Reply_Stringf(reply, "%s - Inverted", typeStr);
       break;
     default:
       RS_LOG_ASSERT(0, "error");

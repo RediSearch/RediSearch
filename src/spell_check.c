@@ -7,10 +7,12 @@
 #include "spell_check.h"
 #include "util/arr.h"
 #include "dictionary.h"
+#include "reply.h"
 #include <stdbool.h>
 
 /** Forward declaration **/
 static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len, double *outScore);
+
 
 int RS_SuggestionCompare(const void *val1, const void *val2) {
   const RS_Suggestion **a = (const RS_Suggestion **)val1;
@@ -173,31 +175,57 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
   return ret;
 }
 
-void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_Suggestions *s,
+void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len, RS_Suggestions *s,
                                 uint64_t totalDocNumber) {
-#define TERM "TERM"
-  RedisModule_ReplyWithArray(ctx, 3);
-  RedisModule_ReplyWithStringBuffer(ctx, TERM, strlen(TERM));
-  RedisModule_ReplyWithStringBuffer(ctx, term, len);
+  bool resp3 = RedisModule_HasMap(reply);
+
+  if (totalDocNumber == 0) { // Can happen with FT.DICTADD
+    totalDocNumber = 1;
+  }
 
   RS_Suggestion **suggestions = spellCheck_GetSuggestions(s);
-
   qsort(suggestions, array_len(suggestions), sizeof(RS_Suggestion *), RS_SuggestionCompare);
 
-  if (array_len(suggestions) == 0) {
-    // no results found, we return an empty array
-    RedisModule_ReplyWithArray(ctx, 0);
-  } else {
-    if (totalDocNumber == 0) { // Can happen with FT.DICTADD
-      totalDocNumber = 1;
-    }
-    RedisModule_ReplyWithArray(ctx, array_len(suggestions));
-    for (int i = 0; i < array_len(suggestions); ++i) {
-      RedisModule_ReplyWithArray(ctx, 2);
-      RedisModule_ReplyWithDouble(ctx, suggestions[i]->score == -1 ? 0 :
-                                       suggestions[i]->score / totalDocNumber);
-      RedisModule_ReplyWithStringBuffer(ctx, suggestions[i]->suggestion, suggestions[i]->len);
-    }
+  if (resp3) // RESP3
+  {
+    // we assume we're in the terms' map
+
+    RedisModule_Reply_StringBuffer(reply, term, len);
+
+    RedisModule_Reply_Array(reply);
+
+      int n = array_len(suggestions);
+      for (int i = 0; i < n; ++i) {
+        RedisModule_Reply_Map(reply);
+          RedisModule_Reply_StringBuffer(reply, suggestions[i]->suggestion, suggestions[i]->len);
+          RedisModule_Reply_Double(reply, suggestions[i]->score == -1 ? 0 :
+                                        suggestions[i]->score / totalDocNumber);                                      
+        RedisModule_Reply_MapEnd(reply);
+      }
+
+    RedisModule_Reply_ArrayEnd(reply);
+  }
+  else // RESP2
+  {
+    RedisModule_Reply_Array(reply);
+    RedisModule_Reply_SimpleString(reply, SPELL_CHECK_TERM_CONST);
+
+    RedisModule_Reply_StringBuffer(reply, term, len);
+
+      RedisModule_Reply_Array(reply);
+
+        int n = array_len(suggestions);
+        for (int i = 0; i < n; ++i) {
+          RedisModule_Reply_Array(reply);
+            RedisModule_Reply_Double(reply, suggestions[i]->score == -1 ? 0 :
+                                            suggestions[i]->score / totalDocNumber);
+            RedisModule_Reply_StringBuffer(reply, suggestions[i]->suggestion, suggestions[i]->len);
+          RedisModule_Reply_ArrayEnd(reply);
+        }
+
+      RedisModule_Reply_ArrayEnd(reply);
+
+    RedisModule_Reply_ArrayEnd(reply);
   }
 
   array_free_ex(suggestions, RS_SuggestionFree(*(RS_Suggestion **)ptr));
@@ -205,22 +233,29 @@ void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_
 
 static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, size_t len,
                                             t_fieldMask fieldMask) {
+  RedisModule_Reply *reply = scCtx->reply;
 
   // searching the term on the term trie, if its there we just return false
   // because there is no need to return suggestions on it.
   if (SpellCheck_IsTermExistsInTrie(scCtx->sctx->spec->terms, term, len, NULL)) {
-    if (scCtx->fullScoreInfo) {
-      // if a full score info is requested we need to send information that
-      // we found the term as is on the index
-      RedisModule_ReplyWithArray(scCtx->sctx->redisCtx, 3);
-      RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, TERM, strlen(TERM));
-      RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, term, len);
-      RedisModule_ReplyWithStringBuffer(scCtx->sctx->redisCtx, FOUND_TERM_IN_INDEX,
-                                        strlen(FOUND_TERM_IN_INDEX));
-      return true;
-    } else {
+    if (!scCtx->fullScoreInfo) {
       return false;
     }
+
+    // if a full score info is requested we need to send information that
+    // we found the term as is on the index
+
+    if (reply->resp3) {
+      RedisModule_Reply_StringBuffer(reply, term, len);
+      RedisModule_Reply_Error(reply, SPELL_CHECK_FOUND_TERM_IN_INDEX);
+    } else {
+      RedisModule_Reply_Array(reply);
+        RedisModule_Reply_SimpleString(reply, SPELL_CHECK_TERM_CONST);
+        RedisModule_Reply_StringBuffer(reply, term, len);
+        RedisModule_Reply_SimpleString(reply, SPELL_CHECK_FOUND_TERM_IN_INDEX);
+      RedisModule_Reply_ArrayEnd(reply);
+    }
+    return true;
   }
 
   // searching the term on the exclude list, if its there we just return false
@@ -250,7 +285,7 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
     SpellCheck_FindSuggestions(scCtx, t, term, len, fieldMask, s, 0);
   }
 
-  SpellCheck_SendReplyOnTerm(scCtx->sctx->redisCtx, term, len, s,
+  SpellCheck_SendReplyOnTerm(reply, term, len, s,
                              (!scCtx->fullScoreInfo) ? scCtx->sctx->spec->docs.size - 1 : 0);
 
   RS_SuggestionsFree(s);
@@ -299,16 +334,29 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryAST *q) {
   if (!SpellCheck_CheckTermDictsExistance(scCtx)) {
     return;
   }
+  RedisModule_Reply _reply = RedisModule_NewReply(scCtx->sctx->redisCtx), *reply = &_reply;
 
-  RedisModule_ReplyWithArray(scCtx->sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
-
-  if (scCtx->fullScoreInfo) {
-    // sending the total number of docs for the ability to calculate score on cluster
-    RedisModule_ReplyWithLongLong(scCtx->sctx->redisCtx, scCtx->sctx->spec->docs.size - 1);
+  if (!reply->resp3 || scCtx->fullScoreInfo) {
+    RedisModule_Reply_Array(reply);
   }
 
-  QueryNode_ForEach(q->root, forEachCallback, scCtx, 1);
+    if (scCtx->fullScoreInfo) {
+      // sending the total number of docs for the ability to calculate score on cluster
+      RedisModule_Reply_LongLong(reply, scCtx->sctx->spec->docs.size - 1);
+    }
 
-  RedisModule_ReplySetArrayLength(scCtx->sctx->redisCtx,
-                                  scCtx->results + (scCtx->fullScoreInfo ? 1 : 0));
+    if (reply->resp3) {
+      RedisModule_Reply_Map(reply);
+    }
+    scCtx->reply = reply; // this is stack-allocated, should be reset immediately after use
+    QueryNode_ForEach(q->root, forEachCallback, scCtx, 1);
+    scCtx->reply = NULL;
+    if (reply->resp3) {
+      RedisModule_Reply_MapEnd(reply);
+    }
+
+  if (!reply->resp3 || scCtx->fullScoreInfo) {
+    RedisModule_Reply_ArrayEnd(reply);
+  }
+  RedisModule_EndReply(reply);
 }
