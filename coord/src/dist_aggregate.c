@@ -409,10 +409,11 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   int profileArgs = parseProfile(argv, argc, r);
   if (profileArgs == -1) goto err;
-
   int rc = AREQ_Compile(r, argv + 2 + profileArgs, argc - 2 - profileArgs, &status);
   if (rc != REDISMODULE_OK) goto err;
-
+  // TODO: parse query as we do in ft.search and see if we have KNN, and figure out the relevant info (k, score field)
+  //  If we found KNN, add a arange step using AGPLN_AddStep so it will be the first step after the root (which is first plan step to be executed)
+  //  Add in the arrage step an indication that this should not run both in shard and local, but only local.
   rc = AGGPLN_Distribute(&r->ap, &status);
   if (rc != REDISMODULE_OK) goto err;
 

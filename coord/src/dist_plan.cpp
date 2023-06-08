@@ -378,6 +378,8 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
       case PLN_T_ARRANGE: {
         // If we already had an arrange step, we can't distribute the second one
         if (!hadArrange) {
+          // TODO: check also the new flag that indicates if this should only happend local (for KNN)
+          //  and also verify that hadArrangךםעe.
           hadArrange = true;
           PLN_ArrangeStep *astp = (PLN_ArrangeStep *)current;
           PLN_ArrangeStep *newStp = (PLN_ArrangeStep *)rm_calloc(1, sizeof(*newStp));
