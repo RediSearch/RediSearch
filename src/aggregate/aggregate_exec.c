@@ -193,7 +193,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_Reply_SimpleString(reply, "fields");
     }
 
-    if (dmd && dmd->flags & Document_Deleted) {
+    if (r->flags & SEARCHRESULT_VAL_IS_NULL) {
       if (has_map) {
         RedisModule_Reply_Array(reply);
         RedisModule_Reply_ArrayEnd(reply);

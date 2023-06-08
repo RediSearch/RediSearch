@@ -108,6 +108,13 @@ IndexIterator *QITR_GetRootFilter(QueryIterator *it);
 void QITR_PushRP(QueryIterator *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryIterator *qitr);
 
+
+/*
+ * Flags related to the search results.
+ */
+
+#define SEARCHRESULT_VAL_IS_NULL 0x01
+
 /*
  * SearchResult - the object all the processing chain is working on.
  * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc.
@@ -131,6 +138,9 @@ typedef struct {
 
   // Row data. Use RLookup_* functions to access
   RLookupRow rowdata;
+
+  // Result flags.
+  uint8_t flags;
 } SearchResult;
 
 /* Result processor return codes */

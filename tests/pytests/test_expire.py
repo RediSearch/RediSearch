@@ -89,11 +89,11 @@ def expireDocs(env, isSortable, expected_results):
     '''
     env.skipOnCluster()
     conn = env.getConnection()
-    # Use "lazy" expire (expire only when key is accessed)
-    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
 
     # i = 0 -> without sortby, i = 1 -> with sortby
     for i in range(2):
+        # Use "lazy" expire (expire only when key is accessed)
+        conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
         sortby_cmd = [] if i == 0 else ['SORTBY', 't']
         sortable_arg = [] if not isSortable else ['SORTABLE']
         conn.execute_command(
@@ -115,6 +115,11 @@ def expireDocs(env, isSortable, expected_results):
         res = conn.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
         env.assertEqual(res, expected_results[i], message=msg)
 
+        # Cancel lazy expire to allow the deletion of the key
+        conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
+        # ensure expiration before search
+        time.sleep(0.5)
+        
         # Second iteration - only 1 doc is left
         res = conn.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
         env.assertEqual(res, [1, 'doc2', ['t', 'foo']],
@@ -131,15 +136,22 @@ def expireDocs(env, isSortable, expected_results):
         res = conn.execute_command('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'EXPLAINSCORE')
         env.assertEqual(res, expected_res)
 
+        # Active lazy expire again to ensure the key is not expired before we run the query
+        conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+        
         # expire doc1
         conn.execute_command('PEXPIRE', 'doc1', 1)
         # ensure expiration before search
         time.sleep(0.01)
 
-
         res = conn.execute_command('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'EXPLAINSCORE', *sortby_cmd)
         env.assertEqual(res, expected_results[i + 2], message=(msg + ' WITHSCORES, EXPLAINSCORE'))
 
+        # Cancel lazy expire to allow the deletion of the key
+        conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
+        # ensure expiration before search
+        time.sleep(0.5)
+        
         # only 1 doc is left
         res = [1, 'doc2', res_score_and_explanation, ['t', 'foo']]
         env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'EXPLAINSCORE').equal(res)
