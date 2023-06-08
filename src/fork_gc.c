@@ -1320,6 +1320,8 @@ static struct timespec getIntervalCb(void *ctx) {
 }
 
 ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
+  _Static_assert(GC_THREAD_POOL_SIZE == 1, "srand is not thread safe\n");
+  srand48(time(NULL) + getpid());
   ForkGC *forkGc = rm_calloc(1, sizeof(*forkGc));
   *forkGc = (ForkGC){
       .index = StrongRef_Demote(spec_ref),

@@ -19,6 +19,8 @@
 extern "C" {
 #endif
 
+#define GC_THREAD_POOL_SIZE 1
+
 typedef struct GCCallbacks {
   int (*periodicCallback)(RedisModuleCtx* ctx, void* gcCtx);
   void (*renderStats)(RedisModule_Reply* reply, void* gc);

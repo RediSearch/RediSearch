@@ -43,6 +43,11 @@ static void timerCallback(RedisModuleCtx* ctx, void* data);
 static long long getNextPeriod(GCContext* gc) {
   struct timespec interval = gc->callbacks.getInterval(gc->gcCtx);
   long long ms = interval.tv_sec * 1000 + interval.tv_nsec / 1000000;  // convert to millisecond
+
+  // add randomness to avoid congestion by multiple GCs on different shards
+  ms += lrand48() % (interval.tv_sec * 1000);
+  _Static_assert(GC_THREAD_POOL_SIZE == 1, "lrand48 is not thread safe\n");
+
   return ms;
 }
 
@@ -167,7 +172,7 @@ void GCContext_ForceBGInvoke(GCContext* gc) {
 
 void GC_ThreadPoolStart() {
   if (gcThreadpool_g == NULL) {
-    gcThreadpool_g = redisearch_thpool_create(1);
+    gcThreadpool_g = redisearch_thpool_create(GC_THREAD_POOL_SIZE);
     redisearch_thpool_init(gcThreadpool_g);
   }
 }
