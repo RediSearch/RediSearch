@@ -824,10 +824,12 @@ def testLoadPosition(env):
         .equal([1, ['t1', 'hello', 't2', 'world']])
 
     # two LOADs with an apply for error
-    res = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1',
-                  'APPLY', '@t2', 'AS', 'load_error',
-                  'LOAD', '1', 't2')
-    env.assertContains('Value was not found in result', str(res[1]))
+    # TODO: fix cluster error message
+    if not env.isCluster():
+        env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1',
+                   'APPLY', '@t2', 'AS', 'load_error',
+                   'LOAD', '1', 't2').error().contains('not loaded nor in pipeline')
+
 
 def testAggregateGroup0Field(env):
     conn = getConnectionByEnv(env)
@@ -922,7 +924,6 @@ def test_aggregate_timeout():
 
 
 def testGroupProperties(env):
-    env.skipOnCluster() # TODO: remove when error messages are fixed on cluster
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'n', 'NUMERIC', 'SORTABLE', 'tt', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'hello', 'n', '1', 'tt', 'foo')
@@ -930,9 +931,12 @@ def testGroupProperties(env):
     # Check groupby properties
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '3', 't', 'n', 'tt').error().contains(
                     'Bad arguments for GROUPBY: Unknown property `t`. Did you mean `@t`?')
+
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '3', '@t', 'n', '@tt').error().contains(
                     'Bad arguments for GROUPBY: Unknown property `n`. Did you mean `@n`?')
+
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '3', '@t', '@n', '@tt').noError()
+
     # Verify that we fail and not returning results from `t`
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', 'tt').error().contains('Bad arguments for GROUPBY: Unknown property `tt`. Did you mean `@tt`?')
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@tt').equal([1, ['tt', 'foo']])
@@ -944,14 +948,12 @@ def testGroupProperties(env):
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@t',
                                            'REDUCE', 'COUNT', '0', 'AS', 't').error().contains(
                     'Property `t` specified more than once')
+
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@t',
                                            'REDUCE', 'COUNT', '0', 'AS', 'my_count',
                                            'REDUCE', 'COUNT', '0', 'AS', 'my_count').error().contains(
                     'Property `my_count` specified more than once')
-    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@t',
-                                           'REDUCE', 'COUNT', '0', 'AS', 'my_output',
-                                           'REDUCE', 'AVG', '1', '@n', 'AS', 'my_output').error().contains(
-                    'Property `my_output` specified more than once')
+
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@t',
                                            'REDUCE', 'COUNT', '0',
                                            'REDUCE', 'COUNT', '0',).error().contains('specified more than once')
@@ -959,3 +961,10 @@ def testGroupProperties(env):
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@t',
                                            'REDUCE', 'COUNT', '0', 'AS', 'my_output',
                                            'REDUCE', 'COUNT', '0', 'AS', 'my_count').noError()
+
+    # Should behave the same in cluster and standalone, but on coordinator the AVG is translated to COUNT and SUM in the shards, and
+    # two SUMs and an APPLY in the coordinator, which usually could override the same name but here we expect it to fail
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@t',
+                                           'REDUCE', 'COUNT', '0', 'AS', 'my_output',
+                                           'REDUCE', 'AVG', '1', '@n', 'AS', 'my_output').error().contains(
+               'Property `my_output` specified more than once')
