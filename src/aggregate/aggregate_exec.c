@@ -306,7 +306,7 @@ static void SafeRedisKeyspaceAccessPipeline_ReEval(AREQ *req) {
     }
     ResultProcessor *buffers_profile = cur->upstream;
     // Pop the buffer and its profile RP
-    cur->upstream->upstream = buffers_profile->upstream->upstream;
+    cur->upstream = buffers_profile->upstream->upstream;
 
     // Push the buffer to its new location
     buffers_profile->upstream->upstream = newBufferDownstream->upstream;
