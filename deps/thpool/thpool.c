@@ -466,11 +466,11 @@ static void* thread_do(struct thread* thread_p) {
       thpool_p->num_threads_working--;
       if (!thpool_p->num_threads_working) {
         pthread_cond_signal(&thpool_p->threads_all_idle);
+        if (thpool_p->terminate_when_empty) {
+          thpool_p->keepalive = 0;
+        }
       }
       pthread_mutex_unlock(&thpool_p->thcount_lock);
-    }
-    if (thpool_p->terminate_when_empty && !thpool_p->num_threads_working) {
-      thpool_p->keepalive = 0;
     }
   }
   pthread_mutex_lock(&thpool_p->thcount_lock);
