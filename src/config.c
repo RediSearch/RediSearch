@@ -16,6 +16,7 @@
 #include "rules.h"
 #include "spec.h"
 #include "util/dict.h"
+#include "resp3.h"
 
 #define RETURN_ERROR(s) return REDISMODULE_ERR;
 #define RETURN_PARSE_ERROR(rc)                                    \
@@ -875,9 +876,17 @@ static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, Red
   size_t numElems = 0;
   sds currValue = var->getValue(config);
 
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  if(!_ReplyMap(ctx)) {
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    numElems++;
+  }
+
   RedisModule_ReplyWithSimpleString(ctx, var->name);
-  numElems++;
+
+  if(_ReplyMap(ctx)) {
+    RedisModule_ReplyWithMap(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  }
+
   if (isHelp) {
     RedisModule_ReplyWithSimpleString(ctx, "Description");
     RedisModule_ReplyWithSimpleString(ctx, var->helpText);
@@ -889,6 +898,10 @@ static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, Red
     }
     numElems += 4;
   } else {
+    if(_ReplyMap(ctx)) {
+      RedisModule_ReplyWithSimpleString(ctx, "Value");
+      numElems++;
+    }
     if (currValue) {
       RedisModule_ReplyWithSimpleString(ctx, currValue);
     } else {
@@ -897,13 +910,13 @@ static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, Red
     numElems++;
   }
   sdsfree(currValue);
-  RedisModule_ReplySetArrayLength(ctx, numElems);
+  RedisModule_ReplySetMapOrArrayLength(ctx, numElems, true);
 }
 
 void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, const char *name,
                         RedisModuleCtx *ctx, int isHelp) {
   size_t numElems = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_ReplyWithMapOrArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN, false);
   if (!strcmp("*", name)) {
     for (const RSConfigOptions *curOpts = options; curOpts; curOpts = curOpts->next) {
       for (const RSConfigVar *cur = &curOpts->vars[0]; cur->name; cur++) {
@@ -918,7 +931,7 @@ void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, 
       dumpConfigOption(config, v, ctx, isHelp);
     }
   }
-  RedisModule_ReplySetArrayLength(ctx, numElems);
+  RedisModule_ReplySetMapOrArrayLength(ctx, numElems, false);
 }
 
 int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *name,

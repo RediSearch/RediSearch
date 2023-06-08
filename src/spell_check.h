@@ -10,8 +10,11 @@
 
 #include "search_ctx.h"
 #include "query.h"
+#include "reply.h"
 
-#define FOUND_TERM_IN_INDEX "term exists in index"
+#define SPELL_CHECK_TERM_CONST "TERM"
+
+#define SPELL_CHECK_FOUND_TERM_IN_INDEX "term exists in index"
 
 typedef struct RS_Suggestion {
   double score;
@@ -30,6 +33,7 @@ typedef struct SpellCheckCtx {
   long long distance;
   bool fullScoreInfo;
   size_t results;
+  RedisModule_Reply *reply;
 } SpellCheckCtx;
 
 RS_Suggestions *RS_SuggestionsCreate();
@@ -40,7 +44,7 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s);
 
 RS_Suggestion *RS_SuggestionCreate(char *suggestion, size_t len, double score);
 int RS_SuggestionCompare(const void *val1, const void *val2);
-void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_Suggestions *s,
+void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len, RS_Suggestions *s,
                                 uint64_t totalDocNumber);
 void SpellCheck_Reply(SpellCheckCtx *ctx, QueryAST *q);
 
