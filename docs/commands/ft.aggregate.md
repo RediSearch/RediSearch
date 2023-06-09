@@ -3,10 +3,8 @@
 syntax: |
   FT.AGGREGATE index query 
     [VERBATIM] 
-    [ LOAD count field [field ...]] 
+    [LOAD count field [field ...]] 
     [TIMEOUT timeout] 
-    [LOAD *] 
-    [ GROUPBY nargs property [property ...] [ REDUCE function nargs arg [arg ...] [AS name] [ REDUCE function nargs arg [arg ...] [AS name] ...]] 
     [ GROUPBY nargs property [property ...] [ REDUCE function nargs arg [arg ...] [AS name] [ REDUCE function nargs arg [arg ...] [AS name] ...]] ...]] 
     [ SORTBY nargs [ property ASC | DESC [ property ASC | DESC ...]] [MAX num]] 
     [ APPLY expression AS name [ APPLY expression AS name ...]] 
