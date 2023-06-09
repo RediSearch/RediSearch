@@ -293,8 +293,8 @@ static void SafeRedisKeyspaceAccessPipeline_ReEval(AREQ *req) {
     cur = cur->upstream;
   }
   // find the first redis access after the last accumulator between the buffer and the unlocker
-  for (; cur->superClass != RESULT_PROCESSOR_C_ACCUMULATOR; cur = cur->upstream) {
-    if (cur->superClass == RESULT_PROCESSOR_C_ACCESS_REDIS) {
+  for (; cur->behavior != RESULT_PROCESSOR_B_ACCUMULATOR; cur = cur->upstream) {
+    if (cur->behavior == RESULT_PROCESSOR_B_ACCESS_REDIS) {
       newBufferDownstream = cur;
     }
   }
@@ -505,7 +505,7 @@ done_3:
     if (rc != RS_RESULT_OK) {
       req->stateflags |= QEXEC_S_ITERDONE;
     } else if (req->stateflags & QEXEC_S_NEEDS_BUFFER_REEVAL) {
-      feRedisKeyspaceAccessPipeline_ReEval(req);
+      SafeRedisKeyspaceAccessPipeline_ReEval(req);
       req->stateflags &= ~QEXEC_S_NEEDS_BUFFER_REEVAL;
     }
 
