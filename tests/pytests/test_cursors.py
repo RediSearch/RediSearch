@@ -92,6 +92,8 @@ def testCursorsBG():
         for field in res[1]:
             if field[0] == 'Result processors profile':
                 shard_pipelines.append(field)
+            elif field == 'Coordinator':
+                break  # we don't need to check the coordinator
 
         # we expect to have a pipeline for each shard, and that the pipeline is the same for all shards.
         env.assertEqual(env.shardsCount, len(shard_pipelines))
