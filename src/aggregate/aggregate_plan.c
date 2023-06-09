@@ -138,16 +138,20 @@ PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
   return NULL;
 }
 
+PLN_ArrangeStep *AGPLN_AddArrangeStep(AGGPlan *pln) {
+  PLN_ArrangeStep *ret = rm_calloc(1, sizeof(*ret));
+  ret->base.type = PLN_T_ARRANGE;
+  ret->base.dtor = arrangeDtor;
+  AGPLN_AddStep(pln, &ret->base);
+  return ret;
+}
+
 PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln) {
   PLN_ArrangeStep *ret = AGPLN_GetArrangeStep(pln);
   if (ret) {
     return ret;
   }
-  ret = rm_calloc(1, sizeof(*ret));
-  ret->base.type = PLN_T_ARRANGE;
-  ret->base.dtor = arrangeDtor;
-  AGPLN_AddStep(pln, &ret->base);
-  return ret;
+  return AGPLN_AddArrangeStep(pln);
 }
 
 RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) {

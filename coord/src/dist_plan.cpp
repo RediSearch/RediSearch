@@ -355,7 +355,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
 
   auto current = const_cast<PLN_BaseStep *>(AGPLN_FindStep(src, NULL, NULL, PLN_T_ROOT));
   int cont = 1;
-  bool hadArrange = false;
+  bool hadArrange = src->hasKnn;
 
   PLN_DistributeStep *dstp = (PLN_DistributeStep *)rm_calloc(1, sizeof(*dstp));
   dstp->base.type = PLN_T_DISTRIBUTE;
@@ -376,12 +376,13 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         break;
       }
       case PLN_T_ARRANGE: {
+        PLN_ArrangeStep *astp = (PLN_ArrangeStep *)current;
         // If we already had an arrange step, we can't distribute the second one
-        if (!hadArrange) {
+        if (!hadArrange && !astp->runLocal) {
           // TODO: check also the new flag that indicates if this should only happend local (for KNN)
           //  and also verify that hadArrangךםעe.
           hadArrange = true;
-          PLN_ArrangeStep *astp = (PLN_ArrangeStep *)current;
+
           PLN_ArrangeStep *newStp = (PLN_ArrangeStep *)rm_calloc(1, sizeof(*newStp));
 
           *newStp = *astp;

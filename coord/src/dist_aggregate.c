@@ -423,8 +423,14 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         goto err;
       }
       if (knnCtx != NULL) {
-        // TODO: If we found KNN, add a arange step using AGPLN_AddStep so it will be the first step after the root (which is first plan step to be executed)
-        //  Add in the arrage step an indication that this should not run both in shard and local, but only local.
+        // If we found KNN, add a arange step using, so it will be the first step after
+        // the root (which is first plan step to be executed).
+        PLN_ArrangeStep *newStp = AGPLN_AddArrangeStep(&r->ap);
+        newStp->runLocal = true;
+        newStp->limit = knnCtx->knn.k;
+        newStp->sortKeys = array_new(const char *, 1);
+        newStp->sortKeys = array_append(newStp->sortKeys, knnCtx->knn.fieldName);
+        r->ap.hasKnn = true;
       }
     }
   }

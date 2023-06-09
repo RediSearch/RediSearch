@@ -98,6 +98,7 @@ typedef struct {
   int isLimited;                  // Flag if `LIMIT` keyward was used.
   uint64_t offset;                // Seek results. If 0, then no paging is applied
   uint64_t limit;                 // Number of rows to output
+  bool runLocal;                  // Indicates that the step should run only local (do not distribute)
 } PLN_ArrangeStep;
 
 /** LOAD covers any fields not implicitly found within the document */
@@ -154,6 +155,7 @@ struct AGGPlan {
   PLN_ArrangeStep *arrangement;
   PLN_FirstStep firstStep_s;  // Storage for initial plan
   uint64_t steptypes;         // Mask of step-types contained in plan
+  bool hasKnn;
 };
 
 /* Serialize the plan into an array of string args, to create a command to be sent over the network.
@@ -185,6 +187,8 @@ int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t);
  *
  */
 PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln);
+
+PLN_ArrangeStep *AGPLN_AddArrangeStep(AGGPlan *pln);
 
 /**
  * Gets the last arrange step for the current pipeline stage. If no arrange
