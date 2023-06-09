@@ -56,7 +56,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand
       bail_out = len != 2; // (map, cursor)
     } else {
       bail_out = len != 2 && len != 3; // (results, cursor) or (results, cursor, profile)
-    } 
+    }
   }
 
   if (bail_out) {
@@ -202,7 +202,7 @@ static int getNextReply(RPNet *nc) {
 
     nc->current.root = root;
     nc->current.rows = rows;
-  
+
     assert(   !nc->current.rows
            || MRReply_Type(nc->current.rows) == MR_REPLY_ARRAY
            || MRReply_Type(nc->current.rows) == MR_REPLY_MAP);
@@ -226,7 +226,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // root (array) has similar structure for RESP2/3:
   // [0] array of results (rows) described right below
   // [1] cursor (int)
-  
+
   // rows:
   // RESP2: [ num_results, [ field, value, ... ], ... ]
   // RESP3: { ..., "results": [ { field: value, ... }, ... ], ... }
@@ -296,23 +296,25 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     MRReply *fields = MRReply_MapElement(result, "fields");
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
     for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
-      const char *field = MRReply_String(MRReply_ArrayElement(fields, i), NULL);
+      size_t len;
+      const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
       MRReply *val = MRReply_ArrayElement(fields, i + 1);
       RSValue *v = MRReply_ToValue(val);
-      RLookup_WriteOwnKeyByName(nc->lookup, field, &r->rowdata, v);
+      RLookup_WriteOwnKeyByName(nc->lookup, field, len, &r->rowdata, v);
     }
   }
   else // RESP2
   {
     MRReply *rep = MRReply_ArrayElement(rows, nc->curIdx++);
     for (size_t i = 0; i < MRReply_Length(rep); i += 2) {
-      const char *field = MRReply_String(MRReply_ArrayElement(rep, i), NULL);
+      size_t len;
+      const char *field = MRReply_String(MRReply_ArrayElement(rep, i), &len);
       RSValue *v = RS_NullVal();
       if (i + 1 < MRReply_Length(rep)) {
         MRReply *val = MRReply_ArrayElement(rep, i + 1);
         v = MRReply_ToValue(val);
       }
-      RLookup_WriteOwnKeyByName(nc->lookup, field, &r->rowdata, v);
+      RLookup_WriteOwnKeyByName(nc->lookup, field, len, &r->rowdata, v);
     }
   }
   return RS_RESULT_OK;

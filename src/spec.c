@@ -846,7 +846,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
     sp->flags |= Index_HasGeometry;
     fs->types |= INDEXFLD_T_GEOMETRY;
-    // TODO: GEMOMETRY - Support more geometry libraries - if an optional successive token exist
+    // TODO: GEOMETRY - Support more geometry libraries - if an optional successive token exist
     fs->geometryOpts.geometryLibType = GEOMETRY_LIB_TYPE_BOOST_GEOMETRY;
   } else {  // nothing more supported currently
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
@@ -856,7 +856,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
       FieldSpec_SetSortable(fs);
-      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR)) {
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) || FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
         fs->options |= FieldSpec_UNF;
       }
       continue;
@@ -2853,12 +2853,12 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   dict *specs = res->specs;
 
 #if defined(_DEBUG) && 0
-  RLookupKey *k = RLookup_GetKey(&r->lk, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
+  RLookupKey *k = RLookup_GetKey_LoadEx(&r->lk, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY), UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
   RSValue *v = RLookup_GetItem(k, &r->row);
   const char *x = RSValue_StringPtrLen(v, NULL);
   RedisModule_Log(NULL, "notice", "Indexes_FindMatchingSchemaRules: x=%s", x);
   const char *f = "name";
-  k = RLookup_GetKey(&r->lk, f, RLOOKUP_F_NOFLAGS);
+  k = RLookup_GetKeyEx(&r->lk, f, strlen(f), RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
   if (k) {
     v = RLookup_GetItem(k, &r->row);
     x = RSValue_StringPtrLen(v, NULL);
