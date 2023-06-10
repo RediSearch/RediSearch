@@ -337,9 +337,6 @@ typedef int (*RPSorterCompareFunc)(const void *e1, const void *e2, const void *u
 typedef struct {
   ResultProcessor base;
 
-  // The desired size of the heap - top N results
-  uint32_t size;
-
   // The heap. We use a min-max heap here
   heap_t *pq;
 
@@ -395,12 +392,6 @@ static void rpsortFree(ResultProcessor *rp) {
 static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
 
-  if (self->pooledResult == NULL) {
-    self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
-  } else {
-    RLookupRow_Wipe(&self->pooledResult->rowdata);
-  }
-
   SearchResult *h = self->pooledResult;
   int rc = rp->upstream->Next(rp->upstream, h);
 
@@ -415,20 +406,22 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   }
 
   // If the queue is not full - we just push the result into it
-  if (self->pq->count < self->size) {
+  if (self->pq->count < self->pq->size) {
 
     // copy the index result to make it thread safe - but only if it is pushed to the heap
     h->indexResult = NULL;
     mmh_insert(self->pq, h);
-    self->pooledResult = NULL;
     if (h->score < rp->parent->minScore) {
       rp->parent->minScore = h->score;
     }
     // collected `limit` results. No need to continue.
-    if (self->quickExit && self->pq->count == self->size) {
+    if (self->quickExit && self->pq->count == self->pq->size) {
+      self->pooledResult = NULL;
       rp->Next = rpsortNext_Yield;
       return rpsortNext_Yield(rp, r);
     }
+    // we need to allocate a new result for the next iteration
+    self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
   } else {
     // find the min result
     SearchResult *minh = mmh_peek_min(self->pq);
@@ -442,12 +435,12 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     if (self->cmp(h, minh, self->cmpCtx) > 0) {
       h->indexResult = NULL;
       self->pooledResult = mmh_exchange_min(self->pq, h);
-      SearchResult_Clear(self->pooledResult);
     } else {
       // The current should not enter the pool, so just leave it as is
       self->pooledResult = h;
-      SearchResult_Clear(self->pooledResult);
     }
+    // clear the result in preparation for the next iteration
+    SearchResult_Clear(self->pooledResult);
   }
   return RESULT_QUEUED;
 }
@@ -533,8 +526,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->fieldcmp.nkeys = nkeys;
 
   ret->pq = mmh_init_with_size(maxresults, ret->cmp, ret->cmpCtx, srDtor);
-  ret->size = maxresults;
-  ret->pooledResult = NULL;
+  ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
   ret->base.Next = rpsortNext_Accum;
   ret->base.Free = rpsortFree;
   ret->base.type = RP_SORTER;
