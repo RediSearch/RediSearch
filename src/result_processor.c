@@ -377,10 +377,9 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
 
 static void rpsortFree(ResultProcessor *rp) {
   RPSorter *self = (RPSorter *)rp;
-  if (self->pooledResult) {
-    SearchResult_Destroy(self->pooledResult);
-    rm_free(self->pooledResult);
-  }
+
+  SearchResult_Destroy(self->pooledResult);
+  rm_free(self->pooledResult);
 
   // calling mmh_free will free all the remaining results in the heap, if any
   mmh_free(self->pq);
@@ -392,8 +391,8 @@ static void rpsortFree(ResultProcessor *rp) {
 static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
 
-  SearchResult *h = self->pooledResult;
-  int rc = rp->upstream->Next(rp->upstream, h);
+  // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
+  int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
 
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF || (rc == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
@@ -409,19 +408,18 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   if (self->pq->count < self->pq->size) {
 
     // copy the index result to make it thread safe - but only if it is pushed to the heap
-    h->indexResult = NULL;
-    mmh_insert(self->pq, h);
-    if (h->score < rp->parent->minScore) {
-      rp->parent->minScore = h->score;
-    }
-    // collected `limit` results. No need to continue.
-    if (self->quickExit && self->pq->count == self->pq->size) {
-      self->pooledResult = NULL;
-      rp->Next = rpsortNext_Yield;
-      return rpsortNext_Yield(rp, r);
+    self->pooledResult->indexResult = NULL;
+    mmh_insert(self->pq, self->pooledResult);
+    if (self->pooledResult->score < rp->parent->minScore) {
+      rp->parent->minScore = self->pooledResult->score;
     }
     // we need to allocate a new result for the next iteration
     self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
+    // collected `limit` results. No need to continue.
+    if (self->quickExit && self->pq->count == self->pq->size) {
+      rp->Next = rpsortNext_Yield;
+      return rpsortNext_Yield(rp, r);
+    }
   } else {
     // find the min result
     SearchResult *minh = mmh_peek_min(self->pq);
@@ -432,12 +430,9 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     }
 
     // if needed - pop it and insert a new result
-    if (self->cmp(h, minh, self->cmpCtx) > 0) {
-      h->indexResult = NULL;
-      self->pooledResult = mmh_exchange_min(self->pq, h);
-    } else {
-      // The current should not enter the pool, so just leave it as is
-      self->pooledResult = h;
+    if (self->cmp(self->pooledResult, minh, self->cmpCtx) > 0) {
+      self->pooledResult->indexResult = NULL;
+      self->pooledResult = mmh_exchange_min(self->pq, self->pooledResult);
     }
     // clear the result in preparation for the next iteration
     SearchResult_Clear(self->pooledResult);
