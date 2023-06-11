@@ -1011,7 +1011,7 @@ workflows:
             parameters:
               platform: [jammy, focal, bionic, centos7, rocky8, bullseye, amzn2]
       - build-arm-platforms:
-          <<: *not-on-integ-branch
+          <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
