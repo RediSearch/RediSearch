@@ -1056,7 +1056,7 @@ def testWithKNN(env):
     # run them ONLY, since there was a KNN step. Otherwise, we would get in-correct results, as doc1 would be filtered
     # out in the first shard after the sortby step.
     res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]=>{$yield_distance_as: dist}',
-                               'SORTBY', '1', '@n', 'MAX', '2', 'LOAD', '1', '@__key',
+                               'SORTBY', '1', '@n', 'MAX', '2',
                                'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
-    expected_res = [2, ['__key', 'doc1{1}', 'dist', '4', 'n', '3'], ['__key', 'doc3{3}', 'dist', '36', 'n', '4']]
-    env.assertEqual(res, expected_res)
+    expected_res = [['dist', '4', 'n', '3'], ['dist', '36', 'n', '4']]
+    env.assertEqual(res[1:], expected_res)

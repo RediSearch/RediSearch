@@ -144,7 +144,6 @@ PLN_ArrangeStep *AGPLN_AddKNNArrangeStep(AGGPlan *pln, size_t k, const char *dis
   newStp->base.dtor = arrangeDtor;
   dllist_prepend(&pln->steps, &newStp->base.llnodePln);
 
-  newStp->runLocal = true;
   newStp->isLimited = 1;
   newStp->limit = k;
   newStp->sortKeys = array_new(const char *, 1);

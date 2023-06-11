@@ -96,7 +96,6 @@ typedef struct {
   int isLimited;                  // Flag if `LIMIT` keyword was used.
   uint64_t offset;                // Seek results. If 0, then no paging is applied
   uint64_t limit;                 // Number of rows to output
-  bool runLocal;                  // Indicates that the step should run only local (do not distribute)
 } PLN_ArrangeStep;
 
 /** LOAD covers any fields not implicitly found within the document */
