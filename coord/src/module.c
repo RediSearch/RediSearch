@@ -416,6 +416,9 @@ specialCaseCtx* SpecialCaseCtx_New() {
 }
 
 void SpecialCaseCtx_Free(specialCaseCtx* ctx) {
+  if(ctx->specialCaseType == SPECIAL_CASE_KNN) {
+    QueryNode_Free(ctx->knn.queryNode);
+  }
   rm_free(ctx);
 }
 
@@ -425,9 +428,6 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
     size_t specialCasesLen = array_len(r->specialCases);
     for(size_t i = 0; i< specialCasesLen; i ++) {
       specialCaseCtx* ctx = r->specialCases[i];
-      if(ctx->specialCaseType == SPECIAL_CASE_KNN) {
-        QueryNode_Free(ctx->knn.queryNode);
-      }
       SpecialCaseCtx_Free(ctx);
     }
     array_free(r->specialCases);

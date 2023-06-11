@@ -1060,3 +1060,22 @@ def testWithKNN(env):
                                'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
     expected_res = [['dist', '4', 'n', '3'], ['dist', '36', 'n', '4']]
     env.assertEqual(res[1:], expected_res)
+
+    # CASE 2 #
+    # Run GROUPBY after KNN. Validate that here as well we have the group by step run only local,
+    # otherwise, if the groupby+reduce had ran in each shard, we would get that the count is 2 for every value of @n
+    # (100 and 200), and that we would have seen in the 'c' value.
+    conn.execute_command('HSET', 'doc1{1}', 'v', create_np_array_typed([1] * dim).tobytes(), 'n', '100')
+    conn.execute_command('HSET', 'doc2{1}', 'v', create_np_array_typed([2] * dim).tobytes(), 'n', '100')
+    conn.execute_command('HSET', 'doc3{1}', 'v', create_np_array_typed([3] * dim).tobytes(), 'n', '100')
+
+    conn.execute_command('HSET', 'doc4{3}', 'v', create_np_array_typed([1] * dim).tobytes(), 'n', '200')
+    conn.execute_command('HSET', 'doc5{3}', 'v', create_np_array_typed([2] * dim).tobytes(), 'n', '200')
+    conn.execute_command('HSET', 'doc6{3}', 'v', create_np_array_typed([3] * dim).tobytes(), 'n', '200')
+
+    expected_res = [['n', '100', 'c', '1'], ['n', '200', 'c', '1']]
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 2 @v $blob]=>{$yield_distance_as: dist}',
+                               'GROUPBY', '1', '@n',
+                               'REDUCE', 'COUNT', '0', 'AS', 'c',
+                               'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
+    env.assertEqual(res[1:], expected_res)

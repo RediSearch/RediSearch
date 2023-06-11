@@ -540,11 +540,12 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (rc != REDISMODULE_OK) goto err;
 
   unsigned int dialect = r->reqConfig.dialectVersion;
+  specialCaseCtx *knnCtx = NULL;
   if(dialect >= 2) {
     // Check if we have KNN in the query string, and if so, parse the query string to see if it is
     // a KNN section in the query. IN that case, we treat this as a SORTBY+LIMIT step.
     if(strcasestr(r->query, "KNN")) {
-      specialCaseCtx *knnCtx = prepareOptionalTopKCase(r->query, argv, argc, &status);
+      knnCtx = prepareOptionalTopKCase(r->query, argv, argc, &status);
       if (QueryError_HasError(&status)) {
         goto err;
       }
@@ -552,7 +553,6 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         // If we found KNN, add an arange step, so it will be the first step after
         // the root (which is first plan step to be executed).
         AGPLN_AddKNNArrangeStep(&r->ap, knnCtx->knn.k, knnCtx->knn.fieldName);
-        SpecialCaseCtx_Free(knnCtx);
       }
     }
   }
@@ -612,7 +612,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     }
     AREQ_Free(r);
   }
-
+  SpecialCaseCtx_Free(knnCtx);
   RedisModule_EndReply(reply);
   return;
 
@@ -620,6 +620,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 err:
   assert(QueryError_HasError(&status));
   QueryError_ReplyAndClear(ctx, &status);
+  SpecialCaseCtx_Free(knnCtx);
   AREQ_Free(r);
   RedisModule_EndReply(reply);
   return;
