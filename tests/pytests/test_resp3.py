@@ -571,3 +571,64 @@ def test_clusterinfo(env):
     res['slots'].sort(key=lambda x: x['start'])
     env.assertEqual(order_dict(res), order_dict(exp))
 
+def test_profile_crash_mod5323():
+    env = Env(protocol=3)
+    env.cmd("FT.CREATE", "idx", "SCHEMA", "t", "TEXT")
+    with env.getClusterConnectionIfNeeded() as r:
+        r.execute_command("HSET", "1", "t", "hello")
+        r.execute_command("HSET", "2", "t", "hell")
+        r.execute_command("HSET", "3", "t", "help")
+        r.execute_command("HSET", "4", "t", "helowa")
+    waitForIndex(env, 'idx')
+
+    res = env.cmd("FT.PROFILE", "idx", "SEARCH", "LIMITED", "QUERY", "%hell% hel*", "NOCONTENT")
+    exp = {
+      'error': [],
+      'field_names': [],
+      'profile': {
+        'Iterators profile': [
+          { 'Child iterators': [
+             { 'Child iterators': 'The number of iterators in the union is 3',
+                'Counter': 3,
+                'Query type': 'FUZZY - hell',
+                'Time': ANY,
+                'Type': 'UNION'
+              },
+              { 'Child iterators': 'The number of iterators in the union is 4',
+                'Counter': 3,
+                'Query type': 'PREFIX - hel',
+                'Time': ANY,
+                'Type': 'UNION'
+              }
+            ],
+            'Counter': 3,
+            'Time': ANY,
+            'Type': 'INTERSECT'
+          }
+        ],
+        'Parsing time': ANY,
+        'Pipeline creation time': ANY,
+        'Result processors profile': [
+          { 'Counter': 3,
+            'Time': ANY,
+            'Type': 'Index'
+          },
+          { 'Counter': 3,
+            'Time': ANY,
+            'Type': 'Scorer'
+          },
+          { 'Counter': 3,
+            'Time': ANY,
+            'Type': 'Sorter'
+          }
+        ],
+        'Total profile time': ANY
+       },
+       'results': [
+         {'field_values': [], 'id': '1'},
+         {'field_values': [], 'id': '2'},
+         {'field_values': [], 'id': '3'}],
+       'total_results': 3
+    }
+    if not env.isCluster:  # on cluster, lack of crash is enough
+        env.assertEqual(res, exp)
