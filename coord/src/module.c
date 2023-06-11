@@ -416,6 +416,7 @@ specialCaseCtx* SpecialCaseCtx_New() {
 }
 
 void SpecialCaseCtx_Free(specialCaseCtx* ctx) {
+  if (!ctx) return;
   if(ctx->specialCaseType == SPECIAL_CASE_KNN) {
     QueryNode_Free(ctx->knn.queryNode);
   }
