@@ -22,16 +22,24 @@
 extern "C" {
 #endif
 
-struct RTDoc;
+struct RTDoc_Cartesian;
+struct RTDoc_Geographic;
 
-NODISCARD struct RTDoc *From_WKT(const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg);
-NODISCARD struct RTDoc *RTDoc_Copy(struct RTDoc const *other);
-void RTDoc_Free(struct RTDoc *doc) NOEXCEPT;
-NODISCARD t_docId RTDoc_GetID(struct RTDoc const *doc) NOEXCEPT;
-NODISCARD bool RTDoc_IsEqual(struct RTDoc const *lhs, struct RTDoc const *rhs);
+NODISCARD struct RTDoc_Cartesian *RTDoc_Cartesian_From_WKT(const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg);
+NODISCARD struct RTDoc_Geographic *RTDoc_Geographic_From_WKT(const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg);
+NODISCARD struct RTDoc_Cartesian *RTDoc_Cartesian_Copy(struct RTDoc_Cartesian const *other);
+NODISCARD struct RTDoc_Geographic *RTDoc_Geographic_Copy(struct RTDoc_Geographic const *other);
+void RTDoc_Cartesian_Free(struct RTDoc_Cartesian *doc) NOEXCEPT;
+void RTDoc_Geographic_Free(struct RTDoc_Geographic *doc) NOEXCEPT;
+NODISCARD t_docId RTDoc_Cartesian_GetID(struct RTDoc_Cartesian const *doc) NOEXCEPT;
+NODISCARD t_docId RTDoc_Geographic_GetID(struct RTDoc_Geographic const *doc) NOEXCEPT;
+NODISCARD bool RTDoc_Cartesian_IsEqual(struct RTDoc_Cartesian const *lhs, struct RTDoc_Cartesian const *rhs);
+NODISCARD bool RTDoc_Geographic_IsEqual(struct RTDoc_Geographic const *lhs, struct RTDoc_Geographic const *rhs);
 
-void RTDoc_Print(struct RTDoc const *doc);
-NODISCARD RedisModuleString *RTDoc_ToString(struct RTDoc const *doc);
+void RTDoc_Cartesian_Print(struct RTDoc_Cartesian const *doc);
+void RTDoc_Geographic_Print(struct RTDoc_Geographic const *doc);
+NODISCARD RedisModuleString *RTDoc_Cartesian_ToString(struct RTDoc_Cartesian const *doc);
+NODISCARD RedisModuleString *RTDoc_Geographic_ToString(struct RTDoc_Geographic const *doc);
 
 #ifdef __cplusplus
 }
