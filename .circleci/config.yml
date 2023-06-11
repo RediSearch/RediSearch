@@ -1005,8 +1005,7 @@ workflows:
       - build-linux-arm-ubuntu:
           <<: *never
       - build-platforms:
-          #@@ <<: *on-integ-and-version-tags
-          <<: *not-on-integ-branch
+          <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
