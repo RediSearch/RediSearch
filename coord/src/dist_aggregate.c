@@ -423,9 +423,10 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         goto err;
       }
       if (knnCtx != NULL) {
-        // If we found KNN, add an arange step using, so it will be the first step after
+        // If we found KNN, add an arange step, so it will be the first step after
         // the root (which is first plan step to be executed).
         AGPLN_AddKNNArrangeStep(&r->ap, knnCtx->knn.k, knnCtx->knn.fieldName);
+        SpecialCaseCtx_Free(knnCtx);
       }
     }
   }

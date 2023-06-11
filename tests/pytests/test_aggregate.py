@@ -967,24 +967,24 @@ def testWithKNN(env):
     dim = 4
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
                          'TYPE', 'FLOAT32', 'n', 'NUMERIC').ok()
+
+    # Use {1} and {3} hash slot to verify the distribution of the documents among 2 different shards.
     conn.execute_command('HSET', 'doc1{1}', 'v', create_np_array_typed([1] * dim).tobytes(), 'n', '3')
     conn.execute_command('HSET', 'doc5{1}', 'v', create_np_array_typed([5] * dim).tobytes(), 'n', '2')
     conn.execute_command('HSET', 'doc6{1}', 'v', create_np_array_typed([6] * dim).tobytes(), 'n', '1')
 
-    conn.execute_command('HSET', 'doc2{3}', 'v', create_np_array_typed([2] * dim).tobytes(), 'n', '4')
-    conn.execute_command('HSET', 'doc3{3}', 'v', create_np_array_typed([3] * dim).tobytes(), 'n', '5')
+    conn.execute_command('HSET', 'doc2{3}', 'v', create_np_array_typed([2] * dim).tobytes(), 'n', '5')
+    conn.execute_command('HSET', 'doc3{3}', 'v', create_np_array_typed([3] * dim).tobytes(), 'n', '4')
     conn.execute_command('HSET', 'doc4{3}', 'v', create_np_array_typed([4] * dim).tobytes(), 'n', '6')
 
     # CASE 1 #
-    time.sleep(10)
-    res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]',
-                               'SORTBY', '1', '@n', 'MAX', '2',
+    # Run KNN with SORTBY. We expect that the top 3 documents in terms of vector distance will be doc1, doc2 and doc3,
+    # and that after we sort by @n, we'll get doc1 and doc3 as the query results (with minial value of n among the 3
+    # documents). Note that here we are testing that in coordinator know NOT to run the sort by step in the shards, but
+    # run them ONLY, since there was a KNN step. Otherwise, we would get in-correct results, as doc1 would be filtered
+    # out in the first shard after the sortby step.
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]=>{$yield_distance_as: dist}',
+                               'SORTBY', '1', '@n', 'MAX', '2', 'LOAD', '1', '@__key',
                                'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
-    print(res)
-
-    # On a standalone mode this is strait forward:
-    # 1. we sort by `n` and take the first 2 results (doc1 and doc3)
-    # 2. we group by `t` and add a `COUNT` reducer as `c`
-    # 3. since doc1 and doc3 has different `t` value, we get two rows, each of COUNT 1.
-    # so the expected result is:
-    expected = [2, ['t', 'AAAA', 'c', '1'], ['t', 'BBBB', 'c', '1']]
+    expected_res = [2, ['__key', 'doc1{1}', 'dist', '4', 'n', '3'], ['__key', 'doc3{3}', 'dist', '36', 'n', '4']]
+    env.assertEqual(res, expected_res)

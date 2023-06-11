@@ -11,7 +11,6 @@ typedef enum {
   SPECIAL_CASE_SORTBY
 } searchRequestSpecialCase;
 
-
 typedef struct {
   size_t k;               // K value
   const char* fieldName;  // Field name
@@ -59,3 +58,5 @@ typedef struct {
 
 specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc,
                              QueryError *status);
+
+void SpecialCaseCtx_Free(specialCaseCtx* ctx);
