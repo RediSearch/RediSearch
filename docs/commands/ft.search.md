@@ -155,7 +155,7 @@ uses a custom query expander instead of the stemmer. See [Extensions](/redisearc
 <details open>
 <summary><code>SCORER {scorer}</code></summary>
 
-uses a custom scoring function you define. See [Extensions](/redisearch/reference/extensions).
+uses a [built-in](/redisearch/reference/scoring/) or a [user-provided](/redisearch/reference/extensions) scoring function.
 </details>
 
 <details open>
@@ -475,6 +475,55 @@ Likewise, if you use a query attribute `$inorder` set to `true`, `s5` is not ret
 {{< / highlight >}}
 
 To sum up, the `INORDER` argument or `$inorder` query attribute require the query terms to match terms with similar ordering.
+
+</details>
+
+<details open>
+<summary><b>NEW!!! Polygon Search with WITHIN and CONTAINS operators</b></summary>
+
+Query for polygons which contain a given geometry or are within a given geometry
+
+First, create an index using `GEOMETRY` type:
+
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.CREATE idx SCHEMA geom GEOMETRY
+OK
+{{< / highlight >}}
+
+Adding a couple of geometries using `HSET`:
+
+
+{{< highlight bash >}}
+127.0.0.1:6379> HSET small geom 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))'
+(integer) 1
+127.0.0.1:6379> HSET large geom 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))'
+(integer) 1
+{{< / highlight >}}
+
+Query with `WITHIN` operator:
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SEARCH idx '@geom:[WITHIN POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]' DIALECT 3
+1) (integer) 1
+2) "small"
+3) 1) "geom"
+   2) "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))"
+{{< / highlight >}}
+
+Query with `CONTAINS` operator:
+
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SEARCH idx '@geom:[CONTAINS POLYGON((2 2, 2 50, 50 50, 50 2, 2 2))]' DIALECT 3
+1) (integer) 2
+2) "small"
+3) 1) "geom"
+   2) "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))"
+4) "large"
+5) 1) "geom"
+   2) "POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))"
+{{< / highlight >}}
 
 </details>
 

@@ -6,12 +6,15 @@
 
 #ifndef RS_AGGREGATE_H__
 #define RS_AGGREGATE_H__
+
 #include "value.h"
 #include "query.h"
 #include "reducer.h"
 #include "result_processor.h"
 #include "expr/expression.h"
 #include "aggregate_plan.h"
+#include "reply.h"
+
 #include "rmutil/rm_assert.h"
 #include "rmutil/cxx/chrono-clock.h"
 
@@ -73,9 +76,9 @@ typedef enum {
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
 
-// These macro should be used only by the main thread since configuration can be changed while running in 
-// backgroud.
-#define RunInThread(r) (RSGlobalConfig.threadsEnabled && RSGlobalConfig.numWorkerThreads && IsSearch(r))
+// Indicates whether a query should run in the background (only when the immutable alwaysUseThreads
+// config is set). This will also guarantee that there is a running thread pool with al least 1 thread.
+#define RunInThread(r) (RSGlobalConfig.alwaysUseThreads)
 
 typedef enum {
   /* Received EOF from iterator */
@@ -122,12 +125,12 @@ typedef struct {
 
   struct timespec timeoutTime;
 
-  /*  
+  /*
   // Dialect version used on this request
   unsigned int dialectVersion;
   // Query timeout in milliseconds
   long long reqTimeout;
-  RSTimeoutPolicy timeoutPolicy; 
+  RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   int printProfileClock;
   */
@@ -148,12 +151,12 @@ typedef struct {
   const char** requiredFields;
 
   struct QOptimizer *optimizer;        // Hold parameters for query optimizer
-  
+
   // Currently we need both because maxSearchResults limits the OFFSET also in
   // FT.AGGREGATE execution.
   size_t maxSearchResults;
   size_t maxAggregateResults;
-  
+
 } AREQ;
 
 /**
@@ -282,13 +285,13 @@ void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status);
-void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit);
+void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
 void AREQ_Free(AREQ *req);
 
 /**
  * Start the cursor on the current request
  * @param r the request
- * @param outctx the context used for replies (only used in current command)
+ * @param reply the context used for replies (only used in current command)
  * @param lookupName the name of the index used for the cursor reservation
  * @param status if this function errors, this contains the message
  * @return REDISMODULE_OK or REDISMODULE_ERR
@@ -297,7 +300,7 @@ void AREQ_Free(AREQ *req);
  * freed. If it returns REDISMODULE_ERR, then the cursor is still valid
  * and must be freed manually.
  */
-int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, QueryError *status);
+int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, const char *lookupName, QueryError *status);
 
 int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 

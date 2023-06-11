@@ -108,6 +108,13 @@ IndexIterator *QITR_GetRootFilter(QueryIterator *it);
 void QITR_PushRP(QueryIterator *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryIterator *qitr);
 
+
+/*
+ * Flags related to the search results.
+ */
+
+#define SEARCHRESULT_VAL_IS_NULL 0x01
+
 /*
  * SearchResult - the object all the processing chain is working on.
  * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc.
@@ -131,6 +138,9 @@ typedef struct {
 
   // Row data. Use RLookup_* functions to access
   RLookupRow rowdata;
+
+  // Result flags.
+  uint8_t flags;
 } SearchResult;
 
 /* Result processor return codes */
@@ -154,13 +164,17 @@ typedef enum {
 } RPStatus;
 
 typedef enum {
-  RESULT_PROCESSOR_F_ACCESS_REDIS = 0x01,  // The result processor requires access to redis keyspace.
+  RESULT_PROCESSOR_B_DEFAULT = 0,   // Default result processor class. nothing special.
+  RESULT_PROCESSOR_B_ACCESS_REDIS,  // The result processor requires access to redis keyspace.
 
-  // The result processor might break the pipeline by changing RPStatus.
+  // The result processor might abort the pipeline by changing RPStatus.
   // Note that this kind of rp is also responsible to release the spec lock when it breaks the pipeline
   // (declaring EOF or TIMEOUT), by calling UnlockSpec_and_ReturnRPResult.
-  RESULT_PROCESSOR_F_BREAKS_PIPELINE = 0x02 
-} BaseRPFlags;
+  RESULT_PROCESSOR_B_ABORTER,
+
+  // The result processor accumulates results (asks for all results from upstream before returning the first one)
+  RESULT_PROCESSOR_B_ACCUMULATOR,
+} TypicalRPBehavior;
 
 /**
  * Result processor structure. This should be "Subclassed" by the actual
@@ -175,8 +189,8 @@ typedef struct ResultProcessor {
 
   // Type of result processor
   ResultProcessorType type;
-
-  uint32_t flags;
+  // Typical behavior of result processor - see BaseRPClass
+  TypicalRPBehavior behavior;
 
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is
@@ -225,7 +239,7 @@ void SortAscMap_Dump(uint64_t v, size_t n);
 
 /**
  * Creates a sorter result processor.
- * @param keys is an array of RLookupkeys to sort by them, 
+ * @param keys is an array of RLookupkeys to sort by them,
  * @param nkeys is the number of keys.
  * keys will be freed by the arrange step dtor.
  * @param loadKeys is an array of RLookupkeys that their value needs to be loaded from Redis keyspace.
@@ -233,7 +247,6 @@ void SortAscMap_Dump(uint64_t v, size_t n);
  * If keys and loadKeys doesn't point to the same address, loadKeys will be freed in the sorter dtor.
  */
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      const RLookupKey **loadKeys, size_t nLoadKeys,
                                       uint64_t ascendingMap, bool quickExit);
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults, bool quickExit);
@@ -264,10 +277,10 @@ void RP_DumpChain(const ResultProcessor *rp);
  * Redis keyspace is required.
  *
  * The buffer is responsible for buffering the document that pass the query filters and lock the access
- * to Redis keysapce to allow the downstream result processor a thread safe access to it.
+ * to Redis key-space to allow the downstream result processor a thread safe access to it.
  *
  * Unlocking Redis should be done only by the Unlocker result processor that should be added as well.
- * 
+ *
  * @param BlockSize is the number of results in each buffer block.
  * @param spec_version is the version of the spec during pipeline construction. This version will be compared
  * to the spec version after we unlock the spec, to decide if results' validation is needed.
@@ -283,7 +296,7 @@ ResultProcessor *RPBufferAndLocker_New(size_t BlockSize, size_t spec_version);
  *
  * @param rpBufferAndLocker is a pointer to the buffer and locker result processor
  * that locked the GIL to be released.
- * 
+ *
  * It is responsible for unlocking Redis keyspace lock.
  *
  *******************************************************************************************************************/

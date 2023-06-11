@@ -5,6 +5,7 @@
  */
 
 #include "cursor.h"
+#include "resp3.h"
 #include <time.h>
 #include "rmutil/rm_assert.h"
 #include <err.h>
@@ -286,25 +287,18 @@ int Cursor_Free(Cursor *cur) {
   return Cursors_Purge(cur->parent, cur->id);
 }
 
-void Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) {
+void Cursors_RenderStats(RedisModule_Reply *reply, CursorList *cl, const char *name) {
   CursorList_Lock(cl);
   CursorSpecInfo *info = findInfo(cl, name);
 
-  RedisModule_ReplyWithSimpleString(ctx, "cursor_stats");
+  RedisModule_ReplyKV_Map(reply, "cursor_stats");
 
-  RedisModule_ReplyWithArray(ctx, 8);
+    RedisModule_ReplyKV_LongLong(reply, "global_idle", ARRAY_GETSIZE_AS(&cl->idle, Cursor **));
+    RedisModule_ReplyKV_LongLong(reply, "global_total", kh_size(cl->lookup));
+    RedisModule_ReplyKV_LongLong(reply, "index_capacity", info->cap);
+    RedisModule_ReplyKV_LongLong(reply, "index_total", info->used);
 
-  RedisModule_ReplyWithSimpleString(ctx, "global_idle");
-  RedisModule_ReplyWithLongLong(ctx, ARRAY_GETSIZE_AS(&cl->idle, Cursor **));
-
-  RedisModule_ReplyWithSimpleString(ctx, "global_total");
-  RedisModule_ReplyWithLongLong(ctx, kh_size(cl->lookup));
-
-  RedisModule_ReplyWithSimpleString(ctx, "index_capacity");
-  RedisModule_ReplyWithLongLong(ctx, info->cap);
-
-  RedisModule_ReplyWithSimpleString(ctx, "index_total");
-  RedisModule_ReplyWithLongLong(ctx, info->used);
+  RedisModule_Reply_MapEnd(reply);
 
   CursorList_Unlock(cl);
 }

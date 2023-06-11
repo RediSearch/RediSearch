@@ -48,11 +48,7 @@ struct ReducerDistCtx {
     return args;
   }
 
-  template <typename... T>
-  bool add(PLN_GroupStep *gstp, const char *name, const char **alias, QueryError *status,
-           T... uargs) {
-    ArgsCursorCXX args(uargs...);
-    ArgsCursor *cargs = copyArgs(&args);
+  bool add(PLN_GroupStep *gstp, const char *name, const char **alias, QueryError *status, ArgsCursor *cargs) {
     if (PLNGroupStep_AddReducer(gstp, name, cargs, status) != REDISMODULE_OK) {
       return false;
     }
@@ -63,12 +59,32 @@ struct ReducerDistCtx {
   }
 
   template <typename... T>
+  bool add(PLN_GroupStep *gstp, const char *name, const char **alias, QueryError *status,
+           T... uargs) {
+    ArgsCursorCXX args(uargs...);
+    ArgsCursor *cargs = copyArgs(&args);
+    return add(gstp, name, alias, status, cargs);
+  }
+
+  template <typename... T>
   bool addLocal(const char *name, QueryError *status, T... uargs) {
     return add(localGroup, name, NULL, status, uargs...);
   }
   template <typename... T>
   bool addRemote(const char *name, const char **alias, QueryError *status, T... uargs) {
-    return add(remoteGroup, name, alias, status, uargs...);
+    ArgsCursorCXX args(uargs...);
+    ArgsCursor tmp = args;
+    // Check if the reducer already exists in the remote group. This may happen NOT AS SYNTAX ERROR if the client
+    // sends, for example, a query with COUNT and AVG, which we send to the shards as COUNT, COUNT and SUM. In this case,
+    // we don't want or need to add the same reducer twice.
+    auto existing = PLNGroupStep_FindReducer(remoteGroup, name, &tmp);
+    if (existing) {
+      if (alias) *alias = existing->alias;
+      return true;
+    } else {
+      ArgsCursor *cargs = copyArgs(&args);
+      return add(remoteGroup, name, alias, status, cargs);
+    }
   }
 
   const char *srcarg(size_t n) const {
@@ -129,7 +145,7 @@ static PLN_BaseStep *distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN
   return PLN_NEXT_STEP(rdctx.currentLocal);
 
 cleanup:
-    // printf("Couldn't find distribution implementationf for %s\n", gr->reducers[ii].name);
+    // printf("Couldn't find distribution implementation for %s\n", gr->reducers[ii].name);
     AGPLN_AddBefore(origPlan, &grLocal->base, step);
     AGPLN_PopStep(origPlan, &grLocal->base);
     grLocal->base.dtor(&grLocal->base);
@@ -304,13 +320,17 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   if (!rdctx->add(local, "SUM", &localCountSumAlias, status, "1", remoteCountAlias)) {
     return REDISMODULE_ERR;
   }
+  array_tail(rdctx->localGroup->reducers).isHidden = 1; // Don't show this in the output
   if (!rdctx->add(local, "SUM", &localSumSumAlias, status, "1", remoteSumAlias)) {
     return REDISMODULE_ERR;
   }
+  array_tail(rdctx->localGroup->reducers).isHidden = 1; // Don't show this in the output
   std::string ss = std::string("(@") + localSumSumAlias + "/@" + localCountSumAlias + ")";
   char *expr = rm_strdup(ss.c_str());
   PLN_MapFilterStep *applyStep = PLNMapFilterStep_New(expr, PLN_T_APPLY);
   applyStep->shouldFreeRaw = 1;
+  applyStep->noOverride = 1; // Don't override the alias. Usually we do, but in this case we don't because reducers
+                             // are not allowed to override aliases
   applyStep->base.alias = rm_strdup(src->alias);
 
   assert(rdctx->currentLocal);
@@ -379,8 +399,6 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         PLN_ArrangeStep *astp = (PLN_ArrangeStep *)current;
         // If we already had an arrange step, we can't distribute the second one
         if (!hadArrange && !astp->runLocal) {
-          // TODO: check also the new flag that indicates if this should only happend local (for KNN)
-          //  and also verify that hadArrangךםעe.
           hadArrange = true;
 
           PLN_ArrangeStep *newStp = (PLN_ArrangeStep *)rm_calloc(1, sizeof(*newStp));
@@ -442,7 +460,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         PLN_LoadStep *lstp = (PLN_LoadStep *)cur;
         for (size_t ii = 0; ii < AC_NumArgs(&lstp->args); ++ii) {
           const char *s = stripAtPrefix(AC_StringArg(&lstp->args, ii));
-          RLookup_GetKey(lookup, s, RLOOKUP_F_OCREAT);
+          RLookup_GetKey(lookup, s, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
         }
         break;
       }
@@ -450,18 +468,18 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         PLN_GroupStep *gstp = (PLN_GroupStep *)cur;
         for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
           const char *propname = stripAtPrefix(gstp->properties[ii]);
-          RLookup_GetKey(lookup, propname, RLOOKUP_F_OCREAT);
+          RLookup_GetKey(lookup, propname, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
         }
         for (size_t ii = 0; ii < array_len(gstp->reducers); ++ii) {
           PLN_Reducer *r = gstp->reducers + ii;
           // Register the aliases they are registered under as well
-          RLookup_GetKey(lookup, r->alias, RLOOKUP_F_OCREAT);
+          RLookup_GetKey(lookup, r->alias, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
         }
         break;
       }
       case PLN_T_APPLY: {
         PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)cur;
-        RLookup_GetKey(lookup, mstp->base.alias, RLOOKUP_F_OCREAT);
+        RLookup_GetKey(lookup, mstp->base.alias, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
         break;
       }
       case PLN_T_FILTER:

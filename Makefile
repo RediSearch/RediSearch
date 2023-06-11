@@ -33,9 +33,12 @@ make build          # compile and link
   STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
 make parsers       # build parsers code
 make clean         # remove build artifacts
-  ALL=1              # remove entire artifacts directory
-
+  ALL=1|all          # remove entire artifacts directory (all: remove Conan artifacts)
+make cc            # compile a single file
+  FILE=file          # source of file to build
 make run           # run redis with RediSearch
+  COORD=1|oss        # run cluster
+  WITH_RLTEST=1      # run with RLTest wrapper
   GDB=1              # invoke using gdb
 
 make test          # run all tests
@@ -84,6 +87,7 @@ make docker        # build for specified platform
   TEST=1             # run tests after build
   PACK=1             # create package
   ARTIFACTS=1        # copy artifacts to host
+  VERIFY=1           # verify docker is intact
 
 make box           # create container with volumen mapping into /search
   OSNICK=nick        # platform spec
@@ -195,8 +199,6 @@ endif
 
 CMAKE_FILES= \
 	CMakeLists.txt \
-	build/cmake/redisearch_cflags.cmake \
-	build/cmake/redisearch_debug.cmake \
 	deps/friso/CMakeLists.txt \
 	deps/phonetics/CMakeLists.txt \
 	deps/snowball/CMakeLists.txt \
@@ -282,13 +284,14 @@ endif
 
 #----------------------------------------------------------------------------------------------
 
-all: bindirs $(TARGET)
-
 include $(MK)/rules
 
 clean:
 ifeq ($(ALL),1)
 	$(SHOW)rm -rf $(BINROOT)
+else ifeq ($(ALL),all)
+	$(SHOW)rm -rf $(BINROOT)
+	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG='' clean
 else
 	$(SHOW)$(MAKE) -C $(BINDIR) clean
 endif
@@ -366,7 +369,33 @@ fetch:
 
 #----------------------------------------------------------------------------------------------
 
+ifeq ($(COORD),)
+CMAKE_TARGET=rscore
+CMAKE_TARGET_DIR=
+else
+CMAKE_TARGET=coordinator-core
+CMAKE_TARGET_DIR=src/
+endif
+
+CMAKE_TARGET_BUILD_DIR=$(CMAKE_TARGET_DIR)CMakeFiles/$(CMAKE_TARGET).dir
+
+cc:
+	@$(READIES)/bin/sep1
+	$(SHOW)$(MAKE) -C $(BINDIR) -f $(CMAKE_TARGET_BUILD_DIR)/build.make $(CMAKE_TARGET_BUILD_DIR)/$(FILE).o
+
+.PHONY: cc
+
+#----------------------------------------------------------------------------------------------
+
+ifeq ($(COORD),oss)
+WITH_RLTEST=1
+endif
+
 run:
+ifeq ($(WITH_RLTEST),1)
+	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) FORCE='' RLTEST= ENV_ONLY=1 \
+		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+else
 ifeq ($(GDB),1)
 ifeq ($(CLANG),1)
 	$(SHOW)lldb -o run -- redis-server --loadmodule $(abspath $(TARGET))
@@ -375,6 +404,7 @@ else
 endif
 else
 	$(SHOW)redis-server --loadmodule $(abspath $(TARGET))
+endif
 endif
 
 .PHONY: run
@@ -555,9 +585,9 @@ endif
 	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)$(MAKE) build COORD=oss COV=1
 	$(SHOW)$(COVERAGE_RESET)
-	-$(SHOW)$(MAKE) unit-test COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) unit-tests COV=1 $(REJSON_COV_ARG)
 	-$(SHOW)$(MAKE) pytest COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) unit-test COORD=oss COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) unit-tests COORD=oss COV=1 $(REJSON_COV_ARG)
 	-$(SHOW)$(MAKE) pytest COORD=oss COV=1 $(REJSON_COV_ARG)
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
@@ -567,6 +597,9 @@ endif
 
 docker:
 	$(SHOW)$(MAKE) -C build/docker
+ifeq ($(VERIFY),1)
+	$(SHOW)$(MAKE) -C build/docker verify
+endif
 
 # box:
 # ifneq ($(OSNICK),)
@@ -580,6 +613,6 @@ SANBOX_ARGS += -v /w:/w
 endif
 
 sanbox:
-	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:16-x64-bullseye bash
+	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:16-$(ARCH)-bullseye bash
 
 .PHONY: box sanbox

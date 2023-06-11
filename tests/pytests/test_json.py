@@ -126,7 +126,6 @@ def testSearchUpdatedContent(env):
 # TODO: Check arrays
 # TODO: Check Object/Map
 
-@no_msan
 @skip
 def testHandleUnindexedTypes(env):
     # TODO: Ignore and resume indexing when encountering an Object/Array/null
@@ -236,6 +235,32 @@ def testSet(env):
     env.expect('ft.search', 'idx', 'ReJSON').equal(res)
     env.expect('ft.search', 'idx', 're*').equal(res)
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([1, 'doc:1'])
+
+@no_msan
+def testMSet(env):
+    # JSON.MSET (either set the entire keys or a sub-value of the keys)
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.details.a', 'AS', 'a', 'NUMERIC')
+
+    env.execute_command('JSON.MSET', 'doc:1', '$', r'{"t":"ReJSON", "details":{"a":1}}')
+    res = [1, 'doc:1', ['$', '{"t":"ReJSON","details":{"a":1}}']]
+    env.expect('ft.search', 'idx', 'ReJSON').equal(res)
+
+    env.execute_command('JSON.MSET', 'doc:1', '$.details.a', r'8', 'doc:1', '$.t', r'"newReJSON"')
+    res = [1, 'doc:1', ['$', '{"t":"newReJSON","details":{"a":8}}']]
+    env.expect('ft.search', 'idx', '@a:[7 9]').equal(res)
+
+@no_msan
+def testMerge(env):
+    # JSON.MERGE 
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.details.a', 'AS', 'a', 'NUMERIC')
+
+    env.execute_command('JSON.MERGE', 'doc:1', '$', r'{"t":"ReJSON","details":{"a":1}}')
+    res = [1, 'doc:1', ['$', '{"t":"ReJSON","details":{"a":1}}']]
+    env.expect('ft.search', 'idx', 'ReJSON').equal(res)
+
+    env.execute_command('JSON.MERGE', 'doc:1', '$', r'{"t":"newReJSON","details":{"a":8,"b":3}}')
+    res = [1, 'doc:1', ['$', '{"t":"newReJSON","details":{"a":8,"b":3}}']]
+    env.expect('ft.search', 'idx', '@a:[7 9]').equal(res)
 
 @no_msan
 def testDel(env):
@@ -681,7 +706,7 @@ def testAsProjectionRedefinedLabel(env):
     env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '4', '@$.n', 'AS', 'labelT', 'labelN').equal(
         [1, ['labelT', '9072', 'labelN', '9072']])
 
-@no_msan
+@skip(msan=True)
 def testNumeric(env):
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.n', 'AS', 'n', 'NUMERIC', "$.f", 'AS', 'f', 'NUMERIC')
@@ -693,7 +718,6 @@ def testNumeric(env):
     env.expect('FT.SEARCH', 'idx', '@f:[9.5 9.9]', 'RETURN', '3', '$.f', 'AS', 'flt') \
         .equal([1, 'doc:1', ['flt', '9.72']])
 
-@no_msan
 @skip
 def testLanguage(env):
     # TODO: Check stemming? e.g., trad is stem of traduzioni and tradurre ?
@@ -706,7 +730,7 @@ def testLanguage(env):
     env.execute_command('JSON.SET', 'doc:2', '$', r'{"domanda":"perché"}')
     env.expect('ft.search', 'idx2', 'per*', 'RETURN', '1', '$.domanda' ).equal([1, 'doc:2', ['$.domanda', '"perch\xc3\xa9"']])
 
-@no_msan
+@skip(msan=True)
 def testDifferentType(env):
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'hidx', 'ON', 'HASH', 'SCHEMA', '$.t', 'TEXT')

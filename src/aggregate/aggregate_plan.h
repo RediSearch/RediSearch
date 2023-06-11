@@ -83,11 +83,9 @@ typedef struct {
   PLN_BaseStep base;
   const char *rawExpr;
   RSExpr *parsedExpr;
-  int shouldFreeRaw;  // Whether we own the raw expression, used on coordinator only
+  bool shouldFreeRaw;  // Whether we own the raw expression, used on coordinator only
+  bool noOverride;     // Whether we should override the alias if it exists. We allow it by default
 } PLN_MapFilterStep;
-
-// Magic value -- will sort by score. For use in SEARCH mode
-#define PLN_SORTKEYS_DFLSCORE (const char **)0xdeadbeef
 
 /** ARRANGE covers sort, limit, and so on */
 typedef struct {
@@ -95,7 +93,7 @@ typedef struct {
   const RLookupKey **sortkeysLK;  // simple array
   const char **sortKeys;          // array_*
   uint64_t sortAscMap;            // Mapping of ascending/descending. Bitwise
-  int isLimited;                  // Flag if `LIMIT` keyward was used.
+  int isLimited;                  // Flag if `LIMIT` keyword was used.
   uint64_t offset;                // Seek results. If 0, then no paging is applied
   uint64_t limit;                 // Number of rows to output
   bool runLocal;                  // Indicates that the step should run only local (do not distribute)
@@ -121,6 +119,7 @@ typedef struct {
   struct PLN_Reducer {
     const char *name;  // Name of function
     char *alias;       // Output key
+    bool isHidden;     // If the output key is hidden. Used by the coordinator
     ArgsCursor args;
   } * reducers;
   int idx;
@@ -148,6 +147,15 @@ typedef PLN_GroupStep::PLN_Reducer PLN_Reducer;
 #else
 typedef struct PLN_Reducer PLN_Reducer;
 #endif
+
+/**
+ * Find a reducer by name and args in the group step
+ * @param gstp the group step
+ * @param name the name of the reducer
+ * @param ac arguments to the reducer; if an alias is used, it is provided
+ *  here as well.
+ */
+PLN_Reducer *PLNGroupStep_FindReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac);
 
 /* A plan is a linked list of all steps */
 struct AGGPlan {

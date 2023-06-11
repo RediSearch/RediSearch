@@ -126,13 +126,13 @@ def testTagVals(env):
     N = 100
     alltags = set()
     for n in range(N):
-        tags = ('foo %d' % n, 'bar %d' % n, 'x')
+        tags = (f'foo {n}', f'bar {n}', 'x')
         alltags.add(tags[0])
         alltags.add(tags[1])
         alltags.add(tags[2])
 
-        env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
-                                       'tags', ','.join(tags), 'othertags', 'baz %d' % int(n // 2)))
+        env.expect('ft.add', 'idx', f'doc{n}', 1.0, 'fields',
+                   'tags', ','.join(tags), 'othertags', f'baz {int(n // 2)}').ok()
     for _ in r.retry_with_rdb_reload():
         waitForIndex(r, 'idx')
         res = r.execute_command('ft.tagvals', 'idx', 'tags')

@@ -26,6 +26,8 @@ extern "C" {
 GeometryApi* GeometryApi_GetOrCreate(GEOMETRY_LIB_TYPE type, void *);
 void GeometryApi_Free();
 
+// Return the total memory usage of all Geometry indices
+size_t GeometryTotalMemUsage();
 
 #ifdef __cplusplus
 } // extrern "C"

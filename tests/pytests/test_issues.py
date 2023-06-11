@@ -198,8 +198,9 @@ def testIssue2104(env):
   # load a field implicitly with `APPLY`
   res = env.cmd('FT.AGGREGATE', 'hash_idx', '*', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')
   env.assertEqual(toSortedFlatList([1, ['subj1', '20', 'avg', '20']]), toSortedFlatList(res))
-  env.expect('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg') \
-      .equal([1, ['a', '20', 'avg', '20']])
+
+  res = env.cmd('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')
+  env.assertEqual(toSortedFlatList([1, ['a', '20', 'subj1', '20', 'avg', '20']]), toSortedFlatList(res))
 
   # json
   env.execute_command('FT.CREATE', 'json_idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT', 'SORTABLE',
@@ -775,3 +776,24 @@ def test_mod5062(env):
   # verify using counter instead of sorter, even with explicit sort
   aggregate_profile = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'hello', 'SORTBY', '1', '@t')
   env.assertEquals('Counter', aggregate_profile[1][4][2][1])
+
+def test_mod5252(env):
+  # Create an index and add a document
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC').equal('OK')
+  env.expect('HSET', 'doc', 't', 'Hello', 'n', '1').equal(2)
+
+  # Test that the document is returned with the key name on a search command
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'RETURN', '1', '__key')
+  env.assertEqual(res, [1, 'doc', ['__key', 'doc']])
+
+  # Test that the document is returned with the key name WITH ALIAS on a search command
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'RETURN', '3', '__key', 'AS', 'key_name')
+  env.assertEqual(res, [1, 'doc', ['key_name', 'doc']])
+
+  # Test that the document is returned with the key name on an aggregate command
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@__key', 'SORTBY', '1', '@__key')
+  env.assertEqual(res, [1, ['__key', 'doc']])
+
+  # Test that the document is returned with the key name WITH ALIAS on an aggregate command
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '3', '@__key', 'AS', 'key_name', 'SORTBY', '1', '@key_name')
+  env.assertEqual(res, [1, ['key_name', 'doc']])

@@ -82,7 +82,7 @@ commands:
     parameters:
       redis_version:
         type: string
-        default: "6"
+        default: "7"
       getredis_params:
         type: string
         default: ""
@@ -130,7 +130,7 @@ commands:
     parameters:
       redis_version:
         type: string
-        default: "6"
+        default: "7"
       getredis_params:
         type: string
         default: ""
@@ -221,16 +221,22 @@ commands:
       - checkout-all
       - setup-automation
       - run:
+          name: Install Redis
+          shell: /bin/bash -l -eo pipefail
+          command: ./deps/readies/bin/getredis
+      - run:
           name: Build for platform
           shell: /bin/bash -l -eo pipefail
           command: |
             ROOT="$PWD"
             cd build/docker
             export REDISEARCH_POWER_TO_THE_WORKERS=0
-            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
+            make build verify OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
             cd $ROOT
-            mkdir -p tests/pytests/logs
-            tar -xzf bin/artifacts/tests/tests-pytests-logs*.tgz
+            if [[ -e bin/artifacts/tests/tests-pytests-logs*.tgz ]]; then
+                mkdir -p tests/pytests/logs
+                tar -xzf bin/artifacts/tests/tests-pytests-logs*.tgz
+            fi
           no_output_timeout: 60m
       - save-tests-logs
       - early-return-for-forked-pull-requests
@@ -263,15 +269,21 @@ commands:
           shell: /bin/bash -l -eo pipefail
           command: ./deps/readies/bin/getdocker
       - run:
+          name: Install Redis
+          shell: /bin/bash -l -eo pipefail
+          command: ./deps/readies/bin/getredis
+      - run:
           name: Build for platform
           command: |
             ROOT="$PWD"
             cd build/docker
             export REDISEARCH_POWER_TO_THE_WORKERS=0
-            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
+            make build verify OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
             cd $ROOT
-            mkdir -p tests/pytests/logs
-            tar -xzf bin/artifacts/tests/tests-pytests-logs*.tgz
+            if [[ -e bin/artifacts/tests/tests-pytests-logs*.tgz ]]; then
+                mkdir -p tests/pytests/logs
+                tar -xzf bin/artifacts/tests/tests-pytests-logs*.tgz
+            fi
           no_output_timeout: 30m
       - save-tests-logs
       - early-return-for-forked-pull-requests
@@ -387,7 +399,7 @@ jobs:
         default: "QUICK=1"
       redis_version:
         type: string
-        default: "6"
+        default: "7"
       upload:
         type: string
         default: "yes"
@@ -412,7 +424,7 @@ jobs:
     parameters:
       redis_version:
         type: string
-        default: "6"
+        default: "7"
       persist:
         type: string
         default: "no"
@@ -1005,11 +1017,11 @@ workflows:
             parameters:
               platform: [jammy, focal, bionic]
       - build-macos-x64:
-          <<: *on-integ-and-version-tags
+          <<: *on-version-tags
           context: common
       - build-macos-m1:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *on-version-tags
       - coverage:
           <<: *always
       - sanitize:
@@ -1077,8 +1089,8 @@ workflows:
           requires:
             - build-platforms
             - build-arm-platforms
-            - build-macos-x64
-            - build-macos-m1
+            # - build-macos-x64
+            # - build-macos-m1
       - upload-artifacts:
           name: upload-release-artifacts
           context: common
@@ -1099,7 +1111,7 @@ workflows:
           test_params: ""
           matrix:
             parameters:
-              redis_version: ["6.2", "7.0", "7.2-rc1"]
+              redis_version: ["7.2-rc2"]
       - sanitize:
           name: full-sanitize-<< matrix.san-type >>
           <<: *never
@@ -1178,13 +1190,26 @@ workflows:
           test_params: ""
           matrix:
             parameters:
-              redis_version: ["6.0", "6.2", "7.0", "7.2-rc1", "unstable"]
+              redis_version: ["7.2-rc2", "unstable"]
       - sanitize:
           name: nightly-sanitize-<< matrix.san-type >>
           test_params: ""
           matrix:
             parameters:
               san-type: [address]
+
+  nightly-twice-a-week:
+    triggers:
+      - schedule:
+          cron: "20 17 * * 0,3"
+          <<: *on-integ-branch-cron
+    jobs:
+      - build-macos-x64:
+          name: nightly-build-macos-x64
+          context: common
+      - build-macos-m1:
+          name: nightly-build-macos-m1
+          context: common
 
   nightly-benchmarks:
     triggers:

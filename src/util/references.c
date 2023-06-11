@@ -20,8 +20,8 @@
 struct RefManager {
   void *obj;
   RefManager_Free freeCB;
-  uint16_t strong_refcount;
-  uint16_t weak_refcount;
+  uint64_t weak_refcount;
+  uint32_t strong_refcount;
   bool isInvalid;
 };
 
@@ -34,20 +34,20 @@ static RefManager *RefManager_New(void *obj, RefManager_Free freeCB) {
   RefManager *rm = rm_new(*rm);
   rm->obj = obj;
   rm->freeCB = freeCB;
-  rm->strong_refcount = 1;
   rm->weak_refcount = 1;
+  rm->strong_refcount = 1;
   rm->isInvalid = false;
   return rm;
 }
 
 static void RefManager_ReturnStrongReference(RefManager *rm) {
-  if (__atomic_sub_fetch(&rm->strong_refcount, 1, __ATOMIC_RELAXED) == 0) {
+  if (__atomic_sub_fetch(&rm->strong_refcount, 1, __ATOMIC_SEQ_CST) == 0) {
     rm->freeCB(rm->obj);
   }
 }
 
 static void RefManager_ReturnWeakReference(RefManager *rm) {
-  if (__atomic_sub_fetch(&rm->weak_refcount, 1, __ATOMIC_RELAXED) == 0) {
+  if (__atomic_sub_fetch(&rm->weak_refcount, 1, __ATOMIC_SEQ_CST) == 0) {
     rm_free(rm);
   }
 }
@@ -58,7 +58,7 @@ static void RefManager_ReturnReferences(RefManager *rm) {
 }
 
 static void RefManager_InvalidateObject(RefManager *rm) {
-  __atomic_store_n(&rm->isInvalid, 1, __ATOMIC_RELEASE);
+  __atomic_store_n(&rm->isInvalid, 1, __ATOMIC_RELAXED);
 }
 
 static void RefManager_GetWeakReference(RefManager *rm) {
@@ -69,16 +69,16 @@ static void RefManager_GetWeakReference(RefManager *rm) {
 // otherwise increases the strong refcount and returns true.
 static bool RefManager_TryGetStrongReference(RefManager *rm) {
   // Attempt to increase the strong refcount by 1 only if it's not 0
-  uint16_t cur_ref = __atomic_load_n(&rm->strong_refcount, __ATOMIC_RELAXED);
+  uint32_t cur_ref = __atomic_load_n(&rm->strong_refcount, __ATOMIC_RELAXED);
   do {
     if (cur_ref == 0) {
       // Refcount was 0, so the object is being freed
       return false;
     }
-  } while (!__atomic_compare_exchange_n(&rm->strong_refcount, &cur_ref, cur_ref + 1, 0, 0, 0));
+  } while (!__atomic_compare_exchange_n(&rm->strong_refcount, &cur_ref, cur_ref + 1, false, 0, 0));
 
   // We have a valid strong reference. Check if the object is invalid before returning it
-  if (__atomic_load_n(&rm->isInvalid, __ATOMIC_ACQUIRE)) {
+  if (__atomic_load_n(&rm->isInvalid, __ATOMIC_RELAXED)) {
     RefManager_ReturnStrongReference(rm);
     return false;
   } else {
@@ -88,21 +88,31 @@ static bool RefManager_TryGetStrongReference(RefManager *rm) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-StrongRef WeakRef_Promote(WeakRef w_ref) {
+static StrongRef _Ref_GetStrong(RefManager *rm) {
   StrongRef s_ref = {0};
-  if (RefManager_TryGetStrongReference(w_ref.rm)) {
+  if (RefManager_TryGetStrongReference(rm)) {
     // a strong reference also holds a weak reference (reference to the RefManager),
     // so it won't be freed before the object it manages.
-    RefManager_GetWeakReference(w_ref.rm);
-    s_ref.rm = w_ref.rm;
+    RefManager_GetWeakReference(rm);
+    s_ref.rm = rm;
   }
   return s_ref;
 }
 
+static WeakRef _Ref_GetWeak(RefManager *rm) {
+  WeakRef w_ref = {rm};
+  RefManager_GetWeakReference(rm);
+  return w_ref;
+}
+
+// ------------------------------ Public API --------------------------------------------------
+
+StrongRef WeakRef_Promote(WeakRef w_ref) {
+  return _Ref_GetStrong(w_ref.rm);
+}
+
 WeakRef WeakRef_Clone(WeakRef ref) {
-  WeakRef new_ref = {ref.rm};
-  RefManager_GetWeakReference(ref.rm);
-  return new_ref;
+  return _Ref_GetWeak(ref.rm);
 }
 
 void WeakRef_Release(WeakRef w_ref) {
@@ -110,18 +120,11 @@ void WeakRef_Release(WeakRef w_ref) {
 }
 
 WeakRef StrongRef_Demote(StrongRef s_ref) {
-  WeakRef w_ref = {s_ref.rm};
-  RefManager_GetWeakReference(s_ref.rm);
-  return w_ref;
+  return _Ref_GetWeak(s_ref.rm);
 }
 
 StrongRef StrongRef_Clone(StrongRef ref) {
-  StrongRef new_ref = {ref.rm};
-  RefManager_TryGetStrongReference(ref.rm); // will succeed since we already have a strong reference
-  // a strong reference also holds a weak reference (reference to the RefManager),
-  // so it won't be freed before the object it manages.
-  RefManager_GetWeakReference(ref.rm);
-  return new_ref;
+  return _Ref_GetStrong(ref.rm);
 }
 
 void StrongRef_Invalidate(StrongRef s_ref) {

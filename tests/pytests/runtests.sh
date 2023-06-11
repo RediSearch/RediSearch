@@ -10,8 +10,10 @@ READIES=$ROOT/deps/readies
 
 export PYTHONUNBUFFERED=1
 
-VALGRIND_REDIS_VER=6.2
-SAN_REDIS_VER=6.2
+VG_REDIS_VER=7.2-rc2
+VG_REDIS_SUFFIX=7.2
+SAN_REDIS_VER=7.2-rc2
+SAN_REDIS_SUFFIX=7.2
 
 cd $HERE
 
@@ -82,6 +84,7 @@ help() {
 		STATFILE=file         Write test status (0|1) into `file`
 
 		LIST=1                List all tests and exit
+		ENV_ONLY=1            Just start environment, run no tests
 		VERBOSE=1             Print commands and Redis output
 		LOG=1                 Send results to log (even on single-test mode)
 		KEEP=1                Do not remove intermediate files
@@ -148,6 +151,8 @@ setup_rltest() {
 		fi
 	fi
 	
+	RLTEST_ARGS+=" --enable-debug-command"
+
 	if [[ $RLTEST_VERBOSE == 1 ]]; then
 		RLTEST_ARGS+=" -v"
 	fi
@@ -206,11 +211,11 @@ setup_clang_sanitizer() {
 	fi
 
 	if [[ $SAN == addr || $SAN == address ]]; then
-		REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-$SAN_REDIS_VER}
+		REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-$SAN_REDIS_SUFFIX}
 		if ! command -v $REDIS_SERVER > /dev/null; then
 			echo Building Redis for clang-asan ...
-			$READIES/bin/getredis --force -v $SAN_REDIS_VER --own-openssl --no-run \
-				--suffix asan --clang-asan --clang-san-blacklist $ignorelist
+			V="$VERBOSE" runn $READIES/bin/getredis --force -v $SAN_REDIS_VER --own-openssl --no-run \
+				--suffix asan-${SAN_REDIS_SUFFIX} --clang-asan --clang-san-blacklist $ignorelist
 		fi
 
 		# RLTest places log file details in ASAN_OPTIONS
@@ -243,10 +248,10 @@ setup_redis_server() {
 #----------------------------------------------------------------------------------------------
 
 setup_valgrind() {
-	REDIS_SERVER=${REDIS_SERVER:-redis-server-vg}
+	REDIS_SERVER=${REDIS_SERVER:-redis-server-vg-$VG_REDIS_SUFFIX}
 	if ! is_command $REDIS_SERVER; then
 		echo Building Redis for Valgrind ...
-		$READIES/bin/getredis -v $VALGRIND_REDIS_VER --valgrind --suffix vg
+		V="$VERBOSE" runn $READIES/bin/getredis -v ${VG_REDIS_VER} --valgrind --suffix vg-${VG_REDIS_VER}
 	fi
 
 	if [[ $VG_LEAKS == 0 ]]; then
@@ -316,6 +321,54 @@ setup_redisjson() {
 		RLTEST_REJSON_ARGS+=" --module-args '$REJSON_MODARGS'"
 		XREDIS_REJSON_ARGS+=" $REJSON_MODARGS"
 	fi
+}
+
+#----------------------------------------------------------------------------------------------
+
+run_env() {
+	if [[ $COORD == oss ]]; then
+		oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
+		RLTEST_ARGS+=" ${oss_cluster_args}"
+	fi
+
+	rltest_config=$(mktemp "${TMPDIR:-/tmp}/rltest.XXXXXXX")
+	rm -f $rltest_config
+	cat <<-EOF > $rltest_config
+		--env-only
+		--oss-redis-path=$REDIS_SERVER
+		--module $MODULE
+		--module-args '$MODARGS'
+		$RLTEST_ARGS
+		$RLTEST_TEST_ARGS
+		$RLTEST_PARALLEL_ARG
+		$RLTEST_REJSON_ARGS
+		$RLTEST_VG_ARGS
+		$RLTEST_SAN_ARGS
+		$RLTEST_COV_ARGS
+
+		EOF
+
+	# Use configuration file in the current directory if it exists
+	if [[ -n $CONFIG_FILE && -e $CONFIG_FILE ]]; then
+		cat $CONFIG_FILE >> $rltest_config
+	fi
+
+	if [[ $VERBOSE == 1 || $NOP == 1 ]]; then
+		echo "RLTest configuration:"
+		cat $rltest_config
+		[[ -n $VG_OPTIONS ]] && { echo "VG_OPTIONS: $VG_OPTIONS"; echo; }
+	fi
+
+	local E=0
+	if [[ $NOP != 1 ]]; then
+		{ $OP python3 -m RLTest @$rltest_config; (( E |= $? )); } || true
+	else
+		$OP python3 -m RLTest @$rltest_config
+	fi
+
+	[[ $KEEP != 1 ]] && rm -f $rltest_config
+
+	return $E
 }
 
 #----------------------------------------------------------------------------------------------
@@ -595,6 +648,13 @@ if [[ $RLEC != 1 ]]; then
 	setup_redis_server
 fi
 
+#------------------------------------------------------------------------------------- Env only
+
+if [[ $ENV_ONLY == 1 ]]; then
+	run_env
+	exit 0
+fi
+
 #-------------------------------------------------------------------------------- Running tests
 
 if [[ $CLEAR_LOGS != 0 ]]; then
@@ -603,9 +663,16 @@ fi
 
 E=0
 
+if [[ $COV == 1 || -n $SAN || $VG == 1 ]]; then
+	MODARGS="${MODARGS}; timeout 0;"
+fi
+
+if [[ $GC == 0 ]]; then
+	MODARGS="${MODARGS}; NOGC;"
+fi
+
 if [[ -z $COORD ]]; then
-	MODARGS="timeout 0;"
-	
+
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 	fi
@@ -641,11 +708,8 @@ if [[ -z $COORD ]]; then
 
 elif [[ $COORD == oss ]]; then
 	oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
-
-	if [[ $SAN == address ]]; then
-		# Increase timeout for tests with sanitizer in which commands execution takes longer
-		oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 60000"
-	fi
+  # Increase timeout for tests with sanitizer in which commands execution takes longer
+  oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 60000"
 
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
