@@ -589,10 +589,10 @@ def test_profile_crash_mod5323():
         'Iterators profile': [
           { 'Child iterators': [
              { 'Child iterators': 'The number of iterators in the union is 3',
-                'Counter': 3,
-                'Query type': 'FUZZY - hell',
-                'Time': ANY,
-                'Type': 'UNION'
+               'Counter': 3,
+               'Query type': 'FUZZY - hell',
+               'Time': ANY,
+               'Type': 'UNION'
               },
               { 'Child iterators': 'The number of iterators in the union is 4',
                 'Counter': 3,
@@ -609,18 +609,9 @@ def test_profile_crash_mod5323():
         'Parsing time': ANY,
         'Pipeline creation time': ANY,
         'Result processors profile': [
-          { 'Counter': 3,
-            'Time': ANY,
-            'Type': 'Index'
-          },
-          { 'Counter': 3,
-            'Time': ANY,
-            'Type': 'Scorer'
-          },
-          { 'Counter': 3,
-            'Time': ANY,
-            'Type': 'Sorter'
-          }
+          { 'Counter': 3, 'Time': ANY, 'Type': 'Index' },
+          { 'Counter': 3, 'Time': ANY, 'Type': 'Scorer' },
+          { 'Counter': 3, 'Time': ANY, 'Type': 'Sorter' }
         ],
         'Total profile time': ANY
        },
