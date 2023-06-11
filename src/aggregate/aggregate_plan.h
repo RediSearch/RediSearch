@@ -162,7 +162,7 @@ struct AGGPlan {
   PLN_ArrangeStep *arrangement;
   PLN_FirstStep firstStep_s;  // Storage for initial plan
   uint64_t steptypes;         // Mask of step-types contained in plan
-  bool hasKnn;
+  bool hasKnn;                // An indicator that the plan contains a KNN arrange step.
 };
 
 /* Serialize the plan into an array of string args, to create a command to be sent over the network.
@@ -195,6 +195,16 @@ int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t);
  */
 PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln);
 
+/**
+ * Add an arrange step that corresponds a KNN clause in the query, where the field to sort by it is
+ * the distFieldName, and k is the limit. We add this step to the head of the steps linked list,
+ * as this is the first one to be executed before the rest of the local pipeline.
+ * @param pln the local aggregate plan the was built.
+ * @param k the number of results to return from this step onward.
+ * @param distFieldName the field that stores the vector metric distance of some result from the
+ * query vector to sort by it (note that this is owned  by the query node).
+ * @return the newly created step
+ */
 PLN_ArrangeStep *AGPLN_AddKNNArrangeStep(AGGPlan *pln, size_t k, const char *distFieldName);
 
 /**
