@@ -188,7 +188,7 @@ int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t);
  */
 PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln);
 
-PLN_ArrangeStep *AGPLN_AddArrangeStep(AGGPlan *pln);
+PLN_ArrangeStep *AGPLN_AddKNNArrangeStep(AGGPlan *pln, size_t k, const char *distFieldName);
 
 /**
  * Gets the last arrange step for the current pipeline stage. If no arrange

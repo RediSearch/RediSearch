@@ -423,14 +423,9 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         goto err;
       }
       if (knnCtx != NULL) {
-        // If we found KNN, add a arange step using, so it will be the first step after
+        // If we found KNN, add an arange step using, so it will be the first step after
         // the root (which is first plan step to be executed).
-        PLN_ArrangeStep *newStp = AGPLN_AddArrangeStep(&r->ap);
-        newStp->runLocal = true;
-        newStp->limit = knnCtx->knn.k;
-        newStp->sortKeys = array_new(const char *, 1);
-        newStp->sortKeys = array_append(newStp->sortKeys, knnCtx->knn.fieldName);
-        r->ap.hasKnn = true;
+        AGPLN_AddKNNArrangeStep(&r->ap, knnCtx->knn.k, knnCtx->knn.fieldName);
       }
     }
   }

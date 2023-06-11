@@ -138,12 +138,21 @@ PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
   return NULL;
 }
 
-PLN_ArrangeStep *AGPLN_AddArrangeStep(AGGPlan *pln) {
-  PLN_ArrangeStep *ret = rm_calloc(1, sizeof(*ret));
-  ret->base.type = PLN_T_ARRANGE;
-  ret->base.dtor = arrangeDtor;
-  AGPLN_AddStep(pln, &ret->base);
-  return ret;
+PLN_ArrangeStep *AGPLN_AddKNNArrangeStep(AGGPlan *pln, size_t k, const char *distFieldName) {
+  PLN_ArrangeStep *newStp = rm_calloc(1, sizeof(*newStp));
+  newStp->base.type = PLN_T_ARRANGE;
+  newStp->base.dtor = arrangeDtor;
+  dllist_prepend(&pln->steps, &newStp->base.llnodePln);
+
+  newStp->runLocal = true;
+  newStp->isLimited = 1;
+  newStp->limit = k;
+  newStp->sortKeys = array_new(const char *, 1);
+  newStp->sortKeys = array_append(newStp->sortKeys, distFieldName);
+  newStp->sortAscMap = SORTASCMAP_INIT;  // all ascending which is the default
+  pln->hasKnn = true;
+
+  return newStp;
 }
 
 PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln) {
@@ -151,7 +160,11 @@ PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln) {
   if (ret) {
     return ret;
   }
-  return AGPLN_AddArrangeStep(pln);
+  ret = rm_calloc(1, sizeof(*ret));
+  ret->base.type = PLN_T_ARRANGE;
+  ret->base.dtor = arrangeDtor;
+  AGPLN_AddStep(pln, &ret->base);
+  return ret;
 }
 
 RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) {

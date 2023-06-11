@@ -2,10 +2,12 @@ import bz2
 import json
 import itertools
 import os
+import time
+
 from RLTest import Env
 import pprint
 from includes import *
-from common import getConnectionByEnv, toSortedFlatList
+from common import getConnectionByEnv, toSortedFlatList, create_np_array_typed
 
 def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
@@ -958,3 +960,31 @@ def testGroupAfterSort(env):
     #    one for (t == AAAA, n == 0), one for (t == BBBB, n == 0), and one for (t == ????, n == 1)
 
     env.assertEqual(res, expected)
+
+
+def testWithKNN(env):
+    conn = getConnectionByEnv(env)
+    dim = 4
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+                         'TYPE', 'FLOAT32', 'n', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'doc1{1}', 'v', create_np_array_typed([1] * dim).tobytes(), 'n', '3')
+    conn.execute_command('HSET', 'doc5{1}', 'v', create_np_array_typed([5] * dim).tobytes(), 'n', '2')
+    conn.execute_command('HSET', 'doc6{1}', 'v', create_np_array_typed([6] * dim).tobytes(), 'n', '1')
+
+    conn.execute_command('HSET', 'doc2{3}', 'v', create_np_array_typed([2] * dim).tobytes(), 'n', '4')
+    conn.execute_command('HSET', 'doc3{3}', 'v', create_np_array_typed([3] * dim).tobytes(), 'n', '5')
+    conn.execute_command('HSET', 'doc4{3}', 'v', create_np_array_typed([4] * dim).tobytes(), 'n', '6')
+
+    # CASE 1 #
+    time.sleep(10)
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]',
+                               'SORTBY', '1', '@n', 'MAX', '2',
+                               'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
+    print(res)
+
+    # On a standalone mode this is strait forward:
+    # 1. we sort by `n` and take the first 2 results (doc1 and doc3)
+    # 2. we group by `t` and add a `COUNT` reducer as `c`
+    # 3. since doc1 and doc3 has different `t` value, we get two rows, each of COUNT 1.
+    # so the expected result is:
+    expected = [2, ['t', 'AAAA', 'c', '1'], ['t', 'BBBB', 'c', '1']]
