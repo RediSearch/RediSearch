@@ -126,6 +126,27 @@ def testCursorsBG():
         env.assertEqual(buffer_count, n_docs + extra_docs + env.shardsCount)
 
 
+@skip(noWorkers=True)
+def testCursorsBGEdgeCasesSanity():
+    env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
+    env.skipOnCluster()
+    count = 100
+    loadDocs(env, count=count)
+    # Add an extra field to every other document
+    for x in range(0, count, 2):
+        env.cmd('HSET', 'idx_doc{}'.format(x), 'foo', 'bar')
+
+    queries = [
+        f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 SORTBY 1 @f1 MAX {count} LOAD 1 irrelevant',
+        f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 LOAD 1 @foo FILTER exists(@foo)',
+        f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 SORTBY 1 @f1 MAX {count} LOAD 1 foo FILTER exists(@foo)',
+    ]
+
+    # Sanity check - make sure that the queries not crashing or hanging
+    for query in queries:
+        resp = env.cmd(query)
+        resp = exhaustCursor(env, 'idx', resp)
+
 def testMultipleIndexes(env):
     loadDocs(env, idx='idx2', text='goodbye')
     loadDocs(env, idx='idx1', text='hello')

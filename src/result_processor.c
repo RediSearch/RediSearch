@@ -967,7 +967,12 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   RedisSearchCtx_UnlockSpec(sctx);
 
   // Then, lock Redis to guarantee safe access to Redis keyspace
-  LockRedis(rpPufferAndLocker, sctx->redisCtx);
+  if (!isRedisLocked(rpPufferAndLocker)) {
+    // FILTER with cursor edge case: if we are in cursor mode, and have a filter in the safe
+    // section of the pipeline, we might have to fetch more results from the upstream before
+    // we unlock Redis. In this case, we don't lock Redis again.
+    LockRedis(rpPufferAndLocker, sctx->redisCtx);
+  }
 
   // If the spec has been changed since we released the spec lock,
   // we need to validate every buffered result
