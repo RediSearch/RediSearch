@@ -226,6 +226,14 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   return it;
 }
 
+void UI_Foreach(IndexIterator *index_it, void (*callback)(IndexReader *it, void *privdata), void *privdata) {
+  UnionIterator *ui = index_it->ctx;
+  for (int i = 0; i < ui->num; ++i) {
+    IndexIterator *it = ui->its[i];
+    callback(it->ctx, privdata);
+  }
+}
+
 typedef struct {
   IndexCriteriaTester base;
   IndexCriteriaTester **children;

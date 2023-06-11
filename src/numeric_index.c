@@ -554,9 +554,9 @@ RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *fiel
                                         field);
 }
 
-static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
+static NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyName,
                                              int write) {
-  KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, keyName);
+  KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;
   }
@@ -566,7 +566,7 @@ static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleStr
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = (void (*)(void *))NumericRangeTree_Free;
   kdv->p = NewNumericRangeTree();
-  dictAdd(ctx->spec->keysDict, keyName, kdv);
+  dictAdd(spec->keysDict, keyName, kdv);
   return kdv->p;
 }
 
@@ -586,7 +586,7 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
 
     t = RedisModule_ModuleTypeGetValue(key);
   } else {
-    t = openNumericKeysDict(ctx, s, 0);
+    t = openNumericKeysDict(ctx->spec, s, 0);
   }
 
   if (!t) {
@@ -636,7 +636,7 @@ NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyNa
       t = RedisModule_ModuleTypeGetValue(*idxKey);
     }
   } else {
-    t = openNumericKeysDict(ctx, keyName, 1);
+    t = openNumericKeysDict(ctx->spec, keyName, 1);
   }
   return t;
 }
@@ -817,27 +817,8 @@ void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter) {
   rm_free(iter);
 }
 
-/* A callback called after a concurrent context regains execution context. When this happen we need
- * to make sure the key hasn't been deleted or its structure changed, which will render the
- * underlying iterators invalid */
-void NumericRangeIterator_OnReopen(void *privdata) {
+void IndexReader_Reopen(IndexReader *ir, void *privdata) {
   NumericUnionCtx *nu = privdata;
-  IndexSpec *sp = nu->sp;
-  IndexIterator *it = nu->it;
-  IndexReader *ir = it->ctx;
-
-  RedisModuleString *numField = RedisModule_CreateString(NULL, nu->fieldName, strlen(nu->fieldName));
-  RedisSearchCtx sctx = (RedisSearchCtx)SEARCH_CTX_STATIC(RSDummyContext, sp);
-  NumericRangeTree *rt = openNumericKeysDict(&sctx, numField, 0);
-  RedisModule_FreeString(NULL, numField);
-  
-  if (!rt || rt->revisionId != nu->lastRevId) {
-    // The numeric tree was either completely deleted or a node was splitted or removed.
-    // The cursor is invalidated.
-    it->Abort(ir);
-    return;
-  }
-
   // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
   if (ir->gcMarker == ir->idx->gcMarker) {
     // no GC - we just go to the same offset we were at
@@ -857,5 +838,30 @@ void NumericRangeIterator_OnReopen(void *privdata) {
     // seek to the previous last id
     RSIndexResult *dummy = NULL;
     IR_SkipTo(ir, lastId, &dummy);
+  }
+}
+
+/* A callback called after a concurrent context regains execution context. When this happen we need
+ * to make sure the key hasn't been deleted or its structure changed, which will render the
+ * underlying iterators invalid */
+void NumericRangeIterator_OnReopen(void *privdata) {
+  NumericUnionCtx *nu = privdata;
+  IndexSpec *sp = nu->sp;
+  IndexIterator *it = nu->it;
+
+  RedisModuleString *numField = IndexSpec_GetFormattedKeyByName(sp, nu->fieldName, INDEXFLD_T_NUMERIC);
+  NumericRangeTree *rt = openNumericKeysDict(sp, numField, 0);
+
+  if (!rt || rt->revisionId != nu->lastRevId) {
+    // The numeric tree was either completely deleted or a node was splitted or removed.
+    // The cursor is invalidated.
+    it->Abort(it->ctx);
+    return;
+  }
+
+  if (it->type == READ_ITERATOR) {
+    IndexReader_Reopen(it->ctx, nu);
+  } else if (it->type == UNION_ITERATOR) {
+    UI_Foreach(it, IndexReader_Reopen, nu);
   }
 }
