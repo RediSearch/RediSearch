@@ -1938,7 +1938,9 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
   printProfileCounter(counter);
 
   RedisModule_Reply_SimpleString(reply, "Child iterators");
-  RedisModule_Reply_Array(reply);
+  if (reply->resp3) {
+    RedisModule_Reply_Array(reply);
+  }
     for (int i = 0; i < ii->num; i++) {
       if (ii->its[i]) {
         printIteratorProfile(reply, ii->its[i], 0, 0, depth + 1, limited, config);
@@ -1946,7 +1948,9 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
         RedisModule_Reply_Null(reply);
       }
     }
-  RedisModule_Reply_ArrayEnd(reply);
+  if (reply->resp3) {
+    RedisModule_Reply_ArrayEnd(reply);
+  }
 
   RedisModule_Reply_MapEnd(reply);
 }
