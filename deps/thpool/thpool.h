@@ -220,6 +220,50 @@ void redisearch_thpool_pause(redisearch_threadpool);
  */
 void redisearch_thpool_resume(redisearch_threadpool);
 
+/* ============ CRASH LOG API ============ */
+
+/**
+ * @brief Pause the threadpool for crash report
+ * 
+ * @param threadpool     the threadpool where the threads should be paused
+ * @return nothing
+ */
+void redisearch_thpool_pause_before_dump(redisearch_threadpool);
+
+/**
+ * @brief Initialize all DS required to log bt of each thread in the threadpool
+ * and let the threads continue to dump their current state.
+ * The threads will not continue running after they are done writing.
+ * 
+ * @param threadpool     the threadpool of threads to collect dump data from.
+ */
+void redisearch_thpool_ShutdownLog_start(redisearch_threadpool);
+
+/**
+ * @brief Print the data collected by the threads to the crash report.
+ * 
+ * @param ctx             the info ctx to print the data to.
+ * @param threadpool      the threadpool of threads to collect dump data from.
+ */
+typedef struct RedisModuleInfoCtx RedisModuleInfoCtx;
+void redisearch_thpool_ShutdownLog_print(RedisModuleInfoCtx *ctx, redisearch_threadpool);
+
+
+/**
+ * @brief Cleanups related to a specific threadpool dump
+ * 
+ * @param ctx             the info ctx to print the data to.
+ * @param threadpool      the threadpool of threads to collect dump data from.
+ */
+void redisearch_thpool_ShutdownLog_cleanup(redisearch_threadpool);
+/**
+ * 
+ * @brief General cleanups after all the threadpools are done dumping crash data.
+ * 
+ * @param ctx             the info ctx to print the data to.
+ * @param threadpool      the threadpool of threads to collect dump data from.
+ */
+void redisearch_thpool_ShutdownLog_done();
 /**
  * @brief Terminate the working threads (without deallocating the job queue and the thread objects).
  */

@@ -43,4 +43,10 @@ void workersThreadPool_InitIfRequired(void);
 // Terminates the running workers pool after all pending jobs are done.
 void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx);
 
+// Pause the workers before we start collecting crash info.
+void workersThreadPool_pauseBeforeDump();
+
+// Collect crash info.
+void workersThreadPool_LogOnCrash(RedisModuleInfoCtx *ctx);
+
 #endif // POWER_TO_THE_WORKERS

@@ -49,7 +49,9 @@ void workersThreadPool_InitPool() {
 
 // return number of currently working threads
 size_t workersThreadPool_WorkingThreadCount(void) {
-  assert(_workers_thpool != NULL);
+  if (!_workers_thpool) {
+    return 0;
+  }
 
   return redisearch_thpool_num_threads_working(_workers_thpool);
 }
@@ -112,6 +114,28 @@ void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx) {
                       "Terminated workers threadpool of size %lu for loading",
                       RSGlobalConfig.numWorkerThreads);
   }
+}
+
+void workersThreadPool_pauseBeforeDump() {
+  redisearch_thpool_pause_before_dump(_workers_thpool);
+}
+
+
+void workersThreadPool_LogOnCrash(RedisModuleInfoCtx *ctx) {
+
+  if (!_workers_thpool) {
+    return;
+  }
+
+  // Save all threads 
+  redisearch_thpool_ShutdownLog_start(_workers_thpool);
+
+  // Print the back trace of each thread
+  redisearch_thpool_ShutdownLog_print(ctx, _workers_thpool);
+  
+  // cleanup
+  redisearch_thpool_ShutdownLog_cleanup(_workers_thpool);
+
 }
 
 #endif // POWER_TO_THE_WORKERS

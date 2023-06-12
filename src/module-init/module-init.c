@@ -110,7 +110,33 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
+static void RS_pauseModuleThreads() {
+  // puase wrokers
+  workersThreadPool_pauseBeforeDump();
+  // pause cleanup
+  // pause coordinator
+  // pause gc
+  GC_ThreadPoolPauseBeforeDump();
+
+
+  // set on all threads are paused flag
+
+}
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
+  if (for_crash_report) {
+    //first pause all threads 
+    RS_pauseModuleThreads();
+
+  	// #working_threads + main thread
+	 // size_t nthreads = workersThreadPool_WorkingThreadCount() + 1;
+    // output crash related info
+    RedisModule_InfoAddSection(ctx, "oh no crash!");
+
+    workersThreadPool_LogOnCrash(ctx);
+    GC_ThreadPoolLogOnCrash(ctx);
+
+    redisearch_thpool_ShutdownLog_done();
+  }
   // Module version
   RedisModule_InfoAddSection(ctx, "version");
   char ver[64];
