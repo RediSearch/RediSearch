@@ -164,13 +164,17 @@ typedef enum {
 } RPStatus;
 
 typedef enum {
-  RESULT_PROCESSOR_F_ACCESS_REDIS = 0x01,  // The result processor requires access to redis keyspace.
+  RESULT_PROCESSOR_B_DEFAULT = 0,   // Default result processor class. nothing special.
+  RESULT_PROCESSOR_B_ACCESS_REDIS,  // The result processor requires access to redis keyspace.
 
-  // The result processor might break the pipeline by changing RPStatus.
+  // The result processor might abort the pipeline by changing RPStatus.
   // Note that this kind of rp is also responsible to release the spec lock when it breaks the pipeline
   // (declaring EOF or TIMEOUT), by calling UnlockSpec_and_ReturnRPResult.
-  RESULT_PROCESSOR_F_BREAKS_PIPELINE = 0x02
-} BaseRPFlags;
+  RESULT_PROCESSOR_B_ABORTER,
+
+  // The result processor accumulates results (asks for all results from upstream before returning the first one)
+  RESULT_PROCESSOR_B_ACCUMULATOR,
+} TypicalRPBehavior;
 
 /**
  * Result processor structure. This should be "Subclassed" by the actual
@@ -185,8 +189,8 @@ typedef struct ResultProcessor {
 
   // Type of result processor
   ResultProcessorType type;
-
-  uint32_t flags;
+  // Typical behavior of result processor - see BaseRPClass
+  TypicalRPBehavior behavior;
 
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is
@@ -243,7 +247,6 @@ void SortAscMap_Dump(uint64_t v, size_t n);
  * If keys and loadKeys doesn't point to the same address, loadKeys will be freed in the sorter dtor.
  */
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      const RLookupKey **loadKeys, size_t nLoadKeys,
                                       uint64_t ascendingMap, bool quickExit);
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults, bool quickExit);

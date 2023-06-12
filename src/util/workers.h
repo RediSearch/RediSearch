@@ -40,7 +40,10 @@ void workersThreadPool_Destroy(void);
 // Initialize the worker thread pool based on the model configuration.
 void workersThreadPool_InitIfRequired(void);
 
-// Terminates the running workers pool after all pending jobs are done.
+// Actively wait and terminates the running workers pool after all pending jobs are done.
 void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx);
+
+// Set a signal for the running threads to terminate once all pending jobs are done.
+void workersThreadPool_SetTerminationWhenEmpty();
 
 #endif // MT_BUILD
