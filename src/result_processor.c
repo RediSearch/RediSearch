@@ -1065,7 +1065,7 @@ int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_outp
   int rc = RPBufferAndLocker_ResetAndReturnLastCode(rp);
   if (rc == RS_RESULT_OK) {
     // If the upstream has more results, buffer them.
-    return rpbufferNext_BufferResults(rp, result_output);
+    return rpbufferNext_bufferDocs(rp, result_output);
   } else {
     // If the upstream has no more results (rc is not `OK`),
     // we can return the code without a valid result. Return the code.
