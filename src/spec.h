@@ -305,6 +305,13 @@ typedef struct IndexSpec {
   // Current spec version.
   // Should be updated after acquiring the write lock.
   size_t specVersion;
+
+  // Cursors counters
+  size_t cursorsCap;
+  size_t activeCursors;
+
+  // Quick access to the spec's strong ref
+  StrongRef own_ref;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -523,6 +530,14 @@ StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name, int openWr
  * @return the index spec, or NULL if the index does not exist
  */
 StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
+
+/**
+ * Quick access to the spec's strong reference. This function should be called only if 
+ * the spec is valid and protected (by the GIL or the spec's lock). 
+ * The call does not increase the spec's reference counters. 
+ * @return a strong reference to the spec.
+ */
+StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec);
 
 /**
  * @brief Removes the spec from the global data structures
