@@ -96,6 +96,7 @@ typedef struct {
   int isLimited;                  // Flag if `LIMIT` keyword was used.
   uint64_t offset;                // Seek results. If 0, then no paging is applied
   uint64_t limit;                 // Number of rows to output
+  bool runLocal;                  // Indicator that this step should run only local (not in shards)
 } PLN_ArrangeStep;
 
 /** LOAD covers any fields not implicitly found within the document */
@@ -162,7 +163,6 @@ struct AGGPlan {
   PLN_ArrangeStep *arrangement;
   PLN_FirstStep firstStep_s;  // Storage for initial plan
   uint64_t steptypes;         // Mask of step-types contained in plan
-  bool hasKnn;                // An indicator that the plan contains a KNN arrange step.
 };
 
 /* Serialize the plan into an array of string args, to create a command to be sent over the network.

@@ -1062,6 +1062,15 @@ def testWithKNN(env):
     env.assertEqual(res[1:], expected_res)
 
     # CASE 2 #
+    # Run KNN with APPLY - make sure that the pipeline is built correctly - APPLY should be distributed, while
+    # KNN is local (and the upcoming SORYBY steps).
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]=>{$yield_distance_as: square_dist}',
+                               "APPLY", "sqrt(@square_dist)", "AS", "L2_dist", 'SORTBY', '1', '@n', 'MAX', '2',
+                               'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
+    expected_res = [{'L2_dist': '2', 'square_dist': '4', 'n': '3'}, {'L2_dist': '6', 'square_dist': '36', 'n': '4'}]
+    env.assertEqual([to_dict(res_item) for res_item in res[1:]], expected_res)
+
+    # CASE 3 #
     # Run GROUPBY after KNN. Validate that here as well we have the group by step run only local,
     # otherwise, if the groupby+reduce had ran in each shard, we would get that the count is 2 for every value of @n
     # (100 and 200), and that we would have seen in the 'c' value.
@@ -1076,6 +1085,6 @@ def testWithKNN(env):
     expected_res = [['n', '100', 'c', '1'], ['n', '200', 'c', '1']]
     res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 2 @v $blob]=>{$yield_distance_as: dist}',
                                'GROUPBY', '1', '@n',
-                               'REDUCE', 'COUNT', '0', 'AS', 'c',
+                               'REDUCE', 'COUNT', '0', 'AS', 'c', 'SORTBY', '1', '@n',
                                'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
     env.assertEqual(res[1:], expected_res)

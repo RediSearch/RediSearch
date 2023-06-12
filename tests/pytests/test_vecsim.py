@@ -1200,11 +1200,17 @@ def test_ft_aggregate_basic():
     # the vector fields, and the ones with distance lower than 10.
     expected_res = [['dist', '1'], ['dist', '4'], ['dist', '9']]
 
-    for query in ["*=>[KNN 3 @v $BLOB]=>{$yield_distance_as: dist}",
-                  "@v:[VECTOR_RANGE 10 $BLOB]=>{$yield_distance_as: dist}"]:
-        res = conn.execute_command("FT.AGGREGATE", "idx", query, 'SORTBY', '1', '@dist',
+    query = "*=>[KNN 3 @v $BLOB]=>{$yield_distance_as: dist}"
+    res = conn.execute_command("FT.AGGREGATE", "idx", query,
                                    "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes())
-        env.assertEqual(res[1:], expected_res)
+    env.assertEqual(res[1:], expected_res)
+
+    # For range query we explicitly yield the distance metric and sort by it, as it wouldn't be
+    # the case in default, unlike in KNN.
+    query = "@v:[VECTOR_RANGE 10 $BLOB]=>{$yield_distance_as: dist}"
+    res = conn.execute_command("FT.AGGREGATE", "idx", query, 'SORTBY', '1', '@dist',
+                               "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes())
+    env.assertEqual(res[1:], expected_res)
 
     # Test simple hybrid query - get results with n value between 0 and 5, that is ids 6-10. The top 3 among those
     # are doc6, doc7 and doc8 (where the dist is id**2).
