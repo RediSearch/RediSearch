@@ -77,10 +77,9 @@ typedef enum {
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
 
 #ifdef MT_BUILD
-// Indicates whether a query should run in the background (allowed currently for
-// FT.SEARCH queries, only when the immutable alwaysUseThreads config is set). This
+// Indicates whether a query should run in the background. This
 // will also guarantee that there is a running thread pool with al least 1 thread.
-#define RunInThread(r) (RSGlobalConfig.mt_mode == MT_MODE_FULL && IsSearch(r))
+#define RunInThread(r) (RSGlobalConfig.mt_mode == MT_MODE_FULL)
 #endif
 
 typedef enum {
