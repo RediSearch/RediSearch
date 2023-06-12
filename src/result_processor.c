@@ -337,13 +337,6 @@ typedef int (*RPSorterCompareFunc)(const void *e1, const void *e2, const void *u
 typedef struct {
   ResultProcessor base;
 
-  // The desired size of the heap - top N results
-  // If set to 0 this is a growing heap
-  uint32_t size;
-
-  // The offset - used when popping result after we're done
-  uint32_t offset;
-
   // The heap. We use a min-max heap here
   heap_t *pq;
 
@@ -369,14 +362,13 @@ typedef struct {
 /* Yield - pops the current top result from the heap */
 static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
+  SearchResult *cur_best = mmh_pop_max(self->pq);
 
-  // make sure we don't overshoot the heap size, unless the heap size is dynamic
-  if (self->pq->count > 0 && (!self->size || self->offset++ < self->size)) {
-    SearchResult *sr = mmh_pop_max(self->pq);
+  if (cur_best) {
     RLookupRow oldrow = r->rowdata;
-    *r = *sr;
+    *r = *cur_best;
 
-    rm_free(sr);
+    rm_free(cur_best);
     RLookupRow_Cleanup(&oldrow);
     return RS_RESULT_OK;
   }
@@ -385,10 +377,9 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
 
 static void rpsortFree(ResultProcessor *rp) {
   RPSorter *self = (RPSorter *)rp;
-  if (self->pooledResult) {
-    SearchResult_Destroy(self->pooledResult);
-    rm_free(self->pooledResult);
-  }
+
+  SearchResult_Destroy(self->pooledResult);
+  rm_free(self->pooledResult);
 
   // calling mmh_free will free all the remaining results in the heap, if any
   mmh_free(self->pq);
@@ -400,14 +391,8 @@ static void rpsortFree(ResultProcessor *rp) {
 static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
 
-  if (self->pooledResult == NULL) {
-    self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
-  } else {
-    RLookupRow_Wipe(&self->pooledResult->rowdata);
-  }
-
-  SearchResult *h = self->pooledResult;
-  int rc = rp->upstream->Next(rp->upstream, h);
+  // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
+  int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
 
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF || (rc == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
@@ -420,18 +405,18 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   }
 
   // If the queue is not full - we just push the result into it
-  // If the pool size is 0 we always do that, letting the heap grow dynamically
-  if (!self->size || self->pq->count + 1 < self->pq->size) {
+  if (self->pq->count < self->pq->size) {
 
     // copy the index result to make it thread safe - but only if it is pushed to the heap
-    h->indexResult = NULL;
-    mmh_insert(self->pq, h);
-    self->pooledResult = NULL;
-    if (h->score < rp->parent->minScore) {
-      rp->parent->minScore = h->score;
+    self->pooledResult->indexResult = NULL;
+    mmh_insert(self->pq, self->pooledResult);
+    if (self->pooledResult->score < rp->parent->minScore) {
+      rp->parent->minScore = self->pooledResult->score;
     }
+    // we need to allocate a new result for the next iteration
+    self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
     // collected `limit` results. No need to continue.
-    if (self->quickExit && self->pq->count + 1 == self->pq->size) {
+    if (self->quickExit && self->pq->count == self->pq->size) {
       rp->Next = rpsortNext_Yield;
       return rpsortNext_Yield(rp, r);
     }
@@ -445,16 +430,12 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     }
 
     // if needed - pop it and insert a new result
-    if (self->cmp(h, minh, self->cmpCtx) > 0) {
-      h->indexResult = NULL;
-      self->pooledResult = mmh_pop_min(self->pq);
-      mmh_insert(self->pq, h);
-      SearchResult_Clear(self->pooledResult);
-    } else {
-      // The current should not enter the pool, so just leave it as is
-      self->pooledResult = h;
-      SearchResult_Clear(self->pooledResult);
+    if (self->cmp(self->pooledResult, minh, self->cmpCtx) > 0) {
+      self->pooledResult->indexResult = NULL;
+      self->pooledResult = mmh_exchange_min(self->pq, self->pooledResult);
     }
+    // clear the result in preparation for the next iteration
+    SearchResult_Clear(self->pooledResult);
   }
   return RESULT_QUEUED;
 }
@@ -497,15 +478,14 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
     if (!v1 || !v2) {
       // If at least one of these has no sort key, it gets high value regardless of asc/desc
-      int rc;
       if (v1) {
         return 1;
       } else if (v2) {
         return -1;
       } else {
-        rc = h1->docId < h2->docId ? -1 : 1;
+        // Both have no sort key, so they are equal. Continue to next sort key
+        continue;
       }
-      return ascending ? -rc : rc;
     }
 
     int rc = RSValue_Cmp(v1, v2, qerr);
@@ -540,10 +520,8 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->fieldcmp.keys = keys;
   ret->fieldcmp.nkeys = nkeys;
 
-  ret->pq = mmh_init_with_size(maxresults + 1, ret->cmp, ret->cmpCtx, srDtor);
-  ret->size = maxresults;
-  ret->offset = 0;
-  ret->pooledResult = NULL;
+  ret->pq = mmh_init_with_size(maxresults, ret->cmp, ret->cmpCtx, srDtor);
+  ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
   ret->base.Next = rpsortNext_Accum;
   ret->base.Free = rpsortFree;
   ret->base.type = RP_SORTER;
