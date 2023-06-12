@@ -219,7 +219,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   // Init threadpool.
   // Threadpool size can only be set on load.
   if ((RSGlobalConfig.mt_mode == MT_MODE_ONLY_ON_OPERATIONS || RSGlobalConfig.mt_mode == MT_MODE_FULL)  && RSGlobalConfig.numWorkerThreads == 0) {
-    DO_LOG("warning", "Invalid configuration - cannot run in MT_MODE (RCE/RCP) while WORKERS_THREADS"
+    DO_LOG("warning", "Invalid configuration - cannot run in MT_MODE (FULL/ONLY_ON_OPERATIONS) while WORKERS_THREADS"
            " number is set to zero");
     return REDISMODULE_ERR;
   }
