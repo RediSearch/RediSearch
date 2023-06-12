@@ -1060,7 +1060,17 @@ int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_outp
 
   }
 
-  return RPBufferAndLocker_ResetAndReturnLastCode(rp);
+  // If we got here, we finished iterating the buffer.
+  // If the upstream has more results, we can't just return EOF, we need to buffer some more.
+  int rc = RPBufferAndLocker_ResetAndReturnLastCode(rp);
+  if (rc == RS_RESULT_OK) {
+    // If the upstream has more results, buffer them.
+    return rpbufferNext_BufferResults(rp, result_output);
+  } else {
+    // If the upstream has no more results (rc is not `OK`),
+    // we can return the code without a valid result. Return the code.
+    return rc;
+  }
 }
 
 /*********** Buffered and locker functions ***********/
