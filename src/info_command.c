@@ -226,7 +226,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Reply_MapEnd(reply);
   }
 
-  Cursors_RenderStats(reply, &RSCursors, sp->name);
+  Cursors_RenderStats(&g_CursorsList, sp, reply);
 
   if (sp->flags & Index_HasCustomStopwords) {
     ReplyWithStopWordsList(reply, sp->stopwords);

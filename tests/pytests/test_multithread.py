@@ -8,6 +8,7 @@ from common import *
 from RLTest import Env
 
 
+@skip(noWorkers=True)
 def testEmptyBuffer():
     if not MT_BUILD:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
@@ -42,14 +43,15 @@ def CreateAndSearchSortBy(docs_count):
         n += 1
 
 
+@skip(noWorkers=True)
 def testSimpleBuffer():
     if not MT_BUILD:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
     CreateAndSearchSortBy(docs_count = 10)
 
-
 # In this test we have more than BlockSize docs to buffer, we want to make sure there are no leaks
 # caused by the buffer memory management.
+@skip(noWorkers=True)
 def testMultipleBlocksBuffer():
     if not MT_BUILD:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
@@ -90,6 +92,7 @@ def get_pipeline(profile_res):
             return entry
 
 
+@skip(noWorkers=True)
 def test_pipeline():
     if not MT_BUILD:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
