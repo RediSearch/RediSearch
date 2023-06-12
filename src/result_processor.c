@@ -88,9 +88,11 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
   }
 
-  // No root filter - the query has 0 results
-  if (self->iiter == NULL) {
-    return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_EOF);
+  if (RP_SCTX(base)->flags == RS_CTX_UNSET) {
+    // If we need to read the iterators and we didn't lock the spec yet, lock it now
+    // and reopen the keys in the concurrent search context (iterators' validation)
+    RedisSearchCtx_LockSpecRead(RP_SCTX(base));
+    ConcurrentSearchCtx_ReopenKeys(base->parent->conc);
   }
 
   RSIndexResult *r;
