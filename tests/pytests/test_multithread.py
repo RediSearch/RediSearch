@@ -367,7 +367,7 @@ def test_pipeline():
     env.assertEqual(get_pipeline(res), expected_pipeline)
 
 
-def test_invalid_RCP_config():
+def test_invalid_MT_MODE_FULL_config():
     if not MT_BUILD:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
     # Invalid 0 worker threads with MT_MODE_FULL.
@@ -381,7 +381,7 @@ def test_invalid_RCP_config():
         env = Env()
         pass
 
-def test_invalid_RCE_config():
+def test_invalid_MT_MODE_ONLY_ON_OPERATIONS_config():
     if not MT_BUILD:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
     # Invalid 0 worker threads with MT_MODE_ONLY_ON_OPERATIONS.
