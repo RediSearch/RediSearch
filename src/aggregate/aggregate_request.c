@@ -1103,51 +1103,53 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     return up;
   }
 
-  if (astp->sortKeys) {
-    size_t nkeys = array_len(astp->sortKeys);
-    astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
+  if (req->optimizer->type != Q_OPT_NO_SORTER) {
+    if (astp->sortKeys) {
+      size_t nkeys = array_len(astp->sortKeys);
+      astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
 
-    const RLookupKey **sortkeys = astp->sortkeysLK;
+      const RLookupKey **sortkeys = astp->sortkeysLK;
 
-    RLookup *lk = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
+      RLookup *lk = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
 
-    for (size_t ii = 0; ii < nkeys; ++ii) {
-      const char *keystr = astp->sortKeys[ii];
-      RLookupKey *sortkey = RLookup_GetKey(lk, keystr, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
-      if (!sortkey) {
-        // if the key is not sortable, and also not loaded by another result processor,
-        // add it to the loadkeys list.
-        // We failed to get the key for reading, so we can't fail to get it for loading.
-        sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
-        // We currently allow implicit loading only for known fields from the schema.
-        // If the key we loaded is not in the schema, we fail.
-        if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
-          QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", keystr);
-          goto end;
+      for (size_t ii = 0; ii < nkeys; ++ii) {
+        const char *keystr = astp->sortKeys[ii];
+        RLookupKey *sortkey = RLookup_GetKey(lk, keystr, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
+        if (!sortkey) {
+          // if the key is not sortable, and also not loaded by another result processor,
+          // add it to the loadkeys list.
+          // We failed to get the key for reading, so we can't fail to get it for loading.
+          sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
+          // We currently allow implicit loading only for known fields from the schema.
+          // If the key we loaded is not in the schema, we fail.
+          if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
+            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", keystr);
+            goto end;
+          }
+          *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
         }
-        *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
+        sortkeys[ii] = sortkey;
       }
-      sortkeys[ii] = sortkey;
+      if (loadKeys) {
+        // If we have keys to load, add a loader step.
+        ResultProcessor *rpLoader = RPLoader_New(lk, loadKeys, array_len(loadKeys));
+        up = pushRP(req, rpLoader, up);
+      }
+      rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
+      up = pushRP(req, rp, up);
+    } else if (IsSearch(req) && (!IsOptimized(req) || HasScorer(req))) {
+      // No sort? then it must be sort by score, which is the default.
+      // In optimize mode, add sorter for queries with a scorer.
+      rp = RPSorter_NewByScore(limit);
+      up = pushRP(req, rp, up);
     }
-    if (loadKeys) {
-      // If we have keys to load, add a loader step.
-      ResultProcessor *rpLoader = RPLoader_New(lk, loadKeys, array_len(loadKeys));
-      up = pushRP(req, rpLoader, up);
-    }
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap,
-                              req->optimizer->type == Q_OPT_NO_SORTER);
-    up = pushRP(req, rp, up);
-  }
-
-  // No sort? then it must be sort by score, which is the default.
-  // In optimize mode, add sorter for queries with scorer or for `*`.
-  if (rp == NULL && IsSearch(req) && (!IsOptimized(req) || HasScorer(req) || IsWildcard(req))) {
-    rp = RPSorter_NewByScore(limit, req->optimizer->type == Q_OPT_NO_SORTER);
-    up = pushRP(req, rp, up);
   }
 
   if (astp->offset || (astp->limit && !rp)) {
     rp = RPPager_New(astp->offset, astp->limit);
+    up = pushRP(req, rp, up);
+  } else if (IsSearch(req) && IsOptimized(req) && !rp) {
+    rp = RPPager_New(0, limit);
     up = pushRP(req, rp, up);
   }
 
@@ -1177,17 +1179,8 @@ static ResultProcessor *getScorerRP(AREQ *req) {
 
 static int hasQuerySortby(const AGGPlan *pln) {
   const PLN_BaseStep *bstp = AGPLN_FindStep(pln, NULL, NULL, PLN_T_GROUP);
-  if (bstp != NULL) {
-    const PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(pln, NULL, bstp, PLN_T_ARRANGE);
-    if (arng && arng->sortKeys) {
-      return 1;
-    }
-  } else {
-    // no group... just see if we have an arrange step
-    const PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(pln, NULL, NULL, PLN_T_ARRANGE);
-    return arng && arng->sortKeys;
-  }
-  return 0;
+  const PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(pln, NULL, bstp, PLN_T_ARRANGE);
+  return arng && arng->sortKeys;
 }
 
 #define PUSH_RP()                           \
@@ -1229,7 +1222,8 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
    *  * WITHSCORES is defined
    *  * there is no subsequent sorter within this grouping */
   if ((req->reqflags & QEXEC_F_SEND_SCORES) ||
-      (!hasQuerySortby(&req->ap) && IsSearch(req) && !IsCount(req))) {
+      (IsSearch(req) && !IsCount(req) &&
+       (IsOptimized(req) ? HasScorer(req) : !hasQuerySortby(&req->ap)))) {
     rp = getScorerRP(req);
     PUSH_RP();
   }

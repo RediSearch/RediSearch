@@ -236,14 +236,10 @@ void SortAscMap_Dump(uint64_t v, size_t n);
  * @param keys is an array of RLookupkeys to sort by them,
  * @param nkeys is the number of keys.
  * keys will be freed by the arrange step dtor.
- * @param loadKeys is an array of RLookupkeys that their value needs to be loaded from Redis keyspace.
- * @param nLoadKeys is the length of loadKeys.
- * If keys and loadKeys doesn't point to the same address, loadKeys will be freed in the sorter dtor.
  */
-ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascendingMap, bool quickExit);
+ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascendingMap);
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults, bool quickExit);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
