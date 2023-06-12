@@ -1914,8 +1914,14 @@ PRINT_PROFILE_FUNC(printUnionIt) {
 
   RedisModule_Reply_SimpleString(reply, "Child iterators");
   if (printFull) {
-    for (int i = 0; i < ui->norig; i++) {
-      printIteratorProfile(reply, ui->origits[i], 0, 0, depth + 1, limited, config);
+    if (reply->resp3) {
+      RedisModule_Reply_Array(reply);
+    }
+      for (int i = 0; i < ui->norig; i++) {
+        printIteratorProfile(reply, ui->origits[i], 0, 0, depth + 1, limited, config);
+      }
+    if (reply->resp3) {
+      RedisModule_Reply_ArrayEnd(reply);
     }
   } else {
     RedisModule_Reply_Stringf(reply, "The number of iterators in the union is %d", ui->norig);
