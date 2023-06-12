@@ -931,7 +931,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
     RedisModule_Reply_Array(reply);
     RedisModule_Reply_Map(reply);
     sendChunk(req, reply, num);
-    RedisSearchCtx_UnlockSpec(req->sctx); // TODO: add a way to know whether we need to unlock or not
+    RedisSearchCtx_UnlockSpec(req->sctx); // Verify that we release the spec lock
     bool cursor_done = !!(req->stateflags & QEXEC_S_ITERDONE);
 
     // If the cursor is still alive, don't print profile info to save bandwidth
@@ -949,7 +949,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
     // for profile, we return array of [results, cursorID, profile]
     RedisModule_Reply_Array(reply);
     sendChunk(req, reply, num);
-    RedisSearchCtx_UnlockSpec(req->sctx); // TODO: add a way to know whether we need to unlock or not
+    RedisSearchCtx_UnlockSpec(req->sctx); // Verify that we release the spec lock
     bool cursor_done = !!(req->stateflags & QEXEC_S_ITERDONE);
 
     if (cursor_done) {
@@ -985,10 +985,10 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count) {
     return;
   }
   QueryError status = {0};
-  StrongRef execution_ref = {0};
+  StrongRef execution_ref;
   bool has_spec = cursor_HasSpecWeakRef(cursor);
   // If the cursor is associated with a spec, e.g a coordinator ctx.
-  if(has_spec) {
+  if (has_spec) {
     execution_ref = WeakRef_Promote(cursor->spec_ref);
     if (!StrongRef_Get(execution_ref)) {
       // The index was dropped while the cursor was idle.
@@ -1003,10 +1003,7 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count) {
 
   AREQ *req = cursor->execState;
   req->qiter.err = &status;
-  if (req->sctx && req->sctx->spec) {
-    RedisSearchCtx_LockSpecRead(req->sctx); // TODO: add a way to know whether we need to lock or not
-  }
-  ConcurrentSearchCtx_ReopenKeys(&req->conc);
+
   runCursor(reply, cursor, count);
   if (has_spec) {
     StrongRef_Release(execution_ref);
