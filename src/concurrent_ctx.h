@@ -123,6 +123,12 @@ extern int CONCURRENT_POOL_SEARCH;
 /* Run a function on the concurrent thread pool */
 void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type);
 
+// Pause before we start collecting crash info.
+void ConcurrentSearch_pauseBeforeDump();
+
+// Collect crash info.
+void ConcurrentSearch_ShutdownLog(RedisModuleInfoCtx *ctx);
+
 /** Check the elapsed timer, and release the lock if enough time has passed.
  * Return 1 if switching took place
  */

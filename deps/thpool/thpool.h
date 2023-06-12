@@ -229,41 +229,22 @@ void redisearch_thpool_resume(redisearch_threadpool);
  */
 void redisearch_thpool_pause_before_dump(redisearch_threadpool);
 
-/**
- * 
- * @brief General call to let all the threapools start dumping.
- * 
- * @param ctx             the info ctx to print the data to.
- * @param threadpool      the threadpool of threads to collect dump data from.
- */
-void redisearch_thpool_ShutdownLog_start(void);
 
 /**
- * @brief Initialize all DS required to log bt of each thread in the threadpool
- * and let the threads continue to dump their current state.
- * The threads will not continue running after they are done writing.
+ * @brief Collect and print data from all the threads in the thread pool.
  * 
- * @param threadpool     the threadpool of threads to collect dump data from.
- */
-void redisearch_thpool_ShutdownLog_init(redisearch_threadpool);
-
-/**
- * @brief Print the data collected by the threads to the crash report.
+ * @param threadpool            the threadpool of threads to print dump data from.
+ * @param ctx                   the info ctx to print the data to.
+ * @param info_section_title    the title to print before the dump log. Probably includes
+ *                              the name of the thread pool. 
  * 
- * @param ctx             the info ctx to print the data to.
- * @param threadpool      the threadpool of threads to collect dump data from.
  */
 typedef struct RedisModuleInfoCtx RedisModuleInfoCtx;
-void redisearch_thpool_ShutdownLog_print(RedisModuleInfoCtx *ctx, redisearch_threadpool);
+void redisearch_thpool_ShutdownLog( redisearch_threadpool,
+                                    RedisModuleInfoCtx *ctx, 
+                                    const char *info_section_title);
 
 
-/**
- * @brief Cleanups related to a specific threadpool dump
- * 
- * @param ctx             the info ctx to print the data to.
- * @param threadpool      the threadpool of threads to collect dump data from.
- */
-void redisearch_thpool_ShutdownLog_cleanup(redisearch_threadpool);
 /**
  * 
  * @brief General cleanups after all the threadpools are done dumping crash data.

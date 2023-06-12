@@ -71,6 +71,22 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
   redisearch_thpool_add_work(p, func, arg, THPOOL_PRIORITY_HIGH);
 }
 
+// Pause before we start collecting crash info.
+void ConcurrentSearch_pauseBeforeDump() {
+  for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
+    redisearch_thpool_pause_before_dump(threadpools_g[ii]);
+  }
+}
+
+// Collect crash info.
+void ConcurrentSearch_ShutdownLog(RedisModuleInfoCtx *ctx) {
+  for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
+    char threadpool_title[100];
+    sprintf(threadpool_title, "=== CONCURENT SEARCH POOL #%lu THREADS LOG: ===", ii);
+    redisearch_thpool_ShutdownLog(threadpools_g[ii], ctx, threadpool_title);
+  }
+}
+
 static void threadHandleCommand(void *p) {
   ConcurrentCmdCtx *ctx = p;
   // Lock GIL if needed

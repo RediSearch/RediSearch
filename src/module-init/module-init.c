@@ -110,30 +110,30 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
-static void RS_pauseModuleThreads() {
+static void RS_pauseModuleThreadpools() {
   // puase wrokers
   workersThreadPool_pauseBeforeDump();
   // pause cleanup
-  // pause coordinator
+  CleanPool_ThreadPoolPauseBeforeDump();
+  // pause ConcurrentSearch
+  ConcurrentSearch_pauseBeforeDump();
   // pause gc
- // GC_ThreadPoolPauseBeforeDump();
+  GC_ThreadPoolPauseBeforeDump();
+}
 
 
-  // set on all threads are paused flag
-
+static void RS_ShutdownLogModuleThreadpools(RedisModuleInfoCtx *ctx) {
+  GC_ThreadPoolShutdownLog(ctx);
+  workersThreadPool_ShutdownLog(ctx);
+  ConcurrentSearch_ShutdownLog(ctx);
+  CleanPool_ThreadPoolShutdownLog(ctx);
 }
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   if (for_crash_report) {
     //first pause all threads 
-    RS_pauseModuleThreads();
+    RS_pauseModuleThreadpools();
 
-  	// #working_threads + main thread
-	 // size_t nthreads = workersThreadPool_WorkingThreadCount() + 1;
-    // output crash related info
-    RedisModule_InfoAddSection(ctx, "oh no crash!");
-
-    workersThreadPool_LogOnCrash(ctx);
-  //  GC_ThreadPoolLogOnCrash(ctx);
+    RS_ShutdownLogModuleThreadpools(ctx);
 
     redisearch_thpool_ShutdownLog_done();
   }

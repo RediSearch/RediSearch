@@ -44,19 +44,20 @@
 #define err(str, ...)
 #endif
 
+// Save the current threadpool.
+typedef struct redisearch_thpool_t redisearch_thpool_t;
+redisearch_thpool_t *curr_threadpool = NULL;
 // A flag that the threads will be waiting on when paused.
 static volatile int threads_on_hold;
-// Wait until all the ds required for crash log are ready.
-static volatile int wait_for_crash_log_init;
 static volatile int register_to_crash_log;
+// Global number of paused threads in all threadpools.
+static atomic_uint total_paused_threads = 0; 
 
-// Turn this flag if the thread that paused all the threads is part of this threadpool.
-static volatile int called_by_threadpool;
 // Save the curr backtrace buffer size (in terms of thread_bt_data struct)
 // to check if we need to increase the dump container size
 static volatile size_t curr_bt_buffer_size = 0;
-// The number of threads in the threadpool that are paused.
-static uint32_t threads_cnt; 
+// The number of threads in the current threadpool that are paused.
+static uint32_t threads_ids; 
 // The number of threads in the threadpool that done writing their current state to the dump container.
 static atomic_uint threads_done_log_cnt; 
 
@@ -115,17 +116,26 @@ struct thread_bt_data{
   char **printable_bt;              /* back trace symbols */
 };
 
+/* Threadpool flags */
+#define RS_THPOOL_F_KEEP_ALIVE 0x02 /* keep pool alive */ 
+
+#define RS_THPOOL_F_READY_TO_DUMP 0x02 /* turn on to signal the threads 
+                                       they can write to the crash log buffer */
+
+#define RS_THPOOL_F_CONTAINS_CRASHED_THREAD 0x04  /* the thread to start crash report is in 
+                                                      this threadpool  */
+
 /* Threadpool */
-typedef struct redisearch_thpool_t {
+struct redisearch_thpool_t {
   thread** threads;                 /* pointer to threads        */
   size_t total_threads_count;
   volatile size_t num_threads_alive;   /* threads currently alive   */
   volatile size_t num_threads_working; /* threads currently working */
-  volatile int keepalive;           /* keep pool alive           */
   pthread_mutex_t thcount_lock;     /* used for thread count etc */
   pthread_cond_t threads_all_idle;  /* signal to thpool_wait     */
   priority_queue jobqueue;          /* job queue                 */
-} redisearch_thpool_t;
+  volatile uint16_t flags;                   /* threadpool flags */
+};
 
 /* ========================== PROTOTYPES ============================ */
 
@@ -133,9 +143,22 @@ static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, 
 static void* thread_do(struct thread* thread_p);
 static void thread_hold(int sig_id);
 static void thread_destroy(struct thread* thread_p);
+
 static void log_backtrace(statusOnCrash status_on_crash);
 static void thread_bt_buffer_init(uint32_t thread_id, void *bt_addresses_buf, int trace_size, statusOnCrash status_on_crash);
 static void reset_dump_counters();
+
+// redisearch_thpool_ShutdownLog() wraps these functions:
+
+// Initialize all DS required to log bt of each thread in the threadpool
+// and let the threads continue to dump their current state.
+// The threads will not continue execution after done writing.
+static void redisearch_thpool_ShutdownLog_init(redisearch_threadpool);
+// Print the data collected by the threads to the crash report.
+static void redisearch_thpool_ShutdownLog_print(RedisModuleInfoCtx *ctx, redisearch_threadpool);
+// Cleanups related to a specific threadpool dump
+static void redisearch_thpool_ShutdownLog_cleanup(redisearch_threadpool);
+
 
 static int jobqueue_init(jobqueue* jobqueue_p);
 static void jobqueue_clear(jobqueue* jobqueue_p);
@@ -164,7 +187,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
 
   /* Make new thread pool */
   redisearch_thpool_t* thpool_p;
-  thpool_p = (struct redisearch_thpool_t*)rm_malloc(sizeof(struct redisearch_thpool_t));
+  thpool_p = (struct redisearch_thpool_t*)rm_calloc(1, sizeof(struct redisearch_thpool_t));
   if (thpool_p == NULL) {
     err("redisearch_thpool_create(): Could not allocate memory for thread pool\n");
     return NULL;
@@ -172,7 +195,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
   thpool_p->total_threads_count = num_threads;
   thpool_p->num_threads_alive = 0;
   thpool_p->num_threads_working = 0;
-  thpool_p->keepalive = 0;
+  thpool_p->flags = 0;
 
   /* Initialise the job queue */
   if(priority_queue_init(&thpool_p->jobqueue) == -1) {
@@ -211,8 +234,8 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
 
 /* Initialise thread pool */
 void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p) {
-  assert(thpool_p->keepalive == 0);
-  thpool_p->keepalive = 1;
+  assert(!(thpool_p->flags & RS_THPOOL_F_KEEP_ALIVE));
+  thpool_p->flags |= RS_THPOOL_F_KEEP_ALIVE;
 
   /* Thread init */
   size_t n;
@@ -342,7 +365,7 @@ void redisearch_thpool_terminate_threads(redisearch_thpool_t* thpool_p) {
   RedisModule_Assert(thpool_p);
 
   /* End each thread 's infinite loop */
-  thpool_p->keepalive = 0;
+  thpool_p->flags &= ~RS_THPOOL_F_KEEP_ALIVE;
 
   /* Give one second to kill idle threads */
   double TIMEOUT = 1.0;
@@ -382,45 +405,57 @@ void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
 }
 
 void redisearch_thpool_pause_before_dump(redisearch_thpool_t* thpool_p) {
-  // TODO: assert curr_th == size_t_max
+  
+  if (!thpool_p) {
+    return;
+  }
   // set hold flag
   threads_on_hold = 1;
 
+  // set register_to_crash_log flag.
+  register_to_crash_log = 1;
+
   // The threads should wait until we initialize ds and flags used to log 
   // dump info.
-  wait_for_crash_log_init = 1;
-
-  // TODO: save current number of paused threads
+  thpool_p->flags &= ~RS_THPOOL_F_READY_TO_DUMP;
 
   // Raise a signal to all the threads to check the flags above.
   redisearch_thpool_pause(thpool_p);
-
-  // TODO: wait for the threads in the thpool to be paused 
-  // if paused_threads == prev_paused + threadpool size
-}
-void redisearch_thpool_ShutdownLog_start(void) {
-  // TODO: assert curr_th == size_t_max
-
-  // TODO: set curr th to zero
 }
 
 void reset_dump_counters() {
   // zero threads' ids. This number will be increased atomically by each
   // thread so it can write to its own unique idx in the output array.
-  threads_cnt = 0;
+  threads_ids = 0;
 
   // Initialize the finished threads counter
   threads_done_log_cnt = 0;
 }
 
+void redisearch_thpool_ShutdownLog( redisearch_thpool_t* thpool_p,
+                                    RedisModuleInfoCtx *ctx, 
+                                    const char *info_section_title) {
+  if (!thpool_p) {
+    return;
+  }
+
+  RedisModule_InfoAddSection(ctx, info_section_title);
+
+  // Save all threads 
+  redisearch_thpool_ShutdownLog_init(thpool_p);
+
+  // Print the back trace of each thread
+  redisearch_thpool_ShutdownLog_print(ctx, thpool_p);
+  
+  // cleanup
+  redisearch_thpool_ShutdownLog_cleanup(thpool_p);
+}
+
 /* Initialize all DS required to log bt of each thread in the threadpool 
  * and pause the threads.
  */
-void redisearch_thpool_ShutdownLog_init(redisearch_thpool_t* thpool_p) {
+static void redisearch_thpool_ShutdownLog_init(redisearch_thpool_t* thpool_p) {
 	
-  // set register_to_crash_log flag.
-  register_to_crash_log = 1;
-
   size_t threadpool_size = thpool_p->num_threads_alive;
 
   // realloc bt buffer array if needed
@@ -436,18 +471,16 @@ void redisearch_thpool_ShutdownLog_init(redisearch_thpool_t* thpool_p) {
   reset_dump_counters();
 
   // All the ds are ready, the threads can start writing, so turn off wait_for_crash_log_init
-  wait_for_crash_log_init = 0;
-
-  // TODO: increase curr_TH by threadpool size
+  thpool_p->flags |= RS_THPOOL_F_READY_TO_DUMP;
 
   // write the current thread bt
-  if(called_by_threadpool) {
+  if(thpool_p->flags & RS_THPOOL_F_CONTAINS_CRASHED_THREAD) {
     log_backtrace(CRASHED);
   }
 }
 
 /* Prints the log for each thread */
-void redisearch_thpool_ShutdownLog_print(RedisModuleInfoCtx *ctx, redisearch_thpool_t* thpool_p) {
+static void redisearch_thpool_ShutdownLog_print(RedisModuleInfoCtx *ctx, redisearch_thpool_t* thpool_p) {
   // wait for all the threads to finish writing to the bt buffer
   size_t threadpool_size = thpool_p->num_threads_alive;
 
@@ -456,13 +489,13 @@ void redisearch_thpool_ShutdownLog_print(RedisModuleInfoCtx *ctx, redisearch_thp
 // TODO: don't wait indefentily!
   }
 
-  if(threads_cnt != threadpool_size) {
+  if(threads_ids != threadpool_size) {
   // log error, but anyway proceed to log and clean the data already collected
 	  RedisModule_Log(NULL, "warning", "something is wrong: number of threads' log != threadpool_size. Dumping partial data");
   }
 
-  // for each thread in threads_cnt
-  for(size_t i = 0; i < threads_cnt; i++) {
+  // for each thread in threads_ids
+  for(size_t i = 0; i < threads_ids; i++) {
     thread_bt_data curr_bt = printable_bt_buffer[i];
     char buff[100];
     if(curr_bt.status_on_crash == CRASHED) {
@@ -484,22 +517,19 @@ void redisearch_thpool_ShutdownLog_print(RedisModuleInfoCtx *ctx, redisearch_thp
   }
 }
 
-void redisearch_thpool_ShutdownLog_cleanup(redisearch_thpool_t* thpool_p) {
+static void redisearch_thpool_ShutdownLog_cleanup(redisearch_thpool_t* thpool_p) {
   // clear counters and turn off flags.
   reset_dump_counters();
-  called_by_threadpool = 0;
-  // turn on this flag in case there are additional threadpools waiting to dump info.
-  wait_for_crash_log_init = 1;
+  thpool_p->flags &= ~RS_THPOOL_F_READY_TO_DUMP;
+  thpool_p->flags &= ~RS_THPOOL_F_CONTAINS_CRASHED_THREAD;
 }
 
 
 void redisearch_thpool_ShutdownLog_done() {
   // turn off flags
   register_to_crash_log = 0;
-  wait_for_crash_log_init = 0;
 
-  // TODO: set curr th to size_t_max
-
+  total_paused_threads = 0;
   // release bt buffer
   rm_free(printable_bt_buffer);
 }
@@ -509,15 +539,34 @@ void redisearch_thpool_pause(redisearch_thpool_t* thpool_p) {
   size_t n;
 	pthread_t caller = pthread_self();
 
-	for(n = 0; n < thpool_p->num_threads_alive; n++) {
+  // save current number of paused threads
+  uint32_t prev_paused_threads = total_paused_threads;
+
+  // save the current thpool to the global pointer
+  curr_threadpool = thpool_p;
+
+  size_t thread_pool_size = thpool_p->num_threads_alive;
+
+  int called_by_threadpool = 0;
+
+	for(n = 0; n < thread_pool_size; n++) {
 		// do not pause caller
 		if(thpool_p->threads[n]->pthread != caller) {
 			pthread_kill(thpool_p->threads[n]->pthread, SIGUSR2);
 		} else {
       // The calling thread belongs to this thread pool
       called_by_threadpool = 1;
+      thpool_p->flags |= RS_THPOOL_F_CONTAINS_CRASHED_THREAD;
     }
 	}  
+
+  if(thread_pool_size) {
+    // wait for all the threads in the thpool to be paused (except for the caller)
+    uint32_t expected_new_paused_count = prev_paused_threads + thread_pool_size - called_by_threadpool;
+    while(total_paused_threads < expected_new_paused_count){
+      // TODO: dont wait idefently!
+    }
+  }
 }
 
 /* Resume all threads in threadpool */
@@ -558,14 +607,19 @@ static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, 
 /* Sets the calling thread on hold */
 static void thread_hold(int sig_id) {
   (void)sig_id;
-  // TODO: get the id here
+  // save locally the current thpool
+  // NOTE: we assume here that pause is waiting for all the threads in the threadpool
+  // to be paused.
+  redisearch_thpool_t* threadpool = curr_threadpool;
+
+  // increase number of paused threads
+  ++total_paused_threads;
 
  // If we pause to dump info on crash, wait until all data structure
  // required for the report are initalized.
- // TODO: wait if the id is larger than the current TH (initailized to SIZE_T_MAX)
-  while((thread_id > curr_th )&& wait_for_crash_log_init) {
-  }
-  // TODO: send the id to log_bt
+  while(register_to_crash_log && !(threadpool->flags & RS_THPOOL_F_READY_TO_DUMP)) {
+
+  } 
 
   // If we paused to collect crash info, this call will dump the thread's backtrace.
   log_backtrace(FINE);
@@ -605,7 +659,7 @@ static void* thread_do(struct thread* thread_p) {
   struct sigaction act;
   sigemptyset(&act.sa_mask);
   act.sa_flags = 0;
-  act.sa_handler = =thread_hold;
+  act.sa_handler = thread_hold;
   if (sigaction(SIGUSR2, &act, NULL) == -1) {
     err("thread_do(): cannot handle SIGUSR2");
   }
@@ -615,11 +669,11 @@ static void* thread_do(struct thread* thread_p) {
   thpool_p->num_threads_alive += 1;
   pthread_mutex_unlock(&thpool_p->thcount_lock);
 
-  while (thpool_p->keepalive) {
+  while (thpool_p->flags & RS_THPOOL_F_KEEP_ALIVE) {
 
     bsem_wait(thpool_p->jobqueue.has_jobs);
 
-    if (thpool_p->keepalive) {
+    if (thpool_p->flags & RS_THPOOL_F_KEEP_ALIVE) {
 
       pthread_mutex_lock(&thpool_p->thcount_lock);
       thpool_p->num_threads_working++;
@@ -668,14 +722,12 @@ void log_backtrace(statusOnCrash status_on_crash) {
   // if register_to_shutdown_log is on
   if(register_to_crash_log) {
     // atomically load and increase counter
-    // TODO: should be passed in args
-    uint32_t thread_id = __atomic_fetch_add(&threads_cnt, 1, __ATOMIC_RELAXED); 
+    uint32_t thread_id = __atomic_fetch_add(&threads_ids, 1, __ATOMIC_RELAXED); 
 
     void *bt_addresses_buf[BT_BUF_SIZE];
     // Get the stack trace addresses first.
     int trace_size = backtrace(bt_addresses_buf, BT_BUF_SIZE);
     
-    // TODO: position in array should be curr_th - thread_id
     // Translate addresses into symbols and write them to the backtraces array.
     thread_bt_buffer_init(thread_id, bt_addresses_buf, trace_size, status_on_crash);
 

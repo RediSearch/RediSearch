@@ -47,6 +47,6 @@ void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx);
 void workersThreadPool_pauseBeforeDump();
 
 // Collect crash info.
-void workersThreadPool_LogOnCrash(RedisModuleInfoCtx *ctx);
+void workersThreadPool_ShutdownLog(RedisModuleInfoCtx *ctx);
 
 #endif // POWER_TO_THE_WORKERS

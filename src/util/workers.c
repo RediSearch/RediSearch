@@ -121,21 +121,8 @@ void workersThreadPool_pauseBeforeDump() {
 }
 
 
-void workersThreadPool_LogOnCrash(RedisModuleInfoCtx *ctx) {
-
-  if (!_workers_thpool) {
-    return;
-  }
-
-  // Save all threads 
-  redisearch_thpool_ShutdownLog_init(_workers_thpool);
-
-  // Print the back trace of each thread
-  redisearch_thpool_ShutdownLog_print(ctx, _workers_thpool);
-  
-  // cleanup
-  redisearch_thpool_ShutdownLog_cleanup(_workers_thpool);
-
+void workersThreadPool_ShutdownLog(RedisModuleInfoCtx *ctx) {
+  redisearch_thpool_ShutdownLog(_workers_thpool, ctx, "=== WORKERS THREADS LOG: ===");
 }
 
 #endif // POWER_TO_THE_WORKERS

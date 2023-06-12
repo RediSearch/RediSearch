@@ -595,6 +595,10 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
 
 void CleanPool_ThreadPoolStart();
 void CleanPool_ThreadPoolDestroy();
+
+void CleanPool_ThreadPoolPauseBeforeDump();
+void CleanPool_ThreadPoolShutdownLog(RedisModuleInfoCtx *ctx);
+
 size_t CleanInProgressOrPending();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

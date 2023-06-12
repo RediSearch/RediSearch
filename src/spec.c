@@ -1267,6 +1267,14 @@ void CleanPool_ThreadPoolDestroy() {
   }
 }
 
+void CleanPool_ThreadPoolPauseBeforeDump() {
+  redisearch_thpool_pause_before_dump(cleanPool);
+}
+
+void CleanPool_ThreadPoolShutdownLog(RedisModuleInfoCtx *ctx) {
+  redisearch_thpool_ShutdownLog(cleanPool, ctx, "=== CLEAN POOL THREADS LOG: ===");
+}
+
 uint16_t getPendingIndexDrop() {
   return __atomic_load_n(&pendingIndexDropCount_g, __ATOMIC_RELAXED);
 }
