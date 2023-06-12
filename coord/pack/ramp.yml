@@ -1,4 +1,5 @@
 display_name: RediSearch 2
+capability_name: Search & Query
 author: RedisLabs
 email: meir@redislabs.com
 description: High performance search index on top of Redis (with clustering)
