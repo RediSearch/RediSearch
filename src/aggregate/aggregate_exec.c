@@ -788,6 +788,10 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   } else
 #endif // POWER_TO_THE_WORKERS
   {
+    // Take a read lock on the spec (to avoid conflicts with the GC).
+    // This is released in AREQ_Free or while executing the query.
+    RedisSearchCtx_LockSpecRead(r->sctx);
+
     if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
       goto error;
     }
