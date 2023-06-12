@@ -116,7 +116,7 @@ static void RS_pauseModuleThreads() {
   // pause cleanup
   // pause coordinator
   // pause gc
-  GC_ThreadPoolPauseBeforeDump();
+ // GC_ThreadPoolPauseBeforeDump();
 
 
   // set on all threads are paused flag
@@ -133,7 +133,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     RedisModule_InfoAddSection(ctx, "oh no crash!");
 
     workersThreadPool_LogOnCrash(ctx);
-    GC_ThreadPoolLogOnCrash(ctx);
+  //  GC_ThreadPoolLogOnCrash(ctx);
 
     redisearch_thpool_ShutdownLog_done();
   }

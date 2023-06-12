@@ -44,14 +44,20 @@
 #define err(str, ...)
 #endif
 
+// A flag that the threads will be waiting on when paused.
 static volatile int threads_on_hold;
+// Wait until all the ds required for crash log are ready.
 static volatile int wait_for_crash_log_init;
 static volatile int register_to_crash_log;
+
+// Turn this flag if the thread that paused all the threads is part of this threadpool.
 static volatile int called_by_threadpool;
-// Save the latest threadpool size to check if we need to increase the dump container size
-static volatile size_t latest_threadpool_size = 0;
+// Save the curr backtrace buffer size (in terms of thread_bt_data struct)
+// to check if we need to increase the dump container size
+static volatile size_t curr_bt_buffer_size = 0;
+// The number of threads in the threadpool that are paused.
 static uint32_t threads_cnt; 
-// The number of flags that done writing their current state to the dump container.
+// The number of threads in the threadpool that done writing their current state to the dump container.
 static atomic_uint threads_done_log_cnt; 
 
 // Dump container.
@@ -129,7 +135,7 @@ static void thread_hold(int sig_id);
 static void thread_destroy(struct thread* thread_p);
 static void log_backtrace(statusOnCrash status_on_crash);
 static void thread_bt_buffer_init(uint32_t thread_id, void *bt_addresses_buf, int trace_size, statusOnCrash status_on_crash);
-static void reset_dump_flags();
+static void reset_dump_counters();
 
 static int jobqueue_init(jobqueue* jobqueue_p);
 static void jobqueue_clear(jobqueue* jobqueue_p);
@@ -376,6 +382,7 @@ void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
 }
 
 void redisearch_thpool_pause_before_dump(redisearch_thpool_t* thpool_p) {
+  // TODO: assert curr_th == size_t_max
   // set hold flag
   threads_on_hold = 1;
 
@@ -383,7 +390,7 @@ void redisearch_thpool_pause_before_dump(redisearch_thpool_t* thpool_p) {
   // dump info.
   wait_for_crash_log_init = 1;
 
-  // TODO: save current number of puased threads
+  // TODO: save current number of paused threads
 
   // Raise a signal to all the threads to check the flags above.
   redisearch_thpool_pause(thpool_p);
@@ -391,8 +398,13 @@ void redisearch_thpool_pause_before_dump(redisearch_thpool_t* thpool_p) {
   // TODO: wait for the threads in the thpool to be paused 
   // if paused_threads == prev_paused + threadpool size
 }
+void redisearch_thpool_ShutdownLog_start(void) {
+  // TODO: assert curr_th == size_t_max
 
-void reset_dump_flags() {
+  // TODO: set curr th to zero
+}
+
+void reset_dump_counters() {
   // zero threads' ids. This number will be increased atomically by each
   // thread so it can write to its own unique idx in the output array.
   threads_cnt = 0;
@@ -404,7 +416,7 @@ void reset_dump_flags() {
 /* Initialize all DS required to log bt of each thread in the threadpool 
  * and pause the threads.
  */
-void redisearch_thpool_ShutdownLog_start(redisearch_thpool_t* thpool_p) {
+void redisearch_thpool_ShutdownLog_init(redisearch_thpool_t* thpool_p) {
 	
   // set register_to_crash_log flag.
   register_to_crash_log = 1;
@@ -412,17 +424,21 @@ void redisearch_thpool_ShutdownLog_start(redisearch_thpool_t* thpool_p) {
   size_t threadpool_size = thpool_p->num_threads_alive;
 
   // realloc bt buffer array if needed
-  if(threadpool_size > latest_threadpool_size) {
+  if(threadpool_size > curr_bt_buffer_size) {
     printable_bt_buffer = rm_realloc(printable_bt_buffer, threadpool_size * sizeof(thread_bt_data));
+    curr_bt_buffer_size = threadpool_size;
   }
 
   if(printable_bt_buffer == NULL) {
 	  RedisModule_Log(NULL, "warning", "cant realloc printable_bt_buffer, returning with no dump.");
   }
-  reset_dump_flags();
+
+  reset_dump_counters();
 
   // All the ds are ready, the threads can start writing, so turn off wait_for_crash_log_init
   wait_for_crash_log_init = 0;
+
+  // TODO: increase curr_TH by threadpool size
 
   // write the current thread bt
   if(called_by_threadpool) {
@@ -470,15 +486,19 @@ void redisearch_thpool_ShutdownLog_print(RedisModuleInfoCtx *ctx, redisearch_thp
 
 void redisearch_thpool_ShutdownLog_cleanup(redisearch_thpool_t* thpool_p) {
   // clear counters and turn off flags.
-  threads_cnt = 0;
-  threads_done_log_cnt = 0;
+  reset_dump_counters();
   called_by_threadpool = 0;
+  // turn on this flag in case there are additional threadpools waiting to dump info.
+  wait_for_crash_log_init = 1;
 }
 
 
 void redisearch_thpool_ShutdownLog_done() {
-  // turn off flag
+  // turn off flags
   register_to_crash_log = 0;
+  wait_for_crash_log_init = 0;
+
+  // TODO: set curr th to size_t_max
 
   // release bt buffer
   rm_free(printable_bt_buffer);
@@ -542,8 +562,8 @@ static void thread_hold(int sig_id) {
 
  // If we pause to dump info on crash, wait until all data structure
  // required for the report are initalized.
- // TODO: wait if the id is larger than the current TH
-  while(threads_on_hold && wait_for_crash_log_init) {
+ // TODO: wait if the id is larger than the current TH (initailized to SIZE_T_MAX)
+  while((thread_id > curr_th )&& wait_for_crash_log_init) {
   }
   // TODO: send the id to log_bt
 
@@ -585,7 +605,7 @@ static void* thread_do(struct thread* thread_p) {
   struct sigaction act;
   sigemptyset(&act.sa_mask);
   act.sa_flags = 0;
-  act.sa_handler = thread_hold;
+  act.sa_handler = =thread_hold;
   if (sigaction(SIGUSR2, &act, NULL) == -1) {
     err("thread_do(): cannot handle SIGUSR2");
   }
@@ -648,12 +668,14 @@ void log_backtrace(statusOnCrash status_on_crash) {
   // if register_to_shutdown_log is on
   if(register_to_crash_log) {
     // atomically load and increase counter
+    // TODO: should be passed in args
     uint32_t thread_id = __atomic_fetch_add(&threads_cnt, 1, __ATOMIC_RELAXED); 
 
     void *bt_addresses_buf[BT_BUF_SIZE];
     // Get the stack trace addresses first.
     int trace_size = backtrace(bt_addresses_buf, BT_BUF_SIZE);
     
+    // TODO: position in array should be curr_th - thread_id
     // Translate addresses into symbols and write them to the backtraces array.
     thread_bt_buffer_init(thread_id, bt_addresses_buf, trace_size, status_on_crash);
 

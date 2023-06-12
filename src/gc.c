@@ -172,6 +172,27 @@ void GC_ThreadPoolStart() {
   }
 }
 
+void GC_ThreadPoolPauseBeforeDump() {
+  redisearch_thpool_pause_before_dump(gcThreadpool_g);
+}
+
+void GC_ThreadPoolLogOnCrash(RedisModuleInfoCtx *ctx) {
+
+  if (!gcThreadpool_g) {
+    return;
+  }
+
+  // Save all threads 
+  redisearch_thpool_ShutdownLog_init(gcThreadpool_g);
+
+  // Print the back trace of each thread
+  redisearch_thpool_ShutdownLog_print(ctx, gcThreadpool_g);
+  
+  // cleanup
+  redisearch_thpool_ShutdownLog_cleanup(gcThreadpool_g);
+
+}
+
 void GC_ThreadPoolDestroy() {
   if (gcThreadpool_g != NULL) {
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);

@@ -128,7 +128,7 @@ void workersThreadPool_LogOnCrash(RedisModuleInfoCtx *ctx) {
   }
 
   // Save all threads 
-  redisearch_thpool_ShutdownLog_start(_workers_thpool);
+  redisearch_thpool_ShutdownLog_init(_workers_thpool);
 
   // Print the back trace of each thread
   redisearch_thpool_ShutdownLog_print(ctx, _workers_thpool);
