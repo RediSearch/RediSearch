@@ -97,7 +97,7 @@ typedef int (*reducerDistributionFunc)(ReducerDistCtx *rdctx, QueryError *status
 reducerDistributionFunc getDistributionFunc(const char *key);
 
 static PLN_BaseStep *distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN_BaseStep *step,
-                                         PLN_DistributeStep *dstp, int *cont, QueryError *status) {
+                                         PLN_DistributeStep *dstp, QueryError *status) {
   PLN_GroupStep *gr = (PLN_GroupStep *)step;
   PLN_GroupStep *grLocal = PLNGroupStep_New(gr->properties, gr->nproperties);
   PLN_GroupStep *grRemote = PLNGroupStep_New(gr->properties, gr->nproperties);
@@ -134,7 +134,6 @@ static PLN_BaseStep *distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN
     }
   }
 
-  *cont = 0;
   // Once we're sure we want to discard the local group step and replace it with
   // our own
   array_ensure_append(dstp->oldSteps, &step, 1, PLN_GroupStep *);
@@ -162,7 +161,6 @@ cleanup:
       AGPLN_PopStep(origPlan, stp);
       stp->dtor(stp);
     }
-    *cont = 0;
     return NULL;
 }
 
@@ -377,6 +375,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
 
   auto current = const_cast<PLN_BaseStep *>(AGPLN_FindStep(src, NULL, NULL, PLN_T_ROOT));
   int cont = 1;
+  bool hadArrange = false;
 
   PLN_DistributeStep *dstp = (PLN_DistributeStep *)rm_calloc(1, sizeof(*dstp));
   dstp->base.type = PLN_T_DISTRIBUTE;
@@ -397,22 +396,32 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         break;
       }
       case PLN_T_ARRANGE: {
-        PLN_ArrangeStep *astp = (PLN_ArrangeStep *)current;
-        PLN_ArrangeStep *newStp = (PLN_ArrangeStep *)rm_calloc(1, sizeof(*newStp));
+        // If we already had an arrange step, we can't distribute the second one
+        if (!hadArrange) {
+          hadArrange = true;
+          PLN_ArrangeStep *astp = (PLN_ArrangeStep *)current;
+          PLN_ArrangeStep *newStp = (PLN_ArrangeStep *)rm_calloc(1, sizeof(*newStp));
 
-        *newStp = *astp;
-        AGPLN_AddStep(remote, &newStp->base);
-        if (astp->sortKeys) {
-          newStp->sortKeys = array_new(const char *, array_len(astp->sortKeys));
-          for (size_t ii = 0; ii < array_len(astp->sortKeys); ++ii) {
-            newStp->sortKeys = array_append(newStp->sortKeys, astp->sortKeys[ii]);
+          *newStp = *astp;
+          AGPLN_AddStep(remote, &newStp->base);
+          if (astp->sortKeys) {
+            newStp->sortKeys = array_new(const char *, array_len(astp->sortKeys));
+            for (size_t ii = 0; ii < array_len(astp->sortKeys); ++ii) {
+              newStp->sortKeys = array_append(newStp->sortKeys, astp->sortKeys[ii]);
+            }
           }
         }
-        current = PLN_NEXT_STEP(&astp->base);
+        // whether we pushed an arrange step to the remote or not, we still need to move on
+        current = PLN_NEXT_STEP(current);
         break;
       }
       case PLN_T_GROUP:
-        current = distributeGroupStep(src, remote, current, dstp, &cont, status);
+        cont = 0; // After the group step, the rest of the steps are local only.
+        if (hadArrange) {
+          // If we had an arrange step, we must have the group step locally
+          break;
+        }
+        current = distributeGroupStep(src, remote, current, dstp, status);
         if (!current && QueryError_HasError(status)) {
           freeDistStep((PLN_BaseStep *)dstp);
           return REDISMODULE_ERR;
