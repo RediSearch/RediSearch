@@ -2170,3 +2170,41 @@ def test_multiple_range_queries():
                    'RETURN', 2, 'dist_hnsw', 'knn_dist', 'LIMIT', 0, 20).equal(expected_res)
 
         conn.flushall()
+
+
+# Test that a query that contains KNN as subset is parsed correctly (specially in coordinator, where we
+# have a special treatment for these cases)
+def test_query_with_knn_substr():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 2
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+                         'DIM', dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
+
+    for i in range(10):
+        conn.execute_command("HSET", f'doc{i}', "v", create_np_array_typed([i] * dim).tobytes(),
+                             't', 'knn' if i % 2 else 'val')
+
+    # Expect that doc1, doc3 and doc5 that has "knn" in their @t field and their vector in @v
+    # field is the closest to the query vector will be returned.
+    query_with_vecsim = "(@t:KNN)=>[KNN 3 @v $BLOB]=>{$yield_distance_as: dist}"
+    expected_res = [{'dist': '2'}, {'dist': '18'}, {'dist': '50'}]
+    res = conn.execute_command("FT.AGGREGATE", "idx", query_with_vecsim,
+                               "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes())
+    env.assertEqual([to_dict(res_item) for res_item in res[1:]], expected_res)
+
+    res = conn.execute_command("FT.SEARCH", "idx", query_with_vecsim,
+                               "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes(), 'RETURN', '1', 'dist')
+    env.assertEqual([to_dict(res_item) for res_item in res[2::2]], expected_res)
+
+    # Expect that all the odd numbers documents (doc1, doc3, doc5, doc7 and doc9) that has "knn" in their @t field
+    # will be returned.
+    query_without_vecsim = "(@t:KNN)"
+    expected_res = ['doc1', 'doc3', 'doc5', 'doc7', 'doc9']
+    res = conn.execute_command("FT.AGGREGATE", "idx", query_without_vecsim, 'LOAD', '1', '@__key',
+                               'SORTBY', '1', '@__key')
+    env.assertEqual([res_item[1] for res_item in res[1:]], expected_res)
+
+    res = conn.execute_command("FT.SEARCH", "idx", query_without_vecsim,
+                               "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes(), 'nocontent')
+    env.assertEqual(res[1:], expected_res)

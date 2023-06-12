@@ -93,10 +93,10 @@ typedef struct {
   const RLookupKey **sortkeysLK;  // simple array
   const char **sortKeys;          // array_*
   uint64_t sortAscMap;            // Mapping of ascending/descending. Bitwise
-  int isLimited;                  // Flag if `LIMIT` keyword was used.
+  bool isLimited;                 // Flag if `LIMIT` keyword was used.
+  bool runLocal;                  // Indicator that this step should run only local (not in shards)
   uint64_t offset;                // Seek results. If 0, then no paging is applied
   uint64_t limit;                 // Number of rows to output
-  bool runLocal;                  // Indicator that this step should run only local (not in shards)
 } PLN_ArrangeStep;
 
 /** LOAD covers any fields not implicitly found within the document */

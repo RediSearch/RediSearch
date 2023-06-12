@@ -487,16 +487,17 @@ void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
 
 // Prepare a TOPK special case, return a context with the required KNN fields if query is
 // valid and contains KNN section, NULL otherwise (and set proper error in *status* if error
-// was found.
+// was found).
 specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc,
                                         QueryError *status) {
 
   // First, parse the query params if exists, to set the params in the query parser ctx.
   dict *params = NULL;
-  int paramsOffset = RMUtil_ArgExists("PARAMS", argv, argc, 1)+1;
-  if(paramsOffset > 1) {
+  QueryNode* queryNode = NULL;
+  int paramsOffset = RMUtil_ArgExists("PARAMS", argv, argc, 1);
+  if (paramsOffset > 0) {
     ArgsCursor ac;
-    ArgsCursor_InitRString(&ac, argv+paramsOffset, argc-paramsOffset);
+    ArgsCursor_InitRString(&ac, argv+paramsOffset+1, argc-(paramsOffset+1));
     if (parseParams(&params, &ac, status) != REDISMODULE_OK) {
         return NULL;
     }
@@ -516,31 +517,42 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
   };
 
   // KNN queries are parsed only on dialect versions >=2
-  QueryNode* queryNode = RSQuery_ParseRaw_v2(&qpCtx);
-  if(status->code != 0 ) {
-    //fail.
+  queryNode = RSQuery_ParseRaw_v2(&qpCtx);
+  if (QueryError_GetCode(status) !=  QUERY_OK || queryNode == NULL) {
+    // Query parsing failed.
+    goto cleanup;
   }
-  if (queryNode!= NULL && QueryNode_NumParams(queryNode)>0) {
-    if (paramsOffset != 0) {
-      QueryNode_EvalParamsCommon(params, queryNode, status);
-    } else {
-      // fail
-    }
+  if (QueryNode_NumParams(queryNode) > 0 && paramsOffset == 0) {
+    // Query expects params, but no params were given.
+    goto cleanup;
   }
-  if (params) {
-    Param_DictFree(params);
+  if (QueryNode_NumParams(queryNode) > 0) {
+      int ret = QueryNode_EvalParamsCommon(params, queryNode, status);
+      if (ret != REDISMODULE_OK) {
+        // Params evaluation failed.
+        goto cleanup;
+      }
+      Param_DictFree(params);
   }
 
-  if(queryNode!= NULL && queryNode->type == QN_VECTOR) {
+  if (queryNode->type == QN_VECTOR) {
     QueryVectorNode queryVectorNode = queryNode->vn;
     size_t k = queryVectorNode.vq->knn.k;
     specialCaseCtx *ctx = SpecialCaseCtx_New();
     ctx->knn.k = k;
     ctx->knn.fieldName = queryNode->opts.distField ? queryNode->opts.distField : queryVectorNode.vq->scoreField;
     ctx->knn.pq = NULL;
-    ctx->knn.queryNode = queryNode;
+    ctx->knn.queryNode = queryNode;  // take ownership
     ctx->specialCaseType = SPECIAL_CASE_KNN;
     return ctx;
+  }
+
+cleanup:
+  if (params) {
+    Param_DictFree(params);
+  }
+  if (queryNode) {
+    QueryNode_Free(queryNode);
   }
   return NULL;
 }

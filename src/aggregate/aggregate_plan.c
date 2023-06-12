@@ -145,7 +145,7 @@ PLN_ArrangeStep *AGPLN_AddKNNArrangeStep(AGGPlan *pln, size_t k, const char *dis
   // Add the KNN step right after the dummy root step (and before any other step).
   AGPLN_AddAfter(pln, &pln->firstStep_s.base, &newStp->base);
 
-  newStp->isLimited = 1;
+  newStp->isLimited = true;
   newStp->limit = k;
   newStp->sortKeys = array_new(const char *, 1);
   newStp->sortKeys = array_append(newStp->sortKeys, distFieldName);
