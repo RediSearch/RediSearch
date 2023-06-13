@@ -1063,7 +1063,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return REDISMODULE_OK;
       }
     }
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
     // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
     if (RunInThread() && !RedisModule_GetBlockedClientHandle(ctx)) {
       CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
