@@ -1063,7 +1063,7 @@ def testWithKNN(env):
 
     # CASE 2 #
     # Run KNN with APPLY - make sure that the pipeline is built correctly - APPLY should be distributed, while
-    # KNN is local (and the upcoming SORYBY steps).
+    # KNN is local (and the upcoming SORTBY steps).
     res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]=>{$yield_distance_as: square_dist}',
                                "APPLY", "sqrt(@square_dist)", "AS", "L2_dist", 'SORTBY', '1', '@n', 'MAX', '2',
                                'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
