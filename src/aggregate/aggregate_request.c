@@ -1103,51 +1103,53 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     return up;
   }
 
-  if (astp->sortKeys) {
-    size_t nkeys = array_len(astp->sortKeys);
-    astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
+  if (req->optimizer->type != Q_OPT_NO_SORTER) {
+    if (astp->sortKeys) {
+      size_t nkeys = array_len(astp->sortKeys);
+      astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
 
-    const RLookupKey **sortkeys = astp->sortkeysLK;
+      const RLookupKey **sortkeys = astp->sortkeysLK;
 
-    RLookup *lk = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
+      RLookup *lk = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
 
-    for (size_t ii = 0; ii < nkeys; ++ii) {
-      const char *keystr = astp->sortKeys[ii];
-      RLookupKey *sortkey = RLookup_GetKey(lk, keystr, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
-      if (!sortkey) {
-        // if the key is not sortable, and also not loaded by another result processor,
-        // add it to the loadkeys list.
-        // We failed to get the key for reading, so we can't fail to get it for loading.
-        sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
-        // We currently allow implicit loading only for known fields from the schema.
-        // If the key we loaded is not in the schema, we fail.
-        if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
-          QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", keystr);
-          goto end;
+      for (size_t ii = 0; ii < nkeys; ++ii) {
+        const char *keystr = astp->sortKeys[ii];
+        RLookupKey *sortkey = RLookup_GetKey(lk, keystr, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
+        if (!sortkey) {
+          // if the key is not sortable, and also not loaded by another result processor,
+          // add it to the loadkeys list.
+          // We failed to get the key for reading, so we can't fail to get it for loading.
+          sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
+          // We currently allow implicit loading only for known fields from the schema.
+          // If the key we loaded is not in the schema, we fail.
+          if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
+            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", keystr);
+            goto end;
+          }
+          *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
         }
-        *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
+        sortkeys[ii] = sortkey;
       }
-      sortkeys[ii] = sortkey;
+      if (loadKeys) {
+        // If we have keys to load, add a loader step.
+        ResultProcessor *rpLoader = RPLoader_New(lk, loadKeys, array_len(loadKeys));
+        up = pushRP(req, rpLoader, up);
+      }
+      rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
+      up = pushRP(req, rp, up);
+    } else if (IsSearch(req) && (!IsOptimized(req) || HasScorer(req))) {
+      // No sort? then it must be sort by score, which is the default.
+      // In optimize mode, add sorter for queries with a scorer.
+      rp = RPSorter_NewByScore(limit);
+      up = pushRP(req, rp, up);
     }
-    if (loadKeys) {
-      // If we have keys to load, add a loader step.
-      ResultProcessor *rpLoader = RPLoader_New(lk, loadKeys, array_len(loadKeys));
-      up = pushRP(req, rpLoader, up);
-    }
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap,
-                              req->optimizer->type == Q_OPT_NO_SORTER);
-    up = pushRP(req, rp, up);
-  }
-
-  // No sort? then it must be sort by score, which is the default.
-  // In optimize mode, add sorter for queries with scorer or for `*`.
-  if (rp == NULL && IsSearch(req) && (!IsOptimized(req) || HasScorer(req) || IsWildcard(req))) {
-    rp = RPSorter_NewByScore(limit, req->optimizer->type == Q_OPT_NO_SORTER);
-    up = pushRP(req, rp, up);
   }
 
   if (astp->offset || (astp->limit && !rp)) {
     rp = RPPager_New(astp->offset, astp->limit);
+    up = pushRP(req, rp, up);
+  } else if (IsSearch(req) && IsOptimized(req) && !rp) {
+    rp = RPPager_New(0, limit);
     up = pushRP(req, rp, up);
   }
 
@@ -1177,17 +1179,8 @@ static ResultProcessor *getScorerRP(AREQ *req) {
 
 static int hasQuerySortby(const AGGPlan *pln) {
   const PLN_BaseStep *bstp = AGPLN_FindStep(pln, NULL, NULL, PLN_T_GROUP);
-  if (bstp != NULL) {
-    const PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(pln, NULL, bstp, PLN_T_ARRANGE);
-    if (arng && arng->sortKeys) {
-      return 1;
-    }
-  } else {
-    // no group... just see if we have an arrange step
-    const PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(pln, NULL, NULL, PLN_T_ARRANGE);
-    return arng && arng->sortKeys;
-  }
-  return 0;
+  const PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(pln, NULL, bstp, PLN_T_ARRANGE);
+  return arng && arng->sortKeys;
 }
 
 #define PUSH_RP()                           \
@@ -1229,7 +1222,8 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
    *  * WITHSCORES is defined
    *  * there is no subsequent sorter within this grouping */
   if ((req->reqflags & QEXEC_F_SEND_SCORES) ||
-      (!hasQuerySortby(&req->ap) && IsSearch(req) && !IsCount(req))) {
+      (IsSearch(req) && !IsCount(req) &&
+       (IsOptimized(req) ? HasScorer(req) : !hasQuerySortby(&req->ap)))) {
     rp = getScorerRP(req);
     PUSH_RP();
   }
@@ -1300,6 +1294,15 @@ static void PushUpStream(ResultProcessor *rp_to_place, ResultProcessor *rp) {
   rp_to_place->parent = rp->parent;
 }
 
+// We need to know if the last accumulator is wrapped by a result processor that accesses redis, and therefore
+// is wrapped by a buffer locker and an unlocker. If so, and we are in cursor mode, we need to push the buffer locker
+// downstream after the first cursor read (before the first `FT.CURSOR READ` command). We therefore turn on the flag
+// QEXEC_S_NEEDS_BUFFER_REEVAL in the query execution state.
+// To follow the pipeline and find out whether we wrap the last accumulator or not, we use the following state machine:
+typedef enum { WRAPPING, NOT_WRAPPING, UNSET, SEEN_ACCUMULATOR_BEFORE_UNLOCKER } WrapsLastAccumulatorState;
+// the `WRAPPING` and `NOT_WRAPPING` states are terminal states, and the `UNSET` state is the initial state.
+// the `WRAPPING` state is the only accepting state.
+
 // Add Buffer-Locker and Unlocker result processors to the pipeline.
 // The Buffer-Locker rp is added as the upstream of the first result processor that might
 // access Redis keyspace.
@@ -1319,6 +1322,7 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
   // root<-buffer-locker<-loader<-sorter<-loader<-unlocker
   ResultProcessor *upstream_is_buffer_locker = NULL;
   ResultProcessor *upstream_is_unlcoker = NULL;
+  WrapsLastAccumulatorState state = UNSET;
 
   ResultProcessor dummy_rp = {.upstream = req->qiter.endProc};
 
@@ -1328,9 +1332,17 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
     if (curr_rp->behavior == RESULT_PROCESSOR_B_ACCESS_REDIS) {
       // If we found (another) RP that accesses redis, update the upstream_is_buffer_locker.
       upstream_is_buffer_locker = curr_rp;
-    } else if (curr_rp->behavior == RESULT_PROCESSOR_B_ACCUMULATOR && !upstream_is_buffer_locker) {
+      if (state == SEEN_ACCUMULATOR_BEFORE_UNLOCKER) {
+        state = WRAPPING;
+      }
+    } else if (curr_rp->behavior == RESULT_PROCESSOR_B_ACCUMULATOR) {
       // If we found an accumulator and we didn't find any RP that accesses redis yet, reset the upstream_is_unlcoker.
-      upstream_is_unlcoker = NULL;
+      if (!upstream_is_buffer_locker) {
+        upstream_is_unlcoker = NULL;
+        state = NOT_WRAPPING;
+      } else {
+        state = SEEN_ACCUMULATOR_BEFORE_UNLOCKER;
+      }
     }
     // If we didn't find a relevant RP for unlocker yet and the next RP access redis or is an aborter, set the upstream_is_unlcoker.
     if (!upstream_is_unlcoker && (curr_rp->upstream->behavior == RESULT_PROCESSOR_B_ACCESS_REDIS ||
@@ -1344,8 +1356,14 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
     return;
   }
 
+  // If we need to add the buffer-locker before the last accumulator and the unlocker after it,
+  // on cursor mode we need to reevaluate the buffer location.
+  if (state == WRAPPING) {
+    req->stateflags |= QEXEC_S_NEEDS_BUFFER_REEVAL;
+  }
+
   // TODO: multithreaded: Add better estimation to the buffer initial size
-  ResultProcessor *rpBufferAndLocker = RPBufferAndLocker_New(DEFAULT_BUFFER_BLOCK_SIZE, IndexSpec_GetVersion(req->sctx->spec));
+  ResultProcessor *rpBufferAndLocker = RPBufferAndLocker_New(DEFAULT_BUFFER_BLOCK_SIZE);
 
   // Place buffer and locker as the upstream of the first_to_access_redis result processor.
   PushUpStream(rpBufferAndLocker, upstream_is_buffer_locker);
@@ -1564,7 +1582,7 @@ void AREQ_Free(AREQ *req) {
   // we need also to detach the ("Thread Safe") context.
   RedisModuleCtx *thctx = NULL;
   if (req->sctx) {
-    if (req->reqflags & QEXEC_F_HAS_THCTX || req->reqflags & QEXEC_F_IS_CURSOR) {
+    if (req->reqflags & QEXEC_F_IS_CURSOR) {
       thctx = req->sctx->redisCtx;
       req->sctx->redisCtx = NULL;
     }

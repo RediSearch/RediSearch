@@ -8,9 +8,8 @@ from common import *
 from RLTest import Env
 
 
+@skip(noWorkers=True)
 def testEmptyBuffer():
-    if not POWER_TO_THE_WORKERS:
-        raise unittest.SkipTest("Skipping since worker threads are not enabled")
     env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
@@ -42,17 +41,14 @@ def CreateAndSearchSortBy(docs_count):
         n += 1
 
 
+@skip(noWorkers=True)
 def testSimpleBuffer():
-    if not POWER_TO_THE_WORKERS:
-        raise unittest.SkipTest("Skipping since worker threads are not enabled")
     CreateAndSearchSortBy(docs_count = 10)
-
 
 # In this test we have more than BlockSize docs to buffer, we want to make sure there are no leaks
 # caused by the buffer memory management.
+@skip(noWorkers=True)
 def testMultipleBlocksBuffer():
-    if not POWER_TO_THE_WORKERS:
-        raise unittest.SkipTest("Skipping since worker threads are not enabled")
     CreateAndSearchSortBy(docs_count = 2500)
 
 '''
@@ -90,9 +86,8 @@ def get_pipeline(profile_res):
             return entry
 
 
+@skip(noWorkers=True)
 def test_pipeline():
-    if not POWER_TO_THE_WORKERS:
-        raise unittest.SkipTest("Skipping since worker threads are not enabled")
     env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
     env.skipOnCluster()
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
