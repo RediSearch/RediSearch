@@ -53,8 +53,6 @@ def testSimpleBuffer():
 # caused by the buffer memory management.
 @skip(noWorkers=True)
 def testMultipleBlocksBuffer():
-    if not MT_BUILD:
-        raise unittest.SkipTest("Skipping since worker threads are not enabled")
     CreateAndSearchSortBy(docs_count = 2500)
 
 '''
@@ -94,8 +92,6 @@ def get_pipeline(profile_res):
 
 @skip(noWorkers=True)
 def test_pipeline():
-    if not MT_BUILD:
-        raise unittest.SkipTest("Skipping since worker threads are not enabled")
     env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
     env.skipOnCluster()
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
