@@ -373,7 +373,9 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
       resultsLen = MIN(limit, MIN(reqLimit, reqResults));
     }
 
-    OPTMZ(QOptimizer_UpdateTotalResults(req));
+    if (IsOptimized(req)) {
+      QOptimizer_UpdateTotalResults(req);
+    }
 
     RedisModule_ReplyKV_Array(reply, "error"); // >errors
       if (rc == RS_RESULT_TIMEDOUT) {
@@ -460,7 +462,9 @@ done_3:
 
     RedisModule_Reply_Array(reply); // results @@
 
-    OPTMZ(QOptimizer_UpdateTotalResults(req));
+    if (IsOptimized(req)) {
+      QOptimizer_UpdateTotalResults(req);
+    }
 
     if (rc == RS_RESULT_TIMEDOUT) {
       if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
@@ -645,7 +649,9 @@ int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status) {
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
 
   // check possible optimization after creation of IndexIterator tree
-  OPTMZ(QOptimizer_Iterators(req, req->optimizer));
+  if (IsOptimized(req)) {
+    QOptimizer_Iterators(req, req->optimizer);
+  }
 
   TimedOut_WithStatus(&req->timeoutTime, status);
 
