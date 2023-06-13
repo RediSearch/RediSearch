@@ -310,5 +310,5 @@ def testExceedCursorCapacity(env):
 
 @skip(noWorkers=True)
 def testExceedCursorCapacityBG():
-    env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
+    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
     testExceedCursorCapacity(env)
