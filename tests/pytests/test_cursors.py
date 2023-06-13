@@ -56,7 +56,7 @@ def testCursors(env):
 
 @skip(noWorkers=True)
 def testCursorsBG():
-    env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE _PRINT_PROFILE_CLOCK FALSE')
+    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL _PRINT_PROFILE_CLOCK FALSE')
     testCursors(env)
 
     # TODO: use profile to verify that the pipeline was changed.
@@ -128,7 +128,7 @@ def testCursorsBG():
 
 @skip(noWorkers=True)
 def testCursorsBGEdgeCasesSanity():
-    env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
+    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
     env.skipOnCluster()
     count = 100
     loadDocs(env, count=count)
@@ -290,7 +290,7 @@ def testIndexDropWhileIdle(env):
 
 @skip(noWorkers=True)
 def testIndexDropWhileIdleBG():
-    env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
+    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
     testIndexDropWhileIdle(env)
 
 def testExceedCursorCapacity(env):
