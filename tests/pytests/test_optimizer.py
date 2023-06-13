@@ -647,9 +647,9 @@ def testOptimizeArgs(env):
     ''' Test enabling/disabling optimization according to args and dialect '''
 
     conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     for i in range(0, 20):
         conn.execute_command('HSET', i, 'n', i)
-    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     query = ['FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '0', '10']
 
     # DIALECT 4 ==> WITHOUTCOUNT (if not explicitly specified)
@@ -670,9 +670,9 @@ def testOptimizeArgsDefault():
 
     env = Env(moduleArgs='DEFAULT_DIALECT 4')
     conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     for i in range(0, 20):
         conn.execute_command('HSET', i, 'n', i)
-    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     query = ['FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '0', '10']
 
     # DEFAULT DIALECT 4 ==> WITHOUTCOUNT (if not explicitly specified)
