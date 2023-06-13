@@ -31,7 +31,7 @@ is number of results to read. This parameter overrides `COUNT` specified in `FT.
 
 ## Return
 
-FT.CURSOR DEL returns an array reply where each row is an array reply and represents a single aggregate result.
+FT.CURSOR READ returns an array reply where each row is an array reply and represents a single aggregate result.
 
 ## Examples
 

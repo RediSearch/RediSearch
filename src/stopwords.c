@@ -166,12 +166,13 @@ void StopWordList_RdbSave(RedisModuleIO *rdb, StopWordList *sl) {
   TrieMapIterator_Free(it);
 }
 
-void ReplyWithStopWordsList(RedisModuleCtx *ctx, struct StopWordList *sl) {
-  RedisModule_ReplyWithSimpleString(ctx, "stopwords_list");
+void ReplyWithStopWordsList(RedisModule_Reply *reply, struct StopWordList *sl) {
+  RedisModule_Reply_SimpleString(reply, "stopwords_list");
 
   if (sl == NULL) {
-    RedisModule_ReplyWithArray(ctx, 1);
-    RedisModule_ReplyWithNull(ctx);
+    RedisModule_Reply_Array(reply);
+      RedisModule_Reply_Null(reply);
+    RedisModule_Reply_ArrayEnd(reply);
     return;
   }
 
@@ -179,15 +180,15 @@ void ReplyWithStopWordsList(RedisModuleCtx *ctx, struct StopWordList *sl) {
   char *str;
   tm_len_t len;
   void *ptr;
-  size_t i = 0;
 
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  while (TrieMapIterator_Next(it, &str, &len, &ptr)) {
-    RedisModule_ReplyWithStringBuffer(ctx, str, len);
-    ++i;
-  }
-  RedisModule_ReplySetArrayLength(ctx, i);
+  RedisModule_Reply_Array(reply);
+    for (size_t i = 0; TrieMapIterator_Next(it, &str, &len, &ptr); ++i) {
+      RedisModule_Reply_StringBuffer(reply, str, len);
+    }
+  RedisModule_Reply_ArrayEnd(reply);
+  
   TrieMapIterator_Free(it);
+
 }
 
 #ifdef FTINFO_FOR_INFO_MODULES

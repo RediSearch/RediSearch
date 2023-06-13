@@ -18,6 +18,10 @@ from RLTest.env import Query
 import numpy as np
 from scipy import spatial
 from pprint import pprint as pp
+from deepdiff import DeepDiff
+from unittest.mock import ANY, _ANY
+from unittest import SkipTest
+import inspect
 
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
@@ -57,8 +61,13 @@ def waitForIndex(env, idx):
     waitForRdbSaveToFinish(env)
     while True:
         res = env.execute_command('ft.info', idx)
-        if int(res[res.index('indexing') + 1]) == 0:
-            break
+        try:
+            if int(res[res.index('indexing') + 1]) == 0:
+                break
+        except:
+            # RESP3
+            if int(res['indexing']) == 0:
+                break
         time.sleep(0.1)
 
 def waitForNoCleanup(env, idx, max_wait=30):
@@ -275,26 +284,46 @@ def unstable(f):
         return f(env, *args, **kwargs)
     return wrapper
 
-def skip(cluster=False, macos=False, asan=False, msan=False):
+def skip(cluster=False, macos=False, asan=False, msan=False, noWorkers=False):
     def decorate(f):
-        @wraps(f)
-        def wrapper(x, *args, **kwargs):
-            env = x if isinstance(x, Env) else x.env
-            if not (cluster or macos or asan or msan):
-                env.skip()
-            if cluster and env.isCluster():
-                env.skip()
-            if macos and OS == 'macos':
-                env.skip()
-            if asan and SANITIZER == 'address':
-                env.skip()
-            if msan and SANITIZER == 'memory':
-                env.skip()
-            return f(x, *args, **kwargs)
+        if len(inspect.signature(f).parameters) == 0:
+            @wraps(f)
+            def wrapper(*args, **kwargs):
+                if not (cluster or macos or asan or msan or noWorkers):
+                    raise SkipTest()
+                if macos and OS == 'macos':
+                    raise SkipTest()
+                if asan and SANITIZER == 'address':
+                    raise SkipTest()
+                if msan and SANITIZER == 'memory':
+                    raise SkipTest()
+                if noWorkers and not POWER_TO_THE_WORKERS:
+                    raise SkipTest()
+
+                return f(*args, **kwargs)
+        else:
+            @wraps(f)
+            def wrapper(x, *args, **kwargs):
+                env = x if isinstance(x, Env) else x.env
+                if not (cluster or macos or asan or msan or noWorkers):
+                    env.skip()
+                if cluster and env.isCluster():
+                    env.skip()
+                if macos and OS == 'macos':
+                    env.skip()
+                if asan and SANITIZER == 'address':
+                    env.skip()
+                if msan and SANITIZER == 'memory':
+                    env.skip()
+                if noWorkers and not POWER_TO_THE_WORKERS:
+                    env.skip()
+                return f(x, *args, **kwargs)
         return wrapper
     return decorate
 
 def to_dict(res):
+    if type(res) == dict:
+        return res
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
 
@@ -411,7 +440,6 @@ class ConditionalExpected:
             func(self.env.expect(*self.query))
         return self
 
-
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32', ids_offset=0):
     conn = getConnectionByEnv(env)
     np.random.seed(10)
@@ -421,3 +449,9 @@ def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOA
             query_vec = vector
         conn.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
     return query_vec
+
+def dict_diff(res, exp, ignore_order=True, significant_digits=7):
+    dd = DeepDiff(res, exp, exclude_types={_ANY}, ignore_order=ignore_order, significant_digits=significant_digits)
+    if dd != {}:
+        pp(dd)
+    return dd

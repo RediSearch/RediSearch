@@ -41,16 +41,6 @@ extern "C" {
  *
  ********************************************************************************/
 
-/* Query processing state */
-typedef enum {
-  QITR_S_RUNNING,
-  QITR_S_ABORTED,
-
-  // TimedOut state differs from aborted in that it lets the processors drain their accumulated
-  // results instead of stopping in our tracks and returning nothing.
-  QITR_S_TIMEDOUT
-} QITRState;
-
 typedef enum {
   RP_INDEX,
   RP_LOADER,
@@ -93,11 +83,15 @@ typedef struct {
   // others who might disqualify results
   uint32_t totalResults;
 
+  // the number of results we requested to return at the current chunk. This value may be used by
+  // processors to optimize their work and to signal RP in the upstream their limit.
+  uint32_t resultLimit;
+
+  // The spec version at the start of the query. Used to check if the spec changed during the query
+  size_t initialSpecVersion;
+
   // Object which contains the error
   QueryError *err;
-
-  // the state - used for aborting queries
-  QITRState state;
 
   struct timespec startTime;
 
@@ -107,6 +101,13 @@ typedef struct {
 IndexIterator *QITR_GetRootFilter(QueryIterator *it);
 void QITR_PushRP(QueryIterator *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryIterator *qitr);
+
+
+/*
+ * Flags related to the search results.
+ */
+
+#define SEARCHRESULT_VAL_IS_NULL 0x01
 
 /*
  * SearchResult - the object all the processing chain is working on.
@@ -131,6 +132,9 @@ typedef struct {
 
   // Row data. Use RLookup_* functions to access
   RLookupRow rowdata;
+
+  // Result flags.
+  uint8_t flags;
 } SearchResult;
 
 /* Result processor return codes */
@@ -154,13 +158,17 @@ typedef enum {
 } RPStatus;
 
 typedef enum {
-  RESULT_PROCESSOR_F_ACCESS_REDIS = 0x01,  // The result processor requires access to redis keyspace.
+  RESULT_PROCESSOR_B_DEFAULT = 0,   // Default result processor class. nothing special.
+  RESULT_PROCESSOR_B_ACCESS_REDIS,  // The result processor requires access to redis keyspace.
 
-  // The result processor might break the pipeline by changing RPStatus.
+  // The result processor might abort the pipeline by changing RPStatus.
   // Note that this kind of rp is also responsible to release the spec lock when it breaks the pipeline
   // (declaring EOF or TIMEOUT), by calling UnlockSpec_and_ReturnRPResult.
-  RESULT_PROCESSOR_F_BREAKS_PIPELINE = 0x02
-} BaseRPFlags;
+  RESULT_PROCESSOR_B_ABORTER,
+
+  // The result processor accumulates results (asks for all results from upstream before returning the first one)
+  RESULT_PROCESSOR_B_ACCUMULATOR,
+} TypicalRPBehavior;
 
 /**
  * Result processor structure. This should be "Subclassed" by the actual
@@ -175,8 +183,8 @@ typedef struct ResultProcessor {
 
   // Type of result processor
   ResultProcessorType type;
-
-  uint32_t flags;
+  // Typical behavior of result processor - see BaseRPClass
+  TypicalRPBehavior behavior;
 
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is
@@ -228,15 +236,10 @@ void SortAscMap_Dump(uint64_t v, size_t n);
  * @param keys is an array of RLookupkeys to sort by them,
  * @param nkeys is the number of keys.
  * keys will be freed by the arrange step dtor.
- * @param loadKeys is an array of RLookupkeys that their value needs to be loaded from Redis keyspace.
- * @param nLoadKeys is the length of loadKeys.
- * If keys and loadKeys doesn't point to the same address, loadKeys will be freed in the sorter dtor.
  */
-ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      const RLookupKey **loadKeys, size_t nLoadKeys,
-                                      uint64_t ascendingMap, bool quickExit);
+ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascendingMap);
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults, bool quickExit);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
@@ -269,11 +272,9 @@ void RP_DumpChain(const ResultProcessor *rp);
  * Unlocking Redis should be done only by the Unlocker result processor that should be added as well.
  *
  * @param BlockSize is the number of results in each buffer block.
- * @param spec_version is the version of the spec during pipeline construction. This version will be compared
- * to the spec version after we unlock the spec, to decide if results' validation is needed.
  *******************************************************************************************************************/
 typedef struct RPBufferAndLocker RPBufferAndLocker;
-ResultProcessor *RPBufferAndLocker_New(size_t BlockSize, size_t spec_version);
+ResultProcessor *RPBufferAndLocker_New(size_t BlockSize);
 
 /*******************************************************************************************************************
  *  UnLocker Results Processor

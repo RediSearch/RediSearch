@@ -83,6 +83,15 @@ static void setMemoryInfo(RedisModuleCtx *ctx) {
 }
 
 /*
+ * Initialize the spec's fields that are related to the cursors.
+ */
+
+static void Cursors_initSpec(IndexSpec *spec, size_t capacity) {
+  spec->activeCursors = 0;
+  spec->cursorsCap = capacity;
+}
+
+/*
  * Get a field spec by field name. Case sensetive!
  * Return the field spec if found, NULL if not.
  * Assuming the spec is properly locked before calling this function.
@@ -366,7 +375,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // Start the garbage collector
   IndexSpec_StartGC(ctx, spec_ref, sp);
 
-  CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
+  Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
 
   // Create the indexer
   sp->indexer = NewIndexer(sp);
@@ -846,7 +855,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
     sp->flags |= Index_HasGeometry;
     fs->types |= INDEXFLD_T_GEOMETRY;
-    // TODO: GEMOMETRY - Support more geometry libraries - if an optional successive token exist
+    // TODO: GEOMETRY - Support more geometry libraries - if an optional successive token exist
     fs->geometryOpts.geometryLibType = GEOMETRY_LIB_TYPE_BOOST_GEOMETRY;
   } else {  // nothing more supported currently
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
@@ -856,7 +865,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
       FieldSpec_SetSortable(fs);
-      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR)) {
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) || FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
         fs->options |= FieldSpec_UNF;
       }
       continue;
@@ -1079,6 +1088,7 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
 StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
   StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
+  spec->own_ref = spec_ref;
 
   IndexSpec_MakeKeyless(spec);
 
@@ -1341,6 +1351,10 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   if (spec->suffix) {
     TrieType_Free(spec->suffix);
   }
+
+  // Destroy the spec's lock
+  pthread_rwlock_destroy(&spec->rwlock);
+
   // Free spec struct
   rm_free(spec);
 
@@ -1373,13 +1387,7 @@ void IndexSpec_Free(IndexSpec *spec) {
   if (spec->gc) {
     GCContext_Stop(spec->gc);
   }
-  // Remove existing cursors from global list
-  if (spec->uniqueId) {
-    // If uniqueid is 0, it means the index was not initialized
-    // and is being freed now during an error.
-    Cursors_PurgeWithName(&RSCursors, spec->name);
-    CursorList_RemoveSpec(&RSCursors, spec->name);
-  }
+
   // Free stopwords list (might use global pointer to default list)
   if (spec->stopwords) {
     StopWordList_Unref(spec->stopwords);
@@ -1397,8 +1405,6 @@ void IndexSpec_Free(IndexSpec *spec) {
   } else {
     redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeUnlinkedData, spec, THPOOL_PRIORITY_HIGH);
   }
-
-  pthread_rwlock_destroy(&spec->rwlock);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1423,8 +1429,11 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
   SchemaPrefixes_RemoveSpec(spec_ref);
 
   // Mark there are pending index drops.
-  // if ref count is > 1, the actual cleanup will be done only when StrongRefs are released. 
+  // if ref count is > 1, the actual cleanup will be done only when StrongRefs are released.
   addPendingIndexDrop();
+
+  // Nullify the spec's quick access to the strong ref. (doesn't decrements refrences count).
+  spec->own_ref = (StrongRef){0};
 
   // mark the spec as deleted and decrement the ref counts owned by the global dictionaries
   StrongRef_Invalidate(spec_ref);
@@ -1436,8 +1445,9 @@ void Indexes_Free(dict *d) {
   // spec<-->prefix
   SchemaPrefixes_Free(ScemaPrefixes_g);
   SchemaPrefixes_Create();
+
   // cursor list is iterating through the list as well and consuming a lot of CPU
-  CursorList_Empty(&RSCursors);
+  CursorList_Empty(&g_CursorsList);
 
   arrayof(StrongRef) specs = array_new(StrongRef, dictSize(d));
   dictIterator *iter = dictGetIterator(d);
@@ -1506,6 +1516,10 @@ StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options)
   }
 
   return spec_ref;
+}
+
+StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec) {
+  return spec->own_ref;
 }
 
 // Assuming the spec is properly locked before calling this function.
@@ -2023,13 +2037,20 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_Log(ctx, "notice", "Scanning index %s in background", scanner->spec_name);
   }
 
+  size_t counter = 0;
   while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB)Indexes_ScanProc, scanner)) {
     RedisModule_ThreadSafeContextUnlock(ctx);
-    // Sleep for one microsecond to allow redis server to acquire the GIL while we release it.
-    // Note that previously the 'usleep(1)' was replaced with 'sched_yield()', but it turns out that
-    // 'sched_yield()' doesn't give up the processor for enough time to ensure that other threads
-    // that are waiting for the GIL will actually have the chance to take it.
-    usleep(1);
+    counter++;
+    if (counter % RSGlobalConfig.numBGIndexingIterationsBeforeSleep == 0) {
+      // Sleep for one microsecond to allow redis server to acquire the GIL while we release it.
+      // We do that periodically every X iterations (100 as default), otherwise we call
+      // 'sched_yield()'. That is since 'sched_yield()' doesn't give up the processor for enough
+      // time to ensure that other threads that are waiting for the GIL will actually have the
+      // chance to take it.
+      usleep(1);
+    } else {
+      sched_yield();
+    }
     RedisModule_ThreadSafeContextLock(ctx);
 
     if (scanner->cancelled) {
@@ -2210,7 +2231,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
     GCContext_RenderStatsForInfo(sp->gc, ctx);
 
   // Cursor stat
-  Cursors_RenderStatsForInfo(&RSCursors, sp->name, ctx);
+  Cursors_RenderStatsForInfo(&g_CursorsList, sp, ctx);
 
   // Stop words
   if (sp->flags & Index_HasCustomStopwords)
@@ -2307,6 +2328,8 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
                                        QueryError *status) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
+  sp->own_ref = spec_ref;
+
   IndexSpec_MakeKeyless(sp);
 
   sp->sortables = NewSortingTable();
@@ -2373,7 +2396,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->uniqueId = spec_unique_ids++;
 
   IndexSpec_StartGC(ctx, spec_ref, sp);
-  CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
+  Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
 
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
@@ -2438,6 +2461,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
+  sp->own_ref = spec_ref;
+
   IndexSpec_MakeKeyless(sp);
   sp->sortables = NewSortingTable();
   sp->terms = NULL;
@@ -2528,7 +2553,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   // start the gc and add the spec to the cursor list
   IndexSpec_StartGC(RSDummyContext, spec_ref, sp);
-  CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
+  Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
 
   dictAdd(legacySpecDict, sp->name, spec_ref.rm);
   return spec_ref.rm;
@@ -2641,7 +2666,8 @@ int CompareVestions(Version v1, Version v2) {
 
   return 0;
 }
-
+// This funciton is called in case the server is started or
+// when the replica is loading the RDB file from the master.
 static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
                                  void *data) {
   if (subevent == REDISMODULE_SUBEVENT_LOADING_RDB_START ||
@@ -2844,12 +2870,12 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   dict *specs = res->specs;
 
 #if defined(_DEBUG) && 0
-  RLookupKey *k = RLookup_GetKey(&r->lk, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
+  RLookupKey *k = RLookup_GetKey_LoadEx(&r->lk, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY), UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
   RSValue *v = RLookup_GetItem(k, &r->row);
   const char *x = RSValue_StringPtrLen(v, NULL);
   RedisModule_Log(NULL, "notice", "Indexes_FindMatchingSchemaRules: x=%s", x);
   const char *f = "name";
-  k = RLookup_GetKey(&r->lk, f, RLOOKUP_F_NOFLAGS);
+  k = RLookup_GetKeyEx(&r->lk, f, strlen(f), RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
   if (k) {
     v = RLookup_GetItem(k, &r->row);
     x = RSValue_StringPtrLen(v, NULL);

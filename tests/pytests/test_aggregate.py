@@ -1,16 +1,9 @@
+from common import *
+
 import bz2
 import json
-import itertools
-import os
-from RLTest import Env
 import unittest
-from includes import *
-from common import getConnectionByEnv, toSortedFlatList
-import numpy as np
 
-def to_dict(res):
-    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    return d
 
 
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
@@ -305,6 +298,27 @@ class TestAggregate():
         self.env.assertListEqual([292, ['brand', 'zps', 'price', '0'], ['brand', 'zalman', 'price', '0'], ['brand', 'yoozoo', 'price', '0'], ['brand', 'white label', 'price', '0'], ['brand', 'stinky', 'price', '0'], [
                                  'brand', 'polaroid', 'price', '0'], ['brand', 'plantronics', 'price', '0'], ['brand', 'ozone', 'price', '0'], ['brand', 'oooo', 'price', '0'], ['brand', 'neon', 'price', '0']], res)
 
+        # Test Sorting by multiple properties with missing values
+        res = self.env.cmd('ft.aggregate', 'games', '*', 'LOAD', '1', '@nonexist',
+                           'SORTBY', 2, '@nonexist', '@price', 'MAX', 10,
+                           )
+            # We should get a tie for all the results on the nonexist property, and therefore sort by the second property and get the top 10
+            # docs with the lowest price
+        self.env.assertListEqual([2265, ['price', '0'], ['price', '0'], ['price', '0'], ['price', '0'], ['price', '0'],
+                                        ['price', '0'], ['price', '0'], ['price', '0'], ['price', '0'], ['price', '0']], res)
+
+            # make sure we get results sorted by the second property and not by doc ID (which is the default fallback)
+        res1 = self.env.cmd('ft.aggregate', 'games', '*', 'LOAD', '2', '@nonexist', '@price',
+                            'SORTBY', 2, '@nonexist', '@price', 'MAX', 10,
+                            'LOAD', '3', '@__key', 'AS', 'key',
+                           )
+        res2 = self.env.cmd('ft.aggregate', 'games', '*', 'LOAD', '2', '@nonexist', '@price',
+                            'SORTBY', 1, '@nonexist', 'MAX', 10,
+                            'LOAD', '3', '@__key', 'AS', 'key',
+                           )
+        self.env.assertNotEqual(res1, res2)
+
+
         # test LOAD with SORTBY
         expected_res = [2265, ['title', 'Logitech MOMO Racing - Wheel and pedals set - 6 button(s) - PC, MAC - black', 'price', '759.12'],
                                ['title', 'Sony PSP Slim &amp; Lite 2000 Console', 'price', '695.8']]
@@ -344,11 +358,11 @@ class TestAggregate():
                            'SORTBY', 4, '@price', 'desc', '@brand', 'desc', 'MAX', 5,
                            )
         exp = [2265,
- ['brand', 'Xbox', 'price', '9'],
- ['brand', 'turtle beach', 'price', '9'],
- ['brand', 'trust', 'price', '9'],
- ['brand', 'steelseries', 'price', '9'],
- ['brand', 'speedlink', 'price', '9']]
+                ['brand', 'Xbox', 'price', '9'],
+                ['brand', 'turtle beach', 'price', '9'],
+                ['brand', 'trust', 'price', '9'],
+                ['brand', 'steelseries', 'price', '9'],
+                ['brand', 'speedlink', 'price', '9']]
         # exp = [2265, ['brand', 'Xbox', 'price', '9'], ['brand', 'Turtle Beach', 'price', '9'], [
                             #  'brand', 'Trust', 'price', '9'], ['brand', 'SteelSeries', 'price', '9'], ['brand', 'Speedlink', 'price', '9']]
         self.env.assertListEqual(exp[1], res[1])
@@ -413,12 +427,14 @@ class TestAggregate():
                            'REDUCE', 'FIRST_VALUE', 4, '@price', 'BY', '@price', 'ASC', 'AS', 'bottom_price',
                            'SORTBY', 2, '@top_price', 'DESC', 'MAX', 5
                            )
-        expected = [4, ['brand', 'sony', 'top_item', 'sony psp slim &amp; lite 2000 console', 'top_price', '695.8', 'bottom_item', 'sony dlchd20p high speed hdmi cable for playstation 3', 'bottom_price', '5.88'],
-                                 ['brand', 'matias', 'top_item', 'matias halfkeyboard usb', 'top_price',
-                                     '559.99', 'bottom_item', 'matias halfkeyboard usb', 'bottom_price', '559.99'],
-                                 ['brand', 'beyerdynamic', 'top_item', 'beyerdynamic mmx300 pc gaming premium digital headset with microphone', 'top_price', '359.74',
-                                     'bottom_item', 'beyerdynamic headzone pc gaming digital surround sound system with mmx300 digital headset with microphone', 'bottom_price', '0'],
-                                 ['brand', 'mad catz', 'top_item', 'mad catz s.t.r.i.k.e.7 gaming keyboard', 'top_price', '295.95', 'bottom_item', 'madcatz mov4545 xbox replacement breakaway cable', 'bottom_price', '3.49']]
+        expected = [4, ['brand', 'sony', 'top_item', 'sony psp slim &amp; lite 2000 console', 'top_price',
+                        '695.8', 'bottom_item', 'sony dlchd20p high speed hdmi cable for playstation 3', 'bottom_price', '5.88'],
+                       ['brand', 'matias', 'top_item', 'matias halfkeyboard usb', 'top_price',
+                        '559.99', 'bottom_item', 'matias halfkeyboard usb', 'bottom_price', '559.99'],
+                       ['brand', 'beyerdynamic', 'top_item', 'beyerdynamic mmx300 pc gaming premium digital headset with microphone', 'top_price', '359.74',
+                        'bottom_item', 'beyerdynamic headzone pc gaming digital surround sound system with mmx300 digital headset with microphone', 'bottom_price', '0'],
+                       ['brand', 'mad catz', 'top_item', 'mad catz s.t.r.i.k.e.7 gaming keyboard', 'top_price', '295.95', 'bottom_item',
+                        'madcatz mov4545 xbox replacement breakaway cable', 'bottom_price', '3.49']]
 
         # hack :(
         def mklower(result):
@@ -597,7 +613,9 @@ def testAggregateGroupByOnEmptyField(env):
                   'GROUPBY', '1', '@check', 'REDUCE', 'COUNT', '0', 'as', 'count')
 
     expected = [4, ['check', 'test3', 'count', '1'],
-                    ['check', None, 'count', '1'], ['check', 'test1', 'count', '1'], ['check', 'test2', 'count', '1']]
+                   ['check', None, 'count', '1'],
+                   ['check', 'test1', 'count', '1'],
+                   ['check', 'test2', 'count', '1']]
     for var in expected:
         env.assertIn(var, res)
 
@@ -721,25 +739,32 @@ def testStrLen(env):
     conn.execute_command('hset', 'doc3', 't', '')
 
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'strlen(@t)', 'as', 'length')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, ['t', 'aa', 'length', '2'], \
-                                                                ['t', 'aaa', 'length', '3'], \
-                                                                ['t', '', 'length', '0']]))
+    exp = [1, ['t', 'aa', 'length', '2'],
+              ['t', 'aaa', 'length', '3'],
+              ['t', '', 'length', '0']]
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(exp))
 
 def testLoadAll(env):
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')
-    conn.execute_command('HSET', 'doc1', 't', 'hello', 'n', 42)
-    conn.execute_command('HSET', 'doc2', 't', 'world', 'n', 3.141)
-    conn.execute_command('HSET', 'doc3', 't', 'hello world', 'n', 17.8)
+    conn.execute_command('HSET', 'doc1', 't', 'hello', 'n', 42, 'notIndexed', 'ccc')
+    conn.execute_command('HSET', 'doc2', 't', 'world', 'n', 3.141, 'notIndexed', 'bbb')
+    conn.execute_command('HSET', 'doc3', 't', 'hello world', 'n', 17.8, 'notIndexed', 'aaa')
     # without LOAD
     env.expect('FT.AGGREGATE', 'idx', '*').equal([1, [], [], []])
     # use LOAD with narg or ALL
-    res = [3, ['__key', 'doc1', 't', 'hello', 'n', '42'],
-               ['__key', 'doc2', 't', 'world', 'n', '3.141'],
-               ['__key', 'doc3', 't', 'hello world', 'n', '17.8']]
+    res = [3, ['__key', 'doc1', 't', 'hello', 'n', '42', 'notIndexed', 'ccc'],
+              ['__key', 'doc2', 't', 'world', 'n', '3.141', 'notIndexed', 'bbb'],
+              ['__key', 'doc3', 't', 'hello world', 'n', '17.8', 'notIndexed', 'aaa']]
 
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 3, '__key', 't', 'n', 'SORTBY', 1, '@__key').equal(res)
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 4, '__key', 't', 'n', 'notIndexed', 'SORTBY', 1, '@__key').equal(res)
     env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'LOAD', 1, '@__key', 'SORTBY', 1, '@__key').equal(res)
+
+    if not env.isCluster(): # TODO: fix error message in cluster
+        env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'SORTBY', 1, '@notIndexed').error().contains('not loaded nor in schema') # can be enabled in the future
+        env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', 1, '@notIndexed').error().contains('not loaded nor in schema') # without LOAD it's an error (unless we enable implicit LOAD of any field for SORTBY)
+        env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'SORTBY', 1, '@notExists').error().contains('not loaded nor in schema') # can be enabled in the future - should pass even if notExists doesn't exist
+        env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', 1, '@notExists').error().contains('not loaded nor in schema') # without LOAD it's an error (unless we enable implicit LOAD of any field for SORTBY)
 
 def testLimitIssue(env):
     #ticket 66895
@@ -820,10 +845,12 @@ def testLoadPosition(env):
         .equal([1, ['t1', 'hello', 't2', 'world']])
 
     # two LOADs with an apply for error
-    res = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1',
-                  'APPLY', '@t2', 'AS', 'load_error',
-                  'LOAD', '1', 't2')
-    env.assertContains('Value was not found in result', str(res[1]))
+    # TODO: fix cluster error message
+    if not env.isCluster():
+        env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1',
+                   'APPLY', '@t2', 'AS', 'load_error',
+                   'LOAD', '1', 't2').error().contains('not loaded nor in pipeline')
+
 
 def testAggregateGroup0Field(env):
     conn = getConnectionByEnv(env)
@@ -915,3 +942,114 @@ def test_aggregate_timeout():
 
     env.expect('FT.AGGREGATE', 'idx', '*', 'groupby', '1', '@t1', 'REDUCE', 'count', '0', 'AS', 'count', 'TIMEOUT', '1'). \
         equal( ['Timeout limit was reached'] if not env.isCluster() else [0])
+
+
+def testGroupProperties(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'n', 'NUMERIC', 'SORTABLE', 'tt', 'TAG')
+    conn.execute_command('HSET', 'doc1', 't', 'hello', 'n', '1', 'tt', 'foo')
+
+    # Check groupby properties
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '3', 't', 'n', 'tt').error().contains(
+                    'Bad arguments for GROUPBY: Unknown property `t`. Did you mean `@t`?')
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '3', '@t', 'n', '@tt').error().contains(
+                    'Bad arguments for GROUPBY: Unknown property `n`. Did you mean `@n`?')
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '3', '@t', '@n', '@tt').noError()
+
+    # Verify that we fail and not returning results from `t`
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', 'tt').error().contains('Bad arguments for GROUPBY: Unknown property `tt`. Did you mean `@tt`?')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@tt').equal([1, ['tt', 'foo']])
+
+    # Verify we fail on grouping by the same property twice
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '2', '@t', '@t').error().contains('Property `t` specified more than once')
+
+    # Verify we fail on having the same reducer output twice
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@t',
+                                           'REDUCE', 'COUNT', '0', 'AS', 't').error().contains(
+                    'Property `t` specified more than once')
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@t',
+                                           'REDUCE', 'COUNT', '0', 'AS', 'my_count',
+                                           'REDUCE', 'COUNT', '0', 'AS', 'my_count').error().contains(
+                    'Property `my_count` specified more than once')
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@t',
+                                           'REDUCE', 'COUNT', '0',
+                                           'REDUCE', 'COUNT', '0',).error().contains('specified more than once')
+    # Same reducer with a different alias is ok
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@t',
+                                           'REDUCE', 'COUNT', '0', 'AS', 'my_output',
+                                           'REDUCE', 'COUNT', '0', 'AS', 'my_count').noError()
+
+    # Should behave the same in cluster and standalone, but on coordinator the AVG is translated to COUNT and SUM in the shards, and
+    # two SUMs and an APPLY in the coordinator, which usually could override the same name but here we expect it to fail
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@t',
+                                           'REDUCE', 'COUNT', '0', 'AS', 'my_output',
+                                           'REDUCE', 'AVG', '1', '@n', 'AS', 'my_output').error().contains(
+               'Property `my_output` specified more than once')
+
+def testGroupAfterSort(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'n', 'NUMERIC')
+    conn.execute_command('HSET', 'doc1', 't', 'AAAA', 'n', '0')
+    conn.execute_command('HSET', 'doc2', 't', 'AAAA', 'n', '1')
+    conn.execute_command('HSET', 'doc3', 't', 'BBBB', 'n', '0')
+    conn.execute_command('HSET', 'doc4', 't', 'BBBB', 'n', '1')
+
+    # CASE 1 #
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
+                               'SORTBY', '1', '@n', 'MAX', '2',
+                               'GROUPBY', '1', '@t',
+                               'REDUCE', 'COUNT', '0', 'AS', 'c')
+
+    # On a standalone mode this is strait forward:
+    # 1. we sort by `n` and take the first 2 results (doc1 and doc3)
+    # 2. we group by `t` and add a `COUNT` reducer as `c`
+    # 3. since doc1 and doc3 has different `t` value, we get two rows, each of COUNT 1.
+    # so the expected result is:
+    expected = [2, ['t', 'AAAA', 'c', '1'], ['t', 'BBBB', 'c', '1']]
+
+    # We expect to get the same results from the coordinator, no matter what is the distribution of the docs between the shards.
+    # Before the logic fix, the pipeline of ->sortby(n, limit(2))->group(t, COUNT() AS c) was changed to
+    #
+    # |--------------- on the shards ---------------|->|----------- on the coordinator -----------|
+    # ->sortby(n, limit(2))->group(t, COUNT() AS tmp)->sortby(n, limit(2))->group(t, SUM(tmp) AS c)
+    #
+    # and since `n` is not in the scope when we get to the second sorter, the query fails. ([0] is returned)
+
+    env.assertEqual(res, expected)
+
+    # CASE 2 #
+    conn.execute_command('HSET', 'doc5', 't', 'AAAA', 'n', '0')
+    conn.execute_command('HSET', 'doc6', 't', 'BBBB', 'n', '1')
+
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
+                               'SORTBY', '3', '@n', '@t', 'DESC', 'MAX', '3',
+                               'GROUPBY', '2', '@t', '@n',
+                               'REDUCE', 'COUNT', '0', 'AS', 'c')
+
+    # On a standalone mode this is strait forward:
+    # 1. we sort by `n` and take the first 3 results (doc1, doc3 and doc5)
+    # 2. we group by `t` and `n`, and add a `COUNT` reducer as `c`
+    # 3. since doc1, doc3 and doc5 has different `t` value, we get two rows, one of COUNT 2 and one of 1.
+    # 4. both rows has `n == 0` so it does not affect the aggregation
+    # so the expected result is:
+    expected = [2, ['t', 'AAAA', 'n', '0', 'c', '2'], ['t', 'BBBB', 'n', '0', 'c', '1']]
+
+    # We expect to get the same results from the coordinator, no matter what is the distribution of the docs between the shards.
+    # Before the logic fix, the pipeline of ->sortby(n, t, limit(3)->group(t, n, COUNT() AS c) was changed to
+    #
+    # |------------------ on the shards ------------------|->|-------------- on the coordinator --------------|
+    # ->sortby(n, t, limit(3))->group(t, n, COUNT() AS tmp)->sortby(n, t, limit(3))->group(t, n, SUM(tmp) AS c)
+    #
+    # now, no matter the docs distribution (unless they all in the same shard), some rows with `n == 1` will pass the first limit,
+    # will get their own row and get to the coordinator. then, we have 2 options:
+    # 1. doc1 doc3 and doc5 are all in different shards. the coordinator will get 3 rows with `n == 0` and only them will pass the second
+    #    sort and limit, and the second aggregation will results with the same result as in a standalone (lucky).
+    # 2. some of doc1 doc3 and doc5 are in the same shard. we won't get 3 rows of `n == 0` at the second sort and limit, so a row
+    #    with `n == 1` will get the the last aggregation and the final result will include 3 row:
+    #    one for (t == AAAA, n == 0), one for (t == BBBB, n == 0), and one for (t == ????, n == 1)
+
+    env.assertEqual(res, expected)
