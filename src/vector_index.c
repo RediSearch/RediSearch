@@ -350,7 +350,7 @@ int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
   case VecSimAlgo_TIERED:
     VecSim_TieredParams_Init(&vecsimParams->tieredParams, sp_ref);
     VecSimParams *primaryParams = vecsimParams->tieredParams.primaryIndexParams;
-
+    primaryParams->logCtx = vecsimParams->logCtx;
     primaryParams->algo = LoadUnsigned_IOError(rdb, goto fail);
     RS_LOG_ASSERT(primaryParams->algo == VecSimAlgo_HNSWLIB,
                   "Tiered index only supports HNSW as primary index in this version");

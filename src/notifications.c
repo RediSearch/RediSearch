@@ -11,6 +11,7 @@
 #include "redismodule.h"
 #include "rdb.h"
 #include "module.h"
+#include "util/workers.h"
 
 #define JSON_LEN 5 // length of string "json."
 
@@ -294,10 +295,19 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
     case REDISMODULE_SUBEVENT_SHARDING_TRIMMING_STARTED:
       RedisModule_Log(ctx, "notice", "%s", "Got trimming started event, enter trimming phase.");
       isTrimming = true;
+#ifdef POWER_TO_THE_WORKERS
+      workersThreadPool_InitIfRequired();
+#endif
       break;
     case REDISMODULE_SUBEVENT_SHARDING_TRIMMING_ENDED:
       RedisModule_Log(ctx, "notice", "%s", "Got trimming ended event, exit trimming phase.");
       isTrimming = false;
+#ifdef POWER_TO_THE_WORKERS
+      // Since trimming is done in a part-time job while redis is running other commands, we notify
+      // the thread pool to no longer receive new jobs (in RCE mode), and terminate the threads
+      // ONCE ALL PENDING JOBS ARE DONE.
+      workersThreadPool_SetTerminationWhenEmpty();
+#endif
       break;
     default:
       RedisModule_Log(RSDummyContext, "warning", "Bad subevent given, ignored.");

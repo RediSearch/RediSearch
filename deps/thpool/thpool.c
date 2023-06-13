@@ -125,6 +125,9 @@ struct thread_bt_data{
 #define RS_THPOOL_F_CONTAINS_CRASHED_THREAD 0x04  /* the thread to start crash report is in 
                                                       this threadpool  */
 
+#define RS_THPOOL_F_TERMINATE_WHEN_EMPTY 0x08  /* terminate thread when there are
+                                                      no more pending jobs  */
+
 /* Threadpool */
 struct redisearch_thpool_t {
   thread** threads;                 /* pointer to threads        */
@@ -158,6 +161,11 @@ static void redisearch_thpool_ShutdownLog_init(redisearch_threadpool);
 static void redisearch_thpool_ShutdownLog_print(RedisModuleInfoCtx *ctx, redisearch_threadpool);
 // Cleanups related to a specific threadpool dump
 static void redisearch_thpool_ShutdownLog_cleanup(redisearch_threadpool);
+
+// turn off flag 
+static void redisearch_thpool_TURNOFF_flag(redisearch_thpool_t* thpool_p, uint16_t flag) {
+  thpool_p->flags &= ~flag;
+}
 
 
 static int jobqueue_init(jobqueue* jobqueue_p);
@@ -236,6 +244,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
 void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p) {
   assert(!(thpool_p->flags & RS_THPOOL_F_KEEP_ALIVE));
   thpool_p->flags |= RS_THPOOL_F_KEEP_ALIVE;
+  redisearch_thpool_TURNOFF_flag(thpool_p, RS_THPOOL_F_TERMINATE_WHEN_EMPTY);
 
   /* Thread init */
   size_t n;
@@ -365,7 +374,7 @@ void redisearch_thpool_terminate_threads(redisearch_thpool_t* thpool_p) {
   RedisModule_Assert(thpool_p);
 
   /* End each thread 's infinite loop */
-  thpool_p->flags &= ~RS_THPOOL_F_KEEP_ALIVE;
+  redisearch_thpool_TURNOFF_flag(thpool_p, RS_THPOOL_F_KEEP_ALIVE);
 
   /* Give one second to kill idle threads */
   double TIMEOUT = 1.0;
@@ -383,6 +392,10 @@ void redisearch_thpool_terminate_threads(redisearch_thpool_t* thpool_p) {
     bsem_post_all(thpool_p->jobqueue.has_jobs);
     sleep(1);
   }
+}
+
+void redisearch_thpool_terminate_when_empty(redisearch_thpool_t* thpool_p) {
+  thpool_p->flags |= RS_THPOOL_F_TERMINATE_WHEN_EMPTY;
 }
 
 /* Destroy the threadpool */
@@ -417,7 +430,7 @@ void redisearch_thpool_pause_before_dump(redisearch_thpool_t* thpool_p) {
 
   // The threads should wait until we initialize ds and flags used to log 
   // dump info.
-  thpool_p->flags &= ~RS_THPOOL_F_READY_TO_DUMP;
+  redisearch_thpool_TURNOFF_flag(thpool_p, RS_THPOOL_F_READY_TO_DUMP);
 
   // Raise a signal to all the threads to check the flags above.
   redisearch_thpool_pause(thpool_p);
@@ -520,8 +533,8 @@ static void redisearch_thpool_ShutdownLog_print(RedisModuleInfoCtx *ctx, redisea
 static void redisearch_thpool_ShutdownLog_cleanup(redisearch_thpool_t* thpool_p) {
   // clear counters and turn off flags.
   reset_dump_counters();
-  thpool_p->flags &= ~RS_THPOOL_F_READY_TO_DUMP;
-  thpool_p->flags &= ~RS_THPOOL_F_CONTAINS_CRASHED_THREAD;
+  redisearch_thpool_TURNOFF_flag(thpool_p, RS_THPOOL_F_READY_TO_DUMP);
+  redisearch_thpool_TURNOFF_flag(thpool_p, RS_THPOOL_F_CONTAINS_CRASHED_THREAD);
 }
 
 
@@ -694,6 +707,9 @@ static void* thread_do(struct thread* thread_p) {
       thpool_p->num_threads_working--;
       if (!thpool_p->num_threads_working) {
         pthread_cond_signal(&thpool_p->threads_all_idle);
+        if (thpool_p->flags & RS_THPOOL_F_TERMINATE_WHEN_EMPTY) {
+          thpool_p->keepalive = 0;
+        }
       }
       pthread_mutex_unlock(&thpool_p->thcount_lock);
     }

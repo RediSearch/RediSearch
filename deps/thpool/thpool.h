@@ -259,6 +259,12 @@ void redisearch_thpool_ShutdownLog_done();
 void redisearch_thpool_terminate_threads(redisearch_threadpool);
 
 /**
+ * @brief Set the terminate_when_empty flag, so that all threads are terminated when there are
+ * no more pending jobs in the queue.
+ */
+void redisearch_thpool_terminate_when_empty(redisearch_threadpool thpool_p);
+
+/**
  * @brief Destroy the threadpool
  *
  * This will wait for the currently active threads to finish and then 'kill'

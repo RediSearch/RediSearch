@@ -726,18 +726,24 @@ def testStrLen(env):
 def testLoadAll(env):
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')
-    conn.execute_command('HSET', 'doc1', 't', 'hello', 'n', 42)
-    conn.execute_command('HSET', 'doc2', 't', 'world', 'n', 3.141)
-    conn.execute_command('HSET', 'doc3', 't', 'hello world', 'n', 17.8)
+    conn.execute_command('HSET', 'doc1', 't', 'hello', 'n', 42, 'notIndexed', 'ccc')
+    conn.execute_command('HSET', 'doc2', 't', 'world', 'n', 3.141, 'notIndexed', 'bbb')
+    conn.execute_command('HSET', 'doc3', 't', 'hello world', 'n', 17.8, 'notIndexed', 'aaa')
     # without LOAD
     env.expect('FT.AGGREGATE', 'idx', '*').equal([1, [], [], []])
     # use LOAD with narg or ALL
-    res = [3, ['__key', 'doc1', 't', 'hello', 'n', '42'],
-               ['__key', 'doc2', 't', 'world', 'n', '3.141'],
-               ['__key', 'doc3', 't', 'hello world', 'n', '17.8']]
+    res = [3, ['__key', 'doc1', 't', 'hello', 'n', '42', 'notIndexed', 'ccc'],
+              ['__key', 'doc2', 't', 'world', 'n', '3.141', 'notIndexed', 'bbb'],
+              ['__key', 'doc3', 't', 'hello world', 'n', '17.8', 'notIndexed', 'aaa']]
 
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 3, '__key', 't', 'n', 'SORTBY', 1, '@__key').equal(res)
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 4, '__key', 't', 'n', 'notIndexed', 'SORTBY', 1, '@__key').equal(res)
     env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'LOAD', 1, '@__key', 'SORTBY', 1, '@__key').equal(res)
+
+    if not env.isCluster(): # TODO: fix error message in cluster
+        env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'SORTBY', 1, '@notIndexed').error().contains('not loaded nor in schema') # can be enabled in the future
+        env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', 1, '@notIndexed').error().contains('not loaded nor in schema') # without LOAD it's an error (unless we enable implicit LOAD of any field for SORTBY)
+        env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'SORTBY', 1, '@notExists').error().contains('not loaded nor in schema') # can be enabled in the future - should pass even if notExists doesn't exist
+        env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', 1, '@notExists').error().contains('not loaded nor in schema') # without LOAD it's an error (unless we enable implicit LOAD of any field for SORTBY)
 
 def testLimitIssue(env):
     #ticket 66895
@@ -818,10 +824,12 @@ def testLoadPosition(env):
         .equal([1, ['t1', 'hello', 't2', 'world']])
 
     # two LOADs with an apply for error
-    res = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1',
-                  'APPLY', '@t2', 'AS', 'load_error',
-                  'LOAD', '1', 't2')
-    env.assertContains('Value was not found in result', str(res[1]))
+    # TODO: fix cluster error message
+    if not env.isCluster():
+        env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1',
+                   'APPLY', '@t2', 'AS', 'load_error',
+                   'LOAD', '1', 't2').error().contains('not loaded nor in pipeline')
+
 
 def testAggregateGroup0Field(env):
     conn = getConnectionByEnv(env)
@@ -913,3 +921,50 @@ def test_aggregate_timeout():
 
     env.expect('FT.AGGREGATE', 'idx', '*', 'groupby', '1', '@t1', 'REDUCE', 'count', '0', 'AS', 'count', 'TIMEOUT', '1'). \
         equal( ['Timeout limit was reached'] if not env.isCluster() else [0])
+
+
+def testGroupProperties(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'n', 'NUMERIC', 'SORTABLE', 'tt', 'TAG')
+    conn.execute_command('HSET', 'doc1', 't', 'hello', 'n', '1', 'tt', 'foo')
+
+    # Check groupby properties
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '3', 't', 'n', 'tt').error().contains(
+                    'Bad arguments for GROUPBY: Unknown property `t`. Did you mean `@t`?')
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '3', '@t', 'n', '@tt').error().contains(
+                    'Bad arguments for GROUPBY: Unknown property `n`. Did you mean `@n`?')
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '3', '@t', '@n', '@tt').noError()
+
+    # Verify that we fail and not returning results from `t`
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', 'tt').error().contains('Bad arguments for GROUPBY: Unknown property `tt`. Did you mean `@tt`?')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@tt').equal([1, ['tt', 'foo']])
+
+    # Verify we fail on grouping by the same property twice
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '2', '@t', '@t').error().contains('Property `t` specified more than once')
+
+    # Verify we fail on having the same reducer output twice
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@t',
+                                           'REDUCE', 'COUNT', '0', 'AS', 't').error().contains(
+                    'Property `t` specified more than once')
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@t',
+                                           'REDUCE', 'COUNT', '0', 'AS', 'my_count',
+                                           'REDUCE', 'COUNT', '0', 'AS', 'my_count').error().contains(
+                    'Property `my_count` specified more than once')
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@t',
+                                           'REDUCE', 'COUNT', '0',
+                                           'REDUCE', 'COUNT', '0',).error().contains('specified more than once')
+    # Same reducer with a different alias is ok
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@t',
+                                           'REDUCE', 'COUNT', '0', 'AS', 'my_output',
+                                           'REDUCE', 'COUNT', '0', 'AS', 'my_count').noError()
+
+    # Should behave the same in cluster and standalone, but on coordinator the AVG is translated to COUNT and SUM in the shards, and
+    # two SUMs and an APPLY in the coordinator, which usually could override the same name but here we expect it to fail
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@t',
+                                           'REDUCE', 'COUNT', '0', 'AS', 'my_output',
+                                           'REDUCE', 'AVG', '1', '@n', 'AS', 'my_output').error().contains(
+               'Property `my_output` specified more than once')

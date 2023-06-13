@@ -75,10 +75,7 @@ typedef struct RLookupKey {
    * Can be F_SVSRC which means the target array is a sorting vector, or
    * F_OUTPUT which means that the t
    */
-  uint16_t flags;
-
-  /** Type this lookup should be coerced to */
-  RLookupCoerceType fieldtype : 16;
+  uint32_t flags;
 
   /** Path and name of this field
    *  path AS name */
@@ -112,6 +109,10 @@ typedef struct RLookup {
 // mark it as F_UNRESOLVED
 #define RLOOKUP_OPT_UNRESOLVED_OK 0x01
 
+// If a loader was added to load the entire document, this flag will allow
+// later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
+#define RLOOKUP_OPT_ALL_LOADED 0x02
+
 /**
  * Row data for a lookup key. This abstracts the question of "where" the
  * data comes from.
@@ -130,44 +131,56 @@ typedef struct {
   size_t ndyn;
 } RLookupRow;
 
+typedef enum {
+  RLOOKUP_M_READ,   // Get key for reading (create only if in schema and sortable)
+  RLOOKUP_M_WRITE,  // Get key for writing
+  RLOOKUP_M_LOAD,   // Load key from redis keyspace (include known information on the key, fail if already loaded)
+} RLookupMode;
+
 #define RLOOKUP_F_NOFLAGS 0x0 // No special flags to pass.
 
-#define RLOOKUP_F_OEXCL 0x01   // Error if name exists already
-#define RLOOKUP_F_OCREAT 0x02  // Create key if it does not exit
-
-/** The original value of this field is available in the index.
- * Schema fields can be declared as SORTABLE UNF, meaning we don't apply any modifications on them 
- * before storing them in the sorting vector. The sorting vector holds their original value.
- * If this field was formatted (normalized, or it is NOT UNF), we need to load it from redis keyspace to 
- * get its original value.
+/**
+ * This field is (or assumed to be) part of the document itself.
+ * This is a basic flag for a loaded key.
  */
-#define RLOOKUP_F_UNFORMATTED 0x04
+#define RLOOKUP_F_DOCSRC 0x01
+
+/**
+ * This field is part of the index schema.
+ */
+#define RLOOKUP_F_SCHEMASRC 0x02
+
 /** Check the sorting table, if necessary, for the index of the key. */
-#define RLOOKUP_F_SVSRC 0x08
+#define RLOOKUP_F_SVSRC 0x04
+
+/**
+ * This key was created by the query itself (not in the document)
+ */
+#define RLOOKUP_F_QUERYSRC 0x08
 
 /** Copy the key string via strdup. `name` may be freed */
 #define RLOOKUP_F_NAMEALLOC 0x10
 
 /**
- * This field is part of the index schema.
+ * If the key is already present, then overwrite it (relevant only for LOAD or WRITE modes)
  */
-#define RLOOKUP_F_SCHEMASRC 0x20
+#define RLOOKUP_F_OVERRIDE 0x20
+
+/**
+ * Request that the key is returned for loading even if it is already loaded.
+ */
+#define RLOOKUP_F_FORCE_LOAD 0x40
+
+/**
+ * This key is unresolved. Its source needs to be derived from elsewhere
+ */
+#define RLOOKUP_F_UNRESOLVED 0x80
 
 /**
  * This field is hidden within the document and is only used as a transient
  * field for another consumer. Don't output this field.
  */
-#define RLOOKUP_F_HIDDEN 0x40
-
-/**
- * This key is used as sorting key for the result
- */
-#define RLOOKUP_F_SORTKEY 0x80
-
-/**
- * This key is unresolved. It source needs to be derived from elsewhere
- */
-#define RLOOKUP_F_UNRESOLVED 0x100
+#define RLOOKUP_F_HIDDEN 0x100
 
 /**
  * The opposite of F_HIDDEN. This field is specified as an explicit return in
@@ -177,51 +190,48 @@ typedef struct {
 #define RLOOKUP_F_EXPLICITRETURN 0x200
 
 /**
- * This key's value is already available in the Rlookup table.
- * For example, if an upstream result processor already loaded the value from redis keyspace,
- * or if this key was generated during building the query's pipeline (by a metric step, for example).
+ * This key's value is already available in the RLookup table,
+ * if it was opened for read but the field is sortable and not normalized,
+ * so the data should be exactly the same as in the doc.
  */
-#define RLOOKUP_F_ISLOADED 0x400
+#define RLOOKUP_F_VAL_AVAILABLE 0x400
 
 /**
- * This key might have an alias and we pass both its name and path if we ask to 
- * find an existing key.
+ * This key's value was loaded (by a loader) from the document itself.
  */
-#define RLOOKUP_F_ALIAS 0x800
+#define RLOOKUP_F_ISLOADED 0x800
 
 /**
- * These flags do not persist to the key, they are just options to GetKey()
+ * This key type is numeric
  */
-#define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT)
+#define RLOOKUP_T_NUMERIC 0x1000
+
+// Flags that are allowed to be passed to GetKey
+#define RLOOKUP_GET_KEY_FLAGS (RLOOKUP_F_NAMEALLOC | RLOOKUP_F_OVERRIDE | RLOOKUP_F_HIDDEN | RLOOKUP_F_EXPLICITRETURN | \
+                               RLOOKUP_F_FORCE_LOAD)
+// Flags do not persist to the key, they are just options to GetKey()
+#define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)
 
 /**
  * Get a RLookup key for a given name. The behavior of this function depends on
- * the flags.
+ * the flags and mode. For loading, use RLookup_GetKey_Load().
  *
- * if F_OCREAT without F_OEXCL flags are set, a valid key is always returned.
- * 
- * This function returns NULL if the F_OCREAT is not set and the key doesn't exist in the schema.
- * A key that was generated from the index spec will be marked with F_SCHEMASRC.
-
- * If F_OCREAT is not used, then this function will return NULL if a key could
- * not be found, unless OPT_UNRESOLVED_OK is set on the lookup itself. In this
- * case, the key is returned, but has the F_UNRESOLVED flag set.
+ * 1. On READ mode, a key is returned only if it's already in the lookup table (available from the pipeline upstream),
+ *    it is part of the index schema and is sortable (and then it is created),
+ *    or if the lookup table excepts unresolved keys.
+ *
+ * 2. On WRITE mode, a key is created and returned only if it's NOT in the lookup table, unless the override flag is set.
  */
-RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags);
-
-/**
- * Get or create a RLookup key for a given path and name. This function always returns a valid key,
- * hence, F_OCREAT and F_OEXCL are redundant here.
- * 
- * A key that contains a field from the index will be marked with F_SCHEMASRC.
- * 
- * This function first looks for an existing key with key->path equals to @path.
- * 
- * If this path is found, and @name doesn't equal @path, a new key is generated with the same
- * attributes as the found key, but with a different name.
- * 
+RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, RLookupMode mode, uint32_t flags);
+RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t name_len, RLookupMode mode, uint32_t flags);
+ /**
+ * 3. On LOAD mode, a key is created and returned only if it's NOT in the lookup table (unless the override flag is set),
+ *    and it is not already loaded. It will override an existing key if it was created for read out of a sortable field,
+ *    and the field was normalized. A sortable un-normalized field counts as loaded.
  */
-RLookupKey *RLookup_GetOrCreateKey(RLookup *lookup, const char *path, const char *name, int flags);
+RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *field_name, uint32_t flags);
+RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len, const char *field_name, uint32_t flags);
+
 /**
  * Get the amount of visible fields is the RLookup
  */
@@ -264,12 +274,12 @@ void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
  *
  * The reference count of the value will be incremented.
  */
-void RLookup_WriteKeyByName(RLookup *lookup, const char *name, RLookupRow *row, RSValue *value);
+void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
 
 /**
  * Like WriteKeyByName, but consumes a refcount
  */
-void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, RLookupRow *row, RSValue *value);
+void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
 
 /** Get a value from the row, provided the key.
  *
@@ -347,10 +357,10 @@ typedef struct {
   RLookupLoadFlags mode;
 
   /**
-   * Don't use sortables when loading documents. This might be used to ensure
-   * that only the exact document and not a normalized version is employed
+   * Don't use sortables when loading documents. This will enforce the loader to load
+   * the fields from the document itself, even if they are sortables and un-normalized.
    */
-  int noSortables;
+  int forceLoad;
 
   /**
    * Force string return; don't coerce to native type
@@ -369,9 +379,6 @@ typedef struct {
  * @param options options controlling the load process
  */
 int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
-
-/** Use incref/decref instead! */
-void RLookupKey_FreeInternal(RLookupKey *k);
 
 /**
  * Initialize the lookup. If cache is provided, then it will be used as an
