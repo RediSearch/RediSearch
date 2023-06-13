@@ -366,7 +366,6 @@ def test_pipeline():
     env.assertEqual(get_pipeline(res), expected_pipeline)
 
 def test_invalid_MT_MODE_FULL_config():
-    env = initEnv()
     try:
         env = initEnv(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_FULL')
         prefix = '_' if env.isCluster() else ''
