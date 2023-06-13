@@ -10,7 +10,6 @@
 
 #include "redismodule.h"
 #include "gc.h"
-#include "VecSim/vec_sim.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,7 +49,6 @@ typedef struct ForkGC {
   // current value of RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes
   // This value is updated during the periodic callback execution.
   int cleanNumericEmptyNodes;
-  VecSimIndex **tieredIndexes;
 } ForkGC;
 
 ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks);
