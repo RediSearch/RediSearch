@@ -2265,8 +2265,12 @@ int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (clusterConfig.connPerShard) {
     num_connections_per_shard = clusterConfig.connPerShard;
   } else {
+    #ifdef MT_BUILD
     // default
     num_connections_per_shard = RSGlobalConfig.numWorkerThreads + 1;
+    #else
+    num_connections_per_shard = 1;
+    #endif
   }
 
   MRCluster *cl = MR_NewCluster(initialTopology, num_connections_per_shard, sf, 2);
