@@ -384,9 +384,8 @@ def test_invalid_MT_MODE_FULL_config():
         env = Env()
         pass
 
+@skip(noWorkers=True)
 def test_invalid_MT_MODE_ONLY_ON_OPERATIONS_config():
-    if not MT_BUILD:
-        raise unittest.SkipTest("Skipping since worker threads are not enabled")
     # Invalid 0 worker threads with MT_MODE_ONLY_ON_OPERATIONS.
     try:
         env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_ONLY_ON_OPERATIONS')
