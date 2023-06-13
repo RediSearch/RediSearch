@@ -708,7 +708,7 @@ static void* thread_do(struct thread* thread_p) {
       if (!thpool_p->num_threads_working) {
         pthread_cond_signal(&thpool_p->threads_all_idle);
         if (thpool_p->flags & RS_THPOOL_F_TERMINATE_WHEN_EMPTY) {
-          thpool_p->keepalive = 0;
+          redisearch_thpool_TURNOFF_flag(thpool_p, RS_THPOOL_F_KEEP_ALIVE);
         }
       }
       pthread_mutex_unlock(&thpool_p->thcount_lock);

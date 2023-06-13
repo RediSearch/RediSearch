@@ -111,11 +111,11 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
 }
 
 static void RS_pauseModuleThreadpools() {
-  // puase wrokers
+#ifdef POWER_TO_THE_WORKERS  
   workersThreadPool_pauseBeforeDump();
-  // pause cleanup
+#endif // POWER_TO_THE_WORKERS
+
   CleanPool_ThreadPoolPauseBeforeDump();
-  // pause ConcurrentSearch
   ConcurrentSearch_pauseBeforeDump();
   // pause gc
   GC_ThreadPoolPauseBeforeDump();
@@ -124,7 +124,9 @@ static void RS_pauseModuleThreadpools() {
 
 static void RS_ShutdownLogModuleThreadpools(RedisModuleInfoCtx *ctx) {
   GC_ThreadPoolShutdownLog(ctx);
+#ifdef POWER_TO_THE_WORKERS
   workersThreadPool_ShutdownLog(ctx);
+#endif // POWER_TO_THE_WORKERS
   ConcurrentSearch_ShutdownLog(ctx);
   CleanPool_ThreadPoolShutdownLog(ctx);
 }
