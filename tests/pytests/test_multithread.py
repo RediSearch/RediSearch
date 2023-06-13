@@ -369,7 +369,7 @@ def test_pipeline():
     #sortby NOT SORTABLE NOCONTENT
     env.assertEqual(get_pipeline(res), expected_pipeline)
 
-
+@skip(noWorkers=True)
 def test_invalid_MT_MODE_FULL_config():
     if not MT_BUILD:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
