@@ -298,6 +298,27 @@ class TestAggregate():
         self.env.assertListEqual([292, ['brand', 'zps', 'price', '0'], ['brand', 'zalman', 'price', '0'], ['brand', 'yoozoo', 'price', '0'], ['brand', 'white label', 'price', '0'], ['brand', 'stinky', 'price', '0'], [
                                  'brand', 'polaroid', 'price', '0'], ['brand', 'plantronics', 'price', '0'], ['brand', 'ozone', 'price', '0'], ['brand', 'oooo', 'price', '0'], ['brand', 'neon', 'price', '0']], res)
 
+        # Test Sorting by multiple properties with missing values
+        res = self.env.cmd('ft.aggregate', 'games', '*', 'LOAD', '1', '@nonexist',
+                           'SORTBY', 2, '@nonexist', '@price', 'MAX', 10,
+                           )
+            # We should get a tie for all the results on the nonexist property, and therefore sort by the second property and get the top 10
+            # docs with the lowest price
+        self.env.assertListEqual([2265, ['price', '0'], ['price', '0'], ['price', '0'], ['price', '0'], ['price', '0'],
+                                        ['price', '0'], ['price', '0'], ['price', '0'], ['price', '0'], ['price', '0']], res)
+
+            # make sure we get results sorted by the second property and not by doc ID (which is the default fallback)
+        res1 = self.env.cmd('ft.aggregate', 'games', '*', 'LOAD', '2', '@nonexist', '@price',
+                            'SORTBY', 2, '@nonexist', '@price', 'MAX', 10,
+                            'LOAD', '3', '@__key', 'AS', 'key',
+                           )
+        res2 = self.env.cmd('ft.aggregate', 'games', '*', 'LOAD', '2', '@nonexist', '@price',
+                            'SORTBY', 1, '@nonexist', 'MAX', 10,
+                            'LOAD', '3', '@__key', 'AS', 'key',
+                           )
+        self.env.assertNotEqual(res1, res2)
+
+
         # test LOAD with SORTBY
         expected_res = [2265, ['title', 'Logitech MOMO Racing - Wheel and pedals set - 6 button(s) - PC, MAC - black', 'price', '759.12'],
                                ['title', 'Sony PSP Slim &amp; Lite 2000 Console', 'price', '695.8']]

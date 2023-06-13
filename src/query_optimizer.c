@@ -182,8 +182,15 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   // if has sortby, use limited range
   // else, return after enough result found
   if (!opt->scorerReq) {
-    opt->type = isSortby ? Q_OPT_PARTIAL_RANGE : Q_OPT_NO_SORTER;
-    return;
+    if (isSortby) {
+      opt->type = Q_OPT_PARTIAL_RANGE;
+      return;
+    } else {
+      opt->type = Q_OPT_NO_SORTER;
+      // No need for scorer, and there is no sorter. we can avoid calculating scores
+      opt->scorerType = SCORER_TYPE_NONE;
+      return;
+    }
   }
   opt->type = Q_OPT_UNDECIDED;
 }

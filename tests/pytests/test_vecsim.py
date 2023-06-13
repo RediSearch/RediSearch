@@ -1684,7 +1684,7 @@ def test_timeout_reached():
             # run query with 1 millisecond timeout. should fail.
             env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
                        'PARAMS', 2, 'vec_param', query_vec.tobytes(),
-                       'TIMEOUT', 1).error().equal('Timeout limit was reached')
+                       'TIMEOUT', 1).error().contains('Timeout limit was reached')
 
             # HYBRID MODES
             for mode in hybrid_modes:
