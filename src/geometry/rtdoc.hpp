@@ -14,6 +14,9 @@
 
 namespace bg = boost::geometry;
 namespace bgm = bg::model;
+using Cartesian = bg::cs::cartesian;
+using Geographic = bg::cs::geographic<bg::degree>;
+
 using string = std::basic_string<char, std::char_traits<char>, rm_allocator<char>>;
 
 template <typename coord_system>
@@ -35,13 +38,12 @@ struct RTDoc {
     return id_;
   }
 
-  static RTDoc *from_wkt(const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg) {
+  static RTDoc* from_wkt(const char* wkt, size_t len, t_docId id, RedisModuleString** err_msg) {
     try {
-      auto geometry = Polygon<coord_system>::from_wkt(std::string_view{wkt, len});
+      auto geometry = Polygon::from_wkt(std::string_view{wkt, len});
       return new RTDoc{geometry, id};
-    } catch (const std::exception &e) {
-      if (err_msg)
-        *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
+    } catch (const std::exception& e) {
+      if (err_msg) *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
       return nullptr;
     }
   }
@@ -77,7 +79,7 @@ struct RTDoc {
     return ss.str();
   }
 
-  [[nodiscard]] RedisModuleString *to_RMString() const {
+  [[nodiscard]] RedisModuleString* to_RMString() const {
     if (RedisModule_CreateString) {
       string s = doc->rect_to_string();
       return RedisModule_CreateString(nullptr, s.c_str(), s.length());
@@ -98,36 +100,35 @@ struct RTDoc {
   }
 };
 
-template class RTDoc<bg::cs::cartesian>;
-using RTDoc_Cartesian = RTDoc<bg::cs::cartesian>;
-template class RTDoc<bg::cs::geographic<bg::degree>>;
-using RTDoc_Geographic = RTDoc<bg::cs::geographic<bg::degree>>;
-
 template <typename coord_system>
 std::ostream& operator<<(std::ostream& os, RTDoc<coord_system> const& doc) {
   os << bg::wkt(doc.rect_);
   return os;
 }
 
-
 template <typename coord_system>
 [[nodiscard]] bool operator==(RTDoc<coord_system> const& lhs,
-                                     RTDoc<coord_system> const& rhs) noexcept {
+                              RTDoc<coord_system> const& rhs) noexcept {
   return lhs.id_ == rhs.id_ && bg::equals(lhs.rect_, rhs.rect_);
 }
 
 template <typename coord_system>
 struct RTDoc_Indexable {
-  using result_type = RTDoc<coord_system>::rect_internal;
-  [[nodiscard]] constexpr result_type operator()(RTDoc<coord_system> const& doc) const noexcept {
+  using result_type = RTDoc::rect_internal;
+  [[nodiscard]] constexpr result_type operator()(RTDoc const& doc) const noexcept {
     return doc.rect_;
   }
 };
 
 template <typename coord_system>
 struct RTDoc_EqualTo {
-  [[nodiscard]] bool operator()(RTDoc<coord_system> const& lhs,
-                                       RTDoc<coord_system> const& rhs) const noexcept {
+  [[nodiscard]] bool operator()(RTDoc const& lhs, RTDoc const& rhs) const noexcept {
     return lhs == rhs;
   }
 };
+
+#define X(variant)               \
+  template class RTDoc<variant>; \
+  using RTDoc_##variant = RTDoc<variant>;
+GEO_VARIANTS(X)
+#undef X

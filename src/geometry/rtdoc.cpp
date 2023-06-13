@@ -4,55 +4,32 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #include "rtdoc.hpp"
 
-// TODO: GEOMETRY - remove this function if not used by tests
-RTDoc_Cartesian *RTDoc_Cartesian_From_WKT(const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg) {
-  return RTDoc_Cartesian::from_wkt(wkt, len, id, err_msg);
-}
-RTDoc_Geographic *RTDoc_Geographic_From_WKT(const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg) {
-  return RTDoc_Geographic::from_wkt(wkt, len, id, err_msg);
-}
+#define X(variant)                                                                         \
+  RTDoc_##variant *RTDoc_##variant##_From_WKT(const char *wkt, size_t len, t_docId id,     \
+                                              RedisModuleString **err_msg) {               \
+    return RTDoc_##variant::from_wkt(wkt, len, id, err_msg);                               \
+  }                                                                                        \
+  RTDoc_##variant *RTDoc_##variant_Copy(RTDoc_##variant const *other) {                    \
+    return new RTDoc_##variant{*other};                                                    \
+  }                                                                                        \
+  void RTDoc_##variant##_Free(RTDoc_ #variant *doc) noexcept {                             \
+    delete doc;                                                                            \
+  }                                                                                        \
+  t_docId RTDoc_##variant##_GetID(RTDoc_ #variant const *doc) noexcept {                   \
+    return doc->id();                                                                      \
+  }                                                                                        \
+  bool RTDoc_##variant##_IsEqual(RTDoc_##variant const *lhs, RTDoc_##variant const *rhs) { \
+    return *lhs == *rhs;                                                                   \
+  }                                                                                        \
+  RedisModuleString *RTDoc_##variant##_ToString(RTDoc_##variant const *doc) {              \
+    return doc->to_RMString();                                                             \
+  }                                                                                        \
+  void RTDoc_##variant##_Print(RTDoc_##variant const *doc) {                               \
+    std::cout << *doc << '\n';                                                             \
+  }
 
-RTDoc_Cartesian *RTDoc_Cartesian_Copy(RTDoc_Cartesian const *other) {
-  return new RTDoc_Cartesian{*other};
-}
-RTDoc_Geographic *RTDoc_Geographic_Copy(RTDoc_Geographic const *other) {
-  return new RTDoc_Geographic{*other};
-}
+GEO_VARIANTS(X)
 
-void RTDoc_Cartesian_Free(RTDoc_Cartesian *doc) noexcept {
-  delete doc;
-}
-void RTDoc_Geographic_Free(RTDoc_Geographic *doc) noexcept {
-  delete doc;
-}
-
-t_docId RTDoc_Cartesian_GetID(RTDoc_Cartesian const *doc) noexcept {
-  return doc->id();
-}
-t_docId RTDoc_Geographic_GetID(RTDoc_Geographic const *doc) noexcept {
-  return doc->id();
-}
-
-bool RTDoc_Cartesian_IsEqual(RTDoc_Cartesian const *lhs, RTDoc_Cartesian const *rhs) {
-  return *lhs == *rhs;
-}
-bool RTDoc_Geographic_IsEqual(RTDoc_Geographic const *lhs, RTDoc_Geographic const *rhs) {
-  return *lhs == *rhs;
-}
-
-RedisModuleString *RTDoc_Cartesian_ToString(RTDoc_Cartesian const *doc) {
-  return doc->to_RMString();
-}
-RedisModuleString *RTDoc_Geographic_ToString(RTDoc_Geographic const *doc) {
-  return doc->to_RMString();
-}
-
-void RTDoc_Cartesian_Print(RTDoc_Cartesian const *doc) {
-  std::cout << *doc << '\n';
-}
-void RTDoc_Geographic_Print(RTDoc_Geographic const *doc) {
-  std::cout << *doc << '\n';
-}
+#undef X

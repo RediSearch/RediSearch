@@ -6,120 +6,57 @@
 
 #include "rtree.hpp"
 
-// #include <fstream>
+#define X(variant)                                                                               \
+  RTree_##variant *RTree_##variant##_New() {                                                     \
+    return new RTree_##variant{};                                                                \
+  }                                                                                              \
+  void RTree_##variant##_Free(RTree_##variant *rtree) noexcept {                                 \
+    delete rtree;                                                                                \
+  }                                                                                              \
+  int RTree_##variant##_Insert_WKT(RTree_##variant *rtree, const char *wkt, size_t len,          \
+                                   t_docId id, RedisModuleString **err_msg) {                    \
+    return rtree->insert(wkt, len, id, err_msg);                                                 \
+  }                                                                                              \
+  bool RTree_##variant##_Remove(RTree_##variant *rtree, RTDoc_##variant const *doc) {            \
+    return rtree->remove(*doc);                                                                  \
+  }                                                                                              \
+  bool RTree_##variant##_RemoveByDocId(RTree_##variant *rtree, t_docId id) {                     \
+    return rtree->remove(id);                                                                    \
+  }                                                                                              \
+  int RTree_##variant##_Remove_WKT(RTree_##variant *rtree, const char *wkt, size_t len,          \
+                                   t_docId id) {                                                 \
+    return rtree->remove(wkt, len, id);                                                          \
+  }                                                                                              \
+  void RTree_##variant##_Dump(RTree_##variant *rtree, RedisModuleCtx *ctx) {                     \
+    rtree->dump(ctx);                                                                            \
+  }                                                                                              \
+  IndexIterator *RTree_##variant##_Query(RTree_##variant const *rtree,                           \
+                                         RTDoc_##variant const *queryDoc, QueryType queryType) { \
+    return rtree->query(*queryDoc, queryType);                                                   \
+  }                                                                                              \
+  IndexIterator *RTree_##variant##_Query_WKT(RTree_##variant const *rtree, const char *wkt,      \
+                                             size_t len, enum QueryType queryType,               \
+                                             RedisModuleString **err_msg) {                      \
+    return rtree->query(wkt, len, queryType, err_msg);                                           \
+  }                                                                                              \
+  RTDoc_##variant *RTree_##variant##_Bounds(RTree_##variant const *rtree) {                      \
+    return new RTDoc_##variant{rtree->rtree_.bounds()};                                          \
+  }                                                                                              \
+  size_t RTree_##variant##_Size(RTree_##variant const *rtree) noexcept {                         \
+    return rtree->size();                                                                        \
+  }                                                                                              \
+  bool RTree_##variant##_IsEmpty(RTree_##variant const *rtree) noexcept {                        \
+    return rtree->is_empty();                                                                    \
+  }                                                                                              \
+  void RTree_##variant##_Clear(RTree_##variant *rtree) noexcept {                                \
+    rtree->clear();                                                                              \
+  }                                                                                              \
+  size_t RTree_##variant##_MemUsage(RTree_##variant const *rtree) {                              \
+    return rtree->report();                                                                      \
+  }
 
-
-RTree_Cartesian *RTree_Cartesian_New() {
-  return new RTree_Cartesian{};
-}
-RTree_Geographic *RTree_Geographic_New() {
-  return new RTree_Geographic{};
-}
-
-// RTree *Load_WKT_File(RTree *rtree, const char *path) {
-//   if (nullptr == rtree) {
-//     rtree = RTree_New();
-//   }
-
-//   auto file = std::ifstream{path};
-//   for (string wkt{}; std::getline(file, wkt, '\n');) {
-//     auto geometry = Polygon::from_wkt(wkt);
-//     rtree->insert(geometry, 0);
-//   }
-
-//   return rtree;
-// }
-
-void RTree_Cartesian_Free(RTree_Cartesian *rtree) noexcept {
-  delete rtree;
-}
-void RTree_Geographic_Free(RTree_Geographic *rtree) noexcept {
-  delete rtree;
-}
-
-int RTree_Cartesian_Insert_WKT(RTree_Cartesian *rtree, const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg) {
-  return rtree->insert(wkt, len, id, err_msg);
-}
-int RTree_Geographic_Insert_WKT(RTree_Cartesian *rtree, const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg) {
-  return rtree->insert(wkt, len, id, err_msg);
-}
-
-bool RTree_Cartesian_Remove(RTree_Cartesian *rtree, RTDoc_Cartesian const *doc) {
-  return rtree->remove(*doc);
-}
-bool RTree_Geographic_Remove(RTree_Geographic *rtree, RTDoc_Geographic const *doc) {
-  return rtree->remove(*doc);
-}
-
-bool RTree_Cartesian_RemoveByDocId(RTree_Cartesian *rtree, t_docId id) {
-  return rtree->remove(id);
-}
-bool RTree_Geographic_RemoveByDocId(RTree_Geographic *rtree, t_docId id) {
-  return rtree->remove(id);
-}
-
-int RTree_Cartesian_Remove_WKT(RTree_Cartesian *rtree, const char *wkt, size_t len, t_docId id) {
-  return rtree->remove(wkt, len, id);
-}
-int RTree_Geographic_Remove_WKT(RTree_Geographic *rtree, const char *wkt, size_t len, t_docId id) {
-  return rtree->remove(wkt, len, id);
-}
-
-void RTree_Cartesian_Dump(RTree_Cartesian *rtree, RedisModuleCtx *ctx) {
-  rtree->dump(ctx);
-}
-void RTree_Geographic_Dump(RTree_Geographic *rtree, RedisModuleCtx *ctx) {
-  rtree->dump(ctx);
-}
-
-IndexIterator *RTree_Cartesian_Query(RTree_Cartesian const *rtree, RTDoc_Cartesian const *queryDoc, QueryType queryType) {
-  return rtree->query(*queryDoc, queryType);
-}
-IndexIterator *RTree_Geographic_Query(RTree_Geographic const *rtree, RTDoc_Geographic const *queryDoc, QueryType queryType) {
-  return rtree->query(*queryDoc, queryType);
-}
-
-IndexIterator *RTree_Cartesian_Query_WKT(RTree_Cartesian const *rtree, const char *wkt, size_t len, enum QueryType queryType, RedisModuleString **err_msg) {
-  return rtree->query(wkt, len, queryType, err_msg);
-}
-IndexIterator *RTree_Geographic_Query_WKT(RTree_Geographic const *rtree, const char *wkt, size_t len, enum QueryType queryType, RedisModuleString **err_msg) {
-  return rtree->query(wkt, len, queryType, err_msg);
-}
-
-RTDoc_Cartesian *RTree_Cartesian_Bounds(RTree_Cartesian const *rtree) {
-  return new RTDoc_Cartesian{rtree->rtree_.bounds()};
-}
-RTDoc_Geographic *RTree_Geographic_Bounds(RTree_Geographic const *rtree) {
-  return new RTDoc_Geographic{rtree->rtree_.bounds()};
-}
-
-size_t RTree_Cartesian_Size(RTree_Cartesian const *rtree) noexcept {
-  return rtree->size();
-}
-size_t RTree_Geographic_Size(RTree_Geographic const *rtree) noexcept {
-  return rtree->size();
-}
-
-bool RTree_Cartesian_IsEmpty(RTree_Cartesian const *rtree) noexcept {
-  return rtree->is_empty();
-}
-bool RTree_Geographic_IsEmpty(RTree_Geographic const *rtree) noexcept {
-  return rtree->is_empty();
-}
-
-void RTree_Cartesian_Clear(RTree_Cartesian *rtree) noexcept {
-  rtree->clear();
-}
-void RTree_Geographic_Clear(RTree_Geographic *rtree) noexcept {
-  rtree->clear();
-}
-
-size_t RTree_Cartesian_MemUsage(RTree_Cartesian const *rtree) {
-  return rtree->report();
-}
-size_t RTree_Geographic_MemUsage(RTree_Geographic const *rtree) {
-  return rtree->report();
-}
+GEO_VARIANTS(X)
+#undef X
 
 size_t RTree_TotalMemUsage() {
   return RTree_Cartesian::reportTotal() + RTree_Geographic::reportTotal();

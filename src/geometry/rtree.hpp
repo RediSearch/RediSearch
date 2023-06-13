@@ -239,8 +239,8 @@ struct RTree {
   }
 };
 
-template class RTree<bg::cs::cartesian>;
-using RTree_Cartesian = RTree<bg::cs::cartesian>;
-template class RTree<bg::cs::geographic<bg::degree>>;
-using RTree_Geographic = RTree<bg::cs::geographic<bg::degree>>;
-
+#define X(variant)               \
+  template class RTree<variant>; \
+  using RTree_##variant = RTree<variant>;
+GEO_VARIANTS(X)
+#undef X
