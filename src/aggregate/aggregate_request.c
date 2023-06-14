@@ -618,6 +618,14 @@ static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
+  for (size_t ii = 0; ii < groupArgs.argc; ++ii) {
+    if (*(char*)groupArgs.objs[ii] != '@') {
+      QERR_MKBADARGS_FMT(status, "Bad arguments for GROUPBY: Unknown property `%s`. Did you mean `@%s`?",
+                         groupArgs.objs[ii], groupArgs.objs[ii]);
+      return REDISMODULE_ERR;
+    }
+  }
+
   // Number of fields.. now let's see the reducers
   PLN_GroupStep *gstp = PLNGroupStep_New((const char **)groupArgs.objs, groupArgs.argc);
   AGPLN_AddStep(&req->ap, &gstp->base);
