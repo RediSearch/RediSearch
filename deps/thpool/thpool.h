@@ -185,11 +185,10 @@ void redisearch_thpool_timedwait(redisearch_threadpool, long timeout, yieldFunc 
 /**
  * @brief Pauses all threads immediately
  *
- * The threads will be paused no matter if they are idle or working.
- * The threads return to their previous states once thpool_resume
- * is called.
+ * The threads will be signaled no matter if they are idle or working.
+ * NOTE: The signal kills the thread, meaning it won't continue its execution after being paused.
+ * Calling resume is necessary to finish handling the signal.
  *
- * While the thread is being paused, new work can be added.
  *
  * @example
  *

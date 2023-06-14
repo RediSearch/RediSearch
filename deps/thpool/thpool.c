@@ -38,6 +38,10 @@
 // Maximum number of addresses to backtrace.
 #define BT_BUF_SIZE 100
 
+// Time to print we are waiting for some sync operation too long.
+#define LOG_WAITING_TIME 3
+
+
 #if !defined(DISABLE_PRINT) || defined(THPOOL_DEBUG)
 #define err(str, ...) fprintf(stderr, str, ##__VA_ARGS__)
 #else
@@ -496,8 +500,12 @@ static void wait_for_threads_log(redisearch_thpool_t* thpool_p) {
   size_t threadpool_size = thpool_p->num_threads_alive;
 
   // when threads_done_log_cnt == threadpool_size all the threads are done writing.
+  clock_t start = clock();
   while(threads_done_log_cnt != threadpool_size) {
-// TODO: don't wait indefentily!
+    double waiting_time = (clock() - start)/CLOCKS_PER_SEC;
+      if (waiting_time > LOG_WAITING_TIME) {
+        RedisModule_Log(NULL, "warning", "something is wrong: waiting too long for the threads to log backtrace.");
+      } 
   }
 
   if(threads_ids != threadpool_size) {
@@ -546,6 +554,9 @@ void redisearch_thpool_ShutdownLog_done() {
   register_to_crash_log = 0;
 
   total_paused_threads = 0;
+
+  curr_threadpool = NULL;
+  
   // release bt buffer
   rm_free(printable_bt_buffer);
   curr_bt_buffer_size = 0;
@@ -577,11 +588,15 @@ void redisearch_thpool_pause(redisearch_thpool_t* thpool_p) {
     }
 	}  
 
-  if(thread_pool_size) {
+  if (thread_pool_size) {
     // wait for all the threads in the thpool to be paused (except for the caller)
     uint32_t expected_new_paused_count = prev_paused_threads + thread_pool_size - called_by_threadpool;
+    clock_t start = clock();
     while(total_paused_threads < expected_new_paused_count){
-      // TODO: dont wait idefently!
+      double waiting_time = (clock() - start)/CLOCKS_PER_SEC;
+      if (waiting_time > LOG_WAITING_TIME) {
+        RedisModule_Log(NULL, "warning", "something is wrong: waiting too long for threads to be paused.");
+      }
     }
   }
 }
