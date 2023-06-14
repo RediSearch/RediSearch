@@ -105,8 +105,6 @@ typedef struct thread {
 
 /* On crash backtrace report */
 typedef enum {
-  ACTIVE, //TODO: print only active threads.
-  NOT_ACTIVE,
   FINE,
   CRASHED,
 } statusOnCrash;
