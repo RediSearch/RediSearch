@@ -228,8 +228,23 @@ void redisearch_thpool_resume(redisearch_threadpool);
  * @return nothing
  */
 void redisearch_thpool_pause_before_dump(redisearch_threadpool);
+/* ====== EXAMPLE OUTPUT ON CRASH ====== 
 
+        # search_=== GC THREADS LOG: ===
 
+        # search_thread #0 backtrace: 
+
+        search_0:/workspaces/Code/RediSearch/bin/linux-arm64v8-debug/search/redisearch.so(+0x2b7698) [0xffffaf827698]
+        search_1:/workspaces/Code/RediSearch/bin/linux-arm64v8-debug/search/redisearch.so(+0x2b72b4) [0xffffaf8272b4]
+        search_2:linux-vdso.so.1(__kernel_rt_sigreturn+0) [0xffffb0ec2790]
+        search_3:/lib/aarch64-linux-gnu/libc.so.6(+0x79dfc) [0xffffb0cb9dfc]
+        search_4:/lib/aarch64-linux-gnu/libc.so.6(pthread_cond_wait+0x208) [0xffffb0cbc8fc]
+        search_5:/workspaces/Code/RediSearch/bin/linux-arm64v8-debug/search/redisearch.so(+0x2b7cfc) [0xffffaf827cfc]
+        search_6:/workspaces/Code/RediSearch/bin/linux-arm64v8-debug/search/redisearch.so(+0x2b7414) [0xffffaf827414]
+        search_7:/lib/aarch64-linux-gnu/libc.so.6(+0x7d5c8) [0xffffb0cbd5c8]
+        search_8:/lib/aarch64-linux-gnu/libc.so.6(+0xe5d1c) [0xffffb0d25d1c]
+
+====== END OF EXAMPLE ====== **/
 /**
  * @brief Collect and print data from all the threads in the thread pool to the crash log.
  * 
@@ -305,7 +320,6 @@ void redisearch_thpool_destroy(redisearch_threadpool);
  * @return integer       number of threads working
  */
 size_t redisearch_thpool_num_threads_working(redisearch_threadpool);
-
 
 #ifdef __cplusplus
 }
