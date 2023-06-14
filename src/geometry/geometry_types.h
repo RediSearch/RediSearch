@@ -22,12 +22,15 @@ typedef enum {
 } GEOMETRY_FORMAT; // TODO: GEOMETRY Not uppercase
 
 typedef enum {
-  GEOMETRY_COORDS_NONE = 0,
-  GEOMETRY_COORDS_CARTESIAN = 1,
-  GEOMETRY_COORDS_GEOGRAPHIC = 2,
-} GEOMETRY_COORDS;
+  GEOMETRY_TAG_NONE = 0,
+  GEOMETRY_TAG_Cartesian = 1,
+  GEOMETRY_TAG_Geographic = 2,
+  GEOMETRY_TAG__NUM,
+} GEOMETRY_TAG;
 
-enum QueryType {
+typedef enum QueryType {
   CONTAINS,
   WITHIN,
-};
+} QueryType;
+
+#define GEO_VARIANTS(X) X(Cartesian) X(Geographic)

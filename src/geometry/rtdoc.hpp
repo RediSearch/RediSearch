@@ -7,7 +7,7 @@
 #pragma once
 
 #include "polygon.hpp"
-#include "rtdoc.h"
+#include "geometry_types.h"
 
 #include <ranges>
 #include <iostream>
@@ -127,8 +127,6 @@ struct RTDoc_EqualTo {
   }
 };
 
-#define X(variant)               \
-  template class RTDoc<variant>; \
-  using RTDoc_##variant = RTDoc<variant>;
+#define X(variant) template class RTDoc<variant>;
 GEO_VARIANTS(X)
 #undef X

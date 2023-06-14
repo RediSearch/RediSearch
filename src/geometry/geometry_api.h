@@ -6,37 +6,53 @@
 
 #pragma once
 
-#include "redismodule.h"
-#include "geometry.h"
-#include "geometry_index.h"
-
-typedef struct {
-  struct GeometryIndex *(*createIndex)();
-  void (*freeIndex)(GeometryIndex *index);
-  int (*addGeomStr)(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len,
-                    t_docId docId, RedisModuleString **err_msg);
-  int (*delGeom)(GeometryIndex *index, t_docId docId);
-  IndexIterator *(*query)(GeometryIndex *index, enum QueryType queryType, GEOMETRY_FORMAT format,
-                          const char *str, size_t len, RedisModuleString **err_msg);
-  void (*dump)(GeometryIndex *index, RedisModuleCtx *ctx);
-} GeometryApi;  // TODO: GEOMETRY Rename to GeometryIndex
-
-// typedef struct {
-//   void *index;
-//   GEOMETRY_COORDS coord_system;
-//   GeometryApi vtbl;
-// } GeometryIndex;
+#include <stddef.h>
+#include "redisearch.h"
+#include "index_iterator.h"
+#include "geometry_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-GeometryApi *GeometryApi_GetOrCreate(GEOMETRY_LIB_TYPE type, void *);
-void GeometryApi_Free();
+typedef struct RedisModuleCtx RedisModuleCtx;
+typedef struct GeometryIndex GeometryIndex;
+typedef struct GeometryApi GeometryApi;
 
-// Return the total memory usage of all Geometry indices
-size_t GeometryTotalMemUsage();
+struct GeometryIndex {
+  GEOMETRY_TAG tag;
+  void *index;
+  GeometryApi *vtbl;
+};
+
+struct GeometryApi {
+  GeometryIndex *(*createIndex)();
+  void (*freeIndex)(GeometryIndex *index);
+  int (*addGeomStr)(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len,
+                    t_docId docId, RedisModuleString **err_msg);
+  int (*delGeom)(GeometryIndex *index, t_docId docId);
+  IndexIterator *(*query)(GeometryIndex *index, QueryType queryType, GEOMETRY_FORMAT format,
+                          const char *str, size_t len, RedisModuleString **err_msg);
+  void (*dump)(GeometryIndex *index, RedisModuleCtx *ctx);
+};
+
+#define X(variant)                                                                            \
+  GeometryIndex *Index_##variant##_New();                                                     \
+  void Index_##variant##_Free(GeometryIndex *idx);                                            \
+  int Index_##variant##_Insert(GeometryIndex *idx, GEOMETRY_FORMAT format, const char *str,   \
+                               size_t len, t_docId id, RedisModuleString **err_msg);          \
+  int Index_##variant##_Remove(GeometryIndex *idx, t_docId);                                  \
+  IndexIterator *Index_##variant##_Query(GeometryIndex *index, enum QueryType queryType,      \
+                                         GEOMETRY_FORMAT format, const char *str, size_t len, \
+                                         RedisModuleString **err_msg);                        \
+  void Index_##variant##_Dump(GeometryIndex *idx, RedisModuleCtx *ctx);
+
+GEO_VARIANTS(X)
+#undef X
+
+// Return the total memory usage of all RTree instances
+size_t RTree_TotalMemUsage();
 
 #ifdef __cplusplus
-}  // extrern "C"
+}
 #endif

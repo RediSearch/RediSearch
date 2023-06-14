@@ -8,12 +8,12 @@
 
 #include "rtdoc.hpp"
 #include "query_iterator.hpp"
-#include "rtree.h"
-#include <type_traits>  // std::make_signed
 // #include <boost/unordered/unordered_map.hpp> //is faster than std::unordered_map?
 
 namespace bg = boost::geometry;
 namespace bgi = bg::index;
+using Cartesian = bg::cs::cartesian;
+using Geographic = bg::cs::geographic<bg::degree>;
 
 template <typename coord_system>
 struct RTree {
@@ -45,7 +45,7 @@ struct RTree {
     docLookup_.insert({id, poly});
   }
 
-  int insert(const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg) {
+  int insertWKT(const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg) {
     try {
       auto geometry = Polygon<coord_type>::from_wkt(std::string_view{wkt, len});
       insert(geometry, id);
@@ -111,7 +111,7 @@ struct RTree {
     lenTop += 2;
 
     RedisModule_ReplyWithStringBuffer(ctx, "num_docs", strlen("num_docs"));
-    RedisModule_ReplyWithLongLong(ctx, std::make_signed(rtree_.size()));
+    RedisModule_ReplyWithLongLong(ctx, static_cast<long long>(rtree_.size()));
     lenTop += 2;
 
     RedisModule_ReplyWithStringBuffer(ctx, "docs", strlen("docs"));
@@ -239,8 +239,6 @@ struct RTree {
   }
 };
 
-#define X(variant)               \
-  template class RTree<variant>; \
-  using RTree_##variant = RTree<variant>;
+#define X(variant) template class RTree<variant>;
 GEO_VARIANTS(X)
 #undef X
