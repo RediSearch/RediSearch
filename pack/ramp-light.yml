@@ -1,5 +1,5 @@
 display_name: RediSearch Light 2
-capability_name: Search & Query
+capability_name: Search and Query
 author: RedisLabs
 email: meir@redislabs.com
 description: High performance search index on top of Redis (without clustering)
