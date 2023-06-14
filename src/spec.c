@@ -2680,7 +2680,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
     }
     RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
     workersThreadPool_InitIfRequired();
 #endif
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
@@ -2699,7 +2699,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       RedisModule_Log(ctx, "warning",
                       "Skip background reindex scan, redis version contains loaded event.");
     }
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
     workersThreadPool_waitAndTerminate(ctx);
 #endif
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");

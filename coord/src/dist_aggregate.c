@@ -531,6 +531,8 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
   QueryError status = {0};
+  specialCaseCtx *knnCtx = NULL;
+
   r->qiter.err = &status;
   r->reqflags |= QEXEC_F_IS_EXTENDED;
 
@@ -540,7 +542,6 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (rc != REDISMODULE_OK) goto err;
 
   unsigned int dialect = r->reqConfig.dialectVersion;
-  specialCaseCtx *knnCtx = NULL;
   if(dialect >= 2) {
     // Check if we have KNN in the query string, and if so, parse the query string to see if it is
     // a KNN section in the query. IN that case, we treat this as a SORTBY+LIMIT step.
