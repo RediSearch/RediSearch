@@ -893,3 +893,21 @@ def testResultCounter(env):
     # no match. max docID is 4
     env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([4])
     #env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([0])
+
+def testGroupProperties(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'n', 'NUMERIC', 'SORTABLE', 'tt', 'TAG')
+    conn.execute_command('HSET', 'doc1', 't', 'hello', 'n', '1', 'tt', 'foo')
+
+    # Check groupby properties
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '3', 't', 'n', 'tt').error().contains(
+                    'Bad arguments for GROUPBY: Unknown property `t`. Did you mean `@t`?')
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '3', '@t', 'n', '@tt').error().contains(
+                    'Bad arguments for GROUPBY: Unknown property `n`. Did you mean `@n`?')
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '3', '@t', '@n', '@tt').noError()
+
+    # Verify that we fail and not returning results from `t`
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', 'tt').error().contains('Bad arguments for GROUPBY: Unknown property `tt`. Did you mean `@tt`?')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@tt').equal([1, ['tt', 'foo']])

@@ -150,13 +150,13 @@ static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
 }
 
 int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
-  if (AC_NumRemaining(ac) < 1) {	
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for DIALECT");	
-      return REDISMODULE_ERR;	
-    }	
-    if ((AC_GetUnsigned(ac, dialect, AC_F_GE1) != AC_OK) || (*dialect > MAX_DIALECT_VERSION)) {	
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "DIALECT requires a non negative integer >=1 and <= %u", MAX_DIALECT_VERSION);	
-      return REDISMODULE_ERR;	
+  if (AC_NumRemaining(ac) < 1) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for DIALECT");
+      return REDISMODULE_ERR;
+    }
+    if ((AC_GetUnsigned(ac, dialect, AC_F_GE1) != AC_OK) || (*dialect > MAX_DIALECT_VERSION)) {
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "DIALECT requires a non negative integer >=1 and <= %u", MAX_DIALECT_VERSION);
+      return REDISMODULE_ERR;
     }
     return REDISMODULE_OK;
 }
@@ -210,14 +210,14 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if (req->reqflags & QEXEC_F_IS_SEARCH && !(QEXEC_F_SEND_SCORES & req->reqflags)) {
       req->searchopts.flags |= Search_IgnoreScores;
     }
-  } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {	
-    if (AC_NumRemaining(ac) < 1) {	
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");	
-      return ARG_ERROR;	
-    }	
-    if (AC_GetInt(ac, &req->reqTimeout, AC_F_GE0) != AC_OK) {	
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a non negative integer");	
-      return ARG_ERROR;	
+  } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {
+    if (AC_NumRemaining(ac) < 1) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");
+      return ARG_ERROR;
+    }
+    if (AC_GetInt(ac, &req->reqTimeout, AC_F_GE0) != AC_OK) {
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a non negative integer");
+      return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
     if (parseCursorSettings(req, ac, status) != REDISMODULE_OK) {
@@ -608,6 +608,14 @@ static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
+  for (size_t ii = 0; ii < groupArgs.argc; ++ii) {
+    if (*(char*)groupArgs.objs[ii] != '@') {
+      QERR_MKBADARGS_FMT(status, "Bad arguments for GROUPBY: Unknown property `%s`. Did you mean `@%s`?",
+                         groupArgs.objs[ii], groupArgs.objs[ii]);
+      return REDISMODULE_ERR;
+    }
+  }
+
   // Number of fields.. now let's see the reducers
   PLN_GroupStep *gstp = PLNGroupStep_New((const char **)groupArgs.objs, groupArgs.argc);
   AGPLN_AddStep(&req->ap, &gstp->base);
@@ -696,7 +704,7 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
     rc = AC_GetString(ac, &s, NULL, 0);
     if (rc != AC_OK || strcmp(s, "*")) {
       QERR_MKBADARGS_AC(status, "LOAD", rc);
-      return REDISMODULE_ERR;  
+      return REDISMODULE_ERR;
     }
     req->reqflags |= QEXEC_AGG_LOAD_ALL;
   }
@@ -1299,7 +1307,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
             }
           }
           // set lookupkey name to name.
-          // by defualt "name = path" 
+          // by defualt "name = path"
           kk->name = name;
           kk->name_len = strlen(name);
           lstp->keys[lstp->nkeys++] = kk;
