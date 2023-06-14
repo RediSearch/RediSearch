@@ -1053,3 +1053,59 @@ def testGroupAfterSort(env):
     #    one for (t == AAAA, n == 0), one for (t == BBBB, n == 0), and one for (t == ????, n == 1)
 
     env.assertEqual(res, expected)
+
+
+def testWithKNN(env):
+    conn = getConnectionByEnv(env)
+    dim = 4
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+               'TYPE', 'FLOAT32', 'n', 'NUMERIC').ok()
+
+    # Use {1} and {3} hash slot to verify the distribution of the documents among 2 different shards.
+    conn.execute_command('HSET', 'doc1{1}', 'v', create_np_array_typed([1] * dim).tobytes(), 'n', '3')
+    conn.execute_command('HSET', 'doc5{1}', 'v', create_np_array_typed([5] * dim).tobytes(), 'n', '2')
+    conn.execute_command('HSET', 'doc6{1}', 'v', create_np_array_typed([6] * dim).tobytes(), 'n', '1')
+
+    conn.execute_command('HSET', 'doc2{3}', 'v', create_np_array_typed([2] * dim).tobytes(), 'n', '5')
+    conn.execute_command('HSET', 'doc3{3}', 'v', create_np_array_typed([3] * dim).tobytes(), 'n', '4')
+    conn.execute_command('HSET', 'doc4{3}', 'v', create_np_array_typed([4] * dim).tobytes(), 'n', '6')
+
+    # CASE 1 #
+    # Run KNN with SORTBY. We expect that the top 3 documents in terms of vector distance will be doc1, doc2 and doc3,
+    # and that after we sort by @n, we'll get doc1 and doc3 as the query results (with minial value of n among the 3
+    # documents). Note that here we are testing that in coordinator know NOT to run the sort by step in the shards, but
+    # run them ONLY, since there was a KNN step. Otherwise, we would get in-correct results, as doc1 would be filtered
+    # out in the first shard after the sortby step.
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]=>{$yield_distance_as: dist}',
+                               'SORTBY', '1', '@n', 'MAX', '2',
+                               'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
+    expected_res = [['dist', '4', 'n', '3'], ['dist', '36', 'n', '4']]
+    env.assertEqual(res[1:], expected_res)
+
+    # CASE 2 #
+    # Run KNN with APPLY - make sure that the pipeline is built correctly - APPLY should be distributed, while
+    # KNN is local (and the upcoming SORTBY steps).
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]=>{$yield_distance_as: square_dist}',
+                               "APPLY", "sqrt(@square_dist)", "AS", "L2_dist", 'SORTBY', '1', '@n', 'MAX', '2',
+                               'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
+    expected_res = [{'L2_dist': '2', 'square_dist': '4', 'n': '3'}, {'L2_dist': '6', 'square_dist': '36', 'n': '4'}]
+    env.assertEqual([to_dict(res_item) for res_item in res[1:]], expected_res)
+
+    # CASE 3 #
+    # Run GROUPBY after KNN. Validate that here as well we have the group by step run only local,
+    # otherwise, if the groupby+reduce had ran in each shard, we would get that the count is 2 for every value of @n
+    # (100 and 200), and that we would have seen in the 'c' value.
+    conn.execute_command('HSET', 'doc1{1}', 'v', create_np_array_typed([1] * dim).tobytes(), 'n', '100')
+    conn.execute_command('HSET', 'doc2{1}', 'v', create_np_array_typed([2] * dim).tobytes(), 'n', '100')
+    conn.execute_command('HSET', 'doc3{1}', 'v', create_np_array_typed([3] * dim).tobytes(), 'n', '100')
+
+    conn.execute_command('HSET', 'doc4{3}', 'v', create_np_array_typed([1] * dim).tobytes(), 'n', '200')
+    conn.execute_command('HSET', 'doc5{3}', 'v', create_np_array_typed([2] * dim).tobytes(), 'n', '200')
+    conn.execute_command('HSET', 'doc6{3}', 'v', create_np_array_typed([3] * dim).tobytes(), 'n', '200')
+
+    expected_res = [['n', '100', 'c', '1'], ['n', '200', 'c', '1']]
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 2 @v $blob]=>{$yield_distance_as: dist}',
+                               'GROUPBY', '1', '@n',
+                               'REDUCE', 'COUNT', '0', 'AS', 'c', 'SORTBY', '1', '@n',
+                               'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
+    env.assertEqual(res[1:], expected_res)
