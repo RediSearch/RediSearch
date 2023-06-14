@@ -247,7 +247,7 @@ DEBUG_COMMAND(DumpGeometryIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not open geometry index");
     goto end;
   }
-  GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
+  const GeometryApi *api = GeometryApi_Get(fs->geometryOpts.geometryTag, NULL);
   if (!api) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not get geometry api");
     goto end;

@@ -8,6 +8,10 @@
 
 #include "rtdoc.hpp"
 #include "query_iterator.hpp"
+#include <unordered_map>
+#include <optional>
+#include <string_view>
+#include <ranges>
 // #include <boost/unordered/unordered_map.hpp> //is faster than std::unordered_map?
 
 namespace bg = boost::geometry;
@@ -19,11 +23,12 @@ template <typename coord_system>
 struct RTree {
   using parameter_type = bgi::quadratic<16>;
   using doc_type = RTDoc<coord_system>;
+  using poly_type = typename RTDoc<coord_system>::poly_type;
   using rtree_internal = bgi::rtree<doc_type, parameter_type, RTDoc_Indexable<coord_system>,
                                     RTDoc_EqualTo<coord_system>, rm_allocator<doc_type>>;
   using docLookup_internal =
-      std::unordered_map<t_docId, doc_type::poly_type, std::hash<t_docId>, std::equal_to<t_docId>,
-                         rm_allocator<std::pair<const t_docId, doc_type::poly_type>>>;
+      std::unordered_map<t_docId, poly_type, std::hash<t_docId>, std::equal_to<t_docId>,
+                         rm_allocator<std::pair<const t_docId, poly_type>>>;
 
   rtree_internal rtree_;
   docLookup_internal docLookup_;
@@ -32,7 +37,7 @@ struct RTree {
   explicit RTree(rtree_internal const& rt) noexcept : rtree_{rt} {
   }
 
-  [[nodiscard]] std::optional<std::reference_wrapper<const doc_type::poly_type>> lookup(
+  [[nodiscard]] std::optional<std::reference_wrapper<const poly_type>> lookup(
       t_docId id) const {
     if (auto it = docLookup_.find(id); it != docLookup_.end()) {
       return it->second;
@@ -40,14 +45,14 @@ struct RTree {
     return std::nullopt;
   }
 
-  void insert(const doc_type::poly_type& poly, t_docId id) {
+  void insert(const poly_type& poly, t_docId id) {
     rtree_.insert({poly, id});
     docLookup_.insert({id, poly});
   }
 
   int insertWKT(const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg) {
     try {
-      auto geometry = Polygon<coord_type>::from_wkt(std::string_view{wkt, len});
+      auto geometry = Polygon<coord_system>::from_wkt(std::string_view{wkt, len});
       insert(geometry, id);
       return 0;
     } catch (const std::exception& e) {
@@ -59,7 +64,7 @@ struct RTree {
   }
 
   bool remove(t_docId id) {
-    if (auto doc = lookup(id); doc.has_value()) {
+    if (auto doc = this->lookup(id); doc.has_value()) {
       rtree_.remove(doc_type{doc.value(), id});
       docLookup_.erase(id);
       return true;
@@ -77,19 +82,19 @@ struct RTree {
 
   int remove(const char *wkt, size_t len, t_docId id) {
     try {
-      if (auto geometry = lookup(id); geometry.has_value()) {
+      if (auto opt = this->lookup(id); opt.has_value()) {
         removeId(id);
-        return remove(RTDoc{geometry.value(), id});
+        return remove(RTDoc<coord_system>{opt.value(), id});
       } else {
-        auto geometry = Polygon::from_wkt(std::string_view{wkt,len});
-        return remove(RTDoc{geometry, id});
+        auto geometry = Polygon<coord_system>::from_wkt(std::string_view{wkt,len});
+        return remove(RTDoc<coord_system>{geometry, id});
       }
     } catch (...) {
       return -1;
     }
   }
 
-  [[nodiscard]] static string geometry_to_string(const doc_type::poly_type& geometry) {
+  [[nodiscard]] static string geometry_to_string(const poly_type& geometry) {
     using sstream = std::basic_stringstream<char, std::char_traits<char>, rm_allocator<char>>;
     sstream ss{};
     ss << bg::wkt(geometry);
@@ -178,8 +183,8 @@ struct RTree {
 
   IndexIterator *query(const char *wkt, size_t len, enum QueryType queryType, RedisModuleString **err_msg) const {
     try {
-      auto geometry = Polygon::from_wkt(wkt);
-      return generate_query_iterator(query(RTDoc{geometry, 0}, queryType, geometry));
+      auto geometry = Polygon<coord_system>::from_wkt(wkt);
+      return generate_query_iterator(query(RTDoc<coord_system>{geometry, 0}, queryType, geometry));
     } catch(const std::exception& e) {
       if (err_msg) {
         *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
@@ -189,7 +194,7 @@ struct RTree {
   }
 
   [[nodiscard]] ResultsVec query(doc_type const& queryDoc, QueryType queryType,
-                                 const doc_type::poly_type& queryGeometry) const {
+                                 const poly_type& queryGeometry) const {
     switch (queryType) {
       case QueryType::CONTAINS:
         return contains(queryDoc, queryGeometry);
@@ -201,7 +206,7 @@ struct RTree {
   }
 
   [[nodiscard]] ResultsVec contains(doc_type const& queryDoc,
-                                    const doc_type::poly_type& queryGeometry) const {
+                                    const poly_type& queryGeometry) const {
     auto results = query(bgi::contains(queryDoc.rect_));
     std::erase_if(results, [&](auto const& doc) {
       auto geometry = lookup(doc.id());
@@ -210,7 +215,7 @@ struct RTree {
     return results;
   }
   [[nodiscard]] ResultsVec within(doc_type const& queryDoc,
-                                  const doc_type::poly_type& queryGeometry) const {
+                                  const poly_type& queryGeometry) const {
     auto results = query(bgi::within(queryDoc.rect_));
     std::erase_if(results, [&](auto const& doc) {
       auto geometry = lookup(doc.id());

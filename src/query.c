@@ -891,7 +891,7 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   if (!index) {
     return NULL;
   }
-  GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
+  const GeometryApi *api = GeometryApi_Get(fs->geometryOpts.geometryTag, NULL);
   if (!api) {
     return NULL;
   }

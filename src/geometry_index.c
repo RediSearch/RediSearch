@@ -29,7 +29,7 @@ static GeometryIndex *openGeometryKeysDict(const IndexSpec *spec, RedisModuleStr
   if (!write) {
     return NULL;
   }
-  GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
+  const GeometryApi *api = GeometryApi_Get(fs->geometryOpts.geometryTag, NULL);
   if (!api) {
     return NULL;
   }
@@ -61,7 +61,7 @@ GeometryIndex *OpenGeometryIndex(RedisModuleCtx *redisCtx, IndexSpec *spec,
         RedisModule_ModuleTypeGetType(*idxKey) != GeometryIndexType) {
       return NULL;
     }
-    GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
+    const GeometryApi *api = GeometryApi_Get(fs->geometryOpts.geometryTag, NULL);
     if (!api) {
       return NULL;
     }
@@ -84,7 +84,7 @@ void GeometryIndex_RemoveId(RedisModuleCtx *ctx, IndexSpec *spec, t_docId id) {
       const FieldSpec *fs = spec->fields + i;
       GeometryIndex *idx = OpenGeometryIndex(ctx, spec, NULL, fs);
       if (idx) {
-        GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
+        const GeometryApi *api = GeometryApi_Get(fs->geometryOpts.geometryTag, NULL);
         if (api) {
           api->delGeom(idx, id);
         }

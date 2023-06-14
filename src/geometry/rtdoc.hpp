@@ -21,8 +21,8 @@ using string = std::basic_string<char, std::char_traits<char>, rm_allocator<char
 
 template <typename coord_system>
 struct RTDoc {
-  using poly_type = Polygon<coord_system>::polygon_internal;
-  using point_type = Point<coord_system>::point_internal;
+  using poly_type = typename Polygon<coord_system>::polygon_internal;
+  using point_type = typename Point<coord_system>::point_internal;
   using rect_internal = bgm::box<point_type>;
 
   rect_internal rect_;
@@ -40,7 +40,7 @@ struct RTDoc {
 
   static RTDoc* from_wkt(const char* wkt, size_t len, t_docId id, RedisModuleString** err_msg) {
     try {
-      auto geometry = Polygon::from_wkt(std::string_view{wkt, len});
+      auto geometry = Polygon<coord_system>::from_wkt(std::string_view{wkt, len});
       return new RTDoc{geometry, id};
     } catch (const std::exception& e) {
       if (err_msg) *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
@@ -63,13 +63,13 @@ struct RTDoc {
   [[nodiscard]] static poly_type to_poly(rect_internal const& rect) noexcept {
     auto p_min = rect.min_corner();
     auto p_max = rect.max_corner();
-    auto x_min = p_min.get<0>();
-    auto y_min = p_min.get<1>();
-    auto x_max = p_max.get<0>();
-    auto y_max = p_max.get<1>();
+    auto x_min = bg::get<0>(p_min);
+    auto y_min = bg::get<1>(p_min);
+    auto x_max = bg::get<0>(p_max);
+    auto y_max = bg::get<1>(p_max);
 
-    return poly_type{poly_type::ring_type{p_min, point_type{x_max, y_min}, p_max,
-                                          point_type{x_min, y_max}, p_min}};
+    return poly_type{typename poly_type::ring_type{p_min, point_type{x_max, y_min}, p_max,
+                                                   point_type{x_min, y_max}, p_min}};
   }
 
   [[nodiscard]] string rect_to_string() const {
@@ -81,7 +81,7 @@ struct RTDoc {
 
   [[nodiscard]] RedisModuleString* to_RMString() const {
     if (RedisModule_CreateString) {
-      string s = doc->rect_to_string();
+      string s = this->rect_to_string();
       return RedisModule_CreateString(nullptr, s.c_str(), s.length());
     } else {
       return nullptr;
@@ -114,15 +114,16 @@ template <typename coord_system>
 
 template <typename coord_system>
 struct RTDoc_Indexable {
-  using result_type = RTDoc::rect_internal;
-  [[nodiscard]] constexpr result_type operator()(RTDoc const& doc) const noexcept {
+  using result_type = typename RTDoc<coord_system>::rect_internal;
+  [[nodiscard]] constexpr result_type operator()(RTDoc<coord_system> const& doc) const noexcept {
     return doc.rect_;
   }
 };
 
 template <typename coord_system>
 struct RTDoc_EqualTo {
-  [[nodiscard]] bool operator()(RTDoc const& lhs, RTDoc const& rhs) const noexcept {
+  [[nodiscard]] bool operator()(RTDoc<coord_system> const& lhs,
+                                RTDoc<coord_system> const& rhs) const noexcept {
     return lhs == rhs;
   }
 };

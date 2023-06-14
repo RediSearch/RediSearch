@@ -616,7 +616,7 @@ FIELD_BULK_INDEXER(geometryIndexer) {
     }
   }
 
-  GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
+  const GeometryApi *api = GeometryApi_Get(fs->geometryOpts.geometryTag, NULL);
   if (!api) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not get geometry api for indexing");
     return -1;

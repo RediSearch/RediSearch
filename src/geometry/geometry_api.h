@@ -50,8 +50,10 @@ struct GeometryApi {
 GEO_VARIANTS(X)
 #undef X
 
+const GeometryApi *GeometryApi_Get(GEOMETRY_TAG, void *);
+
 // Return the total memory usage of all RTree instances
-size_t RTree_TotalMemUsage();
+size_t GeometryTotalMemUsage();
 
 #ifdef __cplusplus
 }

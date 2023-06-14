@@ -24,12 +24,16 @@ constexpr GeometryApi geometry_apis_g[GEOMETRY_TAG__NUM] = {
     [GEOMETRY_TAG_Geographic] = GeometryApi_Geographic,
 };
 
+const GeometryApi *GeometryApi_Get(GEOMETRY_TAG tag, [[maybe_unused]] void *ctx) {
+  return &geometry_apis_g[tag];
+} 
+
 #define X(variant)                                                                            \
   GeometryIndex *Index_##variant##_New() {                                                    \
     return new GeometryIndex{                                                                 \
         .tag = GEOMETRY_TAG_##variant,                                                        \
         .index = static_cast<void *>(new RTree<variant>{}),                                   \
-        .api = &geometry_apis_g[GEOMETRY_TAG_##variant],                                      \
+        .api = GeometryApi_Get(GEOMETRY_TAG_##variant, nullptr),                              \
     };                                                                                        \
   }                                                                                           \
   void Index_##variant##_Free(GeometryIndex *idx) {                                           \
@@ -68,6 +72,6 @@ constexpr GeometryApi geometry_apis_g[GEOMETRY_TAG__NUM] = {
 GEO_VARIANTS(X)
 #undef X
 
-size_t RTree_TotalMemUsage() {
+size_t GeometryTotalMemUsage() {
   return RTree<Cartesian>::reportTotal() + RTree<Geographic>::reportTotal();
 }

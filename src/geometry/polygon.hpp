@@ -10,13 +10,14 @@
 
 #include <cstdarg>
 #include <ranges>
+#include <string_view>
 
 namespace bg = boost::geometry;
 namespace bgm = bg::model;
 
 template <typename coord_system>
 struct Polygon {
-	using point_type = Point<coord_system>::point_internal;
+	using point_type = typename Point<coord_system>::point_internal;
 	using polygon_internal = bgm::polygon<
 		/* point_type       */ point_type,
 		/* is_clockwise     */ true,		// TODO: GEOMETRY - (when) do we need to call bg::correct(poly) ?
