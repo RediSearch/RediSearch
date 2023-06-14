@@ -60,6 +60,7 @@ static InfoFieldSpec dialectSpecs[] = {
     {.name = "dialect_1", .type = InfoField_Max},
     {.name = "dialect_2", .type = InfoField_Max},
     {.name = "dialect_3", .type = InfoField_Max},
+    {.name = "dialect_4", .type = InfoField_Max},
 };
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(*arr))

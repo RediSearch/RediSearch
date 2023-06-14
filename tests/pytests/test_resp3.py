@@ -411,8 +411,7 @@ def test_info():
       'vector_index_sz_mb': 0.0}
     res = env.cmd('FT.info', 'idx1')
     res.pop('total_indexing_time', None)
-    res = dict(sorted(res.items()))
-    env.assertEqual(res, exp)
+    env.assertEqual(order_dict(res), order_dict(exp))
 
 def test_config():
     env = Env(protocol=3)
