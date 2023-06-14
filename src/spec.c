@@ -1282,7 +1282,7 @@ void CleanPool_ThreadPoolPauseBeforeDump() {
 }
 
 void CleanPool_ThreadPoolShutdownLog(RedisModuleInfoCtx *ctx) {
-  redisearch_thpool_ShutdownLog(cleanPool, ctx, "=== CLEAN POOL THREADS LOG: ===");
+  redisearch_thpool_ShutdownLog(cleanPool, ctx, "=== CLEANUP POOL THREADS LOG: ===");
 }
 
 uint16_t getPendingIndexDrop() {

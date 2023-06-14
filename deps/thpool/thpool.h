@@ -231,7 +231,7 @@ void redisearch_thpool_pause_before_dump(redisearch_threadpool);
 
 
 /**
- * @brief Collect and print data from all the threads in the thread pool.
+ * @brief Collect and print data from all the threads in the thread pool to the crash log.
  * 
  * @param threadpool            the threadpool of threads to print dump data from.
  * @param ctx                   the info ctx to print the data to.

@@ -134,7 +134,6 @@ void workersThreadPool_pauseBeforeDump() {
   redisearch_thpool_pause_before_dump(_workers_thpool);
 }
 
-
 void workersThreadPool_ShutdownLog(RedisModuleInfoCtx *ctx) {
   redisearch_thpool_ShutdownLog(_workers_thpool, ctx, "=== WORKERS THREADS LOG: ===");
 }

@@ -150,6 +150,7 @@ static void thread_destroy(struct thread* thread_p);
 static void log_backtrace(statusOnCrash status_on_crash);
 static void thread_bt_buffer_init(uint32_t thread_id, void *bt_addresses_buf, int trace_size, statusOnCrash status_on_crash);
 static void reset_dump_counters();
+static void wait_for_threads_log(redisearch_thpool_t* thpool_p);
 
 // redisearch_thpool_ShutdownLog() wraps these functions:
 
@@ -158,7 +159,7 @@ static void reset_dump_counters();
 // The threads will not continue execution after done writing.
 static void redisearch_thpool_ShutdownLog_init(redisearch_threadpool);
 // Print the data collected by the threads to the crash report.
-static void redisearch_thpool_ShutdownLog_print(RedisModuleInfoCtx *ctx, redisearch_threadpool);
+static void redisearch_thpool_ShutdownLog_print(redisearch_thpool_t* thpool_p, RedisModuleInfoCtx *ctx);
 // Cleanups related to a specific threadpool dump
 static void redisearch_thpool_ShutdownLog_cleanup(redisearch_threadpool);
 
@@ -454,11 +455,11 @@ void redisearch_thpool_ShutdownLog( redisearch_thpool_t* thpool_p,
 
   RedisModule_InfoAddSection(ctx, info_section_title);
 
-  // Save all threads 
+  // Save all threads data
   redisearch_thpool_ShutdownLog_init(thpool_p);
 
   // Print the back trace of each thread
-  redisearch_thpool_ShutdownLog_print(ctx, thpool_p);
+  redisearch_thpool_ShutdownLog_print(thpool_p, ctx);
   
   // cleanup
   redisearch_thpool_ShutdownLog_cleanup(thpool_p);
@@ -492,8 +493,7 @@ static void redisearch_thpool_ShutdownLog_init(redisearch_thpool_t* thpool_p) {
   }
 }
 
-/* Prints the log for each thread */
-static void redisearch_thpool_ShutdownLog_print(RedisModuleInfoCtx *ctx, redisearch_thpool_t* thpool_p) {
+static void wait_for_threads_log(redisearch_thpool_t* thpool_p) {
   // wait for all the threads to finish writing to the bt buffer
   size_t threadpool_size = thpool_p->num_threads_alive;
 
@@ -503,9 +503,15 @@ static void redisearch_thpool_ShutdownLog_print(RedisModuleInfoCtx *ctx, redisea
   }
 
   if(threads_ids != threadpool_size) {
-  // log error, but anyway proceed to log and clean the data already collected
+    // log error, but anyway proceed to log and clean the data already collected
 	  RedisModule_Log(NULL, "warning", "something is wrong: number of threads' log != threadpool_size. Dumping partial data");
   }
+}
+
+/* Prints the log for each thread */
+static void redisearch_thpool_ShutdownLog_print(redisearch_thpool_t* thpool_p, RedisModuleInfoCtx *ctx) {
+
+  wait_for_threads_log(thpool_p);
 
   // for each thread in threads_ids
   for(size_t i = 0; i < threads_ids; i++) {
@@ -517,7 +523,6 @@ static void redisearch_thpool_ShutdownLog_print(RedisModuleInfoCtx *ctx, redisea
       sprintf(buff, "thread #%lu backtrace: \n",i);
     }
     RedisModule_InfoAddSection(ctx, buff);
-
 
     // print the bt
     for(int j = 0; j < curr_bt.trace_size; j++) {
@@ -545,6 +550,7 @@ void redisearch_thpool_ShutdownLog_done() {
   total_paused_threads = 0;
   // release bt buffer
   rm_free(printable_bt_buffer);
+  curr_bt_buffer_size = 0;
 }
 
 /* Pause all threads in threadpool */
@@ -630,7 +636,7 @@ static void thread_hold(int sig_id) {
 
  // If we pause to dump info on crash, wait until all data structure
  // required for the report are initalized.
-  while(register_to_crash_log && !(threadpool->flags & RS_THPOOL_F_READY_TO_DUMP)) {
+  while(threads_on_hold && register_to_crash_log && !(threadpool->flags & RS_THPOOL_F_READY_TO_DUMP)) {
 
   } 
 
