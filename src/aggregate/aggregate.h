@@ -75,9 +75,11 @@ typedef enum {
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
 
-// Indicates whether a query should run in the background (only when the immutable alwaysUseThreads
-// config is set). This will also guarantee that there is a running thread pool with al least 1 thread.
-#define RunInThread() (RSGlobalConfig.alwaysUseThreads)
+#ifdef MT_BUILD
+// Indicates whether a query should run in the background. This
+// will also guarantee that there is a running thread pool with al least 1 thread.
+#define RunInThread() (RSGlobalConfig.mt_mode == MT_MODE_FULL)
+#endif
 
 typedef enum {
   /* Received EOF from iterator */

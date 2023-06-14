@@ -74,6 +74,16 @@ typedef struct {
   long long minUnionIterHeap;
 } IteratorsConfig;
 
+
+#ifdef MT_BUILD
+typedef enum {
+  MT_MODE_OFF,
+  MT_MODE_ONLY_ON_OPERATIONS,
+  MT_MODE_FULL
+} MTMode;
+#endif
+
+
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module statrtup */
 typedef struct {
@@ -104,11 +114,11 @@ typedef struct {
   size_t indexPoolSize;
   int poolSizeNoAuto;  // Don't auto-detect pool size
 
-// #ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
   size_t numWorkerThreads;
-  int alwaysUseThreads;
+  MTMode mt_mode;
   size_t tieredVecSimIndexBufferLimit;
-// #endif
+#endif
 
   size_t minPhoneticTermLen;
 
@@ -224,6 +234,14 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 
+#ifdef MT_BUILD  
+#define MT_BUILD_CONFIG .numWorkerThreads = 0,                                                                     \
+    .mt_mode = MT_MODE_OFF,                                                                                                     \
+    .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               
+#else 
+#define MT_BUILD_CONFIG
+#endif 
+
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                                                           \
     .concurrentMode = 0,                                                                                              \
@@ -238,10 +256,8 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                                                        \
     .searchPoolSize = CONCURRENT_SEARCH_POOL_DEFAULT_SIZE,                                                            \
     .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE,                                                              \
-    .poolSizeNoAuto = 0,                                                                                              \
-    .numWorkerThreads = 0,                                                                                            \
-    .alwaysUseThreads = 0,                                                                                            \
-    .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                                                      \
+    .poolSizeNoAuto = 0,   \
+    MT_BUILD_CONFIG                                                                                                 \
     .gcConfigParams.gcScanSize = GC_SCANSIZE,                                                                                        \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                                                              \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                                        \

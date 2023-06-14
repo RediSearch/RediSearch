@@ -159,7 +159,7 @@ commands:
           shell: /bin/bash -l -eo pipefail
           command: |
             if [[ "<<parameters.no_power>>" == "yes" ]]; then
-                export REDISEARCH_POWER_TO_THE_WORKERS=0
+                export REDISEARCH_MT_BUILD=0
             fi
             make build <<parameters.build_params>> SHOW=1 NPROC=16
       - run:
@@ -201,7 +201,7 @@ commands:
           no_output_timeout: 30m
           command: |
             if [[ "<<parameters.no_power>>" == "yes" ]]; then
-                export REDISEARCH_POWER_TO_THE_WORKERS=0
+                export REDISEARCH_MT_BUILD=0
             fi
             make test TEST_PARALLEL=16 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
       - run:
@@ -230,7 +230,7 @@ commands:
           command: |
             ROOT="$PWD"
             cd build/docker
-            export REDISEARCH_POWER_TO_THE_WORKERS=0
+            export REDISEARCH_MT_BUILD=0
             make build verify OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
             cd $ROOT
             if [[ -e bin/artifacts/tests/tests-pytests-logs*.tgz ]]; then
@@ -277,7 +277,7 @@ commands:
           command: |
             ROOT="$PWD"
             cd build/docker
-            export REDISEARCH_POWER_TO_THE_WORKERS=0
+            export REDISEARCH_MT_BUILD=0
             make build verify OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
             cd $ROOT
             if [[ -e bin/artifacts/tests/tests-pytests-logs*.tgz ]]; then

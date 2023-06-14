@@ -15,10 +15,10 @@ RUN ./deps/readies/bin/getupdates
 RUN VERBOSE=1 ./sbin/setup
 RUN ./deps/readies/bin/getredis -v {{REDIS_VERSION}}
 
-ENV REDISEARCH_POWER_TO_THE_WORKERS=1
+ENV REDISEARCH_MT_BUILD=1
 
 RUN make conan SHOW=1
-RUN make build REDISEARCH_POWER_TO_THE_WORKERS=0 SHOW=1
+RUN make build REDISEARCH_MT_BUILD=0 SHOW=1
 
 {% if PACK == "1" %}
 RUN make build LITE=1 SHOW=1
@@ -41,7 +41,7 @@ RUN set -e ;\
 {% endif %}
 
 {% if TEST == "1" %}
-RUN TEST='' make test REDISEARCH_POWER_TO_THE_WORKERS=0 PLATFORM_MODE=1 QUICK=1
+RUN TEST='' make test REDISEARCH_MT_BUILD=0 PLATFORM_MODE=1 QUICK=1
 RUN TEST='' make test VARIANT=power-oss PLATFORM_MODE=1 QUICK=1
 RUN TEST='' make test COORD=oss PLATFORM_MODE=1 QUICK=1
 {% endif %}
@@ -65,8 +65,8 @@ RUN chown -R redis:redis /var/opt/redislabs
 COPY --from=builder /build/bin/artifacts/ /var/opt/redislabs/artifacts/
 {% endif %}
 
-{% if REDISEARCH_POWER_TO_THE_WORKERS == "1" %}
-CMD ["sh", "-c", "redis-server --loadmodule {{MODULES_DIR}}/redisearch.so ALWAYS_USE_THREADS TRUE WORKER_THREADS $(nproc) --loadmodule {{MODULES_DIR}}/rejson.so"]
+{% if REDISEARCH_MT_BUILD == "1" %}
+CMD ["sh", "-c", "redis-server --loadmodule {{MODULES_DIR}}/redisearch.so MT_MODE MT_MODE_FULL WORKER_THREADS $(nproc) --loadmodule {{MODULES_DIR}}/rejson.so"]
 {% else %}
 CMD ["redis-server", "--loadmodule", "{{MODULES_DIR}}/redisearch.so", "--loadmodule {{MODULES_DIR}}/rejson.so"]
 {% endif %}
