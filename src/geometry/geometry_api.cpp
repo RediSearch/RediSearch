@@ -28,8 +28,8 @@ constexpr GeometryApi geometry_apis_g[GEOMETRY_TAG__NUM] = {
   GeometryIndex *Index_##variant##_New() {                                                    \
     return new GeometryIndex{                                                                 \
         .tag = GEOMETRY_TAG_##variant,                                                        \
-        .index = static_cast<void *>(new RTree_##variant{}),                                  \
-        .vptr = &geometry_apis_g[GEOMETRY_TAG_##variant],                                     \
+        .index = static_cast<void *>(new RTree<variant>{}),                                   \
+        .api = &geometry_apis_g[GEOMETRY_TAG_##variant],                                      \
     };                                                                                        \
   }                                                                                           \
   void Index_##variant##_Free(GeometryIndex *idx) {                                           \
@@ -49,7 +49,7 @@ constexpr GeometryApi geometry_apis_g[GEOMETRY_TAG__NUM] = {
   int Index_##variant##_Remove(GeometryIndex *idx, t_docId id) {                              \
     return static_cast<RTree<variant> *>(idx->index)->remove(id);                             \
   }                                                                                           \
-  IndexIterator *Index_##variant##_Query(GeometryIndex *index, QueryType queryType,           \
+  IndexIterator *Index_##variant##_Query(GeometryIndex *idx, QueryType queryType,             \
                                          GEOMETRY_FORMAT format, const char *str, size_t len, \
                                          RedisModuleString **err_msg) {                       \
     switch (format) {                                                                         \

@@ -22,7 +22,7 @@ typedef struct GeometryApi GeometryApi;
 struct GeometryIndex {
   GEOMETRY_TAG tag;
   void *index;
-  GeometryApi *vtbl;
+  const GeometryApi *api;
 };
 
 struct GeometryApi {
@@ -42,7 +42,7 @@ struct GeometryApi {
   int Index_##variant##_Insert(GeometryIndex *idx, GEOMETRY_FORMAT format, const char *str,   \
                                size_t len, t_docId id, RedisModuleString **err_msg);          \
   int Index_##variant##_Remove(GeometryIndex *idx, t_docId);                                  \
-  IndexIterator *Index_##variant##_Query(GeometryIndex *index, enum QueryType queryType,      \
+  IndexIterator *Index_##variant##_Query(GeometryIndex *idx, enum QueryType queryType,        \
                                          GEOMETRY_FORMAT format, const char *str, size_t len, \
                                          RedisModuleString **err_msg);                        \
   void Index_##variant##_Dump(GeometryIndex *idx, RedisModuleCtx *ctx);
