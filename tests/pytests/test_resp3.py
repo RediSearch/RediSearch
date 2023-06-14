@@ -623,3 +623,76 @@ def test_profile_crash_mod5323():
     }
     if not env.isCluster:  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)
+
+def test_profile_child_itrerators_array():
+    env = Env(protocol=3)
+    env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
+    with env.getClusterConnectionIfNeeded() as r:
+      r.execute_command('hset', '1', 't', 'hello')
+      r.execute_command('hset', '2', 't', 'world')
+
+    # test UNION
+    res = env.execute_command('ft.profile', 'idx', 'search', 'query', 'hello|world', 'nocontent')
+    exp = {
+      'error': [],
+      'field_names': [],
+      'profile': {
+        'Iterators profile': [
+          { 'Child iterators': [
+              {'Counter': 1, 'Size': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
+              {'Counter': 1, 'Size': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
+            ],
+            'Counter': 2,
+            'Query type': 'UNION',
+            'Time': ANY,
+            'Type': 'UNION'
+          }
+        ],
+        'Parsing time': ANY,
+        'Pipeline creation time': ANY,
+        'Result processors profile': [
+          {'Counter': 2, 'Time': ANY, 'Type': 'Index'},
+          {'Counter': 2, 'Time': ANY, 'Type': 'Scorer'},
+          {'Counter': 2, 'Time': ANY, 'Type': 'Sorter'}
+        ],
+        'Total profile time': ANY
+      },
+      'results': [
+        { 'field_values': [], 'id': '1' },
+        { 'field_values': [], 'id': '2' }
+      ],
+      'total_results': 2
+    }
+    if not env.isCluster:  # on cluster, lack of crash is enough
+        env.assertEqual(res, exp)
+
+    # test INTERSECT
+    res = env.execute_command('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
+    exp = {
+      'error': [],
+      'field_names': [],
+      'profile': {
+        'Iterators profile': [
+          { 'Child iterators': [
+              {'Counter': 1, 'Size': 1, 'Term': 'hello', 'Time': 0.0, 'Type': 'TEXT'},
+              {'Counter': 1, 'Size': 1, 'Term': 'world', 'Time': 0.0, 'Type': 'TEXT'}
+            ],
+            'Counter': 0,
+            'Time': 0.0,
+            'Type': 'INTERSECT'
+          }
+        ],
+        'Parsing time': 0.0,
+        'Pipeline creation time': 0.0,
+        'Result processors profile': [
+          { 'Counter': 0, 'Time': 0.0, 'Type': 'Index'},
+          { 'Counter': 0, 'Time': 0.0, 'Type': 'Scorer'},
+          {'Counter': 0, 'Time': 0.0, 'Type': 'Sorter'}
+        ],
+        'Total profile time': 0.0
+      },
+      'results': [],
+      'total_results': 0
+    }
+    if not env.isCluster:  # on cluster, lack of crash is enough
+        env.assertEqual(res, exp)
