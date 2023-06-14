@@ -3,6 +3,8 @@ import operator
 
 
 def order_dict(d):
+    ''' Sorts a dictionary recursively by keys '''
+
     result = {}
     for k, v in sorted(d.items()):
         if isinstance(v, dict):
@@ -383,7 +385,7 @@ def test_info():
       'bytes_per_record_avg': ANY,
       'cleaning': 0,
       'cursor_stats': {'global_idle': 0, 'global_total': 0, 'index_capacity': ANY, 'index_total': 0},
-      'dialect_stats': {'dialect_1': 0, 'dialect_2': 0, 'dialect_3': 0},
+      'dialect_stats': {'dialect_1': 0, 'dialect_2': 0, 'dialect_3': 0, 'dialect_4': 0},
       'doc_table_size_mb': ANY,
       'gc_stats': ANY,
       'hash_indexing_failures': 0,
@@ -409,8 +411,7 @@ def test_info():
       'vector_index_sz_mb': 0.0}
     res = env.cmd('FT.info', 'idx1')
     res.pop('total_indexing_time', None)
-    res = dict(sorted(res.items()))
-    env.assertEqual(res, exp)
+    env.assertEqual(order_dict(res), order_dict(exp))
 
 def test_config():
     env = Env(protocol=3)

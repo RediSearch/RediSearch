@@ -410,14 +410,13 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       {AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)},
       {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopwrods)},
       {AC_MKBITFLAG("EXPLAINSCORE", &req->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
-      {AC_MKBITFLAG("OPTIMIZE", &req->reqflags, QEXEC_OPTIMIZE)},
-      {AC_MKBITFLAG("WITHOUTCOUNT", &req->reqflags, QEXEC_OPTIMIZE)},
       {.name = "PAYLOAD",
        .type = AC_ARGTYPE_STRING,
        .target = &req->ast.udata,
        .len = &req->ast.udatalen},
       {NULL}};
 
+  bool optimization_specified = false;
   while (!AC_IsAtEnd(ac)) {
     ACArgSpec *errSpec = NULL;
     int rv = AC_ParseArgSpec(ac, querySpecs, &errSpec);
@@ -459,6 +458,12 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       if (rv == ARG_ERROR) {
         return REDISMODULE_ERR;
       }
+    } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
+      req->reqflags &= ~QEXEC_OPTIMIZE;
+      optimization_specified = true;
+    } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
+      req->reqflags |= QEXEC_OPTIMIZE;
+      optimization_specified = true;
     } else {
       int rv = handleCommonArgs(req, ac, status, 1);
       if (rv == ARG_HANDLED) {
@@ -469,6 +474,11 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         break;
       }
     }
+  }
+
+  if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
+    // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4
+    req->reqflags |= QEXEC_OPTIMIZE;
   }
 
   if ((req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) && !(req->reqflags & QEXEC_F_SEND_SCORES)) {
@@ -932,11 +942,13 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // set queryAST configuration parameters
   iteratorsConfig_init(&ast->config);
 
-  // parse inputs for optimizations
-  OPTMZ(QOptimizer_Parse(req));
-
-  // check possible optimization after creation of QueryNode tree
-  OPTMZ(QOptimizer_QueryNodes(req->ast.root, req->optimizer));
+  
+  if (IsOptimized(req)) {
+    // parse inputs for optimizations
+    QOptimizer_Parse(req);
+    // check possible optimization after creation of QueryNode tree
+    QOptimizer_QueryNodes(req->ast.root, req->optimizer);
+  }
 
   if (QueryError_HasError(status)) {
     return REDISMODULE_ERR;
