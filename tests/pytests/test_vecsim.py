@@ -1182,21 +1182,47 @@ def test_hybrid_query_cosine():
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
-def test_fail_ft_aggregate():
+def test_ft_aggregate_basic():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     dim = 1
     conn = getConnectionByEnv(env)
-    one_vector = np.full((1, 1), 1, dtype = np.float32)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
-                        'DIM', dim, 'DISTANCE_METRIC', 'COSINE')
-    conn.execute_command("HSET", "i", "v", one_vector.tobytes())
-    for query in ["*=>[KNN 10 @v $BLOB]", "@v:[VECTOR_RANGE 10 $BLOB]"]:
-        res = env.expect("FT.AGGREGATE", "idx", query, "PARAMS", 2, "BLOB", one_vector.tobytes())
-        if not env.isCluster():
-            res.error().contains("VSS is not yet supported on FT.AGGREGATE")
-        else:
-            # Currently coordinator does not return errors returned from shard during shard execution. It returns empty list
-            res.equal([0])
+
+    for algo in VECSIM_ALGOS:
+        conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', algo, '6', 'TYPE', 'FLOAT32',
+                            'DIM', dim, 'DISTANCE_METRIC', 'L2', 'n', 'NUMERIC')
+
+        # Use {1} and {3} hash slot to verify the distribution of the documents among 2 different shards.
+        for i in range(1, 11, 2):
+            conn.execute_command("HSET", f'doc{i}{{1}}', "v", create_np_array_typed([i] * dim).tobytes(), 'n', f'{11-i}')
+
+        for i in range(2, 11, 2):
+            conn.execute_command("HSET", f'doc{i}{{3}}', "v", create_np_array_typed([i] * dim).tobytes(), 'n', f'{11-i}')
+
+        # Expect both queries to return doc1, doc2 and doc3, as these are the closest 3 documents in terms of
+        # the vector fields, and the ones with distance lower than 10.
+        expected_res = [['dist', '1'], ['dist', '4'], ['dist', '9']]
+
+        query = "*=>[KNN 3 @v $BLOB]=>{$yield_distance_as: dist}"
+        res = conn.execute_command("FT.AGGREGATE", "idx", query,
+                                       "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes())
+        env.assertEqual(res[1:], expected_res)
+
+        # For range query we explicitly yield the distance metric and sort by it, as it wouldn't be
+        # the case in default, unlike in KNN.
+        query = "@v:[VECTOR_RANGE 10 $BLOB]=>{$yield_distance_as: dist}"
+        res = conn.execute_command("FT.AGGREGATE", "idx", query, 'SORTBY', '1', '@dist',
+                                   "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes())
+        env.assertEqual(res[1:], expected_res)
+
+        # Test simple hybrid query - get results with n value between 0 and 5, that is ids 6-10. The top 3 among those
+        # are doc6, doc7 and doc8 (where the dist is id**2).
+        query = "(@n:[0 5])=>[KNN 3 @v $BLOB]=>{$yield_distance_as: dist}"
+        res = conn.execute_command("FT.AGGREGATE", "idx", query, 'SORTBY', '1', '@dist',
+                                       "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes())
+        expected_res = [['dist', '36'], ['dist', '49'], ['dist', '64']]
+        env.assertEqual(res[1:], expected_res)
+
+        conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
 def test_fail_on_v1_dialect():
@@ -2148,3 +2174,41 @@ def test_multiple_range_queries():
                    'RETURN', 2, 'dist_hnsw', 'knn_dist', 'LIMIT', 0, 20).equal(expected_res)
 
         conn.flushall()
+
+
+# Test that a query that contains KNN as subset is parsed correctly (specially in coordinator, where we
+# have a special treatment for these cases)
+def test_query_with_knn_substr():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 2
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+                         'DIM', dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
+
+    for i in range(10):
+        conn.execute_command("HSET", f'doc{i}', "v", create_np_array_typed([i] * dim).tobytes(),
+                             't', 'knn' if i % 2 else 'val')
+
+    # Expect that doc1, doc3 and doc5 that has "knn" in their @t field and their vector in @v
+    # field is the closest to the query vector will be returned.
+    query_with_vecsim = "(@t:KNN)=>[KNN 3 @v $BLOB]=>{$yield_distance_as: dist}"
+    expected_res = [{'dist': '2'}, {'dist': '18'}, {'dist': '50'}]
+    res = conn.execute_command("FT.AGGREGATE", "idx", query_with_vecsim,
+                               "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes())
+    env.assertEqual([to_dict(res_item) for res_item in res[1:]], expected_res)
+
+    res = conn.execute_command("FT.SEARCH", "idx", query_with_vecsim,
+                               "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes(), 'RETURN', '1', 'dist')
+    env.assertEqual([to_dict(res_item) for res_item in res[2::2]], expected_res)
+
+    # Expect that all the odd numbers documents (doc1, doc3, doc5, doc7 and doc9) that has "knn" in their @t field
+    # will be returned.
+    query_without_vecsim = "(@t:KNN)"
+    expected_res = ['doc1', 'doc3', 'doc5', 'doc7', 'doc9']
+    res = conn.execute_command("FT.AGGREGATE", "idx", query_without_vecsim, 'LOAD', '1', '@__key',
+                               'SORTBY', '1', '@__key')
+    env.assertEqual([res_item[1] for res_item in res[1:]], expected_res)
+
+    res = conn.execute_command("FT.SEARCH", "idx", query_without_vecsim,
+                               "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes(), 'nocontent')
+    env.assertEqual(res[1:], expected_res)

@@ -396,10 +396,10 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         break;
       }
       case PLN_T_ARRANGE: {
-        // If we already had an arrange step, we can't distribute the second one
-        if (!hadArrange) {
-          hadArrange = true;
-          PLN_ArrangeStep *astp = (PLN_ArrangeStep *)current;
+        PLN_ArrangeStep *astp = (PLN_ArrangeStep *)current;
+        // If we already had an arrange step, or this arrange step should only run local,
+        // we shouldn't distribute the next arrange steps.
+        if (!hadArrange && !astp->runLocal) {
           PLN_ArrangeStep *newStp = (PLN_ArrangeStep *)rm_calloc(1, sizeof(*newStp));
 
           *newStp = *astp;
@@ -411,6 +411,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
             }
           }
         }
+        hadArrange = true;
         // whether we pushed an arrange step to the remote or not, we still need to move on
         current = PLN_NEXT_STEP(current);
         break;

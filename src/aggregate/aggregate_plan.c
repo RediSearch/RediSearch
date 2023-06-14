@@ -138,6 +138,23 @@ PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
   return NULL;
 }
 
+PLN_ArrangeStep *AGPLN_AddKNNArrangeStep(AGGPlan *pln, size_t k, const char *distFieldName) {
+  PLN_ArrangeStep *newStp = rm_calloc(1, sizeof(*newStp));
+  newStp->base.type = PLN_T_ARRANGE;
+  newStp->base.dtor = arrangeDtor;
+  // Add the KNN step right after the dummy root step (and before any other step).
+  AGPLN_AddAfter(pln, &pln->firstStep_s.base, &newStp->base);
+
+  newStp->isLimited = true;
+  newStp->limit = k;
+  newStp->sortKeys = array_new(const char *, 1);
+  newStp->sortKeys = array_append(newStp->sortKeys, distFieldName);
+  newStp->sortAscMap = SORTASCMAP_INIT;  // all ascending which is the default
+  newStp->runLocal = true;  // the distributed KNN step will run in shards via the hybrid iterator
+
+  return newStp;
+}
+
 PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln) {
   PLN_ArrangeStep *ret = AGPLN_GetArrangeStep(pln);
   if (ret) {
