@@ -297,7 +297,7 @@ def skip(cluster=False, macos=False, asan=False, msan=False, noWorkers=False):
                     raise SkipTest()
                 if msan and SANITIZER == 'memory':
                     raise SkipTest()
-                if noWorkers and not POWER_TO_THE_WORKERS:
+                if noWorkers and not MT_BUILD:
                     raise SkipTest()
 
                 return f(*args, **kwargs)
@@ -315,7 +315,7 @@ def skip(cluster=False, macos=False, asan=False, msan=False, noWorkers=False):
                     env.skip()
                 if msan and SANITIZER == 'memory':
                     env.skip()
-                if noWorkers and not POWER_TO_THE_WORKERS:
+                if noWorkers and not MT_BUILD:
                     env.skip()
                 return f(x, *args, **kwargs)
         return wrapper

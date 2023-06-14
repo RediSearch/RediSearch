@@ -8,16 +8,23 @@ from common import *
 from RLTest import Env
 
 
-@skip(noWorkers=True)
+def initEnv(moduleArgs: str = 'WORKER_THREADS 1 MT_MODE MT_MODE_FULL'):
+    if(moduleArgs == ''):
+        raise SkipTest('moduleArgs cannot be empty')
+    if not MT_BUILD:
+        raise SkipTest('MT_BUILD is not set')
+    env = Env(enableDebugCommand=True, moduleArgs=moduleArgs)
+    return env
+
 def testEmptyBuffer():
-    env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
+    env = initEnv()
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
     env.expect('ft.search', 'idx', '*', 'sortby', 'n').equal([0])
 
 
 def CreateAndSearchSortBy(docs_count):
-    env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
+    env = initEnv()
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     conn = getConnectionByEnv(env)
 
@@ -41,13 +48,11 @@ def CreateAndSearchSortBy(docs_count):
         n += 1
 
 
-@skip(noWorkers=True)
 def testSimpleBuffer():
     CreateAndSearchSortBy(docs_count = 10)
 
 # In this test we have more than BlockSize docs to buffer, we want to make sure there are no leaks
 # caused by the buffer memory management.
-@skip(noWorkers=True)
 def testMultipleBlocksBuffer():
     CreateAndSearchSortBy(docs_count = 2500)
 
@@ -86,9 +91,8 @@ def get_pipeline(profile_res):
             return entry
 
 
-@skip(noWorkers=True)
 def test_pipeline():
-    env = Env(moduleArgs='WORKER_THREADS 1 ALWAYS_USE_THREADS TRUE')
+    env = initEnv()
     env.skipOnCluster()
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
@@ -361,13 +365,21 @@ def test_pipeline():
     #sortby NOT SORTABLE NOCONTENT
     env.assertEqual(get_pipeline(res), expected_pipeline)
 
-
-def test_invalid_config():
-    if not POWER_TO_THE_WORKERS:
-        raise unittest.SkipTest("Skipping since worker threads are not enabled")
-    # Invalid 0 worker threads with ALWAYS_USE_THREADS set to true configuration.
+def test_invalid_MT_MODE_FULL_config():
     try:
-        env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 0 ALWAYS_USE_THREADS TRUE')
+        env = initEnv(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_FULL')
+        prefix = '_' if env.isCluster() else ''
+        env.cmd(f"{prefix}ft.config", "get", "WORKER_THREADS")
+        env.assertFalse(True)   # We shouldn't get here
+    except Exception:
+        # Create dummy env to collect exit gracefully.
+        env = Env()
+        pass
+
+def test_invalid_MT_MODE_ONLY_ON_OPERATIONS_config():
+    # Invalid 0 worker threads with MT_MODE_ONLY_ON_OPERATIONS.
+    try:
+        env = initEnv(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_ONLY_ON_OPERATIONS')
         prefix = '_' if env.isCluster() else ''
         env.cmd(f"{prefix}ft.config", "get", "WORKER_THREADS")
         env.assertFalse(True)   # We shouldn't get here
@@ -378,10 +390,10 @@ def test_invalid_config():
 
 
 def test_reload_index_while_indexing():
-    if not POWER_TO_THE_WORKERS or CODE_COVERAGE:
-        raise unittest.SkipTest("Skipping since worker threads are not enabled")
+    if CODE_COVERAGE:
+        raise unittest.SkipTest()
 
-    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
+    env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
     n_shards = env.shardsCount
     n_vectors = 10000 * n_shards if not SANITIZER and not CODE_COVERAGE else 1000 * n_shards
     dim = 64
@@ -411,10 +423,10 @@ def test_reload_index_while_indexing():
 
 
 def test_delete_index_while_indexing():
-    if not POWER_TO_THE_WORKERS or CODE_COVERAGE:
+    if CODE_COVERAGE:
         raise unittest.SkipTest("Skipping since worker threads are not enabled")
 
-    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
+    env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
     n_vectors = 50000 * n_shards if not SANITIZER and not CODE_COVERAGE else 1000 * n_shards
@@ -431,10 +443,7 @@ def test_delete_index_while_indexing():
 
 
 def test_burst_threads_sanity():
-    if not POWER_TO_THE_WORKERS:
-        raise unittest.SkipTest("Skipping since worker threads are not enabled")
-
-    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 8 ALWAYS_USE_THREADS FALSE DEFAULT_DIALECT 2')
+    env = initEnv(moduleArgs='WORKER_THREADS 8 MT_MODE MT_MODE_ONLY_ON_OPERATIONS DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
     n_vectors = 5000 * n_shards if not SANITIZER and not CODE_COVERAGE else 500 * n_shards
@@ -473,10 +482,8 @@ def test_burst_threads_sanity():
 
 
 def test_workers_priority_queue():
-    if not POWER_TO_THE_WORKERS:
-        raise unittest.SkipTest("Skipping since worker threads are not enabled")
-    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 TIERED_HNSW_BUFFER_LIMIT 10000'
-                                                  ' ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
+    env = initEnv(moduleArgs='WORKER_THREADS 2 TIERED_HNSW_BUFFER_LIMIT 10000'
+                                                  ' MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
     n_vectors = 100000 * n_shards if not SANITIZER and not CODE_COVERAGE else 5000 * n_shards
@@ -519,9 +526,7 @@ def test_workers_priority_queue():
 
 
 def test_async_updates_sanity():
-    if not POWER_TO_THE_WORKERS:
-        raise unittest.SkipTest("Skipping since worker threads are not enabled")
-    env = Env(enableDebugCommand=True, moduleArgs='WORKER_THREADS 2 ALWAYS_USE_THREADS TRUE DEFAULT_DIALECT 2')
+    env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
     n_vectors = 10000 * n_shards if not SANITIZER and not CODE_COVERAGE else 5000 * n_shards
