@@ -772,7 +772,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   SET_DIALECT(r->sctx->spec->used_dialects, r->reqConfig.dialectVersion);
   SET_DIALECT(RSGlobalConfig.used_dialects, r->reqConfig.dialectVersion);
 
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
   if (RunInThread()) {
     // Prepare context for the worker thread
     // Since we are still in the main thread, and we already validated the
@@ -786,7 +786,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
     workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
   } else
-#endif // POWER_TO_THE_WORKERS
+#endif // MT_BUILD
   {
     // Take a read lock on the spec (to avoid conflicts with the GC).
     // This is released in AREQ_Free or while executing the query.
@@ -810,6 +810,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       AREQ_Execute(r, ctx);
     }
   }
+
   return REDISMODULE_OK;
 
 error:
@@ -1062,7 +1063,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return REDISMODULE_OK;
       }
     }
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
     // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
     if (RunInThread() && !RedisModule_GetBlockedClientHandle(ctx)) {
       CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);

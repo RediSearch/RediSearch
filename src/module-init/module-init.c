@@ -111,9 +111,9 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
 }
 
 static void RS_pauseModuleThreadpools() {
-#ifdef POWER_TO_THE_WORKERS  
+#ifdef MT_BUILD  
   workersThreadPool_pauseBeforeDump();
-#endif // POWER_TO_THE_WORKERS
+#endif // MT_BUILD
 
   CleanPool_ThreadPoolPauseBeforeDump();
   ConcurrentSearch_pauseBeforeDump();
@@ -124,9 +124,9 @@ static void RS_pauseModuleThreadpools() {
 
 static void RS_ShutdownLogModuleThreadpools(RedisModuleInfoCtx *ctx) {
   GC_ThreadPoolShutdownLog(ctx);
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
   workersThreadPool_ShutdownLog(ctx);
-#endif // POWER_TO_THE_WORKERS
+#endif // MT_BUILD
   ConcurrentSearch_ShutdownLog(ctx);
   CleanPool_ThreadPoolShutdownLog(ctx);
 }
@@ -243,11 +243,11 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   CleanPool_ThreadPoolStart();
   DO_LOG("notice", "Initialized thread pools!");
 
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
   // Init threadpool.
   // Threadpool size can only be set on load.
-  if (RSGlobalConfig.alwaysUseThreads && RSGlobalConfig.numWorkerThreads == 0) {
-    DO_LOG("warning", "Invalid configuration - cannot set ALWAYS_USE_THREADS while WORKERS_THREADS"
+  if ((RSGlobalConfig.mt_mode == MT_MODE_ONLY_ON_OPERATIONS || RSGlobalConfig.mt_mode == MT_MODE_FULL)  && RSGlobalConfig.numWorkerThreads == 0) {
+    DO_LOG("warning", "Invalid configuration - cannot run in MT_MODE (FULL/ONLY_ON_OPERATIONS) while WORKERS_THREADS"
            " number is set to zero");
     return REDISMODULE_ERR;
   }
@@ -255,7 +255,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
       return REDISMODULE_ERR;
     }
-    if (RSGlobalConfig.alwaysUseThreads) {
+    if (RSGlobalConfig.mt_mode == MT_MODE_FULL) {
       // Initialize the threads if the module configuration states that worker threads
       // should always be active.
       workersThreadPool_InitPool();

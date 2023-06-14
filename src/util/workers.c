@@ -11,7 +11,7 @@
 
 #include <pthread.h>
 
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
 
 //------------------------------------------------------------------------------
 // Thread pool
@@ -138,4 +138,4 @@ void workersThreadPool_ShutdownLog(RedisModuleInfoCtx *ctx) {
   redisearch_thpool_ShutdownLog(_workers_thpool, ctx, "=== WORKERS THREADS LOG: ===");
 }
 
-#endif // POWER_TO_THE_WORKERS
+#endif // MT_BUILD

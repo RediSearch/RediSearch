@@ -6,14 +6,14 @@
 
 #pragma once
 
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
 
 #include "redismodule.h"
 #include "thpool/thpool.h"
 #include "config.h"
 #include <assert.h>
 
-#define USE_BURST_THREADS() (RSGlobalConfig.numWorkerThreads && !RSGlobalConfig.alwaysUseThreads)
+#define USE_BURST_THREADS() (RSGlobalConfig.numWorkerThreads && RSGlobalConfig.mt_mode == MT_MODE_ONLY_ON_OPERATIONS)
 
 // create workers thread pool
 // returns REDISMODULE_OK if thread pool created, REDISMODULE_ERR otherwise
@@ -52,4 +52,4 @@ void workersThreadPool_ShutdownLog(RedisModuleInfoCtx *ctx);
 // Set a signal for the running threads to terminate once all pending jobs are done.
 void workersThreadPool_SetTerminationWhenEmpty();
 
-#endif // POWER_TO_THE_WORKERS
+#endif // MT_BUILD
