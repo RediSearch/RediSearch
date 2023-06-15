@@ -1203,10 +1203,9 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
         printf("an error acquire when waiting for fork to terminate, pid:%d", cpid);
       }
     }
-    // TODO: move to vector index, wrap with POWER_TO_THE_WORKERS
-    for (size_t i = 0; i < array_len(gc->tieredIndexes); i++) {
-      // Call tiered index delete swap jobs API
-    }
+#ifdef MT_BUILD
+    VecSim_CallTieredIndexesGC(gc->tieredIndexes, gc->index);
+#endif
   }
   gc->execState = FGC_STATE_IDLE;
   TimeSampler_End(&ts);
@@ -1312,21 +1311,9 @@ ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
   forkGc->retryInterval.tv_nsec = 0;
 
   forkGc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes;
-
-  // TODO: move all this to vector index, wrap with POWER_TO_THE_WORKERS
-  IndexSpec *sp = StrongRef_Get(spec_ref);
-  FieldSpec **vector_fields = getFieldsByType(sp, INDEXFLD_T_VECTOR);
-  forkGc->tieredIndexes = array_new(VecSimIndex *, array_len(vector_fields));
-  for (size_t i = 0; i < array_len(vector_fields); i++) {
-    if (vector_fields[i]->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED) {
-      RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, vector_fields[i], INDEXFLD_T_VECTOR);
-      // TODO: simplify OpenVectorIndex so that it won't go over the entire spec again?
-      VecSimIndex *tiered_index = OpenVectorIndex(sp, vecsim_name);
-      array_append(forkGc->tieredIndexes, tiered_index);
-    }
-  }
-  array_free(vector_fields);
-
+#ifdef MT_BUILD
+  forkGc->tieredIndexes = VecSim_GetAllTieredIndexes(spec_ref);
+#endif
   forkGc->ctx = RedisModule_GetThreadSafeContext(NULL);
 
   callbacks->onTerm = onTerminateCb;
