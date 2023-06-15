@@ -25,7 +25,7 @@ template <typename coord_system>
 struct RTree {
   using parameter_type = bgi::quadratic<16>;
   using doc_type = RTDoc<coord_system>;
-  using poly_type = typename RTDoc<coord_system>::poly_type;
+  using poly_type = RTDoc<coord_system>::poly_type;
   using rtree_internal = bgi::rtree<doc_type, parameter_type, RTDoc_Indexable<coord_system>,
                                     RTDoc_EqualTo<coord_system>, rm_allocator<doc_type>>;
   using docLookup_internal =
@@ -66,7 +66,7 @@ struct RTree {
   }
 
   bool remove(t_docId id) {
-    if (auto doc = this->lookup(id); doc.has_value()) {
+    if (auto doc = lookup(id); doc.has_value()) {
       rtree_.remove(doc_type{doc.value(), id});
       docLookup_.erase(id);
       return true;
@@ -80,7 +80,7 @@ struct RTree {
 
   int remove(const char *wkt, size_t len, t_docId id) {
     try {
-      if (auto opt = this->lookup(id); opt.has_value()) {
+      if (auto opt = lookup(id); opt.has_value()) {
         docLookup_.erase(id);
         return remove(doc_type{opt.value(), id});
       } else {
@@ -133,7 +133,7 @@ struct RTree {
       RedisModule_ReplyWithLongLong(ctx, doc.id());
       lenValues += 2;
 
-      if (auto geometry = this->lookup(doc.id()); geometry.has_value()) {
+      if (auto geometry = lookup(doc.id()); geometry.has_value()) {
         RedisModule_ReplyWithStringBuffer(ctx, "geometry", strlen("geometry"));
         auto str = geometry_to_string(geometry.value());
         RedisModule_ReplyWithStringBuffer(ctx, str.data(), str.size());
@@ -175,14 +175,14 @@ struct RTree {
   }
 
   IndexIterator *query(doc_type const& queryDoc, QueryType queryType) const {
-    auto geometry = this->lookup(queryDoc.id());
+    auto geometry = lookup(queryDoc.id());
     return generate_query_iterator(query(queryDoc, queryType, geometry.value()));
   }
 
   IndexIterator *query(const char *wkt, size_t len, enum QueryType queryType, RedisModuleString **err_msg) const {
     try {
       auto geometry = Polygon<coord_system>::from_wkt(std::string_view{wkt, len});
-      return generate_query_iterator(this->query(doc_type{geometry, 0}, queryType, geometry));
+      return generate_query_iterator(query(doc_type{geometry, 0}, queryType, geometry));
     } catch(const std::exception& e) {
       if (err_msg) {
         *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
@@ -207,7 +207,7 @@ struct RTree {
                                     const poly_type& queryGeometry) const {
     auto results = query(bgi::contains(queryDoc.rect_));
     std::erase_if(results, [&](auto const& doc) {
-      auto geometry = this->lookup(doc.id());
+      auto geometry = lookup(doc.id());
       return geometry && !bg::within(queryGeometry, geometry.value().get());
     });
     return results;
@@ -222,7 +222,7 @@ struct RTree {
 
   [[nodiscard]] ResultsVec within(doc_type const& queryDoc,
                                   const poly_type& queryGeometry) const {
-    auto results = this->query(bgi::within(queryDoc.rect_));
+    auto results = query(bgi::within(queryDoc.rect_));
     std::erase_if(results, [&](auto const& doc) {
       auto geometry = lookup(doc.id());
       return geometry && !bg::within(geometry.value().get(), queryGeometry);

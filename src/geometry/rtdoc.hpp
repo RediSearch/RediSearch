@@ -21,8 +21,8 @@ using string = std::basic_string<char, std::char_traits<char>, rm_allocator<char
 
 template <typename coord_system>
 struct RTDoc {
-  using poly_type = typename Polygon<coord_system>::polygon_internal;
-  using point_type = typename Point<coord_system>::point_internal;
+  using poly_type = Polygon<coord_system>::polygon_internal;
+  using point_type = Point<coord_system>::point_internal;
   using rect_internal = bgm::box<point_type>;
 
   rect_internal rect_;
@@ -38,7 +38,8 @@ struct RTDoc {
     return id_;
   }
 
-  static RTDoc<coord_system>* from_wkt(const char* wkt, size_t len, t_docId id, RedisModuleString** err_msg) {
+  static RTDoc<coord_system>* from_wkt(const char* wkt, size_t len, t_docId id,
+                                       RedisModuleString** err_msg) {
     try {
       auto geometry = Polygon<coord_system>::from_wkt(std::string_view{wkt, len});
       return new RTDoc<coord_system>{geometry, id};
@@ -68,8 +69,9 @@ struct RTDoc {
     auto x_max = bg::get<0>(p_max);
     auto y_max = bg::get<1>(p_max);
 
-    return poly_type{typename poly_type::ring_type{p_min, point_type{x_max, y_min}, p_max,
-                                                   point_type{x_min, y_max}, p_min}};
+    using ring_type = poly_type::ring_type;
+    return poly_type{
+        ring_type{p_min, point_type{x_max, y_min}, p_max, point_type{x_min, y_max}, p_min}};
   }
 
   [[nodiscard]] string rect_to_string() const {
@@ -81,7 +83,7 @@ struct RTDoc {
 
   [[nodiscard]] RedisModuleString* to_RMString() const {
     if (RedisModule_CreateString) {
-      string s = this->rect_to_string();
+      string s = rect_to_string();
       return RedisModule_CreateString(nullptr, s.c_str(), s.length());
     } else {
       return nullptr;
@@ -114,7 +116,7 @@ template <typename coord_system>
 
 template <typename coord_system>
 struct RTDoc_Indexable {
-  using result_type = typename RTDoc<coord_system>::rect_internal;
+  using result_type = RTDoc<coord_system>::rect_internal;
   [[nodiscard]] constexpr result_type operator()(RTDoc<coord_system> const& doc) const noexcept {
     return doc.rect_;
   }
