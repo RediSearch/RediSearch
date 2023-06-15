@@ -18,6 +18,8 @@ extern "C" {
 
 struct IndexSpec;
 
+#define GC_THREAD_POOL_SIZE 1
+
 typedef struct GCCallbacks {
   int (*periodicCallback)(RedisModuleCtx* ctx, void* gcCtx);
   void (*renderStats)(RedisModuleCtx* ctx, void* gc);
