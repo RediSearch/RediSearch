@@ -51,6 +51,7 @@ GEO_VARIANTS(X)
 #undef X
 
 const GeometryApi *GeometryApi_Get(GEOMETRY_TAG, void *);
+GeometryIndex *MyClass_New(GEOMETRY_TAG);
 
 // Return the total memory usage of all RTree instances
 size_t GeometryTotalMemUsage();

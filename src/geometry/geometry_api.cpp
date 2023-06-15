@@ -6,6 +6,7 @@
 
 #include "geometry_api.h"
 #include "rtree.hpp"
+#include <array>
 
 #define X(variant)                                \
   constexpr GeometryApi GeometryApi_##variant = { \
@@ -19,15 +20,26 @@
 GEO_VARIANTS(X)
 #undef X
 
-constexpr GeometryApi geometry_apis_g[GEOMETRY_TAG__NUM] = {
-    [GEOMETRY_TAG_NONE] = {nullptr},
-    [GEOMETRY_TAG_Cartesian] = GeometryApi_Cartesian,
-    [GEOMETRY_TAG_Geographic] = GeometryApi_Geographic,
+using GeometryCtor = GeometryIndex *(*)();
+constexpr std::array<GeometryCtor, GEOMETRY_TAG__NUM> geometry_ctors_g {
+    /*[GEOMETRY_TAG_NONE] = */ nullptr,
+#define X(variant) \
+    /* [GEOMETRY_TAG_variant] = */ Index_##variant##_New,  
+GEO_VARIANTS(X)
+#undef X
+};
+
+constexpr std::array<const GeometryApi *, GEOMETRY_TAG__NUM> geometry_apis_g {
+    /*[GEOMETRY_TAG_NONE] = */ nullptr,
+#define X(variant) \
+    /*[GEOMETRY_TAG_variant] = */ &GeometryApi_##variant,
+GEO_VARIANTS(X)
+#undef X
 };
 
 const GeometryApi *GeometryApi_Get(GEOMETRY_TAG tag, [[maybe_unused]] void *ctx) {
-  return &geometry_apis_g[tag];
-} 
+  return geometry_apis_g[tag];
+}
 
 #define X(variant)                                                                            \
   GeometryIndex *Index_##variant##_New() {                                                    \
@@ -72,6 +84,10 @@ const GeometryApi *GeometryApi_Get(GEOMETRY_TAG tag, [[maybe_unused]] void *ctx)
 
 GEO_VARIANTS(X)
 #undef X
+
+GeometryIndex *MyClass_New(GEOMETRY_TAG tag) {
+  return geometry_ctors_g[tag]();
+}
 
 size_t GeometryTotalMemUsage() {
   return RTree<Cartesian>::reportTotal() + RTree<Geographic>::reportTotal();
