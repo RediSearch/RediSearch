@@ -842,7 +842,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, boo
   }
 
   // get fields
-  res->fields = MRReply_MapElement(result_j, "fields");
+  res->fields = MRReply_MapElement(result_j, "extra_attributes");
 
   // get payloads
   res->payload = MRReply_MapElement(result_j, "payload");
@@ -1204,7 +1204,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   //-------------------------------------------------------------------------------------------
   if (reply->resp3) // RESP3
   {
-    RedisModule_Reply_SimpleString(reply, "field_names");
+    RedisModule_Reply_SimpleString(reply, "attributes");
     if (rCtx->fieldNames) {
       MR_ReplyWithMRReply(reply, rCtx->fieldNames);
     } else {
@@ -1255,10 +1255,10 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
             }
           }
           if (!req->noContent) {
-            RedisModule_ReplyKV_MRReply(reply, "fields", res->fields); // >> fields
+            RedisModule_ReplyKV_MRReply(reply, "extra_attributes", res->fields); // >> extra_attributes
           }
 
-          RedisModule_Reply_SimpleString(reply, "field_values");
+          RedisModule_Reply_SimpleString(reply, "values");
           RedisModule_Reply_EmptyArray(reply);
         RedisModule_Reply_MapEnd(reply); // >>result
       }
