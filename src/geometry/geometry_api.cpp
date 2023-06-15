@@ -20,6 +20,7 @@ GEO_VARIANTS(X)
 #undef X
 
 constexpr GeometryApi geometry_apis_g[GEOMETRY_TAG__NUM] = {
+    [GEOMETRY_TAG_NONE] = {nullptr},
     [GEOMETRY_TAG_Cartesian] = GeometryApi_Cartesian,
     [GEOMETRY_TAG_Geographic] = GeometryApi_Geographic,
 };
