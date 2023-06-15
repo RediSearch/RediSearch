@@ -2214,6 +2214,68 @@ def test_query_with_knn_substr():
     env.assertEqual(res[1:], expected_res)
 
 
+def test_score_name_case_sensitivity():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 2
+
+    k = 10
+    score_name = 'SCORE'
+    vec_fieldname = 'VEC'
+    default_score_name = f'__{vec_fieldname}_score'
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
+                         vec_fieldname, 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2')
+
+    def expected(cur_score_name = None):
+        expected = [k]
+        if cur_score_name is not None:
+            for i in range(k):
+                expected += [f'doc{i}', [cur_score_name, str(i * i * dim)]]
+        else:
+            for i in range(k):
+                expected += [f'doc{i}', []]
+        return expected
+
+    for i in range(10):
+        conn.execute_command("HSET", f'doc{i}', vec_fieldname, create_np_array_typed([i] * dim).tobytes())
+
+    # Test yield_distance_as
+    res = conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN $k @{vec_fieldname} $BLOB]=>{{$yield_distance_as: {score_name}}}',
+                               'PARAMS', 4, 'k', k, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+                               'RETURN', '1', score_name)
+    env.assertEqual(res, expected(score_name))
+        # mismatch cases
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN $k @{vec_fieldname} $BLOB]=>{{$yield_distance_as: {score_name}}}',
+               'PARAMS', 4, 'k', k, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+               'RETURN', '1', score_name.lower()).equal(expected())
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN $k @{vec_fieldname} $BLOB]=>{{$yield_distance_as: {score_name.lower()}}}',
+               'PARAMS', 4, 'k', k, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+               'RETURN', '1', score_name).equal(expected())
+
+    # Test AS
+    res = conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB AS {score_name}]',
+                               'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+                               'RETURN', '1', score_name)
+    env.assertEqual(res, expected(score_name))
+        # mismatch cases
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB AS {score_name}]',
+               'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+               'RETURN', '1', score_name.lower()).equal(expected())
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB AS {score_name.lower()}]',
+               'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+               'RETURN', '1', score_name).equal(expected())
+
+    # Test default score name
+    res = conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB]',
+                               'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+                               'RETURN', '1', default_score_name)
+    env.assertEqual(res, expected(default_score_name))
+        # mismatch case
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB]',
+               'PARAMS', 4, 'k', k, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+               'RETURN', '1', score_name.lower()).equal(expected())
+
+
 @skip(noWorkers=True)
 def test_tiered_index_gc():
     fork_gc_interval_sec = '5'

@@ -44,7 +44,7 @@ def test_dialect_query_errors(env):
     conn.execute_command("HSET", "h", "t", "hello")
     env.expect("FT.SEARCH idx 'hello' DIALECT").error().contains("Need an argument for DIALECT")
     env.expect("FT.SEARCH idx 'hello' DIALECT 0").error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
-    env.expect("FT.SEARCH idx 'hello' DIALECT 4").error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
+    env.expect("FT.SEARCH idx 'hello' DIALECT 5").error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
 
 def test_v1_vs_v2(env):
     env.expect("FT.CREATE idx SCHEMA title TAG t1 TEXT t2 TEXT t3 TEXT num NUMERIC v VECTOR HNSW 6 TYPE FLOAT32 DIM 1 DISTANCE_METRIC COSINE").ok()
@@ -104,9 +104,9 @@ def check_info_module_results(env, module_expect):
 def check_info_results(env, command, idx1_expect, idx2_expect, should_succeed):
   env.cmd(command) if should_succeed else env.expect(command).error()
   info = index_info(env, 'idx1')
-  env.assertEqual(info['dialect_stats'], ['dialect_1', idx1_expect[0], 'dialect_2', idx1_expect[1], 'dialect_3', idx1_expect[2]])
+  env.assertEqual(info['dialect_stats'], ['dialect_1', idx1_expect[0], 'dialect_2', idx1_expect[1], 'dialect_3', idx1_expect[2], 'dialect_4', idx1_expect[3]])
   info = index_info(env, 'idx2')
-  env.assertEqual(info['dialect_stats'], ['dialect_1', idx2_expect[0], 'dialect_2', idx2_expect[1], 'dialect_3', idx2_expect[2]])
+  env.assertEqual(info['dialect_stats'], ['dialect_1', idx2_expect[0], 'dialect_2', idx2_expect[1], 'dialect_3', idx2_expect[2], 'dialect_4', idx2_expect[3]])
   check_info_module_results(env, [x or y for x, y in zip(idx1_expect, idx2_expect)])
 
 def test_dialect_info(env):
@@ -119,15 +119,16 @@ def test_dialect_info(env):
   env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'country', 'TEXT')
   conn.execute_command('HSET', 'addr:1', 'business', 'foo', 'country', 'USA')
 
-  check_info_results(env, "FT.SEARCH idx1 * DIALECT 3", [0,0,1], [0,0,0], True)       # add dialect 3 to idx 1
-  check_info_results(env, "FT.SEARCH idx1 * SLOP DIALECT 1", [0,0,1], [0,0,0], False) # should fail. don't update dialects.
-  check_info_results(env, "FT.AGGREGATE idx2 *", [0,0,1], [1,0,0], True)              # add default dialect to idx2
-  check_info_results(env, "FT.AGGREGATE idx1 * FILTER", [0,0,1], [1,0,0], False)      # should fail. don't update dialects.
-  check_info_results(env, "FT.SPELLCHECK idx1 adr", [1,0,1], [1,0,0], True)           # add default dialect to idx1
-  check_info_results(env, "FT.SPELLCHECK idx2 * DISTANCE", [1,0,1], [1,0,0], False)   # should fail. don't update dialects.
-  check_info_results(env, "FT.EXPLAIN idx2 * DIALECT 2", [1,0,1], [1,0,0], True)      # not a real query, does not add
-  if not env.isCluster():                                                             # FT.EXPLAINCLI is not supported on cluster
-    check_info_results(env, "FT.EXPLAINCLI idx1 * DIALECT 2", [1,0,1], [1,0,0], True) # not a real query, does not add
+  check_info_results(env, "FT.SEARCH idx1 * DIALECT 3", [0,0,1,0], [0,0,0,0], True)        # add dialect 3 to idx 1
+  check_info_results(env, "FT.SEARCH idx1 * SLOP DIALECT 1", [0,0,1,0], [0,0,0,0], False)  # should fail. don't update dialects.
+  check_info_results(env, "FT.AGGREGATE idx2 *", [0,0,1,0], [1,0,0,0], True)               # add default dialect to idx2
+  check_info_results(env, "FT.AGGREGATE idx1 * FILTER", [0,0,1,0], [1,0,0,0], False)       # should fail. don't update dialects.
+  check_info_results(env, "FT.SPELLCHECK idx1 adr", [1,0,1,0], [1,0,0,0], True)            # add default dialect to idx1
+  check_info_results(env, "FT.SPELLCHECK idx2 * DISTANCE", [1,0,1,0], [1,0,0,0], False)    # should fail. don't update dialects.
+  check_info_results(env, "FT.EXPLAIN idx2 * DIALECT 2", [1,0,1,0], [1,0,0,0], True)       # not a real query, does not add
+  check_info_results(env, "FT.SEARCH idx2 * DIALECT 4", [1,0,1,0], [1,0,0,1], True)        # add dialect 4 to idx 2
+  if not env.isCluster():                                                                       # FT.EXPLAINCLI is not supported on cluster
+    check_info_results(env, "FT.EXPLAINCLI idx1 * DIALECT 2", [1,0,1,0], [1,0,0,1], True)  # not a real query, does not add
 
   env.flush()
   check_info_module_results(env, [0,0,0])
