@@ -38,10 +38,10 @@ struct RTDoc {
     return id_;
   }
 
-  static RTDoc* from_wkt(const char* wkt, size_t len, t_docId id, RedisModuleString** err_msg) {
+  static RTDoc<coord_system>* from_wkt(const char* wkt, size_t len, t_docId id, RedisModuleString** err_msg) {
     try {
       auto geometry = Polygon<coord_system>::from_wkt(std::string_view{wkt, len});
-      return new RTDoc{geometry, id};
+      return new RTDoc<coord_system>{geometry, id};
     } catch (const std::exception& e) {
       if (err_msg) *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
       return nullptr;
