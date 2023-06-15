@@ -119,7 +119,7 @@ struct thread_bt_data{
 };
 
 /* Threadpool flags */
-#define RS_THPOOL_F_KEEP_ALIVE 0x02 /* keep pool alive */ 
+#define RS_THPOOL_F_KEEP_ALIVE 0x01 /* keep pool alive */ 
 
 #define RS_THPOOL_F_READY_TO_DUMP 0x02 /* turn on to signal the threads 
                                        they can write to the crash log buffer */
@@ -425,8 +425,6 @@ void redisearch_thpool_pause_before_dump(redisearch_thpool_t* thpool_p) {
   if (!thpool_p) {
     return;
   }
-  // set hold flag
-  threads_on_hold = 1;
 
   // set register_to_crash_log flag.
   register_to_crash_log = 1;
@@ -576,6 +574,9 @@ void redisearch_thpool_pause(redisearch_thpool_t* thpool_p) {
   size_t thread_pool_size = thpool_p->num_threads_alive;
 
   int called_by_threadpool = 0;
+
+  // set hold flag
+  threads_on_hold = 1;
 
 	for(n = 0; n < thread_pool_size; n++) {
 		// do not pause caller
