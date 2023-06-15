@@ -709,12 +709,8 @@ expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
     }
 }
 
-tag_list(A) ::= param_term(B) . [TAGLIST] {
+tag_list(A) ::= param_term_case(B) . [TAGLIST] {
   A = NewPhraseNode(0);
-  if (B.type == QT_TERM)
-    B.type = QT_TERM_CASE;
-  else if (B.type == QT_PARAM_TERM)
-    B.type = QT_PARAM_TERM_CASE;
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
 }
 
@@ -733,11 +729,7 @@ tag_list(A) ::= termlist(B) . [TAGLIST] {
     QueryNode_AddChild(A, B);
 }
 
-tag_list(A) ::= tag_list(B) OR param_term(C) . [TAGLIST] {
-  if (C.type == QT_TERM)
-    C.type = QT_TERM_CASE;
-  else if (C.type == QT_PARAM_TERM)
-    C.type = QT_PARAM_TERM_CASE;
+tag_list(A) ::= tag_list(B) OR param_term_case(C) . [TAGLIST] {
   QueryNode_AddChild(B, NewTokenNode_WithParams(ctx, &C));
   A = B;
 }
@@ -925,7 +917,8 @@ vector_query(A) ::= vector_command(B). {
 
 as ::= AS_T.
 as ::= AS_S.
-vector_score_field(A) ::= as param_term(B). {
+
+vector_score_field(A) ::= as param_term_case(B). {
   A = B;
 }
 vector_score_field(A) ::= as STOPWORD(B). {
@@ -1031,6 +1024,16 @@ param_term(A) ::= SIZE(B). {
 param_term(A) ::= ATTRIBUTE(B). {
   A = B;
   A.type = QT_PARAM_TERM;
+}
+
+param_term_case(A) ::= term(B). {
+  A = B;
+  A.type = QT_TERM_CASE;
+}
+
+param_term_case(A) ::= ATTRIBUTE(B). {
+  A = B;
+  A.type = QT_PARAM_TERM_CASE;
 }
 
 param_size(A) ::= SIZE(B). {
