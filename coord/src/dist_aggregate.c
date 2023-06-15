@@ -11,6 +11,7 @@
 #include "commands.h"
 #include "aggregate/aggregate.h"
 #include "dist_plan.h"
+#include "coord_module.h"
 #include "profile.h"
 #include "util/timeout.h"
 #include "resp3.h"
@@ -56,7 +57,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand
       bail_out = len != 2; // (map, cursor)
     } else {
       bail_out = len != 2 && len != 3; // (results, cursor) or (results, cursor, profile)
-    } 
+    }
   }
 
   if (bail_out) {
@@ -202,7 +203,7 @@ static int getNextReply(RPNet *nc) {
 
     nc->current.root = root;
     nc->current.rows = rows;
-  
+
     assert(   !nc->current.rows
            || MRReply_Type(nc->current.rows) == MR_REPLY_ARRAY
            || MRReply_Type(nc->current.rows) == MR_REPLY_MAP);
@@ -226,7 +227,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // root (array) has similar structure for RESP2/3:
   // [0] array of results (rows) described right below
   // [1] cursor (int)
-  
+
   // rows:
   // RESP2: [ num_results, [ field, value, ... ], ... ]
   // RESP3: { ..., "results": [ { field: value, ... }, ... ], ... }
@@ -296,23 +297,25 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     MRReply *fields = MRReply_MapElement(result, "fields");
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
     for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
-      const char *field = MRReply_String(MRReply_ArrayElement(fields, i), NULL);
+      size_t len;
+      const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
       MRReply *val = MRReply_ArrayElement(fields, i + 1);
       RSValue *v = MRReply_ToValue(val);
-      RLookup_WriteOwnKeyByName(nc->lookup, field, &r->rowdata, v);
+      RLookup_WriteOwnKeyByName(nc->lookup, field, len, &r->rowdata, v);
     }
   }
   else // RESP2
   {
     MRReply *rep = MRReply_ArrayElement(rows, nc->curIdx++);
     for (size_t i = 0; i < MRReply_Length(rep); i += 2) {
-      const char *field = MRReply_String(MRReply_ArrayElement(rep, i), NULL);
+      size_t len;
+      const char *field = MRReply_String(MRReply_ArrayElement(rep, i), &len);
       RSValue *v = RS_NullVal();
       if (i + 1 < MRReply_Length(rep)) {
         MRReply *val = MRReply_ArrayElement(rep, i + 1);
         v = MRReply_ToValue(val);
       }
-      RLookup_WriteOwnKeyByName(nc->lookup, field, &r->rowdata, v);
+      RLookup_WriteOwnKeyByName(nc->lookup, field, len, &r->rowdata, v);
     }
   }
   return RS_RESULT_OK;
@@ -528,15 +531,32 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
   QueryError status = {0};
+  specialCaseCtx *knnCtx = NULL;
+
   r->qiter.err = &status;
   r->reqflags |= QEXEC_F_IS_EXTENDED;
 
   int profileArgs = parseProfile(argv, argc, r);
   if (profileArgs == -1) goto err;
-
   int rc = AREQ_Compile(r, argv + 2 + profileArgs, argc - 2 - profileArgs, &status);
   if (rc != REDISMODULE_OK) goto err;
 
+  unsigned int dialect = r->reqConfig.dialectVersion;
+  if(dialect >= 2) {
+    // Check if we have KNN in the query string, and if so, parse the query string to see if it is
+    // a KNN section in the query. IN that case, we treat this as a SORTBY+LIMIT step.
+    if(strcasestr(r->query, "KNN")) {
+      knnCtx = prepareOptionalTopKCase(r->query, argv, argc, &status);
+      if (QueryError_HasError(&status)) {
+        goto err;
+      }
+      if (knnCtx != NULL) {
+        // If we found KNN, add an arange step, so it will be the first step after
+        // the root (which is first plan step to be executed after the root).
+        AGPLN_AddKNNArrangeStep(&r->ap, knnCtx->knn.k, knnCtx->knn.fieldName);
+      }
+    }
+  }
   rc = AGGPLN_Distribute(&r->ap, &status);
   if (rc != REDISMODULE_OK) goto err;
 
@@ -557,25 +577,15 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (IsProfile(r)) r->parseTime = clock() - r->initClock;
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
-    const char *ixname = RedisModule_StringPtrLen(argv[1 + profileArgs], NULL);
-//    const char *partTag = PartitionTag(&sc->part, sc->myPartition);
-//    size_t dummy;
-//    char *tagged = writeTaggedId(ixname, strlen(ixname), partTag, strlen(partTag), &dummy);
-
     // Keep the original concurrent context
     ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
 
-    /**
-     * The next three lines are a hack to ensure that the cursor retains a valid
-     * RedisModuleCtx object. We rely on the existing mechanism of AREQ to free
-     * the Ctx object used by NewSearchCtx. We don't actually read the spec
-     * at all.
-     */
-    RedisModule_ThreadSafeContextLock(ctx);
-    r->sctx = NewSearchCtxC(ctx, ixname, true);
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    // We rely on the existing mechanism of AREQ to free the ctx object when the cursor is exhausted
+    r->sctx = rm_new(RedisSearchCtx);
+    *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
+    StrongRef dummy_spec_ref = {.rm = NULL};
 
-    rc = AREQ_StartCursor(r, reply, ixname, &status);
+    rc = AREQ_StartCursor(r, reply, dummy_spec_ref, &status);
 
     if (rc != REDISMODULE_OK) {
       goto err;
@@ -593,7 +603,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     }
     AREQ_Free(r);
   }
-
+  SpecialCaseCtx_Free(knnCtx);
   RedisModule_EndReply(reply);
   return;
 
@@ -601,6 +611,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 err:
   assert(QueryError_HasError(&status));
   QueryError_ReplyAndClear(ctx, &status);
+  SpecialCaseCtx_Free(knnCtx);
   AREQ_Free(r);
   RedisModule_EndReply(reply);
   return;

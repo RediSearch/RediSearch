@@ -20,6 +20,8 @@ from scipy import spatial
 from pprint import pprint as pp
 from deepdiff import DeepDiff
 from unittest.mock import ANY, _ANY
+from unittest import SkipTest
+import inspect
 
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
@@ -282,22 +284,40 @@ def unstable(f):
         return f(env, *args, **kwargs)
     return wrapper
 
-def skip(cluster=False, macos=False, asan=False, msan=False):
+def skip(cluster=False, macos=False, asan=False, msan=False, noWorkers=False):
     def decorate(f):
-        @wraps(f)
-        def wrapper(x, *args, **kwargs):
-            env = x if isinstance(x, Env) else x.env
-            if not (cluster or macos or asan or msan):
-                env.skip()
-            if cluster and env.isCluster():
-                env.skip()
-            if macos and OS == 'macos':
-                env.skip()
-            if asan and SANITIZER == 'address':
-                env.skip()
-            if msan and SANITIZER == 'memory':
-                env.skip()
-            return f(x, *args, **kwargs)
+        if len(inspect.signature(f).parameters) == 0:
+            @wraps(f)
+            def wrapper(*args, **kwargs):
+                if not (cluster or macos or asan or msan or noWorkers):
+                    raise SkipTest()
+                if macos and OS == 'macos':
+                    raise SkipTest()
+                if asan and SANITIZER == 'address':
+                    raise SkipTest()
+                if msan and SANITIZER == 'memory':
+                    raise SkipTest()
+                if noWorkers and not MT_BUILD:
+                    raise SkipTest()
+
+                return f(*args, **kwargs)
+        else:
+            @wraps(f)
+            def wrapper(x, *args, **kwargs):
+                env = x if isinstance(x, Env) else x.env
+                if not (cluster or macos or asan or msan or noWorkers):
+                    env.skip()
+                if cluster and env.isCluster():
+                    env.skip()
+                if macos and OS == 'macos':
+                    env.skip()
+                if asan and SANITIZER == 'address':
+                    env.skip()
+                if msan and SANITIZER == 'memory':
+                    env.skip()
+                if noWorkers and not MT_BUILD:
+                    env.skip()
+                return f(x, *args, **kwargs)
         return wrapper
     return decorate
 

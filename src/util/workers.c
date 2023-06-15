@@ -11,7 +11,7 @@
 
 #include <pthread.h>
 
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
 
 //------------------------------------------------------------------------------
 // Thread pool
@@ -92,7 +92,7 @@ void workersThreadPool_InitIfRequired() {
     // Initialize the thread pool temporarily for fast RDB loading of vector index (if needed).
     VecSim_SetWriteMode(VecSim_WriteAsync);
     workersThreadPool_InitPool();
-    RedisModule_Log(RSDummyContext, "notice", "Created workers threadpool of size %lu for loading",
+    RedisModule_Log(RSDummyContext, "notice", "Created workers threadpool of size %lu",
                     RSGlobalConfig.numWorkerThreads);
   }
 }
@@ -106,12 +106,26 @@ void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx) {
     RedisModule_Log(RSDummyContext, "notice",
                     "Done running pending background workers jobs");
     if (USE_BURST_THREADS()) {
-      VecSim_SetWriteMode(VecSim_WriteInPlace);
-      workersThreadPool_Terminate();
-      RedisModule_Log(RSDummyContext, "notice",
-                      "Terminated workers threadpool of size %lu for loading",
-                      RSGlobalConfig.numWorkerThreads);
+    VecSim_SetWriteMode(VecSim_WriteInPlace);
+    workersThreadPool_Terminate();
+    RedisModule_Log(RSDummyContext, "notice",
+                    "Terminated workers threadpool of size %lu",
+                    RSGlobalConfig.numWorkerThreads);
   }
 }
 
-#endif // POWER_TO_THE_WORKERS
+void workersThreadPool_SetTerminationWhenEmpty() {
+  if (RSGlobalConfig.numWorkerThreads == 0) return;
+
+  if (USE_BURST_THREADS()) {
+    // Set the library back to in place mode, and let all the async jobs that are still pending run,
+    // but after the last job is executed, terminate the running threads.
+    VecSim_SetWriteMode(VecSim_WriteInPlace);
+    redisearch_thpool_terminate_when_empty(_workers_thpool);
+    RedisModule_Log(RSDummyContext, "notice", "Termination of workers threadpool of size %lu is set to occur when all"
+                    " pending jobs are done",
+                    RSGlobalConfig.numWorkerThreads);
+  }
+}
+
+#endif // MT_BUILD

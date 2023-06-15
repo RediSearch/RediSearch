@@ -19,7 +19,7 @@ CODE_COVERAGE = os.getenv('CODE_COVERAGE', '0') == '1'
 NO_LIBEXT = os.getenv('NO_LIBEXT', '0') == '1'
 CI = os.getenv('CI', '') != ''
 TEST_DEBUG = os.getenv('TEST_DEBUG', '0') == '1'
-POWER_TO_THE_WORKERS = os.getenv('REDISEARCH_POWER_TO_THE_WORKERS', '0') == '1'
+MT_BUILD = os.getenv('REDISEARCH_MT_BUILD', '0') == '1'
 
 OSNICK = paella.Platform().osnick
 OS = paella.Platform().os
