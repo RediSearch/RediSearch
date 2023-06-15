@@ -15,16 +15,18 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+struct QueryError;
+
 #ifdef _DEBUG
 #define REDISMODULE_REPLY_DEBUG 1
 #endif
-
+/*
 enum ContainerType {
     ContainerType_Array,
     ContainerType_Map,
     ContainerType_Set
 };
-
+*/
 struct RedisModule_Reply_StackEntry {
     int count;
     int type; // REDISMODULE_REPLY_ARRAY|MAP|SET
@@ -56,6 +58,7 @@ int RedisModule_Reply_Stringf(RedisModule_Reply *reply, const char *fmt, ...);
 int RedisModule_Reply_String(RedisModule_Reply *reply, RedisModuleString *val);
 int RedisModule_Reply_Null(RedisModule_Reply *reply);
 int RedisModule_Reply_Error(RedisModule_Reply *reply, const char *error);
+void RedisModule_Reply_QueryError(RedisModule_Reply *reply, struct QueryError *error);
 int RedisModule_Reply_Array(RedisModule_Reply *reply);
 int RedisModule_Reply_ArrayEnd(RedisModule_Reply *reply);
 int RedisModule_Reply_Map(RedisModule_Reply *reply);

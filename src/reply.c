@@ -6,6 +6,7 @@
 
 #include "reply.h"
 #include "resp3.h"
+#include "query_error.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -234,6 +235,11 @@ int RedisModule_Reply_Error(RedisModule_Reply *reply, const char *error) {
   json_add(reply, false, "\"ERR: %s\"", error);
   _RedisModule_Reply_Next(reply);
   return REDISMODULE_OK;
+}
+
+void RedisModule_Reply_QueryError(RedisModule_Reply *reply, QueryError *error) {
+  RedisModule_Reply_Error(reply, QueryError_GetError(error));
+  QueryError_ClearError(error);
 }
 
 int RedisModule_Reply_Map(RedisModule_Reply *reply) {

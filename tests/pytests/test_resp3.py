@@ -434,10 +434,10 @@ def test_config():
     res = env.execute_command("FT.CONFIG", "SET", "TIMEOUT", 501)
 
     res = env.execute_command("FT.CONFIG", "GET", "*")
-    env.assertEqual(res['TIMEOUT'], {'Value': '501'})
+    env.assertEqual(res['TIMEOUT'], '501')
 
     res = env.execute_command("FT.CONFIG", "GET", "TIMEOUT")
-    env.assertEqual(res, {'TIMEOUT': {'Value': '501'}})
+    env.assertEqual(res, {'TIMEOUT': '501'})
 
     res = env.execute_command("FT.CONFIG", "HELP", "TIMEOUT")
     env.assertEqual(res, {'TIMEOUT': {'Description': 'Query (search) timeout', 'Value': '501'}})
