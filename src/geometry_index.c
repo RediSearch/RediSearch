@@ -29,10 +29,7 @@ static GeometryIndex *openGeometryKeysDict(const IndexSpec *spec, RedisModuleStr
   if (!write) {
     return NULL;
   }
-  const GeometryApi *api = GeometryApi_Get(fs->geometryOpts.geometryTag, NULL);
-  if (!api) {
-    return NULL;
-  }
+  const GeometryApi *api = GeometryApi_Get(fs->geometryOpts.geometryCoords, NULL);
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = (void (*)(void *))api->freeIndex;
   kdv->p = api->createIndex();
@@ -61,10 +58,7 @@ GeometryIndex *OpenGeometryIndex(RedisModuleCtx *redisCtx, IndexSpec *spec,
         RedisModule_ModuleTypeGetType(*idxKey) != GeometryIndexType) {
       return NULL;
     }
-    const GeometryApi *api = GeometryApi_Get(fs->geometryOpts.geometryTag, NULL);
-    if (!api) {
-      return NULL;
-    }
+    const GeometryApi *api = GeometryApi_Get(fs->geometryOpts.geometryCoords, NULL);
     /* Create an empty value object if the key is currently empty. */
     if (type == REDISMODULE_KEYTYPE_EMPTY) {
       ret = api->createIndex();
@@ -84,10 +78,8 @@ void GeometryIndex_RemoveId(RedisModuleCtx *ctx, IndexSpec *spec, t_docId id) {
       const FieldSpec *fs = spec->fields + i;
       GeometryIndex *idx = OpenGeometryIndex(ctx, spec, NULL, fs);
       if (idx) {
-        const GeometryApi *api = GeometryApi_Get(fs->geometryOpts.geometryTag, NULL);
-        if (api) {
-          api->delGeom(idx, id);
-        }
+        const GeometryApi *api = GeometryApi_Get(fs->geometryOpts.geometryCoords, NULL);
+        api->delGeom(idx, id);
       }
     }
   }

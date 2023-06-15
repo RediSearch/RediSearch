@@ -48,7 +48,7 @@ struct RTree {
   }
 
   void insert(const poly_type& poly, t_docId id) {
-    rtree_.insert(RTDoc<coord_system>{poly, id});
+    rtree_.insert(doc_type{poly, id});
     docLookup_.insert(std::pair{id, poly});
   }
 
@@ -82,10 +82,10 @@ struct RTree {
     try {
       if (auto opt = this->lookup(id); opt.has_value()) {
         docLookup_.erase(id);
-        return remove(RTDoc<coord_system>{opt.value(), id});
+        return remove(doc_type{opt.value(), id});
       } else {
         auto geometry = Polygon<coord_system>::from_wkt(std::string_view{wkt,len});
-        return remove(RTDoc<coord_system>{geometry, id});
+        return remove(doc_type{geometry, id});
       }
     } catch (...) {
       return -1;
@@ -174,7 +174,7 @@ struct RTree {
     return gqi->base();
   }
 
-  IndexIterator *query(RTDoc<coord_system> const& queryDoc, QueryType queryType) const {
+  IndexIterator *query(doc_type const& queryDoc, QueryType queryType) const {
     auto geometry = this->lookup(queryDoc.id());
     return generate_query_iterator(query(queryDoc, queryType, geometry.value()));
   }
@@ -182,7 +182,7 @@ struct RTree {
   IndexIterator *query(const char *wkt, size_t len, enum QueryType queryType, RedisModuleString **err_msg) const {
     try {
       auto geometry = Polygon<coord_system>::from_wkt(std::string_view{wkt, len});
-      return generate_query_iterator(this->query(RTDoc<coord_system>{geometry, 0}, queryType, geometry));
+      return generate_query_iterator(this->query(doc_type{geometry, 0}, queryType, geometry));
     } catch(const std::exception& e) {
       if (err_msg) {
         *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));

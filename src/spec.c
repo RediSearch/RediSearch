@@ -847,7 +847,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     sp->flags |= Index_HasGeometry;
     fs->types |= INDEXFLD_T_GEOMETRY;
     // TODO: GEMOMETRY - Support more geometry libraries - if an optional successive token exist
-    fs->geometryOpts.geometryTag = GEOMETRY_TAG_Cartesian;
+    fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
   } else {  // nothing more supported currently
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;
@@ -1754,7 +1754,7 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   }
   // TODO: GEOMETRY - save geometry options if more than one geometry library is supported
   // if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
-  //   RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryTag);
+  //   RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryCoords);
   // }
 }
 
@@ -1854,7 +1854,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   // Load geometry specific options
   if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
     // TODO: GEOMETRY - if more than one geometry library is supported - load it from rdb (currently hard-coded)
-    f->geometryOpts.geometryTag = GEOMETRY_TAG_Cartesian;
+    f->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
   }
 
   return REDISMODULE_OK;

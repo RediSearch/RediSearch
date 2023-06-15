@@ -7,7 +7,7 @@
 #pragma once
 
 typedef void* GEOMETRY; // TODO: GEOMETRY Not uppercase
-
+#define GEO_VARIANTS(X) X(Cartesian) X(Geographic)
 typedef enum {
   GEOMETRY_LIB_TYPE_NONE = 0,
   GEOMETRY_LIB_TYPE_BOOST_GEOMETRY = 1,
@@ -22,10 +22,11 @@ typedef enum {
 } GEOMETRY_FORMAT; // TODO: GEOMETRY Not uppercase
 
 typedef enum {
-  GEOMETRY_TAG_NONE = 0,
-  GEOMETRY_TAG_Cartesian = 1,
-  GEOMETRY_TAG_Geographic = 2,
-  GEOMETRY_TAG__NUM,
+#define X(variant) \
+  GEOMETRY_COORDS_##variant,
+GEO_VARIANTS(X)
+#undef X
+  GEOMETRY_COORDS__NUM,
 } GEOMETRY_TAG;
 
 typedef enum QueryType {
@@ -33,4 +34,3 @@ typedef enum QueryType {
   WITHIN,
 } QueryType;
 
-#define GEO_VARIANTS(X) X(Cartesian) X(Geographic)

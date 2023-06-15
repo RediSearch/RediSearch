@@ -107,7 +107,7 @@ typedef struct FieldSpec {
     } vectorOpts;
     struct {
       // Geometry index parameters
-      GEOMETRY_TAG geometryTag;
+      GEOMETRY_TAG geometryCoords;
     } geometryOpts;
   };
 
