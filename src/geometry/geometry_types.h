@@ -27,7 +27,7 @@ typedef enum {
 GEO_VARIANTS(X)
 #undef X
   GEOMETRY_COORDS__NUM,
-} GEOMETRY_TAG;
+} GEOMETRY_COORDS;
 
 typedef enum QueryType {
   CONTAINS,

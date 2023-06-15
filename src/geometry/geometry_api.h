@@ -20,7 +20,7 @@ typedef struct GeometryIndex GeometryIndex;
 typedef struct GeometryApi GeometryApi;
 
 struct GeometryIndex {
-  GEOMETRY_TAG tag;
+  GEOMETRY_COORDS tag;
   void *index;
   const GeometryApi *api;
 };
@@ -50,8 +50,8 @@ struct GeometryApi {
 GEO_VARIANTS(X)
 #undef X
 
-const GeometryApi *GeometryApi_Get(GEOMETRY_TAG, void *);
-GeometryIndex *MyClass_New(GEOMETRY_TAG);
+const GeometryApi *GeometryApi_Get(GEOMETRY_COORDS, void *);
+GeometryIndex *GeometryIndexFactory(GEOMETRY_COORDS);
 
 // Return the total memory usage of all RTree instances
 size_t GeometryTotalMemUsage();

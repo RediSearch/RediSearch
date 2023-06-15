@@ -35,7 +35,7 @@ GEO_VARIANTS(X)
 #undef X
 };
 
-const GeometryApi *GeometryApi_Get(GEOMETRY_TAG tag, [[maybe_unused]] void *ctx) {
+const GeometryApi *GeometryApi_Get(GEOMETRY_COORDS tag, [[maybe_unused]] void *ctx) {
   return geometry_apis_g[tag];
 }
 
@@ -83,7 +83,7 @@ const GeometryApi *GeometryApi_Get(GEOMETRY_TAG tag, [[maybe_unused]] void *ctx)
 GEO_VARIANTS(X)
 #undef X
 
-GeometryIndex *MyClass_New(GEOMETRY_TAG tag) {
+GeometryIndex *GeometryIndexFactory(GEOMETRY_COORDS tag) {
   return geometry_ctors_g[tag]();
 }
 
