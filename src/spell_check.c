@@ -401,7 +401,6 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryAST *q) {
   }
 
   RedisModule_Reply _reply = RedisModule_NewReply(scCtx->sctx->redisCtx), *reply = &_reply;
-  _BB;
   if (reply->resp3) {
     SpellCheck_Reply_resp3(scCtx, q, reply);
   } else {
