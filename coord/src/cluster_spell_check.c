@@ -82,32 +82,55 @@ static void spellcheckReducerCtx_AddTermAsFoundInIndex(spellcheckReducerCtx* ctx
   reducer_term->foundInIndex = true;
 }
 
-static bool spellCheckReplySanity(int count, MRReply** replies, uint64_t* totalDocNum,
-                                  QueryError* qerr, bool resp3) {
-  for (int i = 0; i < count; ++i) {
-    int type = MRReply_Type(replies[i]);
+static bool spellCheckReplySanity_resp2(MRReply *reply, uint64_t *totalDocNum, QueryError *qerr) {
+  int type = MRReply_Type(reply);
 
-    if (type == MR_REPLY_ERROR) {
-      QueryError_SetError(qerr, QUERY_EGENERIC, MRReply_String(replies[i], NULL));
-      return false;
-    }
-
-    if (type != MR_REPLY_ARRAY) {
-      QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected array. Got %d",
-                             MRReply_Type(replies[i]));
-      return false;
-    }
-
-    MRReply *ndocs = MRReply_ArrayElement(replies[i], 0);
-
-    if (MRReply_Type(ndocs) != MR_REPLY_INTEGER) {
-      QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "Expected first reply as integer. Have %d",
-                             MRReply_Type(ndocs));
-      return false;
-    }
-
-    *totalDocNum += MRReply_Integer(ndocs);
+  if (type == MR_REPLY_ERROR) {
+    QueryError_SetError(qerr, QUERY_EGENERIC, MRReply_String(reply, NULL));
+    return false;
   }
+
+  if (type != MR_REPLY_ARRAY) {
+    QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected array. Got %d",
+                            MRReply_Type(reply));
+    return false;
+  }
+
+  MRReply *ndocs = MRReply_ArrayElement(reply, 0);
+
+  if (MRReply_Type(ndocs) != MR_REPLY_INTEGER) {
+    QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "Expected first reply as integer. Have %d",
+                           MRReply_Type(ndocs));
+    return false;
+  }
+
+  *totalDocNum += MRReply_Integer(ndocs);
+  return true;
+}
+
+static bool spellCheckReplySanity_resp3(MRReply *reply, uint64_t *totalDocNum, QueryError *qerr) {
+  int type = MRReply_Type(reply);
+
+  if (type == MR_REPLY_ERROR) {
+    QueryError_SetError(qerr, QUERY_EGENERIC, MRReply_String(reply, NULL));
+    return false;
+  }
+
+  if (type != MR_REPLY_MAP) {
+    QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected map. Got %d",
+                            MRReply_Type(reply));
+    return false;
+  }
+
+  MRReply *ndocs = MRReply_MapElement(reply, "total_docs");
+
+  if (MRReply_Type(ndocs) != MR_REPLY_INTEGER) {
+    QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "Expected total_docs as integer. Have %d",
+                           MRReply_Type(ndocs));
+    return false;
+  }
+
+  *totalDocNum += MRReply_Integer(ndocs);
 
   return true;
 }
@@ -137,14 +160,14 @@ static bool spellCheckAnalizeResult_resp2(spellcheckReducerCtx *ctx, MRReply *re
     return true;
   }
 
-  if (type != MR_REPLY_ARRAY) { // RESP2/3
+  if (type != MR_REPLY_ARRAY) {
     return false;
   }
 
   int i;
   for (i = 0; i < MRReply_Length(termSuggestionsReply); ++i) {
     MRReply* termSuggestionReply = MRReply_ArrayElement(termSuggestionsReply, i);
-    if (MRReply_Type(termSuggestionReply) != MR_REPLY_ARRAY) { // RESP2/3 - @@ verify!
+    if (MRReply_Type(termSuggestionReply) != MR_REPLY_ARRAY) {
       return false;
     }
     if (MRReply_Length(termSuggestionReply) != 2) {
@@ -231,12 +254,10 @@ void spellCheckSendResult(RedisModule_Reply *reply, spellcheckReducerCtx* spellC
   if (reply->resp3) {
     RedisModule_Reply_Map(reply); // terms' map
   }
-  size_t numOfTerms = 0;
   for (int i = 0; i < array_len(spellCheckCtx->terms); ++i) {
     if (spellCheckCtx->terms[i]->foundInIndex) {
       continue;
     }
-    ++numOfTerms;
 
     SpellCheck_SendReplyOnTerm(reply, spellCheckCtx->terms[i]->term,
                                strlen(spellCheckCtx->terms[i]->term),
@@ -256,9 +277,11 @@ int spellCheckReducer_resp2(struct MRCtx* mc, int count, MRReply** replies) {
 
   uint64_t totalDocNum = 0;
   QueryError qerr = {0};
-  if (!spellCheckReplySanity(count, replies, &totalDocNum, &qerr, false)) {
-    QueryError_ReplyAndClear(ctx, &qerr);
-    return REDISMODULE_OK;
+  for (int i = 0; i < count; ++i) {
+    if (!spellCheckReplySanity_resp2(replies[i], &totalDocNum, &qerr)) {
+      QueryError_ReplyAndClear(ctx, &qerr);
+      return REDISMODULE_OK;
+    }
   }
 
   const char *error = NULL;
@@ -303,9 +326,11 @@ int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies) {
 
   uint64_t totalDocNum = 0;
   QueryError qerr = {0};
-  if (!spellCheckReplySanity(count, replies, &totalDocNum, &qerr, true)) {
-    QueryError_ReplyAndClear(ctx, &qerr);
-    return REDISMODULE_OK;
+  for (int i = 0; i < count; ++i) {
+    if (!spellCheckReplySanity_resp3(replies[i], &totalDocNum, &qerr)) {
+      QueryError_ReplyAndClear(ctx, &qerr);
+      return REDISMODULE_OK;
+    }
   }
 
   const char *error = NULL;
@@ -315,12 +340,12 @@ int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies) {
     int j = 0;
     MRReply *dictReply = replies[i];
 
-    if (MRReply_Type(dictReply) != MR_REPLY_ARRAY) {
+    if (MRReply_Type(dictReply) != MR_REPLY_MAP) {
       error = "bad reply returned";
       goto finish;
     }
 
-    MRReply *termMap = MRReply_ArrayElement(dictReply, 1);
+    MRReply *termMap = MRReply_MapElement(dictReply, "results");
     if (MRReply_Type(termMap) != MR_REPLY_MAP) {
       error = "bad reply returned";
       goto finish;
@@ -344,7 +369,10 @@ int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies) {
   }
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  spellCheckSendResult(reply, spellcheckCtx, totalDocNum);
+  RedisModule_Reply_Map(reply);
+    RedisModule_Reply_SimpleString(reply, "results");
+    spellCheckSendResult(reply, spellcheckCtx, totalDocNum);
+  RedisModule_Reply_MapEnd(reply);
   RedisModule_EndReply(reply);
 
 finish:

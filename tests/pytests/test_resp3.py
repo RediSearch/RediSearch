@@ -467,7 +467,7 @@ def testSpellCheckIssue437():
     env.expect('FT.SPELLCHECK', 'incidents',
                'Tooni toque kerfuffle',
                'TERMS', 'EXCLUDE', 'slang',
-               'TERMS', 'INCLUDE', 'slang').equal({'tooni': [{'toonie': 0.0}]})
+               'TERMS', 'INCLUDE', 'slang').equal({ 'results': { 'tooni': [{'toonie': 0.0}] } })
 
 def testSpellCheckOnExistingTerm(env):
     env = Env(protocol=3)
@@ -477,7 +477,7 @@ def testSpellCheckOnExistingTerm(env):
         r.execute_command('hset', 'doc2', 'name', 'name2', 'body', 'body2')
         r.execute_command('hset', 'doc3', 'name', 'name2', 'body', 'name2')
     waitForIndex(env, 'idx')
-    env.expect('ft.spellcheck', 'idx', 'name').equal({})
+    env.expect('ft.spellcheck', 'idx', 'name').equal({'results': {}})
 
 def test_spell_check():
     env = Env(protocol=3)
@@ -489,10 +489,12 @@ def test_spell_check():
     env.cmd('FT.DICTADD', 'dict2', 'timmies', 'toque', 'toonie', 'serviette', 'kerfuffle', 'chesterfield')
 
     exp = {
+      'results': {
         'tooni':     [ {'Toonif': 0.0}, {'toonie': 0.0} ],
         'toque':     [ {'toque': 0.0} ],
         'kerfuffle': [ {'kerfuffle': 0.0} ]
-        }
+      }
+    }
     env.expect('FT.SPELLCHECK', 'incidents', 'Tooni toque kerfuffle', 'TERMS',
                'INCLUDE', 'dict1', 'dict2').equal(exp)
 

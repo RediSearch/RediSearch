@@ -330,7 +330,7 @@ static int forEachCallback(QueryNode *n, QueryNode *orig, void *arg) {
   return 1;
 }
 
-void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryAST *q) {
+void SpellCheck_Reply_0(SpellCheckCtx *scCtx, QueryAST *q) {
   if (!SpellCheck_CheckTermDictsExistance(scCtx)) {
     return;
   }
@@ -358,5 +358,55 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryAST *q) {
   if (!reply->resp3 || scCtx->fullScoreInfo) {
     RedisModule_Reply_ArrayEnd(reply);
   }
+  RedisModule_EndReply(reply);
+}
+
+static void SpellCheck_Reply_resp2(SpellCheckCtx *scCtx, QueryAST *q, RedisModule_Reply *reply) {
+  RedisModule_Reply_Array(reply);
+
+    if (scCtx->fullScoreInfo) {
+      // sending the total number of docs for the ability to calculate score on cluster
+      RedisModule_Reply_LongLong(reply, scCtx->sctx->spec->docs.size - 1);
+    }
+
+    scCtx->reply = reply; // this is stack-allocated, should be reset immediately after use
+    QueryNode_ForEach(q->root, forEachCallback, scCtx, 1);
+    scCtx->reply = NULL;
+
+  RedisModule_Reply_ArrayEnd(reply);
+}
+
+static void SpellCheck_Reply_resp3(SpellCheckCtx *scCtx, QueryAST *q, RedisModule_Reply *reply) {
+  RedisModule_Reply_Map(reply); // root
+
+    if (scCtx->fullScoreInfo) {
+      // sending the total number of docs for the ability to calculate score on cluster
+      RedisModule_ReplyKV_LongLong(reply, "total_docs", scCtx->sctx->spec->docs.size - 1);
+    }
+
+    RedisModule_ReplyKV_Map(reply, "results"); // >results
+
+    scCtx->reply = reply; // this is stack-allocated, should be reset immediately after use
+    QueryNode_ForEach(q->root, forEachCallback, scCtx, 1);
+    scCtx->reply = NULL;
+
+    RedisModule_Reply_MapEnd(reply); // >results
+
+  RedisModule_Reply_MapEnd(reply); // root
+}
+
+void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryAST *q) {
+  if (!SpellCheck_CheckTermDictsExistance(scCtx)) {
+    return;
+  }
+
+  RedisModule_Reply _reply = RedisModule_NewReply(scCtx->sctx->redisCtx), *reply = &_reply;
+  _BB;
+  if (reply->resp3) {
+    SpellCheck_Reply_resp3(scCtx, q, reply);
+  } else {
+    SpellCheck_Reply_resp2(scCtx, q, reply);
+  }
+
   RedisModule_EndReply(reply);
 }
