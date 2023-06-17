@@ -847,7 +847,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     sp->flags |= Index_HasGeometry;
     fs->types |= INDEXFLD_T_GEOMETRY;
     // TODO: GEMOMETRY - Support more geometry libraries - if an optional successive token exist
-    fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
+    fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
   } else {  // nothing more supported currently
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;

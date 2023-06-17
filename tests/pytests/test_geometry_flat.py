@@ -2,19 +2,6 @@ from RLTest import Env
 from common import *
 import json
 
-def sortResultByKeyName(res):
-  '''
-    Sorts the result by name
-    res = [<COUNT>, '<NAME_1>, '<VALUE_1>', '<NAME_2>, '<VALUE_2>', ...] 
-  '''
-  # Sort name and value pairs by name
-  pairs = [(name,value) for name,value in zip(res[1::2], res[2::2])]
-  pairs = [i for i in sorted(pairs, key=lambda x: x[0])]
-  # Flatten the sorted pairs to a list
-  pairs = [i for pair in pairs for i in pair]
-  res = [res[0], *pairs]
-  return res
-
 def array_of_key_value_to_map(res):
   '''
     Insert the result of an array of keys and values to a map
@@ -29,6 +16,7 @@ def assert_index_num_docs(env, idx, attr, num_docs):
     res = array_of_key_value_to_map(res)
     env.assertEqual(res['num_docs'], num_docs)
 
+@skip  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
 def testSanitySearchHashWithin(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOMETRY').ok()
@@ -43,7 +31,7 @@ def testSanitySearchHashWithin(env):
   res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
-
+@skip  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
 def testSanitySearchJsonWithin(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOMETRY').ok()
@@ -57,7 +45,7 @@ def testSanitySearchJsonWithin(env):
   res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
-
+@skip  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
 def testSanitySearchJsonCombined(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOMETRY $.name as name TEXT').ok()
@@ -124,8 +112,7 @@ def testWKTQueryError(env):
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[contains $poly]', 'PARAMS', 2, 'moly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3).error().contains('No such parameter')
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'NOCONTENT', 'DIALECT', 3).error().contains('No such parameter')
   
-
-
+@skip  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
 def testSimpleUpdate(env):
   ''' Test updating geometries '''
   
@@ -179,7 +166,8 @@ def testSimpleUpdate(env):
   # Search within
   env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))', 'DIALECT', 3).equal([0])
   # Search contains
-  env.expect('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((2 2, 2 150, 150 150, 150 2, 2 2))', 'DIALECT', 3).equal([1, 'k3', expected3])
+  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((2 2, 2 150, 150 150, 150 2, 2 2))', 'DIALECT', 3)
+  env.assertEqual(sortResultByKeyName(res), sortResultByKeyName([1, 'k3', expected3]))
 
   # Delete field
   conn.execute_command('HDEL', 'k3', 'geom2')
@@ -194,7 +182,7 @@ def testSimpleUpdate(env):
   # Search contains
   env.expect('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))', 'DIALECT', 3).equal([0])
 
-
+@skip  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
 def testFieldUpdate(env):
   ''' Test updating a field, keeping the rest intact '''
   
@@ -238,6 +226,7 @@ def testFieldUpdate(env):
   # Search within on geom2 field
   env.expect('FT.SEARCH', 'idx', '@geom2:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((1 1, 1 170, 170 170, 170 1, 1 1))', 'DIALECT', 3).equal([0])
 
+@skip  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
 def testFtInfo(env):
   ''' Test FT.INFO on Geometry '''
   
