@@ -176,6 +176,10 @@ void GC_ThreadPoolPauseBeforeDump() {
   redisearch_thpool_pause_before_dump(gcThreadpool_g);
 }
 
+void GCThreadPool_resume() {
+  redisearch_thpool_resume(gcThreadpool_g);
+}
+
 void GC_ThreadPoolShutdownLog(RedisModuleInfoCtx *ctx) {
   redisearch_thpool_ShutdownLog(gcThreadpool_g, ctx, "=== GC THREADS LOG: ===");
 }

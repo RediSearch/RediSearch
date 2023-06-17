@@ -126,6 +126,9 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type);
 // Pause before we start collecting crash info.
 void ConcurrentSearch_pauseBeforeDump();
 
+// Return threads to the original execution point where pause was called.
+void ConcurrentSearch_resume();
+
 // Collect crash info.
 void ConcurrentSearch_ShutdownLog(RedisModuleInfoCtx *ctx);
 

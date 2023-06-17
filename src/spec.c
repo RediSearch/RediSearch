@@ -1281,6 +1281,10 @@ void CleanPool_ThreadPoolPauseBeforeDump() {
   redisearch_thpool_pause_before_dump(cleanPool);
 }
 
+void CleanPoolThreadPool_resume() {
+  redisearch_thpool_resume(cleanPool);
+}
+
 void CleanPool_ThreadPoolShutdownLog(RedisModuleInfoCtx *ctx) {
   redisearch_thpool_ShutdownLog(cleanPool, ctx, "=== CLEANUP POOL THREADS LOG: ===");
 }

@@ -71,10 +71,17 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
   redisearch_thpool_add_work(p, func, arg, THPOOL_PRIORITY_HIGH);
 }
 
-// Pause before we start collecting crash info.
+// Pause before we start collecting state info.
 void ConcurrentSearch_pauseBeforeDump() {
   for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
     redisearch_thpool_pause_before_dump(threadpools_g[ii]);
+  }
+}
+
+// Return threads to the original execution point where pause was called.
+void ConcurrentSearch_resume() {
+  for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
+    ConcurrentSearch_resume(threadpools_g[ii]);
   }
 }
 

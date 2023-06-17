@@ -46,10 +46,15 @@ void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx);
 // Pause the workers before we start collecting crash info.
 void workersThreadPool_pauseBeforeDump();
 
+// Return threads to the original execution point where pause was called.
+void workersThreadPool_resume();
+
 // Collect and print crash info.
 void workersThreadPool_ShutdownLog(RedisModuleInfoCtx *ctx);
 
 // Set a signal for the running threads to terminate once all pending jobs are done.
 void workersThreadPool_SetTerminationWhenEmpty();
+
+void workers_print_bt(RedisModuleCtx *ctx) ;
 
 #endif // MT_BUILD

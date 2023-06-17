@@ -134,8 +134,17 @@ void workersThreadPool_pauseBeforeDump() {
   redisearch_thpool_pause_before_dump(_workers_thpool);
 }
 
+void workersThreadPool_resume() {
+  assert(_workers_thpool != NULL);
+  redisearch_thpool_resume(_workers_thpool);
+}
+
 void workersThreadPool_ShutdownLog(RedisModuleInfoCtx *ctx) {
   redisearch_thpool_ShutdownLog(_workers_thpool, ctx, "=== WORKERS THREADS LOG: ===");
+}
+
+void workers_print_bt(RedisModuleCtx *ctx) {
+    redisearch_thpool_print_backtrace(_workers_thpool, ctx);
 }
 
 #endif // MT_BUILD

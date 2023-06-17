@@ -121,6 +121,17 @@ static void RS_pauseModuleThreadpools() {
   GC_ThreadPoolPauseBeforeDump();
 }
 
+static void RS_resumeModuleThreadpools() {
+#ifdef MT_BUILD  
+  workersThreadPool_resume();
+#endif // MT_BUILD
+
+  CleanPoolThreadPool_resume();
+  ConcurrentSearch_resume();
+  // pause gc
+  GCThreadPool_resume();
+}
+
 
 static void RS_ShutdownLogModuleThreadpools(RedisModuleInfoCtx *ctx) {
   GC_ThreadPoolShutdownLog(ctx);
@@ -136,6 +147,8 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     RS_pauseModuleThreadpools();
 
     RS_ShutdownLogModuleThreadpools(ctx);
+
+    RS_resumeModuleThreadpools();
 
     redisearch_thpool_ShutdownLog_done();
   }
@@ -233,6 +246,9 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   Extensions_Init();
 
   Indexes_Init(ctx);
+
+  // threadpools initialization
+  register_process_to_pause_handler(ctx);
 
   if (RSGlobalConfig.concurrentMode) {
     ConcurrentSearch_ThreadPoolStart();

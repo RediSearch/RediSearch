@@ -916,6 +916,33 @@ DEBUG_COMMAND(VecsimInfo) {
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
+#include "util/workers.h"
+/**
+ * FT.DEBUG BACKTRACE thpool_name
+ */
+DEBUG_COMMAND(backtrace) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  // find the requested thpool
+  // pause
+  workersThreadPool_pauseBeforeDump();
+
+
+  workers_print_bt(ctx);
+
+
+
+  redisearch_thpool_ShutdownLog_done();
+
+
+  // print
+  //clean
+  //resume
+  workersThreadPool_resume();
+  RedisModule_ReplyWithLongLong(ctx, 1);
+  return REDISMODULE_OK;
+}
 
 typedef struct DebugCommandType {
   char *name;
@@ -942,6 +969,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"GIT_SHA", GitSha},
                                {"TTL", ttl},
                                {"VECSIM_INFO", VecsimInfo},
+                               {"BACKTRACE", backtrace},
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

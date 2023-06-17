@@ -12,6 +12,7 @@
 extern "C" {
 #endif
 
+#include "redismodule.h"
 /* =================================== API ======================================= */
 
 typedef struct redisearch_thpool_t* redisearch_threadpool;
@@ -21,6 +22,21 @@ typedef enum {
   THPOOL_PRIORITY_HIGH,
   THPOOL_PRIORITY_LOW,
 } thpool_priority;
+
+/* =================================== GENERAL ======================================= */
+
+/**
+ * @brief  Register the *process* to the signal handler of SIGUSR2. 
+ * This is a general function that is not associated with a specific threadpool, but it is used
+ * to handle the pause threadpool function.
+ * NOTE: the signal handler *overrides* the current signal handler assigned for SIGUSR2.
+ * if a signal handler was already defined for SIGUSR2, a notice log is printed to the log file.
+ *
+ * @param ctx ctx to print logs to.
+ */
+void register_process_to_pause_handler(RedisModuleCtx *ctx);
+
+/* =================================== THREADPOOL ======================================= */
 
 /**
  * @brief  Create a new threadpool (without initializing the threads)
@@ -128,7 +144,7 @@ int redisearch_thpool_add_n_work(redisearch_threadpool, redisearch_thpool_work_t
  * Smart polling is used in wait. The polling is initially 0 - meaning that
  * there is virtually no polling at all. If after 1 seconds the threads
  * haven't finished, the polling interval starts growing exponentially
- * untill it reaches max_secs seconds. Then it jumps down to a maximum polling
+ * until it reaches max_secs seconds. Then it jumps down to a maximum polling
  * interval assuming that heavy processing is being used in the threadpool.
  *
  * @example
@@ -186,8 +202,7 @@ void redisearch_thpool_timedwait(redisearch_threadpool, long timeout, yieldFunc 
  * @brief Pauses all threads immediately
  *
  * The threads will be signaled no matter if they are idle or working.
- * NOTE: The signal kills the thread, meaning it won't continue its execution after being paused.
- * Calling resume is necessary to finish handling the signal.
+ * Call redisearch_thpool_resume() to unpause the threads. 
  *
  *
  * @example
@@ -200,12 +215,15 @@ void redisearch_thpool_timedwait(redisearch_threadpool, long timeout, yieldFunc 
  *    thpool_resume(thpool); // Let the threads start their magic
  *
  * @param threadpool    the threadpool where the threads should be paused
- * @return nothing
+ * @return nothing. The function returns only when all the threads in threadpool are paused.
  */
 void redisearch_thpool_pause(redisearch_threadpool);
 
 /**
- * @brief Unpauses all threads if they are paused
+ * @brief Unpauses all threads in the threadpool if they are paused. 
+ * NOTE: the thread resumes only when the signal handler called by raising a signal with
+ * redisearch_thpool_pause(), had done execution.
+ * The threads return to the original execution point.
  *
  * @example
  *    ..
@@ -219,54 +237,6 @@ void redisearch_thpool_pause(redisearch_threadpool);
  */
 void redisearch_thpool_resume(redisearch_threadpool);
 
-/* ============ CRASH LOG API ============ */
-/**
- * @brief Pause the threadpool for crash report
- * 
- * @param threadpool     the threadpool where the threads should be paused
- * @return nothing
- */
-void redisearch_thpool_pause_before_dump(redisearch_threadpool);
-/* ====== EXAMPLE OUTPUT ON CRASH ====== 
-
-        # search_=== GC THREADS LOG: ===
-
-        # search_thread #0 backtrace: 
-
-        search_0:/workspaces/Code/RediSearch/bin/linux-arm64v8-debug/search/redisearch.so(+0x2b7698) [0xffffaf827698]
-        search_1:/workspaces/Code/RediSearch/bin/linux-arm64v8-debug/search/redisearch.so(+0x2b72b4) [0xffffaf8272b4]
-        search_2:linux-vdso.so.1(__kernel_rt_sigreturn+0) [0xffffb0ec2790]
-        search_3:/lib/aarch64-linux-gnu/libc.so.6(+0x79dfc) [0xffffb0cb9dfc]
-        search_4:/lib/aarch64-linux-gnu/libc.so.6(pthread_cond_wait+0x208) [0xffffb0cbc8fc]
-        search_5:/workspaces/Code/RediSearch/bin/linux-arm64v8-debug/search/redisearch.so(+0x2b7cfc) [0xffffaf827cfc]
-        search_6:/workspaces/Code/RediSearch/bin/linux-arm64v8-debug/search/redisearch.so(+0x2b7414) [0xffffaf827414]
-        search_7:/lib/aarch64-linux-gnu/libc.so.6(+0x7d5c8) [0xffffb0cbd5c8]
-        search_8:/lib/aarch64-linux-gnu/libc.so.6(+0xe5d1c) [0xffffb0d25d1c]
-
-====== END OF EXAMPLE ====== **/
-/**
- * @brief Collect and print data from all the threads in the thread pool to the crash log.
- * 
- * @param threadpool            the threadpool of threads to print dump data from.
- * @param ctx                   the info ctx to print the data to.
- * @param info_section_title    the title to print before the dump log. Probably includes
- *                              the name of the thread pool. 
- * 
- */
-typedef struct RedisModuleInfoCtx RedisModuleInfoCtx;
-void redisearch_thpool_ShutdownLog( redisearch_threadpool,
-                                    RedisModuleInfoCtx *ctx, 
-                                    const char *info_section_title);
-
-
-/**
- * 
- * @brief General cleanups after all the threadpools are done dumping crash data.
- * 
- * @param ctx             the info ctx to print the data to.
- * @param threadpool      the threadpool of threads to collect dump data from.
- */
-void redisearch_thpool_ShutdownLog_done();
 /**
  * @brief Terminate the working threads (without deallocating the job queue and the thread objects).
  */
@@ -319,6 +289,69 @@ void redisearch_thpool_destroy(redisearch_threadpool);
  * @return integer       number of threads working
  */
 size_t redisearch_thpool_num_threads_working(redisearch_threadpool);
+
+/* ============ COLLECT THREADS DATA AND LOG API ============ */
+/**
+ * NOTE: These functions are not **threadpool** safe.
+ * General dump flow synchronization: 
+ * Handling thread: signal threads in the thread pool - wait until all the threads are paused - init buffer and mark buffer as ready- wait until the threads are done writing to the buffer----- print log - resume threads-
+ * thread:          mark itself as paused and wait for the buffer initialization ---------------------------------------------------- write current state info to the buffer and wait for resume---------------------------- resume        
+*/
+/**
+ * @brief Pause the threadpool for crash report
+ * 
+ * @param threadpool     the threadpool where the threads should be paused
+ * @return nothing
+ */
+void redisearch_thpool_pause_before_dump(redisearch_threadpool);
+/* ====== EXAMPLE OUTPUT ON CRASH ====== 
+
+        # search_=== GC THREADS LOG: ===
+
+        # search_thread #0 backtrace: 
+
+        search_0:/workspaces/Code/RediSearch/bin/linux-arm64v8-debug/search/redisearch.so(+0x2b7698) [0xffffaf827698]
+        search_1:/workspaces/Code/RediSearch/bin/linux-arm64v8-debug/search/redisearch.so(+0x2b72b4) [0xffffaf8272b4]
+        search_2:linux-vdso.so.1(__kernel_rt_sigreturn+0) [0xffffb0ec2790]
+        search_3:/lib/aarch64-linux-gnu/libc.so.6(+0x79dfc) [0xffffb0cb9dfc]
+        search_4:/lib/aarch64-linux-gnu/libc.so.6(pthread_cond_wait+0x208) [0xffffb0cbc8fc]
+        search_5:/workspaces/Code/RediSearch/bin/linux-arm64v8-debug/search/redisearch.so(+0x2b7cfc) [0xffffaf827cfc]
+        search_6:/workspaces/Code/RediSearch/bin/linux-arm64v8-debug/search/redisearch.so(+0x2b7414) [0xffffaf827414]
+        search_7:/lib/aarch64-linux-gnu/libc.so.6(+0x7d5c8) [0xffffb0cbd5c8]
+        search_8:/lib/aarch64-linux-gnu/libc.so.6(+0xe5d1c) [0xffffb0d25d1c]
+
+====== END OF EXAMPLE ====== **/
+/**
+ * @brief Collect and print data from all the threads in the thread pool to the crash log.
+ * 
+ * @param threadpool            the threadpool of threads to print dump data from.
+ * @param ctx                   the info ctx to print the data to.
+ * @param info_section_title    the title to print before the dump log. Probably includes
+ *                              the name of the thread pool. 
+ * 
+ */
+void redisearch_thpool_ShutdownLog( redisearch_threadpool,
+                                    RedisModuleInfoCtx *ctx, 
+                                    const char *info_section_title);
+
+/**
+ * 
+ * @brief General cleanups after all the threadpools are done dumping their state data.
+ * 
+ * @param ctx             the info ctx to print the data to.
+ * @param threadpool      the threadpool of threads to collect dump data from.
+ */
+void redisearch_thpool_ShutdownLog_done();
+
+/**
+ * 
+ * @brief General Collect and reply the current state data of all the threads in the thread pool.
+ * 
+ * @param ctx             the info ctx to print the data to.
+ * @param threadpool      the threadpool of threads to collect dump data from.
+ */
+void redisearch_thpool_print_backtrace(redisearch_threadpool, RedisModuleCtx *ctx);
+
 
 #ifdef __cplusplus
 }
