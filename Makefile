@@ -18,6 +18,7 @@ make fetch         # download and prepare dependant modules
 
 make build          # compile and link
   COORD=1|oss|rlec    # build coordinator (1|oss: Open Source, rlec: Enterprise)
+  MT=0|1              # control multithreaded mode (like REDISEARCH_MT_BUILD)
   STATIC=1            # build as static lib
   LITE=1              # build RediSearchLight
   DEBUG=1             # build for debugging
@@ -170,8 +171,23 @@ endif # COORD
 export COORD
 export PACKAGE_NAME
 
+#----------------------------------------------------------------------------------------------
+
 ifeq ($(REDISEARCH_MT_BUILD),1)
+MT ?= 1
+endif
+
+ifeq ($(MT),1)
+$(info ### Multithreading enabled)
 CC_FLAGS.common += -DMT_BUILD
+override REDISEARCH_MT_BUILD=1
+export REDISEARCH_MT_BUILD
+endif
+
+ifeq ($(MT),0)
+$(info ### Multithreading disabled)
+override REDISEARCH_MT_BUILD=0
+export REDISEARCH_MT_BUILD
 endif
 
 #----------------------------------------------------------------------------------------------
