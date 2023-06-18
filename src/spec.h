@@ -36,7 +36,7 @@ struct IndexesScanner;
 struct DocumentIndexer;
 
 #define SPEC_GEO_STR "GEO"
-#define SPEC_GEOMETRY_STR "GEOMETRY"
+#define SPEC_GEOMETRY_STR "GEOSHAPE"
 #define SPEC_TAG_STR "TAG"
 #define SPEC_TEXT_STR "TEXT"
 #define SPEC_VECTOR_STR "VECTOR"
