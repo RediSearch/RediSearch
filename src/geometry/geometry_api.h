@@ -19,14 +19,7 @@ typedef struct RedisModuleCtx RedisModuleCtx;
 typedef struct GeometryIndex GeometryIndex;
 typedef struct GeometryApi GeometryApi;
 
-struct GeometryIndex {
-  GEOMETRY_COORDS tag;
-  void *index;
-  const GeometryApi *api;
-};
-
 struct GeometryApi {
-  GeometryIndex *(*createIndex)();
   void (*freeIndex)(GeometryIndex *index);
   int (*addGeomStr)(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len,
                     t_docId docId, RedisModuleString **err_msg);

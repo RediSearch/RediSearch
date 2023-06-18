@@ -32,7 +32,7 @@ static GeometryIndex *openGeometryKeysDict(const IndexSpec *spec, RedisModuleStr
   const GeometryApi *api = GeometryApi_Get(fs->geometryOpts.geometryCoords, NULL);
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = (void (*)(void *))api->freeIndex;
-  kdv->p = api->createIndex();
+  kdv->p = GeometryIndexFactory(fs->geometryOpts.geometryCoords);
   dictAdd(spec->keysDict, keyName, kdv);
   return kdv->p;
 }
@@ -61,7 +61,7 @@ GeometryIndex *OpenGeometryIndex(RedisModuleCtx *redisCtx, IndexSpec *spec,
     const GeometryApi *api = GeometryApi_Get(fs->geometryOpts.geometryCoords, NULL);
     /* Create an empty value object if the key is currently empty. */
     if (type == REDISMODULE_KEYTYPE_EMPTY) {
-      ret = api->createIndex();
+      ret = GeometryIndexFactory(fs->geometryOpts.geometryCoords);
       RedisModule_ModuleTypeSetValue((*idxKey), GeometryIndexType, ret);
     } else {
       ret = RedisModule_ModuleTypeGetValue(*idxKey);
