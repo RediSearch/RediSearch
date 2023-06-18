@@ -20,13 +20,7 @@ struct QueryError;
 #ifdef _DEBUG
 #define REDISMODULE_REPLY_DEBUG 1
 #endif
-/*
-enum ContainerType {
-    ContainerType_Array,
-    ContainerType_Map,
-    ContainerType_Set
-};
-*/
+
 struct RedisModule_Reply_StackEntry {
     int count;
     int type; // REDISMODULE_REPLY_ARRAY|MAP|SET

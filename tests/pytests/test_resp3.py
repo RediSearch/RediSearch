@@ -49,7 +49,7 @@ def test_search():
     waitForIndex(env, 'idx1')
 
     exp = {
-      'attributes': [], 'error': [], 'total_results': 2,
+      'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING',
       'results': [
         {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
         {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
@@ -58,7 +58,7 @@ def test_search():
 
     # test withscores
     exp = {
-      'attributes': [], 'error': [], 'total_results': 2,
+      'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING',
       'results': [
         { 'id': 'doc2',
           'score': [
@@ -92,7 +92,7 @@ def test_search():
 
     # test with sortby
     exp = {
-      'attributes': [], 'error': [], 'total_results': 2,
+      'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING',
       'results': [
         { 'id': 'doc1',
           'score': 0.5,
@@ -114,7 +114,7 @@ def test_search():
                "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC").equal(exp)
 
     # test with limit 0 0
-    exp = {'attributes': [], 'error': [], 'total_results': 2, 'results': []}
+    exp = {'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING', 'results': []}
     env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "WITHPAYLOADS",
                "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC", "LIMIT", 0, 0).equal(exp)
 
@@ -123,6 +123,7 @@ def test_search():
       'attributes': [],
       'error': [],
       'total_results': 2,
+      'format': 'STRING',
       'results': [
         {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
         {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
@@ -174,7 +175,7 @@ def test_profile(env):
 
     # test with profile
     exp = {
-      'attributes': [], 'error': [], 'total_results': 2,
+      'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING',
       'results': [
         {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
         {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
@@ -216,6 +217,7 @@ def test_coord_profile():
         'attributes': [],
         'error': [],
         'total_results': 2,
+        'format': 'STRING',
         'results': [
           {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
           {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
@@ -264,6 +266,7 @@ def test_aggregate():
       'attributes': [],
       'error': [],
       'total_results': ANY,
+      'format': 'STRING',
       'results': [
         {'extra_attributes': {}, 'values': []},
         {'extra_attributes': {'f1': '3', 'f2': '2'}, 'values': []},
@@ -277,6 +280,7 @@ def test_aggregate():
       'attributes': [],
       'error': [],
       'total_results': ANY,
+      'format': 'STRING',
       'results': [
         {'extra_attributes': {}, 'values': []},
         {'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
@@ -291,6 +295,7 @@ def test_aggregate():
       'attributes': [],
       'error': [],
       'total_results': ANY,
+      'format': 'STRING',
       'results': [
         {'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []},
         {'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
@@ -318,6 +323,7 @@ def test_cursor():
       'attributes': [],
       'error': [],
       'total_results': 3,
+      'format': 'STRING',
       'results': [
         {'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
       ]}
@@ -326,7 +332,7 @@ def test_cursor():
     env.assertEqual(res, exp)
 
     exp = {
-      'attributes': [], 'error': [], 'total_results': 0,
+      'attributes': [], 'error': [], 'total_results': 0, 'format': 'STRING',
       'results': [
           {'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []}
         ]}
@@ -334,12 +340,12 @@ def test_cursor():
     env.assertEqual(res, exp)
 
     exp = {
-      'attributes': [], 'error': [], 'total_results': 0,
+      'attributes': [], 'error': [], 'total_results': 0, 'format': 'STRING',
       'results': [{'extra_attributes': {}, 'values': []}]}
     res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
     env.assertEqual(res, exp)
 
-    exp = {'attributes': [], 'error': [], 'total_results': 0, 'results': []}
+    exp = {'attributes': [], 'error': [], 'total_results': 0, 'format': 'STRING', 'results': []}
     res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
     env.assertEqual(res, exp)
     env.assertEqual(cursor, 0)
@@ -348,7 +354,7 @@ def test_cursor():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     waitForIndex(env, 'idx2')
 
-    exp = {'attributes': [], 'error': [], 'total_results': 0, 'results': []}
+    exp = {'attributes': [], 'error': [], 'total_results': 0, 'format': 'STRING', 'results': []}
     res, cursor = env.cmd('FT.aggregate', 'idx2', '*', 'LOAD', 3, 'f1', 'f2', 'f3',
                           'SORTBY', 2, '@f2', 'DESC', 'WITHCURSOR', 'COUNT', 1)
     env.assertEqual(res, exp)
@@ -622,7 +628,8 @@ def test_profile_crash_mod5323():
          {'values': [], 'id': '1'},
          {'values': [], 'id': '2'},
          {'values': [], 'id': '3'}],
-       'total_results': 3
+       'total_results': 3,
+       'format': 'STRING'
     }
     if not env.isCluster:  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)
@@ -664,7 +671,8 @@ def test_profile_child_itrerators_array():
         { 'values': [], 'id': '1' },
         { 'values': [], 'id': '2' }
       ],
-      'total_results': 2
+      'total_results': 2,
+      'format': 'STRING'
     }
     if not env.isCluster:  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)
@@ -695,7 +703,8 @@ def test_profile_child_itrerators_array():
         'Total profile time': 0.0
       },
       'results': [],
-      'total_results': 0
+      'total_results': 0,
+      'format': 'STRING'
     }
     if not env.isCluster:  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)

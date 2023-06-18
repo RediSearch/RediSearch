@@ -809,6 +809,7 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                                 &offset, &status);
     if (rc == REDISMODULE_ERR) {
       RedisModule_Reply_QueryError(reply, &status);
+      QueryError_ClearError(&status);
       RedisModule_EndReply(reply);
       return REDISMODULE_OK;
     }

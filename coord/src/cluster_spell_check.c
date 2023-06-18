@@ -346,7 +346,7 @@ int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies) {
     }
 
     MRReply *termMap = MRReply_MapElement(dictReply, "results");
-    if (MRReply_Type(termMap) != MR_REPLY_MAP) {
+    if (!termMap || MRReply_Type(termMap) != MR_REPLY_MAP) {
       error = "bad reply returned";
       goto finish;
     }

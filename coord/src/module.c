@@ -1220,6 +1220,8 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_ReplyKV_LongLong(reply, "total_results", rCtx->totalReplies);
 
+    RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
+
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
       for (int i = 0; i < qlen && i < num; ++i) {

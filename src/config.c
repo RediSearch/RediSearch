@@ -928,7 +928,7 @@ static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, Red
     }
   } else {
     if (currValue) {
-      RedisModule_Reply_SimpleString(reply, currValue);
+      RedisModule_Reply_StringBuffer(reply, currValue, sdslen(currValue));
     } else {
       RedisModule_Reply_Null(reply);
     }
