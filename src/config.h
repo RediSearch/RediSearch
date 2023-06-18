@@ -198,7 +198,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err);
  * on the eyes
  */
 void RSConfig_DumpProto(const RSConfig *cfg, const RSConfigOptions *options, const char *name,
-                        RedisModuleCtx *ctx, int isHelp);
+                        RedisModule_Reply *reply, bool isHelp);
 
 /**
  * Sets a configuration variable. The argv, argc, and offset variables should
