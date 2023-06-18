@@ -29,20 +29,6 @@ struct GeometryApi {
   void (*dump)(GeometryIndex *index, RedisModuleCtx *ctx);
 };
 
-#define X(variant)                                                                            \
-  GeometryIndex *Index_##variant##_New();                                                     \
-  void Index_##variant##_Free(GeometryIndex *idx);                                            \
-  int Index_##variant##_Insert(GeometryIndex *idx, GEOMETRY_FORMAT format, const char *str,   \
-                               size_t len, t_docId id, RedisModuleString **err_msg);          \
-  int Index_##variant##_Remove(GeometryIndex *idx, t_docId);                                  \
-  IndexIterator *Index_##variant##_Query(GeometryIndex *idx, enum QueryType queryType,        \
-                                         GEOMETRY_FORMAT format, const char *str, size_t len, \
-                                         RedisModuleString **err_msg);                        \
-  void Index_##variant##_Dump(GeometryIndex *idx, RedisModuleCtx *ctx);
-
-GEO_VARIANTS(X)
-#undef X
-
 const GeometryApi *GeometryApi_Get(GEOMETRY_COORDS, void *);
 GeometryIndex *GeometryIndexFactory(GEOMETRY_COORDS);
 

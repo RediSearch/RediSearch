@@ -19,38 +19,6 @@ struct GeometryIndex {
   const GeometryApi *api;
 };
 
-#define X(variant)                                \
-  constexpr GeometryApi GeometryApi_##variant = { \
-      .freeIndex = Index_##variant##_Free,        \
-      .addGeomStr = Index_##variant##_Insert,     \
-      .delGeom = Index_##variant##_Remove,        \
-      .query = Index_##variant##_Query,           \
-      .dump = Index_##variant##_Dump,             \
-  };
-GEO_VARIANTS(X)
-#undef X
-
-using GeometryCtor = GeometryIndex *(*)();
-constexpr std::array<GeometryCtor, GEOMETRY_COORDS__NUM> geometry_ctors_g{
-#define X(variant) /* [GEOMETRY_COORDS_variant] = */ Index_##variant##_New,
-    GEO_VARIANTS(X)
-#undef X
-};
-
-constexpr std::array<const GeometryApi *, GEOMETRY_COORDS__NUM> geometry_apis_g{
-#define X(variant) /*[GEOMETRY_COORDS_variant] = */ &GeometryApi_##variant,
-    GEO_VARIANTS(X)
-#undef X
-};
-
-const GeometryApi *GeometryApi_Get(GEOMETRY_COORDS tag, [[maybe_unused]] void *ctx) {
-  return geometry_apis_g[tag];
-}
-
-GeometryIndex *GeometryIndexFactory(GEOMETRY_COORDS tag) {
-  return geometry_ctors_g[tag]();
-}
-
 #define X(variant)                                                                            \
   GeometryIndex *Index_##variant##_New() {                                                    \
     return new GeometryIndex{                                                                 \
@@ -91,6 +59,38 @@ GeometryIndex *GeometryIndexFactory(GEOMETRY_COORDS tag) {
 
 GEO_VARIANTS(X)
 #undef X
+
+#define X(variant)                                \
+  constexpr GeometryApi GeometryApi_##variant = { \
+      .freeIndex = Index_##variant##_Free,        \
+      .addGeomStr = Index_##variant##_Insert,     \
+      .delGeom = Index_##variant##_Remove,        \
+      .query = Index_##variant##_Query,           \
+      .dump = Index_##variant##_Dump,             \
+  };
+GEO_VARIANTS(X)
+#undef X
+
+using GeometryCtor = GeometryIndex *(*)();
+constexpr std::array<GeometryCtor, GEOMETRY_COORDS__NUM> geometry_ctors_g{
+#define X(variant) /* [GEOMETRY_COORDS_variant] = */ Index_##variant##_New,
+    GEO_VARIANTS(X)
+#undef X
+};
+
+constexpr std::array<const GeometryApi *, GEOMETRY_COORDS__NUM> geometry_apis_g{
+#define X(variant) /*[GEOMETRY_COORDS_variant] = */ &GeometryApi_##variant,
+    GEO_VARIANTS(X)
+#undef X
+};
+
+const GeometryApi *GeometryApi_Get(GEOMETRY_COORDS tag, [[maybe_unused]] void *ctx) {
+  return geometry_apis_g[tag];
+}
+
+GeometryIndex *GeometryIndexFactory(GEOMETRY_COORDS tag) {
+  return geometry_ctors_g[tag]();
+}
 
 size_t GeometryTotalMemUsage() {
   return RTree<Cartesian>::reportTotal() + RTree<Geographic>::reportTotal();
