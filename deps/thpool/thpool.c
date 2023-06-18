@@ -58,7 +58,7 @@ static volatile size_t curr_bt_buffer_size = 0;
 // The number of threads in the current threadpool that are paused.
 static size_t g_threads_ids = 0 ; 
 // The number of threads in the threadpool that done writing their current state to the dump container.
-static atomic_uint g_threads_done_log_cnt = 0; 
+static atomic_size_t g_threads_done_cnt = 0; 
 
 // Dump container.
 typedef struct thread_bt_data thread_bt_data;
@@ -150,7 +150,7 @@ static void thread_destroy(struct thread* thread_p);
 static void get_backtrace(statusOnCrash status_on_crash, int collect_bt, size_t thread_id);
 static void thread_bt_buffer_init(uint32_t thread_id, void *bt_addresses_buf, int trace_size, statusOnCrash status_on_crash);
 static void reset_global_vars();
-static void wait_for_threads_log(redisearch_thpool_t* thpool_p);
+static void wait_for_threads(redisearch_thpool_t* thpool_p);
 
 // redisearch_thpool_StateLog() wraps these functions:
 
@@ -215,7 +215,7 @@ void register_process_to_pause_handler(RedisModuleCtx *ctx) {
 static void reset_global_vars() {
 
   g_threads_ids = 0;
-  g_threads_done_log_cnt = 0;
+  g_threads_done_cnt = 0;
   g_curr_threadpool = NULL;
 
 }
@@ -479,14 +479,19 @@ void redisearch_thpool_pause(redisearch_thpool_t* thpool_p) {
 
   if (thread_pool_size) {
     // wait until all the threads in the thpool are paused (except for the caller)
-    uint32_t expected_new_paused_count = thread_pool_size - called_by_threadpool;
+    size_t expected_new_paused_count = thread_pool_size - called_by_threadpool;
     clock_t start = clock();
-    while(g_threads_ids < expected_new_paused_count){
+    size_t paused_threads = g_threads_ids;
+    while(g_threads_ids < expected_new_paused_count) {
       double waiting_time = (clock() - start)/CLOCKS_PER_SEC;
       if (waiting_time > LOG_WAITING_TIME) {
-        RedisModule_Log(NULL, "warning", "something is wrong: waiting too long for threads to be paused.");
+          RedisModule_Log(NULL, "warning",
+                  "something is wrong: expected to pause %lu threads, but only %lu are paused."
+                  "continue waiting",
+                  expected_new_paused_count, paused_threads);
       }
       start = clock();
+      paused_threads = g_threads_ids;
     }
   }
 
@@ -498,6 +503,8 @@ void redisearch_thpool_pause(redisearch_thpool_t* thpool_p) {
 /* Resume all threads in threadpool */
 void redisearch_thpool_resume(redisearch_thpool_t* thpool_p) {
   redisearch_thpool_TURNOFF_flag(thpool_p, RS_THPOOL_F_PAUSE);
+  wait_for_threads(thpool_p);
+
 }
 
 /* ============ COLLECT THREADS DATA AND LOG API ============ */
@@ -558,6 +565,7 @@ void redisearch_thpool_StateLog_done() {
   // release bt buffer
   rm_free(printable_bt_buffer);
   curr_bt_buffer_size = 0;
+  printable_bt_buffer = NULL;
 }
 
 size_t redisearch_thpool_num_threads_working(redisearch_thpool_t* thpool_p) {
@@ -585,7 +593,7 @@ static void redisearch_thpool_StateLog_init(redisearch_thpool_t* thpool_p) {
   }
 
   // Initialize the finished threads counter
-  g_threads_done_log_cnt = 0;
+  g_threads_done_cnt = 0;
 
   // All the ds are ready, "signal" akk the threads that they can start writing.
   thpool_p->flags |= RS_THPOOL_F_READY_TO_DUMP;
@@ -599,18 +607,22 @@ static void redisearch_thpool_StateLog_init(redisearch_thpool_t* thpool_p) {
   }
 }
 
-static void wait_for_threads_log(redisearch_thpool_t* thpool_p) {
-  // wait for all the threads to finish writing to the bt buffer
+static void wait_for_threads(redisearch_thpool_t* thpool_p) {
   size_t threadpool_size = thpool_p->num_threads_alive;
 
-  // when g_threads_done_log_cnt == threadpool_size all the threads are done writing.
+  // when g_threads_done_cnt == threadpool_size all the threads marked that they have done the task.
   clock_t start = clock();
-  while(g_threads_done_log_cnt != threadpool_size) {
+  size_t threads_done = g_threads_done_cnt;
+  while(threads_done != threadpool_size) {
     double waiting_time = (clock() - start)/CLOCKS_PER_SEC;
     if (waiting_time > LOG_WAITING_TIME) {
-      RedisModule_Log(NULL, "warning", "something is wrong: waiting too long for the threads to log backtrace.");
-    } 
+      RedisModule_Log(NULL, "warning",
+                      "something is wrong: expected %lu threads to finish, but only %lu are done. "
+                      "continue waiting",
+                      threadpool_size, threads_done);
+    }
     start = clock();
+    threads_done = g_threads_done_cnt;
   }
 }
 
@@ -619,12 +631,12 @@ static void redisearch_thpool_StateLog_log_to_RSinfo(redisearch_thpool_t* thpool
                                                      RedisModuleInfoCtx *ctx, 
                                                      const char *info_section_title) {
 
-  wait_for_threads_log(thpool_p);
+  wait_for_threads(thpool_p);
 
   RedisModule_InfoAddSection(ctx, info_section_title);
 
-  // for each thread in g_threads_done_log_cnt
-  for(size_t i = 0; i < g_threads_done_log_cnt; i++) {
+  // for each thread in g_threads_done_cnt
+  for(size_t i = 0; i < g_threads_done_cnt; i++) {
     thread_bt_data curr_bt = printable_bt_buffer[i];
     char buff[100];
     if(curr_bt.status_on_crash == CRASHED) {
@@ -657,11 +669,11 @@ static void redisearch_thpool_StateLog_log_to_RSreply(redisearch_thpool_t* thpoo
                                                       RedisModule_Reply *reply,
                                                       const char *thpool_title) {
   // Print the back trace of each thread
-  wait_for_threads_log(thpool_p);
+  wait_for_threads(thpool_p);
 
   RedisModule_ReplyKV_Map(reply, thpool_title); // >threads dict 
   // for each thread in threads_ids
-  for(size_t i = 0; i < g_threads_done_log_cnt; i++) {
+  for(size_t i = 0; i < g_threads_done_cnt; i++) {
     thread_bt_data curr_bt = printable_bt_buffer[i];
     char buff[100];
     sprintf(buff, "thread #%lu backtrace: \n",i);
@@ -819,7 +831,7 @@ static void get_backtrace(statusOnCrash status_on_crash, int collect_bt, size_t 
     thread_bt_buffer_init(thread_id, bt_addresses_buf, trace_size, status_on_crash);
 
     // Atomically increase finished threads count.
-    ++g_threads_done_log_cnt;
+    ++g_threads_done_cnt;
   }
 }
 /* ============================ JOB QUEUE =========================== */
