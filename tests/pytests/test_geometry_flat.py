@@ -16,7 +16,7 @@ def assert_index_num_docs(env, idx, attr, num_docs):
     res = array_of_key_value_to_map(res)
     env.assertEqual(res['num_docs'], num_docs)
 
-@skip  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
+@skip()  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
 def testSanitySearchHashWithin(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOMETRY').ok()
@@ -31,7 +31,7 @@ def testSanitySearchHashWithin(env):
   res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
-@skip  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
+@skip()  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
 def testSanitySearchJsonWithin(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOMETRY').ok()
@@ -45,7 +45,7 @@ def testSanitySearchJsonWithin(env):
   res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
-@skip  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
+@skip()  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
 def testSanitySearchJsonCombined(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOMETRY $.name as name TEXT').ok()
@@ -112,7 +112,7 @@ def testWKTQueryError(env):
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[contains $poly]', 'PARAMS', 2, 'moly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3).error().contains('No such parameter')
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'NOCONTENT', 'DIALECT', 3).error().contains('No such parameter')
   
-@skip  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
+@skip()  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
 def testSimpleUpdate(env):
   ''' Test updating geometries '''
   
@@ -182,7 +182,7 @@ def testSimpleUpdate(env):
   # Search contains
   env.expect('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))', 'DIALECT', 3).equal([0])
 
-@skip  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
+@skip()  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
 def testFieldUpdate(env):
   ''' Test updating a field, keeping the rest intact '''
   
@@ -226,7 +226,7 @@ def testFieldUpdate(env):
   # Search within on geom2 field
   env.expect('FT.SEARCH', 'idx', '@geom2:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((1 1, 1 170, 170 170, 170 1, 1 1))', 'DIALECT', 3).equal([0])
 
-@skip  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
+@skip()  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
 def testFtInfo(env):
   ''' Test FT.INFO on Geometry '''
   
