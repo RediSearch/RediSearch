@@ -56,7 +56,7 @@ redisearch_thpool_t *g_curr_threadpool = NULL;
 // to check if we need to increase the dump container size
 static volatile size_t curr_bt_buffer_size = 0;
 // The number of threads in the current threadpool that are paused.
-static atomic_size_t g_threads_ids = 0 ; 
+static size_t g_threads_ids = 0 ; 
 // The number of threads in the threadpool that done writing their current state to the dump container.
 static atomic_uint g_threads_done_log_cnt = 0; 
 
