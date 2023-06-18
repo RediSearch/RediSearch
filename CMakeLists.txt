@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
+# set(CMAKE_CXX_STANDARD 20)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 include(${root}/deps/readies/cmake/main)

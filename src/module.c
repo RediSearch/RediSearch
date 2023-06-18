@@ -1172,7 +1172,7 @@ void RediSearch_CleanupModule(void) {
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();
   SchemaPrefixes_Free(ScemaPrefixes_g);
-  GeometryApi_Free();
+  // GeometryApi_Free();
 
   RedisModule_FreeThreadSafeContext(RSDummyContext);
   Dictionary_Free();

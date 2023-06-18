@@ -891,10 +891,7 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   if (!index) {
     return NULL;
   }
-  GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
-  if (!api) {
-    return NULL;
-  }
+  const GeometryApi *api = GeometryApi_Get(index);
   GeometryQuery *gq = node->gmn.geomq;
   RedisModuleString *errMsg;
   IndexIterator *ret = api->query(index, gq->query_type, gq->format, gq->str, gq->str_len, &errMsg);
