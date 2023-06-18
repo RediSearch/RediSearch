@@ -81,7 +81,7 @@ void ConcurrentSearch_pauseBeforeDump() {
 // Return threads to the original execution point where pause was called.
 void ConcurrentSearch_resume() {
   for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
-    ConcurrentSearch_resume(threadpools_g[ii]);
+    redisearch_thpool_resume(threadpools_g[ii]);
   }
 }
 
