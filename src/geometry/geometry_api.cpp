@@ -36,7 +36,7 @@ struct GeometryIndex {
   int Index_##variant##_Remove(GeometryIndex *idx, t_docId id) {                              \
     return std::get<RTree<variant>>(idx->index).remove(id);                                   \
   }                                                                                           \
-  IndexIterator *Index_##variant##_Query(GeometryIndex *idx, QueryType queryType,             \
+  IndexIterator *Index_##variant##_Query(const GeometryIndex *idx, QueryType queryType,       \
                                          GEOMETRY_FORMAT format, const char *str, size_t len, \
                                          RedisModuleString **err_msg) {                       \
     switch (format) {                                                                         \
@@ -47,7 +47,7 @@ struct GeometryIndex {
         return nullptr;                                                                       \
     }                                                                                         \
   }                                                                                           \
-  void Index_##variant##_Dump(GeometryIndex *idx, RedisModuleCtx *ctx) {                      \
+  void Index_##variant##_Dump(const GeometryIndex *idx, RedisModuleCtx *ctx) {                \
     std::get<RTree<variant>>(idx->index).dump(ctx);                                           \
   }
 GEO_VARIANTS(X)

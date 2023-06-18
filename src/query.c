@@ -48,13 +48,7 @@ static void QueryTagNode_Free(QueryTagNode *tag) {
 
 static void QueryGeometryNode_Free(QueryGeometryNode *geom) {
   if (geom->geomq) {
-    if (geom->geomq->str) {
-      rm_free((void*)geom->geomq->str);
-      rm_free((void*)geom->geomq->attr);
-      geom->geomq->str = NULL;
-      geom->geomq->attr = NULL;
-    }
-    rm_free(geom->geomq);
+    GeometryQuery_Free(geom->geomq);
     geom->geomq = NULL;
   }
 }
@@ -887,12 +881,12 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
     return NULL;
   }
-  GeometryIndex *index = OpenGeometryIndex(q->sctx->redisCtx, q->sctx->spec, NULL, fs);
+  const GeometryIndex *index = OpenGeometryIndex(q->sctx->redisCtx, q->sctx->spec, NULL, fs);
   if (!index) {
     return NULL;
   }
   const GeometryApi *api = GeometryApi_Get(index);
-  GeometryQuery *gq = node->gmn.geomq;
+  const GeometryQuery *gq = node->gmn.geomq;
   RedisModuleString *errMsg;
   IndexIterator *ret = api->query(index, gq->query_type, gq->format, gq->str, gq->str_len, &errMsg);
   if (ret == NULL) {

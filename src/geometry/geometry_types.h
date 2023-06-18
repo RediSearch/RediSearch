@@ -6,8 +6,11 @@
 
 #pragma once
 
-typedef void* GEOMETRY; // TODO: GEOMETRY Not uppercase
 #define GEO_VARIANTS(X) X(Cartesian) X(Geographic)
+
+typedef struct GeometryIndex GeometryIndex;
+typedef struct GeometryApi GeometryApi;
+
 typedef enum {
   GEOMETRY_LIB_TYPE_NONE = 0,
   GEOMETRY_LIB_TYPE_BOOST_GEOMETRY = 1,

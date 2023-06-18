@@ -179,7 +179,7 @@ struct RTree {
     return generate_query_iterator(query(queryDoc, queryType, geometry.value()));
   }
 
-  IndexIterator *query(const char *wkt, size_t len, enum QueryType queryType, RedisModuleString **err_msg) const {
+  IndexIterator *query(const char *wkt, size_t len, QueryType queryType, RedisModuleString **err_msg) const {
     try {
       auto geometry = Polygon<coord_system>::from_wkt(std::string_view{wkt, len});
       return generate_query_iterator(query(doc_type{geometry, 0}, queryType, geometry));

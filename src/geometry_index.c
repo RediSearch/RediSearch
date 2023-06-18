@@ -10,7 +10,11 @@
 #include "field_spec.h"
 
 void GeometryQuery_Free(GeometryQuery *geomq) {
-    rm_free(geomq);
+  if (geomq->str) {
+    rm_free((void*)geomq->str);
+    rm_free((void*)geomq->attr);
+  }
+  rm_free(geomq);
 }
 
 RedisModuleType *GeometryIndexType = NULL;
