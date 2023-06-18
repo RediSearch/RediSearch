@@ -52,9 +52,10 @@ void workersThreadPool_resume();
 // Collect and print crash info.
 void workersThreadPool_ShutdownLog(RedisModuleInfoCtx *ctx);
 
+// Print the current backtrace of the workers threads.
+void workersThreadPool_print_backtrace(RedisModule_Reply *reply);
+
 // Set a signal for the running threads to terminate once all pending jobs are done.
 void workersThreadPool_SetTerminationWhenEmpty();
-
-void workers_print_bt(RedisModuleCtx *ctx) ;
 
 #endif // MT_BUILD

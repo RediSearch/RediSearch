@@ -916,7 +916,38 @@ DEBUG_COMMAND(VecsimInfo) {
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
-#include "util/workers.h"
+static void RS_pauseModuleThreadpools() {
+#ifdef MT_BUILD  
+  workersThreadPool_pauseBeforeDump();
+#endif // MT_BUILD
+
+  CleanPool_ThreadPoolPauseBeforeDump();
+  ConcurrentSearch_pauseBeforeDump();
+  // pause gc
+  GC_ThreadPoolPauseBeforeDump();
+}
+
+static void RS_resumeModuleThreadpools() {
+#ifdef MT_BUILD  
+  workersThreadPool_resume();
+#endif // MT_BUILD
+
+  CleanPoolThreadPool_resume();
+  ConcurrentSearch_resume();
+  // pause gc
+  GCThreadPool_resume();
+}
+static void RS_print_backtrace_threadpools(RedisModule_Reply *reply) {
+  GCThreadPool_print_backtrace(reply);
+#ifdef MT_BUILD
+  workersThreadPool_print_backtrace(reply);
+#endif // MT_BUILD
+  ConcurrentSearch_print_backtrace(reply);
+  CleanPoolThreadPool_print_backtrace(reply);
+}
+
+// TODO : add all other threadppools
+
 /**
  * FT.DEBUG BACKTRACE thpool_name
  */
@@ -924,23 +955,31 @@ DEBUG_COMMAND(backtrace) {
   if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
+
+  const char *thpool_name = RedisModule_StringPtrLen(argv[0], NULL);
+  
+  // Initialize reply map
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  RedisModule_Reply_Map(reply); // Threadpools dict 
+
   // find the requested thpool
-  // pause
-  workersThreadPool_pauseBeforeDump();
+  if(!strcmp(thpool_name, "ALL")) {
+    RS_pauseModuleThreadpools();
+
+    // Print all the threadpools backtraces to the log file
+    RS_print_backtrace_threadpools(reply);
+
+    // Resume all the threads for a graceful exit
+    RS_resumeModuleThreadpools();
+
+    // General cleanups.
+    redisearch_thpool_StateLog_done();
+  }
+  RedisModule_Reply_MapEnd(reply); // Thredpools dict 
+
+  RedisModule_EndReply(reply);
 
 
-  workers_print_bt(ctx);
-
-
-
-  redisearch_thpool_ShutdownLog_done();
-
-
-  // print
-  //clean
-  //resume
-  workersThreadPool_resume();
-  RedisModule_ReplyWithLongLong(ctx, 1);
   return REDISMODULE_OK;
 }
 
@@ -969,7 +1008,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"GIT_SHA", GitSha},
                                {"TTL", ttl},
                                {"VECSIM_INFO", VecsimInfo},
-                               {"BACKTRACE", backtrace},
+                               {"BACKTRACE", backtrace}, //TODO : chnage name to dump_backtrace
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

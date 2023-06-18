@@ -57,6 +57,7 @@ void GC_ThreadPoolStart();
 void GC_ThreadPoolPauseBeforeDump();
 void GCThreadPool_resume();
 void GC_ThreadPoolShutdownLog(RedisModuleInfoCtx *ctx);
+void GCThreadPool_print_backtrace(RedisModule_Reply *reply);
 void GC_ThreadPoolDestroy();
 
 #ifdef __cplusplus

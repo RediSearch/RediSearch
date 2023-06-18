@@ -143,14 +143,17 @@ static void RS_ShutdownLogModuleThreadpools(RedisModuleInfoCtx *ctx) {
 }
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   if (for_crash_report) {
-    //first pause all threads 
+    // First pause all threads 
     RS_pauseModuleThreadpools();
 
+    // Print all the threadpools backtraces to the log file
     RS_ShutdownLogModuleThreadpools(ctx);
 
+    // Resume all the theads for graceful exit
     RS_resumeModuleThreadpools();
 
-    redisearch_thpool_ShutdownLog_done();
+    // General cleanups.
+    redisearch_thpool_StateLog_done();
   }
   // Module version
   RedisModule_InfoAddSection(ctx, "version");

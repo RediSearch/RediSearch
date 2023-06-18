@@ -13,6 +13,7 @@ extern "C" {
 #endif
 
 #include "redismodule.h"
+#include "reply.h"
 /* =================================== API ======================================= */
 
 typedef struct redisearch_thpool_t* redisearch_threadpool;
@@ -28,9 +29,9 @@ typedef enum {
 /**
  * @brief  Register the *process* to the signal handler of SIGUSR2. 
  * This is a general function that is not associated with a specific threadpool, but it is used
- * to handle the pause threadpool function.
+ * to handle pause threadpool function.
  * NOTE: the signal handler *overrides* the current signal handler assigned for SIGUSR2.
- * if a signal handler was already defined for SIGUSR2, a notice log is printed to the log file.
+ * If a signal handler was already defined for SIGUSR2, a notice log is printed to the log file.
  *
  * @param ctx ctx to print logs to.
  */
@@ -330,9 +331,9 @@ void redisearch_thpool_pause_before_dump(redisearch_threadpool);
  *                              the name of the thread pool. 
  * 
  */
-void redisearch_thpool_ShutdownLog( redisearch_threadpool,
-                                    RedisModuleInfoCtx *ctx, 
-                                    const char *info_section_title);
+void redisearch_thpool_StateLog(redisearch_threadpool,
+                                   RedisModuleInfoCtx *ctx, 
+                                   const char *info_section_title);
 
 /**
  * 
@@ -341,7 +342,7 @@ void redisearch_thpool_ShutdownLog( redisearch_threadpool,
  * @param ctx             the info ctx to print the data to.
  * @param threadpool      the threadpool of threads to collect dump data from.
  */
-void redisearch_thpool_ShutdownLog_done();
+void redisearch_thpool_StateLog_done();
 
 /**
  * 
@@ -350,8 +351,9 @@ void redisearch_thpool_ShutdownLog_done();
  * @param ctx             the info ctx to print the data to.
  * @param threadpool      the threadpool of threads to collect dump data from.
  */
-void redisearch_thpool_print_backtrace(redisearch_threadpool, RedisModuleCtx *ctx);
-
+void redisearch_thpool_print_backtrace(redisearch_threadpool, 
+                                       RedisModule_Reply *reply,
+                                       const char *thpool_title);
 
 #ifdef __cplusplus
 }

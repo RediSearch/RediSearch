@@ -140,11 +140,11 @@ void workersThreadPool_resume() {
 }
 
 void workersThreadPool_ShutdownLog(RedisModuleInfoCtx *ctx) {
-  redisearch_thpool_ShutdownLog(_workers_thpool, ctx, "=== WORKERS THREADS LOG: ===");
+  redisearch_thpool_StateLog(_workers_thpool, ctx, "=== WORKERS THREADS LOG: ===");
 }
 
-void workers_print_bt(RedisModuleCtx *ctx) {
-    redisearch_thpool_print_backtrace(_workers_thpool, ctx);
+void workersThreadPool_print_backtrace(RedisModule_Reply *reply) {
+  redisearch_thpool_print_backtrace(_workers_thpool, reply, "=== WORKERS THREADS BACKTRACE: ===");
 }
 
 #endif // MT_BUILD

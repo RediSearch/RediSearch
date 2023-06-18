@@ -90,7 +90,16 @@ void ConcurrentSearch_ShutdownLog(RedisModuleInfoCtx *ctx) {
   for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
     char threadpool_title[100];
     sprintf(threadpool_title, "=== CONCURENT SEARCH POOL #%lu THREADS LOG: ===", ii);
-    redisearch_thpool_ShutdownLog(threadpools_g[ii], ctx, threadpool_title);
+    redisearch_thpool_StateLog(threadpools_g[ii], ctx, threadpool_title);
+  }
+}
+
+// Collect backtrace of all concurrent search thpools.
+void ConcurrentSearch_print_backtrace(RedisModule_Reply *reply) {
+  for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
+      char threadpool_title[100];
+    sprintf(threadpool_title, "=== CONCURENT SEARCH POOL #%lu THREADS BACKTRACE: ===", ii);
+    redisearch_thpool_print_backtrace(threadpools_g[ii], reply, threadpool_title);
   }
 }
 

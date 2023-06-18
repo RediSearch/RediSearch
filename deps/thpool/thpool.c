@@ -152,18 +152,23 @@ static void thread_bt_buffer_init(uint32_t thread_id, void *bt_addresses_buf, in
 static void reset_global_vars();
 static void wait_for_threads_log(redisearch_thpool_t* thpool_p);
 
-// redisearch_thpool_ShutdownLog() wraps these functions:
+// redisearch_thpool_StateLog() wraps these functions:
 
-// Initialize all DS required to log bt of each thread in the threadpool
-// and let the threads continue to dump their current state.
-// The threads will not continue execution after done writing.
-static void redisearch_thpool_ShutdownLog_init(redisearch_threadpool);
+// Initialize all DS required to log the state of each thread in the threadpool
+// and mark the ds as ready.
+static void redisearch_thpool_StateLog_init(redisearch_threadpool);
 // Print the data collected by the threads to the crash report.
-static void redisearch_thpool_ShutdownLog_print(redisearch_thpool_t* thpool_p, RedisModuleInfoCtx *ctx);
+static void redisearch_thpool_StateLog_log_to_RSinfo(redisearch_thpool_t* thpool_p, 
+                                             RedisModuleInfoCtx *ctx,
+                                             const char *info_section_title);
+// Reply with the data collected by the threads.
+static void redisearch_thpool_StateLog_log_to_RSreply(redisearch_thpool_t* thpool_p, 
+                                                      RedisModule_Reply *reply,
+                                                      const char *thpool_title);
 // Cleanups related to a specific threadpool dump
-static void redisearch_thpool_ShutdownLog_cleanup(redisearch_threadpool);
+static void redisearch_thpool_StateLog_cleanup(redisearch_threadpool);
 
-// turn off flag 
+// turn off threadpool flag 
 static void redisearch_thpool_TURNOFF_flag(redisearch_thpool_t* thpool_p, uint16_t flag) {
   thpool_p->flags &= ~flag;
 }
@@ -442,6 +447,61 @@ void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
   rm_free(thpool_p);
 }
 
+/* Pause all threads in threadpool */
+void redisearch_thpool_pause(redisearch_thpool_t* thpool_p) {
+  size_t n;
+	pthread_t caller = pthread_self();
+
+  // save the current thpool to the global pointer
+  g_curr_threadpool = thpool_p;
+
+  size_t thread_pool_size = thpool_p->num_threads_alive;
+
+  int called_by_threadpool = 0;
+
+  // set hold flag
+  thpool_p->flags |= RS_THPOOL_F_PAUSE;
+
+  // zero threads' ids. This number will be increased atomically by each
+  // thread so it can write to its own unique idx in the output array.
+  g_threads_ids = 0;
+
+	for(n = 0; n < thread_pool_size; n++) {
+		// do not pause caller
+		if(thpool_p->threads[n]->pthread != caller) {
+			pthread_kill(thpool_p->threads[n]->pthread, SIGUSR2);
+		} else {
+      // The calling thread belongs to this thread pool
+      called_by_threadpool = 1;
+      thpool_p->flags |= RS_THPOOL_F_CONTAINS_HANDLING_THREAD;
+    }
+	}  
+
+  if (thread_pool_size) {
+    // wait until all the threads in the thpool are paused (except for the caller)
+    uint32_t expected_new_paused_count = thread_pool_size - called_by_threadpool;
+    clock_t start = clock();
+    while(g_threads_ids < expected_new_paused_count){
+      double waiting_time = (clock() - start)/CLOCKS_PER_SEC;
+      if (waiting_time > LOG_WAITING_TIME) {
+        RedisModule_Log(NULL, "warning", "something is wrong: waiting too long for threads to be paused.");
+      }
+      start = clock();
+    }
+  }
+
+  // Now all the paused threads have their local copy of their threapool pointer and thread id
+  // we can reset the global variables.
+  reset_global_vars();
+}
+
+/* Resume all threads in threadpool */
+void redisearch_thpool_resume(redisearch_thpool_t* thpool_p) {
+  redisearch_thpool_TURNOFF_flag(thpool_p, RS_THPOOL_F_PAUSE);
+}
+
+/* ============ COLLECT THREADS DATA AND LOG API ============ */
+
 void redisearch_thpool_pause_before_dump(redisearch_thpool_t* thpool_p) {
   
   if (!thpool_p) {
@@ -459,64 +519,58 @@ void redisearch_thpool_pause_before_dump(redisearch_thpool_t* thpool_p) {
   redisearch_thpool_pause(thpool_p);
 }
 
-void redisearch_thpool_print_backtrace( redisearch_thpool_t* thpool_p, RedisModuleCtx *ctx) {
-  if (!thpool_p) {
-    return;
-  }
-
-  // Save all threads data
-  redisearch_thpool_ShutdownLog_init(thpool_p);
-
-  // Print the back trace of each thread
-  wait_for_threads_log(thpool_p);
-
-  // for each thread in threads_ids
-  for(size_t i = 0; i < g_threads_done_log_cnt; i++) {
-    thread_bt_data curr_bt = printable_bt_buffer[i];
-    char buff[100];
-    if(curr_bt.status_on_crash == CRASHED) {
-      sprintf(buff, "CRASHED thread #%lu backtrace: \n",i);
-    } else {
-      sprintf(buff, "thread #%lu backtrace: \n",i);
-    }
-    printf("%s\n,",buff);
-
-    // print the bt
-    for(int j = 0; j < curr_bt.trace_size; j++) {
-      sprintf(buff, "%d",j);
-      printf("%s\n,",curr_bt.printable_bt[j]);
-    }
-
-    // clean up inner bt strings malloc'd by backtrace_symbols()
-    free(curr_bt.printable_bt);
-  }
-  
-  // cleanup
-  redisearch_thpool_ShutdownLog_cleanup(thpool_p);
-}
-void redisearch_thpool_ShutdownLog( redisearch_thpool_t* thpool_p,
+void redisearch_thpool_StateLog( redisearch_thpool_t* thpool_p,
                                     RedisModuleInfoCtx *ctx, 
                                     const char *info_section_title) {
   if (!thpool_p) {
     return;
   }
 
-  RedisModule_InfoAddSection(ctx, info_section_title);
-
   // Save all threads data
-  redisearch_thpool_ShutdownLog_init(thpool_p);
+  redisearch_thpool_StateLog_init(thpool_p);
 
-  // Print the back trace of each thread
-  redisearch_thpool_ShutdownLog_print(thpool_p, ctx);
+  // Print the backtrace of each thread
+  redisearch_thpool_StateLog_log_to_RSinfo(thpool_p, ctx, info_section_title);
   
   // cleanup
-  redisearch_thpool_ShutdownLog_cleanup(thpool_p);
+  redisearch_thpool_StateLog_cleanup(thpool_p);
 }
 
+
+void redisearch_thpool_print_backtrace(redisearch_thpool_t* thpool_p, 
+                                       RedisModule_Reply *reply,
+                                       const char *thpool_title) {
+  if (!thpool_p) {
+    return;
+  }
+
+  // Save all threads data
+  redisearch_thpool_StateLog_init(thpool_p);
+
+  // Print the backtrace of each thread
+  redisearch_thpool_StateLog_log_to_RSreply(thpool_p, reply, thpool_title);
+
+  // cleanup
+  redisearch_thpool_StateLog_cleanup(thpool_p);
+}
+
+void redisearch_thpool_StateLog_done() {
+  // release bt buffer
+  rm_free(printable_bt_buffer);
+  curr_bt_buffer_size = 0;
+}
+
+size_t redisearch_thpool_num_threads_working(redisearch_thpool_t* thpool_p) {
+  pthread_mutex_lock(&thpool_p->thcount_lock);
+  int res = thpool_p->num_threads_working;
+  pthread_mutex_unlock(&thpool_p->thcount_lock);
+  return res;
+}
+/* ======================== THREADS STATE LOG HELPERS ========================= */
 /* Initialize all DS required to log bt of each thread in the threadpool 
  * and pause the threads.
  */
-static void redisearch_thpool_ShutdownLog_init(redisearch_thpool_t* thpool_p) {
+static void redisearch_thpool_StateLog_init(redisearch_thpool_t* thpool_p) {
 	
   size_t threadpool_size = thpool_p->num_threads_alive;
 
@@ -560,10 +614,14 @@ static void wait_for_threads_log(redisearch_thpool_t* thpool_p) {
   }
 }
 
-/* Prints the log for each thread */
-static void redisearch_thpool_ShutdownLog_print(redisearch_thpool_t* thpool_p, RedisModuleInfoCtx *ctx) {
+/* Prints the log for each thread to the crash log file*/
+static void redisearch_thpool_StateLog_log_to_RSinfo(redisearch_thpool_t* thpool_p, 
+                                                     RedisModuleInfoCtx *ctx, 
+                                                     const char *info_section_title) {
 
   wait_for_threads_log(thpool_p);
+
+  RedisModule_InfoAddSection(ctx, info_section_title);
 
   // for each thread in g_threads_done_log_cnt
   for(size_t i = 0; i < g_threads_done_log_cnt; i++) {
@@ -587,7 +645,7 @@ static void redisearch_thpool_ShutdownLog_print(redisearch_thpool_t* thpool_p, R
   }
 }
 
-static void redisearch_thpool_ShutdownLog_cleanup(redisearch_thpool_t* thpool_p) {
+static void redisearch_thpool_StateLog_cleanup(redisearch_thpool_t* thpool_p) {
   // clear counters and turn off flags.
   reset_global_vars();
   redisearch_thpool_TURNOFF_flag(thpool_p, RS_THPOOL_F_READY_TO_DUMP);
@@ -595,71 +653,32 @@ static void redisearch_thpool_ShutdownLog_cleanup(redisearch_thpool_t* thpool_p)
   redisearch_thpool_TURNOFF_flag(thpool_p, RS_THPOOL_F_COLLECT_STATE_INFO);
 }
 
+static void redisearch_thpool_StateLog_log_to_RSreply(redisearch_thpool_t* thpool_p, 
+                                                      RedisModule_Reply *reply,
+                                                      const char *thpool_title) {
+  // Print the back trace of each thread
+  wait_for_threads_log(thpool_p);
 
-void redisearch_thpool_ShutdownLog_done() {
-  // release bt buffer
-  rm_free(printable_bt_buffer);
-  curr_bt_buffer_size = 0;
-}
+  RedisModule_ReplyKV_Map(reply, thpool_title); // >threads dict 
+  // for each thread in threads_ids
+  for(size_t i = 0; i < g_threads_done_log_cnt; i++) {
+    thread_bt_data curr_bt = printable_bt_buffer[i];
+    char buff[100];
+    sprintf(buff, "thread #%lu backtrace: \n",i);
+    RedisModule_ReplyKV_Array(reply, buff); // >>Thread's backtrace
 
-/* Pause all threads in threadpool */
-void redisearch_thpool_pause(redisearch_thpool_t* thpool_p) {
-  size_t n;
-	pthread_t caller = pthread_self();
 
-  // save the current thpool to the global pointer
-  g_curr_threadpool = thpool_p;
+    // print the bt
+    for(int j = 0; j < curr_bt.trace_size; j++) {
+      RedisModule_Reply_SimpleString(reply, curr_bt.printable_bt[j]); // >> bt line
 
-  size_t thread_pool_size = thpool_p->num_threads_alive;
-
-  int called_by_threadpool = 0;
-
-  // set hold flag
-  thpool_p->flags |= RS_THPOOL_F_PAUSE;
-
-  // zero threads' ids. This number will be increased atomically by each
-  // thread so it can write to its own unique idx in the output array.
-  g_threads_ids = 0;
-
-	for(n = 0; n < thread_pool_size; n++) {
-		// do not pause caller
-		if(thpool_p->threads[n]->pthread != caller) {
-			pthread_kill(thpool_p->threads[n]->pthread, SIGUSR2);
-		} else {
-      // The calling thread belongs to this thread pool
-      called_by_threadpool = 1;
-      thpool_p->flags |= RS_THPOOL_F_CONTAINS_HANDLING_THREAD;
     }
-	}  
+    RedisModule_Reply_ArrayEnd(reply); // >>Thread's backtrace
 
-  if (thread_pool_size) {
-    // wait for all the threads in the thpool to be paused (except for the caller)
-    uint32_t expected_new_paused_count = thread_pool_size - called_by_threadpool;
-    clock_t start = clock();
-    while(g_threads_ids < expected_new_paused_count){
-      double waiting_time = (clock() - start)/CLOCKS_PER_SEC;
-      if (waiting_time > LOG_WAITING_TIME) {
-        RedisModule_Log(NULL, "warning", "something is wrong: waiting too long for threads to be paused.");
-      }
-      start = clock();
-    }
+    // clean up inner bt strings malloc'd by backtrace_symbols()
+    free(curr_bt.printable_bt);
   }
-
-  // Now all the paused threads have their local copy of their threapool pointer and thread id
-  // we can reset the global variables.
-  reset_global_vars();
-}
-
-/* Resume all threads in threadpool */
-void redisearch_thpool_resume(redisearch_thpool_t* thpool_p) {
-  redisearch_thpool_TURNOFF_flag(thpool_p, RS_THPOOL_F_PAUSE);
-}
-
-size_t redisearch_thpool_num_threads_working(redisearch_thpool_t* thpool_p) {
-  pthread_mutex_lock(&thpool_p->thcount_lock);
-  int res = thpool_p->num_threads_working;
-  pthread_mutex_unlock(&thpool_p->thcount_lock);
-  return res;
+  RedisModule_Reply_MapEnd(reply); // >threads dict 
 }
 
 /* ============================ THREAD ============================== */
@@ -788,7 +807,7 @@ static void thread_bt_buffer_init(uint32_t thread_id, void *bt_addresses_buf, in
     printable_bt_buffer[thread_id].status_on_crash = status_on_crash;
 }
 
-void get_backtrace(statusOnCrash status_on_crash, int collect_bt, size_t thread_id) {
+static void get_backtrace(statusOnCrash status_on_crash, int collect_bt, size_t thread_id) {
   // if we want to collect current state information of the threads
   if(collect_bt) {
 
