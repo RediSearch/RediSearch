@@ -72,14 +72,14 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
 }
 
 // Pause before we start collecting state info.
-void ConcurrentSearch_pauseBeforeDump() {
+void ConcurrentSearch_PauseBeforeDump() {
   for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
     redisearch_thpool_pause_before_dump(threadpools_g[ii]);
   }
 }
 
 // Return threads to the original execution point where pause was called.
-void ConcurrentSearch_resume() {
+void ConcurrentSearch_Resume() {
   for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
     redisearch_thpool_resume(threadpools_g[ii]);
   }
@@ -95,7 +95,7 @@ void ConcurrentSearch_ShutdownLog(RedisModuleInfoCtx *ctx) {
 }
 
 // Collect backtrace of all concurrent search thpools.
-void ConcurrentSearch_print_backtrace(RedisModule_Reply *reply) {
+void ConcurrentSearch_PrintBacktrace(RedisModule_Reply *reply) {
   for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
       char threadpool_title[100];
     sprintf(threadpool_title, "=== CONCURENT SEARCH POOL #%lu THREADS BACKTRACE: ===", ii);

@@ -180,7 +180,7 @@ void GC_ThreadPoolPauseBeforeDump() {
   redisearch_thpool_pause_before_dump(gcThreadpool_g);
 }
 
-void GCThreadPool_resume() {
+void GC_ThreadPoolResume() {
   redisearch_thpool_resume(gcThreadpool_g);
 }
 
@@ -188,7 +188,7 @@ void GC_ThreadPoolShutdownLog(RedisModuleInfoCtx *ctx) {
   redisearch_thpool_StateLog(gcThreadpool_g, ctx, "=== GC THREADS LOG: ===");
 }
 
-void GCThreadPool_print_backtrace(RedisModule_Reply *reply) {
+void GC_ThreadPoolPrintBacktrace(RedisModule_Reply *reply) {
   redisearch_thpool_print_backtrace(gcThreadpool_g, reply, "=== GC THREADS BACKTRACE: ===");
 }
 

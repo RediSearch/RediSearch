@@ -55,9 +55,9 @@ void GCContext_ForceBGInvoke(GCContext* gc);
 
 void GC_ThreadPoolStart();
 void GC_ThreadPoolPauseBeforeDump();
-void GCThreadPool_resume();
+void GC_ThreadPoolResume();
 void GC_ThreadPoolShutdownLog(RedisModuleInfoCtx *ctx);
-void GCThreadPool_print_backtrace(RedisModule_Reply *reply);
+void GC_ThreadPoolPrintBacktrace(RedisModule_Reply *reply);
 void GC_ThreadPoolDestroy();
 
 #ifdef __cplusplus

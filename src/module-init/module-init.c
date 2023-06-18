@@ -22,6 +22,7 @@
 #include "json.h"
 #include "VecSim/vec_sim.h"
 #include "util/workers.h"
+#include "util/threadpool_api.h"
 
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -110,47 +111,25 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
-static void RS_pauseModuleThreadpools() {
-#ifdef MT_BUILD  
-  workersThreadPool_pauseBeforeDump();
-#endif // MT_BUILD
-
-  CleanPool_ThreadPoolPauseBeforeDump();
-  ConcurrentSearch_pauseBeforeDump();
-  // pause gc
-  GC_ThreadPoolPauseBeforeDump();
-}
-
-static void RS_resumeModuleThreadpools() {
-#ifdef MT_BUILD  
-  workersThreadPool_resume();
-#endif // MT_BUILD
-
-  CleanPoolThreadPool_resume();
-  ConcurrentSearch_resume();
-  // pause gc
-  GCThreadPool_resume();
-}
-
-
-static void RS_ShutdownLogModuleThreadpools(RedisModuleInfoCtx *ctx) {
-  GC_ThreadPoolShutdownLog(ctx);
+static void RS_ThreadpoolsShutdownLog(RedisModuleInfoCtx *ctx) {
+    GC_ThreadPoolShutdownLog(ctx);
 #ifdef MT_BUILD
   workersThreadPool_ShutdownLog(ctx);
 #endif // MT_BUILD
   ConcurrentSearch_ShutdownLog(ctx);
   CleanPool_ThreadPoolShutdownLog(ctx);
 }
+
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   if (for_crash_report) {
     // First pause all threads 
-    RS_pauseModuleThreadpools();
+    RS_ThreadpoolsPauseBeforeDump();
 
     // Print all the threadpools backtraces to the log file
-    RS_ShutdownLogModuleThreadpools(ctx);
+    RS_ThreadpoolsShutdownLog(ctx);
 
     // Resume all the theads for graceful exit
-    RS_resumeModuleThreadpools();
+    RS_ThreadpoolsResume();
 
     // General cleanups.
     redisearch_thpool_StateLog_done();

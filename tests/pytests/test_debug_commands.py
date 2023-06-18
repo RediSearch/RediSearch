@@ -27,7 +27,7 @@ class TestDebugCommands(object):
         err_msg = 'wrong number of arguments'
         help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_NUMIDXTREE', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'DUMP_GEOMIDX', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO',
                      'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE', 'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY',
-                     'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC', 'GIT_SHA', 'TTL', 'VECSIM_INFO']
+                     'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC', 'GIT_SHA', 'TTL', 'VECSIM_INFO', 'DUMP_THREADPOOL_BACKTRACE']
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
         for cmd in help_list:

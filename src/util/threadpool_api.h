@@ -17,3 +17,6 @@ typedef struct ThreadPoolAPI_AsyncIndexJob {
 int ThreadPoolAPI_SubmitIndexJobs(void *pool, void *spec_ctx, void **ext_jobs,
                                                          ThreadPoolAPI_CB *cbs,
                                                          size_t n_jobs);
+
+void RS_ThreadpoolsPauseBeforeDump();
+void RS_ThreadpoolsResume();

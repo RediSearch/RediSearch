@@ -612,9 +612,9 @@ void CleanPool_ThreadPoolStart();
 void CleanPool_ThreadPoolDestroy();
 
 void CleanPool_ThreadPoolPauseBeforeDump();
-void CleanPoolThreadPool_resume();
+void CleanPool_ThreadPoolResume();
 void CleanPool_ThreadPoolShutdownLog(RedisModuleInfoCtx *ctx);
-void CleanPoolThreadPool_print_backtrace(RedisModule_Reply *reply);
+void CleanPool_ThreadPoolPrintBacktrace(RedisModule_Reply *reply);
 size_t CleanInProgressOrPending();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

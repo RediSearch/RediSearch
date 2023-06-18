@@ -7,6 +7,11 @@
 #include "threadpool_api.h"
 #include "rmalloc.h"
 
+#include "util/workers.h"
+#include "gc.h"
+#include "spec.h"
+#include "concurrent_ctx.h"
+
 static void ThreadPoolAPI_Execute(void *ctx) {
   ThreadPoolAPI_AsyncIndexJob *job = ctx;
   StrongRef spec_ref = WeakRef_Promote(job->spec_ref);
@@ -50,4 +55,24 @@ int ThreadPoolAPI_SubmitIndexJobs(void *pool, void *spec_ctx, void **ext_jobs,
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
+}
+
+void RS_ThreadpoolsPauseBeforeDump() {
+#ifdef MT_BUILD  
+  workersThreadPool_PauseBeforeDump();
+#endif // MT_BUILD
+
+  CleanPool_ThreadPoolPauseBeforeDump();
+  ConcurrentSearch_PauseBeforeDump();
+  GC_ThreadPoolPauseBeforeDump(); 
+}
+
+void RS_ThreadpoolsResume() {
+  #ifdef MT_BUILD  
+  workersThreadPool_Resume();
+#endif // MT_BUILD
+
+  CleanPool_ThreadPoolResume();
+  ConcurrentSearch_Resume();
+  GC_ThreadPoolResume();
 }

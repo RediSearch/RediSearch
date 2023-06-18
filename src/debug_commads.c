@@ -16,6 +16,8 @@
 #include "gc.h"
 #include "module.h"
 #include "suffix.h"
+#include "util/workers.h"
+#include "util/threadpool_api.h"
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
@@ -916,69 +918,65 @@ DEBUG_COMMAND(VecsimInfo) {
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
-static void RS_pauseModuleThreadpools() {
-#ifdef MT_BUILD  
-  workersThreadPool_pauseBeforeDump();
-#endif // MT_BUILD
 
-  CleanPool_ThreadPoolPauseBeforeDump();
-  ConcurrentSearch_pauseBeforeDump();
-  // pause gc
-  GC_ThreadPoolPauseBeforeDump();
-}
-
-static void RS_resumeModuleThreadpools() {
-#ifdef MT_BUILD  
-  workersThreadPool_resume();
-#endif // MT_BUILD
-
-  CleanPoolThreadPool_resume();
-  ConcurrentSearch_resume();
-  // pause gc
-  GCThreadPool_resume();
-}
-static void RS_print_backtrace_threadpools(RedisModule_Reply *reply) {
-  GCThreadPool_print_backtrace(reply);
+static void RS_ThreadpoolsPrintBacktrace(RedisModule_Reply *reply) {
+  GC_ThreadPoolPrintBacktrace(reply);
 #ifdef MT_BUILD
-  workersThreadPool_print_backtrace(reply);
+  workersThreadPool_PrintBacktrace(reply);
 #endif // MT_BUILD
-  ConcurrentSearch_print_backtrace(reply);
-  CleanPoolThreadPool_print_backtrace(reply);
+  ConcurrentSearch_PrintBacktrace(reply);
+  CleanPool_ThreadPoolPrintBacktrace(reply);
 }
 
 // TODO : add all other threadppools
+#define REPLY_THPOOL_BACKTRACE(thpool_name) \
+    thpool_name##PauseBeforeDump(); \
+    thpool_name##PrintBacktrace(reply); \
+    thpool_name##Resume(); 
 
 /**
- * FT.DEBUG BACKTRACE thpool_name
+ * FT.DEBUG DUMP_THREADPOOL_BACKTRACE thpool_name
  */
-DEBUG_COMMAND(backtrace) {
+DEBUG_COMMAND(DumpThreadPoolBacktrace) {
   if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
 
   const char *thpool_name = RedisModule_StringPtrLen(argv[0], NULL);
   
-  // Initialize reply map
+  // Initialize reply ctx
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   RedisModule_Reply_Map(reply); // Threadpools dict 
 
   // find the requested thpool
   if(!strcmp(thpool_name, "ALL")) {
-    RS_pauseModuleThreadpools();
+    REPLY_THPOOL_BACKTRACE(RS_Threadpools);
+  } else if(!strcmp(thpool_name, "GC")) {
+    REPLY_THPOOL_BACKTRACE(GC_ThreadPool);
+  } else if(!strcmp(thpool_name, "ConcurrentSearch")) {
+    REPLY_THPOOL_BACKTRACE(ConcurrentSearch_);
 
-    // Print all the threadpools backtraces to the log file
-    RS_print_backtrace_threadpools(reply);
-
-    // Resume all the threads for a graceful exit
-    RS_resumeModuleThreadpools();
-
-    // General cleanups.
-    redisearch_thpool_StateLog_done();
+  } else if(!strcmp(thpool_name, "CLEAN_POOL")) {
+    REPLY_THPOOL_BACKTRACE(CleanPool_ThreadPool);
   }
+#ifdef MT_BUILD
+  else if(!strcmp(thpool_name, "WORKERS")) {
+    REPLY_THPOOL_BACKTRACE(workersThreadPool_);
+  }
+#endif // MT_BUILD
+
+  else {
+    char buff[100];
+    sprintf(buff, "no such threadpool %s", thpool_name);
+    RedisModule_Reply_Error(reply, buff);
+  }
+  
+  // General cleanups.
+  redisearch_thpool_StateLog_done();
+  
   RedisModule_Reply_MapEnd(reply); // Thredpools dict 
 
   RedisModule_EndReply(reply);
-
 
   return REDISMODULE_OK;
 }
@@ -1008,7 +1006,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"GIT_SHA", GitSha},
                                {"TTL", ttl},
                                {"VECSIM_INFO", VecsimInfo},
-                               {"BACKTRACE", backtrace}, //TODO : chnage name to dump_backtrace
+                               {"DUMP_THREADPOOL_BACKTRACE", DumpThreadPoolBacktrace},
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

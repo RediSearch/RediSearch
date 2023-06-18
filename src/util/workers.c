@@ -130,11 +130,11 @@ void workersThreadPool_SetTerminationWhenEmpty() {
   }
 }
 
-void workersThreadPool_pauseBeforeDump() {
+void workersThreadPool_PauseBeforeDump() {
   redisearch_thpool_pause_before_dump(_workers_thpool);
 }
 
-void workersThreadPool_resume() {
+void workersThreadPool_Resume() {
   assert(_workers_thpool != NULL);
   redisearch_thpool_resume(_workers_thpool);
 }
@@ -143,7 +143,7 @@ void workersThreadPool_ShutdownLog(RedisModuleInfoCtx *ctx) {
   redisearch_thpool_StateLog(_workers_thpool, ctx, "=== WORKERS THREADS LOG: ===");
 }
 
-void workersThreadPool_print_backtrace(RedisModule_Reply *reply) {
+void workersThreadPool_PrintBacktrace(RedisModule_Reply *reply) {
   redisearch_thpool_print_backtrace(_workers_thpool, reply, "=== WORKERS THREADS BACKTRACE: ===");
 }
 
