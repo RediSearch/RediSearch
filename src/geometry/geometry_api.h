@@ -19,6 +19,8 @@ typedef struct RedisModuleCtx RedisModuleCtx;
 typedef struct GeometryIndex GeometryIndex;
 typedef struct GeometryApi GeometryApi;
 
+GeometryIndex *GeometryIndexFactory(GEOMETRY_COORDS);
+const GeometryApi *GeometryApi_Get(const GeometryIndex *);
 struct GeometryApi {
   void (*freeIndex)(GeometryIndex *index);
   int (*addGeomStr)(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len,
@@ -28,9 +30,6 @@ struct GeometryApi {
                           const char *str, size_t len, RedisModuleString **err_msg);
   void (*dump)(GeometryIndex *index, RedisModuleCtx *ctx);
 };
-
-const GeometryApi *GeometryApi_Get(GEOMETRY_COORDS, void *);
-GeometryIndex *GeometryIndexFactory(GEOMETRY_COORDS);
 
 // Return the total memory usage of all RTree instances
 size_t GeometryTotalMemUsage();

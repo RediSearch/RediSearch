@@ -616,7 +616,7 @@ FIELD_BULK_INDEXER(geometryIndexer) {
     }
   }
 
-  const GeometryApi *api = GeometryApi_Get(fs->geometryOpts.geometryCoords, NULL);
+  const GeometryApi *api = GeometryApi_Get(rt);
   RedisModuleString *errMsg;
   if (!fdata->isMulti) {
     if (!api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, &errMsg)) {
