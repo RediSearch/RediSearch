@@ -170,14 +170,14 @@ endif # COORD
 export COORD
 export PACKAGE_NAME
 
-ifeq ($(REDISEARCH_POWER_TO_THE_WORKERS),1)
-CC_FLAGS.common += -DPOWER_TO_THE_WORKERS
+ifeq ($(REDISEARCH_MT_BUILD),1)
+CC_FLAGS.common += -DMT_BUILD
 endif
 
 #----------------------------------------------------------------------------------------------
 
-CC_C_STD=gnu99
-# CC_CXX_STD=c++20
+CC_C_STD=gnu11
+# CC_CXX_STD=c++11
 
 CC_STATIC_LIBSTDCXX ?= 1
 

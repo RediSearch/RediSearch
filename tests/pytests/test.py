@@ -1,18 +1,16 @@
 # -*- coding: utf-8 -*-
 
+from common import *
 import redis
-import unittest
 from hotels import hotels
 import random
 import time
-from RLTest import Env
-from includes import *
-from common import *
+
 
 # this tests is not longer relevant
 # def testAdd(env):
 #     if env.is_cluster():
-#         raise unittest.SkipTest()
+#         env.skip()
 
 #     r = env
 #     env.expect('ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text').ok()
@@ -545,7 +543,7 @@ def testExplain(env):
 
     # expected = ['INTERSECT {', '  UNION {', '    hello', '    <HL(expanded)', '    +hello(expanded)', '  }', '  UNION {', '    world', '    <ARLT(expanded)', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      <HL(expanded)', '      +hello(expanded)', '    }', '    UNION {', '      world', '      <ARLT(expanded)', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
     if env.is_cluster():
-        raise unittest.SkipTest()
+        env.skip()
     res = env.cmd('ft.explainCli', 'idx', q)
     expected = ['INTERSECT {', '  UNION {', '    hello', '    +hello(expanded)', '  }', '  UNION {', '    world', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
     env.assertEqual(expected, res)
@@ -600,7 +598,7 @@ def testNoIndex(env):
     if not env.isCluster():
         # to specific check on cluster, todo : change it to be generic enough
         res = env.cmd('ft.info', 'idx')
-        env.assertEqual(res[7][1][7], 'NOINDEX')
+        env.assertEqual(res[7][1][8], 'NOINDEX')
         env.assertEqual(res[7][2][9], 'NOINDEX')
 
     env.expect('ft.add', 'idx', 'doc1', '0.1', 'fields',
@@ -750,7 +748,7 @@ def testPrefixNodeCaseSensitive(env):
     # can check both prefix and suffix modes.
     queries_expectations = {
         "TEXT": {
-            "lowercase": 
+            "lowercase":
             {  "query": ["@t:(*el*)"],
                 "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
             },
@@ -758,7 +756,7 @@ def testPrefixNodeCaseSensitive(env):
             {  "query": ["@t:(*$p*)", "PARAMS", "2", "p", "el", "DIALECT", "2" ],
                 "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
             },
-            "uppercase": 
+            "uppercase":
             {  "query": ["@t:(*EL*)"],
                 "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
             },
@@ -1191,8 +1189,8 @@ def testTagErrors(env):
 
 def testGeoDeletion(env):
     if env.is_cluster():
-        raise unittest.SkipTest()
         # Can't properly test if deleted on cluster
+        env.skip()
 
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema',
@@ -1551,7 +1549,8 @@ def testGarbageCollector(env):
     env.skipOnCluster()
     if env.moduleArgs is not None and 'GC_POLICY FORK' in env.moduleArgs:
         # this test is not relevent for fork gc cause its not cleaning the last block
-        raise unittest.SkipTest()
+        env.skip()
+
     N = 100
     r = env
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text').ok()
@@ -1901,7 +1900,7 @@ def testBinaryKeys(env):
 
 def testNonDefaultDb(env):
     if env.is_cluster():
-        raise unittest.SkipTest()
+        env.skip()
 
     # Should be ok
     env.cmd('FT.CREATE', 'idx1', 'ON', 'HASH', 'schema', 'txt', 'text')
@@ -1952,7 +1951,7 @@ def testSortbyMissingFieldSparse(env):
 def testLuaAndMulti(env):
     env.skip() # addhash isn't supported
     if env.is_cluster():
-        raise unittest.SkipTest()
+        env.skip()
     # Ensure we can work in Lua and Multi environments without crashing
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'f1', 'text', 'n1', 'numeric')
     env.cmd('HMSET', 'hashDoc', 'f1', 'v1', 'n1', 4)
@@ -2584,18 +2583,20 @@ def testIssue_848(env):
 
 def testMod_309(env):
     n = 10000 if VALGRIND else 100000
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').ok()
     conn = getConnectionByEnv(env)
     for i in range(n):
-        conn.execute_command('HSET', 'doc%d'%i, 'test', 'foo')
+        conn.execute_command('HSET', f'doc{i}', 'test', 'foo')
+    waitForIndex(conn, 'idx')
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
     env.assertEqual(len(res), n + 1)
 
     # test with cursor
-    env.skipOnCluster()
-    res = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR')
-    l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
-    cursor = res[1]
+    if env.isCluster():
+        return
+
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR')
+    l = len(res) - 1  # do not count the number of results (the first element in the results)
     while cursor != 0:
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor))
         l += len(r) - 1
@@ -2992,7 +2993,7 @@ def testParseTime(env):
 
     # valid test
     res = env.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(@test, "%Y%m%d")', 'as', 'a')
-    assertEqualIgnoreCluster(env, res, [1, ['test', '20210401', 'a', '1617235200']])
+    env.assertEqual(res, [1, ['test', '20210401', 'a', '1617235200']])
 
 def testMathFunctions(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
@@ -3020,8 +3021,8 @@ def testErrorOnOpperation(env):
     err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', '!(split("bad" + "bad"))', 'as', 'a')[1]
     assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
 
-    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'APPLY', '!@test', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    if not env.isCluster():
+        env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'APPLY', '!@test', 'as', 'a').error().contains('not loaded nor in pipeline')
 
 
 def testSortkeyUnsortable(env):
@@ -3264,11 +3265,11 @@ def testFieldsCaseSensetive(env):
 
     # make sure aggregation apply are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@n', 'as', 'r').equal([1, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@N', 'as', 'r').error().contains('not loaded in pipeline')
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@N', 'as', 'r').error().contains('not loaded nor in pipeline')
 
     # make sure aggregation filter are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@n==1.0').equal([1, ['n', '1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@N==1.0').error().contains('not loaded in pipeline')
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@N==1.0').error().contains('not loaded nor in pipeline')
 
     # make sure aggregation groupby are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
@@ -3324,11 +3325,11 @@ def testSortedFieldsCaseSensetive(env):
 
     # make sure aggregation apply are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@n', 'as', 'r').equal([1, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@N', 'as', 'r').error().contains('not loaded in pipeline')
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@N', 'as', 'r').error().contains('not loaded nor in pipeline')
 
     # make sure aggregation filter are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@n==1.0').equal([1, ['n', '1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@N==1.0').error().contains('not loaded in pipeline')
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@N==1.0').error().contains('not loaded nor in pipeline')
 
     # make sure aggregation groupby are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])

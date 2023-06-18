@@ -16,6 +16,7 @@
 #include "rules.h"
 #include "spec.h"
 #include "util/dict.h"
+#include "resp3.h"
 
 #define RETURN_ERROR(s) return REDISMODULE_ERR;
 #define RETURN_PARSE_ERROR(rc)                                    \
@@ -232,7 +233,7 @@ CONFIG_GETTER(getSearchThreads) {
   return sdscatprintf(ss, "%lu", config->searchPoolSize);
 }
 
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
 
 // WORKER_THREADS
 CONFIG_SETTER(setWorkThreads) {
@@ -245,10 +246,39 @@ CONFIG_GETTER(getWorkThreads) {
   return sdscatprintf(ss, "%lu", config->numWorkerThreads);
 }
 
-// ALWAYS_USE_THREADS
-CONFIG_BOOLEAN_SETTER(setThreadsEnabled, alwaysUseThreads)
+// MT_MODE
 
-CONFIG_BOOLEAN_GETTER(getThreadsEnabled, alwaysUseThreads, 0)
+CONFIG_SETTER(setMtMode) {
+  const char *mt_mode;
+  int acrc = AC_GetString(ac, &mt_mode, NULL, 0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (!strcasecmp(mt_mode, "MT_MODE_OFF")) {
+    config->mt_mode = MT_MODE_OFF;
+  } else if (!strcasecmp(mt_mode, "MT_MODE_ONLY_ON_OPERATIONS")){
+    config->mt_mode = MT_MODE_ONLY_ON_OPERATIONS;
+  } else if (!strcasecmp(mt_mode, "MT_MODE_FULL")){
+    config->mt_mode = MT_MODE_FULL;
+  } else {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalie MT mode");
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+static inline const char *MTMode_ToString(MTMode mt_mode) {
+  switch (mt_mode) {
+    case MT_MODE_OFF:
+      return "MT_MODE_OFF";
+    case MT_MODE_ONLY_ON_OPERATIONS:
+      return "MT_MODE_ONLY_ON_OPERATIONS";
+    case MT_MODE_FULL:
+      return "MT_MODE_FULL";
+    // No default so the compiler will warn us if we forget to handle a case
+  }
+}
+
+CONFIG_GETTER(getMtMode) {
+  return sdsnew(MTMode_ToString(config->mt_mode));
+}
 
 // TIERED_HNSW_BUFFER_LIMIT
 CONFIG_SETTER(setTieredIndexBufferLimit) {
@@ -260,7 +290,7 @@ CONFIG_GETTER(getTieredIndexBufferLimit) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->tieredVecSimIndexBufferLimit);
 }
-#endif // POWER_TO_THE_WORKERS
+#endif // MT_BUILD
 
 // FRISOINI
 CONFIG_SETTER(setFrisoINI) {
@@ -688,19 +718,19 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getSearchThreads,
          .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
         {.name = "WORKER_THREADS",
          .helpText = "Create at most this number of search threads",
          .setValue = setWorkThreads,
          .getValue = getWorkThreads,
          .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
-        {.name = "ALWAYS_USE_THREADS",
+        {.name = "MT_MODE",
          .helpText = "Let ft.search and vector indexing be done in background threads as default if"
-                        "set to TRUE, use workers thread pool for operational needs only otherwise",
-         .setValue = setThreadsEnabled,
-         .getValue = getThreadsEnabled,
-         .flags = RSCONFIGVAR_F_IMMUTABLE | RSCONFIGVAR_F_FLAG,
+                        "set to MT_MODE_FULL. MT_MODE_ONLY_ON_OPERATIONS use workers thread pool for operational needs only otherwise",
+         .setValue = setMtMode,
+         .getValue = getMtMode,
+         .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
         {.name = "TIERED_HNSW_BUFFER_LIMIT",
         .helpText = "Use for setting the buffer limit threshold for vector similarity tiered"
@@ -875,9 +905,17 @@ static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, Red
   size_t numElems = 0;
   sds currValue = var->getValue(config);
 
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  if(!_ReplyMap(ctx)) {
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    numElems++;
+  }
+
   RedisModule_ReplyWithSimpleString(ctx, var->name);
-  numElems++;
+
+  if(_ReplyMap(ctx)) {
+    RedisModule_ReplyWithMap(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  }
+
   if (isHelp) {
     RedisModule_ReplyWithSimpleString(ctx, "Description");
     RedisModule_ReplyWithSimpleString(ctx, var->helpText);
@@ -889,6 +927,10 @@ static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, Red
     }
     numElems += 4;
   } else {
+    if(_ReplyMap(ctx)) {
+      RedisModule_ReplyWithSimpleString(ctx, "Value");
+      numElems++;
+    }
     if (currValue) {
       RedisModule_ReplyWithSimpleString(ctx, currValue);
     } else {
@@ -897,13 +939,13 @@ static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, Red
     numElems++;
   }
   sdsfree(currValue);
-  RedisModule_ReplySetArrayLength(ctx, numElems);
+  RedisModule_ReplySetMapOrArrayLength(ctx, numElems, true);
 }
 
 void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, const char *name,
                         RedisModuleCtx *ctx, int isHelp) {
   size_t numElems = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_ReplyWithMapOrArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN, false);
   if (!strcmp("*", name)) {
     for (const RSConfigOptions *curOpts = options; curOpts; curOpts = curOpts->next) {
       for (const RSConfigVar *cur = &curOpts->vars[0]; cur->name; cur++) {
@@ -918,7 +960,7 @@ void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, 
       dumpConfigOption(config, v, ctx, isHelp);
     }
   }
-  RedisModule_ReplySetArrayLength(ctx, numElems);
+  RedisModule_ReplySetMapOrArrayLength(ctx, numElems, false);
 }
 
 int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *name,

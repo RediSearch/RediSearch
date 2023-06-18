@@ -41,6 +41,8 @@
 #include "info_command.h"
 #include "rejson_api.h"
 #include "geometry/geometry_api.h"
+#include "reply.h"
+#include "resp3.h"
 
 
 /* FT.MGET {index} {key} ...
@@ -108,9 +110,11 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 #define STRINGIFY(x) __STRINGIFY(x)
 
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+
 #define DICT_INITIAL_SIZE 5
 #define DEFAULT_LEV_DISTANCE 1
 #define MAX_LEV_DISTANCE 4
+
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -292,6 +296,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 /* FT.TAGVALS {idx} {field}
  * Return all the values of a tag field.
  * There is no sorting or paging, so be careful with high-cradinality tag fields */
+
 int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
   if (argc != 3) {
@@ -319,7 +324,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   TagIndex *idx = TagIndex_Open(sctx, rstr, 0, NULL);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
-    RedisModule_ReplyWithArray(ctx, 0);
+    RedisModule_ReplyWithSetOrArray(ctx, 0);
     goto cleanup;
   }
 
@@ -567,7 +572,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   if (!sp->smap) {
-    return RedisModule_ReplyWithArray(ctx, 0);
+    return RedisModule_ReplyWithMapOrArray(ctx, 0, false);
   }
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
@@ -576,7 +581,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t size;
   TermData **terms_data = SynonymMap_DumpAllTerms(sp->smap, &size);
 
-  RedisModule_ReplyWithArray(ctx, size * 2);
+  RedisModule_ReplyWithMapOrArray(ctx, size * 2, true);
 
   for (int i = 0; i < size; ++i) {
     TermData *t_data = terms_data[i];
@@ -821,17 +826,18 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
-  RedisModule_ReplyWithArray(ctx, dictSize(specDict_g));
-
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry = NULL;
-  while ((entry = dictNext(iter))) {
-    StrongRef ref = dictGetRef(entry);
-    IndexSpec *sp = StrongRef_Get(ref);
-    RedisModule_ReplyWithCString(ctx, sp->name);
-  }
-  dictReleaseIterator(iter);
-
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  RedisModule_Reply_Set(reply);
+    dictIterator *iter = dictGetIterator(specDict_g);
+    dictEntry *entry = NULL;
+    while ((entry = dictNext(iter))) {
+      StrongRef ref = dictGetRef(entry);
+      IndexSpec *sp = StrongRef_Get(ref);
+      RedisModule_Reply_SimpleString(reply, sp->name);
+    }
+    dictReleaseIterator(iter);
+  RedisModule_Reply_SetEnd(reply);
+  RedisModule_EndReply(reply);
   return REDISMODULE_OK;
 }
 
@@ -1140,11 +1146,11 @@ void RediSearch_CleanupModule(void) {
 // Let the workers finish BEFORE we call CursorList_Destroy, since it frees a global
 // data structure that is accessed upon releasing the spec (and running thread might hold
 // a reference to the spec bat this time).
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
   workersThreadPool_Wait(RSDummyContext);
   workersThreadPool_Destroy();
 #endif
-  CursorList_Destroy(&RSCursors);
+  CursorList_Destroy(&g_CursorsList);
 
   if (legacySpecDict) {
     dictRelease(legacySpecDict);

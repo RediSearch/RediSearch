@@ -8,6 +8,7 @@
 #include "common.h"
 #include "command.h"
 #include "rmalloc.h"
+#include "resp3.h"
 
 #include "version.h"
 
@@ -172,6 +173,7 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->id = 0;
   cmd->targetSlot = -1;
   cmd->cmd = NULL;
+  cmd->protocol = 0;
 }
 
 MRCommand MR_NewCommandArgv(int argc, const char **argv) {
@@ -190,6 +192,7 @@ MRCommand MRCommand_Copy(const MRCommand *cmd) {
   MRCommand ret;
   MRCommand_Init(&ret, cmd->num);
   ret.id = cmd->id;
+  ret.protocol = cmd->protocol;
 
   for (int i = 0; i < cmd->num; i++) {
     copyStr(&ret, i, cmd, i);
@@ -371,6 +374,10 @@ int MRCommand_IsUnsharded(MRCommand *cmd) {
   return __commandConfig[cmd->id].keyPos <= 0;
 }
 
+void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx) {
+  cmd->protocol = _is_resp3(ctx) ? 3 : 2;
+}
+
 void MRCommand_Print(MRCommand *cmd) {
   MRCommand_FPrint(stdout, cmd);
 }
@@ -380,4 +387,8 @@ void MRCommand_FPrint(FILE *fd, MRCommand *cmd) {
     fprintf(fd, "%.*s ", (int)cmd->lens[i], cmd->strs[i]);
   }
   fprintf(fd, "\n");
+}
+
+void print_mr_cmd(MRCommand *cmd) {
+  MRCommand_FPrint(stdout, cmd);
 }
