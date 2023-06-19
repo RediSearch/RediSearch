@@ -104,8 +104,8 @@ void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
   }
 
   if (RSGlobalConfig.fieldsStats.numGeometryFields > 0) {
-    RedisModule_InfoBeginDictField(ctx, "fields_geometry");
-    RedisModule_InfoAddFieldLongLong(ctx, "Geometry", RSGlobalConfig.fieldsStats.numGeometryFields);
+    RedisModule_InfoBeginDictField(ctx, "geoshape");
+    RedisModule_InfoAddFieldLongLong(ctx, "Geoshape", RSGlobalConfig.fieldsStats.numGeometryFields);
     if (RSGlobalConfig.fieldsStats.numGeometryFieldsSortable > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "Sortable", RSGlobalConfig.fieldsStats.numGeometryFieldsSortable);
     if (RSGlobalConfig.fieldsStats.numGeometryFieldsNoIndex > 0)

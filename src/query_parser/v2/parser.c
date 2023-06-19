@@ -2016,7 +2016,7 @@ yylhsminor.yy119 = yymsp[0].minor.yy119;
   yymsp[-1].minor.yy0.type = QT_PARAM_TERM_CASE;
   yymsp[-3].minor.yy119 = NewGeometryNode_FromWkt_WithParams(ctx, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len, &yymsp[-1].minor.yy0);
   if (!yymsp[-3].minor.yy119) {
-    reportSyntaxError(ctx->status, &yymsp[-1].minor.yy0, "Syntax error: Expecting a Geometry predicate");
+    reportSyntaxError(ctx->status, &yymsp[-1].minor.yy0, "Syntax error: Expecting a geoshape predicate");
   }
 }
         break;

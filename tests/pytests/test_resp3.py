@@ -412,7 +412,7 @@ def test_info():
       'percent_indexed': 1.0,
       'records_per_doc_avg': ANY,
       'sortable_values_size_mb': 0.0,
-      'total_geometries_index_size_mb': 0.0,
+      'total_geoshapes_index_size_mb': 0.0,
       'total_inverted_index_blocks': ANY,
       'vector_index_sz_mb': 0.0}
     res = env.cmd('FT.info', 'idx1')
