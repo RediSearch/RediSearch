@@ -13,7 +13,7 @@ extern "C" {
 #endif
 
 #include "redismodule.h"
-#include "reply.h"
+#include "src/reply.h"
 /* =================================== API ======================================= */
 
 typedef struct redisearch_thpool_t* redisearch_threadpool;

@@ -926,9 +926,12 @@ static void RS_ThreadpoolsPrintBacktrace(RedisModule_Reply *reply) {
 
 // TODO : add all other threadppools
 #define REPLY_THPOOL_BACKTRACE(thpool_name) \
+    RedisModule_Reply_Map(reply); /*Threadpools dict*/ \
     thpool_name##PauseBeforeDump(); \
     thpool_name##PrintBacktrace(reply); \
-    thpool_name##Resume(); 
+    thpool_name##Resume(); \
+    redisearch_thpool_StateLog_done(); /*General cleanups.*/ \
+    RedisModule_Reply_MapEnd(reply); // Thredpools dict 
 
 /**
  * FT.DEBUG DUMP_THREADPOOL_BACKTRACE thpool_name
@@ -942,7 +945,6 @@ DEBUG_COMMAND(DumpThreadPoolBacktrace) {
   
   // Initialize reply ctx
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  RedisModule_Reply_Map(reply); // Threadpools dict 
 
   // find the requested thpool
   if(!strcmp(thpool_name, "ALL")) {
@@ -960,18 +962,11 @@ DEBUG_COMMAND(DumpThreadPoolBacktrace) {
     REPLY_THPOOL_BACKTRACE(workersThreadPool_);
   }
 #endif // MT_BUILD
-
   else {
     char buff[100];
     sprintf(buff, "no such threadpool %s", thpool_name);
     RedisModule_Reply_Error(reply, buff);
   }
-  
-  // General cleanups.
-  redisearch_thpool_StateLog_done();
-  
-  RedisModule_Reply_MapEnd(reply); // Thredpools dict 
-
   RedisModule_EndReply(reply);
 
   return REDISMODULE_OK;

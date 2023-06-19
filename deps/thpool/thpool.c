@@ -740,9 +740,8 @@ static void redisearch_thpool_StateLog_RSreply(redisearch_thpool_t* thpool_p,
   for(size_t i = 0; i < g_threads_done_cnt; i++) {
     thread_bt_data curr_bt = printable_bt_buffer[i];
     char buff[100];
-    sprintf(buff, "thread #%lu backtrace: \n",i);
+    sprintf(buff, "thread #%lu backtrace:",i);
     RedisModule_ReplyKV_Array(reply, buff); // >>Thread's backtrace
-
 
     // print the bt
     for(int j = 0; j < curr_bt.trace_size; j++) {
