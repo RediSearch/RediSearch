@@ -237,7 +237,7 @@ def testFtInfo(env):
   ''' Test FT.INFO on Geoshape '''
   
   conn = getConnectionByEnv(env)
-  info_key_name = 'total_geometries_index_size_mb'
+  info_key_name = 'total_geoshapes_index_size_mb'
   
   env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'geom', 'GEOSHAPE', 'txt', 'TEXT').ok()
   env.expect('FT.CREATE', 'idx2_no_geom', 'SCHEMA', 'txt', 'TEXT').ok()
