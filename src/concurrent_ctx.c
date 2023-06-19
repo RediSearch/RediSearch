@@ -20,7 +20,9 @@ int ConcurrentSearch_CreatePool(int numThreads) {
     threadpools_g = array_new(redisearch_threadpool, 4);
   }
   int poolId = array_len(threadpools_g);
-  threadpools_g = array_append(threadpools_g, redisearch_thpool_create(numThreads));
+  char name_buff[60];
+  sprintf(name_buff, "ConcurrentSearch_thpool_%d", poolId);
+  threadpools_g = array_append(threadpools_g, redisearch_thpool_create(numThreads, name_buff));
   redisearch_thpool_init(threadpools_g[poolId]);
 
   return poolId;
@@ -88,18 +90,14 @@ void ConcurrentSearch_Resume() {
 // Collect crash info.
 void ConcurrentSearch_ShutdownLog(RedisModuleInfoCtx *ctx) {
   for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
-    char threadpool_title[100];
-    sprintf(threadpool_title, "=== CONCURENT SEARCH POOL #%lu THREADS LOG: ===", ii);
-    redisearch_thpool_StateLog(threadpools_g[ii], ctx, threadpool_title);
+    redisearch_thpool_StateLog(threadpools_g[ii], ctx);
   }
 }
 
 // Collect backtrace of all concurrent search thpools.
 void ConcurrentSearch_PrintBacktrace(RedisModule_Reply *reply) {
   for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
-      char threadpool_title[100];
-    sprintf(threadpool_title, "=== CONCURENT SEARCH POOL #%lu THREADS BACKTRACE: ===", ii);
-    redisearch_thpool_print_backtrace(threadpools_g[ii], reply, threadpool_title);
+    redisearch_thpool_print_backtrace(threadpools_g[ii], reply);
   }
 }
 

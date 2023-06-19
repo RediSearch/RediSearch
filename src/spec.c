@@ -1260,7 +1260,7 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
 
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
-    cleanPool = redisearch_thpool_create(1);
+    cleanPool = redisearch_thpool_create(1, "CLEANSPEC");
     redisearch_thpool_init(cleanPool);
   }
 }
@@ -1286,11 +1286,11 @@ void CleanPool_ThreadPoolResume() {
 }
 
 void CleanPool_ThreadPoolShutdownLog(RedisModuleInfoCtx *ctx) {
-  redisearch_thpool_StateLog(cleanPool, ctx, "=== CLEANUP POOL THREADS LOG: ===");
+  redisearch_thpool_StateLog(cleanPool, ctx);
 }
 
 void CleanPool_ThreadPoolPrintBacktrace(RedisModule_Reply *reply) {
-  redisearch_thpool_print_backtrace(cleanPool, reply, "=== CLEANUP POOL THREADS BACKTRACE: ===");
+  redisearch_thpool_print_backtrace(cleanPool, reply);
 }
 
 uint16_t getPendingIndexDrop() {
@@ -2100,7 +2100,7 @@ end:
 
 static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1);
+    reindexPool = redisearch_thpool_create(1, "REINDEX");
     redisearch_thpool_init(reindexPool);
   }
 #ifdef _DEBUG
@@ -2326,7 +2326,7 @@ void Indexes_UpgradeLegacyIndexes() {
 
 void Indexes_ScanAndReindex() {
   if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1);
+    reindexPool = redisearch_thpool_create(1, "REINDEX");
     redisearch_thpool_init(reindexPool);
   }
 

@@ -182,3 +182,8 @@ class TestDebugCommands(object):
 
     def testDumpSuffixWrongArity(self):
         self.env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx1', 'no_suffix').raiseError()
+
+    def testDumpBacktrace(self):
+        self.env.cmd('FT.DEBUG', 'DUMP_THREADPOOL_BACKTRACE', 'GC232')
+        self.env.cmd('FT.DEBUG', 'DUMP_THREADPOOL_BACKTRACE', 'ALL')
+        self.env.cmd('FT.DEBUG', 'DUMP_THREADPOOL_BACKTRACE', 'GC')

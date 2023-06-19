@@ -128,9 +128,6 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     // Print all the threadpools backtraces to the log file
     RS_ThreadpoolsShutdownLog(ctx);
 
-    // Resume all the theads for graceful exit
-    RS_ThreadpoolsResume();
-
     // General cleanups.
     redisearch_thpool_StateLog_done();
   }

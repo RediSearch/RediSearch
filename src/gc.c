@@ -171,7 +171,7 @@ void GCContext_ForceBGInvoke(GCContext* gc) {
 
 void GC_ThreadPoolStart() {
   if (gcThreadpool_g == NULL) {
-    gcThreadpool_g = redisearch_thpool_create(GC_THREAD_POOL_SIZE);
+    gcThreadpool_g = redisearch_thpool_create(GC_THREAD_POOL_SIZE, "GC");
     redisearch_thpool_init(gcThreadpool_g);
   }
 }
@@ -185,11 +185,11 @@ void GC_ThreadPoolResume() {
 }
 
 void GC_ThreadPoolShutdownLog(RedisModuleInfoCtx *ctx) {
-  redisearch_thpool_StateLog(gcThreadpool_g, ctx, "=== GC THREADS LOG: ===");
+  redisearch_thpool_StateLog(gcThreadpool_g, ctx);
 }
 
 void GC_ThreadPoolPrintBacktrace(RedisModule_Reply *reply) {
-  redisearch_thpool_print_backtrace(gcThreadpool_g, reply, "=== GC THREADS BACKTRACE: ===");
+  redisearch_thpool_print_backtrace(gcThreadpool_g, reply);
 }
 
 void GC_ThreadPoolDestroy() {

@@ -9,7 +9,7 @@ class ThpoolTest : public ::testing::Test {
     public:
     redisearch_threadpool pool;
         virtual void SetUp() {
-            this->pool = redisearch_thpool_create(1);
+            this->pool = redisearch_thpool_create(1, "TEST");
             redisearch_thpool_init(this->pool);
         }
 

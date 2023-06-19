@@ -42,10 +42,12 @@ void register_process_to_pause_handler(RedisModuleCtx *ctx);
 /**
  * @brief  Create a new threadpool (without initializing the threads)
  *
- * @param num_threads number of threads to be created in the threadpool
+ * @param num_threads     number of threads to be created in the threadpool
+ * @param thpool_name     A null terminated string to name the threadpool. 
+ *                        The name will be copied to a new string.
  * @return Newly allocated threadpool, or NULL if creation failed.
  */
-redisearch_threadpool redisearch_thpool_create(size_t num_threads);
+redisearch_threadpool redisearch_thpool_create(size_t num_threads, const char *thpool_name);
 
 /**
  * @brief  Initialize an existing threadpool
@@ -332,8 +334,7 @@ void redisearch_thpool_pause_before_dump(redisearch_threadpool);
  * 
  */
 void redisearch_thpool_StateLog(redisearch_threadpool,
-                                   RedisModuleInfoCtx *ctx, 
-                                   const char *info_section_title);
+                                   RedisModuleInfoCtx *ctx);
 
 /**
  * 
@@ -352,8 +353,7 @@ void redisearch_thpool_StateLog_done();
  * @param threadpool      the threadpool of threads to collect dump data from.
  */
 void redisearch_thpool_print_backtrace(redisearch_threadpool, 
-                                       RedisModule_Reply *reply,
-                                       const char *thpool_title);
+                                       RedisModule_Reply *reply);
 
 #ifdef __cplusplus
 }

@@ -35,7 +35,7 @@ int workersThreadPool_CreatePool(size_t worker_count) {
   assert(worker_count);
   assert(_workers_thpool == NULL);
 
-  _workers_thpool = redisearch_thpool_create(worker_count);
+  _workers_thpool = redisearch_thpool_create(worker_count, "WORKERS");
   if (_workers_thpool == NULL) return REDISMODULE_ERR;
 
   return REDISMODULE_OK;
@@ -135,16 +135,15 @@ void workersThreadPool_PauseBeforeDump() {
 }
 
 void workersThreadPool_Resume() {
-  assert(_workers_thpool != NULL);
   redisearch_thpool_resume(_workers_thpool);
 }
 
 void workersThreadPool_ShutdownLog(RedisModuleInfoCtx *ctx) {
-  redisearch_thpool_StateLog(_workers_thpool, ctx, "=== WORKERS THREADS LOG: ===");
+  redisearch_thpool_StateLog(_workers_thpool, ctx);
 }
 
 void workersThreadPool_PrintBacktrace(RedisModule_Reply *reply) {
-  redisearch_thpool_print_backtrace(_workers_thpool, reply, "=== WORKERS THREADS BACKTRACE: ===");
+  redisearch_thpool_print_backtrace(_workers_thpool, reply);
 }
 
 #endif // MT_BUILD
