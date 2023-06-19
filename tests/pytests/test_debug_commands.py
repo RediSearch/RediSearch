@@ -183,7 +183,53 @@ class TestDebugCommands(object):
     def testDumpSuffixWrongArity(self):
         self.env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx1', 'no_suffix').raiseError()
 
-    def testDumpBacktrace(self):
-        print(self.env.expect('FT.DEBUG', 'DUMP_THREADPOOL_BACKTRACE', 'DUMMY').raiseError())
-        print(self.env.cmd('FT.DEBUG', 'DUMP_THREADPOOL_BACKTRACE', 'ALL')[1])
-        print(self.env.cmd('FT.DEBUG', 'DUMP_THREADPOOL_BACKTRACE', 'GC'))
+def DumpBacktrace_ALL(env, threadpools_attr):
+    # Ask for all threadpools
+    threadpools_dict = env.cmd('FT.DEBUG', 'DUMP_THREADPOOL_BACKTRACE', 'ALL')
+    env.assertEqual(len(threadpools_dict), 3)
+    
+    # Ensure that all the threadpools appear only once
+    
+    for threadpool in threadpools_dict:
+        print(f"{threadpool}")
+        match threadpool:
+            case "=== GC THREADS BACKTRACE: ===":
+                thpool_name = "GC"
+            case "=== WORKERS THREADS BACKTRACE: ===":
+                thpool_name = "WORKERS"
+            case "=== CLEANSPEC THREADS BACKTRACE: ===":
+                thpool_name = "CLEANSPEC"
+            case _:
+                env.assertTrue(False, message=(f"Threadpool title {threadpool} is unexpected"))
+                continue
+        env.assertEqual(threadpools_attr[thpool_name]["status"], 'NOT_FOUND')
+        threadpools_attr[thpool_name]["status"] = 'FOUND'   
+        env.assertEqual(threadpools_attr[thpool_name]["threads_count"], len(threadpools_dict[threadpool]))
+
+def threadpool_title(thpool_name):
+    return f"=== {thpool_name} THREADS BACKTRACE: ==="
+
+def testDumpBacktrace_resp3():
+    WORKER_THREADS = 3
+    env = Env(protocol=3, moduleArgs=f'WORKER_THREADS {WORKER_THREADS} MT_MODE MT_MODE_FULL')
+    env.skipOnCluster()
+    
+    # DUMMY threadpool returns an error
+    env.expect('FT.DEBUG', 'DUMP_THREADPOOL_BACKTRACE', 'DUMMY').error().contains('no such threadpool DUMMY')
+    
+    threadpools_attr = {
+        "GC": {"title": threadpool_title("GC"), "status":'NOT_FOUND', "threads_count": 1},
+        "WORKERS": {"title": threadpool_title("WORKERS"), "status":'NOT_FOUND', "threads_count": WORKER_THREADS},
+        "CLEANSPEC": {"title": threadpool_title("CLEANSPEC"), "status":'NOT_FOUND', "threads_count": 1}
+    }
+    
+    DumpBacktrace_ALL(env, threadpools_attr)
+    
+    for threadpool in threadpools_attr:
+        dump_dict = env.cmd('FT.DEBUG', 'DUMP_THREADPOOL_BACKTRACE', threadpool)
+        #one threadpool should return
+        env.assertEqual(len(dump_dict), 1)
+        # Check it has the expected number of threads
+        backtraces_dict = dump_dict[threadpools_attr[threadpool]["title"]]
+        env.assertEqual(len(backtraces_dict), threadpools_attr[threadpool]["threads_count"])
+    

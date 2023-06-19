@@ -954,7 +954,7 @@ DEBUG_COMMAND(DumpThreadPoolBacktrace) {
   } else if(!strcmp(thpool_name, "ConcurrentSearch")) {
     REPLY_THPOOL_BACKTRACE(ConcurrentSearch_);
 
-  } else if(!strcmp(thpool_name, "CLEAN_POOL")) {
+  } else if(!strcmp(thpool_name, "CLEANSPEC")) {
     REPLY_THPOOL_BACKTRACE(CleanPool_ThreadPool);
   }
 #ifdef MT_BUILD
