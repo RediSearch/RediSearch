@@ -481,13 +481,13 @@ To sum up, the `INORDER` argument or `$inorder` query attribute require the quer
 <details open>
 <summary><b>NEW!!! Polygon Search with WITHIN and CONTAINS operators</b></summary>
 
-Query for polygons which contain a given geometry or are within a given geometry
+Query for polygons which contain a given geoshape or are within a given geoshape
 
-First, create an index using `GEOMETRY` type:
+First, create an index using `GEOSHAPE` type:
 
 
 {{< highlight bash >}}
-127.0.0.1:6379> FT.CREATE idx SCHEMA geom GEOMETRY
+127.0.0.1:6379> FT.CREATE idx SCHEMA geom GEOSHAPE
 OK
 {{< / highlight >}}
 

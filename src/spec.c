@@ -1304,7 +1304,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   if (spec->terms) {
     TrieType_Free(spec->terms);
   }
-  // Free TEXT TAG NUMERIC VECTOR and GEOMETRY fields trie and inverted indexes
+  // Free TEXT TAG NUMERIC VECTOR and GEOSHAPE fields trie and inverted indexes
   if (spec->keysDict) {
     dictRelease(spec->keysDict);
   }
