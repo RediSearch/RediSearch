@@ -152,7 +152,8 @@ def testEmptyNumericLeakCenter(env):
 
     env.skipOnCluster()
 
-	# Make sure GC is not triggerred sporadically
+	# Make sure GC is not triggerred sporadically (only manually)
+    env.expect('FT.CONFIG', 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
     env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     
     conn = getConnectionByEnv(env)

@@ -64,6 +64,7 @@ static inline char *MRReply_String(MRReply *reply, size_t *len) {
 }
 
 static inline MRReply *MRReply_ArrayElement(MRReply *reply, size_t idx) {
+  // TODO: check out of bounds
   return reply->element[idx];
 }
 

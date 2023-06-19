@@ -224,3 +224,18 @@ def testFailedHighlight(env):
         toSortedFlatList(env.cmd('ft.search idx3 foo highlight fields 1 f2')))
     env.assertEqual(toSortedFlatList([1, 'doc3', ['f3', 'baz baz baz', 'f1', 'foo foo foo', 'f2', 'not a']]),
         toSortedFlatList(env.cmd('ft.search idx3 foo highlight fields 1 f3')))
+
+
+def testHighlightAlias(env):
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'f1', 'AS', 'f1_alias', 'TEXT', 'f2', 'AS', 'f2_alias', 'TEXT')
+
+    env.cmd('HSET', 'doc', 'f1', 'foo foo foo', 'f2', 'baz baz baz')
+
+    # toSortedFlatList([1, 'doc', ['f1', '<b>foo</b> <b>foo</b> <b>foo</b>', 'f2', 'baz baz baz']])
+    # FIXME: this is broken. SUMMARIZE AND HIGHLIGHT are not compatible with aliased fields
+    env.expect('ft.search idx foo highlight fields 1 f1_alias').equal([1, 'doc', ['f1', 'foo foo foo', 'f2', 'baz baz baz']])
+    env.expect('ft.search idx foo highlight fields 1 f1').error().contains('No such property `f1`') # OK
+
+    # With explicit RETURN, the alias is returned as expected
+    env.assertEqual(toSortedFlatList(env.cmd('ft.search idx foo highlight fields 1 f1_alias RETURN 1 f1_alias')),
+                    toSortedFlatList([1, 'doc', ['f1_alias', '<b>foo</b> <b>foo</b> <b>foo</b>']]))

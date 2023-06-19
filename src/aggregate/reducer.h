@@ -113,6 +113,11 @@ typedef struct {
   ArgsCursor *args;    // Raw reducer arguments
   RLookup *srclookup;  // Lookup to used for locating fields
 
+  // Pointer to a list of keys that need to be loaded from the document.
+  // If a source key is missing for read, create it for load and add it to this array.
+  // If this is NULL, loading is not available.
+  const RLookupKey ***loadKeys;
+
   /**
    * OUT parameter. If the return value is NULL, AND this value on input is
    * NOT NULL, then the error information will be set here.
@@ -123,8 +128,8 @@ typedef struct {
 /**
  * Macro to ensure that we don't skip important initialization steps
  */
-#define REDUCEROPTS_INIT(name_, args_, lk_, statusp_) \
-  { name_, args_, lk_, statusp_ }
+#define REDUCEROPTS_INIT(name_, args_, lk_, lkl_, statusp_) \
+  { name_, args_, lk_, lkl_, statusp_ }
 
 /**
  * Utility function to read the next argument as a lookup key.

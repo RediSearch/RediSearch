@@ -197,8 +197,8 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geom
                        ])
     if num_geometry_keys > 0:
         cmd_create.extend([
-            get_identifier('field5', isHash), 'as', 'geom', 'geometry',
-            get_identifier('field15', isHash), 'geometry'
+            get_identifier('field5', isHash), 'as', 'geom', 'geoshape',
+            get_identifier('field15', isHash), 'geoshape'
         ])
 
     conn = getConnectionByEnv(env)

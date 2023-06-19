@@ -10,7 +10,7 @@
 #include <atomic>
 
 namespace {
-std::atomic<size_t> used = 0;
+std::atomic<size_t> used {0};
 }
 
 template <class T>

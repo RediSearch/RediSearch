@@ -20,6 +20,8 @@ from scipy import spatial
 from pprint import pprint as pp
 from deepdiff import DeepDiff
 from unittest.mock import ANY, _ANY
+from unittest import SkipTest
+import inspect
 
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
@@ -283,22 +285,40 @@ def unstable(f):
         return f(env, *args, **kwargs)
     return wrapper
 
-def skip(cluster=False, macos=False, asan=False, msan=False):
+def skip(cluster=False, macos=False, asan=False, msan=False, noWorkers=False):
     def decorate(f):
-        @wraps(f)
-        def wrapper(x, *args, **kwargs):
-            env = x if isinstance(x, Env) else x.env
-            if not (cluster or macos or asan or msan):
-                env.skip()
-            if cluster and env.isCluster():
-                env.skip()
-            if macos and OS == 'macos':
-                env.skip()
-            if asan and SANITIZER == 'address':
-                env.skip()
-            if msan and SANITIZER == 'memory':
-                env.skip()
-            return f(x, *args, **kwargs)
+        if len(inspect.signature(f).parameters) == 0:
+            @wraps(f)
+            def wrapper(*args, **kwargs):
+                if not (cluster or macos or asan or msan or noWorkers):
+                    raise SkipTest()
+                if macos and OS == 'macos':
+                    raise SkipTest()
+                if asan and SANITIZER == 'address':
+                    raise SkipTest()
+                if msan and SANITIZER == 'memory':
+                    raise SkipTest()
+                if noWorkers and not MT_BUILD:
+                    raise SkipTest()
+
+                return f(*args, **kwargs)
+        else:
+            @wraps(f)
+            def wrapper(x, *args, **kwargs):
+                env = x if isinstance(x, Env) else x.env
+                if not (cluster or macos or asan or msan or noWorkers):
+                    env.skip()
+                if cluster and env.isCluster():
+                    env.skip()
+                if macos and OS == 'macos':
+                    env.skip()
+                if asan and SANITIZER == 'address':
+                    env.skip()
+                if msan and SANITIZER == 'memory':
+                    env.skip()
+                if noWorkers and not MT_BUILD:
+                    env.skip()
+                return f(x, *args, **kwargs)
         return wrapper
     return decorate
 
@@ -431,6 +451,24 @@ def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOA
         conn.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
     return query_vec
 
+def sortResultByKeyName(res, start_index=1):
+  '''
+    Sorts the result by NAMEs
+    res = [<COUNT>, '<NAME_1>, '<VALUE_1>', '<NAME_2>, '<VALUE_2>', ...] 
+
+    If VALUEs are lists, they are sorted by name as well
+  '''
+  # Sort name and value pairs by name
+  pairs = [(name,sortResultByKeyName(value, 0) if isinstance(value, list) else value) for name,value in zip(res[start_index::2], res[start_index+1::2])]
+  pairs = [i for i in sorted(pairs, key=lambda x: x[0])]
+  # Flatten the sorted pairs to a list
+  pairs = [i for pair in pairs for i in pair]
+  if start_index == 1:
+    # Bring the COUNT back to the beginning
+    res = [res[0], *pairs]
+  else:
+    res = [*pairs]
+  return res
 def dict_diff(res, exp, ignore_order=True, significant_digits=7):
     dd = DeepDiff(res, exp, exclude_types={_ANY}, ignore_order=ignore_order, significant_digits=significant_digits)
     if dd != {}:

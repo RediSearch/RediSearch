@@ -35,7 +35,6 @@ typedef enum {
   QEXEC_F_SEND_PAYLOADS = 0x10,   // Sent the payload set with ADD
   QEXEC_F_IS_CURSOR = 0x20,       // Is a cursor-type query
   QEXEC_F_REQUIRED_FIELDS = 0x40, // Send multiple required fields
-  QEXEC_F_HAS_THCTX = 0x80,       // Contains threadsafe context
 
   /** Don't use concurrent execution */
   QEXEC_F_SAFEMODE = 0x100,
@@ -76,14 +75,16 @@ typedef enum {
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
 
-// Indicates whether a query should run in the background (allowed currently for
-// FT.SEARCH queries, only when the immutable alwaysUseThreads config is set). This
+#ifdef MT_BUILD
+// Indicates whether a query should run in the background. This
 // will also guarantee that there is a running thread pool with al least 1 thread.
-#define RunInThread(r) (RSGlobalConfig.alwaysUseThreads && IsSearch(r))
+#define RunInThread() (RSGlobalConfig.mt_mode == MT_MODE_FULL)
+#endif
 
 typedef enum {
   /* Received EOF from iterator */
   QEXEC_S_ITERDONE = 0x02,
+  QEXEC_S_NEEDS_BUFFER_REEVAL = 0x04,
 } QEStateFlags;
 
 typedef struct {
@@ -126,12 +127,12 @@ typedef struct {
 
   struct timespec timeoutTime;
 
-  /*  
+  /*
   // Dialect version used on this request
   unsigned int dialectVersion;
   // Query timeout in milliseconds
   long long reqTimeout;
-  RSTimeoutPolicy timeoutPolicy; 
+  RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   int printProfileClock;
   */
@@ -152,12 +153,12 @@ typedef struct {
   const char** requiredFields;
 
   struct QOptimizer *optimizer;        // Hold parameters for query optimizer
-  
+
   // Currently we need both because maxSearchResults limits the OFFSET also in
   // FT.AGGREGATE execution.
   size_t maxSearchResults;
   size_t maxAggregateResults;
-  
+
 } AREQ;
 
 /**
@@ -293,7 +294,8 @@ void AREQ_Free(AREQ *req);
  * Start the cursor on the current request
  * @param r the request
  * @param reply the context used for replies (only used in current command)
- * @param lookupName the name of the index used for the cursor reservation
+ * @param spec_ref a strong reference to the spec. The cursor saves a weak reference to the spec
+ * to be promoted when cursor read is called.
  * @param status if this function errors, this contains the message
  * @return REDISMODULE_OK or REDISMODULE_ERR
  *
@@ -301,7 +303,7 @@ void AREQ_Free(AREQ *req);
  * freed. If it returns REDISMODULE_ERR, then the cursor is still valid
  * and must be freed manually.
  */
-int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, const char *lookupName, QueryError *status);
+int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *status);
 
 int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
