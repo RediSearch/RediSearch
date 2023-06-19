@@ -294,7 +294,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     RS_LOG_ASSERT(results && MRReply_Type(results) == MR_REPLY_ARRAY, "invalid results record");
     MRReply *result = MRReply_ArrayElement(results, nc->curIdx++);
     RS_LOG_ASSERT(result && MRReply_Type(result) == MR_REPLY_MAP, "invalid result record");
-    MRReply *fields = MRReply_MapElement(result, "fields");
+    MRReply *fields = MRReply_MapElement(result, "extra_attributes");
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
     for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
       size_t len;

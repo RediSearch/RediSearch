@@ -14,8 +14,8 @@
 namespace bg = boost::geometry;
 namespace bgm = bg::model;
 
+template <typename coord_system>
 struct Point {
-  using coord_system = bg::cs::cartesian;
   using point_internal = bgm::point<double, 2, coord_system>;
 
   point_internal point_;

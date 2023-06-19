@@ -8,20 +8,30 @@
 
 #include "rtdoc.hpp"
 #include "query_iterator.hpp"
-#include "rtree.h"
-//#include <boost/unordered/unordered_map.hpp> //is faster than std::unordered_map?
+#include "geometry_types.h"
+#include <unordered_map>
+#include <optional>
+#include <string_view>
+#include <ranges>
+#include <vector>
+// #include <boost/unordered/unordered_map.hpp> //is faster than std::unordered_map?
 
 namespace bg = boost::geometry;
 namespace bgi = bg::index;
+using Cartesian = bg::cs::cartesian;
+using Geographic = bg::cs::geographic<bg::degree>;
 
+template <typename coord_system>
 struct RTree {
   using parameter_type = bgi::quadratic<16>;
-  using rtree_internal =
-      bgi::rtree<RTDoc, parameter_type, RTDoc_Indexable, RTDoc_EqualTo, rm_allocator<RTDoc>>;
-  using docLookup_internal = 
-    std::unordered_map<t_docId, RTDoc::poly_type, std::hash<t_docId>, std::equal_to<t_docId>, rm_allocator<std::pair<const t_docId, RTDoc::poly_type>>>;
-  
-  
+  using doc_type = RTDoc<coord_system>;
+  using poly_type = RTDoc<coord_system>::poly_type;
+  using rtree_internal = bgi::rtree<doc_type, parameter_type, RTDoc_Indexable<coord_system>,
+                                    RTDoc_EqualTo<coord_system>, rm_allocator<doc_type>>;
+  using docLookup_internal =
+      std::unordered_map<t_docId, poly_type, std::hash<t_docId>, std::equal_to<t_docId>,
+                         rm_allocator<std::pair<const t_docId, poly_type>>>;
+
   rtree_internal rtree_;
   docLookup_internal docLookup_;
 
@@ -29,38 +39,60 @@ struct RTree {
   explicit RTree(rtree_internal const& rt) noexcept : rtree_{rt} {
   }
 
-  [[nodiscard]] std::optional<std::reference_wrapper<const RTDoc::poly_type>> lookup(t_docId id) const {
+  [[nodiscard]]
+  std::optional<std::reference_wrapper<const poly_type>> lookup(t_docId id) const {
     if (auto it = docLookup_.find(id); it != docLookup_.end()) {
       return it->second;
     }
-    return {};
+    return std::nullopt;
   }
 
-  void insert(const RTDoc::poly_type& poly, t_docId id) {
-    RTDoc doc{poly, id};
-    rtree_.insert(doc);
-    docLookup_.insert({id, poly});
+  void insert(const poly_type& poly, t_docId id) {
+    rtree_.insert(doc_type{poly, id});
+    docLookup_.insert(std::pair{id, poly});
+  }
+
+  int insertWKT(const char *wkt, size_t len, t_docId id, RedisModuleString **err_msg) {
+    try {
+      auto geometry = Polygon<coord_system>::from_wkt(std::string_view{wkt, len});
+      insert(geometry, id);
+      return 0;
+    } catch (const std::exception& e) {
+      if (err_msg) {
+        *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
+      }
+      return 1;
+    }
   }
 
   bool remove(t_docId id) {
-    auto doc = lookup(id);
-    if (doc.has_value()) {
-      rtree_.remove(RTDoc{doc.value(), id});
+    if (auto doc = lookup(id); doc.has_value()) {
+      rtree_.remove(doc_type{doc.value(), id});
       docLookup_.erase(id);
       return true;
     }
     return false;
   }
 
-  bool removeId(t_docId id) {
-    return docLookup_.erase(id) != 0;
-  }
-
-  bool remove(const RTDoc& doc) {
+  bool remove(const doc_type& doc) {
     return rtree_.remove(doc);
   }
 
-  [[nodiscard]] static string geometry_to_string(const RTDoc::poly_type& geometry) {
+  int remove(const char *wkt, size_t len, t_docId id) {
+    try {
+      if (auto opt = lookup(id); opt.has_value()) {
+        docLookup_.erase(id);
+        return remove(doc_type{opt.value(), id});
+      } else {
+        auto geometry = Polygon<coord_system>::from_wkt(std::string_view{wkt,len});
+        return remove(doc_type{geometry, id});
+      }
+    } catch (...) {
+      return -1;
+    }
+  }
+
+  [[nodiscard]] static string geometry_to_string(const poly_type& geometry) {
     using sstream = std::basic_stringstream<char, std::char_traits<char>, rm_allocator<char>>;
     sstream ss{};
     ss << bg::wkt(geometry);
@@ -82,39 +114,38 @@ struct RTree {
     lenTop += 2;
 
     RedisModule_ReplyWithStringBuffer(ctx, "num_docs", strlen("num_docs"));
-    RedisModule_ReplyWithLongLong(ctx, (long long)rtree_.size());
+    RedisModule_ReplyWithLongLong(ctx, static_cast<long long>(rtree_.size()));
     lenTop += 2;
 
     RedisModule_ReplyWithStringBuffer(ctx, "docs", strlen("docs"));
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     lenTop += 2;
 
+    const auto pred_true = [](auto&&...) { return true; };
+    const auto query_true = bgi::satisfies(pred_true);
     size_t lenDocs = 0;
-    std::for_each(rtree_.qbegin(bgi::satisfies([](RTDoc const& d) { return true; })),
-      rtree_.qend(),
-      [this, &lenDocs, ctx](RTDoc const& d) {
-          lenDocs += 1;
-          size_t lenValues = 0;
-          RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-          
-          RedisModule_ReplyWithStringBuffer(ctx, "id", strlen("id"));
-          RedisModule_ReplyWithLongLong(ctx, d.id());
-          lenValues += 2;
-          
-          auto geometry = lookup(d.id());
-          if (geometry.has_value()) {
-            RedisModule_ReplyWithStringBuffer(ctx, "geometry", strlen("geometry"));
-            auto str = geometry_to_string(geometry.value());
-            RedisModule_ReplyWithStringBuffer(ctx, str.data(), str.size());
-            lenValues += 2;
-          }
-          RedisModule_ReplyWithStringBuffer(ctx, "rect", strlen("rect"));
-          auto str = d.rect_to_string();
-          RedisModule_ReplyWithStringBuffer(ctx, str.data(), str.size());
-          lenValues += 2;
+    std::for_each(rtree_.qbegin(query_true), rtree_.qend(), [&](doc_type const& doc) {
+      lenDocs += 1;
+      size_t lenValues = 0;
+      RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-          RedisModule_ReplySetArrayLength(ctx, lenValues);
-      });    
+      RedisModule_ReplyWithStringBuffer(ctx, "id", strlen("id"));
+      RedisModule_ReplyWithLongLong(ctx, doc.id());
+      lenValues += 2;
+
+      if (auto geometry = lookup(doc.id()); geometry.has_value()) {
+        RedisModule_ReplyWithStringBuffer(ctx, "geometry", strlen("geometry"));
+        auto str = geometry_to_string(geometry.value());
+        RedisModule_ReplyWithStringBuffer(ctx, str.data(), str.size());
+        lenValues += 2;
+      }
+      RedisModule_ReplyWithStringBuffer(ctx, "rect", strlen("rect"));
+      auto str = doc.rect_to_string();
+      RedisModule_ReplyWithStringBuffer(ctx, str.data(), str.size());
+      lenValues += 2;
+
+      RedisModule_ReplySetArrayLength(ctx, lenValues);
+    });
     RedisModule_ReplySetArrayLength(ctx, lenDocs);
     RedisModule_ReplySetArrayLength(ctx, lenTop);
   }
@@ -135,40 +166,67 @@ struct RTree {
     return rtree_.get_allocator().report();
   }
 
-  using ResultsVec = std::vector<RTDoc, rm_allocator<RTDoc>>;
+  using ResultsVec = std::vector<doc_type, rm_allocator<doc_type>>;
+  static IndexIterator *generate_query_iterator(ResultsVec&& results) {
+    auto ids = GeometryQueryIterator::container(results.size());
+    std::ranges::transform(results, ids.begin(), [](auto&& doc) { return doc.id(); });
+    auto gqi = new GeometryQueryIterator(std::move(ids));
+    return gqi->base();
+  }
 
-	[[nodiscard]] ResultsVec query(RTDoc const& queryDoc, QueryType queryType, const RTDoc::poly_type& queryGeometry) const {
-		switch (queryType) {
-		 case QueryType::CONTAINS:
-			return contains(queryDoc, queryGeometry);
-		 case QueryType::WITHIN:
-			return within(queryDoc, queryGeometry);
-		 default:
-			return {};
-		}
-	}
+  IndexIterator *query(doc_type const& queryDoc, QueryType queryType) const {
+    auto geometry = lookup(queryDoc.id());
+    return generate_query_iterator(query(queryDoc, queryType, geometry.value()));
+  }
 
-	[[nodiscard]] ResultsVec contains(RTDoc const& queryDoc, const RTDoc::poly_type& queryGeometry) const {
-		auto results = query(bgi::contains(queryDoc.rect_));
-		std::erase_if(results, [&](auto const& doc) {
+  IndexIterator *query(const char *wkt, size_t len, enum QueryType queryType, RedisModuleString **err_msg) const {
+    try {
+      auto geometry = Polygon<coord_system>::from_wkt(std::string_view{wkt, len});
+      return generate_query_iterator(query(doc_type{geometry, 0}, queryType, geometry));
+    } catch(const std::exception& e) {
+      if (err_msg) {
+        *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
+      }
+      return nullptr;
+    }
+  }
+
+  [[nodiscard]] ResultsVec query(doc_type const& queryDoc, QueryType queryType,
+                                 const poly_type& queryGeometry) const {
+    switch (queryType) {
+      case QueryType::CONTAINS:
+        return contains(queryDoc, queryGeometry);
+      case QueryType::WITHIN:
+        return within(queryDoc, queryGeometry);
+      default:
+        return ResultsVec{};
+    }
+  }
+
+  [[nodiscard]] ResultsVec contains(doc_type const& queryDoc,
+                                    const poly_type& queryGeometry) const {
+    auto results = query(bgi::contains(queryDoc.rect_));
+    std::erase_if(results, [&](auto const& doc) {
       auto geometry = lookup(doc.id());
       return geometry && !bg::within(queryGeometry, geometry.value().get());
-		});
-		return results;
-	}
-	[[nodiscard]] ResultsVec within(RTDoc const& queryDoc, const RTDoc::poly_type& queryGeometry) const {
-		auto results = query(bgi::within(queryDoc.rect_));
-		std::erase_if(results, [&](auto const& doc) {
-      auto geometry = lookup(doc.id());
-			return geometry && !bg::within(geometry.value().get(), queryGeometry);
-		});
-		return results;
-	}
+    });
+    return results;
+  }
 
   template <typename Predicate>
   [[nodiscard]] ResultsVec query(Predicate p) const {
     ResultsVec results{};
     rtree_.query(p, std::back_inserter(results));
+    return results;
+  }
+
+  [[nodiscard]] ResultsVec within(doc_type const& queryDoc,
+                                  const poly_type& queryGeometry) const {
+    auto results = query(bgi::within(queryDoc.rect_));
+    std::erase_if(results, [&](auto const& doc) {
+      auto geometry = lookup(doc.id());
+      return geometry && !bg::within(geometry.value().get(), queryGeometry);
+    });
     return results;
   }
 
@@ -184,3 +242,7 @@ struct RTree {
     return rm_allocator<Self>().report();
   }
 };
+
+#define X(variant) template class RTree<variant>;
+GEO_VARIANTS(X)
+#undef X

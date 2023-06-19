@@ -49,16 +49,16 @@ def test_search():
     waitForIndex(env, 'idx1')
 
     exp = {
-      'field_names': [], 'error': [], 'total_results': 2,
+      'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING',
       'results': [
-        {'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []},
-        {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
+        {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
+        {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
       ]}
     env.expect('FT.search', 'idx1', "*").equal(exp)
 
     # test withscores
     exp = {
-      'field_names': [], 'error': [], 'total_results': 2,
+      'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING',
       'results': [
         { 'id': 'doc2',
           'score': [
@@ -69,8 +69,8 @@ def test_search():
            ],
            'payload': None,
            'sortkey': None,
-           'fields': {'f1': '3', 'f2': '2'},
-           'field_values': []
+           'extra_attributes': {'f1': '3', 'f2': '2'},
+           'values': []
         },
         { 'id': 'doc1',
           'score': [
@@ -81,8 +81,8 @@ def test_search():
           ],
           'payload': None,
           'sortkey': None,
-          'fields': {'f1': '3', 'f2': '3'},
-          'field_values': []
+          'extra_attributes': {'f1': '3', 'f2': '3'},
+          'values': []
         }
       ]
     }
@@ -92,21 +92,21 @@ def test_search():
 
     # test with sortby
     exp = {
-      'field_names': [], 'error': [], 'total_results': 2,
+      'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING',
       'results': [
         { 'id': 'doc1',
           'score': 0.5,
           'payload': None,
           'sortkey': '$3',
-          'fields': {'f2': '3', 'f1': '3'},
-          'field_values': []
+          'extra_attributes': {'f2': '3', 'f1': '3'},
+          'values': []
         },
         { 'id': 'doc2',
           'score': 1.0,
           'payload': None,
           'sortkey': '$2',
-          'fields': {'f2': '2', 'f1': '3'},
-          'field_values': []
+          'extra_attributes': {'f2': '2', 'f1': '3'},
+          'values': []
         }
       ]
     }
@@ -114,18 +114,19 @@ def test_search():
                "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC").equal(exp)
 
     # test with limit 0 0
-    exp = {'field_names': [], 'error': [], 'total_results': 2, 'results': []}
+    exp = {'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING', 'results': []}
     env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "WITHPAYLOADS",
                "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC", "LIMIT", 0, 0).equal(exp)
 
     # test without RETURN
     exp = {
-      'field_names': [],
+      'attributes': [],
       'error': [],
       'total_results': 2,
+      'format': 'STRING',
       'results': [
-        {'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []},
-        {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
+        {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
+        {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
       ]
     }
     env.expect('FT.search', 'idx1', "*").equal(exp)
@@ -174,10 +175,10 @@ def test_profile(env):
 
     # test with profile
     exp = {
-      'field_names': [], 'error': [], 'total_results': 2,
+      'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING',
       'results': [
-        {'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []},
-        {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
+        {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
+        {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
       ],
       'profile': {
         'Total profile time': ANY,
@@ -213,12 +214,13 @@ def test_coord_profile():
 
     # test with profile
     exp = {
-        'field_names': [],
+        'attributes': [],
         'error': [],
         'total_results': 2,
+        'format': 'STRING',
         'results': [
-          {'id': 'doc2', 'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []},
-          {'id': 'doc1', 'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
+          {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
+          {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
         ],
         'shards':
         {'Shard #1': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY,
@@ -241,7 +243,7 @@ def test_coord_profile():
                                                    {'Type': 'Loader', 'Time': ANY, 'Counter': ANY}]},
         'Coordinator': {'Total Coordinator time': ANY, 'Post Proccessing time': ANY}}}
     res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*')
-    res['results'].sort(key=lambda x: "" if x['fields'].get('f1') == None else x['fields']['f1'])
+    res['results'].sort(key=lambda x: "" if x['extra_attributes'].get('f1') == None else x['extra_attributes']['f1'])
     env.assertEqual(res, exp)
 
 def test_aggregate():
@@ -259,42 +261,45 @@ def test_aggregate():
     waitForIndex(env, 'idx1')
 
     res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 2, "f1", "f2")
-    res['results'].sort(key=lambda x: "" if x['fields'].get('f2') == None else x['fields'].get('f2'))
+    res['results'].sort(key=lambda x: "" if x['extra_attributes'].get('f2') == None else x['extra_attributes'].get('f2'))
     exp = {
-      'field_names': [],
+      'attributes': [],
       'error': [],
       'total_results': ANY,
+      'format': 'STRING',
       'results': [
-        {'fields': {}, 'field_values': []},
-        {'fields': {'f1': '3', 'f2': '2'}, 'field_values': []},
-        {'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
+        {'extra_attributes': {}, 'values': []},
+        {'extra_attributes': {'f1': '3', 'f2': '2'}, 'values': []},
+        {'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
       ]
     }
     env.assertEqual(res, exp)
 
     res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3")
     exp = {
-      'field_names': [],
+      'attributes': [],
       'error': [],
       'total_results': ANY,
+      'format': 'STRING',
       'results': [
-        {'fields': {}, 'field_values': []},
-        {'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []},
-        {'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
+        {'extra_attributes': {}, 'values': []},
+        {'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
+        {'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
       ]
     }
-    res['results'].sort(key=lambda x: "" if x['fields'].get('f2') == None else x['fields'].get('f2'))
+    res['results'].sort(key=lambda x: "" if x['extra_attributes'].get('f2') == None else x['extra_attributes'].get('f2'))
     env.assertEqual(res, exp)
 
     # test with sortby
     exp = {
-      'field_names': [],
+      'attributes': [],
       'error': [],
       'total_results': ANY,
+      'format': 'STRING',
       'results': [
-        {'fields': {'f1': '3', 'f2': '3'}, 'field_values': []},
-        {'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []},
-        {'fields': {}, 'field_values': []}
+        {'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []},
+        {'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
+        {'extra_attributes': {}, 'values': []}
       ]
     }
     res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "SORTBY", 2, "@f2", "DESC")
@@ -315,31 +320,32 @@ def test_cursor():
     waitForIndex(env, 'idx1')
 
     exp = {
-      'field_names': [],
+      'attributes': [],
       'error': [],
       'total_results': 3,
+      'format': 'STRING',
       'results': [
-        {'fields': {'f1': '3', 'f2': '3'}, 'field_values': []}
+        {'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
       ]}
     res, cursor = env.cmd('FT.aggregate', 'idx1', '*', 'LOAD', 3, 'f1', 'f2', 'f3',
                           'SORTBY', 2, '@f2', 'DESC', 'WITHCURSOR', 'COUNT', 1)
     env.assertEqual(res, exp)
 
     exp = {
-      'field_names': [], 'error': [], 'total_results': 0,
+      'attributes': [], 'error': [], 'total_results': 0, 'format': 'STRING',
       'results': [
-          {'fields': {'f1': '3', 'f2': '2', 'f3': '4'}, 'field_values': []}
+          {'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []}
         ]}
     res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
     env.assertEqual(res, exp)
 
     exp = {
-      'field_names': [], 'error': [], 'total_results': 0,
-      'results': [{'fields': {}, 'field_values': []}]}
+      'attributes': [], 'error': [], 'total_results': 0, 'format': 'STRING',
+      'results': [{'extra_attributes': {}, 'values': []}]}
     res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
     env.assertEqual(res, exp)
 
-    exp = {'field_names': [], 'error': [], 'total_results': 0, 'results': []}
+    exp = {'attributes': [], 'error': [], 'total_results': 0, 'format': 'STRING', 'results': []}
     res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
     env.assertEqual(res, exp)
     env.assertEqual(cursor, 0)
@@ -348,7 +354,7 @@ def test_cursor():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     waitForIndex(env, 'idx2')
 
-    exp = {'field_names': [], 'error': [], 'total_results': 0, 'results': []}
+    exp = {'attributes': [], 'error': [], 'total_results': 0, 'format': 'STRING', 'results': []}
     res, cursor = env.cmd('FT.aggregate', 'idx2', '*', 'LOAD', 3, 'f1', 'f2', 'f3',
                           'SORTBY', 2, '@f2', 'DESC', 'WITHCURSOR', 'COUNT', 1)
     env.assertEqual(res, exp)
@@ -434,10 +440,10 @@ def test_config():
     res = env.execute_command("FT.CONFIG", "SET", "TIMEOUT", 501)
 
     res = env.execute_command("FT.CONFIG", "GET", "*")
-    env.assertEqual(res['TIMEOUT'], {'Value': '501'})
+    env.assertEqual(res['TIMEOUT'], '501')
 
     res = env.execute_command("FT.CONFIG", "GET", "TIMEOUT")
-    env.assertEqual(res, {'TIMEOUT': {'Value': '501'}})
+    env.assertEqual(res, {'TIMEOUT': '501'})
 
     res = env.execute_command("FT.CONFIG", "HELP", "TIMEOUT")
     env.assertEqual(res, {'TIMEOUT': {'Description': 'Query (search) timeout', 'Value': '501'}})
@@ -467,7 +473,7 @@ def testSpellCheckIssue437():
     env.expect('FT.SPELLCHECK', 'incidents',
                'Tooni toque kerfuffle',
                'TERMS', 'EXCLUDE', 'slang',
-               'TERMS', 'INCLUDE', 'slang').equal({'tooni': [{'toonie': 0.0}]})
+               'TERMS', 'INCLUDE', 'slang').equal({ 'results': { 'tooni': [{'toonie': 0.0}] } })
 
 def testSpellCheckOnExistingTerm(env):
     env = Env(protocol=3)
@@ -477,7 +483,7 @@ def testSpellCheckOnExistingTerm(env):
         r.execute_command('hset', 'doc2', 'name', 'name2', 'body', 'body2')
         r.execute_command('hset', 'doc3', 'name', 'name2', 'body', 'name2')
     waitForIndex(env, 'idx')
-    env.expect('ft.spellcheck', 'idx', 'name').equal({})
+    env.expect('ft.spellcheck', 'idx', 'name').equal({'results': {}})
 
 def test_spell_check():
     env = Env(protocol=3)
@@ -489,10 +495,12 @@ def test_spell_check():
     env.cmd('FT.DICTADD', 'dict2', 'timmies', 'toque', 'toonie', 'serviette', 'kerfuffle', 'chesterfield')
 
     exp = {
+      'results': {
         'tooni':     [ {'Toonif': 0.0}, {'toonie': 0.0} ],
         'toque':     [ {'toque': 0.0} ],
         'kerfuffle': [ {'kerfuffle': 0.0} ]
-        }
+      }
+    }
     env.expect('FT.SPELLCHECK', 'incidents', 'Tooni toque kerfuffle', 'TERMS',
                'INCLUDE', 'dict1', 'dict2').equal(exp)
 
@@ -585,7 +593,7 @@ def test_profile_crash_mod5323():
     res = env.cmd("FT.PROFILE", "idx", "SEARCH", "LIMITED", "QUERY", "%hell% hel*", "NOCONTENT")
     exp = {
       'error': [],
-      'field_names': [],
+      'attributes': [],
       'profile': {
         'Iterators profile': [
           { 'Child iterators': [
@@ -617,10 +625,11 @@ def test_profile_crash_mod5323():
         'Total profile time': ANY
        },
        'results': [
-         {'field_values': [], 'id': '1'},
-         {'field_values': [], 'id': '2'},
-         {'field_values': [], 'id': '3'}],
-       'total_results': 3
+         {'values': [], 'id': '1'},
+         {'values': [], 'id': '2'},
+         {'values': [], 'id': '3'}],
+       'total_results': 3,
+       'format': 'STRING'
     }
     if not env.isCluster:  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)
@@ -636,7 +645,7 @@ def test_profile_child_itrerators_array():
     res = env.execute_command('ft.profile', 'idx', 'search', 'query', 'hello|world', 'nocontent')
     exp = {
       'error': [],
-      'field_names': [],
+      'attributes': [],
       'profile': {
         'Iterators profile': [
           { 'Child iterators': [
@@ -659,10 +668,11 @@ def test_profile_child_itrerators_array():
         'Total profile time': ANY
       },
       'results': [
-        { 'field_values': [], 'id': '1' },
-        { 'field_values': [], 'id': '2' }
+        { 'values': [], 'id': '1' },
+        { 'values': [], 'id': '2' }
       ],
-      'total_results': 2
+      'total_results': 2,
+      'format': 'STRING'
     }
     if not env.isCluster:  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)
@@ -671,7 +681,7 @@ def test_profile_child_itrerators_array():
     res = env.execute_command('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
     exp = {
       'error': [],
-      'field_names': [],
+      'attributes': [],
       'profile': {
         'Iterators profile': [
           { 'Child iterators': [
@@ -693,7 +703,8 @@ def test_profile_child_itrerators_array():
         'Total profile time': 0.0
       },
       'results': [],
-      'total_results': 0
+      'total_results': 0,
+      'format': 'STRING'
     }
     if not env.isCluster:  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)
