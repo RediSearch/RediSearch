@@ -845,7 +845,7 @@ geometry_query(A) ::= LSQB TERM(B) ATTRIBUTE(C) RSQB . {
   C.type = QT_PARAM_TERM_CASE;
   A = NewGeometryNode_FromWkt_WithParams(ctx, B.s, B.len, &C);
   if (!A) {
-    reportSyntaxError(ctx->status, &C, "Syntax error: Expecting a Geometry predicate");
+    reportSyntaxError(ctx->status, &C, "Syntax error: Expecting a geoshape predicate");
   }
 }
 

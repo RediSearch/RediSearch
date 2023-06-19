@@ -247,7 +247,7 @@ DEBUG_COMMAND(DumpGeometryIndex) {
   }
   GeometryIndex *idx = OpenGeometryIndex(sctx->redisCtx, sctx->spec, &keyp, fs);
   if (!idx) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "Could not open geometry index");
+    RedisModule_ReplyWithError(sctx->redisCtx, "Could not open geoshape index");
     goto end;
   }
   const GeometryApi *api = GeometryApi_Get(idx);
