@@ -199,7 +199,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM("sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
 
   REPLY_KVNUM("key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
-  REPLY_KVNUM("total_geometries_index_size_mb", GeometryTotalMemUsage() / (float)0x100000);
+  REPLY_KVNUM("total_geoshapes_index_size_mb", GeometryTotalMemUsage() / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
               (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
   REPLY_KVNUM("bytes_per_record_avg",
@@ -226,7 +226,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Reply_MapEnd(reply);
   }
 
-  Cursors_RenderStats(reply, &RSCursors, sp->name);
+  Cursors_RenderStats(&g_CursorsList, sp, reply);
 
   if (sp->flags & Index_HasCustomStopwords) {
     ReplyWithStopWordsList(reply, sp->stopwords);

@@ -74,6 +74,16 @@ typedef struct {
   long long minUnionIterHeap;
 } IteratorsConfig;
 
+
+#ifdef MT_BUILD
+typedef enum {
+  MT_MODE_OFF,
+  MT_MODE_ONLY_ON_OPERATIONS,
+  MT_MODE_FULL
+} MTMode;
+#endif
+
+
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module statrtup */
 typedef struct {
@@ -104,11 +114,11 @@ typedef struct {
   size_t indexPoolSize;
   int poolSizeNoAuto;  // Don't auto-detect pool size
 
-// #ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
   size_t numWorkerThreads;
-  int alwaysUseThreads;
+  MTMode mt_mode;
   size_t tieredVecSimIndexBufferLimit;
-// #endif
+#endif
 
   size_t minPhoneticTermLen;
 
@@ -188,7 +198,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err);
  * on the eyes
  */
 void RSConfig_DumpProto(const RSConfig *cfg, const RSConfigOptions *options, const char *name,
-                        RedisModuleCtx *ctx, int isHelp);
+                        RedisModule_Reply *reply, bool isHelp);
 
 /**
  * Sets a configuration variable. The argv, argc, and offset variables should
@@ -218,11 +228,19 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 #define NR_MAX_DEPTH_BALANCE 2
 #define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
-#define MAX_DIALECT_VERSION 3 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
+#define MAX_DIALECT_VERSION 4 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
 #define DIALECT_OFFSET(d) (1ULL << (d - MIN_DIALECT_VERSION))// offset of the d'th bit. begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
 #define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
 #define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
+
+#ifdef MT_BUILD  
+#define MT_BUILD_CONFIG .numWorkerThreads = 0,                                                                     \
+    .mt_mode = MT_MODE_OFF,                                                                                                     \
+    .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               
+#else 
+#define MT_BUILD_CONFIG
+#endif 
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                                                           \
@@ -238,10 +256,8 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                                                        \
     .searchPoolSize = CONCURRENT_SEARCH_POOL_DEFAULT_SIZE,                                                            \
     .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE,                                                              \
-    .poolSizeNoAuto = 0,                                                                                              \
-    .numWorkerThreads = 0,                                                                                            \
-    .alwaysUseThreads = 0,                                                                                            \
-    .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                                                      \
+    .poolSizeNoAuto = 0,   \
+    MT_BUILD_CONFIG                                                                                                 \
     .gcConfigParams.gcScanSize = GC_SCANSIZE,                                                                                        \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                                                              \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                                        \
