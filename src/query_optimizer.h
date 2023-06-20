@@ -19,8 +19,6 @@ struct AREQ;
 **********************************************************/
 // note1: potential for filter or no sorter
 
-#define OPTMZ if(req->reqflags & QEXEC_OPTIMIZE)
-
 typedef enum {
   // No optimization
   Q_OPT_NONE = -1,

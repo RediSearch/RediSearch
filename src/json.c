@@ -125,7 +125,7 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
   case JSONType_Object:
     if (fieldType == INDEXFLD_T_GEOMETRY) {
       // TODO: GEOMETRY
-      // GEOMETRY field can be represented as GEOJSON "geometry" object
+      // GEOMETRY field can be represented as GEOJSON "geoshape" object
       rv = REDISMODULE_OK;
     }
     break;

@@ -31,12 +31,12 @@ def print_profile(env, query, params, optimize=False):
     query_list.append(*query)
 
     if optimize:
-        params.append('OPTIMIZE')
+        params.append('WITHOUTCOUNT')
     env.debugPrint(env.cmd(*query_list, *params))
 
 def compare_optimized_to_not(env, query, params, msg=None):
     not_res = env.cmd(*query, *params)
-    opt_res = env.cmd(*query, 'OPTIMIZE', *params)
+    opt_res = env.cmd(*query, 'WITHOUTCOUNT', *params)
     #print(not_res)
     #print(opt_res)
 
@@ -82,7 +82,7 @@ def testOptimizer(env):
 
     numeric_info = conn.execute_command('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
     env.debugPrint(str(numeric_info), force=True)
-    params = ['NOCONTENT', 'OPTIMIZE']
+    params = ['NOCONTENT', 'WITHOUTCOUNT']
 
     ### (1) range and filter with sort ###
     # Search only minimal number of ranges
@@ -339,7 +339,7 @@ def testWOLimit(env):
 
     numeric_info = conn.execute_command('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
     env.debugPrint(str(numeric_info), force=True)
-    params = ['NOCONTENT', 'OPTIMIZE']
+    params = ['NOCONTENT', 'WITHOUTCOUNT']
 
     res10 = ['12', '17', '22', '27', '32', '37', '42', '47', '52', '57']
     res6 = ['12', '17', '22', '27', '32', '37']
@@ -369,12 +369,12 @@ def testWOLimit(env):
     res3 = ['10', ['n', '10'], '11', ['n', '11'], '12', ['n', '12']]
     res10 = ['10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
     env.expect('ft.search', 'idx', '@n:[10 50]', 'SORTBY', 'n', *params).equal([10] + res10)
-    env.expect('ft.search', 'idx', '@n:[10 12]', 'SORTBY', 'n', 'OPTIMIZE', 'RETURN', 1, 'n').equal([3] + res3)
+    env.expect('ft.search', 'idx', '@n:[10 12]', 'SORTBY', 'n', 'WITHOUTCOUNT', 'RETURN', 1, 'n').equal([3] + res3)
 
     ### (6) only range ###
     # stop after enough results were collected
     env.expect('ft.search', 'idx', '@n:[10 50]', *params).equal([1] + res10)
-    env.expect('ft.search', 'idx', '@n:[10 12]', 'OPTIMIZE', 'RETURN', 1, 'n').equal([1] + res3)
+    env.expect('ft.search', 'idx', '@n:[10 12]', 'WITHOUTCOUNT', 'RETURN', 1, 'n').equal([1] + res3)
 
     ### (7) filter with sort ###
     # Search only minimal number of ranges
@@ -637,8 +637,48 @@ def testVector():
 
     for idx, query in enumerate(queries):
         # A query with a vector KNN should not be optimized, but should succeed
-        env.assertEqual(conn.execute_command(*search, *query), conn.execute_command(*search, *query, 'OPTIMIZE'), message=str(idx))
+        env.assertEqual(conn.execute_command(*search, *query), conn.execute_command(*search, *query, 'WITHOUTCOUNT'), message=str(idx))
         if not env.isCluster():
             # Run the same query with profiling, and make sure the query is not optimized
             # (same iterators and pipeline should be used)
-            env.assertEqual(conn.execute_command(*profile, *query), conn.execute_command(*profile, *query, 'OPTIMIZE'), message=str(idx))
+            env.assertEqual(conn.execute_command(*profile, *query), conn.execute_command(*profile, *query, 'WITHOUTCOUNT'), message=str(idx))
+
+def testOptimizeArgs(env):
+    ''' Test enabling/disabling optimization according to args and dialect '''
+
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
+    for i in range(0, 20):
+        conn.execute_command('HSET', i, 'n', i)
+    query = ['FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '0', '10']
+
+    # DIALECT 4 ==> WITHOUTCOUNT (if not explicitly specified)
+    env.assertEqual(conn.execute_command(*query, 'DIALECT', 4), conn.execute_command(*query, 'WITHOUTCOUNT'))
+    env.assertNotEqual(conn.execute_command(*query, 'DIALECT', 4), conn.execute_command(*query, 'WITHCOUNT'))
+    # DIALECT 4 and WITHCOUNT explicitly specified ==> WITHCOUNT
+    env.assertEqual(conn.execute_command(*query, 'WITHCOUNT', 'DIALECT', 4), conn.execute_command(*query, 'WITHCOUNT'))
+    env.assertNotEqual(conn.execute_command(*query, 'WITHCOUNT', 'DIALECT', 4), conn.execute_command(*query, 'WITHOUTCOUNT'))
+    # DIALECT 3 ==> WITHCOUNT (if not explicitly specified)
+    env.assertEqual(conn.execute_command(*query, 'DIALECT', 3), conn.execute_command(*query, 'WITHCOUNT'))
+    env.assertNotEqual(conn.execute_command(*query, 'DIALECT', 3), conn.execute_command(*query, 'WITHOUTCOUNT'))
+    # DIALECT 3 and WITHOUTCOUNT explicitly specified ==> WITHOUTCOUNT
+    env.assertEqual(conn.execute_command(*query, 'WITHOUTCOUNT', 'DIALECT', 3), conn.execute_command(*query, 'WITHOUTCOUNT'))
+    env.assertNotEqual(conn.execute_command(*query, 'WITHOUTCOUNT', 'DIALECT', 3), conn.execute_command(*query, 'WITHCOUNT'))
+
+def testOptimizeArgsDefault():
+    ''' Test enabling/disabling optimization according to args and default dialect '''
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 4')
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
+    for i in range(0, 20):
+        conn.execute_command('HSET', i, 'n', i)
+    query = ['FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '0', '10']
+
+    # DEFAULT DIALECT 4 ==> WITHOUTCOUNT (if not explicitly specified)
+    env.assertEqual(conn.execute_command(*query), conn.execute_command(*query, 'WITHOUTCOUNT'))
+    env.assertNotEqual(conn.execute_command(*query), conn.execute_command(*query, 'WITHCOUNT'))
+    # DEFAULT DIALECT 4 and WITHCOUNT explicitly specified ==> WITHCOUNT
+    env.assertEqual(conn.execute_command(*query, 'WITHCOUNT'), conn.execute_command(*query, 'WITHCOUNT'))
+    env.assertNotEqual(conn.execute_command(*query, 'WITHCOUNT'), conn.execute_command(*query, 'WITHOUTCOUNT'))
+

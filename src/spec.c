@@ -855,8 +855,8 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
     sp->flags |= Index_HasGeometry;
     fs->types |= INDEXFLD_T_GEOMETRY;
-    // TODO: GEOMETRY - Support more geometry libraries - if an optional successive token exist
-    fs->geometryOpts.geometryLibType = GEOMETRY_LIB_TYPE_BOOST_GEOMETRY;
+    // TODO: GEMOMETRY - Support more geometry libraries - if an optional successive token exist
+    fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
   } else {  // nothing more supported currently
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;
@@ -1304,7 +1304,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   if (spec->terms) {
     TrieType_Free(spec->terms);
   }
-  // Free TEXT TAG NUMERIC VECTOR and GEOMETRY fields trie and inverted indexes
+  // Free TEXT TAG NUMERIC VECTOR and GEOSHAPE fields trie and inverted indexes
   if (spec->keysDict) {
     dictRelease(spec->keysDict);
   }
@@ -1766,7 +1766,7 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   }
   // TODO: GEOMETRY - save geometry options if more than one geometry library is supported
   // if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
-  //   RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryLibType);
+  //   RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryCoords);
   // }
 }
 
@@ -1866,7 +1866,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   // Load geometry specific options
   if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
     // TODO: GEOMETRY - if more than one geometry library is supported - load it from rdb (currently hard-coded)
-    f->geometryOpts.geometryLibType = GEOMETRY_LIB_TYPE_BOOST_GEOMETRY;
+    f->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
   }
 
   return REDISMODULE_OK;

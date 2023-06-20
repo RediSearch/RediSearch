@@ -11,6 +11,7 @@
 #include "commands.h"
 #include "aggregate/aggregate.h"
 #include "dist_plan.h"
+#include "coord_module.h"
 #include "profile.h"
 #include "util/timeout.h"
 #include "resp3.h"
@@ -293,7 +294,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     RS_LOG_ASSERT(results && MRReply_Type(results) == MR_REPLY_ARRAY, "invalid results record");
     MRReply *result = MRReply_ArrayElement(results, nc->curIdx++);
     RS_LOG_ASSERT(result && MRReply_Type(result) == MR_REPLY_MAP, "invalid result record");
-    MRReply *fields = MRReply_MapElement(result, "fields");
+    MRReply *fields = MRReply_MapElement(result, "extra_attributes");
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
     for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
       size_t len;
@@ -530,15 +531,32 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
   QueryError status = {0};
+  specialCaseCtx *knnCtx = NULL;
+
   r->qiter.err = &status;
   r->reqflags |= QEXEC_F_IS_EXTENDED;
 
   int profileArgs = parseProfile(argv, argc, r);
   if (profileArgs == -1) goto err;
-
   int rc = AREQ_Compile(r, argv + 2 + profileArgs, argc - 2 - profileArgs, &status);
   if (rc != REDISMODULE_OK) goto err;
 
+  unsigned int dialect = r->reqConfig.dialectVersion;
+  if(dialect >= 2) {
+    // Check if we have KNN in the query string, and if so, parse the query string to see if it is
+    // a KNN section in the query. IN that case, we treat this as a SORTBY+LIMIT step.
+    if(strcasestr(r->query, "KNN")) {
+      knnCtx = prepareOptionalTopKCase(r->query, argv, argc, &status);
+      if (QueryError_HasError(&status)) {
+        goto err;
+      }
+      if (knnCtx != NULL) {
+        // If we found KNN, add an arange step, so it will be the first step after
+        // the root (which is first plan step to be executed after the root).
+        AGPLN_AddKNNArrangeStep(&r->ap, knnCtx->knn.k, knnCtx->knn.fieldName);
+      }
+    }
+  }
   rc = AGGPLN_Distribute(&r->ap, &status);
   if (rc != REDISMODULE_OK) goto err;
 
@@ -585,7 +603,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     }
     AREQ_Free(r);
   }
-
+  SpecialCaseCtx_Free(knnCtx);
   RedisModule_EndReply(reply);
   return;
 
@@ -593,6 +611,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 err:
   assert(QueryError_HasError(&status));
   QueryError_ReplyAndClear(ctx, &status);
+  SpecialCaseCtx_Free(knnCtx);
   AREQ_Free(r);
   RedisModule_EndReply(reply);
   return;

@@ -190,7 +190,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
     const RLookup *lk = cv->lastLk;
     if (has_map) {
-      RedisModule_Reply_SimpleString(reply, "fields");
+      RedisModule_Reply_SimpleString(reply, "extra_attributes");
     }
 
     if (r->flags & SEARCHRESULT_VAL_IS_NULL) {
@@ -236,7 +236,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
 _out:
   if (has_map) {
     // placeholder for fields_values. (possible optimization)
-    RedisModule_Reply_SimpleString(reply, "field_values");
+    RedisModule_Reply_SimpleString(reply, "values");
     RedisModule_Reply_EmptyArray(reply);
 
     RedisModule_Reply_MapEnd(reply);
@@ -350,7 +350,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   //-------------------------------------------------------------------------------------------
   if (has_map)  // RESP3 variant
   {
-    RedisModule_ReplyKV_Array(reply, "field_names");
+    RedisModule_ReplyKV_Array(reply, "attributes");
     RedisModule_Reply_ArrayEnd(reply);
 
     rc = rp->Next(rp, &r);
@@ -373,7 +373,9 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
       resultsLen = MIN(limit, MIN(reqLimit, reqResults));
     }
 
-    OPTMZ(QOptimizer_UpdateTotalResults(req));
+    if (IsOptimized(req)) {
+      QOptimizer_UpdateTotalResults(req);
+    }
 
     RedisModule_ReplyKV_Array(reply, "error"); // >errors
       if (rc == RS_RESULT_TIMEDOUT) {
@@ -399,6 +401,8 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
       RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
     }
     nelem++;
+
+    RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
 
     RedisModule_ReplyKV_Array(reply, "results"); // >results
     nelem = 0;
@@ -460,7 +464,9 @@ done_3:
 
     RedisModule_Reply_Array(reply); // results @@
 
-    OPTMZ(QOptimizer_UpdateTotalResults(req));
+    if (IsOptimized(req)) {
+      QOptimizer_UpdateTotalResults(req);
+    }
 
     if (rc == RS_RESULT_TIMEDOUT) {
       if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
@@ -645,7 +651,9 @@ int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status) {
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
 
   // check possible optimization after creation of IndexIterator tree
-  OPTMZ(QOptimizer_Iterators(req, req->optimizer));
+  if (IsOptimized(req)) {
+    QOptimizer_Iterators(req, req->optimizer);
+  }
 
   TimedOut_WithStatus(&req->timeoutTime, status);
 

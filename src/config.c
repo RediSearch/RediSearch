@@ -900,67 +900,62 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   return ss;
 }
 
-static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, RedisModuleCtx *ctx,
-                             int isHelp) {
-  size_t numElems = 0;
+static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, RedisModule_Reply *reply,
+                             bool isHelp) {
   sds currValue = var->getValue(config);
 
-  if(!_ReplyMap(ctx)) {
-    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-    numElems++;
+  if (!reply->resp3) {
+    RedisModule_Reply_Array(reply);
   }
 
-  RedisModule_ReplyWithSimpleString(ctx, var->name);
-
-  if(_ReplyMap(ctx)) {
-    RedisModule_ReplyWithMap(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  }
+  RedisModule_Reply_SimpleString(reply, var->name);
 
   if (isHelp) {
-    RedisModule_ReplyWithSimpleString(ctx, "Description");
-    RedisModule_ReplyWithSimpleString(ctx, var->helpText);
-    RedisModule_ReplyWithSimpleString(ctx, "Value");
-    if (currValue) {
-      RedisModule_ReplyWithStringBuffer(ctx, currValue, sdslen(currValue));
-    } else {
-      RedisModule_ReplyWithNull(ctx);
+    if (reply->resp3) {
+      RedisModule_Reply_Map(reply);
     }
-    numElems += 4;
+
+    RedisModule_ReplyKV_SimpleString(reply, "Description", var->helpText);
+    RedisModule_Reply_SimpleString(reply, "Value");
+    if (currValue) {
+      RedisModule_Reply_StringBuffer(reply, currValue, sdslen(currValue));
+    } else {
+      RedisModule_Reply_Null(reply);
+    }
+
+    if (reply->resp3) {
+      RedisModule_Reply_MapEnd(reply);
+    }
   } else {
-    if(_ReplyMap(ctx)) {
-      RedisModule_ReplyWithSimpleString(ctx, "Value");
-      numElems++;
-    }
     if (currValue) {
-      RedisModule_ReplyWithSimpleString(ctx, currValue);
+      RedisModule_Reply_StringBuffer(reply, currValue, sdslen(currValue));
     } else {
-      RedisModule_ReplyWithNull(ctx);
+      RedisModule_Reply_Null(reply);
     }
-    numElems++;
   }
+
   sdsfree(currValue);
-  RedisModule_ReplySetMapOrArrayLength(ctx, numElems, true);
+  if (!reply->resp3) {
+    RedisModule_Reply_ArrayEnd(reply);
+  }
 }
 
 void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, const char *name,
-                        RedisModuleCtx *ctx, int isHelp) {
-  size_t numElems = 0;
-  RedisModule_ReplyWithMapOrArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN, false);
-  if (!strcmp("*", name)) {
-    for (const RSConfigOptions *curOpts = options; curOpts; curOpts = curOpts->next) {
-      for (const RSConfigVar *cur = &curOpts->vars[0]; cur->name; cur++) {
-        dumpConfigOption(config, cur, ctx, isHelp);
-        numElems++;
+                        RedisModule_Reply *reply, bool isHelp) {
+  RedisModule_Reply_Map(reply);
+    if (!strcmp("*", name)) {
+      for (const RSConfigOptions *curOpts = options; curOpts; curOpts = curOpts->next) {
+        for (const RSConfigVar *cur = &curOpts->vars[0]; cur->name; cur++) {
+          dumpConfigOption(config, cur, reply, isHelp);
+        }
+      }
+    } else {
+      const RSConfigVar *v = findConfigVar(options, name);
+      if (v) {
+        dumpConfigOption(config, v, reply, isHelp);
       }
     }
-  } else {
-    const RSConfigVar *v = findConfigVar(options, name);
-    if (v) {
-      numElems++;
-      dumpConfigOption(config, v, ctx, isHelp);
-    }
-  }
-  RedisModule_ReplySetMapOrArrayLength(ctx, numElems, false);
+  RedisModule_Reply_MapEnd(reply);
 }
 
 int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *name,
