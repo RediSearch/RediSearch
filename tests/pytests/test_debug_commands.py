@@ -204,8 +204,6 @@ def DumpBacktrace_ALL(env: Env, threadpools_attr):
     threadpools_dict = env.cmd('FT.DEBUG', 'DUMP_THREADPOOL_BACKTRACE', 'ALL')
     threadpools_titles = get_and_check_threadpools_count(env, threadpools_dict, len(threadpools_attr))
     
-
-    
     # Ensure that all the threadpools appear only once
     for i, threadpool in enumerate(threadpools_titles):
         match threadpool:
@@ -228,8 +226,7 @@ def DumpBacktrace_ALL(env: Env, threadpools_attr):
 def threadpool_title(thpool_name):
     return f"=== {thpool_name} THREADS BACKTRACE: ==="
 
-
-def testDumpBacktrace_resp3():
+def DumpBacktrace(protocol):
     if MT_BUILD:
         WORKER_THREADS = 3
         expected_threadpools_cnt = 3
@@ -238,7 +235,7 @@ def testDumpBacktrace_resp3():
         expected_threadpools_cnt = 2
         module_args=''
         
-    env = Env(protocol=2, moduleArgs=module_args)
+    env = Env(protocol=protocol, moduleArgs=module_args)
     env.skipOnCluster()
     
     # DUMMY threadpool returns an error
@@ -265,3 +262,9 @@ def testDumpBacktrace_resp3():
         # Check it has the expected number of threads
         check_threads_count(env, dump_dict, threadpools_attr[threadpool]["threads_count"])
     
+
+def testDumpBacktrace_resp3():
+    DumpBacktrace(protocol=3)
+    
+def testDumpBacktrace_resp2():
+    DumpBacktrace(protocol=2)
