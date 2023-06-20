@@ -296,10 +296,14 @@ size_t redisearch_thpool_num_threads_working(redisearch_threadpool);
 /* ============ COLLECT THREADS DATA AND LOG API ============ */
 /**
  * NOTE: These functions are not **threadpool** safe.
+ * Please check if it is safe to start a data collecting process by calling redisearch_thpool_safe_to_collect_state()
  * General dump flow synchronization: 
  * Handling thread: signal threads in the thread pool - wait until all the threads are paused - init buffer and mark buffer as ready- wait until the threads are done writing to the buffer----- print log - resume threads-
  * thread:          mark itself as paused and wait for the buffer initialization ---------------------------------------------------- write current state info to the buffer and wait for resume---------------------------- resume        
 */
+
+int redisearch_thpool_safe_to_collect_state();
+
 /**
  * @brief Pause the threadpool for crash report
  * 

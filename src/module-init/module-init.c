@@ -122,14 +122,21 @@ static void RS_ThreadpoolsShutdownLog(RedisModuleInfoCtx *ctx) {
 
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   if (for_crash_report) {
-    // First pause all threads 
-    RS_ThreadpoolsPauseBeforeDump();
+    // Check that its safe to start data collection process
+    if (redisearch_thpool_safe_to_collect_state()) {
+      // First pause all threads
+      RS_ThreadpoolsPauseBeforeDump();
 
-    // Print all the threadpools backtraces to the log file
-    RS_ThreadpoolsShutdownLog(ctx);
+      // Print all the threadpools backtraces to the log file
+      RS_ThreadpoolsShutdownLog(ctx);
 
-    // General cleanups.
-    redisearch_thpool_StateLog_done();
+      // General cleanups.
+      redisearch_thpool_StateLog_done();
+    } else {
+      RedisModule_InfoAddFieldCString(
+          ctx, "Threadpools state",
+          "Crashed during state collection process, can't generate information");
+    }
   }
   // Module version
   RedisModule_InfoAddSection(ctx, "version");

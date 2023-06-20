@@ -39,7 +39,7 @@
 #define BT_BUF_SIZE 100
 
 // Time to print we are waiting for some sync operation too long.
-#define LOG_WAITING_TIME 3
+#define LOG_WAITING_TIME_INTERVAL 3
 
 
 #if !defined(DISABLE_PRINT) || defined(THPOOL_DEBUG)
@@ -59,6 +59,11 @@ static volatile size_t curr_bt_buffer_size = 0;
 static size_t g_threads_ids = 0 ; 
 // The number of threads in the threadpool that done writing their current state to the dump container.
 static atomic_size_t g_threads_done_cnt = 0; 
+
+// This flag should be set if we are trying to get the backtrace 
+// during run time (e.g with FT.DEBUG DUMP_THREADPOOL_BACKTRACE) to return immediatly 
+// from crash report callbacks to get the backtrace.
+static volatile int g_get_backtrace_mode = 0;
 
 // Dump container.
 typedef struct thread_bt_data thread_bt_data;
@@ -500,14 +505,13 @@ void redisearch_thpool_pause(redisearch_thpool_t* thpool_p) {
     clock_t start = clock();
     size_t paused_threads = g_threads_ids;
     while(g_threads_ids < expected_new_paused_count) {
-      double waiting_time = (clock() - start)/CLOCKS_PER_SEC;
-      if (waiting_time > LOG_WAITING_TIME) {
+      int waiting_time = (clock() - start)/CLOCKS_PER_SEC;
+      if (waiting_time && waiting_time % LOG_WAITING_TIME_INTERVAL == 0) {
           RedisModule_Log(NULL, "warning",
                   "something is wrong: expected to pause %lu threads, but only %lu are paused."
                   "continue waiting",
                   expected_new_paused_count, paused_threads);
       }
-      start = clock();
       paused_threads = g_threads_ids;
     }
   }
@@ -552,11 +556,18 @@ void redisearch_thpool_resume(redisearch_thpool_t* thpool_p) {
 
 /* ============ COLLECT THREADS DATA AND LOG API ============ */
 
+int redisearch_thpool_safe_to_collect_state() {
+  return g_get_backtrace_mode == 0;
+}
+
 void redisearch_thpool_pause_before_dump(redisearch_thpool_t* thpool_p) {
   
   if (!thpool_p) {
     return;
   }
+
+  // Turn on the flag that indicates that data collection process has started.
+  g_get_backtrace_mode = 1;
 
   // set thpool signal handler mode to collect the current threads' state.
   thpool_p->flags |= RS_THPOOL_F_COLLECT_STATE_INFO;
@@ -622,6 +633,9 @@ void redisearch_thpool_StateLog_done() {
   rm_free(printable_bt_buffer);
   curr_bt_buffer_size = 0;
   printable_bt_buffer = NULL;
+
+  // Turn off the flag to indicate that the data collection process is done
+  g_get_backtrace_mode = 0;
 }
 
 size_t redisearch_thpool_num_threads_working(redisearch_thpool_t* thpool_p) {
@@ -671,14 +685,13 @@ static void wait_for_threads(redisearch_thpool_t* thpool_p, size_t threads_to_wa
   clock_t start = clock();
   size_t threads_done = g_threads_done_cnt;
   while(threads_done != threads_to_wait_cnt) {
-    double waiting_time = (clock() - start)/CLOCKS_PER_SEC;
-    if (waiting_time > LOG_WAITING_TIME) {
+    int waiting_time = (clock() - start)/CLOCKS_PER_SEC;
+    if (waiting_time && waiting_time % LOG_WAITING_TIME_INTERVAL == 0 ) {
       RedisModule_Log(NULL, "warning",
                       "%s threadpool:something is wrong: expected %lu threads to finish, but only %lu are done. "
                       "continue waiting",
                       thpool_p->name, threads_to_wait_cnt, threads_done);
     }
-    start = clock();
     threads_done = g_threads_done_cnt;
   }
 }

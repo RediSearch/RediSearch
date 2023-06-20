@@ -935,16 +935,22 @@ static void RS_ThreadpoolsPrintBacktrace(RedisModule_Reply *reply) {
 
 /**
  * FT.DEBUG DUMP_THREADPOOL_BACKTRACE thpool_name
+ * 
  */
 DEBUG_COMMAND(DumpThreadPoolBacktrace) {
   if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
+  if (!redisearch_thpool_safe_to_collect_state()) {
+    RedisModule_Reply_Error(reply, "Collecting threads' state is in progress.");
+    RedisModule_EndReply(reply);
+    return REDISMODULE_OK;
+  }
   const char *thpool_name = RedisModule_StringPtrLen(argv[0], NULL);
   
   // Initialize reply ctx
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   // find the requested thpool
   if(!strcmp(thpool_name, "ALL")) {
@@ -953,7 +959,6 @@ DEBUG_COMMAND(DumpThreadPoolBacktrace) {
     REPLY_THPOOL_BACKTRACE(GC_ThreadPool);
   } else if(!strcmp(thpool_name, "ConcurrentSearch")) {
     REPLY_THPOOL_BACKTRACE(ConcurrentSearch_);
-
   } else if(!strcmp(thpool_name, "CLEANSPEC")) {
     REPLY_THPOOL_BACKTRACE(CleanPool_ThreadPool);
   }
