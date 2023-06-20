@@ -944,7 +944,7 @@ DEBUG_COMMAND(DumpThreadPoolBacktrace) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   if (!redisearch_thpool_safe_to_collect_state()) {
-    RedisModule_Reply_Error(reply, "Collecting threads' state is in progress.");
+    RedisModule_Reply_Error(reply, "Collecting threads' state is already in progress.");
     RedisModule_EndReply(reply);
     return REDISMODULE_OK;
   }
