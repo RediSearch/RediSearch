@@ -77,6 +77,7 @@ typedef struct thread {
   int id;                   /* friendly id               */
   pthread_t pthread;        /* pointer to actual thread  */
   struct redisearch_thpool_t* thpool_p; /* access to thpool          */
+  LogFunc log;
 } thread;
 
 /* Threadpool */
@@ -94,7 +95,7 @@ typedef struct redisearch_thpool_t {
 
 /* ========================== PROTOTYPES ============================ */
 
-static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id);
+static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id, LogFunc log);
 static void* thread_do(struct thread* thread_p);
 static void thread_hold(int sig_id);
 static void thread_destroy(struct thread* thread_p);
@@ -173,7 +174,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
 }
 
 /* Initialise thread pool */
-void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p) {
+void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p, LogFunc log) {
   assert(thpool_p->keepalive == 0);
   thpool_p->keepalive = 1;
   thpool_p->terminate_when_empty = 0;
@@ -181,7 +182,7 @@ void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p) {
   /* Thread init */
   size_t n;
   for (n = 0; n < thpool_p->total_threads_count; n++) {
-    thread_init(thpool_p, &thpool_p->threads[n], n);
+    thread_init(thpool_p, &thpool_p->threads[n], n, log);
 #if THPOOL_DEBUG
     printf("THPOOL_DEBUG: Created thread %d in pool \n", n);
 #endif
@@ -382,10 +383,11 @@ size_t redisearch_thpool_num_threads_working(redisearch_thpool_t* thpool_p) {
  * @param id            id to be given to the thread
  * @return 0 on success, -1 otherwise.
  */
-static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id) {
+static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id, LogFunc log) {
 
   (*thread_p)->thpool_p = thpool_p;
   (*thread_p)->id = id;
+  (*thread_p)->log = log;
 
   pthread_create(&(*thread_p)->pthread, NULL, (void*)thread_do, (*thread_p));
   pthread_detach((*thread_p)->pthread);
@@ -465,8 +467,10 @@ static void* thread_do(struct thread* thread_p) {
       pthread_mutex_lock(&thpool_p->thcount_lock);
       thpool_p->num_threads_working--;
       if (!thpool_p->num_threads_working) {
+        thread_p->log("thpool contains no more jobs");
         pthread_cond_signal(&thpool_p->threads_all_idle);
         if (thpool_p->terminate_when_empty) {
+          thread_p->log("terminating thread pool after there are no more jobs");
           thpool_p->keepalive = 0;
         }
       }

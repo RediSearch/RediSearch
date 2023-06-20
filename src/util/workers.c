@@ -3,6 +3,7 @@
  *
  * This file is available under the Redis Labs Source Available License Agreement
  */
+#define MT_BUILD
 
 #include "workers_pool.h"
 #include "workers.h"
@@ -10,7 +11,6 @@
 #include "config.h"
 
 #include <pthread.h>
-
 #ifdef MT_BUILD
 
 //------------------------------------------------------------------------------
@@ -30,6 +30,10 @@ static void yieldCallback(void *yieldCtx) {
   RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
 }
 
+static void LogCallback(const char *message) {
+  RedisModule_Log(RSDummyContext, "notice", "%s", message);
+}
+
 // set up workers' thread pool
 int workersThreadPool_CreatePool(size_t worker_count) {
   assert(worker_count);
@@ -44,7 +48,7 @@ int workersThreadPool_CreatePool(size_t worker_count) {
 void workersThreadPool_InitPool() {
   assert(_workers_thpool != NULL);
 
-  redisearch_thpool_init(_workers_thpool);
+  redisearch_thpool_init(_workers_thpool, LogCallback);
 }
 
 // return number of currently working threads

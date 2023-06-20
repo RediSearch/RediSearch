@@ -30,6 +30,9 @@ typedef enum {
  */
 redisearch_threadpool redisearch_thpool_create(size_t num_threads);
 
+// A callback to call redis log.
+typedef void (*LogFunc)(const char *);
+
 /**
  * @brief  Initialize an existing threadpool
  *
@@ -46,7 +49,7 @@ redisearch_threadpool redisearch_thpool_create(size_t num_threads);
  *
  * @param threadpool    threadpool to initialize
  */
-void redisearch_thpool_init(redisearch_threadpool);
+void redisearch_thpool_init(redisearch_threadpool, LogFunc log);
 
 /**
  * @brief Add work to the job queue
