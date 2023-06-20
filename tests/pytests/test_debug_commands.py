@@ -202,15 +202,14 @@ def threadpool_name_to_title(thpool_name):
     return f"=== {thpool_name} THREADS BACKTRACE: ==="
 
 def threadpool_title_to_name(thpool_title):
-    match thpool_title:
-        case "=== GC THREADS BACKTRACE: ===":
-            return "GC"
-        case "=== WORKERS THREADS BACKTRACE: ===":
-            return "WORKERS"
-        case "=== CLEANSPEC THREADS BACKTRACE: ===":
-            return "CLEANSPEC"
-        case _:
-            return None  
+    if thpool_title == "=== GC THREADS BACKTRACE: ===":
+        return "GC"
+    elif thpool_title == "=== WORKERS THREADS BACKTRACE: ===":
+        return "WORKERS"
+    elif thpool_title == "=== CLEANSPEC THREADS BACKTRACE: ===":
+        return "CLEANSPEC"
+    else:
+        return None  
         
 def DumpBacktrace_ALL(env: Env, threadpools_attr):
     # Ask for all threadpools
