@@ -608,11 +608,21 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
 typedef struct {
   ResultProcessor base;
   RLookup *lk;
-  const RLookupKey **fields;
-  size_t nfields;
   RLookupLoadOptions loadopts;
   QueryError status;
 } RPLoader;
+
+static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
+  self->loadopts.sctx = self->base.parent->sctx; // TODO: can be set in the constructor
+  self->loadopts.dmd = r->dmd;sizeof(RPLoader);sizeof(ResultProcessor);sizeof(QueryError);sizeof(RLookupLoadOptions);
+
+  // if loading the document has failed, we return an empty array.
+  // Error code and message are ignored.
+  if (RLookup_LoadDocument(self->lk, &r->rowdata, &self->loadopts) != REDISMODULE_OK) {
+    r->flags |= SEARCHRESULT_VAL_IS_NULL;
+    QueryError_ClearError(&self->status);
+  }
+}
 
 static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   RPLoader *lc = (RPLoader *)base;
@@ -627,54 +637,339 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
     return RS_RESULT_OK;
   }
 
-  lc->loadopts.sctx = lc->base.parent->sctx; // TODO: can be set in the constructor
-  lc->loadopts.dmd = r->dmd;
+  rpLoader_loadDocument(lc, r);
+  return RS_RESULT_OK;
+}
 
-  // if loading the document has failed, we return an empty array.
-  // Error code and message are ignored.
-  if (RLookup_LoadDocument(lc->lk, &r->rowdata, &lc->loadopts) != REDISMODULE_OK) {
-    r->flags |= SEARCHRESULT_VAL_IS_NULL;
-    QueryError_ClearError(&lc->status);
+static void rploaderFreeInternal(ResultProcessor *base) {
+  RPLoader *lc = (RPLoader *)base;
+  QueryError_ClearError(&lc->status);
+  rm_free(lc->loadopts.keys);
+}
+
+static void rploaderFree(ResultProcessor *base) {
+  rploaderFreeInternal(base);
+  rm_free(base);
+}
+
+static void rploaderNew_setLoadOpts(RPLoader *self, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+  self->loadopts.forceString = 1; // used in `LOAD_ALLKEYS` mode.
+  self->loadopts.forceLoad = 1;   // used in `LOAD_ALLKEYS` mode. TODO: use only with JSON specs and DIALECT<3
+  self->loadopts.status = &self->status;
+  self->loadopts.sctx = NULL; // TODO: can be set in the constructor
+  self->loadopts.dmd = NULL;
+  self->loadopts.keys = rm_malloc(sizeof(*keys) * nkeys);
+  memcpy(self->loadopts.keys, keys, sizeof(*keys) * nkeys);
+  self->loadopts.nkeys = nkeys;
+  if (nkeys) {
+    self->loadopts.mode = RLOOKUP_LOAD_KEYLIST;
+  } else {
+    self->loadopts.mode = RLOOKUP_LOAD_ALLKEYS;
+    lk->options |= RLOOKUP_OPT_ALL_LOADED; // TODO: turn on only for HASH specs
+  }
+
+  self->lk = lk;
+}
+
+ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+  RPLoader *self = rm_calloc(1, sizeof(*self));
+
+  rploaderNew_setLoadOpts(self, lk, keys, nkeys);
+
+  self->base.Next = rploaderNext;
+  self->base.Free = rploaderFree;
+  self->base.type = RP_LOADER;
+  self->base.behavior = RESULT_PROCESSOR_B_ACCESS_REDIS;
+  return &self->base;
+}
+
+/*******************************************************************************************************************
+ *  Safe Loader Results Processor
+ *
+ * This component should be added to the query's execution pipeline INSTEAD OF a loader, if a loader is needed.
+ *
+ * The RP has few phases:
+ * 1. Buffering phase - the RP will buffer the results from the upstream.
+ * 2. Loading phase:
+ *   a. Verify that the spec is unlocked, and lock the Redis keyspace.
+ *   b. Load the needed data for each buffered result.
+ *   c. Unlock the Redis keyspace.
+ * 3. Yielding phase - the RP will yield the buffered results.
+ *******************************************************************************************************************/
+
+struct RPSafeLoader {
+  // Loading context
+  RPLoader base_loader;
+
+  // Buffer management
+  SearchResult **BufferBlocks;
+  size_t BlockSize;
+  size_t buffer_results_count;
+
+  // Results iterator
+  size_t curr_result_index;
+
+  // Last buffered result code. To know weather to return OK or EOF.
+  char last_buffered_rc;
+};
+
+/************************* Safe Loader private functions *************************/
+
+static bool isResultValid(const SearchResult *res) {
+  // check if the doc is not marked deleted in the spec
+  return !(res->dmd->flags & Document_Deleted);
+}
+
+static void SetResult(SearchResult *buffered_result,  SearchResult *result_output) {
+  // Free the RLookup row before overriding it.
+  RLookupRow_Cleanup(&result_output->rowdata);
+  *result_output = *buffered_result;
+}
+
+static SearchResult *GetResultsBlock(RPSafeLoader *self, size_t idx) {
+  // Get a pointer to the block at the given index
+  SearchResult **ret = array_ensure_at(&self->BufferBlocks, idx, SearchResult*);
+
+  // If the block is not allocated, allocate it
+  if (!*ret) {
+    *ret = array_new(SearchResult, self->BlockSize);
+  }
+
+  return *ret;
+
+}
+
+// If @param currBlock is full we add a new block and return it, otherwise returns @param CurrBlock.
+static SearchResult *InsertResult(RPSafeLoader *self, SearchResult *resToBuffer, SearchResult *currBlock) {
+  size_t idx_in_curr_block = self->buffer_results_count % self->BlockSize;
+  // if the block is full, allocate a new one
+  if (idx_in_curr_block == 0) {
+    // get the curr block, allocate new block if needed
+    currBlock = GetResultsBlock(self, self->buffer_results_count / self->BlockSize);
+  }
+  // append the result to the current block at rp->curr_idx_at_block
+  // this operation takes ownership of the result's allocated data
+  currBlock[idx_in_curr_block] = *resToBuffer;
+  ++self->buffer_results_count;
+  return currBlock;
+}
+
+static bool IsBufferEmpty(RPSafeLoader *self) {
+  return self->buffer_results_count == 0;
+}
+
+static SearchResult *GetNextResult(RPSafeLoader *self) {
+  size_t curr_elem_index = self->curr_result_index;
+  size_t blockSize = self->BlockSize;
+
+  // if we reached to the end of the buffer return NULL
+  if (curr_elem_index >= self->buffer_results_count) {
+    return NULL;
+  }
+
+  // get current block
+  SearchResult *curr_block = self->BufferBlocks[curr_elem_index / blockSize];
+
+  // get the result in the block
+  SearchResult* ret = curr_block + (curr_elem_index % blockSize);
+
+  // Increase result's index
+  ++self->curr_result_index;
+
+  // return result
+  return ret;
+}
+
+static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res);  // Forward declaration
+
+static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self) {
+
+  self->base_loader.base.Next = rpSafeLoaderNext_Accumulate; // Reset the next function, in case we are in cursor mode
+  self->buffer_results_count = 0;
+  self->curr_result_index = 0;
+
+  int rc = self->last_buffered_rc;
+  self->last_buffered_rc = RS_RESULT_OK;
+  return rc;
+}
+
+/*********************************************************************************/
+
+static void rpSafeLoader_ValidateAndLoad(RPSafeLoader *self) {
+  SearchResult *curr_res;
+
+  // iterate the buffer.
+  // TODO: implement `GetNextResult` that gets the current block to save calculation time.
+  while ((curr_res = GetNextResult(self))) {
+    // Skip invalid results
+    if (!isResultValid(curr_res)) {
+      self->base_loader.base.parent->totalResults--;
+      continue;
+    }
+
+    // Load the result
+    rpLoader_loadDocument(&self->base_loader, curr_res);
+  }
+
+  // Reset the iterator
+  self->curr_result_index = 0;
+}
+
+static int rpSafeLoaderNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_output) {
+  RPSafeLoader *self = (RPSafeLoader *)rp;
+  SearchResult *curr_res;
+
+  // iterate the buffer.
+  while ((curr_res = GetNextResult(self))) {
+    // Skip invalid results
+    if (isResultValid(curr_res)) {
+      SetResult(curr_res, result_output);
+      if (rp->parent->resultLimit <= 1) {
+        return rpSafeLoader_ResetAndReturnLastCode(self);
+      } else {
+        return RS_RESULT_OK;
+      }
+    }
+
+    // If the result is invalid discard it.
+    SearchResult_Destroy(curr_res);
+  }
+
+  // If we got here, we finished iterating the buffer.
+  // If the upstream has more results, we can't just return EOF, we need to buffer some more.
+  int rc = rpSafeLoader_ResetAndReturnLastCode(self);
+  if (rc == RS_RESULT_OK) {
+    // If the upstream has more results, buffer them.
+    return rp->Next(rp, result_output);
+  } else {
+    // If the upstream has no more results (rc is not `OK`),
+    // we can return the code without a valid result. Return the code.
+    return rc;
+  }
+}
+
+static void rpSafeLoader_Load(RPSafeLoader *self) {
+  SearchResult *curr_res;
+
+  // iterate the buffer.
+  // TODO: implement `GetNextResult` that gets the current block to save calculation time.
+  while ((curr_res = GetNextResult(self))) {
+    rpLoader_loadDocument(&self->base_loader, curr_res);
+  }
+
+  // Reset the iterator
+  self->curr_result_index = 0;
+}
+
+static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_output) {
+  RPSafeLoader *self = (RPSafeLoader *)rp;
+  SearchResult *curr_res = GetNextResult(self);
+
+  if (curr_res) {
+    SetResult(curr_res, result_output);
+  }
+  if (!curr_res || rp->parent->resultLimit <= 1) {
+    return rpSafeLoader_ResetAndReturnLastCode(self);
   }
   return RS_RESULT_OK;
 }
 
-static void rploaderFree(ResultProcessor *base) {
-  RPLoader *lc = (RPLoader *)base;
-  QueryError_ClearError(&lc->status);
-  rm_free(lc->fields);
-  rm_free(lc);
-}
+/*********************************************************************************/
 
-ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys) {
-  RPLoader *sc = rm_calloc(1, sizeof(*sc));
-  sc->nfields = nkeys;
-  sc->fields = rm_calloc(nkeys, sizeof(*sc->fields));
-  memcpy(sc->fields, keys, sizeof(*keys) * nkeys);
+static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
+  RPSafeLoader *self = (RPSafeLoader *)rp;
 
-  sc->loadopts.forceString = 1; // used in `LOAD_ALLKEYS` mode.
-  sc->loadopts.forceLoad = 1;   // used in `LOAD_ALLKEYS` mode. TODO: use only with JSON specs and DIALECT<3
-  sc->loadopts.status = &sc->status;
-  sc->loadopts.sctx = NULL; // TODO: can be set in the constructor
-  sc->loadopts.dmd = NULL;
-  sc->loadopts.keys = sc->fields;
-  sc->loadopts.nkeys = sc->nfields;
-  if (nkeys) {
-    sc->loadopts.mode = RLOOKUP_LOAD_KEYLIST;
-  } else {
-    sc->loadopts.mode = RLOOKUP_LOAD_ALLKEYS;
-    lk->options |= RLOOKUP_OPT_ALL_LOADED; // TODO: turn on only for HASH specs
+  // Keep fetching results from the upstream result processor until EOF is reached
+  RedisSearchCtx *sctx = RP_SCTX(rp);
+  int result_status;
+  uint32_t bufferLimit = rp->parent->resultLimit;
+  SearchResult resToBuffer = {0};
+  SearchResult *currBlock = NULL;
+  // Get the next result and save it in the buffer
+  while (rp->parent->resultLimit-- && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
+
+    // Buffer the result.
+    currBlock = InsertResult(self, &resToBuffer, currBlock);
+
+    memset(&resToBuffer, 0, sizeof(SearchResult));
+
+  }
+  rp->parent->resultLimit = bufferLimit; // Restore the result limit
+
+  // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
+  if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK &&
+      !(result_status == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
+      IsBufferEmpty(self)) {
+    return result_status;
+  }
+  // save the last buffered result code to return when we done yielding the buffered results.
+  self->last_buffered_rc = result_status;
+
+  // Now we have the data of all documents that pass the query filters,
+  // let's lock Redis to provide safe access to Redis keyspace
+
+  // First, we verify that we unlocked the spec before we lock Redis.
+  RedisSearchCtx_UnlockSpec(sctx);
+
+  // Then, lock Redis to guarantee safe access to Redis keyspace
+  RedisModule_ThreadSafeContextLock(sctx->redisCtx);
+
+  // If the spec has been changed since we released the spec lock,
+  // we need to validate every buffered result
+  if (rp->parent->initialSpecVersion != IndexSpec_GetVersion(sctx->spec)) {
+    rpSafeLoader_ValidateAndLoad(self);
+    rp->Next = rpSafeLoaderNext_ValidateAndYield;
+  } else { // Else we just return the results one by one
+    rpSafeLoader_Load(self);
+    rp->Next = rpSafeLoaderNext_Yield;
   }
 
-  sc->lk = lk;
-  sc->base.Next = rploaderNext;
-  sc->base.Free = rploaderFree;
-  sc->base.type = RP_LOADER;
-  sc->base.behavior = RESULT_PROCESSOR_B_ACCESS_REDIS;
-  return &sc->base;
+  // Done loading. Unlock Redis
+  RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
+
+  // Move to the yielding phase
+  return rp->Next(rp, res);
 }
 
-static char *RPTypeLookup[RP_MAX] = {"Index",       "Loader",  "Buffer and Locker", "Unlocker",
+static void rpSafeLoaderFree(ResultProcessor *base) {
+  RPSafeLoader *sl = (RPSafeLoader *)base;
+
+  // Free leftover results in the buffer (if any)
+  SearchResult *cur;
+  while ((cur = GetNextResult(sl))) {
+    SearchResult_Destroy(cur);
+  }
+
+  // Free buffer memory blocks
+  array_foreach(sl->BufferBlocks, SearchResultsBlock, array_free(SearchResultsBlock));
+  array_free(sl->BufferBlocks);
+
+  rploaderFreeInternal(base);
+
+  rm_free(sl);
+}
+
+ResultProcessor *RPSafeLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys, size_t block_size) {
+  RPSafeLoader *sl = rm_calloc(1, sizeof(*sl));
+
+  rploaderNew_setLoadOpts(&sl->base_loader, lk, keys, nkeys);
+
+  sl->BlockSize = block_size;
+  sl->BufferBlocks = NULL;
+  sl->buffer_results_count = 0;
+  sl->curr_result_index = 0;
+
+  sl->last_buffered_rc = RS_RESULT_OK;
+
+  sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
+  sl->base_loader.base.Free = rpSafeLoaderFree;
+  sl->base_loader.base.type = RP_SAFE_LOADER;
+  sl->base_loader.base.behavior = RESULT_PROCESSOR_B_ACCESS_REDIS;
+  return &sl->base_loader.base;
+}
+
+// TODO: do we want a different name for the safe loader?
+static char *RPTypeLookup[RP_MAX] = {"Index",       "Loader", "Safe-Loader",  "Buffer and Locker", "Unlocker",
                                      "Scorer",      "Sorter",  "Counter",           "Pager/Limiter",
                                      "Highlighter", "Grouper", "Projector",         "Filter",
                                      "Profile",     "Network", "Metrics Applier"};
@@ -838,7 +1133,7 @@ static int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res);
 // Yield results phase functions
 static int rpbufferNext_Yield(ResultProcessor *rp, SearchResult *result_output);
 static int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_output);
-static bool isResultValid(const SearchResult *res);
+static bool isResultValid_(const SearchResult *res);
 static int RPBufferAndLocker_ResetAndReturnLastCode(ResultProcessor *rp);
 
 // Redis lock management
@@ -847,14 +1142,14 @@ static void LockRedis(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redi
 static void UnLockRedis(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx);
 
 /*********** Buffered results blocks management functions declarations ***********/
-static SearchResult *GetResultsBlock(RPBufferAndLocker *rpPufferAndLocker, size_t bloc_idx);
+static SearchResult *GetResultsBlock_(RPBufferAndLocker *rpPufferAndLocker, size_t bloc_idx);
 
 // Insert result to the buffer.
 //If @param CurrBlock is full we add a new block and return it, otherwise returns @param CurrBlock.
-static SearchResult *InsertResult(RPBufferAndLocker *rpPufferAndLocker, SearchResult *resToBuffer, SearchResult *CurrBlock);
-static bool IsBufferEmpty(RPBufferAndLocker *rpPufferAndLocker);
+static SearchResult *InsertResult_(RPBufferAndLocker *rpPufferAndLocker, SearchResult *resToBuffer, SearchResult *CurrBlock);
+static bool IsBufferEmpty_(RPBufferAndLocker *rpPufferAndLocker);
 
-static SearchResult *GetNextResult(RPBufferAndLocker *rpPufferAndLocker);
+static SearchResult *GetNextResult_(RPBufferAndLocker *rpPufferAndLocker);
 /*******************************************************************************/
 
 ResultProcessor *RPBufferAndLocker_New(size_t BlockSize) {
@@ -914,7 +1209,7 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   while (rp->parent->resultLimit-- && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
 
     // Buffer the result.
-    CurrBlock = InsertResult(rpPufferAndLocker, &resToBuffer, CurrBlock);
+    CurrBlock = InsertResult_(rpPufferAndLocker, &resToBuffer, CurrBlock);
 
     memset(&resToBuffer, 0, sizeof(SearchResult));
 
@@ -924,7 +1219,7 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
   if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK &&
       !(result_status == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
-      IsBufferEmpty(rpPufferAndLocker)) {
+      IsBufferEmpty_(rpPufferAndLocker)) {
     return result_status;
   }
   // save the last buffered result code to return when we done yielding the buffered results.
@@ -958,22 +1253,22 @@ int rpbufferNext_bufferDocs(ResultProcessor *rp, SearchResult *res) {
   return rp->Next(rp, res);
 }
 
-bool isResultValid(const SearchResult *res) {
+bool isResultValid_(const SearchResult *res) {
   // check if the doc is not marked deleted in the spec
   return !(res->dmd->flags & Document_Deleted);
 }
-static void InvalidateBufferedResult(SearchResult *buffered_result) {
+static void InvalidateBufferedResult_(SearchResult *buffered_result) {
   buffered_result->indexResult = NULL;
   buffered_result->dmd = NULL;
   buffered_result->scoreExplain = NULL;
   memset(&buffered_result->rowdata, 0, sizeof(RLookupRow));
 }
-static void SetResult(SearchResult *buffered_result,  SearchResult *result_output) {
+static void SetResult_(SearchResult *buffered_result,  SearchResult *result_output) {
   // Free the RLookup row before overriding it.
   RLookupRow_Cleanup(&result_output->rowdata);
   *result_output = *buffered_result;
 
-  InvalidateBufferedResult(buffered_result);
+  InvalidateBufferedResult_(buffered_result);
 }
 /*********** Redis lock management ***********/
 bool isRedisLocked(RPBufferAndLocker *bufferAndLocker) {
@@ -995,10 +1290,10 @@ void UnLockRedis(RPBufferAndLocker *rpBufferAndLocker, RedisModuleCtx* redisCtx)
 
 int rpbufferNext_Yield(ResultProcessor *rp, SearchResult *result_output) {
   RPBufferAndLocker *RPBuffer = (RPBufferAndLocker *)rp;
-  SearchResult *curr_res = GetNextResult(RPBuffer);
+  SearchResult *curr_res = GetNextResult_(RPBuffer);
 
   if (curr_res) {
-    SetResult(curr_res, result_output);
+    SetResult_(curr_res, result_output);
   }
   if (!curr_res || rp->parent->resultLimit <= 1) {
     return RPBufferAndLocker_ResetAndReturnLastCode(rp);
@@ -1011,10 +1306,10 @@ int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_outp
   SearchResult *curr_res;
 
   // iterate the buffer.
-  while ((curr_res = GetNextResult(RPBuffer))) {
+  while ((curr_res = GetNextResult_(RPBuffer))) {
     // Skip invalid results
-    if (isResultValid(curr_res)) {
-      SetResult(curr_res, result_output);
+    if (isResultValid_(curr_res)) {
+      SetResult_(curr_res, result_output);
       if (rp->parent->resultLimit <= 1) {
         return RPBufferAndLocker_ResetAndReturnLastCode(rp);
       } else {
@@ -1042,7 +1337,7 @@ int rpbufferNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_outp
 }
 
 /*********** Buffered and locker functions ***********/
-SearchResult *GetResultsBlock(RPBufferAndLocker *rpPufferAndLocker, size_t idx) {
+SearchResult *GetResultsBlock_(RPBufferAndLocker *rpPufferAndLocker, size_t idx) {
   // Get a pointer to the block at the given index
   SearchResult **ret = array_ensure_at(&rpPufferAndLocker->BufferBlocks, idx, SearchResult*);
 
@@ -1056,12 +1351,12 @@ SearchResult *GetResultsBlock(RPBufferAndLocker *rpPufferAndLocker, size_t idx) 
 }
 
 // If @param CurrBlock is full we add a new block and return it, otherwise returns @param CurrBlock.
-SearchResult *InsertResult(RPBufferAndLocker *rpPufferAndLocker, SearchResult *resToBuffer, SearchResult *CurrBlock) {
+SearchResult *InsertResult_(RPBufferAndLocker *rpPufferAndLocker, SearchResult *resToBuffer, SearchResult *CurrBlock) {
   size_t idx_in_curr_block = rpPufferAndLocker->buffer_results_count % rpPufferAndLocker->BlockSize;
   // if the block is full, allocate a new one
   if (idx_in_curr_block == 0) {
     // get the curr block, allocate new block if needed
-    CurrBlock = GetResultsBlock(rpPufferAndLocker, rpPufferAndLocker->buffer_results_count / rpPufferAndLocker->BlockSize);
+    CurrBlock = GetResultsBlock_(rpPufferAndLocker, rpPufferAndLocker->buffer_results_count / rpPufferAndLocker->BlockSize);
   }
   // append the result to the current block at rp->curr_idx_at_block
   // this operation takes ownership of the result's allocated data
@@ -1070,11 +1365,11 @@ SearchResult *InsertResult(RPBufferAndLocker *rpPufferAndLocker, SearchResult *r
   return CurrBlock;
 }
 
-bool IsBufferEmpty(RPBufferAndLocker *rpPufferAndLocker) {
+bool IsBufferEmpty_(RPBufferAndLocker *rpPufferAndLocker) {
   return rpPufferAndLocker->buffer_results_count == 0;
 }
 
-SearchResult *GetNextResult(RPBufferAndLocker *rpPufferAndLocker) {
+SearchResult *GetNextResult_(RPBufferAndLocker *rpPufferAndLocker) {
   size_t curr_elem_index = rpPufferAndLocker->curr_result_index;
   size_t blockSize = rpPufferAndLocker->BlockSize;
 

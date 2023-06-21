@@ -44,6 +44,7 @@ extern "C" {
 typedef enum {
   RP_INDEX,
   RP_LOADER,
+  RP_SAFE_LOADER,
   RP_BUFFER_AND_LOCKER,
   RP_UNLOCKER,
   RP_SCORER,
@@ -253,6 +254,8 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  *
  *******************************************************************************************************************/
 ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys);
+
+typedef struct RPSafeLoader RPSafeLoader; // Thread safe loader
 
 /** Creates a new Highlight processor */
 ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
