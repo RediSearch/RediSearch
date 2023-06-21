@@ -36,8 +36,18 @@ typedef enum {
   QEXEC_F_IS_CURSOR = 0x20,       // Is a cursor-type query
   QEXEC_F_REQUIRED_FIELDS = 0x40, // Send multiple required fields
 
-  /** Don't use concurrent execution */
-  QEXEC_F_SAFEMODE = 0x100,
+  /**
+   * Do not create the root result processor. Only process those components
+   * which process fully-formed, fully-scored results. This also means
+   * that a scorer is not created. It will also not initialize the
+   * first step or the initial lookup table
+   */
+  QEXEC_F_BUILDPIPELINE_NO_ROOT = 0x80,
+
+  /**
+   * Add the ability to run the query in a multi threaded environment
+   */
+  QEXEC_F_BUILDPIPELINE_THREADSAFE = 0x100,
 
   /* The inverse of IS_EXTENDED. The two cannot coexist together */
   QEXEC_F_IS_SEARCH = 0x200,
@@ -74,6 +84,7 @@ typedef enum {
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
+#define LoadThreadSafe(r) ((r)->reqflags & QEXEC_F_BUILDPIPELINE_THREADSAFE)
 
 #ifdef MT_BUILD
 // Indicates whether a query should run in the background. This
@@ -209,27 +220,10 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
 /**
- * No special flags when building the pipeline
- */
-#define AREQ_BUILDPIPELINE_NO_FLAGS 0x00
-
-/**
- * Do not create the root result processor. Only process those components
- * which process fully-formed, fully-scored results. This also means
- * that a scorer is not created. It will also not initialize the
- * first step or the initial lookup table
- */
-#define AREQ_BUILDPIPELINE_NO_ROOT 0x01
-
-/**
- * Add the ability to run the query in a multi threaded environment
- */
-#define AREQ_BUILD_THREADSAFE_PIPELINE 0x02
-/**
  * Constructs the pipeline objects needed to actually start processing
  * the requests. This does not yet start iterating over the objects
  */
-int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status);
+int AREQ_BuildPipeline(AREQ *req, QueryError *status);
 
 /******************************************************************************
  ******************************************************************************
@@ -286,7 +280,7 @@ ResultProcessor *Grouper_GetRP(Grouper *gr);
 void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
-int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status);
+int prepareExecutionPlan(AREQ *req, QueryError *status);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
 void AREQ_Free(AREQ *req);
 

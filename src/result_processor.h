@@ -18,6 +18,8 @@
 #include "extension.h"
 #include "score_explain.h"
 
+#define DEFAULT_BUFFER_BLOCK_SIZE 1024
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -252,10 +254,13 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  *
  * It fills the result objects' field map with values corresponding to the requested return fields
  *
+ * On thread safe mode, the loader will buffer results, in an internal phase will lock redis and load the requested
+ * fields and then unlock redis, and then will yield the results to the next processor in the chain.
+ * On non thread safe mode (running the query from the main thread), the loader will load the requested fields
+ * for each result, one result at a time, and yield it to the next processor in the chain.
+ *
  *******************************************************************************************************************/
-ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys);
-
-typedef struct RPSafeLoader RPSafeLoader; // Thread safe loader
+ResultProcessor *RPLoader_New(bool threadSafe, RLookup *lk, const RLookupKey **keys, size_t nkeys);
 
 /** Creates a new Highlight processor */
 ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,

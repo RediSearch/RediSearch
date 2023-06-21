@@ -21,8 +21,6 @@
 
 extern RSConfig RSGlobalConfig;
 
-#define DEFAULT_BUFFER_BLOCK_SIZE 1024
-
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
  * in this case refers to reducers which re-create the search results.
@@ -942,7 +940,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // set queryAST configuration parameters
   iteratorsConfig_init(&ast->config);
 
-  
+
   if (IsOptimized(req)) {
     // parse inputs for optimizations
     QOptimizer_Parse(req);
@@ -1047,7 +1045,7 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
 
   // See if we need a LOADER group here...?
   if (loadKeys) {
-    ResultProcessor *rpLoader = RPLoader_New(firstLk, loadKeys, array_len(loadKeys));
+    ResultProcessor *rpLoader = RPLoader_New(LoadThreadSafe(req), firstLk, loadKeys, array_len(loadKeys));
     array_free(loadKeys);
     RS_LOG_ASSERT(rpLoader, "RPLoader_New failed");
     rpUpstream = pushRP(req, rpLoader, rpUpstream);
@@ -1144,7 +1142,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
       }
       if (loadKeys) {
         // If we have keys to load, add a loader step.
-        ResultProcessor *rpLoader = RPLoader_New(lk, loadKeys, array_len(loadKeys));
+        ResultProcessor *rpLoader = RPLoader_New(LoadThreadSafe(req), lk, loadKeys, array_len(loadKeys));
         up = pushRP(req, rpLoader, up);
       }
       rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
@@ -1267,7 +1265,7 @@ int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status) {
   // If we have explicit return and some of the keys' values are missing,
   // or if we don't have explicit return, meaning we use LOAD ALL
   if (loadkeys || !req->outFields.explicitReturn) {
-    rp = RPLoader_New(lookup, loadkeys, array_len(loadkeys));
+    rp = RPLoader_New(LoadThreadSafe(req), lookup, loadkeys, array_len(loadkeys));
     if (isSpecJson(req->sctx->spec)) {
       // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
       lookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
@@ -1392,8 +1390,8 @@ static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
 
 }
 
-int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
-  if (!(options & AREQ_BUILDPIPELINE_NO_ROOT)) {
+int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+  if (!(req->reqflags & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     buildImplicitPipeline(req, status);
     if (status->code != QUERY_OK) {
       goto error;
@@ -1504,7 +1502,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
           }
         }
         if (lstp->nkeys || lstp->base.flags & PLN_F_LOAD_ALL) {
-          rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
+          rp = RPLoader_New(LoadThreadSafe(req), curLookup, lstp->keys, lstp->nkeys);
           if (isSpecJson(req->sctx->spec)) {
             // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
             curLookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
@@ -1546,9 +1544,9 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
 
   // If we are in a multi threaded context we need to buffer results and lock the GIL
   // before we first access redis key space and unlock it when it is no longer needed.
-  if((options & AREQ_BUILD_THREADSAFE_PIPELINE)) {
-    SafeRedisKeyspaceAccessPipeline(req);
-  }
+  // if((options & AREQ_BUILD_THREADSAFE_PIPELINE)) {
+  //   SafeRedisKeyspaceAccessPipeline(req);
+  // }
 
   // In profile mode, we need to add RP_Profile before each RP
   if (IsProfile(req) && req->qiter.endProc) {

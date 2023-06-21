@@ -671,7 +671,7 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RLookup *lk, const RLookupKe
   self->lk = lk;
 }
 
-ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+ResultProcessor *RPLoader_New_Unsafe(RLookup *lk, const RLookupKey **keys, size_t nkeys) {
   RPLoader *self = rm_calloc(1, sizeof(*self));
 
   rploaderNew_setLoadOpts(self, lk, keys, nkeys);
@@ -697,7 +697,7 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
  * 3. Yielding phase - the RP will yield the buffered results.
  *******************************************************************************************************************/
 
-struct RPSafeLoader {
+typedef struct RPSafeLoader {
   // Loading context
   RPLoader base_loader;
 
@@ -711,7 +711,7 @@ struct RPSafeLoader {
 
   // Last buffered result code. To know weather to return OK or EOF.
   char last_buffered_rc;
-};
+} RPSafeLoader;
 
 /************************* Safe Loader private functions *************************/
 
@@ -966,6 +966,17 @@ ResultProcessor *RPSafeLoader_New(RLookup *lk, const RLookupKey **keys, size_t n
   sl->base_loader.base.type = RP_SAFE_LOADER;
   sl->base_loader.base.behavior = RESULT_PROCESSOR_B_ACCESS_REDIS;
   return &sl->base_loader.base;
+}
+
+/*********************************************************************************/
+
+
+ResultProcessor *RPLoader_New(bool threadSafe, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+  if (threadSafe) {
+    return RPSafeLoader_New(lk, keys, nkeys, DEFAULT_BUFFER_BLOCK_SIZE);
+  } else {
+    return RPLoader_New_Unsafe(lk, keys, nkeys);
+  }
 }
 
 // TODO: do we want a different name for the safe loader?
