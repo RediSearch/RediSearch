@@ -1614,6 +1614,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->used_dialects = 0;
 
   memset(&sp->stats, 0, sizeof(sp->stats));
+  sp->stats.indexError = IndexError_init();
 
   int res = 0;
   pthread_rwlockattr_t attr;
@@ -2767,8 +2768,10 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   }
 
   if (rv != REDISMODULE_OK) {
-    // we already unlocked the spec but we can increase this value atomically
-    __atomic_add_fetch(&spec->stats.indexingFailures, 1, __ATOMIC_RELAXED);
+    // TODO: Validate that this is the correct behavior since this can be done inside the indexing functions.
+    IndexError_add_error(&spec->stats.indexError, no_errors);
+    // // we already unlocked the spec but we can increase this value atomically
+    // __atomic_add_fetch(&spec->stats.indexingFailures, 1, __ATOMIC_RELAXED);
 
     // if a document did not load properly, it is deleted
     // to prevent mismatch of index and hash

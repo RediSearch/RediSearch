@@ -9,6 +9,7 @@
 
 #include "redisearch.h"
 #include "value.h"
+#include "index_error.h"
 #include "VecSim/vec_sim.h"
 #include "geometry/geometry_types.h"
 
@@ -117,6 +118,9 @@ typedef struct FieldSpec {
   double ftWeight;
   // ID used to identify the field within the field mask
   t_fieldId ftId;
+
+  // The index error for this field
+  IndexError indexError;
 
   // TODO: More options here..
 } FieldSpec;

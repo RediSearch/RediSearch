@@ -25,6 +25,7 @@
 #include "redisearch_api.h"
 #include "rules.h"
 #include <pthread.h>
+#include "index_error.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -124,7 +125,7 @@ typedef struct {
   size_t offsetVecsSize;
   size_t offsetVecRecords;
   size_t termsSize;
-  size_t indexingFailures;
+  IndexError indexError;
   long double totalIndexTime; // usec
 } IndexStats;
 
