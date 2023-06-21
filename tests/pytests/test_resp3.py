@@ -1,6 +1,6 @@
 from common import *
 import operator
-
+from math import inf
 
 def order_dict(d):
     ''' Sorts a dictionary recursively by keys '''
@@ -708,3 +708,71 @@ def test_profile_child_itrerators_array():
     }
     if not env.isCluster:  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)
+
+def test_ft_info():
+    env = Env(protocol=3)
+    env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
+    with env.getClusterConnectionIfNeeded() as r:
+      res = r.execute_command('ft.info', 'idx')
+      # Resp3 does not allow NaN or -Nan. -inf is allowed
+      exp = {
+              'index_name': 'idx',
+              'index_options': [],
+              'index_definition': {
+                  'key_type': 'HASH',
+                  'prefixes': [''],
+                  'default_score': 1.0},
+                  'attributes': [
+                      {
+                          'identifier': 't',
+                          'attribute': 't',
+                          'type': 'TEXT',
+                          'WEIGHT': 1.0,
+                          'flags': []
+                      }
+                    ],
+                  'num_docs': 0.0,
+                  'max_doc_id': 0.0,
+                  'num_terms': 0.0,
+                  'num_records': 0.0,
+                  'inverted_sz_mb': 0.0,
+                  'vector_index_sz_mb': 0.0,
+                  'total_inverted_index_blocks': 0.0,
+                  'offset_vectors_sz_mb': 0.0,
+                  'doc_table_size_mb': 0.0,
+                  'sortable_values_size_mb': 0.0,
+                  'key_table_size_mb': 0.0,
+                  'total_geoshapes_index_size_mb': 0.0,
+                  'records_per_doc_avg': -inf,
+                  'bytes_per_record_avg': -inf,
+                  'offsets_per_term_avg': -inf,
+                  'offset_bits_per_record_avg': -inf,
+                  'hash_indexing_failures': 0.0,
+                  'total_indexing_time': 0.0,
+                  'indexing': 0.0,
+                  'percent_indexed': 1.0,
+                  'number_of_uses': 1,
+                  'cleaning': 0,
+                  'gc_stats': {
+                      'bytes_collected': 0.0,
+                      'total_ms_run': 0.0,
+                      'total_cycles': 0.0,
+                      'average_cycle_time_ms': -inf,
+                      'last_run_time_ms': 0.0,
+                      'gc_numeric_trees_missed': 0.0,
+                      'gc_blocks_denied': 0.0
+                    },
+                    'cursor_stats': {
+                        'global_idle': 0,
+                        'global_total': 0,
+                        'index_capacity': 128,
+                        'index_total': 0
+                      },
+                    'dialect_stats': {
+                        'dialect_1': 0, 
+                        'dialect_2': 0,
+                        'dialect_3': 0,
+                        'dialect_4': 0
+                      }
+                    }
+      env.assertEqual(res, exp)

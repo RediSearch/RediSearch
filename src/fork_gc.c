@@ -1266,7 +1266,7 @@ static void statsCb(RedisModule_Reply *reply, void *gcCtx) {
   REPLY_KVNUM("bytes_collected", gc->stats.totalCollected);
   REPLY_KVNUM("total_ms_run", gc->stats.totalMSRun);
   REPLY_KVNUM("total_cycles", gc->stats.numCycles);
-  REPLY_KVNUM("average_cycle_time_ms", (double)gc->stats.totalMSRun / gc->stats.numCycles);
+  REPLY_KVNUM("average_cycle_time_ms", gc->stats.numCycles ? (double)gc->stats.totalMSRun / gc->stats.numCycles : -1*INFINITY);
   REPLY_KVNUM("last_run_time_ms", (double)gc->stats.lastRunTimeMs);
   REPLY_KVNUM("gc_numeric_trees_missed", (double)gc->stats.gcNumericNodesMissed);
   REPLY_KVNUM("gc_blocks_denied", (double)gc->stats.gcBlocksDenied);
@@ -1279,7 +1279,7 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
   RedisModule_InfoAddFieldLongLong(ctx, "bytes_collected", gc->stats.totalCollected);
   RedisModule_InfoAddFieldLongLong(ctx, "total_ms_run", gc->stats.totalMSRun);
   RedisModule_InfoAddFieldLongLong(ctx, "total_cycles", gc->stats.numCycles);
-  RedisModule_InfoAddFieldDouble(ctx, "average_cycle_time_ms", (double)gc->stats.totalMSRun / gc->stats.numCycles);
+  RedisModule_InfoAddFieldDouble(ctx, "average_cycle_time_ms", gc->stats.numCycles ? (double)gc->stats.totalMSRun / gc->stats.numCycles: -1*INFINITY);
   RedisModule_InfoAddFieldDouble(ctx, "last_run_time_ms", (double)gc->stats.lastRunTimeMs);
   RedisModule_InfoAddFieldDouble(ctx, "gc_numeric_trees_missed", (double)gc->stats.gcNumericNodesMissed);
   RedisModule_InfoAddFieldDouble(ctx, "gc_blocks_denied", (double)gc->stats.gcBlocksDenied);
