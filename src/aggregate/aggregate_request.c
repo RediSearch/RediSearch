@@ -1297,99 +1297,6 @@ error:
   return REDISMODULE_ERR;
 }
 
-// Add rp_to_place to an existing pipeline as the upstream result proceesor of rp.
-static void PushUpStream(ResultProcessor *rp_to_place, ResultProcessor *rp) {
-  rp_to_place->upstream = rp->upstream;
-  rp->upstream = rp_to_place;
-  rp_to_place->parent = rp->parent;
-}
-
-// We need to know if the last accumulator is wrapped by a result processor that accesses redis, and therefore
-// is wrapped by a buffer locker and an unlocker. If so, and we are in cursor mode, we need to push the buffer locker
-// downstream after the first cursor read (before the first `FT.CURSOR READ` command). We therefore turn on the flag
-// QEXEC_S_NEEDS_BUFFER_REEVAL in the query execution state.
-// To follow the pipeline and find out whether we wrap the last accumulator or not, we use the following state machine:
-typedef enum { WRAPPING, NOT_WRAPPING, UNSET, SEEN_ACCUMULATOR_BEFORE_UNLOCKER } WrapsLastAccumulatorState;
-// the `WRAPPING` and `NOT_WRAPPING` states are terminal states, and the `UNSET` state is the initial state.
-// the `WRAPPING` state is the only accepting state.
-
-// Add Buffer-Locker and Unlocker result processors to the pipeline.
-// The Buffer-Locker rp is added as the upstream of the first result processor that might
-// access Redis keyspace.
-// The Unlocker is placed so that its upstream rp will be the last to access Redis keyspace.
-// Main assumptions: 1. the rootProc dosn't access redis 2. rootProc != endProc
-static void SafeRedisKeyspaceAccessPipeline(AREQ *req) {
-
-  // Go over the pipeline and find the result processors that are the first and last to access redis.
-  // We mark the first rp that accesses redis with upstream_is_buffer_locker.
-  // We need to store the rp that its upstream is the result processor that is the last rp to access redis
-  // in order to push the unlocker as its upstream.
-
-  // for example if the pipline is
-  // root<-loader1<-sorter<-loader2 (an arrow signs the upstream direction)
-  // upstream_is_buffer_locker = loader1, upstream_is_unlcoker = dummy
-  // and the finale pipeline is:
-  // root<-buffer-locker<-loader<-sorter<-loader<-unlocker
-  ResultProcessor *upstream_is_buffer_locker = NULL;
-  ResultProcessor *upstream_is_unlcoker = NULL;
-  WrapsLastAccumulatorState state = UNSET;
-
-  ResultProcessor dummy_rp = {.upstream = req->qiter.endProc};
-
-  // Start from the end processor and iterate beackward until the next rp
-  // is the last to access redis or its a pipeline breaker.
-  for (ResultProcessor *curr_rp = &dummy_rp; curr_rp != req->qiter.rootProc; curr_rp = curr_rp->upstream) {
-    if (curr_rp->behavior == RESULT_PROCESSOR_B_ACCESS_REDIS) {
-      // If we found (another) RP that accesses redis, update the upstream_is_buffer_locker.
-      upstream_is_buffer_locker = curr_rp;
-      if (state == SEEN_ACCUMULATOR_BEFORE_UNLOCKER) {
-        state = WRAPPING;
-      }
-    } else if (curr_rp->behavior == RESULT_PROCESSOR_B_ACCUMULATOR) {
-      // If we found an accumulator and we didn't find any RP that accesses redis yet, reset the upstream_is_unlcoker.
-      if (!upstream_is_buffer_locker) {
-        upstream_is_unlcoker = NULL;
-        state = NOT_WRAPPING;
-      } else {
-        state = SEEN_ACCUMULATOR_BEFORE_UNLOCKER;
-      }
-    }
-    // If we didn't find a relevant RP for unlocker yet and the next RP access redis or is an aborter, set the upstream_is_unlcoker.
-    if (!upstream_is_unlcoker && (curr_rp->upstream->behavior == RESULT_PROCESSOR_B_ACCESS_REDIS ||
-                                  curr_rp->upstream->behavior == RESULT_PROCESSOR_B_ABORTER)) {
-      upstream_is_unlcoker = curr_rp;
-    }
-  }
-
-  // If we didn't find any RP that accesses redis, we don't need to add the buffer-locker and unlocker.
-  if (!upstream_is_buffer_locker) {
-    return;
-  }
-
-  // If we need to add the buffer-locker before the last accumulator and the unlocker after it,
-  // on cursor mode we need to reevaluate the buffer location.
-  if (state == WRAPPING) {
-    req->stateflags |= QEXEC_S_NEEDS_BUFFER_REEVAL;
-  }
-
-  // TODO: multithreaded: Add better estimation to the buffer initial size
-  ResultProcessor *rpBufferAndLocker = RPBufferAndLocker_New(DEFAULT_BUFFER_BLOCK_SIZE);
-
-  // Place buffer and locker as the upstream of the first_to_access_redis result processor.
-  PushUpStream(rpBufferAndLocker, upstream_is_buffer_locker);
-
-  // Find where to place unlocker
-  ResultProcessor *rpUnlocker = RPUnlocker_New((RPBufferAndLocker*)rpBufferAndLocker);
-
-  // Handle special case where original endProc becomes the upstream of the unlocker, and we need to update req->qiter.endProc
-  if (upstream_is_unlcoker == &dummy_rp) {
-    pushRP(req, rpUnlocker, req->qiter.endProc);
-  } else {
-    PushUpStream(rpUnlocker, upstream_is_unlcoker);
-  }
-
-}
-
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   if (!(req->reqflags & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     buildImplicitPipeline(req, status);
@@ -1541,12 +1448,6 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       goto error;
     }
   }
-
-  // If we are in a multi threaded context we need to buffer results and lock the GIL
-  // before we first access redis key space and unlock it when it is no longer needed.
-  // if((options & AREQ_BUILD_THREADSAFE_PIPELINE)) {
-  //   SafeRedisKeyspaceAccessPipeline(req);
-  // }
 
   // In profile mode, we need to add RP_Profile before each RP
   if (IsProfile(req) && req->qiter.endProc) {
