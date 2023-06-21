@@ -17,6 +17,7 @@ extern "C" {
 
 GeometryIndex *GeometryIndexFactory(GEOMETRY_COORDS);
 const GeometryApi *GeometryApi_Get(const GeometryIndex *);
+
 struct GeometryApi {
   void (*freeIndex)(GeometryIndex *index);
   int (*addGeomStr)(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len,
