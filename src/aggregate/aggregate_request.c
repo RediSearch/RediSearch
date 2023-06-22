@@ -1045,7 +1045,7 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
 
   // See if we need a LOADER group here...?
   if (loadKeys) {
-    ResultProcessor *rpLoader = RPLoader_New(LoadThreadSafe(req), firstLk, loadKeys, array_len(loadKeys));
+    ResultProcessor *rpLoader = RPLoader_New(LoadThreadSafe(req), req->sctx, firstLk, loadKeys, array_len(loadKeys));
     array_free(loadKeys);
     RS_LOG_ASSERT(rpLoader, "RPLoader_New failed");
     rpUpstream = pushRP(req, rpLoader, rpUpstream);
@@ -1142,7 +1142,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
       }
       if (loadKeys) {
         // If we have keys to load, add a loader step.
-        ResultProcessor *rpLoader = RPLoader_New(LoadThreadSafe(req), lk, loadKeys, array_len(loadKeys));
+        ResultProcessor *rpLoader = RPLoader_New(LoadThreadSafe(req), req->sctx, lk, loadKeys, array_len(loadKeys));
         up = pushRP(req, rpLoader, up);
       }
       rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
@@ -1265,7 +1265,7 @@ int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status) {
   // If we have explicit return and some of the keys' values are missing,
   // or if we don't have explicit return, meaning we use LOAD ALL
   if (loadkeys || !req->outFields.explicitReturn) {
-    rp = RPLoader_New(LoadThreadSafe(req), lookup, loadkeys, array_len(loadkeys));
+    rp = RPLoader_New(LoadThreadSafe(req), req->sctx, lookup, loadkeys, array_len(loadkeys));
     if (isSpecJson(req->sctx->spec)) {
       // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
       lookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
@@ -1409,7 +1409,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
           }
         }
         if (lstp->nkeys || lstp->base.flags & PLN_F_LOAD_ALL) {
-          rp = RPLoader_New(LoadThreadSafe(req), curLookup, lstp->keys, lstp->nkeys);
+          rp = RPLoader_New(LoadThreadSafe(req), req->sctx, curLookup, lstp->keys, lstp->nkeys);
           if (isSpecJson(req->sctx->spec)) {
             // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
             curLookup->options &= ~RLOOKUP_OPT_ALL_LOADED;

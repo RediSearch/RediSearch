@@ -611,16 +611,15 @@ typedef struct {
 
 static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   // If the document was modified or deleted, we don't load it
-  if ((r->flags & SEARCHRESULT_VAL_IS_NULL) || (r->dmd->flags & Document_Deleted)) {
+  if ((r->dmd->flags & Document_Expired) || (r->dmd->flags & Document_Deleted)) {
     return;
   }
 
-  self->loadopts.sctx = self->base.parent->sctx; // TODO: can be set in the constructor
   self->loadopts.dmd = r->dmd;
   // if loading the document has failed, we return an empty array.
   // Error code and message are ignored.
   if (RLookup_LoadDocument(self->lk, &r->rowdata, &self->loadopts) != REDISMODULE_OK) {
-    r->flags |= SEARCHRESULT_VAL_IS_NULL;
+    ((RSDocumentMetadata *)(r->dmd))->flags |= Document_Expired; // mark the document as expired for later loaders or other threads
     QueryError_ClearError(&self->status);
   }
 }
@@ -647,11 +646,11 @@ static void rploaderFree(ResultProcessor *base) {
   rm_free(base);
 }
 
-static void rploaderNew_setLoadOpts(RPLoader *self, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
   self->loadopts.forceString = 1; // used in `LOAD_ALLKEYS` mode.
   self->loadopts.forceLoad = 1;   // used in `LOAD_ALLKEYS` mode. TODO: use only with JSON specs and DIALECT<3
   self->loadopts.status = &self->status;
-  self->loadopts.sctx = NULL; // TODO: can be set in the constructor
+  self->loadopts.sctx = sctx;
   self->loadopts.dmd = NULL;
   self->loadopts.keys = rm_malloc(sizeof(*keys) * nkeys);
   memcpy(self->loadopts.keys, keys, sizeof(*keys) * nkeys);
@@ -666,10 +665,10 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RLookup *lk, const RLookupKe
   self->lk = lk;
 }
 
-ResultProcessor *RPLoader_New_Unsafe(RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
   RPLoader *self = rm_calloc(1, sizeof(*self));
 
-  rploaderNew_setLoadOpts(self, lk, keys, nkeys);
+  rploaderNew_setLoadOpts(self, sctx, lk, keys, nkeys);
 
   self->base.Next = rploaderNext;
   self->base.Free = rploaderFree;
@@ -878,10 +877,10 @@ static void rpSafeLoaderFree(ResultProcessor *base) {
   rm_free(sl);
 }
 
-ResultProcessor *RPSafeLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys, size_t block_size) {
+static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, size_t block_size) {
   RPSafeLoader *sl = rm_calloc(1, sizeof(*sl));
 
-  rploaderNew_setLoadOpts(&sl->base_loader, lk, keys, nkeys);
+  rploaderNew_setLoadOpts(&sl->base_loader, sctx, lk, keys, nkeys);
 
   sl->BlockSize = block_size;
   sl->BufferBlocks = NULL;
@@ -898,12 +897,15 @@ ResultProcessor *RPSafeLoader_New(RLookup *lk, const RLookupKey **keys, size_t n
 
 /*********************************************************************************/
 
+#define DEFAULT_BUFFER_BLOCK_SIZE 1024
 
-ResultProcessor *RPLoader_New(bool threadSafe, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+ResultProcessor *RPLoader_New(bool threadSafe, RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
   if (threadSafe) {
-    return RPSafeLoader_New(lk, keys, nkeys, DEFAULT_BUFFER_BLOCK_SIZE);
+    // Assumes that Redis is not locked while executing the loader
+    return RPSafeLoader_New(sctx, lk, keys, nkeys, DEFAULT_BUFFER_BLOCK_SIZE);
   } else {
-    return RPLoader_New_Unsafe(lk, keys, nkeys);
+    // Assumes that Redis is locked while executing the loader
+    return RPPlainLoader_New(sctx, lk, keys, nkeys);
   }
 }
 

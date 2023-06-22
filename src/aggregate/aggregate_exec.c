@@ -193,17 +193,6 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_Reply_SimpleString(reply, "extra_attributes");
     }
 
-    if (r->flags & SEARCHRESULT_VAL_IS_NULL) {
-      if (has_map) {
-        RedisModule_Reply_Array(reply);
-        RedisModule_Reply_ArrayEnd(reply);
-        goto _out;
-      } else {
-        RedisModule_Reply_Null(reply);
-      }
-      return RedisModule_Reply_LocalCount(reply) - count0;
-    }
-
     // Get the number of fields in the reply.
     // Excludes hidden fields, fields not included in RETURN and, score and language fields.
     SchemaRule *rule = (req->sctx && req->sctx->spec) ? req->sctx->spec->rule : NULL;

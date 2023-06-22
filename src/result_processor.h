@@ -18,8 +18,6 @@
 #include "extension.h"
 #include "score_explain.h"
 
-#define DEFAULT_BUFFER_BLOCK_SIZE 1024
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -100,19 +98,10 @@ IndexIterator *QITR_GetRootFilter(QueryIterator *it);
 void QITR_PushRP(QueryIterator *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryIterator *qitr);
 
-
-/*
- * Flags related to the search results.
- */
-
-#define SEARCHRESULT_VAL_IS_NULL 0x01
-
 /*
  * SearchResult - the object all the processing chain is working on.
- * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc.
- *
- * And a list of fields loaded by the chain - currenly only by the loader, but possibly by
- * aggregators later on
+ * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc,
+ * and a list of fields loaded by the chain
  */
 typedef struct {
   t_docId docId;
@@ -130,9 +119,6 @@ typedef struct {
 
   // Row data. Use RLookup_* functions to access
   RLookupRow rowdata;
-
-  // Result flags.
-  uint8_t flags;
 } SearchResult;
 
 /* Result processor return codes */
@@ -240,7 +226,7 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  * for each result, one result at a time, and yield it to the next processor in the chain.
  *
  *******************************************************************************************************************/
-ResultProcessor *RPLoader_New(bool threadSafe, RLookup *lk, const RLookupKey **keys, size_t nkeys);
+ResultProcessor *RPLoader_New(bool threadSafe, RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys);
 
 /** Creates a new Highlight processor */
 ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
