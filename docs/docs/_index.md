@@ -1,15 +1,13 @@
 ---
-title: "Query and search"
-linkTitle: "Query and search"
-description: Querying and searching Redis data
+title: "Search and query"
+linkTitle: "Search and query"
+description: Searching and querying Redis data
 type: docs
 weight: 40
 aliases: 
     - /docs/stack/search
 stack: true
 ---
-
-
 
 
 [![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/xTbqgTB)

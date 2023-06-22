@@ -49,7 +49,7 @@ FT.CONFIG GET *
 
 Values set using `FT.CONFIG SET` are not persisted after server restart.
 
-## Query and search configuration parameters
+## Search and query configuration parameters
 
 The following table summarizes which configuration parameters can be set at module load-time and run-time:
 
