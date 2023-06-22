@@ -434,15 +434,12 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   arguments = array_append(arguments, opts->keyStr);
   arguments = array_ensure_append_n(arguments, opts->fieldsArray, opts->numFieldElems);
 
-  bool update_spec = false;
-
   if (opts->score != DEFAULT_SCORE || (opts->options & DOCUMENT_ADD_PARTIAL)) {
     arguments = array_append(arguments, globalAddRSstrings[0]);
     arguments = array_append(arguments, opts->scoreStr);
     RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->score_field == NULL) {
       ctx->spec->rule->score_field = rm_strndup(UNDERSCORE_SCORE, strlen(UNDERSCORE_SCORE));
-      update_spec = true;
     }
     RedisSearchCtx_UnlockSpec(ctx);
   }
@@ -453,7 +450,6 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
     RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->lang_field == NULL) {
       ctx->spec->rule->lang_field = rm_strndup(UNDERSCORE_LANGUAGE, strlen(UNDERSCORE_LANGUAGE));
-      update_spec = true;
     }
     RedisSearchCtx_UnlockSpec(ctx);
   }
@@ -464,10 +460,6 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
     RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->payload_field == NULL) {
       ctx->spec->rule->payload_field = rm_strndup(UNDERSCORE_PAYLOAD, strlen(UNDERSCORE_PAYLOAD));
-      update_spec = true;
-    }
-    if(update_spec) {
-      IndexSpec_UpdateVersion(ctx->spec);
     }
     RedisSearchCtx_UnlockSpec(ctx);
   }

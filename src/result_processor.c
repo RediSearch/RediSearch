@@ -610,9 +610,13 @@ typedef struct {
 } RPLoader;
 
 static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
-  self->loadopts.sctx = self->base.parent->sctx; // TODO: can be set in the constructor
-  self->loadopts.dmd = r->dmd;sizeof(RPLoader);sizeof(ResultProcessor);sizeof(QueryError);sizeof(RLookupLoadOptions);
+  // If the document was modified or deleted, we don't load it
+  if ((r->flags & SEARCHRESULT_VAL_IS_NULL) || (r->dmd->flags & Document_Deleted)) {
+    return;
+  }
 
+  self->loadopts.sctx = self->base.parent->sctx; // TODO: can be set in the constructor
+  self->loadopts.dmd = r->dmd;
   // if loading the document has failed, we return an empty array.
   // Error code and message are ignored.
   if (RLookup_LoadDocument(self->lk, &r->rowdata, &self->loadopts) != REDISMODULE_OK) {
@@ -626,12 +630,6 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   int rc = base->upstream->Next(base->upstream, r);
   if (rc != RS_RESULT_OK) {
     return rc;
-  }
-
-  // Current behavior skips entire result if document does not exist.
-  // I'm unsure if that's intentional or an oversight.
-  if (r->dmd == NULL || (r->dmd->flags & Document_Deleted)) {
-    return RS_RESULT_OK;
   }
 
   rpLoader_loadDocument(lc, r);
@@ -711,11 +709,6 @@ typedef struct RPSafeLoader {
 
 /************************* Safe Loader private functions *************************/
 
-static bool isResultValid(const SearchResult *res) {
-  // check if the doc is not marked deleted in the spec
-  return !(res->dmd->flags & Document_Deleted);
-}
-
 static void SetResult(SearchResult *buffered_result,  SearchResult *result_output) {
   // Free the RLookup row before overriding it.
   RLookupRow_Cleanup(&result_output->rowdata);
@@ -791,59 +784,6 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self) {
 
 /*********************************************************************************/
 
-static void rpSafeLoader_ValidateAndLoad(RPSafeLoader *self) {
-  SearchResult *curr_res;
-
-  // iterate the buffer.
-  // TODO: implement `GetNextResult` that gets the current block to save calculation time.
-  while ((curr_res = GetNextResult(self))) {
-    // Skip invalid results
-    if (!isResultValid(curr_res)) {
-      self->base_loader.base.parent->totalResults--;
-      continue;
-    }
-
-    // Load the result
-    rpLoader_loadDocument(&self->base_loader, curr_res);
-  }
-
-  // Reset the iterator
-  self->curr_result_index = 0;
-}
-
-static int rpSafeLoaderNext_ValidateAndYield(ResultProcessor *rp, SearchResult *result_output) {
-  RPSafeLoader *self = (RPSafeLoader *)rp;
-  SearchResult *curr_res;
-
-  // iterate the buffer.
-  while ((curr_res = GetNextResult(self))) {
-    // Skip invalid results
-    if (isResultValid(curr_res)) {
-      SetResult(curr_res, result_output);
-      if (rp->parent->resultLimit <= 1) {
-        return rpSafeLoader_ResetAndReturnLastCode(self);
-      } else {
-        return RS_RESULT_OK;
-      }
-    }
-
-    // If the result is invalid discard it.
-    SearchResult_Destroy(curr_res);
-  }
-
-  // If we got here, we finished iterating the buffer.
-  // If the upstream has more results, we can't just return EOF, we need to buffer some more.
-  int rc = rpSafeLoader_ResetAndReturnLastCode(self);
-  if (rc == RS_RESULT_OK) {
-    // If the upstream has more results, buffer them.
-    return rp->Next(rp, result_output);
-  } else {
-    // If the upstream has no more results (rc is not `OK`),
-    // we can return the code without a valid result. Return the code.
-    return rc;
-  }
-}
-
 static void rpSafeLoader_Load(RPSafeLoader *self) {
   SearchResult *curr_res;
 
@@ -910,20 +850,13 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // Then, lock Redis to guarantee safe access to Redis keyspace
   RedisModule_ThreadSafeContextLock(sctx->redisCtx);
 
-  // If the spec has been changed since we released the spec lock,
-  // we need to validate every buffered result
-  if (rp->parent->initialSpecVersion != IndexSpec_GetVersion(sctx->spec)) {
-    rpSafeLoader_ValidateAndLoad(self);
-    rp->Next = rpSafeLoaderNext_ValidateAndYield;
-  } else { // Else we just return the results one by one
-    rpSafeLoader_Load(self);
-    rp->Next = rpSafeLoaderNext_Yield;
-  }
+  rpSafeLoader_Load(self);
 
   // Done loading. Unlock Redis
   RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
 
   // Move to the yielding phase
+  rp->Next = rpSafeLoaderNext_Yield;
   return rp->Next(rp, res);
 }
 
