@@ -84,7 +84,6 @@ typedef enum {
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
-#define LoadThreadSafe(r) ((r)->reqflags & QEXEC_F_BUILDPIPELINE_THREADSAFE)
 
 #ifdef MT_BUILD
 // Indicates whether a query should run in the background. This
@@ -97,7 +96,7 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
 } QEStateFlags;
 
-typedef struct {
+typedef struct AREQ {
   /* plan containing the logical sequence of steps */
   AGGPlan ap;
 

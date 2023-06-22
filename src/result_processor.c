@@ -4,6 +4,7 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
+#include "aggregate/aggregate.h"
 #include "result_processor.h"
 #include "query.h"
 #include "extension.h"
@@ -899,13 +900,13 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, cons
 
 #define DEFAULT_BUFFER_BLOCK_SIZE 1024
 
-ResultProcessor *RPLoader_New(bool threadSafe, RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
-  if (threadSafe) {
-    // Assumes that Redis is not locked while executing the loader
-    return RPSafeLoader_New(sctx, lk, keys, nkeys, DEFAULT_BUFFER_BLOCK_SIZE);
+ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+  if (r->reqflags & QEXEC_F_BUILDPIPELINE_THREADSAFE) {
+    // Assumes that Redis is *NOT* locked while executing the loader
+    return RPSafeLoader_New(r->sctx, lk, keys, nkeys, DEFAULT_BUFFER_BLOCK_SIZE);
   } else {
-    // Assumes that Redis is locked while executing the loader
-    return RPPlainLoader_New(sctx, lk, keys, nkeys);
+    // Assumes that Redis *IS* locked while executing the loader
+    return RPPlainLoader_New(r->sctx, lk, keys, nkeys);
   }
 }
 

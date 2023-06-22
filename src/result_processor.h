@@ -226,7 +226,8 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  * for each result, one result at a time, and yield it to the next processor in the chain.
  *
  *******************************************************************************************************************/
-ResultProcessor *RPLoader_New(bool threadSafe, RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys);
+struct AREQ;
+ResultProcessor *RPLoader_New(struct AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys);
 
 /** Creates a new Highlight processor */
 ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
