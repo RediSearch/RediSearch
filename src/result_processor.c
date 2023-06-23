@@ -612,15 +612,16 @@ typedef struct {
 
 static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   // If the document was modified or deleted, we don't load it
-  if ((r->dmd->flags & Document_Expired) || (r->dmd->flags & Document_Deleted)) {
+  if ((r->dmd->flags & Document_FailedToOpen) || (r->dmd->flags & Document_Deleted)) {
     return;
   }
 
   self->loadopts.dmd = r->dmd;
-  // if loading the document has failed, we return an empty array.
+  // if loading the document has failed, we keep the row as it was.
   // Error code and message are ignored.
   if (RLookup_LoadDocument(self->lk, &r->rowdata, &self->loadopts) != REDISMODULE_OK) {
-    ((RSDocumentMetadata *)(r->dmd))->flags |= Document_Expired; // mark the document as expired for later loaders or other threads
+    // mark the document as "failed to open" for later loaders or other threads (optimization)
+    ((RSDocumentMetadata *)(r->dmd))->flags |= Document_FailedToOpen;
     QueryError_ClearError(&self->status);
   }
 }

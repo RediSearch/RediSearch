@@ -75,8 +75,8 @@ typedef enum {
   Document_HasPayload = 0x02,
   Document_HasSortVector = 0x04,
   Document_HasOffsetVector = 0x08,
-  Document_Expired = 0x10, // Document is expired but not yet marked as deleted. This is an optimization
-                           // to avoid attempting opening the document for loading. May be used UN-ATOMICALLY
+  Document_FailedToOpen = 0x10, // Document was failed to opened by a loader (might expired) but not yet marked as deleted.
+                                // This is an optimization to avoid attempting opening the document for loading. May be used UN-ATOMICALLY
 } RSDocumentFlags;
 
 #define hasPayload(x) (x & Document_HasPayload)
