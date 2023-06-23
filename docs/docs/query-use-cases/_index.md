@@ -1,6 +1,6 @@
 ---
-title: "Search and Query use cases"
-linkTitle: "Search and Query use cases"
+title: "Use cases"
+linkTitle: "Use cases"
 weight: 5
 description: >
     Search and Query use cases
