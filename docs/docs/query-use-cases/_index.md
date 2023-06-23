@@ -3,7 +3,7 @@ title: "Search and Query use cases"
 linkTitle: "Search and Query use cases"
 weight: 5
 description: >
-    Learn how to use query syntax
+    Search and Query use cases
 aliases:
   - /docs/stack/search/reference/query_syntax/  
   - /docs/stack/use-cases/  
