@@ -168,8 +168,7 @@ struct RTree {
   using ResultsVec = std::vector<doc_type, rm_allocator<doc_type>>;
   static IndexIterator* generate_query_iterator(ResultsVec&& results) {
     auto geometry_query_iterator = new GeometryQueryIterator(
-      GeometryQueryIterator::container(results.size()) |
-      std::ranges::transform(results, [](auto&& doc) { return doc.id(); })
+      results | std::views::transform([](auto&& doc) { return doc.id(); })
     );
     return geometry_query_iterator->base();
   }

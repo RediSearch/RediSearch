@@ -17,6 +17,7 @@
 
 namespace bg = boost::geometry;
 namespace bgm = bg::model;
+namespace bgi = bg::index;
 
 using Cartesian = bg::cs::cartesian;
 using Geographic = bg::cs::geographic<bg::degree>;
@@ -37,9 +38,20 @@ using GeographicPolygon =
 
 using string = std::basic_string<char, std::char_traits<char>, rm_allocator<char>>;
 
+template <class Class, auto MemFuncPtr>
+struct has_member {
+  template <class C = Class, typename = decltype((std::declval<C>().*MemFuncPtr)(0))>
+  static std::true_type Check(int);
+  static std::false_type Check(...);
+  static inline constexpr bool value = decltype(Check(0))::value;
+};
+
+template <class Class, auto MemFuncPtr>
+inline constexpr bool has_member_v = has_member<Class, MemFuncPtr>::value;
+
 template <typename geom_type>
 struct RTDoc {
-  using point_type = geom_type::point_type;
+  using point_type = bg::point_type<geom_type>::type;
   using rect_type = bgm::box<point_type>;
 
   rect_type rect_;
@@ -55,15 +67,22 @@ struct RTDoc {
     return id_;
   }
 
-  [[nodiscard]] static rect_type to_rect(geom_type const& poly) {
-    const auto& points = poly.outer();
-    if (points.empty()) {
-      return rect_type{};
+  [[nodiscard]] static std::vector<point_type, rm_allocator<point_type>> getpoints(geom_type const& geom) {
+    if constexpr (has_member_v<geom_type, &geom_type::outer>) {
+      return geom.outer();
+    } else {
+      return std::vector<point_type, rm_allocator<point_type>>{geom};
     }
-    auto xs = std::ranges::transform_view(points, [](const auto& p) { return bg::get<0>(p); });
-    auto [min_x, max_x] = std::ranges::minmax(xs);
-    auto ys = std::ranges::transform_view(points, [](const auto& p) { return bg::get<1>(p); });
-    auto [min_y, max_y] = std::ranges::minmax(ys);
+  }
+
+  [[nodiscard]] static rect_type to_rect(geom_type const& poly) {
+    const auto& points = getpoints(poly);
+    auto [min_x, max_x] = std::ranges::minmax(
+      points | std::views::transform([](auto const& p) { return bg::get<0>(p); })
+    );
+    auto [min_y, max_y] = std::ranges::minmax(
+      points | std::views::transform([](auto const& p) { return bg::get<1>(p); })
+    );
     return rect_type{point_type{min_x, min_y}, point_type{max_x, max_y}};
   }
 

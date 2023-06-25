@@ -23,6 +23,8 @@ struct GeometryQueryIterator {
   void operator delete(void *p) noexcept { rm_allocator<Self>().deallocate(static_cast<Self*>(p), 1); }
 
 	explicit GeometryQueryIterator() = default;
+	template <std::ranges::input_range R>
+	explicit GeometryQueryIterator(R&& range) : GeometryQueryIterator(container{std::begin(range), std::end(range)}) {}
 	explicit GeometryQueryIterator(container&& docs)
 		: base_{init_base()}
 		, iter_{std::move(docs)}
