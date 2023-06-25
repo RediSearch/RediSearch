@@ -302,10 +302,6 @@ typedef struct IndexSpec {
   // read write lock
   pthread_rwlock_t rwlock;
 
-  // Current spec version.
-  // Should be updated after acquiring the write lock.
-  size_t specVersion;
-
   // Cursors counters
   size_t cursorsCap;
   size_t activeCursors;
@@ -532,9 +528,9 @@ StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name, int openWr
 StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
 
 /**
- * Quick access to the spec's strong reference. This function should be called only if 
- * the spec is valid and protected (by the GIL or the spec's lock). 
- * The call does not increase the spec's reference counters. 
+ * Quick access to the spec's strong reference. This function should be called only if
+ * the spec is valid and protected (by the GIL or the spec's lock).
+ * The call does not increase the spec's reference counters.
  * @return a strong reference to the spec.
  */
 StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec);
@@ -568,17 +564,6 @@ int CompareVestions(Version v1, Version v2);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(StrongRef ref);
-
-// Return the current version of the spec.
-// Each protected writing increases the version by 1.
-// If the version number is overflowed we restart the count to zero.
-// Hence, The value of the version number doesn't indicate if the index
-// is newer or older, and should be only tested for inequality.
-size_t IndexSpec_GetVersion(const IndexSpec *sp);
-
-// Update the spec version if we update the index.
-// This function should be called after the write lock is acquired.
-void IndexSpec_UpdateVersion(IndexSpec *sp);
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
 void Indexes_SetTempSpecsTimers(TimerOp op);
