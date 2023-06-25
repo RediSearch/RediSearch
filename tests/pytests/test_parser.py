@@ -579,6 +579,10 @@ def testLongUnionList(env):
     env.expect('ft.search', 'idx1', f'@t:({arg})', 'NOCONTENT', 'DIALECT', 2).equal([num_args, *[f'doc{i}' for i in range(1, 11)]])
     env.expect('ft.search', 'idx2', f'@t:{{{arg}}}', 'NOCONTENT', 'DIALECT', 2).equal([num_args, *[f'doc{i}' for i in range(1, 11)]])
 
+    # Make sure we get a single union node of all the args, and not a deep tree
+    exact_arg = '|'.join([f'"t{i}"' for i in range(1, num_args+1)])
+    env.expect('FT.EXPLAIN', 'idx1', f'@t:({exact_arg})').equal('@t:UNION {\n' + '\n'.join([f'  @t:t{i}' for i in range(1, num_args+1)]) + '\n}\n')
+
 def testModifierList(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT').ok()
     env.expect('FT.EXPLAIN', 'idx', '@t1|t2:(text value)').equal(r'''
@@ -594,4 +598,3 @@ def testModifierList(env):
   }
 }
 '''[1:])
-
