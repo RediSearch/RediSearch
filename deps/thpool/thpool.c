@@ -56,7 +56,7 @@ redisearch_thpool_t *g_curr_threadpool = NULL;
 // to check if we need to increase the dump container size
 static volatile size_t g_curr_bt_buffer_size = 0;
 // The number of threads in the current threadpool that are paused.
-static atomic_size_t g_threads_paused_cnt = 0;
+static size_t g_threads_paused_cnt = 0;
 // The number of threads in the threadpool that done writing their current state to the dump container.
 static atomic_size_t g_threads_done_cnt = 0;
 
@@ -504,8 +504,8 @@ void redisearch_thpool_pause(redisearch_thpool_t* thpool_p) {
     // wait until all the threads in the thpool are paused (except for the caller)
     size_t expected_new_paused_count = threadpool_size - called_by_threadpool;
     clock_t start = clock();
-    size_t paused_threads = g_threads_paused_cnt;
-    while(g_threads_paused_cnt < expected_new_paused_count) {
+    size_t paused_threads = __atomic_load_n(&g_threads_paused_cnt, __ATOMIC_RELAXED);
+    while(paused_threads < expected_new_paused_count) {
       int waiting_time = (clock() - start)/CLOCKS_PER_SEC;
       if (waiting_time && waiting_time % LOG_WAITING_TIME_INTERVAL == 0) {
           RedisModule_Log(NULL, "warning",
@@ -513,7 +513,7 @@ void redisearch_thpool_pause(redisearch_thpool_t* thpool_p) {
                   "continue waiting",
                   expected_new_paused_count, paused_threads);
       }
-      paused_threads = g_threads_paused_cnt;
+      paused_threads = __atomic_load_n(&g_threads_paused_cnt, __ATOMIC_RELAXED);
     }
   }
 
@@ -798,7 +798,7 @@ static void thread_hold(int sig_id) {
 
   // atomically load and increase paused threads count and use it as the thread index in the
   // output array.
-  size_t thread_id = g_threads_paused_cnt++;
+  size_t thread_id = __atomic_fetch_add(&g_threads_paused_cnt, 1, __ATOMIC_RELAXED);
 
   // If we pause to collect current information state, wait until all data structure
   // required for the report are initalized.
