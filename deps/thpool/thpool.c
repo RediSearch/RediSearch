@@ -798,7 +798,7 @@ static void thread_hold(int sig_id) {
 
   // atomically load and increase paused threads count and use it as the thread index in the
   // output array.
-  size_t thread_id = __atomic_fetch_add(&g_threads_paused_cnt, 1, __ATOMIC_RELAXED);
+  size_t thread_id = g_threads_paused_cnt++;
 
   // If we pause to collect current information state, wait until all data structure
   // required for the report are initalized.
