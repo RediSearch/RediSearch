@@ -572,9 +572,10 @@ def testSupportedNesting_v2():
 def testLongUnionList(env):
     env.expect('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT').ok()
     env.expect('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TAG').ok()
+    conn = getConnectionByEnv(env)
     num_args = 300
     for i in range(1, num_args+1):
-        env.expect('HSET', f'doc{i}', 't', f't{i}').equal(1)
+        conn.execute_command('HSET', f'doc{i}', 't', f't{i}')
     arg = '|'.join([f't{i}' for i in range(1, num_args+1)])
     env.expect('ft.search', 'idx1', f'@t:({arg})', 'NOCONTENT', 'DIALECT', 2).equal([num_args, *[f'doc{i}' for i in range(1, 11)]])
     env.expect('ft.search', 'idx2', f'@t:{{{arg}}}', 'NOCONTENT', 'DIALECT', 2).equal([num_args, *[f'doc{i}' for i in range(1, 11)]])
