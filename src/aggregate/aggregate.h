@@ -47,7 +47,7 @@ typedef enum {
   /**
    * Add the ability to run the query in a multi threaded environment
    */
-  QEXEC_F_BUILDPIPELINE_THREADSAFE = 0x100,
+  QEXEC_F_RUN_IN_BACKGROUND = 0x100,
 
   /* The inverse of IS_EXTENDED. The two cannot coexist together */
   QEXEC_F_IS_SEARCH = 0x200,

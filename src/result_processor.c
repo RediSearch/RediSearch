@@ -902,7 +902,7 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, cons
 #define DEFAULT_BUFFER_BLOCK_SIZE 1024
 
 ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
-  if (r->reqflags & QEXEC_F_BUILDPIPELINE_THREADSAFE) {
+  if (r->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
     // Assumes that Redis is *NOT* locked while executing the loader
     return RPSafeLoader_New(r->sctx, lk, keys, nkeys, DEFAULT_BUFFER_BLOCK_SIZE);
   } else {
@@ -911,10 +911,9 @@ ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, siz
   }
 }
 
-// TODO: do we want a different name for the safe loader?
-static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",     "Safe-Loader",   "Scorer",
-                                     "Sorter",  "Counter",    "Pager/Limiter", "Highlighter",
-                                     "Grouper", "Projector",  "Filter",        "Profile",
+static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader", "Scorer",
+                                     "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
+                                     "Grouper", "Projector", "Filter",            "Profile",
                                      "Network", "Metrics Applier"};
 
 const char *RPTypeToString(ResultProcessorType type) {
