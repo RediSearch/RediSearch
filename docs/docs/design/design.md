@@ -6,9 +6,9 @@ description: >
     Details about design choices and implementations
 ---
 
-# RediSearch internal design
+# Search and Query internal design
 
-RediSearch implements inverted indexes on top of Redis, but unlike previous implementations of Redis inverted indexes, it uses custom data encoding, that allows more memory and CPU efficient searches, and more advanced search features.
+Search and Query implements inverted indexes on top of Redis, but unlike previous implementations of Redis inverted indexes, it uses custom data encoding, that allows more memory and CPU efficient searches, and more advanced search features.
 
 This document details some of the design choices and how these features are implemented.
 
@@ -32,7 +32,7 @@ An [Inverted Index](https://en.wikipedia.org/wiki/Inverted_index) is the data st
 
 When a search is performed, we need to either traverse such an index, or intersect or union two or more indexes. Classic Redis implementations of search engines use sorted sets as inverted indexes. This works but has significant memory overhead, and also does not allow for encoding of offsets, as explained above.
 
-RediSearch uses String DMA (see above) to efficiently encode inverted indexes. It combines [Delta Encoding](https://en.wikipedia.org/wiki/Delta_encoding) and [Varint Encoding](https://developers.google.com/protocol-buffers/docs/encoding#varints) to encode entries, minimizing space used for indexes, while keeping decompression and traversal efficient.
+Search and Query uses String DMA (see above) to efficiently encode inverted indexes. It combines [Delta Encoding](https://en.wikipedia.org/wiki/Delta_encoding) and [Varint Encoding](https://developers.google.com/protocol-buffers/docs/encoding#varints) to encode entries, minimizing space used for indexes, while keeping decompression and traversal efficient.
 
 For each "hit" (document/word entry), we encode:
 
@@ -131,9 +131,9 @@ As of release 0.6, the implementation uses a multi-level range tree, saving rang
 
 ## Auto-Complete and Fuzzy Suggestions
 
-Another important feature for RediSearch is its auto-complete or suggest commands. It allows you to create dictionaries of weighted terms, and then query them for completion suggestions to a given user prefix.  For example, if we put the term “lcd tv” into a dictionary, sending the prefix “lc” will return it as a result. The dictionary is modeled as a compressed trie (prefix tree) with weights, that is traversed to find the top suffixes of a prefix.
+Another important feature for Search and Query is its auto-complete or suggest commands. It allows you to create dictionaries of weighted terms, and then query them for completion suggestions to a given user prefix.  For example, if we put the term “lcd tv” into a dictionary, sending the prefix “lc” will return it as a result. The dictionary is modeled as a compressed trie (prefix tree) with weights, that is traversed to find the top suffixes of a prefix.
 
-RediSearch also allows for Fuzzy Suggestions, meaning you can get suggestions to user prefixes even if the user has a typo in the prefix. This is enabled using a Levenshtein Automaton, allowing efficient searching of the dictionary for all terms within a maximal Levenshtein distance of a term or prefix. Then suggested are weighted based on both their original score and distance from the prefix typed by the user. Currently we support (for performance reasons) only suggestions where the prefix is up to 1 Levenshtein distance away from the typed prefix.
+Search and Query also allows for Fuzzy Suggestions, meaning you can get suggestions to user prefixes even if the user has a typo in the prefix. This is enabled using a Levenshtein Automaton, allowing efficient searching of the dictionary for all terms within a maximal Levenshtein distance of a term or prefix. Then suggested are weighted based on both their original score and distance from the prefix typed by the user. Currently we support (for performance reasons) only suggestions where the prefix is up to 1 Levenshtein distance away from the typed prefix.
 
 However, since searching for fuzzy prefixes, especially very short ones, will traverse an enormous amount of suggestions (in fact, fuzzy suggestions for any single letter will traverse the entire dictionary!), it is recommended to use this feature carefully, and only when considering the performance penalty it incurs. Since Redis is single threaded, blocking it for any amount of time means no other queries can be processed at that time.
 

@@ -3,7 +3,7 @@ title: "Configuration Parameters"
 linkTitle: "Configuration"
 weight: 3
 description: >
-    RediSearch supports multiple module configuration parameters. Some of these parameters can only be set at load-time, while other parameters can be set either on load-time or on run-time.
+    Search and Query supports multiple module configuration parameters. Some of these parameters can only be set at load-time, while other parameters can be set either on load-time or on run-time.
 ---
 
 ## Set configuration parameters on module load
@@ -30,7 +30,7 @@ $ redis-server --loadmodule ./redisearch.so [OPT VAL]...
 
 ## Set configuration parameters at run-time (for supported parameters)
 
-RediSearch exposes the `FT.CONFIG` endpoint to allowing for the setting and retrieval of configuration parameters at run-time.
+Search and Query exposes the `FT.CONFIG` endpoint to allowing for the setting and retrieval of configuration parameters at run-time.
 
 To set the value of a configuration parameter at run-time (for supported parameters), simply run:
 
@@ -47,7 +47,7 @@ FT.CONFIG GET *
 
 Values set using `FT.CONFIG SET` are not persisted after server restart.
 
-## RediSearch configuration parameters
+## Search and Query configuration parameters
 
 The following table summarizes which configuration parameters can be set at module load-time and run-time:
 
@@ -132,7 +132,7 @@ Deprecated in v1.6. From this version, SAFEMODE is the default.  If you still li
 
 {{% /alert %}}
 
-If present in the argument list, RediSearch will turn off concurrency for query processing, and work in a single thread.
+If present in the argument list, Search and Query will turn off concurrency for query processing, and work in a single thread.
 
 This is useful if data consistency is extremely important, and avoids a situation where deletion of documents while querying them can cause momentarily inconsistent results (i.e. documents that were valid during the invocation of the query are not returned because they were deleted during query processing).
 
@@ -177,7 +177,7 @@ $ redis-server --loadmodule ./redisearch.so CONCURRENT_WRITE_MODE
 
 ### EXTLOAD
 
-If present, we try to load a RediSearch extension dynamic library from the specified file path. See [Extensions](/redisearch/reference/extensions) for details.
+If present, we try to load a Search and Query extension dynamic library from the specified file path. See [Extensions](/redisearch/reference/extensions) for details.
 
 #### Default
 
@@ -428,7 +428,7 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_RUN_INTERVAL 
 
 ### FORK_GC_RETRY_INTERVAL
 
-Interval (in seconds) in which RediSearch will retry to run `fork GC` in case of a failure. Usually, a failure could happen when the redis fork api does not allow for more than one fork to be created at the same time.
+Interval (in seconds) in which Search and Query will retry to run `fork GC` in case of a failure. Usually, a failure could happen when the redis fork api does not allow for more than one fork to be created at the same time.
 
 #### Default
 
@@ -474,7 +474,7 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_CLEAN_THRESHO
 
 ### UPGRADE_INDEX
 
-This configuration is a special configuration introduced to upgrade indices from v1.x RediSearch versions, further referred to as 'legacy indices.' This configuration option needs to be given for each legacy index, followed by the index name and all valid option for the index description ( also referred to as the `ON` arguments for following hashes) as described on [ft.create api](/redisearch/commands#ftcreate). See [Upgrade to 2.0](/redisearch/administration/upgrade_to_2.0) for more information.
+This configuration is a special configuration introduced to upgrade indices from v1.x Search and Query versions, further referred to as 'legacy indices.' This configuration option needs to be given for each legacy index, followed by the index name and all valid option for the index description ( also referred to as the `ON` arguments for following hashes) as described on [ft.create api](/redisearch/commands#ftcreate). See [Upgrade to 2.0](/redisearch/administration/upgrade_to_2.0) for more information.
 
 #### Default
 

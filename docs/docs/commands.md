@@ -6,7 +6,7 @@ description: >
     Commands Overview
 ---
 
-### RediSearch API
+### Search and Query API
 
 Details on module's [commands](/commands/?group=search) can be filtered for a specific module or command, e.g., [`FT`](/commands/?name=ft.).
 The details also include the syntax for the commands, where:

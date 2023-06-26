@@ -10,7 +10,7 @@ description: >
 
 Query spelling correction, a.k.a "did you mean", provides suggestions for misspelled search terms. For example, the term 'reids' may be a misspelled 'redis'.
 
-In such cases and as of v1.4 RediSearch can be used for generating alternatives to misspelled query terms. A misspelled term is a full text term (i.e., a word) that is:
+In such cases and as of v1.4 Search and Query can be used for generating alternatives to misspelled query terms. A misspelled term is a full text term (i.e., a word) that is:
 
   1. Not a stop word
   2. Not in the index
@@ -24,7 +24,7 @@ To obtain the spelling corrections for a query, refer to the documentation of th
 
 A dictionary is a set of terms. Dictionaries can be added with terms, have terms deleted from them and have their entire contents dumped using the `FT.DICTADD`, `FT.DICTDEL` and `FT.DICTDUMP` commands, respectively.
 
-Dictionaries can be used to modify the behavior of RediSearch's query spelling correction, by including or excluding their contents from potential spelling correction suggestions.
+Dictionaries can be used to modify the behavior of Search and Query spelling correction, by including or excluding their contents from potential spelling correction suggestions.
 
 When used for term inclusion, the terms in a dictionary can be provided as spelling suggestions regardless their occurances (or lack of) in the index. Scores of suggestions from inclusion dictionaries are always 0. 
 

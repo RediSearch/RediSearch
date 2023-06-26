@@ -6,7 +6,7 @@ description: >
     Details about garbage collection
 ---
 
-# Garbage Collection in RediSearch
+# Garbage Collection in Search and Query
 
 ## 1. The Need For GC
 

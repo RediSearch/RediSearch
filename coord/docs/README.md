@@ -3,14 +3,14 @@
 [![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redislabs.com/c/modules/redisearch/)
 [![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/xTbqgTB)
 
-# RSCoordinator - Distributed RediSearch
+# RSCoordinator - Distributed Search and Query
 
-RSCoordinator is an add-on module that enables scalable distributed search over [RediSearch](http://redisearch.io).
+RSCoordinator is an add-on module that enables scalable distributed search over [Redis's Search and Query capability](http://redisearch.io).
 
 ## How It Works
 
-RSCoordinator runs alongside RediSearch, and distributes search commands across the cluster.
-It translates its own API, which is similar to RediSearch's API, into a set of RediSearch commands, sends those to the appropriate shards,
+RSCoordinator runs alongside Search and Query, and distributes search commands across the cluster.
+It translates its own API, which is similar to Search and Query's API, into a set of Search and Query commands, sends those to the appropriate shards,
 and merges the responses to a single one.
 
 ### Example Usage
@@ -26,7 +26,7 @@ and merges the responses to a single one.
 > FT.SEARCH myIdx "hello world"
 ```
 
-The syntax of all these commands is identical to that of the equivalent RediSearch commands.
+The syntax of all these commands is identical to that of the equivalent Search and Query commands.
 
 ## Building RSCoordinator
 

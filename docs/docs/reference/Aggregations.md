@@ -6,7 +6,7 @@ description: >
     Details of FT.AGGREGATE. Grouping and projections and functions
 ---
 
-# RediSearch Aggregations
+# Search and Query Aggregations
 
 Aggregations are a way to process the results of a search query, group, sort and transform them - and extract analytic insights from them. Much like aggregation queries in other databases and search engines, they can be used to create analytics reports, or perform [Faceted Search](https://en.wikipedia.org/wiki/Faceted_search) style queries.
 
@@ -65,7 +65,7 @@ FT.AGGREGATE
 Parameters which may take a variable number of arguments are expressed in the
 form of `param {nargs} {property_1... property_N}`. The first argument to the
 parameter is the number of arguments following the parameter. This allows
-RediSearch to avoid a parsing ambiguity in case one of your arguments has the
+Search and Query to avoid a parsing ambiguity in case one of your arguments has the
 name of another parameter. For example, to sort by first name, last name, and
 country, one would specify `SORTBY 6 firstName ASC lastName DESC country ASC`.
 
@@ -567,5 +567,5 @@ Note that cursors are automatically deleted if all their results have been
 returned, or if they have been timed out.
 
 All idle cursors can be forcefully purged at once using `FT.CURSOR GC idx 0` command.
-By default, RediSearch uses a lazy throttled approach to garbage collection, which
+By default, Search and Query uses a lazy throttled approach to garbage collection, which
 collects idle cursors every 500 operations, or every second - whichever is later.

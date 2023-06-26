@@ -1,6 +1,6 @@
 # RSCoordinator Command Documentation
 
-This is the list of supported commands for the module. Note that most of them follow the exact semantics of  RediSearch.
+This is the list of supported commands for the module. Note that most of them follow the exact semantics of  Search and Query.
 
 
 ## DFT.CLUSTERINFO

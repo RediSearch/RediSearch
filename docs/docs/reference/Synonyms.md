@@ -10,7 +10,7 @@ description: >
 
 ## Overview
 
-RediSearch supports synonyms - that is searching for synonyms words defined by the synonym data structure.
+Search and Query supports synonyms - that is searching for synonyms words defined by the synonym data structure.
 
 The synonym data structure is a set of groups, each group contains synonym terms. For example, the following synonym data structure contains three groups, each group contains three synonym terms:
 

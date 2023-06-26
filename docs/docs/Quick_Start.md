@@ -1,24 +1,24 @@
 ---
-title: "RediSearch quick start"
+title: "Search and Query quick start"
 linkTitle: "Quick start"
 weight: 1
 description: >
-    Get started with RediSearch
+    Get started with Search and Query
 ---
 
-## Set up RediSearch
+## Set up Search and Query
 
-There are several ways to set up a Redis database with the RediSearch module enabled.
+There are several ways to set up a Redis database with the Search and Query module enabled.
 
 ### Redis Cloud
 
-RediSearch is available on all Redis Cloud managed services. A Redis Cloud Fixed subscription offers a completely free managed database with up to 30MB.
+Search and Query is available on all Redis Cloud managed services. A Redis Cloud Fixed subscription offers a completely free managed database with up to 30MB.
 
 [Create a free Redis Cloud account here](https://redis.com/try-free/) and select **Redis Stack** as your database type. For more detailed instructions, see the [Redis Stack and modules quick start](https://docs.redis.com/latest/modules/modules-quickstart/#set-up-a-redis-cloud-database).
 
 ### Run with Docker
 
-To run RediSearch with Docker, use the `redis-stack-server` Docker image:
+To run Search and Query with Docker, use the `redis-stack-server` Docker image:
 
 ```sh
 $ docker run -d --name redis-stack-server -p 6379:6379 redis/redis-stack-server:latest
@@ -28,11 +28,11 @@ For more information about running Redis Stack in a Docker container, see [Run R
 
 ### Download binaries
 
-To download and run RediSearch from a precompiled binary:
+To download and run Search and Query from a precompiled binary:
 
-1. Download a precompiled version of RediSearch from the [Redis download center](https://redis.com/download-center/modules/).
+1. Download a precompiled version of Search and Query from the [Redis download center](https://redis.com/download-center/modules/).
 
-1. Run Redis with RediSearch:
+1. Run Redis with Search and Query:
 
     ```sh
     $ redis-server --loadmodule /path/to/module/src/redisearch.so
@@ -40,11 +40,11 @@ To download and run RediSearch from a precompiled binary:
 
 ### Build from source
 
-To build and run RediSearch from the source code:
+To build and run Search and Query from the source code:
 
 1. Requirements: `git` & `make`
 
-1. Clone the [RediSearch repository](https://github.com/RediSearch/RediSearch) (make sure you include the `--recursive` option to properly clone submodules):
+1. Clone the [Search and Query repository](https://github.com/RediSearch/RediSearch) (make sure you include the `--recursive` option to properly clone submodules):
 
     ```sh
     $ git clone --recursive https://github.com/RediSearch/RediSearch.git
@@ -62,7 +62,7 @@ To build and run RediSearch from the source code:
     $ make build
     ```
 
-1. Run Redis with RediSearch:
+1. Run Redis with Search and Query:
     Requirements: [redis-server](https://redis.io/docs/getting-started/)
 
     ```sh
@@ -153,6 +153,6 @@ Test auto-complete suggestions with `FT.SUGGET`:
 
 ## Index JSON documents
 
-In addition to Redis hashes, you can index and search JSON documents if your database has both RediSearch and [RedisJSON](/docs/stack/json) enabled. If you have a Redis Stack database, it automatically includes both modules.
+In addition to Redis hashes, you can index and search JSON documents if your database has both Search and Query, and [JSON](/docs/stack/json) enabled. If you have a Redis Stack database, it automatically includes both modules.
 
-To learn how to use RediSearch with JSON documents, see [Indexing JSON documents](/docs/stack/search/indexing_json).
+To learn how to use Search and Query with JSON documents, see [Indexing JSON documents](/docs/stack/search/indexing_json).

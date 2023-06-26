@@ -3,7 +3,7 @@
 [![Dockerhub](https://img.shields.io/docker/pulls/redis/redis-stack-server?label=redis-stack-server)](https://hub.docker.com/r/redis/redis-stack-server/)
 [![Codecov](https://codecov.io/gh/RediSearch/RediSearch/branch/master/graph/badge.svg)](https://codecov.io/gh/RediSearch/RediSearch)
 
-# RediSearch
+# Search and Query
 ## Querying, secondary indexing, and full-text search for Redis
 [![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redis.com/c/modules/redisearch/)
 [![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/xTbqgTB)
@@ -12,27 +12,27 @@
 
 ## Overview
 
-RediSearch is a [Redis module](https://redis.io/modules) that provides querying, secondary indexing, and full-text search for Redis. To use RediSearch, you first declare indexes on your Redis data. You can then use the RediSearch query language to query that data.
+Search and Query is a [Redis module](https://redis.io/modules) that provides querying, secondary indexing, and full-text search for Redis. To use Search and Query, you first declare indexes on your Redis data. You can then use the module's query language to query that data.
 
-RediSearch uses compressed, inverted indexes for fast indexing with a low memory footprint.
+Search and Query uses compressed, inverted indexes for fast indexing with a low memory footprint.
 
-RediSearch indexes enhance Redis by providing exact-phrase matching, fuzzy search, and numeric filtering, among many other features.
+Search and Query indexes enhance Redis by providing exact-phrase matching, fuzzy search, and numeric filtering, among many other features.
 
 ## Getting started
 
-If you're just getting started with RediSearch, check out the [official RediSearch tutorial](https://github.com/RediSearch/redisearch-getting-started). Also, consider viewing our [RediSearch video explainer](https://www.youtube.com/watch?v=B10nHEdW3NA).
+If you're just getting started with Search and Query, check out the [official Search and Query tutorial](https://github.com/RediSearch/redisearch-getting-started). Also, consider viewing our [Search and Query video explainer](https://www.youtube.com/watch?v=B10nHEdW3NA).
 
-The fastest way to get up and running with RediSearch is by using the [Redis Stack Docker image](https://hub.docker.com/r/redis/redis-stack/).
+The fastest way to get up and running with Search and Query is by using the [Redis Stack Docker image](https://hub.docker.com/r/redis/redis-stack/).
 
-## Trying RediSearch
+## Trying Search and Query
 
-To try RediSearch, either use the RediSearch Docker image, or [create a free Redis Cloud Essentials account](https://redis.com/try-free/) to get a RediSearch instance in the cloud.
+To try Search and Query, either use the Redis Stack Docker image, or [create a free Redis Cloud Essentials account](https://redis.com/try-free/) to get a Redis Stack instance in the cloud, which include Search and Query.
 
 ### Docker image
 
-The [Redis Stack Docker image](https://hub.docker.com/r/redis/redis-stack-server/) makes it easy to try RediSearch.
+The [Redis Stack Docker image](https://hub.docker.com/r/redis/redis-stack-server/) makes it easy to try Search and Query.
 
-To create a local RediSearch container, run:
+To create a local Redis Stack container with Search and Query, run:
 
 ```sh
 $ docker run -p 6379:6379 redis/redis-stack-server:latest
@@ -46,10 +46,10 @@ $ redis-cli
 
 ## Documentation
 
-The [RediSearch documentation](https://redis.io/docs/stack/search/) provides a complete overview of RediSearch. Helpful sections include:
+The [Search and Query documentation](https://redis.io/docs/stack/search/) provides a complete overview of Search and Query. Helpful sections include:
 
-* The [RediSearch quick start](https://redis.io/docs/stack/search/Quick_Start/)
-* The [RediSearch command reference](https://redis.io/docs/stack/search/Commands/)
+* The [Search and Query quick start](https://redis.io/docs/stack/search/Quick_Start/)
+* The [Search and Query command reference](https://redis.io/docs/stack/search/Commands/)
 * References on features such as [aggregations](https://redis.io/docs/stack/search/reference/aggregations), [highlights](https://redis.io/docs/stack/search/reference/highlight/), [stemming](https://redis.io/docs/stack/search/reference/stemming/), and [spelling correction](https://redis.io/docs/stack/search/reference/spellcheck/).
 
 ## Mailing list and forum
@@ -136,7 +136,7 @@ If you have a more detailed question, drop us a line on the [RediSearch Discussi
 [coredis-stars]: https://img.shields.io/github/stars/alisaifee/coredis.svg?style=social&amp;label=Star&amp;maxAge=2592000
 [coredis-documentation]: https://coredis.readthedocs.io/en/stable/handbook/modules.html#redisearch
 
-## RediSearch features
+## Search and Query features
 
 * Full-Text indexing of multiple fields in Redis hashes
 * Incremental indexing without performance loss
@@ -157,10 +157,10 @@ If you have a more detailed question, drop us a line on the [RediSearch Discussi
 
 ## Cluster support
 
-RediSearch has a distributed cluster version that scales to billions of documents across hundreds of servers. At the moment, distributed RediSearch is available as part of [Redis Enterprise Cloud](https://redis.com/redis-enterprise-cloud/overview/) and [Redis Enterprise Software](https://redis.com/redis-enterprise-software/overview/).
+Search and Query has a distributed cluster version that scales to billions of documents across hundreds of servers. At the moment, distributed Search and Query is available as part of [Redis Enterprise Cloud](https://redis.com/redis-enterprise-cloud/overview/) and [Redis Enterprise Software](https://redis.com/redis-enterprise-software/overview/).
 
-See [RediSearch on Redis Enterprise](https://redis.com/modules/redisearch/) for more information.
+See [Search and Query on Redis Enterprise](https://redis.com/modules/redisearch/) for more information.
 
 ### License
 
-RediSearch is licensed under the [Redis Source Available License 2.0 (RSALv2)](https://redis.com/legal/rsalv2-agreement) or the [Server Side Public License v1 (SSPLv1)](https://www.mongodb.com/licensing/server-side-public-license).
+Search and Query is licensed under the [Redis Source Available License 2.0 (RSALv2)](https://redis.com/legal/rsalv2-agreement) or the [Server Side Public License v1 (SSPLv1)](https://www.mongodb.com/licensing/server-side-public-license).

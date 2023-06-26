@@ -13,7 +13,7 @@ description: >
 The payload feature is deprecated in 2.0
 {{% /alert %}}
     
-Usually, RediSearch stores documents as hash keys. But if you want to access some data for aggregation or scoring functions, we might want to store that data as an inline payload. This will allow us to evaluate properties of a document for scoring purposes at very low cost.
+Usually, Search and Query stores documents as hash keys. But if you want to access some data for aggregation or scoring functions, we might want to store that data as an inline payload. This will allow us to evaluate properties of a document for scoring purposes at very low cost.
 
 Since the scoring functions already have access to the DocumentMetaData, which contains document flags and score, We can add custom payloads that can be evaluated in run-time.
 
@@ -21,7 +21,7 @@ Payloads are NOT indexed and are not treated by the engine in any way. They are 
 
 ## Adding payloads for documents
 
-When inserting a document using FT.ADD, you can ask RediSearch to store an arbitrary binary safe string as the document payload. This is done with the `PAYLOAD` keyword:
+When inserting a document using FT.ADD, you can ask Search and Query to store an arbitrary binary safe string as the document payload. This is done with the `PAYLOAD` keyword:
 
 ```
 FT.ADD {index_name} {doc_id} {score} PAYLOAD {payload} FIELDS {field} {data}...
