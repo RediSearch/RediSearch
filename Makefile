@@ -22,7 +22,7 @@ make build          # compile and link
   STATIC=1            # build as static lib
   LITE=1              # build RediSearchLight
   DEBUG=1             # build for debugging
-  NO_TESTS=1          # disable unit tests
+  TESTS=0             # do not build unit tests
   WHY=1               # explain CMake decisions (in /tmp/cmake-why)
   FORCE=1             # Force CMake rerun (default)
   CMAKE_ARGS=...      # extra arguments to CMake
@@ -201,8 +201,10 @@ CC_COMMON_H=src/common.h
 
 #----------------------------------------------------------------------------------------------
 
-ifneq ($(NO_TESTS),1)
-CMAKE_TEST=-DBUILD_TESTS=ON
+ifeq ($(TESTS),0)
+CMAKE_TEST=-DBUILD_SEARCH_TESTS=OFF
+else
+CMAKE_TEST=-DBUILD_SEARCH_TESTS=ON
 endif
 
 ifeq ($(STATIC),1)
