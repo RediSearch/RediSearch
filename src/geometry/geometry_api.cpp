@@ -9,16 +9,12 @@
 #include <array>
 #include <variant>
 
+#define X(variant) , RTree<variant>
 struct GeometryIndex {
-  std::variant<
-    std::monostate
-  #define X(variant) \
-    , RTree<variant>
-  GEO_VARIANTS(X)
-  #undef X
-    > index;
+  std::variant<std::monostate GEO_VARIANTS(X)> index;
   const GeometryApi *api;
 };
+#undef X
 
 #define X(variant)                                                                          \
 void Index_##variant##_Free(GeometryIndex *idx) {                                           \
@@ -80,21 +76,20 @@ GEO_VARIANTS(X)
 #undef X
 
 using GeometryCtor = GeometryIndex *(*)();
-constexpr std::array<GeometryCtor, GEOMETRY_COORDS__NUM> geometry_ctors_g {
-  #define X(variant) \
+#define X(variant) \
   /* [GEOMETRY_COORDS_variant] = */ Index_##variant##_New,
+constexpr std::array<GeometryCtor, GEOMETRY_COORDS__NUM> geometry_ctors_g {  
   GEO_VARIANTS(X)
-  #undef X
 };
+#undef X
 
 GeometryIndex *GeometryIndexFactory(GEOMETRY_COORDS tag) {
   return geometry_ctors_g[tag]();
 }
 
+#define X(variant) \
+  + RTree<variant>::reportTotal()
 size_t GeometryTotalMemUsage() {
-  return 0
-  #define X(variant) \
-   + RTree<variant>::reportTotal()
-  GEO_VARIANTS(X);
-  #undef X
+  return 0 GEO_VARIANTS(X);
 }
+#undef X

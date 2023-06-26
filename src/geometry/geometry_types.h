@@ -24,13 +24,13 @@ typedef enum {
   GEOMETRY_FORMAT_GEOJSON = 2,
 } GEOMETRY_FORMAT; // TODO: GEOMETRY Not uppercase
 
-typedef enum {
 #define X(variant) \
   GEOMETRY_COORDS_##variant,
-GEO_VARIANTS(X)
-#undef X
+typedef enum {
+  GEO_VARIANTS(X)
   GEOMETRY_COORDS__NUM,
 } GEOMETRY_COORDS;
+#undef X
 
 typedef enum QueryType {
   CONTAINS,
