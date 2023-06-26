@@ -243,7 +243,6 @@ def DumpBacktrace(protocol):
         module_args=''
 
     env = Env(protocol=protocol, moduleArgs=module_args)
-  #  env.skipOnCluster()
 
     threadpools_attr = {
         "GC": {"title": threadpool_name_to_title("GC"), "status":'NOT_FOUND', "threads_count": 1},
@@ -260,7 +259,6 @@ def DumpBacktrace(protocol):
 
     # DUMMY threadpool returns an error
     env.expect(ftDebugCmdName(env), 'DUMP_THREADPOOL_BACKTRACE', 'DUMMY').raiseError().contains('no such threadpool DUMMY')
-
 
     env.assertEqual(len(threadpools_attr), expected_threadpools_cnt)
 
