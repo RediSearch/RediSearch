@@ -534,7 +534,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   specialCaseCtx *knnCtx = NULL;
 
   r->qiter.err = &status;
-  r->reqflags |= QEXEC_F_IS_EXTENDED;
+  r->reqflags |= QEXEC_F_IS_EXTENDED | QEXEC_F_BUILDPIPELINE_NO_ROOT;
 
   int profileArgs = parseProfile(argv, argc, r);
   if (profileArgs == -1) goto err;
