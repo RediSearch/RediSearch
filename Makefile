@@ -202,9 +202,9 @@ CC_COMMON_H=src/common.h
 #----------------------------------------------------------------------------------------------
 
 ifeq ($(TESTS),0)
-CMAKE_TEST=-DBUILD_SEARCH_TESTS=OFF
+CMAKE_TEST=-DBUILD_SEARCH_UNIT_TESTS=OFF
 else
-CMAKE_TEST=-DBUILD_SEARCH_TESTS=ON
+CMAKE_TEST=-DBUILD_SEARCH_UNIT_TESTS=ON
 endif
 
 ifeq ($(STATIC),1)
@@ -304,11 +304,34 @@ endif
 
 include $(MK)/rules
 
+#----------------------------------------------------------------------------------------------
+
+export REJSON ?= 1
+
+PLATFORM_TRI:=$(shell $(READIES)/bin/platform -t)
+REJSON_BINDIR=$(ROOT)/bin/$(PLATFORM_TRI)/RedisJSON
+
+ifneq ($(REJSON),0)
+
+ifneq ($(SAN),)
+REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
+REJSON_PATH=$(REJSON_SO)
+
+$(REJSON_SO):
+	$(SHOW)BINROOT=$(BINROOT) SAN=$(SAN) ./sbin/build-redisjson
+else
+REJSON_SO=
+endif
+
+endif # REJSON=0
+
+#----------------------------------------------------------------------------------------------
+
 clean:
 ifeq ($(ALL),1)
 	$(SHOW)rm -rf $(BINROOT)
 else ifeq ($(ALL),all)
-	$(SHOW)rm -rf $(BINROOT)
+	$(SHOW)rm -rf $(BINROOT) $(REJSON_BINDIR)
 	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG='' clean
 else
 	$(SHOW)$(MAKE) -C $(BINDIR) clean
@@ -435,23 +458,6 @@ CTEST_DEFS=\
 	COV=$(COV) \
 	SAN=$(SAN) \
 	SLOW=$(SLOW)
-
-#----------------------------------------------------------------------------------------------
-
-export REJSON ?= 1
-
-ifneq ($(REJSON),0)
-ifneq ($(SAN),)
-REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
-REJSON_PATH=$(REJSON_SO)
-
-$(REJSON_SO):
-	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
-else
-REJSON_SO=
-endif
-
-endif # REJSON=0
 
 #----------------------------------------------------------------------------------------------
 
