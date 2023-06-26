@@ -541,7 +541,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (initialScan) {
     IndexSpec_ScanAndReindex(ctx, ref);
   }
-  IndexSpec_UpdateVersion(sp);
+
   RedisSearchCtx_UnlockSpec(&sctx);
 
   RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -659,7 +659,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     RedisSearchCtx_UnlockSpec(&sctx);
     return QueryError_ReplyAndClear(ctx, &status);
   }
-  IndexSpec_UpdateVersion(sp);
+
   FieldsGlobalStats_UpdateStats(sp->fields + (sp->numFields - 1), 1);
   RedisSearchCtx_UnlockSpec(&sctx);
 
