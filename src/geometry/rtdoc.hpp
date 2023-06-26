@@ -14,6 +14,7 @@
 
 #include <ranges>
 #include <iostream>
+#include <experimental/type_traits>
 
 namespace bg = boost::geometry;
 namespace bgm = bg::model;
@@ -38,21 +39,13 @@ using GeographicPolygon =
 
 using string = std::basic_string<char, std::char_traits<char>, rm_allocator<char>>;
 
-template <class Class, auto MemFuncPtr>
-struct has_member {
-  template <class C = Class, typename = decltype((std::declval<C>().*MemFuncPtr)(0))>
-  static std::true_type Check(int);
-  static std::false_type Check(...);
-  static inline constexpr bool value = decltype(Check(0))::value;
-};
-
-template <class Class, auto MemFuncPtr>
-inline constexpr bool has_member_v = has_member<Class, MemFuncPtr>::value;
+template <typename T>
+using outer_t = decltype(std::declval<T>().outer());
 
 template <typename geom_type>
 struct RTDoc {
   using point_type = bg::point_type<geom_type>::type;
-  using rect_type = bgm::box<point_type>;
+  using rect_type = std::conditional_t<std::is_same_v<geom_type, point_type>, point_type, bgm::box<point_type>>;
 
   rect_type rect_;
   t_docId id_;
@@ -67,23 +60,31 @@ struct RTDoc {
     return id_;
   }
 
-  [[nodiscard]] static std::vector<point_type, rm_allocator<point_type>> getpoints(geom_type const& geom) {
-    if constexpr (has_member_v<geom_type, &geom_type::outer>) {
+  [[nodiscard]] static auto get_points(geom_type const& geom) {
+    if constexpr (std::experimental::is_detected_v<outer_t, geom_type>) {
       return geom.outer();
     } else {
-      return std::vector<point_type, rm_allocator<point_type>>{geom};
+      return std::array<geom_type, 1>{geom};
+    }
+  }
+
+  [[nodiscard]] static rect_type to_rect(point_type const& p1, point_type const& p2) {
+    if constexpr (std::is_same_v<rect_type, point_type>) {
+      return p1;
+    } else {
+      return rect_type{p1, p2};
     }
   }
 
   [[nodiscard]] static rect_type to_rect(geom_type const& poly) {
-    const auto& points = getpoints(poly);
+    const auto points = get_points(poly);
     auto [min_x, max_x] = std::ranges::minmax(
       points | std::views::transform([](auto const& p) { return bg::get<0>(p); })
     );
     auto [min_y, max_y] = std::ranges::minmax(
       points | std::views::transform([](auto const& p) { return bg::get<1>(p); })
     );
-    return rect_type{point_type{min_x, min_y}, point_type{max_x, max_y}};
+    return to_rect(point_type{min_x, min_y}, point_type{max_x, max_y});
   }
 
   // [[nodiscard]] static geom_type to_poly(rect_type const& rect) noexcept {
