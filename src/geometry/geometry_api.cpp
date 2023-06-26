@@ -6,8 +6,9 @@
 
 #include "geometry_api.h"
 #include "rtree.hpp"
-#include <array>
-#include <variant>
+
+#include <array>   // std::array
+#include <variant> // std::variant, std::monostate, std::get
 
 #define X(variant) , RTree<variant>
 struct GeometryIndex {
@@ -75,10 +76,10 @@ GeometryIndex *Index_##variant##_New() { \
 GEO_VARIANTS(X)
 #undef X
 
-using GeometryCtor = GeometryIndex *(*)();
+using GeometryConstructor_t = GeometryIndex *(*)();
 #define X(variant) \
   /* [GEOMETRY_COORDS_variant] = */ Index_##variant##_New,
-constexpr std::array<GeometryCtor, GEOMETRY_COORDS__NUM> geometry_ctors_g {  
+constexpr std::array<GeometryConstructor_t, GEOMETRY_COORDS__NUM> geometry_ctors_g {  
   GEO_VARIANTS(X)
 };
 #undef X
@@ -88,8 +89,8 @@ GeometryIndex *GeometryIndexFactory(GEOMETRY_COORDS tag) {
 }
 
 #define X(variant) \
-  + RTree<variant>::reportTotal()
+  RTree<variant>::reportTotal() + 
 size_t GeometryTotalMemUsage() {
-  return 0 GEO_VARIANTS(X);
+  return GEO_VARIANTS(X) +0;
 }
 #undef X

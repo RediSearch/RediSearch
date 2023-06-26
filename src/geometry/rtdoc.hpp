@@ -12,9 +12,13 @@
 #include "allocator.hpp"
 #include "geometry_types.h"
 
-#include <ranges>
-#include <iostream>
-#include <experimental/type_traits>
+#include <array>                    // std::array
+#include <vector>                   // std::vector
+#include <sstream>                  // std::stringstream
+#include <utility>                  // std::declval
+#include <algorithm>                // ranges::minmax, views::transform
+#include <type_traits>              // std::conditional, std::is_same
+#include <experimental/type_traits> // experimental::is_detected
 
 namespace bg = boost::geometry;
 namespace bgm = bg::model;
@@ -38,6 +42,7 @@ using GeographicPolygon =
     bgm::polygon<GeographicPoint, true, true, std::vector, std::vector, rm_allocator, rm_allocator>;
 
 using string = std::basic_string<char, std::char_traits<char>, rm_allocator<char>>;
+using sstream = std::basic_stringstream<char, std::char_traits<char>, rm_allocator<char>>;
 
 template <typename T>
 using outer_t = decltype(std::declval<T>().outer());
@@ -45,7 +50,8 @@ using outer_t = decltype(std::declval<T>().outer());
 template <typename geom_type>
 struct RTDoc {
   using point_type = bg::point_type<geom_type>::type;
-  using rect_type = std::conditional_t<std::is_same_v<geom_type, point_type>, point_type, bgm::box<point_type>>;
+  using rect_type =
+      std::conditional_t<std::is_same_v<geom_type, point_type>, point_type, bgm::box<point_type>>;
 
   rect_type rect_;
   t_docId id_;
@@ -79,16 +85,13 @@ struct RTDoc {
   [[nodiscard]] static rect_type to_rect(geom_type const& geom) {
     const auto points = get_points(geom);
     auto [min_x, max_x] = std::ranges::minmax(
-      points | std::views::transform([](auto const& p) { return bg::get<0>(p); })
-    );
+        points | std::views::transform([](auto const& p) { return bg::get<0>(p); }));
     auto [min_y, max_y] = std::ranges::minmax(
-      points | std::views::transform([](auto const& p) { return bg::get<1>(p); })
-    );
+        points | std::views::transform([](auto const& p) { return bg::get<1>(p); }));
     return to_rect(point_type{min_x, min_y}, point_type{max_x, max_y});
   }
 
   [[nodiscard]] string rect_to_string() const {
-    using sstream = std::basic_stringstream<char, std::char_traits<char>, rm_allocator<char>>;
     sstream ss{};
     ss << bg::wkt(rect_);
     return ss.str();
