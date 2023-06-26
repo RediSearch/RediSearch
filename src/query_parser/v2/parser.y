@@ -360,7 +360,7 @@ union(A) ::= expr(B) OR expr(C) . [OR] {
     }
 }
 
-union(A) ::= union(B) OR expr(C). [ORX] {
+union(A) ::= union(B) OR expr(C). [OR] {
     A = B;
     if (C) {
         QueryNode_AddChild(A, C);
@@ -439,7 +439,7 @@ text_union(A) ::= text_expr(B) OR text_expr(C) . [OR] {
     }
 }
 
-text_union(A) ::= text_union(B) OR text_expr(C). [ORX] {
+text_union(A) ::= text_union(B) OR text_expr(C). [OR] {
     A = B;
     if (C) {
         QueryNode_AddChild(A, C);
@@ -845,7 +845,7 @@ geometry_query(A) ::= LSQB TERM(B) ATTRIBUTE(C) RSQB . {
   C.type = QT_PARAM_TERM_CASE;
   A = NewGeometryNode_FromWkt_WithParams(ctx, B.s, B.len, &C);
   if (!A) {
-    reportSyntaxError(ctx->status, &C, "Syntax error: Expecting a Geometry predicate");
+    reportSyntaxError(ctx->status, &C, "Syntax error: Expecting a geoshape predicate");
   }
 }
 

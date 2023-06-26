@@ -136,7 +136,7 @@ struct RTree {
       lenValues += 2;
 
       if (auto geometry = lookup(doc.id()); geometry.has_value()) {
-        RedisModule_ReplyWithStringBuffer(ctx, "geometry", strlen("geometry"));
+        RedisModule_ReplyWithStringBuffer(ctx, "geoshape", strlen("geoshape"));
         auto str = geometry_to_string(geometry.value());
         RedisModule_ReplyWithStringBuffer(ctx, str.data(), str.size());
         lenValues += 2;

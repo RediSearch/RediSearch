@@ -1304,7 +1304,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   if (spec->terms) {
     TrieType_Free(spec->terms);
   }
-  // Free TEXT TAG NUMERIC VECTOR and GEOMETRY fields trie and inverted indexes
+  // Free TEXT TAG NUMERIC VECTOR and GEOSHAPE fields trie and inverted indexes
   if (spec->keysDict) {
     dictRelease(spec->keysDict);
   }
@@ -1620,7 +1620,6 @@ IndexSpec *NewIndexSpec(const char *name) {
 
   pthread_rwlock_init(&sp->rwlock, &attr);
 
-  sp->specVersion = 0;
   return sp;
 }
 
@@ -1699,19 +1698,6 @@ int bit(t_fieldMask id) {
   return 0;
 }
 
-// Return the current vesrion of the spec.
-// The value of the version number does'nt indicate if the index
-// is newer or older, and should be only tested for inequality.
-size_t IndexSpec_GetVersion(const IndexSpec *sp) {
-  return sp->specVersion;
-}
-
-// Update the spec vesrion if we update the index.
-// It is assumed that this function is called after locking Redis.
-// When the version number is overflowed, it will start from zero.
-void IndexSpec_UpdateVersion(IndexSpec *sp) {
-  ++sp->specVersion;
-}
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Backwards compat version of load for rdbs with version < 8
@@ -2779,7 +2765,6 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   Document_Free(&doc);
 
   spec->stats.totalIndexTime += hires_clock_since_usec(&t0);
-  IndexSpec_UpdateVersion(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }
@@ -2833,7 +2818,6 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   RedisSearchCtx_LockSpecWrite(&sctx);
   IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, id);
-  IndexSpec_UpdateVersion(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }
@@ -3035,10 +3019,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
     if (entry) {
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
       RedisSearchCtx_LockSpecWrite(&sctx);
-      if(REDISMODULE_OK == DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len)) {
-        IndexSpec_UpdateVersion(spec);
-      }
-
+      DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
       RedisSearchCtx_UnlockSpec(&sctx);
       size_t index = entry->v.u64;
       dictDelete(to_specs->specs, spec->name);

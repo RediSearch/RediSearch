@@ -17,8 +17,8 @@ syntax: |
     [NOFREQS] 
     [STOPWORDS count [stopword ...]] 
     [SKIPINITIALSCAN]
-    SCHEMA field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR | GEOMETRY [ SORTABLE [UNF]] 
-    [NOINDEX] [ field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR | GEOMETRY [ SORTABLE [UNF]] [NOINDEX] ...]
+    SCHEMA field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR | GEOSHAPE [ SORTABLE [UNF]] 
+    [NOINDEX] [ field_name [AS alias] TEXT | TAG | NUMERIC | GEO | VECTOR | GEOSHAPE [ SORTABLE [UNF]] [NOINDEX] ...]
 ---
 
 ## Description
@@ -56,7 +56,7 @@ after the SCHEMA keyword, declares which fields to index:
 
  - `VECTOR` - Allows vector similarity queries against the value in this attribute. For more information, see [Vector Fields](/redisearch/reference/vectors).
 
- - `GEOMETRY`- Allows polygon queries against the value in this attribute. The value of the attribute must follow [WKT notation](https://en.wikipedia.org/wiki/Well-known_text_representation_of_geometry) a list of 2D points representing the polygon edges `POLYGON((x1 y1, x2 y2, ...)` separated by a comma. Current not support JSON multi-value and `SORTABLE` option.
+ - `GEOSHAPE`- Allows polygon queries against the value in this attribute. The value of the attribute must follow [WKT notation](https://en.wikipedia.org/wiki/Well-known_text_representation_of_geometry) a list of 2D points representing the polygon edges `POLYGON((x1 y1, x2 y2, ...)` separated by a comma. Current not support JSON multi-value and `SORTABLE` option.
 `
  Field options are:
 

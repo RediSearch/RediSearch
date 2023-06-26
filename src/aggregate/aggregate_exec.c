@@ -193,17 +193,6 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_Reply_SimpleString(reply, "extra_attributes");
     }
 
-    if (r->flags & SEARCHRESULT_VAL_IS_NULL) {
-      if (has_map) {
-        RedisModule_Reply_Array(reply);
-        RedisModule_Reply_ArrayEnd(reply);
-        goto _out;
-      } else {
-        RedisModule_Reply_Null(reply);
-      }
-      return RedisModule_Reply_LocalCount(reply) - count0;
-    }
-
     // Get the number of fields in the reply.
     // Excludes hidden fields, fields not included in RETURN and, score and language fields.
     SchemaRule *rule = (req->sctx && req->sctx->spec) ? req->sctx->spec->rule : NULL;
@@ -279,51 +268,6 @@ static size_t getResultsFactor(AREQ *req) {
     count++;
   }
   return count;
-}
-
-// Finds the buffer RP and moves it to after the last accumulator.
-// Assumptions:
-// 1. We already have exactly one buffer and exactly one unlocker
-// 2. We have an accumulator between the buffer and the unlocker, and it's the last accumulator in the pipeline
-// 3. We have at least one loader after the accumulator (and before the unlocker)
-static void SafeRedisKeyspaceAccessPipeline_ReEval(AREQ *req) {
-  ResultProcessor *cur = req->qiter.endProc, *newBufferDownstream;
-  // Run to the unlocker
-  while (cur->type != RP_UNLOCKER) {
-    cur = cur->upstream;
-  }
-  // find the first redis access after the last accumulator between the buffer and the unlocker
-  for (; cur->behavior != RESULT_PROCESSOR_B_ACCUMULATOR; cur = cur->upstream) {
-    if (cur->behavior == RESULT_PROCESSOR_B_ACCESS_REDIS) {
-      newBufferDownstream = cur;
-    }
-  }
-
-  if (IsProfile(req)) {
-    // Find the buffer's downstream
-    while (cur->upstream->upstream->type != RP_BUFFER_AND_LOCKER) {
-      cur = cur->upstream;
-    }
-    ResultProcessor *buffers_profile = cur->upstream;
-    // Pop the buffer and its profile RP
-    cur->upstream = buffers_profile->upstream->upstream;
-
-    // Push the buffer to its new location
-    buffers_profile->upstream->upstream = newBufferDownstream->upstream;
-    newBufferDownstream->upstream = buffers_profile;
-  } else {
-    // Find the buffer's downstream
-    while (cur->upstream->type != RP_BUFFER_AND_LOCKER) {
-      cur = cur->upstream;
-    }
-    ResultProcessor *buffer = cur->upstream;
-    // Pop the buffer
-    cur->upstream = buffer->upstream;
-
-    // Push the buffer to its new location
-    buffer->upstream = newBufferDownstream->upstream;
-    newBufferDownstream->upstream = buffer;
-  }
 }
 
 /**
@@ -430,9 +374,6 @@ done_3:
     SearchResult_Destroy(&r);
     if (rc != RS_RESULT_OK) {
       req->stateflags |= QEXEC_S_ITERDONE;
-    } else if (req->stateflags & QEXEC_S_NEEDS_BUFFER_REEVAL) {
-      SafeRedisKeyspaceAccessPipeline_ReEval(req);
-      req->stateflags &= ~QEXEC_S_NEEDS_BUFFER_REEVAL;
     }
 
     // Reset the total results length:
@@ -510,9 +451,6 @@ done_3:
     SearchResult_Destroy(&r);
     if (rc != RS_RESULT_OK) {
       req->stateflags |= QEXEC_S_ITERDONE;
-    } else if (req->stateflags & QEXEC_S_NEEDS_BUFFER_REEVAL) {
-      SafeRedisKeyspaceAccessPipeline_ReEval(req);
-      req->stateflags &= ~QEXEC_S_NEEDS_BUFFER_REEVAL;
     }
 
     RedisModule_Reply_ArrayEnd(reply); // results
@@ -595,7 +533,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 
   // lock spec
   RedisSearchCtx_LockSpecRead(req->sctx);
-  if (prepareExecutionPlan(req, AREQ_BUILD_THREADSAFE_PIPELINE, &status) != REDISMODULE_OK) {
+  if (prepareExecutionPlan(req, &status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -633,7 +571,7 @@ cleanup:
 }
 
 // Assumes the spec is guarded (by its own lock for read or by the global lock)
-int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status) {
+int prepareExecutionPlan(AREQ *req, QueryError *status) {
   int rc = REDISMODULE_ERR;
   RedisSearchCtx *sctx = req->sctx;
   RSSearchOptions *opts = &req->searchopts;
@@ -647,7 +585,6 @@ int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status) {
   sctx->timeout = req->timeoutTime;
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
-  req->qiter.initialSpecVersion = IndexSpec_GetVersion(sctx->spec);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
 
   // check possible optimization after creation of IndexIterator tree
@@ -673,7 +610,7 @@ int prepareExecutionPlan(AREQ *req, int pipeline_options, QueryError *status) {
     req->parseTime += hires_clock_diff_msec(&parseClock, &req->initClock);
   }
 
-  rc = AREQ_BuildPipeline(req, pipeline_options, status);
+  rc = AREQ_BuildPipeline(req, status);
 
   if (is_profile) {
     req->pipelineBuildTime = hires_clock_since_msec(&parseClock);
@@ -791,6 +728,8 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     // report block client start time
     RedisModule_BlockedClientMeasureTimeStart(blockedClient);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
+    // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
+    r->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
 
     workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
   } else
@@ -800,7 +739,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     // This is released in AREQ_Free or while executing the query.
     RedisSearchCtx_LockSpecRead(r->sctx);
 
-    if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, &status) != REDISMODULE_OK) {
+    if (prepareExecutionPlan(r, &status) != REDISMODULE_OK) {
       goto error;
     }
     if (r->reqflags & QEXEC_F_IS_CURSOR) {
@@ -892,7 +831,7 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   if (buildRequest(ctx, argv, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
     return NULL;
   }
-  if (prepareExecutionPlan(r, AREQ_BUILDPIPELINE_NO_FLAGS, status) != REDISMODULE_OK) {
+  if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
     AREQ_Free(r);
     return NULL;
   }
