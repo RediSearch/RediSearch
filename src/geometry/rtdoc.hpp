@@ -53,7 +53,7 @@ struct RTDoc {
   explicit RTDoc() = default;
   explicit RTDoc(rect_type const& rect) noexcept : rect_{rect}, id_{0} {
   }
-  explicit RTDoc(geom_type const& poly, t_docId id = 0) : rect_{to_rect(poly)}, id_{id} {
+  explicit RTDoc(geom_type const& geom, t_docId id = 0) : rect_{to_rect(geom)}, id_{id} {
   }
 
   [[nodiscard]] t_docId id() const noexcept {
@@ -63,8 +63,8 @@ struct RTDoc {
   [[nodiscard]] static auto get_points(geom_type const& geom) {
     if constexpr (std::experimental::is_detected_v<outer_t, geom_type>) {
       return geom.outer();
-    } else {
-      return std::array<geom_type, 1>{geom};
+    } else if constexpr (std::is_same_v<geom_type, point_type>) {
+      return std::array{geom};
     }
   }
 
@@ -76,8 +76,8 @@ struct RTDoc {
     }
   }
 
-  [[nodiscard]] static rect_type to_rect(geom_type const& poly) {
-    const auto points = get_points(poly);
+  [[nodiscard]] static rect_type to_rect(geom_type const& geom) {
+    const auto points = get_points(geom);
     auto [min_x, max_x] = std::ranges::minmax(
       points | std::views::transform([](auto const& p) { return bg::get<0>(p); })
     );
@@ -86,19 +86,6 @@ struct RTDoc {
     );
     return to_rect(point_type{min_x, min_y}, point_type{max_x, max_y});
   }
-
-  // [[nodiscard]] static geom_type to_poly(rect_type const& rect) noexcept {
-  //   auto p_min = rect.min_corner();
-  //   auto p_max = rect.max_corner();
-  //   auto x_min = bg::get<0>(p_min);
-  //   auto y_min = bg::get<1>(p_min);
-  //   auto x_max = bg::get<0>(p_max);
-  //   auto y_max = bg::get<1>(p_max);
-
-  //   using ring_type = geom_type::ring_type;
-  //   return geom_type{
-  //       ring_type{p_min, point_type{x_max, y_min}, p_max, point_type{x_min, y_max}, p_min}};
-  // }
 
   [[nodiscard]] string rect_to_string() const {
     using sstream = std::basic_stringstream<char, std::char_traits<char>, rm_allocator<char>>;

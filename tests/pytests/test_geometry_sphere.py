@@ -66,7 +66,8 @@ def testWKTIngestError(env):
   conn.execute_command('JSON.SET', 'p1', '$', '{"geom": "POLIKON((34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Homer"}')
   # Missing parenthesis
   conn.execute_command('JSON.SET', 'p2', '$', '{"geom": "POLYGON(34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Patty"}')
-
+  # Zero coordinates
+  conn.execute_command('JSON.SET', 'p7', '$', '{"geom": "POLYGON(()())", "name": "Mr. Burns"}')
   
   # TODO: GEOMETRY - understand why the following WKTs do not fail?
   # Missing Y coordinate
@@ -77,13 +78,11 @@ def testWKTIngestError(env):
   conn.execute_command('JSON.SET', 'p5', '$', '{"geom": "POLYGON((34.9001 29.71 34.91 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Ned"}')
   # Too few coordinates (not a polygon)
   conn.execute_command('JSON.SET', 'p6', '$', '{"geom": "POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9001 29.7001))", "name": "Milhouse"}')
-  # Zero coordinates
-  conn.execute_command('JSON.SET', 'p7', '$', '{"geom": "POLYGON(()())", "name": "Mr. Burns"}')
 
   # Indexing failures
   res = env.cmd('FT.INFO', 'idx')
   d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-  env.assertEqual(int(d['hash_indexing_failures']), 2)
+  env.assertEqual(int(d['hash_indexing_failures']), 3)
 
 
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)

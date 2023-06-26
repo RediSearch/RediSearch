@@ -33,16 +33,17 @@ struct RTree {
   explicit RTree(rtree_type const& rt) noexcept : rtree_{rt} {
   }
 
-  [[nodiscard]] std::optional<std::reference_wrapper<const geom_type>> lookup(t_docId id) const {
+  [[nodiscard]] auto lookup(t_docId id) const
+      -> std::optional<std::reference_wrapper<const geom_type>> {
     if (auto it = docLookup_.find(id); it != docLookup_.end()) {
       return it->second;
     }
     return std::nullopt;
   }
 
-  void insert(const geom_type& poly, t_docId id) {
-    rtree_.insert(doc_type{poly, id});
-    docLookup_.insert(std::pair{id, poly});
+  void insert(const geom_type& geom, t_docId id) {
+    rtree_.insert(doc_type{geom, id});
+    docLookup_.insert(std::pair{id, geom});
   }
 
   [[nodiscard]] static geom_type from_wkt(std::string_view wkt) {
@@ -53,9 +54,11 @@ struct RTree {
 
   int insertWKT(const char* wkt, size_t len, t_docId id, RedisModuleString** err_msg) {
     try {
-      auto geometry = from_wkt(std::string_view{wkt, len});
-      insert(geometry, id);
-      return 0;
+      if (auto geom = from_wkt(std::string_view{wkt, len}); !bg::is_empty(geom)) {
+        insert(geom, id);
+        return 0;
+      }
+      throw std::runtime_error{"attempting to create empty geometry"};
     } catch (const std::exception& e) {
       if (err_msg) {
         *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
@@ -91,10 +94,10 @@ struct RTree {
     }
   }
 
-  [[nodiscard]] static string geometry_to_string(const geom_type& geometry) {
+  [[nodiscard]] static string geometry_to_string(const geom_type& geom) {
     using sstream = std::basic_stringstream<char, std::char_traits<char>, rm_allocator<char>>;
     sstream ss{};
-    ss << bg::wkt(geometry);
+    ss << bg::wkt(geom);
     return ss.str();
   }
 
@@ -120,7 +123,7 @@ struct RTree {
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     lenTop += 2;
 
-    const auto pred_true = [](auto&&...) { return true; };
+    constexpr auto pred_true = [](...) { return true; };
     const auto query_true = bgi::satisfies(pred_true);
     size_t lenDocs = 0;
     std::for_each(rtree_.qbegin(query_true), rtree_.qend(), [&](doc_type const& doc) {
@@ -168,8 +171,7 @@ struct RTree {
   using ResultsVec = std::vector<doc_type, rm_allocator<doc_type>>;
   static IndexIterator* generate_query_iterator(ResultsVec&& results) {
     auto geometry_query_iterator = new GeometryQueryIterator(
-      results | std::views::transform([](auto&& doc) { return doc.id(); })
-    );
+        results | std::views::transform([](auto&& doc) { return doc.id(); }));
     return geometry_query_iterator->base();
   }
 
