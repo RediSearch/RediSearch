@@ -483,11 +483,11 @@ To sum up, the `INORDER` argument or `$inorder` query attribute require the quer
 
 Query for polygons which contain a given geoshape or are within a given geoshape
 
-First, create an index using `GEOSHAPE` type:
+First, create an index using `GEOSHAPE` type with a `FLAT` coordinate system:
 
 
 {{< highlight bash >}}
-127.0.0.1:6379> FT.CREATE idx SCHEMA geom GEOSHAPE
+127.0.0.1:6379> FT.CREATE idx SCHEMA geom GEOSHAPE FLAT
 OK
 {{< / highlight >}}
 

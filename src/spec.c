@@ -855,8 +855,13 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
     sp->flags |= Index_HasGeometry;
     fs->types |= INDEXFLD_T_GEOMETRY;
-    // TODO: GEMOMETRY - Support more geometry libraries - if an optional successive token exist
-    fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
+    if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_FLAT_STR)) {
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_SPHERE_STR)) {
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
+    } else {
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
+    }
   } else {  // nothing more supported currently
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;
@@ -1750,10 +1755,9 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
     RedisModule_SaveUnsigned(rdb, f->vectorOpts.expBlobSize);
     VecSim_RdbSave(rdb, &f->vectorOpts.vecSimParams);
   }
-  // TODO: GEOMETRY - save geometry options if more than one geometry library is supported
-  // if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
-  //   RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryCoords);
-  // }
+  if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
+    RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryCoords);
+  }
 }
 
 static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
@@ -1851,8 +1855,12 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
 
   // Load geometry specific options
   if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
-    // TODO: GEOMETRY - if more than one geometry library is supported - load it from rdb (currently hard-coded)
-    f->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
+    if (encver >= INDEX_GEOMETRY_VERSION) {
+      f->geometryOpts.geometryCoords = LoadUnsigned_IOError(rdb, goto fail);
+    } else {
+      // In RedisSearch RC (2.8.1 - 2.8.3) we supported default coordinate system which was not written to RDB
+      f->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
+    }
   }
 
   return REDISMODULE_OK;

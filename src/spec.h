@@ -64,6 +64,9 @@ struct DocumentIndexer;
 #define SPEC_SKIPINITIALSCAN_STR "SKIPINITIALSCAN"
 #define SPEC_WITHSUFFIXTRIE_STR "WITHSUFFIXTRIE"
 
+#define SPEC_GEOMETRY_FLAT_STR "FLAT"
+#define SPEC_GEOMETRY_SPHERE_STR "SPHERICAL"
+
 #define DEFAULT_SCORE 1.0
 
 #define SPEC_FOLLOW_HASH_ARGS_DEF(rule)                                     \
@@ -185,7 +188,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 22
+#define INDEX_CURRENT_VERSION 23
+#define INDEX_GEOMETRY_VERSION 23
 #define INDEX_VECSIM_TIERED_VERSION 22
 #define INDEX_VECSIM_MULTI_VERSION 21
 #define INDEX_VECSIM_2_VERSION 20
