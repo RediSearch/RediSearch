@@ -57,20 +57,20 @@ int ThreadPoolAPI_SubmitIndexJobs(void *pool, void *spec_ctx, void **ext_jobs,
   return REDISMODULE_OK;
 }
 
-void RS_ThreadpoolsPauseBeforeDump() {
-#ifdef MT_BUILD  
+void RS_Threadpools_PauseBeforeDump() {
+#ifdef MT_BUILD
   workersThreadPool_PauseBeforeDump();
 #endif // MT_BUILD
-  CleanPool_ThreadPoolPauseBeforeDump();
+  CleanPool_ThreadPool_PauseBeforeDump();
   ConcurrentSearch_PauseBeforeDump();
-  GC_ThreadPoolPauseBeforeDump(); 
+  GC_ThreadPool_PauseBeforeDump();
 }
 
-void RS_ThreadpoolsResume() {
+void RS_Threadpools_Resume() {
 #ifdef MT_BUILD
   workersThreadPool_Resume();
 #endif // MT_BUILD
-  CleanPool_ThreadPoolResume();
+  CleanPool_ThreadPool_Resume();
   ConcurrentSearch_Resume();
-  GC_ThreadPoolResume();
+  GC_ThreadPool_Resume();
 }

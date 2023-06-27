@@ -1277,20 +1277,20 @@ void CleanPool_ThreadPoolDestroy() {
   }
 }
 
-void CleanPool_ThreadPoolPauseBeforeDump() {
+void CleanPool_ThreadPool_PauseBeforeDump() {
   redisearch_thpool_pause_before_dump(cleanPool);
 }
 
-void CleanPool_ThreadPoolResume() {
+void CleanPool_ThreadPool_Resume() {
   redisearch_thpool_resume(cleanPool);
 }
 
-void CleanPool_ThreadPoolShutdownLog(RedisModuleInfoCtx *ctx) {
-  redisearch_thpool_StateLog(cleanPool, ctx);
+void CleanPool_ThreadPool_log_state_to_info(RedisModuleInfoCtx *ctx) {
+  redisearch_thpool_log_state_to_info(cleanPool, ctx, NULL);
 }
 
-void CleanPool_ThreadPoolPrintBacktrace(RedisModule_Reply *reply) {
-  redisearch_thpool_print_backtrace(cleanPool, reply);
+void CleanPool_ThreadPool_log_state_to_reply(RedisModule_Reply *reply) {
+  redisearch_thpool_log_state_to_reply(cleanPool, reply, NULL);
 }
 
 uint16_t getPendingIndexDrop() {

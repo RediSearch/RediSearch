@@ -88,16 +88,16 @@ void ConcurrentSearch_Resume() {
 }
 
 // Collect crash info.
-void ConcurrentSearch_ShutdownLog(RedisModuleInfoCtx *ctx) {
+void ConcurrentSearch__log_state_to_info(RedisModuleInfoCtx *ctx) {
   for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
-    redisearch_thpool_StateLog(threadpools_g[ii], ctx);
+    redisearch_thpool_log_state_to_info(threadpools_g[ii], ctx, NULL);
   }
 }
 
 // Collect backtrace of all concurrent search thpools.
-void ConcurrentSearch_PrintBacktrace(RedisModule_Reply *reply) {
+void ConcurrentSearch_log_state_to_reply(RedisModule_Reply *reply) {
   for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
-    redisearch_thpool_print_backtrace(threadpools_g[ii], reply);
+    redisearch_thpool_log_state_to_reply(threadpools_g[ii], reply, NULL);
   }
 }
 

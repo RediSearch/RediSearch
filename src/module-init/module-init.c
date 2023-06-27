@@ -111,13 +111,13 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
-static void RS_ThreadpoolsShutdownLog(RedisModuleInfoCtx *ctx) {
-    GC_ThreadPoolShutdownLog(ctx);
+static void RS_Threadpools_log_state_to_info(RedisModuleInfoCtx *ctx) {
+  GC_ThreadPool_log_state_to_info(ctx);
 #ifdef MT_BUILD
-  workersThreadPool_ShutdownLog(ctx);
+  workersThreadPool_log_state_to_info(ctx);
 #endif // MT_BUILD
-  ConcurrentSearch_ShutdownLog(ctx);
-  CleanPool_ThreadPoolShutdownLog(ctx);
+  ConcurrentSearch__log_state_to_info(ctx);
+  CleanPool_ThreadPool_log_state_to_info(ctx);
 }
 
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
@@ -125,13 +125,13 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     // Check that its safe to start data collection process
     if (redisearch_thpool_safe_to_collect_state()) {
       // First pause all threads
-      RS_ThreadpoolsPauseBeforeDump();
+      RS_Threadpools_PauseBeforeDump();
 
       // Print all the threadpools backtraces to the log file
-      RS_ThreadpoolsShutdownLog(ctx);
+      RS_Threadpools_log_state_to_info(ctx);
 
       // General cleanups.
-      redisearch_thpool_StateLog_done();
+      redisearch_thpool_log_state_done();
     } else {
       RedisModule_InfoAddFieldCString(
           ctx, "Threadpools state",

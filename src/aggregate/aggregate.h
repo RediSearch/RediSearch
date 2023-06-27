@@ -76,11 +76,16 @@ typedef enum {
 
   /* Optimize query */
   QEXEC_OPTIMIZE = 0x40000,
+
+  /* Request is in cursor read mode */
+  QEXEC_F_READ_CURSOR_MODE = 0x80000,
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
+#define IsCursor(r) ((r)->reqflags & QEXEC_F_IS_CURSOR)
+#define IsCursorRead(r) ((r)->reqflags & QEXEC_F_READ_CURSOR_MODE)
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
@@ -223,6 +228,19 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
  */
 int AREQ_BuildPipeline(AREQ *req, QueryError *status);
 
+/**
+ * Returns the query string of the request.
+ */
+const char *AREQ_GetQuery(AREQ *req) {
+  return req->query;
+}
+
+/**
+ * Return the index name associated with the request.
+ */
+const char *AREQ_GetIndexName(AREQ *req) {
+  return req->sctx->spec->name;
+}
 /******************************************************************************
  ******************************************************************************
  ** Grouper Functions                                                        **

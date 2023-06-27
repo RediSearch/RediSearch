@@ -176,20 +176,20 @@ void GC_ThreadPoolStart() {
   }
 }
 
-void GC_ThreadPoolPauseBeforeDump() {
+void GC_ThreadPool_PauseBeforeDump() {
   redisearch_thpool_pause_before_dump(gcThreadpool_g);
 }
 
-void GC_ThreadPoolResume() {
+void GC_ThreadPool_Resume() {
   redisearch_thpool_resume(gcThreadpool_g);
 }
 
-void GC_ThreadPoolShutdownLog(RedisModuleInfoCtx *ctx) {
-  redisearch_thpool_StateLog(gcThreadpool_g, ctx);
+void GC_ThreadPool_log_state_to_info(RedisModuleInfoCtx *ctx) {
+  redisearch_thpool_log_state_to_info(gcThreadpool_g, ctx, NULL);
 }
 
-void GC_ThreadPoolPrintBacktrace(RedisModule_Reply *reply) {
-  redisearch_thpool_print_backtrace(gcThreadpool_g, reply);
+void GC_ThreadPool_log_state_to_reply(RedisModule_Reply *reply) {
+  redisearch_thpool_log_state_to_reply(gcThreadpool_g, reply, NULL);
 }
 
 void GC_ThreadPoolDestroy() {

@@ -915,27 +915,26 @@ DEBUG_COMMAND(VecsimInfo) {
   return REDISMODULE_OK;
 }
 
-static void RS_ThreadpoolsPrintBacktrace(RedisModule_Reply *reply) {
-  GC_ThreadPoolPrintBacktrace(reply);
+static void RS_Threadpools_log_state_to_reply(RedisModule_Reply *reply) {
+  GC_ThreadPool_log_state_to_reply(reply);
 #ifdef MT_BUILD
-  workersThreadPool_PrintBacktrace(reply);
+  workersThreadPool_log_state_to_reply(reply);
 #endif // MT_BUILD
-  ConcurrentSearch_PrintBacktrace(reply);
-  CleanPool_ThreadPoolPrintBacktrace(reply);
+  ConcurrentSearch_log_state_to_reply(reply);
+  CleanPool_ThreadPool_log_state_to_reply(reply);
 }
 
-// TODO : add all other threadppools
 #define REPLY_THPOOL_BACKTRACE(thpool_name) \
     RedisModule_Reply_Map(reply); /*Threadpools dict*/ \
-    thpool_name##PauseBeforeDump(); \
-    thpool_name##PrintBacktrace(reply); \
-    thpool_name##Resume(); \
-    redisearch_thpool_StateLog_done(); /*General cleanups.*/ \
-    RedisModule_Reply_MapEnd(reply); // Thredpools dict 
+    thpool_name##_##PauseBeforeDump(); \
+    thpool_name##_##log_state_to_reply(reply); \
+    thpool_name##_##Resume(); \
+    redisearch_thpool_log_state_done(); /*General cleanups.*/ \
+    RedisModule_Reply_MapEnd(reply); // Thredpools dict
 
 /**
  * FT.DEBUG DUMP_THREADPOOL_BACKTRACE thpool_name
- * 
+ *
  */
 DEBUG_COMMAND(DumpThreadPoolBacktrace) {
   if (argc != 1) {
@@ -949,7 +948,7 @@ DEBUG_COMMAND(DumpThreadPoolBacktrace) {
     return REDISMODULE_OK;
   }
   const char *thpool_name = RedisModule_StringPtrLen(argv[0], NULL);
-  
+
   // Initialize reply ctx
 
   // find the requested thpool
@@ -958,13 +957,13 @@ DEBUG_COMMAND(DumpThreadPoolBacktrace) {
   } else if(!strcmp(thpool_name, "GC")) {
     REPLY_THPOOL_BACKTRACE(GC_ThreadPool);
   } else if(!strcmp(thpool_name, "ConcurrentSearch")) {
-    REPLY_THPOOL_BACKTRACE(ConcurrentSearch_);
+    REPLY_THPOOL_BACKTRACE(ConcurrentSearch);
   } else if(!strcmp(thpool_name, "CLEANSPEC")) {
     REPLY_THPOOL_BACKTRACE(CleanPool_ThreadPool);
   }
 #ifdef MT_BUILD
   else if(!strcmp(thpool_name, "WORKERS")) {
-    REPLY_THPOOL_BACKTRACE(workersThreadPool_);
+    REPLY_THPOOL_BACKTRACE(workersThreadPool);
   }
 #endif // MT_BUILD
   else {

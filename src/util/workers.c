@@ -20,6 +20,59 @@
 redisearch_threadpool _workers_thpool = NULL;
 size_t yield_counter = 0;
 
+//TODO: alloc only if _workers_thpool
+static AREQ **g_running_requests;
+
+void workersThreadPool_TrackReq(AREQ *req) {
+  // get id
+  int thread_id = redisearch_thpool_get_thread_idx(_workers_thpool);
+
+  // Save the pointer to the currently executed request.
+  g_running_requests[thread_id] = req;
+}
+void workersThreadPool_UnTrackReq() {
+  int thread_id = redisearch_thpool_get_thread_idx(_workers_thpool);
+
+  // Remove the request from the global struct.
+  g_running_requests[thread_id] = NULL;
+}
+
+static void write_cmd_to_buffer(char *cmd, AREQ *req) {
+    // initialize buff = FT.
+    if (IsCursorRead(req)) {
+      strcat(cmd, "CURSOR READ ");
+      return;
+    }
+    if (IsProfile(req)) {
+      // add PROFILE after FT. + space for command type
+      strcat(cmd, "PROFILE ");
+    } if (IsSearch(req)) {
+      strcat(cmd, "SEARCH");
+    } else { // Aggregate
+      strcat(cmd, "AGGREGATE ");
+    }
+}
+
+static void workersThreadPool_TrackReq_Reply(int thread_id, RedisModule_Reply *reply) {
+  AREQ *req = g_running_requests[thread_id];
+  if (req){
+    RedisModule_ReplyKV_Map(reply, "command"); // >
+    char cmd[100] = "FT.";
+    write_cmd_to_buffer(cmd, req);
+    RedisModule_ReplyKV_SimpleString(reply, "command", cmd);
+    RedisModule_ReplyKV_SimpleString(reply, "idx", AREQ_GetIndexName(req));
+    RedisModule_ReplyKV_SimpleString(reply, "query", AREQ_GetQuery(req));
+    RedisModule_Reply_MapEnd(reply); // index_definition
+
+  }
+}
+
+static void workersThreadPool_TrackReq_Info(int thread_id, RedisModuleInfoCtx *ctx) {
+  if (g_running_requests[thread_id]){
+    RedisModule_InfoAddSection(ctx, "executing command");
+  }
+}
+
 static void yieldCallback(void *yieldCtx) {
   yield_counter++;
   if (yield_counter % 10 == 0 || yield_counter == 1) {
@@ -37,6 +90,8 @@ int workersThreadPool_CreatePool(size_t worker_count) {
 
   _workers_thpool = redisearch_thpool_create(worker_count, "WORKERS");
   if (_workers_thpool == NULL) return REDISMODULE_ERR;
+
+  g_running_requests = rm_calloc(worker_count, sizeof(AREQ *));
 
   return REDISMODULE_OK;
 }
@@ -87,6 +142,7 @@ void workersThreadPool_Terminate(void) {
 
 void workersThreadPool_Destroy(void) {
   redisearch_thpool_destroy(_workers_thpool);
+  rm_free(g_running_requests);
 }
 
 void workersThreadPool_InitIfRequired() {
@@ -138,12 +194,12 @@ void workersThreadPool_Resume() {
   redisearch_thpool_resume(_workers_thpool);
 }
 
-void workersThreadPool_ShutdownLog(RedisModuleInfoCtx *ctx) {
-  redisearch_thpool_StateLog(_workers_thpool, ctx);
+void workersThreadPool_log_state_to_info(RedisModuleInfoCtx *ctx) {
+  redisearch_thpool_log_state_to_info(_workers_thpool, ctx, workersThreadPool_TrackReq_Info);
 }
 
-void workersThreadPool_PrintBacktrace(RedisModule_Reply *reply) {
-  redisearch_thpool_print_backtrace(_workers_thpool, reply);
+void workersThreadPool_log_state_to_reply(RedisModule_Reply *reply) {
+  redisearch_thpool_log_state_to_reply(_workers_thpool, reply, workersThreadPool_TrackReq_Reply);
 }
 
 #endif // MT_BUILD

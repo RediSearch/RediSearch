@@ -130,10 +130,10 @@ void ConcurrentSearch_PauseBeforeDump();
 void ConcurrentSearch_Resume();
 
 // Collect crash info.
-void ConcurrentSearch_ShutdownLog(RedisModuleInfoCtx *ctx);
+void ConcurrentSearch__log_state_to_info(RedisModuleInfoCtx *ctx);
 
 // Collect backtrace of all concurrent search thpools.
-void ConcurrentSearch_PrintBacktrace(RedisModule_Reply *reply);
+void ConcurrentSearch_log_state_to_reply(RedisModule_Reply *reply);
 
 /** Check the elapsed timer, and release the lock if enough time has passed.
  * Return 1 if switching took place

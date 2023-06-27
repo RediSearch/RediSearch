@@ -481,6 +481,13 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
     RedisModule_Reply_MapEnd(reply);
   }
   RedisModule_EndReply(reply);
+
+#ifdef MT_BUILD
+  if (req->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
+    // Remove the request from thread:running_request dictionary
+    workersThreadPool_UnTrackReq();
+  }
+#endif // MT_BUILD
   AREQ_Free(req);
 }
 
@@ -513,6 +520,12 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
+#ifdef MT_BUILD
+  workersThreadPool_TrackReq(req);
+#endif // MT_BUILD
+ // sleep(20);
+  //Cursor *cur = NULL;
+  //cur->id = 2;
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
   QueryError status = {0}, detailed_status = {0};
 
@@ -916,6 +929,12 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
     RedisModule_Reply_ArrayEnd(reply);
   }
 
+#ifdef MT_BUILD
+  if (req->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
+    // Remove the request from thread:running_request dictionary
+    workersThreadPool_UnTrackReq();
+  }
+#endif // MT_BUILD
   if (req->stateflags & QEXEC_S_ITERDONE) {
     AREQ_Free(req);
     cursor->execState = NULL;
@@ -950,6 +969,16 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count) {
   }
 
   AREQ *req = cursor->execState;
+
+  req->reqflags |= QEXEC_F_READ_CURSOR_MODE;
+
+#ifdef MT_BUILD
+  if (req->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
+    workersThreadPool_TrackReq(req);
+  }
+#endif // MT_BUILD
+sleep(20);
+
   req->qiter.err = &status;
 
   runCursor(reply, cursor, count);

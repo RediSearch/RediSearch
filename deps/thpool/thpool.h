@@ -27,7 +27,7 @@ typedef enum {
 /* =================================== GENERAL ======================================= */
 
 /**
- * @brief  Register the *process* to the signal handler of SIGUSR2. 
+ * @brief  Register the *process* to the signal handler of SIGUSR2.
  * This is a general function that is not associated with a specific threadpool, but it is used
  * to handle pause threadpool function.
  * NOTE: the signal handler *overrides* the current signal handler assigned for SIGUSR2.
@@ -43,7 +43,7 @@ void register_process_to_pause_handler(RedisModuleCtx *ctx);
  * @brief  Create a new threadpool (without initializing the threads)
  *
  * @param num_threads     number of threads to be created in the threadpool
- * @param thpool_name     A null terminated string to name the threadpool. 
+ * @param thpool_name     A null terminated string to name the threadpool.
  *                        The name will be copied to a new string.
  * @return Newly allocated threadpool, or NULL if creation failed.
  */
@@ -205,7 +205,7 @@ void redisearch_thpool_timedwait(redisearch_threadpool, long timeout, yieldFunc 
  * @brief Pauses all threads immediately
  *
  * The threads will be signaled no matter if they are idle or working.
- * Call redisearch_thpool_resume() to unpause the threads. 
+ * Call redisearch_thpool_resume() to unpause the threads.
  *
  *
  * @example
@@ -223,7 +223,7 @@ void redisearch_thpool_timedwait(redisearch_threadpool, long timeout, yieldFunc 
 void redisearch_thpool_pause(redisearch_threadpool);
 
 /**
- * @brief Unpauses all threads in the threadpool if they are paused. 
+ * @brief Unpauses all threads in the threadpool if they are paused.
  * NOTE: the thread resumes only when the signal handler called by raising a signal with
  * redisearch_thpool_pause(), had done execution.
  * The threads return to the original execution point.
@@ -293,29 +293,41 @@ void redisearch_thpool_destroy(redisearch_threadpool);
  */
 size_t redisearch_thpool_num_threads_working(redisearch_threadpool);
 
+/**
+ * @brief                 Get the thread index of the thread this function is called from.
+ *
+ * @complexity: O(num_threads)
+ *
+ * @param threadpool     the threadpool to search the calling thread in.
+ * @return integer       thread's relative index in thpool_p.
+ *                       If the calling thread is not a member of @param thpool_p
+ *                       return -1.
+ */
+int redisearch_thpool_get_thread_idx(redisearch_threadpool);
+
 /* ============ COLLECT THREADS DATA AND LOG API ============ */
 /**
  * NOTE: These functions are not **threadpool** safe.
  * Please check if it is safe to start a data collecting process by calling redisearch_thpool_safe_to_collect_state()
- * General dump flow synchronization: 
+ * General dump flow synchronization:
  * Handling thread: signal threads in the thread pool - wait until all the threads are paused - init buffer and mark buffer as ready- wait until the threads are done writing to the buffer----- print log - resume threads-
- * thread:          mark itself as paused and wait for the buffer initialization ---------------------------------------------------- write current state info to the buffer and wait for resume---------------------------- resume        
+ * thread:          mark itself as paused and wait for the buffer initialization ---------------------------------------------------- write current state info to the buffer and wait for resume---------------------------- resume
 */
 
 int redisearch_thpool_safe_to_collect_state();
 
 /**
  * @brief Pause the threadpool for crash report
- * 
+ *
  * @param threadpool     the threadpool where the threads should be paused
  * @return nothing
  */
 void redisearch_thpool_pause_before_dump(redisearch_threadpool);
-/* ====== EXAMPLE OUTPUT ON CRASH ====== 
+/* ====== EXAMPLE OUTPUT ON CRASH ======
 
         # search_=== GC THREADS LOG: ===
 
-        # search_thread #0 backtrace: 
+        # search_thread #0 backtrace:
 
         search_0:/workspaces/Code/RediSearch/bin/linux-arm64v8-debug/search/redisearch.so(+0x2b7698) [0xffffaf827698]
         search_1:/workspaces/Code/RediSearch/bin/linux-arm64v8-debug/search/redisearch.so(+0x2b72b4) [0xffffaf8272b4]
@@ -330,34 +342,43 @@ void redisearch_thpool_pause_before_dump(redisearch_threadpool);
 ====== END OF EXAMPLE ====== **/
 /**
  * @brief Collect and print data from all the threads in the thread pool to the crash log.
- * 
+ *
  * @param threadpool            the threadpool of threads to print dump data from.
  * @param ctx                   the info ctx to print the data to.
+ * @param add_info_cb           An optional callback to be called on each thread to add information
+ *                              to its info output. can be set to NULL if such addition is not required.
  * @param info_section_title    the title to print before the dump log. Probably includes
- *                              the name of the thread pool. 
- * 
+ *                              the name of the thread pool.
+ *
  */
-void redisearch_thpool_StateLog(redisearch_threadpool,
-                                   RedisModuleInfoCtx *ctx);
+typedef void(*additional_info_cb)(int thread_id, RedisModuleInfoCtx *reply);
+void redisearch_thpool_log_state_to_info(redisearch_threadpool,
+                                RedisModuleInfoCtx *ctx,
+                                additional_info_cb add_info_cb);
 
 /**
- * 
+ *
  * @brief General cleanups after all the threadpools are done dumping their state data.
- * 
+ *
  * @param ctx             the info ctx to print the data to.
  * @param threadpool      the threadpool of threads to collect dump data from.
  */
-void redisearch_thpool_StateLog_done();
+void redisearch_thpool_log_state_done();
 
 /**
- * 
+ *
  * @brief General Collect and reply the current state data of all the threads in the thread pool.
- * 
+ *
  * @param ctx             the info ctx to print the data to.
+ * @param add_reply_cb          An optional callback to be called on each thread to add information
+ *                              to its reply output. can be set to NULL if such addition is not required.
+
  * @param threadpool      the threadpool of threads to collect dump data from.
  */
-void redisearch_thpool_print_backtrace(redisearch_threadpool, 
-                                       RedisModule_Reply *reply);
+typedef void(*additional_reply_cb)(int thread_id, RedisModule_Reply *reply);
+void redisearch_thpool_log_state_to_reply(redisearch_threadpool,
+                                       RedisModule_Reply *reply,
+                                       additional_reply_cb add_reply_cb);
 
 #ifdef __cplusplus
 }

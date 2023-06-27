@@ -596,10 +596,10 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
 void CleanPool_ThreadPoolStart();
 void CleanPool_ThreadPoolDestroy();
 
-void CleanPool_ThreadPoolPauseBeforeDump();
-void CleanPool_ThreadPoolResume();
-void CleanPool_ThreadPoolShutdownLog(RedisModuleInfoCtx *ctx);
-void CleanPool_ThreadPoolPrintBacktrace(RedisModule_Reply *reply);
+void CleanPool_ThreadPool_PauseBeforeDump();
+void CleanPool_ThreadPool_Resume();
+void CleanPool_ThreadPool_log_state_to_info(RedisModuleInfoCtx *ctx);
+void CleanPool_ThreadPool_log_state_to_reply(RedisModule_Reply *reply);
 size_t CleanInProgressOrPending();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

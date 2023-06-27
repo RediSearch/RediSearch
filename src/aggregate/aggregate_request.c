@@ -1526,3 +1526,11 @@ void AREQ_Free(AREQ *req) {
   rm_free(req->args);
   rm_free(req);
 }
+
+const char *AREQ_GetQuery(AREQ *req) {
+  return req->query;
+}
+
+const char *AREQ_GetIndexName(AREQ *req) {
+  return req->sctx->spec->name;
+}
