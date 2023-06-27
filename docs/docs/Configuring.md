@@ -30,7 +30,7 @@ $ redis-server --loadmodule ./redisearch.so [OPT VAL]...
 
 ## Set configuration parameters at run-time (for supported parameters)
 
-Search and Query exposes the `FT.CONFIG` endpoint to allowing for the setting and retrieval of configuration parameters at run-time.
+Search and Query exposes the `FT.CONFIG` endpoint to allow for the setting and retrieval of configuration parameters at run-time.
 
 To set the value of a configuration parameter at run-time (for supported parameters), simply run:
 

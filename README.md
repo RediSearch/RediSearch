@@ -26,7 +26,7 @@ The fastest way to get up and running with Search and Query is by using the [Red
 
 ## Trying Search and Query
 
-To try Search and Query, either use the Redis Stack Docker image, or [create a free Redis Cloud Essentials account](https://redis.com/try-free/) to get a Redis Stack instance in the cloud, which include Search and Query.
+To try Search and Query, either use the Redis Stack Docker image, or [create a free Redis Cloud Fixed account](https://redis.com/try-free/) to get a Redis Stack instance in the cloud, which includes Search and Query.
 
 ### Docker image
 

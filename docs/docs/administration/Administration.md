@@ -27,8 +27,8 @@ aof-use-rdb-preamble yes
 
 ## Master/Slave Replication
 
-Search and Query supports replication inherently, and using a master/slave set-up, you can use slaves for high availability. On top of that, slaves can be used for searching, to load-balance read traffic. 
+Search and Query supports replication inherently, and using a master/replica set-up, you can use replicas for high availability. On top of that, replicas can be used for searching to load-balance read traffic. 
 
 ## Cluster Support
 
-Search and Query will not work correctly on a cluster. The enterprise version of Search and Query, which is commercially available from Redis Labs, does support a cluster set up and scales to hundreds of nodes, billions of documents and terabytes of data. See the [Redis Labs Website](https://redislabs.com/redis-enterprise-documentation/developing/modules/redisearch/) for more details. 
+Search and Query will not work correctly on a cluster. The enterprise version of Search and Query, which is commercially available from Redis Inc., supports a cluster set up and scales to hundreds of nodes, billions of documents and terabytes of data. See the [Redis Labs Website](https://docs.redis.com/latest/modules/redisearch/) for more details. 

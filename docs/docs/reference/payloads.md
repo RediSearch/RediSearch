@@ -13,7 +13,7 @@ description: >
 The payload feature is deprecated in 2.0
 {{% /alert %}}
     
-Usually, Search and Query stores documents as hash keys. But if you want to access some data for aggregation or scoring functions, we might want to store that data as an inline payload. This will allow us to evaluate properties of a document for scoring purposes at very low cost.
+Usually, Search and Query stores documents as hashes or JSON. But if you want to access some data for aggregation or scoring functions, we can store that data as an inline payload. This will allow us to evaluate the properties of a document for scoring purposes at a very low cost.
 
 Since the scoring functions already have access to the DocumentMetaData, which contains document flags and score, We can add custom payloads that can be evaluated in run-time.
 
