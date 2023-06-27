@@ -76,3 +76,31 @@ def test_numeric_info(env):
   env.assertEqual(res3, exp2)  # Numeric field is sortable, and explicitly UNF
   env.assertEqual(res4, exp3)  # Numeric field is sortable, explicitly NOINDEX, and automatically UNF
   env.assertEqual(res5, exp3)  # Numeric field is sortable, explicitly NOINDEX, and explicitly UNF
+
+
+def test_vector_index_failures(env):
+  con = getConnectionByEnv(env)
+  # Create a vector index.
+  env.expect('ft.create', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', 6, 'DIM', 2, 'TYPE', 'FLOAT32', 'DISTANCE_METRIC', 'COSINE').ok()
+
+  # Insert two documents, one with a valid vector and one with an invalid vector. The invalid vector is too short.
+  # On cluster, both documents should be set in different shards, so 
+  # The index should contain only the valid vector.
+
+  con.execute_command('hset', 'doc{1}', 'v', 'aaaa')
+  con.execute_command('hset', 'doc{2}', 'v', 'aaaaaaaa')
+  info = ft_info_to_dict(env, 'idx')
+  env.assertEqual(info['num_docs'], '1')
+
+  field_spec_list = info['attributes'][0]
+  field_spec_dict =  {field_spec_list[i]: field_spec_list[i + 1] for i in range(0, len(field_spec_list), 2)}
+
+
+  env.assertEqual(field_spec_dict['field_indexing_failures'], '1')
+  env.assertEqual(field_spec_dict['last_indexing_error_key'], 'doc{1}')
+  env.assertEqual(field_spec_dict['last_indexing_error'], 'Could not add vector with blob size 4 (expected size 8)')
+
+  env.assertEqual(info['hash_indexing_failures'], '1')
+  env.assertEqual(info['last_indexing_error_key'], 'doc{1}')
+  env.assertEqual(info['last_indexing_error'], 'Could not add vector with blob size 4 (expected size 8)')
+

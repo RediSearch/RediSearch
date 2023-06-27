@@ -180,6 +180,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_Reply_SimpleString(reply, SPEC_WITHSUFFIXTRIE_STR);
     }
 
+    REPLY_KVNUM("field_indexing_failures", fs->indexError.error_count);
+    REPLY_KVSTR("last_indexing_error", fs->indexError.last_error);
+    REPLY_KVSTR("last_indexing_error_key", fs->indexError.key);
+
     if (has_map) {
       RedisModule_Reply_ArrayEnd(reply); // >>>flags
     }
@@ -217,8 +221,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
               (float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
   REPLY_KVNUM("offset_bits_per_record_avg",
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
-  REPLY_KVSTR("last_indexing_error", sp->stats.indexError.last_error);
   REPLY_KVNUM("hash_indexing_failures", sp->stats.indexError.error_count);
+  REPLY_KVSTR("last_indexing_error", sp->stats.indexError.last_error);
+  REPLY_KVSTR("last_indexing_error_key", sp->stats.indexError.key);
   REPLY_KVNUM("total_indexing_time", sp->stats.totalIndexTime / 1000.0);
   REPLY_KVNUM("indexing", !!global_spec_scanner || sp->scan_in_progress);
 

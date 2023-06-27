@@ -11,6 +11,7 @@
 typedef struct IndexError {
     size_t error_count; // Number of errors.
     char *last_error;   // Last error message.
+    char *key;          // Key of the document that caused the error.
 } IndexError;
 
 // No errors message. Used when there are no errors.
@@ -21,8 +22,7 @@ extern const char* no_errors;
 IndexError IndexError_init();
 
 // Adds an error message to the IndexError. The error_count is incremented and the last_error is set to the error_message.
-// The error message should be allocated on the heap with rmalloc commands, as it will be freed when the IndexError is cleared.
-void IndexError_add_error(IndexError *error, char *error_message);
+void IndexError_add_error(IndexError *error, const char *error_message, const char *key);
 
 // Clears an IndexError. If the last_error is not no_errors, it is freed.
 void IndexError_clear(IndexError error);

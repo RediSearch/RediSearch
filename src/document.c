@@ -620,8 +620,7 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   RedisModuleString *errMsg;
   if (!fdata->isMulti) {
     if (!api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, &errMsg)) {
-      char* err = rm_strdup(RedisModule_StringPtrLen(errMsg, NULL));
-      IndexError_add_error(&ctx->spec->stats.indexError, err);
+      IndexError_add_error(&ctx->spec->stats.indexError, RedisModule_StringPtrLen(errMsg, NULL), RedisModule_StringPtrLen(aCtx->doc->docKey, NULL));
       // ++ctx->spec->stats.indexingFailures;
       // QueryError_SetErrorFmt(status, QUERY_EBADVAL, "Error indexing geoshape: %s",
       //                        RedisModule_StringPtrLen(errMsg, NULL));
@@ -683,8 +682,10 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
     return 0; // Skipping indexing missing vector
   }
   if (fdata->vecLen != fs->vectorOpts.expBlobSize) {
-    // "Could not add vector with blob size %zu (expected size %zu)", len, fs->vectorOpts.expBlobSize
-    QueryError_SetCode(status, QUERY_EBADATTR);
+
+    QueryError_SetErrorFmt(status, QUERY_EBADATTR,
+                           "Could not add vector with blob size %zu (expected size %zu)", fdata->vecLen,
+                           fs->vectorOpts.expBlobSize);
     return -1;
   }
   aCtx->fwIdx->maxFreq++;
@@ -890,8 +891,9 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
       PreprocessorFunc pp = preprocessorMap[ii];
       if (pp(aCtx, sctx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
-        char *err = rm_strdup(QueryError_GetError(&aCtx->status));
-        IndexError_add_error(&aCtx->spec->stats.indexError, err);
+        const char *key = RedisModule_StringPtrLen(doc->docKey, NULL); 
+        IndexError_add_error(&aCtx->spec->stats.indexError, QueryError_GetError(&aCtx->status), key);
+        IndexError_add_error(&aCtx->spec->fields[i].indexError, QueryError_GetError(&aCtx->status), key);
         // ++aCtx->spec->stats.indexingFailures;
         ourRv = REDISMODULE_ERR;
         goto cleanup;
