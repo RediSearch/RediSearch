@@ -578,7 +578,7 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
       fdata->str = str;
       fdata->strlen = len;
       fdata->format = GEOMETRY_FORMAT_WKT;
-      break;
+      return 0;
     }
     case FLD_VAR_T_CSTR:
       // From WKT string
@@ -586,7 +586,7 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
       fdata->str = field->strval;
       fdata->strlen = field->strlen;
       fdata->format = GEOMETRY_FORMAT_WKT;
-      break;
+      return 0;
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_NULL:
       return 0;
@@ -594,7 +594,7 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
       fdata->isMulti = 1;
       // TODO: GEOMETRY - parse geometries from string
       //fdata->arrGeometry = ...
-      break;
+      return 0;
     default:
       return -1;
   }
@@ -602,8 +602,6 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
   // TODO: GEOMETRY
   // If this is a sortable geomtry value - copy the value to the sorting vector
 
-
-  return 0;
 }
 
 FIELD_BULK_INDEXER(geometryIndexer) {
