@@ -231,16 +231,12 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status);
 /**
  * Returns the query string of the request.
  */
-const char *AREQ_GetQuery(AREQ *req) {
-  return req->query;
-}
+const char *AREQ_GetQuery(AREQ *req);
 
 /**
  * Return the index name associated with the request.
  */
-const char *AREQ_GetIndexName(AREQ *req) {
-  return req->sctx->spec->name;
-}
+const char *AREQ_GetIndexName(AREQ *req);
 /******************************************************************************
  ******************************************************************************
  ** Grouper Functions                                                        **
