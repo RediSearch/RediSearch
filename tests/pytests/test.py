@@ -3368,8 +3368,8 @@ def testAlterIfNX(env):
     env.expect('FT._ALTERIFNX idx SCHEMA ADD n1 NUMERIC').ok()
     res = env.cmd('ft.info idx')
     res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}['attributes']
-    env.assertEqual(res, [['identifier', 'n', 'attribute', 'n', 'type', 'NUMERIC', 'UNF'],     # NUMERICs are always UNF
-                          ['identifier', 'n1', 'attribute', 'n1', 'type', 'NUMERIC', 'UNF']])  # NUMERICs are always UNF
+    env.assertEqual(res, [['identifier', 'n', 'attribute', 'n', 'type', 'NUMERIC'],
+                          ['identifier', 'n1', 'attribute', 'n1', 'type', 'NUMERIC']])
 
 def testAliasAddIfNX(env):
     env.expect('FT.CREATE idx ON HASH SCHEMA n NUMERIC').ok()
