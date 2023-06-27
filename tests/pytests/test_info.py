@@ -84,11 +84,13 @@ def test_vector_index_failures(env):
   env.expect('ft.create', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', 6, 'DIM', 2, 'TYPE', 'FLOAT32', 'DISTANCE_METRIC', 'COSINE').ok()
 
   # Insert two documents, one with a valid vector and one with an invalid vector. The invalid vector is too short.
-  # On cluster, both documents should be set in different shards, so 
+  # On cluster, both documents should be set in different shards, so the coordinator should get the error from the
+  # first document and the second document should be indexed successfully.
   # The index should contain only the valid vector.
 
   con.execute_command('hset', 'doc{1}', 'v', 'aaaa')
   con.execute_command('hset', 'doc{2}', 'v', 'aaaaaaaa')
+
   info = ft_info_to_dict(env, 'idx')
   env.assertEqual(info['num_docs'], '1')
 
@@ -103,4 +105,33 @@ def test_vector_index_failures(env):
   env.assertEqual(info['hash_indexing_failures'], '1')
   env.assertEqual(info['last_indexing_error_key'], 'doc{1}')
   env.assertEqual(info['last_indexing_error'], 'Could not add vector with blob size 4 (expected size 8)')
+
+def test_numeric_index_failures(env):
+  con = getConnectionByEnv(env)
+  # Create a numeric index.
+  env.expect('ft.create', 'idx', 'SCHEMA', 'n', 'numeric').ok()
+
+  # Insert two documents, one with a valid numeric and one with an invalid numeric. The invalid numeric is a string.
+  # On cluster, both documents should be set in different shards, so the coordinator should get the error from the
+  # first document and the second document should be indexed successfully.
+  # The index should contain only the valid numeric.
+
+  con.execute_command('hset', 'doc{1}', 'n', 'aaaa')
+  con.execute_command('hset', 'doc{2}', 'n', '1')
+
+  info = ft_info_to_dict(env, 'idx')
+  env.assertEqual(info['num_docs'], '1')
+
+  field_spec_list = info['attributes'][0]
+  field_spec_dict =  {field_spec_list[i]: field_spec_list[i + 1] for i in range(0, len(field_spec_list), 2)}
+
+
+  env.assertEqual(field_spec_dict['field_indexing_failures'], '1')
+  env.assertEqual(field_spec_dict['last_indexing_error_key'], 'doc{1}')
+  env.assertEqual(field_spec_dict['last_indexing_error'], 'Invalid numeric value: \'aaaa\'')
+
+  env.assertEqual(info['hash_indexing_failures'], '1')
+  env.assertEqual(info['last_indexing_error_key'], 'doc{1}')
+  env.assertEqual(info['last_indexing_error'], 'Invalid numeric value: \'aaaa\'')
+
 

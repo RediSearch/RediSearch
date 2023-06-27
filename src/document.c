@@ -522,7 +522,8 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
     case FLD_VAR_T_RMS:
       fdata->isMulti = 0;
       if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
-        QueryError_SetCode(status, QUERY_ENOTNUMERIC);
+        QueryError_SetErrorFmt(status, QUERY_ENOTNUMERIC, "Invalid numeric value: '%s'",
+                               RedisModule_StringPtrLen(field->text, NULL));
         return -1;
       }
       break;
