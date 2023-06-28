@@ -16,10 +16,9 @@ def assert_index_num_docs(env, idx, attr, num_docs):
     res = array_of_key_value_to_map(res)
     env.assertEqual(res['num_docs'], num_docs)
 
-@skip()  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
 def testSanitySearchHashWithin(env):
   conn = getConnectionByEnv(env)
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE').ok()
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT').ok()
   
   conn.execute_command('HSET', 'small', 'geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))')
   conn.execute_command('HSET', 'large', 'geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))')
@@ -31,10 +30,9 @@ def testSanitySearchHashWithin(env):
   res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
-@skip()  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
 def testSanitySearchJsonWithin(env):
   conn = getConnectionByEnv(env)
-  env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOSHAPE').ok()
+  env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOSHAPE FLAT').ok()
 
   conn.execute_command('JSON.SET', 'small', '$', '{"geom": "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))"}')
   conn.execute_command('JSON.SET', 'large', '$', '{"geom": "POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))"}')
@@ -45,10 +43,9 @@ def testSanitySearchJsonWithin(env):
   res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
-@skip()  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
 def testSanitySearchJsonCombined(env):
   conn = getConnectionByEnv(env)
-  env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOSHAPE $.name as name TEXT').ok()
+  env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOSHAPE FLAT $.name as name TEXT').ok()
 
   conn.execute_command('JSON.SET', 'p1', '$', '{"geom": "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))", "name": "Homer"}')
   conn.execute_command('JSON.SET', 'p2', '$', '{"geom": "POLYGON((1 1, 1 100, 90 90, 100 1, 1 1))", "name": "Bart"}')
@@ -112,12 +109,11 @@ def testWKTQueryError(env):
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[contains $poly]', 'PARAMS', 2, 'moly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3).error().contains('No such parameter')
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'NOCONTENT', 'DIALECT', 3).error().contains('No such parameter')
   
-@skip()  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
 def testSimpleUpdate(env):
   ''' Test updating geometries '''
   
   conn = getConnectionByEnv(env)
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'geom2', 'GEOSHAPE').ok()
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT', 'geom2', 'GEOSHAPE', 'FLAT').ok()
   conn.execute_command('HSET', 'k1', 'geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))')
   conn.execute_command('HSET', 'k2', 'geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))')
   conn.execute_command('HSET', 'k3', 'geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))', 'geom2', 'POLYGON((1 1, 1 140, 140 140, 140 1, 1 1))')
@@ -182,12 +178,11 @@ def testSimpleUpdate(env):
   # Search contains
   env.expect('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))', 'DIALECT', 3).equal([0])
 
-@skip()  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
 def testFieldUpdate(env):
   ''' Test updating a field, keeping the rest intact '''
   
   conn = getConnectionByEnv(env)
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom1', 'GEOSHAPE', 'geom2', 'GEOSHAPE').ok()
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom1', 'GEOSHAPE', 'FLAT', 'geom2', 'GEOSHAPE', 'FLAT').ok()
   field1 = ['geom1',  'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))']
   field2 = ['geom2', 'POLYGON((1 1, 1 140, 140 140, 140 1, 1 1))']
   conn.execute_command('HSET', 'k1', *field1, *field2)
@@ -226,14 +221,13 @@ def testFieldUpdate(env):
   # Search within on geom2 field
   env.expect('FT.SEARCH', 'idx', '@geom2:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((1 1, 1 170, 170 170, 170 1, 1 1))', 'DIALECT', 3).equal([0])
 
-@skip()  # TODO: GEOMETRY - Enable when can select FLAT index (MOD-5304)
 def testFtInfo(env):
   ''' Test FT.INFO on GEOSHAPE '''
   
   conn = getConnectionByEnv(env)
   info_key_name = 'total_geoshapes_index_size_mb'
   
-  env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'geom', 'GEOSHAPE', 'txt', 'TEXT').ok()
+  env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT', 'txt', 'TEXT').ok()
   env.expect('FT.CREATE', 'idx2_no_geom', 'SCHEMA', 'txt', 'TEXT').ok()
   res = to_dict(env.cmd('FT.INFO idx1'))
   env.assertEqual(int(res[info_key_name]), 0)

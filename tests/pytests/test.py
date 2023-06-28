@@ -2588,7 +2588,7 @@ def testMod_309(env):
     for i in range(n):
         conn.execute_command('HSET', f'doc{i}', 'test', 'foo')
     waitForIndex(conn, 'idx')
-    res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
+    res = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'TIMEOUT', 0)
     env.assertEqual(len(res), n + 1)
 
     # test with cursor

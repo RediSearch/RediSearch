@@ -36,4 +36,3 @@ typedef enum QueryType {
   CONTAINS,
   WITHIN,
 } QueryType;
-

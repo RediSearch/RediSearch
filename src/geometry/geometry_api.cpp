@@ -78,14 +78,26 @@ GEO_VARIANTS(X)
 
 using GeometryConstructor_t = GeometryIndex *(*)();
 #define X(variant) \
-  /* [GEOMETRY_COORDS_variant] = */ Index_##variant##_New,
-constexpr std::array<GeometryConstructor_t, GEOMETRY_COORDS__NUM> geometry_ctors_g {  
+  [GEOMETRY_COORDS_variant] = Index_##variant##_New,
+constexpr std::array<GeometryConstructor_t, GEOMETRY_COORDS__NUM> geometry_ctors_g {{
   GEO_VARIANTS(X)
-};
+}};
 #undef X
 
 GeometryIndex *GeometryIndexFactory(GEOMETRY_COORDS tag) {
   return geometry_ctors_g[tag]();
+}
+
+
+constexpr std::array<const char *, GEOMETRY_COORDS__NUM> tag_names_g {{
+  [GEOMETRY_COORDS_CartesianPoint] = "FLAT",
+  [GEOMETRY_COORDS_GeographicPoint] = "SPHERICAL",
+  [GEOMETRY_COORDS_CartesianPolygon] = "FLAT",
+  [GEOMETRY_COORDS_GeographicPolygon] = "SPHERICAL",
+}};
+
+const char *GeometryCoordsToName(GEOMETRY_COORDS tag) {
+  return tag_names_g[tag];
 }
 
 #define X(variant) \

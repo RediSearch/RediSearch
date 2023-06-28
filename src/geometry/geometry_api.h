@@ -28,6 +28,8 @@ struct GeometryApi {
   void (*dump)(const GeometryIndex *index, RedisModuleCtx *ctx);
 };
 
+const char *GeometryCoordsToName(GEOMETRY_COORDS tag);
+
 // Return the total memory usage of all RTree instances
 size_t GeometryTotalMemUsage();
 
