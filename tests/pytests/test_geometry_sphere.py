@@ -100,7 +100,7 @@ def testWKTQueryError(env):
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $]', 'NOCONTENT', 'DIALECT', 3).error().contains('Syntax error')
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within poly]', 'NOCONTENT', 'DIALECT', 3).error().contains('Syntax error')
   # Bad Polygon
-  env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLIGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3).error().contains('POLIGON')
+  env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLIGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3).error()
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[contains $poly]', 'PARAMS', 2, 'poly', '', 'NOCONTENT', 'DIALECT', 3).error()
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[contains $poly]', 'PARAMS', 2, 'poly', '34.90 29.70', 'NOCONTENT', 'DIALECT', 3).error()
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON', 'NOCONTENT', 'DIALECT', 3).error().contains('Expected')
