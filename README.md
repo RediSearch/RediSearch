@@ -12,7 +12,7 @@
 
 ## Overview
 
-Search and Query is a [Redis module](https://redis.io/modules) that provides querying, secondary indexing, and full-text search for Redis. To use Search and Query, you first declare indexes on your Redis data. You can then use the module's query language to query that data.
+Search and Query is part of the enhanced experience with Redis that provides querying capabilities, secondary indexing, full-text search for Redis, vector similarity search, and more. To use Search and Query, you first declare indices on your Redis data, load the data into Redis, and then use the query language to retrieve the data asset that your application requires.
 
 Search and Query uses compressed, inverted indexes for fast indexing with a low memory footprint.
 
