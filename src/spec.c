@@ -856,11 +856,11 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     sp->flags |= Index_HasGeometry;
     fs->types |= INDEXFLD_T_GEOMETRY;
     if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_FLAT_STR)) {
-      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_CartesianPolygon;
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
     } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_SPHERE_STR)) {
-      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_GeographicPolygon;
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
     } else {
-      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_GeographicPolygon;
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
     }
   } else {  // nothing more supported currently
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
@@ -1859,7 +1859,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
       f->geometryOpts.geometryCoords = LoadUnsigned_IOError(rdb, goto fail);
     } else {
       // In RedisSearch RC (2.8.1 - 2.8.3) we supported default coordinate system which was not written to RDB
-      f->geometryOpts.geometryCoords = GEOMETRY_COORDS_GeographicPolygon;
+      f->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
     }
   }
 

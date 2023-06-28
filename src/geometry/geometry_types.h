@@ -6,7 +6,7 @@
 
 #pragma once
 
-#define GEO_VARIANTS(X) X(CartesianPoint) X(GeographicPoint) X(CartesianPolygon) X(GeographicPolygon)
+#define GEO_VARIANTS(X) X(Cartesian) X(Geographic)
 
 typedef struct GeometryIndex GeometryIndex;
 typedef struct GeometryApi GeometryApi;
