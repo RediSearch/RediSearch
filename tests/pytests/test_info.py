@@ -51,3 +51,28 @@ def testInfo(env):
   #env.cmd('FT.CURSOR', 'READ', idx, str(res[1]))
 
   #print info
+
+
+def test_numeric_info(env):
+
+  env.execute_command('ft.create', 'idx1', 'SCHEMA', 'n', 'numeric')
+  env.execute_command('ft.create', 'idx2', 'SCHEMA', 'n', 'numeric', 'SORTABLE')
+  env.execute_command('ft.create', 'idx3', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'UNF')
+  env.execute_command('ft.create', 'idx4', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'NOINDEX')
+  env.execute_command('ft.create', 'idx5', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'UNF', 'NOINDEX')
+
+  res1 = ft_info_to_dict(env, 'idx1')['attributes']
+  res2 = ft_info_to_dict(env, 'idx2')['attributes']
+  res3 = ft_info_to_dict(env, 'idx3')['attributes']
+  res4 = ft_info_to_dict(env, 'idx4')['attributes']
+  res5 = ft_info_to_dict(env, 'idx5')['attributes']
+
+  exp1 = [['identifier', 'n', 'attribute', 'n', 'type', 'NUMERIC']]
+  exp2 = [['identifier', 'n', 'attribute', 'n', 'type', 'NUMERIC', 'SORTABLE', 'UNF']]
+  exp3 = [['identifier', 'n', 'attribute', 'n', 'type', 'NUMERIC', 'SORTABLE', 'UNF', 'NOINDEX']]
+
+  env.assertEqual(res1, exp1)  # Nothing special about the numeric field
+  env.assertEqual(res2, exp2)  # Numeric field is sortable, and automatically UNF
+  env.assertEqual(res3, exp2)  # Numeric field is sortable, and explicitly UNF
+  env.assertEqual(res4, exp3)  # Numeric field is sortable, explicitly NOINDEX, and automatically UNF
+  env.assertEqual(res5, exp3)  # Numeric field is sortable, explicitly NOINDEX, and explicitly UNF

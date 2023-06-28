@@ -18,10 +18,11 @@ make fetch         # download and prepare dependant modules
 
 make build          # compile and link
   COORD=1|oss|rlec    # build coordinator (1|oss: Open Source, rlec: Enterprise)
+  MT=0|1              # control multithreaded mode (like REDISEARCH_MT_BUILD)
   STATIC=1            # build as static lib
   LITE=1              # build RediSearchLight
   DEBUG=1             # build for debugging
-  NO_TESTS=1          # disable unit tests
+  TESTS=0             # do not build unit tests
   WHY=1               # explain CMake decisions (in /tmp/cmake-why)
   FORCE=1             # Force CMake rerun (default)
   CMAKE_ARGS=...      # extra arguments to CMake
@@ -170,13 +171,28 @@ endif # COORD
 export COORD
 export PACKAGE_NAME
 
+#----------------------------------------------------------------------------------------------
+
 ifeq ($(REDISEARCH_MT_BUILD),1)
+MT ?= 1
+endif
+
+ifeq ($(MT),1)
+$(info ### Multithreading enabled)
 CC_FLAGS.common += -DMT_BUILD
+override REDISEARCH_MT_BUILD=1
+export REDISEARCH_MT_BUILD
+endif
+
+ifeq ($(MT),0)
+$(info ### Multithreading disabled)
+override REDISEARCH_MT_BUILD=0
+export REDISEARCH_MT_BUILD
 endif
 
 #----------------------------------------------------------------------------------------------
 
-CC_C_STD=gnu99
+CC_C_STD=gnu11
 # CC_CXX_STD=c++11
 
 CC_STATIC_LIBSTDCXX ?= 1
@@ -185,8 +201,10 @@ CC_COMMON_H=src/common.h
 
 #----------------------------------------------------------------------------------------------
 
-ifneq ($(NO_TESTS),1)
-CMAKE_TEST=-DBUILD_TESTS=ON
+ifeq ($(TESTS),0)
+CMAKE_TEST=-DBUILD_SEARCH_UNIT_TESTS=OFF
+else
+CMAKE_TEST=-DBUILD_SEARCH_UNIT_TESTS=ON
 endif
 
 ifeq ($(STATIC),1)
@@ -286,11 +304,34 @@ endif
 
 include $(MK)/rules
 
+#----------------------------------------------------------------------------------------------
+
+export REJSON ?= 1
+
+PLATFORM_TRI:=$(shell $(READIES)/bin/platform -t)
+REJSON_BINDIR=$(ROOT)/bin/$(PLATFORM_TRI)/RedisJSON
+
+ifneq ($(REJSON),0)
+
+ifneq ($(SAN),)
+REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
+REJSON_PATH=$(REJSON_SO)
+
+$(REJSON_SO):
+	$(SHOW)BINROOT=$(BINROOT) SAN=$(SAN) ./sbin/build-redisjson
+else
+REJSON_SO=
+endif
+
+endif # REJSON=0
+
+#----------------------------------------------------------------------------------------------
+
 clean:
 ifeq ($(ALL),1)
 	$(SHOW)rm -rf $(BINROOT)
 else ifeq ($(ALL),all)
-	$(SHOW)rm -rf $(BINROOT)
+	$(SHOW)rm -rf $(BINROOT) $(REJSON_BINDIR)
 	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG='' clean
 else
 	$(SHOW)$(MAKE) -C $(BINDIR) clean
@@ -417,23 +458,6 @@ CTEST_DEFS=\
 	COV=$(COV) \
 	SAN=$(SAN) \
 	SLOW=$(SLOW)
-
-#----------------------------------------------------------------------------------------------
-
-export REJSON ?= 1
-
-ifneq ($(REJSON),0)
-ifneq ($(SAN),)
-REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
-REJSON_PATH=$(REJSON_SO)
-
-$(REJSON_SO):
-	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
-else
-REJSON_SO=
-endif
-
-endif # REJSON=0
 
 #----------------------------------------------------------------------------------------------
 
