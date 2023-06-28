@@ -467,7 +467,9 @@ static void* thread_do(struct thread* thread_p) {
       pthread_mutex_lock(&thpool_p->thcount_lock);
       thpool_p->num_threads_working--;
       if (!thpool_p->num_threads_working) {
-        thread_p->log("thpool contains no more jobs");
+        if (thread_p->log) {
+          thread_p->log("thpool contains no more jobs");
+        }
         pthread_cond_signal(&thpool_p->threads_all_idle);
         if (thpool_p->terminate_when_empty) {
           thread_p->log("terminating thread pool after there are no more jobs");
