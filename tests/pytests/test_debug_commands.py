@@ -202,16 +202,11 @@ def threadpool_name_to_title(thpool_name):
     return f"=== {thpool_name} THREADS BACKTRACE: ==="
 
 def threadpool_title_to_name(thpool_title):
-    if thpool_title == "=== GC THREADS BACKTRACE: ===":
-        return "GC"
-    elif thpool_title == "=== WORKERS THREADS BACKTRACE: ===":
-        return "WORKERS"
-    elif thpool_title == "=== CLEANSPEC THREADS BACKTRACE: ===":
-        return "CLEANSPEC"
-    elif thpool_title == "=== ConcurrentSearch_thpool_0 THREADS BACKTRACE: ===":
-        return "ConcurrentSearch"
-    else:
+    thpool_title = thpool_title.split()[1]
+    titles = ["GC", "WORKERS", "CLEANSPEC", "ConcurrentSearch"]
+    if thpool_title not in titles:
         return None
+    return thpool_title
 
 def DumpBacktrace_ALL(env: Env, threadpools_attr):
     # Ask for all threadpools
@@ -222,7 +217,7 @@ def DumpBacktrace_ALL(env: Env, threadpools_attr):
     for i, threadpool in enumerate(threadpools_titles):
         thpool_name = threadpool_title_to_name(threadpool)
         if thpool_name is None:
-            env.assertTrue(False, message=(f"Threadpool title {threadpool} is unexpected"))
+            env.assertEqual(thpool_name, threadpool, message=(f"Threadpool title {threadpool} is unexpected"))
             continue
         env.assertEqual(threadpools_attr[thpool_name]["status"], 'NOT_FOUND')
         threadpools_attr[thpool_name]["status"] = 'FOUND'

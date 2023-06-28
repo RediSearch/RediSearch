@@ -924,18 +924,16 @@ static void RS_ThreadpoolsPrintBacktrace(RedisModule_Reply *reply) {
   CleanPool_ThreadPoolPrintBacktrace(reply);
 }
 
-// TODO : add all other threadppools
 #define REPLY_THPOOL_BACKTRACE(thpool_name) \
     RedisModule_Reply_Map(reply); /*Threadpools dict*/ \
     thpool_name##PauseBeforeDump(); \
     thpool_name##PrintBacktrace(reply); \
     thpool_name##Resume(); \
-    redisearch_thpool_StateLog_done(); /*General cleanups.*/ \
-    RedisModule_Reply_MapEnd(reply); // Thredpools dict 
+    RedisModule_Reply_MapEnd(reply); // Thredpools dict
 
 /**
  * FT.DEBUG DUMP_THREADPOOL_BACKTRACE thpool_name
- * 
+ *
  */
 DEBUG_COMMAND(DumpThreadPoolBacktrace) {
   if (argc != 1) {
@@ -943,13 +941,13 @@ DEBUG_COMMAND(DumpThreadPoolBacktrace) {
   }
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
-  if (!redisearch_thpool_safe_to_collect_state()) {
+  if (!redisearch_thpool_StateLog_test_and_start()) {
     RedisModule_Reply_Error(reply, "Collecting threads' state is already in progress.");
     RedisModule_EndReply(reply);
     return REDISMODULE_OK;
   }
   const char *thpool_name = RedisModule_StringPtrLen(argv[0], NULL);
-  
+
   // Initialize reply ctx
 
   // find the requested thpool
@@ -972,6 +970,9 @@ DEBUG_COMMAND(DumpThreadPoolBacktrace) {
     sprintf(buff, "no such threadpool %s", thpool_name);
     RedisModule_Reply_Error(reply, buff);
   }
+
+  // General cleanups.
+  redisearch_thpool_StateLog_done();
   RedisModule_EndReply(reply);
 
   return REDISMODULE_OK;
