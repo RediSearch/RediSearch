@@ -2702,6 +2702,17 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
   }
 }
 
+#ifdef MT_BUILD
+static void LoadingProgressCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
+                                 void *data) {
+  RedisModule_Log(RSDummyContext, "notice", "Waiting for background jobs to be executed while"
+                  " loading is in progress (pregress is %d)",
+                  ((RedisModuleLoadingProgress *)data)->progress);
+  workersThreadPool_Wait(ctx, 100);
+}
+#endif
+
+
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {
       .version = REDISMODULE_TYPE_METHOD_VERSION,
@@ -2721,7 +2732,9 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   }
 
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Loading, Indexes_LoadingEvent);
-
+#ifdef MT_BUILD
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_LoadingProgress, LoadingProgressCallback);
+#endif
   return REDISMODULE_OK;
 }
 

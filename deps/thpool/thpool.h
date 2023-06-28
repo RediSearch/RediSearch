@@ -183,7 +183,7 @@ typedef void (*yieldFunc)(void *);
  */
 
 void redisearch_thpool_timedwait(redisearch_threadpool, long timeout, yieldFunc yieldCB,
-                                 void *yieldCtx);
+                                 void *yieldCtx, size_t threshold);
 
 /**
  * @brief Pauses all threads immediately

@@ -263,7 +263,7 @@ void redisearch_thpool_wait(redisearch_thpool_t* thpool_p) {
 }
 
 void redisearch_thpool_timedwait(redisearch_thpool_t* thpool_p, long timeout,
-                                 yieldFunc yieldCB, void *yield_ctx) {
+                                 yieldFunc yieldCB, void *yield_ctx, size_t threshold) {
 
   // Set the *absolute* time for waiting the condition variable
   struct timespec time_spec;
@@ -280,7 +280,7 @@ void redisearch_thpool_timedwait(redisearch_thpool_t* thpool_p, long timeout,
   }
 
   pthread_mutex_lock(&thpool_p->thcount_lock);
-  while (priority_queue_len(&thpool_p->jobqueue) || thpool_p->num_threads_working) {
+  while (priority_queue_len(&thpool_p->jobqueue) > threshold) {
     int rc = pthread_cond_timedwait(&thpool_p->threads_all_idle, &thpool_p->thcount_lock, &time_spec);
     if (rc == ETIMEDOUT) {
       pthread_mutex_unlock(&thpool_p->thcount_lock);
