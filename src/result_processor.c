@@ -576,12 +576,13 @@ static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
   uint32_t limit = MIN(self->remaining, base->parent->resultLimit);
   base->parent->resultLimit = self->offset + limit;
   // If we've not reached the offset
-  while (self->offset--) {
+  while (self->offset) {
     int rc = base->upstream->Next(base->upstream, r);
     if (rc != RS_RESULT_OK) {
       return rc;
     }
     base->parent->resultLimit--;
+    self->offset--;
     SearchResult_Clear(r);
   }
 
@@ -599,7 +600,7 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
   ret->offset = offset;
   ret->remaining = limit;
   ret->base.type = RP_PAGER_LIMITER;
-  ret->base.Next = offset ? rppagerNext_Skip : rppagerNext;
+  ret->base.Next = rppagerNext_Skip;
   ret->base.Free = rppagerFree;
 
   return &ret->base;
