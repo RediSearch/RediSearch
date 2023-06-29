@@ -86,7 +86,7 @@ class RediSearchSetup(paella.Setup):
 
         self.pip_install("conan")
         self.pip_install(f"-r {ROOT}/tests/pytests/requirements.txt")
-        self.run("{READIES}/bin/getaws")
+        self.run(f"{READIES}/bin/getaws")
         self.run(f"NO_PY2=1 {READIES}/bin/getpudb")
 
 #----------------------------------------------------------------------------------------------
