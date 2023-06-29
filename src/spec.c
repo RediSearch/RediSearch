@@ -1859,7 +1859,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
       f->geometryOpts.geometryCoords = LoadUnsigned_IOError(rdb, goto fail);
     } else {
       // In RedisSearch RC (2.8.1 - 2.8.3) we supported default coordinate system which was not written to RDB
-      f->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
+      f->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
     }
   }
 

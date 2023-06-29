@@ -13,6 +13,7 @@
 #include "query_iterator.hpp"
 #include "geometry_types.h"
 
+#include <string>         // std::string, std::char_traits
 #include <vector>         // std::vector, std::erase_if
 #include <variant>        // std::variant, std::visit
 #include <utility>        // std::pair
@@ -39,7 +40,6 @@ using sstream = std::basic_stringstream<char, std::char_traits<char>, rm_allocat
 template <typename coord_system>
 struct RTree {
   using point_type = bgm::point<double, 2, coord_system>;
-  using rect_type = bgm::box<point_type>;
   using poly_type = bgm::polygon<
       /* point_type       */ point_type,
       /* is_clockwise     */ true,  // TODO: GEOMETRY - do we need to call bg::correct(poly) ?
@@ -48,9 +48,9 @@ struct RTree {
       /* rings_container  */ std::vector,
       /* points_allocator */ rm_allocator,
       /* rings_allocator  */ rm_allocator>;
-
   using geom_type = std::variant<point_type, poly_type>;
 
+  using rect_type = bgm::box<point_type>;
   using doc_type = std::pair<rect_type, t_docId>;
   using rtree_type = bgi::rtree<doc_type, bgi::quadratic<16>, bgi::indexable<doc_type>,
                                 bgi::equal_to<doc_type>, rm_allocator<doc_type>>;
@@ -64,7 +64,7 @@ struct RTree {
 
   explicit RTree() = default;
 
-  [[nodiscard]] static doc_type make_doc(geom_type const& geom, t_docId id = 0) {
+  [[nodiscard]] static constexpr doc_type make_doc(geom_type const& geom, t_docId id = 0) {
     return doc_type{
         std::visit([](auto&& geom) { return bg::return_envelope<rect_type>(geom); }, geom), id};
   }
@@ -96,20 +96,22 @@ struct RTree {
     if (wkt.starts_with("POINT")) {
       point_type p{};
       bg::read_wkt(wkt.data(), p);
-      if (bg::is_empty(p)) {
-        throw std::runtime_error{"attempting to create empty geometry"};
-      }
       geom = p;
     } else if (wkt.starts_with("POLYGON")) {
       poly_type p{};
       bg::read_wkt(wkt.data(), p);
-      if (bg::is_empty(p)) {
-        throw std::runtime_error{"attempting to create empty geometry"};
-      }
       geom = p;
     } else {
       throw std::runtime_error{"unknown geometry type"};
     }
+    std::visit([](auto&& geom) {
+      if (bg::is_empty(geom)) {
+        throw std::runtime_error{"attempting to create empty geometry"};
+      }
+      if (!bg::is_valid(geom)) {
+        throw std::runtime_error{"invalid geometry"};
+      }
+    }, geom);
     return geom;
   }
 
@@ -140,16 +142,18 @@ struct RTree {
   }
 
   [[nodiscard]] static string geometry_to_string(geom_type const& geom) {
-    return std::visit([](auto&& geom) {
-      sstream ss{};
-      ss << bg::wkt(geom);
-      return ss.str();
-    }, geom);
+    return std::visit(
+        [](auto&& geom) {
+          sstream ss{};
+          ss << bg::wkt(geom);
+          return ss.str();
+        },
+        geom);
   }
 
   [[nodiscard]] static string doc_to_string(doc_type const& doc) {
     sstream ss{};
-    ss << bg::wkt(doc.first);
+    ss << bg::wkt(get_rect(doc));
     return ss.str();
   }
 
@@ -189,7 +193,7 @@ struct RTree {
 
       if (auto geom = lookup(doc); geom.has_value()) {
         RedisModule_ReplyWithStringBuffer(ctx, "geoshape", strlen("geoshape"));
-        auto str = geometry_to_string(geom.value().get());
+        auto str = geometry_to_string(geom.value());
         RedisModule_ReplyWithStringBuffer(ctx, str.data(), str.size());
         lenValues += 2;
       }
@@ -235,7 +239,8 @@ struct RTree {
   }
 
   static constexpr auto filter_results = [](auto&& g1, auto&& g2) {
-    if constexpr (std::is_same_v<point_type, std::decay_t<decltype(g2)>>) {
+    if constexpr (std::is_same_v<point_type, std::decay_t<decltype(g2)>> &&
+                  !std::is_same_v<point_type, std::decay_t<decltype(g1)>>) {
       return false;
     } else {
       return !bg::within(g1, g2);

@@ -66,6 +66,10 @@ def testWKTIngestError(env):
   conn.execute_command('JSON.SET', 'p1', '$', '{"geom": "POLIKON((34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Homer"}')
   # Missing parenthesis
   conn.execute_command('JSON.SET', 'p2', '$', '{"geom": "POLYGON(34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Patty"}')
+  # Missing coma separator
+  conn.execute_command('JSON.SET', 'p5', '$', '{"geom": "POLYGON((34.9001 29.71 34.91 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Ned"}')
+  # Too few coordinates (not a polygon)
+  conn.execute_command('JSON.SET', 'p6', '$', '{"geom": "POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9001 29.7001))", "name": "Milhouse"}')
   # Zero coordinates
   conn.execute_command('JSON.SET', 'p7', '$', '{"geom": "POLYGON(()())", "name": "Mr. Burns"}')
   
@@ -74,15 +78,11 @@ def testWKTIngestError(env):
   conn.execute_command('JSON.SET', 'p3', '$', '{"geom": "POLYGON((34.9001 29.7001, 001 , 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Moe"}')
   # Redundant coordinate
   conn.execute_command('JSON.SET', 'p4', '$', '{"geom": "POLYGON((34.9001 29.7001, 34.9001 29.7100 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Seymour"}')
-  # Missing coma separator
-  conn.execute_command('JSON.SET', 'p5', '$', '{"geom": "POLYGON((34.9001 29.71 34.91 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Ned"}')
-  # Too few coordinates (not a polygon)
-  conn.execute_command('JSON.SET', 'p6', '$', '{"geom": "POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9001 29.7001))", "name": "Milhouse"}')
 
   # Indexing failures
   res = env.cmd('FT.INFO', 'idx')
   d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-  env.assertEqual(int(d['hash_indexing_failures']), 3)
+  env.assertEqual(int(d['hash_indexing_failures']), 5)
 
 
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
@@ -253,7 +253,7 @@ def testFtInfo(env):
   # Memory usage should increase
   usage = 0
   for i in range(1, doc_num + 1):
-    conn.execute_command('HSET', f'doc{i}', 'geom', f'POLYGON(({2*i} {2*i}, {2*i} {100+2*i}, {100+2*i} {100+2*i}, {2*i} {100+2*i}, {2*i} {2*i}))')
+    conn.execute_command('HSET', f'doc{i}', 'geom', f'POLYGON(({0.02*i} {0.02*i}, {0.02*i} {1+0.02*i}, {1+0.02*i} {1+0.02*i}, {1+0.02*i} {0.02*i}, {0.02*i} {0.02*i}))')
     # Ingest of geoshape attribute should increase mem usage
     res = to_dict(env.cmd('FT.INFO idx1'))
     cur_usage = float(res[info_key_name])
