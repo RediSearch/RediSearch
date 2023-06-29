@@ -556,7 +556,7 @@ typedef struct {
   uint32_t remaining;
 } RPPager;
 
-static int rppagerNext(ResultProcessor *base, SearchResult *r) {
+static int rppagerNext_Limit(ResultProcessor *base, SearchResult *r) {
   RPPager *self = (RPPager *)base;
 
   // If we've reached LIMIT:
@@ -586,7 +586,7 @@ static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
     SearchResult_Clear(r);
   }
 
-  base->Next = rppagerNext; // switch to regular next (limiting)
+  base->Next = rppagerNext_Limit; // switch to regular next (limiting)
   return base->Next(base, r);
 }
 
