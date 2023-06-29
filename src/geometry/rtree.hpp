@@ -66,7 +66,15 @@ struct RTree {
 
   [[nodiscard]] static constexpr doc_type make_doc(geom_type const& geom, t_docId id = 0) {
     return doc_type{
-        std::visit([](auto&& geom) { return bg::return_envelope<rect_type>(geom); }, geom), id};
+        std::visit([](auto&& geom) {
+          if constexpr (std::is_same_v<point_type, std::decay_t<decltype(geom)>>) {
+            constexpr auto EPSILON = 0.00001;
+            point_type p = geom;
+            return rect_type{p, point_type{bg::get<0>(p) + EPSILON, bg::get<1>(p) + EPSILON}};
+          } else {
+            return bg::return_envelope<rect_type>(geom);
+          }
+        }, geom), id};
   }
   [[nodiscard]] static constexpr rect_type get_rect(doc_type const& doc) {
     return doc.first;

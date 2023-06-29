@@ -30,6 +30,29 @@ def testSanitySearchHashWithin(env):
   res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
+def testSanitySearchPointWithin(env):
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'SPHERICAL').ok()
+  
+  point = 'POINT(34.9010 29.7010)'
+  small = 'POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))'
+  large = 'POLYGON((34.9001 29.7001, 34.9001 29.7200, 34.9200 29.7200, 34.9200 29.7001, 34.9001 29.7001))'
+
+  conn.execute_command('HSET', 'point', 'geom', point)
+  conn.execute_command('HSET', 'small', 'geom', small)
+  conn.execute_command('HSET', 'large', 'geom', large)
+  
+  expected = [2, 'point', ['geom', point], 'small', ['geom', small]]
+  env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'DIALECT', 3).equal(expected)
+
+  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9002 29.7002, 34.9002 29.7050, 34.9050 29.7050, 34.9050 29.7002, 34.9002 29.7002))', 'DIALECT', 3)
+  env.assertEqual(res[0], 2)
+  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POINT(34.9050 29.7050)', 'DIALECT', 3)
+  env.assertEqual(res[0], 2)
+  
+  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [3, 'large', 'point', 'small'])
+
 
 def testSanitySearchJsonWithin(env):
   conn = getConnectionByEnv(env)
