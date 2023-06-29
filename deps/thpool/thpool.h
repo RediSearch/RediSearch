@@ -8,6 +8,7 @@
 #define _THPOOL_
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool. h>
 
 #ifdef __cplusplus
 extern "C" {
