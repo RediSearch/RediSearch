@@ -511,7 +511,7 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
 }
 
 int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
-                              FieldSpec *fs, struct DocumentField *df, RedisModuleCtx *ctx) {
+                              FieldSpec *fs, struct DocumentField *df, RedisModuleCtx *ctx, QueryError *status) {
   int rv = REDISMODULE_OK;
 
   if (len == 1) {

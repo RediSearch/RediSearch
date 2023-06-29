@@ -620,6 +620,7 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   if (!fdata->isMulti) {
     if (!api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, &errMsg)) {
       IndexError_add_error(&ctx->spec->stats.indexError, RedisModule_StringPtrLen(errMsg, NULL), RedisModule_StringPtrLen(aCtx->doc->docKey, NULL));
+      IndexError_add_error(&fs->indexError, RedisModule_StringPtrLen(errMsg, NULL), RedisModule_StringPtrLen(aCtx->doc->docKey, NULL));
       // ++ctx->spec->stats.indexingFailures;
       // QueryError_SetErrorFmt(status, QUERY_EBADVAL, "Error indexing geoshape: %s",
       //                        RedisModule_StringPtrLen(errMsg, NULL));
@@ -723,6 +724,8 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       fdata->isMulti = 0;
       geohash = calcGeoHash(field->lon, field->lat);
       if (geohash == INVALID_GEOHASH) {
+        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Invalid geo coordinates: %f, %f",
+                               field->lon, field->lat);
         return REDISMODULE_ERR;
       }
       fdata->numeric = geohash;
@@ -750,11 +753,13 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   fdata->isMulti = 0;
   if (str_count == 1) {
     str = DocumentField_GetValueCStr(field, &len);
-    if (parseGeo(str, len, &lon, &lat) != REDISMODULE_OK) {
+    if (parseGeo(str, len, &lon, &lat, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
     geohash = calcGeoHash(lon, lat);
     if (geohash == INVALID_GEOHASH) {
+      QueryError_SetErrorFmt(status, QUERY_EINVAL, "Invalid geo coordinates: %f, %f",
+                        lon, lat);
       return REDISMODULE_ERR;
     }
     fdata->numeric = geohash;
@@ -763,7 +768,15 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     arrayof(double) arr = array_new(double, str_count);
     for (size_t i = 0; i < str_count; ++i) {
       const char *cur_str = DocumentField_GetArrayValueCStr(field, &len, i);
-      if ((parseGeo(cur_str, len, &lon, &lat) != REDISMODULE_OK) || ((geohash = calcGeoHash(lon, lat)) == INVALID_GEOHASH)) {
+      if (parseGeo(cur_str, len, &lon, &lat, status) != REDISMODULE_OK) {
+        array_free(arr);
+        fdata->arrNumeric = NULL;
+        return REDISMODULE_ERR;
+      }
+      geohash = calcGeoHash(lon, lat);
+      if (geohash == INVALID_GEOHASH) {
+        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Invalid geo coordinates: %f, %f",
+                        lon, lat);
         array_free(arr);
         fdata->arrNumeric = NULL;
         return REDISMODULE_ERR;

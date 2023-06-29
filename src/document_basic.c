@@ -160,7 +160,7 @@ done:
   return rv;
 }
 
-int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
+int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError* status) {
   int rv = REDISMODULE_ERR;
   if (!japi) {
     RedisModule_Log(sctx->redisCtx, "warning", "cannot operate on a JSON index as RedisJSON is not loaded");
@@ -208,7 +208,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
 
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
-    if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix], ctx) != REDISMODULE_OK) {
+    if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix], ctx, status) != REDISMODULE_OK) {
       RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", field->path);
       goto done;
     }
