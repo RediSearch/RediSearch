@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <util/arr.h>
 #include "rmutil/rm_assert.h"
+#include "util/thpool_dump_api.h"
 
 static arrayof(redisearch_threadpool) threadpools_g = NULL;
 
@@ -76,7 +77,7 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
 // Pause before we start collecting state info.
 void ConcurrentSearch_PauseBeforeDump() {
   for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
-    redisearch_thpool_pause_before_dump(threadpools_g[ii]);
+    ThpoolDump_pause(threadpools_g[ii]);
   }
 }
 
@@ -90,14 +91,14 @@ void ConcurrentSearch_Resume() {
 // Collect crash info.
 void ConcurrentSearch_ShutdownLog(RedisModuleInfoCtx *ctx) {
   for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
-    redisearch_thpool_StateLog(threadpools_g[ii], ctx);
+    ThpoolDump_log_to_info(threadpools_g[ii], ctx);
   }
 }
 
 // Collect backtrace of all concurrent search thpools.
 void ConcurrentSearch_PrintBacktrace(RedisModule_Reply *reply) {
   for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
-    redisearch_thpool_print_backtrace(threadpools_g[ii], reply);
+    ThpoolDump_log_to_reply(threadpools_g[ii], reply);
   }
 }
 

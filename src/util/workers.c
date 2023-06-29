@@ -8,6 +8,7 @@
 #include "workers.h"
 #include "redismodule.h"
 #include "config.h"
+#include "util/thpool_dump_api.h"
 
 #include <pthread.h>
 
@@ -131,7 +132,7 @@ void workersThreadPool_SetTerminationWhenEmpty() {
 }
 
 void workersThreadPool_PauseBeforeDump() {
-  redisearch_thpool_pause_before_dump(_workers_thpool);
+  ThpoolDump_pause(_workers_thpool);
 }
 
 void workersThreadPool_Resume() {
@@ -139,11 +140,11 @@ void workersThreadPool_Resume() {
 }
 
 void workersThreadPool_ShutdownLog(RedisModuleInfoCtx *ctx) {
-  redisearch_thpool_StateLog(_workers_thpool, ctx);
+  ThpoolDump_log_to_info(_workers_thpool, ctx);
 }
 
 void workersThreadPool_PrintBacktrace(RedisModule_Reply *reply) {
-  redisearch_thpool_print_backtrace(_workers_thpool, reply);
+  ThpoolDump_log_to_reply(_workers_thpool, reply);
 }
 
 #endif // MT_BUILD

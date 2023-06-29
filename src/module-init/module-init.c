@@ -22,7 +22,7 @@
 #include "json.h"
 #include "VecSim/vec_sim.h"
 #include "util/workers.h"
-#include "util/threadpool_api.h"
+#include "util/thpool_dump_api.h"
 
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -123,7 +123,7 @@ static void RS_ThreadpoolsShutdownLog(RedisModuleInfoCtx *ctx) {
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   if (for_crash_report) {
     // Check that its safe to start data collection process
-    if (redisearch_thpool_StateLog_test_and_start()) {
+    if (ThpoolDump_test_and_start()) {
       // First pause all threads
       RS_ThreadpoolsPauseBeforeDump();
 
@@ -131,7 +131,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
       RS_ThreadpoolsShutdownLog(ctx);
 
       // General cleanups.
-      redisearch_thpool_StateLog_done();
+      ThpoolDump_done();
     } else {
       RedisModule_InfoAddSection(ctx, "Threadpools_state_error");
 

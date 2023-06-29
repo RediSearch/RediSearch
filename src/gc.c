@@ -17,6 +17,7 @@
 #include "spec.h"
 #include "thpool/thpool.h"
 #include "rmutil/rm_assert.h"
+#include "util/thpool_dump_api.h"
 
 static redisearch_threadpool gcThreadpool_g = NULL;
 
@@ -177,7 +178,7 @@ void GC_ThreadPoolStart() {
 }
 
 void GC_ThreadPoolPauseBeforeDump() {
-  redisearch_thpool_pause_before_dump(gcThreadpool_g);
+  ThpoolDump_pause(gcThreadpool_g);
 }
 
 void GC_ThreadPoolResume() {
@@ -185,11 +186,11 @@ void GC_ThreadPoolResume() {
 }
 
 void GC_ThreadPoolShutdownLog(RedisModuleInfoCtx *ctx) {
-  redisearch_thpool_StateLog(gcThreadpool_g, ctx);
+  ThpoolDump_log_to_info(gcThreadpool_g, ctx);
 }
 
 void GC_ThreadPoolPrintBacktrace(RedisModule_Reply *reply) {
-  redisearch_thpool_print_backtrace(gcThreadpool_g, reply);
+  ThpoolDump_log_to_reply(gcThreadpool_g, reply);
 }
 
 void GC_ThreadPoolDestroy() {

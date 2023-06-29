@@ -18,6 +18,7 @@
 #include "suffix.h"
 #include "util/workers.h"
 #include "util/threadpool_api.h"
+#include "util/thpool_dump_api.h"
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
@@ -920,6 +921,8 @@ static void RS_ThreadpoolsPrintBacktrace(RedisModule_Reply *reply) {
 #ifdef MT_BUILD
   workersThreadPool_PrintBacktrace(reply);
 #endif // MT_BUILD
+ // IndexSpec *meow = NULL;
+ // meow->flags = 8;
   ConcurrentSearch_PrintBacktrace(reply);
   CleanPool_ThreadPoolPrintBacktrace(reply);
 }
@@ -941,7 +944,7 @@ DEBUG_COMMAND(DumpThreadPoolBacktrace) {
   }
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
-  if (!redisearch_thpool_StateLog_test_and_start()) {
+  if (!ThpoolDump_test_and_start()) {
     RedisModule_Reply_Error(reply, "Collecting threads' state is already in progress.");
     RedisModule_EndReply(reply);
     return REDISMODULE_OK;
@@ -972,7 +975,7 @@ DEBUG_COMMAND(DumpThreadPoolBacktrace) {
   }
 
   // General cleanups.
-  redisearch_thpool_StateLog_done();
+  ThpoolDump_done();
   RedisModule_EndReply(reply);
 
   return REDISMODULE_OK;

@@ -32,6 +32,7 @@
 #include "commands.h"
 #include "rmutil/cxx/chrono-clock.h"
 #include "util/workers.h"
+#include "util/thpool_dump_api.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -1285,7 +1286,7 @@ void CleanPool_ThreadPoolDestroy() {
 }
 
 void CleanPool_ThreadPoolPauseBeforeDump() {
-  redisearch_thpool_pause_before_dump(cleanPool);
+  ThpoolDump_pause(cleanPool);
 }
 
 void CleanPool_ThreadPoolResume() {
@@ -1293,11 +1294,11 @@ void CleanPool_ThreadPoolResume() {
 }
 
 void CleanPool_ThreadPoolShutdownLog(RedisModuleInfoCtx *ctx) {
-  redisearch_thpool_StateLog(cleanPool, ctx);
+  ThpoolDump_log_to_info(cleanPool, ctx);
 }
 
 void CleanPool_ThreadPoolPrintBacktrace(RedisModule_Reply *reply) {
-  redisearch_thpool_print_backtrace(cleanPool, reply);
+  ThpoolDump_log_to_reply(cleanPool, reply);
 }
 
 uint16_t getPendingIndexDrop() {
