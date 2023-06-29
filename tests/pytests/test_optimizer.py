@@ -159,7 +159,7 @@ def testOptimizer(env):
                             ['Type', 'NUMERIC', 'Term', '14 - 50', 'Counter', 4, 'Size', 7600]]]],
                 ['Result processors profile',
                     ['Type', 'Index', 'Counter', 9],
-                    ['Type', 'Pager/Limiter', 'Counter', 10]]]
+                    ['Type', 'Pager/Limiter', 'Counter', 9]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo} @n:[10 15]', *params)
     env.assertEqual(res[0][1:], ['10', '12', '14', '110', '112', '114', '210', '212', '214', '310'])
     env.assertEqual(res[1][3:], profiler)
@@ -198,7 +198,7 @@ def testOptimizer(env):
                         ['Type', 'NUMERIC', 'Term', '14 - 50', 'Counter', 3, 'Size', 7600]]],
                 ['Result processors profile',
                     ['Type', 'Index', 'Counter', 9],
-                    ['Type', 'Pager/Limiter', 'Counter', 10]]]
+                    ['Type', 'Pager/Limiter', 'Counter', 9]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@n:[10 15]', *params)
     env.assertEqual(res[0], [1, '10', '11', '12', '13', '14', '15', '110', '111', '112', '113'])
     env.assertEqual(res[1][3:], profiler)
@@ -274,7 +274,7 @@ def testOptimizer(env):
                     ['Type', 'TAG', 'Term', 'foo', 'Counter', 10, 'Size', 10000]],
                 ['Result processors profile',
                     ['Type', 'Index', 'Counter', 9],
-                    ['Type', 'Pager/Limiter', 'Counter', 10]]]
+                    ['Type', 'Pager/Limiter', 'Counter', 9]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo}', *params)
     env.assertEqual(res[0][1:], ['0', '2', '4', '6', '8', '10', '12', '14', '16', '18'])
     env.assertEqual(res[1][3:], profiler)
@@ -310,7 +310,7 @@ def testOptimizer(env):
                     ['Type', 'WILDCARD', 'Counter', 10]],
                 ['Result processors profile',
                     ['Type', 'Index', 'Counter', 9],
-                    ['Type', 'Pager/Limiter', 'Counter', 10]]]
+                    ['Type', 'Pager/Limiter', 'Counter', 9]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '*', *params)
     env.assertEqual(res[0][1:], ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
     env.assertEqual(res[1][3:], profiler)
@@ -681,4 +681,3 @@ def testOptimizeArgsDefault():
     # DEFAULT DIALECT 4 and WITHCOUNT explicitly specified ==> WITHCOUNT
     env.assertEqual(conn.execute_command(*query, 'WITHCOUNT'), conn.execute_command(*query, 'WITHCOUNT'))
     env.assertNotEqual(conn.execute_command(*query, 'WITHCOUNT'), conn.execute_command(*query, 'WITHOUTCOUNT'))
-
