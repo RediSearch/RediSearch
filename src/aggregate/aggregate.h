@@ -76,6 +76,10 @@ typedef enum {
 
   /* Optimize query */
   QEXEC_OPTIMIZE = 0x40000,
+
+  /* Values are returned expanded as RESP3 */
+  QEXEC_FORMAT_EXPAND = 0x80000,
+
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)

@@ -1510,7 +1510,7 @@ cleanup:
 int FirstPartitionCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                  MRReduceFunc reducer, struct MRCtx *mrCtx) {
 
-  bool resp3 = _is_resp3(ctx);
+  bool resp3 = is_resp3(ctx);
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);
 
@@ -1526,7 +1526,7 @@ int FirstPartitionCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, 
 }
 
 int FirstShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  bool resp3 = _is_resp3(ctx);
+  bool resp3 = is_resp3(ctx);
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
@@ -1640,7 +1640,7 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
   struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL);
   MR_SetCoordinationStrategy(mrctx, MRCluster_MastersOnly | MRCluster_FlatCoordination);
-  MR_Map(mrctx, _is_resp3(ctx) ? spellCheckReducer_resp3 : spellCheckReducer_resp2, cg, true);
+  MR_Map(mrctx, is_resp3(ctx) ? spellCheckReducer_resp3 : spellCheckReducer_resp2, cg, true);
   cg.Free(cg.ctx);
   return REDISMODULE_OK;
 }
@@ -1977,7 +1977,7 @@ static void DistSearchCommandHandler(void* pd) {
 
 static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
-  bool resp3 = _is_resp3(ctx);
+  bool resp3 = is_resp3(ctx);
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1993,7 +1993,7 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
   sCmdCtx->argc = argc;
   sCmdCtx->bc = bc;
-  sCmdCtx->protocol = _is_resp3(ctx) ? 3 : 2;
+  sCmdCtx->protocol = is_resp3(ctx) ? 3 : 2;
   RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, bc);
   ConcurrentSearch_ThreadPoolRun(DistSearchCommandHandler, sCmdCtx, DIST_AGG_THREADPOOL);
 

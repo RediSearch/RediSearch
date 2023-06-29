@@ -708,3 +708,40 @@ def test_profile_child_itrerators_array():
     }
     if not env.isCluster:  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)
+
+def testExpandErrorsResp3():
+  env = Env(protocol=3)
+  env.cmd('ft.create', 'idx', 'on', 'json', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric')
+  env.expect('FT.SEARCH', 'idx', '*', 'FORMAT').error()
+  env.expect('FT.SEARCH', 'idx', '*', 'FORMAT', 'XPAND').error()
+
+def testExpandErrorsResp2():
+  env = Env(protocol=2)
+  env.cmd('ft.create', 'idx', 'on', 'json', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric')
+  env.expect('FT.SEARCH', 'idx', '*', 'FORMAT', 'EXPAND').error()
+
+def testExpand():
+  env = Env(protocol=3)
+  env.cmd('ft.create', 'idx', 'on', 'json', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric', '$.num', 'as', 'num', 'numeric', '$.str', 'as', 'str', 'text')
+
+  with env.getClusterConnectionIfNeeded() as r:
+    r.execute_command('json.set', 'doc1', '$', '{"arr":[1,2,3],"num":1,"str":"foo"}')
+    r.execute_command('json.set', 'doc2', '$', '{"arr":[3,4,5],"num":2,"str":"bar"}')
+
+  exp = {
+    'attributes': [],
+    'error': [],
+    'total_results': 2,
+    'format': 'STRING',
+    'results': [
+      {'id': 'doc1', 'extra_attributes': {'$': '{"arr":[1,2,3],"num":1,"str":"foo"}'}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'$': '{"arr":[3,4,5],"num":2,"str":"bar"}'}, 'values': []},
+    ]
+  }
+  # Default FORMAT is STRING
+  res = env.cmd('FT.SEARCH', 'idx', '*')
+  env.assertEqual(res, exp)
+
+  #exp['format'] = 'EXPAND'  # FIXME: uncomment when EXPAND is implemented
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'FORMAT', 'EXPAND')
+  env.assertEqual(res, exp)

@@ -18,6 +18,7 @@
 #include "config.h"
 #include "util/timeout.h"
 #include "query_optimizer.h"
+#include "resp3.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -168,6 +169,24 @@ int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
     return REDISMODULE_OK;
 }
 
+// Parse the available formats for search result values: FORMAT STRING|EXPAND
+int parseValueFormat(uint32_t *flag, ArgsCursor *ac, QueryError *status) {
+  const char *format;
+  int rv = AC_GetString(ac, &format, NULL, 0);
+  if (rv != AC_OK) {
+    QueryError_SetError(status, QUERY_EBADVAL, "Need an argument for FORMAT");
+    return REDISMODULE_ERR;
+  }
+  if (!strcasecmp(format, "EXPAND")) {
+    *flag |= QEXEC_FORMAT_EXPAND;
+  } else if (strcasecmp(format, "STRING")) {
+    QERR_MKBADARGS_FMT(status, "FORMAT %s is not supported", format);
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+ 
+
 #define ARG_HANDLED 1
 #define ARG_ERROR -1
 #define ARG_UNKNOWN 0
@@ -245,9 +264,12 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
     req->reqflags |= QEXEC_F_REQUIRED_FIELDS;
-  }
-    else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
+  } else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
     if (parseDialect(&req->reqConfig.dialectVersion, ac, status) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
+  } else if(AC_AdvanceIfMatch(ac, "FORMAT")) {
+    if (parseValueFormat(&req->reqflags, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else {
@@ -909,6 +931,10 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
   if (opts->scorerName && Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
     QueryError_SetErrorFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
+    return REDISMODULE_ERR;
+  }
+  if((req->reqflags & QEXEC_FORMAT_EXPAND) && !is_resp3(req->sctx->redisCtx)) {
+    QueryError_SetError(status, QUERY_EBADVAL, "EXPAND FORMAT is only supported with RESP3");
     return REDISMODULE_ERR;
   }
   if (!(opts->flags & Search_NoStopwrods)) {

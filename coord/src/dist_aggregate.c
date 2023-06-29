@@ -569,7 +569,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Construct the command string
   MRCommand xcmd;
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd);
-  xcmd.protocol = _is_resp3(ctx) ? 3 : 2;
+  xcmd.protocol = is_resp3(ctx) ? 3 : 2;
 
   // Build the result processor chain
   buildDistRPChain(r, &xcmd, sc, &us);
