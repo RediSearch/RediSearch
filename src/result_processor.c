@@ -586,7 +586,7 @@ static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
     SearchResult_Clear(r);
   }
 
-  base->Next = rppagerNext_Limit; // switch to regular next (limiting)
+  base->Next = rppagerNext_Limit; // switch to second phase
   return base->Next(base, r);
 }
 
