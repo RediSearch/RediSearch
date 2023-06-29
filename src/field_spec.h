@@ -75,6 +75,8 @@ typedef enum {
   TagField_RemoveAccents = 0x04,
 } TagFieldFlags;
 
+#define TAG_FIELD_IS(f, t) (FIELD_IS((f), INDEXFLD_T_TAG) && (((f)->tagOpts.tagFlags) & (t)))
+
 RS_ENUM_BITWISE_HELPER(TagFieldFlags)
 
 /* The fieldSpec represents a single field in the document's field spec.

@@ -148,6 +148,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       }
     }
 
+    if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
+      REPLY_KVSTR("coord_system", GeometryCoordsToName(fs->geometryOpts.geometryCoords));
+    }
+
     if (has_map) {
       RedisModule_ReplyKV_Array(reply, "flags"); // >>>flags
     }
