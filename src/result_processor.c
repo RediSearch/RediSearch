@@ -553,32 +553,35 @@ void SortAscMap_Dump(uint64_t tt, size_t n) {
 typedef struct {
   ResultProcessor base;
   uint32_t offset;
-  uint32_t limit;
-  uint32_t count;
+  uint32_t remaining;
 } RPPager;
 
 static int rppagerNext(ResultProcessor *base, SearchResult *r) {
   RPPager *self = (RPPager *)base;
-  int rc;
+
+  // If we've reached LIMIT:
+  if (!self->remaining) {
+    return RS_RESULT_EOF;
+  }
+
+  self->remaining--;
+  return base->upstream->Next(base->upstream, r);
+}
+
+static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
+  RPPager *self = (RPPager *)base;
 
   // If we've not reached the offset
-  while (self->count < self->offset) {
+  while (self->offset--) {
     int rc = base->upstream->Next(base->upstream, r);
     if (rc != RS_RESULT_OK) {
       return rc;
     }
-    self->count++;
     SearchResult_Clear(r);
   }
 
-  // If we've reached LIMIT:
-  if (self->count >= self->limit + self->offset) {
-    return RS_RESULT_EOF;
-  }
-
-  self->count++;
-  rc = base->upstream->Next(base->upstream, r);
-  return rc;
+  base->Next = rppagerNext; // switch to regular next (limiting)
+  return base->Next(base, r);
 }
 
 static void rppagerFree(ResultProcessor *base) {
@@ -589,9 +592,9 @@ static void rppagerFree(ResultProcessor *base) {
 ResultProcessor *RPPager_New(size_t offset, size_t limit) {
   RPPager *ret = rm_calloc(1, sizeof(*ret));
   ret->offset = offset;
-  ret->limit = limit;
+  ret->remaining = limit;
   ret->base.type = RP_PAGER_LIMITER;
-  ret->base.Next = rppagerNext;
+  ret->base.Next = offset ? rppagerNext_Skip : rppagerNext;
   ret->base.Free = rppagerFree;
 
   return &ret->base;
