@@ -571,12 +571,17 @@ static int rppagerNext(ResultProcessor *base, SearchResult *r) {
 static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
   RPPager *self = (RPPager *)base;
 
+  // Currently a pager is never called more than offset+limit times.
+  // We limit the entire pipeline to offset+limit (upstream and downstream).
+  uint32_t limit = MIN(self->remaining, base->parent->resultLimit);
+  base->parent->resultLimit = self->offset + limit;
   // If we've not reached the offset
   while (self->offset--) {
     int rc = base->upstream->Next(base->upstream, r);
     if (rc != RS_RESULT_OK) {
       return rc;
     }
+    base->parent->resultLimit--;
     SearchResult_Clear(r);
   }
 
