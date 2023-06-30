@@ -7,9 +7,9 @@ aliases:
     - /docs/stack/search/reference/extensions/
 ---
 
-# Extending RediSearch
+# Extending Search and Query
 
-RediSearch supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions in run-time. Instead, extensions must be written in C (or a language that has an interface with C) and compiled into dynamic libraries that will be loaded at run-time.
+Search and Query supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions in run-time. Instead, extensions must be written in C (or a language that has an interface with C) and compiled into dynamic libraries that will be loaded at run-time.
 
 There are two kinds of extension APIs at the moment: 
 
@@ -18,7 +18,7 @@ There are two kinds of extension APIs at the moment:
 
 ## Registering and loading extensions
 
-Extensions should be compiled into .so files, and loaded into RediSearch on initialization of the module. 
+Extensions should be compiled into .so files, and loaded into the Search and Query module upon initialization. 
 
 * Compiling 
 
@@ -28,14 +28,14 @@ Extensions should be compiled into .so files, and loaded into RediSearch on init
 
 * Loading 
 
-    Loading an extension is done by appending `EXTLOAD {path/to/ext.so}` after the `loadmodule` configuration directive when loading RediSearch. For example:
+    Loading an extension is done by appending `EXTLOAD {path/to/ext.so}` after the `loadmodule` configuration directive when loading the Search and Query module. For example:
 
 
     ```sh
     $ redis-server --loadmodule ./redisearch.so EXTLOAD ./ext/my_extension.so
     ```
 
-    This causes RediSearch to automatically load the extension and register its expanders and scorers. 
+    This causes the Search and Query module to automatically load the extension and register its expanders and scorers. 
 
 
 ## Initializing an extension
@@ -46,7 +46,7 @@ The entry point of an extension is a function with the signature:
 int RS_ExtensionInit(RSExtensionCtx *ctx);
 ```
 
-When loading the extension, RediSearch looks for this function and calls it. This function is responsible for registering and initializing the expanders and scorers. 
+When loading the extension, Search and Query looks for this function and calls it. This function is responsible for registering and initializing the expanders and scorers. 
 
 It should return REDISEARCH_ERR on error or REDISEARCH_OK on success.
 
@@ -75,7 +75,7 @@ int RS_ExtensionInit(RSExtensionCtx *ctx) {
 
 ## Calling your custom functions
 
-When performing a query, you can tell RediSearch to use your scorers or expanders by specifying the SCORER or EXPANDER arguments, with the given alias.
+When performing a query, you can tell Search and Query to use your scorers or expanders by specifying the SCORER or EXPANDER arguments, with the given alias.
 e.g.:
 
 ```

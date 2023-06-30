@@ -9,7 +9,7 @@ aliases:
 ---
 
 *Vector fields* allow you to use vector similarity queries in the `FT.SEARCH` command.
-*Vector similarity* enables you to load, index, and query vectors stored as fields in Redis hashes or in JSON documents (via integration with [RedisJSON module](/docs/stack/json/))
+*Vector similarity* enables you to load, index, and query vectors stored as fields in Redis hashes or in JSON documents (via integration with the [JSON module](/docs/stack/json/))
 
 Vector similarity provides these functionalities:
 
@@ -172,7 +172,7 @@ Unlike in hashes, vectors are stored in JSON documents as arrays (not as blobs).
 JSON.SET 1 $ '{"vec":[1,2,3,4]}'
 ```
 
-As of v2.6.1, RedisJSON supports multi-value indexing. This capability accounts for vectors as well. Thus, it is possible to index multiple vectors under the same JSONPath. Additional information is available in the [Indexing JSON documents](/docs/stack/search/indexing_json/#index-json-arrays-as-vector) section. 
+As of v2.6.1, JSON supports multi-value indexing. This capability accounts for vectors as well. Thus, it is possible to index multiple vectors under the same JSONPath. Additional information is available in the [Indexing JSON documents](/docs/stack/search/indexing_json/#index-json-arrays-as-vector) section. 
 
 **Example**
 ```
@@ -240,7 +240,7 @@ The syntax for range query is `@<vector_field>: [VECTOR_RANGE (<radius> | $<radi
 
 ## Hybrid queries
 
-Vector similarity KNN queries of the form `<primary_filter_query>=>[<vector_similarity_query>]` are considered *hybrid queries*. RediSearch has an internal mechanism for optimizing the computation of such queries. Two modes in which hybrid queries are executed are: 
+Vector similarity KNN queries of the form `<primary_filter_query>=>[<vector_similarity_query>]` are considered *hybrid queries*. Search and Query has an internal mechanism for optimizing the computation of such queries. Two modes in which hybrid queries are executed are: 
 
 1. Batches mode - In this mode, a batch of the high-scoring documents from the vector index are retrieved. These documents are returned ONLY if `<primary_filter_query>` is satisfied. In other words, the document contains a similar vector and meets the filter criteria. The procedure terminates when `k` documents that pass the `<primary_filter_query>` are returned or after every vector in the index was obtained and processed.
     
@@ -281,9 +281,9 @@ Optional parameters are:
 
 {{% alert title="Important notes" color="info" %}}
 
-1. Although specifying `K` requested results in KNN search, the default `LIMIT` in RediSearch is 10, to get all the returned results, specify `LIMIT 0 <K>` in your command.
+1. Although specifying `K` requested results in KNN search, the default `LIMIT` is 10, to get all the returned results, specify `LIMIT 0 <K>` in your command.
 
-2. By default, the results are sorted by their document's RediSearch score. To sort by some vector similarity score, use `SORTBY <dist_field_name>`. See examples below.
+2. By default, the results are sorted by their document's Search and Query score. To sort by some vector similarity score, use `SORTBY <dist_field_name>`. See examples below.
 
 3. It is recommended to adjust the `<radius>` parameter in range queries to the corresponding vector field distance metric and to the data itself. In particular, recall that the distance between the vectors in an index whose distance metric is Cosine is bounded by `2`, while L2 distance between the vectors is not bounded. Hence, it is better to consider the distance between the vectors that are considered similar and choose `<radius>` accordingly.   
 

@@ -7,7 +7,7 @@ aliases:
     - /docs/stack/search/design/gc/
 ---
 
-# Garbage Collection in RediSearch
+# Garbage Collection in Search and Query
 
 ## 1. The Need For GC
 

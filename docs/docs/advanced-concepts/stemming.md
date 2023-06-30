@@ -9,7 +9,7 @@ aliases:
 
 # Stemming Support
 
-RediSearch supports stemming - that is adding the base form of a word to the index. This allows the query for "going" to also return results for "go" and "gone", for example.
+Search and Query supports stemming - that is adding the base form of a word to the index. This allows the query for "going" to also return results for "go" and "gone", for example.
 
 The current stemming support is based on the Snowball stemmer library, which supports most European languages, as well as Arabic and other. We hope to include more languages soon (if you need a specific language support, please open an issue).
 
@@ -47,7 +47,7 @@ Indexing a Chinese document is different than indexing a document in most other 
 
 Chinese tokenization is done by scanning the input text and checking every character or sequence of characters against a dictionary of predefined terms and determining the most likely (based on the surrounding terms and characters) match.
 
-RediSearch makes use of the [Friso](https://github.com/lionsoul2014/friso) chinese tokenization library for this purpose. This is largely transparent to the user and often no additional configuration is required.
+Search and Query makes use of the [Friso](https://github.com/lionsoul2014/friso) chinese tokenization library for this purpose. This is largely transparent to the user and often no additional configuration is required.
 
 ## Using custom dictionaries
 

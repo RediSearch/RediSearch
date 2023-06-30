@@ -11,7 +11,7 @@ aliases:
 
 The highlighting API allows you to have only the relevant portions of document matching a search query returned as a result. This allows users to quickly see how a document relates to their query, with the search terms highlighted, usually in bold letters.
 
-RediSearch implements high performance highlighting and summarization algorithms, with the following API: 
+Search and Query implements high performance highlighting and summarization algorithms, with the following API: 
 
 ## Command syntax
 
@@ -33,7 +33,7 @@ FT.SEARCH ...
 
 Summarization  will fragment the text into smaller sized snippets; each snippet will contain the found term(s) and some additional surrounding context.
 
-RediSearch can perform summarization using the `SUMMARIZE` keyword. If no additional arguments are passed, all _returned fields_ are summarized using built-in defaults.
+Search and Query can perform summarization using the `SUMMARIZE` keyword. If no additional arguments are passed, all _returned fields_ are summarized using built-in defaults.
 
 The `SUMMARIZE` keyword accepts the following arguments:
 
@@ -64,7 +64,7 @@ FT.SEARCH ... HIGHLIGHT [FIELDS {num} {field}] [TAGS {openTag} {closeTag}]
 
 Highlighting will highlight the found term (and its variants) with a user-defined tag. This may be used to display the matched text in a different typeface using a markup language, or to otherwise make the text appear differently.
 
-RediSearch can perform highlighting using the `HIGHLIGHT` keyword. If no additional arguments are passed, all _returned fields_ are highlighted using built-in defaults.
+Search and Query can perform highlighting using the `HIGHLIGHT` keyword. If no additional arguments are passed, all _returned fields_ are highlighted using built-in defaults.
 
 The `HIGHLIGHT` keyword accepts the following arguments:
 

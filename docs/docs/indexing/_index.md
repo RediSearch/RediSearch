@@ -7,17 +7,17 @@ aliases:
   - /docs/stack/search/indexing_json/
 ---
 
-In addition to indexing Redis hashes, RediSearch can also index JSON documents. To index and search JSON, you need to install both the RediSearch and [RedisJSON](/docs/stack/json) modules.
+In addition to indexing Redis hashes, Search and Query can also index JSON documents. To index and search JSON, you need to install both the Search and Query, and the [JSON](/docs/stack/json) modules.
 
 ## Prerequisites
 
 Before you can index and search JSON documents, you need a database with either:
 
-- [Redis Stack](/docs/stack), which automatically includes RediSearch and RedisJSON
+- [Redis Stack](/docs/stack), which automatically includes Search and Query, and JSON
 
 - Redis v6.x or later and the following modules installed and enabled:
-   - RediSearch v2.2 or later
-   - RedisJSON v2.0 or later
+   - Search and Query v2.2 or later
+   - JSON v2.0 or later
 
 ## Create index with JSON schema
 
@@ -47,9 +47,9 @@ See [Index limitations](#index-limitations) for more details about JSON index `S
 
 ## Add JSON documents
 
-After you create an index, RediSearch automatically indexes any existing, modified, or newly created JSON documents stored in the database. For existing documents, indexing runs asynchronously in the background, so it can take some time before the document is available. Modified and newly created documents are indexed synchronously, so the document will be available by the time the add or modify command finishes.
+After you create an index, Search and Query automatically indexes any existing, modified, or newly created JSON documents stored in the database. For existing documents, indexing runs asynchronously in the background, so it can take some time before the document is available. Modified and newly created documents are indexed synchronously, so the document will be available by the time the add or modify command finishes.
 
-You can use any RedisJSON write command, such as `JSON.SET` and `JSON.ARRAPPEND`, to create or modify JSON documents.
+You can use any JSON write command, such as `JSON.SET` and `JSON.ARRAPPEND`, to create or modify JSON documents.
 
 The following examples use these JSON documents to represent individual inventory items.
 
@@ -187,7 +187,7 @@ Now you can search for silver headphones:
 ```
 
 ## Index JSON arrays as TEXT
-Starting with RediSearch v2.6.0, full text search can be done on array of strings or on a JSONPath leading to multiple strings.
+Starting with Search and Query v2.6.0, full text search can be done on array of strings or on a JSONPath leading to multiple strings.
 
 If you want to index multiple string values as TEXT, use either a JSONPath leading to a single array of strings, or a JSONPath leading to multiple string values, using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
 
@@ -245,11 +245,11 @@ Now you can do full text search for light colored headphones:
 
 ### Handling phrases in different array slots:
 When indexing, a predefined delta is used to increase positional offsets between array slots for multi text values. This delta controls the level of separation between phrases in different array slots (related to the `SLOP` parameter of `FT.SEARCH`).
-This predefined value is set by `RediSearch` configuration parameter `MULTI_TEXT_SLOP` (at module load-time). The default value is 100.
+This predefined value is set by the configuration parameter `MULTI_TEXT_SLOP` (at module load-time). The default value is 100.
 
 ## Index JSON arrays as NUMERIC
 
-Starting with RediSearch v2.6.1, search can be done on an array of numerical values or on a JSONPath leading to multiple numerical values.
+Starting with Search and Query v2.6.1, search can be done on an array of numerical values or on a JSONPath leading to multiple numerical values.
 
 If you want to index multiple numerical values as NUMERIC, use either a JSONPath leading to a single array of numbers, or a JSONPath leading to multiple numbers, using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
 
@@ -303,11 +303,11 @@ When JSONPath leads to multiple numerical values:
 
 ## Index JSON arrays as GEO
 
-Starting with RediSearch v2.6.1, search can be done on an array of geo (geographical) values or on a JSONPath leading to multiple geo values.
+Starting with Search and Query v2.6.1, search can be done on an array of geo (geographical) values or on a JSONPath leading to multiple geo values.
 
-Prior to RediSearch v2.6.1, only a single geo value was supported per GEO attribute. The geo value was specified using a comma delimited string in the form "longitude,latitude", for example, "15.447083,78.238306".
+Prior to Search and Query v2.6.1, only a single geo value was supported per GEO attribute. The geo value was specified using a comma delimited string in the form "longitude,latitude", for example, "15.447083,78.238306".
 
-With RediSearch v2.6.1, a JSON array of such geo values is also supported.
+With Search and Query v2.6.1, a JSON array of such geo values is also supported.
 
 In order to index multiple geo values, user either a JSONPath leading to a single array of geo values, or a JSONPath leading to multiple geo values, using JSONPath operators such as wildcard, filter, union, array slice, and/or recursive descent.
 
@@ -383,7 +383,7 @@ Now we can look for products offered by these vendors, for example:
 ```
 ## Index JSON arrays as VECTOR
 
-Starting with RediSearch 2.6.0, you can index a JSONPath leading to an array of numeric values as a VECTOR type in the index schema.
+Starting with Search and Query 2.6.0, you can index a JSONPath leading to an array of numeric values as a VECTOR type in the index schema.
 
 For example, let's assume that our JSON items include an array of vector embeddings, where each vector represent an image of the product. To index these vectors, specify the JSONPath `$.embedding` in the schema definition during index creation:
 
