@@ -167,7 +167,7 @@ export PACKAGE_NAME
 #----------------------------------------------------------------------------------------------
 
 CC_C_STD=gnu11
-# CC_CXX_STD=c++11
+CC_CXX_STD=c++11
 
 CC_STATIC_LIBSTDCXX ?= 1
 
