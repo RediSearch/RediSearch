@@ -1118,12 +1118,6 @@ workflows:
           cron: "20 17 * * 0,3"
           <<: *on-integ-branch-cron
     jobs:
-      - build-macos-x64:
-          upload: "no"
-          test_params: ""
-      - build-macos-m1:
-          upload: "no"
-          test_params: ""
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
           test_params: ""
@@ -1136,6 +1130,19 @@ workflows:
           matrix:
             parameters:
               san-type: [address]
+
+  nightly-twice-a-week:
+    triggers:
+      - schedule:
+          cron: "20 17 * * 0,3"
+          <<: *on-integ-branch-cron
+    jobs:
+      - build-macos-x64:
+          # upload: "no"
+          test_params: ""
+      - build-macos-m1:
+          # upload: "no"
+          test_params: ""
 
   nightly-benchmarks:
     triggers:
