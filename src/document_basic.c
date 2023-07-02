@@ -164,6 +164,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
   int rv = REDISMODULE_ERR;
   if (!japi) {
     RedisModule_Log(sctx->redisCtx, "warning", "cannot operate on a JSON index as RedisJSON is not loaded");
+    QueryError_SetError(status, QUERY_EGENERIC, "cannot operate on a JSON index as RedisJSON is not loaded");
     return REDISMODULE_ERR;
   }
   IndexSpec *spec = sctx->spec;
