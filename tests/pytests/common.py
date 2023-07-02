@@ -453,7 +453,7 @@ def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOA
 def sortResultByKeyName(res, start_index=1):
   '''
     Sorts the result by NAMEs
-    res = [<COUNT>, '<NAME_1>, '<VALUE_1>', '<NAME_2>, '<VALUE_2>', ...] 
+    res = [<COUNT>, '<NAME_1>, '<VALUE_1>', '<NAME_2>, '<VALUE_2>', ...]
 
     If VALUEs are lists, they are sorted by name as well
   '''
