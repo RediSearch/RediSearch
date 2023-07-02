@@ -71,7 +71,7 @@ class RediSearchSetup(paella.Setup):
     def common_last(self):
         self.run("{PYTHON} {READIES}/bin/getcmake --usr".format(PYTHON=self.python, READIES=READIES),
                  sudo=self.os != 'macos')
-        self.run("{PYTHON} {READIES}/bin/getrmpytools --reinstall --modern".format(PYTHON=self.python, READIES=READIES))
+        self.run(f"{self.python} {READIES}/bin/getrmpytools --reinstall --modern --redispy-version pypi:5.0.0b4")
         if self.dist != "arch":
             self.install("lcov")
         else:

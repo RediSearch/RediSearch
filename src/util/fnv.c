@@ -60,6 +60,8 @@ uint32_t rs_fnv_32a_buf(const void *buf, size_t len, uint32_t hval) {
  * 	 hval arg on the first call to either fnv_64a_buf() or fnv_64a_str().
  */
 uint64_t fnv_64a_buf(const void *buf, size_t len, uint64_t hval) {
+  if (!buf || !len) return hval;
+
   unsigned char *bp = (unsigned char *)buf; /* start of buffer */
   unsigned char *be = bp + len;             /* beyond end of buffer */
 

@@ -9,6 +9,7 @@
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
 ///////////////////////////////////////////////////////////////
+
 static size_t RSValue_NumToString(double dd, char *buf) {
   long long ll = dd;
   if (ll == dd) {
@@ -69,13 +70,12 @@ RSValue *RS_NewValue(RSValueType t) {
 }
 
 void RSValue_Clear(RSValue *v) {
+  if (!v) return;
   switch (v->t) {
     case RSValue_String:
       // free strings by allocation strategy
       switch (v->strval.stype) {
         case RSString_Malloc:
-          rm_free(v->strval.str);
-          break;
         case RSString_RMAlloc:
           rm_free(v->strval.str);
           break;
@@ -87,6 +87,7 @@ void RSValue_Clear(RSValue *v) {
           break;
       }
       break;
+
     case RSValue_Array:
       for (uint32_t i = 0; i < v->arrval.len; i++) {
         RSValue_Decref(v->arrval.vals[i]);
@@ -95,14 +96,18 @@ void RSValue_Clear(RSValue *v) {
         rm_free(v->arrval.vals);
       }
       break;
+
     case RSValue_Reference:
       RSValue_Decref(v->ref);
       break;
+
     case RSValue_OwnRstring:
       RedisModule_FreeString(RSDummyContext, v->rstrval);
       break;
+
     case RSValue_Null:
       return;  // prevent changing global RS_NULL to RSValue_Undef
+
     default:   // no free
       break;
   }
@@ -114,6 +119,7 @@ void RSValue_Clear(RSValue *v) {
 /* Free a value's internal value. It only does anything in the case of a string, and doesn't free
  * the actual value object */
 void RSValue_Free(RSValue *v) {
+  if (!v) return;
   RSValue_Clear(v);
   if (v->allocated) {
     mempool_release(getPoolInfo()->values, v);
@@ -130,11 +136,15 @@ RSValue RS_Value(RSValueType t) {
 }
 
 inline void RSValue_SetNumber(RSValue *v, double n) {
+  if (!v) return;
+  RSValue_Clear(v);
   v->t = RSValue_Number;
   v->numval = n;
 }
 
 inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
+  if (!v) return;
+  RSValue_Clear(v);
   v->t = RSValue_String;
   v->strval.len = len;
   v->strval.str = str;
@@ -151,12 +161,16 @@ RSValue *RS_NewCopiedString(const char *s, size_t n) {
 }
 
 inline void RSValue_SetSDS(RSValue *v, sds s) {
+  if (!v) return;
+  RSValue_Clear(v);
   v->t = RSValue_String;
   v->strval.len = sdslen(s);
   v->strval.str = s;
   v->strval.stype = RSString_SDS;
 }
 inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
+  if (!v) return;
+  RSValue_Clear(v);
   v->t = RSValue_String;
   v->strval.len = len;
   v->strval.str = (char *)str;
@@ -249,7 +263,6 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
 }
 
 RSValue *RSValue_ParseNumber(const char *p, size_t l) {
-
   char *e;
   errno = 0;
   double d = strtod(p, &e);
@@ -264,8 +277,8 @@ RSValue *RSValue_ParseNumber(const char *p, size_t l) {
 into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
 not. If possible, we put the actual value into teh double pointer */
 int RSValue_ToNumber(const RSValue *v, double *d) {
-  if (RSValue_IsNull(v)) return 0;
   v = RSValue_Dereference(v);
+  if (!v || RSValue_IsNull(v)) return 0;
 
   const char *p = NULL;
   size_t l = 0;
@@ -280,6 +293,7 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
       p = v->strval.str;
       l = v->strval.len;
       break;
+
     case RSValue_RedisString:
     case RSValue_OwnRstring:
       // Redis strings - take the number and len
@@ -292,20 +306,19 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
     default:
       return 0;
   }
-  // If we have a string - try to parse it
-  if (p) {
-    char *e;
-    errno = 0;
-    *d = strtod(p, &e);
-    if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
-        *e != '\0') {
-      return 0;
-    }
 
-    return 1;
+  if (!p) return 0;
+
+  // If we have a string - try to parse it
+  char *e;
+  errno = 0;
+  *d = strtod(p, &e);
+  if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
+      *e != '\0') {
+    return 0;
   }
 
-  return 0;
+  return 1;
 }
 
 /**
@@ -388,6 +401,14 @@ RSValue *RS_Int64Val(int64_t dd) {
 
 RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
   RSValue *arr = RS_NewValue(RSValue_Array);
+
+  if (!vals || !n) {
+    arr->arrval.vals = NULL;
+    arr->arrval.len = 0;
+    arr->arrval.staticarray = 0;
+    return arr;
+  }
+
   RSValue **list;
   if (options & RSVAL_ARRAY_ALLOC) {
     list = vals;
@@ -403,19 +424,16 @@ RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
     arr->arrval.staticarray = 0;
   }
 
-  if (!vals) {
-    arr->arrval.len = 0;
+  arr->arrval.len = n;
+  if (options & RSVAL_ARRAY_NOINCREF) {
+    for (size_t ii = 0; ii < n; ++ii) {
+      list[ii] = vals[ii];
+    }
   } else {
-    arr->arrval.len = n;
     for (size_t ii = 0; ii < n; ++ii) {
       RSValue *v = vals[ii];
       list[ii] = v;
-      if (!v) {
-        continue;
-      }
-      if (!(options & RSVAL_ARRAY_NOINCREF)) {
-        RSValue_IncrRef(v);
-      }
+      if (v) RSValue_IncrRef(v);
     }
   }
 
