@@ -11,4 +11,3 @@ if (APPLE)
 endif()
 
 set(HIREDIS_LIBS hiredis hiredis_ssl)
-
