@@ -200,15 +200,14 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   REPLY_KVNUM("key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
   REPLY_KVNUM("total_geoshapes_index_size_mb", GeometryTotalMemUsage() / (float)0x100000);
-  
   REPLY_KVNUM("records_per_doc_avg",
-              sp->stats.numDocuments ? (float)sp->stats.numRecords / (float)sp->stats.numDocuments : -1*INFINITY);
+              (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
   REPLY_KVNUM("bytes_per_record_avg",
-              sp->stats.numRecords? (float)sp->stats.invertedSize / (float)sp->stats.numRecords : -1*INFINITY);
+              (float)sp->stats.invertedSize / (float)sp->stats.numRecords);
   REPLY_KVNUM("offsets_per_term_avg",
-              sp->stats.numRecords? (float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords : -1*INFINITY);
+              (float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
   REPLY_KVNUM("offset_bits_per_record_avg",
-              sp->stats.offsetVecRecords ? 8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords : -1*INFINITY);
+              8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
   REPLY_KVNUM("hash_indexing_failures", sp->stats.indexingFailures);
   REPLY_KVNUM("total_indexing_time", sp->stats.totalIndexTime / 1000.0);
   REPLY_KVNUM("indexing", !!global_spec_scanner || sp->scan_in_progress);
