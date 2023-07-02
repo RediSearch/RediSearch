@@ -3,25 +3,25 @@ title: "Technical overview"
 linkTitle: "Technical overview"
 weight: 1
 description: >
-    Technical details of the internal design of Search and Query
+    Technical details of the internal design of RediSearch
 aliases:
   - /docs/stack/search/overview
   - /docs/stack/search/design/overview/
 ---
 
-# Search and Query Technical Overview 
+# Technical Overview of the search and query features of Redis Stack
 
 ## Abstract
 
-Search and Query is a powerful text search and secondary indexing engine, built on top of Redis as a Redis Module. 
+RediSearch is a powerful text search and secondary indexing engine, built on top of Redis as a Redis Module. 
 
 Unlike other Redis search libraries, it does not use the internal data structures of Redis like sorted sets. Using its own highly optimized data structures and algorithms, it allows for advanced search features, high performance, and low memory footprint. It can perform simple text searches, as well as complex structured queries, filtering by numeric properties and geographical distances.
 
-Search and Query supports continuous indexing with no performance degradation, maintaining concurrent loads of querying and indexing. This makes it ideal for searching frequently updated databases, without the need for batch indexing and service interrupts. 
+RediSearch supports continuous indexing with no performance degradation, maintaining concurrent loads of querying and indexing. This makes it ideal for searching frequently updated databases, without the need for batch indexing and service interrupts. 
 
-The Enterprise version of Search and Query supports scaling the search engine across many servers, allowing it to easily grow to billions of documents on hundreds of servers. 
+The Enterprise version of RediSearch supports scaling the search engine across many servers, allowing it to easily grow to billions of documents on hundreds of servers. 
 
-All of this is done while taking advantage of Redis' robust architecture and infrastructure. Utilizing Redis' protocol, replication, persistence, clustering - Search and Query delivers a powerful yet simple to manage and maintain search and indexing engine, that can be used as a standalone database, or to augment existing Redis databases with advanced powerful indexing capabilities.
+All of this is done while taking advantage of Redis' robust architecture and infrastructure. Utilizing Redis' protocol, replication, persistence, clustering - RediSearch delivers a powerful yet simple to manage and maintain search and indexing engine, that can be used as a standalone database, or to augment existing Redis databases with advanced powerful indexing capabilities.
 
 ---
 
@@ -53,7 +53,7 @@ All of this is done while taking advantage of Redis' robust architecture and inf
 
 # Indexing documents
 
-Search and Query needs to know how to index documents in order to search effectively. A document may have several fields, each with its own weight (e.g. a title is usually more important than the text itself. The engine can also use numeric or geographical fields for filtering. Hence, the first step is to create the index definition, which tells Search and Query how to treat the documents we will add. For example, to define an index of products, indexing their title, description, brand, and price, the index creation would look like:
+Redis Stack needs to know how to index documents in order to search effectively. A document may have several fields, each with its own weight (e.g. a title is usually more important than the text itself. The engine can also use numeric or geographical fields for filtering. Hence, the first step is to create the index definition, which tells Redis Stack how to treat the documents we will add. For example, to define an index of products, indexing their title, description, brand, and price, the index creation would look like:
 
 ```
 FT.CREATE my_index SCHEMA 
@@ -73,7 +73,7 @@ FT.ADD my_index doc1 1.0 FIELDS
     price 300
 ```
 
-This tells Search and Query to take the document, break each field into its terms ("tokenization") and index it, by marking the index for each of the terms in the index as contained in this document. Thus, the product is added immediately to the index and can now be found in future searches
+This tells Redis Stack to take the document, break each field into its terms ("tokenization") and index it, by marking the index for each of the terms in the index as contained in this document. Thus, the product is added immediately to the index and can now be found in future searches
 
 
 ## Searching
@@ -84,22 +84,23 @@ Now that we have added products to our index, searching is very simple:
 FT.SEARCH products "full hd tv"
 ```
 
-This will tell Search and Query to intersect the lists of documents for each term and return all documents containing the three terms. Of course, more complex queries can be performed, and the full syntax of the query language is detailed below. 
+This will tell Redis Stack to intersect the lists of documents for each term and return all documents containing the three terms. Of course, more complex queries can be performed, and the full syntax of the query language is detailed below. 
 
 ## Data structures
 
-Search and Query uses its own custom data structures and uses Redis' native structures only for storing the actual document content (using  Hash objects).
+Redis Stack uses its own custom data structures and uses Redis' native structures only for storing the actual document content (using  Hash objects).
 
 Using specialized data structures allows faster searches and more memory effective storage of index records, utilizing compression techniques like delta encoding. 
 
-These are the data structures Search and Query uses under the hood:
+These are the data structures Redis Stack uses under the hood:
+
 ### Index and document metadata
 
 For each search _index_, there is a root data structure containing the schema, statistics, etc - but most importantly, little compact metadata about each document indexed. 
 
-Internally, inside the index, Search and Query uses delta encoded lists of numeric, incremental, 32-bit document ids. This means that the user given keys or ids for documents, need to be replaced with the internal ids on indexing, and back to the original ids on search. 
+Internally, inside the index, Redis Stack uses delta encoded lists of numeric, incremental, 32-bit document ids. This means that the user given keys or ids for documents, need to be replaced with the internal ids on indexing, and back to the original ids on search. 
 
-For that, Search and Query saves two tables, mapping the two kinds of ids in two ways (one table uses a compact trie, the other is simply an array where the internal document ID is the array index). On top of that, for each document, we store its user given a priory score, some status bits, and an optional "payload" attached to the document by the user. 
+For that, Redis Stack saves two tables, mapping the two kinds of ids in two ways (one table uses a compact trie, the other is simply an array where the internal document ID is the array index). On top of that, for each document, we store its user given a priory score, some status bits, and an optional "payload" attached to the document by the user. 
 
 Accessing the document metadata table is an order of magnitude faster than accessing the hash object where the document is actually saved, so scoring functions that need to access metadata about the document can operate fast enough.
 
@@ -219,11 +220,11 @@ And negative clauses can also be added, in this example to filter out plasma and
 
 ## Scoring model
 
-Search and Query comes with a few very basic scoring functions to evaluate document relevance. They are all based on document scores and term frequency. This is regardless of the ability to use sortable fields (see below). Scoring functions are specified by adding the `SCORER {scorer_name}` argument to a search request.
+Redis Stack comes with a few very basic scoring functions to evaluate document relevance. They are all based on document scores and term frequency. This is regardless of the ability to use sortable fields (see below). Scoring functions are specified by adding the `SCORER {scorer_name}` argument to a search request.
 
 If you prefer a custom scoring function, it is possible to add more functions using the [Extension API](/redisearch/reference/extensions).
 
-These are the pre-bundled scoring functions available in Search and Query:
+These are the pre-bundled scoring functions available in Redis Stack:
 
 * **TFIDF (Default)**
 
@@ -266,7 +267,7 @@ FT.SEARCH users "john lennon" SORTBY age DESC
 
 Highlighting allows users to only the relevant portions of document matching a search query returned as a result. This allows users to quickly see how a document relates to their query, with the search terms highlighted, usually in bold letters.
 
-Search and Query implements high performance highlighting and summarization algorithms, with the following API: 
+Redis Stack implements high performance highlighting and summarization algorithms, with the following API: 
 
 ```
 FT.SEARCH ...
@@ -281,25 +282,25 @@ Highlighting will highlight the found term (and its variants) with a user-define
 
 ## Auto-completion
 
-Another important feature for Search and Query is its auto-complete engine. This allows users to create dictionaries of weighted terms, and then query them for completion suggestions to a given user prefix. Completions can have "payloads" - a user-provided piece of data that can be used for display. For example, completing the names of users, it is possible to add extra metadata about users to be displayed al
+Another important feature for Redis Stack is its auto-complete engine. This allows users to create dictionaries of weighted terms, and then query them for completion suggestions to a given user prefix. Completions can have "payloads" - a user-provided piece of data that can be used for display. For example, completing the names of users, it is possible to add extra metadata about users to be displayed al
 
 For example, if a user starts to put the term “lcd tv” into a dictionary, sending the prefix “lc” will return the full term as a result. The dictionary is modeled as a compact trie (prefix tree) with weights, which is traversed to find the top suffixes of a prefix.
 
-Search and Query also allows for Fuzzy Suggestions, meaning you can get suggestions to prefixes even if the user makes a typo in their prefix. This is enabled using a Levenshtein Automaton, allowing efficient searching of the dictionary for all terms within a maximal Levenshtein Distance of a term or prefix. Then suggestions are weighted based on both their original score and their distance from the prefix typed by the user. 
+Redis Stack also allows for Fuzzy Suggestions, meaning you can get suggestions to prefixes even if the user makes a typo in their prefix. This is enabled using a Levenshtein Automaton, allowing efficient searching of the dictionary for all terms within a maximal Levenshtein Distance of a term or prefix. Then suggestions are weighted based on both their original score and their distance from the prefix typed by the user. 
 
 However, searching for fuzzy prefixes (especially very short ones) will traverse an enormous number of suggestions. In fact, fuzzy suggestions for any single letter will traverse the entire dictionary, so we recommend using this feature carefully, in consideration of the performance penalty it incurs. 
 
-Search and Query's auto-completer supports Unicode, allowing for fuzzy matches in non-latin languages as well.
+Redis Stack's auto-completer supports Unicode, allowing for fuzzy matches in non-latin languages as well.
 
 ## Search engine internals
 
 ### The Redis module API
 
-Search and Query utilizes the [Redis Module API](https://redis.io/topics/modules-intro) and is loaded into Redis as an extension module. 
+RediSearch - the part of Redis Stack that provides the search and query features, utilizes the [Redis Module API](https://redis.io/topics/modules-intro) and is loaded into Redis as an extension module. 
 
 Redis modules make possible to extend Redis functionality, implementing new Redis commands, data structures and capabilities with similar performance to native core Redis itself. Redis modules are dynamic libraries, that can be loaded into Redis at startup or using the MODULE LOAD command. Redis exports a C API, in the form of a single C header file called redismodule.h. 
 
-This means that while the logic of Search and Query and its algorithms are mostly independent, and it could, in theory, be ported quite easily to run as a stand-alone server - it still "stands on the shoulders" of giants and takes advantage of Redis as a robust infrastructure for a database server. Building on top of Redis means that by default the module operates:
+This means that while the logic of RediSearch and its algorithms are mostly independent, and it could, in theory, be ported quite easily to run as a stand-alone server - it still "stands on the shoulders" of giants and takes advantage of Redis as a robust infrastructure for a database server. Building on top of Redis means that by default the module operates:
   * A high performance network protocol server.
   * Robust replication. 
   * Highly durable persistence as snapshots of transaction logs.
@@ -308,7 +309,7 @@ This means that while the logic of Search and Query and its algorithms are mostl
 
 ### Query execution engine
 
-Search and Query uses a high-performance flexible query processing engine, that can evaluate very complex queries in real time. 
+Redis Stack uses a high-performance flexible query processing engine, that can evaluate very complex queries in real time. 
 
 The above query language is compiled into an execution plan that consists of a tree of "index iterators" or "filters". These can be any of:
 
@@ -333,13 +334,13 @@ While it is extremely fast and uses highly optimized data structures and algorit
 
 Think, for example, of a full-text query intersecting the terms "hello" and "world", each with, let's say, a million entries, and half a million common intersection points. To do that in a millisecond, you would have to scan, intersect and rank each result in one nanosecond, [which is impossible with current hardware](https://gist.github.com/jboner/2841832). The same goes for indexing a 1000 word document. It blocks Redis entirely for that duration.
 
-Search and Query utilizes the Redis Module API's concurrency features to avoid stalling the server for long periods of time. The idea is simple - while Redis in itself still remains single-threaded, a module can run many threads - and any one of them can acquire the **Global Lock** when it needs to access Redis data, operate on it, and release it. 
+RediSearch utilizes the Redis Module API's concurrency features to avoid stalling the server for long periods of time. The idea is simple - while Redis in itself still remains single-threaded, a module can run many threads - and any one of them can acquire the **Global Lock** when it needs to access Redis data, operate on it, and release it. 
 
 We still cannot really query Redis in parallel - only one thread can acquire the lock, including the Redis main thread - but we can make sure that a long-running query will give other queries time to properly run by yielding this lock from time to time.
 
 To allow concurrency, we adopted the following design:
 
-1. Search and Query has a thread pool for running concurrent search queries. 
+1. RediSearch has a thread pool for running concurrent search queries. 
 
 2. When a search request arrives, it gets to the handler, gets parsed on the main thread, and a request object is passed to the thread pool via a queue.
 
@@ -356,31 +357,31 @@ To allow concurrency, we adopted the following design:
 Thus the operating system's scheduler makes sure all query threads get CPU time to run. While one is running the rest wait idly, but since execution is yielded about 5,000 times a second, it creates the effect of concurrency. Fast queries will finish in one go without yielding execution, slow ones will take many iterations to finish, but will allow other queries to run concurrently. 
 
 ### Index garbage collection
-Search and Query is optimized for high write, update and delete throughput. One of the main design choices dictated by this goal is that deleting and updating documents do not actually delete anything from the index: 
+RediSearch is optimized for high write, update and delete throughput. One of the main design choices dictated by this goal is that deleting and updating documents do not actually delete anything from the index: 
 
 1. Deletion simply marks the document deleted in a global document metadata table, using a single bit. 
 2. Updating, on the other hand, marks the document as deleted, assigns it a new incremental document ID, and re-indexes the document under a new ID, without performing a comparison of the change. 
 
 What this means, is that index entries belonging to deleted documents are not removed from the index, and can be seen as "garbage". Over time, an index with many deletes and updates will contain mostly garbage - both slowing things down and consuming unnecessary memory. 
 
-To overcome this, Search and Query employs a background Garbage Collection mechanism: during normal operation of the index, a special thread randomly samples indexes, traverses them and looks for garbage. Index sections containing garbage are "cleaned" and memory is reclaimed. This is done in a none intrusive way, operating on very small amounts of data per scan, and utilizing Redis' concurrency mechanism (see above) to avoid interrupting the searches and indexing. The algorithm also tries to adapt to the state of the index, increasing the garbage collector's frequency if the index contains a lot of garbage, and decreasing it if it doesn't, to the point of hardly scanning if the index does not contain garbage. 
+To overcome this, RediSearch employs a background Garbage Collection mechanism: during normal operation of the index, a special thread randomly samples indexes, traverses them and looks for garbage. Index sections containing garbage are "cleaned" and memory is reclaimed. This is done in a none intrusive way, operating on very small amounts of data per scan, and utilizing Redis' concurrency mechanism (see above) to avoid interrupting the searches and indexing. The algorithm also tries to adapt to the state of the index, increasing the garbage collector's frequency if the index contains a lot of garbage, and decreasing it if it doesn't, to the point of hardly scanning if the index does not contain garbage. 
 
 ### Extension model
 
-Search and Query supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions in run-time. Instead, extensions must be written in C (or a language that has an interface with C) and compiled into dynamic libraries that will be loaded at run-time.
+RedisSearch supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions in run-time. Instead, extensions must be written in C (or a language that has an interface with C) and compiled into dynamic libraries that will be loaded at run-time.
 
 There are two kinds of extension APIs at the moment: 
 
 1. **Query Expanders**, whose role is to expand query tokens (i.e. stemmers).
 2. **Scoring Functions**, whose role is to rank search results in query time.
 
-Extensions are compiled into dynamic libraries and loaded into Search and Query on initialization of the module. In fact, the mechanism is based on the code of Redis' own module system, albeit far simpler.
+Extensions are compiled into dynamic libraries and loaded into RediSearch on initialization of the module. In fact, the mechanism is based on the code of Redis' own module system, albeit far simpler.
 
 ---
 
 # Scalable Distributed Search
 
-While Search and Query is very fast and memory efficient, if an index is big enough, at some point it will be too slow or consume too much memory. Then, it will have to be scaled out and partitioned over several machines - meaning every machine will hold a small part of the complete search index.
+While RediSearch is very fast and memory efficient, if an index is big enough, at some point it will be too slow or consume too much memory. Then, it will have to be scaled out and partitioned over several machines - meaning every machine will hold a small part of the complete search index.
 
 Traditional clusters map different keys to different “shards” to achieve this. However, in search indexes, this approach is not practical. If we mapped each word’s index to a different shard, we would end up needing to intersect records from different servers for multi-term queries. 
 

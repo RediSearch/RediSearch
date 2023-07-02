@@ -7,7 +7,7 @@ aliases:
     - /docs/stack/search/chinese/
 ---
 
-# Chinese support in Search and Query
+# Chinese support for searching and querying in Redis Stack
 
 Support for adding documents in Chinese is available starting at version 0.99.0.
 
@@ -24,11 +24,11 @@ character or sequence of characters against a dictionary of predefined terms
 and determining the most likely (based on the surrounding terms and characters)
 match.
 
-Search and Query makes use of the [Friso](https://github.com/lionsoul2014/friso)
+Redis Stack makes use of the [Friso](https://github.com/lionsoul2014/friso)
 Chinese tokenization library for this purpose. This is largely transparent to
 the user and often no additional configuration is required.
 
-## Example: Using Chinese in Search and Query
+## Example: Using Chinese in queries
 
 In pseudo-code:
 
@@ -76,6 +76,6 @@ loading the module. The `FRISOINI` setting can point to the location of a
 `friso.ini` file which contains the relevant settings and paths to the dictionary
 files.
 
-Note that there is no "default" friso.ini file location. Search and Query comes with
+Note that there is no "default" friso.ini file location. RediSearch comes with
 its own `friso.ini` and dictionary files which are compiled into the module
 binary at build-time.

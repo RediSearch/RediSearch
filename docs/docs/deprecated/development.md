@@ -7,12 +7,12 @@ aliases:
     - /docs/stack/search/development/
 ---
 
-# Developing Search and Query
+# Developing RediSearch
 
-Developing Search and Query involves setting up the development environment (which can be either Linux-based or macOS-based), building the module, running tests and benchmarks, and debugging both the module and its tests.
+Developing RediSearch features involves setting up the development environment (which can be either Linux-based or macOS-based), building the module, running tests and benchmarks, and debugging both the module and its tests.
 
 ## Cloning the git repository
-By invoking the following command, the Search and Query module and its submodules are cloned:
+By invoking the following command, the RediSearch module and its submodules are cloned:
 ```sh
 git clone --recursive https://github.com/RediSearch/RediSearch.git
 ```
@@ -37,11 +37,11 @@ search=$(docker run -d -it -v $PWD:/build rediseatch1 bash)
 docker exec -it $search bash
 ```
 
-You can replace `debian:bullseye` with your OS of choice, with the host OS being the best choice (so you can run the Search and Query binary on your host once it is built).
+You can replace `debian:bullseye` with your OS of choice, with the host OS being the best choice (so you can run the RediSearch binary on your host once it is built).
 
 ## Installing prerequisites
 
-To build and test Search and Query one needs to install several packages, depending on the underlying OS. Currently, we support Ubuntu/Debian, CentOS, Fedora, and macOS.
+To build and test RediSearch one needs to install several packages, depending on the underlying OS. Currently, we support Ubuntu/Debian, CentOS, Fedora, and macOS.
 
 First, enter the `RediSearch` directory.
 Execute:
@@ -96,7 +96,7 @@ make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
 
-make run           # run redis with Search and Query
+make run           # run redis with RediSearch
   GDB=1              # invoke using gdb
 
 make test          # run all tests
@@ -149,9 +149,9 @@ make sanbox        # create container with CLang Sanitizer
 ```
 
 ## Building from source
-```make build``` will build Search and Query.
+```make build``` will build RediSearch.
 
-`make build COORD=oss` will build OSS Search and Query Coordinator.
+`make build COORD=oss` will build OSS RediSearch Coordinator.
 
 `make build STATIC=1` will build as a static lib
 
@@ -159,7 +159,7 @@ Notes:
 
 * Binary files are placed under `bin`, according to platform and build variant.
 
-* Search and Query uses [CMake](https://cmake.org) as its build system. ```make build``` will invoke both CMake and the subsequent make command that's required to complete the build.
+* RediSearch uses [CMake](https://cmake.org) as its build system. ```make build``` will invoke both CMake and the subsequent make command that's required to complete the build.
 
 
 Use ```make clean``` to remove built artifacts. ```make clean ALL=1``` will remove the entire bin subdirectory.
@@ -169,8 +169,8 @@ Use ```make clean``` to remove built artifacts. ```make clean ALL=1``` will remo
 
 For purposes of build diagnosis, `make build SLOW=1 VERBOSE=1` can be used to examine compilation commands.
 
-## Running Redis with Search and Query
-The following will run ```redis``` and load the Search and Query module.
+## Running Redis with RediSearch
+The following will run ```redis``` and load the RediSearch module.
 ```
 make run
 ```
@@ -188,6 +188,6 @@ A single test can be run using the ```TEST``` parameter, e.g. ```make test TEST=
 ## Debugging
 To build for debugging (enabling symbolic information and disabling optimization), run ```make DEBUG=1```.
 One can the use ```make run DEBUG=1``` to invoke ```gdb```.
-In addition to the usual way to set breakpoints in ```gdb```, it is possible to use the ```BB``` macro to set a breakpoint inside the Search and Query code. It will only have an effect when running under ```gdb```.
+In addition to the usual way to set breakpoints in ```gdb```, it is possible to use the ```BB``` macro to set a breakpoint inside the RediSearch code. It will only have an effect when running under ```gdb```.
 
 Similarly, Python tests in a single-test mode, one can set a breakpoint by using the ```BB()``` function inside a test.

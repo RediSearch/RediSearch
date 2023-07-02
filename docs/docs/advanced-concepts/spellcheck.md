@@ -11,7 +11,7 @@ aliases:
 
 Query spelling correction, a.k.a "did you mean", provides suggestions for misspelled search terms. For example, the term 'reids' may be a misspelled 'redis'.
 
-In such cases and as of v1.4 Search and Query can be used for generating alternatives to misspelled query terms. A misspelled term is a full text term (i.e., a word) that is:
+In such cases and as of v1.4 RediSearch can be used for generating alternatives to misspelled query terms. A misspelled term is a full text term (i.e., a word) that is:
 
   1. Not a stop word
   2. Not in the index

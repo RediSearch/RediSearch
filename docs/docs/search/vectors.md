@@ -240,7 +240,7 @@ The syntax for range query is `@<vector_field>: [VECTOR_RANGE (<radius> | $<radi
 
 ## Hybrid queries
 
-Vector similarity KNN queries of the form `<primary_filter_query>=>[<vector_similarity_query>]` are considered *hybrid queries*. Search and Query has an internal mechanism for optimizing the computation of such queries. Two modes in which hybrid queries are executed are: 
+Vector similarity KNN queries of the form `<primary_filter_query>=>[<vector_similarity_query>]` are considered *hybrid queries*. Redis Stack has an internal mechanism for optimizing the computation of such queries. Two modes in which hybrid queries are executed are: 
 
 1. Batches mode - In this mode, a batch of the high-scoring documents from the vector index are retrieved. These documents are returned ONLY if `<primary_filter_query>` is satisfied. In other words, the document contains a similar vector and meets the filter criteria. The procedure terminates when `k` documents that pass the `<primary_filter_query>` are returned or after every vector in the index was obtained and processed.
     
@@ -283,7 +283,7 @@ Optional parameters are:
 
 1. Although specifying `K` requested results in KNN search, the default `LIMIT` is 10, to get all the returned results, specify `LIMIT 0 <K>` in your command.
 
-2. By default, the results are sorted by their document's Search and Query score. To sort by some vector similarity score, use `SORTBY <dist_field_name>`. See examples below.
+2. By default, the results are sorted by their document's score. To sort by some vector similarity score, use `SORTBY <dist_field_name>`. See examples below.
 
 3. It is recommended to adjust the `<radius>` parameter in range queries to the corresponding vector field distance metric and to the data itself. In particular, recall that the distance between the vectors in an index whose distance metric is Cosine is bounded by `2`, while L2 distance between the vectors is not bounded. Hence, it is better to consider the distance between the vectors that are considered similar and choose `<radius>` accordingly.   
 

@@ -9,7 +9,7 @@ aliases:
 
 # Controlling Text Tokenization and Escaping
 
-At the moment, Search and Query uses a very simple tokenizer for documents and a slightly more sophisticated tokenizer for queries. Both allow a degree of control over string escaping and tokenization. 
+At the moment, Redis Stack uses a very simple tokenizer for documents and a slightly more sophisticated tokenizer for queries. Both allow a degree of control over string escaping and tokenization. 
 
 Note: There is a different mechanism for tokenizing text and tag fields, this document refers only to text fields. For tag fields please refer to the [Tag Fields](/redisearch/reference/tags) documentation. 
 
