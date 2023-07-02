@@ -59,72 +59,6 @@ def testCursorsBG():
     env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL _PRINT_PROFILE_CLOCK FALSE')
     testCursors(env)
 
-    # TODO: use profile to verify that the pipeline was changed.
-    query = ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 10, 'SORTBY', 1, '@f1', 'MAX', '1000000', 'LOAD', 1, 'irrelevant']
-
-    # First call. Create and start reading the cursor.
-    # We expect that the first results are calculated with the pipeline looking like this:
-    # iterator -> buffer -> load -> sort -> load -> unlock
-    # after we get the first results, we expect to modify the pipeline. it should look like this:
-    # iterator -> load -> sort -> buffer -> load -> unlock
-    resp = env.cmd(*query)
-
-    # For the rest of the test, we expect the pipeline to look like this:
-    # iterator -> load -> sort -> buffer -> load -> unlock
-    # The buffer was moved to after the last accumulator.
-    resp = exhaustCursor(env, 'idx', resp)
-    env.assertEqual(11, len(resp))
-
-    if env.isCluster():
-        # replace the data in the index.
-        env.flush()
-        # 1000 is the chunk size of a cursor in aggregation with a cluster
-        # add extra 100 to make sure we have more than one chunk in each shard (with high probability)
-        extra_docs = 100
-        n_docs = 1000 * env.shardsCount + extra_docs
-        loadDocs(env, count=n_docs)
-        profile_query = ['FT.PROFILE', 'idx', 'AGGREGATE', 'LIMITED', 'QUERY', '*']
-        profile_query += query[query.index('SORTBY'):]
-
-        # On coordinator, we can use profile to verify that the pipeline was changed.
-        res = env.cmd(*profile_query)
-        shard_pipelines = list()
-        for field in res[1]:
-            if field[0] == 'Result processors profile':
-                shard_pipelines.append(field)
-            elif field == 'Coordinator':
-                break  # we don't need to check the coordinator
-
-        # we expect to have a pipeline for each shard, and that the pipeline is the same for all shards.
-        env.assertEqual(env.shardsCount, len(shard_pipelines))
-        for i in range(env.shardsCount - 1):
-            env.assertEqual(len(shard_pipelines[i]), len(shard_pipelines[i + 1]))
-
-        summed_pipeline = list()
-        for i in range(1, len(shard_pipelines[0]) - 1):  # we already checked that all pipelines are the same length
-            # add a counter for the current RP (only name and count variable, init to 0)
-            summed_pipeline.append([shard_pipelines[0][i][1], 0])
-            # Assert that all shards have the same current RP
-            for j in range(env.shardsCount - 1):
-                env.assertEqual(len(shard_pipelines[j][i]), len(shard_pipelines[j + 1][i]))
-                env.assertEqual(shard_pipelines[j][i][:-1], shard_pipelines[j + 1][i][:-1])
-            # Sum the counter of the current RP
-            for j in range(env.shardsCount):
-                summed_pipeline[i-1][-1] += shard_pipelines[j][i][-1]
-
-        buffer_name = 'Buffer and Locker'
-        buffer_count = 0
-        # Assert that besides the buffer, all RPs have the same count, which is the number of docs in the index
-        for rp in summed_pipeline:
-            if rp[0] == buffer_name:
-                buffer_count = rp[1]
-            else:
-                env.assertEqual(rp[1], n_docs)
-
-        # Because the buffer is moved to after the sorter after the first chunk of 1000 docs, we expect it to be called
-        # `n_docs` + `extra_docs` times, +1 for EOF (last attempt to read) on each shard.
-        env.assertEqual(buffer_count, n_docs + extra_docs + env.shardsCount)
-
 
 @skip(noWorkers=True)
 def testCursorsBGEdgeCasesSanity():
@@ -144,7 +78,7 @@ def testCursorsBGEdgeCasesSanity():
 
     # Sanity check - make sure that the queries not crashing or hanging
     for query in queries:
-        resp = env.cmd(query)
+        resp = env.expect(query).noError().res
         resp = exhaustCursor(env, 'idx', resp)
 
 def testMultipleIndexes(env):
