@@ -468,8 +468,10 @@ def sortResultByKeyName(res, start_index=1):
   else:
     res = [*pairs]
   return res
-def dict_diff(res, exp, ignore_order=True, significant_digits=7):
-    dd = DeepDiff(res, exp, exclude_types={_ANY}, ignore_order=ignore_order, significant_digits=significant_digits)
-    if dd != {}:
+
+def dict_diff(res, exp, show=False, ignore_order=True, significant_digits=7, ignore_numeric_type_changes=True):
+    dd = DeepDiff(res, exp, exclude_types={_ANY}, ignore_order=ignore_order, significant_digits=significant_digits,
+                  ignore_numeric_type_changes=ignore_numeric_type_changes)
+    if dd != {} and show:
         pp(dd)
     return dd
