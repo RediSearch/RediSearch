@@ -53,21 +53,6 @@ struct GeometryQueryIterator {
     return &base_;
   }
 
-  // struct QIterCriteriaTester {
-  // 	IndexCriteriaTester base_;
-
-  // 	using Self = QIterCriteriaTester;
-  // 	[[nodiscard]] void* operator new(std::size_t) { return rm_allocator<Self>().allocate(1); }
-  // 	void operator delete(void *p) noexcept {
-  // rm_allocator<Self>().deallocate(static_cast<Self*>(p), 1); }
-
-  // 	QIterCriteriaTester(GeometryQueryIterator const* it);
-  // };
-
-  // IndexCriteriaTester *get_criteriaTester() const {
-  // 	auto ct = new QIterCriteriaTester{this};
-  // 	return ct->base();
-  // }
   int read(RSIndexResult *&hit) {
     if (!base_.isValid || !has_next()) {
       return INDEXREAD_EOF;
@@ -122,9 +107,6 @@ struct GeometryQueryIterator {
 };
 
 namespace {
-// IndexCriteriaTester *QIter_GetCriteriaTester(void *ctx) {
-// 	return static_cast<GeometryQueryIterator const*>(ctx)->get_criteriaTester();
-// }
 int QIter_Read(void *ctx, RSIndexResult **hit) {
   return static_cast<GeometryQueryIterator *>(ctx)->read(*hit);
 }
@@ -158,8 +140,7 @@ IndexIterator GeometryQueryIterator::init_base() {
       .ctx = nullptr,
       .current = NewVirtualResult(0),
       .mode = MODE_SORTED,
-      .type = ID_LIST_ITERATOR,  // TODO: new iterator type, for now IdListIterator is similar
-                                 // enough and doesn't cause problems
+      .type = ID_LIST_ITERATOR,
       .NumEstimated = QIter_Len,
       .GetCriteriaTester = nullptr,
       .Read = QIter_Read,

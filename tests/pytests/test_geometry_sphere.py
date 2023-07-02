@@ -53,6 +53,9 @@ def testSanitySearchPointWithin(env):
   res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [3, 'large', 'point', 'small'])
 
+  conn.execute_command('HSET', 'point', 'geom', 'POINT(34.9255, 29.7255)')
+  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
 def testSanitySearchJsonWithin(env):
   conn = getConnectionByEnv(env)

@@ -53,6 +53,10 @@ def testSanitySearchPointWithin(env):
   res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [3, 'large', 'point', 'small'])
 
+  conn.execute_command('HSET', 'point', 'geom', 'POINT(255, 255)')
+  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
+
 def testSanitySearchJsonWithin(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOSHAPE FLAT').ok()
@@ -87,6 +91,8 @@ def testWKTIngestError(env):
   conn.execute_command('JSON.SET', 'p1', '$', '{"geom": "POLIKON((1 1, 1 100, 100 100, 100 1, 1 1))", "name": "Homer"}')
   # Missing parenthesis
   conn.execute_command('JSON.SET', 'p2', '$', '{"geom": "POLYGON(1 1, 1 100, 100 100, 100 1, 1 1))", "name": "Patty"}')
+  # Missing Y coordinate
+  conn.execute_command('JSON.SET', 'p3', '$', '{"geom": "POLYGON((1 1, 1 , 100 100, 100 1, 1 1))", "name": "Moe"}')
   # Too few coordinates (not a polygon)
   conn.execute_command('JSON.SET', 'p6', '$', '{"geom": "POLYGON((1 1, 1 100, 1 1))", "name": "Milhouse"}')
   # Zero coordinates
@@ -94,8 +100,6 @@ def testWKTIngestError(env):
 
   
   # TODO: GEOMETRY - understand why the following WKTs do not fail?
-  # Missing Y coordinate
-  conn.execute_command('JSON.SET', 'p3', '$', '{"geom": "POLYGON((1 1, 1 , 100 100, 100 1, 1 1))", "name": "Moe"}')
   # Redundant coordinate
   conn.execute_command('JSON.SET', 'p4', '$', '{"geom": "POLYGON((1 1, 1 100 100 100, 100 1, 1 1))", "name": "Seymour"}')
   # Missing coma separator
@@ -104,7 +108,7 @@ def testWKTIngestError(env):
   # Indexing failures
   res = env.cmd('FT.INFO', 'idx')
   d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-  env.assertEqual(int(d['hash_indexing_failures']), 4)
+  env.assertEqual(int(d['hash_indexing_failures']), 5)
 
 
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)

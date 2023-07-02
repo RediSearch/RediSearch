@@ -25,7 +25,7 @@
 #include <functional>     // std::hash, std::equal_to, std::reference_wrapper
 #include <string_view>    // std::string_view
 #include <unordered_map>  // std::unordered_map
-// #include <boost/unordered/unordered_map.hpp> //is faster than std::unordered_map?
+#include <boost/unordered/unordered_flat_map.hpp>  //is faster than std::unordered_map?
 
 namespace bg = boost::geometry;
 namespace bgm = bg::model;
@@ -39,7 +39,8 @@ using sstream = std::basic_stringstream<char, std::char_traits<char>, rm_allocat
 
 template <typename coord_system>
 struct RTree {
-  using point_type = bgm::point<double, 2, coord_system>;
+  using point_type =
+      bgm::point<double, 2, coord_system>;  // TODO: GEOMETRY - dimension template param (2 or 3)
   using poly_type = bgm::polygon<
       /* point_type       */ point_type,
       /* is_clockwise     */ true,  // TODO: GEOMETRY - do we need to call bg::correct(poly) ?
@@ -56,25 +57,29 @@ struct RTree {
                                 bgi::equal_to<doc_type>, rm_allocator<doc_type>>;
 
   using docLookup_type =
-      std::unordered_map<t_docId, geom_type, std::hash<t_docId>, std::equal_to<t_docId>,
-                         rm_allocator<std::pair<const t_docId, geom_type>>>;
+      boost::unordered_flat_map<t_docId, geom_type, std::hash<t_docId>, std::equal_to<t_docId>,
+                                rm_allocator<std::pair<t_docId const, geom_type>>>;
 
   rtree_type rtree_;
   docLookup_type docLookup_;
 
   explicit RTree() = default;
 
-  [[nodiscard]] static constexpr doc_type make_doc(geom_type const& geom, t_docId id = 0) {
-    return doc_type{
-        std::visit([](auto&& geom) {
+  [[nodiscard]] static constexpr rect_type make_mbr(geom_type const& geom) {
+    return std::visit(
+        [](auto&& geom) {
           if constexpr (std::is_same_v<point_type, std::decay_t<decltype(geom)>>) {
-            constexpr auto EPSILON = 0.00001;
+            constexpr auto EPSILON = 1e-10;
             point_type p = geom;
             return rect_type{p, point_type{bg::get<0>(p) + EPSILON, bg::get<1>(p) + EPSILON}};
           } else {
             return bg::return_envelope<rect_type>(geom);
           }
-        }, geom), id};
+        },
+        geom);
+  }
+  [[nodiscard]] static constexpr doc_type make_doc(geom_type const& geom, t_docId id = 0) {
+    return doc_type{make_mbr(geom), id};
   }
   [[nodiscard]] static constexpr rect_type get_rect(doc_type const& doc) {
     return doc.first;
@@ -101,25 +106,24 @@ struct RTree {
 
   [[nodiscard]] static geom_type from_wkt(std::string_view wkt) {
     geom_type geom{};
-    if (wkt.starts_with("POINT")) {
-      point_type p{};
-      bg::read_wkt(wkt.data(), p);
-      geom = p;
-    } else if (wkt.starts_with("POLYGON")) {
-      poly_type p{};
-      bg::read_wkt(wkt.data(), p);
-      geom = p;
+    if (wkt.starts_with("POI")) {
+      geom = bg::from_wkt<point_type>(wkt.data());
+    } else if (wkt.starts_with("POL")) {
+      geom = bg::from_wkt<poly_type>(wkt.data());
     } else {
       throw std::runtime_error{"unknown geometry type"};
     }
-    std::visit([](auto&& geom) {
-      if (bg::is_empty(geom)) {
-        throw std::runtime_error{"attempting to create empty geometry"};
-      }
-      if (!bg::is_valid(geom)) {
-        throw std::runtime_error{"invalid geometry"};
-      }
-    }, geom);
+    std::visit(
+        [](auto&& geom) {
+          if (bg::is_empty(geom)) {
+            throw std::runtime_error{"attempting to create empty geometry"};
+          }
+          if (!bg::is_valid(geom)) {  // TODO: GEOMETRY - add flag to allow user to ascertain
+                                      // validity of input
+            throw std::runtime_error{"invalid geometry"};
+          }
+        },
+        geom);
     return geom;
   }
 
