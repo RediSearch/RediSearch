@@ -43,6 +43,10 @@ static void timerCallback(RedisModuleCtx* ctx, void* data);
 static long long getNextPeriod(GCContext* gc) {
   struct timespec interval = gc->callbacks.getInterval(gc->gcCtx);
   long long ms = interval.tv_sec * 1000 + interval.tv_nsec / 1000000;  // convert to millisecond
+
+  // add randomness to avoid congestion by multiple GCs from different shards
+  ms += (rand() % interval.tv_sec) * 1000;
+
   return ms;
 }
 
@@ -136,8 +140,8 @@ void GCContext_Stop(GCContext* gc) {
   }
 }
 
-void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx) {
-  gc->callbacks.renderStats(ctx, gc->gcCtx);
+void GCContext_RenderStats(GCContext* gc, RedisModule_Reply* reply) {
+  gc->callbacks.renderStats(reply, gc->gcCtx);
 }
 
 #ifdef FTINFO_FOR_INFO_MODULES
@@ -167,7 +171,7 @@ void GCContext_ForceBGInvoke(GCContext* gc) {
 
 void GC_ThreadPoolStart() {
   if (gcThreadpool_g == NULL) {
-    gcThreadpool_g = redisearch_thpool_create(1);
+    gcThreadpool_g = redisearch_thpool_create(GC_THREAD_POOL_SIZE);
     redisearch_thpool_init(gcThreadpool_g);
   }
 }

@@ -87,9 +87,9 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
     case '*':
       res = n1 * n2;
       break;
-    case '%':	      
+    case '%':
         // workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=30484
-        if (n2 == -1){ 
+        if (n2 == -1){
           res = 0;
         } else if (n2 != 0) {
           res = (long long)n1 % (long long)n2;
@@ -116,7 +116,7 @@ cleanup:
 
 static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *r, RSCondition op) {
   QueryError *qerr = eval ? eval->err : NULL;
-  
+
   l = RSValue_Dereference(l);
   r = RSValue_Dereference(r);
 
@@ -265,9 +265,9 @@ int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
 
   switch (expr->t) {
     case RSExpr_Property:
-      expr->property.lookupObj = RLookup_GetKey(lookup, expr->property.key, RLOOKUP_F_NOFLAGS);
+      expr->property.lookupObj = RLookup_GetKey(lookup, expr->property.key, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!expr->property.lookupObj) {
-        QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "Property `%s` not loaded in pipeline",
+        QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in pipeline",
                                expr->property.key);
         return EXPR_EVAL_ERR;
       }
@@ -362,16 +362,6 @@ void EvalCtx_Destroy(EvalCtx *r) {
   RLookupRow_Cleanup(&r->row);
   RLookup_Cleanup(&r->lk);
   rm_free(r);
-}
-
-//---------------------------------------------------------------------------------------------
-
-RLookupKey *EvalCtx_Set(EvalCtx *r, const char *name, RSValue *val) {
-  RLookupKey *lkk = RLookup_GetKey(&r->lk, name, RLOOKUP_F_OCREAT);
-  if (lkk != NULL) {
-    RLookup_WriteOwnKey(lkk, &r->row, val);
-  }
-  return lkk;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -507,32 +497,37 @@ ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup)
   return RPEvaluator_NewCommon(ast, lookup, NULL, 1);
 }
 
-void RPEvaluator_Reply(RedisModuleCtx *ctx, const ResultProcessor *rp) {
+void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const ResultProcessor *rp) {
+  if (title) {
+    RedisModule_Reply_SimpleString(reply, title);
+  }
+
   ResultProcessorType type = rp->type;
   const char *typeStr = RPTypeToString(rp->type);
   RS_LOG_ASSERT (type == RP_PROJECTOR || type == RP_FILTER, "Error");
 
   char buf[32];
+  const char *literal;
   RPEvaluator *rpEval = (RPEvaluator *)rp;
   const RSExpr *expr = rpEval->eval.root;
   switch (expr->t) {
     case RSExpr_Literal:
-      RedisModule_ReplyWithPrintf(ctx, "%s - Literal %s", typeStr, 
-                  RSValue_ConvertStringPtrLen(&expr->literal, NULL, buf, sizeof(buf)));
+      literal = RSValue_ConvertStringPtrLen(&expr->literal, NULL, buf, sizeof(buf));
+      RedisModule_Reply_Stringf(reply, "%s - Literal %s", typeStr, literal);
     case RSExpr_Property:
-      RedisModule_ReplyWithPrintf(ctx, "%s - Property %s", typeStr, expr->property.key);
+      RedisModule_Reply_Stringf(reply, "%s - Property %s", typeStr, expr->property.key);
       break;
     case RSExpr_Op:
-      RedisModule_ReplyWithPrintf(ctx, "%s - Operator %c", typeStr, expr->op.op);
+      RedisModule_Reply_Stringf(reply, "%s - Operator %c", typeStr, expr->op.op);
       break;
     case RSExpr_Function:
-      RedisModule_ReplyWithPrintf(ctx, "%s - Function %s", typeStr, expr->func.name);
+      RedisModule_Reply_Stringf(reply, "%s - Function %s", typeStr, expr->func.name);
       break;
     case RSExpr_Predicate:
-      RedisModule_ReplyWithPrintf(ctx, "%s - Predicate %s", typeStr, getRSConditionStrings(expr->pred.cond));
+      RedisModule_Reply_Stringf(reply, "%s - Predicate %s", typeStr, getRSConditionStrings(expr->pred.cond));
       break;
     case RSExpr_Inverted:
-      RedisModule_ReplyWithPrintf(ctx, "%s - Inverted", typeStr);
+      RedisModule_Reply_Stringf(reply, "%s - Inverted", typeStr);
       break;
     default:
       RS_LOG_ASSERT(0, "error");

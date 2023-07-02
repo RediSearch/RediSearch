@@ -1,10 +1,10 @@
-from includes import *
 from common import *
 
 from time import sleep, time
 from redis import ResponseError
 
 from cmath import inf
+
 
 def loadDocs(env, count=100, idx='idx', text='hello world'):
     env.expect('FT.CREATE', idx, 'ON', 'HASH', 'prefix', 1, idx, 'SCHEMA', 'f1', 'TEXT').ok()
@@ -15,15 +15,15 @@ def loadDocs(env, count=100, idx='idx', text='hello world'):
     r1 = env.cmd('ft.search', idx, text)
     r2 = list(set(map(lambda x: x[1], filter(lambda x: isinstance(x, list), r1))))
     env.assertEqual([text], r2)
-    r3 = env.cmd('ft.info', idx)
-    env.assertEqual(count, int(r3[r3.index('num_docs') + 1]))
+    r3 = to_dict(env.cmd('ft.info', idx))
+    env.assertEqual(count, int(r3['num_docs']))
 
-def exhaustCursor(env, idx, resp, *args):
-    first, cid = resp
-    rows = [resp]
+def exhaustCursor(env, idx, res, *args):
+    first, cid = res
+    rows = [res]
     while cid:
-        resp, cid=env.cmd('FT.CURSOR', 'READ', idx, cid, *args)
-        rows.append([resp, cid])
+        res, cid = env.cmd('FT.CURSOR', 'READ', idx, cid, *args)
+        rows.append([res, cid])
     return rows
 
 def getCursorStats(env, idx='idx'):
@@ -37,22 +37,49 @@ def getCursorStats(env, idx='idx'):
 def testCursors(env):
     loadDocs(env)
     query = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@f1', 'WITHCURSOR']
-    resp = env.cmd(*query)
+    res = env.cmd(*query)
 
     # Check info and see if there are other cursors
     info = getCursorStats(env)
     env.assertEqual(0, info['global_total'])
 
-    resp = exhaustCursor(env, 'idx', resp)
-    env.assertEqual(1, len(resp)) # Only one response
-    env.assertEqual(0, resp[0][1])
-    env.assertEqual(101, len(resp[0][0]))
+    res = exhaustCursor(env, 'idx', res)
+    env.assertEqual(1, len(res)) # Only one response
+    env.assertEqual(0, res[0][1])
+    env.assertEqual(101, len(res[0][0]))
 
     # Issue the same query, but using a specified count
-    resp = env.cmd(*(query[::]+['COUNT', 10]))
+    res = env.cmd(*(query[::]+['COUNT', 10]))
 
-    resp = exhaustCursor(env, 'idx', resp)
-    env.assertEqual(11, len(resp))
+    res = exhaustCursor(env, 'idx', res)
+    env.assertEqual(11, len(res))
+
+@skip(noWorkers=True)
+def testCursorsBG():
+    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL _PRINT_PROFILE_CLOCK FALSE')
+    testCursors(env)
+
+
+@skip(noWorkers=True)
+def testCursorsBGEdgeCasesSanity():
+    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    env.skipOnCluster()
+    count = 100
+    loadDocs(env, count=count)
+    # Add an extra field to every other document
+    for x in range(0, count, 2):
+        env.cmd('HSET', 'idx_doc{}'.format(x), 'foo', 'bar')
+
+    queries = [
+        f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 SORTBY 1 @f1 MAX {count} LOAD 1 irrelevant',
+        f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 LOAD 1 @foo FILTER exists(@foo)',
+        f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 SORTBY 1 @f1 MAX {count} LOAD 1 foo FILTER exists(@foo)',
+    ]
+
+    # Sanity check - make sure that the queries not crashing or hanging
+    for query in queries:
+        resp = env.expect(query).noError().res
+        resp = exhaustCursor(env, 'idx', resp)
 
 def testMultipleIndexes(env):
     loadDocs(env, idx='idx2', text='goodbye')
@@ -117,7 +144,7 @@ def testTimeout(env):
     loadDocs(env, idx='idx1')
     # Maximum idle of 1ms
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10, 'MAXIDLE', 1]
-    resp = env.cmd(*q1)
+    res = env.cmd(*q1)
     exptime = time() + 2.5
     rv = 1
     while time() < exptime:
@@ -159,8 +186,63 @@ def testNumericCursor(env):
         res, cursor = env.cmd('FT.CURSOR', 'READ', idx, str(cursor))
         env.assertNotEqual(res, [0])
         env.assertNotEqual(cursor, 0)
-    
+
     res, cursor = env.cmd('FT.CURSOR', 'READ', idx, str(cursor))
     env.assertEqual(res, [0])
     env.assertEqual(cursor, 0)
 
+
+def testIndexDropWhileIdle(env):
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE idx SCHEMA t numeric').ok()
+
+    num_docs = 3
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}' ,'t', i)
+
+    count = 1
+    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', count)
+
+    # Results length should equal the requested count + additional field for the number of results
+    # (which is meaningless is ft.aggregate)
+    env.assertEqual(len(res), count + 1)
+
+    # drop the index while the cursor is idle/ running in bg
+    conn.execute_command('ft.drop', 'idx')
+
+    # Try to read from the cursor
+
+    if env.is_cluster():
+        res, cursor = env.cmd(f'FT.CURSOR READ idx {str(cursor)}')
+
+        # Return the next results. count should equal the count at the first cursor's call.
+        env.assertEqual(len(res), count + 1)
+
+    else:
+        env.expect(f'FT.CURSOR READ idx {str(cursor)}').error().contains('The index was dropped while the cursor was idle')
+
+@skip(noWorkers=True)
+def testIndexDropWhileIdleBG():
+    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    testIndexDropWhileIdle(env)
+
+def testExceedCursorCapacity(env):
+    env.skipOnCluster()
+
+    env.expect('FT.CREATE idx SCHEMA t numeric').ok()
+    env.cmd('HSET', 'doc1' ,'t', 1)
+
+    index_cap = getCursorStats(env, 'idx')['index_capacity']
+
+    # reach the spec's cursors maximum capacity
+    for i in range(index_cap):
+        env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1)
+
+    # Trying to create another cursor should fail
+    env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1).error().contains('Too many cursors allocated for index')
+
+@skip(noWorkers=True)
+def testExceedCursorCapacityBG():
+    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    testExceedCursorCapacity(env)

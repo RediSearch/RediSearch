@@ -83,6 +83,15 @@ static void setMemoryInfo(RedisModuleCtx *ctx) {
 }
 
 /*
+ * Initialize the spec's fields that are related to the cursors.
+ */
+
+static void Cursors_initSpec(IndexSpec *spec, size_t capacity) {
+  spec->activeCursors = 0;
+  spec->cursorsCap = capacity;
+}
+
+/*
  * Get a field spec by field name. Case sensetive!
  * Return the field spec if found, NULL if not.
  * Assuming the spec is properly locked before calling this function.
@@ -366,7 +375,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // Start the garbage collector
   IndexSpec_StartGC(ctx, spec_ref, sp);
 
-  CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
+  Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
 
   // Create the indexer
   sp->indexer = NewIndexer(sp);
@@ -846,8 +855,13 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
     sp->flags |= Index_HasGeometry;
     fs->types |= INDEXFLD_T_GEOMETRY;
-    // TODO: GEMOMETRY - Support more geometry libraries - if an optional successive token exist
-    fs->geometryOpts.geometryLibType = GEOMETRY_LIB_TYPE_BOOST_GEOMETRY;
+    if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_FLAT_STR)) {
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_SPHERE_STR)) {
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
+    } else {
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
+    }
   } else {  // nothing more supported currently
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;
@@ -856,7 +870,9 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
       FieldSpec_SetSortable(fs);
-      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR)) {
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
+          FIELD_IS(fs, INDEXFLD_T_NUMERIC) ||         // We don't normalize numeric fields. Implicit UNF
+          TAG_FIELD_IS(fs, TagField_CaseSensitive)) { // We don't normalize case sensitive tags. Implicit UNF
         fs->options |= FieldSpec_UNF;
       }
       continue;
@@ -1079,6 +1095,7 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
 StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
   StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
+  spec->own_ref = spec_ref;
 
   IndexSpec_MakeKeyless(spec);
 
@@ -1294,7 +1311,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   if (spec->terms) {
     TrieType_Free(spec->terms);
   }
-  // Free TEXT TAG NUMERIC VECTOR and GEOMETRY fields trie and inverted indexes
+  // Free TEXT TAG NUMERIC VECTOR and GEOSHAPE fields trie and inverted indexes
   if (spec->keysDict) {
     dictRelease(spec->keysDict);
   }
@@ -1341,6 +1358,10 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   if (spec->suffix) {
     TrieType_Free(spec->suffix);
   }
+
+  // Destroy the spec's lock
+  pthread_rwlock_destroy(&spec->rwlock);
+
   // Free spec struct
   rm_free(spec);
 
@@ -1373,13 +1394,7 @@ void IndexSpec_Free(IndexSpec *spec) {
   if (spec->gc) {
     GCContext_Stop(spec->gc);
   }
-  // Remove existing cursors from global list
-  if (spec->uniqueId) {
-    // If uniqueid is 0, it means the index was not initialized
-    // and is being freed now during an error.
-    Cursors_PurgeWithName(&RSCursors, spec->name);
-    CursorList_RemoveSpec(&RSCursors, spec->name);
-  }
+
   // Free stopwords list (might use global pointer to default list)
   if (spec->stopwords) {
     StopWordList_Unref(spec->stopwords);
@@ -1397,8 +1412,6 @@ void IndexSpec_Free(IndexSpec *spec) {
   } else {
     redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeUnlinkedData, spec, THPOOL_PRIORITY_HIGH);
   }
-
-  pthread_rwlock_destroy(&spec->rwlock);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1423,8 +1436,11 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
   SchemaPrefixes_RemoveSpec(spec_ref);
 
   // Mark there are pending index drops.
-  // if ref count is > 1, the actual cleanup will be done only when StrongRefs are released. 
+  // if ref count is > 1, the actual cleanup will be done only when StrongRefs are released.
   addPendingIndexDrop();
+
+  // Nullify the spec's quick access to the strong ref. (doesn't decrements refrences count).
+  spec->own_ref = (StrongRef){0};
 
   // mark the spec as deleted and decrement the ref counts owned by the global dictionaries
   StrongRef_Invalidate(spec_ref);
@@ -1436,8 +1452,9 @@ void Indexes_Free(dict *d) {
   // spec<-->prefix
   SchemaPrefixes_Free(ScemaPrefixes_g);
   SchemaPrefixes_Create();
+
   // cursor list is iterating through the list as well and consuming a lot of CPU
-  CursorList_Empty(&RSCursors);
+  CursorList_Empty(&g_CursorsList);
 
   arrayof(StrongRef) specs = array_new(StrongRef, dictSize(d));
   dictIterator *iter = dictGetIterator(d);
@@ -1506,6 +1523,10 @@ StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options)
   }
 
   return spec_ref;
+}
+
+StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec) {
+  return spec->own_ref;
 }
 
 // Assuming the spec is properly locked before calling this function.
@@ -1606,7 +1627,6 @@ IndexSpec *NewIndexSpec(const char *name) {
 
   pthread_rwlock_init(&sp->rwlock, &attr);
 
-  sp->specVersion = 0;
   return sp;
 }
 
@@ -1685,19 +1705,6 @@ int bit(t_fieldMask id) {
   return 0;
 }
 
-// Return the current vesrion of the spec.
-// The value of the version number does'nt indicate if the index
-// is newer or older, and should be only tested for inequality.
-size_t IndexSpec_GetVersion(const IndexSpec *sp) {
-  return sp->specVersion;
-}
-
-// Update the spec vesrion if we update the index.
-// It is assumed that this function is called after locking Redis.
-// When the version number is overflowed, it will start from zero.
-void IndexSpec_UpdateVersion(IndexSpec *sp) {
-  ++sp->specVersion;
-}
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Backwards compat version of load for rdbs with version < 8
@@ -1750,10 +1757,9 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
     RedisModule_SaveUnsigned(rdb, f->vectorOpts.expBlobSize);
     VecSim_RdbSave(rdb, &f->vectorOpts.vecSimParams);
   }
-  // TODO: GEOMETRY - save geometry options if more than one geometry library is supported
-  // if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
-  //   RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryLibType);
-  // }
+  if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
+    RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryCoords);
+  }
 }
 
 static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
@@ -1851,8 +1857,12 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
 
   // Load geometry specific options
   if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
-    // TODO: GEOMETRY - if more than one geometry library is supported - load it from rdb (currently hard-coded)
-    f->geometryOpts.geometryLibType = GEOMETRY_LIB_TYPE_BOOST_GEOMETRY;
+    if (encver >= INDEX_GEOMETRY_VERSION) {
+      f->geometryOpts.geometryCoords = LoadUnsigned_IOError(rdb, goto fail);
+    } else {
+      // In RedisSearch RC (2.8.1 - 2.8.3) we supported default coordinate system which was not written to RDB
+      f->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
+    }
   }
 
   return REDISMODULE_OK;
@@ -2217,7 +2227,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
     GCContext_RenderStatsForInfo(sp->gc, ctx);
 
   // Cursor stat
-  Cursors_RenderStatsForInfo(&RSCursors, sp->name, ctx);
+  Cursors_RenderStatsForInfo(&g_CursorsList, sp, ctx);
 
   // Stop words
   if (sp->flags & Index_HasCustomStopwords)
@@ -2314,6 +2324,8 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
                                        QueryError *status) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
+  sp->own_ref = spec_ref;
+
   IndexSpec_MakeKeyless(sp);
 
   sp->sortables = NewSortingTable();
@@ -2380,7 +2392,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->uniqueId = spec_unique_ids++;
 
   IndexSpec_StartGC(ctx, spec_ref, sp);
-  CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
+  Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
 
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
@@ -2445,6 +2457,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
+  sp->own_ref = spec_ref;
+
   IndexSpec_MakeKeyless(sp);
   sp->sortables = NewSortingTable();
   sp->terms = NULL;
@@ -2535,7 +2549,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   // start the gc and add the spec to the cursor list
   IndexSpec_StartGC(RSDummyContext, spec_ref, sp);
-  CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
+  Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
 
   dictAdd(legacySpecDict, sp->name, spec_ref.rm);
   return spec_ref.rm;
@@ -2648,7 +2662,8 @@ int CompareVestions(Version v1, Version v2) {
 
   return 0;
 }
-
+// This funciton is called in case the server is started or
+// when the replica is loading the RDB file from the master.
 static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
                                  void *data) {
   if (subevent == REDISMODULE_SUBEVENT_LOADING_RDB_START ||
@@ -2661,7 +2676,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
     }
     RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
     workersThreadPool_InitIfRequired();
 #endif
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
@@ -2680,7 +2695,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       RedisModule_Log(ctx, "warning",
                       "Skip background reindex scan, redis version contains loaded event.");
     }
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
     workersThreadPool_waitAndTerminate(ctx);
 #endif
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
@@ -2760,7 +2775,6 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   Document_Free(&doc);
 
   spec->stats.totalIndexTime += hires_clock_since_usec(&t0);
-  IndexSpec_UpdateVersion(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }
@@ -2814,7 +2828,6 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   RedisSearchCtx_LockSpecWrite(&sctx);
   IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, id);
-  IndexSpec_UpdateVersion(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }
@@ -2851,12 +2864,12 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   dict *specs = res->specs;
 
 #if defined(_DEBUG) && 0
-  RLookupKey *k = RLookup_GetKey(&r->lk, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
+  RLookupKey *k = RLookup_GetKey_LoadEx(&r->lk, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY), UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
   RSValue *v = RLookup_GetItem(k, &r->row);
   const char *x = RSValue_StringPtrLen(v, NULL);
   RedisModule_Log(NULL, "notice", "Indexes_FindMatchingSchemaRules: x=%s", x);
   const char *f = "name";
-  k = RLookup_GetKey(&r->lk, f, RLOOKUP_F_NOFLAGS);
+  k = RLookup_GetKeyEx(&r->lk, f, strlen(f), RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
   if (k) {
     v = RLookup_GetItem(k, &r->row);
     x = RSValue_StringPtrLen(v, NULL);
@@ -3016,10 +3029,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
     if (entry) {
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
       RedisSearchCtx_LockSpecWrite(&sctx);
-      if(REDISMODULE_OK == DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len)) {
-        IndexSpec_UpdateVersion(spec);
-      }
-
+      DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
       RedisSearchCtx_UnlockSpec(&sctx);
       size_t index = entry->v.u64;
       dictDelete(to_specs->specs, spec->name);

@@ -350,7 +350,7 @@ int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
   case VecSimAlgo_TIERED:
     VecSim_TieredParams_Init(&vecsimParams->tieredParams, sp_ref);
     VecSimParams *primaryParams = vecsimParams->tieredParams.primaryIndexParams;
-
+    primaryParams->logCtx = vecsimParams->logCtx;
     primaryParams->algo = LoadUnsigned_IOError(rdb, goto fail);
     RS_LOG_ASSERT(primaryParams->algo == VecSimAlgo_HNSWLIB,
                   "Tiered index only supports HNSW as primary index in this version");
@@ -503,15 +503,15 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
 
 void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref) {
   params->primaryIndexParams = rm_calloc(1, sizeof(VecSimParams));
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
   // We expect the thread pool to be initialized from the module init function, and to stay constant
   // throughout the lifetime of the module. It can be initialized to NULL.
-  // The `jobQueue` value will be NULL if `POWER_TO_THE_WORKERS` is not defined as well.
+  // The `jobQueue` value will be NULL if `MT_BUILD` is not defined as well.
   params->jobQueue = _workers_thpool;
+  params->flatBufferLimit = RSGlobalConfig.tieredVecSimIndexBufferLimit;
 #endif
   params->jobQueueCtx = StrongRef_Demote(sp_ref).rm;
   params->submitCb = (SubmitCB)ThreadPoolAPI_SubmitIndexJobs;
-  params->flatBufferLimit = RSGlobalConfig.tieredVecSimIndexBufferLimit;
 }
 
 void VecSimLogCallback(void *ctx, const char *message) {

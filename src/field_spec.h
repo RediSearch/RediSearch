@@ -75,6 +75,8 @@ typedef enum {
   TagField_RemoveAccents = 0x04,
 } TagFieldFlags;
 
+#define TAG_FIELD_IS(f, t) (FIELD_IS((f), INDEXFLD_T_TAG) && (((f)->tagOpts.tagFlags) & (t)))
+
 RS_ENUM_BITWISE_HELPER(TagFieldFlags)
 
 /* The fieldSpec represents a single field in the document's field spec.
@@ -107,7 +109,7 @@ typedef struct FieldSpec {
     } vectorOpts;
     struct {
       // Geometry index parameters
-      GEOMETRY_LIB_TYPE geometryLibType;
+      GEOMETRY_COORDS geometryCoords;
     } geometryOpts;
   };
 
@@ -119,7 +121,7 @@ typedef struct FieldSpec {
   // TODO: More options here..
 } FieldSpec;
 
-#define FIELD_IS(f, t) (((f)->types) & t)
+#define FIELD_IS(f, t) (((f)->types) & (t))
 #define FIELD_CHKIDX(fmask, ix) (fmask & ix)
 
 #define TAG_FIELD_DEFAULT_FLAGS (TagFieldFlags)(TagField_TrimSpace | TagField_RemoveAccents);

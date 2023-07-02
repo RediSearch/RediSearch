@@ -55,12 +55,6 @@ When combined with the Redis [JSON](/docs/stack/json) module, (included with Red
 
 To learn how to search and query your JSON documents, see [Indexing JSON documents](/docs/stack/search/indexing_json).
 
-## Client libraries
-
-Official and community client libraries are available for Python, Java, JavaScript, Ruby, Go, C#, and PHP.
-
-See the [clients page](clients) for the full list.
-
 ## Cluster support
 
 The search and query features of Redis Stack are also available for distributed databases that can scale to billions of documents and hundreds of servers.

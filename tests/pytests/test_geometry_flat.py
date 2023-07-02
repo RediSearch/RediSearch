@@ -2,19 +2,6 @@ from RLTest import Env
 from common import *
 import json
 
-def sortResultByKeyName(res):
-  '''
-    Sorts the result by name
-    res = [<COUNT>, '<NAME_1>, '<VALUE_1>', '<NAME_2>, '<VALUE_2>', ...] 
-  '''
-  # Sort name and value pairs by name
-  pairs = [(name,value) for name,value in zip(res[1::2], res[2::2])]
-  pairs = [i for i in sorted(pairs, key=lambda x: x[0])]
-  # Flatten the sorted pairs to a list
-  pairs = [i for pair in pairs for i in pair]
-  res = [res[0], *pairs]
-  return res
-
 def array_of_key_value_to_map(res):
   '''
     Insert the result of an array of keys and values to a map
@@ -31,7 +18,7 @@ def assert_index_num_docs(env, idx, attr, num_docs):
 
 def testSanitySearchHashWithin(env):
   conn = getConnectionByEnv(env)
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOMETRY').ok()
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT').ok()
   
   conn.execute_command('HSET', 'small', 'geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))')
   conn.execute_command('HSET', 'large', 'geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))')
@@ -43,10 +30,9 @@ def testSanitySearchHashWithin(env):
   res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
-
 def testSanitySearchJsonWithin(env):
   conn = getConnectionByEnv(env)
-  env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOMETRY').ok()
+  env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOSHAPE FLAT').ok()
 
   conn.execute_command('JSON.SET', 'small', '$', '{"geom": "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))"}')
   conn.execute_command('JSON.SET', 'large', '$', '{"geom": "POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))"}')
@@ -57,10 +43,9 @@ def testSanitySearchJsonWithin(env):
   res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
-
 def testSanitySearchJsonCombined(env):
   conn = getConnectionByEnv(env)
-  env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOMETRY $.name as name TEXT').ok()
+  env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOSHAPE FLAT $.name as name TEXT').ok()
 
   conn.execute_command('JSON.SET', 'p1', '$', '{"geom": "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))", "name": "Homer"}')
   conn.execute_command('JSON.SET', 'p2', '$', '{"geom": "POLYGON((1 1, 1 100, 90 90, 100 1, 1 1))", "name": "Bart"}')
@@ -73,7 +58,7 @@ def testWKTIngestError(env):
   ''' Test ingest error '''
 
   conn = getConnectionByEnv(env)
-  env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOMETRY $.name as name TEXT').ok()
+  env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOSHAPE $.name as name TEXT').ok()
 
   # Wrong keyword
   conn.execute_command('JSON.SET', 'p1', '$', '{"geom": "POLIKON((1 1, 1 100, 100 100, 100 1, 1 1))", "name": "Homer"}')
@@ -104,7 +89,7 @@ def testWKTIngestError(env):
 def testWKTQueryError(env):
   ''' Test query error '''
   conn = getConnectionByEnv(env)
-  env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOMETRY $.name as name TEXT').ok()
+  env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOSHAPE $.name as name TEXT').ok()
 
   # Bad predicate
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[wizin $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3).error().contains('Syntax error')
@@ -124,13 +109,11 @@ def testWKTQueryError(env):
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[contains $poly]', 'PARAMS', 2, 'moly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3).error().contains('No such parameter')
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'NOCONTENT', 'DIALECT', 3).error().contains('No such parameter')
   
-
-
 def testSimpleUpdate(env):
   ''' Test updating geometries '''
   
   conn = getConnectionByEnv(env)
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOMETRY', 'geom2', 'GEOMETRY').ok()
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT', 'geom2', 'GEOSHAPE', 'FLAT').ok()
   conn.execute_command('HSET', 'k1', 'geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))')
   conn.execute_command('HSET', 'k2', 'geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))')
   conn.execute_command('HSET', 'k3', 'geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))', 'geom2', 'POLYGON((1 1, 1 140, 140 140, 140 1, 1 1))')
@@ -139,7 +122,7 @@ def testSimpleUpdate(env):
   expected2 = ['geom', 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))']
   expected3 = ['geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))', 'geom2', 'POLYGON((1 1, 1 140, 140 140, 140 1, 1 1))']
   
-  # Dump geometry index
+  # Dump < index
   assert_index_num_docs(env, 'idx', 'geom', 3)
   assert_index_num_docs(env, 'idx', 'geom2', 1)
   # Search
@@ -147,7 +130,7 @@ def testSimpleUpdate(env):
   
   # Update
   conn.execute_command('HSET', 'k2', 'geom', 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))')
-  # Dump geometry index
+  # Dump geoshape index
   assert_index_num_docs(env, 'idx', 'geom', 3)
   assert_index_num_docs(env, 'idx', 'geom2', 1)
   # Search after update
@@ -158,7 +141,7 @@ def testSimpleUpdate(env):
     # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
     # Set illegal data to field geom (indexing fails, field should be removed from index)
     conn.execute_command('HSET', 'k2', 'geom', '')
-    # Dump geometry index
+    # Dump geoshape index
     assert_index_num_docs(env, 'idx', 'geom', 2)
     assert_index_num_docs(env, 'idx', 'geom2', 1)
     # Search
@@ -166,7 +149,7 @@ def testSimpleUpdate(env):
 
   # Delete key
   conn.execute_command('DEL', 'k2')
-  # Dump geometry index
+  # Dump geoshape index
   assert_index_num_docs(env, 'idx', 'geom', 2)
   assert_index_num_docs(env, 'idx', 'geom2', 1)
   # Search within after delete
@@ -174,12 +157,13 @@ def testSimpleUpdate(env):
 
   # Delete key
   conn.execute_command('DEL', 'k1')
-  # Dump geometry index
+  # Dump geoshape index
   assert_index_num_docs(env, 'idx', 'geom', 1)
   # Search within
   env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))', 'DIALECT', 3).equal([0])
   # Search contains
-  env.expect('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((2 2, 2 150, 150 150, 150 2, 2 2))', 'DIALECT', 3).equal([1, 'k3', expected3])
+  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((2 2, 2 150, 150 150, 150 2, 2 2))', 'DIALECT', 3)
+  env.assertEqual(sortResultByKeyName(res), sortResultByKeyName([1, 'k3', expected3]))
 
   # Delete field
   conn.execute_command('HDEL', 'k3', 'geom2')
@@ -189,22 +173,21 @@ def testSimpleUpdate(env):
 
   # Delete key
   conn.execute_command('DEL', 'k3')
-  # Dump geometry index
+  # Dump geoshape index
   assert_index_num_docs(env, 'idx', 'geom', 0)
   # Search contains
   env.expect('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))', 'DIALECT', 3).equal([0])
-
 
 def testFieldUpdate(env):
   ''' Test updating a field, keeping the rest intact '''
   
   conn = getConnectionByEnv(env)
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom1', 'GEOMETRY', 'geom2', 'GEOMETRY').ok()
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom1', 'GEOSHAPE', 'FLAT', 'geom2', 'GEOSHAPE', 'FLAT').ok()
   field1 = ['geom1',  'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))']
   field2 = ['geom2', 'POLYGON((1 1, 1 140, 140 140, 140 1, 1 1))']
   conn.execute_command('HSET', 'k1', *field1, *field2)
 
-  # Dump geometry index
+  # Dump geoshape index
   assert_index_num_docs(env, 'idx', 'geom1', 1)
   assert_index_num_docs(env, 'idx', 'geom2', 1)
 
@@ -239,17 +222,17 @@ def testFieldUpdate(env):
   env.expect('FT.SEARCH', 'idx', '@geom2:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((1 1, 1 170, 170 170, 170 1, 1 1))', 'DIALECT', 3).equal([0])
 
 def testFtInfo(env):
-  ''' Test FT.INFO on Geometry '''
+  ''' Test FT.INFO on GEOSHAPE '''
   
   conn = getConnectionByEnv(env)
-  info_key_name = 'total_geometries_index_size_mb'
+  info_key_name = 'total_geoshapes_index_size_mb'
   
-  env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'geom', 'GEOMETRY', 'txt', 'TEXT').ok()
+  env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT', 'txt', 'TEXT').ok()
   env.expect('FT.CREATE', 'idx2_no_geom', 'SCHEMA', 'txt', 'TEXT').ok()
   res = to_dict(env.cmd('FT.INFO idx1'))
   env.assertEqual(int(res[info_key_name]), 0)
 
-  # Ingest of a non-geometry attribute should not affect mem usage
+  # Ingest of a non-geoshape attribute should not affect mem usage
   conn.execute_command('HSET', 'doc1', 'txt', 'Not a real POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))')
   res = to_dict(env.cmd('FT.INFO idx1'))
   env.assertEqual(int(res[info_key_name]), 0)
@@ -260,7 +243,7 @@ def testFtInfo(env):
   usage = 0
   for i in range(1, doc_num + 1):
     conn.execute_command('HSET', f'doc{i}', 'geom', f'POLYGON(({2*i} {2*i}, {2*i} {100+2*i}, {100+2*i} {100+2*i}, {2*i} {100+2*i}, {2*i} {2*i}))')
-    # Ingest of geometry attribute should increase mem usage
+    # Ingest of geoshape attribute should increase mem usage
     res = to_dict(env.cmd('FT.INFO idx1'))
     cur_usage = float(res[info_key_name])
     env.assertGreater(cur_usage, usage)
@@ -274,7 +257,7 @@ def testFtInfo(env):
     env.assertLess(cur_usage, usage)
     usage = cur_usage
 
-  # Dropping the geometry index should reset memory usage
+  # Dropping the geoshape index should reset memory usage
   conn.execute_command('FT.DROPINDEX', 'idx1')
   waitForNoCleanup(env, 'idx2_no_geom')
   res = to_dict(env.cmd('FT.INFO idx2_no_geom'))
@@ -282,5 +265,5 @@ def testFtInfo(env):
   if not env.isCluster():
     env.assertEqual(cur_usage, 0)
   else:
-    # TODO: in cluster - be able to wait for cleaning of the index (would wait for freeing the Geometry index memory)
+    # TODO: in cluster - be able to wait for cleaning of the index (would wait for freeing the geoshape index memory)
     env.assertLess(cur_usage, usage)

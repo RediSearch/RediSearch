@@ -41,6 +41,8 @@
 #include "info_command.h"
 #include "rejson_api.h"
 #include "geometry/geometry_api.h"
+#include "reply.h"
+#include "resp3.h"
 
 
 /* FT.MGET {index} {key} ...
@@ -108,9 +110,11 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 #define STRINGIFY(x) __STRINGIFY(x)
 
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+
 #define DICT_INITIAL_SIZE 5
 #define DEFAULT_LEV_DISTANCE 1
 #define MAX_LEV_DISTANCE 4
+
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -292,6 +296,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 /* FT.TAGVALS {idx} {field}
  * Return all the values of a tag field.
  * There is no sorting or paging, so be careful with high-cradinality tag fields */
+
 int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
   if (argc != 3) {
@@ -319,7 +324,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   TagIndex *idx = TagIndex_Open(sctx, rstr, 0, NULL);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
-    RedisModule_ReplyWithArray(ctx, 0);
+    RedisModule_ReplyWithSetOrArray(ctx, 0);
     goto cleanup;
   }
 
@@ -536,7 +541,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (initialScan) {
     IndexSpec_ScanAndReindex(ctx, ref);
   }
-  IndexSpec_UpdateVersion(sp);
+
   RedisSearchCtx_UnlockSpec(&sctx);
 
   RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -567,7 +572,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   if (!sp->smap) {
-    return RedisModule_ReplyWithArray(ctx, 0);
+    return RedisModule_ReplyWithMapOrArray(ctx, 0, false);
   }
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
@@ -576,7 +581,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t size;
   TermData **terms_data = SynonymMap_DumpAllTerms(sp->smap, &size);
 
-  RedisModule_ReplyWithArray(ctx, size * 2);
+  RedisModule_ReplyWithMapOrArray(ctx, size * 2, true);
 
   for (int i = 0; i < size; ++i) {
     TermData *t_data = terms_data[i];
@@ -654,7 +659,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     RedisSearchCtx_UnlockSpec(&sctx);
     return QueryError_ReplyAndClear(ctx, &status);
   }
-  IndexSpec_UpdateVersion(sp);
+
   FieldsGlobalStats_UpdateStats(sp->fields + (sp->numFields - 1), 1);
   RedisSearchCtx_UnlockSpec(&sctx);
 
@@ -789,30 +794,36 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
+
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+
   const char *action = RedisModule_StringPtrLen(argv[1], NULL);
   const char *name = RedisModule_StringPtrLen(argv[2], NULL);
   if (!strcasecmp(action, "GET")) {
-    RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, ctx, 0);
+    RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, reply, false);
   } else if (!strcasecmp(action, "HELP")) {
-    RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, ctx, 1);
+    RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, reply, true);
   } else if (!strcasecmp(action, "SET")) {
     size_t offset = 3;  // Might be == argc. SetOption deals with it.
-    if (RSConfig_SetOption(&RSGlobalConfig, &RSGlobalConfigOptions, name, argv, argc, &offset,
-                           &status) == REDISMODULE_ERR) {
-      return QueryError_ReplyAndClear(ctx, &status);
+    int rc = RSConfig_SetOption(&RSGlobalConfig, &RSGlobalConfigOptions, name, argv, argc,
+                                &offset, &status);
+    if (rc == REDISMODULE_ERR) {
+      RedisModule_Reply_QueryError(reply, &status);
+      QueryError_ClearError(&status);
+      RedisModule_EndReply(reply);
+      return REDISMODULE_OK;
     }
     if (offset != argc) {
-      RedisModule_ReplyWithSimpleString(ctx, "EXCESSARGS");
+      RedisModule_Reply_SimpleString(reply, "EXCESSARGS");
     } else {
       RedisModule_Log(ctx, "notice", "Successfully changed configuration for `%s`", name);
-      RedisModule_ReplyWithSimpleString(ctx, "OK");
+      RedisModule_Reply_SimpleString(reply, "OK");
     }
-    return REDISMODULE_OK;
   } else {
-    RedisModule_ReplyWithSimpleString(ctx, "No such configuration action");
-    return REDISMODULE_OK;
+    RedisModule_Reply_SimpleString(reply, "No such configuration action");
   }
 
+  RedisModule_EndReply(reply);
   return REDISMODULE_OK;
 }
 
@@ -821,17 +832,18 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
-  RedisModule_ReplyWithArray(ctx, dictSize(specDict_g));
-
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry = NULL;
-  while ((entry = dictNext(iter))) {
-    StrongRef ref = dictGetRef(entry);
-    IndexSpec *sp = StrongRef_Get(ref);
-    RedisModule_ReplyWithCString(ctx, sp->name);
-  }
-  dictReleaseIterator(iter);
-
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  RedisModule_Reply_Set(reply);
+    dictIterator *iter = dictGetIterator(specDict_g);
+    dictEntry *entry = NULL;
+    while ((entry = dictNext(iter))) {
+      StrongRef ref = dictGetRef(entry);
+      IndexSpec *sp = StrongRef_Get(ref);
+      RedisModule_Reply_SimpleString(reply, sp->name);
+    }
+    dictReleaseIterator(iter);
+  RedisModule_Reply_SetEnd(reply);
+  RedisModule_EndReply(reply);
   return REDISMODULE_OK;
 }
 
@@ -1140,11 +1152,11 @@ void RediSearch_CleanupModule(void) {
 // Let the workers finish BEFORE we call CursorList_Destroy, since it frees a global
 // data structure that is accessed upon releasing the spec (and running thread might hold
 // a reference to the spec bat this time).
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
   workersThreadPool_Wait(RSDummyContext);
   workersThreadPool_Destroy();
 #endif
-  CursorList_Destroy(&RSCursors);
+  CursorList_Destroy(&g_CursorsList);
 
   if (legacySpecDict) {
     dictRelease(legacySpecDict);
@@ -1166,7 +1178,7 @@ void RediSearch_CleanupModule(void) {
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();
   SchemaPrefixes_Free(ScemaPrefixes_g);
-  GeometryApi_Free();
+  // GeometryApi_Free();
 
   RedisModule_FreeThreadSafeContext(RSDummyContext);
   Dictionary_Free();

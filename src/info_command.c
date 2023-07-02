@@ -4,103 +4,84 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#include "redismodule.h"
 #include "spec.h"
 #include "inverted_index.h"
 #include "vector_index.h"
 #include "cursor.h"
+#include "resp3.h"
 #include "geometry/geometry_api.h"
+#include "redismodule.h"
 
-#define REPLY_KVNUM(n, k, v)                       \
-  do {                                             \
-    RedisModule_ReplyWithSimpleString(ctx, (k));   \
-    RedisModule_ReplyWithDouble(ctx, (double)(v)); \
-    n += 2;                                        \
+#define REPLY_KVNUM(k, v) RedisModule_ReplyKV_Double(reply, (k), (v))
+#define REPLY_KVINT(k, v) RedisModule_ReplyKV_LongLong(reply, (k), (v))
+#define REPLY_KVSTR(k, v) RedisModule_ReplyKV_SimpleString(reply, (k), (v))
+#define REPLY_KVMAP(k)    RedisModule_ReplyKV_Map(reply, (k))
+#define REPLY_KVARRAY(k)  RedisModule_ReplyKV_Array(reply, (k))
+
+#define REPLY_MAP_END     RedisModule_Reply_MapEnd(reply)
+#define REPLY_ARRAY_END   RedisModule_Reply_ArrayEnd(reply)
+
+static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
+
+#define ADD_NEGATIVE_OPTION(flag, str)               \
+  do {                                               \
+    if (!(sp->flags & (flag))) {                     \
+      RedisModule_Reply_SimpleString(reply, (str));  \
+    }                                                \
   } while (0)
 
-#define REPLY_KVINT(n, k, v)                       \
-  do {                                             \
-    RedisModule_ReplyWithSimpleString(ctx, (k));   \
-    RedisModule_ReplyWithLongLong(ctx, (long long)(v)); \
-    n += 2;                                        \
-  } while (0)
-
-#define REPLY_KVSTR(n, k, v)                     \
-  do {                                           \
-    RedisModule_ReplyWithSimpleString(ctx, (k)); \
-    RedisModule_ReplyWithSimpleString(ctx, (v)); \
-    n += 2;                                      \
-  } while (0)
-
-static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
-
-#define ADD_NEGATIVE_OPTION(flag, str)                            \
-  do {                                                            \
-    if (!(sp->flags & (flag))) {                                  \
-      RedisModule_ReplyWithStringBuffer(ctx, (str), strlen(str)); \
-      n++;                                                        \
-    }                                                             \
-  } while (0)
-
-  RedisModule_ReplyWithSimpleString(ctx, "index_options");
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  int n = 0;
+  RedisModule_ReplyKV_Array(reply, "index_options");
   ADD_NEGATIVE_OPTION(Index_StoreFreqs, SPEC_NOFREQS_STR);
   ADD_NEGATIVE_OPTION(Index_StoreFieldFlags, SPEC_NOFIELDS_STR);
   ADD_NEGATIVE_OPTION((Index_StoreTermOffsets|Index_StoreByteOffsets), SPEC_NOOFFSETS_STR);
   ADD_NEGATIVE_OPTION(Index_StoreByteOffsets, SPEC_NOHL_STR);
   if (sp->flags & Index_WideSchema) {
-    RedisModule_ReplyWithSimpleString(ctx, SPEC_SCHEMA_EXPANDABLE_STR);
-    n++;
+    RedisModule_Reply_SimpleString(reply, SPEC_SCHEMA_EXPANDABLE_STR);
   }
-  RedisModule_ReplySetArrayLength(ctx, n);
-  return 2;
+  RedisModule_Reply_ArrayEnd(reply);
 }
 
-static int renderIndexDefinitions(RedisModuleCtx *ctx, IndexSpec *sp) {
-  int n = 0;
+static int renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
   SchemaRule *rule = sp->rule;
-  RedisModule_ReplyWithSimpleString(ctx, "index_definition");
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-  REPLY_KVSTR(n, "key_type", DocumentType_ToString(rule->type));
+  RedisModule_ReplyKV_Map(reply, "index_definition"); // index_definition
+
+  REPLY_KVSTR("key_type", DocumentType_ToString(rule->type));
 
   int num_prefixes = array_len(rule->prefixes);
   if (num_prefixes) {
-    RedisModule_ReplyWithSimpleString(ctx, "prefixes");
-    RedisModule_ReplyWithArray(ctx, num_prefixes);
+    RedisModule_ReplyKV_Array(reply, "prefixes");
     for (int i = 0; i < num_prefixes; ++i) {
-      RedisModule_ReplyWithSimpleString(ctx, rule->prefixes[i]);
+      RedisModule_Reply_SimpleString(reply, rule->prefixes[i]);
     }
-    n += 2;
+    RedisModule_Reply_ArrayEnd(reply);
   }
 
   if (rule->filter_exp_str) {
-    REPLY_KVSTR(n, "filter", rule->filter_exp_str);
+    REPLY_KVSTR("filter", rule->filter_exp_str);
   }
 
   if (rule->lang_default) {
-    REPLY_KVSTR(n, "default_language", RSLanguage_ToString(rule->lang_default));
+    REPLY_KVSTR("default_language", RSLanguage_ToString(rule->lang_default));
   }
 
   if (rule->lang_field) {
-    REPLY_KVSTR(n, "language_field", rule->lang_field);
+    REPLY_KVSTR("language_field", rule->lang_field);
   }
 
   if (rule->score_default) {
-    REPLY_KVNUM(n, "default_score", rule->score_default);
+    REPLY_KVNUM("default_score", rule->score_default);
   }
 
   if (rule->score_field) {
-    REPLY_KVSTR(n, "score_field", rule->score_field);
+    REPLY_KVSTR("score_field", rule->score_field);
   }
 
   if (rule->payload_field) {
-    REPLY_KVSTR(n, "payload_field", rule->payload_field);
+    REPLY_KVSTR("payload_field", rule->payload_field);
   }
 
-  RedisModule_ReplySetArrayLength(ctx, n);
-  return 2;
+  RedisModule_Reply_MapEnd(reply); // index_definition
 }
 
 /* FT.INFO {index}
@@ -115,145 +96,156 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  int n = 0;
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  bool has_map = RedisModule_HasMap(reply);
 
-  REPLY_KVSTR(n, "index_name", sp->name);
+  RedisModule_Reply_Map(reply); // top
 
-  n += renderIndexOptions(ctx, sp);
+  REPLY_KVSTR("index_name", sp->name);
 
-  n += renderIndexDefinitions(ctx, sp);
+  renderIndexOptions(reply, sp);
+  renderIndexDefinitions(reply, sp);
 
-  RedisModule_ReplyWithSimpleString(ctx, "attributes");
-  RedisModule_ReplyWithArray(ctx, sp->numFields);
+  RedisModule_ReplyKV_Array(reply, "attributes"); // >attrbutes
+
   for (int i = 0; i < sp->numFields; i++) {
-    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-    RedisModule_ReplyWithSimpleString(ctx, "identifier");
-    RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].path);
-    RedisModule_ReplyWithSimpleString(ctx, "attribute");
-    RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].name);
-    int nn = 4;
-    const FieldSpec *fs = sp->fields + i;
+    RedisModule_Reply_Map(reply); // >>field
+
+    REPLY_KVSTR("identifier", sp->fields[i].path);
+    REPLY_KVSTR("attribute", sp->fields[i].name);
+
+    const FieldSpec *fs = &sp->fields[i];
 
     // RediSearch_api - No coverage
     if (fs->options & FieldSpec_Dynamic) {
-      REPLY_KVSTR(nn, "type", "<DYNAMIC>");
+      REPLY_KVSTR("type", "<DYNAMIC>");
       size_t ntypes = 0;
 
-      nn += 2;
-      RedisModule_ReplyWithSimpleString(ctx, "types");
-      RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+      RedisModule_ReplyKV_Array(reply, "types"); // >>>types
       for (size_t jj = 0; jj < INDEXFLD_NUM_TYPES; ++jj) {
         if (FIELD_IS(fs, INDEXTYPE_FROM_POS(jj))) {
           ntypes++;
-          RedisModule_ReplyWithSimpleString(ctx, FieldSpec_GetTypeNames(jj));
+          RedisModule_Reply_SimpleString(reply, FieldSpec_GetTypeNames(jj));
         }
       }
-      RedisModule_ReplySetArrayLength(ctx, ntypes);
+      RedisModule_Reply_ArrayEnd(reply); // >>>types
     } else {
-      REPLY_KVSTR(nn, "type", FieldSpec_GetTypeNames(INDEXTYPE_TO_POS(fs->types)));
+      REPLY_KVSTR("type", FieldSpec_GetTypeNames(INDEXTYPE_TO_POS(fs->types)));
     }
 
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
-      REPLY_KVNUM(nn, SPEC_WEIGHT_STR, fs->ftWeight);
+      REPLY_KVNUM(SPEC_WEIGHT_STR, fs->ftWeight);
     }
 
+    bool reply_SPEC_TAG_CASE_SENSITIVE_STR = false;
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
       char buf[2];
       sprintf(buf, "%c", fs->tagOpts.tagSep);
-      REPLY_KVSTR(nn, SPEC_TAG_SEPARATOR_STR, buf);
+      REPLY_KVSTR(SPEC_TAG_SEPARATOR_STR, buf);
+
       if (fs->tagOpts.tagFlags & TagField_CaseSensitive) {
-        RedisModule_ReplyWithSimpleString(ctx, SPEC_TAG_CASE_SENSITIVE_STR);
-        ++nn;
+        reply_SPEC_TAG_CASE_SENSITIVE_STR = true;
       }
     }
+
+    if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
+      REPLY_KVSTR("coord_system", GeometryCoordsToName(fs->geometryOpts.geometryCoords));
+    }
+
+    if (has_map) {
+      RedisModule_ReplyKV_Array(reply, "flags"); // >>>flags
+    }
+
+    if (reply_SPEC_TAG_CASE_SENSITIVE_STR) {
+        RedisModule_Reply_SimpleString(reply, SPEC_TAG_CASE_SENSITIVE_STR);
+    }
     if (FieldSpec_IsSortable(fs)) {
-      RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);
-      ++nn;
+      RedisModule_Reply_SimpleString(reply, SPEC_SORTABLE_STR);
     }
     if (FieldSpec_IsUnf(fs)) {
-      RedisModule_ReplyWithSimpleString(ctx, SPEC_UNF_STR);
-      ++nn;
+      RedisModule_Reply_SimpleString(reply, SPEC_UNF_STR);
     }
     if (FieldSpec_IsNoStem(fs)) {
-      RedisModule_ReplyWithSimpleString(ctx, SPEC_NOSTEM_STR);
-      ++nn;
+      RedisModule_Reply_SimpleString(reply, SPEC_NOSTEM_STR);
     }
     if (!FieldSpec_IsIndexable(fs)) {
-      RedisModule_ReplyWithSimpleString(ctx, SPEC_NOINDEX_STR);
-      ++nn;
+      RedisModule_Reply_SimpleString(reply, SPEC_NOINDEX_STR);
     }
     if (FieldSpec_HasSuffixTrie(fs)) {
-      RedisModule_ReplyWithSimpleString(ctx, SPEC_WITHSUFFIXTRIE_STR);
-      ++nn;
+      RedisModule_Reply_SimpleString(reply, SPEC_WITHSUFFIXTRIE_STR);
     }
-    RedisModule_ReplySetArrayLength(ctx, nn);
+
+    if (has_map) {
+      RedisModule_Reply_ArrayEnd(reply); // >>>flags
+    }
+    RedisModule_Reply_MapEnd(reply); // >>field
   }
-  n += 2;
 
-  REPLY_KVNUM(n, "num_docs", sp->stats.numDocuments);
-  REPLY_KVNUM(n, "max_doc_id", sp->docs.maxDocId);
-  REPLY_KVNUM(n, "num_terms", sp->stats.numTerms);
-  REPLY_KVNUM(n, "num_records", sp->stats.numRecords);
-  REPLY_KVNUM(n, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
-  REPLY_KVNUM(n, "vector_index_sz_mb", IndexSpec_VectorIndexSize(sp) / (float)0x100000);
-  REPLY_KVNUM(n, "total_inverted_index_blocks", TotalIIBlocks);
-  // REPLY_KVNUM(n, "inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
+  RedisModule_Reply_ArrayEnd(reply); // >attrbutes
 
-  // REPLY_KVNUM(n, "inverted_cap_ovh", 0);
+  REPLY_KVNUM("num_docs", sp->stats.numDocuments);
+  REPLY_KVNUM("max_doc_id", sp->docs.maxDocId);
+  REPLY_KVNUM("num_terms", sp->stats.numTerms);
+  REPLY_KVNUM("num_records", sp->stats.numRecords);
+  REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
+  REPLY_KVNUM("vector_index_sz_mb", IndexSpec_VectorIndexSize(sp) / (float)0x100000);
+  REPLY_KVNUM("total_inverted_index_blocks", TotalIIBlocks);
+  // REPLY_KVNUM("inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
+
+  // REPLY_KVNUM("inverted_cap_ovh", 0);
   //(float)(sp->stats.invertedCap - sp->stats.invertedSize) / (float)sp->stats.invertedCap);
 
-  REPLY_KVNUM(n, "offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
-  // REPLY_KVNUM(n, "skip_index_size_mb", sp->stats.skipIndexesSize / (float)0x100000);
-  //  REPLY_KVNUM(n, "score_index_size_mb", sp->stats.scoreIndexesSize / (float)0x100000);
+  REPLY_KVNUM("offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
+  // REPLY_KVNUM("skip_index_size_mb", sp->stats.skipIndexesSize / (float)0x100000);
+  // REPLY_KVNUM("score_index_size_mb", sp->stats.scoreIndexesSize / (float)0x100000);
 
-  REPLY_KVNUM(n, "doc_table_size_mb", sp->docs.memsize / (float)0x100000);
-  REPLY_KVNUM(n, "sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
+  REPLY_KVNUM("doc_table_size_mb", sp->docs.memsize / (float)0x100000);
+  REPLY_KVNUM("sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
 
-  REPLY_KVNUM(n, "key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
-  REPLY_KVNUM(n, "total_geometries_index_size_mb", GeometryTotalMemUsage() / (float)0x100000);
-  REPLY_KVNUM(n, "records_per_doc_avg",
+  REPLY_KVNUM("key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
+  REPLY_KVNUM("total_geoshapes_index_size_mb", GeometryTotalMemUsage() / (float)0x100000);
+  REPLY_KVNUM("records_per_doc_avg",
               (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
-  REPLY_KVNUM(n, "bytes_per_record_avg",
+  REPLY_KVNUM("bytes_per_record_avg",
               (float)sp->stats.invertedSize / (float)sp->stats.numRecords);
-  REPLY_KVNUM(n, "offsets_per_term_avg",
+  REPLY_KVNUM("offsets_per_term_avg",
               (float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
-  REPLY_KVNUM(n, "offset_bits_per_record_avg",
+  REPLY_KVNUM("offset_bits_per_record_avg",
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
-  REPLY_KVNUM(n, "hash_indexing_failures", sp->stats.indexingFailures);
-  REPLY_KVNUM(n, "total_indexing_time", sp->stats.totalIndexTime / 1000.0);
-  REPLY_KVNUM(n, "indexing", !!global_spec_scanner || sp->scan_in_progress);
+  REPLY_KVNUM("hash_indexing_failures", sp->stats.indexingFailures);
+  REPLY_KVNUM("total_indexing_time", sp->stats.totalIndexTime / 1000.0);
+  REPLY_KVNUM("indexing", !!global_spec_scanner || sp->scan_in_progress);
 
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
   double percent_indexed = IndexesScanner_IndexedPercent(scanner, sp);
-  REPLY_KVNUM(n, "percent_indexed", percent_indexed);
+  REPLY_KVNUM("percent_indexed", percent_indexed);
 
-  REPLY_KVINT(n, "number_of_uses", sp->counter);
+  REPLY_KVINT("number_of_uses", sp->counter);
 
-  REPLY_KVINT(n, "cleaning", CleanInProgressOrPending());
+  REPLY_KVINT("cleaning", CleanInProgressOrPending());
 
   if (sp->gc) {
-    RedisModule_ReplyWithSimpleString(ctx, "gc_stats");
-    GCContext_RenderStats(sp->gc, ctx);
-    n += 2;
+    RedisModule_ReplyKV_Map(reply, "gc_stats");
+    GCContext_RenderStats(sp->gc, reply);
+    RedisModule_Reply_MapEnd(reply);
   }
 
-  Cursors_RenderStats(&RSCursors, sp->name, ctx);
-  n += 2;
+  Cursors_RenderStats(&g_CursorsList, sp, reply);
 
   if (sp->flags & Index_HasCustomStopwords) {
-    ReplyWithStopWordsList(ctx, sp->stopwords);
-    n += 2;
+    ReplyWithStopWordsList(reply, sp->stopwords);
   }
 
-  RedisModule_ReplyWithSimpleString(ctx, "dialect_stats");
-  RedisModule_ReplyWithArray(ctx, 2 * (MAX_DIALECT_VERSION - MIN_DIALECT_VERSION + 1));
+  REPLY_KVMAP("dialect_stats");
   for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {
-    RedisModule_ReplyWithPrintf(ctx, "dialect_%d", dialect);
-    RedisModule_ReplyWithLongLong(ctx, GET_DIALECT(sp->used_dialects, dialect));
+    char *dialect_i;
+    rm_asprintf(&dialect_i, "dialect_%d", dialect);
+    REPLY_KVINT(dialect_i, GET_DIALECT(sp->used_dialects, dialect));
+    rm_free(dialect_i);
   }
-  n += 2;
+  REPLY_MAP_END;
 
-  RedisModule_ReplySetArrayLength(ctx, n);
+  RedisModule_Reply_MapEnd(reply); // top
+  RedisModule_EndReply(reply);
   return REDISMODULE_OK;
 }
