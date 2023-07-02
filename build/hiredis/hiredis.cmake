@@ -1,5 +1,4 @@
 
-set(BUILD_SHARED_LIBS OFF)
 set(ENABLE_SSL ON CACHE BOOL "Build hiredis with ssl")
 option(DISABLE_TESTS "If tests should be compiled or not" ON)
 
@@ -10,4 +9,4 @@ if (APPLE)
 	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/local/opt/openssl/lib")
 endif()
 
-set(HIREDIS_LIBS hiredis hiredis_ssl)
+set(HIREDIS_LIBS hiredis_static hiredis_ssl_static)
