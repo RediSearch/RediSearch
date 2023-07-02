@@ -7,13 +7,14 @@ weight: 10
 aliases: 
     - /docs/stack/search
 stack: true
+highlighted: true
 ---
 
 
 [![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/xTbqgTB)
 [![Github](https://img.shields.io/static/v1?label=&message=repository&color=5961FF&logo=github)](https://github.com/RediSearch/RediSearch/)
 
-Search and Query is part of the enhanced Redis experience with Redis Stack that provides querying capabilities, secondary indexing, full-text search, vector similarity search, and more. To use Search and Query, you first declare indices on your Redis data and then use the query language to retrieve the data asset that your application requires. All future data will be also be indexed automatically.
+The enhanced Redis experience with Redis Stack provides querying capabilities, secondary indexing, full-text search, vector similarity search, and more. To use these features, you first declare indices on your Redis data and then use the query language to retrieve the data asset that your application requires. All future data will also be indexed automatically.
 
 ## Quick links
   - [Quick start guide](/redisearch/quick_start)
@@ -23,7 +24,7 @@ Search and Query is part of the enhanced Redis experience with Redis Stack that 
 
 ## Primary features
 
-Search and Query supports the following features:
+We support the following search an query features:
 
 * Secondary indexing
 * Multi-field queries
@@ -46,13 +47,13 @@ Search and Query supports the following features:
 * Retrieval of full document contents or only their IDs
 * Document deletion and updating with index garbage collection
 
-For more information about Search and Query, see the [feature reference](/docs/stack/search/reference) pages.
+For more information about searching and querying in Redis, see the [feature reference](/docs/stack/search/reference) pages.
 
 ## JSON documents
 
-When combined with the Redis [JSON](/docs/stack/json) module, which is included with Redis Stack, Search and Query can index and query JSON documents.
+When combined with the Redis [JSON](/docs/stack/json) module, (included with Redis Stack) Redis can index and query JSON documents.
 
-To learn how to use Search and Query with JSON documents, see [Indexing JSON documents](/docs/stack/search/indexing_json).
+To learn how to search and query your JSON documents, see [Indexing JSON documents](/docs/stack/search/indexing_json).
 
 ## Client libraries
 
@@ -62,14 +63,14 @@ See the [clients page](clients) for the full list.
 
 ## Cluster support
 
-Search and Query provides a distributed cluster version that scales to billions of documents and hundreds of servers.
+The search and query features of Redis Stack are also available for distributed databases that can scale to billions of documents and hundreds of servers.
 
 ## Commercial support
 
-Commercial support for Search and Query is provided by Redis Ltd. See the [Redis Ltd. website](https://redis.com/redis-enterprise/technology/redis-search/#sds) for more details and contact information.
+Commercial support for Redis Stack is provided by Redis Ltd. See the [Redis Ltd. website](https://redis.com/redis-enterprise/technology/redis-search/#sds) for more details and contact information.
 
 ## Supported platforms
-Search and Query is developed and tested on Linux and macOS on x86_64 CPUs.
+Redis Stack is developed and tested on Linux and macOS on x86_64 CPUs.
 
 Atom CPUs are not supported.
 
