@@ -18,7 +18,7 @@ def assert_index_num_docs(env, idx, attr, num_docs):
 
 def testSanitySearchHashWithin(env):
   conn = getConnectionByEnv(env)
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE').ok()
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'SPHERICAL').ok()
   
   conn.execute_command('HSET', 'small', 'geom', 'POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))')
   conn.execute_command('HSET', 'large', 'geom', 'POLYGON((34.9001 29.7001, 34.9001 29.7200, 34.9200 29.7200, 34.9200 29.7001, 34.9001 29.7001))')

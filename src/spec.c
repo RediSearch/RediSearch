@@ -855,8 +855,13 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
     sp->flags |= Index_HasGeometry;
     fs->types |= INDEXFLD_T_GEOMETRY;
-    // TODO: GEMOMETRY - Support more geometry libraries - if an optional successive token exist
-    fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
+    if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_FLAT_STR)) {
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_SPHERE_STR)) {
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
+    } else {
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
+    }
   } else {  // nothing more supported currently
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;
@@ -865,7 +870,9 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
       FieldSpec_SetSortable(fs);
-      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) || FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
+          FIELD_IS(fs, INDEXFLD_T_NUMERIC) ||         // We don't normalize numeric fields. Implicit UNF
+          TAG_FIELD_IS(fs, TagField_CaseSensitive)) { // We don't normalize case sensitive tags. Implicit UNF
         fs->options |= FieldSpec_UNF;
       }
       continue;
@@ -1620,7 +1627,6 @@ IndexSpec *NewIndexSpec(const char *name) {
 
   pthread_rwlock_init(&sp->rwlock, &attr);
 
-  sp->specVersion = 0;
   return sp;
 }
 
@@ -1699,19 +1705,6 @@ int bit(t_fieldMask id) {
   return 0;
 }
 
-// Return the current vesrion of the spec.
-// The value of the version number does'nt indicate if the index
-// is newer or older, and should be only tested for inequality.
-size_t IndexSpec_GetVersion(const IndexSpec *sp) {
-  return sp->specVersion;
-}
-
-// Update the spec vesrion if we update the index.
-// It is assumed that this function is called after locking Redis.
-// When the version number is overflowed, it will start from zero.
-void IndexSpec_UpdateVersion(IndexSpec *sp) {
-  ++sp->specVersion;
-}
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Backwards compat version of load for rdbs with version < 8
@@ -1764,10 +1757,9 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
     RedisModule_SaveUnsigned(rdb, f->vectorOpts.expBlobSize);
     VecSim_RdbSave(rdb, &f->vectorOpts.vecSimParams);
   }
-  // TODO: GEOMETRY - save geometry options if more than one geometry library is supported
-  // if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
-  //   RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryCoords);
-  // }
+  if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
+    RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryCoords);
+  }
 }
 
 static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
@@ -1865,8 +1857,12 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
 
   // Load geometry specific options
   if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
-    // TODO: GEOMETRY - if more than one geometry library is supported - load it from rdb (currently hard-coded)
-    f->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
+    if (encver >= INDEX_GEOMETRY_VERSION) {
+      f->geometryOpts.geometryCoords = LoadUnsigned_IOError(rdb, goto fail);
+    } else {
+      // In RedisSearch RC (2.8.1 - 2.8.3) we supported default coordinate system which was not written to RDB
+      f->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
+    }
   }
 
   return REDISMODULE_OK;
@@ -2779,7 +2775,6 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   Document_Free(&doc);
 
   spec->stats.totalIndexTime += hires_clock_since_usec(&t0);
-  IndexSpec_UpdateVersion(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }
@@ -2833,7 +2828,6 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   RedisSearchCtx_LockSpecWrite(&sctx);
   IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, id);
-  IndexSpec_UpdateVersion(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }
@@ -3035,10 +3029,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
     if (entry) {
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
       RedisSearchCtx_LockSpecWrite(&sctx);
-      if(REDISMODULE_OK == DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len)) {
-        IndexSpec_UpdateVersion(spec);
-      }
-
+      DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
       RedisSearchCtx_UnlockSpec(&sctx);
       size_t index = entry->v.u64;
       dictDelete(to_specs->specs, spec->name);

@@ -37,20 +37,24 @@ def testExpireIndex(env):
     except Exception as e:
         env.assertEqual(str(e), 'Unknown index name')
 
-res_doc1_is_None = [2, 'doc1', None, 'doc2', ['t', 'foo']]
-res_doc1_is_None_last = [2, 'doc2', ['t', 'foo'], 'doc1', None]
+res_doc1_is_empty = [2, 'doc1', [], 'doc2', ['t', 'foo']]
+res_doc1_is_empty_last = [2, 'doc2', ['t', 'foo'], 'doc1', []]
+res_doc1_is_partial = [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']]
+res_doc1_is_partial_last = [2, 'doc2', ['t', 'foo'], 'doc1', ['t', 'bar']]
 
 res_score_and_explanation = ['1', ['Final TFIDF : words TFIDF 1.00 * document score 1.00 / norm 1 / slop 1',
                                     ['(TFIDF 1.00 = Weight 1.00 * Frequency 1)']]]
 
 def testExpireDocs(env):
-    expected_results = [res_doc1_is_None, # Without sortby -  both docs exist but we failed to load doc1 since it was expired lazily
-                        res_doc1_is_None_last, # With sortby - sorter compares a missing value (doc1) to an existing value (doc2) and prefers the existing value
+    empty_with_scores_and_explain_last = res_doc1_is_empty_last.copy()
+    for offset, i in enumerate(range(2, len(res_doc1_is_partial), 2)):
+        empty_with_scores_and_explain_last.insert(i + offset, res_score_and_explanation)
+
+    expected_results = [res_doc1_is_empty, # Without sortby -  both docs exist but we failed to load doc1 since it was expired lazily
+                        res_doc1_is_empty_last, # With sortby - sorter compares a missing value (doc1) to an existing value (doc2) and prefers the existing value
                         # WITHSCORES, EXPLAINSCORE
-                        [2, 'doc2', res_score_and_explanation, ['t', 'foo'], #  without sortby
-                        'doc1', res_score_and_explanation, None],
-                        [2, 'doc2', res_score_and_explanation, ['t', 'foo'], #  with sortby
-                        'doc1', res_score_and_explanation, None]]
+                        empty_with_scores_and_explain_last, #  without sortby
+                        empty_with_scores_and_explain_last] #  with sortby
 
     expireDocs(env, False, # Without SORTABLE - since the fields are not SORTABLE, we need to load the results from Redis Keyspace
                 expected_results)
@@ -60,14 +64,17 @@ def testExpireDocsSortable(env):
     '''
     Same as test `testExpireDocs` only with SORTABLE
     '''
+    partial_with_scores_and_explain = res_doc1_is_partial.copy()
+    partial_with_scores_and_explain_last = res_doc1_is_partial_last.copy()
+    for offset, i in enumerate(range(2, len(res_doc1_is_partial), 2)):
+        partial_with_scores_and_explain.insert(i + offset, res_score_and_explanation)
+        partial_with_scores_and_explain_last.insert(i + offset, res_score_and_explanation)
 
-    expected_results = [res_doc1_is_None, # without sortby
-                        res_doc1_is_None, # With sortby
+    expected_results = [res_doc1_is_empty,   # without sortby
+                        res_doc1_is_partial, # With sortby
                         # WITHSCORES, EXPLAINSCORE
-                        [2, 'doc2', res_score_and_explanation, ['t', 'foo'], #  without sortby
-                        'doc1', res_score_and_explanation, None],
-                        [2, 'doc2', res_score_and_explanation, ['t', 'foo'], #  with sortby
-                        'doc1', res_score_and_explanation, None]]
+                        partial_with_scores_and_explain_last,  # without sortby
+                        partial_with_scores_and_explain]       # with sortby
 
     expireDocs(env, True,  # With SORTABLE -
                # The documents data exists in the index.
@@ -126,11 +133,11 @@ def expireDocs(env, isSortable, expected_results):
 
 
         # test with WITHSCORES and EXPLAINSCORE - make sure all memory is released
-        conn.execute_command('HSET', 'doc1', 't', 'zoo')
+        conn.execute_command('HSET', 'doc1', 't', 'bar')
 
         # both docs exist
         expected_res = [2, 'doc2', res_score_and_explanation, ['t', 'foo'],
-                           'doc1', res_score_and_explanation, ['t', 'zoo']]
+                           'doc1', res_score_and_explanation, ['t', 'bar']]
 
         res = conn.execute_command('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'EXPLAINSCORE')
         env.assertEqual(res, expected_res)
