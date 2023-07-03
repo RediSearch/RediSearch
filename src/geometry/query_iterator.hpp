@@ -9,11 +9,11 @@
 #include "../index_iterator.h"
 #include "allocator.hpp"
 
-#include <vector>    // std::vector
-#include <ranges>    // ranges::input_range
-#include <utility>   // std::move, std::forward
-#include <iterator>  // std::begin, std::end, ranges::distance
-#include <algorithm> // ranges::sort, ranges::lower_bound
+#include <vector>     // std::vector
+#include <ranges>     // ranges::input_range
+#include <utility>    // std::move, std::forward
+#include <iterator>   // std::begin, std::end, ranges::distance
+#include <algorithm>  // ranges::sort, ranges::lower_bound
 
 struct GeometryQueryIterator {
   using container_type = std::vector<t_docId, rm_allocator<t_docId>>;
@@ -21,19 +21,11 @@ struct GeometryQueryIterator {
   container_type iter_;
   size_t index_;
 
-  using Self = GeometryQueryIterator;
-  [[nodiscard]] void *operator new(std::size_t) {
-    return rm_allocator<Self>().allocate(1);
-  }
-  void operator delete(void *p) noexcept {
-    rm_allocator<Self>().deallocate(static_cast<Self *>(p), 1);
-  }
-
   explicit GeometryQueryIterator() = default;
   template <std::ranges::input_range R>
-  explicit GeometryQueryIterator(R &&range)
-      : GeometryQueryIterator(
-            container_type{std::begin(std::forward<R>(range)), std::end(std::forward<R>(range))}) {
+  explicit GeometryQueryIterator(R &&range, rm_allocator<t_docId> const &a)
+      : GeometryQueryIterator(container_type{std::begin(std::forward<R>(range)),
+                                             std::end(std::forward<R>(range)), a}) {
   }
   explicit GeometryQueryIterator(container_type &&docs)
       : base_{init_base()}, iter_{std::move(docs)}, index_{0} {
@@ -41,10 +33,10 @@ struct GeometryQueryIterator {
     std::ranges::sort(iter_);
   }
 
-  GeometryQueryIterator(const Self &) = delete;
-  explicit GeometryQueryIterator(Self &&) = default;
-  Self &operator=(const Self &) = delete;
-  Self &operator=(Self &&) = default;
+  GeometryQueryIterator(GeometryQueryIterator const&) = delete;
+  explicit GeometryQueryIterator(GeometryQueryIterator &&) = default;
+  GeometryQueryIterator &operator=(GeometryQueryIterator const&) = delete;
+  GeometryQueryIterator &operator=(GeometryQueryIterator &&) = default;
   ~GeometryQueryIterator() {
     IndexResult_Free(base_.current);
   }
@@ -121,7 +113,9 @@ int QIter_HasNext(void *ctx) {
 }
 void QIter_Free(IndexIterator *self) {
   auto it = static_cast<GeometryQueryIterator *>(self->ctx);
-  delete it;
+  rm_allocator<GeometryQueryIterator> a = it->iter_.get_allocator();
+  std::destroy_at(it);
+  a.deallocate(it, 1);
 }
 size_t QIter_Len(void *ctx) {
   return static_cast<GeometryQueryIterator const *>(ctx)->len();

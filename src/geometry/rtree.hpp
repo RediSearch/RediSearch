@@ -37,6 +37,13 @@ using Geographic = bg::cs::geographic<bg::degree>;
 using string = std::basic_string<char, std::char_traits<char>, rm_allocator<char>>;
 using sstream = std::basic_stringstream<char, std::char_traits<char>, rm_allocator<char>>;
 
+template <typename T>
+[[nodiscard]] static string to_string(T const& t, rm_allocator<char>&& a) {
+  auto ss = sstream{std::ios_base::in | std::ios_base::out, a};
+  ss << t;
+  return ss.str();
+}
+
 template <typename coord_system>
 struct RTree {
   using point_type =
@@ -54,17 +61,25 @@ struct RTree {
   using rect_type = bgm::box<point_type>;
   using doc_type = std::pair<rect_type, t_docId>;
   using rtree_type = bgi::rtree<doc_type, bgi::quadratic<16>, bgi::indexable<doc_type>,
-                                bgi::equal_to<doc_type>, rm_allocator<doc_type>>;
+                      bgi::equal_to<doc_type>, rm_allocator<doc_type>>;
 
-  using docLookup_type =
-      boost::unordered_flat_map<t_docId, geom_type, std::hash<t_docId>, std::equal_to<t_docId>,
-                                rm_allocator<std::pair<t_docId const, geom_type>>>;
+  using LUT_value_type = std::pair<t_docId const, geom_type>;
+  using LUT_type = boost::unordered_flat_map<t_docId, geom_type, std::hash<t_docId>,
+                      std::equal_to<t_docId>, rm_allocator<LUT_value_type>>;
 
+  using ResultsVec = std::vector<doc_type, rm_allocator<doc_type>>;
+
+  rm_allocator<void> alloc_;
   rtree_type rtree_;
-  docLookup_type docLookup_;
+  LUT_type docLookup_;
 
-  explicit RTree() = default;
-
+  RTree() = delete;
+  explicit RTree(std::size_t& alloc_ref)
+    : alloc_{alloc_ref}
+    , rtree_{bgi::quadratic<16>{}, bgi::indexable<doc_type>{},
+             bgi::equal_to<doc_type>{}, rm_allocator<doc_type>{alloc_ref}}
+    , docLookup_{0, rm_allocator<LUT_value_type>{alloc_ref}} {
+  }
   [[nodiscard]] static constexpr rect_type make_mbr(geom_type const& geom) {
     return std::visit(
         [](auto&& geom) {
@@ -101,7 +116,7 @@ struct RTree {
 
   void insert(geom_type const& geom, t_docId id) {
     rtree_.insert(make_doc(geom, id));
-    docLookup_.insert(std::pair{id, geom});
+    docLookup_.insert(LUT_value_type{id, geom});
   }
 
   [[nodiscard]] static geom_type from_wkt(std::string_view wkt) {
@@ -153,20 +168,13 @@ struct RTree {
     return false;
   }
 
-  [[nodiscard]] static string geometry_to_string(geom_type const& geom) {
-    return std::visit(
-        [](auto&& geom) {
-          sstream ss{};
-          ss << bg::wkt(geom);
-          return ss.str();
-        },
-        geom);
+  [[nodiscard]] static auto geometry_to_string(geom_type const& geom, rm_allocator<char>&& a) {
+    return std::visit([&](auto&& geom) {
+      return to_string(bg::wkt(geom), std::move(a));
+    }, geom);
   }
-
-  [[nodiscard]] static string doc_to_string(doc_type const& doc) {
-    sstream ss{};
-    ss << bg::wkt(get_rect(doc));
-    return ss.str();
+  [[nodiscard]] static auto doc_to_string(doc_type const& doc, rm_allocator<char>&& a) {
+    return to_string(bg::wkt(get_rect(doc)), std::move(a));
   }
 
   void dump(RedisModuleCtx* ctx) const {
@@ -178,9 +186,8 @@ struct RTree {
     lenTop += 2;
 
     RedisModule_ReplyWithStringBuffer(ctx, "ptr", strlen("ptr"));
-    char addr[1024] = {0};
-    sprintf(addr, "%p", &rtree_);
-    RedisModule_ReplyWithStringBuffer(ctx, addr, strlen(addr));
+    auto addr = to_string(&rtree_, rm_allocator<char>{alloc_.allocated_});
+    RedisModule_ReplyWithStringBuffer(ctx, addr.c_str(), addr.length());
     lenTop += 2;
 
     RedisModule_ReplyWithStringBuffer(ctx, "num_docs", strlen("num_docs"));
@@ -205,13 +212,13 @@ struct RTree {
 
       if (auto geom = lookup(doc); geom.has_value()) {
         RedisModule_ReplyWithStringBuffer(ctx, "geoshape", strlen("geoshape"));
-        auto str = geometry_to_string(geom.value());
-        RedisModule_ReplyWithStringBuffer(ctx, str.data(), str.size());
+        auto str = geometry_to_string(geom.value(), rm_allocator<char>{alloc_.allocated_});
+        RedisModule_ReplyWithStringBuffer(ctx, str.c_str(), str.length());
         lenValues += 2;
       }
       RedisModule_ReplyWithStringBuffer(ctx, "rect", strlen("rect"));
-      auto str = doc_to_string(doc);
-      RedisModule_ReplyWithStringBuffer(ctx, str.data(), str.size());
+      auto str = doc_to_string(doc, rm_allocator<char>{alloc_.allocated_});
+      RedisModule_ReplyWithStringBuffer(ctx, str.c_str(), str.length());
       lenValues += 2;
 
       RedisModule_ReplySetArrayLength(ctx, lenValues);
@@ -236,10 +243,12 @@ struct RTree {
     return rtree_.get_allocator().report();
   }
 
-  using ResultsVec = std::vector<doc_type, rm_allocator<doc_type>>;
-  static IndexIterator* generate_query_iterator(ResultsVec&& results) {
-    auto geometry_query_iterator = new GeometryQueryIterator(
-        results | std::views::transform([](auto&& doc) { return get_id(doc); }));
+  static IndexIterator* generate_query_iterator(ResultsVec&& results,
+                                                rm_allocator<GeometryQueryIterator>&& a) {
+    auto geometry_query_iterator = std::construct_at(a.allocate(1), 
+      results | std::views::transform([](auto&& doc) { return get_id(doc); }),
+      rm_allocator<doc_type>{a.allocated_}
+    );
     return geometry_query_iterator->base();
   }
 
@@ -293,7 +302,10 @@ struct RTree {
                        RedisModuleString** err_msg) const {
     try {
       auto query_geom = from_wkt(std::string_view{wkt, len});
-      return generate_query_iterator(query(make_doc(query_geom), query_type, query_geom));
+      return generate_query_iterator(
+        query(make_doc(query_geom), query_type, query_geom),
+        rm_allocator<GeometryQueryIterator>{alloc_.allocated_}
+      );
     } catch (const std::exception& e) {
       if (err_msg) {
         *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
@@ -302,16 +314,8 @@ struct RTree {
     }
   }
 
-  using Self = RTree;
-  [[nodiscard]] void* operator new(std::size_t) {
-    return rm_allocator<Self>().allocate(1);
-  }
-  void operator delete(void* p) noexcept {
-    rm_allocator<Self>().deallocate(static_cast<Self*>(p), 1);
-  }
-
-  [[nodiscard]] static size_t reportTotal() noexcept {
-    return rm_allocator<Self>().report();
+  [[nodiscard]] size_t reportTotal() noexcept {
+    return alloc_.report();
   }
 };
 

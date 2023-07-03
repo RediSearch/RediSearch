@@ -12,14 +12,17 @@
 
 #define X(variant) , RTree<variant>
 struct GeometryIndex {
-  std::variant<std::monostate GEO_VARIANTS(X)> index;
   const GeometryApi *api;
+  std::size_t allocated;
+  std::variant<std::monostate GEO_VARIANTS(X)> index;
 };
 #undef X
 
 #define X(variant)                                                                          \
 void Index_##variant##_Free(GeometryIndex *idx) {                                           \
-  delete idx;                                                                               \
+  rm_allocator<GeometryIndex> a {idx->allocated};                                           \
+  std::destroy_at(idx);                                                                     \
+  a.deallocate(idx, 1);                                                                     \
 }                                                                                           \
 int Index_##variant##_Insert(GeometryIndex *idx, GEOMETRY_FORMAT format, const char *str,   \
                              size_t len, t_docId id, RedisModuleString **err_msg) {         \
@@ -66,12 +69,13 @@ constexpr GeometryApi GeometryApi_##variant = { \
 GEO_VARIANTS(X)
 #undef X
 
-#define X(variant)                       \
-GeometryIndex *Index_##variant##_New() { \
-  return new GeometryIndex{              \
-    .index = RTree<variant>{},           \
-    .api = &GeometryApi_##variant,       \
-  };                                     \
+#define X(variant)                                        \
+GeometryIndex *Index_##variant##_New() {                  \
+  std::size_t ref{};                                      \
+  auto a = rm_allocator<GeometryIndex>{ref};              \
+  auto p = a.allocate(1);                                 \
+  return std::construct_at(p, &GeometryApi_##variant,     \
+    sizeof(GeometryIndex), RTree<variant>{p->allocated}); \
 }
 GEO_VARIANTS(X)
 #undef X
@@ -95,9 +99,6 @@ const char *GeometryCoordsToName(GEOMETRY_COORDS tag) {
   return tag_names[tag];
 }
 
-#define X(variant) \
-  RTree<variant>::reportTotal() + 
 size_t GeometryTotalMemUsage() {
-  return GEO_VARIANTS(X) +0;
+  return 0; // TODO
 }
-#undef X

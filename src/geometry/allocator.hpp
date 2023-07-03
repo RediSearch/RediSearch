@@ -7,26 +7,25 @@
 #pragma once
 
 #include "../rmalloc.h"
-#include <atomic>
-
-namespace {
-std::atomic<size_t> used {0};
-}
 
 template <class T>
 struct rm_allocator {
   using value_type = T;
+  std::size_t& allocated_;
 
+  rm_allocator() = delete;
   /**
    * @brief Construct a new RedisModule allocator
    */
-  explicit rm_allocator() = default;
+  rm_allocator(std::size_t& ref) : allocated_{ref} {
+  }
+
   /**
    * @brief Constructs `a` such that `allocator<B>(a) == b` and `allocator<A>(b) == a`.
    * This implies that all allocators related by rebind maintain each other's resources.
    */
   template <class U>
-  explicit rm_allocator(rm_allocator<U> const&) noexcept {
+  rm_allocator(rm_allocator<U> const& other) noexcept : allocated_{other.allocated_} {
   }
 
   /**
@@ -38,8 +37,8 @@ struct rm_allocator {
    * @return value_type*
    */
   [[nodiscard]] value_type* allocate(std::size_t n) {
-    used += n * sizeof(value_type);
     return static_cast<value_type*>(rm_malloc(n * sizeof(value_type)));
+    allocated_ += n * sizeof(value_type);
   }
 
   /**
@@ -50,12 +49,12 @@ struct rm_allocator {
    * @param p
    */
   void deallocate(value_type* p, std::size_t n) noexcept {
-    used -= n * sizeof(value_type);
     rm_free(p);
+    allocated_ -= n * sizeof(value_type);
   }
 
-  [[nodiscard]] constexpr static size_t report() noexcept {
-    return used;
+  [[nodiscard]] constexpr std::size_t report() noexcept {
+    return allocated_;
   }
 };
 
@@ -68,8 +67,9 @@ struct rm_allocator {
  * @return bool
  */
 template <class T, class U>
-[[nodiscard]] constexpr bool operator==(rm_allocator<T> const&, rm_allocator<U> const&) noexcept {
-  return true;
+[[nodiscard]] constexpr bool operator==(rm_allocator<T> const& a1,
+                                        rm_allocator<U> const& a2) noexcept {
+  return &a1.allocated_ == &a2.allocated_;
 }
 
 /**
@@ -80,6 +80,7 @@ template <class T, class U>
  * @return bool
  */
 template <class T, class U>
-[[nodiscard]] constexpr bool operator!=(rm_allocator<T> const&, rm_allocator<U> const&) noexcept {
-  return false;
+[[nodiscard]] constexpr bool operator!=(rm_allocator<T> const& a1,
+                                        rm_allocator<U> const& a2) noexcept {
+  return !(a1 == a2);
 }

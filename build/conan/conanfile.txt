@@ -1,6 +1,6 @@
 [requires]
 # abseil/20230125.1
-# boost/1.81.0
+# boost/1.82.0
 
 [generators]
 CMakeDeps
