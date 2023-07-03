@@ -1268,7 +1268,7 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
     cleanPool = redisearch_thpool_create(1);
-    redisearch_thpool_init(cleanPool, NULL);
+    redisearch_thpool_init(cleanPool, LogCallback);
   }
 }
 
@@ -2081,7 +2081,7 @@ end:
 static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   if (!reindexPool) {
     reindexPool = redisearch_thpool_create(1);
-    redisearch_thpool_init(reindexPool, NULL);
+    redisearch_thpool_init(reindexPool, LogCallback);
   }
 #ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Register index %s for async scan", ((IndexSpec*)StrongRef_Get(spec_ref))->name);
@@ -2307,7 +2307,7 @@ void Indexes_UpgradeLegacyIndexes() {
 void Indexes_ScanAndReindex() {
   if (!reindexPool) {
     reindexPool = redisearch_thpool_create(1);
-    redisearch_thpool_init(reindexPool, NULL);
+    redisearch_thpool_init(reindexPool, LogCallback);
   }
 
   RedisModule_Log(NULL, "notice", "Scanning all indexes");
@@ -2705,13 +2705,12 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
 #ifdef MT_BUILD
 static void LoadingProgressCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
                                  void *data) {
-  RedisModule_Log(RSDummyContext, "notice", "Waiting for background jobs to be executed while"
+  RedisModule_Log(RSDummyContext, "debug", "Waiting for background jobs to be executed while"
                   " loading is in progress (pregress is %d)",
                   ((RedisModuleLoadingProgress *)data)->progress);
-  workersThreadPool_Wait(ctx, 100);
+  workersThreadPool_Drain(ctx, 100);
 }
 #endif
-
 
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {

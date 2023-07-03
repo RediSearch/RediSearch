@@ -39,6 +39,8 @@
 #define err(str, ...)
 #endif
 
+#define LOG_IF_EXISTS(str) if (thread_p->log) {thread_p->log(str);}
+
 static volatile int threads_on_hold;
 
 /* ========================== STRUCTURES ============================ */
@@ -262,7 +264,7 @@ void redisearch_thpool_wait(redisearch_thpool_t* thpool_p) {
   pthread_mutex_unlock(&thpool_p->thcount_lock);
 }
 
-void redisearch_thpool_timedwait(redisearch_thpool_t* thpool_p, long timeout,
+void redisearch_thpool_drain(redisearch_thpool_t* thpool_p, long timeout,
                                  yieldFunc yieldCB, void *yield_ctx, size_t threshold) {
 
   // Set the *absolute* time for waiting the condition variable
@@ -467,12 +469,10 @@ static void* thread_do(struct thread* thread_p) {
       pthread_mutex_lock(&thpool_p->thcount_lock);
       thpool_p->num_threads_working--;
       if (!thpool_p->num_threads_working) {
-        if (thread_p->log) {
-          thread_p->log("thpool contains no more jobs");
-        }
+        LOG_IF_EXISTS("thpool contains no more jobs")
         pthread_cond_signal(&thpool_p->threads_all_idle);
         if (thpool_p->terminate_when_empty) {
-          thread_p->log("terminating thread pool after there are no more jobs");
+          LOG_IF_EXISTS("terminating thread pool after there are no more jobs")
           thpool_p->keepalive = 0;
         }
       }

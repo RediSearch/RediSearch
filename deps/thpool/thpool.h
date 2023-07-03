@@ -44,12 +44,13 @@ typedef void (*LogFunc)(const char *);
  *    ..
  *    threadpool thpool;                       //First we declare a threadpool
  *    thpool = thpool_create(4);               //Next we create it with 4 threads
- *    thpool_init(&thpool);                    //Then we initialize the threads
+ *    thpool_init(&thpool, logCB);             //Then we initialize the threads
  *    ..
  *
  * @param threadpool    threadpool to initialize
+ * @param threadpool    callback to be called for printing debug messages to the log
  */
-void redisearch_thpool_init(redisearch_threadpool, LogFunc log);
+void redisearch_thpool_init(redisearch_threadpool, LogFunc logCB);
 
 /**
  * @brief Add work to the job queue
@@ -154,11 +155,12 @@ void redisearch_thpool_wait(redisearch_threadpool);
 typedef void (*yieldFunc)(void *);
 
 /**
- * @brief Wait for all queued jobs to finish, yield periodically while we wait.
+ * @brief Wait until the job queue contains no more than a given number of jobs, yield periodically
+ * while we wait.
  *
- * The same as redisearch_thpool_wait, but with a timeout, so that if time passed and
- * we're still waiting, we run a yield callback function, and go back waiting again.
- * We do so until the queue is empty and all work has completed.
+ * The same as redisearch_thpool_wait, but with a timeout and a threshold, so that if time passed
+ * and we're still waiting, we run a yield callback function, and go back waiting again.
+ * We do so until the queue contains no more than the number of jobs specified in the threshold.
  *
  * @example
  *
@@ -169,7 +171,7 @@ typedef void (*yieldFunc)(void *);
  *    // Add a bunch of work
  *    ..
  *    long time_to_wait = 100;  // 100 ms
- *    redisearch_thpool_timedwait(&thpool, time_to_wait, yieldCallback, ctx);
+ *    redisearch_thpool_drain(&thpool, time_to_wait, yieldCallback, ctx);
  *
  *    puts("All added work has finished");
  *    ..
@@ -179,10 +181,11 @@ typedef void (*yieldFunc)(void *);
  * @param yieldCB       A callback to be called periodically whenever we wait for the jobs
  *                      to finish, every <x> time (as specified in timeout).
  * @param yieldCtx      The context to send to yieldCB
+ * @param threshold     The maximum number of jobs to be left in the job queue after the drain.
  * @return nothing
  */
 
-void redisearch_thpool_timedwait(redisearch_threadpool, long timeout, yieldFunc yieldCB,
+void redisearch_thpool_drain(redisearch_threadpool, long timeout, yieldFunc yieldCB,
                                  void *yieldCtx, size_t threshold);
 
 /**

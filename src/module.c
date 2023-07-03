@@ -1153,7 +1153,7 @@ void RediSearch_CleanupModule(void) {
 // data structure that is accessed upon releasing the spec (and running thread might hold
 // a reference to the spec bat this time).
 #ifdef MT_BUILD
-  workersThreadPool_Wait(RSDummyContext, 0);
+  workersThreadPool_Drain(RSDummyContext, 0);
   workersThreadPool_Destroy();
 #endif
   CursorList_Destroy(&g_CursorsList);

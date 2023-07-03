@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <util/arr.h>
 #include "rmutil/rm_assert.h"
+#include "util/logging.h"
 
 static arrayof(redisearch_threadpool) threadpools_g = NULL;
 
@@ -21,7 +22,7 @@ int ConcurrentSearch_CreatePool(int numThreads) {
   }
   int poolId = array_len(threadpools_g);
   threadpools_g = array_append(threadpools_g, redisearch_thpool_create(numThreads));
-  redisearch_thpool_init(threadpools_g[poolId], NULL);
+  redisearch_thpool_init(threadpools_g[poolId], LogCallback);
 
   return poolId;
 }
