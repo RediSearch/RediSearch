@@ -112,6 +112,7 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
 }
 
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
+#if defined(__linux__)
   if (for_crash_report) {
     // Check that its safe to start data collection process
     if (ThpoolDump_test_and_start()) {
@@ -126,6 +127,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
           "Crashed during state collection process, can't generate information");
     }
   }
+#endif // defined(__linux__)
   // Module version
   RedisModule_InfoAddSection(ctx, "version");
   char ver[64];

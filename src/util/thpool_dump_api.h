@@ -44,6 +44,9 @@ bool ThpoolDump_test_and_start();
 
 void ThpoolDump_finish();
 
+#if defined(__linux__)
+
+/************** ONLY SUPPORTED ON LINUX ! **************/
 /**
  * Dump all the state of all the threads known to the process to the reply.
  * @return Always returns REDISMODULE_OK.
@@ -52,15 +55,22 @@ int ThpoolDump_all_to_reply(RedisModule_Reply *reply);
 
 void ThpoolDump_all_to_info(RedisModuleInfoCtx *ctx);
 
+#endif // defined(__linux__)
 /**
  * Check if it's ok to give the threads "green light" to start writing their dump data.
+ * on non - linux platforms - always returns 1
 */
 bool ThpoolDump_all_ready();
 
 /**
  * Check if it's we are in collecting data from all the process threads mode
+ * on non - linux platforms - always returns 0
+ *
 */
 bool ThpoolDump_collect_all_mode();
+/************** END ! **************/
+
+
 /* =================================== THPOOL ======================================= */
 
 /**

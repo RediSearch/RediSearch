@@ -938,7 +938,12 @@ DEBUG_COMMAND(DumpThreadPoolBacktrace) {
   int ret = REDISMODULE_ERR;
   // find the requested thpool
   if(!strcmp(thpool_name, "ALL")) {
+#if !defined(__linux__)
+    RedisModule_Reply_Error(reply, "Dump all threads backtraces is only supported in linux");
+    ret = REDISMODULE_OK;
+#else
     ret = ThpoolDump_all_to_reply(reply);
+#endif
   } else if(!strcmp(thpool_name, "GC")) {
     ret = GC_ThreadPoolPrintBacktrace(reply);
   } else if(!strcmp(thpool_name, "SEARCH_0")) {

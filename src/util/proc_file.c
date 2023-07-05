@@ -1,8 +1,11 @@
 
+#if defined(__linux__)
+
+#include "util/proc_file.h"
+
 #include <sys/types.h>
 #include <dirent.h>
 
-#include "util/proc_file.h"
 #include "util/arr.h"
 #include "redismodule.h"
 
@@ -17,7 +20,7 @@ pid_t *ProcFile_send_signal_to_all_threads(pid_t pid, pid_t caller_tid, int sig_
   // Get the directory handler.
   DIR *dir;
   if ((dir = opendir(path_buff)) == NULL) {
-    RedisModule_Log(NULL, "ProcFile_send_signal_to_all_threads: failed to open %s directory",
+    RedisModule_Log(NULL, "notice", "ProcFile_send_signal_to_all_threads: failed to open %s directory",
                     path_buff);
     return NULL;
   }
@@ -56,7 +59,7 @@ thread_signals_mask ProcFile_get_signals_masks(pid_t pid, pid_t tid, int *status
   sprintf(path_buff, "/proc/%d/task/%d/status", pid, tid);
   FILE *thread_status_file = fopen(path_buff, "r");
   if (thread_status_file == NULL) {
-    RedisModule_Log(NULL, "fopen() error: can't open %s", path_buff);
+    RedisModule_Log(NULL, "notice", "fopen() error: can't open %s", path_buff);
 		*status = REDISMODULE_ERR;
     return ret;
   }
@@ -70,7 +73,7 @@ thread_signals_mask ProcFile_get_signals_masks(pid_t pid, pid_t tid, int *status
 			ret.sigBlk = strtoul(line + field_name_len, NULL, 16);
 
 			// get the next line, which contains SigIgn
-			fgets(line, MAX_BUFF_LENGTH, thread_status_file);
+			char *line_ret = fgets(line, MAX_BUFF_LENGTH, thread_status_file);
 			ret.sigIgn = strtoul(line + field_name_len, NULL, 16);
 			break;
     }
@@ -88,7 +91,7 @@ int ProcFile_get_thread_name(pid_t pid, pid_t tid, char *name_output_buff) {
   sprintf(path_buff, "/proc/%d/task/%d/stat", pid, tid);
   FILE *thread_stat_file = fopen(path_buff, "r");
   if (thread_stat_file == NULL) {
-    RedisModule_Log(NULL, "fopen() error: can't open %s", path_buff);
+    RedisModule_Log(NULL, "notice", "fopen() error: can't open %s", path_buff);
 		return REDISMODULE_ERR;
   }
 
@@ -97,7 +100,12 @@ int ProcFile_get_thread_name(pid_t pid, pid_t tid, char *name_output_buff) {
 	// skip the first entry of the file
 	int unused;
 
-	fscanf(thread_stat_file, "%d %s", &unused, name_output_buff);
+	int output_items_cnt = fscanf(thread_stat_file, "%d %s", &unused, name_output_buff);
+  if (output_items_cnt != 2) {
+    RedisModule_Log(NULL, "notice", "failed to read name out of %s file", path_buff);
+		return REDISMODULE_ERR;
+  }
 
 	return REDISMODULE_OK;
 }
+#endif // defined(__linux__)

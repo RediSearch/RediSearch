@@ -1,6 +1,9 @@
 #pragma once
+#if defined(__linux__)
 
 #include <stdio.h>
+#include <unistd.h>
+#include <sys/types.h>
 typedef unsigned long int signal_mask;
 
 typedef struct {
@@ -27,7 +30,7 @@ pid_t *ProcFile_send_signal_to_all_threads(pid_t pid, pid_t caller_tid, int sig_
  *
  * @param pid   the process id
  * @param tid   the thread of interest
- * @param status    output status to be updated n case of error
+ * @param status    output status to be updated in case of error
  *
  * @return On success, the function returns the struct containing the masks. On error
  * status will be updated to REDISMODULE_ERR.
@@ -45,3 +48,4 @@ thread_signals_mask ProcFile_get_signals_masks(pid_t pid, pid_t tid, int *status
  * thread's name. Otherwise, REDISMODULE_ERR is returned and name_output_buff remains unchanged.
 */
 int ProcFile_get_thread_name(pid_t pid, pid_t tid, char *name_output_buff);
+#endif // defined(__linux__)

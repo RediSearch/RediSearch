@@ -12,6 +12,8 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <sys/prctl.h>
+#include <stdlib.h>
+
 
 #include "thpool_dump_api.h"
 #include "util/arr.h"
@@ -145,7 +147,6 @@ static void wait_for_writing(size_t threads_to_wait_cnt, const char *error_log_t
   }
 }
 
-/* ======================== HELPERS ========================= */
 int ThpoolDump_collect_and_log_to_reply(redisearch_threadpool thpool_p,
                                        RedisModule_Reply *reply) {
   if (!thpool_p) {
@@ -171,6 +172,7 @@ int ThpoolDump_collect_and_log_to_reply(redisearch_threadpool thpool_p,
   return REDISMODULE_OK;
 }
 
+/* ======================== HELPERS ========================= */
 static void ThpoolDump_done() {
   // release the backtraces buffer
   rm_free(printable_bt_buffer);
@@ -281,6 +283,17 @@ bool ThpoolDump_collect_all_mode() {
   return g_collect_all_mode;
 }
 
+#if defined(__linux__)
+int ThpoolDump_all_to_reply(RedisModule_Reply *reply) {
+  ThpoolDump_all_prepare();
+
+  ThpoolDump_log_to_reply(reply);
+
+  ThpoolDump_all_done();
+
+  return REDISMODULE_OK;
+}
+
 static void ThpoolDump_all_prepare() {
 
   g_collect_all_mode = 1;
@@ -305,18 +318,6 @@ static void ThpoolDump_all_prepare() {
 
 }
 
-int ThpoolDump_all_to_reply(RedisModule_Reply *reply) {
-
-  ThpoolDump_all_prepare();
-
-  ThpoolDump_log_to_reply(reply);
-
-  ThpoolDump_all_done();
-
-  return REDISMODULE_OK;
-}
-
-
 void ThpoolDump_all_to_info(RedisModuleInfoCtx *ctx) {
 
   ThpoolDump_all_prepare();
@@ -327,24 +328,16 @@ void ThpoolDump_all_to_info(RedisModuleInfoCtx *ctx) {
   // for each thread in g_threads_done_cnt
   for(size_t i = 0; i < g_threads_done_writing; i++) {
     thread_bt_data curr_bt = printable_bt_buffer[i];
-#if defined(__linux__) || (defined(__APPLE__) && defined(__MACH__))
     char *name = curr_bt.thread_name;
-#else
-    // generate a title
-    char name[16];
-    sprintf(name, "thread-%lu",i);
-#endif
+    char buff[25] = {0};
     if(curr_bt.status_on_crash == CRASHED) {
-      char buff[25] = {0};
-      sprintf(buff, "CRASHED_%s", name);
-      RedisModule_InfoAddSection(ctx, buff);
-    } else {
-      RedisModule_InfoAddSection(ctx, name);
+      sprintf(buff, "CRASHED_");
     }
+    strcat(buff, name);
+    RedisModule_InfoAddSection(ctx, buff);
     // print the backtrace
-    char buff[8];
     for(int j = 0; j < curr_bt.trace_size; j++) {
-      sprintf(buff, "%d",j);
+      sprintf(buff, "%d", j);
       RedisModule_InfoAddFieldCString(ctx, buff, curr_bt.printable_bt[j]);
     }
 
@@ -365,3 +358,4 @@ static void ThpoolDump_all_done() {
 
   ThpoolDump_done();
 }
+#endif // defined(__linux__)

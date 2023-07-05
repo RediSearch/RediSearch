@@ -1,7 +1,7 @@
 from RLTest import Env
 from includes import *
 from common import waitForIndex, ftDebugCmdName
-
+from sys import platform
 
 class TestDebugCommands(object):
 
@@ -248,7 +248,8 @@ def DumpBacktrace(protocol):
         env.expect(ftDebugCmdName(env), 'DUMP_THREADPOOL_BACKTRACE', 'DUMMY').raiseError().contains('no such threadpool DUMMY')
 
         # Get all the threads backtraced known to the process. The output contains also threads that are not created by RediSearch module.
-        DumpBacktrace_ALL(env, threadpools_attr)
+        if platform.startswith('linux'):
+            DumpBacktrace_ALL(env, threadpools_attr)
 
         for threadpool in threadpools_attr:
             expected_count = threadpools_attr[threadpool]["expected_threads_count"]

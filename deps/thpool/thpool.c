@@ -171,6 +171,7 @@ void register_process_to_pause_handler(LogFunc log_cb) {
   }
 }
 
+#if defined(__linux__)
 size_t pause_all_process_threads() {
   pid_t pid = getpid();
   pid_t caller_tid = gettid();
@@ -205,6 +206,8 @@ size_t pause_all_process_threads() {
   array_free(tids);
   return ret;
 }
+
+#endif // defined(__linux__)
 
 static void reset_global_vars() {
   g_threads_paused_cnt = 0;

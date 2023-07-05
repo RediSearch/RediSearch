@@ -66,6 +66,7 @@ const char *redisearch_thpool_get_name(redisearch_threadpool);
  */
 void register_process_to_pause_handler(LogFunc log_cb);
 
+#if defined(__linux__)
 /**
  * @brief  Pause all the threads known to the process except:
  * 1. The caller
@@ -77,7 +78,7 @@ void register_process_to_pause_handler(LogFunc log_cb);
  * @return  The number of threads that were signaled.
  */
 size_t pause_all_process_threads();
-
+#endif //defined(__linux__)
 /**
  * @brief  Resume all the threads that were paused using pause_all_process_threads
  */
