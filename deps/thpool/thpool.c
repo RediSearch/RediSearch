@@ -43,7 +43,8 @@
 #define err(str, ...)
 #endif
 
-#define LOG_IF_EXISTS(str) if (thread_p->log) {thread_p->log(str);}
+#define LOG_IF_EXISTS(str) if (thpool_p->log) {thpool_p->log(str);}
+#define LOG_FMT_IF_EXISTS(str, ...) if (thpool_p->log) {thpool_p->log(str,  __VA_ARGS__);}
 
 /* Internal threadpool flags */
 #define RS_THPOOL_F_KEEP_ALIVE 0x01 /* keep pool alive */
@@ -88,7 +89,6 @@ typedef struct thread {
   int id;                   /* friendly id               */
   pthread_t pthread;        /* pointer to actual thread  */
   struct redisearch_thpool_t* thpool_p; /* access to thpool          */
-  LogFunc log;
 } thread;
 
 /* Threadpool */
@@ -102,6 +102,7 @@ typedef struct redisearch_thpool_t {
   priority_queue jobqueue;          /* job queue                 */
   volatile uint16_t flags;                   /* threadpool flags */
   char name[MAX_THPOOL_NAME_LEN + 1];     /* threadpool name */
+  LogFunc log;
 } redisearch_thpool_t;
 
 /* ========================== GLOBALS ============================ */
@@ -119,7 +120,7 @@ static volatile bool g_resume_all = 1;
 
 // Cleanup allocations related to the threadpool
 static void redisearch_thpool_cleanup(redisearch_thpool_t* thpool_p);
-static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id, LogFunc log);
+static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id);
 static void* thread_do(struct thread* thread_p);
 static void thread_hold(int sig_id);
 static void thread_destroy(struct thread* thread_p);
@@ -216,29 +217,33 @@ static void reset_global_vars() {
 
 /* ========================== THREADPOOL ============================ */
 /* Create thread pool */
-struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, const char *thpool_name) {
+struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, const char *thpool_name, LogFunc log) {
   /* Make new thread pool */
   redisearch_thpool_t* thpool_p;
   thpool_p = (struct redisearch_thpool_t*)rm_calloc(1, sizeof(struct redisearch_thpool_t));
   if (thpool_p == NULL) {
-    RedisModule_Log(NULL, "notice", "redisearch_thpool_create(): Could not allocate memory for %s thread pool\n", thpool_name);
+    if (log) {
+      log("redisearch_thpool_create(): Could not allocate memory for %s thread pool", thpool_name);
+    }
     return NULL;
   }
+
   thpool_p->total_threads_count = num_threads;
   thpool_p->num_threads_alive = 0;
   thpool_p->num_threads_working = 0;
   thpool_p->flags = 0;
+  thpool_p->log = log;
 
   /* copy the threadpool name */
   /* If the name is too long, it will be truncated */
   if (strlen(thpool_name) > MAX_THPOOL_NAME_LEN) {
-    RedisModule_Log(NULL, "notice", "redisearch_thpool_create(): thpool name is too long, truncating it\n");
+    LOG_IF_EXISTS("redisearch_thpool_create(): thpool name is too long, truncating it");
   }
   strncpy(thpool_p->name, thpool_name, MAX_THPOOL_NAME_LEN);
 
   /* Initialise the job queue */
   if(priority_queue_init(&thpool_p->jobqueue) == -1) {
-    RedisModule_Log(NULL, "notice", "redisearch_thpool_create(): Could not allocate memory for job queue\n");
+    LOG_IF_EXISTS("redisearch_thpool_create(): Could not allocate memory for job queue");
     redisearch_thpool_cleanup(thpool_p);
     return NULL;
   }
@@ -246,7 +251,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, const c
   /* Make threads in pool */
   thpool_p->threads = (struct thread**)rm_calloc(num_threads, sizeof(struct thread*));
   if (thpool_p->threads == NULL) {
-    RedisModule_Log(NULL, "notice", "redisearch_thpool_create(): Could not allocate memory for threads\n");
+    LOG_IF_EXISTS("redisearch_thpool_create(): Could not allocate memory for threads");
     redisearch_thpool_cleanup(thpool_p);
     return NULL;
   }
@@ -254,7 +259,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, const c
   for (size_t i = 0; i < num_threads; i++) {
     thpool_p->threads[i] = (struct thread*)rm_malloc(sizeof(struct thread));
     if (thpool_p->threads[i] == NULL) {
-      RedisModule_Log(NULL, "notice", "thread_create(): Could not allocate memory for thread\n");
+      LOG_IF_EXISTS("thread_create(): Could not allocate memory for thread");
       redisearch_thpool_cleanup(thpool_p);
       return NULL;
     }
@@ -267,15 +272,14 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, const c
 }
 
 /* initialize thread pool */
-void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p, LogFunc log) {
+void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p) {
   assert(!(thpool_p->flags & RS_THPOOL_F_KEEP_ALIVE));
   redisearch_thpool_TURNON_flag(thpool_p, RS_THPOOL_F_KEEP_ALIVE);
   redisearch_thpool_TURNOFF_flag(thpool_p, RS_THPOOL_F_TERMINATE_WHEN_EMPTY);
-
   /* Thread init */
   size_t n;
   for (n = 0; n < thpool_p->total_threads_count; n++) {
-    thread_init(thpool_p, &thpool_p->threads[n], n, log);
+    thread_init(thpool_p, &thpool_p->threads[n], n);
 #if THPOOL_DEBUG
     printf("THPOOL_DEBUG: Created thread %d in pool \n", n);
 #endif
@@ -443,9 +447,7 @@ void redisearch_thpool_pause(redisearch_thpool_t* thpool_p) {
 
   while (thpool_p->flags & RS_THPOOL_F_RESUME) {
     sleep(1);
-    RedisModule_Log(
-        NULL, "warning",
-        "redisearch_thpool_pause(): waiting for %s threadpool to finish resuming process.",
+    LOG_FMT_IF_EXISTS("redisearch_thpool_pause(): waiting for %s threadpool to finish resuming process.",
         thpool_p->name);
   }
   size_t n;
@@ -508,8 +510,7 @@ void redisearch_thpool_resume(redisearch_thpool_t* thpool_p) {
   if (!thpool_p) return;
 
   if (!(thpool_p->flags & RS_THPOOL_F_PAUSE)) {
-    RedisModule_Log(NULL, "warning", "%s threadpool: redisearch_thpool_resume(): threadpool is not paused",
-    thpool_p->name);
+    LOG_FMT_IF_EXISTS("%s threadpool: redisearch_thpool_resume(): threadpool is not paused", thpool_p->name);
     return;
   }
   size_t n;
@@ -600,11 +601,10 @@ static void wait_to_resume(size_t threads_to_wait_cnt) {
  * @param id            id to be given to the thread
  * @return 0 on success, -1 otherwise.
  */
-static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id, LogFunc log) {
+static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id) {
 
   (*thread_p)->thpool_p = thpool_p;
   (*thread_p)->id = id;
-  (*thread_p)->log = log;
 
   pthread_create(&(*thread_p)->pthread, NULL, (void*)thread_do, (*thread_p));
   pthread_detach((*thread_p)->pthread);

@@ -1268,8 +1268,8 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
 
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
-    cleanPool = redisearch_thpool_create(1, "CLEANSPEC");
-    redisearch_thpool_init(cleanPool, LogCallback);
+    cleanPool = redisearch_thpool_create(1, "CLEANSPEC", LogCallback);
+    redisearch_thpool_init(cleanPool);
   }
 }
 
@@ -2085,8 +2085,8 @@ end:
 
 static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1, "REINDEX");
-    redisearch_thpool_init(reindexPool, LogCallback);
+    reindexPool = redisearch_thpool_create(1, "REINDEX", LogCallback);
+    redisearch_thpool_init(reindexPool);
   }
 #ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Register index %s for async scan", ((IndexSpec*)StrongRef_Get(spec_ref))->name);
@@ -2311,8 +2311,8 @@ void Indexes_UpgradeLegacyIndexes() {
 
 void Indexes_ScanAndReindex() {
   if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1, "REINDEX");
-    redisearch_thpool_init(reindexPool, LogCallback);
+    reindexPool = redisearch_thpool_create(1, "REINDEX", LogCallback);
+    redisearch_thpool_init(reindexPool);
   }
 
   RedisModule_Log(NULL, "notice", "Scanning all indexes");

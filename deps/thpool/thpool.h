@@ -24,7 +24,7 @@ typedef enum {
 } thpool_priority;
 
 // A callback to call redis log.
-typedef void (*LogFunc)(const char *);
+typedef void (*LogFunc)(const char *, ...);
 
 // Time (in seconds) to print we are waiting for some sync operation too long.
 #define WAIT_FOR_THPOOL_TIMEOUT 3
@@ -91,12 +91,11 @@ void resume_all_process_threads();
  * @param num_threads     number of threads to be created in the threadpool
  * @param thpool_name     A null terminated string to name the threadpool.
  *                        The name will be copied to a new string.
+ * @param log             callback to be called for printing debug messages to the log
  * NOTE: The name can be up to 10 bytes long, NOT including the terminating null byte.
  * @return Newly allocated threadpool, or NULL if creation failed.
  */
-redisearch_threadpool redisearch_thpool_create(size_t num_threads, const char *thpool_name);
-
-
+redisearch_threadpool redisearch_thpool_create(size_t num_threads, const char *thpool_name, LogFunc log);
 
 /**
  * @brief  Initialize an existing threadpool
@@ -113,9 +112,8 @@ redisearch_threadpool redisearch_thpool_create(size_t num_threads, const char *t
  *    ..
  *
  * @param threadpool    threadpool to initialize
- * @param threadpool    callback to be called for printing debug messages to the log
  */
-void redisearch_thpool_init(redisearch_threadpool, LogFunc logCB);
+void redisearch_thpool_init(redisearch_threadpool);
 
 /**
  * @brief Add work to the job queue

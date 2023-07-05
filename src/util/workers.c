@@ -36,7 +36,7 @@ int workersThreadPool_CreatePool(size_t worker_count) {
   assert(worker_count);
   assert(_workers_thpool == NULL);
 
-  _workers_thpool = redisearch_thpool_create(worker_count, "WORKERS");
+  _workers_thpool = redisearch_thpool_create(worker_count, "WORKERS", LogCallback);
   if (_workers_thpool == NULL) return REDISMODULE_ERR;
 
   return REDISMODULE_OK;
@@ -45,7 +45,7 @@ int workersThreadPool_CreatePool(size_t worker_count) {
 void workersThreadPool_InitPool() {
   assert(_workers_thpool != NULL);
 
-  redisearch_thpool_init(_workers_thpool, LogCallback);
+  redisearch_thpool_init(_workers_thpool);
 }
 
 // return number of currently working threads
