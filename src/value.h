@@ -60,36 +60,29 @@ typedef enum {
 } RSStringType;
 
 #define RSVALUE_STATIC \
-  { .allocated = 0 }
+  { .t = RSValue_Undef, .allocated = 0, .refcount = 1 }
 
 #pragma pack(4)
 // Variant value union
 typedef struct RSValue {
-
   union {
     // numeric value
     double numval;
 
-    int64_t intval;
+    //int64_t intval;
 
     // string value
     struct {
-      char *str;
+      char *str; // can be null, with len == 0
       uint32_t len : 29;
-      // sub type for string
-      RSStringType stype : 3;
+      RSStringType stype : 3; // sub type for string
     } strval;
 
     // array value
     struct {
-      struct RSValue **vals;
+      struct RSValue **vals; // can be null, with len == 0
       uint32_t len : 31;
-
-      /**
-       * Whether the storage space of the array itself
-       * should be freed
-       */
-      uint8_t staticarray : 1;
+      uint8_t staticarray : 1; // should `vals` be freed
     } arrval;
 
     struct {
@@ -112,6 +105,7 @@ typedef struct RSValue {
     // reference to another value
     struct RSValue *ref;
   };
+
   RSValueType t : 8;
   uint32_t refcount : 23;
   uint8_t allocated : 1;
@@ -141,18 +135,32 @@ void RSValue_Clear(RSValue *v);
 void RSValue_Free(RSValue *v);
 
 static inline RSValue *RSValue_IncrRef(RSValue *v) {
-  ++v->refcount;
+  if (v) ++v->refcount;
   return v;
 }
 
+#if 1
+
+static inline void RSValue_Decref(RSValue *v) {
+  if (v && !--v->refcount) {
+    //@@ printf("rsvalue free:  %p\n", v);
+    RSValue_Free(v);
+  }
+}
+
+#else
+
 #define RSValue_Decref(v) \
-  if (!--(v)->refcount) { \
+  if ((v) && !--(v)->refcount) { \
+    printf("freeing value %p\n", (v)); \
     RSValue_Free(v);      \
   }
+#endif
 
 RSValue *RS_NewValue(RSValueType t);
 
 #ifndef __cplusplus
+
 static RSValue RS_StaticValue(RSValueType t) {
   RSValue v = (RSValue){
       .t = t,
@@ -169,6 +177,7 @@ void RSValue_SetSDS(RSValue *v, sds s);
 void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
 
 #ifndef __cplusplus
+
 static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
   RS_LOG_ASSERT(src, "RSvalue is missing");
   RSValue_Clear(dst);
@@ -177,9 +186,15 @@ static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
 }
 
 static inline void RSValue_MakeOwnReference(RSValue *dst, RSValue *src) {
-  RSValue_MakeReference(dst, src);
-  RSValue_Decref(src);
+//  RSValue_MakeReference(dst, src);
+//  RSValue_Decref(src);
+
+  RS_LOG_ASSERT(src, "RSvalue is missing");
+  RSValue_Clear(dst);
+  dst->t = RSValue_Reference;
+  dst->ref = src;
 }
+
 #endif
 
 /* Return the value itself or its referred value */
@@ -204,6 +219,7 @@ RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t);
 static inline RSValue *RS_StringValC(char *s) {
   return RS_StringVal(s, strlen(s));
 }
+
 static inline RSValue *RS_ConstStringVal(const char *s, size_t n) {
   return RS_StringValT((char *)s, n, RSString_Const);
 }
@@ -247,12 +263,15 @@ static inline int RSValue_IsNull(const RSValue *value) {
  * A volatile string usually comes from a block allocator and is not freed in RSVAlue_Free, so just
  * discarding the pointer here is "safe" */
 static inline RSValue *RSValue_MakePersistent(RSValue *v) {
+  if (!v) return NULL;
   if (v->t == RSValue_String && v->strval.stype == RSString_Volatile) {
     v->strval.str = rm_strndup(v->strval.str, v->strval.len);
     v->strval.stype = RSString_Malloc;
   } else if (v->t == RSValue_Array) {
     for (size_t i = 0; i < v->arrval.len; i++) {
-      RSValue_MakePersistent(v->arrval.vals[i]);
+      if (v->arrval.vals[i]) {
+        RSValue_MakePersistent(v->arrval.vals[i]);
+	  }
     }
   }
   return v;
@@ -278,14 +297,18 @@ int RSValue_ToNumber(const RSValue *v, double *d);
 #define RSVALUE_NULL_HASH 1337
 
 /* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
-/* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
 static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
-  switch (v->t) {
-    case RSValue_Reference:
-      return RSValue_Hash(v->ref, hval);
-    case RSValue_String:
+  if (!v) return 0;
 
+  switch (v->t) {
+    case RSValue_Reference: {
+	  RSValue *v1 = RSValue_Dereference(v);
+      return RSValue_Hash(v1, hval);
+	}
+
+    case RSValue_String:
       return fnv_64a_buf(v->strval.str, v->strval.len, hval);
+
     case RSValue_Number:
       return fnv_64a_buf(&v->numval, sizeof(double), hval);
 
@@ -295,15 +318,19 @@ static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
       const char *c = RedisModule_StringPtrLen(v->rstrval, &sz);
       return fnv_64a_buf((void *)c, sz, hval);
     }
+
     case RSValue_Null:
       return hval + 1;
 
     case RSValue_Array: {
       for (uint32_t i = 0; i < v->arrval.len; i++) {
-        hval = RSValue_Hash(v->arrval.vals[i], hval);
+		if (v->arrval.vals[i]) {
+          hval = RSValue_Hash(v->arrval.vals[i], hval);
+		}
       }
       return hval;
     }
+
     case RSValue_Undef:
       return 0;
 
@@ -407,7 +434,7 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 #define RSVALUE_STATICALLOC_INIT(T) RSValue(T)
 #else
 #define RSVALUE_STATICALLOC_INIT(T) \
-  { .t = T }
+  { .t = T, .allocated = 0, .refcount = 1 }
 #endif
 
 /** Static value pointers. These don't ever get decremented */
