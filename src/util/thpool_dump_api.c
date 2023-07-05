@@ -11,14 +11,15 @@
 #include <sys/types.h>
 #include <stdlib.h>
 #include <signal.h>
-#include <sys/prctl.h>
 #include <stdlib.h>
-
-
 #include "thpool_dump_api.h"
 #include "util/arr.h"
 #include "util/proc_file.h"
 #include "rmutil/rm_assert.h"
+
+#if defined(__linux__)
+#include <sys/prctl.h>
+#endif
 
 #include "util/workers.h"
 #include "gc.h"
