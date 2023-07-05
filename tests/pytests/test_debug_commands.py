@@ -188,89 +188,90 @@ def get_and_check_threadpools_count(env, threadpools_dict, expected_len):
     env.assertEqual(len(threadpools_titles), expected_len)
     return threadpools_titles
 
-def check_threads_count(env, threadpools_dict, expected_len, thpool_pos):
+def get_threads_titles(env, threads_output):
     if env.protocol == 2:
-        # In resp2 for each thpool the output is in the format of [thpool_title, [thread_bt_#0, thread_bt#1....]]
-        resp2_thpool_output_len = 2
-        curr_backtraces = thpool_pos * resp2_thpool_output_len + 1 # bt relative position
-        backtraces_titles = threadpools_dict[curr_backtraces][0::2]
-    elif env.protocol == 3:
-        backtraces_titles = threadpools_dict[thpool_pos].keys()
-    env.assertEqual(expected_len, len(backtraces_titles))
+        # In resp2 for each thpool the output is in the format of [thread_name, [bt_line#0, bt_line#1....], thread_name, [...]]
+        return threads_output[0::2]
+    # For resp3 each backtrace is a dict {thread_name: [bt_line#0, bt_line#1....]}
+    return threads_output.keys()
 
 def threadpool_name_to_title(thpool_name):
     return f"=== {thpool_name} THREADS BACKTRACE: ==="
 
 def threadpool_title_to_name(thpool_title):
-    thpool_title = thpool_title.split()[1]
-    titles = ["GC", "WORKERS", "CLEANSPEC", "ConcurrentSearch"]
+    thpool_title = thpool_title.split()[0]
+    titles = ["GC", "WORKERS", "CLEANSPEC", "SEARCH"]
     if thpool_title not in titles:
         return None
     return thpool_title
 
 def DumpBacktrace_ALL(env: Env, threadpools_attr):
     # Ask for all threadpools
-    threadpools_dict = env.cmd(ftDebugCmdName(env), 'DUMP_THREADPOOL_BACKTRACE', 'ALL')
-    threadpools_titles = get_and_check_threadpools_count(env, threadpools_dict, len(threadpools_attr))
+    threads_output = env.cmd(ftDebugCmdName(env), 'DUMP_THREADPOOL_BACKTRACE', 'ALL')
+    threads_titles = get_threads_titles(env, threads_output)
+    min_total_threads_count = sum([thpool["expected_threads_count"] for thpool in threadpools_attr.values()])
+
+    env.assertGreaterEqual(len(threads_titles), min_total_threads_count)
 
     # Ensure that all the threadpools appear only once
-    for i, threadpool in enumerate(threadpools_titles):
-        thpool_name = threadpool_title_to_name(threadpool)
-        if thpool_name is None:
-            env.assertEqual(thpool_name, threadpool, message=(f"Threadpool title {threadpool} is unexpected"))
-            continue
-        env.assertEqual(threadpools_attr[thpool_name]["status"], 'NOT_FOUND')
-        threadpools_attr[thpool_name]["status"] = 'FOUND'
-        check_threads_count(env,
-                            threadpools_dict,
-                            expected_len= threadpools_attr[thpool_name]["threads_count"],
-                            thpool_pos = i if env.protocol == 2 else threadpool)
-
-
+    for thread in threads_titles:
+        thpool_name = thread.split('-')[0]
+        # Currently we have only one or zero SEARCH threadpool.
+        # Check this special case to alert future dev. to update the test :)
+        if "SEARCH_" in thpool_name:
+            env.assertNotEqual(thpool_name, "SEARCH_1", message="Only one SEARCH threadpool should be created")
+        thpool = threadpools_attr.get(thpool_name)
+        if thpool is not None:
+            thpool["curr_count"] += 1
+            env.assertLessEqual(thpool["curr_count"], thpool["expected_threads_count"])
 
 def DumpBacktrace(protocol):
+    WORKER_THREADS = 0
+    module_args=''
     if MT_BUILD:
         WORKER_THREADS = 3
-        expected_threadpools_cnt = 3
         module_args= f'WORKER_THREADS {WORKER_THREADS} MT_MODE MT_MODE_FULL'
-    else:
-        expected_threadpools_cnt = 2
-        module_args=''
 
     env = Env(protocol=protocol, moduleArgs=module_args)
 
-    threadpools_attr = {
-        "GC": {"title": threadpool_name_to_title("GC"), "status":'NOT_FOUND', "threads_count": 1},
-        "CLEANSPEC": {"title": threadpool_name_to_title("CLEANSPEC"), "status":'NOT_FOUND', "threads_count": 1}
-    }
+    # Run the test twice to check cleanups were done as expected.
+    for run in range (2):
+        search_threads_count = 20 if env.isCluster() else 0
+        threadpools_attr = {
+            "GC": {"curr_count":0, "expected_threads_count": 1},
+            "CLEANSPEC": {"curr_count":0, "expected_threads_count": 1},
+            "WORKERS": {"curr_count":0, "expected_threads_count": WORKER_THREADS},
+            "SEARCH_0": {"curr_count":0, "expected_threads_count": search_threads_count}
+        }
 
-    if env.isCluster():
-        expected_threadpools_cnt += 1
-        threads_count = 20
-        threadpools_attr["ConcurrentSearch"] = {"title": threadpool_name_to_title("ConcurrentSearch_thpool_0"), "status":'NOT_FOUND', "threads_count": threads_count}
+        # DUMMY threadpool returns an error
+        env.expect(ftDebugCmdName(env), 'DUMP_THREADPOOL_BACKTRACE', 'DUMMY').raiseError().contains('no such threadpool DUMMY')
 
-    if MT_BUILD:
-        threadpools_attr["WORKERS"] = {"title": threadpool_name_to_title("WORKERS"), "status":'NOT_FOUND', "threads_count": WORKER_THREADS}
+        # Get all the threads backtraced known to the process. The output contains also threads that are not created by RediSearch module.
+        DumpBacktrace_ALL(env, threadpools_attr)
 
-    # DUMMY threadpool returns an error
-    env.expect(ftDebugCmdName(env), 'DUMP_THREADPOOL_BACKTRACE', 'DUMMY').raiseError().contains('no such threadpool DUMMY')
+        for threadpool in threadpools_attr:
+            expected_count = threadpools_attr[threadpool]["expected_threads_count"]
+            if expected_count == 0:
+                continue
 
-    env.assertEqual(len(threadpools_attr), expected_threadpools_cnt)
+            dump_dict = env.cmd(ftDebugCmdName(env), 'DUMP_THREADPOOL_BACKTRACE', threadpool)
+            # check len is as threadpool expected number of threads
+            threads_titles = get_threads_titles(env, dump_dict)
+            env.assertEqual(len(threads_titles), expected_count)
 
-    DumpBacktrace_ALL(env, threadpools_attr)
+            # Check the threads' titles.
+            expected_ids = sum(range(expected_count))
+            res_ids = 0
+            for thread in threads_titles:
+                threadpool_name_and_id = thread.split('-')
+                # Check the title
+                env.assertEqual(threadpool, threadpool_name_and_id[0])
 
-    for threadpool in threadpools_attr:
-        dump_dict = env.cmd(ftDebugCmdName(env), 'DUMP_THREADPOOL_BACKTRACE', threadpool)
+                res_ids += int(threadpool_name_and_id[1])
 
-        # One threadpool should return
-        threadpool_title = get_and_check_threadpools_count(env, dump_dict, 1)
-
-        threadpool_name = threadpool_title_to_name(threadpool_title[0])
-
-        # Check it has the expected number of threads
-        check_threads_count(env, dump_dict, threadpools_attr[threadpool_name]["threads_count"],
-                            thpool_pos = 0 if env.protocol == 2 else threadpool_title[0])
-
+            # check the id
+            env.assertEqual(expected_ids, res_ids)
 
 def testDumpBacktrace_resp3():
     DumpBacktrace(protocol=3)
