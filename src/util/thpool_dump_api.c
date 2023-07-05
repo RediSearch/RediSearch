@@ -27,21 +27,23 @@
 #include "concurrent_ctx.h"
 /* ========================== STRUCTURES ============================ */
 
+// Maximum number of addresses to backtrace.
+#define BT_BUF_SIZE 100
+
+#define MAX_THREAD_NAME_BUFF 16
 typedef struct {
   int trace_size;                   /* number of address in the backtrace */
   statusOnCrash status_on_crash;    /* thread's status when the crash happened */
   char **printable_bt;              /* backtrace symbols */
 
 #if defined(__linux__) || (defined(__APPLE__) && defined(__MACH__))
-  char thread_name[16]; /* The name of the thread as assigned when created.
+  char thread_name[MAX_THREAD_NAME_BUFF]; /* The name of the thread as assigned when created.
                             Not supported on all platforms */
 #endif
 } thread_bt_data;
 
 /* ============================ GLOBALS ============================== */
 
-// Maximum number of addresses to backtrace.
-#define BT_BUF_SIZE 100
 
 // Dump container.
 static thread_bt_data *printable_bt_buffer = NULL;
@@ -116,7 +118,7 @@ static void thread_bt_buffer_init(uint32_t thread_id, void *bt_addresses_buf, in
   prctl(PR_GET_NAME, printable_bt_buffer[thread_id].thread_name);
 #elif defined(__APPLE__) && defined(__MACH__)
 	pthread_t caller = pthread_self();
-  pthread_getname_np(caller, printable_bt_buffer[thread_id].thread_name);
+  pthread_getname_np(caller, printable_bt_buffer[thread_id].thread_name, MAX_THREAD_NAME_BUFF);
 #endif
 }
 
