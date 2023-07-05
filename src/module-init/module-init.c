@@ -111,27 +111,13 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
-static void RS_ThreadpoolsShutdownLog(RedisModuleInfoCtx *ctx) {
-    GC_ThreadPoolShutdownLog(ctx);
-#ifdef MT_BUILD
-  workersThreadPool_ShutdownLog(ctx);
-#endif // MT_BUILD
-  ConcurrentSearch_ShutdownLog(ctx);
-  CleanPool_ThreadPoolShutdownLog(ctx);
-}
-
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   if (for_crash_report) {
     // Check that its safe to start data collection process
     if (ThpoolDump_test_and_start()) {
-      // First pause all threads
-      RS_ThreadpoolsPauseBeforeDump();
-
       // Print all the threadpools backtraces to the log file
-      RS_ThreadpoolsShutdownLog(ctx);
-
-      // General cleanups.
-      ThpoolDump_done();
+      ThpoolDump_all_to_info(ctx);
+      ThpoolDump_finish();
     } else {
       RedisModule_InfoAddSection(ctx, "Threadpools_state_error");
 

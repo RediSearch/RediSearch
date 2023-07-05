@@ -3,9 +3,8 @@
  * License:     MIT
  *
  **********************************/
+#pragma once
 
-#ifndef _THPOOL_
-#define _THPOOL_
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -27,7 +26,7 @@ typedef enum {
 } thpool_priority;
 
 // Time (in seconds) to print we are waiting for some sync operation too long.
-#define LOG_WAITING_TIME_INTERVAL 3
+#define WAIT_FOR_THPOOL_TIMEOUT 3
 
 /* Threadpool flags associated with dump data collection*/
 
@@ -66,6 +65,22 @@ const char *redisearch_thpool_get_name(redisearch_threadpool);
  */
 void register_process_to_pause_handler(RedisModuleCtx *ctx);
 
+/**
+ * @brief  Pause all the threads known to the process except:
+ * 1. The caller
+ * 2. threads that block or ignore the pause signal.
+ * To resume use resume_all_process_threads().
+ *
+ * NOTE: The threads are paused using the signaled registered to process using register_process_to_pause_handler()
+ *
+ * @return  The number of threads that were signaled.
+ */
+size_t pause_all_process_threads();
+
+/**
+ * @brief  Resume all the threads that were paused using pause_all_process_threads
+ */
+void resume_all_process_threads();
 /* =================================== THREADPOOL ======================================= */
 
 /**
@@ -74,6 +89,7 @@ void register_process_to_pause_handler(RedisModuleCtx *ctx);
  * @param num_threads     number of threads to be created in the threadpool
  * @param thpool_name     A null terminated string to name the threadpool.
  *                        The name will be copied to a new string.
+ * NOTE: The name can be up to 10 bytes long, NOT including the terminating null byte.
  * @return Newly allocated threadpool, or NULL if creation failed.
  */
 redisearch_threadpool redisearch_thpool_create(size_t num_threads, const char *thpool_name);
@@ -335,6 +351,4 @@ size_t redisearch_thpool_num_threads_alive_unsafe(redisearch_threadpool);
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

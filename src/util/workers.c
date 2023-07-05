@@ -131,20 +131,8 @@ void workersThreadPool_SetTerminationWhenEmpty() {
   }
 }
 
-void workersThreadPool_PauseBeforeDump() {
-  ThpoolDump_pause(_workers_thpool);
-}
-
-void workersThreadPool_Resume() {
-  redisearch_thpool_resume(_workers_thpool);
-}
-
-void workersThreadPool_ShutdownLog(RedisModuleInfoCtx *ctx) {
-  ThpoolDump_log_to_info(_workers_thpool, ctx);
-}
-
-void workersThreadPool_PrintBacktrace(RedisModule_Reply *reply) {
-  ThpoolDump_log_to_reply(_workers_thpool, reply);
+int workersThreadPool_PrintBacktrace(RedisModule_Reply *reply) {
+  return ThpoolDump_collect_and_log_to_reply(_workers_thpool, reply);
 }
 
 #endif // MT_BUILD

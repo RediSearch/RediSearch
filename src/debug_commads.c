@@ -916,24 +916,6 @@ DEBUG_COMMAND(VecsimInfo) {
   return REDISMODULE_OK;
 }
 
-static void RS_ThreadpoolsPrintBacktrace(RedisModule_Reply *reply) {
-  GC_ThreadPoolPrintBacktrace(reply);
-#ifdef MT_BUILD
-  workersThreadPool_PrintBacktrace(reply);
-#endif // MT_BUILD
- // IndexSpec *meow = NULL;
- // meow->flags = 8;
-  ConcurrentSearch_PrintBacktrace(reply);
-  CleanPool_ThreadPoolPrintBacktrace(reply);
-}
-
-#define REPLY_THPOOL_BACKTRACE(thpool_name) \
-    RedisModule_Reply_Map(reply); /*Threadpools dict*/ \
-    thpool_name##PauseBeforeDump(); \
-    thpool_name##PrintBacktrace(reply); \
-    thpool_name##Resume(); \
-    RedisModule_Reply_MapEnd(reply); // Thredpools dict
-
 /**
  * FT.DEBUG DUMP_THREADPOOL_BACKTRACE thpool_name
  *
@@ -942,6 +924,8 @@ DEBUG_COMMAND(DumpThreadPoolBacktrace) {
   if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
+
+  // Initialize reply ctx
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   if (!ThpoolDump_test_and_start()) {
@@ -951,34 +935,33 @@ DEBUG_COMMAND(DumpThreadPoolBacktrace) {
   }
   const char *thpool_name = RedisModule_StringPtrLen(argv[0], NULL);
 
-  // Initialize reply ctx
-
+  int ret = REDISMODULE_ERR;
   // find the requested thpool
   if(!strcmp(thpool_name, "ALL")) {
-    REPLY_THPOOL_BACKTRACE(RS_Threadpools);
+    ret = ThpoolDump_all_to_reply(reply);
   } else if(!strcmp(thpool_name, "GC")) {
-    REPLY_THPOOL_BACKTRACE(GC_ThreadPool);
-  } else if(!strcmp(thpool_name, "ConcurrentSearch")) {
-    REPLY_THPOOL_BACKTRACE(ConcurrentSearch_);
+    ret = GC_ThreadPoolPrintBacktrace(reply);
+  } else if(!strcmp(thpool_name, "SEARCH_0")) {
+    ret = ConcurrentSearch_PrintBacktrace(reply, 0);
   } else if(!strcmp(thpool_name, "CLEANSPEC")) {
-    REPLY_THPOOL_BACKTRACE(CleanPool_ThreadPool);
+    ret = CleanPool_ThreadPoolPrintBacktrace(reply);
   }
 #ifdef MT_BUILD
   else if(!strcmp(thpool_name, "WORKERS")) {
-    REPLY_THPOOL_BACKTRACE(workersThreadPool_);
+    ret = workersThreadPool_PrintBacktrace(reply);
   }
 #endif // MT_BUILD
-  else {
+
+  if (REDISMODULE_ERR == ret) {
     char buff[100];
     sprintf(buff, "no such threadpool %s", thpool_name);
     RedisModule_Reply_Error(reply, buff);
   }
 
-  // General cleanups.
-  ThpoolDump_done();
   RedisModule_EndReply(reply);
+  ThpoolDump_finish();
 
-  return REDISMODULE_OK;
+  return ret;
 }
 
 typedef struct DebugCommandType {

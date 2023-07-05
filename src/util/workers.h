@@ -43,17 +43,8 @@ void workersThreadPool_InitIfRequired(void);
 // Actively wait and terminates the running workers pool after all pending jobs are done.
 void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx);
 
-// Pause the workers before we start collecting crash info.
-void workersThreadPool_PauseBeforeDump();
-
-// Return threads to the original execution point where pause was called.
-void workersThreadPool_Resume();
-
-// Collect and print crash info.
-void workersThreadPool_ShutdownLog(RedisModuleInfoCtx *ctx);
-
 // Print the current backtrace of the workers threads.
-void workersThreadPool_PrintBacktrace(RedisModule_Reply *reply);
+int workersThreadPool_PrintBacktrace(RedisModule_Reply *reply);
 
 // Set a signal for the running threads to terminate once all pending jobs are done.
 void workersThreadPool_SetTerminationWhenEmpty();

@@ -7,8 +7,16 @@
 #include <stdatomic.h>
 #include <execinfo.h>
 #include <time.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <sys/prctl.h>
 
 #include "thpool_dump_api.h"
+#include "util/arr.h"
+#include "util/proc_file.h"
+#include "rmutil/rm_assert.h"
 
 #include "util/workers.h"
 #include "gc.h"
@@ -20,6 +28,11 @@ typedef struct {
   int trace_size;                   /* number of address in the backtrace */
   statusOnCrash status_on_crash;    /* thread's status when the crash happened */
   char **printable_bt;              /* backtrace symbols */
+
+#if defined(__linux__) || (defined(__APPLE__) && defined(__MACH__))
+  char thread_name[16]; /* The name of the thread as assigned when created.
+                            Not supported on all platforms */
+#endif
 } thread_bt_data;
 
 /* ============================ GLOBALS ============================== */
@@ -30,10 +43,6 @@ typedef struct {
 // Dump container.
 static thread_bt_data *printable_bt_buffer = NULL;
 
-// Save the curr backtrace buffer size (in terms of thread_bt_data struct)
-// to check if we need to increase the dump container size
-static volatile size_t g_curr_bt_buffer_size = 0;
-
 // An atomic counter of the number of threads done logging their backtrace.
 static atomic_size_t g_threads_done_writing = 0;
 
@@ -42,24 +51,42 @@ static atomic_size_t g_threads_done_writing = 0;
 // from crash report callbacks trying to get the backtrace.
 static volatile int g_collecting_state_in_progress = 0;
 
-/* ========================== HELPER FUNCTIONS ============================ */
+static volatile bool g_all_ready_to_dump = 1;
 
-static void wait_for_writing(redisearch_threadpool thpool_p, size_t threads_to_wait_cnt);
+static volatile bool g_collect_all_mode = 0;
 
-// ThpoolDump_log_to_info() wraps these functions:
+/* ========================== HELPERS FUNCTIONS ============================ */
+
+/* ============== HELPERS FOR GENERAL DUMP ================ */
+
+static void wait_for_writing(size_t threads_to_wait_cnt, const char *error_log_title);
+
+static void ThpoolDump_all_prepare();
+
+// Cleanups after logging is done.
+static void ThpoolDump_all_done();
+/* ============== HELPERS FOR THPOOLS ================ */
+
+// Prepare the threadpool for dump report and pause it.
+static void ThpoolDump_pause(redisearch_threadpool);
 
 // Initialize all the data structures required to log the state of each thread in the threadpool
 // and mark the the threads they can start writing to them.
-static void redisearch_thpool_StateLog_init(redisearch_threadpool);
-// Print the data collected by the threads to the crash report.
-static void redisearch_thpool_StateLog_log_to_RSinfo(redisearch_threadpool,
-                                             RedisModuleInfoCtx *ctx);
-// Reply with the data collected by the threads.
-static void redisearch_thpool_StateLog_RSreply(redisearch_threadpool,
-                                                      RedisModule_Reply *reply);
-// Cleanups related to a specific threadpool dump
-static void redisearch_thpool_StateLog_cleanup(redisearch_threadpool);
+static void ThpoolDump_init(redisearch_threadpool);
 
+// Print the data collected by the threads to the crash report.
+static void ThpoolDump_wait_and_reply(redisearch_threadpool thpool_p,
+                                                      RedisModule_Reply *reply);
+
+static void ThpoolDump_log_to_reply(RedisModule_Reply *reply);
+
+// Cleanups related to a specific threadpool dump
+static void ThpoolDump_thpool_cleanups(redisearch_threadpool);
+
+// General cleanups after all the threadpools are done dumping their state data.
+static void ThpoolDump_done();
+
+/* ========================== API ============================ */
 
 bool ThpoolDump_test_and_start() {
   // Mark the **process** as in "collecting state" mode
@@ -72,12 +99,22 @@ bool ThpoolDump_test_and_start() {
   return !is_in_progress;
 }
 
+void ThpoolDump_finish() {
+  __atomic_clear(&g_collecting_state_in_progress, __ATOMIC_RELAXED);
+}
+
 static void thread_bt_buffer_init(uint32_t thread_id, void *bt_addresses_buf, int trace_size, statusOnCrash status_on_crash) {
-    // NOTE: backtrace_symbols() returns a pointer to the array malloced by the call
-    // and should be freed by us.
-    printable_bt_buffer[thread_id].printable_bt = backtrace_symbols(bt_addresses_buf, trace_size);
-    printable_bt_buffer[thread_id].trace_size = trace_size;
-    printable_bt_buffer[thread_id].status_on_crash = status_on_crash;
+  // NOTE: backtrace_symbols() returns a pointer to the array malloced by the call
+  // and should be freed by us.
+  printable_bt_buffer[thread_id].printable_bt = backtrace_symbols(bt_addresses_buf, trace_size);
+  printable_bt_buffer[thread_id].trace_size = trace_size;
+  printable_bt_buffer[thread_id].status_on_crash = status_on_crash;
+#if defined(__linux__)
+  prctl(PR_GET_NAME, printable_bt_buffer[thread_id].thread_name);
+#elif defined(__APPLE__) && defined(__MACH__)
+	pthread_t caller = pthread_self();
+  pthread_getname_np(caller, printable_bt_buffer[thread_id].thread_name);
+#endif
 }
 
 void ThpoolDump_log_backtrace(statusOnCrash status_on_crash, size_t thread_id) {
@@ -92,7 +129,7 @@ void ThpoolDump_log_backtrace(statusOnCrash status_on_crash, size_t thread_id) {
   ++g_threads_done_writing;
 }
 
-static void wait_for_writing(redisearch_threadpool thpool_p, size_t threads_to_wait_cnt) {
+static void wait_for_writing(size_t threads_to_wait_cnt, const char *error_log_title) {
 
   // when g_threads_done_writing == threads_to_wait_cnt all the threads marked that they have done
   // writing their backtrace to the buffer.
@@ -100,81 +137,52 @@ static void wait_for_writing(redisearch_threadpool thpool_p, size_t threads_to_w
   clock_t start = clock();
   size_t threads_done = g_threads_done_writing;
   while (threads_done != threads_to_wait_cnt) {
-    int waiting_time = (clock() - start)/CLOCKS_PER_SEC;
-    if (waiting_time && waiting_time % LOG_WAITING_TIME_INTERVAL == 0 ) {
-      RedisModule_Log(NULL, "warning",
-                      "%s threadpool:something is wrong: expected %lu threads to finish, but only %lu are done. "
-                      "continue waiting",
-                      redisearch_thpool_get_name(thpool_p), threads_to_wait_cnt, threads_done);
-    }
+    RS_LOG_ASSERT_FMT(
+        (clock() - start) / CLOCKS_PER_SEC < WAIT_FOR_THPOOL_TIMEOUT,
+        "%s: expected %lu threads to finish, but only %lu are done. ", error_log_title,
+        threads_to_wait_cnt, threads_done);
     threads_done = g_threads_done_writing;
   }
 }
 
-/* ======================== THREADS STATE LOG HELPERS ========================= */
-void ThpoolDump_log_to_reply(redisearch_threadpool thpool_p,
+/* ======================== HELPERS ========================= */
+int ThpoolDump_collect_and_log_to_reply(redisearch_threadpool thpool_p,
                                        RedisModule_Reply *reply) {
   if (!thpool_p) {
-    return;
+    return REDISMODULE_ERR;
   }
 
-  if (!(redisearch_thpool_ISSET_flag(thpool_p, RS_THPOOL_F_PAUSE))) {
-    RedisModule_Log(
-        NULL, "warning",
-        "%s threadpool: ThpoolDump_log_to_reply(): the threadpool must be paused to print backtrace",
-        redisearch_thpool_get_name(thpool_p));
-    return;
-  }
+  ThpoolDump_pause(thpool_p);
 
   // Save all threads data
-  redisearch_thpool_StateLog_init(thpool_p);
+  ThpoolDump_init(thpool_p);
 
   // Print the backtrace of each thread
-  redisearch_thpool_StateLog_RSreply(thpool_p, reply);
+  ThpoolDump_wait_and_reply(thpool_p, reply);
 
   // cleanup
-  redisearch_thpool_StateLog_cleanup(thpool_p);
+  ThpoolDump_thpool_cleanups(thpool_p);
+
+  // resume
+  redisearch_thpool_resume(thpool_p);
+
+  ThpoolDump_done();
+
+  return REDISMODULE_OK;
 }
 
-
-void ThpoolDump_log_to_info(redisearch_threadpool thpool_p, RedisModuleInfoCtx *ctx) {
-  if (!thpool_p) {
-    return;
-  }
-
-  if (!(redisearch_thpool_ISSET_flag(thpool_p, RS_THPOOL_F_PAUSE))) {
-    RedisModule_Log(
-        NULL, "warning",
-        "%s threadpool: ThpoolDump_log_to_info(): the threadpool must be paused to dump state log",
-        redisearch_thpool_get_name(thpool_p));
-    return;
-  }
-
-  // Save all threads data
-  redisearch_thpool_StateLog_init(thpool_p);
-
-  // Print the backtrace of each thread
-  redisearch_thpool_StateLog_log_to_RSinfo(thpool_p, ctx);
-
-  // cleanup
-  redisearch_thpool_StateLog_cleanup(thpool_p);
-}
-
-void ThpoolDump_done() {
+static void ThpoolDump_done() {
   // release the backtraces buffer
   rm_free(printable_bt_buffer);
-  g_curr_bt_buffer_size = 0;
   printable_bt_buffer = NULL;
 
+  g_threads_done_writing = 0;
+
   // Turn off the flag to indicate that the data collection process is done
-  __atomic_clear(&g_collecting_state_in_progress, __ATOMIC_RELAXED);
+  ThpoolDump_finish();
 }
 
-void ThpoolDump_pause(redisearch_threadpool thpool_p) {
-
-  if (!thpool_p) {
-    return;
-  }
+static void ThpoolDump_pause(redisearch_threadpool thpool_p) {
 
   // set thpool signal handler mode to collect the current threads' state.
   redisearch_thpool_TURNON_flag(thpool_p, RS_THPOOL_F_COLLECT_STATE_INFO);
@@ -187,19 +195,15 @@ void ThpoolDump_pause(redisearch_threadpool thpool_p) {
   redisearch_thpool_pause(thpool_p);
 }
 
-
 /* Initialize all data structures required to log the backtrace of each thread in the threadpool
  * and pause the threads.
  */
-static void redisearch_thpool_StateLog_init(redisearch_threadpool thpool_p) {
+static void ThpoolDump_init(redisearch_threadpool thpool_p) {
 
   size_t threadpool_size = redisearch_thpool_num_threads_alive_unsafe(thpool_p);
 
-  // realloc backtraces buffer array if needed
-  if(threadpool_size > g_curr_bt_buffer_size) {
-    printable_bt_buffer = rm_realloc(printable_bt_buffer, threadpool_size * sizeof(thread_bt_data));
-    g_curr_bt_buffer_size = threadpool_size;
-  }
+  // alloc backtraces buffer array
+  printable_bt_buffer = rm_calloc(threadpool_size, sizeof(thread_bt_data));
 
   if (printable_bt_buffer == NULL) {
     RedisModule_Log(NULL, "warning",
@@ -222,65 +226,38 @@ static void redisearch_thpool_StateLog_init(redisearch_threadpool thpool_p) {
   }
 }
 
-/* Prints the log for each thread to the crash log file*/
-static void redisearch_thpool_StateLog_log_to_RSinfo(redisearch_threadpool thpool_p,
-                                                     RedisModuleInfoCtx *ctx) {
-
-  size_t threadpool_size = redisearch_thpool_num_threads_alive_unsafe(thpool_p);
-
-  wait_for_writing(thpool_p, threadpool_size);
-
-  char info_section_title[100];
-  sprintf(info_section_title, "=== %s THREADS LOG: ===", redisearch_thpool_get_name(thpool_p));
-  RedisModule_InfoAddSection(ctx, info_section_title);
-
-  // for each thread in g_threads_done_cnt
-  for(size_t i = 0; i < g_threads_done_writing; i++) {
-    thread_bt_data curr_bt = printable_bt_buffer[i];
-    char buff[100];
-    if(curr_bt.status_on_crash == CRASHED) {
-      sprintf(buff, "CRASHED thread #%lu backtrace: \n",i);
-    } else {
-      sprintf(buff, "thread #%lu backtrace: \n",i);
-    }
-    RedisModule_InfoAddSection(ctx, buff);
-
-    // print the backtrace
-    for(int j = 0; j < curr_bt.trace_size; j++) {
-      sprintf(buff, "%d",j);
-      RedisModule_InfoAddFieldCString(ctx, buff, curr_bt.printable_bt[j]);
-    }
-
-    // clean up inner backtrace strings array malloc'd by backtrace_symbols()
-    free(curr_bt.printable_bt);
-  }
-}
-
-static void redisearch_thpool_StateLog_cleanup(redisearch_threadpool thpool_p) {
+static void ThpoolDump_thpool_cleanups(redisearch_threadpool thpool_p) {
   // clear counters and turn off flags.
-  g_threads_done_writing = 0;
   redisearch_thpool_TURNOFF_flag(thpool_p, RS_THPOOL_F_READY_TO_DUMP);
   redisearch_thpool_TURNOFF_flag(thpool_p, RS_THPOOL_F_CONTAINS_HANDLING_THREAD);
   redisearch_thpool_TURNOFF_flag(thpool_p, RS_THPOOL_F_COLLECT_STATE_INFO);
 }
 
-static void redisearch_thpool_StateLog_RSreply(redisearch_threadpool thpool_p,
+static void ThpoolDump_wait_and_reply(redisearch_threadpool thpool_p,
                                                       RedisModule_Reply *reply) {
   size_t threadpool_size = redisearch_thpool_num_threads_alive_unsafe(thpool_p);
 
   // Print the back trace of each thread
-  wait_for_writing(thpool_p, threadpool_size);
+  wait_for_writing(threadpool_size, redisearch_thpool_get_name(thpool_p));
 
-  char thpool_title[100];
-  sprintf(thpool_title, "=== %s THREADS BACKTRACE: ===", redisearch_thpool_get_name(thpool_p));
+  ThpoolDump_log_to_reply(reply);
 
-  RedisModule_ReplyKV_Map(reply, thpool_title); // >threads dict
+}
+
+static void ThpoolDump_log_to_reply(RedisModule_Reply *reply) {
+  RedisModule_Reply_Map(reply); // >threads dict
   // for each thread in threads_ids
   for(size_t i = 0; i < g_threads_done_writing; i++) {
     thread_bt_data curr_bt = printable_bt_buffer[i];
-    char buff[100];
-    sprintf(buff, "thread #%lu backtrace:",i);
-    RedisModule_ReplyKV_Array(reply, buff); // >>Thread's backtrace
+#if defined(__linux__) || (defined(__APPLE__) && defined(__MACH__))
+    char *name = curr_bt.thread_name;
+#else
+    // generate a title
+    char name[16];
+    sprintf(name, "thread-%lu",i);
+#endif
+
+    RedisModule_ReplyKV_Array(reply, name); // >>Thread's backtrace
 
     // print the backtrace
     for(int j = 0; j < curr_bt.trace_size; j++) {
@@ -294,23 +271,97 @@ static void redisearch_thpool_StateLog_RSreply(redisearch_threadpool thpool_p,
   }
   RedisModule_Reply_MapEnd(reply); // >threads dict
 }
+/* ============================ DUMP ALL API ============================== */
 
-/* ============================ REDISEARCH THPOOLS ============================== */
-
-void RS_ThreadpoolsPauseBeforeDump() {
-#ifdef MT_BUILD
-  workersThreadPool_PauseBeforeDump();
-#endif // MT_BUILD
-  CleanPool_ThreadPoolPauseBeforeDump();
-  ConcurrentSearch_PauseBeforeDump();
-  GC_ThreadPoolPauseBeforeDump();
+bool ThpoolDump_all_ready() {
+  return g_all_ready_to_dump;
 }
 
-void RS_ThreadpoolsResume() {
-#ifdef MT_BUILD
-  workersThreadPool_Resume();
-#endif // MT_BUILD
-  CleanPool_ThreadPoolResume();
-  ConcurrentSearch_Resume();
-  GC_ThreadPoolResume();
+bool ThpoolDump_collect_all_mode() {
+  return g_collect_all_mode;
+}
+
+static void ThpoolDump_all_prepare() {
+
+  g_collect_all_mode = 1;
+  g_all_ready_to_dump = 0;
+
+  size_t threads_to_collect = pause_all_process_threads() + 1;
+
+  // Pause all threads. We need to collect data from all the paused threads + the current thread
+  // (can be either the main thread or a background thread)
+
+  printable_bt_buffer = rm_calloc(threads_to_collect, sizeof(thread_bt_data));
+
+  // let them write to the buffer, each will have a unique index
+  g_all_ready_to_dump = 1;
+
+  // In the meantime we can write to the buffer as well...
+  // The caller gets the last thread_id.
+  ThpoolDump_log_backtrace(CRASHED, threads_to_collect - 1);
+
+  // wait for all the threads, including the caller, to finish
+  wait_for_writing(threads_to_collect, "Prepare all process' threads");
+
+}
+
+int ThpoolDump_all_to_reply(RedisModule_Reply *reply) {
+
+  ThpoolDump_all_prepare();
+
+  ThpoolDump_log_to_reply(reply);
+
+  ThpoolDump_all_done();
+
+  return REDISMODULE_OK;
+}
+
+
+void ThpoolDump_all_to_info(RedisModuleInfoCtx *ctx) {
+
+  ThpoolDump_all_prepare();
+
+  // print the buffer
+  RedisModule_InfoAddSection(ctx, "=== THREADS LOG: ===");
+
+  // for each thread in g_threads_done_cnt
+  for(size_t i = 0; i < g_threads_done_writing; i++) {
+    thread_bt_data curr_bt = printable_bt_buffer[i];
+#if defined(__linux__) || (defined(__APPLE__) && defined(__MACH__))
+    char *name = curr_bt.thread_name;
+#else
+    // generate a title
+    char name[16];
+    sprintf(name, "thread-%lu",i);
+#endif
+    if(curr_bt.status_on_crash == CRASHED) {
+      char buff[25] = {0};
+      sprintf(buff, "CRASHED_%s", name);
+      RedisModule_InfoAddSection(ctx, buff);
+    } else {
+      RedisModule_InfoAddSection(ctx, name);
+    }
+    // print the backtrace
+    char buff[8];
+    for(int j = 0; j < curr_bt.trace_size; j++) {
+      sprintf(buff, "%d",j);
+      RedisModule_InfoAddFieldCString(ctx, buff, curr_bt.printable_bt[j]);
+    }
+
+    // clean up inner backtrace strings array malloc'd by backtrace_symbols()
+    free(curr_bt.printable_bt);
+  }
+
+  ThpoolDump_all_done();
+
+}
+
+static void ThpoolDump_all_done() {
+  // reset global variables
+  g_collect_all_mode = 0;
+
+  //resume all the threads.
+  resume_all_process_threads();
+
+  ThpoolDump_done();
 }

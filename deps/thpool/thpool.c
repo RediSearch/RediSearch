@@ -26,8 +26,10 @@
 #endif
 
 #include "util/thpool_dump_api.h"
+#include "util/proc_file.h"
 #include "thpool.h"
 #include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 
 #ifdef THPOOL_DEBUG
 #define THPOOL_DEBUG 1
@@ -46,6 +48,8 @@
 
 #define RS_THPOOL_F_TERMINATE_WHEN_EMPTY 0x02  /* terminate thread when there are
                                                       no more pending jobs  */
+
+ #define MAX_THPOOL_NAME_LEN 10
 /* ========================== STRUCTURES ============================ */
 
 /* Binary semaphore */
@@ -94,15 +98,19 @@ typedef struct redisearch_thpool_t {
   pthread_cond_t threads_all_idle;  /* signal to thpool_wait     */
   priority_queue jobqueue;          /* job queue                 */
   volatile uint16_t flags;                   /* threadpool flags */
-  char *name;                 /* threadpool name */
+  char name[MAX_THPOOL_NAME_LEN + 1];     /* threadpool name */
 } redisearch_thpool_t;
 
 /* ========================== GLOBALS ============================ */
 
 // Save the current threadpool.
 redisearch_thpool_t *g_curr_threadpool = NULL;
-// The number of threads in the current threadpool that are paused.
+// The number of threads in the current pause call that are paused.
 static size_t g_threads_paused_cnt = 0;
+
+static volatile bool g_pause_all = 0;
+
+static volatile bool g_resume_all = 1;
 
 /* ========================== PROTOTYPES ============================ */
 
@@ -114,6 +122,7 @@ static void thread_hold(int sig_id);
 static void thread_destroy(struct thread* thread_p);
 
 static void reset_global_vars();
+static void wait_to_resume(size_t threads_to_wait_cnt);
 
 static int jobqueue_init(jobqueue* jobqueue_p);
 static void jobqueue_clear(jobqueue* jobqueue_p);
@@ -134,6 +143,12 @@ static void bsem_post(struct bsem* bsem_p);
 static void bsem_post_all(struct bsem* bsem_p);
 static void bsem_wait(struct bsem* bsem_p);
 
+static bool pause_all() {
+  return g_pause_all;
+}
+static bool resume_all() {
+  return g_resume_all;
+}
 /* ========================== GENERAL ============================ */
 /* Register the process to a signal handler */
 void register_process_to_pause_handler(RedisModuleCtx *ctx) {
@@ -153,11 +168,44 @@ void register_process_to_pause_handler(RedisModuleCtx *ctx) {
   }
 }
 
-static void reset_global_vars() {
+size_t pause_all_process_threads() {
+  pid_t pid = getpid();
+  pid_t caller_tid = gettid();
 
+  // make sure resume is turned off
+  g_resume_all = 0;
+
+  g_pause_all = 1;
+
+  pid_t *tids = ProcFile_send_signal_to_all_threads(pid, caller_tid, SIGUSR2);
+
+  if (!tids) {
+    return 0;
+  }
+
+  size_t ret = array_len(tids);
+
+  // Go over the threads to check if any of the threads blocks or ignores this signal
+  for (size_t i = 0; i < array_len(tids) ; i++) {
+    int status = REDISMODULE_OK;
+    thread_signals_mask thread_masks = ProcFile_get_signals_masks(pid, tids[i], &status);
+    if (status == REDISMODULE_ERR) {
+      array_free(tids);
+      return 0;
+    }
+    // if SIGUSR2 is block or ignored
+    if ((thread_masks.sigBlk & SIGUSR2) || (thread_masks.sigIgn & SIGUSR2)) {
+      --ret;
+    }
+  }
+
+  array_free(tids);
+  return ret;
+}
+
+static void reset_global_vars() {
   g_threads_paused_cnt = 0;
   g_curr_threadpool = NULL;
-
 }
 
 /* ========================== THREADPOOL ============================ */
@@ -167,7 +215,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, const c
   redisearch_thpool_t* thpool_p;
   thpool_p = (struct redisearch_thpool_t*)rm_calloc(1, sizeof(struct redisearch_thpool_t));
   if (thpool_p == NULL) {
-    err("redisearch_thpool_create(): Could not allocate memory for %s thread pool\n", thpool_name);
+    RedisModule_Log(NULL, "notice", "redisearch_thpool_create(): Could not allocate memory for %s thread pool\n", thpool_name);
     return NULL;
   }
   thpool_p->total_threads_count = num_threads;
@@ -176,11 +224,15 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, const c
   thpool_p->flags = 0;
 
   /* copy the threadpool name */
-  thpool_p->name = rm_strdup(thpool_name);
+  /* If the name is too long, it will be truncated */
+  if (strlen(thpool_name) > MAX_THPOOL_NAME_LEN) {
+    RedisModule_Log(NULL, "notice", "redisearch_thpool_create(): thpool name is too long, truncating it\n");
+  }
+  strncpy(thpool_p->name, thpool_name, MAX_THPOOL_NAME_LEN);
 
   /* Initialise the job queue */
   if(priority_queue_init(&thpool_p->jobqueue) == -1) {
-    err("redisearch_thpool_create(): Could not allocate memory for job queue\n");
+    RedisModule_Log(NULL, "notice", "redisearch_thpool_create(): Could not allocate memory for job queue\n");
     redisearch_thpool_cleanup(thpool_p);
     return NULL;
   }
@@ -188,7 +240,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, const c
   /* Make threads in pool */
   thpool_p->threads = (struct thread**)rm_calloc(num_threads, sizeof(struct thread*));
   if (thpool_p->threads == NULL) {
-    err("redisearch_thpool_create(): Could not allocate memory for threads\n");
+    RedisModule_Log(NULL, "notice", "redisearch_thpool_create(): Could not allocate memory for threads\n");
     redisearch_thpool_cleanup(thpool_p);
     return NULL;
   }
@@ -196,7 +248,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, const c
   for (size_t i = 0; i < num_threads; i++) {
     thpool_p->threads[i] = (struct thread*)rm_malloc(sizeof(struct thread));
     if (thpool_p->threads[i] == NULL) {
-      err("thread_create(): Could not allocate memory for thread\n");
+      RedisModule_Log(NULL, "notice", "thread_create(): Could not allocate memory for thread\n");
       redisearch_thpool_cleanup(thpool_p);
       return NULL;
     }
@@ -378,15 +430,6 @@ void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
   redisearch_thpool_cleanup(thpool_p);
 }
 
-static void redisearch_thpool_cleanup(redisearch_thpool_t* thpool_p) {
-  priority_queue_destroy(&thpool_p->jobqueue);
-  for (size_t i = 0; i < thpool_p->total_threads_count; i++) {
-    rm_free(thpool_p->threads[i]);
-  }
-  rm_free(thpool_p->threads);
-  rm_free(thpool_p->name);
-  rm_free(thpool_p);
-}
 
 /* Pause all threads in threadpool */
 void redisearch_thpool_pause(redisearch_thpool_t* thpool_p) {
@@ -434,13 +477,9 @@ void redisearch_thpool_pause(redisearch_thpool_t* thpool_p) {
     clock_t start = clock();
     size_t paused_threads = __atomic_load_n(&g_threads_paused_cnt, __ATOMIC_RELAXED);
     while(paused_threads < expected_new_paused_count) {
-      int waiting_time = (clock() - start)/CLOCKS_PER_SEC;
-      if (waiting_time && waiting_time % LOG_WAITING_TIME_INTERVAL == 0) {
-          RedisModule_Log(NULL, "warning",
-                  "something is wrong: expected to pause %lu threads, but only %lu are paused."
-                  "continue waiting",
-                  expected_new_paused_count, paused_threads);
-      }
+      RS_LOG_ASSERT_FMT((clock() - start)/CLOCKS_PER_SEC < WAIT_FOR_THPOOL_TIMEOUT,
+          "expected to pause %lu threads, but only %lu are paused.",
+          expected_new_paused_count, paused_threads);
       paused_threads = __atomic_load_n(&g_threads_paused_cnt, __ATOMIC_RELAXED);
     }
   }
@@ -448,6 +487,13 @@ void redisearch_thpool_pause(redisearch_thpool_t* thpool_p) {
   // Now all the paused threads have their local copy of their threapool pointer and thread id
   // we can reset the global variables.
   reset_global_vars();
+}
+
+void resume_all_process_threads() {
+  size_t paused_threads = g_threads_paused_cnt;
+  g_pause_all = 0;
+  g_resume_all = 1;
+  wait_to_resume(paused_threads);
 }
 
 /* Resume all threads in threadpool */
@@ -480,19 +526,7 @@ void redisearch_thpool_resume(redisearch_thpool_t* thpool_p) {
   redisearch_thpool_TURNON_flag(thpool_p, RS_THPOOL_F_RESUME);
 
   if (threadpool_size > 0) {
-    // wait until all the threads in the thpool are paused (except for the caller)
-    clock_t start = clock();
-    size_t paused_threads = __atomic_load_n(&g_threads_paused_cnt, __ATOMIC_RELAXED);
-    while(paused_threads > 0) {
-      int waiting_time = (clock() - start)/CLOCKS_PER_SEC;
-      if (waiting_time && waiting_time % LOG_WAITING_TIME_INTERVAL == 0) {
-          RedisModule_Log(NULL, "warning",
-                  "something is wrong: expected %lu to resume, but only %lu threads resumed."
-                  "continue waiting",
-                  threadpool_size - called_by_threadpool, paused_threads);
-      }
-      paused_threads = __atomic_load_n(&g_threads_paused_cnt, __ATOMIC_RELAXED);
-    }
+    wait_to_resume(threadpool_size - called_by_threadpool);
   }
   // If we got here all the threads were resumed.
   // Flags cleanup
@@ -530,6 +564,28 @@ size_t redisearch_thpool_num_threads_alive_unsafe(redisearch_thpool_t* thpool_p)
   return thpool_p->num_threads_alive;
 }
 
+/* ========================== THPOOL HELPERS ============================ */
+
+static void redisearch_thpool_cleanup(redisearch_thpool_t* thpool_p) {
+  priority_queue_destroy(&thpool_p->jobqueue);
+  for (size_t i = 0; i < thpool_p->total_threads_count; i++) {
+    rm_free(thpool_p->threads[i]);
+  }
+  rm_free(thpool_p->threads);
+  rm_free(thpool_p);
+}
+
+static void wait_to_resume(size_t threads_to_wait_cnt) {
+  clock_t start = clock();
+  size_t paused_threads = __atomic_load_n(&g_threads_paused_cnt, __ATOMIC_RELAXED);
+  while(paused_threads > 0) {
+    RS_LOG_ASSERT_FMT((clock() - start)/CLOCKS_PER_SEC < WAIT_FOR_THPOOL_TIMEOUT,
+        "expected %lu threads to resume, but only %lu were resumed.",
+        threads_to_wait_cnt, paused_threads);
+    paused_threads = __atomic_load_n(&g_threads_paused_cnt, __ATOMIC_RELAXED);
+    }
+}
+
 /* ============================ THREAD ============================== */
 
 /* Initialize a thread in the thread pool
@@ -562,15 +618,14 @@ static void thread_hold(int sig_id) {
 
   // If we pause to collect current information state, wait until all data structure
   // required for the report are initalized.
-  if (threadpool->flags & RS_THPOOL_F_COLLECT_STATE_INFO) {
-    while (!(threadpool->flags & RS_THPOOL_F_READY_TO_DUMP)) {
+  if (ThpoolDump_collect_all_mode() || (threadpool && (threadpool->flags & RS_THPOOL_F_COLLECT_STATE_INFO))) {
+    while (!ThpoolDump_all_ready() || (threadpool && !(threadpool->flags & RS_THPOOL_F_READY_TO_DUMP))) {
     }
     ThpoolDump_log_backtrace(FINE, thread_id);
   }
 
 
-  while (!(threadpool->flags & RS_THPOOL_F_RESUME)) {
-    sleep(1);
+  while (!resume_all() || (threadpool && !(threadpool->flags & RS_THPOOL_F_RESUME))) {
   }
 
   // Mark that the thread is resumed.
@@ -588,12 +643,16 @@ static void thread_hold(int sig_id) {
  */
 static void* thread_do(struct thread* thread_p) {
 
+  redisearch_thpool_t* thpool_p = thread_p->thpool_p;
   /* Set thread name for profiling and debuging */
-  char thread_name[128] = {0};
-  sprintf(thread_name, "thread-pool-%d", thread_p->id);
+  // thread's name len is restricted to 16 characters, including the terminating null byte.
+  char thread_name[16] = {0};
+  const char *thpool_name = redisearch_thpool_get_name(thpool_p);
+  sprintf(thread_name, "%s-%d", thpool_name, thread_p->id);
 
 #if defined(__linux__)
   /* Use prctl instead to prevent using _GNU_SOURCE flag and implicit declaration */
+  // if the name id too long  the string is silently truncated
   prctl(PR_SET_NAME, thread_name);
 #elif defined(__APPLE__) && defined(__MACH__)
   pthread_setname_np(thread_name);
@@ -602,7 +661,6 @@ static void* thread_do(struct thread* thread_p) {
 #endif
 
   /* Assure all threads have been created before starting serving */
-  redisearch_thpool_t* thpool_p = thread_p->thpool_p;
 
   /* Mark thread as alive (initialized) */
   pthread_mutex_lock(&thpool_p->thcount_lock);

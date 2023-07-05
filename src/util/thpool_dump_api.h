@@ -25,82 +25,62 @@ extern "C" {
  * Please check if it is safe to start a data collecting process by calling thpool_dump_test_and_start()
  */
 
+/* =================================== STRUCTURES ======================================= */
+
 /* On crash backtrace report */
 typedef enum {
   FINE,
   CRASHED,
 } statusOnCrash;
 
+/* =================================== GENERAL ======================================= */
+
 /**
  * This function marks that the process started collecting data from the threadpools.
  * It returns true if it is safe to start collecting information from the threadpols.
- * NOTE: The flag is turned off by ThpoolDump_done().
+ * NOTE: The flag is turned off by void ThpoolDump_finish().
 */
 bool ThpoolDump_test_and_start();
 
-
-
-// Write the backtrace of the calling thread.
-void ThpoolDump_log_backtrace(statusOnCrash status_on_crash, size_t thread_id);
+void ThpoolDump_finish();
 
 /**
- * @brief Prepare the threadpool for dump report and pause it.
- *
- * @param threadpool     the threadpool of interest.
- * @return nothing
- */
-void ThpoolDump_pause(redisearch_threadpool);
+ * Dump all the state of all the threads known to the process to the reply.
+ * @return Always returns REDISMODULE_OK.
+*/
+int ThpoolDump_all_to_reply(RedisModule_Reply *reply);
 
-/* ====== EXAMPLE OUTPUT ON CRASH ======
+void ThpoolDump_all_to_info(RedisModuleInfoCtx *ctx);
 
-        # search_=== GC THREADS LOG: ===
-
-        # search_thread #0 backtrace:
-
-        search_0:/workspaces/Code/RediSearch/bin/linux-arm64v8-debug/search/redisearch.so(+0x2b7698) [0xffffaf827698]
-        search_1:/workspaces/Code/RediSearch/bin/linux-arm64v8-debug/search/redisearch.so(+0x2b72b4) [0xffffaf8272b4]
-        search_2:linux-vdso.so.1(__kernel_rt_sigreturn+0) [0xffffb0ec2790]
-        search_3:/lib/aarch64-linux-gnu/libc.so.6(+0x79dfc) [0xffffb0cb9dfc]
-        search_4:/lib/aarch64-linux-gnu/libc.so.6(pthread_cond_wait+0x208) [0xffffb0cbc8fc]
-        search_5:/workspaces/Code/RediSearch/bin/linux-arm64v8-debug/search/redisearch.so(+0x2b7cfc) [0xffffaf827cfc]
-        search_6:/workspaces/Code/RediSearch/bin/linux-arm64v8-debug/search/redisearch.so(+0x2b7414) [0xffffaf827414]
-        search_7:/lib/aarch64-linux-gnu/libc.so.6(+0x7d5c8) [0xffffb0cbd5c8]
-        search_8:/lib/aarch64-linux-gnu/libc.so.6(+0xe5d1c) [0xffffb0d25d1c]
-
-====== END OF EXAMPLE ====== **/
 /**
- * @brief Collect and print data from all the threads in the thread pool to the crash log.
- *
- * @param threadpool            the threadpool of threads to print dump data from.
- * @param ctx                   the info ctx to print the data to.
- *
- */
-void ThpoolDump_log_to_info(redisearch_threadpool,
-                                   RedisModuleInfoCtx *ctx);
+ * Check if it's ok to give the threads "green light" to start writing their dump data.
+*/
+bool ThpoolDump_all_ready();
 
+/**
+ * Check if it's we are in collecting data from all the process threads mode
+*/
+bool ThpoolDump_collect_all_mode();
+/* =================================== THPOOL ======================================= */
 
 /**
  *
- * @brief General Collect and reply the current state data of all the threads in the thread pool.
+ * @brief   Collect and reply the current state data of all the threads in the thread pool.
  *
  * @param reply            A reply context to print the data to.
  * @param threadpool      the threadpool of threads to collect dump data from.
- */
-void ThpoolDump_log_to_reply(redisearch_threadpool,
-                                       RedisModule_Reply *reply);
-/**
  *
- * @brief General cleanups after all the threadpools are done dumping their state data.
+ * @return REDISMODULE_ERR if the threadpool doesn't exist.
  */
-void ThpoolDump_done();
+int ThpoolDump_collect_and_log_to_reply(redisearch_threadpool,
+                                       RedisModule_Reply *reply);
 
-/* ============================ REDISEARCH THPOOLS ============================== */
+/* =================================== THREADS API ======================================= */
 
-// Call ThpoolDump_pause() for all the threadpool of redisearch
-void RS_ThreadpoolsPauseBeforeDump();
-
-// Resume all the threadpools of redisearch.
-void RS_ThreadpoolsResume();
+/**
+ * Write the backtrace of the calling thread.
+*/
+void ThpoolDump_log_backtrace(statusOnCrash status_on_crash, size_t thread_id);
 
 #ifdef __cplusplus
 }

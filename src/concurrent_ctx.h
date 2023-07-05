@@ -123,17 +123,9 @@ extern int CONCURRENT_POOL_SEARCH;
 /* Run a function on the concurrent thread pool */
 void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type);
 
-// Pause before we start collecting crash info.
-void ConcurrentSearch_PauseBeforeDump();
-
-// Return threads to the original execution point where pause was called.
-void ConcurrentSearch_Resume();
-
-// Collect crash info.
-void ConcurrentSearch_ShutdownLog(RedisModuleInfoCtx *ctx);
-
-// Collect backtrace of all concurrent search thpools.
-void ConcurrentSearch_PrintBacktrace(RedisModule_Reply *reply);
+// Collect backtrace a the thpool_id-th concurrent search thpool.
+// If there is no such threadpool, returns REDISMODULE_ERR.
+int ConcurrentSearch_PrintBacktrace(RedisModule_Reply *reply, size_t thpool_id);
 
 /** Check the elapsed timer, and release the lock if enough time has passed.
  * Return 1 if switching took place
