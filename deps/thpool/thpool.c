@@ -43,6 +43,8 @@
 #define err(str, ...)
 #endif
 
+#define LOG_IF_EXISTS(str) if (thread_p->log) {thread_p->log(str);}
+
 /* Internal threadpool flags */
 #define RS_THPOOL_F_KEEP_ALIVE 0x01 /* keep pool alive */
 
@@ -86,6 +88,7 @@ typedef struct thread {
   int id;                   /* friendly id               */
   pthread_t pthread;        /* pointer to actual thread  */
   struct redisearch_thpool_t* thpool_p; /* access to thpool          */
+  LogFunc log;
 } thread;
 
 /* Threadpool */
@@ -116,7 +119,7 @@ static volatile bool g_resume_all = 1;
 
 // Cleanup allocations related to the threadpool
 static void redisearch_thpool_cleanup(redisearch_thpool_t* thpool_p);
-static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id);
+static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id, LogFunc log);
 static void* thread_do(struct thread* thread_p);
 static void thread_hold(int sig_id);
 static void thread_destroy(struct thread* thread_p);
@@ -151,7 +154,7 @@ static bool resume_all() {
 }
 /* ========================== GENERAL ============================ */
 /* Register the process to a signal handler */
-void register_process_to_pause_handler(RedisModuleCtx *ctx) {
+void register_process_to_pause_handler(LogFunc log_cb) {
   /* Register signal handler */
   struct sigaction act;
   struct sigaction oldact;
@@ -159,12 +162,12 @@ void register_process_to_pause_handler(RedisModuleCtx *ctx) {
   act.sa_flags = 0;
   act.sa_handler = thread_hold;
   if (sigaction(SIGUSR2, &act, &oldact) == -1) {
-    RedisModule_Log(ctx, "notice", "register_process_to_pause_handler(): cannot handle SIGUSR2");
+    log_cb("register_process_to_pause_handler(): cannot handle SIGUSR2");
   }
   // Notify if SIGUSR2 is already assigned to a user defined signal handler,
   // or was marked as ignored.
   if (oldact.sa_handler != SIG_DFL) {
-    RedisModule_Log(ctx, "notice", "register_process_to_pause_handler(): changing SIGUSR2 handler");
+    log_cb("register_process_to_pause_handler(): changing SIGUSR2 handler");
   }
 }
 
@@ -261,7 +264,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, const c
 }
 
 /* initialize thread pool */
-void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p) {
+void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p, LogFunc log) {
   assert(!(thpool_p->flags & RS_THPOOL_F_KEEP_ALIVE));
   redisearch_thpool_TURNON_flag(thpool_p, RS_THPOOL_F_KEEP_ALIVE);
   redisearch_thpool_TURNOFF_flag(thpool_p, RS_THPOOL_F_TERMINATE_WHEN_EMPTY);
@@ -269,7 +272,7 @@ void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p) {
   /* Thread init */
   size_t n;
   for (n = 0; n < thpool_p->total_threads_count; n++) {
-    thread_init(thpool_p, &thpool_p->threads[n], n);
+    thread_init(thpool_p, &thpool_p->threads[n], n, log);
 #if THPOOL_DEBUG
     printf("THPOOL_DEBUG: Created thread %d in pool \n", n);
 #endif
@@ -349,8 +352,8 @@ void redisearch_thpool_wait(redisearch_thpool_t* thpool_p) {
   pthread_mutex_unlock(&thpool_p->thcount_lock);
 }
 
-void redisearch_thpool_timedwait(redisearch_thpool_t* thpool_p, long timeout,
-                                 yieldFunc yieldCB, void *yield_ctx) {
+void redisearch_thpool_drain(redisearch_thpool_t* thpool_p, long timeout,
+                                 yieldFunc yieldCB, void *yield_ctx, size_t threshold) {
 
   // Set the *absolute* time for waiting the condition variable
   struct timespec time_spec;
@@ -367,7 +370,7 @@ void redisearch_thpool_timedwait(redisearch_thpool_t* thpool_p, long timeout,
   }
 
   pthread_mutex_lock(&thpool_p->thcount_lock);
-  while (priority_queue_len(&thpool_p->jobqueue) || thpool_p->num_threads_working) {
+  while (priority_queue_len(&thpool_p->jobqueue) > threshold) {
     int rc = pthread_cond_timedwait(&thpool_p->threads_all_idle, &thpool_p->thcount_lock, &time_spec);
     if (rc == ETIMEDOUT) {
       pthread_mutex_unlock(&thpool_p->thcount_lock);
@@ -594,10 +597,11 @@ static void wait_to_resume(size_t threads_to_wait_cnt) {
  * @param id            id to be given to the thread
  * @return 0 on success, -1 otherwise.
  */
-static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id) {
+static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id, LogFunc log) {
 
   (*thread_p)->thpool_p = thpool_p;
   (*thread_p)->id = id;
+  (*thread_p)->log = log;
 
   pthread_create(&(*thread_p)->pthread, NULL, (void*)thread_do, (*thread_p));
   pthread_detach((*thread_p)->pthread);
@@ -691,8 +695,10 @@ static void* thread_do(struct thread* thread_p) {
       pthread_mutex_lock(&thpool_p->thcount_lock);
       thpool_p->num_threads_working--;
       if (!thpool_p->num_threads_working) {
+        LOG_IF_EXISTS("thpool contains no more jobs")
         pthread_cond_signal(&thpool_p->threads_all_idle);
         if (thpool_p->flags & RS_THPOOL_F_TERMINATE_WHEN_EMPTY) {
+          LOG_IF_EXISTS("terminating thread pool after there are no more jobs")
           redisearch_thpool_TURNOFF_flag(thpool_p, RS_THPOOL_F_KEEP_ALIVE);
         }
       }

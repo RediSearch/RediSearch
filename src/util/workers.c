@@ -9,11 +9,11 @@
 #include "redismodule.h"
 #include "config.h"
 #include "util/thpool_dump_api.h"
+#include "logging.h"
 
 #include <pthread.h>
 
 #ifdef MT_BUILD
-
 //------------------------------------------------------------------------------
 // Thread pool
 //------------------------------------------------------------------------------
@@ -45,7 +45,7 @@ int workersThreadPool_CreatePool(size_t worker_count) {
 void workersThreadPool_InitPool() {
   assert(_workers_thpool != NULL);
 
-  redisearch_thpool_init(_workers_thpool);
+  redisearch_thpool_init(_workers_thpool, LogCallback);
 }
 
 // return number of currently working threads
@@ -65,16 +65,16 @@ int workersThreadPool_AddWork(redisearch_thpool_proc function_p, void *arg_p) {
   return redisearch_thpool_add_work(_workers_thpool, function_p, arg_p, THPOOL_PRIORITY_HIGH);
 }
 
-// Wait until all jobs have finished
-void workersThreadPool_Wait(RedisModuleCtx *ctx) {
+// Wait until job queue contains no more than <threshold> pending jobs.
+void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
   if (!_workers_thpool) {
     return;
   }
   if (RedisModule_Yield) {
-    // Wait until all the threads in the pool finish the remaining jobs. Periodically return and
-    // call RedisModule_Yield even if threads are not done yet, so redis can answer PINGs
+    // Wait until all the threads in the pool run the jobs until there are no more than <threshold>
+    // jobs in the queue. Periodically return and call RedisModule_Yield, so redis can answer PINGs
     // (and other stuff) so that the node-watch dog won't kill redis, for example.
-    redisearch_thpool_timedwait(_workers_thpool, 100, yieldCallback, ctx);
+    redisearch_thpool_drain(_workers_thpool, 100, yieldCallback, ctx, threshold);
     yield_counter = 0;  // reset
   } else {
     // In Redis versions < 7, RedisModule_Yield doesn't exist. Just wait for without yield.
@@ -102,18 +102,17 @@ void workersThreadPool_InitIfRequired() {
 
 void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx) {
     // Wait until all the threads are finished the jobs currently in the queue. Note that we call
-    // RM_Yield periodically while we wait, so we won't block redis for too long
-    // (for answering PING etc.)
+    // block main thread while we wait, so we have to make sure that number of jobs isn't too large.
     if (RSGlobalConfig.numWorkerThreads == 0) return;
-    workersThreadPool_Wait(ctx);
+    redisearch_thpool_wait(_workers_thpool);
     RedisModule_Log(RSDummyContext, "notice",
                     "Done running pending background workers jobs");
     if (USE_BURST_THREADS()) {
-    VecSim_SetWriteMode(VecSim_WriteInPlace);
-    workersThreadPool_Terminate();
-    RedisModule_Log(RSDummyContext, "notice",
-                    "Terminated workers threadpool of size %lu",
-                    RSGlobalConfig.numWorkerThreads);
+      VecSim_SetWriteMode(VecSim_WriteInPlace);
+      workersThreadPool_Terminate();
+      RedisModule_Log(RSDummyContext, "notice",
+                      "Terminated workers threadpool of size %lu",
+                      RSGlobalConfig.numWorkerThreads);
   }
 }
 

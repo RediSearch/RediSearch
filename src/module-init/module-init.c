@@ -222,7 +222,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   Indexes_Init(ctx);
 
   // threadpools initialization
-  register_process_to_pause_handler(ctx);
+  register_process_to_pause_handler(LogCallback);
 
   if (RSGlobalConfig.concurrentMode) {
     ConcurrentSearch_ThreadPoolStart();

@@ -18,6 +18,7 @@
 #include "thpool/thpool.h"
 #include "rmutil/rm_assert.h"
 #include "util/thpool_dump_api.h"
+#include "util/logging.h"
 
 static redisearch_threadpool gcThreadpool_g = NULL;
 
@@ -173,7 +174,7 @@ void GCContext_ForceBGInvoke(GCContext* gc) {
 void GC_ThreadPoolStart() {
   if (gcThreadpool_g == NULL) {
     gcThreadpool_g = redisearch_thpool_create(GC_THREAD_POOL_SIZE, "GC");
-    redisearch_thpool_init(gcThreadpool_g);
+    redisearch_thpool_init(gcThreadpool_g, LogCallback);
   }
 }
 

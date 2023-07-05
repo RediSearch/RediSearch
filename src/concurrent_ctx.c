@@ -10,6 +10,7 @@
 #include <util/arr.h>
 #include "rmutil/rm_assert.h"
 #include "util/thpool_dump_api.h"
+#include "util/logging.h"
 
 static arrayof(redisearch_threadpool) threadpools_g = NULL;
 
@@ -24,7 +25,7 @@ int ConcurrentSearch_CreatePool(int numThreads) {
   char name_buff[60];
   sprintf(name_buff, "SEARCH_%d", poolId);
   threadpools_g = array_append(threadpools_g, redisearch_thpool_create(numThreads, name_buff));
-  redisearch_thpool_init(threadpools_g[poolId]);
+  redisearch_thpool_init(threadpools_g[poolId], LogCallback);
 
   return poolId;
 }

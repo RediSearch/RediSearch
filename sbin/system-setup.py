@@ -20,7 +20,7 @@ class RediSearchSetup(paella.Setup):
         self.install_downloaders()
         self.setup_dotlocal()
 
-        self.run("%s/bin/enable-utf8" % READIES, sudo=self.os != 'macos')
+        self.run(f"{READIES}/bin/enable-utf8", sudo=self.os != 'macos')
         self.install("git gawk jq openssl rsync unzip")
 
     def linux_first(self):
@@ -28,7 +28,7 @@ class RediSearchSetup(paella.Setup):
 
     def debian_compat(self):
         self.install("libatomic1")
-        self.run("%s/bin/getgcc --modern" % READIES)
+        self.run(f"{READIES}/bin/getgcc --modern")
         self.install("libtool m4 automake libssl-dev")
         self.install("python3-dev")
         self.install("libboost-all-dev")
@@ -42,10 +42,10 @@ class RediSearchSetup(paella.Setup):
     def redhat_compat(self):
         self.install("redhat-lsb-core")
         self.install("which")
-        self.run("%s/bin/getepel" % READIES, sudo=True)
+        self.run(f"{READIES}/bin/getepel", sudo=True)
         self.install("libatomic")
 
-        self.run("%s/bin/getgcc --modern" % READIES)
+        self.run(f"{READIES}/bin/getgcc --modern")
         self.install("libtool m4 automake openssl-devel")
         self.install("python3-devel")
         self.install("--skip-broken boost169-devel")
@@ -54,13 +54,13 @@ class RediSearchSetup(paella.Setup):
             self.install_linux_gnu_tar()
 
     def archlinux(self):
-        self.run("%s/bin/getgcc --modern" % READIES)
+        self.run(f"{READIES}/bin/getgcc --modern")
         self.install("libtool m4 automake")
         self.install("boost-dev")
 
     def fedora(self):
         self.install("libatomic")
-        self.run("%s/bin/getgcc --modern" % READIES)
+        self.run(f"{READIES}/bin/getgcc --modern")
         self.install("openssl-devel")
         self.install("boost-devel")
 
@@ -70,25 +70,24 @@ class RediSearchSetup(paella.Setup):
         self.install("libtool m4 automake")
         self.run(f"{READIES}/bin/getclang --force --modern")
         self.install("boost")
-        self.pip_install("-r %s/tests/pytests/requirements.macos.txt" % ROOT)
-        # self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
+        self.pip_install(f"-r {ROOT}/tests/pytests/requirements.macos.txt")
+        # self.run(f"{self.python} {READIES}/bin/getredis -v 6 --force")
 
     def linux_last(self):
-        self.pip_install("-r %s/tests/pytests/requirements.linux.txt" % ROOT)
+        self.pip_install(f"-r {ROOT}/tests/pytests/requirements.linux.txt")
 
     def common_last(self):
-        self.run("{PYTHON} {READIES}/bin/getcmake --usr".format(PYTHON=self.python, READIES=READIES),
-                 sudo=self.os != 'macos')
-        self.run("{PYTHON} {READIES}/bin/getrmpytools --reinstall --modern".format(PYTHON=self.python, READIES=READIES))
+        self.run(f"{self.python} {READIES}/bin/getcmake --usr", sudo=self.os != 'macos')
+        self.run(f"{self.python} {READIES}/bin/getrmpytools --reinstall --modern --redispy-version pypi:5.0.0b4")
         if self.dist != "arch":
             self.install("lcov")
         else:
             self.install("lcov-git", aur=True)
 
         self.pip_install("conan")
-        self.pip_install("-r %s/tests/pytests/requirements.txt" % ROOT)
-        self.run("%s/bin/getaws" % READIES)
-        self.run("NO_PY2=1 %s/bin/getpudb" % READIES)
+        self.pip_install(f"-r {ROOT}/tests/pytests/requirements.txt")
+        self.run(f"{READIES}/bin/getaws")
+        self.run(f"NO_PY2=1 {READIES}/bin/getpudb")
 
 #----------------------------------------------------------------------------------------------
 
