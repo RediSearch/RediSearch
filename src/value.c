@@ -73,7 +73,6 @@ RSValue *RS_NewValue(RSValueType t) {
   v->t = t;
   v->refcount = 1;
   v->allocated = 1;
-  //@@ printf("rsvalue alloc: %p\n", v);
   return v;
 }
 
@@ -167,7 +166,6 @@ inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
 }
 
 RSValue *RS_NewCopiedString(const char *s, size_t n) {
-  //@@ _BB;
   RSValue *v = RS_NewValue(RSValue_String);
   char *cp = rm_malloc(n + 1);
   cp[n] = 0;
@@ -479,6 +477,7 @@ RSValue *RS_VStringArray(uint32_t sz, ...) {
 }
 
 // Wrap an array of NULL terminated C strings into an RSValue array
+
 RSValue *RS_StringArray(char **strs, uint32_t sz) {
   RSValue **arr = rm_calloc(sz, sizeof(RSValue *));
 
@@ -500,6 +499,7 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
 RSValue RS_NULL = {.t = RSValue_Null, .refcount = 1, .allocated = 0};
 
 // Create a new NULL RSValue
+
 inline RSValue *RS_NullVal() {
   return &RS_NULL;
 }

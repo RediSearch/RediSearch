@@ -143,7 +143,6 @@ static inline RSValue *RSValue_IncrRef(RSValue *v) {
 
 static inline void RSValue_Decref(RSValue *v) {
   if (v && !--v->refcount) {
-    //@@ printf("rsvalue free:  %p\n", v);
     RSValue_Free(v);
   }
 }
@@ -152,9 +151,9 @@ static inline void RSValue_Decref(RSValue *v) {
 
 #define RSValue_Decref(v) \
   if ((v) && !--(v)->refcount) { \
-    printf("freeing value %p\n", (v)); \
     RSValue_Free(v);      \
   }
+
 #endif
 
 RSValue *RS_NewValue(RSValueType t);
@@ -371,6 +370,7 @@ RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options);
 
 /** Accesses the array element at a given position as an l-value */
 #define RSVALUE_ARRELEM(vv, pos) ((vv)->arrval.vals[pos])
+
 /** Accesses the array length as an lvalue */
 #define RSVALUE_ARRLEN(vv) ((vv)->arrval.len)
 

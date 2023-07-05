@@ -55,15 +55,18 @@ static void reeval_key(RedisModuleCtx *outctx, const RSValue *key) {
       // tell it's a double and not just a numeric string value
       rskey = RedisModule_CreateStringPrintf(outctx, "#%.17g", key->numval);
       break;
+
     case RSValue_String:
       // Serialize string - by prepending "$" to it
       rskey = RedisModule_CreateStringPrintf(outctx, "$%s", key->strval.str ? key->strval.str : "");
       break;
+
     case RSValue_RedisString:
     case RSValue_OwnRstring:
       rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
                                              RedisModule_StringPtrLen(key->rstrval, NULL));
       break;
+
     case RSValue_Null:
     case RSValue_Undef:
     case RSValue_Array:
@@ -134,7 +137,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     // Sortkey is the first key to reply on the required fields, if the we already replied it, continue to the next one.
     size_t currentField = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
     size_t requiredFieldsCount = array_len(req->requiredFields);
-      for(; currentField < requiredFieldsCount; ++currentField) {
+      for (; currentField < requiredFieldsCount; ++currentField) {
         count++;
         const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], 0);
         RSValue *v = (RSValue*) getReplyKey(rlk, r);
