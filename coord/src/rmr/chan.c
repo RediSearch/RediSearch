@@ -136,7 +136,9 @@ void *MRChannel_Pop(MRChannel *chan) {
     assert(rc == 0 && "cond_wait failed");
     if (!chan->size) {
       // otherwise, spurious wakeup
+#ifdef _DEBUG
       printf("spurious cond_wait wakeup\n");
+#endif
       // continue..
     }
   }

@@ -63,6 +63,7 @@ static inline mempoolThreadPool *getPoolInfo() {
 
 RSValue *RS_NewValue(RSValueType t) {
   RSValue *v = mempool_get(getPoolInfo()->values);
+  memset(v, 0, sizeof(*v));
   v->t = t;
   v->refcount = 1;
   v->allocated = 1;
@@ -113,6 +114,7 @@ void RSValue_Clear(RSValue *v) {
   }
 
   v->ref = NULL;
+  v->refcount = 1;
   v->t = RSValue_Undef;
 }
 
@@ -401,14 +403,15 @@ RSValue *RS_Int64Val(int64_t dd) {
 
 RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
   RSValue *arr = RS_NewValue(RSValue_Array);
-
-  if (!vals || !n) {
+/*
+  if (!n) {
+    //RS_LOG_ASSERT(!vals, "vals should be NULL");
     arr->arrval.vals = NULL;
     arr->arrval.len = 0;
-    arr->arrval.staticarray = 0;
+    arr->arrval.staticarray = 1;
     return arr;
   }
-
+*/
   RSValue **list;
   if (options & RSVAL_ARRAY_ALLOC) {
     list = vals;
@@ -417,23 +420,24 @@ RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
   }
 
   arr->arrval.vals = list;
+  arr->arrval.len = !vals ? 0 : n;
+  arr->arrval.staticarray = !!(options & RSVAL_ARRAY_STATIC);
 
-  if (options & RSVAL_ARRAY_STATIC) {
-    arr->arrval.staticarray = 1;
-  } else {
-    arr->arrval.staticarray = 0;
-  }
-
-  arr->arrval.len = n;
-  if (options & RSVAL_ARRAY_NOINCREF) {
-    for (size_t ii = 0; ii < n; ++ii) {
-      list[ii] = vals[ii];
+  if (vals) {
+    if (options & RSVAL_ARRAY_NOINCREF) {
+      for (size_t ii = 0; ii < n; ++ii) {
+        list[ii] = vals[ii];
+      }
+    } else {
+      for (size_t ii = 0; ii < n; ++ii) {
+        RSValue *v = vals[ii];
+        list[ii] = v;
+        if (v) RSValue_IncrRef(v);
+      }
     }
   } else {
     for (size_t ii = 0; ii < n; ++ii) {
-      RSValue *v = vals[ii];
-      list[ii] = v;
-      if (v) RSValue_IncrRef(v);
+      list[ii] = RS_NullVal();
     }
   }
 
@@ -452,7 +456,8 @@ RSValue *RS_VStringArray(uint32_t sz, ...) {
   return RSValue_NewArrayEx(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
 }
 
-/* Wrap an array of NULL terminated C strings into an RSValue array */
+// Wrap an array of NULL terminated C strings into an RSValue array
+
 RSValue *RS_StringArray(char **strs, uint32_t sz) {
   RSValue **arr = rm_calloc(sz, sizeof(RSValue *));
 
@@ -472,7 +477,9 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
 }
 
 RSValue RS_NULL = {.t = RSValue_Null, .refcount = 1, .allocated = 0};
-/* Create a new NULL RSValue */
+
+// Create a new NULL RSValue
+
 inline RSValue *RS_NullVal() {
   return &RS_NULL;
 }
@@ -548,7 +555,7 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   // if, however, error handling is not available, fallback to string comparison
   do {
     if (v1->t == RSValue_Number) {
-      RSValue v2n;
+      RSValue v2n = RSVALUE_STATIC;
       if (!convert_to_number(v2, &v2n, qerr)) {
         // if it is possible to indicate an error, return
         if (qerr) return 0;
@@ -557,7 +564,7 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
       }
       return cmp_numbers(v1, &v2n);
     } else if (v2->t == RSValue_Number) {
-      RSValue v1n;
+      RSValue v1n = RSVALUE_STATIC;
       if (!convert_to_number(v1, &v1n, qerr)) {
         // if it is possible to indicate an error, return
         if (qerr) return 0;
@@ -590,7 +597,7 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   }
 
   // if either of the arguments is a number, convert the other one to a number
-  RSValue vn;
+  RSValue vn = RSVALUE_STATIC;
   if (v1->t == RSValue_Number) {
     if (!convert_to_number(v2, &vn, NULL)) return 0;
     return cmp_numbers(v1, &vn) == 0;

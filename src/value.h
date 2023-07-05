@@ -52,7 +52,7 @@ typedef enum {
 } RSStringType;
 
 #define RSVALUE_STATIC \
-  { .allocated = 0 }
+  { .t = RSValue_Undef, .allocated = 0, .refcount = 1 }
 
 #pragma pack(4)
 // Variant value union
@@ -113,14 +113,27 @@ static inline RSValue *RSValue_IncrRef(RSValue *v) {
   return v;
 }
 
+#if 1
+
+static inline void RSValue_Decref(RSValue *v) {
+  if (v && !--v->refcount) {
+    RSValue_Free(v);
+  }
+}
+
+#else
+
 #define RSValue_Decref(v) \
   if ((v) && !--(v)->refcount) { \
     RSValue_Free(v);      \
   }
 
+#endif
+
 RSValue *RS_NewValue(RSValueType t);
 
 #ifndef __cplusplus
+
 static RSValue RS_StaticValue(RSValueType t) {
   RSValue v = (RSValue){
       .t = t,
@@ -137,6 +150,7 @@ void RSValue_SetSDS(RSValue *v, sds s);
 void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
 
 #ifndef __cplusplus
+
 static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
   RS_LOG_ASSERT(src, "RSvalue is missing");
   RSValue_Clear(dst);
@@ -145,9 +159,15 @@ static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
 }
 
 static inline void RSValue_MakeOwnReference(RSValue *dst, RSValue *src) {
-  RSValue_MakeReference(dst, src);
-  RSValue_Decref(src);
+//  RSValue_MakeReference(dst, src);
+//  RSValue_Decref(src);
+
+  RS_LOG_ASSERT(src, "RSvalue is missing");
+  RSValue_Clear(dst);
+  dst->t = RSValue_Reference;
+  dst->ref = src;
 }
+
 #endif
 
 /* Return the value itself or its referred value */
@@ -321,6 +341,7 @@ RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options);
 
 /** Accesses the array element at a given position as an l-value */
 #define RSVALUE_ARRELEM(vv, pos) ((vv)->arrval.vals[pos])
+
 /** Accesses the array length as an lvalue */
 #define RSVALUE_ARRLEN(vv) ((vv)->arrval.len)
 
@@ -381,7 +402,7 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 #define RSVALUE_STATICALLOC_INIT(T) RSValue(T)
 #else
 #define RSVALUE_STATICALLOC_INIT(T) \
-  { .t = T }
+  { .t = T, .allocated = 0, .refcount = 1 }
 #endif
 
 /** Static value pointers. These don't ever get decremented */
