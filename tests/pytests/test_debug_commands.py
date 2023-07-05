@@ -183,27 +183,12 @@ class TestDebugCommands(object):
     def testDumpSuffixWrongArity(self):
         self.env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx1', 'no_suffix').raiseError()
 
-def get_and_check_threadpools_count(env, threadpools_dict, expected_len):
-    threadpools_titles = threadpools_dict[0::2] if env.protocol == 2 else list(threadpools_dict.keys())
-    env.assertEqual(len(threadpools_titles), expected_len)
-    return threadpools_titles
-
 def get_threads_titles(env, threads_output):
     if env.protocol == 2:
         # In resp2 for each thpool the output is in the format of [thread_name, [bt_line#0, bt_line#1....], thread_name, [...]]
         return threads_output[0::2]
     # For resp3 each backtrace is a dict {thread_name: [bt_line#0, bt_line#1....]}
     return threads_output.keys()
-
-def threadpool_name_to_title(thpool_name):
-    return f"=== {thpool_name} THREADS BACKTRACE: ==="
-
-def threadpool_title_to_name(thpool_title):
-    thpool_title = thpool_title.split()[0]
-    titles = ["GC", "WORKERS", "CLEANSPEC", "SEARCH"]
-    if thpool_title not in titles:
-        return None
-    return thpool_title
 
 def DumpBacktrace_ALL(env: Env, threadpools_attr):
     # Ask for all threadpools
