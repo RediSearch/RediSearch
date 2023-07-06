@@ -7,144 +7,46 @@
 #pragma once
 
 #include "../index_iterator.h"
-#include "allocator.hpp"
+#include "allocator/tracking_allocator.hpp"
 
 #include <vector>     // std::vector
 #include <ranges>     // ranges::input_range
-#include <utility>    // std::move, std::forward
-#include <iterator>   // std::begin, std::end, ranges::distance
-#include <algorithm>  // ranges::sort, ranges::lower_bound
 
-struct GeometryQueryIterator {
-  using container_type = std::vector<t_docId, rm_allocator<t_docId>>;
+namespace RediSearch {
+namespace GeoShape {
+struct QueryIterator {
+  using Allocator::TrackingAllocator;
+  using alloc_type = TrackingAllocator<t_docId>;
+  using container_type = std::vector<t_docId, alloc_type>;
+
   IndexIterator base_;
   container_type iter_;
-  size_t index_;
+  std::size_t index_;
 
-  explicit GeometryQueryIterator() = default;
+  explicit QueryIterator() = delete;
   template <std::ranges::input_range R>
-  explicit GeometryQueryIterator(R &&range, rm_allocator<t_docId> const &a)
-      : GeometryQueryIterator(container_type{std::begin(std::forward<R>(range)),
-                                             std::end(std::forward<R>(range)), a}) {
-  }
-  explicit GeometryQueryIterator(container_type &&docs)
-      : base_{init_base()}, iter_{std::move(docs)}, index_{0} {
-    base_.ctx = this;
-    std::ranges::sort(iter_);
-  }
+  explicit QueryIterator(R &&range, alloc_type const &alloc);
+  explicit QueryIterator(container_type &&docs);
 
-  GeometryQueryIterator(GeometryQueryIterator const&) = delete;
-  explicit GeometryQueryIterator(GeometryQueryIterator &&) = default;
-  GeometryQueryIterator &operator=(GeometryQueryIterator const&) = delete;
-  GeometryQueryIterator &operator=(GeometryQueryIterator &&) = default;
-  ~GeometryQueryIterator() {
-    IndexResult_Free(base_.current);
-  }
+  /* rule of 5 */
+  QueryIterator(QueryIterator const &) = delete;
+  explicit QueryIterator(QueryIterator &&) = default;
+  QueryIterator &operator=(QueryIterator const &) = delete;
+  QueryIterator &operator=(QueryIterator &&) = default;
+  ~QueryIterator();
 
-  IndexIterator *base() {
-    return &base_;
-  }
+  IndexIterator *base() noexcept;
 
-  int read(RSIndexResult *&hit) {
-    if (!base_.isValid || !has_next()) {
-      return INDEXREAD_EOF;
-    }
+  int read(RSIndexResult *&hit) noexcept;
+  int skip_to(t_docId docId, RSIndexResult *&hit);
+  t_docId current() const noexcept;
+  int has_next() const noexcept;
+  std::size_t len() const noexcept;
+  void abort() noexcept;
+  void rewind() noexcept;
 
-    base_.current->docId = iter_[index_++];
-    hit = base_.current;
-    return INDEXREAD_OK;
-  }
-  int skip_to(t_docId docId, RSIndexResult *&hit) {
-    if (!base_.isValid || !has_next()) {
-      return INDEXREAD_EOF;
-    }
-    if (docId > iter_.back()) {
-      base_.isValid = false;
-      return INDEXREAD_EOF;
-    }
-
-    auto it = std::ranges::lower_bound(iter_.cbegin() + index_, iter_.cend(), docId);
-    index_ = std::ranges::distance(iter_.cbegin(), it + 1);
-    if (!has_next()) {
-      abort();
-    }
-
-    base_.current->docId = *it;
-    hit = base_.current;
-
-    if (*it == docId) {
-      return INDEXREAD_OK;
-    }
-    return INDEXREAD_NOTFOUND;
-  }
-  t_docId current() const {
-    return base_.current->docId;
-  }
-  int has_next() const {
-    return index_ < len();
-  }
-  size_t len() const {
-    return iter_.size();
-  }
-  void abort() {
-    base_.isValid = false;
-  }
-  void rewind() {
-    base_.isValid = true;
-    base_.current->docId = 0;
-    index_ = 0;
-  }
-
-  static IndexIterator init_base();
+  static inline IndexIterator init_base();
 };
 
-namespace {
-int QIter_Read(void *ctx, RSIndexResult **hit) {
-  return static_cast<GeometryQueryIterator *>(ctx)->read(*hit);
-}
-int QIter_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
-  return static_cast<GeometryQueryIterator *>(ctx)->skip_to(docId, *hit);
-}
-t_docId QIter_LastDocId(void *ctx) {
-  return static_cast<GeometryQueryIterator const *>(ctx)->current();
-}
-int QIter_HasNext(void *ctx) {
-  return static_cast<GeometryQueryIterator const *>(ctx)->has_next();
-}
-void QIter_Free(IndexIterator *self) {
-  auto it = static_cast<GeometryQueryIterator *>(self->ctx);
-  rm_allocator<GeometryQueryIterator> a = it->iter_.get_allocator();
-  std::destroy_at(it);
-  a.deallocate(it, 1);
-}
-size_t QIter_Len(void *ctx) {
-  return static_cast<GeometryQueryIterator const *>(ctx)->len();
-}
-void QIter_Abort(void *ctx) {
-  static_cast<GeometryQueryIterator *>(ctx)->abort();
-}
-void QIter_Rewind(void *ctx) {
-  static_cast<GeometryQueryIterator *>(ctx)->rewind();
-}
-}  // anonymous namespace
-
-IndexIterator GeometryQueryIterator::init_base() {
-  auto ii = IndexIterator{
-      .isValid = 1,
-      .ctx = nullptr,
-      .current = NewVirtualResult(0),
-      .mode = MODE_SORTED,
-      .type = ID_LIST_ITERATOR,
-      .NumEstimated = QIter_Len,
-      .GetCriteriaTester = nullptr,
-      .Read = QIter_Read,
-      .SkipTo = QIter_SkipTo,
-      .LastDocId = QIter_LastDocId,
-      .HasNext = QIter_HasNext,
-      .Free = QIter_Free,
-      .Len = QIter_Len,
-      .Abort = QIter_Abort,
-      .Rewind = QIter_Rewind,
-  };
-  return ii;
-}
+}  // namespace GeoShape
+}  // namespace RediSearch
