@@ -5,6 +5,7 @@ weight: 9
 description: Details about extensions for query expanders and scoring functions
 aliases: 
     - /docs/stack/search/reference/extensions/
+    - /redisearch/reference/extensions
 ---
 
 # Extending the existing search and query features

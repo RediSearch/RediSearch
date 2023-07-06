@@ -6,6 +6,7 @@ description: >
     Learn how to use query syntax
 aliases:
   - /docs/stack/search/reference/query_syntax/    
+  - /redisearch/reference/query_syntax
 ---
 
 You can use simple syntax for complex queries using these rules:

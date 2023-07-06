@@ -5,6 +5,7 @@ weight: 1
 description: Stop-words support
 aliases: 
     - /docs/stack/search/reference/stopwords/
+    - /redisearch/reference/stopwords
 ---
 
 # Stop-Words

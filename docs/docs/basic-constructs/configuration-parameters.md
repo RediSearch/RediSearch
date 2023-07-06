@@ -179,7 +179,7 @@ $ redis-server --loadmodule ./redisearch.so CONCURRENT_WRITE_MODE
 
 ### EXTLOAD
 
-If present, we try to load a RediSearch extension dynamic library from the specified file path. See [Extensions](/redisearch/reference/extensions) for details.
+If present, we try to load a RediSearch extension dynamic library from the specified file path. See [Extensions](/docs/interact/search-and-query/administration/extensions/) for details.
 
 #### Default
 
@@ -295,7 +295,7 @@ $ redis-server --loadmodule ./redisearch.so FRISOINI /opt/dict/friso.ini
 
 ### CURSOR_MAX_IDLE
 
-The maximum idle time (in ms) that can be set to the [cursor api](/redisearch/reference/aggregations#cursor_api).
+The maximum idle time (in ms) that can be set to the [cursor api](/docs/interact/search-and-query/search/aggregations/#cursor-api).
 
 #### Default
 
@@ -545,7 +545,7 @@ $ redis-server --loadmodule ./redisearch.so DEFAULT_DIALECT 2
 
 ### VSS_MAX_RESIZE
 
-The maximum memory resize for Vector Similarity index in bytes. This value will override default memory limits if you need to allow a large [`BLOCK_SIZE`](/redisearch/reference/vectors#creation-attributes-per-algorithm).
+The maximum memory resize for Vector Similarity index in bytes. This value will override default memory limits if you need to allow a large [`BLOCK_SIZE`](/docs/interact/search-and-query/search/vectors/#creation-attributes-per-algorithm).
 
 #### Default
 

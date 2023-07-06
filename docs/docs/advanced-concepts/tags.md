@@ -5,6 +5,7 @@ weight: 6
 description: Details about tag fields
 aliases: 
     - /docs/stack/search/reference/tags/
+    - /redisearch/reference/tags
 ---
 
 # Tag Fields
@@ -154,6 +155,6 @@ You can see what that looks like in the following example:
 (error) Syntax error at offset 27 near be
 ```
 
-**NOTE:** Stop words are words that are so common that a search engine ignores them. We have a dedicated page for [stop words](/redisearch/reference/stopwords) if you would like to learn more.
+**NOTE:** Stop words are words that are so common that a search engine ignores them. We have a dedicated page for [stop words](/docs/interact/search-and-query/advanced-concepts/stopwords/) if you would like to learn more.
 
 Given the potential for syntax errors, we recommend that you escape all spaces within tag queries.

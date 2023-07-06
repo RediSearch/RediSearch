@@ -11,9 +11,9 @@ aliases:
 
 When searching, documents are scored based on their relevance to the query. The score is a floating point number between 0 and 1, where 1 is the highest score. The score is returned as part of the search results, and can be used to sort the results.
 
-Redis Stack comes with a few very basic scoring functions to evaluate document relevance. They are all based on document scores and term frequency. This is regardless of the ability to use [sortable fields](/redisearch/reference/sorting). Scoring functions are specified by adding the `SCORER {scorer_name}` argument to a search query.
+Redis Stack comes with a few very basic scoring functions to evaluate document relevance. They are all based on document scores and term frequency. This is regardless of the ability to use [sortable fields](/docs/interact/search-and-query/advanced-concepts/sorting/). Scoring functions are specified by adding the `SCORER {scorer_name}` argument to a search query.
 
-If you prefer a custom scoring function, it is possible to add more functions using the [Extension API](/redisearch/reference/extensions).
+If you prefer a custom scoring function, it is possible to add more functions using the [Extension API](/docs/interact/search-and-query/administration/extensions/).
 
 The following is a list of the pre-bundled scoring functions available in Redis Stack and a short explanation about how they work. Each function is mentioned by registered name, that can be passed as a `SCORER` argument in `FT.SEARCH`.
 
