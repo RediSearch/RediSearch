@@ -222,7 +222,7 @@ And negative clauses can also be added, in this example to filter out plasma and
 
 Redis Stack comes with a few very basic scoring functions to evaluate document relevance. They are all based on document scores and term frequency. This is regardless of the ability to use sortable fields (see below). Scoring functions are specified by adding the `SCORER {scorer_name}` argument to a search request.
 
-If you prefer a custom scoring function, it is possible to add more functions using the [Extension API](/redisearch/reference/extensions).
+If you prefer a custom scoring function, it is possible to add more functions using the [Extension API](/docs/interact/search-and-query/administration/extensions/).
 
 These are the pre-bundled scoring functions available in Redis Stack:
 

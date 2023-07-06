@@ -5,6 +5,7 @@ weight: 3
 description: Details of FT.AGGREGATE. Grouping and projections and functions
 aliases:
   - /docs/stack/search/reference/aggregations/
+  - /redisearch/reference/aggregations
 ---
 
 # Search and Query Aggregations
