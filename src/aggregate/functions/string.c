@@ -197,7 +197,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
 
     RSValue *arg = RSValue_Dereference(argv[argix++]);
     if (type == 's') {
-      if (arg == RS_NullVal()) {
+      if (RSValue_IsNull(arg)) {
         // write null value
         out = sdscat(out, "(null)");
         continue;

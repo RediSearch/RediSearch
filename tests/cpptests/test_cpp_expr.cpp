@@ -3,6 +3,7 @@
 #include "aggregate/expr/exprast.h"
 #include "aggregate/functions/function.h"
 #include "util/arr.h"
+#include "value.h"
 
 class ExprTest : public ::testing::Test {
  public:
@@ -261,4 +262,18 @@ TEST_F(ExprTest, testPropertyFetch) {
   // RSValue_Print(&ctx.result());
   RLookupRow_Cleanup(&rr);
   RLookup_Cleanup(&lk);
+}
+
+TEST_F(ExprTest, testHash) {
+	const char *strs[] = { 
+		"My liege, this haste was hot in question",
+		"And many limits of the charge set down",
+		"But yesternight: when all athwart there came"
+	};
+	RSValue *arr = RS_StringArray((char **) strs, sizeof(strs)/sizeof(*strs));
+	RSValue *ref = RS_NullVal();
+	RSValue_MakeReference(ref, arr);
+	uint64_t hash = RSValue_Hash(ref, 0);
+	ASSERT_EQ(16854072670266753983UL, hash);
+	RSValue_Decref(ref);
 }

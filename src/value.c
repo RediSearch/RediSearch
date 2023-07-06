@@ -295,7 +295,7 @@ into a number. Return 1 if the value is a number or a numeric string and can be 
 not. If possible, we put the actual value into teh double pointer */
 int RSValue_ToNumber(const RSValue *v, double *d) {
   v = RSValue_Dereference(v);
-  if (!v || RSValue_IsNull(v)) return 0;
+  if (RSValue_IsNull(v)) return 0;
 
   const char *p = NULL;
   size_t l = 0;
@@ -496,12 +496,13 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
   return RSValue_NewArrayEx(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
 }
 
-RSValue RS_NULL = {.t = RSValue_Null, .refcount = 1, .allocated = 0};
-
 // Create a new NULL RSValue
 
+// RSValue RS_NULL = { .t = RSValue_Null, .refcount = 1, .allocated = 0};
+
 inline RSValue *RS_NullVal() {
-  return &RS_NULL;
+  return RS_NewValue(RSValue_Null);
+  // return &RS_NULL; // this is not returned as const and may be modified
 }
 
 RSValue *RS_DuoVal(RSValue *val, RSValue *otherval) {
@@ -575,9 +576,9 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   }
 
   // if one of the values is null, the other wins
-  if (v1 == RS_NullVal()) {
+  if (RSValue_IsNull(v1)) {
     return -1;
-  } else if (v2 == RS_NullVal()) {
+  } else if (RSValue_IsNull(v2)) {
     return 1;
   }
 
@@ -622,7 +623,7 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
     return RSValue_CmpNC(v1, v2) == 0;
   }
 
-  if (v1 == RS_NullVal() || v2 == RS_NullVal()) {
+  if (RSValue_IsNull(v1) || RSValue_IsNull(v2)) {
     return 0;
   }
 
@@ -732,7 +733,6 @@ void RSValue_Print(const RSValue *v) {
  */
 
 int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...) {
-
   va_list ap;
   va_start(ap, fmt);
   const char *p = fmt;

@@ -13,9 +13,9 @@ TEST_F(ValueTest, testBasic) {
 
   v = RS_NullVal();
   ASSERT_EQ(RSValue_Null, v->t);
-  RSValue *v2 = RS_NullVal();
-  ASSERT_EQ(v, v2);  // Pointer is always the same
-  RSValue_Decref(v2);
+  // RSValue *v2 = RS_NullVal();
+  // ASSERT_EQ(v, v2);  // Pointer is always the same
+  // RSValue_Decref(v2);
 
   const char *str = "hello world";
   v = RS_StringValC(strdup(str));

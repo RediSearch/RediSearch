@@ -49,7 +49,7 @@ typedef enum {
 
 } RSValueType;
 
-/* Enumerate sub-types of C strings, basically the free() strategy */
+// Enumerate sub-types of C strings, basically the free() strategy
 typedef enum {
   RSString_Const = 0x00,
   RSString_Malloc = 0x01,
@@ -85,14 +85,10 @@ typedef struct RSValue {
       uint8_t staticarray : 1; // should `vals` be freed
     } arrval;
 
+    // Duo value
     struct {
-      /**
-       * Duo value
-       * 
-       * Allows keeping a value, together with an addition value.
-       * 
-       * For example, keeping a value and, in addition, a different value for serialization, such as a JSON String representation.
-       */ 
+      // Allows keeping a value, together with an addition value.
+      // For example, keeping a value and, in addition, a different value for serialization, such as a JSON String representation.
       
       // An array of 2 RSValue *'s
       // The first entry is the value, the second entry is the additional value
@@ -124,14 +120,11 @@ typedef struct RSValue {
 #define RS_DUOVAL_OTHERVAL(v) ((v).duoval.vals[1])
 #define APIVERSION_RETURN_MULTI_CMP_FIRST 3
 
-/**
- * Clears the underlying storage of the value, and makes it
- * be a reference to the NULL value
- */
+// Clears the underlying storage of the value, and makes it be a reference to the NULL value
 void RSValue_Clear(RSValue *v);
 
-/* Free a value's internal value. It only does anything in the case of a string, and doesn't free
- * the actual value object */
+// Free a value's internal value.
+// It only does anything in the case of a string, and doesn't free the actual value object.
 void RSValue_Free(RSValue *v);
 
 static inline RSValue *RSValue_IncrRef(RSValue *v) {
@@ -175,7 +168,7 @@ void RSValue_SetString(RSValue *v, char *str, size_t len);
 void RSValue_SetSDS(RSValue *v, sds s);
 void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
 
-#ifndef __cplusplus
+//#ifndef __cplusplus
 
 static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
   RS_LOG_ASSERT(src, "RSvalue is missing");
@@ -194,27 +187,25 @@ static inline void RSValue_MakeOwnReference(RSValue *dst, RSValue *src) {
   dst->ref = src;
 }
 
-#endif
+//#endif
 
-/* Return the value itself or its referred value */
+// Return the value itself or its referred value
 static inline RSValue *RSValue_Dereference(const RSValue *v) {
   for (; v && v->t == RSValue_Reference; v = v->ref)
     ;
   return (RSValue *)v;
 }
 
-/* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
- * the value needs to be detached */
+// Wrap a string with length into a value object. Doesn't duplicate the string.
+// Use strdup if the value needs to be detached.
 RSValue *RS_StringVal(char *str, uint32_t len);
 
 RSValue *RS_StringValFmt(const char *fmt, ...);
 
-/* Same as RS_StringVal but with explicit string type */
+// Same as RS_StringVal but with explicit string type
 RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t);
 
-/* Wrap a string with length into a value object, assuming the string is a null terminated C
- * string
- */
+// Wrap a string with length into a value object, assuming the string is a null terminated C string
 static inline RSValue *RS_StringValC(char *s) {
   return RS_StringVal(s, strlen(s));
 }
@@ -224,17 +215,13 @@ static inline RSValue *RS_ConstStringVal(const char *s, size_t n) {
 }
 #define RS_ConstStringValC(s) RS_ConstStringVal(s, strlen(s))
 
-/* Wrap a redis string value */
+// Wrap a redis string value
 RSValue *RS_RedisStringVal(RedisModuleString *str);
 
-/**
- *  Create a new value object which increments and owns a reference to the string
- */
+// Create a new value object which increments and owns a reference to the string
 RSValue *RS_OwnRedisStringVal(RedisModuleString *str);
 
-/**
- * Create a new value object which steals a reference to the string
- */
+// Create a new value object which steals a reference to the string
 RSValue *RS_StealRedisStringVal(RedisModuleString *s);
 
 void RSValue_MakeRStringOwner(RSValue *v);
@@ -247,13 +234,16 @@ static inline int RSValue_IsString(const RSValue *value) {
                    value->t == RSValue_OwnRstring);
 }
 
-/* Create a new NULL RSValue */
+// Create a new NULL RSValue
 RSValue *RS_NullVal();
 
-/* Return 1 if the value is NULL, RSValue_Null or a reference to RSValue_Null */
+// Return 1 if the value is NULL, RSValue_Null or a reference to RSValue_Null
 static inline int RSValue_IsNull(const RSValue *value) {
-  if (!value || value == RS_NullVal()) return 1;
-  if (value->t == RSValue_Reference) return RSValue_IsNull(value->ref);
+  if (!value || value->t  == RSValue_Null) return 1;
+  if (value->t == RSValue_Reference) {
+    RSValue *v = RSValue_Dereference(value);
+    return !v || v->t  == RSValue_Null;
+  }
   return 0;
 }
 
@@ -276,16 +266,14 @@ static inline RSValue *RSValue_MakePersistent(RSValue *v) {
   return v;
 }
 
-/**
- * Copies a string using the default mechanism. Returns the copied value.
- */
+// Copies a string using the default mechanism. Returns the copied value.
 RSValue *RS_NewCopiedString(const char *s, size_t dst);
 
-/* Convert a value to a string value. If the value is already a string value it gets
- * shallow-copied (no string buffer gets copied) */
+// Convert a value to a string value. If the value is already a string value it gets
+// shallow-copied (no string buffer gets copied).
 void RSValue_ToString(RSValue *dst, RSValue *v);
 
-/* New value from string, trying to parse it as a number */
+// New value from string, trying to parse it as a number
 RSValue *RSValue_ParseNumber(const char *p, size_t l);
 
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
@@ -295,13 +283,13 @@ int RSValue_ToNumber(const RSValue *v, double *d);
 
 #define RSVALUE_NULL_HASH 1337
 
-/* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
+// Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval.
 static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
   if (!v) return 0;
 
   switch (v->t) {
     case RSValue_Reference: {
-	  RSValue *v1 = RSValue_Dereference(v);
+      RSValue *v1 = RSValue_Dereference(v);
       return RSValue_Hash(v1, hval);
 	}
 
@@ -368,31 +356,31 @@ RSValue *RS_Int64Val(int64_t ii);
  */
 RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options);
 
-/** Accesses the array element at a given position as an l-value */
+// Accesses the array element at a given position as an l-value
 #define RSVALUE_ARRELEM(vv, pos) ((vv)->arrval.vals[pos])
 
-/** Accesses the array length as an lvalue */
+// Accesses the array length as an lvalue
 #define RSVALUE_ARRLEN(vv) ((vv)->arrval.len)
 
 RSValue *RS_VStringArray(uint32_t sz, ...);
 
-/* Wrap an array of NULL terminated C strings into an RSValue array */
+// Wrap an array of NULL terminated C strings into an RSValue array
 RSValue *RS_StringArray(char **strs, uint32_t sz);
 
-/* Initialize all strings in the array with a given string type */
+// Initialize all strings in the array with a given string type
 RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st);
 
-/* Wrap a pair of RSValue into an RSValue Duo */
+// Wrap a pair of RSValue into an RSValue Duo
 RSValue *RS_DuoVal(RSValue *val, RSValue *otherval);
 
-/* Compare 2 values for sorting */
+// Compare 2 values for sorting
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);
 
-/* Return 1 if the two values are equal */
+// Return 1 if the two values are equal
 int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *status);
 
-/* "truth testing" for a value. for a number - not zero. For a string/array - not empty. null is
- * considered false */
+// "truth testing" for a value. 
+// For a number - not zero. For a string/array - not empty. null is considered false.
 static inline int RSValue_BoolTest(const RSValue *v) {
   if (RSValue_IsNull(v)) return 0;
 
@@ -437,7 +425,7 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
   { .t = T, .allocated = 0, .refcount = 1 }
 #endif
 
-/** Static value pointers. These don't ever get decremented */
+// Static value pointers. These don't ever get decremented
 static RSValue __attribute__((unused)) RS_StaticNull = RSVALUE_STATICALLOC_INIT(RSValue_Null);
 static RSValue __attribute__((unused)) RS_StaticUndef = RSVALUE_STATICALLOC_INIT(RSValue_Undef);
 
@@ -466,8 +454,9 @@ static RSValue __attribute__((unused)) RS_StaticUndef = RSVALUE_STATICALLOC_INIT
  * (3) Sets the variable to NULL, as it no longer owns it.
  */
 #define RSVALUE_CLEARVAR(v) \
-  if (v) {                  \
-    RSValue_Decref(v);      \
+  if ((v)) {                \
+    RSValue_Decref((v));    \
+    (v) = NULL;             \
   }
 
 #ifdef __cplusplus

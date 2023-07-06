@@ -48,6 +48,7 @@ char *unescpeStringDup(const char *s, size_t sz) {
   *dst = '\0';
   return dstStart;
 }
+
 RSExpr *RS_NewStringLiteral(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Literal);
   e->literal = RS_StaticValue(RSValue_String);

@@ -36,7 +36,7 @@ static void *distinctNewInstance(Reducer *r) {
 static int distinctAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   distinctCounter *ctr = ctx;
   const RSValue *val = RLookup_GetItem(ctr->srckey, srcrow);
-  if (!val || val == RS_NullVal()) {
+  if (RSValue_IsNull(val)) {
     return 1;
   }
 
@@ -95,7 +95,7 @@ static void *distinctishNewInstance(Reducer *parent) {
 static int distinctishAdd(Reducer *parent, void *instance, const RLookupRow *srcrow) {
   distinctishCounter *ctr = instance;
   const RSValue *val = RLookup_GetItem(ctr->key, srcrow);
-  if (!val || val == RS_NullVal()) {
+  if (RSValue_IsNull(val)) {
     return 1;
   }
 
