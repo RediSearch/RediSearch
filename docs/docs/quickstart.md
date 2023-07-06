@@ -7,7 +7,7 @@ alias:
     - /docs/interact/search-and-query/quick_start
 ---
 
-Make sure that you have [Redis Stack installed](/docs/stack/get-started/install/) and running. Alternatively, you can [create a free Redis Cloud account](https://redis.com/try-free/).
+Make sure that you have [Redis Stack installed](/docs/getting-started/install-stack/) and running. Alternatively, you can [create a free Redis Cloud account](https://redis.com/try-free/).
 
 ## Connect to Redis Stack
 
