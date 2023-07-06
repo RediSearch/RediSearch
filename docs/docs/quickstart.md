@@ -3,6 +3,8 @@ title: "Quickstart: Searching and Querying Redis data"
 linkTitle: Quickstart
 description: Learn how to search and query your Redis data
 weight: 1
+alias:
+    - /docs/interact/search-and-query/quick_start
 ---
 
 Make sure that you have [Redis Stack installed](/docs/stack/get-started/install/) and running. Alternatively, you can [create a free Redis Cloud account](https://redis.com/try-free/).
@@ -118,4 +120,4 @@ For example, to find all bicycles with the brand `Noka Bikes`:
    2) "{\"brand\":\"Noka Bikes\",\"model\":\"Kahuna\",\"price\":3200,\"description\":\"Whether you want to try your hand at XC racing or are looking for a lively trail bike that's just as inspiring on the climbs as it is over rougher ground, the Wilder is one heck of a bike built specifically for short women. Both the frames and components have been tweaked to include a women\xe2\x80\x99s saddle, different bars and unique colourway.\",\"condition\":\"used\"}"
 {{< / clients-example >}}
 
-To learn how to make more advanced queries, see the [Querying syntax](/docs/stack/search/reference/query_syntax).
+To learn how to make more advanced queries, see the [Querying syntax](/docs/interact/search-and-query/query/).

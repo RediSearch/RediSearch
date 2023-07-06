@@ -594,7 +594,7 @@ For example, highlight the word "bluetooth" with bold HTML tags in item names an
 
 ## Aggregate with JSONPath
 
-You can use [aggregation](/docs/stack/search/reference/aggregations) to generate statistics or build facet queries.
+You can use [aggregation](/docs/interact/search-and-query/search/aggregations/) to generate statistics or build facet queries.
 
 The `LOAD` option accepts [JSONPath](/docs/stack/json/path) expressions. You can use any value in the pipeline, even if the value is not indexed.
 
