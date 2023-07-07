@@ -5,6 +5,7 @@ description: Learn how to search and query your Redis data
 weight: 1
 alias:
     - /docs/interact/search-and-query/quick_start
+    - /docs/stack/search/quick_start
 ---
 
 Make sure that you have [Redis Stack installed](/docs/getting-started/install-stack/) and running. Alternatively, you can [create a free Redis Cloud account](https://redis.com/try-free/).
