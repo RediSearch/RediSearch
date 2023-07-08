@@ -478,3 +478,7 @@ def dict_diff(res, exp, show=False, ignore_order=True, significant_digits=7,
     if dd != {} and show:
         pp(dd)
     return dd
+
+def ft_info_to_dict(env, idx):
+  res = env.execute_command('ft.info', idx)
+  return {res[i]: res[i + 1] for i in range(0, len(res), 2)}

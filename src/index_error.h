@@ -6,12 +6,12 @@
 
 #pragma once
 #include <stddef.h>
-
+#include "redismodule.h"
 
 typedef struct IndexError {
     size_t error_count; // Number of errors.
     char *last_error;   // Last error message.
-    char *key;          // Key of the document that caused the error.
+    RedisModuleString *key;          // Key of the document that caused the error.
 } IndexError;
 
 // No errors message. Used when there are no errors.
@@ -22,7 +22,7 @@ extern const char* no_errors;
 IndexError IndexError_init();
 
 // Adds an error message to the IndexError. The error_count is incremented and the last_error is set to the error_message.
-void IndexError_add_error(IndexError *error, const char *error_message, const char *key);
+void IndexError_add_error(IndexError *error, const char *error_message, const RedisModuleString *key);
 
 // Clears an IndexError. If the last_error is not no_errors, it is freed.
 void IndexError_clear(IndexError error);

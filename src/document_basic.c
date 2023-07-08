@@ -108,10 +108,12 @@ void Document_MakeRefOwner(Document *doc) {
   doc->flags |= DOCUMENT_F_OWNREFS;
 }
 
-int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx) {
+int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError *status) {
   RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);
   int rv = REDISMODULE_ERR;
+  // DvirDu: Is this even possible?
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
+    QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key %s does not exist or is not a hash", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
   }
 

@@ -273,7 +273,7 @@ void Document_Dump(const Document *doc) {
 // LCOV_EXCL_STOP
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
-int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx);
+// int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError* status);
 
 static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   /**
@@ -282,19 +282,20 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
    * fields must be reindexed.
    */
   int rv = REDISMODULE_ERR;
-
+  QueryError status = {0};
   Document_Clear(aCtx->doc);
 
   // Path is not covered and is not relevant
 
   DocumentType ruleType = sctx->spec->rule->type;
   if (ruleType == DocumentType_Hash) {
-    rv = Document_LoadSchemaFieldHash(aCtx->doc, sctx);
+    rv = Document_LoadSchemaFieldHash(aCtx->doc, sctx, &status);
   } else if (ruleType == DocumentType_Json) {
-    rv = Document_LoadSchemaFieldJson(aCtx->doc, sctx);
+    rv = Document_LoadSchemaFieldJson(aCtx->doc, sctx, &status);
   }
   if (rv != REDISMODULE_OK) {
-    QueryError_SetError(&aCtx->status, QUERY_ENODOC, "Could not load existing document");
+    // Add error to the spec global stats
+    IndexError_add_error(&sctx->spec->stats.indexError, status.detail, aCtx->doc->docKey);
     aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
     AddDocumentCtx_Free(aCtx);
     return 1;
@@ -619,8 +620,8 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   RedisModuleString *errMsg;
   if (!fdata->isMulti) {
     if (!api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, &errMsg)) {
-      IndexError_add_error(&ctx->spec->stats.indexError, RedisModule_StringPtrLen(errMsg, NULL), RedisModule_StringPtrLen(aCtx->doc->docKey, NULL));
-      IndexError_add_error(&fs->indexError, RedisModule_StringPtrLen(errMsg, NULL), RedisModule_StringPtrLen(aCtx->doc->docKey, NULL));
+      IndexError_add_error(&ctx->spec->stats.indexError, RedisModule_StringPtrLen(errMsg, NULL), aCtx->doc->docKey);
+      IndexError_add_error((IndexError*)&fs->indexError, RedisModule_StringPtrLen(errMsg, NULL), aCtx->doc->docKey);
       // ++ctx->spec->stats.indexingFailures;
       // QueryError_SetErrorFmt(status, QUERY_EBADVAL, "Error indexing geoshape: %s",
       //                        RedisModule_StringPtrLen(errMsg, NULL));
@@ -903,9 +904,8 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
       PreprocessorFunc pp = preprocessorMap[ii];
       if (pp(aCtx, sctx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
-        const char *key = RedisModule_StringPtrLen(doc->docKey, NULL); 
-        IndexError_add_error(&aCtx->spec->stats.indexError, QueryError_GetError(&aCtx->status), key);
-        IndexError_add_error(&aCtx->spec->fields[i].indexError, QueryError_GetError(&aCtx->status), key);
+        IndexError_add_error(&aCtx->spec->stats.indexError, QueryError_GetError(&aCtx->status), doc->docKey);
+        IndexError_add_error(&aCtx->spec->fields[i].indexError, QueryError_GetError(&aCtx->status), doc->docKey);
         // ++aCtx->spec->stats.indexingFailures;
         ourRv = REDISMODULE_ERR;
         goto cleanup;

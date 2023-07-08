@@ -2739,7 +2739,7 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
-int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx);
+// int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError *status);
 
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
@@ -2752,6 +2752,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   hires_clock_t t0;
   hires_clock_get(&t0);
 
+  QueryError status = {0};
   Document doc = {0};
   Document_Init(&doc, key, DEFAULT_SCORE, DEFAULT_LANGUAGE, type);
   // if a key does not exit, is not a hash or has no fields in index schema
@@ -2759,10 +2760,10 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   int rv = REDISMODULE_ERR;
   switch (type) {
   case DocumentType_Hash:
-    rv = Document_LoadSchemaFieldHash(&doc, &sctx);
+    rv = Document_LoadSchemaFieldHash(&doc, &sctx, &status);
     break;
   case DocumentType_Json:
-    rv = Document_LoadSchemaFieldJson(&doc, &sctx);
+    rv = Document_LoadSchemaFieldJson(&doc, &sctx, &status);
     break;
   case DocumentType_Unsupported:
     RS_LOG_ASSERT(0, "Should receieve valid type");
@@ -2770,7 +2771,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   if (rv != REDISMODULE_OK) {
     // TODO: Validate that this is the correct behavior since this can be done inside the indexing functions.
-    IndexError_add_error(&spec->stats.indexError, (char*)no_errors, NULL);
+    IndexError_add_error(&spec->stats.indexError, status.detail, doc.docKey);
     // // we already unlocked the spec but we can increase this value atomically
     // __atomic_add_fetch(&spec->stats.indexingFailures, 1, __ATOMIC_RELAXED);
 
@@ -2783,7 +2784,6 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   RedisSearchCtx_LockSpecWrite(&sctx);
 
-  QueryError status = {0};
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
   aCtx->stateFlags |= ACTX_F_NOBLOCK | ACTX_F_NOFREEDOC;
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
