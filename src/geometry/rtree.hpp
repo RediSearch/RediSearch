@@ -52,8 +52,8 @@ struct RTree {
       /* is_closed        */ true,
       /* points container */ std::vector,
       /* rings_container  */ std::vector,
-      /* points_allocator */ TrackingAllocator,
-      /* rings_allocator  */ TrackingAllocator>;
+      /* points_allocator */ Allocator /* TrackingAllocator */,
+      /* rings_allocator  */ Allocator /* TrackingAllocator */>;
   using geom_type = std::variant<point_type, poly_type>;
 
   using rect_type = bgm::box<point_type>;
@@ -80,14 +80,19 @@ struct RTree {
   [[nodiscard]] auto lookup(doc_type const& doc) const
       -> std::optional<std::reference_wrapper<const geom_type>>;
 
+  [[nodiscard]] static auto from_wkt(std::string_view wkt) -> geom_type;
   void insert(geom_type const& geom, t_docId id);
   int insertWKT(const char* wkt, size_t len, t_docId id, RedisModuleString** err_msg);
   bool remove(const doc_type& doc);
   bool remove(t_docId id);
 
+  [[nodiscard]] static auto geometry_to_string(geom_type const& geom) -> string;
+  [[nodiscard]] static auto doc_to_string(doc_type const& doc) -> string;
   void dump(RedisModuleCtx* ctx) const;
-  [[nodiscard]] std::size_t reportTotal() noexcept;
+  [[nodiscard]] std::size_t reportTotal() const noexcept;
 
+  [[nodiscard]] static auto generate_query_iterator(
+    ResultsVec&& results, TrackingAllocator<QueryIterator>&& a) -> IndexIterator*;
   template <typename Predicate>
   [[nodiscard]] auto query(Predicate p) const -> ResultsVec;
   [[nodiscard]] auto contains(doc_type const& queryDoc, geom_type const& queryGeom) const
@@ -97,7 +102,12 @@ struct RTree {
   [[nodiscard]] auto query(doc_type const& queryDoc, QueryType queryType,
                            geom_type const& queryGeom) const -> ResultsVec;
   [[nodiscard]] auto query(const char* wkt, size_t len, QueryType query_type,
-                       RedisModuleString** err_msg) const -> IndexIterator*;
+                           RedisModuleString** err_msg) const -> IndexIterator*;
+
+  [[nodiscard]] static constexpr auto make_mbr(geom_type const& geom) -> rect_type;
+  [[nodiscard]] static constexpr auto make_doc(geom_type const& geom, t_docId id = 0) -> doc_type;
+  [[nodiscard]] static constexpr auto get_rect(doc_type const& doc) -> rect_type;
+  [[nodiscard]] static constexpr auto get_id(doc_type const& doc) -> t_docId;
 
 };
 

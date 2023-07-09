@@ -9,14 +9,13 @@
 #include "../index_iterator.h"
 #include "allocator/tracking_allocator.hpp"
 
-#include <vector>     // std::vector
-#include <ranges>     // ranges::input_range
+#include <vector>  // std::vector
+#include <ranges>  // ranges::input_range, ranges::begin, ranges::end
 
 namespace RediSearch {
 namespace GeoShape {
 struct QueryIterator {
-  using Allocator::TrackingAllocator;
-  using alloc_type = TrackingAllocator<t_docId>;
+  using alloc_type = RediSearch::Allocator::TrackingAllocator<t_docId>;
   using container_type = std::vector<t_docId, alloc_type>;
 
   IndexIterator base_;
@@ -24,9 +23,11 @@ struct QueryIterator {
   std::size_t index_;
 
   explicit QueryIterator() = delete;
-  template <std::ranges::input_range R>
-  explicit QueryIterator(R &&range, alloc_type const &alloc);
   explicit QueryIterator(container_type &&docs);
+  template <std::ranges::input_range R>
+  explicit QueryIterator(R &&range, alloc_type &&alloc)
+      : QueryIterator(container_type{std::begin(range), std::end(range), alloc}) {
+  }
 
   /* rule of 5 */
   QueryIterator(QueryIterator const &) = delete;
@@ -35,7 +36,7 @@ struct QueryIterator {
   QueryIterator &operator=(QueryIterator &&) = default;
   ~QueryIterator();
 
-  IndexIterator *base() noexcept;
+  auto base() noexcept -> IndexIterator *;
 
   int read(RSIndexResult *&hit) noexcept;
   int skip_to(t_docId docId, RSIndexResult *&hit);

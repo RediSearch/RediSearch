@@ -6,20 +6,13 @@
 
 #include "query_iterator.hpp"
 
-#include <vector>     // std::vector
-#include <ranges>     // ranges::input_range
-#include <utility>    // std::move, std::forward
-#include <iterator>   // std::begin, std::end, ranges::distance
+#include <utility>    // std::move
+#include <iterator>   // ranges::distance
 #include <algorithm>  // ranges::sort, ranges::lower_bound
 
 namespace RediSearch {
 namespace GeoShape {
 
-template <std::ranges::input_range R>
-inline QueryIterator::QueryIterator(R &&range, alloc_type const &alloc)
-    : QueryIterator(container_type{std::begin(std::forward<R>(range)),
-                                   std::end(std::forward<R>(range)), alloc}) {
-}
 inline QueryIterator::QueryIterator(container_type &&docs)
     : base_{init_base()}, iter_{std::move(docs)}, index_{0} {
   base_.ctx = this;
@@ -29,7 +22,7 @@ inline QueryIterator::~QueryIterator() noexcept {
   IndexResult_Free(base_.current);
 }
 
-inline IndexIterator *QueryIterator::base() noexcept {
+inline auto QueryIterator::base() noexcept -> IndexIterator* {
   return &base_;
 }
 

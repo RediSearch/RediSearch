@@ -20,10 +20,10 @@ struct TrackingAllocator {
   template <class U>
   explicit inline TrackingAllocator(TrackingAllocator<U> const& other) noexcept;
 
-  [[nodiscard]] inline value_type* allocate(std::size_t n) noexcept;
+  [[nodiscard]] inline auto allocate(std::size_t n) noexcept -> value_type*;
   inline void deallocate(value_type* p, std::size_t n) noexcept;
 
-  [[nodiscard]] inline constexpr std::size_t report() noexcept;
+  [[nodiscard]] inline constexpr std::size_t report() const noexcept;
 };
 
 template <class T>
@@ -37,7 +37,7 @@ inline TrackingAllocator<T>::TrackingAllocator(TrackingAllocator<U> const& other
 }
 
 template <class T>
-inline TrackingAllocator<T>::value_type* TrackingAllocator<T>::allocate(std::size_t n) noexcept {
+inline auto TrackingAllocator<T>::allocate(std::size_t n) noexcept -> value_type* {
   auto alloc_size = n * sizeof(value_type);
   auto p = static_cast<value_type*>(rm_malloc(alloc_size));
   if (p) {
@@ -53,7 +53,7 @@ inline void TrackingAllocator<T>::deallocate(value_type* p, std::size_t n) noexc
 }
 
 template <class T>
-inline constexpr std::size_t TrackingAllocator<T>::report() noexcept {
+inline constexpr std::size_t TrackingAllocator<T>::report() const noexcept {
   return allocated_;
 }
 

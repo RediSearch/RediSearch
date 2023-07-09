@@ -18,7 +18,7 @@ struct Allocator {
   template <class U>
   explicit inline Allocator(Allocator<U> const&) noexcept;
 
-  [[nodiscard]] inline value_type* allocate(std::size_t n) noexcept;
+  [[nodiscard]] inline auto allocate(std::size_t n) noexcept -> value_type*;
   inline void deallocate(value_type* p, std::size_t n) noexcept;
 };
 
@@ -28,7 +28,7 @@ inline Allocator<T>::Allocator(Allocator<U> const&) noexcept {
 }
 
 template <class T>
-inline Allocator<T>::value_type* Allocator<T>::allocate(std::size_t n) noexcept {
+inline auto Allocator<T>::allocate(std::size_t n) noexcept -> value_type* {
   auto alloc_size = n * sizeof(value_type);
   auto p = static_cast<value_type*>(rm_malloc(alloc_size));
   return p;
