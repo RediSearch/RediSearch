@@ -190,7 +190,7 @@ void RTree<coord_system>::dump(RedisModuleCtx* ctx) const {
 }
 
 template <typename coord_system>
-std::size_t RTree<coord_system>::reportTotal() const noexcept {
+std::size_t RTree<coord_system>::report() const noexcept {
   return alloc_.report();
 }
 

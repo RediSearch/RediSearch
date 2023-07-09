@@ -61,12 +61,16 @@ namespace {
   void Index_##variant##_Dump(const GeometryIndex *idx, RedisModuleCtx *ctx) {                     \
     std::get<RediSearch::GeoShape::RTree<variant>>(idx->index).dump(ctx);                          \
   }                                                                                                \
+  std::size_t Index_##variant##_Report(const GeometryIndex *idx) {                                 \
+    return std::get<RediSearch::GeoShape::RTree<variant>>(idx->index).report();                    \
+  }                                                                                                \
   constexpr GeometryApi GeometryApi_##variant = {                                                  \
       .freeIndex = Index_##variant##_Free,                                                         \
       .addGeomStr = Index_##variant##_Insert,                                                      \
       .delGeom = Index_##variant##_Remove,                                                         \
       .query = Index_##variant##_Query,                                                            \
       .dump = Index_##variant##_Dump,                                                              \
+      .report = Index_##variant##_Report,                                                          \
   };                                                                                               \
   GeometryIndex *Index_##variant##_New() {                                                         \
     auto p = RediSearch::Allocator::Allocator<GeometryIndex>{}.allocate(1);                        \
@@ -92,8 +96,4 @@ const char *GeometryCoordsToName(GEOMETRY_COORDS tag) {
       [GEOMETRY_COORDS_Geographic] = "SPHERICAL",
   }};
   return tag_names[tag];
-}
-
-std::size_t GeometryTotalMemUsage() {
-  return 0;  // TODO
 }

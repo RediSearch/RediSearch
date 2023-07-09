@@ -26,12 +26,10 @@ struct GeometryApi {
   IndexIterator *(*query)(const GeometryIndex *index, QueryType queryType, GEOMETRY_FORMAT format,
                           const char *str, size_t len, RedisModuleString **err_msg);
   void (*dump)(const GeometryIndex *index, RedisModuleCtx *ctx);
+  size_t (*report)(const GeometryIndex *index);
 };
 
 const char *GeometryCoordsToName(GEOMETRY_COORDS tag);
-
-// Return the total memory usage of all RTree instances
-size_t GeometryTotalMemUsage();
 
 #ifdef __cplusplus
 }
