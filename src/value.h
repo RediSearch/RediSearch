@@ -59,7 +59,7 @@ typedef enum {
   RSString_Volatile = 0x04,
 } RSStringType;
 
-#define RSVALUE_STATIC \
+#define RSVALUE_UNDEF \
   { .t = RSValue_Undef, .allocated = 0, .refcount = 1 }
 
 #pragma pack(4)
@@ -107,12 +107,10 @@ typedef struct RSValue {
   uint8_t allocated : 1;
 
 #ifdef __cplusplus
-  RSValue() {
-  }
-  RSValue(RSValueType t_) : ref(NULL), t(t_), refcount(0), allocated(0) {
-  }
-
+  RSValue(RSValueType t = RSValue_Undef) : ref(NULL), t(t), refcount(0), allocated(0) {}
+  ~RSValue();
 #endif
+
 } RSValue;
 #pragma pack()
 
@@ -122,6 +120,13 @@ typedef struct RSValue {
 
 // Clears the underlying storage of the value, and makes it be a reference to the NULL value
 void RSValue_Clear(RSValue *v);
+
+// Clears value before setting it to another
+void RSValue_Reset(RSValue *v);
+
+#ifdef __cplusplus
+inline RSValue::~RSValue() { RSValue_Clear(this); }
+#endif // __cplusplus
 
 // Free a value's internal value.
 // It only does anything in the case of a string, and doesn't free the actual value object.
@@ -172,7 +177,7 @@ void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
 
 static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
   RS_LOG_ASSERT(src, "RSvalue is missing");
-  RSValue_Clear(dst);
+  RSValue_Reset(dst);
   dst->t = RSValue_Reference;
   dst->ref = RSValue_IncrRef(src);
 }
@@ -182,7 +187,7 @@ static inline void RSValue_MakeOwnReference(RSValue *dst, RSValue *src) {
 //  RSValue_Decref(src);
 
   RS_LOG_ASSERT(src, "RSvalue is missing");
-  RSValue_Clear(dst);
+  RSValue_Reset(dst);
   dst->t = RSValue_Reference;
   dst->ref = src;
 }
@@ -311,7 +316,7 @@ static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
 
     case RSValue_Array: {
       for (uint32_t i = 0; i < v->arrval.len; i++) {
-		if (v->arrval.vals[i]) {
+        if (v->arrval.vals[i]) {
           hval = RSValue_Hash(v->arrval.vals[i], hval);
 		}
       }
@@ -426,8 +431,8 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 #endif
 
 // Static value pointers. These don't ever get decremented
-static RSValue __attribute__((unused)) RS_StaticNull = RSVALUE_STATICALLOC_INIT(RSValue_Null);
-static RSValue __attribute__((unused)) RS_StaticUndef = RSVALUE_STATICALLOC_INIT(RSValue_Undef);
+// static RSValue __attribute__((unused)) RS_StaticNull = RSVALUE_STATICALLOC_INIT(RSValue_Null);
+// static RSValue __attribute__((unused)) RS_StaticUndef = RSVALUE_STATICALLOC_INIT(RSValue_Undef);
 
 /**
  * Maximum number of static/cached numeric values. Integral numbers in this range

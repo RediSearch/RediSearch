@@ -203,7 +203,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
         continue;
       } else if (!RSValue_IsString(arg)) {
 
-        RSValue strval = RSVALUE_STATIC;
+        RSValue strval = RSVALUE_UNDEF;
         RSValue_ToString(&strval, arg);
         size_t sz;
         const char *str = RSValue_StringPtrLen(&strval, &sz);

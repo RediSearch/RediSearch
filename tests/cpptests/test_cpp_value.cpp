@@ -13,9 +13,9 @@ TEST_F(ValueTest, testBasic) {
 
   v = RS_NullVal();
   ASSERT_EQ(RSValue_Null, v->t);
-  // RSValue *v2 = RS_NullVal();
-  // ASSERT_EQ(v, v2);  // Pointer is always the same
-  // RSValue_Decref(v2);
+  RSValue *v2 = RS_NullVal();
+  ASSERT_EQ(v, v2);  // Pointer is always the same
+  RSValue_Decref(v2);
 
   const char *str = "hello world";
   v = RS_StringValC(strdup(str));
@@ -87,4 +87,17 @@ TEST_F(ValueTest, testNumericFormat) {
   RSValue_SetNumber(v, 1581011976800);
   ASSERT_STREQ("1581011976800", toString(v).c_str());
   RSValue_Decref(v);
+}
+
+TEST_F(ValueTest, testHash) {
+  const char *strs[] = { 
+    "My liege, this haste was hot in question",
+    "And many limits of the charge set down",
+    "But yesternight: when all athwart there came"
+  };
+  RSValue *arr = RS_StringArray((char **) strs, sizeof(strs)/sizeof(*strs));
+  RSValue ref;
+  RSValue_MakeReference(&ref, arr);
+  uint64_t hash = RSValue_Hash(&ref, 0);
+  ASSERT_EQ(16854072670266753983UL, hash);
 }
