@@ -82,7 +82,7 @@ struct RTree {
 
   [[nodiscard]] static auto from_wkt(std::string_view wkt) -> geom_type;
   void insert(geom_type const& geom, t_docId id);
-  int insertWKT(const char* wkt, size_t len, t_docId id, RedisModuleString** err_msg);
+  int insertWKT(const char* wkt, std::size_t len, t_docId id, RedisModuleString** err_msg);
   bool remove(const doc_type& doc);
   bool remove(t_docId id);
 
@@ -91,8 +91,9 @@ struct RTree {
   void dump(RedisModuleCtx* ctx) const;
   [[nodiscard]] std::size_t reportTotal() const noexcept;
 
-  [[nodiscard]] static auto generate_query_iterator(
-    ResultsVec&& results, TrackingAllocator<QueryIterator>&& a) -> IndexIterator*;
+  [[nodiscard]] static auto generate_query_iterator(ResultsVec&& results,
+                                                    TrackingAllocator<QueryIterator>&& a)
+      -> IndexIterator*;
   template <typename Predicate>
   [[nodiscard]] auto query(Predicate p) const -> ResultsVec;
   [[nodiscard]] auto contains(doc_type const& queryDoc, geom_type const& queryGeom) const
@@ -101,14 +102,13 @@ struct RTree {
       -> ResultsVec;
   [[nodiscard]] auto query(doc_type const& queryDoc, QueryType queryType,
                            geom_type const& queryGeom) const -> ResultsVec;
-  [[nodiscard]] auto query(const char* wkt, size_t len, QueryType query_type,
+  [[nodiscard]] auto query(const char* wkt, std::size_t len, QueryType query_type,
                            RedisModuleString** err_msg) const -> IndexIterator*;
 
   [[nodiscard]] static constexpr auto make_mbr(geom_type const& geom) -> rect_type;
   [[nodiscard]] static constexpr auto make_doc(geom_type const& geom, t_docId id = 0) -> doc_type;
   [[nodiscard]] static constexpr auto get_rect(doc_type const& doc) -> rect_type;
   [[nodiscard]] static constexpr auto get_id(doc_type const& doc) -> t_docId;
-
 };
 
 }  // namespace GeoShape

@@ -46,7 +46,7 @@ struct QueryIterator {
   void abort() noexcept;
   void rewind() noexcept;
 
-  static inline IndexIterator init_base();
+  static IndexIterator init_base();
 };
 
 }  // namespace GeoShape

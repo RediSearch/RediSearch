@@ -93,7 +93,7 @@ void RTree<coord_system>::insert(geom_type const& geom, t_docId id) {
 }
 
 template <typename coord_system>
-int RTree<coord_system>::insertWKT(const char* wkt, size_t len, t_docId id,
+int RTree<coord_system>::insertWKT(const char* wkt, std::size_t len, t_docId id,
                                    RedisModuleString** err_msg) {
   try {
     auto geom = from_wkt(std::string_view{wkt, len});
@@ -260,7 +260,7 @@ auto RTree<coord_system>::query(doc_type const& queryDoc, QueryType queryType,
 }
 
 template <typename coord_system>
-auto RTree<coord_system>::query(const char* wkt, size_t len, QueryType query_type,
+auto RTree<coord_system>::query(const char* wkt, std::size_t len, QueryType query_type,
                                 RedisModuleString** err_msg) const -> IndexIterator* {
   try {
     auto query_geom = from_wkt(std::string_view{wkt, len});
