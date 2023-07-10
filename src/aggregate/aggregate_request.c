@@ -170,7 +170,7 @@ int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
 }
 
 // Parse the available formats for search result values: FORMAT STRING|EXPAND
-int parseValueFormat(uint32_t *flag, ArgsCursor *ac, QueryError *status) {
+int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
   const char *format;
   int rv = AC_GetString(ac, &format, NULL, 0);
   if (rv != AC_OK) {
@@ -178,11 +178,12 @@ int parseValueFormat(uint32_t *flag, ArgsCursor *ac, QueryError *status) {
     return REDISMODULE_ERR;
   }
   if (!strcasecmp(format, "EXPAND")) {
-    *flag |= QEXEC_FORMAT_EXPAND;
+    *flags |= QEXEC_FORMAT_EXPAND;
   } else if (strcasecmp(format, "STRING")) {
     QERR_MKBADARGS_FMT(status, "FORMAT %s is not supported", format);
     return REDISMODULE_ERR;
   }
+  *flags &= ~QEXEC_FORMAT_DEFAULT;
   return REDISMODULE_OK;
 }
  
@@ -436,6 +437,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
        .len = &req->ast.udatalen},
       {NULL}};
 
+  req->reqflags |= QEXEC_FORMAT_DEFAULT;
   bool optimization_specified = false;
   while (!AC_IsAtEnd(ac)) {
     ACArgSpec *errSpec = NULL;
@@ -933,10 +935,17 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     QueryError_SetErrorFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
     return REDISMODULE_ERR;
   }
-  if((req->reqflags & QEXEC_FORMAT_EXPAND) && !is_resp3(req->sctx->redisCtx)) {
+  
+  if (req->reqflags & QEXEC_FORMAT_DEFAULT) {
+    if (is_resp3(req->sctx->redisCtx)) {
+      req->reqflags |= QEXEC_FORMAT_EXPAND;
+    }
+  }
+  else if ((req->reqflags & QEXEC_FORMAT_EXPAND) && !is_resp3(req->sctx->redisCtx)) {
     QueryError_SetError(status, QUERY_EBADVAL, "EXPAND FORMAT is only supported with RESP3");
     return REDISMODULE_ERR;
   }
+
   if (!(opts->flags & Search_NoStopwrods)) {
     opts->stopwords = sctx->spec->stopwords;
     StopWordList_Ref(sctx->spec->stopwords);

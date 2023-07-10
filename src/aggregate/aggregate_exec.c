@@ -346,7 +346,11 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
     nelem++;
 
-    RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
+    if (req->reqflags & QEXEC_FORMAT_EXPAND) {
+      RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
+    } else {
+      RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
+    }
 
     RedisModule_ReplyKV_Array(reply, "results"); // >results
     nelem = 0;

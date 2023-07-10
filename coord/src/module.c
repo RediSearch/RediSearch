@@ -645,11 +645,11 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   }
 
   unsigned int dialect = RSGlobalConfig.requestConfigParams.dialectVersion;
-  int dialectArgIndex = RMUtil_ArgExists("DIALECT", argv, argc, argvOffset);
-  if(dialectArgIndex > 0) {
-      dialectArgIndex++;
+  int argIndex = RMUtil_ArgExists("DIALECT", argv, argc, argvOffset);
+  if(argIndex > 0) {
+      argIndex++;
       ArgsCursor ac;
-      ArgsCursor_InitRString(&ac, argv+dialectArgIndex, argc-dialectArgIndex);
+      ArgsCursor_InitRString(&ac, argv+argIndex, argc-argIndex);
       if (parseDialect(&dialect, &ac, status) != REDISMODULE_OK) {
         searchRequestCtx_Free(req);
         return NULL;
@@ -667,6 +667,18 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
       if (knnCtx != NULL) {
         setKNNSpecialCase(req, knnCtx);
       }
+    }
+  }
+
+  req->format |= QEXEC_FORMAT_DEFAULT;
+  argIndex = RMUtil_ArgExists("FORMAT", argv, argc, argvOffset);
+  if(argIndex > 0) {
+    argIndex++;
+    ArgsCursor ac;
+    ArgsCursor_InitRString(&ac, argv+argIndex, argc-argIndex);
+    if (parseValueFormat(&req->format, &ac, status) != REDISMODULE_OK) {
+      searchRequestCtx_Free(req);
+      return NULL;
     }
   }
 
@@ -1220,7 +1232,11 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_ReplyKV_LongLong(reply, "total_results", rCtx->totalReplies);
 
-    RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
+    if (rCtx->searchCtx->format) {
+      RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
+    } else {
+      RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
+    }
 
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 

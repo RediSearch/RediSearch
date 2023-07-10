@@ -77,8 +77,11 @@ typedef enum {
   /* Optimize query */
   QEXEC_OPTIMIZE = 0x40000,
 
-  /* Values are returned expanded as RESP3 */
+  /* Values are returned as RESP3 */
   QEXEC_FORMAT_EXPAND = 0x80000,
+
+  /* Values are returned according to current protocol */
+  QEXEC_FORMAT_DEFAULT = 0x100000,
 
 } QEFlags;
 
@@ -312,6 +315,9 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
  * @return int REDISMODULE_OK in case of successful parsing, REDISMODULE_ERR otherwise
  */
 int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status);
+
+
+int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status);
 
 #define AREQ_RP(req) (req)->qiter.endProc
 

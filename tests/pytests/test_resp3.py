@@ -54,7 +54,7 @@ def test_search():
         {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
         {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
       ]}
-    env.expect('FT.search', 'idx1', "*").equal(exp)
+    env.expect('FT.search', 'idx1', "*", "FORMAT", "STRING").equal(exp)
 
     # test withscores
     exp = {
@@ -88,7 +88,7 @@ def test_search():
     }
 
     env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "EXPLAINSCORE", "WITHPAYLOADS",
-               "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2').equal(exp)
+               "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2', "FORMAT", "STRING").equal(exp)
 
     # test with sortby
     exp = {
@@ -111,12 +111,12 @@ def test_search():
       ]
     }
     env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "WITHPAYLOADS", "WITHSORTKEYS",
-               "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC").equal(exp)
+               "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC", "FORMAT", "STRING").equal(exp)
 
     # test with limit 0 0
     exp = {'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING', 'results': []}
     env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "WITHPAYLOADS",
-               "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC", "LIMIT", 0, 0).equal(exp)
+               "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC", "LIMIT", 0, 0, "FORMAT", "STRING").equal(exp)
 
     # test without RETURN
     exp = {
@@ -129,7 +129,7 @@ def test_search():
         {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
       ]
     }
-    env.expect('FT.search', 'idx1', "*").equal(exp)
+    env.expect('FT.search', 'idx1', "*", "FORMAT", "STRING").equal(exp)
 
 def test_search_timeout():
     env = Env(protocol=3)
@@ -195,7 +195,7 @@ def test_profile(env):
         ]
       }
     }
-    env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*').equal(exp)
+    env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', "FORMAT", "STRING").equal(exp)
 
 def test_coord_profile():
     env = Env(protocol=3)
@@ -242,7 +242,7 @@ def test_coord_profile():
                                                    {'Type': 'Sorter', 'Time': ANY, 'Counter': ANY},
                                                    {'Type': 'Loader', 'Time': ANY, 'Counter': ANY}]},
         'Coordinator': {'Total Coordinator time': ANY, 'Post Proccessing time': ANY}}}
-    res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*')
+    res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', 'FORMAT', 'STRING')
     res['results'].sort(key=lambda x: "" if x['extra_attributes'].get('f1') == None else x['extra_attributes']['f1'])
     env.assertEqual(res, exp)
 
@@ -260,7 +260,7 @@ def test_aggregate():
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     waitForIndex(env, 'idx1')
 
-    res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 2, "f1", "f2")
+    res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 2, "f1", "f2", "FORMAT", "STRING")
     res['results'].sort(key=lambda x: "" if x['extra_attributes'].get('f2') == None else x['extra_attributes'].get('f2'))
     exp = {
       'attributes': [],
@@ -275,7 +275,7 @@ def test_aggregate():
     }
     env.assertEqual(res, exp)
 
-    res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3")
+    res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "FORMAT", "STRING")
     exp = {
       'attributes': [],
       'error': [],
@@ -302,7 +302,7 @@ def test_aggregate():
         {'extra_attributes': {}, 'values': []}
       ]
     }
-    res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "SORTBY", 2, "@f2", "DESC")
+    res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "SORTBY", 2, "@f2", "DESC", "FORMAT", "STRING")
     env.assertEqual(res, exp)
 
 def test_cursor():
@@ -714,11 +714,18 @@ def testExpandErrorsResp3():
   env.cmd('ft.create', 'idx', 'on', 'json', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric')
   env.expect('FT.SEARCH', 'idx', '*', 'FORMAT').error()
   env.expect('FT.SEARCH', 'idx', '*', 'FORMAT', 'XPAND').error()
+  env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT').error()
+  env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'XPAND').error()
 
 def testExpandErrorsResp2():
   env = Env(protocol=2)
   env.cmd('ft.create', 'idx', 'on', 'json', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric')
   env.expect('FT.SEARCH', 'idx', '*', 'FORMAT', 'EXPAND').error()
+  if not env.isCluster():
+    env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').error()
+  else:
+    # TODO: Remove once MOD-5211 is done
+    env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').equal([0])
 
 def testExpand():
   env = Env(protocol=3)
@@ -727,21 +734,25 @@ def testExpand():
   with env.getClusterConnectionIfNeeded() as r:
     r.execute_command('json.set', 'doc1', '$', '{"arr":[1,2,3],"num":1,"str":"foo"}')
     r.execute_command('json.set', 'doc2', '$', '{"arr":[3,4,5],"num":2,"str":"bar"}')
+    r.execute_command('json.set', 'doc3', '$', '{"arr":[5,6,7],"num":3,"str":"baz"}')
 
   exp = {
     'attributes': [],
     'error': [],
-    'total_results': 2,
-    'format': 'STRING',
+    'total_results': 3,
+    'format': 'EXPAND',
     'results': [
-      {'id': 'doc1', 'extra_attributes': {'$': '{"arr":[1,2,3],"num":1,"str":"foo"}'}, 'values': []},
-      {'id': 'doc2', 'extra_attributes': {'$': '{"arr":[3,4,5],"num":2,"str":"bar"}'}, 'values': []},
+      {'id': 'doc1', 'extra_attributes': {'$': '{"arr":[1,2,3],"num":1,"str":"foo"}'}, 'values': []},  #FIXME: EXPAND value
+      {'id': 'doc2', 'extra_attributes': {'$': '{"arr":[3,4,5],"num":2,"str":"bar"}'}, 'values': []},  #FIXME: EXPAND value
     ]
   }
-  # Default FORMAT is STRING
-  res = env.cmd('FT.SEARCH', 'idx', '*')
+  # Default FORMAT is EXPAND
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2)
   env.assertEqual(res, exp)
 
-  #exp['format'] = 'EXPAND'  # FIXME: uncomment when EXPAND is implemented
-  res = env.cmd('FT.SEARCH', 'idx', '*', 'FORMAT', 'EXPAND')
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'EXPAND')
+  env.assertEqual(res, exp)
+
+  exp['format'] = 'STRING'
+  res = env.cmd('FT.SEARCH', 'idx', '*','LIMIT', 0, 2, 'FORMAT', 'STRING')
   env.assertEqual(res, exp)

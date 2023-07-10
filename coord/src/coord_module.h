@@ -46,6 +46,7 @@ typedef struct {
   int sortAscending;
   int withSortingKeys;
   int noContent;
+  uint32_t format;
 
   specialCaseCtx** specialCases;
   const char** requiredFields;

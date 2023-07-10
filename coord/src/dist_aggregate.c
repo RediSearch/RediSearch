@@ -397,10 +397,16 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   // Numeric responses are encoded as simple strings.
   tmparr = array_append(tmparr, "_NUM_SSTRING");
 
-  int dialectOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
-  if (dialectOffset != -1 && dialectOffset + 3 + 1 + profileArgs < argc) {
+  int argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
     tmparr = array_append(tmparr, "DIALECT");
-    tmparr = array_append(tmparr, RedisModule_StringPtrLen(argv[dialectOffset + 3 + 1 + profileArgs], NULL));  // the dialect
+    tmparr = array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the dialect
+  }
+
+  argOffset = RMUtil_ArgIndex("FORMAT", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
+    tmparr = array_append(tmparr, "FORMAT");
+    tmparr = array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the format
   }
 
   for (size_t ii = 0; ii < us->nserialized; ++ii) {
