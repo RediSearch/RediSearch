@@ -46,11 +46,11 @@ $ redis-cli
 
 ## Documentation
 
-The [RediSearch documentation](https://redis.io/docs/stack/search/) provides a complete overview of RediSearch. Helpful sections include:
+The [RediSearch documentation](https://redis.io/docs/interact/search-and-query/) provides a complete overview of RediSearch. Helpful sections include:
 
-* The [RediSearch quick start](https://redis.io/docs/stack/search/Quick_Start/)
-* The [RediSearch command reference](https://redis.io/docs/stack/search/Commands/)
-* References on features such as [aggregations](https://redis.io/docs/stack/search/reference/aggregations), [highlights](https://redis.io/docs/stack/search/reference/highlight/), [stemming](https://redis.io/docs/stack/search/reference/stemming/), and [spelling correction](https://redis.io/docs/stack/search/reference/spellcheck/).
+* The [RediSearch quick start](https://redis.io/docs/interact/search-and-query/quickstart/)
+* The [RediSearch command reference](https://redis.io/commands/?group=search)
+* References on features such as [aggregations](https://redis.io/docs/interact/search-and-query/search/aggregations/), [highlights](https://redis.io/docs/interact/search-and-query/advanced-concepts/highlight/), [stemming](https://redis.io/docs/interact/search-and-query/advanced-concepts/stemming/), and [spelling correction](https://redis.io/docs/interact/search-and-query/advanced-concepts/spellcheck/).
 
 ## Mailing list and forum
 
@@ -144,7 +144,7 @@ If you have a more detailed question, drop us a line on the [RediSearch Discussi
 * Field weighting
 * Complex boolean queries with AND, OR, and NOT operators
 * Prefix matching, fuzzy matching, and exact-phrase queries
-* Support for [double-metaphone phonetic matching](https://redis.io/docs/stack/search/reference/phonetic_matching/)
+* Support for [double-metaphone phonetic matching](https://redis.io/docs/interact/search-and-query/advanced-concepts/phonetic_matching/)
 * Auto-complete suggestions (with fuzzy prefix suggestions)
 * Stemming-based query expansion in [many languages](https://redis.io/docs/stack/search/reference/stemming/) (using [Snowball](http://snowballstem.org/))
 * Support for Chinese-language tokenization and querying (using [Friso](https://github.com/lionsoul2014/friso))
