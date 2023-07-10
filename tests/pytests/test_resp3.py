@@ -827,3 +827,43 @@ def test_ft_info():
       }
 
       env.assertEqual(dict_diff(res, exp_cluster if env.isCluster() else exp), {})
+
+def test_vecsim_1():
+    env = Env(protocol=3)
+    env.cmd("ft.create", "vecsimidx0", "prefix", "1", "docvecsimidx0z", "schema", "name", "text", "mynum", "numeric",
+            "vector_FLAT", "VECTOR", "FLAT", "10", "TYPE", "FLOAT32", "DIM", "2", "DISTANCE_METRIC", "L2", "INITIAL_CAP", "500", "BLOCK_SIZE", "500",
+            "vector_HNSW", "VECTOR", "HNSW", "8", "TYPE", "FLOAT32", "DIM", "2", "DISTANCE_METRIC", "L2", "INITIAL_CAP", "500")
+    with env.getClusterConnectionIfNeeded() as r:
+        r.execute_command("HSET", "docvecsimidx0z0", "vector_FLAT", "\x00\x00\x00\x00\x00\x00\x00\x00")
+        r.execute_command("HSET", "docvecsimidx0z0", "vector_HNSW", "\x00\x00\x00\x00\x00\x00\x00\x00")
+        r.execute_command("HSET", "docvecsimidx0z1", "vector_FLAT", "\x00\x00\x80?\x00\x00\x80?")
+        r.execute_command("HSET", "docvecsimidx0z1", "vector_HNSW", "\x00\x00\x80?\x00\x00\x80?")
+        r.execute_command("HSET", "docvecsimidx0z2", "vector_FLAT", "\x00\x00\x00@\x00\x00\x00@")
+        r.execute_command("HSET", "docvecsimidx0z2", "vector_HNSW", "\x00\x00\x00@\x00\x00\x00@")
+        r.execute_command("HSET", "docvecsimidx0z3", "vector_FLAT", "\x00\x00@@\x00\x00@@")
+        r.execute_command("HSET", "docvecsimidx0z3", "vector_HNSW", "\x00\x00@@\x00\x00@@")
+    exp3 = { 'attributes': [],
+             'error': [],
+             'total_results': 3,
+             'format': 'STRING',
+             'results': [
+                 { 'id': 'docvecsimidx0z0',
+                   # 'sortkey': None,
+                   'values': []
+                 },
+                 { 'id': 'docvecsimidx0z2',
+                   # 'sortkey': None,
+                   'values': []
+                 },
+                 { 'id': 'docvecsimidx0z3',
+                   # 'sortkey': None,
+                   'values': []
+                 }
+             ]
+           }
+    exp2 = [3, 'docvecsimidx0z0', 'docvecsimidx0z2', 'docvecsimidx0z3']
+    res = env.execute_command("FT.SEARCH", "vecsimidx0", "(*)=>[KNN 500 @vector_FLAT $BLOB]", "NOCONTENT", "SORTBY",
+               "__vector_FLAT_score", "ASC", "DIALECT", "2", "LIMIT", "0", "500",
+               "params", "2", "BLOB", "\x00\x00\x00\x00\x00\x00\x00\x00")
+    env.assertEqual(dict_diff(res, exp3 if env.protocol == 3 else exp2, show=True,
+                    exclude_regex_paths=["\['sortkey'\]"]), {})
