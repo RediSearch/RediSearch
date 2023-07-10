@@ -6,13 +6,11 @@
 
 #pragma once
 
-#define BOOST_ALLOW_DEPRECATED_HEADERS
-#include <boost/geometry.hpp>
-#undef BOOST_ALLOW_DEPRECATED_HEADERS
 #include "allocator/allocator.hpp"
 #include "allocator/tracking_allocator.hpp"
 #include "query_iterator.hpp"
 #include "geometry_types.h"
+#include "polygon.hpp"
 
 #include <string>       // std::string, std::char_traits
 #include <vector>       // std::vector, std::erase_if
@@ -25,7 +23,8 @@
 #include <exception>    // std::exception
 #include <functional>   // std::hash, std::equal_to, std::reference_wrapper
 #include <string_view>  // std::string_view
-#include <boost/unordered/unordered_flat_map.hpp>  //is faster than std::unordered_map?
+#include <boost/geometry.hpp>
+#include <boost/unordered/unordered_flat_map.hpp>  // is faster than std::unordered_map?
 
 namespace RediSearch {
 namespace GeoShape {
@@ -46,14 +45,7 @@ template <typename coord_system>
 struct RTree {
   using point_type =
       bgm::point<double, 2, coord_system>;  // TODO: GEOMETRY - dimension template param (2 or 3)
-  using poly_type = bgm::polygon<
-      /* point_type       */ point_type,
-      /* is_clockwise     */ true,  // TODO: GEOMETRY - do we need to call bg::correct(poly) ?
-      /* is_closed        */ true,
-      /* points container */ std::vector,
-      /* rings_container  */ std::vector,
-      /* points_allocator */ Allocator /* TrackingAllocator */,
-      /* rings_allocator  */ Allocator /* TrackingAllocator */>;
+  using poly_type = Polygon<point_type>;
   using geom_type = std::variant<point_type, poly_type>;
 
   using rect_type = bgm::box<point_type>;
@@ -80,7 +72,7 @@ struct RTree {
   [[nodiscard]] auto lookup(doc_type const& doc) const
       -> std::optional<std::reference_wrapper<const geom_type>>;
 
-  [[nodiscard]] static auto from_wkt(std::string_view wkt) -> geom_type;
+  [[nodiscard]] auto from_wkt(std::string_view wkt) const -> geom_type;
   void insert(geom_type const& geom, t_docId id);
   int insertWKT(const char* wkt, std::size_t len, t_docId id, RedisModuleString** err_msg);
   bool remove(const doc_type& doc);

@@ -63,12 +63,13 @@ auto RTree<coord_system>::lookup(doc_type const& doc) const
 }
 
 template <typename coord_system>
-auto RTree<coord_system>::from_wkt(std::string_view wkt) -> geom_type {
+auto RTree<coord_system>::from_wkt(std::string_view wkt) const -> geom_type {
   geom_type geom{};
   if (wkt.starts_with("POI")) {
     geom = bg::from_wkt<point_type>(wkt.data());
   } else if (wkt.starts_with("POL")) {
-    geom = bg::from_wkt<poly_type>(wkt.data());
+    geom = poly_type{alloc_};
+    bg::read_wkt(wkt.data(), std::get<poly_type>(geom));
   } else {
     throw std::runtime_error{"unknown geometry type"};
   }
