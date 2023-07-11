@@ -60,7 +60,6 @@ static void sampleFreeInstance(Reducer *rbase, void *p) {
   rsmplCtx *sc = p;
   RSMPLReducer *r = (RSMPLReducer *)rbase;
   if (sc->samplesArray) {
-    _BB;
     RSValue_Decref(sc->samplesArray);
   }
 }
