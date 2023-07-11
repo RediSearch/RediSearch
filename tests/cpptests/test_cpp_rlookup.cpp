@@ -46,7 +46,7 @@ TEST_F(RLookupTest, testRow) {
   ASSERT_EQ(1, rr.ndyn);
 
   // Write a NULL value
-  RLookup_WriteKey(fook, &rr, &RS_StaticNull);
+  RLookup_WriteKey(fook, &rr, RS_NullVal());
   ASSERT_EQ(1, vfoo->refcount);
 
   // Get the 'bar' key -- should be NULL

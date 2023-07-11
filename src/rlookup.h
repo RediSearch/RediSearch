@@ -61,8 +61,9 @@ typedef enum {
  * sorting vector, so that they are essentially different keys, even though
  * they have the same name.
  */
+
 typedef struct RLookupKey {
-  /** The index into the array where the value resides */
+  // The index into the array where the value resides
   uint16_t dstidx;
 
   /**
@@ -77,15 +78,14 @@ typedef struct RLookupKey {
    */
   uint32_t flags;
 
-  /** Path and name of this field
-   *  path AS name */
+  // Path and name of this field path AS name
   const char *path;
   const char *name;
 
-  /** Size of this field */
+  // Size of this field
   size_t name_len;
 
-  /** Pointer to next field in the list */
+  // Pointer to next field in the list
   struct RLookupKey *next;
 } RLookupKey;
 
@@ -113,21 +113,17 @@ typedef struct RLookup {
 // later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
 #define RLOOKUP_OPT_ALL_LOADED 0x02
 
-/**
- * Row data for a lookup key. This abstracts the question of "where" the
- * data comes from.
- */
+// Row data for a lookup key. This abstracts the question of "where" the data comes from.
+
 typedef struct {
-  /** Sorting vector attached to document */
+  // Sorting vector attached to document
   const RSSortingVector *sv;
 
-  /** Dynamic values obtained from prior processing */
+  // Dynamic values obtained from prior processing
   RSValue **dyn;
 
-  /**
-   * How many values actually exist in dyn. Note that this
-   * is not the length of the array!
-   */
+  // How many values actually exist in dyn.
+  // Note that this is not the length of the array!
   size_t ndyn;
 } RLookupRow;
 
@@ -158,7 +154,7 @@ typedef enum {
  */
 #define RLOOKUP_F_QUERYSRC 0x08
 
-/** Copy the key string via strdup. `name` may be freed */
+// Copy the key string via strdup. `name` may be freed
 #define RLOOKUP_F_NAMEALLOC 0x10
 
 /**
@@ -232,9 +228,7 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t name_len,
 RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *field_name, uint32_t flags);
 RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len, const char *field_name, uint32_t flags);
 
-/**
- * Get the amount of visible fields is the RLookup
- */
+// Get the amount of visible fields is the RLookup
 size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFieldIndex,
                          int requiredFlags, int excludeFlags, SchemaRule *rule);
 
@@ -276,9 +270,7 @@ void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
  */
 void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
 
-/**
- * Like WriteKeyByName, but consumes a refcount
- */
+// Like WriteKeyByName, but consumes a refcount
 void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
 
 /** Get a value from the row, provided the key.
@@ -300,7 +292,7 @@ static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *
     if (key->flags & RLOOKUP_F_SVSRC) {
       if (row->sv && row->sv->len > key->svidx) {
         ret = row->sv->values[key->svidx];
-        if (ret != NULL && ret == RS_NullVal()) {
+        if (ret != NULL && RSValue_IsNull(ret)) {
           ret = NULL;
         }
       }
@@ -325,46 +317,40 @@ void RLookupRow_Cleanup(RLookupRow *row);
 void RLookupRow_Dump(const RLookupRow *row);
 
 typedef enum {
-  /* Use keylist (keys/nkeys) for the fields to list */
+  // Use keylist (keys/nkeys) for the fields to list
   RLOOKUP_LOAD_KEYLIST,
-  /* Load only cached keys (don't open keys) */
+  // Load only cached keys (don't open keys)
   RLOOKUP_LOAD_SVKEYS,
-  /* Load all keys in the document */
+  // Load all keys in the document
   RLOOKUP_LOAD_ALLKEYS,
-  /* Load all the keys in the RLookup object */
+  // Load all the keys in the RLookup object
   RLOOKUP_LOAD_LKKEYS
 } RLookupLoadFlags;
 
 typedef struct {
   struct RedisSearchCtx *sctx;
 
-  /** Needed for the key name, and perhaps the sortable */
+  // Needed for the key name, and perhaps the sortable
   const RSDocumentMetadata *dmd;
 
-  /* Needed for rule filter where dmd does not exist */
+  // Needed for rule filter where dmd does not exist
   const char *keyPtr;
   DocumentType type;
 
-  /** Keys to load. If present, then loadNonCached and loadAllFields is ignored */
+  // Keys to load. If present, then loadNonCached and loadAllFields is ignored
   const RLookupKey **keys;
-  /** Number of keys in keys array */
+
+  // Number of keys in keys array
   size_t nkeys;
 
-  /**
-   * The following options control the loading of fields, in case non-SORTABLE
-   * fields are desired.
-   */
+  // The following options control the loading of fields, in case non-SORTABLE fields are desired
   RLookupLoadFlags mode;
 
-  /**
-   * Don't use sortables when loading documents. This will enforce the loader to load
-   * the fields from the document itself, even if they are sortables and un-normalized.
-   */
+  // Don't use sortables when loading documents. This will enforce the loader to load
+  // the fields from the document itself, even if they are sortables and un-normalized.
   int forceLoad;
 
-  /**
-   * Force string return; don't coerce to native type
-   */
+  // Force string return; don't coerce to native type
   int forceString;
 
   struct QueryError *status;
@@ -402,9 +388,7 @@ static inline const RLookupKey *RLookup_FindKeyWith(const RLookup *l, uint32_t f
   return NULL;
 }
 
-/**
- * Initialize the lookup with fields from hash.
- */
+// Initialize the lookup with fields from hash.
 int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *sp, const char *keyptr);
 
 

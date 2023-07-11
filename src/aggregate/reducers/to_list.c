@@ -29,7 +29,6 @@ static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   if (v->t != RSValue_Array) {
     uint64_t hval = RSValue_Hash(v, 0);
     if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
-
       TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval),
                   RSValue_IncrRef(RSValue_MakePersistent(v)), NULL);
     }
@@ -39,7 +38,6 @@ static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
       RSValue *av = RSValue_ArrayItem(v, i);
       uint64_t hval = RSValue_Hash(av, 0);
       if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
-
         TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval),
                     RSValue_IncrRef(RSValue_MakePersistent(av)), NULL);
       }
@@ -53,16 +51,18 @@ static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
   TrieMapIterator *it = TrieMap_Iterate(tlc->values, "", 0);
   char *c;
   tm_len_t l;
-  void *ptr;
-  RSValue **arr = rm_calloc(tlc->values->cardinality, sizeof(RSValue));
+  RSValue *v;
+  int arr_max_len = tlc->values->cardinality;
+  RSValue **arr = rm_malloc(arr_max_len * sizeof(RSValue*));
   size_t i = 0;
-  while (TrieMapIterator_Next(it, &c, &l, &ptr)) {
-    if (ptr) {
-      arr[i++] = ptr;
+  while (TrieMapIterator_Next(it, &c, &l, (void*) &v) && i < arr_max_len) {
+    if (v) {
+      arr[i++] = v;
+      RSValue_IncrRef(v);
     }
   }
 
-  RSValue *ret = RSValue_NewArrayEx(arr, i, RSVAL_ARRAY_ALLOC);
+  RSValue *ret = RSValue_NewArrayFromValues(arr, i);
   TrieMapIterator_Free(it);
   return ret;
 }

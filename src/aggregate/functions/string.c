@@ -43,7 +43,7 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *result, RSValue **argv, siz
       for (size_t i = 0; i < n; i++) {
         arr[i] = RS_ConstStringVal(terms[i]->str, terms[i]->len);
       }
-      RSValue *v = RSValue_NewArrayEx(arr, n, RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
+      RSValue *v = RSValue_NewArrayFromValues(arr, n);
       RSValue_MakeOwnReference(result, v);
       return EXPR_EVAL_OK;
     }
@@ -197,13 +197,13 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
 
     RSValue *arg = RSValue_Dereference(argv[argix++]);
     if (type == 's') {
-      if (arg == RS_NullVal()) {
+      if (RSValue_IsNull(arg)) {
         // write null value
         out = sdscat(out, "(null)");
         continue;
       } else if (!RSValue_IsString(arg)) {
 
-        RSValue strval = RSVALUE_STATIC;
+        RSValue strval = RSVALUE_UNDEF;
         RSValue_ToString(&strval, arg);
         size_t sz;
         const char *str = RSValue_StringPtrLen(&strval, &sz);
@@ -270,13 +270,13 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
   size_t len;
   char *str = (char *)RSValue_StringPtrLen(argv[0], &len);
   char *ep = str + len;
-  size_t l = 0;
   char *next;
   char *tok = str;
 
   // extract at most 1024 values
   static RSValue *tmp[1024];
-  while (l < 1024 && tok < ep) {
+  size_t n_vals = 0;
+  while (n_vals < 1024 && tok < ep) {
     next = strpbrk(tok, sep);
     size_t sl = next ? (next - tok) : ep - tok;
 
@@ -285,7 +285,7 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
       // trim the strip set
       char *s = strtrim(tok, sl, &outlen, strp);
       if (outlen) {
-        tmp[l++] = RS_NewCopiedString(s, outlen);
+        tmp[n_vals++] = RS_NewCopiedString(s, outlen);
       }
     }
 
@@ -299,11 +299,22 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
   //   tmp[l++] = RS_ConstStringVal(tok, len);
   // }
 
-  RSValue **vals = rm_calloc(l, sizeof(*vals));
-  for (size_t i = 0; i < l; i++) {
-    vals[i] = tmp[i];
+  RSValue **vals;
+  if (n_vals) {
+    vals = rm_calloc(n_vals, sizeof(*vals));
+    for (size_t i = 0; i < n_vals; i++) {
+      vals[i] = tmp[i];
+    }
+  } else {
+    vals = NULL;
   }
-  RSValue *ret = RSValue_NewArrayEx(vals, l, RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
+
+  RSValue *ret;
+  if (vals) {
+    ret = RSValue_NewArrayFromValues(vals, n_vals);
+  } else {
+    ret = RSValue_NewEmptyArray(n_vals);
+  }
   RSValue_MakeOwnReference(result, ret);
   return EXPR_EVAL_OK;
 }

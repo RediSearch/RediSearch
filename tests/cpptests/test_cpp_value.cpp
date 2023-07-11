@@ -88,3 +88,16 @@ TEST_F(ValueTest, testNumericFormat) {
   ASSERT_STREQ("1581011976800", toString(v).c_str());
   RSValue_Decref(v);
 }
+
+TEST_F(ValueTest, testHash) {
+  const char *strs[] = { 
+    "My liege, this haste was hot in question",
+    "And many limits of the charge set down",
+    "But yesternight: when all athwart there came"
+  };
+  RSValue *arr = RS_StringArray((char **) strs, sizeof(strs)/sizeof(*strs));
+  RSValue ref;
+  RSValue_MakeReference(&ref, arr);
+  uint64_t hash = RSValue_Hash(&ref, 0);
+  ASSERT_EQ(16854072670266753983UL, hash);
+}
