@@ -87,6 +87,7 @@ file(GLOB SOURCES
     "src/query_parser/v2/*.c"
     "src/util/*.c"
     "src/trie/*.c"
+    "src/info/*.c"
 
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"

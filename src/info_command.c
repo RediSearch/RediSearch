@@ -12,16 +12,7 @@
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "redismodule.h"
-
-#define REPLY_KVNUM(k, v) RedisModule_ReplyKV_Double(reply, (k), (v))
-#define REPLY_KVINT(k, v) RedisModule_ReplyKV_LongLong(reply, (k), (v))
-#define REPLY_KVSTR(k, v) RedisModule_ReplyKV_SimpleString(reply, (k), (v))
-#define REPLY_KVRSTR(k, v) RedisModule_ReplyKV_String(reply, (k), (v))
-#define REPLY_KVMAP(k)    RedisModule_ReplyKV_Map(reply, (k))
-#define REPLY_KVARRAY(k)  RedisModule_ReplyKV_Array(reply, (k))
-
-#define REPLY_MAP_END     RedisModule_Reply_MapEnd(reply)
-#define REPLY_ARRAY_END   RedisModule_Reply_ArrayEnd(reply)
+#include "reply_macros.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
 
@@ -181,10 +172,6 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_Reply_SimpleString(reply, SPEC_WITHSUFFIXTRIE_STR);
     }
 
-    REPLY_KVNUM("field_indexing_failures", fs->indexError.error_count);
-    REPLY_KVSTR("last_indexing_error", fs->indexError.last_error);
-    REPLY_KVRSTR("last_indexing_error_key", fs->indexError.key);
-
     if (has_map) {
       RedisModule_Reply_ArrayEnd(reply); // >>>flags
     }
@@ -192,6 +179,21 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModule_Reply_ArrayEnd(reply); // >attrbutes
+
+  RedisModule_ReplyKV_Array(reply, "field statistics"); //Field statistics
+    
+    for (int i = 0; i < sp->numFields; i++) {
+      RedisModule_Reply_Map(reply); // >>field
+      const FieldSpec *fs = &sp->fields[i];
+      FieldSpecInfo *info = FieldSpec_GetInfo(fs);
+      FieldSpecInfo_Reply(info, reply);
+      FieldSpecInfo_Free(info);
+      RedisModule_Reply_MapEnd(reply); // >>field
+    }
+
+  RedisModule_Reply_ArrayEnd(reply); // >Field statistics
+
+
 
   REPLY_KVNUM("num_docs", sp->stats.numDocuments);
   REPLY_KVNUM("max_doc_id", sp->docs.maxDocId);
@@ -222,7 +224,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
               (float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
   REPLY_KVNUM("offset_bits_per_record_avg",
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
-  REPLY_KVNUM("hash_indexing_failures", sp->stats.indexError.error_count);
+  REPLY_KVNUM("indexing_failures", sp->stats.indexError.error_count);
   REPLY_KVSTR("last_indexing_error", sp->stats.indexError.last_error);
   REPLY_KVRSTR("last_indexing_error_key", sp->stats.indexError.key);
   REPLY_KVNUM("total_indexing_time", sp->stats.totalIndexTime / 1000.0);

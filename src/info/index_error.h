@@ -7,6 +7,7 @@
 #pragma once
 #include <stddef.h>
 #include "redismodule.h"
+#include "reply.h"
 
 typedef struct IndexError {
     size_t error_count; // Number of errors.
@@ -26,3 +27,12 @@ void IndexError_add_error(IndexError *error, const char *error_message, const Re
 
 // Clears an IndexError. If the last_error is not no_errors, it is freed.
 void IndexError_clear(IndexError error);
+
+
+// IO and cluser traits
+// Adds the error message of the other IndexError to the IndexError. The error_count is incremented and the last_error is set to the error_message.
+// This is used when merging errors from different shards in a cluster.
+void IndexError_OpPlusEquals(IndexError *error, const IndexError *other);
+
+// Reply the index errors to the client.
+void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply);

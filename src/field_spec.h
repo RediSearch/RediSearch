@@ -9,9 +9,10 @@
 
 #include "redisearch.h"
 #include "value.h"
-#include "index_error.h"
 #include "VecSim/vec_sim.h"
 #include "geometry/geometry_types.h"
+#include "info/index_error.h"
+#include "info/field_spec_info.h"
 
 #ifdef __cplusplus
 #define RS_ENUM_BITWISE_HELPER(T)   \
@@ -148,5 +149,7 @@ void FieldSpec_Cleanup(FieldSpec* fs);
 const char *FieldSpec_GetTypeNames(int idx);
 
 RSValueType fieldTypeToValueType(FieldType ft);
+
+FieldSpecInfo *FieldSpec_GetInfo(const FieldSpec *fs);
 
 #endif /* SRC_FIELD_SPEC_H_ */

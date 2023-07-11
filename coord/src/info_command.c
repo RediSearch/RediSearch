@@ -6,13 +6,14 @@
 
 #include "info_command.h"
 #include "resp3.h"
+#include "info/field_spec_info.h"
 
 // Type of field returned in INFO
 typedef enum {
   InfoField_WholeSum,
   InfoField_DoubleSum,
   InfoField_DoubleAverage,
-  InfoField_Max
+  InfoField_Max,
 } InfoFieldType;
 
 // Field specification
@@ -40,7 +41,6 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "offset_bits_per_record_avg", .type = InfoField_DoubleAverage},
     {.name = "indexing", .type = InfoField_WholeSum},
     {.name = "percent_indexed", .type = InfoField_DoubleAverage},
-    {.name = "hash_indexing_failures", .type = InfoField_WholeSum},
     {.name = "number_of_uses", .type = InfoField_Max},
     {.name = "cleaning", .type = InfoField_WholeSum}};
 
@@ -79,6 +79,10 @@ typedef struct {
       double avg;
       double count;
     } avg;
+    struct {
+      char *str;
+      size_t len;
+    } str;
   } u;
 } InfoValue;
 
@@ -91,6 +95,8 @@ typedef struct {
   MRReply *indexOptions;
   size_t *errorIndexes;
   InfoValue toplevelValues[NUM_FIELDS_SPEC];
+  FieldSpecInfo *fieldSpecInfo_arr;
+  IndexError indexError;
   InfoValue gcValues[NUM_GC_FIELDS_SPEC];
   InfoValue cursorValues[NUM_CURSOR_FIELDS_SPEC];
   InfoValue dialectValues[NUM_DIALECT_FIELDS_SPEC];
@@ -115,27 +121,58 @@ static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue
 static void convertField(InfoValue *dst, MRReply *src, const InfoFieldSpec *spec) {
   int type = spec->type;
 
-  if (type == InfoField_WholeSum) {
-    long long tmp;
-    MRReply_ToInteger(src, &tmp);
-    dst->u.total_l += tmp;
-  } else if (type == InfoField_DoubleSum) {
-    double d;
-    MRReply_ToDouble(src, &d);
-    dst->u.total_d += d;
-  } else if (type == InfoField_DoubleAverage) {
-    dst->u.avg.count++;
-    double d;
-    MRReply_ToDouble(src, &d);
-    dst->u.avg.avg += d;
-  } else if (type == InfoField_Max) {
-    long long newVal;
-    MRReply_ToInteger(src, &newVal);
-    if (dst->u.total_l < newVal) {
-      dst->u.total_l = newVal;
+  switch (type) {
+    case InfoField_WholeSum: {
+      long long tmp;
+      MRReply_ToInteger(src, &tmp);
+      dst->u.total_l += tmp;
+      break;
+    }
+    case InfoField_DoubleSum: {
+      double d;
+      MRReply_ToDouble(src, &d);
+      dst->u.total_d += d;
+      break;
+    }
+    case InfoField_DoubleAverage: {
+      dst->u.avg.count++;
+      double d;
+      MRReply_ToDouble(src, &d);
+      dst->u.avg.avg += d;
+      break;
+    }
+    case InfoField_Max: {
+      long long newVal;
+      MRReply_ToInteger(src, &newVal);
+      if (dst->u.total_l < newVal) {
+        dst->u.total_l = newVal;
+      }
+      break;
     }
   }
   dst->isSet = 1;
+}
+
+// Extract an array of FieldSpecInfo from MRReply
+void handleFieldStatistics(MRReply *src, InfoFields *fields) {
+  // Input validations
+  RedisModule_Assert(src && fields);
+  RedisModule_Assert(MRReply_Type(src) == MR_REPLY_ARRAY);
+
+  size_t len = MRReply_Length(src);
+  if (!fields->fieldSpecInfo_arr) {
+    // Lazy initialization
+    fields->fieldSpecInfo_arr = array_new(FieldSpecInfo, len);
+    for(size_t i=0; i<len; i++) {
+      fields->fieldSpecInfo_arr = array_append(fields->fieldSpecInfo_arr, (FieldSpecInfo){0});
+    }
+  }
+
+  for(size_t i = 0; i < len; i++) {
+    MRReply *serilizedFieldSpecInfo = MRReply_ArrayElement(src, i);
+    FieldSpecInfo fieldSpecInfo = FieldSpecInfo_Deserialize(serilizedFieldSpecInfo);
+    fields->fieldSpecInfo_arr = array_append(fields->fieldSpecInfo_arr, *fieldSpecInfo);
+  }
 }
 
 // Handle fields which aren't InfoValue types
@@ -168,6 +205,8 @@ static void handleSpecialField(InfoFields *fields, const char *name, MRReply *va
     processKvArray(fields, value, fields->cursorValues, cursorSpecs, NUM_CURSOR_FIELDS_SPEC, 1);
   } else if (!strcmp(name, "dialect_stats")) {
     processKvArray(fields, value, fields->dialectValues, dialectSpecs, NUM_DIALECT_FIELDS_SPEC, 1);
+  } else if(!strcmp(name, "field statistics")) {
+    handleFieldStatistics(value, fields);
   }
 }
 
@@ -204,6 +243,10 @@ next_elem:
 }
 
 static void cleanInfoReply(InfoFields *fields) {
+  if (fields->fieldSpecInfo_arr) {
+    array_free(fields->fieldSpecInfo_arr);
+    fields->fieldSpecInfo_arr = NULL;
+  }
   rm_free(fields->errorIndexes);
 }
 

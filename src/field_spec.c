@@ -64,3 +64,11 @@ const char *FieldSpec_GetTypeNames(int idx) {
     break;
   }
 }
+
+FieldSpecInfo *FieldSpec_GetInfo(const FieldSpec *fs) {
+  FieldSpecInfo *info = FieldSpecInfo_New();
+  FieldSpecInfo_SetIdentifier(info, fs->path);
+  FieldSpecInfo_SetAttribute(info, fs->name);
+  FieldSpecInfo_SetIndexError(info, fs->indexError);
+  return info;
+}

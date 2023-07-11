@@ -6,6 +6,7 @@
 
 #include "index_error.h"
 #include "rmalloc.h"
+#include "reply_macros.h"
 
 const char* NA = "NA";
 
@@ -42,3 +43,28 @@ void IndexError_clear(IndexError error) {
         RedisModule_FreeString(NULL, error.key);
     }
 }
+
+void IndexError_OpPlusEquals(IndexError *error, const IndexError *other) {
+    if(other->last_error != NA) {
+        if(error->last_error != NA) {
+            rm_free(error->last_error);
+        }
+        error->last_error = rm_strdup(other->last_error);
+    }
+    if(other->key != NULL) {
+        if(error->key != NULL) {
+            RedisModule_FreeString(NULL, error->key);
+        }
+        error->key = RedisModule_CreateStringFromString(NULL, other->key);
+    }
+    // Atomically increment the error_count by other->error_count, since this might be called when spec is unlocked.
+    __atomic_add_fetch(&error->error_count, other->error_count, __ATOMIC_RELAXED);
+}
+
+void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply) {
+    REPLY_KVNUM("indexing_failures", error->error_count);
+    REPLY_KVSTR("indexing_error", error->last_error);
+    REPLY_KVRSTR("indexing_error_key", error->key);
+}
+
+

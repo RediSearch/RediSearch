@@ -25,7 +25,7 @@
 #include "redisearch_api.h"
 #include "rules.h"
 #include <pthread.h>
-#include "index_error.h"
+#include "info/index_error.h"
 
 #ifdef __cplusplus
 extern "C" {

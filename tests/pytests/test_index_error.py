@@ -4,8 +4,8 @@ from common import getConnectionByEnv, ft_info_to_dict
 
 ############################### indexing failures #####################################
 
-def get_field_spec_dict(info_command_output, index = 0):
-  field_spec_list = info_command_output['attributes'][index]
+def get_field_stats_dict(info_command_output, index = 0):
+  field_spec_list = info_command_output['Field statistics'][index]
   return {field_spec_list[i]: field_spec_list[i + 1] for i in range(0, len(field_spec_list), 2)}
 
 def test_vector_index_failures(env):
@@ -24,13 +24,13 @@ def test_vector_index_failures(env):
   info = ft_info_to_dict(env, 'idx')
   env.assertEqual(info['num_docs'], '1')
 
-  field_spec_dict = get_field_spec_dict(info)
+  field_spec_dict = get_field_stats_dict(info)
 
   env.assertEqual(field_spec_dict['field_indexing_failures'], '1')
   env.assertEqual(field_spec_dict['last_indexing_error_key'], 'doc{1}')
   env.assertEqual(field_spec_dict['last_indexing_error'], 'Could not add vector with blob size 4 (expected size 8)')
 
-  env.assertEqual(info['hash_indexing_failures'], '1')
+  env.assertEqual(info['indexing_failures'], '1')
   env.assertEqual(info['last_indexing_error_key'], 'doc{1}')
   env.assertEqual(info['last_indexing_error'], 'Could not add vector with blob size 4 (expected size 8)')
 
@@ -50,13 +50,13 @@ def test_numeric_index_failures(env):
   info = ft_info_to_dict(env, 'idx')
   env.assertEqual(info['num_docs'], '1')
 
-  field_spec_dict = get_field_spec_dict(info)
+  field_spec_dict = get_field_stats_dict(info)
 
   env.assertEqual(field_spec_dict['field_indexing_failures'], '1')
   env.assertEqual(field_spec_dict['last_indexing_error_key'], 'doc{1}')
   env.assertEqual(field_spec_dict['last_indexing_error'], 'Invalid numeric value: \'aaaa\'')
 
-  env.assertEqual(info['hash_indexing_failures'], '1')
+  env.assertEqual(info['indexing_failures'], '1')
   env.assertEqual(info['last_indexing_error_key'], 'doc{1}')
   env.assertEqual(info['last_indexing_error'], 'Invalid numeric value: \'aaaa\'')
 
@@ -77,13 +77,13 @@ def test_mixed_index_failures(env):
   info = ft_info_to_dict(env, 'idx')
   env.assertEqual(info['num_docs'], '1')
 
-  field_spec_dict = get_field_spec_dict(info, 0)
+  field_spec_dict = get_field_stats_dict(info, 0)
 
   env.assertEqual(field_spec_dict['field_indexing_failures'], '1')
   env.assertEqual(field_spec_dict['last_indexing_error_key'], 'doc{1}')
   env.assertEqual(field_spec_dict['last_indexing_error'], 'Invalid numeric value: \'aaaa\'')
 
-  env.assertEqual(info['hash_indexing_failures'], '1')
+  env.assertEqual(info['indexing_failures'], '1')
   env.assertEqual(info['last_indexing_error_key'], 'doc{1}')
   env.assertEqual(info['last_indexing_error'], 'Invalid numeric value: \'aaaa\'')
 
@@ -101,13 +101,13 @@ def test_mixed_index_failures(env):
   info = ft_info_to_dict(env, 'idx')
   env.assertEqual(info['num_docs'], '1')
 
-  field_spec_dict = get_field_spec_dict(info, 1)
+  field_spec_dict = get_field_stats_dict(info, 1)
 
   env.assertEqual(field_spec_dict['field_indexing_failures'], '1')
   env.assertEqual(field_spec_dict['last_indexing_error_key'], 'doc{1}')
   env.assertEqual(field_spec_dict['last_indexing_error'], 'Could not add vector with blob size 4 (expected size 8)')
 
-  env.assertEqual(info['hash_indexing_failures'], '1')
+  env.assertEqual(info['indexing_failures'], '1')
   env.assertEqual(info['last_indexing_error_key'], 'doc{1}')
   env.assertEqual(info['last_indexing_error'], 'Could not add vector with blob size 4 (expected size 8)')
 
@@ -130,14 +130,14 @@ def test_geo_index_failures(env):
     info = ft_info_to_dict(env, 'idx')
     env.assertEqual(info['num_docs'], '1')
 
-    field_spec_dict = get_field_spec_dict(info)
+    field_spec_dict = get_field_stats_dict(info)
 
     env.assertEqual(field_spec_dict['field_indexing_failures'], '1')
     env.assertEqual(field_spec_dict['last_indexing_error_key'], 'doc{1}')
     env.assertEqual(field_spec_dict['last_indexing_error'], 'Invalid geo string')
 
     
-    env.assertEqual(info['hash_indexing_failures'], '1')
+    env.assertEqual(info['indexing_failures'], '1')
     env.assertEqual(info['last_indexing_error_key'], 'doc{1}')
     env.assertEqual(info['last_indexing_error'], 'Invalid geo string')
 
@@ -147,13 +147,13 @@ def test_geo_index_failures(env):
     info = ft_info_to_dict(env, 'idx')
     env.assertEqual(info['num_docs'], '1')
 
-    field_spec_dict = get_field_spec_dict(info)
+    field_spec_dict = get_field_stats_dict(info)
 
     env.assertEqual(field_spec_dict['field_indexing_failures'], '2')
     env.assertEqual(field_spec_dict['last_indexing_error_key'], 'doc{3}')
     env.assertEqual(field_spec_dict['last_indexing_error'], 'Invalid geo coordinates: 1000.000000, 1000.000000')
 
-    env.assertEqual(info['hash_indexing_failures'], '2')
+    env.assertEqual(info['indexing_failures'], '2')
     env.assertEqual(info['last_indexing_error_key'], 'doc{3}')
     env.assertEqual(info['last_indexing_error'], 'Invalid geo coordinates: 1000.000000, 1000.000000')
 
@@ -177,7 +177,7 @@ def test_geo_index_failures(env):
 #     env.assertEqual(field_spec_dict['last_indexing_error_key'], 'doc{1}')
 #     env.assertEqual(field_spec_dict['last_indexing_error'], 'Invalid geoshape string')
 
-#     env.assertEqual(info['hash_indexing_failures'], '1')
+#     env.assertEqual(info['indexing_failures'], '1')
 #     env.assertEqual(info['last_indexing_error_key'], 'doc{1}')
 #     env.assertEqual(info['last_indexing_error'], 'Invalid geoshape string')
 
@@ -194,7 +194,7 @@ def test_vector_indexing_with_json(env):
   info = ft_info_to_dict(env, 'idx')
   env.assertEqual(info['num_docs'], '0')
 
-  field_spec_dict = get_field_spec_dict(info)
+  field_spec_dict = get_field_stats_dict(info)
 
   # Important:
   # For the time being, JSON field preprocess is in different code path than the hash field preprocess.
@@ -205,7 +205,7 @@ def test_vector_indexing_with_json(env):
   env.assertEqual(field_spec_dict['last_indexing_error_key'], 'NA')
   env.assertEqual(field_spec_dict['last_indexing_error'], 'NA')
 
-  env.assertEqual(info['hash_indexing_failures'], '1')
+  env.assertEqual(info['indexing_failures'], '1')
   env.assertEqual(info['last_indexing_error_key'], 'doc{1}')
   env.assertEqual(info['last_indexing_error'], 'Invalid vector length. Expected 2, got 3')
 
