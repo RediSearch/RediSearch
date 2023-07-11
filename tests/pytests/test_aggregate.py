@@ -721,9 +721,10 @@ def testStrLen(env):
     conn.execute_command('hset', 'doc3', 't', '')
 
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'strlen(@t)', 'as', 'length')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, ['t', 'aa', 'length', '2'], \
-                                                                ['t', 'aaa', 'length', '3'], \
-                                                                ['t', '', 'length', '0']]))
+    exp = [1, ['t', 'aa', 'length', '2'],
+              ['t', 'aaa', 'length', '3'],
+              ['t', '', 'length', '0']]
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(exp))
 
 def testLoadAll(env):
     conn = getConnectionByEnv(env)

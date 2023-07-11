@@ -517,9 +517,9 @@ endif
 	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)$(MAKE) build COORD=oss COV=1
 	$(SHOW)$(COVERAGE_RESET)
-	-$(SHOW)$(MAKE) unit-test COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) unit-tests COV=1 $(REJSON_COV_ARG)
 	-$(SHOW)$(MAKE) pytest COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) unit-test COORD=oss COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) unit-tests COORD=oss COV=1 $(REJSON_COV_ARG)
 	-$(SHOW)$(MAKE) pytest COORD=oss COV=1 $(REJSON_COV_ARG)
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 

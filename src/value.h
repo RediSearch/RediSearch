@@ -60,7 +60,7 @@ typedef enum {
 } RSStringType;
 
 #define RSVALUE_UNDEF \
-  { .t = RSValue_Undef, .allocated = 0, .refcount = 1 }
+  (RSValue){ .t = RSValue_Undef, .allocated = 0, .refcount = 1 }
 
 #pragma pack(4)
 // Variant value union
@@ -82,7 +82,9 @@ typedef struct RSValue {
     struct {
       struct RSValue **vals; // can be null, with len == 0
       uint32_t len : 31;
+#if 0
       uint8_t staticarray : 1; // should `vals` be freed
+#endif // 0
     } arrval;
 
     // Duo value
@@ -107,7 +109,7 @@ typedef struct RSValue {
   uint8_t allocated : 1;
 
 #ifdef __cplusplus
-  RSValue(RSValueType t = RSValue_Undef) : ref(NULL), t(t), refcount(0), allocated(0) {}
+  RSValue(RSValueType t = RSValue_Undef) : ref(NULL), t(t), refcount(1), allocated(0) {}
   ~RSValue();
 #endif
 
@@ -140,7 +142,7 @@ static inline RSValue *RSValue_IncrRef(RSValue *v) {
 #if 1
 
 static inline void RSValue_Decref(RSValue *v) {
-  if (v && !--v->refcount) {
+  if (v && v->refcount && !--v->refcount) {
     RSValue_Free(v);
   }
 }
@@ -148,7 +150,7 @@ static inline void RSValue_Decref(RSValue *v) {
 #else
 
 #define RSValue_Decref(v) \
-  if ((v) && !--(v)->refcount) { \
+  if ((v) && (v)->refcount && !--(v)->refcount) { \
     RSValue_Free(v);      \
   }
 
@@ -240,13 +242,17 @@ static inline int RSValue_IsString(const RSValue *value) {
 }
 
 // Create a new NULL RSValue
-RSValue *RS_NullVal();
+extern RSValue RS_NULL;
+
+static inline RSValue *RS_NullVal() {
+  return &RS_NULL;
+}
 
 // Return 1 if the value is NULL, RSValue_Null or a reference to RSValue_Null
-static inline int RSValue_IsNull(const RSValue *value) {
-  if (!value || value->t  == RSValue_Null) return 1;
-  if (value->t == RSValue_Reference) {
-    RSValue *v = RSValue_Dereference(value);
+static inline int RSValue_IsNull(const RSValue *v) {
+  if (!v || v->t  == RSValue_Null) return 1;
+  if (v->t == RSValue_Reference) {
+    v = RSValue_Dereference(v);
     return !v || v->t  == RSValue_Null;
   }
   return 0;
@@ -294,8 +300,8 @@ static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
 
   switch (v->t) {
     case RSValue_Reference: {
-      RSValue *v1 = RSValue_Dereference(v);
-      return RSValue_Hash(v1, hval);
+      v = RSValue_Dereference(v);
+      return RSValue_Hash(v, hval);
 	}
 
     case RSValue_String:
@@ -361,6 +367,10 @@ RSValue *RS_Int64Val(int64_t ii);
  */
 RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options);
 
+RSValue *RSValue_NewEmptyArray(size_t n);
+RSValue *RSValue_NewArrayFromValuesEx(RSValue **vals, size_t n, bool copy, bool incref);
+RSValue *RSValue_NewArrayFromValues(RSValue **vals, size_t n);
+
 // Accesses the array element at a given position as an l-value
 #define RSVALUE_ARRELEM(vv, pos) ((vv)->arrval.vals[pos])
 
@@ -423,6 +433,8 @@ void RSValue_Print(const RSValue *v);
 
 int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 
+#if 0
+
 #ifdef __cplusplus
 #define RSVALUE_STATICALLOC_INIT(T) RSValue(T)
 #else
@@ -431,8 +443,10 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 #endif
 
 // Static value pointers. These don't ever get decremented
-// static RSValue __attribute__((unused)) RS_StaticNull = RSVALUE_STATICALLOC_INIT(RSValue_Null);
-// static RSValue __attribute__((unused)) RS_StaticUndef = RSVALUE_STATICALLOC_INIT(RSValue_Undef);
+static RSValue __attribute__((unused)) RS_StaticNull = RSVALUE_STATICALLOC_INIT(RSValue_Null);
+static RSValue __attribute__((unused)) RS_StaticUndef = RSVALUE_STATICALLOC_INIT(RSValue_Undef);
+
+#endif // 0
 
 /**
  * Maximum number of static/cached numeric values. Integral numbers in this range
@@ -451,18 +465,6 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
     RSValue_IncrRef(src);           \
     *(dstpp) = src;                 \
   } while (0);
-
-/**
- * This macro does three things:
- * (1) It checks if the value v is NULL, if it isn't then it:
- * (2) Decrements it
- * (3) Sets the variable to NULL, as it no longer owns it.
- */
-#define RSVALUE_CLEARVAR(v) \
-  if ((v)) {                \
-    RSValue_Decref((v));    \
-    (v) = NULL;             \
-  }
 
 #ifdef __cplusplus
 }

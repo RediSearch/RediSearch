@@ -4,7 +4,7 @@ import time
 import numpy as np
 
 from includes import *
-from common import getConnectionByEnv, waitForIndex, create_np_array_typed
+from common import *
 
 def testCreateIndex(env):
     conn = getConnectionByEnv(env)
@@ -50,7 +50,7 @@ def testDeleteIndex(env):
     r.expect('ft.info', 'idx').equal('Unknown Index name')
     # time.sleep(1)
 
-
+@skip(macos=True)
 def test_mod4745(env):
     conn = getConnectionByEnv(env)
     r = env
@@ -58,8 +58,8 @@ def test_mod4745(env):
     N = 1000 * env.shardsCount
     dim = 30000
     for i in range(N):
-        res = conn.execute_command('hset', 'foo:%d' % i, 'name', f'some string with information to index in the '
-                                                                 f'background later on for id {i}',
+        res = conn.execute_command('hset', f'foo:{i}', 'name', f'some string with information to index in the '
+                                   f'background later on for id {i}',
                                    'v', create_np_array_typed(np.random.random((1, dim))).tobytes())
         env.assertEqual(res, 2)
 

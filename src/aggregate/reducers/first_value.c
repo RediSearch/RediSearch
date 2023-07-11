@@ -89,8 +89,10 @@ static RSValue *fvFinalize(Reducer *parent, void *ctx) {
 
 static void fvFreeInstance(Reducer *parent, void *p) {
   fvCtx *fvx = p;
-  RSVALUE_CLEARVAR(fvx->value);
-  RSVALUE_CLEARVAR(fvx->sortval);
+  RSValue_Decref(fvx->value);
+  fvx->value = NULL;
+  RSValue_Decref(fvx->sortval);
+  fvx->sortval = NULL;
 }
 
 Reducer *RDCRFirstValue_New(const ReducerOptions *options) {

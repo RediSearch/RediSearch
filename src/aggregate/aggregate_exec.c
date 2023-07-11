@@ -151,8 +151,6 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
           if (RSValue_ToNumber(v, &d)) {
             RSValue_SetNumber(&rsv, d);
             v = &rsv;
-          } else {
-            v = NULL;
           }
         }
         reeval_key(outctx, v);
