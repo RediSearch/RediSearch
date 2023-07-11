@@ -87,9 +87,9 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
     case '*':
       res = n1 * n2;
       break;
-    case '%':	      
+    case '%':
         // workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=30484
-        if (n2 == -1){ 
+        if (n2 == -1) {
           res = 0;
         } else if (n2 != 0) {
           res = (long long)n1 % (long long)n2;
@@ -116,7 +116,7 @@ cleanup:
 
 static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *r, RSCondition op) {
   QueryError *qerr = eval ? eval->err : NULL;
-  
+
   l = RSValue_Dereference(l);
   r = RSValue_Dereference(r);
 

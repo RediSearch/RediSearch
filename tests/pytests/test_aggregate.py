@@ -597,7 +597,9 @@ def testAggregateGroupByOnEmptyField(env):
                   'GROUPBY', '1', '@check', 'REDUCE', 'COUNT', '0', 'as', 'count')
 
     expected = [4, ['check', 'test3', 'count', '1'],
-                    ['check', None, 'count', '1'], ['check', 'test1', 'count', '1'], ['check', 'test2', 'count', '1']]
+                   ['check', None, 'count', '1'],
+                   ['check', 'test1', 'count', '1'],
+                   ['check', 'test2', 'count', '1']]
     for var in expected:
         env.assertIn(var, res)
 

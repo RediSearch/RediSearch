@@ -137,24 +137,24 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     // Sortkey is the first key to reply on the required fields, if the we already replied it, continue to the next one.
     size_t currentField = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
     size_t requiredFieldsCount = array_len(req->requiredFields);
-      for (; currentField < requiredFieldsCount; ++currentField) {
-        count++;
-        const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], 0);
-        RSValue *v = (RSValue*) getReplyKey(rlk, r);
-        if (v && v->t == RSValue_Duo) {
-          // For duo value, we use the value here (not the other value)
-          v = RS_DUOVAL_VAL(*v);
-        }
-        RSValue rsv = RSVALUE_UNDEF;
-        if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE && !RSValue_IsNull(v)) {
-          double d;
-          if (RSValue_ToNumber(v, &d)) {
-            RSValue_SetNumber(&rsv, d);
-            v = &rsv;
-          }
-        }
-        reeval_key(outctx, v);
+    for (; currentField < requiredFieldsCount; ++currentField) {
+      count++;
+      const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], 0);
+      RSValue *v = rlk ? (RSValue*) getReplyKey(rlk, r) : NULL;
+      if (v && v->t == RSValue_Duo) {
+        // For duo value, we use the value here (not the other value)
+        v = RS_DUOVAL_VAL(*v);
       }
+      RSValue rsv = RSVALUE_UNDEF;
+      if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE && !RSValue_IsNull(v)) {
+        double d;
+        if (RSValue_ToNumber(v, &d)) {
+          RSValue_SetNumber(&rsv, d);
+          v = &rsv;
+        }
+      }
+      reeval_key(outctx, v);
+    }
   }
 
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {

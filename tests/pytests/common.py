@@ -228,15 +228,6 @@ def forceInvokeGC(env, idx):
     waitForRdbSaveToFinish(env)
     env.cmd(('_' if env.isCluster() else '') + 'ft.debug', 'GC_FORCEINVOKE', idx)
 
-def skip(f, on_cluster=False):
-    @wraps(f)
-    def wrapper(env, *args, **kwargs):
-        if not on_cluster or env.isCluster():
-            env.skip()
-            return
-        return f(env, *args, **kwargs)
-    return wrapper
-
 def no_msan(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
