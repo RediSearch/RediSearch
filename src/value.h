@@ -12,6 +12,7 @@
 #include <stdarg.h>
 #include <errno.h>
 #include <math.h>
+#include <stdbool.h>
 
 #include "rmutil/sds.h"
 #include "redisearch.h"
