@@ -24,7 +24,7 @@ is index with the indexed terms.
 is search query.
 </details>
 
-See [Spellchecking](/redisearch/reference/spellcheck) for more details.
+See [Spellchecking](/docs/interact/search-and-query/advanced-concepts/spellcheck/) for more details.
 
 ## Optional arguments
 
@@ -75,5 +75,5 @@ The score is calculated by dividing the number of documents in which the suggest
 
 ## Related topics
 
-- [Spellchecking](/redisearch/reference/spellcheck)
+- [Spellchecking](/docs/interact/search-and-query/advanced-concepts/spellcheck/)
 - [RediSearch](/docs/stack/search)

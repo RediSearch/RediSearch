@@ -5,6 +5,7 @@ weight: 7
 description: Highlighting full-text results
 aliases: 
     - /docs/stack/search/reference/highlight/
+    - /redisearch/reference/highlight
 ---
 
 # Highlighting API

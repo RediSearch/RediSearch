@@ -179,7 +179,7 @@ $ redis-server --loadmodule ./redisearch.so CONCURRENT_WRITE_MODE
 
 ### EXTLOAD
 
-If present, we try to load a RediSearch extension dynamic library from the specified file path. See [Extensions](/redisearch/reference/extensions) for details.
+If present, we try to load a RediSearch extension dynamic library from the specified file path. See [Extensions](/docs/interact/search-and-query/administration/extensions/) for details.
 
 #### Default
 
@@ -279,7 +279,7 @@ $ redis-server --loadmodule ./redisearch.so MAXAGGREGATERESULTS 3000000
 
 ### FRISOINI
 
-If present, we load the custom Chinese dictionary from the specified path. See [Using custom dictionaries](/redisearch/chinese#using-custom-dictionaries) for more details.
+If present, we load the custom Chinese dictionary from the specified path. See [Using custom dictionaries](/docs/interact/search-and-query/advanced-concepts/chinese/#using-custom-dictionaries) for more details.
 
 #### Default
 
@@ -295,7 +295,7 @@ $ redis-server --loadmodule ./redisearch.so FRISOINI /opt/dict/friso.ini
 
 ### CURSOR_MAX_IDLE
 
-The maximum idle time (in ms) that can be set to the [cursor api](/redisearch/reference/aggregations#cursor_api).
+The maximum idle time (in ms) that can be set to the [cursor api](/docs/interact/search-and-query/search/aggregations/#cursor-api).
 
 #### Default
 
@@ -342,6 +342,7 @@ $ redis-server --loadmodule ./redisearch.so PARTIAL_INDEXED_DOCS 1
 * Added in v2.0.0
 
 {{% /alert %}}
+
 
 ---
 
@@ -476,7 +477,7 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_CLEAN_THRESHO
 
 ### UPGRADE_INDEX
 
-This configuration is a special configuration introduced to upgrade indices from v1.x RediSearch versions, further referred to as 'legacy indices.' This configuration option needs to be given for each legacy index, followed by the index name and all valid option for the index description ( also referred to as the `ON` arguments for following hashes) as described on [ft.create api](/redisearch/commands#ftcreate). See [Upgrade to 2.0](/redisearch/administration/upgrade_to_2.0) for more information.
+This configuration is a special configuration introduced to upgrade indices from v1.x RediSearch versions, further referred to as 'legacy indices.' This configuration option needs to be given for each legacy index, followed by the index name and all valid option for the index description ( also referred to as the `ON` arguments for following hashes) as described on [ft.create api](/commands/ft.create). 
 
 #### Default
 
@@ -545,7 +546,7 @@ $ redis-server --loadmodule ./redisearch.so DEFAULT_DIALECT 2
 
 ### VSS_MAX_RESIZE
 
-The maximum memory resize for Vector Similarity index in bytes. This value will override default memory limits if you need to allow a large [`BLOCK_SIZE`](/redisearch/reference/vectors#creation-attributes-per-algorithm).
+The maximum memory resize for Vector Similarity index in bytes. This value will override default memory limits if you need to allow a large [`BLOCK_SIZE`](/docs/interact/search-and-query/search/vectors/#creation-attributes-per-algorithm).
 
 #### Default
 

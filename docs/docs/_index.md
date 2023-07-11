@@ -17,7 +17,7 @@ highlighted: true
 The enhanced Redis experience with Redis Stack provides querying capabilities, secondary indexing, full-text search, vector similarity search, and more. To use these features, you first declare indices on your Redis data and then use the query language to retrieve the data asset that your application requires. All future data will also be indexed automatically.
 
 ## Quick links
-  - [Quick start guide](/redisearch/quick_start)
+  - [Quick start guide](/docs/interact/search-and-query/quickstart/)
   - [Source code](https://github.com/RediSearch/RediSearch)
   - [Latest release](https://github.com/RediSearch/RediSearch/releases)
   - [Docker image](https://hub.docker.com/r/redis/redis-stack-server/)
@@ -28,32 +28,31 @@ We support the following search an query features:
 
 * Secondary indexing
 * Multi-field queries
-* [Aggregation](/docs/stack/search/reference/aggregations)
+* [Aggregation](/docs/interact/search-and-query/search/aggregations/)
 * Full-text indexing of multiple fields in a document
 * Incremental indexing without performance loss
 * Document ranking (provided manually by the user at index time)
 * Boolean queries with AND, OR, NOT operators between subqueries
 * Optional query clauses
-* [Prefix-based searches](/docs/stack/search/reference/query_syntax/#prefix-matching)
+* [Prefix-based searches](/docs/interact/search-and-query/query/#prefix-matching)
 * Field weights
-* [Auto-complete](/docs/stack/search/design/overview/#auto-completion) suggestions (with fuzzy prefix suggestions)
+* [Auto-complete](/docs/interact/search-and-query/administration/overview/#auto-complete) suggestions (with fuzzy prefix suggestions)
 * Exact phrase search and slop-based search
-* [Stemming](/docs/stack/search/reference/stemming)-based query expansion for [many languages](/docs/stack/search/reference/stemming/#supported-languages) (using [Snowball](http://snowballstem.org/))
-* Support for custom functions for query expansion and scoring (see [Extensions](/docs/stack/search/reference/extensions))
-* [Numeric filters](/docs/stack/search/reference/query_syntax/#numeric-filters-in-query) and ranges
-* [Geofiltering](/docs/stack/search/reference/query_syntax/#geo-filters-in-query) using Redis [geo commands](/commands/?group=geo)
-* [Vector similarity search](/docs/stack/search/reference/query_syntax/#vector-similarity-search-in-query) for semantic search using exact and approximate algorithms
+* [Stemming](/docs/interact/search-and-query/advanced-concepts/stemming/)-based query expansion for [many languages](/docs/interact/search-and-query/advanced-concepts/stemming//#supported-languages) (using [Snowball](http://snowballstem.org/))
+* Support for custom functions for query expansion and scoring (see [Extensions](/docs/interact/search-and-query/administration/extensions/))
+* [Numeric filters](/docs/interact/search-and-query/query/#numeric-filters-in-query) and ranges
+* [Geofiltering](/docs/interact/search-and-query/query/#geo-filters-in-query) using Redis [geo commands](/commands/?group=geo)
+* [Vector similarity search](/docs/interact/search-and-query/query/#vector-similarity-search-in-query) for semantic search using exact and approximate algorithms
 * Unicode support (UTF-8 input required)
 * Retrieval of full document contents or only their IDs
 * Document deletion and updating with index garbage collection
 
-For more information about searching and querying in Redis, see the [feature reference](/docs/stack/search/reference) pages.
 
 ## JSON documents
 
-When combined with the Redis [JSON](/docs/stack/json) module, (included with Redis Stack) Redis can index and query JSON documents.
+When combined with the Redis [JSON](/docs/data-types/json/) module, (included with Redis Stack) Redis can index and query JSON documents.
 
-To learn how to search and query your JSON documents, see [Indexing JSON documents](/docs/stack/search/indexing_json).
+To learn how to search and query your JSON documents, see [Indexing JSON documents](/docs/interact/search-and-query/indexing/).
 
 ## Cluster support
 

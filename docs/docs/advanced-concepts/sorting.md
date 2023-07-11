@@ -5,6 +5,7 @@ weight: 5
 description: Support for sorting query results
 aliases: 
     - /docs/stack/search/reference/sorting/
+    - /redisearch/reference/sorting
 ---
 
 # Sorting by Indexed Fields

@@ -6,6 +6,7 @@ math: true
 description: Learn how to use vector fields and vector similarity queries
 aliases:
   - /docs/stack/search/reference/vectors/
+  - /redisearch/reference/vectors
 ---
 
 *Vector fields* allow you to use vector similarity queries in the `FT.SEARCH` command.

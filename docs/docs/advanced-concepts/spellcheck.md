@@ -5,6 +5,7 @@ weight: 13
 description: Query spelling correction support
 aliases: 
     - /docs/stack/search/reference/spellcheck/
+    - /redisearch/reference/spellcheck
 ---
 
 # Query Spelling Correction

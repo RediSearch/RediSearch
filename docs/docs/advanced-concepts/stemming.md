@@ -5,6 +5,7 @@ weight: 10
 description: Stemming support
 aliases: 
     - /docs/stack/search/reference/stemming/
+    - /redisearch/reference/stemming
 ---
 
 # Stemming Support

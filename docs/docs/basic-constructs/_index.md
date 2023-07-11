@@ -31,7 +31,7 @@ Fields that are not indexed will not contribute to search results. However, they
 
 The index structure in defined by the schema. The schema defines how fields are stored and indexed within the index. It specifies the type of each field, whether it should be indexed or not, and any additional configuration options.
 
-To create an index, you need to define the schema for your collection. Learn more about how to define the schema on the [Schema definition](/docs/schema-definition/) page.
+To create an index, you need to define the schema for your collection. Learn more about how to define the schema on the [Schema definition](/docs/interact/search-and-query/basic-constructs/schema-definition/) page.
 
 
 

@@ -6,6 +6,7 @@ description: >
     Learn how to use query syntax
 aliases:
   - /docs/stack/search/reference/query_syntax/    
+  - /redisearch/reference/query_syntax
 ---
 
 You can use simple syntax for complex queries using these rules:
@@ -38,7 +39,7 @@ You can use simple syntax for complex queries using these rules:
 * Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`.
 * Range queries on vector fields with the syntax `@field:[VECTOR_RANGE {radius} $query_vec]`, where `query_vec` is given as a query parameter **(as of v2.6)**.
 * KNN queries on vector fields with or without pre-filtering with the syntax `{filter_query}=>[KNN {num} @field $query_vec]` **(as of v2.4)**.
-* Tag field filters with the syntax `@field:{tag | tag | ...}`. See the full documentation on [tags](../tags/).
+* Tag field filters with the syntax `@field:{tag | tag | ...}`. See the full documentation on [tags](/docs/interact/search-and-query/advanced-concepts/tags/).
 * Optional terms or clauses: `foo ~bar` means bar is optional but documents containing `bar` will rank higher.
 * Fuzzy matching on terms: `%hello%` means all terms with Levenshtein distance of 1 from it.
 * An expression in a query can be wrapped in parentheses to disambiguate, for example, `(hello|hella) (world|werld)`.
