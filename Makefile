@@ -22,7 +22,7 @@ make build          # compile and link
   STATIC=1            # build as static lib
   LITE=1              # build RediSearchLight
   DEBUG=1             # build for debugging
-  NO_TESTS=1          # disable unit tests
+  TESTS=0             # do not build unit tests
   WHY=1               # explain CMake decisions (in /tmp/cmake-why)
   FORCE=1             # Force CMake rerun (default)
   CMAKE_ARGS=...      # extra arguments to CMake
@@ -201,8 +201,10 @@ CC_COMMON_H=src/common.h
 
 #----------------------------------------------------------------------------------------------
 
-ifneq ($(NO_TESTS),1)
-CMAKE_TEST=-DBUILD_TESTS=ON
+ifeq ($(TESTS),0)
+CMAKE_TEST=-DBUILD_SEARCH_UNIT_TESTS=OFF
+else
+CMAKE_TEST=-DBUILD_SEARCH_UNIT_TESTS=ON
 endif
 
 ifeq ($(STATIC),1)
@@ -302,11 +304,34 @@ endif
 
 include $(MK)/rules
 
+#----------------------------------------------------------------------------------------------
+
+export REJSON ?= 1
+
+PLATFORM_TRI:=$(shell $(READIES)/bin/platform -t)
+REJSON_BINDIR=$(ROOT)/bin/$(PLATFORM_TRI)/RedisJSON
+
+ifneq ($(REJSON),0)
+
+ifneq ($(SAN),)
+REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
+REJSON_PATH=$(REJSON_SO)
+
+$(REJSON_SO):
+	$(SHOW)BINROOT=$(BINROOT) SAN=$(SAN) ./sbin/build-redisjson
+else
+REJSON_SO=
+endif
+
+endif # REJSON=0
+
+#----------------------------------------------------------------------------------------------
+
 clean:
 ifeq ($(ALL),1)
 	$(SHOW)rm -rf $(BINROOT)
 else ifeq ($(ALL),all)
-	$(SHOW)rm -rf $(BINROOT)
+	$(SHOW)rm -rf $(BINROOT) $(REJSON_BINDIR)
 	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG='' clean
 else
 	$(SHOW)$(MAKE) -C $(BINDIR) clean
@@ -433,23 +458,6 @@ CTEST_DEFS=\
 	COV=$(COV) \
 	SAN=$(SAN) \
 	SLOW=$(SLOW)
-
-#----------------------------------------------------------------------------------------------
-
-export REJSON ?= 1
-
-ifneq ($(REJSON),0)
-ifneq ($(SAN),)
-REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
-REJSON_PATH=$(REJSON_SO)
-
-$(REJSON_SO):
-	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
-else
-REJSON_SO=
-endif
-
-endif # REJSON=0
 
 #----------------------------------------------------------------------------------------------
 

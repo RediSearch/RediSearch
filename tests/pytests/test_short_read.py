@@ -27,6 +27,7 @@ RDBS_SHORT_READS = [
     'short-reads/rejson_2.0.0.rdb.zip',
     'short-reads/redisearch_2.2.0_rejson_2.0.0.rdb.zip',
     'short-reads/redisearch_2.8.0.rdb.zip',
+    'short-reads/redisearch_2.8.4.rdb.zip',
 ]
 RDBS_COMPATIBILITY = [
     'redisearch_2.0.9.rdb',
@@ -38,7 +39,8 @@ RDBS_EXPECTED_INDICES = [
                          ExpectedIndex(2, 'shortread_idxJson_[1-9]', [20, 55]),
                          ExpectedIndex(2, 'shortread_idxSearchJson_[1-9]', [10, 35]),
                          ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
-                         ]
+                         ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
+                        ]
 
 RDBS = []
 RDBS.extend(RDBS_SHORT_READS)
@@ -197,8 +199,8 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geom
                        ])
     if num_geometry_keys > 0:
         cmd_create.extend([
-            get_identifier('field5', isHash), 'as', 'geom', 'geoshape',
-            get_identifier('field15', isHash), 'geoshape'
+            get_identifier('field5', isHash), 'as', 'geom', 'geoshape', 'flat',
+            get_identifier('field15', isHash), 'geoshape', 'spherical',
         ])
 
     conn = getConnectionByEnv(env)
@@ -243,14 +245,14 @@ def _testCreateIndexRdbFilesWithGeometry(env):
         env.skip()
     if OS == 'macos':
         env.skip()
-    create_indices(env, 'redisearch_2.8.0.rdb', 'idxSearch_with_geom', True, False, 5)
+    create_indices(env, 'redisearch_2.8.4.rdb', 'idxSearch_with_geom', True, False, 5)
 
 # def _testCreateIndexRdbFilesWithGeometryWithJSON(env):
 #     if not server_version_at_least(env, "6.2.0"):
 #         env.skip()
 #     if OS == 'macos':
 #         env.skip()
-#     create_indices(env, 'redisearch_2.8.0_rejson_2.0.0.rdb', 'idxSearchJson_with_geom', True, True, 5)
+#     create_indices(env, 'redisearch_2.8.4_rejson_2.0.0.rdb', 'idxSearchJson_with_geom', True, True, 5)
 
 
 class Connection(object):

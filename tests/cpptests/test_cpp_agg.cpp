@@ -55,7 +55,7 @@ TEST_F(AggTest, testBasic) {
   rv = AREQ_ApplyContext(rr, sctx, &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv);
 
-  rv = AREQ_BuildPipeline(rr, 0, &qerr);
+  rv = AREQ_BuildPipeline(rr, &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetError(&qerr);
 
   auto rp = AREQ_RP(rr);
