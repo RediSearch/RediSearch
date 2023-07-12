@@ -441,6 +441,27 @@ RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
   return arr;
 }
 
+void RSValue_MapSetPairs(RSValue *map, RSValue **pairs, uint32_t numPairs) {
+  
+  uint32_t len = map->mapval.len * 2;
+  for (uint32_t i = 0; i < len; i++) {
+      RSValue_Decref(map->mapval.pairs[i]);
+      RSValue_Decref(map->mapval.pairs[i+1]);
+  }
+  map->mapval.pairs = pairs;
+  map->mapval.len = numPairs;
+}
+
+RSValue *RSValue_NewMap(RSValue **pairs, uint32_t numPairs) {
+  RSValue *map = RS_NewValue(RSValue_Map);
+  if (pairs) {
+    map->mapval.pairs = pairs;
+  } else {
+    map->mapval.pairs = rm_malloc(sizeof(RSValue*) * numPairs * 2);
+  }
+  map->mapval.len = numPairs;
+}
+
 RSValue *RS_VStringArray(uint32_t sz, ...) {
   RSValue **arr = rm_calloc(sz, sizeof(*arr));
   va_list ap;

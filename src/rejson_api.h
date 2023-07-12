@@ -26,6 +26,7 @@ typedef enum JSONType {
 typedef const void* RedisJSON;
 typedef const void* JSONResultsIterator;
 typedef const void* JSONPath;
+typedef const void* JSONKeyValuesIterator;
 
 typedef struct RedisJSONAPI {
 
@@ -35,7 +36,7 @@ typedef struct RedisJSONAPI {
 
   /* RedisJSON functions */
   RedisJSON (*openKey)(RedisModuleCtx *ctx, RedisModuleString *key_name);
-  RedisJSON (*openKeyFromStr)(RedisModuleCtx *ctx, const char *key_name);
+  RedisJSON (*openKeyFromStr)(RedisModuleCtx *ctx, const char *path);
 
   JSONResultsIterator (*get)(RedisJSON json, const char *path);
   
@@ -101,6 +102,18 @@ typedef struct RedisJSONAPI {
 
   // Reset the iterator to the beginning
   void (*resetIter)(JSONResultsIterator iter);
+
+  ////////////////
+  // V4 entries //
+  ////////////////
+
+  // Get an iterator over the key-value pairs of a JSON Object
+  JSONKeyValuesIterator (*getKeyValues)(RedisJSON json);
+  // Get the next key-value pair
+  // The caller gains ownership of `key_name`
+  RedisJSON (*nextKeyValue)(JSONKeyValuesIterator iter, RedisModuleCtx *ctx, RedisModuleString **key_name);
+  // Free the iterator
+  void (*freeKeyValuesIter)(JSONKeyValuesIterator iter);
 
 } RedisJSONAPI;
 

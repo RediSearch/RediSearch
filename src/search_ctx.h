@@ -38,6 +38,7 @@ typedef struct RedisSearchCtx {
   uint64_t specId;  // Unique id of the spec; used when refreshing
   struct timespec timeout;
   unsigned int apiVersion; // API Version to allow for backward compatibility / alternative functionality
+  unsigned int expanded; // Reply format
   RSContextFlags flags;
 } RedisSearchCtx;
 

@@ -49,6 +49,8 @@ typedef enum {
   RSValue_Reference = 8,
   // Duo value
   RSValue_Duo = 9,
+  // Map value
+  RSValue_Map = 10,
 
 } RSValueType;
 
@@ -94,6 +96,12 @@ typedef struct RSValue {
        */
       uint8_t staticarray : 1;
     } arrval;
+
+    // map value
+    struct {
+      struct RSValue **pairs; // array of <key,value> pairs which are <strval, RSValue>
+      uint32_t len;           // number of pairs (not number of keys)
+    } mapval;
 
     struct {
       /**
@@ -344,6 +352,16 @@ RSValue *RS_Int64Val(int64_t ii);
  * @param options RSVAL_ARRAY_*
  */
 RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options);
+
+
+/**
+ * Create a new map from existing pairs
+ * @param pairs the <key,value> pair array to use for the map
+ * @param numPairs number of the pairs array (not the number of elements)
+ */
+RSValue *RSValue_NewMap(RSValue **pairs, uint32_t numPairs);
+
+void RSValue_MapSetPairs(RSValue *map, RSValue **pairs, uint32_t numPairs);
 
 /** Accesses the array element at a given position as an l-value */
 #define RSVALUE_ARRELEM(vv, pos) ((vv)->arrval.vals[pos])

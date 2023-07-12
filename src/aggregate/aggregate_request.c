@@ -906,7 +906,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
-  sctx->apiVersion = req->reqConfig.dialectVersion;
   req->sctx = sctx;
 
   if ((index->flags & Index_StoreByteOffsets) == 0 && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
@@ -951,6 +950,12 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     StopWordList_Ref(sctx->spec->stopwords);
   }
 
+  if (req->reqflags & QEXEC_FORMAT_EXPAND) {
+    sctx->expanded = 1;
+    sctx->apiVersion = MAX(APIVERSION_RETURN_MULTI_CMP_FIRST, req->reqConfig.dialectVersion);
+  } else {
+    sctx->apiVersion = req->reqConfig.dialectVersion;
+  }
   QueryAST *ast = &req->ast;
 
   int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), req->reqConfig.dialectVersion, status);

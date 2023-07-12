@@ -11,6 +11,7 @@
 #include <util/arr.h>
 #include "doc_types.h"
 #include "value.h"
+#include "util/arr.h"
 
 // Allocate a new RLookupKey and add it to the RLookup table.
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t name_len, uint32_t flags) {
@@ -444,6 +445,46 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
   RS_LOG_ASSERT(0, "Cannot get here");
 }
 
+static RSValue *jsonValToValueExpanded_rec(RedisModuleCtx *ctx, RSValue *cur, RedisJSON json) {
+  RSValue *ret;
+  // FIXME: finish this
+  return ret;
+}
+
+// {"a":1, "b":[2, 3, {"c": "foo"}, 4], "d": null}
+static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
+  
+  RSValue *ret;
+  size_t len;
+  JSONType type = japi->getType(json);
+  if (type == JSONType_Object) {
+    // Object
+    JSONKeyValuesIterator iter = japi->getKeyValues(json);
+    RedisModuleString *keyName;
+    for (RedisJSON value; (value = japi->nextKeyValue(iter, ctx, &keyName));) {
+      JSONType vtype = japi->getType(value);
+      if (vtype == JSONType__EOF) {
+        len = 0;
+      }
+    }
+    japi->freeKeyValuesIter(iter);
+    // FIXME: finish this
+    //ret = RSValue_NewMap(NULL, len);
+    
+  } else if (type == JSONType_Array) {
+    // Array
+    japi->getLen(json, &len);
+    //ret = RSValue_NewArrayEx(NULL, len, 0);
+    // FIXME: finish this
+  } else {
+    // Scalar
+    return jsonValToValue(ctx, json);
+  }
+  return jsonValToValueExpanded_rec(ctx, ret, json);
+}
+
+
+
 // Get the value from an iterator and free the iterator
 // Return REDISMODULE_OK, and set rsv to the value, if value exists
 // Return REDISMODULE_ERR otherwise
@@ -484,6 +525,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
     if (json) {
       RSValue *val = jsonValToValue(ctx, json);
       RSValue *otherval = RS_StealRedisStringVal(serialized);
+      RSValue *expand = jsonValToValueExpanded(ctx, json);
       *rsv = RS_DuoVal(val, otherval);
       res = REDISMODULE_OK;
     } else if (serialized) {
