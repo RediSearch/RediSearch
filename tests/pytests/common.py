@@ -469,9 +469,12 @@ def sortResultByKeyName(res, start_index=1):
     res = [*pairs]
   return res
 
-def dict_diff(res, exp, show=False, ignore_order=True, significant_digits=7, ignore_numeric_type_changes=True):
+def dict_diff(res, exp, show=False, ignore_order=True, significant_digits=7,
+              ignore_numeric_type_changes=True, exclude_paths=None,
+              exclude_regex_paths=None):
     dd = DeepDiff(res, exp, exclude_types={_ANY}, ignore_order=ignore_order, significant_digits=significant_digits,
-                  ignore_numeric_type_changes=ignore_numeric_type_changes)
+                  ignore_numeric_type_changes=ignore_numeric_type_changes, exclude_paths=exclude_paths,
+                  exclude_regex_paths=exclude_regex_paths)
     if dd != {} and show:
         pp(dd)
     return dd
