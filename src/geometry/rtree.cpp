@@ -160,10 +160,8 @@ void RTree<coord_system>::dump(RedisModuleCtx* ctx) const {
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   lenTop += 2;
 
-  constexpr auto pred_true = [](...) { return true; };
-  const auto query_true = bgi::satisfies(pred_true);
   std::size_t lenDocs = 0;
-  std::ranges::for_each(rtree_.qbegin(query_true), rtree_.qend(), [&](doc_type const& doc) {
+  std::ranges::for_each(rtree_, [&](doc_type const& doc) {
     lenDocs += 1;
     std::size_t lenValues = 0;
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
@@ -190,7 +188,7 @@ void RTree<coord_system>::dump(RedisModuleCtx* ctx) const {
 }
 
 template <typename coord_system>
-std::size_t RTree<coord_system>::report() const noexcept {
+std::size_t RTree<coord_system>::report() const {
   auto tracked = alloc_.report();
   return std::accumulate(docLookup_.begin(), docLookup_.end(), tracked, [](std::size_t acc, auto&& value) {
     auto const& geom = value.second;

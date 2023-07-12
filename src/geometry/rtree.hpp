@@ -11,7 +11,6 @@
 #include "allocator/tracking_allocator.hpp"
 #include "query_iterator.hpp"
 #include "geometry_types.h"
-#include "polygon.hpp"
 
 #include <string>       // std::string, std::char_traits
 #include <vector>       // std::vector, std::erase_if
@@ -83,7 +82,7 @@ struct RTree {
   [[nodiscard]] static auto geometry_to_string(geom_type const& geom) -> string;
   [[nodiscard]] static auto doc_to_string(doc_type const& doc) -> string;
   void dump(RedisModuleCtx* ctx) const;
-  [[nodiscard]] std::size_t report() const noexcept;
+  [[nodiscard]] std::size_t report() const;
 
   [[nodiscard]] static auto generate_query_iterator(ResultsVec&& results,
                                                     TrackingAllocator<QueryIterator>&& a)
