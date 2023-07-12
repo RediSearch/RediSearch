@@ -60,7 +60,7 @@ after the SCHEMA keyword, declares which fields to index:
    - `SPHERICAL` for Geographic longitude and latitude coordinates
    - `FLAT` for Cartesian X Y coordinates
   
-    The dafault coordinate system is `SPHERICAL`.
+    The default coordinate system is `SPHERICAL`.
     
     Currently `GEOSHAPE` doesn't support JSON multi-value and `SORTABLE` option.
 
