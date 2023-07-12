@@ -68,8 +68,7 @@ auto RTree<coord_system>::from_wkt(std::string_view wkt) const -> geom_type {
   if (wkt.starts_with("POI")) {
     geom = bg::from_wkt<point_type>(wkt.data());
   } else if (wkt.starts_with("POL")) {
-    geom = poly_type{alloc_};
-    bg::read_wkt(wkt.data(), std::get<poly_type>(geom));
+    geom = bg::from_wkt<poly_type>(wkt.data());
   } else {
     throw std::runtime_error{"unknown geometry type"};
   }
@@ -192,7 +191,21 @@ void RTree<coord_system>::dump(RedisModuleCtx* ctx) const {
 
 template <typename coord_system>
 std::size_t RTree<coord_system>::report() const noexcept {
-  return alloc_.report();
+  auto tracked = alloc_.report();
+  return std::accumulate(docLookup_.begin(), docLookup_.end(), tracked, [](std::size_t acc, auto&& value) {
+    auto const& geom = value.second;
+    return acc + std::visit([](auto&& geom) {
+      if constexpr (std::is_same_v<point_type, std::decay_t<decltype(geom)>>) {
+        return 0ul;
+      } else {
+        auto const& inners = geom.inners();
+        auto outer_size = geom.outer().get_allocator().report();
+        return std::accumulate(inners.begin(), inners.end(), outer_size, [](std::size_t acc, auto&& hole) {
+          return acc + hole.get_allocator().report();
+        });
+      }
+    }, geom);
+  });
 }
 
 template <typename coord_system>

@@ -7,6 +7,7 @@
 #pragma once
 
 #include "allocator/allocator.hpp"
+#include "allocator/stateful_allocator.hpp"
 #include "allocator/tracking_allocator.hpp"
 #include "query_iterator.hpp"
 #include "geometry_types.h"
@@ -23,7 +24,7 @@
 #include <exception>    // std::exception
 #include <functional>   // std::hash, std::equal_to, std::reference_wrapper
 #include <string_view>  // std::string_view
-#include <boost/geometry.hpp>
+#include <boost/geometry/geometry.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>  // is faster than std::unordered_map?
 
 namespace RediSearch {
@@ -34,6 +35,7 @@ namespace bgm = bg::model;
 namespace bgi = bg::index;
 
 using RediSearch::Allocator::Allocator;
+using RediSearch::Allocator::StatefulAllocator;
 using RediSearch::Allocator::TrackingAllocator;
 
 using Cartesian = bg::cs::cartesian;
@@ -45,7 +47,7 @@ template <typename coord_system>
 struct RTree {
   using point_type =
       bgm::point<double, 2, coord_system>;  // TODO: GEOMETRY - dimension template param (2 or 3)
-  using poly_type = Polygon<point_type>;
+  using poly_type = bgm::polygon<point_type, true, true, std::vector, std::vector, StatefulAllocator, StatefulAllocator>;
   using geom_type = std::variant<point_type, poly_type>;
 
   using rect_type = bgm::box<point_type>;
