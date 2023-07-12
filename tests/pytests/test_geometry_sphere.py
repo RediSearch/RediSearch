@@ -262,17 +262,18 @@ def testFtInfo(env):
   ''' Test FT.INFO on Geoshape '''
   
   conn = getConnectionByEnv(env)
-  info_key_name = 'total_geoshapes_index_size_mb'
+  info_key_name = 'geoshapes_sz_mb'
   
   env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'geom', 'GEOSHAPE', 'txt', 'TEXT').ok()
   env.expect('FT.CREATE', 'idx2_no_geom', 'SCHEMA', 'txt', 'TEXT').ok()
   res = to_dict(env.cmd('FT.INFO idx1'))
-  env.assertEqual(int(res[info_key_name]), 0)
+  cur_usage = float(res[info_key_name])
+  # env.assertEqual(int(res[info_key_name]), 0) # index is not lazily built. even an empty index consumes some memory
 
   # Ingest of a non-geoshape attribute should not affect mem usage
   conn.execute_command('HSET', 'doc1', 'txt', 'Not a real POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))')
   res = to_dict(env.cmd('FT.INFO idx1'))
-  env.assertEqual(int(res[info_key_name]), 0)
+  env.assertEqual(float(res[info_key_name]), cur_usage)
 
   doc_num = 100
 

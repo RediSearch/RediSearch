@@ -87,9 +87,24 @@ auto RTree<coord_system>::from_wkt(std::string_view wkt) const -> geom_type {
 }
 
 template <typename coord_system>
+constexpr auto geometry_reporter = [](auto&& geom) {
+  using point_type = typename RTree<coord_system>::point_type;
+  if constexpr (std::is_same_v<point_type, std::decay_t<decltype(geom)>>) {
+    return 0ul;
+  } else {
+    auto const& inners = geom.inners();
+    auto outer_size = geom.outer().get_allocator().report();
+    return std::accumulate(
+        inners.begin(), inners.end(), outer_size,
+        [](std::size_t acc, auto&& hole) { return acc + hole.get_allocator().report(); });
+  }
+};
+
+template <typename coord_system>
 void RTree<coord_system>::insert(geom_type const& geom, t_docId id) {
   rtree_.insert(make_doc(geom, id));
   docLookup_.insert(LUT_value_type{id, geom});
+  alloc_.allocated_ += std::visit(geometry_reporter<coord_system>, geom);
 }
 
 template <typename coord_system>
@@ -108,14 +123,10 @@ int RTree<coord_system>::insertWKT(const char* wkt, std::size_t len, t_docId id,
 }
 
 template <typename coord_system>
-bool RTree<coord_system>::remove(const doc_type& doc) {
-  return rtree_.remove(doc);
-}
-
-template <typename coord_system>
 bool RTree<coord_system>::remove(t_docId id) {
   if (auto geom = lookup(id); geom.has_value()) {
-    remove(make_doc(geom.value(), id));
+    rtree_.remove(make_doc(geom.value(), id));
+    alloc_.allocated_ -= std::visit(geometry_reporter<coord_system>, geom.value().get());
     docLookup_.erase(id);
     return true;
   }
@@ -189,21 +200,7 @@ void RTree<coord_system>::dump(RedisModuleCtx* ctx) const {
 
 template <typename coord_system>
 std::size_t RTree<coord_system>::report() const {
-  auto tracked = alloc_.report();
-  return std::accumulate(docLookup_.begin(), docLookup_.end(), tracked, [](std::size_t acc, auto&& value) {
-    auto const& geom = value.second;
-    return acc + std::visit([](auto&& geom) {
-      if constexpr (std::is_same_v<point_type, std::decay_t<decltype(geom)>>) {
-        return 0ul;
-      } else {
-        auto const& inners = geom.inners();
-        auto outer_size = geom.outer().get_allocator().report();
-        return std::accumulate(inners.begin(), inners.end(), outer_size, [](std::size_t acc, auto&& hole) {
-          return acc + hole.get_allocator().report();
-        });
-      }
-    }, geom);
-  });
+  return alloc_.report();
 }
 
 template <typename coord_system>

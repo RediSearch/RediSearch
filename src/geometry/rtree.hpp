@@ -46,7 +46,8 @@ template <typename coord_system>
 struct RTree {
   using point_type =
       bgm::point<double, 2, coord_system>;  // TODO: GEOMETRY - dimension template param (2 or 3)
-  using poly_type = bgm::polygon<point_type, true, true, std::vector, std::vector, StatefulAllocator, StatefulAllocator>;
+  using poly_type = bgm::polygon<point_type, true, true, std::vector, std::vector,
+                                 StatefulAllocator, StatefulAllocator>;
   using geom_type = std::variant<point_type, poly_type>;
 
   using rect_type = bgm::box<point_type>;
@@ -76,7 +77,6 @@ struct RTree {
   [[nodiscard]] auto from_wkt(std::string_view wkt) const -> geom_type;
   void insert(geom_type const& geom, t_docId id);
   int insertWKT(const char* wkt, std::size_t len, t_docId id, RedisModuleString** err_msg);
-  bool remove(const doc_type& doc);
   bool remove(t_docId id);
 
   [[nodiscard]] static auto geometry_to_string(geom_type const& geom) -> string;
