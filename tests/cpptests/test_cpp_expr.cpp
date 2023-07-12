@@ -3,6 +3,7 @@
 #include "aggregate/expr/exprast.h"
 #include "aggregate/functions/function.h"
 #include "util/arr.h"
+#include "value.h"
 
 class ExprTest : public ::testing::Test {
  public:
@@ -67,7 +68,6 @@ struct TEvalCtx : ExprEval {
     QueryError_ClearError(&status_s);
 
     RSValue_Clear(&res_s);
-    memset((void *)&res_s, 0, sizeof(res_s));
 
     if (root) {
       ExprAST_Free(const_cast<RSExpr *>(root));

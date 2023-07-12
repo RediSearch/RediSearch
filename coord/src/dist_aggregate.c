@@ -108,11 +108,12 @@ RSValue *MRReply_ToValue(MRReply *r) {
       v = RS_NumVal((double)MRReply_Integer(r));
       break;
     case MR_REPLY_ARRAY: {
-      RSValue **arr = rm_calloc(MRReply_Length(r), sizeof(*arr));
-      for (size_t i = 0; i < MRReply_Length(r); i++) {
+      int n = MRReply_Length(r);
+      RSValue **arr = rm_malloc(n * sizeof(*arr));
+      for (size_t i = 0; i < n; ++i) {
         arr[i] = MRReply_ToValue(MRReply_ArrayElement(r, i));
       }
-      v = RSValue_NewArrayEx(arr, MRReply_Length(r), RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
+      v = RSValue_NewArrayFromValues(arr, n);
       break;
     }
     case MR_REPLY_NIL:

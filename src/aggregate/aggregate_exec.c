@@ -38,44 +38,48 @@ typedef struct {
 
 static void reeval_key(RedisModuleCtx *outctx, const RSValue *key) {
   RedisModuleString *rskey = NULL;
-  if (!key) {
-    RedisModule_ReplyWithNull(outctx); 
-  }
-  else {
-    if(key->t == RSValue_Reference) {
+  if (key) {
+    if (key->t == RSValue_Reference) {
       key = RSValue_Dereference(key);
     } else if (key->t == RSValue_Duo) {
       key = RS_DUOVAL_VAL(*key);
     }
-    switch (key->t) {
-      case RSValue_Number:
-        /* Serialize double - by prepending "#" to the number, so the coordinator/client can
-          * tell it's a double and not just a numeric string value */
-        rskey = RedisModule_CreateStringPrintf(outctx, "#%.17g", key->numval);
-        break;
-      case RSValue_String:
-        /* Serialize string - by prepending "$" to it */
-        rskey = RedisModule_CreateStringPrintf(outctx, "$%s", key->strval.str);
-        break;
-      case RSValue_RedisString:
-      case RSValue_OwnRstring:
-        rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
-                                                RedisModule_StringPtrLen(key->rstrval, NULL));
-        break;
-      case RSValue_Null:
-      case RSValue_Undef:
-      case RSValue_Array:
-      case RSValue_Reference:
-      case RSValue_Duo:
-        break;
-    }
-    if (rskey) {
-      RedisModule_ReplyWithString(outctx, rskey);
-      RedisModule_FreeString(outctx, rskey);
-    } else {
-      RedisModule_ReplyWithNull(outctx);
-    }
   }
+  if (!key) {
+    RedisModule_ReplyWithNull(outctx); 
+    return;
+  }
+  switch (key->t) {
+    case RSValue_Number:
+      // Serialize double - by prepending "#" to the number, so the coordinator/client can
+      // tell it's a double and not just a numeric string value
+      rskey = RedisModule_CreateStringPrintf(outctx, "#%.17g", key->numval);
+      break;
+
+    case RSValue_String:
+      // Serialize string - by prepending "$" to it
+      rskey = RedisModule_CreateStringPrintf(outctx, "$%s", key->strval.str ? key->strval.str : "");
+      break;
+
+    case RSValue_RedisString:
+    case RSValue_OwnRstring:
+      rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
+                                             RedisModule_StringPtrLen(key->rstrval, NULL));
+      break;
+
+    case RSValue_Null:
+    case RSValue_Undef:
+    case RSValue_Array:
+    case RSValue_Reference:
+    case RSValue_Duo:
+      break;
+  }
+  if (!rskey) {
+    RedisModule_ReplyWithNull(outctx);
+    return;
+  }
+  RedisModule_ReplyWithString(outctx, rskey);
+  RedisModule_FreeString(outctx, rskey);
 }
 
 static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchResult *r,
@@ -129,27 +133,28 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   }
 
   // Coordinator only - handle required fields for coordinator request.
-  if(options & QEXEC_F_REQUIRED_FIELDS) {
+  if (options & QEXEC_F_REQUIRED_FIELDS) {
     // Sortkey is the first key to reply on the required fields, if the we already replied it, continue to the next one.
     size_t currentField = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
     size_t requiredFieldsCount = array_len(req->requiredFields);
-      for(; currentField < requiredFieldsCount; currentField++) {
-        count++;
-        const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], 0);
-        RSValue *v = (RSValue*)getReplyKey(rlk, r);
-        if (v && v->t == RSValue_Duo) {
-          // For duo value, we use the value here (not the other value)
-          v = RS_DUOVAL_VAL(*v);
-        }
-        RSValue rsv;
-        if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE && !RSValue_IsNull(v)) {
-          double d;
-          RSValue_ToNumber(v, &d);
+    for (; currentField < requiredFieldsCount; ++currentField) {
+      count++;
+      const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], 0);
+      RSValue *v = rlk ? (RSValue*) getReplyKey(rlk, r) : NULL;
+      if (v && v->t == RSValue_Duo) {
+        // For duo value, we use the value here (not the other value)
+        v = RS_DUOVAL_VAL(*v);
+      }
+      RSValue rsv = RSVALUE_UNDEF;
+      if (rlk && rlk->fieldtype == RLOOKUP_C_DBL && v && v->t != RSVALTYPE_DOUBLE && !RSValue_IsNull(v)) {
+        double d;
+        if (RSValue_ToNumber(v, &d)) {
           RSValue_SetNumber(&rsv, d);
           v = &rsv;
         }
-        reeval_key(outctx, v);
       }
+      reeval_key(outctx, v);
+    }
   }
 
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {

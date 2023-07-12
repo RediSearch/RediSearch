@@ -21,7 +21,7 @@ static void *sampleNewInstance(Reducer *base) {
   size_t blocksize = MAX(10000, sizeof(rsmplCtx) + r->len * sizeof(RSValue *));
   rsmplCtx *ctx = Reducer_BlkAlloc(base, sizeof(*ctx) + r->len * sizeof(RSValue *), blocksize);
   ctx->seen = 0;
-  ctx->samplesArray = RSValue_NewArrayEx(NULL, r->len, 0);
+  ctx->samplesArray = RSValue_NewEmptyArray(r->len);
   return ctx;
 }
 
@@ -36,7 +36,7 @@ static int sampleAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   if (sc->seen < r->len) {
     RSVALUE_ARRELEM(sc->samplesArray, sc->seen) = RSValue_IncrRef(v);
     RSVALUE_ARRLEN(sc->samplesArray)++;
-    assert(RSVALUE_ARRLEN(sc->samplesArray) <= r->len);
+    RS_LOG_ASSERT(RSVALUE_ARRLEN(sc->samplesArray) <= r->len, "Sample array overflow");
   } else {
     size_t i = rand() % (sc->seen + 1);
     if (i < r->len) {

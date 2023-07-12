@@ -517,9 +517,9 @@ endif
 	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)$(MAKE) build COORD=oss COV=1
 	$(SHOW)$(COVERAGE_RESET)
-	-$(SHOW)$(MAKE) unit-test COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) unit-tests COV=1 $(REJSON_COV_ARG)
 	-$(SHOW)$(MAKE) pytest COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) unit-test COORD=oss COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) unit-tests COORD=oss COV=1 $(REJSON_COV_ARG)
 	-$(SHOW)$(MAKE) pytest COORD=oss COV=1 $(REJSON_COV_ARG)
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
@@ -542,6 +542,6 @@ SANBOX_ARGS += -v /w:/w
 endif
 
 sanbox:
-	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:13-x64-bullseye bash
+	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:16-$(ARCH)-bullseye bash
 
 .PHONY: box sanbox

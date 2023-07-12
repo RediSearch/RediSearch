@@ -386,7 +386,8 @@ class TestAggregate():
         self.env.assertEqual(exp[1], res[1])
 
     def testSplit(self):
-        res = self.env.cmd('ft.aggregate', 'games', '*', 'APPLY', 'split("hello world,  foo,,,bar,", ",", " ")', 'AS', 'strs',
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'APPLY', 'split("hello world,  foo,,,bar,", ",", " ")', 'AS', 'strs',
                            'APPLY', 'split("hello world,  foo,,,bar,", " ", ",")', 'AS', 'strs2',
                            'APPLY', 'split("hello world,  foo,,,bar,", "", "")', 'AS', 'strs3',
                            'APPLY', 'split("hello world,  foo,,,bar,")', 'AS', 'strs4',
@@ -394,15 +395,14 @@ class TestAggregate():
                            'APPLY', 'split("")', 'AS', 'empty',
                            'LIMIT', '0', '1'
                            )
-        # print "Got {} results".format(len(res))
-        # return
-        # pprint.pprint(res)
-        self.env.assertListEqual([1, ['strs', ['hello world', 'foo', 'bar'],
-                                       'strs2', ['hello', 'world', 'foo,,,bar'],
-                                       'strs3', ['hello world,  foo,,,bar,'],
-                                       'strs4', ['hello world', 'foo', 'bar'],
-                                       'strs5', ['hello world', 'foo', 'bar'],
-                                       'empty', []]], res)
+        self.env.assertListEqual([1, ['strs',  ['hello world', 'foo', 'bar'],
+                                      'strs2', ['hello', 'world', 'foo,,,bar'],
+                                      'strs3', ['hello world,  foo,,,bar,'],
+                                      'strs4', ['hello world', 'foo', 'bar'],
+                                      'strs5', ['hello world', 'foo', 'bar'],
+                                      'empty', []
+                                     ]
+                                 ], res)
 
     def testFirstValue(self):
         res = self.env.cmd('ft.aggregate', 'games', '@brand:(sony|matias|beyerdynamic|(mad catz))',
@@ -597,7 +597,9 @@ def testAggregateGroupByOnEmptyField(env):
                   'GROUPBY', '1', '@check', 'REDUCE', 'COUNT', '0', 'as', 'count')
 
     expected = [4, ['check', 'test3', 'count', '1'],
-                    ['check', None, 'count', '1'], ['check', 'test1', 'count', '1'], ['check', 'test2', 'count', '1']]
+                   ['check', None, 'count', '1'],
+                   ['check', 'test1', 'count', '1'],
+                   ['check', 'test2', 'count', '1']]
     for var in expected:
         env.assertIn(var, res)
 
@@ -721,9 +723,10 @@ def testStrLen(env):
     conn.execute_command('hset', 'doc3', 't', '')
 
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'strlen(@t)', 'as', 'length')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, ['t', 'aa', 'length', '2'], \
-                                                                ['t', 'aaa', 'length', '3'], \
-                                                                ['t', '', 'length', '0']]))
+    exp = [1, ['t', 'aa', 'length', '2'],
+              ['t', 'aaa', 'length', '3'],
+              ['t', '', 'length', '0']]
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(exp))
 
 def testLoadAll(env):
     conn = getConnectionByEnv(env)

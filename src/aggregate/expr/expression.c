@@ -29,7 +29,7 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   RSValue args[nargs];
 
   for (size_t ii = 0; ii < nargs; ii++) {
-    args[ii] = (RSValue)RSVALUE_STATIC;
+    args[ii] = (RSValue)RSVALUE_UNDEF;
     argspp[ii] = &args[ii];
     int internalRes = evalInternal(eval, f->args->args[ii], &args[ii]);
     if (internalRes == EXPR_EVAL_ERR ||
@@ -51,7 +51,7 @@ cleanup:
 }
 
 static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
-  RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
+  RSValue l = RSVALUE_UNDEF, r = RSVALUE_UNDEF;
   int rc = EXPR_EVAL_ERR;
 
   if (evalInternal(eval, op->left, &l) != EXPR_EVAL_OK) {
@@ -87,9 +87,9 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
     case '*':
       res = n1 * n2;
       break;
-    case '%':	      
+    case '%':
         // workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=30484
-        if (n2 == -1){ 
+        if (n2 == -1) {
           res = 0;
         } else if (n2 != 0) {
           res = (long long)n1 % (long long)n2;
@@ -116,7 +116,7 @@ cleanup:
 
 static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *r, RSCondition op) {
   QueryError *qerr = eval ? eval->err : NULL;
-  
+
   l = RSValue_Dereference(l);
   r = RSValue_Dereference(r);
 
@@ -158,7 +158,7 @@ static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *
 }
 
 static int evalInverted(ExprEval *eval, const RSInverted *vv, RSValue *result) {
-  RSValue tmpval = RSVALUE_STATIC;
+  RSValue tmpval = RSVALUE_UNDEF;
   if (evalInternal(eval, vv->child, &tmpval) != EXPR_EVAL_OK) {
     return EXPR_EVAL_ERR;
   }
@@ -172,7 +172,7 @@ static int evalInverted(ExprEval *eval, const RSInverted *vv, RSValue *result) {
 
 static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *result) {
   int res;
-  RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
+  RSValue l = RSVALUE_UNDEF, r = RSVALUE_UNDEF;
   int rc = EXPR_EVAL_ERR;
   if (evalInternal(eval, pred->left, &l) != EXPR_EVAL_OK) {
     goto cleanup;
@@ -230,7 +230,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
 }
 
 static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res) {
-  RSValue_Clear(res);
+  RSValue_Reset(res);
   switch (e->t) {
     case RSExpr_Property:
       return evalProperty(eval, &e->property, res);

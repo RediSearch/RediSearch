@@ -30,7 +30,9 @@ static RSExpr *newExpr(RSExprType t) {
 
 // unquote and unescape a stirng literal, and return a cleaned copy of it
 char *unescpeStringDup(const char *s, size_t sz) {
-
+  if (!s || !sz) {
+    return rm_strdup("");
+  }
   char *dst = rm_malloc(sz);
   char *dstStart = dst;
   char *src = (char *)s + 1;       // we start after the first quote
@@ -46,6 +48,7 @@ char *unescpeStringDup(const char *s, size_t sz) {
   *dst = '\0';
   return dstStart;
 }
+
 RSExpr *RS_NewStringLiteral(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Literal);
   e->literal = RS_StaticValue(RSValue_String);

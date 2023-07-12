@@ -948,7 +948,7 @@ workflows:
           context: common
           matrix:
             parameters:
-              platform: [jammy, focal, bionic, centos7, rocky8, bullseye, amzn2] # xenial
+              platform: [jammy, focal, bionic, centos7, rocky8, bullseye, amzn2]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common
