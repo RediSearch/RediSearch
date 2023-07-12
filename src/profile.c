@@ -61,8 +61,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_INDEX:
       case RP_METRICS:
       case RP_LOADER:
-      case RP_BUFFER_AND_LOCKER:
-      case RP_UNLOCKER:
+      case RP_SAFE_LOADER:
       case RP_SCORER:
       case RP_SORTER:
       case RP_COUNTER:
@@ -89,7 +88,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
 
   double totalRPTime = RPProfile_GetDurationMSec(rp);
   if (printProfileClock) {
-    printProfileTime(totalRPTime - upstreamTime); 
+    printProfileTime(totalRPTime - upstreamTime);
   }
   printProfileCounter(RPProfile_GetCount(rp) - 1);
   RedisModule_Reply_MapEnd(reply); // end of resursive map
@@ -106,25 +105,25 @@ int Profile_Print(RedisModule_Reply *reply, AREQ *req) {
   //-------------------------------------------------------------------------------------------
   if (has_map) { // RESP3 variant
     hires_clock_t now;
-  
+
     req->totalTime += hires_clock_since_msec(&req->initClock);
     RedisModule_ReplyKV_Map(reply, "profile"); // profile
-  
+
       int profile_verbose = req->reqConfig.printProfileClock;
       // Print total time
       if (profile_verbose)
         RedisModule_ReplyKV_Double(reply, "Total profile time", (double)req->totalTime);
-  
+
       // Print query parsing time
       if (profile_verbose)
         RedisModule_ReplyKV_Double(reply, "Parsing time", (double)req->parseTime);
-  
+
       // Print iterators creation time
         if (profile_verbose)
           RedisModule_ReplyKV_Double(reply, "Pipeline creation time", (double)req->pipelineBuildTime);
-  
+
       // print into array with a recursive function over result processors
-  
+
       // Print profile of iterators
       IndexIterator *root = QITR_GetRootFilter(&req->qiter);
       // Coordinator does not have iterators
@@ -135,13 +134,13 @@ int Profile_Print(RedisModule_Reply *reply, AREQ *req) {
           printIteratorProfile(reply, root, 0, 0, 2, req->reqflags & QEXEC_F_PROFILE_LIMITED, &config);
         RedisModule_Reply_ArrayEnd(reply);
       }
-  
+
       // Print profile of result processors
       ResultProcessor *rp = req->qiter.endProc;
       RedisModule_ReplyKV_Array(reply, "Result processors profile");
         printProfileRP(reply, rp, req->reqConfig.printProfileClock);
       RedisModule_Reply_ArrayEnd(reply);
-  
+
       RedisModule_Reply_MapEnd(reply); // profile
   }
   //-------------------------------------------------------------------------------------------
@@ -150,7 +149,7 @@ int Profile_Print(RedisModule_Reply *reply, AREQ *req) {
     hires_clock_t now;
     req->totalTime += hires_clock_since_msec(&req->initClock);
     RedisModule_Reply_Array(reply);
-  
+
     int profile_verbose = req->reqConfig.printProfileClock;
     // Print total time
     RedisModule_Reply_Array(reply);
@@ -158,23 +157,23 @@ int Profile_Print(RedisModule_Reply *reply, AREQ *req) {
       if (profile_verbose)
         RedisModule_Reply_Double(reply, (double)req->totalTime);
     RedisModule_Reply_ArrayEnd(reply);
-  
+
     // Print query parsing time
     RedisModule_Reply_Array(reply);
       RedisModule_Reply_SimpleString(reply, "Parsing time");
       if (profile_verbose)
         RedisModule_Reply_Double(reply, (double)req->parseTime);
     RedisModule_Reply_ArrayEnd(reply);
-  
+
     // Print iterators creation time
     RedisModule_Reply_Array(reply);
     RedisModule_Reply_SimpleString(reply, "Pipeline creation time");
     if (profile_verbose)
       RedisModule_Reply_Double(reply, (double)req->pipelineBuildTime);
     RedisModule_Reply_ArrayEnd(reply);
-  
+
     // print into array with a recursive function over result processors
-  
+
     // Print profile of iterators
     IndexIterator *root = QITR_GetRootFilter(&req->qiter);
     // Coordinator does not have iterators
@@ -186,14 +185,14 @@ int Profile_Print(RedisModule_Reply *reply, AREQ *req) {
         printIteratorProfile(reply, root, 0 ,0, 2, (req->reqflags & QEXEC_F_PROFILE_LIMITED), &config);
       RedisModule_Reply_ArrayEnd(reply);
     }
-  
+
     // Print profile of result processors
     ResultProcessor *rp = req->qiter.endProc;
     RedisModule_Reply_Array(reply);
       RedisModule_Reply_SimpleString(reply, "Result processors profile");
       printProfileRP(reply, rp, req->reqConfig.printProfileClock);
     RedisModule_Reply_ArrayEnd(reply);
-  
+
     RedisModule_Reply_ArrayEnd(reply);
   }
   //-------------------------------------------------------------------------------------------

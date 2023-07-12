@@ -62,7 +62,7 @@ groups the results in the pipeline based on one or more properties. Each group s
 
 reduces the matching results in each group into a single record, using a reduction function. For example, `COUNT` counts the number of records in the group. The reducers can have their own property names using the `AS {name}` optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to `COUNT_DISTINCT` by property `@foo`, the resulting name will be `count_distinct(@foo)`.
   
-See [Supported GROUPBY reducers](/redisearch/reference/aggregations/#supported-groupby-reducers) for more details.   
+See [Supported GROUPBY reducers](/docs/interact/search-and-query/search/aggregations/#supported-groupby-reducers) for more details.   
 </details>
 
 <details open>
@@ -107,7 +107,7 @@ filters the results using predicate expressions relating to values in each resul
 <summary><code>WITHCURSOR {COUNT} {read_size} [MAXIDLE {idle_time}]</code></summary> 
 
 Scan part of the results with a quicker alternative than `LIMIT`.
-See [Cursor API](/redisearch/reference/aggregations/#cursor-api) for more details.
+See [Cursor API](/docs/interact/search-and-query/search/aggregations/#cursor-api) for more details.
 </details>
 
 <details open>
@@ -271,6 +271,6 @@ Next, count GitHub events by user (actor), to produce the most active users.
 
 ## Related topics
 
-- [Aggregations](/redisearch/reference/aggregations)
-- [RediSearch](/docs/stack/search)
+- [Aggregations](/docs/interact/search-and-query/search/aggregations)
+- [RediSearch](/docs/interact/search-and-query)
 

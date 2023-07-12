@@ -507,7 +507,7 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
   assert(dstp);
 
   dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;
-  int rc = AREQ_BuildPipeline(r, AREQ_BUILDPIPELINE_NO_ROOT, status);
+  int rc = AREQ_BuildPipeline(r, status);
   dstp->lk.options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
   if (rc != REDISMODULE_OK) {
     return REDISMODULE_ERR;
