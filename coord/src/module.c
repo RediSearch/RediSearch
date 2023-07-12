@@ -836,7 +836,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, boo
     }
     res->explainScores = MRReply_ArrayElement(score, 1);
 
-  } else if (!MRReply_ToDouble(score, &res->score)) {
+  } else if (score && !MRReply_ToDouble(score, &res->score)) {
       res->id = NULL;
       return res;
   }
