@@ -3,7 +3,7 @@ title: "Quickstart: Searching and Querying Redis data"
 linkTitle: Quickstart
 description: Learn how to search and query your Redis data
 weight: 1
-alias:
+aliases:
     - /docs/interact/search-and-query/quick_start
     - /docs/stack/search/quick_start
 ---
