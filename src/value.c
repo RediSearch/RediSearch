@@ -441,24 +441,9 @@ RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
   return arr;
 }
 
-void RSValue_MapSetPairs(RSValue *map, RSValue **pairs, uint32_t numPairs) {
-  
-  uint32_t len = map->mapval.len * 2;
-  for (uint32_t i = 0; i < len; i++) {
-      RSValue_Decref(map->mapval.pairs[i]);
-      RSValue_Decref(map->mapval.pairs[i+1]);
-  }
-  map->mapval.pairs = pairs;
-  map->mapval.len = numPairs;
-}
-
 RSValue *RSValue_NewMap(RSValue **pairs, uint32_t numPairs) {
   RSValue *map = RS_NewValue(RSValue_Map);
-  if (pairs) {
-    map->mapval.pairs = pairs;
-  } else {
-    map->mapval.pairs = rm_malloc(sizeof(RSValue*) * numPairs * 2);
-  }
+  map->mapval.pairs = pairs;
   map->mapval.len = numPairs;
 }
 
@@ -499,11 +484,12 @@ inline RSValue *RS_NullVal() {
   return &RS_NULL;
 }
 
-RSValue *RS_DuoVal(RSValue *val, RSValue *otherval) {
+RSValue *RS_DuoVal(RSValue *val, RSValue *otherval, RSValue *other2val) {
   RSValue *duo = RS_NewValue(RSValue_Duo);
-  duo->duoval.vals = rm_calloc(2, sizeof(*duo->duoval.vals));
+  duo->duoval.vals = rm_calloc(3, sizeof(*duo->duoval.vals));
   duo->duoval.vals[0] = val;
   duo->duoval.vals[1] = otherval;
+  duo->duoval.vals[2] = other2val;
   return duo;
 }
 
@@ -641,7 +627,7 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
 }
 
 /* Based on the value type, serialize the value into redis client response */
-int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, int isTyped) {
+int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
   v = RSValue_Dereference(v);
 
   switch (v->t) {
@@ -651,13 +637,18 @@ int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, int isTyped) {
     case RSValue_OwnRstring:
       return RedisModule_Reply_String(reply, v->rstrval);
     case RSValue_Number: {
-      char buf[128] = {0};
-      RSValue_NumToString(v->numval, buf);
+      if (!(flags & SENDREPLY_FLAG_EXPAND)) {
+        char buf[128] = {0};
+        RSValue_NumToString(v->numval, buf);
 
-      if (isTyped) {
-        return RedisModule_Reply_Error(reply, buf);
+        if (flags & SENDREPLY_FLAG_TYPED) {
+          return RedisModule_Reply_Error(reply, buf);
+        } else {
+          return RedisModule_Reply_StringBuffer(reply, buf, strlen(buf));
+        }
       } else {
-        return RedisModule_Reply_StringBuffer(reply, buf, strlen(buf));
+        // FIXME: Distinguish between double and integer (utilize RSValue.intval)
+        return RedisModule_Reply_Double(reply, v->numval);
       }
     }
     case RSValue_Null:
@@ -665,12 +656,25 @@ int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, int isTyped) {
     case RSValue_Array:
       RedisModule_Reply_Array(reply);
         for (uint32_t i = 0; i < v->arrval.len; i++) {
-          RSValue_SendReply(reply, v->arrval.vals[i], isTyped);
+          RSValue_SendReply(reply, v->arrval.vals[i], flags);
         }
       RedisModule_Reply_ArrayEnd(reply);
       return REDISMODULE_OK;
     case RSValue_Duo:
-      return RSValue_SendReply(reply, RS_DUOVAL_OTHERVAL(*v), isTyped);
+      if (!(flags & SENDREPLY_FLAG_EXPAND)) {
+        return RSValue_SendReply(reply, RS_DUOVAL_OTHERVAL(*v), flags);
+      } else {
+        return RSValue_SendReply(reply, RS_DUOVAL_OTHER2VAL(*v), flags);
+      }
+    case RSValue_Map:
+      // If Map value is used, assume Map api exists (RedisModule_HasMap)
+      RedisModule_Reply_Map(reply);
+      for (uint32_t i = 0; i < v->mapval.len; i++) {
+          RSValue_SendReply(reply, v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)], flags);
+          RSValue_SendReply(reply, v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)], flags);
+      }
+      RedisModule_Reply_MapEnd(reply);
+      break;
     default:
       RedisModule_Reply_Null(reply);
   }

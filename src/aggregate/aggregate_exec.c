@@ -217,7 +217,9 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         }
 
         RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
-        RSValue_SendReply(reply, v, req->reqflags & QEXEC_F_TYPED);
+        SendReplyFlags flags = (req->reqflags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
+        flags |= (req->reqflags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
+        RSValue_SendReply(reply, v, flags);
       }
     RedisModule_Reply_MapEnd(reply);
   }

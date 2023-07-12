@@ -75,7 +75,7 @@ typedef struct RSValue {
     // numeric value
     double numval;
 
-    int64_t intval;
+    //int64_t intval;
 
     // string value
     struct {
@@ -100,7 +100,7 @@ typedef struct RSValue {
     // map value
     struct {
       struct RSValue **pairs; // array of <key,value> pairs which are <strval, RSValue>
-      uint32_t len;           // number of pairs (not number of keys)
+      uint32_t len;           // number of pairs (not number of array elements)
     } mapval;
 
     struct {
@@ -139,6 +139,7 @@ typedef struct RSValue {
 
 #define RS_DUOVAL_VAL(v) ((v).duoval.vals[0])
 #define RS_DUOVAL_OTHERVAL(v) ((v).duoval.vals[1])
+#define RS_DUOVAL_OTHER2VAL(v) ((v).duoval.vals[2])
 #define APIVERSION_RETURN_MULTI_CMP_FIRST 3
 
 /**
@@ -356,17 +357,18 @@ RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options);
 
 /**
  * Create a new map from existing pairs
- * @param pairs the <key,value> pair array to use for the map
- * @param numPairs number of the pairs array (not the number of elements)
+ * @param pairs the <key,value> pair array to use for the map.
+ * @param numPairs number of the pairs in the array (not the number of elements)
  */
 RSValue *RSValue_NewMap(RSValue **pairs, uint32_t numPairs);
-
-void RSValue_MapSetPairs(RSValue *map, RSValue **pairs, uint32_t numPairs);
 
 /** Accesses the array element at a given position as an l-value */
 #define RSVALUE_ARRELEM(vv, pos) ((vv)->arrval.vals[pos])
 /** Accesses the array length as an lvalue */
 #define RSVALUE_ARRLEN(vv) ((vv)->arrval.len)
+
+#define RSVALUE_MAP_KEYPOS(pos) ((pos) * 2)
+#define RSVALUE_MAP_VALUEPOS(pos) ((pos) * 2 + 1)
 
 RSValue *RS_VStringArray(uint32_t sz, ...);
 
@@ -377,7 +379,7 @@ RSValue *RS_StringArray(char **strs, uint32_t sz);
 RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st);
 
 /* Wrap a pair of RSValue into an RSValue Duo */
-RSValue *RS_DuoVal(RSValue *val, RSValue *otherval);
+RSValue *RS_DuoVal(RSValue *val, RSValue *otherval, RSValue *other2val);
 
 /* Compare 2 values for sorting */
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);
@@ -417,8 +419,13 @@ static inline uint32_t RSValue_ArrayLen(const RSValue *arr) {
   return arr ? arr->arrval.len : 0;
 }
 
+typedef enum {
+  SENDREPLY_FLAG_TYPED = 0x01,
+  SENDREPLY_FLAG_EXPAND = 0x02,
+} SendReplyFlags;
+
 /* Based on the value type, serialize the value into redis client response */
-int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, int typed);
+int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags);
 
 void RSValue_Print(const RSValue *v);
 

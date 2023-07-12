@@ -732,27 +732,36 @@ def testExpand():
   env.cmd('ft.create', 'idx', 'on', 'json', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric', '$.num', 'as', 'num', 'numeric', '$.str', 'as', 'str', 'text')
 
   with env.getClusterConnectionIfNeeded() as r:
-    r.execute_command('json.set', 'doc1', '$', '{"arr":[1,2,3],"num":1,"str":"foo"}')
-    r.execute_command('json.set', 'doc2', '$', '{"arr":[3,4,5],"num":2,"str":"bar"}')
-    r.execute_command('json.set', 'doc3', '$', '{"arr":[5,6,7],"num":3,"str":"baz"}')
+    r.execute_command('json.set', 'doc1', '$', '{"arr":[1.0,2.1,3.14],"num":1,"str":"foo","sub":{"s1":false}}')
+    r.execute_command('json.set', 'doc2', '$', '{"arr":[3,4,null],"num":2,"str":"bar","sub":{"s2":true}}')
+    r.execute_command('json.set', 'doc3', '$', '{"arr":[5,6,7],"num":3,"str":"baz","sub":{"s3":false}}')
 
-  exp = {
+  exp_string = {
+    'attributes': [],
+    'error': [],
+    'total_results': 3,
+    'format': 'STRING',
+    'results': [
+      {'id': 'doc1', 'extra_attributes': {'$': '{"arr":[1.0,2.1,3.14],"num":1,"str":"foo","sub":{"s1":false}}'}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'$': '{"arr":[3,4,null],"num":2,"str":"bar","sub":{"s2":true}}'}, 'values': []},
+    ]
+  }
+  exp_expand = {
     'attributes': [],
     'error': [],
     'total_results': 3,
     'format': 'EXPAND',
     'results': [
-      {'id': 'doc1', 'extra_attributes': {'$': '{"arr":[1,2,3],"num":1,"str":"foo"}'}, 'values': []},  #FIXME: EXPAND value
-      {'id': 'doc2', 'extra_attributes': {'$': '{"arr":[3,4,5],"num":2,"str":"bar"}'}, 'values': []},  #FIXME: EXPAND value
+      {'id': 'doc1', 'extra_attributes': {'$': [{"arr":[1.0,2.1,3.14],"num":1,"str":"foo","sub":{"s1":False}}]}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'$': [{"arr":[3.0,4.0,None],"num":2,"str":"bar","sub":{"s2":True }}]}, 'values': []},   #FIXME: Support integers (should be [3,4,None])
     ]
   }
   # Default FORMAT is EXPAND
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2)
-  env.assertEqual(res, exp)
+  env.assertEqual(res, exp_expand)
 
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'EXPAND')
-  env.assertEqual(res, exp)
+  env.assertEqual(res, exp_expand)
 
-  exp['format'] = 'STRING'
   res = env.cmd('FT.SEARCH', 'idx', '*','LIMIT', 0, 2, 'FORMAT', 'STRING')
-  env.assertEqual(res, exp)
+  env.assertEqual(res, exp_string)
