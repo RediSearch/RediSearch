@@ -15,6 +15,9 @@ typedef struct IndexError {
     RedisModuleString *key;          // Key of the document that caused the error.
 } IndexError;
 
+// Global constant to place an index error object in maps/dictionaries.
+extern const char* IndexError_ObjectName;
+
 // No errors message. Used when there are no errors.
 // This is a constant string, so it should not be freed.
 extern const char* no_errors;
@@ -28,11 +31,17 @@ void IndexError_add_error(IndexError *error, const char *error_message, const Re
 // Clears an IndexError. If the last_error is not no_errors, it is freed.
 void IndexError_clear(IndexError error);
 
-
 // IO and cluser traits
+// Reply the index errors to the client.
+void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply);
+
+#ifdef RS_COORDINATOR
+#include "coord/src/rmr/reply.h"
+
 // Adds the error message of the other IndexError to the IndexError. The error_count is incremented and the last_error is set to the error_message.
 // This is used when merging errors from different shards in a cluster.
 void IndexError_OpPlusEquals(IndexError *error, const IndexError *other);
 
-// Reply the index errors to the client.
-void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply);
+IndexError IndexError_Deserialize(MRReply *reply);
+
+#endif // RS_COORDINATOR

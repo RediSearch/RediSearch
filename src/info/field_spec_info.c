@@ -44,12 +44,18 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *info, IndexError error) {
 
 // Reply a Field spec info.
 void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply) {
+    RedisModule_Reply_Map(reply);
+    
     REPLY_KVSTR("identifier", info->identifier);
     REPLY_KVSTR("attribute", info->attribute);
+    // Set the error as a new object.
+    RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
     IndexError_Reply(&info->error, reply);
+
+    RedisModule_Reply_MapEnd(reply);
 }
 
-#ifndef RS_COORDINATOR
+#ifdef RS_COORDINATOR
 
 #include "coord/src/rmr/reply.h"
 
@@ -60,7 +66,11 @@ void FieldSpecInfo_OpPlusEquals(FieldSpecInfo *info, const FieldSpecInfo *other)
 
 // Deserializes a FieldSpecInfo from a MRReply.
 FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply) {
-    
+    FieldSpecInfo info = {0};
+    info.identifier = MRReply_String(MRReply_MapElement(reply, "identifier"), NULL);
+    info.attribute = MRReply_String(MRReply_MapElement(reply, "attribute"), NULL);
+    info.error = IndexError_Deserialize(MRReply_MapElement(reply, IndexError_ObjectName));
+    return info;
 }
 
 #endif

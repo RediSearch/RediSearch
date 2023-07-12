@@ -183,17 +183,13 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_ReplyKV_Array(reply, "field statistics"); //Field statistics
     
     for (int i = 0; i < sp->numFields; i++) {
-      RedisModule_Reply_Map(reply); // >>field
       const FieldSpec *fs = &sp->fields[i];
       FieldSpecInfo *info = FieldSpec_GetInfo(fs);
       FieldSpecInfo_Reply(info, reply);
       FieldSpecInfo_Free(info);
-      RedisModule_Reply_MapEnd(reply); // >>field
     }
 
   RedisModule_Reply_ArrayEnd(reply); // >Field statistics
-
-
 
   REPLY_KVNUM("num_docs", sp->stats.numDocuments);
   REPLY_KVNUM("max_doc_id", sp->docs.maxDocId);
@@ -258,6 +254,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     rm_free(dialect_i);
   }
   REPLY_MAP_END;
+
+  // Global index error stats
+  RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
+  IndexError_Reply(&sp->stats.indexError, reply);
 
   RedisModule_Reply_MapEnd(reply); // top
   RedisModule_EndReply(reply);

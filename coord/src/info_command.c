@@ -171,7 +171,7 @@ void handleFieldStatistics(MRReply *src, InfoFields *fields) {
   for(size_t i = 0; i < len; i++) {
     MRReply *serilizedFieldSpecInfo = MRReply_ArrayElement(src, i);
     FieldSpecInfo fieldSpecInfo = FieldSpecInfo_Deserialize(serilizedFieldSpecInfo);
-    fields->fieldSpecInfo_arr = array_append(fields->fieldSpecInfo_arr, *fieldSpecInfo);
+    fields->fieldSpecInfo_arr = array_append(fields->fieldSpecInfo_arr, fieldSpecInfo);
   }
 }
 

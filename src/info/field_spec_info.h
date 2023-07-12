@@ -39,7 +39,7 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *, IndexError error);
 // Reply a Field spec info.
 void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply);
 
-#ifndef RS_COORDINATOR
+#ifdef RS_COORDINATOR
 
 #include "coord/src/rmr/reply.h"
 

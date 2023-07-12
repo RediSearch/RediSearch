@@ -10,7 +10,6 @@
 #include "resp3.h"
 
 #include "redismodule.h"
-#include "hiredis/hiredis.h"
 
 #include <stdlib.h>
 
@@ -31,53 +30,27 @@
 #define MR_REPLY_BIGNUM 13
 #define MR_REPLY_VERB 14
 
+struct redisReply;
 typedef struct redisReply MRReply;
 
-static inline void MRReply_Free(MRReply *reply) {
-  freeReplyObject(reply);
-}
+void MRReply_Free(MRReply *reply);
 
-static inline int MRReply_Type(MRReply *reply) {
-  return reply->type;
-}
+int MRReply_Type(const MRReply *reply);
 
-static inline long long MRReply_Integer(MRReply *reply) {
-  return reply->integer;
-}
+long long MRReply_Integer(const MRReply *reply);
 
-static inline double MRReply_Double(MRReply *reply) {
-  return reply->dval;
-}
+double MRReply_Double(const MRReply *reply);
 
-static inline size_t MRReply_Length(MRReply *reply) {
-  return reply ? reply->elements : 0;
-}
+size_t MRReply_Length(const MRReply *reply);
 
 /* Compare a string reply with a string, optionally case sensitive */
 int MRReply_StringEquals(MRReply *r, const char *s, int caseSensitive);
 
-static inline char *MRReply_String(MRReply *reply, size_t *len) {
-  if (len) {
-    *len = reply->len;
-  }
-  return reply->str;
-}
+const char *MRReply_String(const MRReply *reply, size_t *len);
 
-static inline MRReply *MRReply_ArrayElement(MRReply *reply, size_t idx) {
-  // TODO: check out of bounds
-  return reply->element[idx];
-}
+MRReply *MRReply_ArrayElement(const MRReply *reply, size_t idx);
 
-static inline MRReply *MRReply_MapElement(MRReply *reply, const char *key) {
-  if (reply->type != MR_REPLY_MAP) return NULL;
-  for (int i = 0; i < reply->elements; i += 2) {
-    if (MRReply_StringEquals(reply->element[i], key, false)) {
-      ++i;
-      return i < reply->elements ? reply->element[i] : NULL;
-    }
-  }
-  return NULL;
-}
+MRReply *MRReply_MapElement(const MRReply *reply, const char *key);
 
 void MRReply_Print(FILE *fp, MRReply *r);
 int MRReply_ToInteger(MRReply *reply, long long *i);
