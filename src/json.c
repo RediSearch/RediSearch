@@ -125,7 +125,7 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
   case JSONType_Object:
     if (fieldType == INDEXFLD_T_GEOMETRY) {
       // TODO: GEOMETRY
-      // GEOMETRY field can be represented as GEOJSON "geometry" object
+      // GEOMETRY field can be represented as GEOJSON "geoshape" object
       rv = REDISMODULE_OK;
     }
     break;
@@ -208,17 +208,17 @@ int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct Docume
 
   VecSimParams *params = &fs->vectorOpts.vecSimParams;
   if (params->algo == VecSimAlgo_TIERED) {
-    params = params->tieredParams.primaryIndexParams;
+    params = params->algoParams.tieredParams.primaryIndexParams;
   }
 
   switch (params->algo) {
     case VecSimAlgo_HNSWLIB:
-      type = params->hnswParams.type;
-      dim = params->hnswParams.dim;
+      type = params->algoParams.hnswParams.type;
+      dim = params->algoParams.hnswParams.dim;
       break;
     case VecSimAlgo_BF:
-      type = params->bfParams.type;
-      dim = params->bfParams.dim;
+      type = params->algoParams.bfParams.type;
+      dim = params->algoParams.bfParams.dim;
       break;
     default: return REDISMODULE_ERR;
   }
@@ -253,19 +253,19 @@ int JSON_StoreMultiVectorInDocField(FieldSpec *fs, JSONIterable *itr, size_t len
 
   VecSimParams *params = &fs->vectorOpts.vecSimParams;
   if (params->algo == VecSimAlgo_TIERED) {
-    params = params->tieredParams.primaryIndexParams;
+    params = params->algoParams.tieredParams.primaryIndexParams;
   }
 
 switch (params->algo) {
     case VecSimAlgo_HNSWLIB:
-      type = params->hnswParams.type;
-      dim = params->hnswParams.dim;
-      multi = params->hnswParams.multi;
+      type = params->algoParams.hnswParams.type;
+      dim = params->algoParams.hnswParams.dim;
+      multi = params->algoParams.hnswParams.multi;
       break;
     case VecSimAlgo_BF:
-      type = params->bfParams.type;
-      dim = params->bfParams.dim;
-      multi = params->bfParams.multi;
+      type = params->algoParams.bfParams.type;
+      dim = params->algoParams.bfParams.dim;
+      multi = params->algoParams.bfParams.multi;
       break;
     default: goto fail;
   }

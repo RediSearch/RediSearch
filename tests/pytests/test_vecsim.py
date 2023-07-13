@@ -2278,7 +2278,7 @@ def test_score_name_case_sensitivity():
 
 @skip(noWorkers=True)
 def test_tiered_index_gc():
-    fork_gc_interval_sec = '5'
+    fork_gc_interval_sec = '2'
     env = Env(moduleArgs=f'WORKER_THREADS 2 MT_MODE MT_MODE_FULL FORK_GC_RUN_INTERVAL {fork_gc_interval_sec}')
     conn = getConnectionByEnv(env)
     dim = 16
@@ -2317,7 +2317,7 @@ def test_tiered_index_gc():
         env.assertEqual(to_dict(debug_info_v2['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
 
     # Wait for GC to remove the deleted vectors.
-    time.sleep(int(fork_gc_interval_sec))
+    time.sleep(2*int(fork_gc_interval_sec))
     debug_info_v1 = get_vecsim_debug_dict(env, 'idx', 'v1')
     debug_info_v2 = get_vecsim_debug_dict(env, 'idx', 'v2')
     env.assertEqual(to_dict(debug_info_v1['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)

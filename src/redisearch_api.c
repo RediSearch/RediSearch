@@ -659,8 +659,7 @@ const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, RefManager* rm, siz
   IndexSpec *sp = __RefManager_Get_Object(rm);
   while (iter->internal->Read(iter->internal->ctx, &iter->res) != INDEXREAD_EOF) {
     const RSDocumentMetadata* md = DocTable_Borrow(&sp->docs, iter->res->docId);
-    if (md == NULL || ((md)->flags & Document_Deleted)) {
-      DMD_Return(md);
+    if (md == NULL) {
       continue;
     }
     DMD_Return(iter->lastmd);

@@ -42,7 +42,7 @@ is index name. You must first create the index using `FT.CREATE`.
 <details open>
 <summary><code>query</code></summary> 
 
-is text query to search. If it's more than a single word, put it in quotes. Refer to [Query syntax](/redisearch/reference/query_syntax) for more details.
+is text query to search. If it's more than a single word, put it in quotes. Refer to [Query syntax](/docs/interact/search-and-query/query/) for more details.
 </details>
 
 ## Optional arguments
@@ -113,13 +113,13 @@ limits the attributes returned from the document. `num` is the number of attribu
 <details open>
 <summary><code>SUMMARIZE ...</code></summary>
 
-returns only the sections of the attribute that contain the matched text. See [Highlighting](/redisearch/reference/highlight) for more information.
+returns only the sections of the attribute that contain the matched text. See [Highlighting](/docs/interact/search-and-query/advanced-concepts/highlight/) for more information.
 </details>
 
 <details open>
 <summary><code>HIGHLIGHT ...</code></summary>
 
-formats occurrences of matched text. See [Highlighting](/redisearch/reference/highlight) for more information.
+formats occurrences of matched text. See [Highlighting](/docs/interact/search-and-query/advanced-concepts/highlight/) for more information.
 </details>
 
 <details open>
@@ -149,13 +149,13 @@ use a stemmer for the supplied language during search for query expansion. If qu
 <details open>
 <summary><code>EXPANDER {expander}</code></summary>
 
-uses a custom query expander instead of the stemmer. See [Extensions](/redisearch/reference/extensions).
+uses a custom query expander instead of the stemmer. See [Extensions](/docs/interact/search-and-query/administration/extensions/).
 </details>
 
 <details open>
 <summary><code>SCORER {scorer}</code></summary>
 
-uses a [built-in](/redisearch/reference/scoring/) or a [user-provided](/redisearch/reference/extensions) scoring function.
+uses a [built-in](/docs/interact/search-and-query/advanced-concepts/scoring/) or a [user-provided](/docs/interact/search-and-query/administration/extensions/) scoring function.
 </details>
 
 <details open>
@@ -167,7 +167,7 @@ returns a textual description of how the scores were calculated. Using this opti
 <details open>
 <summary><code>PAYLOAD {payload}</code></summary>
 
-adds an arbitrary, binary safe payload that is exposed to custom scoring functions. See [Extensions](/redisearch/reference/extensions).
+adds an arbitrary, binary safe payload that is exposed to custom scoring functions. See [Extensions](/docs/interact/search-and-query/administration/extensions/).
 </details>
 
 <details open>
@@ -481,13 +481,13 @@ To sum up, the `INORDER` argument or `$inorder` query attribute require the quer
 <details open>
 <summary><b>NEW!!! Polygon Search with WITHIN and CONTAINS operators</b></summary>
 
-Query for polygons which contain a given geometry or are within a given geometry
+Query for polygons which contain a given geoshape or are within a given geoshape
 
-First, create an index using `GEOMETRY` type:
+First, create an index using `GEOSHAPE` type with a `FLAT` coordinate system:
 
 
 {{< highlight bash >}}
-127.0.0.1:6379> FT.CREATE idx SCHEMA geom GEOMETRY
+127.0.0.1:6379> FT.CREATE idx SCHEMA geom GEOSHAPE FLAT
 OK
 {{< / highlight >}}
 
@@ -533,7 +533,7 @@ Query with `CONTAINS` operator:
 
 ## Related topics
 
-- [Extensions](/redisearch/reference/extensions)
-- [Highlighting](/redisearch/reference/highlight)
-- [Query syntax](/redisearch/reference/query_syntax)
+- [Extensions](/docs/interact/search-and-query/administration/extensions/)
+- [Highlighting](/docs/interact/search-and-query/advanced-concepts/highlight/)
+- [Query syntax](/docs/interact/search-and-query/query/)
 - [RediSearch](/docs/stack/search)

@@ -450,8 +450,31 @@ def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOA
         conn.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
     return query_vec
 
-def dict_diff(res, exp, ignore_order=True, significant_digits=7):
-    dd = DeepDiff(res, exp, exclude_types={_ANY}, ignore_order=ignore_order, significant_digits=significant_digits)
-    if dd != {}:
+def sortResultByKeyName(res, start_index=1):
+  '''
+    Sorts the result by NAMEs
+    res = [<COUNT>, '<NAME_1>, '<VALUE_1>', '<NAME_2>, '<VALUE_2>', ...]
+
+    If VALUEs are lists, they are sorted by name as well
+  '''
+  # Sort name and value pairs by name
+  pairs = [(name,sortResultByKeyName(value, 0) if isinstance(value, list) else value) for name,value in zip(res[start_index::2], res[start_index+1::2])]
+  pairs = [i for i in sorted(pairs, key=lambda x: x[0])]
+  # Flatten the sorted pairs to a list
+  pairs = [i for pair in pairs for i in pair]
+  if start_index == 1:
+    # Bring the COUNT back to the beginning
+    res = [res[0], *pairs]
+  else:
+    res = [*pairs]
+  return res
+
+def dict_diff(res, exp, show=False, ignore_order=True, significant_digits=7,
+              ignore_numeric_type_changes=True, exclude_paths=None,
+              exclude_regex_paths=None):
+    dd = DeepDiff(res, exp, exclude_types={_ANY}, ignore_order=ignore_order, significant_digits=significant_digits,
+                  ignore_numeric_type_changes=ignore_numeric_type_changes, exclude_paths=exclude_paths,
+                  exclude_regex_paths=exclude_regex_paths)
+    if dd != {} and show:
         pp(dd)
     return dd

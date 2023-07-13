@@ -891,15 +891,12 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   if (!index) {
     return NULL;
   }
-  GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
-  if (!api) {
-    return NULL;
-  }
+  const GeometryApi *api = GeometryApi_Get(index);
   GeometryQuery *gq = node->gmn.geomq;
   RedisModuleString *errMsg;
   IndexIterator *ret = api->query(index, gq->query_type, gq->format, gq->str, gq->str_len, &errMsg);
   if (ret == NULL) {
-    QueryError_SetErrorFmt(q->status, QUERY_EBADVAL, "Error querying geometry index: %s",
+    QueryError_SetErrorFmt(q->status, QUERY_EBADVAL, "Error querying geoshape index: %s",
                            RedisModule_StringPtrLen(errMsg, NULL));
     RedisModule_FreeString(NULL, errMsg);
   }
@@ -1817,7 +1814,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "<empty>");
       break;
     case QN_GEOMETRY:
-      s = sdscatprintf(s, "GEOMETRY{%d %s}\n", qs->gmn.geomq->query_type, qs->gmn.geomq->str);
+      s = sdscatprintf(s, "GEOSHAPE{%d %s}\n", qs->gmn.geomq->query_type, qs->gmn.geomq->str);
       break;
   }
 

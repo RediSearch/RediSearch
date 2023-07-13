@@ -219,12 +219,12 @@ def testExpireDocs():
     expireDocs(False,  # Without SORTABLE -
               # Without sortby -
               # both docs exist but we failed to load doc1 since it was found to be expired during the query
-              [2, 'doc1', None, 'doc2', ['t', 'foo']],
+              [2, 'doc1', [], 'doc2', ['t', 'foo']],
               # With sortby -
               # since the fields are not SORTABLE, we need to load the results from Redis Keyspace
               # when the sorter fails to do that, it sets the sortby value to NULL and gives the document the
               # lowest possible score upon sorting, so doc1 is returned last.
-              [2, 'doc2', ['t', 'foo'], 'doc1', None])
+              [2, 'doc2', ['t', 'foo'], 'doc1', []])
 
 
 def testExpireDocsSortable():
@@ -234,8 +234,8 @@ def testExpireDocsSortable():
     expireDocs(True,  # With SORTABLE -
                # Since we are not trying to load the document in the sorter, it is not discarded from the results.
                # The loader fails to load doc1 since it was found to be expired during the query
-              [2, 'doc1', None, 'doc2', ['t', 'foo']],  # Without sortby
-              [2, 'doc1', None, 'doc2', ['t', 'foo']])  # With sortby
+              [2, 'doc1', [], 'doc2', ['t', 'foo']],            # Without sortby - empty list
+              [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']])  # With sortby - partial list
 
 def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_sortby):
     '''

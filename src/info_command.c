@@ -148,6 +148,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       }
     }
 
+    if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
+      REPLY_KVSTR("coord_system", GeometryCoordsToName(fs->geometryOpts.geometryCoords));
+    }
+
     if (has_map) {
       RedisModule_ReplyKV_Array(reply, "flags"); // >>>flags
     }
@@ -199,7 +203,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM("sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
 
   REPLY_KVNUM("key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
-  REPLY_KVNUM("total_geometries_index_size_mb", GeometryTotalMemUsage() / (float)0x100000);
+  REPLY_KVNUM("total_geoshapes_index_size_mb", GeometryTotalMemUsage() / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
               (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
   REPLY_KVNUM("bytes_per_record_avg",

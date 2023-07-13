@@ -541,7 +541,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (initialScan) {
     IndexSpec_ScanAndReindex(ctx, ref);
   }
-  IndexSpec_UpdateVersion(sp);
+
   RedisSearchCtx_UnlockSpec(&sctx);
 
   RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -659,7 +659,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     RedisSearchCtx_UnlockSpec(&sctx);
     return QueryError_ReplyAndClear(ctx, &status);
   }
-  IndexSpec_UpdateVersion(sp);
+
   FieldsGlobalStats_UpdateStats(sp->fields + (sp->numFields - 1), 1);
   RedisSearchCtx_UnlockSpec(&sctx);
 
@@ -794,30 +794,36 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
+
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+
   const char *action = RedisModule_StringPtrLen(argv[1], NULL);
   const char *name = RedisModule_StringPtrLen(argv[2], NULL);
   if (!strcasecmp(action, "GET")) {
-    RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, ctx, 0);
+    RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, reply, false);
   } else if (!strcasecmp(action, "HELP")) {
-    RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, ctx, 1);
+    RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, reply, true);
   } else if (!strcasecmp(action, "SET")) {
     size_t offset = 3;  // Might be == argc. SetOption deals with it.
-    if (RSConfig_SetOption(&RSGlobalConfig, &RSGlobalConfigOptions, name, argv, argc, &offset,
-                           &status) == REDISMODULE_ERR) {
-      return QueryError_ReplyAndClear(ctx, &status);
+    int rc = RSConfig_SetOption(&RSGlobalConfig, &RSGlobalConfigOptions, name, argv, argc,
+                                &offset, &status);
+    if (rc == REDISMODULE_ERR) {
+      RedisModule_Reply_QueryError(reply, &status);
+      QueryError_ClearError(&status);
+      RedisModule_EndReply(reply);
+      return REDISMODULE_OK;
     }
     if (offset != argc) {
-      RedisModule_ReplyWithSimpleString(ctx, "EXCESSARGS");
+      RedisModule_Reply_SimpleString(reply, "EXCESSARGS");
     } else {
       RedisModule_Log(ctx, "notice", "Successfully changed configuration for `%s`", name);
-      RedisModule_ReplyWithSimpleString(ctx, "OK");
+      RedisModule_Reply_SimpleString(reply, "OK");
     }
-    return REDISMODULE_OK;
   } else {
-    RedisModule_ReplyWithSimpleString(ctx, "No such configuration action");
-    return REDISMODULE_OK;
+    RedisModule_Reply_SimpleString(reply, "No such configuration action");
   }
 
+  RedisModule_EndReply(reply);
   return REDISMODULE_OK;
 }
 
@@ -1147,7 +1153,7 @@ void RediSearch_CleanupModule(void) {
 // data structure that is accessed upon releasing the spec (and running thread might hold
 // a reference to the spec bat this time).
 #ifdef MT_BUILD
-  workersThreadPool_Wait(RSDummyContext);
+  workersThreadPool_Drain(RSDummyContext, 0);
   workersThreadPool_Destroy();
 #endif
   CursorList_Destroy(&g_CursorsList);
@@ -1172,7 +1178,7 @@ void RediSearch_CleanupModule(void) {
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();
   SchemaPrefixes_Free(ScemaPrefixes_g);
-  GeometryApi_Free();
+  // GeometryApi_Free();
 
   RedisModule_FreeThreadSafeContext(RSDummyContext);
   Dictionary_Free();

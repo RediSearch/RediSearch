@@ -224,11 +224,11 @@ int main(int argc, char **argv) {
               // Create HNSW index. This can be replaced with FLAT index as well (then M parameter
               // is not required).
               VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
-                      .hnswParams = HNSWParams{.type = VecSimType_FLOAT32,
+                      .algoParams = {.hnswParams = HNSWParams{.type = VecSimType_FLOAT32,
                               .dim = d,
                               .metric = VecSimMetric_L2,
                               .initialCapacity = max_id,
-                              .M = M}};
+                              .M = M}}};
               VecSimIndex *index = VecSimIndex_New(&params);
               auto start = std::chrono::high_resolution_clock::now();
               for (size_t i = 0; i < max_id; i++) {
