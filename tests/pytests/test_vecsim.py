@@ -2280,8 +2280,7 @@ def test_score_name_case_sensitivity():
 def test_tiered_index_gc():
     fork_gc_interval_sec = '10'
     N = 1000
-    env = Env(moduleArgs=f'WORKER_THREADS 2 MT_MODE MT_MODE_FULL FORK_GC_RUN_INTERVAL {fork_gc_interval_sec}'
-                         f' FORK_GC_CLEAN_THRESHOLD {N}')
+    env = Env(moduleArgs=f'WORKER_THREADS 2 MT_MODE MT_MODE_FULL FORK_GC_RUN_INTERVAL {fork_gc_interval_sec}')
     conn = getConnectionByEnv(env)
     dim = 16
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
@@ -2304,6 +2303,9 @@ def test_tiered_index_gc():
             time.sleep(1)
         else:
             break
+
+    if not env.isCluster():
+        env.expect("ft.config", "set", 'FORK_GC_CLEAN_THRESHOLD', N).ok()
 
     # Delete all documents. Note that we have less than TIERED_HNSW_SWAP_JOBS_THRESHOLD docs (1024),
     # so we know that we won't execute swap jobs during the 'DEL' command execution.
