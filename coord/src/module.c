@@ -1246,7 +1246,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_ReplyKV_LongLong(reply, "total_results", rCtx->totalReplies);
 
-    if (rCtx->searchCtx->format) {
+    if (rCtx->searchCtx->format & QEXEC_FORMAT_EXPAND) {
       RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
     } else {
       RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
