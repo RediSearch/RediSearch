@@ -461,7 +461,7 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       size_t i = 0;
       RedisJSON value;
       pairs = rm_malloc(sizeof(RSValue*) * len * 2);
-      for (; (value = japi->nextKeyValue(iter, ctx, &keyName)); ++i) {
+      for (; (value = japi->nextKeyValue(iter, &keyName)); ++i) {
         assert(i < len);
         pairs[RSVALUE_MAP_KEYPOS(i)] = RS_StealRedisStringVal(keyName);
         pairs[RSVALUE_MAP_VALUEPOS(i)] = jsonValToValueExpanded(ctx, value);

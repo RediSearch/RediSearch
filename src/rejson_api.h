@@ -111,7 +111,7 @@ typedef struct RedisJSONAPI {
   JSONKeyValuesIterator (*getKeyValues)(RedisJSON json);
   // Get the next key-value pair
   // The caller gains ownership of `key_name`
-  RedisJSON (*nextKeyValue)(JSONKeyValuesIterator iter, RedisModuleCtx *ctx, RedisModuleString **key_name);
+  RedisJSON (*nextKeyValue)(JSONKeyValuesIterator iter, RedisModuleString **key_name);
   // Free the iterator
   void (*freeKeyValuesIter)(JSONKeyValuesIterator iter);
 
