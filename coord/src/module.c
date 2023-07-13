@@ -1130,6 +1130,20 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
       searchResult *res = newResult_resp3(rCtx->cachedResult, results, i, rCtx->searchCtx->withExplainScores);
       processSerchReplyResult(res, rCtx, ctx);
     }
+    
+    if (req->format & QEXEC_FORMAT_DEFAULT) {
+      // Logic of which format to use is done by the shards
+      // Pick one - they should all agree on it
+      MRReply *format = MRReply_MapElement(arr, "format");
+      if (format) {
+        size_t len;
+        if (!strcasecmp(MRReply_String(format, &len), "EXPAND")) {
+          req->format = QEXEC_FORMAT_EXPAND;
+        } else {
+          req->format &= ~QEXEC_FORMAT_DEFAULT;
+        }
+      }
+    }
   }
   else // RESP2
   {

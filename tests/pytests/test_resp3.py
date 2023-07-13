@@ -739,16 +739,28 @@ def testExpandErrorsResp2():
     # TODO: Expect an error once MOD-5211 is done
     env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').equal([0])
 
-def testExpand():
+  # On HASH
+  env.cmd('ft.create', 'idx2', 'on', 'hash', 'SCHEMA', 'num', 'numeric', 'str', 'text')
+  if not env.isCluster():
+    env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
+  else:
+    # TODO: Expect an error once MOD-5211 is done
+    env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').equal([0])
+
+def testExpandJson():
   env = Env(protocol=3)
-  env.cmd('ft.create', 'idx', 'on', 'json', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric', '$.num', 'as', 'num', 'numeric', '$.str', 'as', 'str', 'text')
+  env.cmd('ft.create', 'idx', 'on', 'json', 'SCHEMA',
+          '$.arr', 'as', 'arr','numeric',
+          '$.num', 'as', 'num', 'numeric',
+          '$.str', 'as', 'str', 'text',
+          '$..arr[*]', 'as', 'multi', 'numeric')
 
   #FIXME: TODO: test empty container, multi-value, test FT.AGGREGATE, VECSIM
 
   with env.getClusterConnectionIfNeeded() as r:
-    r.execute_command('json.set', 'doc1', '$', '{"arr":[1.0,2.1,3.14],"num":1,"str":"foo","sub":{"s1":false}}')
-    r.execute_command('json.set', 'doc2', '$', '{"arr":[3,4,null],"num":2,"str":"bar","sub":{"s2":true}}')
-    r.execute_command('json.set', 'doc3', '$', '{"arr":[5,6,7],"num":3,"str":"baz","sub":{"s3":false}}')
+    r.execute_command('json.set', 'doc1', '$', '{"arr":[1.0,2.1,3.14],"num":1,"str":"foo","sub":{"s1":false},"sub2":{"arr":[10,20,33.33]}}')
+    r.execute_command('json.set', 'doc2', '$', '{"arr":[3,4,null],"num":2,"str":"bar","sub":{"s2":true},"sub2":{"arr":[40,50,66.66]}}')
+    r.execute_command('json.set', 'doc3', '$', '{"arr":[5,6,7],"num":3,"str":"baz","sub":{"s3":false},"sub2":{"arr":[70,80,99.99]}}')
 
   exp_string = {
     'attributes': [],
@@ -756,8 +768,8 @@ def testExpand():
     'total_results': 3,
     'format': 'STRING',
     'results': [
-      {'id': 'doc1', 'extra_attributes': {'$': '{"arr":[1.0,2.1,3.14],"num":1,"str":"foo","sub":{"s1":false}}'}, 'values': []},
-      {'id': 'doc2', 'extra_attributes': {'$': '{"arr":[3,4,null],"num":2,"str":"bar","sub":{"s2":true}}'}, 'values': []},
+      {'id': 'doc1', 'extra_attributes': {'$': '{"arr":[1.0,2.1,3.14],"num":1,"str":"foo","sub":{"s1":false},"sub2":{"arr":[10,20,33.33]}}'}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'$': '{"arr":[3,4,null],"num":2,"str":"bar","sub":{"s2":true},"sub2":{"arr":[40,50,66.66]}}'}, 'values': []},
     ]
   }
   exp_expand = {
@@ -766,8 +778,8 @@ def testExpand():
     'total_results': 3,
     'format': 'EXPAND',
     'results': [
-      {'id': 'doc1', 'extra_attributes': {'$': [{"arr":[1.0,2.1,3.14],"num":1,"str":"foo","sub":{"s1":False}}]}, 'values': []},
-      {'id': 'doc2', 'extra_attributes': {'$': [{"arr":[3,4,None],"num":2,"str":"bar","sub":{"s2":True }}]}, 'values': []},
+      {'id': 'doc1', 'extra_attributes': {'$': [{"arr":[1,2.1,3.14],"num":1,"str":"foo","sub":{"s1":0},"sub2":{"arr":[10,20,33.33]}}]}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'$': [{"arr":[3,4,None],"num":2,"str":"bar","sub":{"s2":1 },"sub2":{"arr":[40,50,66.66]}}]}, 'values': []},
     ]
   }
   # Default FORMAT is EXPAND
@@ -779,3 +791,62 @@ def testExpand():
 
   res = env.cmd('FT.SEARCH', 'idx', '*','LIMIT', 0, 2, 'FORMAT', 'STRING')
   env.assertEqual(res, exp_string)
+
+  # Return specific fields
+  exp_expand = {
+    'attributes': [],
+    'error': [],
+    'total_results': 3,
+    'format': 'EXPAND',
+    'results': [
+      {'id': 'doc1', 'extra_attributes': {'$.arr[?(@>2)]':[2.1,3.14], 'str':['foo'], 'multi': [1, 2.1, 3.14, 10, 20, 33.33], "arr":[[1,2.1,3.14]]}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'$.arr[?(@>2)]':[3,4], 'str':['bar'], 'multi': [3, 4, None, 40, 50, 66.66], "arr":[[3,4,None]]}, 'values': []},
+    ]
+  }
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'RETURN', 4, '$.arr[?(@>2)]', 'str', 'multi', 'arr')
+  env.assertEqual(res, exp_expand)
+
+def testExpandHash():
+  env = Env(protocol=3)
+  env.cmd('ft.create', 'idx', 'on', 'hash', 'SCHEMA', 'num', 'numeric', 'str', 'text', 't', 'tag')
+
+  #FIXME: TODO: test empty container, multi-value, test FT.AGGREGATE, VECSIM
+
+  with env.getClusterConnectionIfNeeded() as r:
+    r.execute_command('hset', 'doc1', 'num', 1, 'str', 'foo', 'other', 'fu')
+    r.execute_command('hset', 'doc2', 'num', 2, 'str', 'bar', 'other', 'bur')
+    r.execute_command('hset', 'doc3', 'num', 3 ,'str', 'baz', 'other', 'buz')
+
+  exp_string = {
+    'attributes': [],
+    'error': [],
+    'total_results': 3,
+    'format': 'STRING',
+    'results': [
+      {'id': 'doc1', 'extra_attributes': {'num': '1', 'str': 'foo', 'other': 'fu'}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'num': '2', 'str': 'bar', 'other': 'bur'}, 'values': []},
+    ]
+  }
+  
+  # Default FORMAT is STRING
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2)
+  env.assertEqual(res, exp_string)
+
+  res = env.cmd('FT.SEARCH', 'idx', '*','LIMIT', 0, 2, 'FORMAT', 'STRING')
+  env.assertEqual(res, exp_string)
+
+  # Return specific fields
+  exp_string = {
+    'attributes': [],
+    'error': [],
+    'total_results': 3,
+    'format': 'STRING',
+    'results': [
+      {'id': 'doc1', 'extra_attributes': {'num': '1', 'other': 'fu'}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'num': '2', 'other': 'bur'}, 'values': []},
+    ]
+  }
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'RETURN', 2, 'num', 'other')
+  env.assertEqual(res, exp_string)
+
+
