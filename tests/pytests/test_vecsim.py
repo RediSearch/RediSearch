@@ -2276,11 +2276,12 @@ def test_score_name_case_sensitivity():
                'RETURN', '1', score_name.lower()).equal(expected())
 
 
-@skip(noWorkers=True)
-def test_tiered_index_gc():
+@skip(cluster=True, noWorkers=True)
+def test_tiered_index_gc(env):
     fork_gc_interval_sec = '10'
     N = 1000
-    env = Env(moduleArgs=f'WORKER_THREADS 2 MT_MODE MT_MODE_FULL FORK_GC_RUN_INTERVAL {fork_gc_interval_sec}')
+    env = Env(moduleArgs=f'WORKER_THREADS 2 MT_MODE MT_MODE_FULL FORK_GC_RUN_INTERVAL {fork_gc_interval_sec}'
+                         f' FORK_GC_CLEAN_THRESHOLD {N}')
     conn = getConnectionByEnv(env)
     dim = 16
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
@@ -2304,20 +2305,16 @@ def test_tiered_index_gc():
         else:
             break
 
-    if not env.isCluster():
-        env.expect("ft.config", "set", 'FORK_GC_CLEAN_THRESHOLD', N).ok()
-
     # Delete all documents. Note that we have less than TIERED_HNSW_SWAP_JOBS_THRESHOLD docs (1024),
     # so we know that we won't execute swap jobs during the 'DEL' command execution.
     for i in range(N):
         res = conn.execute_command('DEL', i)
         env.assertEqual(res, 1)
 
-    if not env.isCluster():
-        debug_info_v1 = get_vecsim_debug_dict(env, 'idx', 'v1')
-        debug_info_v2 = get_vecsim_debug_dict(env, 'idx', 'v2')
-        env.assertEqual(to_dict(debug_info_v1['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
-        env.assertEqual(to_dict(debug_info_v2['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
+    debug_info_v1 = get_vecsim_debug_dict(env, 'idx', 'v1')
+    debug_info_v2 = get_vecsim_debug_dict(env, 'idx', 'v2')
+    env.assertEqual(to_dict(debug_info_v1['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
+    env.assertEqual(to_dict(debug_info_v2['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
 
     # Wait for GC to remove the deleted vectors.
     time.sleep(2*int(fork_gc_interval_sec))
