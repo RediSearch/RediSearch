@@ -2278,7 +2278,7 @@ def test_score_name_case_sensitivity():
 
 @skip(noWorkers=True)
 def test_tiered_index_gc():
-    fork_gc_interval_sec = '2'
+    fork_gc_interval_sec = '5'
     env = Env(moduleArgs=f'WORKER_THREADS 2 MT_MODE MT_MODE_FULL FORK_GC_RUN_INTERVAL {fork_gc_interval_sec}')
     conn = getConnectionByEnv(env)
     dim = 16
