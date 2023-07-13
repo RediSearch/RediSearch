@@ -66,9 +66,9 @@ template <typename coord_system>
 auto RTree<coord_system>::from_wkt(std::string_view wkt) const -> geom_type {
   geom_type geom{};
   if (wkt.starts_with("POI")) {
-    geom = bg::from_wkt<point_type>(wkt.data());
+    geom = bg::from_wkt<point_type>(std::string{wkt});
   } else if (wkt.starts_with("POL")) {
-    geom = bg::from_wkt<poly_type>(wkt.data());
+    geom = bg::from_wkt<poly_type>(std::string{wkt});
   } else {
     throw std::runtime_error{"unknown geometry type"};
   }
@@ -108,11 +108,9 @@ void RTree<coord_system>::insert(geom_type const& geom, t_docId id) {
 }
 
 template <typename coord_system>
-int RTree<coord_system>::insertWKT(const char* wkt, std::size_t len, t_docId id,
-                                   RedisModuleString** err_msg) {
+int RTree<coord_system>::insertWKT(std::string_view wkt, t_docId id, RedisModuleString** err_msg) {
   try {
-    auto geom = from_wkt(std::string_view{wkt, len});
-    insert(geom, id);
+    insert(from_wkt(wkt), id);
     return 0;
   } catch (const std::exception& e) {
     if (err_msg) {
@@ -199,7 +197,7 @@ void RTree<coord_system>::dump(RedisModuleCtx* ctx) const {
 }
 
 template <typename coord_system>
-std::size_t RTree<coord_system>::report() const {
+std::size_t RTree<coord_system>::report() const noexcept {
   return alloc_.report();
 }
 
@@ -269,10 +267,10 @@ auto RTree<coord_system>::query(doc_type const& queryDoc, QueryType queryType,
 }
 
 template <typename coord_system>
-auto RTree<coord_system>::query(const char* wkt, std::size_t len, QueryType query_type,
+auto RTree<coord_system>::query(std::string_view wkt, QueryType query_type,
                                 RedisModuleString** err_msg) const -> IndexIterator* {
   try {
-    auto query_geom = from_wkt(std::string_view{wkt, len});
+    auto query_geom = from_wkt(wkt);
     return generate_query_iterator(query(make_doc(query_geom), query_type, query_geom),
                                    TrackingAllocator<QueryIterator>{alloc_.allocated_});
   } catch (const std::exception& e) {

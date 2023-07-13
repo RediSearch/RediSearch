@@ -76,13 +76,13 @@ struct RTree {
 
   [[nodiscard]] auto from_wkt(std::string_view wkt) const -> geom_type;
   void insert(geom_type const& geom, t_docId id);
-  int insertWKT(const char* wkt, std::size_t len, t_docId id, RedisModuleString** err_msg);
+  int insertWKT(std::string_view wkt, t_docId id, RedisModuleString** err_msg);
   bool remove(t_docId id);
 
   [[nodiscard]] static auto geometry_to_string(geom_type const& geom) -> string;
   [[nodiscard]] static auto doc_to_string(doc_type const& doc) -> string;
   void dump(RedisModuleCtx* ctx) const;
-  [[nodiscard]] std::size_t report() const;
+  [[nodiscard]] std::size_t report() const noexcept;
 
   [[nodiscard]] static auto generate_query_iterator(ResultsVec&& results,
                                                     TrackingAllocator<QueryIterator>&& a)
@@ -95,7 +95,7 @@ struct RTree {
       -> ResultsVec;
   [[nodiscard]] auto query(doc_type const& queryDoc, QueryType queryType,
                            geom_type const& queryGeom) const -> ResultsVec;
-  [[nodiscard]] auto query(const char* wkt, std::size_t len, QueryType query_type,
+  [[nodiscard]] auto query(std::string_view wkt, QueryType query_type,
                            RedisModuleString** err_msg) const -> IndexIterator*;
 
   [[nodiscard]] static constexpr auto make_mbr(geom_type const& geom) -> rect_type;

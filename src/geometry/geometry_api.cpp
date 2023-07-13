@@ -37,7 +37,7 @@ namespace {
     switch (format) {                                                                              \
       case GEOMETRY_FORMAT_WKT:                                                                    \
         return !std::get<RediSearch::GeoShape::RTree<variant>>(idx->index)                         \
-                    .insertWKT(str, len, id, err_msg);                                             \
+                    .insertWKT(std::string_view{str, len}, id, err_msg);                           \
       case GEOMETRY_FORMAT_GEOJSON:                                                                \
       default:                                                                                     \
         return 1;                                                                                  \
@@ -52,7 +52,7 @@ namespace {
     switch (format) {                                                                              \
       case GEOMETRY_FORMAT_WKT:                                                                    \
         return std::get<RediSearch::GeoShape::RTree<variant>>(idx->index)                          \
-            .query(str, len, queryType, err_msg);                                                  \
+            .query(std::string_view{str, len}, queryType, err_msg);                                \
       case GEOMETRY_FORMAT_GEOJSON:                                                                \
       default:                                                                                     \
         return nullptr;                                                                            \
