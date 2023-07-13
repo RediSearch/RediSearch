@@ -121,9 +121,9 @@ void GCContext_Stop(GCContext* gc) {
   if (RS_IsMock) {
     // for fork gc debug
     RedisModule_FreeThreadSafeContext(((ForkGC *)gc->gcCtx)->ctx);
+    array_free(((ForkGC *)gc->gcCtx)->tieredIndexes);
     WeakRef_Release(((ForkGC *)gc->gcCtx)->index);
     free(gc->gcCtx);
-    array_free(((ForkGC *)gc->gcCtx)->tieredIndexes);
     free(gc);
     return;
   }
