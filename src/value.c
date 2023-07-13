@@ -114,6 +114,12 @@ void RSValue_Clear(RSValue *v) {
       RSValue_Decref(RS_DUOVAL_OTHERVAL(*v));
       rm_free(v->duoval.vals);
       break;
+    case RSValue_Map:
+      for (uint32_t i = 0; i < v->mapval.len; i++) {
+        RSValue_Decref(v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)]);
+        RSValue_Decref(v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)]);
+      }
+      break;
     default:   // no free
       break;
   }
