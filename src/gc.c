@@ -123,6 +123,7 @@ void GCContext_Stop(GCContext* gc) {
     RedisModule_FreeThreadSafeContext(((ForkGC *)gc->gcCtx)->ctx);
     WeakRef_Release(((ForkGC *)gc->gcCtx)->index);
     free(gc->gcCtx);
+    array_free(((ForkGC *)gc->gcCtx)->tieredIndexes);
     free(gc);
     return;
   }
