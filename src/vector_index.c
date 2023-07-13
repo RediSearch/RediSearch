@@ -518,3 +518,31 @@ void VecSimLogCallback(void *ctx, const char *message) {
   VecSimLogCtx *log_ctx = (VecSimLogCtx *)ctx;
   RedisModule_Log(NULL, "notice", "vector index '%s' - %s", log_ctx->index_field_name, message);
 }
+
+VecSimIndex **VecSim_GetAllTieredIndexes(StrongRef spec_ref) {
+  IndexSpec *sp = StrongRef_Get(spec_ref);
+  FieldSpec **vector_fields = getFieldsByType(sp, INDEXFLD_T_VECTOR);
+  VecSimIndex **tieredIndexes = array_new(VecSimIndex *, array_len(vector_fields));
+  for (size_t i = 0; i < array_len(vector_fields); i++) {
+    if (vector_fields[i]->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED) {
+      RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, vector_fields[i], INDEXFLD_T_VECTOR);
+      // TODO: simplify OpenVectorIndex so that it won't go over the entire spec again?
+      VecSimIndex *tiered_index = OpenVectorIndex(sp, vecsim_name);
+      array_append(tieredIndexes, tiered_index);
+    }
+  }
+  array_free(vector_fields);
+  return tieredIndexes;
+}
+
+void VecSim_CallTieredIndexesGC(VecSimIndex **tieredIndexes, WeakRef spRef) {
+  StrongRef sp = WeakRef_Promote(spRef);
+  if (!StrongRef_Get(sp)) {
+    // Index was deleted
+    return;
+  }
+  for (size_t i = 0; i < array_len(tieredIndexes); i++) {
+    VecSimTieredIndex_GC(tieredIndexes[i]);
+  }
+  StrongRef_Release(sp);
+}

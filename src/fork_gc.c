@@ -1203,6 +1203,9 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
         printf("an error acquire when waiting for fork to terminate, pid:%d", cpid);
       }
     }
+#ifdef MT_BUILD
+    VecSim_CallTieredIndexesGC(gc->tieredIndexes, gc->index);
+#endif
   }
   gc->execState = FGC_STATE_IDLE;
   TimeSampler_End(&ts);
@@ -1256,6 +1259,7 @@ static void onTerminateCb(void *privdata) {
   ForkGC *gc = privdata;
   WeakRef_Release(gc->index);
   RedisModule_FreeThreadSafeContext(gc->ctx);
+  array_free(gc->tieredIndexes);
   rm_free(gc);
 }
 
@@ -1307,7 +1311,9 @@ ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
   forkGc->retryInterval.tv_nsec = 0;
 
   forkGc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes;
-
+#ifdef MT_BUILD
+  forkGc->tieredIndexes = VecSim_GetAllTieredIndexes(spec_ref);
+#endif
   forkGc->ctx = RedisModule_GetThreadSafeContext(NULL);
 
   callbacks->onTerm = onTerminateCb;
