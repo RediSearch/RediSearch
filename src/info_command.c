@@ -204,6 +204,11 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   REPLY_KVNUM("key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
   REPLY_KVNUM("total_geoshapes_index_size_mb", GeometryTotalMemUsage() / (float)0x100000);
+  REPLY_KVNUM("total_index_size_mb", sp->stats.invertedSize / (float)0x100000 +
+  IndexSpec_VectorIndexSize(sp) / (float)0x100000 + sp->stats.offsetVecsSize / (float)0x100000 +
+  sp->docs.memsize / (float)0x100000 +
+  sp->docs.sortablesSize / (float)0x100000 +
+  TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
               (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
   REPLY_KVNUM("bytes_per_record_avg",

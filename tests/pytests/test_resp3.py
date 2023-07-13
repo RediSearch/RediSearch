@@ -414,6 +414,7 @@ def test_info():
       'sortable_values_size_mb': 0.0,
       'total_geoshapes_index_size_mb': 0.0,
       'total_inverted_index_blocks': ANY,
+      'total_index_size_mb': ANY,
       'vector_index_sz_mb': 0.0}
     res = env.cmd('FT.info', 'idx1')
     res.pop('total_indexing_time', None)
@@ -772,6 +773,7 @@ def test_ft_info():
         'total_geoshapes_index_size_mb': 0.0,
         'total_indexing_time': 0.0,
         'total_inverted_index_blocks': 0.0,
+        'total_index_size_mb': ANY,
         'vector_index_sz_mb': 0.0
       }
 
@@ -823,6 +825,7 @@ def test_ft_info():
         'sortable_values_size_mb': 0.0,
         'total_geoshapes_index_size_mb': 0.0,
         'total_inverted_index_blocks': 0,
+        'total_index_size_mb': ANY,
         'vector_index_sz_mb': 0.0
       }
 
