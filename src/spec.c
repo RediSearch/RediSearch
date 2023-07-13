@@ -513,19 +513,19 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
   // Calculating max block size (in # of vectors), according to memory limits
   size_t maxBlockSize = BLOCK_MEMORY_LIMIT / VecSimIndex_EstimateElementSize(params);
   // if Block size was not set by user, sets the default to min(maxBlockSize, DEFAULT_BLOCK_SIZE)
-  if (params->hnswParams.blockSize == 0) { // indicates that block size was not set by the user
-    params->hnswParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
+  if (params->algoParams.hnswParams.blockSize == 0) { // indicates that block size was not set by the user
+    params->algoParams.hnswParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
   }
-  if (params->hnswParams.initialCapacity == SIZE_MAX) { // indicates that initial capacity was not set by the user
-    params->hnswParams.initialCapacity = params->hnswParams.blockSize;
+  if (params->algoParams.hnswParams.initialCapacity == SIZE_MAX) { // indicates that initial capacity was not set by the user
+    params->algoParams.hnswParams.initialCapacity = params->algoParams.hnswParams.blockSize;
   }
   size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
   size_t free_memory = memoryLimit - used_memory;
-  if (params->hnswParams.initialCapacity > maxBlockSize) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index initial capacity %zu exceeded server limit (%zu with the given parameters)", params->hnswParams.initialCapacity, maxBlockSize);
+  if (params->algoParams.hnswParams.initialCapacity > maxBlockSize) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index initial capacity %zu exceeded server limit (%zu with the given parameters)", params->algoParams.hnswParams.initialCapacity, maxBlockSize);
     return 0;
   }
-  if (params->hnswParams.blockSize > maxBlockSize) {
+  if (params->algoParams.hnswParams.blockSize > maxBlockSize) {
     // TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
     // QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", fs->vectorOpts.vecSimParams.bfParams.blockSize, maxBlockSize);
     // return 0;
@@ -539,22 +539,22 @@ static int parseVectorField_validate_flat(VecSimParams *params, QueryError *stat
   // Calculating max block size (in # of vectors), according to memory limits
   size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
   // if Block size was not set by user, sets the default to min(maxBlockSize, DEFAULT_BLOCK_SIZE)
-  if (params->bfParams.blockSize == 0) { // indicates that block size was not set by the user
-    params->bfParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
+  if (params->algoParams.bfParams.blockSize == 0) { // indicates that block size was not set by the user
+    params->algoParams.bfParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
   }
-  if (params->bfParams.initialCapacity == SIZE_MAX) { // indicates that initial capacity was not set by the user
-    params->bfParams.initialCapacity = params->bfParams.blockSize;
+  if (params->algoParams.bfParams.initialCapacity == SIZE_MAX) { // indicates that initial capacity was not set by the user
+    params->algoParams.bfParams.initialCapacity = params->algoParams.bfParams.blockSize;
   }
   // Calculating index size estimation, after first vector block was allocated.
   size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
-  index_size_estimation += elementSize * params->bfParams.blockSize;
+  index_size_estimation += elementSize * params->algoParams.bfParams.blockSize;
   size_t free_memory = memoryLimit - used_memory;
-  if (params->bfParams.initialCapacity > maxBlockSize) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index initial capacity %zu exceeded server limit (%zu with the given parameters)", params->bfParams.initialCapacity, maxBlockSize);
+  if (params->algoParams.bfParams.initialCapacity > maxBlockSize) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index initial capacity %zu exceeded server limit (%zu with the given parameters)", params->algoParams.bfParams.initialCapacity, maxBlockSize);
     return 0;
   }
-  if (params->bfParams.blockSize > maxBlockSize) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", params->bfParams.blockSize, maxBlockSize);
+  if (params->algoParams.bfParams.blockSize > maxBlockSize) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", params->algoParams.bfParams.blockSize, maxBlockSize);
     return 0;
   }
   RedisModule_Log(RSDummyContext, "warning", "creating vector index. Server memory limit: %zuB, required memory: %zuB, available memory: %zuB", memoryLimit, index_size_estimation, free_memory);
@@ -569,7 +569,7 @@ int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, Query
   } else if (VecSimAlgo_BF == params->algo) {
     valid = parseVectorField_validate_flat(params, status);
   } else if (VecSimAlgo_TIERED == params->algo) {
-    return VecSimIndex_validate_params(ctx, params->tieredParams.primaryIndexParams, status);
+    return VecSimIndex_validate_params(ctx, params->algoParams.tieredParams.primaryIndexParams, status);
   }
   return valid ? REDISMODULE_OK : REDISMODULE_ERR;
 }
@@ -596,45 +596,45 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
 
   while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
-      if ((rc = parseVectorField_GetType(ac, &params->hnswParams.type)) != AC_OK) {
+      if ((rc = parseVectorField_GetType(ac, &params->algoParams.hnswParams.type)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index type", rc);
         return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
-      if ((rc = AC_GetSize(ac, &params->hnswParams.dim, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.dim, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index dim", rc);
         return 0;
       }
       mandsize = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
-      if ((rc = parseVectorField_GetMetric(ac, &params->hnswParams.metric)) != AC_OK) {
+      if ((rc = parseVectorField_GetMetric(ac, &params->algoParams.hnswParams.metric)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index metric", rc);
         return 0;
       }
       mandmetric = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_INITIAL_CAP)) {
-      if ((rc = AC_GetSize(ac, &params->hnswParams.initialCapacity, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.initialCapacity, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index initial cap", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_M)) {
-      if ((rc = AC_GetSize(ac, &params->hnswParams.M, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.M, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index m", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EFCONSTRUCTION)) {
-      if ((rc = AC_GetSize(ac, &params->hnswParams.efConstruction, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.efConstruction, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index efConstruction", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EFRUNTIME)) {
-      if ((rc = AC_GetSize(ac, &params->hnswParams.efRuntime, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.efRuntime, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index efRuntime", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EPSILON)) {
-      if ((rc = AC_GetDouble(ac, &params->hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
+      if ((rc = AC_GetDouble(ac, &params->algoParams.hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index epsilon", rc);
         return 0;
       }
@@ -661,7 +661,7 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
     return 0;
   }
   // Calculating expected blob size of a vector in bytes.
-  fs->vectorOpts.expBlobSize = params->hnswParams.dim * VecSimType_sizeof(params->hnswParams.type);
+  fs->vectorOpts.expBlobSize = params->algoParams.hnswParams.dim * VecSimType_sizeof(params->algoParams.hnswParams.type);
 
   return parseVectorField_validate_hnsw(params, status);
 }
@@ -688,30 +688,30 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
 
   while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
-      if ((rc = parseVectorField_GetType(ac, &params->bfParams.type)) != AC_OK) {
+      if ((rc = parseVectorField_GetType(ac, &params->algoParams.bfParams.type)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index type", rc);
         return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
-      if ((rc = AC_GetSize(ac, &params->bfParams.dim, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.bfParams.dim, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index dim", rc);
         return 0;
       }
       mandsize = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
-      if ((rc = parseVectorField_GetMetric(ac, &params->bfParams.metric)) != AC_OK) {
+      if ((rc = parseVectorField_GetMetric(ac, &params->algoParams.bfParams.metric)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index metric", rc);
         return 0;
       }
       mandmetric = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_INITIAL_CAP)) {
-      if ((rc = AC_GetSize(ac, &params->bfParams.initialCapacity, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.bfParams.initialCapacity, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index initial cap", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_BLOCKSIZE)) {
-      if ((rc = AC_GetSize(ac, &params->bfParams.blockSize, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.bfParams.blockSize, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index blocksize", rc);
         return 0;
       }
@@ -738,7 +738,7 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
     return 0;
   }
   // Calculating expected blob size of a vector in bytes.
-  fs->vectorOpts.expBlobSize = params->bfParams.dim * VecSimType_sizeof(params->bfParams.type);
+  fs->vectorOpts.expBlobSize = params->algoParams.bfParams.dim * VecSimType_sizeof(params->algoParams.bfParams.type);
 
   return parseVectorField_validate_flat(&fs->vectorOpts.vecSimParams, status);
 }
@@ -778,23 +778,23 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
 
   if (!strncasecmp(VECSIM_ALGORITHM_BF, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_BF;
-    fs->vectorOpts.vecSimParams.bfParams.initialCapacity = SIZE_MAX;
-    fs->vectorOpts.vecSimParams.bfParams.blockSize = 0;
-    fs->vectorOpts.vecSimParams.bfParams.multi = multi;
+    fs->vectorOpts.vecSimParams.algoParams.bfParams.initialCapacity = SIZE_MAX;
+    fs->vectorOpts.vecSimParams.algoParams.bfParams.blockSize = 0;
+    fs->vectorOpts.vecSimParams.algoParams.bfParams.multi = multi;
     return parseVectorField_flat(fs, &fs->vectorOpts.vecSimParams, ac, status);
   } else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
-    VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.tieredParams, sp_ref);
-    fs->vectorOpts.vecSimParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = 0; // Will be set to default value.
+    VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
+    fs->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = 0; // Will be set to default value.
 
-    VecSimParams *params = fs->vectorOpts.vecSimParams.tieredParams.primaryIndexParams;
+    VecSimParams *params = fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
     params->algo = VecSimAlgo_HNSWLIB;
-    params->hnswParams.initialCapacity = SIZE_MAX;
-    params->hnswParams.blockSize = 0;
-    params->hnswParams.M = HNSW_DEFAULT_M;
-    params->hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
-    params->hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
-    params->hnswParams.multi = multi;
+    params->algoParams.hnswParams.initialCapacity = SIZE_MAX;
+    params->algoParams.hnswParams.blockSize = 0;
+    params->algoParams.hnswParams.M = HNSW_DEFAULT_M;
+    params->algoParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
+    params->algoParams.hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
+    params->algoParams.hnswParams.multi = multi;
     // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
     params->logCtx = logCtx;
 
@@ -1834,22 +1834,22 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
         VecSimParams hnswParams = f->vectorOpts.vecSimParams;
 
         f->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
-        VecSim_TieredParams_Init(&f->vectorOpts.vecSimParams.tieredParams, sp_ref);
-        f->vectorOpts.vecSimParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = 0;
-        memcpy(f->vectorOpts.vecSimParams.tieredParams.primaryIndexParams, &hnswParams, sizeof(VecSimParams));
+        VecSim_TieredParams_Init(&f->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
+        f->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = 0;
+        memcpy(f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams, &hnswParams, sizeof(VecSimParams));
       }
     }
     // Calculate blob size limitation on lower encvers.
     if(encver < INDEX_VECSIM_2_VERSION) {
       switch (f->vectorOpts.vecSimParams.algo) {
       case VecSimAlgo_HNSWLIB:
-        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.hnswParams.type);
+        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.algoParams.hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.algoParams.hnswParams.type);
         break;
       case VecSimAlgo_BF:
-        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.bfParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.bfParams.type);
+        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.algoParams.bfParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.algoParams.bfParams.type);
         break;
       case VecSimAlgo_TIERED:
-        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.tieredParams.primaryIndexParams->hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.tieredParams.primaryIndexParams->hnswParams.type);
+        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.type);
         break;
       }
     }

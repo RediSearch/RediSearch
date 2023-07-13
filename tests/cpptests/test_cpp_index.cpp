@@ -670,12 +670,12 @@ TEST_F(IndexTest, testHybridVector) {
 
   // Create vector index
   VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
-                      .hnswParams = HNSWParams{.type = t,
+                      .algoParams = {.hnswParams = HNSWParams{.type = t,
                                                .dim = d,
                                                .metric = met,
                                                .initialCapacity = max_id,
                                                .M = 16,
-                                               .efConstruction = 100}};
+                                               .efConstruction = 100}}};
   VecSimIndex *index = VecSimIndex_New(&params);
   for (size_t i = 1; i <= max_id; i++) {
     float f[d];
@@ -829,8 +829,8 @@ TEST_F(IndexTest, testInvalidHybridVector) {
   // Create vector index with a single vector.
   VecSimParams params{
       .algo = VecSimAlgo_HNSWLIB,
-      .hnswParams = HNSWParams{
-          .type = VecSimType_FLOAT32, .dim = d, .metric = VecSimMetric_L2, .initialCapacity = n}};
+      .algoParams = {.hnswParams = HNSWParams{
+          .type = VecSimType_FLOAT32, .dim = d, .metric = VecSimMetric_L2, .initialCapacity = n}}};
   VecSimIndex *index = VecSimIndex_New(&params);
 
   float vec[] = {(float)n, (float)n, (float)n, (float)n};
@@ -875,12 +875,12 @@ TEST_F(IndexTest, testMetric_VectorRange) {
 
   // Create vector index
   VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
-                      .hnswParams = HNSWParams{.type = t,
+                      .algoParams = {.hnswParams = HNSWParams{.type = t,
                                                .dim = d,
                                                .metric = met,
                                                .initialCapacity = n,
                                                .M = 16,
-                                               .efConstruction = 100}};
+                                               .efConstruction = 100}}};
   VecSimIndex *index = VecSimIndex_New(&params);
   for (size_t i = 1; i <= n; i++) {
     float f[d];
