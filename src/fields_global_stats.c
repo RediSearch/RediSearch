@@ -20,7 +20,7 @@ void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd) {
     if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_BF)
       RSGlobalConfig.fieldsStats.numVectorFieldsFlat += toAdd;
     else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED) {
-      if (fs->vectorOpts.vecSimParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB)
+      if (fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB)
         RSGlobalConfig.fieldsStats.numVectorFieldsHNSW += toAdd;
     }
   } else if (fs->types & INDEXFLD_T_TAG) {  // tag field
