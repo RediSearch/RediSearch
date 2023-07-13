@@ -33,36 +33,33 @@ namespace bg = boost::geometry;
 namespace bgm = bg::model;
 namespace bgi = bg::index;
 
-using RediSearch::Allocator::Allocator;
-using RediSearch::Allocator::StatefulAllocator;
-using RediSearch::Allocator::TrackingAllocator;
-
 using Cartesian = bg::cs::cartesian;
 using Geographic = bg::cs::geographic<bg::degree>;
 
-using string = std::basic_string<char, std::char_traits<char>, Allocator<char>>;
+using string = std::basic_string<char, std::char_traits<char>, Allocator::Allocator<char>>;
 
-template <typename coord_system>
+template <typename CoordSystem>
 struct RTree {
   using point_type =
-      bgm::point<double, 2, coord_system>;  // TODO: GEOMETRY - dimension template param (2 or 3)
+      bgm::point<double, 2, CoordSystem>;  // TODO: GEOMETRY - dimension template param (2 or 3)
+  // bgm::polygon requires default constructible allocators, allocations must be tracked by hand.
   using poly_type = bgm::polygon<point_type, true, true, std::vector, std::vector,
-                                 StatefulAllocator, StatefulAllocator>;
+                                 Allocator::StatefulAllocator, Allocator::StatefulAllocator>;
   using geom_type = std::variant<point_type, poly_type>;
 
   using rect_type = bgm::box<point_type>;
   using doc_type = std::pair<rect_type, t_docId>;
   using rtree_type = bgi::rtree<doc_type, bgi::quadratic<16>, bgi::indexable<doc_type>,
-                                bgi::equal_to<doc_type>, TrackingAllocator<doc_type>>;
+                                bgi::equal_to<doc_type>, Allocator::TrackingAllocator<doc_type>>;
 
   using LUT_value_type = std::pair<t_docId const, geom_type>;
   using LUT_type =
       boost::unordered_flat_map<t_docId, geom_type, std::hash<t_docId>, std::equal_to<t_docId>,
-                                TrackingAllocator<LUT_value_type>>;
+                                Allocator::TrackingAllocator<LUT_value_type>>;
 
-  using ResultsVec = std::vector<doc_type, TrackingAllocator<doc_type>>;
+  using query_results = std::vector<doc_type, Allocator::TrackingAllocator<doc_type>>;
 
-  TrackingAllocator<void> alloc_;
+  Allocator::TrackingAllocator<void> alloc_;
   rtree_type rtree_;
   LUT_type docLookup_;
 
@@ -84,17 +81,16 @@ struct RTree {
   void dump(RedisModuleCtx* ctx) const;
   [[nodiscard]] std::size_t report() const noexcept;
 
-  [[nodiscard]] static auto generate_query_iterator(ResultsVec&& results,
-                                                    TrackingAllocator<QueryIterator>&& a)
+  [[nodiscard]] static auto generate_query_iterator(query_results&& results, auto&& a)
       -> IndexIterator*;
   template <typename Predicate>
-  [[nodiscard]] auto query(Predicate p) const -> ResultsVec;
-  [[nodiscard]] auto contains(doc_type const& queryDoc, geom_type const& queryGeom) const
-      -> ResultsVec;
-  [[nodiscard]] auto within(doc_type const& queryDoc, geom_type const& queryGeom) const
-      -> ResultsVec;
-  [[nodiscard]] auto query(doc_type const& queryDoc, QueryType queryType,
-                           geom_type const& queryGeom) const -> ResultsVec;
+  [[nodiscard]] auto apply_predicate(Predicate p) const -> query_results;
+  [[nodiscard]] auto contains(doc_type const& query_doc, geom_type const& query_geom) const
+      -> query_results;
+  [[nodiscard]] auto within(doc_type const& query_doc, geom_type const& query_geom) const
+      -> query_results;
+  [[nodiscard]] auto generate_predicate(doc_type const& query_doc, QueryType query_type,
+                                        geom_type const& query_geom) const -> query_results;
   [[nodiscard]] auto query(std::string_view wkt, QueryType query_type,
                            RedisModuleString** err_msg) const -> IndexIterator*;
 

@@ -15,8 +15,9 @@
 extern "C" {
 #endif
 
-GeometryIndex *GeometryIndexFactory(GEOMETRY_COORDS);
-const GeometryApi *GeometryApi_Get(const GeometryIndex *);
+GeometryIndex *GeometryIndexFactory(GEOMETRY_COORDS tag);
+const GeometryApi *GeometryApi_Get(const GeometryIndex *index);
+const char *GeometryCoordsToName(GEOMETRY_COORDS tag);
 
 struct GeometryApi {
   void (*freeIndex)(GeometryIndex *index);
@@ -28,8 +29,6 @@ struct GeometryApi {
   void (*dump)(const GeometryIndex *index, RedisModuleCtx *ctx);
   size_t (*report)(const GeometryIndex *index);
 };
-
-const char *GeometryCoordsToName(GEOMETRY_COORDS tag);
 
 #ifdef __cplusplus
 }

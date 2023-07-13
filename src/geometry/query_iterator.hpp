@@ -25,8 +25,9 @@ struct QueryIterator {
   explicit QueryIterator() = delete;
   explicit QueryIterator(container_type &&docs);
   template <std::ranges::input_range R>
-  explicit QueryIterator(R &&range, alloc_type &&alloc)
-      : QueryIterator(container_type{std::begin(range), std::end(range), alloc}) {
+  explicit QueryIterator(R &&range, auto &&alloc)
+      : QueryIterator(container_type{std::ranges::begin(range), std::ranges::end(range),
+                                     alloc_type{alloc.allocated_}}) {
   }
 
   /* rule of 5 */
