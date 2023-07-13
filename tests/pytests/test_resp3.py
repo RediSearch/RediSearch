@@ -711,11 +711,23 @@ def test_profile_child_itrerators_array():
 
 def testExpandErrorsResp3():
   env = Env(protocol=3)
+  # On JSON
   env.cmd('ft.create', 'idx', 'on', 'json', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric')
   env.expect('FT.SEARCH', 'idx', '*', 'FORMAT').error()
   env.expect('FT.SEARCH', 'idx', '*', 'FORMAT', 'XPAND').error()
   env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT').error()
   env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'XPAND').error()
+
+  # On HASH
+  env.cmd('ft.create', 'idx2', 'on', 'hash', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric')
+  if not env.isCluster():
+    env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
+  else:
+    # TODO: Expect an error once MOD-5211 is done
+    env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').equal(
+       {'attributes': [], 'error': [], 'total_results': 0, 'format': 'EXPAND', 'results': []}
+    )
+
 
 def testExpandErrorsResp2():
   env = Env(protocol=2)
@@ -724,12 +736,14 @@ def testExpandErrorsResp2():
   if not env.isCluster():
     env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').error()
   else:
-    # TODO: Remove once MOD-5211 is done
+    # TODO: Expect an error once MOD-5211 is done
     env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').equal([0])
 
 def testExpand():
   env = Env(protocol=3)
   env.cmd('ft.create', 'idx', 'on', 'json', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric', '$.num', 'as', 'num', 'numeric', '$.str', 'as', 'str', 'text')
+
+  #FIXME: TODO: test empty container, multi-value, test FT.AGGREGATE, VECSIM
 
   with env.getClusterConnectionIfNeeded() as r:
     r.execute_command('json.set', 'doc1', '$', '{"arr":[1.0,2.1,3.14],"num":1,"str":"foo","sub":{"s1":false}}')
@@ -753,7 +767,7 @@ def testExpand():
     'format': 'EXPAND',
     'results': [
       {'id': 'doc1', 'extra_attributes': {'$': [{"arr":[1.0,2.1,3.14],"num":1,"str":"foo","sub":{"s1":False}}]}, 'values': []},
-      {'id': 'doc2', 'extra_attributes': {'$': [{"arr":[3.0,4.0,None],"num":2,"str":"bar","sub":{"s2":True }}]}, 'values': []},   #FIXME: Support integers (should be [3,4,None])
+      {'id': 'doc2', 'extra_attributes': {'$': [{"arr":[3,4,None],"num":2,"str":"bar","sub":{"s2":True }}]}, 'values': []},
     ]
   }
   # Default FORMAT is EXPAND

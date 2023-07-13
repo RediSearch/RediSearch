@@ -653,8 +653,12 @@ int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags
           return RedisModule_Reply_StringBuffer(reply, buf, strlen(buf));
         }
       } else {
-        // FIXME: Distinguish between double and integer (utilize RSValue.intval)
-        return RedisModule_Reply_Double(reply, v->numval);
+        long long ll = v->numval;
+        if (ll == v->numval) {
+          return RedisModule_Reply_LongLong(reply, ll);
+        } else {
+          return RedisModule_Reply_Double(reply, v->numval);
+        }
       }
     }
     case RSValue_Null:

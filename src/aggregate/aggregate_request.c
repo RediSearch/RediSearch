@@ -935,14 +935,25 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
   
+  bool isJson = isSpecJson(index);
   if (req->reqflags & QEXEC_FORMAT_DEFAULT) {
-    if (is_resp3(req->sctx->redisCtx)) {
+    if (isJson && is_resp3(req->sctx->redisCtx)) {
       req->reqflags |= QEXEC_FORMAT_EXPAND;
     }
   }
   else if ((req->reqflags & QEXEC_FORMAT_EXPAND) && !is_resp3(req->sctx->redisCtx)) {
-    QueryError_SetError(status, QUERY_EBADVAL, "EXPAND FORMAT is only supported with RESP3");
+    QueryError_SetError(status, QUERY_EBADVAL, "EXPAND format is only supported with RESP3");
     return REDISMODULE_ERR;
+  }
+  if ((req->reqflags & QEXEC_FORMAT_EXPAND)) {
+    if (!isJson) {
+      QueryError_SetErrorFmt(status, QUERY_EBADVAL, "EXPAND format is only supported with %s", SpecRuleTypeName(index));
+      return REDISMODULE_ERR;
+    } else {
+      if (japi_ver < 4) {
+        QueryError_SetError(status, QUERY_EBADVAL, "EXPAND format requires a newer RedisJSON (with API version RedisJSON_V4)");
+      }
+    }
   }
 
   if (!(opts->flags & Search_NoStopwrods)) {

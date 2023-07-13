@@ -493,6 +493,7 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
 
 // Return an array of expanded values from an iterator.
 // The iterator is being reset and is not being freed.
+// Required japi_ver >= 4
 RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) {
   RSValue *ret;
   RSValue **arr;
