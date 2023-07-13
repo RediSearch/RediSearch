@@ -2279,7 +2279,9 @@ def test_score_name_case_sensitivity():
 @skip(noWorkers=True)
 def test_tiered_index_gc():
     fork_gc_interval_sec = '10'
-    env = Env(moduleArgs=f'WORKER_THREADS 2 MT_MODE MT_MODE_FULL FORK_GC_RUN_INTERVAL {fork_gc_interval_sec}')
+    N = 1000
+    env = Env(moduleArgs=f'WORKER_THREADS 2 MT_MODE MT_MODE_FULL FORK_GC_RUN_INTERVAL {fork_gc_interval_sec}'
+                         f' FORK_GC_CLEAN_THRESHOLD {N}')
     conn = getConnectionByEnv(env)
     dim = 16
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
@@ -2288,7 +2290,6 @@ def test_tiered_index_gc():
                          't', 'TEXT')
 
     # Insert random vectors to an index with two vector fields.
-    N = 1000
     for i in range(N):
         res = conn.execute_command('hset', i, 't', f'some string with to be cleaned by GC for id {i}',
                                    'v1', create_np_array_typed(np.random.random((1, dim))).tobytes(),
