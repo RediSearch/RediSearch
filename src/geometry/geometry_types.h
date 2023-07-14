@@ -6,9 +6,11 @@
 
 #pragma once
 
-typedef void* GEOMETRY; // TODO: GEOMETRY Not uppercase
 #define GEO_VARIANTS(X) X(Cartesian) X(Geographic)
-#define GEO_VARIANT_NAMES(X) X(Cartesian,FLAT) X(Geographic,SPHERICAL)
+
+typedef struct GeometryIndex GeometryIndex;
+typedef struct GeometryApi GeometryApi;
+
 typedef enum {
   GEOMETRY_LIB_TYPE_NONE = 0,
   GEOMETRY_LIB_TYPE_BOOST_GEOMETRY = 1,
@@ -22,26 +24,15 @@ typedef enum {
   GEOMETRY_FORMAT_GEOJSON = 2,
 } GEOMETRY_FORMAT; // TODO: GEOMETRY Not uppercase
 
-typedef enum {
 #define X(variant) \
   GEOMETRY_COORDS_##variant,
-GEO_VARIANTS(X)
-#undef X
+typedef enum {
+  GEO_VARIANTS(X)
   GEOMETRY_COORDS__NUM,
 } GEOMETRY_COORDS;
+#undef X
 
 typedef enum QueryType {
   CONTAINS,
   WITHIN,
 } QueryType;
-
-
-static inline const char *GeometryCoordsToName(GEOMETRY_COORDS coords) {
-#define X(variant,name) \
-  case GEOMETRY_COORDS_##variant: return #name;
-  switch(coords) {
-    GEO_VARIANT_NAMES(X)
-    default: return "UNKNOWN";
-  }
-#undef X
-}
