@@ -38,7 +38,6 @@
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
-
   if (tn->str) rm_free(tn->str);
 }
 
@@ -48,13 +47,7 @@ static void QueryTagNode_Free(QueryTagNode *tag) {
 
 static void QueryGeometryNode_Free(QueryGeometryNode *geom) {
   if (geom->geomq) {
-    if (geom->geomq->str) {
-      rm_free((void*)geom->geomq->str);
-      rm_free((void*)geom->geomq->attr);
-      geom->geomq->str = NULL;
-      geom->geomq->attr = NULL;
-    }
-    rm_free(geom->geomq);
+    GeometryQuery_Free(geom->geomq);
     geom->geomq = NULL;
   }
 }
@@ -145,21 +138,21 @@ void RangeNumber_Free(RangeNumber *r) {
 
 // Add a new metric request to the metricRequests array. Returns the index of the request
 static int addMetricRequest(QueryEvalCtx *q, char *metric_name, RLookupKey **key_addr) {
-    MetricRequest mr = {metric_name, key_addr};
-    *q->metricRequestsP = array_ensure_append_1(*q->metricRequestsP, mr);
-    return array_len(*q->metricRequestsP) - 1;
+  MetricRequest mr = {metric_name, key_addr};
+  *q->metricRequestsP = array_ensure_append_1(*q->metricRequestsP, mr);
+  return array_len(*q->metricRequestsP) - 1;
 }
 
 QueryNode *NewQueryNode(QueryNodeType type) {
   QueryNode *s = rm_calloc(1, sizeof(QueryNode));
   s->type = type;
   s->opts = (QueryNodeOptions){
-      .fieldMask = RS_FIELDMASK_ALL,
-      .flags = 0,
-      .maxSlop = -1,
-      .inOrder = 0,
-      .weight = 1,
-      .distField = NULL
+    .fieldMask = RS_FIELDMASK_ALL,
+    .flags = 0,
+    .maxSlop = -1,
+    .inOrder = 0,
+    .weight = 1,
+    .distField = NULL,
   };
   return s;
 }
@@ -173,7 +166,12 @@ QueryNode *NewQueryNodeChildren(QueryNodeType type, QueryNode **children, size_t
 QueryNode *NewTokenNodeExpanded(QueryAST *q, const char *s, size_t len, RSTokenFlags flags) {
   QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
-  ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .expanded = 1, .flags = flags};
+  ret->tn = (QueryTokenNode){
+    .str = (char *)s,
+    .len = len,
+    .expanded = 1,
+    .flags = flags,
+  };
   return ret;
 }
 
@@ -219,9 +217,9 @@ void QueryNode_InitParams(QueryNode *n, size_t num) {
 
 bool QueryNode_SetParam(QueryParseCtx *q, Param *target_param, void *target_value,
                         size_t *target_len, QueryToken *source) {
-    return QueryParam_SetParam(
-      q, target_param, target_value, target_len,
-      source); //FIXME: Move to a common location for QueryNode and QueryParam
+  return QueryParam_SetParam(
+    q, target_param, target_value, target_len,
+    source); //FIXME: Move to a common location for QueryNode and QueryParam
 }
 
 QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt, bool prefix, bool suffix) {
@@ -887,12 +885,12 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
     return NULL;
   }
-  GeometryIndex *index = OpenGeometryIndex(q->sctx->redisCtx, q->sctx->spec, NULL, fs);
+  const GeometryIndex *index = OpenGeometryIndex(q->sctx->redisCtx, q->sctx->spec, NULL, fs);
   if (!index) {
     return NULL;
   }
   const GeometryApi *api = GeometryApi_Get(index);
-  GeometryQuery *gq = node->gmn.geomq;
+  const GeometryQuery *gq = node->gmn.geomq;
   RedisModuleString *errMsg;
   IndexIterator *ret = api->query(index, gq->query_type, gq->format, gq->str, gq->str_len, &errMsg);
   if (ret == NULL) {
