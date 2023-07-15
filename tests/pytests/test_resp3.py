@@ -748,6 +748,7 @@ def testExpandErrorsResp2():
     env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').equal([0])
 
 def testExpandJson():
+  ''' Test returning values for JSON in expanded format (raw RESP3 instead of stringified JSON) '''
   env = Env(protocol=3)
   env.cmd('ft.create', 'idx', 'on', 'json', 'SCHEMA',
           '$.arr', 'as', 'arr','numeric',
@@ -755,12 +756,10 @@ def testExpandJson():
           '$.str', 'as', 'str', 'text',
           '$..arr[*]', 'as', 'multi', 'numeric')
 
-  #FIXME: #TODO: test empty containers, test VECSIM
-
   with env.getClusterConnectionIfNeeded() as r:
-    r.execute_command('json.set', 'doc1', '$', '{"arr":[1.0,2.1,3.14],"num":1,"str":"foo","sub":{"s1":false},"sub2":{"arr":[10,20,33.33]}}')
-    r.execute_command('json.set', 'doc2', '$', '{"arr":[3,4,null],"num":2,"str":"bar","sub":{"s2":true},"sub2":{"arr":[40,50,66.66]}}')
-    r.execute_command('json.set', 'doc3', '$', '{"arr":[5,6,7],"num":3,"str":"baz","sub":{"s3":false},"sub2":{"arr":[70,80,99.99]}}')
+    r.execute_command('json.set', 'doc1', '$', '{"arr":[1.0,2.1,3.14],"num":1,"str":"foo","sub":{"s1":false},"sub2":{"arr":[10,20,33.33]}, "empty_arr":[], "empty_obj":{}}')
+    r.execute_command('json.set', 'doc2', '$', '{"arr":[3,4,null],"num":2,"str":"bar","sub":{"s2":true},"sub2":{"arr":[40,50,66.66]}, "empty_arr":[], "empty_obj":{}}')
+    r.execute_command('json.set', 'doc3', '$', '{"arr":[5,6,7],"num":3,"str":"baz","sub":{"s3":false},"sub2":{"arr":[70,80,99.99]}, "empty_arr":[], "empty_obj":{}}')
 
   exp_string = {
     'attributes': [],
@@ -768,8 +767,8 @@ def testExpandJson():
     'total_results': 3,
     'format': 'STRING',
     'results': [
-      {'id': 'doc1', 'extra_attributes': {'$': '{"arr":[1.0,2.1,3.14],"num":1,"str":"foo","sub":{"s1":false},"sub2":{"arr":[10,20,33.33]}}'}, 'values': []},
-      {'id': 'doc2', 'extra_attributes': {'$': '{"arr":[3,4,null],"num":2,"str":"bar","sub":{"s2":true},"sub2":{"arr":[40,50,66.66]}}'}, 'values': []},
+      {'id': 'doc1', 'extra_attributes': {'$': '{"arr":[1.0,2.1,3.14],"num":1,"str":"foo","sub":{"s1":false},"sub2":{"arr":[10,20,33.33]},"empty_arr":[],"empty_obj":{}}'}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'$': '{"arr":[3,4,null],"num":2,"str":"bar","sub":{"s2":true},"sub2":{"arr":[40,50,66.66]},"empty_arr":[],"empty_obj":{}}'}, 'values': []},
     ]
   }
   exp_expand = {
@@ -778,8 +777,8 @@ def testExpandJson():
     'total_results': 3,
     'format': 'EXPAND',
     'results': [
-      {'id': 'doc1', 'extra_attributes': {'$': [{"arr":[1,2.1,3.14],"num":1,"str":"foo","sub":{"s1":0},"sub2":{"arr":[10,20,33.33]}}]}, 'values': []},
-      {'id': 'doc2', 'extra_attributes': {'$': [{"arr":[3,4,None],"num":2,"str":"bar","sub":{"s2":1 },"sub2":{"arr":[40,50,66.66]}}]}, 'values': []},
+      {'id': 'doc1', 'extra_attributes': {'$': [{"arr":[1,2.1,3.14],"num":1,"str":"foo","sub":{"s1":0},"sub2":{"arr":[10,20,33.33]}, "empty_arr":[],"empty_obj":{}}]}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'$': [{"arr":[3,4,None],"num":2,"str":"bar","sub":{"s2":1 },"sub2":{"arr":[40,50,66.66]}, "empty_arr":[],"empty_obj":{}}]}, 'values': []},
     ]
   }
   # Default FORMAT is EXPAND
@@ -838,7 +837,7 @@ def testExpandJson():
     ]
   }
   
-  load_args = [4, '$.arr[?(@>2)]', 'str', 'multi', 'arr']
+  load_args = [6, '$.arr[?(@>2)]', 'str', 'multi', 'arr', 'empty_arr', 'empty_obj']
 
   # Test FT.SEARCH
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'RETURN', *load_args)
@@ -868,6 +867,7 @@ def testExpandJson():
   env.assertEqual(res, exp_string)
 
 def testExpandHash():
+  ''' Test returning values for HASH in stringified format (not expanded RESP3)'''
   env = Env(protocol=3)
   env.cmd('ft.create', 'idx', 'on', 'hash', 'SCHEMA', 'num', 'numeric', 'str', 'text', 't', 'tag')
 
@@ -931,3 +931,78 @@ def testExpandHash():
   env.assertEqual(res, exp_string)
 
 
+def testExpandJsonVector():
+  ''' Test returning values for VECTOR in expanded format (raw RESP3 instead of stringified JSON) '''
+  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
+                      'SCHEMA', '$.v', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '3','DISTANCE_METRIC', 'L2')
+  
+
+  with env.getClusterConnectionIfNeeded() as r:
+    r.execute_command('json.set', 'doc1', '$', '{"v":[1,2,3]}')
+  
+  exp_string = {
+    'attributes': [],
+    'error': [],
+    'total_results': 1,
+    'format': 'STRING',
+    'results': [
+      {'id': 'doc1', 'extra_attributes': {'__vec_score': '6.70958423615', '$': '{"v":[1,2,3]}'}, 'values': []},
+    ]
+  }
+  exp_expand = {
+    'attributes': [],
+    'error': [],
+    'total_results': 1,
+    'format': 'EXPAND',
+    'results': [
+      {'id': 'doc1', 'extra_attributes': {'__vec_score': 6.7095842361450195, '$': [{'v': [1, 2, 3]}]}, 'values': []},
+    ]
+  }
+  
+  cmd = ['FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????????']
+  
+  res = env.cmd(*cmd, 'FORMAT', 'STRING')
+  env.assertEqual(res, exp_string)
+
+  res = env.cmd(*cmd)
+  env.assertEqual(res, exp_expand)
+
+  res = env.cmd(*cmd, 'FORMAT', 'EXPAND')
+  env.assertEqual(res, exp_expand)
+
+  #
+  # Return specific field
+  #
+  exp_string = {
+    'attributes': [],
+    'error': [],
+    'total_results': 1,
+    'format': 'STRING',
+    'results': [
+      {'id': 'doc1', 'extra_attributes': {'$': '{"v":[1,2,3]}'}, 'values': []},
+    ]
+  }
+  exp_expand = {
+    'attributes': [],
+    'error': [],
+    'total_results': 1,
+    'format': 'EXPAND',
+    'results': [
+      {'id': 'doc1', 'extra_attributes': {'$': [{'v': [1, 2, 3]}]}, 'values': []},
+    ]
+  }
+  
+  cmd = ['FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????????', 'RETURN', '1', '$']
+  
+  res = env.cmd(*cmd, 'FORMAT', 'STRING')
+  env.assertEqual(res, exp_string)
+
+  res = env.cmd(*cmd)
+  env.assertEqual(res, exp_expand)
+
+  res = env.cmd(*cmd, 'FORMAT', 'EXPAND')
+  env.assertEqual(res, exp_expand)
+
+  
