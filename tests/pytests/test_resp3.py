@@ -777,8 +777,8 @@ def testExpandJson():
     'total_results': ANY,
     'format': 'EXPAND',
     'results': [
-      {'id': 'doc1', 'extra_attributes': {'$': [{"arr": [1, 2.1, 3.14], "num": 1, "str": "foo", "sub":{"s1": 0}, "sub2":{"arr": [10, 20, 33.33]}}]}, 'values': []},
-      {'id': 'doc2', 'extra_attributes': {'$': [{"arr": [3, 4, None], "num": 2, "str": "bar", "sub":{"s2": 1 }, "sub2":{"arr": [40, 50, 66.66]}}]}, 'values': []},
+      {'id': 'doc1', 'extra_attributes': {'$': [{"arr": [1, 2.1, 3.14], "num": 1, "str": "foo", "sub":{"s1": 0}, "sub2":{"arr": [10, 20, 33.33]}, "empty_arr":[],"empty_obj":{}}]}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'$': [{"arr": [3, 4, None], "num": 2, "str": "bar", "sub":{"s2": 1 }, "sub2":{"arr": [40, 50, 66.66]}, "empty_arr":[],"empty_obj":{}}]}, 'values': []},
     ]
   }
   # Default FORMAT is EXPAND
@@ -834,13 +834,8 @@ def testExpandJson():
       {'id': 'doc2', 'extra_attributes': {'$.arr[?(@>2)]':[3, 4], 'str':['bar'], 'multi': [3, 4, None, 40, 50, 66.66], "arr":[[3, 4, None]]}, 'values': []},
     ]
   }
-<<<<<<< HEAD
-
-  load_args = [4, '$.arr[?(@>2)]', 'str', 'multi', 'arr']
-=======
 
   load_args = [6, '$.arr[?(@>2)]', 'str', 'multi', 'arr', 'empty_arr', 'empty_obj']
->>>>>>> 39ed325ad7a7069e0e61f6a55c019f34054f72c5
 
   # Test FT.SEARCH
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'RETURN', *load_args)
