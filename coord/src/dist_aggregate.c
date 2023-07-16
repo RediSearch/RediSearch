@@ -142,13 +142,27 @@ RSValue *MRReply_ToValue(MRReply *r) {
     case MR_REPLY_DOUBLE:
       v = RS_NumVal(MRReply_Double(r));
       break;
-    case MR_REPLY_MAP:
+    case MR_REPLY_MAP: {
+      size_t n = MRReply_Length(r);
+      RS_LOG_ASSERT(n % 2 == 0, "map of odd length");
+      RSValue **map = rm_calloc(n, sizeof(*map));
+      for (size_t i = 0; i < n; i++) {
+        MRReply *e = MRReply_ArrayElement(r, i);
+        if (i % 2 == 0) {
+          RS_LOG_ASSERT(MRReply_Type(e) == MR_REPLY_STRING, "non-string map key");
+        }
+        map[i] = MRReply_ToValue(e);
+      }
+      v = RSValue_NewMap(map, n / 2);
+      break;
+    }
     case MR_REPLY_ARRAY: {
-      RSValue **arr = rm_calloc(MRReply_Length(r), sizeof(*arr));
-      for (size_t i = 0; i < MRReply_Length(r); i++) {
+      size_t n = MRReply_Length(r);
+      RSValue **arr = rm_calloc(n, sizeof(*arr));
+      for (size_t i = 0; i < n; i++) {
         arr[i] = MRReply_ToValue(MRReply_ArrayElement(r, i));
       }
-      v = RSValue_NewArrayEx(arr, MRReply_Length(r), RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
+      v = RSValue_NewArrayEx(arr, n, RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
       break;
     }
     case MR_REPLY_NIL:
@@ -173,6 +187,7 @@ typedef struct {
   MRIterator *it;
   MRCommand cmd;
   MRCommandGenerator cg;
+  AREQ *areq;
 
   // profile vars
   MRReply **shardsProfile;
@@ -296,6 +311,13 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     RS_LOG_ASSERT(result && MRReply_Type(result) == MR_REPLY_MAP, "invalid result record");
     MRReply *fields = MRReply_MapElement(result, "extra_attributes");
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
+
+    MRReply *format = MRReply_MapElement(rows, "format");
+    if (MRReply_StringEquals(format, "EXPAND", false)) {
+      nc->areq->reqflags |= QEXEC_FORMAT_EXPAND;
+      nc->areq->reqflags &= ~QEXEC_FORMAT_DEFAULT;
+    }
+
     for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
       size_t len;
       const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
@@ -365,6 +387,7 @@ static RPNet *RPNet_New(const MRCommand *cmd, SearchCluster *sc) {
   RPNet *nc = rm_calloc(1, sizeof(*nc));
   nc->cmd = *cmd;
   nc->cg = SearchCluster_MultiplexCommand(sc, &nc->cmd);
+  nc->areq = NULL;
   nc->shardsProfileIdx = 0;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
@@ -445,6 +468,7 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, SearchCluster *sc,
   RPNet *rpRoot = RPNet_New(xcmd, sc);
   rpRoot->base.parent = &r->qiter;
   rpRoot->lookup = us->lookup;
+  rpRoot->areq = r;
 
   ResultProcessor *rpProfile = NULL;
   if (IsProfile(r)) {

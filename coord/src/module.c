@@ -1135,13 +1135,10 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
       // Logic of which format to use is done by the shards
       // Pick one - they should all agree on it
       MRReply *format = MRReply_MapElement(arr, "format");
-      if (format) {
-        size_t len;
-        if (!strcasecmp(MRReply_String(format, &len), "EXPAND")) {
-          req->format = QEXEC_FORMAT_EXPAND;
-        } else {
-          req->format &= ~QEXEC_FORMAT_DEFAULT;
-        }
+      if (MRReply_StringEquals(format, "EXPAND", false)) {
+        req->format |= QEXEC_FORMAT_EXPAND;
+      } else {
+        req->format &= ~QEXEC_FORMAT_DEFAULT;
       }
     }
   }

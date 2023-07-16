@@ -77,10 +77,10 @@ typedef enum {
   /* Optimize query */
   QEXEC_OPTIMIZE = 0x40000,
 
-  /* Values are returned as RESP3 */
+  // Compound values are expanded (RESP3 w/JSON)
   QEXEC_FORMAT_EXPAND = 0x80000,
 
-  /* Values are returned according to current protocol */
+  // Compound values are returned serialized (RESP2 or HASH) or expanded (RESP3 w/JSON)
   QEXEC_FORMAT_DEFAULT = 0x100000,
 
 } QEFlags;
@@ -89,6 +89,7 @@ typedef enum {
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
+#define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
 
@@ -142,6 +143,8 @@ typedef struct AREQ {
   uint32_t stateflags;
 
   struct timespec timeoutTime;
+
+  int protocol; // RESP2/3
 
   /*
   // Dialect version used on this request

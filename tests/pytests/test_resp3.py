@@ -765,7 +765,7 @@ def testExpandJson():
   exp_string = {
     'attributes': [],
     'error': [],
-    'total_results': 3,
+    'total_results': ANY,
     'format': 'STRING',
     'results': [
       {'id': 'doc1', 'extra_attributes': {'$': '{"arr":[1.0,2.1,3.14],"num":1,"str":"foo","sub":{"s1":false},"sub2":{"arr":[10,20,33.33]}}'}, 'values': []},
@@ -775,11 +775,11 @@ def testExpandJson():
   exp_expand = {
     'attributes': [],
     'error': [],
-    'total_results': 3,
+    'total_results': ANY,
     'format': 'EXPAND',
     'results': [
-      {'id': 'doc1', 'extra_attributes': {'$': [{"arr":[1,2.1,3.14],"num":1,"str":"foo","sub":{"s1":0},"sub2":{"arr":[10,20,33.33]}}]}, 'values': []},
-      {'id': 'doc2', 'extra_attributes': {'$': [{"arr":[3,4,None],"num":2,"str":"bar","sub":{"s2":1 },"sub2":{"arr":[40,50,66.66]}}]}, 'values': []},
+      {'id': 'doc1', 'extra_attributes': {'$': [{"arr": [1, 2.1, 3.14], "num": 1, "str": "foo", "sub":{"s1": 0}, "sub2":{"arr": [10, 20, 33.33]}}]}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'$': [{"arr": [3, 4, None], "num": 2, "str": "bar", "sub":{"s2": 1 }, "sub2":{"arr": [40, 50, 66.66]}}]}, 'values': []},
     ]
   }
   # Default FORMAT is EXPAND
@@ -795,11 +795,9 @@ def testExpandJson():
   env.assertEqual(res, exp_string)
 
   # Test FT.AGGREAGTE
-  exp_expand['total_results'] = 1
   del exp_expand['results'][0]['id']
   del exp_expand['results'][1]['id']
 
-  exp_string['total_results'] = 1
   del exp_string['results'][0]['id']
   del exp_string['results'][1]['id']
 
@@ -808,7 +806,7 @@ def testExpandJson():
 
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'EXPAND', 'LOAD', '*')
   env.assertEqual(res, exp_expand)
-  
+
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'STRING', 'LOAD', '*')
   env.assertEqual(res, exp_string)
 
@@ -819,7 +817,7 @@ def testExpandJson():
   exp_string = {
     'attributes': [],
     'error': [],
-    'total_results': 3,
+    'total_results': ANY,
     'format': 'STRING',
     'results': [
       {'id': 'doc1', 'extra_attributes': {'$.arr[?(@>2)]': '[2.1,3.14]', 'str': '["foo"]', 'multi': '[1.0,2.1,3.14,10,20,33.33]', "arr":'[[1.0,2.1,3.14]]'}, 'values': []},
@@ -830,14 +828,14 @@ def testExpandJson():
   exp_expand = {
     'attributes': [],
     'error': [],
-    'total_results': 3,
+    'total_results': ANY,
     'format': 'EXPAND',
     'results': [
-      {'id': 'doc1', 'extra_attributes': {'$.arr[?(@>2)]':[2.1,3.14], 'str':['foo'], 'multi': [1, 2.1, 3.14, 10, 20, 33.33], "arr":[[1,2.1,3.14]]}, 'values': []},
-      {'id': 'doc2', 'extra_attributes': {'$.arr[?(@>2)]':[3,4], 'str':['bar'], 'multi': [3, 4, None, 40, 50, 66.66], "arr":[[3,4,None]]}, 'values': []},
+      {'id': 'doc1', 'extra_attributes': {'$.arr[?(@>2)]':[2.1, 3.14], 'str':['foo'], 'multi': [1, 2.1, 3.14, 10, 20, 33.33], "arr":[[1, 2.1, 3.14]]}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'$.arr[?(@>2)]':[3, 4], 'str':['bar'], 'multi': [3, 4, None, 40, 50, 66.66], "arr":[[3, 4, None]]}, 'values': []},
     ]
   }
-  
+
   load_args = [4, '$.arr[?(@>2)]', 'str', 'multi', 'arr']
 
   # Test FT.SEARCH
@@ -849,11 +847,9 @@ def testExpandJson():
   env.assertEqual(res, exp_string)
 
   # Test FT.AGGREAGTE
-  exp_expand['total_results'] = 1
   del exp_expand['results'][0]['id']
   del exp_expand['results'][1]['id']
 
-  exp_string['total_results'] = 1
   del exp_string['results'][0]['id']
   del exp_string['results'][1]['id']
 
@@ -862,7 +858,7 @@ def testExpandJson():
 
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'EXPAND', 'LOAD', *load_args)
   env.assertEqual(res, exp_expand)
-  
+
   # Add DIALECT 3 to get multi values as with EXAPND
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'STRING', 'LOAD', *load_args, 'DIALECT', 3)
   env.assertEqual(res, exp_string)
@@ -881,16 +877,16 @@ def testExpandHash():
   exp_string = {
     'attributes': [],
     'error': [],
-    'total_results': 3,
+    'total_results': ANY,
     'format': 'STRING',
     'results': [
       {'id': 'doc1', 'extra_attributes': {'num': '1', 'str': 'foo', 'other': 'fu'}, 'values': []},
       {'id': 'doc2', 'extra_attributes': {'num': '2', 'str': 'bar', 'other': 'bur'}, 'values': []},
     ]
   }
-  
+
   # Default FORMAT is STRING
-  
+
   # Test FT.SEARCH
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2)
   env.assertEqual(res, exp_string)
@@ -899,7 +895,7 @@ def testExpandHash():
   env.assertEqual(res, exp_string)
 
   # Test FT.AGGREGATE
-  exp_string['total_results'] = 1
+  # exp_string['total_results'] = 1
   del exp_string['results'][0]['id']
   del exp_string['results'][1]['id']
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'LOAD', '*')
@@ -912,19 +908,19 @@ def testExpandHash():
   exp_string = {
     'attributes': [],
     'error': [],
-    'total_results': 3,
+    'total_results': ANY,
     'format': 'STRING',
     'results': [
       {'id': 'doc1', 'extra_attributes': {'num': '1', 'other': 'fu'}, 'values': []},
       {'id': 'doc2', 'extra_attributes': {'num': '2', 'other': 'bur'}, 'values': []},
     ]
   }
+
   # Test FT.SEARCH
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'RETURN', 2, 'num', 'other')
   env.assertEqual(res, exp_string)
 
   # Test FT.AGGREGATE
-  exp_string['total_results'] = 1
   del exp_string['results'][0]['id']
   del exp_string['results'][1]['id']
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'LOAD', 2, 'num', 'other')

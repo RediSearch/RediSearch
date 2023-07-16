@@ -16,6 +16,7 @@
 #include "commands.h"
 #include "profile.h"
 #include "query_optimizer.h"
+#include "resp3.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -348,7 +349,11 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
     nelem++;
 
-    if (req->reqflags & QEXEC_FORMAT_EXPAND) {
+    bool fmt_expand = req->reqflags & QEXEC_FORMAT_EXPAND;
+    bool fmt_default = req->reqflags & QEXEC_FORMAT_DEFAULT;
+    bool is_json = req->sctx && req->sctx->spec && isSpecJson(req->sctx->spec);
+    if (fmt_expand || fmt_default && is_json) {
+    //@@ if (req->reqflags & QEXEC_FORMAT_EXPAND) {
       RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
     } else {
       RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
@@ -626,7 +631,6 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
 
 static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int type,
                         QueryError *status, AREQ **r) {
-
   int rc = REDISMODULE_ERR;
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NULL;
@@ -639,10 +643,14 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     (*r)->reqflags |= QEXEC_F_IS_EXTENDED;
   }
 
+  (*r)->reqflags |= QEXEC_FORMAT_DEFAULT;
+
   if (AREQ_Compile(*r, argv + 2, argc - 2, status) != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
     goto done;
   }
+
+  (*r)->protocol = is_resp3(ctx) ? 3 : 2;
 
   // Prepare the query.. this is where the context is applied.
   if ((*r)->reqflags & QEXEC_F_IS_CURSOR) {
