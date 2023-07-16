@@ -786,9 +786,9 @@ void RSValue_Print(const RSValue *v) {
       for (uint32_t i = 0; i < v->mapval.len; i++) {
         if (i > 0)
           fprintf(fp, ", ");
-        RSValue_Print(v->mapval.pairs[2 * i]);
+        RSValue_Print(v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)]);
         fprintf(fp, ": ");
-        RSValue_Print(v->mapval.pairs[2 * i + 1]);
+        RSValue_Print(v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)]);
       }
       fprintf(fp, "}");
       break;

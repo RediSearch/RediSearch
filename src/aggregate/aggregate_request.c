@@ -945,7 +945,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     }
   }
 
-  if ((req->reqflags & QEXEC_FORMAT_EXPAND)) {
+  if (req->reqflags & QEXEC_FORMAT_EXPAND) {
     if (!resp3) {
       QueryError_SetError(status, QUERY_EBADVAL, "EXPAND format is only supported with RESP3");
       return REDISMODULE_ERR;

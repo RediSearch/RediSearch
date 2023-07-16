@@ -46,7 +46,7 @@ typedef struct {
   int sortAscending;
   int withSortingKeys;
   int noContent;
-  uint32_t format;
+  uint32_t format; // QEXEC_FORMAT_EXPAND or QEXEC_FORMAT_DEFAULT (0 implies STRING)
 
   specialCaseCtx** specialCases;
   const char** requiredFields;

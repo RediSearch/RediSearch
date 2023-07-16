@@ -349,11 +349,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
     nelem++;
 
-    bool fmt_expand = req->reqflags & QEXEC_FORMAT_EXPAND;
-    bool fmt_default = req->reqflags & QEXEC_FORMAT_DEFAULT;
-    bool is_json = req->sctx && req->sctx->spec && isSpecJson(req->sctx->spec);
-    if (fmt_expand || fmt_default && is_json) {
-    //@@ if (req->reqflags & QEXEC_FORMAT_EXPAND) {
+    if (req->reqflags & QEXEC_FORMAT_EXPAND) {
       RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
     } else {
       RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
