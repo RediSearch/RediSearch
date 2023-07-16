@@ -359,3 +359,9 @@ inline MRReply *MRReply_MapElement(const MRReply *reply, const char *key) {
   }
   return NULL;
 }
+
+
+void MRReply_ArrayToMap(MRReply *reply) {
+  if (reply->type != MR_REPLY_ARRAY) return;
+  reply->type = MR_REPLY_MAP;
+}

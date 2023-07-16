@@ -11,18 +11,18 @@
 const char* NA = "NA";
 const char* IndexError_ObjectName = "Index Errors";
 const char *IndexingFailure_String = "indexing failures";
-const char *IndexingError_String = "indexing error";
-const char *IndexingErrorKey_String = "indexing error key";
+const char *IndexingError_String = "last indexing error";
+const char *IndexingErrorKey_String = "last indexing error key";
 
-IndexError IndexError_init() {
+IndexError IndexError_Init() {
     IndexError error = {
         .error_count = 0,           // Number of errors set to 0.
-        .last_error = (char*)NA,    // Last error message set to no_errors.
+        .last_error = (char*)NA,    // Last error message set to NA.
         .key = RedisModule_CreateString(NULL, NA, strlen(NA))                 // Key of the document that caused the error set to NULL.
     };
     return error;
 }
-void IndexError_add_error(IndexError *error, const char *error_message, const RedisModuleString *key) {
+void IndexError_AddError(IndexError *error, const char *error_message, const RedisModuleString *key) {
     if(!error_message) {
         RedisModule_Log(NULL, "error", "Index error occured but no index error message was set.");
     }
@@ -38,7 +38,7 @@ void IndexError_add_error(IndexError *error, const char *error_message, const Re
     __atomic_add_fetch(&error->error_count, 1, __ATOMIC_RELAXED);
 }
 
-void IndexError_clear(IndexError error) {
+void IndexError_Clear(IndexError error) {
     if(error.last_error != NA) {
         rm_free(error.last_error);
     }
@@ -50,10 +50,28 @@ void IndexError_clear(IndexError error) {
 
 void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply) {
     RedisModule_Reply_Map(reply);
-    REPLY_KVNUM(IndexingFailure_String, error->error_count);
-    REPLY_KVSTR(IndexingError_String, error->last_error);
-    REPLY_KVRSTR(IndexingErrorKey_String, error->key);
+    REPLY_KVINT(IndexingFailure_String, IndexError_ErrorCount(error));
+    REPLY_KVSTR(IndexingError_String, IndexError_LastError(error));
+    REPLY_KVRSTR(IndexingErrorKey_String, IndexError_LastErrorKey(error));
     RedisModule_Reply_MapEnd(reply);
+}
+
+// Returns the number of errors in the IndexError.
+size_t IndexError_ErrorCount(const IndexError *error) {
+    RedisModule_Assert(error);
+    return error->error_count;
+}
+
+// Returns the last error message in the IndexError.
+const char *IndexError_LastError(const IndexError *error) {
+    RedisModule_Assert(error);
+    return error->last_error;
+}
+
+// Returns the key of the document that caused the error.
+const RedisModuleString *IndexError_LastErrorKey(const IndexError *error) {
+    RedisModule_Assert(error);
+    return error->key;
 }
 
 
@@ -65,13 +83,14 @@ void IndexError_OpPlusEquals(IndexError *error, const IndexError *other) {
             rm_free(error->last_error);
         }
         error->last_error = rm_strdup(other->last_error);
-    }
-    if(other->key != NULL) {
-        if(error->key != NULL) {
-            RedisModule_FreeString(NULL, error->key);
+        if(other->key != NULL) {
+            if(error->key != NULL) {
+                RedisModule_FreeString(NULL, error->key);
+            }
+            error->key = RedisModule_CreateStringFromString(NULL, other->key);
         }
-        error->key = RedisModule_CreateStringFromString(NULL, other->key);
     }
+
     // Atomically increment the error_count by other->error_count, since this might be called when spec is unlocked.
     __atomic_add_fetch(&error->error_count, other->error_count, __ATOMIC_RELAXED);
 }
@@ -87,36 +106,58 @@ void IndexError_SetLastError(IndexError *error, const char *last_error) {
     if(error->last_error != NA) {
         rm_free(error->last_error);
     }
-    error->last_error = last_error ? rm_strdup(last_error) : (char*) NA; // Don't strdup NULL.
+    if(last_error != NA) {
+        error->last_error = last_error ? rm_strdup(last_error) : (char*) NA; // Don't strdup NULL.
+    }
+    else {
+        error->last_error = (char*) NA;
+    }
 }
 
 // Set the key of the IndexError.
-void IndexError_SetKey(IndexError *error, const RedisModuleString *key) {
+void IndexError_SetKey(IndexError *error, RedisModuleString *key) {
     if(error->key != NULL) {
         RedisModule_FreeString(NULL, error->key);
     }
-    error->key = RedisModule_CreateStringFromString(NULL, key);
+    error->key = key;
 }
 
 IndexError IndexError_Deserialize(MRReply *reply) {
-    IndexError error = {0};
+    print_mr_reply(reply);
+    IndexError error = IndexError_Init();
+
+    // Validate the reply. It should be a map with 3 elements.
+    RedisModule_Assert(reply && (MRReply_Type(reply) == MR_REPLY_MAP || (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0)));
+    // Make sure the reply is a map, regardless of the protocol.
+    MRReply_ArrayToMap(reply);
 
     MRReply *error_count = MRReply_MapElement(reply, IndexingFailure_String);
-    RedisModule_Assert(error_count && MRReply_Type(error_count) == MR_REPLY_INTEGER);
+    RedisModule_Assert(error_count);
+    RedisModule_Assert(MRReply_Type(error_count) == MR_REPLY_INTEGER);
     IndexError_SetErrorCount(&error, MRReply_Integer(error_count));
 
     MRReply *last_error = MRReply_MapElement(reply, IndexingError_String);
-    RedisModule_Assert(last_error && MRReply_Type(last_error) == MR_REPLY_STRING);
-    size_t len;
-    const char *last_error_str = MRReply_String(last_error, &len);
-    IndexError_SetLastError(&error, last_error_str);
+    RedisModule_Assert(last_error);
+    // In hiredis with resp2 '+' is a status reply.
+    RedisModule_Assert(MRReply_Type(last_error) == MR_REPLY_STRING || MRReply_Type(last_error) == MR_REPLY_STATUS);
+    size_t error_len;
+    const char *last_error_str = MRReply_String(last_error, &error_len);
 
     MRReply *key = MRReply_MapElement(reply, IndexingErrorKey_String);
-    RedisModule_Assert(key && MRReply_Type(key) == MR_REPLY_STRING);
-    const char *key_str = MRReply_String(key, &len);
-    RedisModuleString *key_rstr =  RedisModule_CreateString(NULL, key_str, len);
-    IndexError_SetKey(&error, key_rstr);
-    RedisModule_FreeString(NULL, key_rstr);
+    RedisModule_Assert(key);
+    // In hiredis with resp2 '+' is a status reply.
+    RedisModule_Assert(MRReply_Type(key) == MR_REPLY_STRING || MRReply_Type(key) == MR_REPLY_STATUS);
+    size_t key_len;
+    const char *key_str = MRReply_String(key, &key_len);
+    if(strncmp(last_error_str, NA, error_len)) {
+        IndexError_SetLastError(&error, last_error_str);
+        RedisModuleString *key_rstr = RedisModule_CreateString(NULL, key_str, key_len);
+        IndexError_SetKey(&error, key_rstr);
+    } else {
+        IndexError_SetLastError(&error, NA);
+        RedisModuleString *key = RedisModule_CreateString(NULL, NA, strlen(NA));
+        IndexError_SetKey(&error, key);
+    }
 
     return error;
 }

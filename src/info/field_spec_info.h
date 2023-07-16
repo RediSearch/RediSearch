@@ -18,12 +18,11 @@ typedef struct {
     IndexError error; // Indexing error of the field spec.   
 } FieldSpecInfo;
 
-// Ctor/Dtor
-// Initializes a FieldSpecInfo.
-FieldSpecInfo *FieldSpecInfo_New();
+// Create stack allocated FieldSpecInfo.
+FieldSpecInfo FieldSpecInfo_Init();
 
-// Frees a FieldSpecInfo.
-void FieldSpecInfo_Free(FieldSpecInfo *info);
+// Clears the field spec info.
+void FieldSpecInfo_Clear(FieldSpecInfo *info);
 
 // Setters
 // Sets the identifier of the field spec.

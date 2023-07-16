@@ -52,6 +52,13 @@ MRReply *MRReply_ArrayElement(const MRReply *reply, size_t idx);
 
 MRReply *MRReply_MapElement(const MRReply *reply, const char *key);
 
+// Converts an array reply to a map reply type. The array must be of the form
+// [key1, value1, key2, value2, ...] and the resulting map will be of the form
+// {key1: value1, key2: value2, ...}
+// Use this if you are sure the reply is an array and you want to convert it to
+// a map.
+void MRReply_ArrayToMap(MRReply *reply);
+
 void MRReply_Print(FILE *fp, MRReply *r);
 int MRReply_ToInteger(MRReply *reply, long long *i);
 int MRReply_ToDouble(MRReply *reply, double *d);

@@ -164,15 +164,21 @@ void handleFieldStatistics(MRReply *src, InfoFields *fields) {
     // Lazy initialization
     fields->fieldSpecInfo_arr = array_new(FieldSpecInfo, len);
     for(size_t i=0; i<len; i++) {
-      fields->fieldSpecInfo_arr = array_append(fields->fieldSpecInfo_arr, (FieldSpecInfo){0});
+      FieldSpecInfo fieldSpecInfo = FieldSpecInfo_Init();
+      fields->fieldSpecInfo_arr = array_append(fields->fieldSpecInfo_arr, fieldSpecInfo);
     }
   }
 
   for(size_t i = 0; i < len; i++) {
     MRReply *serilizedFieldSpecInfo = MRReply_ArrayElement(src, i);
     FieldSpecInfo fieldSpecInfo = FieldSpecInfo_Deserialize(serilizedFieldSpecInfo);
-    fields->fieldSpecInfo_arr = array_append(fields->fieldSpecInfo_arr, fieldSpecInfo);
+    FieldSpecInfo_OpPlusEquals(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
   }
+}
+
+static void handleIndexError(InfoFields *fields, MRReply *src) {
+  IndexError indexError = IndexError_Deserialize(src);
+  IndexError_OpPlusEquals(&fields->indexError, &indexError);
 }
 
 // Handle fields which aren't InfoValue types
@@ -205,8 +211,10 @@ static void handleSpecialField(InfoFields *fields, const char *name, MRReply *va
     processKvArray(fields, value, fields->cursorValues, cursorSpecs, NUM_CURSOR_FIELDS_SPEC, 1);
   } else if (!strcmp(name, "dialect_stats")) {
     processKvArray(fields, value, fields->dialectValues, dialectSpecs, NUM_DIALECT_FIELDS_SPEC, 1);
-  } else if(!strcmp(name, "field statistics")) {
+  } else if (!strcmp(name, "field statistics")) {
     handleFieldStatistics(value, fields);
+  } else if (!strcmp(name, IndexError_ObjectName)) {
+    handleIndexError(fields, value);
   }
 }
 
@@ -244,6 +252,10 @@ next_elem:
 
 static void cleanInfoReply(InfoFields *fields) {
   if (fields->fieldSpecInfo_arr) {
+    // Clear the info fields
+    for (size_t i = 0; i < array_len(fields->fieldSpecInfo_arr); i++) {
+      FieldSpecInfo_Clear(&fields->fieldSpecInfo_arr[i]);
+    }
     array_free(fields->fieldSpecInfo_arr);
     fields->fieldSpecInfo_arr = NULL;
   }
@@ -293,6 +305,14 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
     RedisModule_ReplyKV_MRReply(reply, "attributes", fields->indexSchema);
   }
 
+  if (fields->fieldSpecInfo_arr) {
+      RedisModule_ReplyKV_Array(reply, "field statistics"); //Field statistics
+      for (size_t i = 0; i < array_len(fields->fieldSpecInfo_arr); ++i) {
+        FieldSpecInfo_Reply(&fields->fieldSpecInfo_arr[i], reply);
+      }
+      RedisModule_Reply_ArrayEnd(reply); // >Field statistics
+  }
+
   if (fields->indexOptions) {
     RedisModule_ReplyKV_MRReply(reply, "index_options", fields->indexOptions);
   }
@@ -310,6 +330,12 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
   RedisModule_Reply_MapEnd(reply);
 
   replyKvArray(reply, fields, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);
+
+    
+  // Global index error stats
+  RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
+  IndexError_Reply(&fields->indexError, reply);
+
 
   RedisModule_Reply_MapEnd(reply);
 }

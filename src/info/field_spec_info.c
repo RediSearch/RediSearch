@@ -7,21 +7,16 @@
 #include "field_spec_info.h"
 #include "reply_macros.h"
 
-// Ctor/Dtor
-// Initializes a FieldSpecInfo.
-FieldSpecInfo *FieldSpecInfo_New() {
-    FieldSpecInfo *info = malloc(sizeof(*info));
+FieldSpecInfo FieldSpecInfo_Init() {
+    FieldSpecInfo info = {0};
+    info.error = IndexError_Init();
+    return info;
+}
+
+void FieldSpecInfo_Clear(FieldSpecInfo *info) {
     info->identifier = NULL;
     info->attribute = NULL;
-    info->error = IndexError_init();
-    return info;}
-
-// Frees a FieldSpecInfo.
-void FieldSpecInfo_Free(FieldSpecInfo *info) {
-    if(info) {
-        // Free the identifier. Everything else is borrowed. 
-        rm_free(info);
-    }
+    IndexError_Clear(info->error);
 }
 
 // Setters
@@ -61,15 +56,43 @@ void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply) {
 
 // Adds the index error of the other FieldSpecInfo to the FieldSpecInfo.
 void FieldSpecInfo_OpPlusEquals(FieldSpecInfo *info, const FieldSpecInfo *other) {
+    RedisModule_Assert(info);
+    RedisModule_Assert(other);
+    if(!info->identifier) {
+        info->identifier = other->identifier;
+    }
+    if(!info->attribute) {
+        info->attribute = other->attribute;
+    }
     IndexError_OpPlusEquals(&info->error, &other->error);
 }
 
 // Deserializes a FieldSpecInfo from a MRReply.
 FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply) {
     FieldSpecInfo info = {0};
-    info.identifier = MRReply_String(MRReply_MapElement(reply, "identifier"), NULL);
-    info.attribute = MRReply_String(MRReply_MapElement(reply, "attribute"), NULL);
-    info.error = IndexError_Deserialize(MRReply_MapElement(reply, IndexError_ObjectName));
+    RedisModule_Assert(reply);
+    // Validate the reply type - array or map.
+    RedisModule_Assert(MRReply_Type(reply) == MR_REPLY_MAP || (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0));
+    // Make sure the reply is a map, regardless of the protocol.
+    MRReply_ArrayToMap(reply);
+
+    MRReply *identifier = MRReply_MapElement(reply, "identifier");
+    RedisModule_Assert(identifier);
+    printf("identifier type: %d", MRReply_Type(identifier) );
+    // In hiredis with resp2 '+' is a status reply.
+    RedisModule_Assert(MRReply_Type(identifier) == MR_REPLY_STRING || MRReply_Type(identifier) == MR_REPLY_STATUS);
+    info.identifier = MRReply_String(identifier, NULL);
+
+    MRReply *attribute = MRReply_MapElement(reply, "attribute");
+    RedisModule_Assert(attribute);
+    // In hiredis with resp2 '+' is a status reply.
+    RedisModule_Assert(MRReply_Type(attribute) == MR_REPLY_STRING || MRReply_Type(attribute) == MR_REPLY_STATUS);
+    info.attribute = MRReply_String(attribute, NULL);
+
+    MRReply *error = MRReply_MapElement(reply, IndexError_ObjectName);
+    RedisModule_Assert(error);
+    info.error = IndexError_Deserialize(error);
+
     return info;
 }
 

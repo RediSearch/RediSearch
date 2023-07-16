@@ -1614,7 +1614,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->used_dialects = 0;
 
   memset(&sp->stats, 0, sizeof(sp->stats));
-  sp->stats.indexError = IndexError_init();
+  sp->stats.indexError = IndexError_Init();
 
   int res = 0;
   pthread_rwlockattr_t attr;
@@ -1654,7 +1654,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
         RS_LOG_ASSERT(0, "shouldn't get here");
     }
   }
-  fs->indexError = IndexError_init();
+  fs->indexError = IndexError_Init();
   return fs;
 }
 
@@ -2771,7 +2771,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   if (rv != REDISMODULE_OK) {
     // TODO: Validate that this is the correct behavior since this can be done inside the indexing functions.
-    IndexError_add_error(&spec->stats.indexError, status.detail, doc.docKey);
+    IndexError_AddError(&spec->stats.indexError, status.detail, doc.docKey);
     // // we already unlocked the spec but we can increase this value atomically
     // __atomic_add_fetch(&spec->stats.indexingFailures, 1, __ATOMIC_RELAXED);
 

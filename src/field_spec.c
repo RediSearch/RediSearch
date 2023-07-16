@@ -42,7 +42,7 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
     VecSimParams_Cleanup(&fs->vectorOpts.vecSimParams);
   }
 
-  IndexError_clear(fs->indexError);
+  IndexError_Clear(fs->indexError);
 }
 
 void FieldSpec_SetSortable(FieldSpec* fs) {
@@ -65,10 +65,10 @@ const char *FieldSpec_GetTypeNames(int idx) {
   }
 }
 
-FieldSpecInfo *FieldSpec_GetInfo(const FieldSpec *fs) {
-  FieldSpecInfo *info = FieldSpecInfo_New();
-  FieldSpecInfo_SetIdentifier(info, fs->path);
-  FieldSpecInfo_SetAttribute(info, fs->name);
-  FieldSpecInfo_SetIndexError(info, fs->indexError);
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
+  FieldSpecInfo info = {0};
+  FieldSpecInfo_SetIdentifier(&info, fs->path);
+  FieldSpecInfo_SetAttribute(&info, fs->name);
+  FieldSpecInfo_SetIndexError(&info, fs->indexError);
   return info;
 }

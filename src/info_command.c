@@ -184,20 +184,19 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     
     for (int i = 0; i < sp->numFields; i++) {
       const FieldSpec *fs = &sp->fields[i];
-      FieldSpecInfo *info = FieldSpec_GetInfo(fs);
-      FieldSpecInfo_Reply(info, reply);
-      FieldSpecInfo_Free(info);
+      FieldSpecInfo info = FieldSpec_GetInfo(fs);
+      FieldSpecInfo_Reply(&info, reply);
     }
 
   RedisModule_Reply_ArrayEnd(reply); // >Field statistics
 
-  REPLY_KVNUM("num_docs", sp->stats.numDocuments);
-  REPLY_KVNUM("max_doc_id", sp->docs.maxDocId);
-  REPLY_KVNUM("num_terms", sp->stats.numTerms);
-  REPLY_KVNUM("num_records", sp->stats.numRecords);
+  REPLY_KVINT("num_docs", sp->stats.numDocuments);
+  REPLY_KVINT("max_doc_id", sp->docs.maxDocId);
+  REPLY_KVINT("num_terms", sp->stats.numTerms);
+  REPLY_KVINT("num_records", sp->stats.numRecords);
   REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
   REPLY_KVNUM("vector_index_sz_mb", IndexSpec_VectorIndexSize(sp) / (float)0x100000);
-  REPLY_KVNUM("total_inverted_index_blocks", TotalIIBlocks);
+  REPLY_KVINT("total_inverted_index_blocks", TotalIIBlocks);
   // REPLY_KVNUM("inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
 
   // REPLY_KVNUM("inverted_cap_ovh", 0);
@@ -220,11 +219,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
               (float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
   REPLY_KVNUM("offset_bits_per_record_avg",
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
-  REPLY_KVNUM("indexing_failures", sp->stats.indexError.error_count);
-  REPLY_KVSTR("last_indexing_error", sp->stats.indexError.last_error);
-  REPLY_KVRSTR("last_indexing_error_key", sp->stats.indexError.key);
+  REPLY_KVINT("indexing_failures", sp->stats.indexError.error_count);
   REPLY_KVNUM("total_indexing_time", sp->stats.totalIndexTime / 1000.0);
-  REPLY_KVNUM("indexing", !!global_spec_scanner || sp->scan_in_progress);
+  REPLY_KVINT("indexing", !!global_spec_scanner || sp->scan_in_progress);
 
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
   double percent_indexed = IndexesScanner_IndexedPercent(scanner, sp);
