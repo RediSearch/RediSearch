@@ -64,7 +64,7 @@ t_docId QueryIterator::current() const noexcept {
 int QueryIterator::has_next() const noexcept {
   return index_ < len();
 }
-std::size_t QueryIterator::len() const noexcept {
+size_t QueryIterator::len() const noexcept {
   return iter_.size();
 }
 void QueryIterator::abort() noexcept {
@@ -97,7 +97,7 @@ void QIter_Free(IndexIterator *self) {
   std::destroy_at(it);
   a.deallocate(it, 1);
 }
-std::size_t QIter_Len(void *ctx) {
+size_t QIter_Len(void *ctx) {
   return static_cast<QueryIterator const *>(ctx)->len();
 }
 void QIter_Abort(void *ctx) {
