@@ -161,7 +161,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
   // Coordinator only - handle required fields for coordinator request
   if (options & QEXEC_F_REQUIRED_FIELDS) {
     if (has_map) {
-      RedisModule_ReplyKV_Array(reply, "required_fields"); // >required_fields
+      RedisModule_ReplyKV_Map(reply, "required_fields"); // >required_fields
     }
 
     // Sortkey is the first key to reply on the required fields, if the we already replied it, continue to the next one.
@@ -181,10 +181,13 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         RSValue_SetNumber(&rsv, d);
         v = &rsv;
       }
+      if (has_map) {
+        RedisModule_Reply_SimpleString(reply, req->requiredFields[currentField]);
+      }
       reeval_key(reply, v);
     }
     if (has_map) {
-      RedisModule_Reply_ArrayEnd(reply); // >required_fields
+      RedisModule_Reply_MapEnd(reply); // >required_fields
     }
   }
 

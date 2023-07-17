@@ -235,6 +235,18 @@ static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   return NULL;
 }
 
+void processResultFormat(uint32_t *flags, MRReply *map) {
+  if (*flags & QEXEC_FORMAT_DEFAULT) {
+    // Logic of which format to use is done by the shards
+    MRReply *format = MRReply_MapElement(map, "format");
+    RS_LOG_ASSERT(format, "missing format specification");
+    if (MRReply_StringEquals(format, "EXPAND", false)) {
+      *flags |= QEXEC_FORMAT_EXPAND;
+      *flags &= ~QEXEC_FORMAT_DEFAULT;
+	  }
+  }
+}
+
 static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   RPNet *nc = (RPNet *)self;
   MRReply *root = nc->current.root, *rows = nc->current.rows;
@@ -312,12 +324,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     MRReply *fields = MRReply_MapElement(result, "extra_attributes");
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
 
-    MRReply *format = MRReply_MapElement(rows, "format");
-    RS_LOG_ASSERT(format, "missing format specification");
-    if (MRReply_StringEquals(format, "EXPAND", false)) {
-      nc->areq->reqflags |= QEXEC_FORMAT_EXPAND;
-      nc->areq->reqflags &= ~QEXEC_FORMAT_DEFAULT;
-	}
+    processResultFormat(&nc->areq->reqflags, rows);
 
     for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
       size_t len;

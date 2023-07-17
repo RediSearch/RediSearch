@@ -804,6 +804,7 @@ def testExpandJson():
   env.assertEqual(res, exp_expand)
 
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'EXPAND', 'LOAD', '*')
+  res['results'].sort(key=lambda x: "" if x['extra_attributes']['$'][0].get('num') == None else x['extra_attributes']['$'][0].get('num'))
   env.assertEqual(res, exp_expand)
 
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'STRING', 'LOAD', '*')
@@ -889,6 +890,7 @@ def testExpandHash():
 
   # Test FT.SEARCH
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2)
+  res['results'].sort(key=lambda x: "" if x['extra_attributes']['$'][0].get('num') == None else x['extra_attributes']['$'][0].get('num'))
   env.assertEqual(res, exp_string)
 
   res = env.cmd('FT.SEARCH', 'idx', '*','LIMIT', 0, 2, 'FORMAT', 'STRING')
@@ -897,7 +899,7 @@ def testExpandHash():
   # Test FT.AGGREGATE
   del exp_string['results'][0]['id']
   del exp_string['results'][1]['id']
-  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'LOAD', '*')
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'SORTBY', 2, '@num', 'ASC', 'LOAD', '*')
   env.assertEqual(res, exp_string)
 
 
@@ -928,36 +930,51 @@ def testExpandHash():
 
 def testExpandJsonVector():
   ''' Test returning values for VECTOR in expanded format (raw RESP3 instead of stringified JSON) '''
-  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
+  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 3')
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
                       'SCHEMA', '$.v', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '3','DISTANCE_METRIC', 'L2')
 
 
   with env.getClusterConnectionIfNeeded() as r:
-    r.execute_command('json.set', 'doc1', '$', '{"v":[1,2,3]}')
+    r.execute_command('json.set', 'doc1', '$', '{"v":[1,2,3],"num":1}')
+    r.execute_command('json.set', 'doc2', '$', '{"v":[4,2,0],"num":2}')
 
   exp_string = {
     'attributes': [],
     'error': [],
-    'total_results': ANY,
+    'total_results': 2,
     'format': 'STRING',
     'results': [
-      {'id': 'doc1', 'extra_attributes': {'__vec_score': '6.70958423615', '$': '{"v":[1,2,3]}'}, 'values': []},
+      {'id': 'doc1', 'extra_attributes': {'__vec_score': '6.70958423615', '$': '{"v":[1,2,3],"num":1}'}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'__vec_score': '12.7095842361', '$': '{"v":[4,2,0],"num":2}'}, 'values': []}
     ]
   }
+  
   exp_expand = {
     'attributes': [],
     'error': [],
-    'total_results': ANY,
+    'total_results': 2,
     'format': 'EXPAND',
     'results': [
-      {'id': 'doc1', 'extra_attributes': {'__vec_score': 6.7095842361450195, '$': [{'v': [1, 2, 3]}]}, 'values': []},
+      {'id': 'doc1', 'extra_attributes': {'__vec_score': 6.7095842361450195, '$': [{'v': [1, 2, 3], 'num': 1}]}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'__vec_score': 12.70958423614502, '$': [{'v':[4, 2, 0], 'num': 2}]}, 'values': []},
     ]
   }
+  
+  cmd = ['FT.SEARCH', 'idx', '*=>[KNN 2 @vec $B]', 'PARAMS', '2', 'B', '????????????']
+  
+  res = env.cmd(*cmd, 'FORMAT', 'STRING')
+  env.assertEqual(res, exp_string)
 
-  cmd = ['FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????????']
+  res = env.cmd(*cmd)
+  env.assertEqual(res, exp_expand)
 
+  res = env.cmd(*cmd, 'FORMAT', 'EXPAND')
+  env.assertEqual(res, exp_expand)
+
+  cmd = ['FT.SEARCH', 'idx', '*=>[KNN 2 @vec $B]', 'PARAMS', '2', 'B', '????????????', 'SORTBY', 2, '@num', 'ASC']
+  
   res = env.cmd(*cmd, 'FORMAT', 'STRING')
   env.assertEqual(res, exp_string)
 
@@ -973,23 +990,25 @@ def testExpandJsonVector():
   exp_string = {
     'attributes': [],
     'error': [],
-    'total_results': ANY,
+    'total_results': 2,
     'format': 'STRING',
     'results': [
       {'id': 'doc1', 'extra_attributes': {'$': '{"v":[1,2,3]}'}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'$': '{"v":[4,2,0]}'}, 'values': []},
     ]
   }
   exp_expand = {
     'attributes': [],
     'error': [],
-    'total_results': ANY,
+    'total_results': 2,
     'format': 'EXPAND',
     'results': [
       {'id': 'doc1', 'extra_attributes': {'$': [{'v': [1, 2, 3]}]}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'$': [{'v': [4, 2, 0]}]}, 'values': []},
     ]
   }
 
-  cmd = ['FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????????', 'RETURN', '1', '$']
+  cmd = ['FT.SEARCH', 'idx', '*=>[KNN 2 @vec $B]', 'PARAMS', '2', 'B', '????????????', 'RETURN', '1', '$']
 
   res = env.cmd(*cmd, 'FORMAT', 'STRING')
   env.assertEqual(res, exp_string)

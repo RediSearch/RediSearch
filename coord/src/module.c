@@ -971,6 +971,43 @@ static int cmp_scored_results(const void *p1, const void *p2, const void *udata)
   return cmpStrings(s1->result->id, s1->result->idLen, s2->result->id, s2->result->idLen);
 }
 
+static double parseNumeric(const char *str, const char *sortKey) {
+    RedisModule_Assert(str[0] == '#');
+    char *eptr;
+    double d = strtod(str + 1, &eptr);
+    RedisModule_Assert(eptr != sortKey + 1 && *eptr == 0);
+    return d;
+}
+
+static void proccessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, double score, specialCaseCtx* reduceSpecialCaseCtx) {
+  // As long as we don't have k results, keep insert
+    if (heap_count(reduceSpecialCaseCtx->knn.pq) < reduceSpecialCaseCtx->knn.k) {
+      scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
+      resWrapper->result = res;
+      resWrapper->score = score;
+      heap_offerx(reduceSpecialCaseCtx->knn.pq, resWrapper);
+    } else {
+      // Check for upper bound
+      scoredSearchResultWrapper tmpWrapper;
+      tmpWrapper.result = res;
+      tmpWrapper.score = score;
+      scoredSearchResultWrapper *largest = heap_peek(reduceSpecialCaseCtx->knn.pq);
+      int c = cmp_scored_results(&tmpWrapper, largest, rCtx->searchCtx);
+      if (c < 0) {
+        scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
+        resWrapper->result = res;
+        resWrapper->score = score;
+        // Current result is smaller then upper bound, replace them.
+        largest = heap_poll(reduceSpecialCaseCtx->knn.pq);
+        heap_offerx(reduceSpecialCaseCtx->knn.pq, resWrapper);
+        rCtx->cachedResult = largest->result;
+        rm_free(largest);
+      } else {
+        rCtx->cachedResult = res;
+      }
+    }
+}
+
 static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
   if (arr == NULL) {
     return;
@@ -991,71 +1028,69 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   }
 
   searchRequestCtx *req = rCtx->searchCtx;
-
-  size_t len = MRReply_Length(arr);
-
-  int step = rCtx->offsets.step;
   specialCaseCtx* reduceSpecialCaseCtx = rCtx->reduceSpecialCaseCtx;
-  int scoreOffset = reduceSpecialCaseCtx->knn.offset;
-  for (int j = 1; j < len; j += step) {
-    if (j + step > len) {
-      RedisModule_Log(
-          ctx, "warning",
-          "got a bad reply from redisearch, reply contains less parameters then expected");
-      rCtx->errorOccured = true;
-      break;
-    }
-    searchResult *res;
-    if (resp3) {
-      res = newResult_resp3(rCtx->cachedResult, arr, j, rCtx->searchCtx->withExplainScores);
-    } else {
-      res = newResult_resp2(rCtx->cachedResult, arr, j, &rCtx->offsets, rCtx->searchCtx->withExplainScores);
-    }
-    if (!res || !res->id) {
-      RedisModule_Log(ctx, "warning", "got an unexpected argument when parsing redisearch results");
-      rCtx->errorOccured = true;
-      // invalid result - usually means something is off with the response, and we should just
-      // quit this response
-      rCtx->cachedResult = res;
-      break;
-    } else {
-      rCtx->cachedResult = NULL;
-    }
-
-    size_t len;
-    char* score = MRReply_String(MRReply_ArrayElement(arr, j + scoreOffset), &len);
-    RedisModule_Assert(score[0] == '#');
-    char *eptr;
-    double d = strtod(score + 1, &eptr);
-    RedisModule_Assert(eptr != res->sortKey + 1 && *eptr == 0);
-
-    // As long as we don't have k results, keep insert
-    if (heap_count(reduceSpecialCaseCtx->knn.pq) < reduceSpecialCaseCtx->knn.k) {
-      scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
-      resWrapper->result = res;
-      resWrapper->score = d;
-      heap_offerx(reduceSpecialCaseCtx->knn.pq, resWrapper);
-    } else {
-      // Check for upper bound
-      scoredSearchResultWrapper tmpWrapper;
-      tmpWrapper.result = res;
-      tmpWrapper.score = d;
-      scoredSearchResultWrapper *largest = heap_peek(reduceSpecialCaseCtx->knn.pq);
-      int c = cmp_scored_results(&tmpWrapper, largest, rCtx->searchCtx);
-      if (c < 0) {
-        scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
-        resWrapper->result = res;
-        resWrapper->score = d;
-        // Current result is smaller then upper bound, replace them.
-        largest = heap_poll(reduceSpecialCaseCtx->knn.pq);
-        heap_offerx(reduceSpecialCaseCtx->knn.pq, resWrapper);
-        rCtx->cachedResult = largest->result;
-        rm_free(largest);
+  searchResult *res;
+  if (resp3) {
+    MRReply *results = MRReply_MapElement(arr, "results");
+    RS_LOG_ASSERT(results && MRReply_Type(results) == MR_REPLY_ARRAY, "invalid results record");
+    size_t len = MRReply_Length(results);
+    for (int j = 0; j < len; ++j) {
+      res = newResult_resp3(rCtx->cachedResult, results, j, rCtx->searchCtx->withExplainScores);
+      if (res && res->id) {
+        rCtx->cachedResult = NULL;
       } else {
-        rCtx->cachedResult = res;
+        RedisModule_Log(ctx, "warning", "missing required_field when parsing redisearch results");
+        goto error;
       }
+      MRReply *require_fields = MRReply_MapElement(MRReply_ArrayElement(results, j), "required_fields");
+      if (!require_fields) {
+        RedisModule_Log(ctx, "warning", "missing required_fields when parsing redisearch results");
+        goto error;
+      }
+      MRReply *score_value = MRReply_MapElement(require_fields, reduceSpecialCaseCtx->knn.fieldName);
+      if (!score_value) {
+        RedisModule_Log(ctx, "warning", "missing knn required_field when parsing redisearch results");
+        goto error;
+      }
+      char *score = MRReply_String(score_value, NULL);
+      double d = parseNumeric(score, res->sortKey);
+      proccessKNNSearchResult(res, rCtx, d, reduceSpecialCaseCtx);
+    }
+    processResultFormat(&req->format, arr);
+    
+  } else {
+    size_t len = MRReply_Length(arr);
+    int step = rCtx->offsets.step;
+    int scoreOffset = reduceSpecialCaseCtx->knn.offset;
+    for (int j = 1; j < len; j += step) {
+      if (j + step > len) {
+        RedisModule_Log(
+            ctx, "warning",
+            "got a bad reply from redisearch, reply contains less parameters then expected");
+        rCtx->errorOccured = true;
+        break;
+      }
+      res = newResult_resp2(rCtx->cachedResult, arr, j, &rCtx->offsets, rCtx->searchCtx->withExplainScores);
+      if (res && res->id) {
+        rCtx->cachedResult = NULL;
+      } else {
+        RedisModule_Log(ctx, "warning", "missing required_field when parsing redisearch results");
+        goto error;
+      }
+
+      size_t len;
+      char* score = MRReply_String(MRReply_ArrayElement(arr, j + scoreOffset), &len);
+      double d = parseNumeric(score, res->sortKey);
+      proccessKNNSearchResult(res, rCtx, d, reduceSpecialCaseCtx);
     }
   }
+  return;
+
+error:  
+  rCtx->errorOccured = true;
+  // invalid result - usually means something is off with the response, and we should just
+  // quit this response
+  rCtx->cachedResult = res;
 }
 
 static void processSerchReplyResult(searchResult *res, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
@@ -1131,16 +1166,7 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
       processSerchReplyResult(res, rCtx, ctx);
     }
     
-    if (req->format & QEXEC_FORMAT_DEFAULT) {
-      // Logic of which format to use is done by the shards
-      // Pick one - they should all agree on it
-      MRReply *format = MRReply_MapElement(arr, "format");
-      if (MRReply_StringEquals(format, "EXPAND", false)) {
-        req->format |= QEXEC_FORMAT_EXPAND;
-      } else {
-        req->format &= ~QEXEC_FORMAT_DEFAULT;
-      }
-    }
+    processResultFormat(&rCtx->searchCtx->format, arr);
   }
   else // RESP2
   {
