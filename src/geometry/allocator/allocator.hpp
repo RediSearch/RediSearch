@@ -7,6 +7,7 @@
 #pragma once
 
 #include "../../rmalloc.h"
+#include <memory>          // std::construct_at, std::destroy_at
 
 namespace RediSearch {
 namespace Allocator {
@@ -14,17 +15,21 @@ template <class T>
 struct Allocator {
   using value_type = T;
 
-  explicit inline Allocator() = default;
+  explicit inline constexpr Allocator() = default;
   template <class U>
-  explicit inline Allocator(Allocator<U> const&) noexcept;
+  explicit inline constexpr Allocator(Allocator<U> const&) noexcept;
 
-  [[nodiscard]] inline auto allocate(std::size_t n) noexcept -> value_type*;
-  inline void deallocate(value_type* p, std::size_t n) noexcept;
+  [[nodiscard]] static inline auto allocate(std::size_t n) noexcept -> value_type*;
+  static inline void deallocate(value_type* p, std::size_t n) noexcept;
+
+  template <typename... Args>
+  static inline auto construct_single(Args&&... args) -> value_type*;
+  static inline void destruct_single(value_type* p) noexcept;
 };
 
 template <class T>
 template <class U>
-inline Allocator<T>::Allocator(Allocator<U> const&) noexcept {
+inline constexpr Allocator<T>::Allocator(Allocator<U> const&) noexcept {
 }
 
 template <class T>
@@ -37,6 +42,19 @@ inline auto Allocator<T>::allocate(std::size_t n) noexcept -> value_type* {
 template <class T>
 inline void Allocator<T>::deallocate(value_type* p, std::size_t n) noexcept {
   rm_free(p);
+}
+
+template <typename T>
+template <typename... Args>
+inline auto Allocator<T>::construct_single(Args&&... args) -> value_type* {
+  auto p = allocate(1);
+  return std::construct_at(p, std::forward<Args>(args)...);
+}
+
+template <typename T>
+inline void Allocator<T>::destruct_single(value_type* p) noexcept {
+  std::destroy_at(p);
+  deallocate(p, 1);
 }
 
 template <class T, class U>

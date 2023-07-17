@@ -7,49 +7,67 @@
 #pragma once
 
 #include "../../rmalloc.h"
+#include "allocator.hpp"
 
 namespace RediSearch {
 namespace Allocator {
 template <class T>
-struct TrackingAllocator {
+struct TrackingAllocator : public Allocator<T> {
   using value_type = T;
   std::size_t& allocated_;
 
   TrackingAllocator() = delete;
-  explicit inline TrackingAllocator(std::size_t& ref) noexcept;
+  explicit inline constexpr TrackingAllocator(std::size_t& ref) noexcept;
   template <class U>
-  explicit inline TrackingAllocator(TrackingAllocator<U> const& other) noexcept;
+  explicit inline constexpr TrackingAllocator(TrackingAllocator<U> const& other) noexcept;
 
   [[nodiscard]] inline auto allocate(std::size_t n) noexcept -> value_type*;
   inline void deallocate(value_type* p, std::size_t n) noexcept;
+
+  template <typename... Args>
+  inline auto construct_single(Args&&... args) -> value_type*;
+  inline void destruct_single(value_type* p) noexcept;
 
   [[nodiscard]] inline constexpr std::size_t report() const noexcept;
 };
 
 template <class T>
-inline TrackingAllocator<T>::TrackingAllocator(std::size_t& ref) noexcept : allocated_{ref} {
+inline constexpr TrackingAllocator<T>::TrackingAllocator(std::size_t& ref) noexcept
+    : allocated_{ref} {
 }
 
 template <class T>
 template <class U>
-inline TrackingAllocator<T>::TrackingAllocator(TrackingAllocator<U> const& other) noexcept
+inline constexpr TrackingAllocator<T>::TrackingAllocator(TrackingAllocator<U> const& other) noexcept
     : allocated_{other.allocated_} {
 }
 
 template <class T>
 inline auto TrackingAllocator<T>::allocate(std::size_t n) noexcept -> value_type* {
-  auto alloc_size = n * sizeof(value_type);
-  auto p = static_cast<value_type*>(rm_malloc(alloc_size));
+  auto p = Allocator<T>::allocate(n);
   if (p) {
-    allocated_ += alloc_size;
+    allocated_ += n * sizeof(value_type);
   }
   return p;
 }
 
 template <class T>
 inline void TrackingAllocator<T>::deallocate(value_type* p, std::size_t n) noexcept {
-  rm_free(p);
+  Allocator<T>::deallocate(p, n);
   allocated_ -= n * sizeof(value_type);
+}
+
+template <typename T>
+template <typename... Args>
+inline auto TrackingAllocator<T>::construct_single(Args&&... args) -> value_type* {
+  auto p = allocate(1);
+  return std::construct_at(p, std::forward<Args>(args)...);
+}
+
+template <typename T>
+inline void TrackingAllocator<T>::destruct_single(value_type* p) noexcept {
+  std::destroy_at(p);
+  deallocate(p, 1);
 }
 
 template <class T>
@@ -59,12 +77,12 @@ inline constexpr std::size_t TrackingAllocator<T>::report() const noexcept {
 
 template <class T, class U>
 [[nodiscard]] inline constexpr bool operator==(TrackingAllocator<T> const& a1,
-                                        TrackingAllocator<U> const& a2) noexcept {
+                                               TrackingAllocator<U> const& a2) noexcept {
   return &a1.allocated_ == &a2.allocated_;
 }
 template <class T, class U>
 [[nodiscard]] inline constexpr bool operator!=(TrackingAllocator<T> const& a1,
-                                        TrackingAllocator<U> const& a2) noexcept {
+                                               TrackingAllocator<U> const& a2) noexcept {
   return !(a1 == a2);
 }
 

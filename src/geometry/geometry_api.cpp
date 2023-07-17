@@ -10,33 +10,30 @@
 #include <array>    // std::array
 #include <variant>  // std::variant, std::monostate, std::get
 
-using Cartesian = RediSearch::GeoShape::Cartesian;
-using Geographic = RediSearch::GeoShape::Geographic;
+using namespace RediSearch::GeoShape;
 
-#define X(variant) , RediSearch::GeoShape::RTree<variant>
+#define X(variant) , RTree<variant>
 struct GeometryIndex {
-  const GeometryApi* api;
-  std::size_t allocated;
+  const GeometryApi *api;
   std::variant<std::monostate GEO_VARIANTS(X)> index;
 };
 #undef X
 
-auto GeometryApi_Get(const GeometryIndex *idx) -> const GeometryApi* {
+auto GeometryApi_Get(const GeometryIndex *idx) -> const GeometryApi * {
   return idx->api;
 }
 
 namespace {
 #define X(variant)                                                                          \
   void Index_##variant##_Free(GeometryIndex *idx) {                                         \
-    auto a = RediSearch::Allocator::Allocator<GeometryIndex>{};                             \
-    std::destroy_at(idx);                                                                   \
-    a.deallocate(idx, 1);                                                                   \
+    using alloc_type = RediSearch::Allocator::Allocator<GeometryIndex>;                     \
+    alloc_type::destruct_single(idx);                                                       \
   }                                                                                         \
   int Index_##variant##_Insert(GeometryIndex *idx, GEOMETRY_FORMAT format, const char *str, \
                                std::size_t len, t_docId id, RedisModuleString **err_msg) {  \
     switch (format) {                                                                       \
       case GEOMETRY_FORMAT_WKT:                                                             \
-        return !std::get<RediSearch::GeoShape::RTree<variant>>(idx->index)                  \
+        return !std::get<RTree<variant>>(idx->index)                                        \
                     .insertWKT(std::string_view{str, len}, id, err_msg);                    \
       case GEOMETRY_FORMAT_GEOJSON:                                                         \
       default:                                                                              \
@@ -44,15 +41,15 @@ namespace {
     }                                                                                       \
   }                                                                                         \
   int Index_##variant##_Remove(GeometryIndex *idx, t_docId id) {                            \
-    return std::get<RediSearch::GeoShape::RTree<variant>>(idx->index).remove(id);           \
+    return std::get<RTree<variant>>(idx->index).remove(id);                                 \
   }                                                                                         \
   auto Index_##variant##_Query(const GeometryIndex *idx, QueryType query_type,              \
                                GEOMETRY_FORMAT format, const char *str, std::size_t len,    \
                                RedisModuleString **err_msg)                                 \
-      -> IndexIterator* {                                                                   \
+      ->IndexIterator * {                                                                   \
     switch (format) {                                                                       \
       case GEOMETRY_FORMAT_WKT:                                                             \
-        return std::get<RediSearch::GeoShape::RTree<variant>>(idx->index)                   \
+        return std::get<RTree<variant>>(idx->index)                                         \
             .query(std::string_view{str, len}, query_type, err_msg);                        \
       case GEOMETRY_FORMAT_GEOJSON:                                                         \
       default:                                                                              \
@@ -60,10 +57,10 @@ namespace {
     }                                                                                       \
   }                                                                                         \
   void Index_##variant##_Dump(const GeometryIndex *idx, RedisModuleCtx *ctx) {              \
-    std::get<RediSearch::GeoShape::RTree<variant>>(idx->index).dump(ctx);                   \
+    std::get<RTree<variant>>(idx->index).dump(ctx);                                         \
   }                                                                                         \
   std::size_t Index_##variant##_Report(const GeometryIndex *idx) {                          \
-    return std::get<RediSearch::GeoShape::RTree<variant>>(idx->index).report();             \
+    return std::get<RTree<variant>>(idx->index).report();                                   \
   }                                                                                         \
   constexpr GeometryApi GeometryApi_##variant = {                                           \
       .freeIndex = Index_##variant##_Free,                                                  \
@@ -73,10 +70,9 @@ namespace {
       .dump = Index_##variant##_Dump,                                                       \
       .report = Index_##variant##_Report,                                                   \
   };                                                                                        \
-  auto Index_##variant##_New() -> GeometryIndex* {                                          \
-    auto p = RediSearch::Allocator::Allocator<GeometryIndex>{}.allocate(1);                 \
-    return std::construct_at(p, &GeometryApi_##variant, sizeof(GeometryIndex),              \
-                             RediSearch::GeoShape::RTree<variant>{p->allocated});           \
+  auto Index_##variant##_New()->GeometryIndex * {                                           \
+    using alloc_type = RediSearch::Allocator::Allocator<GeometryIndex>;                     \
+    return alloc_type::construct_single(&GeometryApi_##variant, RTree<variant>{});          \
   }
 GEO_VARIANTS(X)
 #undef X
