@@ -64,7 +64,7 @@ struct RTree {
   LUT_type docLookup_;
 
   RTree() = delete;
-  explicit RTree(std::size_t& alloc_ref);
+  explicit RTree(size_t& alloc_ref);
 
   [[nodiscard]] auto lookup(t_docId id) const
       -> std::optional<std::reference_wrapper<const geom_type>>;
@@ -79,7 +79,7 @@ struct RTree {
   [[nodiscard]] static auto geometry_to_string(geom_type const& geom) -> string;
   [[nodiscard]] static auto doc_to_string(doc_type const& doc) -> string;
   void dump(RedisModuleCtx* ctx) const;
-  [[nodiscard]] std::size_t report() const noexcept;
+  [[nodiscard]] size_t report() const noexcept;
 
   [[nodiscard]] static auto generate_query_iterator(query_results&& results, auto&& a)
       -> IndexIterator*;

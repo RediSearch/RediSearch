@@ -13,21 +13,21 @@ namespace Allocator {
 template <class T>
 struct TrackingAllocator {
   using value_type = T;
-  std::size_t& allocated_;
+  size_t& allocated_;
 
   TrackingAllocator() = delete;
-  explicit inline TrackingAllocator(std::size_t& ref) noexcept;
+  explicit inline TrackingAllocator(size_t& ref) noexcept;
   template <class U>
   explicit inline TrackingAllocator(TrackingAllocator<U> const& other) noexcept;
 
-  [[nodiscard]] inline auto allocate(std::size_t n) noexcept -> value_type*;
-  inline void deallocate(value_type* p, std::size_t n) noexcept;
+  [[nodiscard]] inline auto allocate(size_t n) noexcept -> value_type*;
+  inline void deallocate(value_type* p, size_t n) noexcept;
 
-  [[nodiscard]] inline constexpr std::size_t report() const noexcept;
+  [[nodiscard]] inline constexpr size_t report() const noexcept;
 };
 
 template <class T>
-inline TrackingAllocator<T>::TrackingAllocator(std::size_t& ref) noexcept : allocated_{ref} {
+inline TrackingAllocator<T>::TrackingAllocator(size_t& ref) noexcept : allocated_{ref} {
 }
 
 template <class T>
@@ -37,7 +37,7 @@ inline TrackingAllocator<T>::TrackingAllocator(TrackingAllocator<U> const& other
 }
 
 template <class T>
-inline auto TrackingAllocator<T>::allocate(std::size_t n) noexcept -> value_type* {
+inline auto TrackingAllocator<T>::allocate(size_t n) noexcept -> value_type* {
   auto alloc_size = n * sizeof(value_type);
   auto p = static_cast<value_type*>(rm_malloc(alloc_size));
   if (p) {
@@ -47,13 +47,13 @@ inline auto TrackingAllocator<T>::allocate(std::size_t n) noexcept -> value_type
 }
 
 template <class T>
-inline void TrackingAllocator<T>::deallocate(value_type* p, std::size_t n) noexcept {
+inline void TrackingAllocator<T>::deallocate(value_type* p, size_t n) noexcept {
   rm_free(p);
   allocated_ -= n * sizeof(value_type);
 }
 
 template <class T>
-inline constexpr std::size_t TrackingAllocator<T>::report() const noexcept {
+inline constexpr size_t TrackingAllocator<T>::report() const noexcept {
   return allocated_;
 }
 

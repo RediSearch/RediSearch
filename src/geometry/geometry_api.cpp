@@ -16,7 +16,7 @@ using Geographic = RediSearch::GeoShape::Geographic;
 #define X(variant) , RediSearch::GeoShape::RTree<variant>
 struct GeometryIndex {
   const GeometryApi* api;
-  std::size_t allocated;
+  size_t allocated;
   std::variant<std::monostate GEO_VARIANTS(X)> index;
 };
 #undef X
@@ -33,7 +33,7 @@ namespace {
     a.deallocate(idx, 1);                                                                   \
   }                                                                                         \
   int Index_##variant##_Insert(GeometryIndex *idx, GEOMETRY_FORMAT format, const char *str, \
-                               std::size_t len, t_docId id, RedisModuleString **err_msg) {  \
+                               size_t len, t_docId id, RedisModuleString **err_msg) {       \
     switch (format) {                                                                       \
       case GEOMETRY_FORMAT_WKT:                                                             \
         return !std::get<RediSearch::GeoShape::RTree<variant>>(idx->index)                  \
@@ -47,7 +47,7 @@ namespace {
     return std::get<RediSearch::GeoShape::RTree<variant>>(idx->index).remove(id);           \
   }                                                                                         \
   auto Index_##variant##_Query(const GeometryIndex *idx, QueryType query_type,              \
-                               GEOMETRY_FORMAT format, const char *str, std::size_t len,    \
+                               GEOMETRY_FORMAT format, const char *str, size_t len,         \
                                RedisModuleString **err_msg)                                 \
       -> IndexIterator* {                                                                   \
     switch (format) {                                                                       \
@@ -62,7 +62,7 @@ namespace {
   void Index_##variant##_Dump(const GeometryIndex *idx, RedisModuleCtx *ctx) {              \
     std::get<RediSearch::GeoShape::RTree<variant>>(idx->index).dump(ctx);                   \
   }                                                                                         \
-  std::size_t Index_##variant##_Report(const GeometryIndex *idx) {                          \
+  size_t Index_##variant##_Report(const GeometryIndex *idx) {                               \
     return std::get<RediSearch::GeoShape::RTree<variant>>(idx->index).report();             \
   }                                                                                         \
   constexpr GeometryApi GeometryApi_##variant = {                                           \

@@ -10,7 +10,7 @@ namespace RediSearch {
 namespace GeoShape {
 
 template <typename cs>
-RTree<cs>::RTree(std::size_t& alloc_ref)
+RTree<cs>::RTree(size_t& alloc_ref)
     : alloc_{alloc_ref},
       rtree_{bgi::quadratic<16>{}, bgi::indexable<doc_type>{}, bgi::equal_to<doc_type>{},
              Allocator::TrackingAllocator<doc_type>{alloc_ref}},
@@ -91,7 +91,7 @@ constexpr auto geometry_reporter = [](auto&& geom) {
     auto outer_size = geom.outer().get_allocator().report();
     return std::accumulate(
         inners.begin(), inners.end(), outer_size,
-        [](std::size_t acc, auto&& hole) { return acc + hole.get_allocator().report(); });
+        [](size_t acc, auto&& hole) { return acc + hole.get_allocator().report(); });
   }
 };
 
@@ -144,7 +144,7 @@ auto RTree<cs>::doc_to_string(doc_type const& doc) -> string {
 
 template <typename cs>
 void RTree<cs>::dump(RedisModuleCtx* ctx) const {
-  std::size_t lenTop = 0;
+  size_t lenTop = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   RedisModule_ReplyWithStringBuffer(ctx, "type", strlen("type"));
@@ -164,10 +164,10 @@ void RTree<cs>::dump(RedisModuleCtx* ctx) const {
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   lenTop += 2;
 
-  std::size_t lenDocs = 0;
+  size_t lenDocs = 0;
   std::ranges::for_each(rtree_, [&](doc_type const& doc) {
     lenDocs += 1;
-    std::size_t lenValues = 0;
+    size_t lenValues = 0;
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
     RedisModule_ReplyWithStringBuffer(ctx, "id", strlen("id"));
@@ -192,7 +192,7 @@ void RTree<cs>::dump(RedisModuleCtx* ctx) const {
 }
 
 template <typename cs>
-std::size_t RTree<cs>::report() const noexcept {
+size_t RTree<cs>::report() const noexcept {
   return alloc_.report();
 }
 
