@@ -20,7 +20,7 @@ struct QueryIterator {
 
   IndexIterator base_;
   container_type iter_;
-  std::size_t index_;
+  size_t index_;
 
   explicit QueryIterator() = delete;
   explicit QueryIterator(container_type &&docs);
@@ -43,7 +43,7 @@ struct QueryIterator {
   int skip_to(t_docId docId, RSIndexResult *&hit);
   t_docId current() const noexcept;
   int has_next() const noexcept;
-  std::size_t len() const noexcept;
+  size_t len() const noexcept;
   void abort() noexcept;
   void rewind() noexcept;
 
