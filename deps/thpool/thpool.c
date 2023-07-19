@@ -14,6 +14,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <pthread.h>
 #include <errno.h>
 #include <time.h>
@@ -67,11 +68,11 @@ typedef struct jobqueue {
 } jobqueue;
 
 typedef struct priority_queue {
-  jobqueue high_priority_jobqueue;    /* job queue for high priority tasks */
-  jobqueue low_priority_jobqueue;     /* job queue for low priority tasks */
-  pthread_mutex_t jobqueues_rwmutex;  /* used for queue r/w access */
-  bsem* has_jobs;                     /* flag as binary semaphore  */
-  unsigned char pulls;                /* number of pulls from queue */
+  jobqueue high_priority_jobqueue;  /* job queue for high priority tasks */
+  jobqueue low_priority_jobqueue;   /* job queue for low priority tasks */
+  volatile bool lock;               /* used for queue r/w access */
+  bsem* has_jobs;                   /* flag as binary semaphore  */
+  unsigned char pulls;              /* number of pulls from queue */
 } priority_queue;
 
 /* Thread */
@@ -565,6 +566,14 @@ static void jobqueue_destroy(jobqueue* jobqueue_p) {
 
 /* ======================== PRIORITY QUEUE ========================== */
 
+static void priority_queue_lock(priority_queue* priority_queue_p) {
+  while (__atomic_test_and_set(&priority_queue_p->lock, __ATOMIC_ACQUIRE)); // spin
+}
+
+static void priority_queue_unlock(priority_queue* priority_queue_p) {
+  __atomic_clear(&priority_queue_p->lock, __ATOMIC_RELEASE);
+}
+
 static int priority_queue_init(priority_queue* priority_queue_p) {
 
   priority_queue_p->has_jobs = (struct bsem*)rm_malloc(sizeof(struct bsem));
@@ -574,7 +583,7 @@ static int priority_queue_init(priority_queue* priority_queue_p) {
   jobqueue_init(&priority_queue_p->high_priority_jobqueue);
   jobqueue_init(&priority_queue_p->low_priority_jobqueue);
   bsem_init(priority_queue_p->has_jobs, 0);
-  pthread_mutex_init(&priority_queue_p->jobqueues_rwmutex, NULL);
+  priority_queue_p->lock = false;
   priority_queue_p->pulls = 0;
   return 0;
 }
@@ -586,7 +595,7 @@ static void priority_queue_clear(priority_queue* priority_queue_p) {
 }
 
 static void priority_queue_push_chain(priority_queue* priority_queue_p, struct job* f_newjob_p, struct job* l_newjob_p, size_t n, thpool_priority priority) {
-  pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
+  priority_queue_lock(priority_queue_p);
   switch (priority) {
     case THPOOL_PRIORITY_HIGH:
       jobqueue_push_chain(&priority_queue_p->high_priority_jobqueue, f_newjob_p, l_newjob_p, n);
@@ -596,12 +605,12 @@ static void priority_queue_push_chain(priority_queue* priority_queue_p, struct j
       break;
   }
   bsem_post(priority_queue_p->has_jobs);
-  pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
+  priority_queue_unlock(priority_queue_p);
 }
 
 static struct job* priority_queue_pull(priority_queue* priority_queue_p) {
   struct job* job_p = NULL;
-  pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
+  priority_queue_lock(priority_queue_p);
   // We want to pull from the lower priority queue every 3rd time
   if (priority_queue_p->pulls % 3 == 2) {
     job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
@@ -620,7 +629,7 @@ static struct job* priority_queue_pull(priority_queue* priority_queue_p) {
   if(priority_queue_p->high_priority_jobqueue.len ||  priority_queue_p->low_priority_jobqueue.len ) {
     bsem_post(priority_queue_p->has_jobs);
   }
-  pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
+  priority_queue_unlock(priority_queue_p);
 
   return job_p;
 
@@ -630,14 +639,13 @@ static void priority_queue_destroy(priority_queue* priority_queue_p) {
   jobqueue_destroy(&priority_queue_p->high_priority_jobqueue);
   jobqueue_destroy(&priority_queue_p->low_priority_jobqueue);
   rm_free(priority_queue_p->has_jobs);
-  pthread_mutex_destroy(&priority_queue_p->jobqueues_rwmutex);
 }
 
 static size_t priority_queue_len(priority_queue* priority_queue_p) {
   size_t len;
-  pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
+  priority_queue_lock(priority_queue_p);
   len = priority_queue_p->high_priority_jobqueue.len + priority_queue_p->low_priority_jobqueue.len;
-  pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
+  priority_queue_unlock(priority_queue_p);
   return len;
 }
 
