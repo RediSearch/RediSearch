@@ -402,7 +402,8 @@ typedef struct{
 
   processReplyCB processReply;
   postProcessReplyCB postProcess;
-  specialCaseCtx* reduceSpecialCaseCtx;
+  specialCaseCtx* reduceSpecialCaseCtxKnn;
+  specialCaseCtx* reduceSpecialCaseCtxSortby;
 } searchReducerCtx;
 
 typedef struct {
@@ -818,7 +819,7 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
   return res;
 }
 
-searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, bool explainScores) {
+searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, searchReplyOffsets* offsets, bool explainScores, specialCaseCtx *reduceSpecialCaseCtxSortBy) {
   searchResult *res = cached ? cached : rm_malloc(sizeof *res);
   res->sortKey = NULL;
   res->sortKeyNum = HUGE_VAL;
@@ -848,7 +849,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, boo
     }
     res->explainScores = MRReply_ArrayElement(score, 1);
 
-  } else if (!MRReply_ToDouble(score, &res->score)) {
+  } else if (offsets->score > 0 && !MRReply_ToDouble(score, &res->score)) {
       res->id = NULL;
       return res;
   }
@@ -859,20 +860,36 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, boo
   // get payloads
   res->payload = MRReply_MapElement(result_j, "payload");
 
-  MRReply *sortkey = MRReply_MapElement(result_j, "sortkey");
-  if (sortkey) {
-    res->sortKey = MRReply_String(sortkey, &res->sortKeyLen);
-    if (res->sortKey) {
-      if (res->sortKey[0] == '#') {
-        char *eptr;
-        double d = strtod(res->sortKey + 1, &eptr);
-        if (eptr != res->sortKey + 1 && *eptr == 0) {
-          res->sortKeyNum = d;
-        }
-      } else if (!strncmp(res->sortKey, "none", 4)) {
-        res->sortKey = NULL;
+  if (offsets->sortKey > 0) {
+    MRReply *sortkey = NULL;
+    if (reduceSpecialCaseCtxSortBy) {
+      MRReply *require_fields = MRReply_MapElement(result_j, "required_fields");
+      if (require_fields) {
+        sortkey = MRReply_MapElement(require_fields, reduceSpecialCaseCtxSortBy->sortby.sortKey);
       }
-      // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
+    }
+    if (!sortkey) {
+      // If sortkey is the only special case, it will not be in the required_fields map
+      sortkey = MRReply_MapElement(result_j, "sortkey");
+    }
+    if (!sortkey) {
+      res->id = NULL;
+      return res;
+    }
+    if (sortkey) {
+      res->sortKey = MRReply_String(sortkey, &res->sortKeyLen);
+      if (res->sortKey) {
+        if (res->sortKey[0] == '#') {
+          char *eptr;
+          double d = strtod(res->sortKey + 1, &eptr);
+          if (eptr != res->sortKey + 1 && *eptr == 0) {
+            res->sortKeyNum = d;
+          }
+        } else if (!strncmp(res->sortKey, "none", 4)) {
+          res->sortKey = NULL;
+        }
+        // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
+      }
     }
   }
 
@@ -979,6 +996,16 @@ static double parseNumeric(const char *str, const char *sortKey) {
     return d;
 }
 
+#define GET_NUMERIC_SCORE(d, searchResult_var, score_exp) \
+  do {                                                    \
+    if (res->sortKeyNum != HUGE_VAL) {                    \
+      d = searchResult_var->sortKeyNum;                   \
+    } else {                                              \
+      const char *score = (score_exp);                    \
+      d = parseNumeric(score, res->sortKey);              \
+    }                                                     \
+  } while (0);
+
 static void proccessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, double score, specialCaseCtx* reduceSpecialCaseCtx) {
   // As long as we don't have k results, keep insert
     if (heap_count(reduceSpecialCaseCtx->knn.pq) < reduceSpecialCaseCtx->knn.k) {
@@ -1028,14 +1055,18 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   }
 
   searchRequestCtx *req = rCtx->searchCtx;
-  specialCaseCtx* reduceSpecialCaseCtx = rCtx->reduceSpecialCaseCtx;
+  specialCaseCtx* reduceSpecialCaseCtxKnn = rCtx->reduceSpecialCaseCtxKnn;
+  specialCaseCtx* reduceSpecialCaseCtxSortBy = rCtx->reduceSpecialCaseCtxSortby;
   searchResult *res;
   if (resp3) {
     MRReply *results = MRReply_MapElement(arr, "results");
     RS_LOG_ASSERT(results && MRReply_Type(results) == MR_REPLY_ARRAY, "invalid results record");
     size_t len = MRReply_Length(results);
+    printf("->resp3\n");
+    print_mr_reply(results); // FIXME: remove
+    printf("<-resp3\n");
     for (int j = 0; j < len; ++j) {
-      res = newResult_resp3(rCtx->cachedResult, results, j, rCtx->searchCtx->withExplainScores);
+      res = newResult_resp3(rCtx->cachedResult, results, j, &rCtx->offsets, rCtx->searchCtx->withExplainScores, reduceSpecialCaseCtxSortBy);
       if (res && res->id) {
         rCtx->cachedResult = NULL;
       } else {
@@ -1047,21 +1078,24 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
         RedisModule_Log(ctx, "warning", "missing required_fields when parsing redisearch results");
         goto error;
       }
-      MRReply *score_value = MRReply_MapElement(require_fields, reduceSpecialCaseCtx->knn.fieldName);
+      MRReply *score_value = MRReply_MapElement(require_fields, reduceSpecialCaseCtxKnn->knn.fieldName);
       if (!score_value) {
         RedisModule_Log(ctx, "warning", "missing knn required_field when parsing redisearch results");
         goto error;
       }
-      char *score = MRReply_String(score_value, NULL);
-      double d = parseNumeric(score, res->sortKey);
-      proccessKNNSearchResult(res, rCtx, d, reduceSpecialCaseCtx);
+      double d;
+      GET_NUMERIC_SCORE(d, res, MRReply_String(score_value, NULL));
+      proccessKNNSearchResult(res, rCtx, d, reduceSpecialCaseCtxKnn);
     }
     processResultFormat(&req->format, arr);
     
   } else {
     size_t len = MRReply_Length(arr);
     int step = rCtx->offsets.step;
-    int scoreOffset = reduceSpecialCaseCtx->knn.offset;
+    int scoreOffset = reduceSpecialCaseCtxKnn->knn.offset;
+    printf("->resp2\n");
+    print_mr_reply(arr); // FIXME: remove
+    printf("<-resp2\n");
     for (int j = 1; j < len; j += step) {
       if (j + step > len) {
         RedisModule_Log(
@@ -1078,10 +1112,9 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
         goto error;
       }
 
-      size_t len;
-      char* score = MRReply_String(MRReply_ArrayElement(arr, j + scoreOffset), &len);
-      double d = parseNumeric(score, res->sortKey);
-      proccessKNNSearchResult(res, rCtx, d, reduceSpecialCaseCtx);
+      double d;
+      GET_NUMERIC_SCORE(d, res, MRReply_String(MRReply_ArrayElement(arr, j + scoreOffset), NULL));
+      proccessKNNSearchResult(res, rCtx, d, reduceSpecialCaseCtxKnn);
     }
   }
   return;
@@ -1161,8 +1194,9 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
     }
     size_t len = MRReply_Length(results);
 
+    bool needScore = rCtx->offsets.score > 0;
     for (int i = 0; i < len; ++i) {
-      searchResult *res = newResult_resp3(rCtx->cachedResult, results, i, rCtx->searchCtx->withExplainScores);
+      searchResult *res = newResult_resp3(rCtx->cachedResult, results, i, &rCtx->offsets, rCtx->searchCtx->withExplainScores, rCtx->reduceSpecialCaseCtxSortby);
       processSerchReplyResult(res, rCtx, ctx);
     }
     
@@ -1199,7 +1233,7 @@ static void noOpPostProcess(searchReducerCtx *rCtx){
 }
 
 static void knnPostProcess(searchReducerCtx *rCtx) {
-  specialCaseCtx* reducerSpecialCaseCtx = rCtx->reduceSpecialCaseCtx;
+  specialCaseCtx* reducerSpecialCaseCtx = rCtx->reduceSpecialCaseCtxKnn;
   RedisModule_Assert(reducerSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN);
   if(reducerSpecialCaseCtx->knn.pq) {
     size_t numberOfResults = heap_count(reducerSpecialCaseCtx->knn.pq);
@@ -1301,7 +1335,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
             MR_ReplyWithMRReply(reply, res->payload);
           }
 
-          if (req->withSortingKeys || req->withSortby) {
+          if (req->withSortingKeys && req->withSortby) {
             RedisModule_Reply_SimpleString(reply, "sortkey");
             if (res->sortKey) {
               RedisModule_Reply_StringBuffer(reply, res->sortKey, res->sortKeyLen);
@@ -1492,16 +1526,17 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       if (req->specialCases[i]->specialCaseType == SPECIAL_CASE_KNN) {
         specialCaseCtx* knnCtx = req->specialCases[i];
         rCtx.postProcess = (postProcessReplyCB) knnPostProcess;
-        rCtx.reduceSpecialCaseCtx = knnCtx;
+        rCtx.reduceSpecialCaseCtxKnn = knnCtx;
         if (knnCtx->knn.shouldSort) {
           knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCtx->knn.k));
           heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCtx->knn.k);
           rCtx.processReply = (processReplyCB) proccessKNNSearchReply;
-          rCtx.reduceSpecialCaseCtx = knnCtx;
           break;
         }
+      } else if (req->specialCases[i]->specialCaseType == SPECIAL_CASE_SORTBY) {
+        rCtx.reduceSpecialCaseCtxSortby = req->specialCases[i];
       }
-    }
+    } 
   }
 
   for (int i = 0; i < count; ++i) {
@@ -1545,10 +1580,9 @@ cleanup:
   if (rCtx.pq) {
     heap_destroy(rCtx.pq);
   }
-  if (rCtx.reduceSpecialCaseCtx &&
-      rCtx.reduceSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN &&
-      rCtx.reduceSpecialCaseCtx->knn.pq) {
-    heap_destroy(rCtx.reduceSpecialCaseCtx->knn.pq);
+  if (rCtx.reduceSpecialCaseCtxKnn &&
+      rCtx.reduceSpecialCaseCtxKnn->knn.pq) {
+    heap_destroy(rCtx.reduceSpecialCaseCtxKnn->knn.pq);
   }
 
   searchRequestCtx_Free(req);

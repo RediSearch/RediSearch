@@ -160,13 +160,14 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
 
   // Coordinator only - handle required fields for coordinator request
   if (options & QEXEC_F_REQUIRED_FIELDS) {
-    if (has_map) {
-      RedisModule_ReplyKV_Map(reply, "required_fields"); // >required_fields
-    }
-
-    // Sortkey is the first key to reply on the required fields, if the we already replied it, continue to the next one.
+    
+    // Sortkey is the first key to reply on the required fields, if we already replied it, continue to the next one.
     size_t currentField = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
     size_t requiredFieldsCount = array_len(req->requiredFields);
+    bool need_map = has_map && currentField < requiredFieldsCount;
+    if (need_map) {
+      RedisModule_ReplyKV_Map(reply, "required_fields"); // >required_fields
+    }
     for(; currentField < requiredFieldsCount; currentField++) {
       const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       RSValue *v = rlk ? (RSValue*)getReplyKey(rlk, r) : NULL;
@@ -181,12 +182,12 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         RSValue_SetNumber(&rsv, d);
         v = &rsv;
       }
-      if (has_map) {
-        RedisModule_Reply_SimpleString(reply, req->requiredFields[currentField]);
+      if (need_map) {
+        RedisModule_Reply_SimpleString(reply, req->requiredFields[currentField]); // key name
       }
       reeval_key(reply, v);
     }
-    if (has_map) {
+    if (need_map) {
       RedisModule_Reply_MapEnd(reply); // >required_fields
     }
   }
@@ -223,7 +224,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
         SendReplyFlags flags = (req->reqflags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
         flags |= (req->reqflags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
-        RSValue_SendReply(reply, v, flags);
+        RSValue_SendReply(reply, v, flags, req->sctx->apiVersion);
       }
     RedisModule_Reply_MapEnd(reply);
   }
