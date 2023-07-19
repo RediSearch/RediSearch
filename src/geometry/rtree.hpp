@@ -12,13 +12,13 @@
 #include "query_iterator.hpp"
 #include "geometry_types.h"
 
-#include <vector>       // std::vector, std::erase_if
-#include <utility>      // std::pair
-#include <functional>   // std::hash, std::equal_to
-#include <string_view>  // std::string_view
-#include <boost/variant/variant.hpp>    // boost::variant<Geometries...>
-#include <boost/optional/optional.hpp>  // boost::optional<T const&>
-#include <boost/geometry/geometry.hpp>  // duh...
+#include <vector>                                  // std::vector
+#include <variant>                                 // std::variant
+#include <utility>                                 // std::pair
+#include <functional>                              // std::hash, std::equal_to
+#include <string_view>                             // std::string_view
+#include <boost/geometry/geometry.hpp>             // duh...
+#include <boost/optional/optional.hpp>             // boost::optional<T const&>
 #include <boost/unordered/unordered_flat_map.hpp>  // is faster than std::unordered_map?
 
 namespace RediSearch {
@@ -39,7 +39,7 @@ class RTree {
   // bgm::polygon requires default constructible allocators, allocations must be tracked by hand.
   using poly_type = bgm::polygon<point_type, true, true, std::vector, std::vector,
                                  Allocator::StatefulAllocator, Allocator::StatefulAllocator>;
-  using geom_type = boost::variant<point_type, poly_type>;
+  using geom_type = std::variant<point_type, poly_type>;
 
   using rect_type = bgm::box<point_type>;
   using doc_type = std::pair<rect_type, t_docId>;
@@ -76,7 +76,7 @@ class RTree {
   void insert(geom_type const& geom, t_docId id);
 
   template <typename Predicate, typename Filter>
-  [[nodiscard]] auto apply_predicate(Predicate p, Filter f) const -> query_results;
+  [[nodiscard]] auto apply_predicate(Predicate&& p, Filter&& f) const -> query_results;
   [[nodiscard]] auto contains(doc_type const& query_doc, geom_type const& query_geom) const
       -> query_results;
   [[nodiscard]] auto within(doc_type const& query_doc, geom_type const& query_geom) const

@@ -8,6 +8,7 @@
 #include "rtree.hpp"
 
 #include <array>    // std::array
+#include <memory>   // std::construct_at, std::destroy_at
 #include <variant>  // std::variant, std::monostate, std::get
 
 using namespace RediSearch::GeoShape;
@@ -27,7 +28,8 @@ namespace {
 #define X(variant)                                                                          \
   void Index_##variant##_Free(GeometryIndex *idx) {                                         \
     using alloc_type = RediSearch::Allocator::Allocator<GeometryIndex>;                     \
-    alloc_type::destruct_single(idx);                                                       \
+    std::destroy_at(idx);                                                                   \
+    alloc_type::deallocate(idx, 1);                                                         \
   }                                                                                         \
   int Index_##variant##_Insert(GeometryIndex *idx, GEOMETRY_FORMAT format, const char *str, \
                                std::size_t len, t_docId id, RedisModuleString **err_msg) {  \
@@ -72,7 +74,8 @@ namespace {
   };                                                                                        \
   auto Index_##variant##_New()->GeometryIndex * {                                           \
     using alloc_type = RediSearch::Allocator::Allocator<GeometryIndex>;                     \
-    return alloc_type::construct_single(&GeometryApi_##variant, RTree<variant>{});          \
+    auto p = alloc_type::allocate(1);                                                       \
+    return std::construct_at(p, &GeometryApi_##variant, RTree<variant>{});                  \
   }
 GEO_VARIANTS(X)
 #undef X

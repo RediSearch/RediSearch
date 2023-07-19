@@ -30,7 +30,7 @@ constexpr auto make_mbr = [](auto&& geom) -> rect_type {
 template <typename cs, typename geom_type = RTree<cs>::geom_type,
           typename doc_type = RTree<cs>::doc_type>
 constexpr auto make_doc(geom_type const& geom, t_docId id = 0) -> doc_type {
-  return doc_type{boost::apply_visitor(make_mbr<cs>, geom), id};
+  return doc_type{std::visit(make_mbr<cs>, geom), id};
 }
 template <typename cs, typename doc_type = RTree<cs>::doc_type,
           typename rect_type = RTree<cs>::rect_type>
@@ -52,7 +52,7 @@ auto to_string(T const& t) -> string {
 }
 template <typename cs, typename geom_type = RTree<cs>::geom_type>
 auto geometry_to_string(geom_type const& geom) -> string {
-  return to_string(bg::wkt(geom));
+  return std::visit([](auto&& geom) -> string { return to_string(bg::wkt(geom)); }, geom);
 }
 template <typename cs, typename doc_type = RTree<cs>::doc_type>
 auto doc_to_string(doc_type const& doc) -> string {
@@ -71,21 +71,26 @@ auto from_wkt(std::string_view wkt) -> geom_type {
   } else {
     throw std::runtime_error{"unknown geometry type"};
   }
-  if (bg::is_empty(geom)) {
-    throw std::runtime_error{"attempting to create empty geometry"};
-  }
-  // TODO: GEOMETRY - add flag to allow user to ascertain validity of input
-  if (bg::correct(geom); !bg::is_valid(geom)) {
-    throw std::runtime_error{"invalid geometry"};
-  }
+  std::visit(
+      [](auto&& geom) -> void {
+        if (bg::is_empty(geom)) {
+          throw std::runtime_error{"attempting to create empty geometry"};
+        }
+        // TODO: GEOMETRY - add flag to allow user to ascertain validity of input
+        if (bg::correct(geom); !bg::is_valid(geom)) {
+          throw std::runtime_error{"invalid geometry"};
+        }
+      },
+      geom);
   return geom;
 }
 
 template <typename cs, typename query_results = RTree<cs>::query_results>
 auto generate_query_iterator(query_results&& results, std::size_t& alloc) -> IndexIterator* {
   using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
-  auto geometry_query_iterator = alloc_type{alloc}.construct_single(
-      results | std::views::transform([](auto&& doc) -> t_docId { return get_id<cs>(doc); }),
+  auto p = alloc_type{alloc}.allocate(1);
+  auto geometry_query_iterator = std::construct_at(
+      p, results | std::views::transform([](auto&& doc) -> t_docId { return get_id<cs>(doc); }),
       alloc);
   return geometry_query_iterator->base();
 }
@@ -140,7 +145,7 @@ template <typename cs>
 void RTree<cs>::insert(geom_type const& geom, t_docId id) {
   rtree_.insert(make_doc<cs>(geom, id));
   docLookup_.insert(lookup_type{id, geom});
-  allocated_ += boost::apply_visitor(geometry_reporter<cs>, geom);
+  allocated_ += std::visit(geometry_reporter<cs>, geom);
 }
 
 template <typename cs>
@@ -160,7 +165,7 @@ template <typename cs>
 bool RTree<cs>::remove(t_docId id) {
   if (auto geom = lookup(id); geom.has_value()) {
     rtree_.remove(make_doc<cs>(*geom, id));
-    allocated_ -= boost::apply_visitor(geometry_reporter<cs>, *geom);
+    allocated_ -= std::visit(geometry_reporter<cs>, *geom);
     docLookup_.erase(id);
     return true;
   }
@@ -223,7 +228,7 @@ std::size_t RTree<cs>::report() const noexcept {
 
 template <typename cs>
 template <typename Predicate, typename Filter>
-auto RTree<cs>::apply_predicate(Predicate p, Filter f) const -> query_results {
+auto RTree<cs>::apply_predicate(Predicate&& p, Filter&& f) const -> query_results {
   auto results = query_results{rtree_.qbegin(std::forward<Predicate>(p)), rtree_.qend(),
                                Allocator::TrackingAllocator<doc_type>{allocated_}};
   std::erase_if(results, std::forward<Filter>(f));
@@ -236,7 +241,7 @@ auto RTree<cs>::contains(doc_type const& query_doc, geom_type const& query_geom)
   auto results =
       apply_predicate(bgi::contains(get_rect<cs>(query_doc)), [&](auto const& doc) -> bool {
         auto geom = lookup(doc);
-        return geom.has_value() && boost::apply_visitor(filter_results<cs>, query_geom, *geom);
+        return geom.has_value() && std::visit(filter_results<cs>, query_geom, *geom);
       });
   return results;
 }
@@ -247,7 +252,7 @@ auto RTree<cs>::within(doc_type const& query_doc, geom_type const& query_geom) c
   auto results =
       apply_predicate(bgi::within(get_rect<cs>(query_doc)), [&](auto const& doc) -> bool {
         auto geom = lookup(doc);
-        return geom.has_value() && boost::apply_visitor(filter_results<cs>, *geom, query_geom);
+        return geom.has_value() && std::visit(filter_results<cs>, *geom, query_geom);
       });
   return results;
 }

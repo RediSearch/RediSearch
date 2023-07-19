@@ -6,6 +6,7 @@
 
 #include "query_iterator.hpp"
 
+#include <memory>     // std::construct_at, std::destroy_at
 #include <utility>    // std::move
 #include <iterator>   // ranges::distance
 #include <algorithm>  // ranges::sort, ranges::lower_bound
@@ -92,7 +93,9 @@ int QIter_HasNext(void *ctx) {
 void QIter_Free(IndexIterator *self) {
   using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
   auto it = static_cast<QueryIterator *>(self->ctx);
-  alloc_type{it->iter_.get_allocator()}.destruct_single(it);
+  auto alloc = alloc_type{it->iter_.get_allocator()};
+  std::destroy_at(it);
+  alloc.deallocate(it, 1);
 }
 std::size_t QIter_Len(void *ctx) {
   return static_cast<QueryIterator const *>(ctx)->len();

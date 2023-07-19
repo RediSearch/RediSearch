@@ -12,7 +12,7 @@
 namespace RediSearch {
 namespace Allocator {
 template <class T>
-struct TrackingAllocator : public Allocator<T> {
+struct TrackingAllocator {
   using value_type = T;
   std::size_t& allocated_;
 
@@ -23,10 +23,6 @@ struct TrackingAllocator : public Allocator<T> {
 
   [[nodiscard]] inline auto allocate(std::size_t n) noexcept -> value_type*;
   inline void deallocate(value_type* p, std::size_t n) noexcept;
-
-  template <typename... Args>
-  inline auto construct_single(Args&&... args) -> value_type*;
-  inline void destruct_single(value_type* p) noexcept;
 
   [[nodiscard]] inline constexpr std::size_t report() const noexcept;
 };
@@ -55,19 +51,6 @@ template <class T>
 inline void TrackingAllocator<T>::deallocate(value_type* p, std::size_t n) noexcept {
   Allocator<T>::deallocate(p, n);
   allocated_ -= n * sizeof(value_type);
-}
-
-template <typename T>
-template <typename... Args>
-inline auto TrackingAllocator<T>::construct_single(Args&&... args) -> value_type* {
-  auto p = allocate(1);
-  return std::construct_at(p, std::forward<Args>(args)...);
-}
-
-template <typename T>
-inline void TrackingAllocator<T>::destruct_single(value_type* p) noexcept {
-  std::destroy_at(p);
-  deallocate(p, 1);
 }
 
 template <class T>
