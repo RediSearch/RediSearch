@@ -104,6 +104,7 @@ void RSValue_Clear(RSValue *v) {
     case RSValue_Duo:
       RSValue_Decref(RS_DUOVAL_VAL(*v));
       RSValue_Decref(RS_DUOVAL_OTHERVAL(*v));
+      RSValue_Decref(RS_DUOVAL_OTHER2VAL(*v));
       rm_free(v->duoval.vals);
       break;
     case RSValue_Array:
@@ -610,6 +611,7 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   return cmp_strings(s1, s2, l1, l2) == 0;
 }
 
+#if 0
 static int RSValue_SendReply_Collection(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
   typedef struct {
     const RSValue *v; // collection: either array or map
@@ -675,9 +677,10 @@ static int RSValue_SendReply_Collection(RedisModule_Reply *reply, const RSValue 
   array_free(stack);
   return REDISMODULE_OK;
 }
+#endif //0
 
 /* Based on the value type, serialize the value into redis client response */
-int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
+int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags, unsigned int apiVersion) {
   v = RSValue_Dereference(v);
 
   switch (v->t) {
@@ -711,18 +714,29 @@ int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags
     case RSValue_Null:
       return RedisModule_Reply_Null(reply);
 
-    case RSValue_Duo:
+    case RSValue_Duo: {
+      RSValue *val;
       if (!(flags & SENDREPLY_FLAG_EXPAND)) {
-        return RSValue_SendReply(reply, RS_DUOVAL_OTHERVAL(*v), flags);
+        // STRING
+        if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
+          // Multi
+          val = RS_DUOVAL_OTHERVAL(*v);
+        } else {
+          // Single
+          val = RS_DUOVAL_VAL(*v);
+          }
       } else {
-        return RSValue_SendReply(reply, RS_DUOVAL_OTHER2VAL(*v), flags);
+        // EXPAND
+        val = RS_DUOVAL_OTHER2VAL(*v);
       }
+      return RSValue_SendReply(reply, val, flags, apiVersion);
+    }
 
 #if 1
     case RSValue_Array:
       RedisModule_Reply_Array(reply);
         for (uint32_t i = 0; i < v->arrval.len; i++) {
-          RSValue_SendReply(reply, v->arrval.vals[i], flags);
+          RSValue_SendReply(reply, v->arrval.vals[i], flags, apiVersion);
         }
       RedisModule_Reply_ArrayEnd(reply);
       return REDISMODULE_OK;
@@ -731,15 +745,15 @@ int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags
       // If Map value is used, assume Map api exists (RedisModule_HasMap)
       RedisModule_Reply_Map(reply);
       for (uint32_t i = 0; i < v->mapval.len; i++) {
-          RSValue_SendReply(reply, v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)], flags);
-          RSValue_SendReply(reply, v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)], flags);
+          RSValue_SendReply(reply, v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)], flags, apiVersion);
+          RSValue_SendReply(reply, v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)], flags, apiVersion);
       }
       RedisModule_Reply_MapEnd(reply);
       break;
 #else // non-recursive
     case RSValue_Array:
     case RSValue_Map:
-      return RSValue_SendReply_Collection(reply, v, flags);
+      return RSValue_SendReply_Collection(reply, v, flags, apiVersion);
 #endif
 
     default:

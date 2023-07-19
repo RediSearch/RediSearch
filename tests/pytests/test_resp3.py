@@ -930,10 +930,11 @@ def testExpandHash():
 
 def testExpandJsonVector():
   ''' Test returning values for VECTOR in expanded format (raw RESP3 instead of stringified JSON) '''
-  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 3')
+  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
-                      'SCHEMA', '$.v', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '3','DISTANCE_METRIC', 'L2')
+                      'SCHEMA', '$.v', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '3','DISTANCE_METRIC', 'L2',
+                      '$.num', 'AS', 'num', 'NUMERIC')
 
 
   with env.getClusterConnectionIfNeeded() as r:
@@ -973,7 +974,31 @@ def testExpandJsonVector():
   res = env.cmd(*cmd, 'FORMAT', 'EXPAND')
   env.assertEqual(res, exp_expand)
 
-  cmd = ['FT.SEARCH', 'idx', '*=>[KNN 2 @vec $B]', 'PARAMS', '2', 'B', '????????????', 'LOAD', 1, 'num', 'SORTBY', 'num', 'ASC']
+  # Test without WITHSORTKEYS
+
+  exp_string = {
+    'attributes': [],
+    'error': [],
+    'total_results': 2,
+    'format': 'STRING',
+    'results': [
+      {'id': 'doc1', 'extra_attributes': {'__vec_score': '6.70958423615', "num": "1", '$': '{"v":[1,2,3],"num":1}'}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'__vec_score': '12.7095842361', "num": "2", '$': '{"v":[4,2,0],"num":2}'}, 'values': []}
+    ]
+  }
+  
+  exp_expand = {
+    'attributes': [],
+    'error': [],
+    'total_results': 2,
+    'format': 'EXPAND',
+    'results': [
+      {'id': 'doc1', 'extra_attributes': {'__vec_score': 6.7095842361450195, 'num': [1], '$': [{'v': [1, 2, 3], 'num': 1}]}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'__vec_score': 12.70958423614502, 'num': [2], '$': [{'v':[4, 2, 0], 'num': 2}]}, 'values': []},
+    ]
+  }
+
+  cmd = ['FT.SEARCH', 'idx', '*=>[KNN 2 @vec $B]', 'PARAMS', '2', 'B', '????????????', 'SORTBY', 'num', 'ASC']
   
   res = env.cmd(*cmd, 'FORMAT', 'STRING')
   env.assertEqual(res, exp_string)
@@ -984,6 +1009,41 @@ def testExpandJsonVector():
   res = env.cmd(*cmd, 'FORMAT', 'EXPAND')
   env.assertEqual(res, exp_expand)
 
+  # Test with WITHSORTKEYS
+
+  exp_string = {
+    'attributes': [],
+    'error': [],
+    'total_results': 2,
+    'format': 'STRING',
+    'results': [
+      {'id': 'doc1', 'sortkey': '#1', 'extra_attributes': {'__vec_score': '6.70958423615', "num": "1", '$': '{"v":[1,2,3],"num":1}'}, 'values': []},
+      {'id': 'doc2', 'sortkey': '#2', 'extra_attributes': {'__vec_score': '12.7095842361', "num": "2", '$': '{"v":[4,2,0],"num":2}'}, 'values': []}
+    ]
+  }
+  
+  exp_expand = {
+    'attributes': [],
+    'error': [],
+    'total_results': 2,
+    'format': 'EXPAND',
+    'results': [
+      {'id': 'doc1', 'sortkey': '#1', 'extra_attributes': {'__vec_score': 6.7095842361450195, 'num': [1], '$': [{'v': [1, 2, 3], 'num': 1}]}, 'values': []},
+      {'id': 'doc2', 'sortkey': '#2', 'extra_attributes': {'__vec_score': 12.70958423614502, 'num': [2], '$': [{'v':[4, 2, 0], 'num': 2}]}, 'values': []},
+    ]
+  }
+
+  cmd = [*cmd, 'WITHSORTKEYS']
+  
+  res = env.cmd(*cmd, 'FORMAT', 'STRING')
+  env.assertEqual(res, exp_string)
+
+  res = env.cmd(*cmd)
+  env.assertEqual(res, exp_expand)
+
+  res = env.cmd(*cmd, 'FORMAT', 'EXPAND')
+  env.assertEqual(res, exp_expand)  
+
   #
   # Return specific field
   #
@@ -993,8 +1053,8 @@ def testExpandJsonVector():
     'total_results': 2,
     'format': 'STRING',
     'results': [
-      {'id': 'doc1', 'extra_attributes': {'$': '{"v":[1,2,3]}'}, 'values': []},
-      {'id': 'doc2', 'extra_attributes': {'$': '{"v":[4,2,0]}'}, 'values': []},
+      {'id': 'doc1', 'extra_attributes': {'$': '{"v":[1,2,3],"num":1}'}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'$': '{"v":[4,2,0],"num":2}'}, 'values': []},
     ]
   }
   exp_expand = {
@@ -1003,8 +1063,8 @@ def testExpandJsonVector():
     'total_results': 2,
     'format': 'EXPAND',
     'results': [
-      {'id': 'doc1', 'extra_attributes': {'$': [{'v': [1, 2, 3]}]}, 'values': []},
-      {'id': 'doc2', 'extra_attributes': {'$': [{'v': [4, 2, 0]}]}, 'values': []},
+      {'id': 'doc1', 'extra_attributes': {'$': [{'v': [1, 2, 3], 'num': 1}]}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'$': [{'v': [4, 2, 0], 'num': 2}]}, 'values': []},
     ]
   }
 

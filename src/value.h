@@ -425,7 +425,7 @@ typedef enum {
 } SendReplyFlags;
 
 /* Based on the value type, serialize the value into redis client response */
-int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags);
+int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags, unsigned int apiVersion);
 
 void RSValue_Print(const RSValue *v);
 
