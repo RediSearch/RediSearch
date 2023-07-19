@@ -14,17 +14,17 @@ namespace Allocator {
 template <class T>
 struct TrackingAllocator {
   using value_type = T;
-  std::size_t& allocated_;
+  size_t& allocated_;
 
   TrackingAllocator() = delete;
   explicit inline constexpr TrackingAllocator(std::size_t& ref) noexcept;
   template <class U>
   explicit inline constexpr TrackingAllocator(TrackingAllocator<U> const& other) noexcept;
 
-  [[nodiscard]] inline auto allocate(std::size_t n) noexcept -> value_type*;
-  inline void deallocate(value_type* p, std::size_t n) noexcept;
+  [[nodiscard]] inline auto allocate(size_t n) noexcept -> value_type*;
+  inline void deallocate(value_type* p, size_t n) noexcept;
 
-  [[nodiscard]] inline constexpr std::size_t report() const noexcept;
+  [[nodiscard]] inline constexpr size_t report() const noexcept;
 };
 
 template <class T>
@@ -54,7 +54,7 @@ inline void TrackingAllocator<T>::deallocate(value_type* p, std::size_t n) noexc
 }
 
 template <class T>
-inline constexpr std::size_t TrackingAllocator<T>::report() const noexcept {
+inline constexpr size_t TrackingAllocator<T>::report() const noexcept {
   return allocated_;
 }
 

@@ -45,7 +45,10 @@ class RediSearchSetup(paella.Setup):
         self.run(f"{READIES}/bin/getepel", sudo=True)
         self.install("libatomic")
 
-        self.run(f"{READIES}/bin/getgcc --modern")
+        if self.dist == "centos" and self.os_version[0] == 7:
+            self.run(f"{READIES}/bin/getgcc --modern --update-libstdc++")
+        else:
+            self.run(f"{READIES}/bin/getgcc --modern")
         self.install("libtool m4 automake openssl-devel")
         self.install("python3-devel")
         # self.install("--skip-broken boost169-devel")

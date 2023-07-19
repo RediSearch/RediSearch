@@ -174,7 +174,7 @@ bool RTree<cs>::remove(t_docId id) {
 
 template <typename cs>
 void RTree<cs>::dump(RedisModuleCtx* ctx) const {
-  std::size_t lenTop = 0;
+  size_t lenTop = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   RedisModule_ReplyWithStringBuffer(ctx, "type", strlen("type"));
@@ -197,7 +197,7 @@ void RTree<cs>::dump(RedisModuleCtx* ctx) const {
   std::size_t lenDocs = 0;
   std::ranges::for_each(rtree_, [&](doc_type const& doc) -> void {
     lenDocs += 1;
-    std::size_t lenValues = 0;
+    size_t lenValues = 0;
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
     RedisModule_ReplyWithStringBuffer(ctx, "id", strlen("id"));

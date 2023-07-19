@@ -32,7 +32,7 @@ namespace {
     alloc_type::deallocate(idx, 1);                                                         \
   }                                                                                         \
   int Index_##variant##_Insert(GeometryIndex *idx, GEOMETRY_FORMAT format, const char *str, \
-                               std::size_t len, t_docId id, RedisModuleString **err_msg) {  \
+                               size_t len, t_docId id, RedisModuleString **err_msg) {       \
     switch (format) {                                                                       \
       case GEOMETRY_FORMAT_WKT:                                                             \
         return !std::get<RTree<variant>>(idx->index)                                        \
@@ -46,7 +46,7 @@ namespace {
     return std::get<RTree<variant>>(idx->index).remove(id);                                 \
   }                                                                                         \
   auto Index_##variant##_Query(const GeometryIndex *idx, QueryType query_type,              \
-                               GEOMETRY_FORMAT format, const char *str, std::size_t len,    \
+                               GEOMETRY_FORMAT format, const char *str, size_t len,         \
                                RedisModuleString **err_msg)                                 \
       ->IndexIterator * {                                                                   \
     switch (format) {                                                                       \
