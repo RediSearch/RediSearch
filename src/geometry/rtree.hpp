@@ -68,7 +68,7 @@ class RTree {
                            RedisModuleString** err_msg) const -> IndexIterator*;
 
   void dump(RedisModuleCtx* ctx) const;
-  [[nodiscard]] std::size_t report() const noexcept;
+  [[nodiscard]] size_t report() const noexcept;
 
  private:
   [[nodiscard]] auto lookup(t_docId id) const -> boost::optional<geom_type const&>;
