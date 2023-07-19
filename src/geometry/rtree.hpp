@@ -12,17 +12,14 @@
 #include "query_iterator.hpp"
 #include "geometry_types.h"
 
-#include <vector>                       // std::vector
-#include <variant>                      // std::variant
-#include <utility>                      // std::pair
-#include <functional>                   // std::hash, std::equal_to
-#include <string_view>                  // std::string_view
-#include <unordered_map>                // std::unordered_map
-#include <boost/geometry/geometry.hpp>  // duh...
-#include <boost/optional/optional.hpp>  // boost::optional<T const&>
-// #include <boost/unordered/unordered_map.hpp>
-// #include <boost/unordered/unordered_node_map.hpp>
-// #include <boost/unordered/unordered_flat_map.hpp>  // is faster than std::unordered_map?
+#include <vector>                                  // std::vector
+#include <variant>                                 // std::variant
+#include <utility>                                 // std::pair
+#include <functional>                              // std::hash, std::equal_to
+#include <string_view>                             // std::string_view
+#include <boost/geometry/geometry.hpp>             // duh...
+#include <boost/optional/optional.hpp>             // boost::optional<T const&>
+#include <boost/unordered/unordered_flat_map.hpp>  // is faster than std::unordered_map?
 
 namespace RediSearch {
 namespace GeoShape {
@@ -46,18 +43,14 @@ class RTree {
 
   using rect_type = bgm::box<point_type>;
   using doc_type = std::pair<rect_type, t_docId>;
-  using doc_alloc = Allocator::TrackingAllocator<doc_type>;
+  using doc_alloc = Allocator::Allocator<doc_type>;
   using rtree_type = bgi::rtree<doc_type, bgi::quadratic<16>, bgi::indexable<doc_type>,
                                 bgi::equal_to<doc_type>, doc_alloc>;
 
   using lookup_type = std::pair<t_docId const, geom_type>;
-  using lookup_alloc = Allocator::TrackingAllocator<lookup_type>;
-  // `boost::unordered_flat_map` is preferable if we can deal with the issue of reference stability - only relevant because of MT.
-  //     this can be avoided by lookup() returning `std::optional<geom_type>` instead of `boost::optional<geom_type const&>`.
-  // `boost::unordered_node_map` failed to provide reference stability. important to find out why, as that is it's singular advantage.
-  // `boost::unordered_map` requires a default constructable allocator as it calls `allocator<node_type<KV, void*>> a{}.allocate()`
-  using LUT_type = std::unordered_map<t_docId, geom_type, std::hash<t_docId>,
-                                      std::equal_to<t_docId>, lookup_alloc>;
+  using lookup_alloc = Allocator::Allocator<lookup_type>;
+  using LUT_type = boost::unordered_flat_map<t_docId, geom_type, std::hash<t_docId>,
+                                             std::equal_to<t_docId>, lookup_alloc>;
 
   using query_results = std::vector<doc_type, Allocator::TrackingAllocator<doc_type>>;
 
