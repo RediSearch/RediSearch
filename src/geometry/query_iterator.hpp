@@ -26,8 +26,8 @@ struct QueryIterator {
   explicit QueryIterator(container_type &&docs);
   template <std::ranges::input_range R>
     requires requires(R r) { std::is_same_v<t_docId, std::decay_t<decltype(r.begin())>>; }
-  explicit QueryIterator(R &&range, auto &&alloc)
-      : QueryIterator(container_type{range.begin(), range.end(), alloc_type{alloc.allocated_}}) {
+  explicit QueryIterator(R &&range, std::size_t& alloc)
+      : QueryIterator(container_type{range.begin(), range.end(), alloc_type{alloc}}) {
   }
 
   /* rule of 5 */

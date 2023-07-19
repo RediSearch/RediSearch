@@ -22,7 +22,7 @@ QueryIterator::~QueryIterator() noexcept {
   IndexResult_Free(base_.current);
 }
 
-auto QueryIterator::base() noexcept -> IndexIterator* {
+auto QueryIterator::base() noexcept -> IndexIterator * {
   return &base_;
 }
 
@@ -90,12 +90,9 @@ int QIter_HasNext(void *ctx) {
   return static_cast<QueryIterator const *>(ctx)->has_next();
 }
 void QIter_Free(IndexIterator *self) {
-  using Allocator::TrackingAllocator;
-  
+  using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
   auto it = static_cast<QueryIterator *>(self->ctx);
-  auto a = TrackingAllocator<QueryIterator>{it->iter_.get_allocator()};
-  std::destroy_at(it);
-  a.deallocate(it, 1);
+  alloc_type{it->iter_.get_allocator()}.destruct_single(it);
 }
 std::size_t QIter_Len(void *ctx) {
   return static_cast<QueryIterator const *>(ctx)->len();
