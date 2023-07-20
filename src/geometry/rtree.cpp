@@ -87,8 +87,7 @@ auto from_wkt(std::string_view wkt) -> geom_type {
 
 template <typename cs, typename query_results = RTree<cs>::query_results>
 auto generate_query_iterator(query_results&& results, std::size_t& alloc) -> IndexIterator* {
-  using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
-  auto geometry_query_iterator = new (alloc_type{alloc}) QueryIterator{
+  auto geometry_query_iterator = new (alloc) QueryIterator{
       results | std::views::transform([](auto&& doc) -> t_docId { return get_id<cs>(doc); }),
       alloc};
   return geometry_query_iterator->base();

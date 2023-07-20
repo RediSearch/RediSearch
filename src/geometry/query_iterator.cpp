@@ -123,14 +123,15 @@ IndexIterator QueryIterator::init_base() {
   };
   return ii;
 }
-  void *QueryIterator::operator new(std::size_t, Allocator::TrackingAllocator<QueryIterator>&& alloc) noexcept {
-    return static_cast<void *>(alloc.allocate(1));
-  }
-  void QueryIterator::operator delete(QueryIterator *ptr, std::destroying_delete_t) noexcept {
-    using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
-    auto alloc = alloc_type{ptr->iter_.get_allocator()};
-    ptr->~QueryIterator();
-    alloc.deallocate(ptr, 1);
-  }
+void *QueryIterator::operator new(std::size_t, std::size_t& alloc) noexcept {
+  using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
+  return static_cast<void *>(alloc_type{alloc}.allocate(1));
+}
+void QueryIterator::operator delete(QueryIterator *ptr, std::destroying_delete_t) noexcept {
+  using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
+  auto alloc = alloc_type{ptr->iter_.get_allocator()};
+  ptr->~QueryIterator();
+  alloc.deallocate(ptr, 1);
+}
 }  // namespace GeoShape
 }  // namespace RediSearch

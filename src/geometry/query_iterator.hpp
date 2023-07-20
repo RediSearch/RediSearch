@@ -49,7 +49,7 @@ struct QueryIterator {
 
   static IndexIterator init_base();
 
-  void *operator new(std::size_t, Allocator::TrackingAllocator<QueryIterator>&& alloc) noexcept;
+  void *operator new(std::size_t, std::size_t& alloc) noexcept;
   void operator delete(QueryIterator *ptr, std::destroying_delete_t) noexcept;
 };
 
