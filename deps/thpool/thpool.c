@@ -604,32 +604,32 @@ static void priority_queue_push_chain(priority_queue* priority_queue_p, struct j
       jobqueue_push_chain(&priority_queue_p->low_priority_jobqueue, f_newjob_p, l_newjob_p, n);
       break;
   }
-  bsem_post(priority_queue_p->has_jobs);
   priority_queue_unlock(priority_queue_p);
+  bsem_post(priority_queue_p->has_jobs);
 }
 
 static struct job* priority_queue_pull(priority_queue* priority_queue_p) {
   struct job* job_p = NULL;
   priority_queue_lock(priority_queue_p);
   // We want to pull from the lower priority queue every 3rd time
-  if (priority_queue_p->pulls % 3 == 2) {
+  if (!(++priority_queue_p->pulls % 3)) {
     job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
     // If the lower priority queue is empty, pull from the higher priority queue
-    if(!job_p) {
+    if (!job_p) {
       job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
     }
   } else {
     job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
     // If the higher priority queue is empty, pull from the lower priority queue
-    if(!job_p) {
+    if (!job_p) {
       job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
     }
   }
-  priority_queue_p->pulls++;
-  if(priority_queue_p->high_priority_jobqueue.len ||  priority_queue_p->low_priority_jobqueue.len ) {
+  bool has_jobs = priority_queue_p->high_priority_jobqueue.len || priority_queue_p->low_priority_jobqueue.len;
+  priority_queue_unlock(priority_queue_p);
+  if (has_jobs) {
     bsem_post(priority_queue_p->has_jobs);
   }
-  priority_queue_unlock(priority_queue_p);
 
   return job_p;
 
