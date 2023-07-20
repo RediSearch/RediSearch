@@ -88,10 +88,9 @@ auto from_wkt(std::string_view wkt) -> geom_type {
 template <typename cs, typename query_results = RTree<cs>::query_results>
 auto generate_query_iterator(query_results&& results, std::size_t& alloc) -> IndexIterator* {
   using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
-  auto p = alloc_type{alloc}.allocate(1);
-  auto geometry_query_iterator = std::construct_at(
-      p, results | std::views::transform([](auto&& doc) -> t_docId { return get_id<cs>(doc); }),
-      alloc);
+  auto geometry_query_iterator = new (alloc_type{alloc}) QueryIterator{
+      results | std::views::transform([](auto&& doc) -> t_docId { return get_id<cs>(doc); }),
+      alloc};
   return geometry_query_iterator->base();
 }
 
@@ -283,6 +282,17 @@ auto RTree<cs>::query(std::string_view wkt, QueryType query_type, RedisModuleStr
     }
     return nullptr;
   }
+}
+
+template <typename cs>
+void* RTree<cs>::operator new(std::size_t) noexcept {
+  using alloc_type = RediSearch::Allocator::Allocator<RTree<cs>>;
+  return static_cast<void*>(alloc_type::allocate(1));
+}
+template <typename cs>
+void RTree<cs>::operator delete(void* p) noexcept {
+  using alloc_type = RediSearch::Allocator::Allocator<RTree<cs>>;
+  alloc_type::deallocate(static_cast<RTree<cs>*>(p), 1);
 }
 
 #define X(variant) template class RTree<variant>;

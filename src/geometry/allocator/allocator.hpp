@@ -28,14 +28,14 @@ inline constexpr Allocator<T>::Allocator(Allocator<U> const&) noexcept {
 }
 
 template <class T>
-inline auto Allocator<T>::allocate(size_t n) noexcept -> value_type* {
+inline auto Allocator<T>::allocate(std::size_t n) noexcept -> value_type* {
   auto alloc_size = n * sizeof(value_type);
   auto p = static_cast<value_type*>(rm_malloc(alloc_size));
   return p;
 }
 
 template <class T>
-inline void Allocator<T>::deallocate(value_type* p, size_t n) noexcept {
+inline void Allocator<T>::deallocate(value_type* p, std::size_t n) noexcept {
   rm_free(p);
 }
 

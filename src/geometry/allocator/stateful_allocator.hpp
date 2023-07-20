@@ -14,16 +14,16 @@ namespace Allocator {
 template <class T>
 struct StatefulAllocator {
   using value_type = T;
-  size_t allocated_ = 0;
+  std::size_t allocated_ = 0;
 
   explicit inline constexpr StatefulAllocator() = default;
   template <class U>
   explicit inline constexpr StatefulAllocator(StatefulAllocator<U> const&) noexcept;
 
-  [[nodiscard]] inline auto allocate(size_t n) noexcept -> value_type*;
-  inline void deallocate(value_type* p, size_t n) noexcept;
+  [[nodiscard]] inline auto allocate(std::size_t n) noexcept -> value_type*;
+  inline void deallocate(value_type* p, std::size_t n) noexcept;
 
-  [[nodiscard]] inline constexpr size_t report() const noexcept;
+  [[nodiscard]] inline constexpr std::size_t report() const noexcept;
 };
 
 template <class T>
@@ -47,7 +47,7 @@ inline void StatefulAllocator<T>::deallocate(value_type* p, std::size_t n) noexc
 }
 
 template <class T>
-inline constexpr size_t StatefulAllocator<T>::report() const noexcept {
+inline constexpr std::size_t StatefulAllocator<T>::report() const noexcept {
   return allocated_;
 }
 

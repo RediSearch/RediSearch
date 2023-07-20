@@ -20,7 +20,7 @@ struct QueryIterator {
 
   IndexIterator base_;
   container_type iter_;
-  size_t index_;
+  std::size_t index_;
 
   explicit QueryIterator() = delete;
   explicit QueryIterator(container_type &&docs);
@@ -43,11 +43,14 @@ struct QueryIterator {
   int skip_to(t_docId docId, RSIndexResult *&hit);
   t_docId current() const noexcept;
   int has_next() const noexcept;
-  size_t len() const noexcept;
+  std::size_t len() const noexcept;
   void abort() noexcept;
   void rewind() noexcept;
 
   static IndexIterator init_base();
+
+  void *operator new(std::size_t, Allocator::TrackingAllocator<QueryIterator>&& alloc) noexcept;
+  void operator delete(QueryIterator *ptr, std::destroying_delete_t) noexcept;
 };
 
 }  // namespace GeoShape
