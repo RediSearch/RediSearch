@@ -43,12 +43,12 @@ class RTree {
 
   using rect_type = bgm::box<point_type>;
   using doc_type = std::pair<rect_type, t_docId>;
-  using doc_alloc = Allocator::Allocator<doc_type>;
+  using doc_alloc = Allocator::TrackingAllocator<doc_type>;
   using rtree_type = bgi::rtree<doc_type, bgi::quadratic<16>, bgi::indexable<doc_type>,
                                 bgi::equal_to<doc_type>, doc_alloc>;
 
   using lookup_type = std::pair<t_docId const, geom_type>;
-  using lookup_alloc = Allocator::Allocator<lookup_type>;
+  using lookup_alloc = Allocator::TrackingAllocator<lookup_type>;
   using LUT_type = boost::unordered_flat_map<t_docId, geom_type, std::hash<t_docId>,
                                              std::equal_to<t_docId>, lookup_alloc>;
 
@@ -68,7 +68,7 @@ class RTree {
                            RedisModuleString** err_msg) const -> IndexIterator*;
 
   void dump(RedisModuleCtx* ctx) const;
-  [[nodiscard]] size_t report() const noexcept;
+  [[nodiscard]] std::size_t report() const noexcept;
 
  private:
   [[nodiscard]] auto lookup(t_docId id) const -> boost::optional<geom_type const&>;

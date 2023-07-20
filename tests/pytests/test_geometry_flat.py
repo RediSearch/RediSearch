@@ -264,7 +264,7 @@ def testFtInfo(env):
   res = to_dict(env.cmd('FT.INFO idx1'))
   env.assertEqual(float(res[info_key_name]), cur_usage)
 
-  doc_num = 100
+  doc_num = 10000
 
   # Memory usage should increase
   usage = 0

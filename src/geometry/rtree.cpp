@@ -123,7 +123,10 @@ constexpr auto filter_results = [](auto&& geom1, auto&& geom2) -> bool {
 }  // anonymous namespace
 
 template <typename cs>
-RTree<cs>::RTree() : allocated_{sizeof *this} {
+RTree<cs>::RTree()
+    : allocated_{sizeof *this},
+      rtree_{{}, {}, {}, doc_alloc{allocated_}},
+      docLookup_{0, lookup_alloc{allocated_}} {
 }
 
 template <typename cs>
@@ -142,7 +145,7 @@ template <typename cs>
 void RTree<cs>::insert(geom_type const& geom, t_docId id) {
   rtree_.insert(make_doc<cs>(geom, id));
   docLookup_.insert(lookup_type{id, geom});
-  allocated_ += sizeof(doc_type) + sizeof(lookup_type) + std::visit(geometry_reporter<cs>, geom);
+  allocated_ += std::visit(geometry_reporter<cs>, geom);
 }
 
 template <typename cs>
@@ -162,7 +165,7 @@ template <typename cs>
 bool RTree<cs>::remove(t_docId id) {
   if (auto geom = lookup(id); geom.has_value()) {
     rtree_.remove(make_doc<cs>(*geom, id));
-    allocated_ -= sizeof(doc_type) + sizeof(lookup_type) + std::visit(geometry_reporter<cs>, *geom);
+    allocated_ -= std::visit(geometry_reporter<cs>, *geom);
     docLookup_.erase(id);
     return true;
   }
@@ -171,7 +174,7 @@ bool RTree<cs>::remove(t_docId id) {
 
 template <typename cs>
 void RTree<cs>::dump(RedisModuleCtx* ctx) const {
-  size_t lenTop = 0;
+  std::size_t lenTop = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   RedisModule_ReplyWithStringBuffer(ctx, "type", strlen("type"));
@@ -194,7 +197,7 @@ void RTree<cs>::dump(RedisModuleCtx* ctx) const {
   std::size_t lenDocs = 0;
   std::ranges::for_each(rtree_, [&](doc_type const& doc) -> void {
     lenDocs += 1;
-    size_t lenValues = 0;
+    std::size_t lenValues = 0;
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
     RedisModule_ReplyWithStringBuffer(ctx, "id", strlen("id"));
