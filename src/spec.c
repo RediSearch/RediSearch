@@ -1772,6 +1772,9 @@ static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_F
 
 static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver) {
 
+  
+  f->indexError = IndexError_Init();
+
   // Fall back to legacy encoding if needed
   if (encver < INDEX_MIN_TAGFIELD_VERSION) {
     return FieldSpec_RdbLoadCompat8(rdb, f, encver);
@@ -1870,6 +1873,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   return REDISMODULE_OK;
 
 fail:
+  IndexError_Clear(f->indexError);
   return REDISMODULE_ERR;
 }
 
@@ -2437,6 +2441,8 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     dictAdd(specDict_g, sp->name, spec_ref.rm);
   }
 
+  sp->stats.indexError = IndexError_Init();
+
   for (int i = 0; i < sp->numFields; i++) {
     FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
   }
@@ -2553,6 +2559,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   IndexSpec_StartGC(RSDummyContext, spec_ref, sp);
   Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
 
+  sp->stats.indexError = IndexError_Init();
   dictAdd(legacySpecDict, sp->name, spec_ref.rm);
   return spec_ref.rm;
 }
