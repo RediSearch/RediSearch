@@ -142,6 +142,9 @@ typedef struct RSValue {
 #define RS_DUOVAL_OTHER2VAL(v) ((v).duoval.vals[2])
 #define APIVERSION_RETURN_MULTI_CMP_FIRST 3
 
+#define RSVALUE_MAP_KEYPOS(pos) ((pos) * 2)
+#define RSVALUE_MAP_VALUEPOS(pos) ((pos) * 2 + 1)
+
 /**
  * Clears the underlying storage of the value, and makes it
  * be a reference to the NULL value
@@ -316,6 +319,14 @@ static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
       }
       return hval;
     }
+
+    case RSValue_Map:
+      for (uint32_t i = 0; i < v->mapval.len; i++) {
+        hval = RSValue_Hash(v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)], hval);
+        hval = RSValue_Hash(v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)], hval);
+      }
+      return hval;
+
     case RSValue_Undef:
       return 0;
 
@@ -366,9 +377,6 @@ RSValue *RSValue_NewMap(RSValue **pairs, uint32_t numPairs);
 #define RSVALUE_ARRELEM(vv, pos) ((vv)->arrval.vals[pos])
 /** Accesses the array length as an lvalue */
 #define RSVALUE_ARRLEN(vv) ((vv)->arrval.len)
-
-#define RSVALUE_MAP_KEYPOS(pos) ((pos) * 2)
-#define RSVALUE_MAP_VALUEPOS(pos) ((pos) * 2 + 1)
 
 RSValue *RS_VStringArray(uint32_t sz, ...);
 

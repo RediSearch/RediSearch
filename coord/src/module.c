@@ -421,7 +421,7 @@ void SpecialCaseCtx_Free(specialCaseCtx* ctx) {
   if(ctx->specialCaseType == SPECIAL_CASE_KNN) {
     QueryNode_Free(ctx->knn.queryNode);
   } else if(ctx->specialCaseType == SPECIAL_CASE_SORTBY) {
-    rm_free(ctx->sortby.sortKey);
+    rm_free((void*)ctx->sortby.sortKey);
   }
   rm_free(ctx);
 }

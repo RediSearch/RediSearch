@@ -429,6 +429,7 @@ RSValue *RSValue_NewMap(RSValue **pairs, uint32_t numPairs) {
   RSValue *map = RS_NewValue(RSValue_Map);
   map->mapval.pairs = pairs;
   map->mapval.len = numPairs;
+  return map;
 }
 
 RSValue *RS_VStringArray(uint32_t sz, ...) {

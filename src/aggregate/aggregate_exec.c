@@ -77,6 +77,7 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
       case RSValue_Null:
       case RSValue_Undef:
       case RSValue_Array:
+      case RSValue_Map:
       case RSValue_Reference:
       case RSValue_Duo:
         break;
