@@ -479,7 +479,6 @@ RSValue *RS_DuoVal(RSValue *val, RSValue *otherval, RSValue *other2val) {
 
 static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t l2) {
   int cmp = strncmp(s1, s2, MIN(l1, l2));
-  printf("====> %d cmp_strings: s1=%s, s2=%s, l1=%ld, l2=%ld\n", cmp, s1, s2, l1, l2);
   if (l1 == l2) {
     // if the strings are the same length, just return the result of strcmp
     return cmp;
