@@ -420,6 +420,8 @@ void SpecialCaseCtx_Free(specialCaseCtx* ctx) {
   if (!ctx) return;
   if(ctx->specialCaseType == SPECIAL_CASE_KNN) {
     QueryNode_Free(ctx->knn.queryNode);
+  } else if(ctx->specialCaseType == SPECIAL_CASE_SORTBY) {
+    rm_free(ctx->sortby.sortKey);
   }
   rm_free(ctx);
 }
@@ -563,7 +565,7 @@ void prepareSortbyCase(searchRequestCtx *req, RedisModuleString **argv, int argc
   const char* sortkey = RedisModule_StringPtrLen(argv[sortByIndex + 1], NULL);
   specialCaseCtx *ctx = SpecialCaseCtx_New();
   ctx->specialCaseType = SPECIAL_CASE_SORTBY;
-  ctx->sortby.sortKey = sortkey;
+  ctx->sortby.sortKey = rm_strdup(sortkey);
   ctx->sortby.asc = true;
   req->sortAscending = true;
   if (req->withSortby && sortByIndex + 2 < argc) {
