@@ -873,6 +873,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
       sortkey = MRReply_MapElement(result_j, "sortkey");
     }
     if (!sortkey) {
+      // Fail if sortkey is required but not found
       res->id = NULL;
       return res;
     }
@@ -1006,27 +1007,27 @@ static double parseNumeric(const char *str, const char *sortKey) {
     }                                                     \
   } while (0);
 
-static void proccessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, double score, specialCaseCtx* reduceSpecialCaseCtx) {
+static void proccessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, double score, knnContext *knnCtx) {
   // As long as we don't have k results, keep insert
-    if (heap_count(reduceSpecialCaseCtx->knn.pq) < reduceSpecialCaseCtx->knn.k) {
+    if (heap_count(knnCtx->pq) < knnCtx->k) {
       scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
       resWrapper->result = res;
       resWrapper->score = score;
-      heap_offerx(reduceSpecialCaseCtx->knn.pq, resWrapper);
+      heap_offerx(knnCtx->pq, resWrapper);
     } else {
       // Check for upper bound
       scoredSearchResultWrapper tmpWrapper;
       tmpWrapper.result = res;
       tmpWrapper.score = score;
-      scoredSearchResultWrapper *largest = heap_peek(reduceSpecialCaseCtx->knn.pq);
+      scoredSearchResultWrapper *largest = heap_peek(knnCtx->pq);
       int c = cmp_scored_results(&tmpWrapper, largest, rCtx->searchCtx);
       if (c < 0) {
         scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
         resWrapper->result = res;
         resWrapper->score = score;
         // Current result is smaller then upper bound, replace them.
-        largest = heap_poll(reduceSpecialCaseCtx->knn.pq);
-        heap_offerx(reduceSpecialCaseCtx->knn.pq, resWrapper);
+        largest = heap_poll(knnCtx->pq);
+        heap_offerx(knnCtx->pq, resWrapper);
         rCtx->cachedResult = largest->result;
         rm_free(largest);
       } else {
@@ -1082,7 +1083,7 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
       }
       double d;
       GET_NUMERIC_SCORE(d, res, MRReply_String(score_value, NULL));
-      proccessKNNSearchResult(res, rCtx, d, reduceSpecialCaseCtxKnn);
+      proccessKNNSearchResult(res, rCtx, d, &reduceSpecialCaseCtxKnn->knn);
     }
     processResultFormat(&req->format, arr);
     
@@ -1108,7 +1109,7 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
 
       double d;
       GET_NUMERIC_SCORE(d, res, MRReply_String(MRReply_ArrayElement(arr, j + scoreOffset), NULL));
-      proccessKNNSearchResult(res, rCtx, d, reduceSpecialCaseCtxKnn);
+      proccessKNNSearchResult(res, rCtx, d, &reduceSpecialCaseCtxKnn->knn);
     }
   }
   return;
@@ -1192,8 +1193,7 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
     for (int i = 0; i < len; ++i) {
       searchResult *res = newResult_resp3(rCtx->cachedResult, results, i, &rCtx->offsets, rCtx->searchCtx->withExplainScores, rCtx->reduceSpecialCaseCtxSortby);
       processSerchReplyResult(res, rCtx, ctx);
-    }
-    
+    }    
     processResultFormat(&rCtx->searchCtx->format, arr);
   }
   else // RESP2

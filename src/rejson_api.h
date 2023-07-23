@@ -117,6 +117,7 @@ typedef struct RedisJSONAPI {
 
 } RedisJSONAPI;
 
+#define RedisJSONAPI_LATEST_API_VER 4
 #ifdef __cplusplus
 }
 #endif

@@ -35,7 +35,7 @@ void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
     char ver[128];
     // Obtain the newest version of JSON API
-    for (int i = 4; i >= 1; --i) {
+    for (int i = RedisJSONAPI_LATEST_API_VER; i >= 1; --i) {
       sprintf(ver, "RedisJSON_V%d", i);
       japi = RedisModule_GetSharedAPI(ctx, ver);
       if (japi) {

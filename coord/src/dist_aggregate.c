@@ -236,14 +236,12 @@ static const RLookupKey *keyForField(RPNet *nc, const char *s) {
 }
 
 void processResultFormat(uint32_t *flags, MRReply *map) {
-  if (*flags & QEXEC_FORMAT_DEFAULT) {
-    // Logic of which format to use is done by the shards
-    MRReply *format = MRReply_MapElement(map, "format");
-    RS_LOG_ASSERT(format, "missing format specification");
-    if (MRReply_StringEquals(format, "EXPAND", false)) {
-      *flags |= QEXEC_FORMAT_EXPAND;
-      *flags &= ~QEXEC_FORMAT_DEFAULT;
-	  }
+  // Logic of which format to use is done by the shards
+  MRReply *format = MRReply_MapElement(map, "format");
+  RS_LOG_ASSERT(format, "missing format specification");
+  if (MRReply_StringEquals(format, "EXPAND", false)) {
+    *flags |= QEXEC_FORMAT_EXPAND;
+    *flags &= ~QEXEC_FORMAT_DEFAULT;
   }
 }
 
@@ -614,11 +612,12 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   if (IsProfile(r)) r->parseTime = clock() - r->initClock;
 
-  // With cursor, we rely on the existing mechanism of AREQ to free the ctx object when the cursor is exhausted
+  // Create the Search context
+  // (notice with cursor, we rely on the existing mechanism of AREQ to free the ctx object when the cursor is exhausted)
   r->sctx = rm_new(RedisSearchCtx);
   *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
   r->sctx->apiVersion = dialect;
-  // Value of r->sctx->expanded will be prcossed from shards reply
+  // r->sctx->expanded should be recieved from shards
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
     // Keep the original concurrent context

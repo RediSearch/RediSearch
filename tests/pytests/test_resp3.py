@@ -54,7 +54,7 @@ def test_search():
         {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
         {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
       ]}
-    env.expect('FT.search', 'idx1', "*", "FORMAT", "STRING").equal(exp)
+    env.expect('FT.search', 'idx1', "*").equal(exp)
 
     # test withscores
     exp = {
@@ -129,7 +129,7 @@ def test_search():
         {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
       ]
     }
-    env.expect('FT.search', 'idx1', "*", "FORMAT", "STRING").equal(exp)
+    env.expect('FT.search', 'idx1', "*").equal(exp)
 
 def test_search_timeout():
     env = Env(protocol=3)
@@ -713,13 +713,15 @@ def testExpandErrorsResp3():
   env = Env(protocol=3)
   # On JSON
   env.cmd('ft.create', 'idx', 'on', 'json', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric')
-  env.expect('FT.SEARCH', 'idx', '*', 'FORMAT').error()
-  env.expect('FT.SEARCH', 'idx', '*', 'FORMAT', 'XPAND').error()
-  env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT').error()
-  env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'XPAND').error()
+  env.expect('FT.SEARCH', 'idx', '*', 'FORMAT').error().contains('Need an argument for FORMAT')
+  env.expect('FT.SEARCH', 'idx', '*', 'FORMAT', 'XPAND').error().contains('FORMAT XPAND is not supported')
+  env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT').error().contains('Need an argument for FORMAT')
+  env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'XPAND').error().contains('FORMAT XPAND is not supported')
 
   # On HASH
   env.cmd('ft.create', 'idx2', 'on', 'hash', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric')
+  env.expect('FT.SEARCH', 'idx2', '*', 'FORMAT', 'EXPAND').error().contains('EXPAND format is only supported with JSON')
+  
   if not env.isCluster():
     env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
   else:
@@ -732,20 +734,25 @@ def testExpandErrorsResp3():
 def testExpandErrorsResp2():
   env = Env(protocol=2)
   env.cmd('ft.create', 'idx', 'on', 'json', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric')
-  env.expect('FT.SEARCH', 'idx', '*', 'FORMAT', 'EXPAND').error()
+  env.expect('FT.SEARCH', 'idx', '*', 'FORMAT', 'EXPAND').error().contains('EXPAND format is only supported with RESP3')
+  
   if not env.isCluster():
     env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').error()
   else:
     # TODO: Expect an error once MOD-5211 is done
     env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').equal([0])
 
+
   # On HASH
   env.cmd('ft.create', 'idx2', 'on', 'hash', 'SCHEMA', 'num', 'numeric', 'str', 'text')
+  env.expect('FT.SEARCH', 'idx2', '*', 'FORMAT', 'EXPAND').error().contains('EXPAND format is only supported with RESP3')
+  
   if not env.isCluster():
     env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
   else:
     # TODO: Expect an error once MOD-5211 is done
     env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').equal([0])
+
 
 def testExpandJson():
   ''' Test returning values for JSON in expanded format (raw RESP3 instead of stringified JSON) '''
@@ -759,7 +766,7 @@ def testExpandJson():
   with env.getClusterConnectionIfNeeded() as r:
     r.execute_command('json.set', 'doc1', '$', '{"arr":[1.0,2.1,3.14],"num":1,"str":"foo","sub":{"s1":false},"sub2":{"arr":[10,20,33.33]}, "empty_arr":[], "empty_obj":{}}')
     r.execute_command('json.set', 'doc2', '$', '{"arr":[3,4,null],"num":2,"str":"bar","sub":{"s2":true},"sub2":{"arr":[40,50,66.66]}, "empty_arr":[], "empty_obj":{}}')
-    r.execute_command('json.set', 'doc3', '$', '{"arr":[5,6,7],"num":3,"str":"baz","sub":{"s3":false},"sub2":{"arr":[70,80,99.99]}, "empty_arr":[], "empty_obj":{}}')
+    r.execute_command('json.set', 'doc3', '$', '{"arr":[5,6,7],"num":3,"str":"baaz","sub":{"s3":false},"sub2":{"arr":[70,80,99.99]}, "empty_arr":[], "empty_obj":{}}')
 
   exp_string = {
     'attributes': [],
@@ -804,7 +811,6 @@ def testExpandJson():
   env.assertEqual(res, exp_expand)
 
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'EXPAND', 'LOAD', '*', 'SORTBY', 2, '@num', 'ASC')
-  #res['results'].sort(key=lambda x: "" if x['extra_attributes']['$'][0].get('num') == None else x['extra_attributes']['$'][0].get('num'))
   env.assertEqual(res, exp_expand)
 
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'STRING', 'LOAD', '*', 'SORTBY', 2, '@num', 'ASC')
@@ -853,14 +859,14 @@ def testExpandJson():
   del exp_string['results'][0]['id']
   del exp_string['results'][1]['id']
 
-  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'LOAD', *load_args)
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'LOAD', *load_args, 'SORTBY', 2, '@str', 'DESC')
   env.assertEqual(res, exp_expand)
 
-  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'EXPAND', 'LOAD', *load_args)
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'EXPAND', 'LOAD', *load_args, 'SORTBY', 2, '@str', 'DESC')
   env.assertEqual(res, exp_expand)
 
   # Add DIALECT 3 to get multi values as with EXAPND
-  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'STRING', 'LOAD', *load_args, 'DIALECT', 3)
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'STRING', 'LOAD', *load_args, 'SORTBY', 2, '@str', 'DESC', 'DIALECT', 3)
   env.assertEqual(res, exp_string)
 
 def testExpandHash():
@@ -890,10 +896,13 @@ def testExpandHash():
 
   # Test FT.SEARCH
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2)
+  # Unflake test if score is zero and docid is same (zero) on shards
   res['results'].sort(key=lambda x: "" if x['extra_attributes'].get('num') == None else x['extra_attributes'].get('num'))
   env.assertEqual(res, exp_string)
 
   res = env.cmd('FT.SEARCH', 'idx', '*','LIMIT', 0, 2, 'FORMAT', 'STRING')
+  # Unflake test if score is zero and docid is same (zero) on shards
+  res['results'].sort(key=lambda x: "" if x['extra_attributes'].get('num') == None else x['extra_attributes'].get('num'))
   env.assertEqual(res, exp_string)
 
   # Test FT.AGGREGATE

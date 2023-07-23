@@ -187,6 +187,39 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
   return REDISMODULE_OK;
 }
  
+int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status) {
+  if (*flags & QEXEC_FORMAT_DEFAULT) {
+    if (is_json && is_resp3) {
+      *flags |= QEXEC_FORMAT_EXPAND;
+      *flags &= ~QEXEC_FORMAT_DEFAULT;
+    }
+  }
+
+  if (*flags & QEXEC_FORMAT_EXPAND) {
+    if (!is_resp3) {
+      QueryError_SetError(status, QUERY_EBADVAL, "EXPAND format is only supported with RESP3");
+      return REDISMODULE_ERR;
+    }
+    if (!is_json) {
+      QueryError_SetErrorFmt(status, QUERY_EBADVAL, "EXPAND format is only supported with JSON");
+      return REDISMODULE_ERR;
+    }
+    if (japi_ver < 4) {
+      QueryError_SetError(status, QUERY_EBADVAL, "EXPAND format requires a newer RedisJSON (with API version RedisJSON_V4)");
+      return REDISMODULE_ERR;
+    }
+  }
+  return REDISMODULE_OK;
+}
+
+void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req) {
+  if (req->reqflags & QEXEC_FORMAT_EXPAND) {
+    sctx->expanded = 1;
+    sctx->apiVersion = MAX(APIVERSION_RETURN_MULTI_CMP_FIRST, req->reqConfig.dialectVersion);
+  } else {
+    sctx->apiVersion = req->reqConfig.dialectVersion;
+  }
+}
 
 #define ARG_HANDLED 1
 #define ARG_ERROR -1
@@ -936,27 +969,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
   
   bool resp3 = req->protocol == 3;
-  bool isJson = isSpecJson(index);
-
-  if (req->reqflags & QEXEC_FORMAT_DEFAULT) {
-    if (isJson && resp3) {
-      req->reqflags |= QEXEC_FORMAT_EXPAND;
-      req->reqflags &= ~QEXEC_FORMAT_DEFAULT;
-    }
-  }
-
-  if (req->reqflags & QEXEC_FORMAT_EXPAND) {
-    if (!resp3) {
-      QueryError_SetError(status, QUERY_EBADVAL, "EXPAND format is only supported with RESP3");
-      return REDISMODULE_ERR;
-    }
-    if (!isJson) {
-      QueryError_SetErrorFmt(status, QUERY_EBADVAL, "EXPAND format is only supported with %s", SpecRuleTypeName(index));
-      return REDISMODULE_ERR;
-    }
-    if (japi_ver < 4) {
-      QueryError_SetError(status, QUERY_EBADVAL, "EXPAND format requires a newer RedisJSON (with API version RedisJSON_V4)");
-    }
+  if (SetValueFormat(resp3, isSpecJson(index), &req->reqflags, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
   }
 
   if (!(opts->flags & Search_NoStopwrods)) {
@@ -964,12 +978,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     StopWordList_Ref(sctx->spec->stopwords);
   }
 
-  if (req->reqflags & QEXEC_FORMAT_EXPAND) {
-    sctx->expanded = 1;
-    sctx->apiVersion = MAX(APIVERSION_RETURN_MULTI_CMP_FIRST, req->reqConfig.dialectVersion);
-  } else {
-    sctx->apiVersion = req->reqConfig.dialectVersion;
-  }
+  SetSearchCtx(sctx, req);
   QueryAST *ast = &req->ast;
 
   int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), req->reqConfig.dialectVersion, status);

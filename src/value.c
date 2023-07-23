@@ -479,6 +479,7 @@ RSValue *RS_DuoVal(RSValue *val, RSValue *otherval, RSValue *other2val) {
 
 static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t l2) {
   int cmp = strncmp(s1, s2, MIN(l1, l2));
+  printf("====> %d cmp_strings: s1=%s, s2=%s, l1=%ld, l2=%ld\n", cmp, s1, s2, l1, l2);
   if (l1 == l2) {
     // if the strings are the same length, just return the result of strcmp
     return cmp;
@@ -491,6 +492,35 @@ static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t 
     }
   }
 }
+
+static inline int compare_arrays_first(const RSValue *arr1, const RSValue *arr2, QueryError *qerr) {
+  uint32_t len1 = arr1->arrval.len;
+  uint32_t len2 = arr2->arrval.len;
+
+  uint32_t len = MIN(len1, len2);
+  if (len) {
+    // Compare only the first entry
+    return RSValue_Cmp(arr1->arrval.vals[0], arr2->arrval.vals[0], qerr);
+  }
+  return len1 - len2;
+}
+
+// TODO: Use when SORTABLE is not looking only at the first array element
+static inline int compare_arrays(const RSValue *arr1, const RSValue *arr2, QueryError *qerr) {
+  uint32_t len1 = arr1->arrval.len;
+  uint32_t len2 = arr2->arrval.len;
+
+  uint32_t len = MIN(len1, len2);
+  for (uint32_t i = 0; i < len; i++) {
+    int cmp = RSValue_Cmp(arr1->arrval.vals[i], arr2->arrval.vals[i], qerr);
+    if (cmp != 0) {
+      return cmp;
+    }
+  }
+  return len1 - len2;
+}
+
+
 
 static inline int cmp_numbers(const RSValue *v1, const RSValue *v2) {
   return v1->numval > v2->numval ? 1 : (v1->numval < v2->numval ? -1 : 0);
@@ -510,7 +540,7 @@ static inline int convert_to_number(const RSValue *v, RSValue *vn, QueryError *q
   return 1;
 }
 
-static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2) {
+static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   switch (v1->t) {
     case RSValue_Number:
       return cmp_numbers(v1, v2);
@@ -524,11 +554,13 @@ static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2) {
       return cmp_strings(s1, s2, l1, l2);
     }
     case RSValue_Duo:
-      return RSValue_CmpNC(RS_DUOVAL_VAL(*v1), RS_DUOVAL_VAL(*v2));
+      return RSValue_Cmp(RS_DUOVAL_VAL(*v1), RS_DUOVAL_VAL(*v2), qerr);
     case RSValue_Null:
       return 0;
-    case RSValue_Array:  // can't compare arrays/maps ATM
-    case RSValue_Map:
+    case RSValue_Array:
+      return compare_arrays_first(v1, v2, qerr);
+
+    case RSValue_Map:   // can't compare maps ATM
     default:
       return 0;
   }
@@ -537,7 +569,7 @@ static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2) {
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   RS_LOG_ASSERT(v1 && v2, "missing RSvalue");
   if (v1->t == v2->t) {
-    return RSValue_CmpNC(v1, v2);
+    return RSValue_CmpNC(v1, v2, qerr);
   }
 
   // if one of the values is null, the other wins
@@ -585,7 +617,7 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   RS_LOG_ASSERT(v1 && v2, "missing RSvalue");
 
   if (v1->t == v2->t) {
-    return RSValue_CmpNC(v1, v2) == 0;
+    return RSValue_CmpNC(v1, v2, qerr) == 0;
   }
 
   if (v1 == RS_NullVal() || v2 == RS_NullVal()) {
@@ -816,10 +848,12 @@ void RSValue_Print(const RSValue *v) {
   }
 }
 
+#ifdef _DEBUG
 void print_rsvalue(RSValue *v) {
   RSValue_Print(v);
   fputs("\n", stderr);
 }
+#endif // _DEBUG
 
 /*
  *  - s: will be parsed as a string
