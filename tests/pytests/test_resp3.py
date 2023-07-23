@@ -68,7 +68,7 @@ def test_search():
             ]
            ],
            'payload': None,
-           'sortkey': None,
+           # in 2.6 with RESP2, WITHSORTKEYS but without SORTBY does not return a null `sortey`
            'extra_attributes': {'f1': '3', 'f2': '2'},
            'values': []
         },
@@ -80,7 +80,7 @@ def test_search():
             ]
           ],
           'payload': None,
-          'sortkey': None,
+          # in 2.6 with RESP2, WITHSORTKEYS but without SORTBY does not return a null `sortey`
           'extra_attributes': {'f1': '3', 'f2': '3'},
           'values': []
         }
