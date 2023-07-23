@@ -120,6 +120,7 @@ void RSValue_Clear(RSValue *v) {
         RSValue_Decref(v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)]);
         RSValue_Decref(v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)]);
       }
+      rm_free(v->mapval.pairs);
       break;
     default:   // no free
       break;
@@ -387,6 +388,14 @@ RSValue *RS_Int64Val(int64_t dd) {
   RSValue *v = RS_NewValue(RSValue_Number);
   v->numval = dd;
   return v;
+}
+
+RSValue *RSValue_NewArray(RSValue **vals, uint32_t len) {
+  RSValue *arr = RS_NewValue(RSValue_Array);
+  arr->arrval.vals = vals;
+  arr->arrval.len = len;
+  arr->arrval.staticarray = 0;
+  return arr;
 }
 
 RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {

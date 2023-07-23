@@ -878,8 +878,6 @@ def testExpandHash():
   env = Env(protocol=3)
   env.cmd('ft.create', 'idx', 'on', 'hash', 'SCHEMA', 'num', 'numeric', 'str', 'text', 't', 'tag')
 
-  #FIXME: TODO: test empty container, multi-value, test FT.AGGREGATE, VECSIM
-
   with env.getClusterConnectionIfNeeded() as r:
     r.execute_command('hset', 'doc1', 'num', 1, 'str', 'foo', 'other', 'fu')
     r.execute_command('hset', 'doc2', 'num', 2, 'str', 'bar', 'other', 'bur')

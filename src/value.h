@@ -365,6 +365,13 @@ RSValue *RS_Int64Val(int64_t ii);
  */
 RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options);
 
+/**
+ * Create a new array from existing values
+ * Take ownership of the values (values would be freed when array is freed)
+ * @param vals the values array to use for the array
+ * @param len number of values
+ */
+RSValue *RSValue_NewArray(RSValue **vals, uint32_t len);
 
 /**
  * Create a new map from existing pairs

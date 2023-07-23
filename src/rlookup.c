@@ -505,7 +505,7 @@ RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) 
     for (size_t i = 0; (json = japi->next(iter)); ++i) {
       arr[i] = jsonValToValueExpanded(ctx, json);
     }
-    ret = RSValue_NewArrayEx(arr, len, 0);
+    ret = RSValue_NewArray(arr, len);
   } else {
     // Empty array  
     ret = RSValue_NewArrayEx(NULL, 0, RSVAL_ARRAY_ALLOC);
