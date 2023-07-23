@@ -2274,3 +2274,51 @@ def test_score_name_case_sensitivity():
     env.expect('FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB]',
                'PARAMS', 4, 'k', k, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
                'RETURN', '1', score_name.lower()).equal(expected())
+
+
+@skip(cluster=True, noWorkers=True)
+def test_tiered_index_gc(env):
+    fork_gc_interval_sec = '10'
+    N = 1000
+    env = Env(moduleArgs=f'WORKER_THREADS 2 MT_MODE MT_MODE_FULL FORK_GC_RUN_INTERVAL {fork_gc_interval_sec}'
+                         f' FORK_GC_CLEAN_THRESHOLD {N}')
+    conn = getConnectionByEnv(env)
+    dim = 16
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
+                         'v1', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+                         'v2', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT64', 'DIM', dim, 'DISTANCE_METRIC', 'COSINE',
+                         't', 'TEXT')
+
+    # Insert random vectors to an index with two vector fields.
+    for i in range(N):
+        res = conn.execute_command('hset', i, 't', f'some string with to be cleaned by GC for id {i}',
+                                   'v1', create_np_array_typed(np.random.random((1, dim))).tobytes(),
+                                   'v2', create_np_array_typed(np.random.random((1, dim)), 'FLOAT64').tobytes())
+        env.assertEqual(res, 3)
+
+    # Wait until all vectors are indexed into HNSW.
+    while True:
+        debug_info_v1 = get_vecsim_debug_dict(env, 'idx', 'v1')
+        debug_info_v2 = get_vecsim_debug_dict(env, 'idx', 'v2')
+        if debug_info_v1['BACKGROUND_INDEXING'] or debug_info_v2['BACKGROUND_INDEXING']:
+            time.sleep(1)
+        else:
+            break
+
+    # Delete all documents. Note that we have less than TIERED_HNSW_SWAP_JOBS_THRESHOLD docs (1024),
+    # so we know that we won't execute swap jobs during the 'DEL' command execution.
+    for i in range(N):
+        res = conn.execute_command('DEL', i)
+        env.assertEqual(res, 1)
+
+    debug_info_v1 = get_vecsim_debug_dict(env, 'idx', 'v1')
+    debug_info_v2 = get_vecsim_debug_dict(env, 'idx', 'v2')
+    env.assertEqual(to_dict(debug_info_v1['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
+    env.assertEqual(to_dict(debug_info_v2['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
+
+    # Wait for GC to remove the deleted vectors.
+    time.sleep(2*int(fork_gc_interval_sec))
+    debug_info_v1 = get_vecsim_debug_dict(env, 'idx', 'v1')
+    debug_info_v2 = get_vecsim_debug_dict(env, 'idx', 'v2')
+    env.assertEqual(to_dict(debug_info_v1['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+    env.assertEqual(to_dict(debug_info_v2['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)

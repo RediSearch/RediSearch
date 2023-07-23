@@ -1,6 +1,6 @@
 from common import *
 import operator
-
+from math import nan
 
 def order_dict(d):
     ''' Sorts a dictionary recursively by keys '''
@@ -412,7 +412,7 @@ def test_info():
       'percent_indexed': 1.0,
       'records_per_doc_avg': ANY,
       'sortable_values_size_mb': 0.0,
-      'total_geoshapes_index_size_mb': 0.0,
+      'geoshapes_sz_mb': 0.0,
       'total_inverted_index_blocks': ANY,
       'vector_index_sz_mb': 0.0}
     res = env.cmd('FT.info', 'idx1')
@@ -631,7 +631,7 @@ def test_profile_crash_mod5323():
        'total_results': 3,
        'format': 'STRING'
     }
-    if not env.isCluster:  # on cluster, lack of crash is enough
+    if not env.isCluster():  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)
 
 def test_profile_child_itrerators_array():
@@ -674,7 +674,7 @@ def test_profile_child_itrerators_array():
       'total_results': 2,
       'format': 'STRING'
     }
-    if not env.isCluster:  # on cluster, lack of crash is enough
+    if not env.isCluster():  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)
 
     # test INTERSECT
@@ -706,7 +706,7 @@ def test_profile_child_itrerators_array():
       'total_results': 0,
       'format': 'STRING'
     }
-    if not env.isCluster:  # on cluster, lack of crash is enough
+    if not env.isCluster():  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)
 
 def testExpandErrorsResp3():
@@ -1088,3 +1088,159 @@ def testExpandJsonVector():
   res = env.cmd(*cmd, 'FORMAT', 'EXPAND')
   env.assertEqual(res, exp_expand)
 
+def test_ft_info():
+    env = Env(protocol=3)
+    env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
+    with env.getClusterConnectionIfNeeded() as r:
+      res = order_dict(r.execute_command('ft.info', 'idx'))
+      exp = {
+        'attributes': [
+          { 'WEIGHT': 1.0,
+            'attribute': 't',
+            'flags': [],
+            'identifier': 't',
+            'type': 'TEXT'
+          }
+        ],
+        'bytes_per_record_avg': nan,
+        'cleaning': 0,
+        'cursor_stats': {
+          'global_idle': 0,
+          'global_total': 0,
+          'index_capacity': ANY,
+          'index_total': 0
+        },
+        'dialect_stats': {
+          'dialect_1': 0,
+          'dialect_2': 0,
+          'dialect_3': 0,
+          'dialect_4': 0
+        },
+        'doc_table_size_mb': 0.0,
+        'gc_stats': {
+          'average_cycle_time_ms': nan,
+          'bytes_collected': 0.0,
+          'gc_blocks_denied': 0.0,
+          'gc_numeric_trees_missed': 0.0,
+          'last_run_time_ms': 0.0,
+          'total_cycles': 0.0,
+          'total_ms_run': 0.0
+        },
+        'hash_indexing_failures': 0.0,
+        'index_definition': {
+          'default_score': 1.0,
+          'key_type': 'HASH',
+          'prefixes': ['']
+        },
+        'index_name': 'idx',
+        'index_options': [],
+        'indexing': 0.0,
+        'inverted_sz_mb': 0.0,
+        'key_table_size_mb': 0.0,
+        'max_doc_id': 0.0,
+        'num_docs': 0.0,
+        'num_records': 0.0,
+        'num_terms': 0.0,
+        'number_of_uses': 1,
+        'offset_bits_per_record_avg': nan,
+        'offset_vectors_sz_mb': 0.0,
+        'offsets_per_term_avg': nan,
+        'percent_indexed': 1.0,
+        'records_per_doc_avg': nan,
+        'sortable_values_size_mb': 0.0,
+        'geoshapes_sz_mb': 0.0,
+        'total_indexing_time': 0.0,
+        'total_inverted_index_blocks': 0.0,
+        'vector_index_sz_mb': 0.0
+      }
+
+      exp_cluster = {
+        'attributes': [
+          { 'WEIGHT': 1.0,
+            'attribute': 't',
+            'flags': [],
+            'identifier': 't',
+            'type': 'TEXT'
+          }
+        ],
+        'bytes_per_record_avg': nan,
+        'cleaning': 0,
+        'cursor_stats': {
+          'global_idle': 0,
+          'global_total': 0,
+          'index_capacity': ANY,
+          'index_total': 0
+        },
+        'dialect_stats': {'dialect_1': 0,
+                          'dialect_2': 0,
+                          'dialect_3': 0,
+                          'dialect_4': 0},
+        'doc_table_size_mb': 0.0,
+        'gc_stats': {
+          'bytes_collected': 0
+        },
+        'hash_indexing_failures': 0,
+        'index_definition': {
+          'default_score': 1.0,
+          'key_type': 'HASH',
+          'prefixes': ['']},
+        'index_name': 'idx',
+        'index_options': [],
+        'indexing': 0,
+        'inverted_sz_mb': 0.0,
+        'key_table_size_mb': 0.0,
+        'max_doc_id': 0,
+        'num_docs': 0,
+        'num_records': 0,
+        'num_terms': 0,
+        'number_of_uses': 1,
+        'offset_bits_per_record_avg': nan,
+        'offset_vectors_sz_mb': 0.0,
+        'offsets_per_term_avg': nan,
+        'percent_indexed': 1.0,
+        'records_per_doc_avg': nan,
+        'sortable_values_size_mb': 0.0,
+        'geoshapes_sz_mb': 0.0,
+        'total_inverted_index_blocks': 0,
+        'vector_index_sz_mb': 0.0
+      }
+
+      env.assertEqual(dict_diff(res, exp_cluster if env.isCluster() else exp), {})
+
+def test_vecsim_1():
+    env = Env(protocol=3)
+    env.cmd("ft.create", "vecsimidx0", "prefix", "1", "docvecsimidx0z", "schema", "vector_FLAT", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "2", "DISTANCE_METRIC", "L2")
+    with env.getClusterConnectionIfNeeded() as r:
+        r.execute_command("HSET", "docvecsimidx0z0", "vector_FLAT", np.array([0.0, 0.0], dtype=np.float32).tobytes())
+        r.execute_command("HSET", "docvecsimidx0z1", "vector_FLAT", np.array([1.0, 1.0], dtype=np.float32).tobytes())
+        r.execute_command("HSET", "docvecsimidx0z2", "vector_FLAT", np.array([2.0, 2.0], dtype=np.float32).tobytes())
+        r.execute_command("HSET", "docvecsimidx0z3", "vector_FLAT", np.array([3.0, 3.0], dtype=np.float32).tobytes())
+    exp3 = { 'attributes': [],
+             'error': [],
+             'total_results': 4,
+             'format': 'STRING',
+             'results': [
+                 { 'id': 'docvecsimidx0z0',
+                   # 'sortkey': None,
+                   'values': []
+                 },
+                 { 'id': 'docvecsimidx0z1',
+                   # 'sortkey': None,
+                   'values': []
+                 },
+                 { 'id': 'docvecsimidx0z2',
+                   # 'sortkey': None,
+                   'values': []
+                 },
+                 { 'id': 'docvecsimidx0z3',
+                   # 'sortkey': None,
+                   'values': []
+                 }
+             ]
+           }
+    exp2 = [3, 'docvecsimidx0z0', 'docvecsimidx0z1', 'docvecsimidx0z2', 'docvecsimidx0z3']
+    res = env.execute_command("FT.SEARCH", "vecsimidx0", "(*)=>[KNN 4 @vector_FLAT $BLOB]", "NOCONTENT", "SORTBY",
+               "__vector_FLAT_score", "ASC", "DIALECT", "2", "LIMIT", "0", "4",
+               "params", "2", "BLOB", "\x00\x00\x00\x00\x00\x00\x00\x00")
+    env.assertEqual(dict_diff(res, exp3 if env.protocol == 3 else exp2, show=True,
+                    exclude_regex_paths=["\['sortkey'\]"]), {})

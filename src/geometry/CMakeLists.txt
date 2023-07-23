@@ -5,7 +5,7 @@ include(${CONAN_BINDIR}/conan_toolchain.cmake)
 
 # find_package(absl 20230125.1)
 if(CANON_BOOST)
-	find_package(Boost 1.69.0)
+	find_package(Boost 1.82.0)
 endif()
 
 file(GLOB SOURCES "*.cpp")

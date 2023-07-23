@@ -48,25 +48,25 @@ after the SCHEMA keyword, declares which fields to index:
 
  - `TEXT` - Allows full-text search queries against the value in this attribute.
 
- - `TAG` - Allows exact-match queries, such as categories or primary keys, against the value in this attribute. For more information, see [Tag Fields](/redisearch/reference/tags).
+ - `TAG` - Allows exact-match queries, such as categories or primary keys, against the value in this attribute. For more information, see [Tag Fields](/docs/interact/search-and-query/advanced-concepts/tags/).
 
- - `NUMERIC` - Allows numeric range queries against the value in this attribute. See [query syntax docs](/redisearch/reference/query_syntax) for details on how to use numeric ranges.
+ - `NUMERIC` - Allows numeric range queries against the value in this attribute. See [query syntax docs](/docs/interact/search-and-query/query/) for details on how to use numeric ranges.
 
  - `GEO` - Allows radius range queries against the value (point) in this attribute. The value of the attribute must be a string containing a longitude (first) and latitude separated by a comma.
 
- - `VECTOR` - Allows vector similarity queries against the value in this attribute. For more information, see [Vector Fields](/redisearch/reference/vectors).
+ - `VECTOR` - Allows vector similarity queries against the value in this attribute. For more information, see [Vector Fields](/docs/interact/search-and-query/search/vectors/).
 
  - `GEOSHAPE`- Allows polygon queries against the value in this attribute. The value of the attribute must follow a [WKT notation](https://en.wikipedia.org/wiki/Well-known_text_representation_of_geometry) list of 2D points representing the polygon edges `POLYGON((x1 y1, x2 y2, ...)` separated by a comma. A `GEOSHAPE` field type can be followed by one of the following coordinate systems:
    - `SPHERICAL` for Geographic longitude and latitude coordinates
    - `FLAT` for Cartesian X Y coordinates
   
-    The dafault coordinate system is `SPHERICAL`.
+    The default coordinate system is `SPHERICAL`.
     
     Currently `GEOSHAPE` doesn't support JSON multi-value and `SORTABLE` option.
 
  Field options are:
 
- - `SORTABLE` - `NUMERIC`, `TAG`, `TEXT`, or `GEO` attributes can have an optional **SORTABLE** argument. As the user [sorts the results by the value of this attribute](/redisearch/reference/sorting), the results are available with very low latency. Note that his adds memory overhead, so consider not declaring it on large text attributes. You can sort an attribute without the `SORTABLE` option, but the latency is not as good as with `SORTABLE`.
+ - `SORTABLE` - `NUMERIC`, `TAG`, `TEXT`, or `GEO` attributes can have an optional **SORTABLE** argument. As the user [sorts the results by the value of this attribute](/docs/interact/search-and-query/advanced-concepts/sorting/), the results are available with very low latency. Note that his adds memory overhead, so consider not declaring it on large text attributes. You can sort an attribute without the `SORTABLE` option, but the latency is not as good as with `SORTABLE`.
 
  - `UNF` - By default, for hashes (not with JSON) `SORTABLE` applies a normalization to the indexed value (characters set to lowercase, removal of diacritics). When using the unnormalized form (UNF), you can disable the normalization and keep the original form of the value. With JSON, `UNF` is implicit with `SORTABLE` (normalization is disabled).
 
@@ -81,7 +81,7 @@ after the SCHEMA keyword, declares which fields to index:
    - `dm:pt` - Double metaphone for Portuguese
    - `dm:es` - Double metaphone for Spanish
 
-   For more information, see [Phonetic Matching](/redisearch/reference/phonetic_matching).
+   For more information, see [Phonetic Matching](/docs/interact/search-and-query/advanced-concepts/phonetic_matching).
 
   - `WEIGHT {weight}` for `TEXT` attributes, declares the importance of this attribute when calculating result accuracy. This is a multiplication factor, and defaults to 1 if not specified.
 
@@ -127,7 +127,7 @@ A stemmer is used for the supplied language during indexing. If an unsupported l
 Indonesian, Irish, Italian, Lithuanian, Nepali, Norwegian, Portuguese, Romanian, Russian,
 Spanish, Swedish, Tamil, Turkish, and Chinese.
 
-When adding Chinese language documents, set `LANGUAGE chinese` for the indexer to properly tokenize the terms. If you use the default language, then search terms are extracted based on punctuation characters and whitespace. The Chinese language tokenizer makes use of a segmentation algorithm (via [Friso](https://github.com/lionsoul2014/friso)), which segments text and checks it against a predefined dictionary. See [Stemming](/redisearch/reference/stemming) for more information.
+When adding Chinese language documents, set `LANGUAGE chinese` for the indexer to properly tokenize the terms. If you use the default language, then search terms are extracted based on punctuation characters and whitespace. The Chinese language tokenizer makes use of a segmentation algorithm (via [Friso](https://github.com/lionsoul2014/friso)), which segments text and checks it against a predefined dictionary. See [Stemming](/docs/interact/search-and-query/advanced-concepts/stemming) for more information.
 </details>
 
 <a name="SCORE"></a><details open>
@@ -293,6 +293,6 @@ Index a JSON document using a JSON Path expression.
 - [RediSearch](/docs/stack/search)
 - [RedisJSON](/docs/stack/json)
 - [Friso](https://github.com/lionsoul2014/friso)
-- [Stemming](/redisearch/reference/stemming)
-- [Phonetic Matching](/redisearch/reference/phonetic_matching)
+- [Stemming](/docs/interact/search-and-query/advanced-concepts/stemming)
+- [Phonetic Matching](/docs/interact/search-and-query/advanced-concepts/phonetic_matching/)
 - [RSCoordinator](https://github.com/RedisLabsModules/RSCoordinator)

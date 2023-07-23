@@ -30,6 +30,32 @@ def testSanitySearchHashWithin(env):
   res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
+def testSanitySearchPointWithin(env):
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'SPHERICAL').ok()
+  
+  point = 'POINT(34.9010 29.7010)'
+  small = 'POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))'
+  large = 'POLYGON((34.9001 29.7001, 34.9001 29.7200, 34.9200 29.7200, 34.9200 29.7001, 34.9001 29.7001))'
+
+  conn.execute_command('HSET', 'point', 'geom', point)
+  conn.execute_command('HSET', 'small', 'geom', small)
+  conn.execute_command('HSET', 'large', 'geom', large)
+  
+  expected = [2, 'point', ['geom', point], 'small', ['geom', small]]
+  env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'DIALECT', 3).equal(expected)
+
+  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9002 29.7002, 34.9002 29.7050, 34.9050 29.7050, 34.9050 29.7002, 34.9002 29.7002))', 'DIALECT', 3)
+  env.assertEqual(res[0], 2)
+  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POINT(34.9050 29.7050)', 'DIALECT', 3)
+  env.assertEqual(res[0], 2)
+  
+  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [3, 'large', 'point', 'small'])
+
+  conn.execute_command('HSET', 'point', 'geom', 'POINT(34.9255, 29.7255)')
+  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
 def testSanitySearchJsonWithin(env):
   conn = getConnectionByEnv(env)
@@ -66,24 +92,23 @@ def testWKTIngestError(env):
   conn.execute_command('JSON.SET', 'p1', '$', '{"geom": "POLIKON((34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Homer"}')
   # Missing parenthesis
   conn.execute_command('JSON.SET', 'p2', '$', '{"geom": "POLYGON(34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Patty"}')
-
-  
-  # TODO: GEOMETRY - understand why the following WKTs do not fail?
-  # Missing Y coordinate
-  conn.execute_command('JSON.SET', 'p3', '$', '{"geom": "POLYGON((34.9001 29.7001, 001 , 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Moe"}')
-  # Redundant coordinate
-  conn.execute_command('JSON.SET', 'p4', '$', '{"geom": "POLYGON((34.9001 29.7001, 34.9001 29.7100 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Seymour"}')
   # Missing coma separator
   conn.execute_command('JSON.SET', 'p5', '$', '{"geom": "POLYGON((34.9001 29.71 34.91 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Ned"}')
   # Too few coordinates (not a polygon)
   conn.execute_command('JSON.SET', 'p6', '$', '{"geom": "POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9001 29.7001))", "name": "Milhouse"}')
   # Zero coordinates
   conn.execute_command('JSON.SET', 'p7', '$', '{"geom": "POLYGON(()())", "name": "Mr. Burns"}')
+  
+  # TODO: GEOMETRY - understand why the following WKTs do not fail?
+  # Missing Y coordinate
+  conn.execute_command('JSON.SET', 'p3', '$', '{"geom": "POLYGON((34.9001 29.7001, 001 , 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Moe"}')
+  # Redundant coordinate
+  conn.execute_command('JSON.SET', 'p4', '$', '{"geom": "POLYGON((34.9001 29.7001, 34.9001 29.7100 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Seymour"}')
 
   # Indexing failures
   res = env.cmd('FT.INFO', 'idx')
   d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-  env.assertEqual(int(d['hash_indexing_failures']), 2)
+  env.assertEqual(int(d['hash_indexing_failures']), 5)
 
 
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
@@ -101,7 +126,7 @@ def testWKTQueryError(env):
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $]', 'NOCONTENT', 'DIALECT', 3).error().contains('Syntax error')
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within poly]', 'NOCONTENT', 'DIALECT', 3).error().contains('Syntax error')
   # Bad Polygon
-  env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLIGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3).error().contains('POLIGON')
+  env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLIGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3).error()
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[contains $poly]', 'PARAMS', 2, 'poly', '', 'NOCONTENT', 'DIALECT', 3).error()
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[contains $poly]', 'PARAMS', 2, 'poly', '34.90 29.70', 'NOCONTENT', 'DIALECT', 3).error()
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON', 'NOCONTENT', 'DIALECT', 3).error().contains('Expected')
@@ -237,24 +262,24 @@ def testFtInfo(env):
   ''' Test FT.INFO on Geoshape '''
   
   conn = getConnectionByEnv(env)
-  info_key_name = 'total_geoshapes_index_size_mb'
+  info_key_name = 'geoshapes_sz_mb'
   
   env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'geom', 'GEOSHAPE', 'txt', 'TEXT').ok()
   env.expect('FT.CREATE', 'idx2_no_geom', 'SCHEMA', 'txt', 'TEXT').ok()
   res = to_dict(env.cmd('FT.INFO idx1'))
-  env.assertEqual(int(res[info_key_name]), 0)
+  cur_usage = float(res[info_key_name]) # index is not lazily built. even an empty index consumes some memory
 
   # Ingest of a non-geoshape attribute should not affect mem usage
   conn.execute_command('HSET', 'doc1', 'txt', 'Not a real POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))')
   res = to_dict(env.cmd('FT.INFO idx1'))
-  env.assertEqual(int(res[info_key_name]), 0)
+  env.assertEqual(float(res[info_key_name]), cur_usage)
 
   doc_num = 100
 
   # Memory usage should increase
   usage = 0
   for i in range(1, doc_num + 1):
-    conn.execute_command('HSET', f'doc{i}', 'geom', f'POLYGON(({2*i} {2*i}, {2*i} {100+2*i}, {100+2*i} {100+2*i}, {2*i} {100+2*i}, {2*i} {2*i}))')
+    conn.execute_command('HSET', f'doc{i}', 'geom', f'POLYGON(({0.02*i} {0.02*i}, {0.02*i} {1+0.02*i}, {1+0.02*i} {1+0.02*i}, {1+0.02*i} {0.02*i}, {0.02*i} {0.02*i}))')
     # Ingest of geoshape attribute should increase mem usage
     res = to_dict(env.cmd('FT.INFO idx1'))
     cur_usage = float(res[info_key_name])

@@ -17,6 +17,7 @@
 #include "spec.h"
 #include "thpool/thpool.h"
 #include "rmutil/rm_assert.h"
+#include "util/logging.h"
 
 static redisearch_threadpool gcThreadpool_g = NULL;
 
@@ -120,6 +121,7 @@ void GCContext_Stop(GCContext* gc) {
   if (RS_IsMock) {
     // for fork gc debug
     RedisModule_FreeThreadSafeContext(((ForkGC *)gc->gcCtx)->ctx);
+    array_free(((ForkGC *)gc->gcCtx)->tieredIndexes);
     WeakRef_Release(((ForkGC *)gc->gcCtx)->index);
     free(gc->gcCtx);
     free(gc);
@@ -172,7 +174,7 @@ void GCContext_ForceBGInvoke(GCContext* gc) {
 void GC_ThreadPoolStart() {
   if (gcThreadpool_g == NULL) {
     gcThreadpool_g = redisearch_thpool_create(GC_THREAD_POOL_SIZE);
-    redisearch_thpool_init(gcThreadpool_g);
+    redisearch_thpool_init(gcThreadpool_g, LogCallback);
   }
 }
 
