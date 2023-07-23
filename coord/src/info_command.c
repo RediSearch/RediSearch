@@ -41,6 +41,7 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "offset_bits_per_record_avg", .type = InfoField_DoubleAverage},
     {.name = "indexing", .type = InfoField_WholeSum},
     {.name = "percent_indexed", .type = InfoField_DoubleAverage},
+    {.name = "hash_indexing_failures", .type = InfoField_WholeSum},
     {.name = "number_of_uses", .type = InfoField_Max},
     {.name = "cleaning", .type = InfoField_WholeSum}};
 
@@ -177,6 +178,10 @@ void handleFieldStatistics(MRReply *src, InfoFields *fields) {
 }
 
 static void handleIndexError(InfoFields *fields, MRReply *src) {
+  // Check if indexError is initialized
+  if(!IndexError_LastError(&fields->indexError)) {
+    fields->indexError = IndexError_Init();
+  }
   IndexError indexError = IndexError_Deserialize(src);
   IndexError_OpPlusEquals(&fields->indexError, &indexError);
 }

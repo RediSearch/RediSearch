@@ -2303,6 +2303,8 @@ void Indexes_UpgradeLegacyIndexes() {
 
     // clear index stats
     memset(&sp->stats, 0, sizeof(sp->stats));
+    // Init the index error
+    sp->stats.indexError = IndexError_Init();
 
     // put the new index in the specDict_g with weak and strong references
     dictAdd(specDict_g, sp->name, spec_ref.rm);
@@ -2559,7 +2561,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   IndexSpec_StartGC(RSDummyContext, spec_ref, sp);
   Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
 
-  sp->stats.indexError = IndexError_Init();
   dictAdd(legacySpecDict, sp->name, spec_ref.rm);
   return spec_ref.rm;
 }

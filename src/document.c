@@ -620,11 +620,8 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   RedisModuleString *errMsg;
   if (!fdata->isMulti) {
     if (!api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, &errMsg)) {
-      IndexError_AddError(&ctx->spec->stats.indexError, RedisModule_StringPtrLen(errMsg, NULL), aCtx->doc->docKey);
-      IndexError_AddError((IndexError*)&fs->indexError, RedisModule_StringPtrLen(errMsg, NULL), aCtx->doc->docKey);
-      // ++ctx->spec->stats.indexingFailures;
-      // QueryError_SetErrorFmt(status, QUERY_EBADVAL, "Error indexing geoshape: %s",
-      //                        RedisModule_StringPtrLen(errMsg, NULL));
+      QueryError_SetErrorFmt(status, QUERY_EBADVAL, "Error indexing geoshape: %s",
+                             RedisModule_StringPtrLen(errMsg, NULL));
       RedisModule_FreeString(NULL, errMsg);
       return -1;
     }
@@ -906,7 +903,6 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       if (pp(aCtx, sctx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
         IndexError_AddError(&aCtx->spec->stats.indexError, QueryError_GetError(&aCtx->status), doc->docKey);
         IndexError_AddError(&aCtx->spec->fields[i].indexError, QueryError_GetError(&aCtx->status), doc->docKey);
-        // ++aCtx->spec->stats.indexingFailures;
         ourRv = REDISMODULE_ERR;
         goto cleanup;
       }

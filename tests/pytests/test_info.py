@@ -60,9 +60,9 @@ def test_numeric_info(env):
   res4 = ft_info_to_dict(env, 'idx4')['attributes']
   res5 = ft_info_to_dict(env, 'idx5')['attributes']
 
-  exp1 = [['identifier', 'n', 'attribute', 'n', 'type', 'NUMERIC', 'field_indexing_failures', '0', 'last_indexing_error', 'No errors', 'last_indexing_error_key', 'NA']]
-  exp2 = [['identifier', 'n', 'attribute', 'n', 'type', 'NUMERIC', 'SORTABLE', 'UNF', 'field_indexing_failures', '0', 'last_indexing_error', 'No errors', 'last_indexing_error_key', 'NA']]
-  exp3 = [['identifier', 'n', 'attribute', 'n', 'type', 'NUMERIC', 'SORTABLE', 'UNF', 'NOINDEX', 'field_indexing_failures', '0', 'last_indexing_error', 'No errors', 'last_indexing_error_key', 'NA']]
+  exp1 = [['identifier', 'n', 'attribute', 'n', 'type', 'NUMERIC']]
+  exp2 = [['identifier', 'n', 'attribute', 'n', 'type', 'NUMERIC', 'SORTABLE', 'UNF']]
+  exp3 = [['identifier', 'n', 'attribute', 'n', 'type', 'NUMERIC', 'SORTABLE', 'UNF', 'NOINDEX']]
 
   env.assertEqual(res1, exp1)  # Nothing special about the numeric field
   env.assertEqual(res2, exp2)  # Numeric field is sortable, and automatically UNF

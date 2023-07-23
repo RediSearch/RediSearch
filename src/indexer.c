@@ -368,6 +368,8 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       }
 
       if (IndexerBulkAdd(bulk, cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
+        IndexError_AddError(&sctx->spec->stats.indexError, cur->status.detail , doc->docKey);
+        IndexError_AddError(&sctx->spec->fields[ii].indexError, cur->status.detail , doc->docKey);
         cur->stateFlags |= ACTX_F_ERRORED;
       }
       cur->stateFlags |= ACTX_F_OTHERINDEXED;

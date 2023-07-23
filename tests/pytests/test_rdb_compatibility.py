@@ -43,6 +43,7 @@ def testRDBCompatibility(env):
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
     rdbFilePath = os.path.join(dbDir, dbFileName)
+    # print(rdbFilePath)
     if not downloadFiles():
         if CI:
             env.assertTrue(False)  ## we could not download rdbs and we are running on CI, let fail the test
@@ -65,7 +66,7 @@ def testRDBCompatibility(env):
         res = env.cmd('FT.INFO idx')
         res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         env.assertEqual(res['index_definition'], ['key_type', 'HASH', 'prefixes', ['tt'], 'default_language', 'french', 'language_field', 'MyLang', 'default_score', '0.5', 'score_field', 'MyScore', 'payload_field', 'MyPayload'])
-        env.assertEqual(res['num_docs'], '1000')
+        env.assertEqual(res['num_docs'], 1000)
         env.expect('FT.SEARCH', 'idx', 'Short', 'LIMIT', '0', '0').equal([943])
         if fileName == 'redisearch_1.6.13_with_synonyms.rdb':
             res = env.cmd('FT.SYNDUMP idx')
@@ -109,8 +110,8 @@ def testRDBCompatibility_vecsim():
             env.expect('FT.SEARCH', 'idx', f'*=>[KNN 1000 @{vec_field} $b]', 'PARAMS', '2', 'b', '<<????>>', 'LIMIT', '0', '0').equal([100])
         env.expect('DBSIZE').equal(100)
         res = to_dict(env.cmd('FT.INFO idx'))
-        env.assertEqual(res['num_docs'], '100')
-        env.assertEqual(res['hash_indexing_failures'], '0')
+        env.assertEqual(res['num_docs'], 100)
+        env.assertEqual(res['hash_indexing_failures'], 0)
         infos = {}
         for vec_field, algo in zip(vec_fields, algorithms):
             infos[algo] = to_dict(env.cmd('FT.DEBUG VECSIM_INFO idx ' + vec_field))

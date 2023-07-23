@@ -123,7 +123,6 @@ void IndexError_SetKey(IndexError *error, RedisModuleString *key) {
 }
 
 IndexError IndexError_Deserialize(MRReply *reply) {
-    print_mr_reply(reply);
     IndexError error = IndexError_Init();
 
     // Validate the reply. It should be a map with 3 elements.
