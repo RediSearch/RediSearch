@@ -216,15 +216,29 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
         RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
-        if (v && v->t == RSValue_Duo && req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST) {
-          // For duo value, we use the value here (not the other value)
-          v = RS_DUOVAL_VAL(*v);
-        }
-
         RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
+
         SendReplyFlags flags = (req->reqflags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
         flags |= (req->reqflags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
-        RSValue_SendReply(reply, v, flags, req->sctx->apiVersion);
+
+        unsigned int apiVersion = req->sctx->apiVersion;
+        if (v && v->t == RSValue_Duo) {
+          // Which value to use for duo value
+          if (!(flags & SENDREPLY_FLAG_EXPAND)) {
+            // STRING
+            if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
+              // Multi
+              v = RS_DUOVAL_OTHERVAL(*v);
+            } else {
+              // Single
+              v = RS_DUOVAL_VAL(*v);
+            }
+          } else {
+            // EXPAND
+            v = RS_DUOVAL_OTHER2VAL(*v);
+          }
+        }
+        RSValue_SendReply(reply, v, flags);
       }
     RedisModule_Reply_MapEnd(reply);
   }

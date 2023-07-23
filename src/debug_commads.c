@@ -818,7 +818,7 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
       RedisModule_Reply_Stringf(reply, "%s AS %s", fs ? fs->path : "!!!", fs ? fs->name : "???");
 
       RedisModule_Reply_SimpleString(reply, "value");
-      RSValue_SendReply(reply, sv->values[ii], 0, 0);
+      RSValue_SendReply(reply, sv->values[ii], 0);
     RedisModule_Reply_ArrayEnd(reply);
   }
   RedisModule_Reply_ArrayEnd(reply);
