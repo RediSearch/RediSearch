@@ -68,7 +68,7 @@ def test_search():
             ]
            ],
            'payload': None,
-           # in 2.6 with RESP2, WITHSORTKEYS but without SORTBY does not return a null `sortey`
+           'sortkey': None,
            'extra_attributes': {'f1': '3', 'f2': '2'},
            'values': []
         },
@@ -80,12 +80,16 @@ def test_search():
             ]
           ],
           'payload': None,
-          # in 2.6 with RESP2, WITHSORTKEYS but without SORTBY does not return a null `sortey`
+          'sortkey': None,
           'extra_attributes': {'f1': '3', 'f2': '3'},
           'values': []
         }
       ]
     }
+    if env.isCluster():
+      # in 2.6 with RESP2, WITHSORTKEYS but without SORTBY does not return a null `sortey` with coordinator
+      del exp['results'][0]['sortkey']
+      del exp['results'][1]['sortkey']
 
     env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "EXPLAINSCORE", "WITHPAYLOADS",
                "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2', "FORMAT", "STRING").equal(exp)
