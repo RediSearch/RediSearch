@@ -179,7 +179,9 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
   }
   if (!strcasecmp(format, "EXPAND")) {
     *flags |= QEXEC_FORMAT_EXPAND;
-  } else if (strcasecmp(format, "STRING")) {
+  } else if (!strcasecmp(format, "STRING")) {
+    *flags &= ~QEXEC_FORMAT_EXPAND;
+  } else {
     QERR_MKBADARGS_FMT(status, "FORMAT %s is not supported", format);
     return REDISMODULE_ERR;
   }
@@ -188,6 +190,7 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
 }
  
 int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status) {
+  *flags &= ~QEXEC_FORMAT_EXPAND;
   if (*flags & QEXEC_FORMAT_DEFAULT) {
     if (is_json && is_resp3) {
       *flags |= QEXEC_FORMAT_EXPAND;
