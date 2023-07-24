@@ -24,9 +24,9 @@ struct QueryIterator {
 
   explicit QueryIterator() = delete;
   explicit QueryIterator(container_type &&docs);
-  template <std::ranges::input_range R>
-    requires requires(R r) { std::is_same_v<t_docId, std::decay_t<decltype(r.begin())>>; }
-  explicit QueryIterator(R &&range, std::size_t& alloc)
+  template <std::ranges::input_range R>  // the elements of the range must be convertible to t_docId
+    requires std::is_convertible_v<t_docId, std::decay_t<decltype(*std::declval<R>().begin())>>
+  explicit QueryIterator(R &&range, std::size_t &alloc)
       : QueryIterator(container_type{range.begin(), range.end(), alloc_type{alloc}}) {
   }
 
@@ -49,7 +49,7 @@ struct QueryIterator {
 
   static IndexIterator init_base();
 
-  void *operator new(std::size_t, std::size_t& alloc) noexcept;
+  void *operator new(std::size_t, std::size_t &alloc) noexcept;
   void operator delete(QueryIterator *ptr, std::destroying_delete_t) noexcept;
 };
 
