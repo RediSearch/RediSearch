@@ -141,8 +141,8 @@ auto RTree<cs>::lookup(doc_type const& doc) const -> boost::optional<geom_type c
 
 template <typename cs>
 void RTree<cs>::insert(geom_type const& geom, t_docId id) {
-  rtree_.insert(make_doc<cs>(geom, id));
   docLookup_.insert(lookup_type{id, geom});
+  rtree_.insert(make_doc<cs>(geom, id));
   allocated_ += std::visit(geometry_reporter<cs>, geom);
 }
 
@@ -162,8 +162,8 @@ int RTree<cs>::insertWKT(std::string_view wkt, t_docId id, RedisModuleString** e
 template <typename cs>
 bool RTree<cs>::remove(t_docId id) {
   if (auto geom = lookup(id); geom.has_value()) {
-    rtree_.remove(make_doc<cs>(*geom, id));
     allocated_ -= std::visit(geometry_reporter<cs>, *geom);
+    rtree_.remove(make_doc<cs>(*geom, id));
     docLookup_.erase(id);
     return true;
   }
@@ -236,23 +236,19 @@ auto RTree<cs>::apply_predicate(Predicate&& p, Filter&& f) const -> query_result
 template <typename cs>
 auto RTree<cs>::contains(doc_type const& query_doc, geom_type const& query_geom) const
     -> query_results {
-  auto results =
-      apply_predicate(bgi::contains(get_rect<cs>(query_doc)), [&](auto const& doc) -> bool {
-        auto geom = lookup(doc);
-        return geom.has_value() && std::visit(filter_results<cs>, query_geom, *geom);
-      });
-  return results;
+  return apply_predicate(bgi::contains(get_rect<cs>(query_doc)), [&](auto const& doc) -> bool {
+    auto geom = lookup(doc);
+    return geom.has_value() && std::visit(filter_results<cs>, query_geom, *geom);
+  });
 }
 
 template <typename cs>
 auto RTree<cs>::within(doc_type const& query_doc, geom_type const& query_geom) const
     -> query_results {
-  auto results =
-      apply_predicate(bgi::within(get_rect<cs>(query_doc)), [&](auto const& doc) -> bool {
-        auto geom = lookup(doc);
-        return geom.has_value() && std::visit(filter_results<cs>, *geom, query_geom);
-      });
-  return results;
+  return apply_predicate(bgi::within(get_rect<cs>(query_doc)), [&](auto const& doc) -> bool {
+    auto geom = lookup(doc);
+    return geom.has_value() && std::visit(filter_results<cs>, *geom, query_geom);
+  });
 }
 
 template <typename cs>

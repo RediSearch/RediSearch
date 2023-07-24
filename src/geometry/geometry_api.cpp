@@ -88,20 +88,20 @@ GEO_VARIANTS(X)
 #undef X
 }  // anonymous namespace
 
-#define X(variant) [GEOMETRY_COORDS_##variant] = Index_##variant##_New,
+#define X(variant) /*[GEOMETRY_COORDS_##variant] =*/ Index_##variant##_New,
 auto GeometryIndexFactory(GEOMETRY_COORDS tag) -> GeometryIndex * {
-  using GeometryConstructor_t = GeometryIndex *(*)();
-  static constexpr std::array<GeometryConstructor_t, GEOMETRY_COORDS__NUM> geometry_ctors{
-      {GEO_VARIANTS(X)}};
+  // using GeometryConstructor_t = GeometryIndex *(*)();
+  static constexpr auto geometry_ctors = std::array{GEO_VARIANTS(X)};
   return geometry_ctors[tag]();
 }
 #undef X
 
 auto GeometryCoordsToName(GEOMETRY_COORDS tag) -> const char * {
   using namespace std::literals;
-  static constexpr std::array<std::string_view, GEOMETRY_COORDS__NUM> tag_names{{
-      [GEOMETRY_COORDS_Cartesian] = "FLAT"sv,
-      [GEOMETRY_COORDS_Geographic] = "SPHERICAL"sv,
-  }};
+  static_assert(GEOMETRY_COORDS_Cartesian < GEOMETRY_COORDS_Geographic);
+  static constexpr auto tag_names = std::array{
+      "FLAT"sv,
+      "SPHERICAL"sv,
+  };
   return tag_names[tag].data();
 }

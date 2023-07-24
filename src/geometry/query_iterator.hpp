@@ -35,7 +35,7 @@ struct QueryIterator {
   explicit QueryIterator(QueryIterator &&) = default;
   QueryIterator &operator=(QueryIterator const &) = delete;
   QueryIterator &operator=(QueryIterator &&) = default;
-  ~QueryIterator();
+  ~QueryIterator() noexcept;
 
   auto base() noexcept -> IndexIterator *;
 
