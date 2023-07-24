@@ -44,7 +44,7 @@ class RediSearchSetup(paella.Setup):
         self.run(f"{READIES}/bin/getepel", sudo=True)
         self.install("libatomic")
 
-            self.run(f"{READIES}/bin/getgcc --modern")
+        self.run(f"{READIES}/bin/getgcc --modern")
         self.install("libtool m4 automake openssl-devel")
         self.install("python3-devel")
 
