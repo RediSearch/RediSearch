@@ -22,7 +22,7 @@ QueryIterator::~QueryIterator() noexcept {
   IndexResult_Free(base_.current);
 }
 
-auto QueryIterator::base() noexcept -> IndexIterator* {
+auto QueryIterator::base() noexcept -> IndexIterator * {
   return &base_;
 }
 
@@ -64,7 +64,7 @@ t_docId QueryIterator::current() const noexcept {
 int QueryIterator::has_next() const noexcept {
   return index_ < len();
 }
-size_t QueryIterator::len() const noexcept {
+std::size_t QueryIterator::len() const noexcept {
   return iter_.size();
 }
 void QueryIterator::abort() noexcept {
@@ -90,14 +90,9 @@ int QIter_HasNext(void *ctx) {
   return static_cast<QueryIterator const *>(ctx)->has_next();
 }
 void QIter_Free(IndexIterator *self) {
-  using Allocator::TrackingAllocator;
-  
-  auto it = static_cast<QueryIterator *>(self->ctx);
-  auto a = TrackingAllocator<QueryIterator>{it->iter_.get_allocator()};
-  std::destroy_at(it);
-  a.deallocate(it, 1);
+  delete static_cast<QueryIterator *>(self->ctx);
 }
-size_t QIter_Len(void *ctx) {
+std::size_t QIter_Len(void *ctx) {
   return static_cast<QueryIterator const *>(ctx)->len();
 }
 void QIter_Abort(void *ctx) {
@@ -127,6 +122,16 @@ IndexIterator QueryIterator::init_base() {
       .Rewind = QIter_Rewind,
   };
   return ii;
+}
+void *QueryIterator::operator new(std::size_t, std::size_t& alloc) noexcept {
+  using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
+  return static_cast<void *>(alloc_type{alloc}.allocate(1));
+}
+void QueryIterator::operator delete(QueryIterator *ptr, std::destroying_delete_t) noexcept {
+  using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
+  auto alloc = alloc_type{ptr->iter_.get_allocator()};
+  ptr->~QueryIterator();
+  alloc.deallocate(ptr, 1);
 }
 }  // namespace GeoShape
 }  // namespace RediSearch
