@@ -479,7 +479,7 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
         RedisJSON value = japi->getAt(json, i);
         arr[i] = jsonValToValueExpanded(ctx, value);
       }
-      ret = RSValue_NewArrayEx(arr, len, 0);
+      ret = RSValue_NewArray(arr, len);
     } else {
       // Empty array
       ret = RSValue_NewArrayEx(NULL, 0, RSVAL_ARRAY_ALLOC);
