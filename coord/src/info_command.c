@@ -184,6 +184,7 @@ static void handleIndexError(InfoFields *fields, MRReply *src) {
   }
   IndexError indexError = IndexError_Deserialize(src);
   IndexError_OpPlusEquals(&fields->indexError, &indexError);
+  IndexError_Clear(indexError); // Free Resources
 }
 
 // Handle fields which aren't InfoValue types
