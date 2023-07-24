@@ -11,6 +11,11 @@
 
 namespace RediSearch {
 namespace Allocator {
+/**
+ * Allocator which update a local memory tracker with all allocations done using this allocator.
+ * Manual memory tracking does need to be done to update an external tracker. May be default
+ * constructed.
+ */
 template <class T>
 struct StatefulAllocator {
   using value_type = T;

@@ -11,6 +11,10 @@
 
 namespace RediSearch {
 namespace Allocator {
+/**
+ * Allocator which updates an external memory tracker with all allocations done using this
+ * allocator. No manual memory tracking needs to be done. May not be default constructed.
+ */
 template <class T>
 struct TrackingAllocator {
   using value_type = T;

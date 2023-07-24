@@ -7,6 +7,7 @@
 #pragma once
 
 #include "../../rmalloc.h"
+#include <cstddef>
 
 namespace RediSearch {
 namespace Allocator {
