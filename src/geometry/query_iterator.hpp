@@ -20,14 +20,14 @@ struct QueryIterator {
 
   IndexIterator base_;
   container_type iter_;
-  size_t index_;
+  std::size_t index_;
 
   explicit QueryIterator() = delete;
   explicit QueryIterator(container_type &&docs);
-  template <std::ranges::input_range R>
-    requires requires(R r) { std::is_same_v<t_docId, std::decay_t<decltype(r.begin())>>; }
-  explicit QueryIterator(R &&range, auto &&alloc)
-      : QueryIterator(container_type{range.begin(), range.end(), alloc_type{alloc.allocated_}}) {
+  template <std::ranges::input_range R>  // the elements of the range must be convertible to t_docId
+    requires std::is_convertible_v<t_docId, std::decay_t<decltype(*std::declval<R>().begin())>>
+  explicit QueryIterator(R &&range, std::size_t &alloc)
+      : QueryIterator(container_type{range.begin(), range.end(), alloc_type{alloc}}) {
   }
 
   /* rule of 5 */
@@ -35,7 +35,7 @@ struct QueryIterator {
   explicit QueryIterator(QueryIterator &&) = default;
   QueryIterator &operator=(QueryIterator const &) = delete;
   QueryIterator &operator=(QueryIterator &&) = default;
-  ~QueryIterator();
+  ~QueryIterator() noexcept;
 
   auto base() noexcept -> IndexIterator *;
 
@@ -43,11 +43,14 @@ struct QueryIterator {
   int skip_to(t_docId docId, RSIndexResult *&hit);
   t_docId current() const noexcept;
   int has_next() const noexcept;
-  size_t len() const noexcept;
+  std::size_t len() const noexcept;
   void abort() noexcept;
   void rewind() noexcept;
 
   static IndexIterator init_base();
+
+  void *operator new(std::size_t, std::size_t &alloc) noexcept;
+  void operator delete(QueryIterator *ptr, std::destroying_delete_t) noexcept;
 };
 
 }  // namespace GeoShape
