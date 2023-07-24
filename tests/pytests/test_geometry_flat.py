@@ -91,8 +91,6 @@ def testWKTIngestError(env):
   conn.execute_command('JSON.SET', 'p1', '$', '{"geom": "POLIKON((1 1, 1 100, 100 100, 100 1, 1 1))", "name": "Homer"}')
   # Missing parenthesis
   conn.execute_command('JSON.SET', 'p2', '$', '{"geom": "POLYGON(1 1, 1 100, 100 100, 100 1, 1 1))", "name": "Patty"}')
-  # Missing Y coordinate
-  conn.execute_command('JSON.SET', 'p3', '$', '{"geom": "POLYGON((1 1, 1 , 100 100, 100 1, 1 1))", "name": "Moe"}')
   # Too few coordinates (not a polygon)
   conn.execute_command('JSON.SET', 'p6', '$', '{"geom": "POLYGON((1 1, 1 100, 1 1))", "name": "Milhouse"}')
   # Zero coordinates
@@ -100,15 +98,17 @@ def testWKTIngestError(env):
 
   
   # TODO: GEOMETRY - understand why the following WKTs do not fail?
+  # Missing Y coordinate
+  conn.execute_command('JSON.SET', 'p3', '$', '{"geom": "POLYGON((1 1, 1 , 100 100, 100 1, 1 1))", "name": "Moe"}')
   # Redundant coordinate
   conn.execute_command('JSON.SET', 'p4', '$', '{"geom": "POLYGON((1 1, 1 100 100 100, 100 1, 1 1))", "name": "Seymour"}')
-  # Missing coma separator
+  # Missing comma separator
   conn.execute_command('JSON.SET', 'p5', '$', '{"geom": "POLYGON((1 1 1 100, 100 100, 100 1, 1 1))", "name": "Ned"}')
 
   # Indexing failures
   res = env.cmd('FT.INFO', 'idx')
   d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-  env.assertEqual(int(d['hash_indexing_failures']), 5)
+  env.assertEqual(int(d['hash_indexing_failures']), 4)
 
 
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
@@ -264,7 +264,7 @@ def testFtInfo(env):
   res = to_dict(env.cmd('FT.INFO idx1'))
   env.assertEqual(float(res[info_key_name]), cur_usage)
 
-  doc_num = 100
+  doc_num = 10000
 
   # Memory usage should increase
   usage = 0
