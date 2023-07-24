@@ -203,15 +203,21 @@ commands:
       - checkout-all
       - setup-automation
       - run:
+          name: Install Redis
+          shell: /bin/bash -l -eo pipefail
+          command: ./deps/readies/bin/getredis
+      - run:
           name: Build for platform
           shell: /bin/bash -l -eo pipefail
           command: |
             ROOT="$PWD"
             cd build/docker
-            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
+            make build verify OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
             cd $ROOT
-            mkdir -p tests/pytests/logs
-            tar -xzf bin/artifacts/tests/tests-pytests-logs*.tgz
+            if [[ -e bin/artifacts/tests/tests-pytests-logs*.tgz ]]; then
+                mkdir -p tests/pytests/logs
+                tar -xzf bin/artifacts/tests/tests-pytests-logs*.tgz
+            fi
           no_output_timeout: 60m
       - save-tests-logs
       - early-return-for-forked-pull-requests
@@ -244,14 +250,20 @@ commands:
           shell: /bin/bash -l -eo pipefail
           command: ./deps/readies/bin/getdocker
       - run:
+          name: Install Redis
+          shell: /bin/bash -l -eo pipefail
+          command: ./deps/readies/bin/getredis
+      - run:
           name: Build for platform
           command: |
             ROOT="$PWD"
             cd build/docker
-            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
+            make build verify OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
             cd $ROOT
-            mkdir -p tests/pytests/logs
-            tar -xzf bin/artifacts/tests/tests-pytests-logs*.tgz
+            if [[ -e bin/artifacts/tests/tests-pytests-logs*.tgz ]]; then
+                mkdir -p tests/pytests/logs
+                tar -xzf bin/artifacts/tests/tests-pytests-logs*.tgz
+            fi
           no_output_timeout: 30m
       - save-tests-logs
       - early-return-for-forked-pull-requests
@@ -428,7 +440,7 @@ jobs:
 
   build-macos-x64:
     macos:
-      xcode: 12.5.1
+      xcode: 13.2.1
     resource_class: macos.x86.medium.gen2
     parameters:
       test_params:
@@ -439,6 +451,9 @@ jobs:
         default: "yes"
     steps:
       - early-returns
+      - run:
+          name: Brew update
+          command: brew update
       - run:
           name: Set up workspace
           command: mkdir -p ~/workspace
@@ -644,6 +659,7 @@ jobs:
           benchmark_glob: "search*.yml"
           benchmark_runner_group_member_id: "1"
           benchmark_runner_group_total: "3"
+
   benchmark-search-oss-standalone-profiler-g2:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -658,6 +674,7 @@ jobs:
           benchmark_glob: "search*.yml"
           benchmark_runner_group_member_id: "2"
           benchmark_runner_group_total: "3"
+
   benchmark-search-oss-standalone-profiler-g3:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -672,6 +689,7 @@ jobs:
           benchmark_glob: "search*.yml"
           benchmark_runner_group_member_id: "3"
           benchmark_runner_group_total: "3"
+
   benchmark-vecsim-oss-standalone-profiler-g1:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -686,6 +704,7 @@ jobs:
           benchmark_glob: "vecsim*.yml"
           benchmark_runner_group_member_id: "1"
           benchmark_runner_group_total: "2"
+
   benchmark-vecsim-oss-standalone-profiler-g2:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -719,7 +738,7 @@ jobs:
 
   sanitize:
     docker:
-      - image: redisfab/clang:13-x64-bullseye
+      - image: redisfab/clang:16-x64-bullseye
     resource_class: large
     parameters:
       san-type:
@@ -956,11 +975,11 @@ workflows:
             parameters:
               platform: [jammy, focal, bionic]
       - build-macos-x64:
-          <<: *on-integ-and-version-tags
+          <<: *on-version-tags
           context: common
       - build-macos-m1:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *on-version-tags
       - coverage:
           <<: *always
       - sanitize:
@@ -1028,8 +1047,8 @@ workflows:
           requires:
             - build-platforms
             - build-arm-platforms
-            - build-macos-x64
-            - build-macos-m1
+            # - build-macos-x64
+            # - build-macos-m1
       - upload-artifacts:
           name: upload-release-artifacts
           context: common
@@ -1050,7 +1069,7 @@ workflows:
           test_params: ""
           matrix:
             parameters:
-              redis_version: ["6.2", "7.0", "7.2-rc1"]
+              redis_version: ["6.2", "7.0", "7.2-rc3"]
       - sanitize:
           name: full-sanitize-<< matrix.san-type >>
           <<: *never
@@ -1123,7 +1142,7 @@ workflows:
           test_params: ""
           matrix:
             parameters:
-              redis_version: ["6.0", "6.2", "7.0", "7.2-rc1", "unstable"]
+              redis_version: ["6.0", "6.2", "7.0", "7.2-rc3", "unstable"]
       - sanitize:
           name: nightly-sanitize-<< matrix.san-type >>
           test_params: ""
@@ -1138,9 +1157,11 @@ workflows:
           <<: *on-integ-branch-cron
     jobs:
       - build-macos-x64:
+          context: common
           # upload: "no"
           test_params: ""
       - build-macos-m1:
+          context: common
           # upload: "no"
           test_params: ""
 
