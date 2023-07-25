@@ -246,7 +246,7 @@ int MR_ReplyWithMRReply(RedisModule_Reply *reply, MRReply *rep) {
   switch (MRReply_Type(rep)) {
     case MR_REPLY_STRING: {
       size_t len;
-      char *str = MRReply_String(rep, &len);
+      const char *str = MRReply_String(rep, &len);
       return RedisModule_Reply_StringBuffer(reply, str, len);
     }
 
