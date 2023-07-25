@@ -16,6 +16,7 @@
 #include "commands.h"
 #include "profile.h"
 #include "query_optimizer.h"
+#include "resp3.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -76,6 +77,7 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
       case RSValue_Null:
       case RSValue_Undef:
       case RSValue_Array:
+      case RSValue_Map:
       case RSValue_Reference:
       case RSValue_Duo:
         break;
@@ -159,13 +161,14 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
 
   // Coordinator only - handle required fields for coordinator request
   if (options & QEXEC_F_REQUIRED_FIELDS) {
-    if (has_map) {
-      RedisModule_ReplyKV_Array(reply, "required_fields"); // >required_fields
-    }
-
-    // Sortkey is the first key to reply on the required fields, if the we already replied it, continue to the next one.
+    
+    // Sortkey is the first key to reply on the required fields, if we already replied it, continue to the next one.
     size_t currentField = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
     size_t requiredFieldsCount = array_len(req->requiredFields);
+    bool need_map = has_map && currentField < requiredFieldsCount;
+    if (need_map) {
+      RedisModule_ReplyKV_Map(reply, "required_fields"); // >required_fields
+    }
     for(; currentField < requiredFieldsCount; currentField++) {
       const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       RSValue *v = rlk ? (RSValue*)getReplyKey(rlk, r) : NULL;
@@ -180,10 +183,13 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         RSValue_SetNumber(&rsv, d);
         v = &rsv;
       }
+      if (need_map) {
+        RedisModule_Reply_SimpleString(reply, req->requiredFields[currentField]); // key name
+      }
       reeval_key(reply, v);
     }
-    if (has_map) {
-      RedisModule_Reply_ArrayEnd(reply); // >required_fields
+    if (need_map) {
+      RedisModule_Reply_MapEnd(reply); // >required_fields
     }
   }
 
@@ -211,13 +217,29 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
         RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
-        if (v && v->t == RSValue_Duo && req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST) {
-          // For duo value, we use the value here (not the other value)
-          v = RS_DUOVAL_VAL(*v);
-        }
-
         RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
-        RSValue_SendReply(reply, v, req->reqflags & QEXEC_F_TYPED);
+
+        SendReplyFlags flags = (req->reqflags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
+        flags |= (req->reqflags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
+
+        unsigned int apiVersion = req->sctx->apiVersion;
+        if (v && v->t == RSValue_Duo) {
+          // Which value to use for duo value
+          if (!(flags & SENDREPLY_FLAG_EXPAND)) {
+            // STRING
+            if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
+              // Multi
+              v = RS_DUOVAL_OTHERVAL(*v);
+            } else {
+              // Single
+              v = RS_DUOVAL_VAL(*v);
+            }
+          } else {
+            // EXPAND
+            v = RS_DUOVAL_OTHER2VAL(*v);
+          }
+        }
+        RSValue_SendReply(reply, v, flags);
       }
     RedisModule_Reply_MapEnd(reply);
   }
@@ -346,7 +368,11 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
     nelem++;
 
-    RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
+    if (req->reqflags & QEXEC_FORMAT_EXPAND) {
+      RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
+    } else {
+      RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
+    }
 
     RedisModule_ReplyKV_Array(reply, "results"); // >results
     nelem = 0;
@@ -620,7 +646,6 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
 
 static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int type,
                         QueryError *status, AREQ **r) {
-
   int rc = REDISMODULE_ERR;
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NULL;
@@ -633,10 +658,14 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     (*r)->reqflags |= QEXEC_F_IS_EXTENDED;
   }
 
+  (*r)->reqflags |= QEXEC_FORMAT_DEFAULT;
+
   if (AREQ_Compile(*r, argv + 2, argc - 2, status) != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
     goto done;
   }
+
+  (*r)->protocol = is_resp3(ctx) ? 3 : 2;
 
   // Prepare the query.. this is where the context is applied.
   if ((*r)->reqflags & QEXEC_F_IS_CURSOR) {

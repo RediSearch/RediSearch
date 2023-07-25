@@ -46,6 +46,7 @@ typedef struct {
   int sortAscending;
   int withSortingKeys;
   int noContent;
+  uint32_t format; // QEXEC_FORMAT_EXPAND or QEXEC_FORMAT_DEFAULT (0 implies STRING)
 
   specialCaseCtx** specialCases;
   const char** requiredFields;
@@ -60,3 +61,5 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
                              QueryError *status);
 
 void SpecialCaseCtx_Free(specialCaseCtx* ctx);
+
+void processResultFormat(uint32_t *flags, MRReply *map);
