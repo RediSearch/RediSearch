@@ -174,6 +174,7 @@ void handleFieldStatistics(MRReply *src, InfoFields *fields) {
     MRReply *serilizedFieldSpecInfo = MRReply_ArrayElement(src, i);
     FieldSpecInfo fieldSpecInfo = FieldSpecInfo_Deserialize(serilizedFieldSpecInfo);
     FieldSpecInfo_OpPlusEquals(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
+    FieldSpecInfo_Clear(&fieldSpecInfo); // Free Resources
   }
 }
 
