@@ -74,7 +74,7 @@ FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply) {
     // Validate the reply type - array or map.
     RedisModule_Assert(MRReply_Type(reply) == MR_REPLY_MAP || (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0));
     // Make sure the reply is a map, regardless of the protocol.
-    MRReply_ArrayToMap(reply);
+    MRReply_ArrayToMap((MRReply*)reply);
 
     MRReply *identifier = MRReply_MapElement(reply, "identifier");
     RedisModule_Assert(identifier);
