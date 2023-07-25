@@ -10,9 +10,9 @@ READIES=$ROOT/deps/readies
 
 export PYTHONUNBUFFERED=1
 
-VG_REDIS_VER=7.2-rc2
+VG_REDIS_VER=7.2-rc3
 VG_REDIS_SUFFIX=7.2
-SAN_REDIS_VER=7.2-rc2
+SAN_REDIS_VER=7.2-rc3
 SAN_REDIS_SUFFIX=7.2
 
 cd $HERE
@@ -717,8 +717,11 @@ if [[ -z $COORD ]]; then
 
 elif [[ $COORD == oss ]]; then
 	oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
-  # Increase timeout for tests with sanitizer in which commands execution takes longer
-  oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 60000"
+	
+	# Increase timeout for tests with sanitizer in which commands execution takes longer
+	if [[ -n $SAN ]]; then
+		oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 60000"
+	fi
 
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
