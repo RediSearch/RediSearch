@@ -266,6 +266,7 @@ static void cleanInfoReply(InfoFields *fields) {
     array_free(fields->fieldSpecInfo_arr);
     fields->fieldSpecInfo_arr = NULL;
   }
+  IndexError_Clear(fields->indexError);
   rm_free(fields->errorIndexes);
 }
 
