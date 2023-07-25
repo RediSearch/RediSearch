@@ -599,3 +599,31 @@ def testModifierList(env):
   }
 }
 '''[1:])
+
+def testCreateOptionalArgs(env):
+  # the order of the optional arguments is not important
+  env.expect('FT.CREATE', 'testindex', 'SCHEMA', 'genre', 'TAG', 'SEPARATOR', ',', 'SORTABLE').ok()
+  env.expect('FT.DROP', 'testindex')
+  env.expect('FT.CREATE', 'testindex', 'SCHEMA', 'genre', 'TAG', 'SORTABLE', 'SEPARATOR', ',').ok()
+  env.expect('FT.DROP', 'testindex')
+
+  # test case with multiple fields
+  env.expect('FT.CREATE', 'testindex', 'SCHEMA', 'title', 'TEXT',
+    'WEIGHT', '5.0', 'plot', 'TEXT', 'SORTABLE', 'genre', 'TAG', 'SORTABLE',
+    'SEPARATOR', ',', 'release_year', 'NUMERIC', 'SORTABLE', 'rating',
+    'NUMERIC', 'SORTABLE', 'votes', 'NUMERIC', 'SORTABLE').ok()
+  env.expect('FT.DROP', 'testindex')
+
+  # test optional argument: SORTABLE
+  env.expect('FT.CREATE', 'testindex', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
+  env.expect('FT.DROP', 'testindex')
+  env.expect('FT.CREATE', 'testindex', 'SCHEMA', 'title', 'TEXT').ok()
+  env.expect('FT.DROP', 'testindex')
+  env.expect('FT.CREATE', 'testindex', 'SCHEMA', 'release_year', 'NUMERIC', 'SORTABLE').ok()
+  env.expect('FT.DROP', 'testindex')
+  env.expect('FT.CREATE', 'testindex', 'SCHEMA', 'release_year', 'NUMERIC').ok()
+  env.expect('FT.DROP', 'testindex')
+
+  # test SORTABLE with invalid type
+  env.expect('FT.CREATE', 'testindex', 'SCHEMA', 'g_shape', 'GEOSHAPE', 'SORTABLE').error().contains("Field `g_shape` can't have the option SORTABLE")
+  env.expect('FT.DROP', 'testindex')

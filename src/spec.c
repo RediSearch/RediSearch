@@ -456,6 +456,46 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       continue;
     } else if(AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
       fs->options |= FieldSpec_WithSuffixTrie;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
+      FieldSpec_SetSortable(fs);
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR)) {      // Explicitly requested UNF
+          fs->options |= FieldSpec_UNF;
+      }
+    } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
+      fs->options |= FieldSpec_NotIndexable;
+    } else {
+      break;
+    }
+  }
+  return 1;
+}
+
+static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+  while (!AC_IsAtEnd(ac)) {
+    if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
+      if (AC_IsAtEnd(ac)) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_TAG_SEPARATOR_STR " requires an argument");
+        return 0;
+      }
+      const char *sep = AC_GetStringNC(ac, NULL);
+      if (strlen(sep) != 1) {
+        QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
+                              "Tag separator must be a single character. Got `%s`", sep);
+        return 0;
+      }
+      fs->tagOpts.tagSep = *sep;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_CASE_SENSITIVE_STR)) {
+      fs->tagOpts.tagFlags |= TagField_CaseSensitive;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
+      fs->options |= FieldSpec_WithSuffixTrie;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
+      FieldSpec_SetSortable(fs);
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
+          TAG_FIELD_IS(fs, TagField_CaseSensitive)) { // We don't normalize case sensitive tags. Implicit UNF
+        fs->options |= FieldSpec_UNF;
+      }
+    } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
+      fs->options |= FieldSpec_NotIndexable;
     } else {
       break;
     }
@@ -818,6 +858,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     if (!parseTextField(fs, ac, status)) {
       goto error;
     }
+    return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
     fs->types |= INDEXFLD_T_NUMERIC;
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEO_STR)) {  // geo field
@@ -831,27 +872,10 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
     fs->types |= INDEXFLD_T_TAG;
-    while (!AC_IsAtEnd(ac)) {
-      if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
-        if (AC_IsAtEnd(ac)) {
-          QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_TAG_SEPARATOR_STR " requires an argument");
-          goto error;
-        }
-        const char *sep = AC_GetStringNC(ac, NULL);
-        if (strlen(sep) != 1) {
-          QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
-                                "Tag separator must be a single character. Got `%s`", sep);
-          goto error;
-        }
-        fs->tagOpts.tagSep = *sep;
-      } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_CASE_SENSITIVE_STR)) {
-        fs->tagOpts.tagFlags |= TagField_CaseSensitive;
-      } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
-        fs->options |= FieldSpec_WithSuffixTrie;
-      } else {
-        break;
-      }
+    if (!parseTagField(fs, ac, status)) {
+      goto error;
     }
+    return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
     sp->flags |= Index_HasGeometry;
     fs->types |= INDEXFLD_T_GEOMETRY;
@@ -869,13 +893,17 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
 
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
-      FieldSpec_SetSortable(fs);
-      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
-          FIELD_IS(fs, INDEXFLD_T_NUMERIC) ||         // We don't normalize numeric fields. Implicit UNF
-          TAG_FIELD_IS(fs, TagField_CaseSensitive)) { // We don't normalize case sensitive tags. Implicit UNF
-        fs->options |= FieldSpec_UNF;
+      if(FIELD_IS(fs, INDEXFLD_T_NUMERIC) || FIELD_IS(fs, INDEXFLD_T_GEO)) {
+        FieldSpec_SetSortable(fs);
+        if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
+            FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {         // We don't normalize numeric fields. Implicit UNF
+          fs->options |= FieldSpec_UNF;
+        }
+        continue;
+      } else {
+        QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Field `%s` can't have the option SORTABLE", fs->name);
+        goto error;
       }
-      continue;
     } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
       fs->options |= FieldSpec_NotIndexable;
       continue;
