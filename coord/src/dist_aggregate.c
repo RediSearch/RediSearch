@@ -142,13 +142,27 @@ RSValue *MRReply_ToValue(MRReply *r) {
     case MR_REPLY_DOUBLE:
       v = RS_NumVal(MRReply_Double(r));
       break;
-    case MR_REPLY_MAP:
+    case MR_REPLY_MAP: {
+      size_t n = MRReply_Length(r);
+      RS_LOG_ASSERT(n % 2 == 0, "map of odd length");
+      RSValue **map = rm_malloc(n * sizeof(*map));
+      for (size_t i = 0; i < n; ++i) {
+        MRReply *e = MRReply_ArrayElement(r, i);
+        if (i % 2 == 0) {
+          RS_LOG_ASSERT(MRReply_Type(e) == MR_REPLY_STRING, "non-string map key");
+        }
+        map[i] = MRReply_ToValue(e);
+      }
+      v = RSValue_NewMap(map, n / 2);
+      break;
+    }
     case MR_REPLY_ARRAY: {
-      RSValue **arr = rm_calloc(MRReply_Length(r), sizeof(*arr));
-      for (size_t i = 0; i < MRReply_Length(r); i++) {
+      size_t n = MRReply_Length(r);
+      RSValue **arr = rm_malloc(n * sizeof(*arr));
+      for (size_t i = 0; i < n; ++i) {
         arr[i] = MRReply_ToValue(MRReply_ArrayElement(r, i));
       }
-      v = RSValue_NewArrayEx(arr, MRReply_Length(r), RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
+      v = RSValue_NewArrayEx(arr, n, RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
       break;
     }
     case MR_REPLY_NIL:
@@ -173,6 +187,7 @@ typedef struct {
   MRIterator *it;
   MRCommand cmd;
   MRCommandGenerator cg;
+  AREQ *areq;
 
   // profile vars
   MRReply **shardsProfile;
@@ -218,6 +233,16 @@ static const RLookupKey *keyForField(RPNet *nc, const char *s) {
     }
   }
   return NULL;
+}
+
+void processResultFormat(uint32_t *flags, MRReply *map) {
+  // Logic of which format to use is done by the shards
+  MRReply *format = MRReply_MapElement(map, "format");
+  RS_LOG_ASSERT(format, "missing format specification");
+  if (MRReply_StringEquals(format, "EXPAND", false)) {
+    *flags |= QEXEC_FORMAT_EXPAND;
+    *flags &= ~QEXEC_FORMAT_DEFAULT;
+  }
 }
 
 static int rpnetNext(ResultProcessor *self, SearchResult *r) {
@@ -296,6 +321,9 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     RS_LOG_ASSERT(result && MRReply_Type(result) == MR_REPLY_MAP, "invalid result record");
     MRReply *fields = MRReply_MapElement(result, "extra_attributes");
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
+
+    processResultFormat(&nc->areq->reqflags, rows);
+
     for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
       size_t len;
       const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
@@ -365,6 +393,7 @@ static RPNet *RPNet_New(const MRCommand *cmd, SearchCluster *sc) {
   RPNet *nc = rm_calloc(1, sizeof(*nc));
   nc->cmd = *cmd;
   nc->cg = SearchCluster_MultiplexCommand(sc, &nc->cmd);
+  nc->areq = NULL;
   nc->shardsProfileIdx = 0;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
@@ -397,10 +426,16 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   // Numeric responses are encoded as simple strings.
   tmparr = array_append(tmparr, "_NUM_SSTRING");
 
-  int dialectOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
-  if (dialectOffset != -1 && dialectOffset + 3 + 1 + profileArgs < argc) {
+  int argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
     tmparr = array_append(tmparr, "DIALECT");
-    tmparr = array_append(tmparr, RedisModule_StringPtrLen(argv[dialectOffset + 3 + 1 + profileArgs], NULL));  // the dialect
+    tmparr = array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the dialect
+  }
+
+  argOffset = RMUtil_ArgIndex("FORMAT", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
+    tmparr = array_append(tmparr, "FORMAT");
+    tmparr = array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the format
   }
 
   for (size_t ii = 0; ii < us->nserialized; ++ii) {
@@ -439,6 +474,7 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, SearchCluster *sc,
   RPNet *rpRoot = RPNet_New(xcmd, sc);
   rpRoot->base.parent = &r->qiter;
   rpRoot->lookup = us->lookup;
+  rpRoot->areq = r;
 
   ResultProcessor *rpProfile = NULL;
   if (IsProfile(r)) {
@@ -569,22 +605,25 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Construct the command string
   MRCommand xcmd;
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd);
-  xcmd.protocol = _is_resp3(ctx) ? 3 : 2;
+  xcmd.protocol = is_resp3(ctx) ? 3 : 2;
 
   // Build the result processor chain
   buildDistRPChain(r, &xcmd, sc, &us);
 
   if (IsProfile(r)) r->parseTime = clock() - r->initClock;
 
+  // Create the Search context
+  // (notice with cursor, we rely on the existing mechanism of AREQ to free the ctx object when the cursor is exhausted)
+  r->sctx = rm_new(RedisSearchCtx);
+  *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
+  r->sctx->apiVersion = dialect;
+  // r->sctx->expanded should be recieved from shards
+
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
     // Keep the original concurrent context
     ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
 
-    // We rely on the existing mechanism of AREQ to free the ctx object when the cursor is exhausted
-    r->sctx = rm_new(RedisSearchCtx);
-    *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
     StrongRef dummy_spec_ref = {.rm = NULL};
-
     rc = AREQ_StartCursor(r, reply, dummy_spec_ref, &status);
 
     if (rc != REDISMODULE_OK) {

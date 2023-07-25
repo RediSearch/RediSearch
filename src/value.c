@@ -93,14 +93,6 @@ void RSValue_Clear(RSValue *v) {
           break;
       }
       break;
-    case RSValue_Array:
-      for (uint32_t i = 0; i < v->arrval.len; i++) {
-        RSValue_Decref(v->arrval.vals[i]);
-      }
-      if (!v->arrval.staticarray) {
-        rm_free(v->arrval.vals);
-      }
-      break;
     case RSValue_Reference:
       RSValue_Decref(v->ref);
       break;
@@ -112,7 +104,23 @@ void RSValue_Clear(RSValue *v) {
     case RSValue_Duo:
       RSValue_Decref(RS_DUOVAL_VAL(*v));
       RSValue_Decref(RS_DUOVAL_OTHERVAL(*v));
+      RSValue_Decref(RS_DUOVAL_OTHER2VAL(*v));
       rm_free(v->duoval.vals);
+      break;
+    case RSValue_Array:
+      for (uint32_t i = 0; i < v->arrval.len; i++) {
+        RSValue_Decref(v->arrval.vals[i]);
+      }
+      if (!v->arrval.staticarray) {
+        rm_free(v->arrval.vals);
+      }
+      break;
+    case RSValue_Map:
+      for (uint32_t i = 0; i < v->mapval.len; i++) {
+        RSValue_Decref(v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)]);
+        RSValue_Decref(v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)]);
+      }
+      rm_free(v->mapval.pairs);
       break;
     default:   // no free
       break;
@@ -305,6 +313,7 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
 
     case RSValue_Null:
     case RSValue_Array:
+    case RSValue_Map:
     case RSValue_Undef:
     default:
       return 0;
@@ -324,30 +333,6 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
 
   return 0;
 }
-
-/**
- * Returns the value as a simple opaque buffer
-inline const void *RSValue_ToBuffer(RSValue *value, size_t *outlen) {
-  value = RSValue_Dereference(value);
-
-  switch (value->t) {
-    case RSValue_Number:
-      *outlen = sizeof(value->numval);
-      return &value->numval;
-    case RSValue_String:
-      *outlen = value->strval.len;
-      return value->strval.str;
-    case RSValue_RedisString:
-    case RSValue_OwnRstring:
-      return RedisModule_StringPtrLen(value->rstrval, outlen);
-    case RSValue_Array:
-    case RSValue_Null:
-    default:
-      *outlen = 0;
-      return "";
-  }
-}
- */
 
 // Gets the string pointer and length from the value
 const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
@@ -405,6 +390,14 @@ RSValue *RS_Int64Val(int64_t dd) {
   return v;
 }
 
+RSValue *RSValue_NewArray(RSValue **vals, uint32_t len) {
+  RSValue *arr = RS_NewValue(RSValue_Array);
+  arr->arrval.vals = vals;
+  arr->arrval.len = len;
+  arr->arrval.staticarray = 0;
+  return arr;
+}
+
 RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
   RSValue *arr = RS_NewValue(RSValue_Array);
   RSValue **list;
@@ -439,6 +432,13 @@ RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
   }
 
   return arr;
+}
+
+RSValue *RSValue_NewMap(RSValue **pairs, uint32_t numPairs) {
+  RSValue *map = RS_NewValue(RSValue_Map);
+  map->mapval.pairs = pairs;
+  map->mapval.len = numPairs;
+  return map;
 }
 
 RSValue *RS_VStringArray(uint32_t sz, ...) {
@@ -478,11 +478,12 @@ inline RSValue *RS_NullVal() {
   return &RS_NULL;
 }
 
-RSValue *RS_DuoVal(RSValue *val, RSValue *otherval) {
+RSValue *RS_DuoVal(RSValue *val, RSValue *otherval, RSValue *other2val) {
   RSValue *duo = RS_NewValue(RSValue_Duo);
-  duo->duoval.vals = rm_calloc(2, sizeof(*duo->duoval.vals));
+  duo->duoval.vals = rm_calloc(3, sizeof(*duo->duoval.vals));
   duo->duoval.vals[0] = val;
   duo->duoval.vals[1] = otherval;
+  duo->duoval.vals[2] = other2val;
   return duo;
 }
 
@@ -500,6 +501,35 @@ static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t 
     }
   }
 }
+
+static inline int compare_arrays_first(const RSValue *arr1, const RSValue *arr2, QueryError *qerr) {
+  uint32_t len1 = arr1->arrval.len;
+  uint32_t len2 = arr2->arrval.len;
+
+  uint32_t len = MIN(len1, len2);
+  if (len) {
+    // Compare only the first entry
+    return RSValue_Cmp(arr1->arrval.vals[0], arr2->arrval.vals[0], qerr);
+  }
+  return len1 - len2;
+}
+
+// TODO: Use when SORTABLE is not looking only at the first array element
+static inline int compare_arrays(const RSValue *arr1, const RSValue *arr2, QueryError *qerr) {
+  uint32_t len1 = arr1->arrval.len;
+  uint32_t len2 = arr2->arrval.len;
+
+  uint32_t len = MIN(len1, len2);
+  for (uint32_t i = 0; i < len; i++) {
+    int cmp = RSValue_Cmp(arr1->arrval.vals[i], arr2->arrval.vals[i], qerr);
+    if (cmp != 0) {
+      return cmp;
+    }
+  }
+  return len1 - len2;
+}
+
+
 
 static inline int cmp_numbers(const RSValue *v1, const RSValue *v2) {
   return v1->numval > v2->numval ? 1 : (v1->numval < v2->numval ? -1 : 0);
@@ -519,7 +549,7 @@ static inline int convert_to_number(const RSValue *v, RSValue *vn, QueryError *q
   return 1;
 }
 
-static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2) {
+static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   switch (v1->t) {
     case RSValue_Number:
       return cmp_numbers(v1, v2);
@@ -533,10 +563,13 @@ static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2) {
       return cmp_strings(s1, s2, l1, l2);
     }
     case RSValue_Duo:
-      return RSValue_CmpNC(RS_DUOVAL_VAL(*v1), RS_DUOVAL_VAL(*v2));
+      return RSValue_Cmp(RS_DUOVAL_VAL(*v1), RS_DUOVAL_VAL(*v2), qerr);
     case RSValue_Null:
       return 0;
-    case RSValue_Array:  // can't compare arrays ATM
+    case RSValue_Array:
+      return compare_arrays_first(v1, v2, qerr);
+
+    case RSValue_Map:   // can't compare maps ATM
     default:
       return 0;
   }
@@ -545,7 +578,7 @@ static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2) {
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   RS_LOG_ASSERT(v1 && v2, "missing RSvalue");
   if (v1->t == v2->t) {
-    return RSValue_CmpNC(v1, v2);
+    return RSValue_CmpNC(v1, v2, qerr);
   }
 
   // if one of the values is null, the other wins
@@ -593,7 +626,7 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   RS_LOG_ASSERT(v1 && v2, "missing RSvalue");
 
   if (v1->t == v2->t) {
-    return RSValue_CmpNC(v1, v2) == 0;
+    return RSValue_CmpNC(v1, v2, qerr) == 0;
   }
 
   if (v1 == RS_NullVal() || v2 == RS_NullVal()) {
@@ -619,37 +652,137 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   return cmp_strings(s1, s2, l1, l2) == 0;
 }
 
+#if 0
+static int RSValue_SendReply_Collection(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
+  typedef struct {
+    const RSValue *v; // collection: either array or map
+    int k; // position in collection
+  }  Item;
+
+  if (v->t != RSValue_Array && v->t != RSValue_Map) {
+    return RSValue_SendReply(reply, v, flags);
+  }
+
+  arrayof(Item) stack = array_new(Item, 64);
+
+  bool next(const RSValue *w, int k, const RSValue *v) {
+    if (v->t != RSValue_Array && v->t != RSValue_Map) {
+      RSValue_SendReply(reply, v, flags);
+      return false;
+    }
+    stack = array_append(stack, ((Item){.v = w, .k = k + 1}));
+    stack = array_append(stack, ((Item){.v = v, 0}));
+    return true;
+  }
+
+  stack = array_append(stack, ((Item){.v = v, .k = 0}));
+  while (array_len(stack) > 0) {
+    Item item = array_pop(stack);
+    const RSValue *w = item.v;
+    int k = item.k;
+    int n;
+
+    if (w->t == RSValue_Array) {
+      if (!k) {
+        RedisModule_Reply_Array(reply);
+      }
+      n = w->arrval.len;
+      for (; k < n; ++k) {
+        RSValue *v = w->arrval.vals[k];
+        if (next(w, k, v)) {
+          break;
+        }
+      }
+    } else { // map
+      if (!k) {
+        RedisModule_Reply_Map(reply);
+      }
+      n = w->mapval.len;
+      for (; k < n; ++k) {
+        RSValue **pair = &w->mapval.pairs[2 * k];
+        RSValue_SendReply(reply, pair[0], flags);
+        RSValue *v = pair[1];
+        if (next(w, k, v)) {
+          break;
+        }
+      }
+    }
+    if (k == n) {
+      if (w->t == RSValue_Array) {
+        RedisModule_Reply_ArrayEnd(reply);
+      } else {
+        RedisModule_Reply_MapEnd(reply);
+      }
+    }
+  }
+  array_free(stack);
+  return REDISMODULE_OK;
+}
+#endif //0
+
 /* Based on the value type, serialize the value into redis client response */
-int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, int isTyped) {
+int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
   v = RSValue_Dereference(v);
 
   switch (v->t) {
     case RSValue_String:
       return RedisModule_Reply_StringBuffer(reply, v->strval.str, v->strval.len);
+
     case RSValue_RedisString:
     case RSValue_OwnRstring:
       return RedisModule_Reply_String(reply, v->rstrval);
-    case RSValue_Number: {
-      char buf[128] = {0};
-      RSValue_NumToString(v->numval, buf);
 
-      if (isTyped) {
-        return RedisModule_Reply_Error(reply, buf);
+    case RSValue_Number: {
+      if (!(flags & SENDREPLY_FLAG_EXPAND)) {
+        char buf[128] = {0};
+        RSValue_NumToString(v->numval, buf);
+
+        if (flags & SENDREPLY_FLAG_TYPED) {
+          return RedisModule_Reply_Error(reply, buf);
+        } else {
+          return RedisModule_Reply_StringBuffer(reply, buf, strlen(buf));
+        }
       } else {
-        return RedisModule_Reply_StringBuffer(reply, buf, strlen(buf));
+        long long ll = v->numval;
+        if (ll == v->numval) {
+          return RedisModule_Reply_LongLong(reply, ll);
+        } else {
+          return RedisModule_Reply_Double(reply, v->numval);
+        }
       }
     }
+
     case RSValue_Null:
       return RedisModule_Reply_Null(reply);
+
+    case RSValue_Duo: {
+      return RSValue_SendReply(reply, RS_DUOVAL_OTHERVAL(*v), flags);
+    }
+
+#if 1
     case RSValue_Array:
       RedisModule_Reply_Array(reply);
         for (uint32_t i = 0; i < v->arrval.len; i++) {
-          RSValue_SendReply(reply, v->arrval.vals[i], isTyped);
+          RSValue_SendReply(reply, v->arrval.vals[i], flags);
         }
       RedisModule_Reply_ArrayEnd(reply);
       return REDISMODULE_OK;
-    case RSValue_Duo:
-      return RSValue_SendReply(reply, RS_DUOVAL_OTHERVAL(*v), isTyped);
+
+    case RSValue_Map:
+      // If Map value is used, assume Map api exists (RedisModule_HasMap)
+      RedisModule_Reply_Map(reply);
+      for (uint32_t i = 0; i < v->mapval.len; i++) {
+          RSValue_SendReply(reply, v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)], flags);
+          RSValue_SendReply(reply, v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)], flags);
+      }
+      RedisModule_Reply_MapEnd(reply);
+      break;
+#else // non-recursive
+    case RSValue_Array:
+    case RSValue_Map:
+      return RSValue_SendReply_Collection(reply, v, flags);
+#endif
+
     default:
       RedisModule_Reply_Null(reply);
   }
@@ -683,10 +816,22 @@ void RSValue_Print(const RSValue *v) {
     case RSValue_Array:
       fprintf(fp, "[");
       for (uint32_t i = 0; i < v->arrval.len; i++) {
+        if (i > 0)
+          fprintf(fp, ", ");
         RSValue_Print(v->arrval.vals[i]);
-        printf(", ");
       }
       fprintf(fp, "]");
+      break;
+    case RSValue_Map:
+      fprintf(fp, "{");
+      for (uint32_t i = 0; i < v->mapval.len; i++) {
+        if (i > 0)
+          fprintf(fp, ", ");
+        RSValue_Print(v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)]);
+        fprintf(fp, ": ");
+        RSValue_Print(v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)]);
+      }
+      fprintf(fp, "}");
       break;
     case RSValue_Reference:
       RSValue_Print(v->ref);
@@ -697,6 +842,13 @@ void RSValue_Print(const RSValue *v) {
       break;
   }
 }
+
+#ifdef _DEBUG
+void print_rsvalue(RSValue *v) {
+  RSValue_Print(v);
+  fputs("\n", stderr);
+}
+#endif // _DEBUG
 
 /*
  *  - s: will be parsed as a string
@@ -774,6 +926,8 @@ const char *RSValue_TypeName(RSValueType t) {
   switch (t) {
     case RSValue_Array:
       return "array";
+    case RSValue_Map:
+      return "map";
     case RSValue_Number:
       return "number";
     case RSValue_String:

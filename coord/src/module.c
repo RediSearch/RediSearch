@@ -402,7 +402,8 @@ typedef struct{
 
   processReplyCB processReply;
   postProcessReplyCB postProcess;
-  specialCaseCtx* reduceSpecialCaseCtx;
+  specialCaseCtx* reduceSpecialCaseCtxKnn;
+  specialCaseCtx* reduceSpecialCaseCtxSortby;
 } searchReducerCtx;
 
 typedef struct {
@@ -419,6 +420,8 @@ void SpecialCaseCtx_Free(specialCaseCtx* ctx) {
   if (!ctx) return;
   if(ctx->specialCaseType == SPECIAL_CASE_KNN) {
     QueryNode_Free(ctx->knn.queryNode);
+  } else if(ctx->specialCaseType == SPECIAL_CASE_SORTBY) {
+    rm_free((void*)ctx->sortby.sortKey);
   }
   rm_free(ctx);
 }
@@ -562,7 +565,7 @@ void prepareSortbyCase(searchRequestCtx *req, RedisModuleString **argv, int argc
   const char* sortkey = RedisModule_StringPtrLen(argv[sortByIndex + 1], NULL);
   specialCaseCtx *ctx = SpecialCaseCtx_New();
   ctx->specialCaseType = SPECIAL_CASE_SORTBY;
-  ctx->sortby.sortKey = sortkey;
+  ctx->sortby.sortKey = rm_strdup(sortkey);
   ctx->sortby.asc = true;
   req->sortAscending = true;
   if (req->withSortby && sortByIndex + 2 < argc) {
@@ -645,11 +648,11 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   }
 
   unsigned int dialect = RSGlobalConfig.requestConfigParams.dialectVersion;
-  int dialectArgIndex = RMUtil_ArgExists("DIALECT", argv, argc, argvOffset);
-  if(dialectArgIndex > 0) {
-      dialectArgIndex++;
+  int argIndex = RMUtil_ArgExists("DIALECT", argv, argc, argvOffset);
+  if(argIndex > 0) {
+      argIndex++;
       ArgsCursor ac;
-      ArgsCursor_InitRString(&ac, argv+dialectArgIndex, argc-dialectArgIndex);
+      ArgsCursor_InitRString(&ac, argv+argIndex, argc-argIndex);
       if (parseDialect(&dialect, &ac, status) != REDISMODULE_OK) {
         searchRequestCtx_Free(req);
         return NULL;
@@ -667,6 +670,18 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
       if (knnCtx != NULL) {
         setKNNSpecialCase(req, knnCtx);
       }
+    }
+  }
+
+  req->format = QEXEC_FORMAT_DEFAULT;
+  argIndex = RMUtil_ArgExists("FORMAT", argv, argc, argvOffset);
+  if(argIndex > 0) {
+    argIndex++;
+    ArgsCursor ac;
+    ArgsCursor_InitRString(&ac, argv+argIndex, argc-argIndex);
+    if (parseValueFormat(&req->format, &ac, status) != REDISMODULE_OK) {
+      searchRequestCtx_Free(req);
+      return NULL;
     }
   }
 
@@ -806,7 +821,7 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
   return res;
 }
 
-searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, bool explainScores) {
+searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, searchReplyOffsets* offsets, bool explainScores, specialCaseCtx *reduceSpecialCaseCtxSortBy) {
   searchResult *res = cached ? cached : rm_malloc(sizeof *res);
   res->sortKey = NULL;
   res->sortKeyNum = HUGE_VAL;
@@ -836,7 +851,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, boo
     }
     res->explainScores = MRReply_ArrayElement(score, 1);
 
-  } else if (score && !MRReply_ToDouble(score, &res->score)) {
+  } else if (offsets->score > 0 && !MRReply_ToDouble(score, &res->score)) {
       res->id = NULL;
       return res;
   }
@@ -847,20 +862,37 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, boo
   // get payloads
   res->payload = MRReply_MapElement(result_j, "payload");
 
-  MRReply *sortkey = MRReply_MapElement(result_j, "sortkey");
-  if (sortkey) {
-    res->sortKey = MRReply_String(sortkey, &res->sortKeyLen);
-    if (res->sortKey) {
-      if (res->sortKey[0] == '#') {
-        char *eptr;
-        double d = strtod(res->sortKey + 1, &eptr);
-        if (eptr != res->sortKey + 1 && *eptr == 0) {
-          res->sortKeyNum = d;
-        }
-      } else if (!strncmp(res->sortKey, "none", 4)) {
-        res->sortKey = NULL;
+  if (offsets->sortKey > 0) {
+    MRReply *sortkey = NULL;
+    if (reduceSpecialCaseCtxSortBy) {
+      MRReply *require_fields = MRReply_MapElement(result_j, "required_fields");
+      if (require_fields) {
+        sortkey = MRReply_MapElement(require_fields, reduceSpecialCaseCtxSortBy->sortby.sortKey);
       }
-      // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
+    }
+    if (!sortkey) {
+      // If sortkey is the only special case, it will not be in the required_fields map
+      sortkey = MRReply_MapElement(result_j, "sortkey");
+    }
+    if (!sortkey) {
+      // Fail if sortkey is required but not found
+      res->id = NULL;
+      return res;
+    }
+    if (sortkey) {
+      res->sortKey = MRReply_String(sortkey, &res->sortKeyLen);
+      if (res->sortKey) {
+        if (res->sortKey[0] == '#') {
+          char *eptr;
+          double d = strtod(res->sortKey + 1, &eptr);
+          if (eptr != res->sortKey + 1 && *eptr == 0) {
+            res->sortKeyNum = d;
+          }
+        } else if (!strncmp(res->sortKey, "none", 4)) {
+          res->sortKey = NULL;
+        }
+        // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
+      }
     }
   }
 
@@ -959,6 +991,53 @@ static int cmp_scored_results(const void *p1, const void *p2, const void *udata)
   return cmpStrings(s1->result->id, s1->result->idLen, s2->result->id, s2->result->idLen);
 }
 
+static double parseNumeric(const char *str, const char *sortKey) {
+    RedisModule_Assert(str[0] == '#');
+    char *eptr;
+    double d = strtod(str + 1, &eptr);
+    RedisModule_Assert(eptr != sortKey + 1 && *eptr == 0);
+    return d;
+}
+
+#define GET_NUMERIC_SCORE(d, searchResult_var, score_exp) \
+  do {                                                    \
+    if (res->sortKeyNum != HUGE_VAL) {                    \
+      d = searchResult_var->sortKeyNum;                   \
+    } else {                                              \
+      const char *score = (score_exp);                    \
+      d = parseNumeric(score, res->sortKey);              \
+    }                                                     \
+  } while (0);
+
+static void proccessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, double score, knnContext *knnCtx) {
+  // As long as we don't have k results, keep insert
+    if (heap_count(knnCtx->pq) < knnCtx->k) {
+      scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
+      resWrapper->result = res;
+      resWrapper->score = score;
+      heap_offerx(knnCtx->pq, resWrapper);
+    } else {
+      // Check for upper bound
+      scoredSearchResultWrapper tmpWrapper;
+      tmpWrapper.result = res;
+      tmpWrapper.score = score;
+      scoredSearchResultWrapper *largest = heap_peek(knnCtx->pq);
+      int c = cmp_scored_results(&tmpWrapper, largest, rCtx->searchCtx);
+      if (c < 0) {
+        scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
+        resWrapper->result = res;
+        resWrapper->score = score;
+        // Current result is smaller then upper bound, replace them.
+        largest = heap_poll(knnCtx->pq);
+        heap_offerx(knnCtx->pq, resWrapper);
+        rCtx->cachedResult = largest->result;
+        rm_free(largest);
+      } else {
+        rCtx->cachedResult = res;
+      }
+    }
+}
+
 static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
   if (arr == NULL) {
     return;
@@ -979,71 +1058,69 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   }
 
   searchRequestCtx *req = rCtx->searchCtx;
-
-  size_t len = MRReply_Length(arr);
-
-  int step = rCtx->offsets.step;
-  specialCaseCtx* reduceSpecialCaseCtx = rCtx->reduceSpecialCaseCtx;
-  int scoreOffset = reduceSpecialCaseCtx->knn.offset;
-  for (int j = 1; j < len; j += step) {
-    if (j + step > len) {
-      RedisModule_Log(
-          ctx, "warning",
-          "got a bad reply from redisearch, reply contains less parameters then expected");
-      rCtx->errorOccured = true;
-      break;
-    }
-    searchResult *res;
-    if (resp3) {
-      res = newResult_resp3(rCtx->cachedResult, arr, j, rCtx->searchCtx->withExplainScores);
-    } else {
-      res = newResult_resp2(rCtx->cachedResult, arr, j, &rCtx->offsets, rCtx->searchCtx->withExplainScores);
-    }
-    if (!res || !res->id) {
-      RedisModule_Log(ctx, "warning", "got an unexpected argument when parsing redisearch results");
-      rCtx->errorOccured = true;
-      // invalid result - usually means something is off with the response, and we should just
-      // quit this response
-      rCtx->cachedResult = res;
-      break;
-    } else {
-      rCtx->cachedResult = NULL;
-    }
-
-    size_t len;
-    char* score = MRReply_String(MRReply_ArrayElement(arr, j + scoreOffset), &len);
-    RedisModule_Assert(score[0] == '#');
-    char *eptr;
-    double d = strtod(score + 1, &eptr);
-    RedisModule_Assert(eptr != res->sortKey + 1 && *eptr == 0);
-
-    // As long as we don't have k results, keep insert
-    if (heap_count(reduceSpecialCaseCtx->knn.pq) < reduceSpecialCaseCtx->knn.k) {
-      scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
-      resWrapper->result = res;
-      resWrapper->score = d;
-      heap_offerx(reduceSpecialCaseCtx->knn.pq, resWrapper);
-    } else {
-      // Check for upper bound
-      scoredSearchResultWrapper tmpWrapper;
-      tmpWrapper.result = res;
-      tmpWrapper.score = d;
-      scoredSearchResultWrapper *largest = heap_peek(reduceSpecialCaseCtx->knn.pq);
-      int c = cmp_scored_results(&tmpWrapper, largest, rCtx->searchCtx);
-      if (c < 0) {
-        scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
-        resWrapper->result = res;
-        resWrapper->score = d;
-        // Current result is smaller then upper bound, replace them.
-        largest = heap_poll(reduceSpecialCaseCtx->knn.pq);
-        heap_offerx(reduceSpecialCaseCtx->knn.pq, resWrapper);
-        rCtx->cachedResult = largest->result;
-        rm_free(largest);
+  specialCaseCtx* reduceSpecialCaseCtxKnn = rCtx->reduceSpecialCaseCtxKnn;
+  specialCaseCtx* reduceSpecialCaseCtxSortBy = rCtx->reduceSpecialCaseCtxSortby;
+  searchResult *res;
+  if (resp3) {
+    MRReply *results = MRReply_MapElement(arr, "results");
+    RS_LOG_ASSERT(results && MRReply_Type(results) == MR_REPLY_ARRAY, "invalid results record");
+    size_t len = MRReply_Length(results);
+    for (int j = 0; j < len; ++j) {
+      res = newResult_resp3(rCtx->cachedResult, results, j, &rCtx->offsets, rCtx->searchCtx->withExplainScores, reduceSpecialCaseCtxSortBy);
+      if (res && res->id) {
+        rCtx->cachedResult = NULL;
       } else {
-        rCtx->cachedResult = res;
+        RedisModule_Log(ctx, "warning", "missing required_field when parsing redisearch results");
+        goto error;
       }
+      MRReply *require_fields = MRReply_MapElement(MRReply_ArrayElement(results, j), "required_fields");
+      if (!require_fields) {
+        RedisModule_Log(ctx, "warning", "missing required_fields when parsing redisearch results");
+        goto error;
+      }
+      MRReply *score_value = MRReply_MapElement(require_fields, reduceSpecialCaseCtxKnn->knn.fieldName);
+      if (!score_value) {
+        RedisModule_Log(ctx, "warning", "missing knn required_field when parsing redisearch results");
+        goto error;
+      }
+      double d;
+      GET_NUMERIC_SCORE(d, res, MRReply_String(score_value, NULL));
+      proccessKNNSearchResult(res, rCtx, d, &reduceSpecialCaseCtxKnn->knn);
+    }
+    processResultFormat(&req->format, arr);
+    
+  } else {
+    size_t len = MRReply_Length(arr);
+    int step = rCtx->offsets.step;
+    int scoreOffset = reduceSpecialCaseCtxKnn->knn.offset;
+    for (int j = 1; j < len; j += step) {
+      if (j + step > len) {
+        RedisModule_Log(
+            ctx, "warning",
+            "got a bad reply from redisearch, reply contains less parameters then expected");
+        rCtx->errorOccured = true;
+        break;
+      }
+      res = newResult_resp2(rCtx->cachedResult, arr, j, &rCtx->offsets, rCtx->searchCtx->withExplainScores);
+      if (res && res->id) {
+        rCtx->cachedResult = NULL;
+      } else {
+        RedisModule_Log(ctx, "warning", "missing required_field when parsing redisearch results");
+        goto error;
+      }
+
+      double d;
+      GET_NUMERIC_SCORE(d, res, MRReply_String(MRReply_ArrayElement(arr, j + scoreOffset), NULL));
+      proccessKNNSearchResult(res, rCtx, d, &reduceSpecialCaseCtxKnn->knn);
     }
   }
+  return;
+
+error:  
+  rCtx->errorOccured = true;
+  // invalid result - usually means something is off with the response, and we should just
+  // quit this response
+  rCtx->cachedResult = res;
 }
 
 static void processSerchReplyResult(searchResult *res, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
@@ -1114,10 +1191,12 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
     }
     size_t len = MRReply_Length(results);
 
+    bool needScore = rCtx->offsets.score > 0;
     for (int i = 0; i < len; ++i) {
-      searchResult *res = newResult_resp3(rCtx->cachedResult, results, i, rCtx->searchCtx->withExplainScores);
+      searchResult *res = newResult_resp3(rCtx->cachedResult, results, i, &rCtx->offsets, rCtx->searchCtx->withExplainScores, rCtx->reduceSpecialCaseCtxSortby);
       processSerchReplyResult(res, rCtx, ctx);
-    }
+    }    
+    processResultFormat(&rCtx->searchCtx->format, arr);
   }
   else // RESP2
   {
@@ -1150,7 +1229,7 @@ static void noOpPostProcess(searchReducerCtx *rCtx){
 }
 
 static void knnPostProcess(searchReducerCtx *rCtx) {
-  specialCaseCtx* reducerSpecialCaseCtx = rCtx->reduceSpecialCaseCtx;
+  specialCaseCtx* reducerSpecialCaseCtx = rCtx->reduceSpecialCaseCtxKnn;
   RedisModule_Assert(reducerSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN);
   if(reducerSpecialCaseCtx->knn.pq) {
     size_t numberOfResults = heap_count(reducerSpecialCaseCtx->knn.pq);
@@ -1220,7 +1299,11 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_ReplyKV_LongLong(reply, "total_results", rCtx->totalReplies);
 
-    RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
+    if (rCtx->searchCtx->format & QEXEC_FORMAT_EXPAND) {
+      RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
+    } else {
+      RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
+    }
 
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
@@ -1248,7 +1331,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
             MR_ReplyWithMRReply(reply, res->payload);
           }
 
-          if (req->withSortingKeys || req->withSortby) {
+          if (req->withSortingKeys && req->withSortby) {
             RedisModule_Reply_SimpleString(reply, "sortkey");
             if (res->sortKey) {
               RedisModule_Reply_StringBuffer(reply, res->sortKey, res->sortKeyLen);
@@ -1439,16 +1522,17 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       if (req->specialCases[i]->specialCaseType == SPECIAL_CASE_KNN) {
         specialCaseCtx* knnCtx = req->specialCases[i];
         rCtx.postProcess = (postProcessReplyCB) knnPostProcess;
-        rCtx.reduceSpecialCaseCtx = knnCtx;
+        rCtx.reduceSpecialCaseCtxKnn = knnCtx;
         if (knnCtx->knn.shouldSort) {
           knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCtx->knn.k));
           heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCtx->knn.k);
           rCtx.processReply = (processReplyCB) proccessKNNSearchReply;
-          rCtx.reduceSpecialCaseCtx = knnCtx;
           break;
         }
+      } else if (req->specialCases[i]->specialCaseType == SPECIAL_CASE_SORTBY) {
+        rCtx.reduceSpecialCaseCtxSortby = req->specialCases[i];
       }
-    }
+    } 
   }
 
   for (int i = 0; i < count; ++i) {
@@ -1492,10 +1576,9 @@ cleanup:
   if (rCtx.pq) {
     heap_destroy(rCtx.pq);
   }
-  if (rCtx.reduceSpecialCaseCtx &&
-      rCtx.reduceSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN &&
-      rCtx.reduceSpecialCaseCtx->knn.pq) {
-    heap_destroy(rCtx.reduceSpecialCaseCtx->knn.pq);
+  if (rCtx.reduceSpecialCaseCtxKnn &&
+      rCtx.reduceSpecialCaseCtxKnn->knn.pq) {
+    heap_destroy(rCtx.reduceSpecialCaseCtxKnn->knn.pq);
   }
 
   searchRequestCtx_Free(req);
@@ -1510,7 +1593,7 @@ cleanup:
 int FirstPartitionCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                  MRReduceFunc reducer, struct MRCtx *mrCtx) {
 
-  bool resp3 = _is_resp3(ctx);
+  bool resp3 = is_resp3(ctx);
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);
 
@@ -1526,7 +1609,7 @@ int FirstPartitionCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, 
 }
 
 int FirstShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  bool resp3 = _is_resp3(ctx);
+  bool resp3 = is_resp3(ctx);
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
@@ -1640,7 +1723,7 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
   struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL);
   MR_SetCoordinationStrategy(mrctx, MRCluster_MastersOnly | MRCluster_FlatCoordination);
-  MR_Map(mrctx, _is_resp3(ctx) ? spellCheckReducer_resp3 : spellCheckReducer_resp2, cg, true);
+  MR_Map(mrctx, is_resp3(ctx) ? spellCheckReducer_resp3 : spellCheckReducer_resp2, cg, true);
   cg.Free(cg.ctx);
   return REDISMODULE_OK;
 }
@@ -1977,7 +2060,7 @@ static void DistSearchCommandHandler(void* pd) {
 
 static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
-  bool resp3 = _is_resp3(ctx);
+  bool resp3 = is_resp3(ctx);
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1993,7 +2076,7 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
   sCmdCtx->argc = argc;
   sCmdCtx->bc = bc;
-  sCmdCtx->protocol = _is_resp3(ctx) ? 3 : 2;
+  sCmdCtx->protocol = is_resp3(ctx) ? 3 : 2;
   RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, bc);
   ConcurrentSearch_ThreadPoolRun(DistSearchCommandHandler, sCmdCtx, DIST_AGG_THREADPOOL);
 
