@@ -15,24 +15,20 @@
 extern "C" {
 #endif
 
-typedef struct RedisModuleCtx RedisModuleCtx;
-typedef struct GeometryIndex GeometryIndex;
-typedef struct GeometryApi GeometryApi;
+GeometryIndex *GeometryIndexFactory(GEOMETRY_COORDS tag);
+const GeometryApi *GeometryApi_Get(const GeometryIndex *index);
+const char *GeometryCoordsToName(GEOMETRY_COORDS tag);
 
-GeometryIndex *GeometryIndexFactory(GEOMETRY_COORDS);
-const GeometryApi *GeometryApi_Get(const GeometryIndex *);
 struct GeometryApi {
   void (*freeIndex)(GeometryIndex *index);
   int (*addGeomStr)(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len,
                     t_docId docId, RedisModuleString **err_msg);
   int (*delGeom)(GeometryIndex *index, t_docId docId);
-  IndexIterator *(*query)(GeometryIndex *index, QueryType queryType, GEOMETRY_FORMAT format,
+  IndexIterator *(*query)(const GeometryIndex *index, QueryType queryType, GEOMETRY_FORMAT format,
                           const char *str, size_t len, RedisModuleString **err_msg);
-  void (*dump)(GeometryIndex *index, RedisModuleCtx *ctx);
+  void (*dump)(const GeometryIndex *index, RedisModuleCtx *ctx);
+  size_t (*report)(const GeometryIndex *index);
 };
-
-// Return the total memory usage of all RTree instances
-size_t GeometryTotalMemUsage();
 
 #ifdef __cplusplus
 }

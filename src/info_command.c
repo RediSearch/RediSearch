@@ -10,6 +10,7 @@
 #include "cursor.h"
 #include "resp3.h"
 #include "geometry/geometry_api.h"
+#include "geometry_index.h"
 #include "redismodule.h"
 
 #define REPLY_KVNUM(k, v) RedisModule_ReplyKV_Double(reply, (k), (v))
@@ -107,6 +108,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   renderIndexDefinitions(reply, sp);
 
   RedisModule_ReplyKV_Array(reply, "attributes"); // >attrbutes
+  size_t geom_idx_sz = 0;
 
   for (int i = 0; i < sp->numFields; i++) {
     RedisModule_Reply_Map(reply); // >>field
@@ -150,6 +152,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
       REPLY_KVSTR("coord_system", GeometryCoordsToName(fs->geometryOpts.geometryCoords));
+      const GeometryIndex *idx = OpenGeometryIndex(ctx, sp, NULL, fs);
+      const GeometryApi *api = GeometryApi_Get(idx);
+      geom_idx_sz += api->report(idx);
     }
 
     if (has_map) {
@@ -203,7 +208,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM("sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
 
   REPLY_KVNUM("key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
-  REPLY_KVNUM("total_geoshapes_index_size_mb", GeometryTotalMemUsage() / (float)0x100000);
+  REPLY_KVNUM("geoshapes_sz_mb", geom_idx_sz / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
               (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
   REPLY_KVNUM("bytes_per_record_avg",

@@ -55,8 +55,9 @@ typedef enum {
   DocumentType_Unsupported,
 } DocumentType;
 
-#define isSpecHash(spec) (spec->rule && spec->rule->type == DocumentType_Hash)
-#define isSpecJson(spec) (spec->rule && spec->rule->type == DocumentType_Json)
+#define isSpecHash(spec) ((spec)->rule && (spec)->rule->type == DocumentType_Hash)
+#define isSpecJson(spec) ((spec)->rule && (spec)->rule->type == DocumentType_Json)
+#define SpecRuleTypeName(spec) ((spec)->rule ? DocumentType_ToString((spec)->rule->type) : "Unknown")
 
 #define RS_IsMock (!RedisModule_CreateTimer)
 
