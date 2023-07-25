@@ -220,7 +220,7 @@ def test_async_updates_sanity():
     env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 10000 * n_shards if not SANITIZER and not CODE_COVERAGE else 5000 if SANITIZER else 500
+    n_vectors = n_shards * (10000 if not SANITIZER and not CODE_COVERAGE else 5000 if SANITIZER else 500)
     dim = 4
     block_size = 1024
 
