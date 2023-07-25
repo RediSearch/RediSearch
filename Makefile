@@ -193,7 +193,7 @@ endif
 #----------------------------------------------------------------------------------------------
 
 CC_C_STD=gnu11
-# CC_CXX_STD=c++11
+# CC_CXX_STD=c++20
 
 CC_STATIC_LIBSTDCXX ?= 1
 
@@ -237,9 +237,9 @@ endif
 #----------------------------------------------------------------------------------------------
 
 _CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME)
-ifneq ($(filter $(OSNICK),bionic amzn2),)
+# ifneq ($(filter $(OSNICK),bionic amzn2),)
 _CMAKE_FLAGS += -DCANON_BOOST=on
-endif
+# endif
 
 ifeq ($(OS),macos)
 _CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DBOOST_DIR=$(boost_prefix)

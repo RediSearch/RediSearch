@@ -31,7 +31,7 @@ class RediSearchSetup(paella.Setup):
         self.run(f"{READIES}/bin/getgcc --modern")
         self.install("libtool m4 automake libssl-dev")
         self.install("python3-dev")
-        self.install("libboost-all-dev")
+        # self.install("libboost-all-dev")
 
         if self.platform.is_arm():
             if self.dist == 'ubuntu' and self.os_version[0] < 20:
@@ -45,10 +45,13 @@ class RediSearchSetup(paella.Setup):
         self.run(f"{READIES}/bin/getepel", sudo=True)
         self.install("libatomic")
 
-        self.run(f"{READIES}/bin/getgcc --modern")
+        if self.dist == "centos" and self.os_version[0] == 7:
+            self.run(f"{READIES}/bin/getgcc --modern --update-libstdc++")
+        else:
+            self.run(f"{READIES}/bin/getgcc --modern")
         self.install("libtool m4 automake openssl-devel")
         self.install("python3-devel")
-        self.install("--skip-broken boost169-devel")
+        # self.install("--skip-broken boost169-devel")
 
         if not self.platform.is_arm():
             self.install_linux_gnu_tar()
@@ -56,20 +59,20 @@ class RediSearchSetup(paella.Setup):
     def archlinux(self):
         self.run(f"{READIES}/bin/getgcc --modern")
         self.install("libtool m4 automake")
-        self.install("boost-dev")
+        # self.install("boost-dev")
 
     def fedora(self):
         self.install("libatomic")
         self.run(f"{READIES}/bin/getgcc --modern")
         self.install("openssl-devel")
-        self.install("boost-devel")
+        # self.install("boost-devel")
 
     def macos(self):
         self.install_gnu_utils()
         self.install("pkg-config")
         self.install("libtool m4 automake")
         self.run(f"{READIES}/bin/getclang --force --modern")
-        self.install("boost")
+        # self.install("boost")
         self.pip_install(f"-r {ROOT}/tests/pytests/requirements.macos.txt")
         # self.run(f"{self.python} {READIES}/bin/getredis -v 6 --force")
 

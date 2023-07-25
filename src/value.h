@@ -49,6 +49,8 @@ typedef enum {
   RSValue_Reference = 8,
   // Duo value
   RSValue_Duo = 9,
+  // Map value
+  RSValue_Map = 10,
 
 } RSValueType;
 
@@ -73,7 +75,7 @@ typedef struct RSValue {
     // numeric value
     double numval;
 
-    int64_t intval;
+    //int64_t intval;
 
     // string value
     struct {
@@ -94,6 +96,12 @@ typedef struct RSValue {
        */
       uint8_t staticarray : 1;
     } arrval;
+
+    // map value
+    struct {
+      struct RSValue **pairs; // array of <key,value> pairs which are <strval, RSValue>
+      uint32_t len;           // number of pairs (not number of array elements)
+    } mapval;
 
     struct {
       /**
@@ -131,7 +139,11 @@ typedef struct RSValue {
 
 #define RS_DUOVAL_VAL(v) ((v).duoval.vals[0])
 #define RS_DUOVAL_OTHERVAL(v) ((v).duoval.vals[1])
+#define RS_DUOVAL_OTHER2VAL(v) ((v).duoval.vals[2])
 #define APIVERSION_RETURN_MULTI_CMP_FIRST 3
+
+#define RSVALUE_MAP_KEYPOS(pos) ((pos) * 2)
+#define RSVALUE_MAP_VALUEPOS(pos) ((pos) * 2 + 1)
 
 /**
  * Clears the underlying storage of the value, and makes it
@@ -307,6 +319,14 @@ static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
       }
       return hval;
     }
+
+    case RSValue_Map:
+      for (uint32_t i = 0; i < v->mapval.len; i++) {
+        hval = RSValue_Hash(v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)], hval);
+        hval = RSValue_Hash(v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)], hval);
+      }
+      return hval;
+
     case RSValue_Undef:
       return 0;
 
@@ -345,6 +365,21 @@ RSValue *RS_Int64Val(int64_t ii);
  */
 RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options);
 
+/**
+ * Create a new array from existing values
+ * Take ownership of the values (values would be freed when array is freed)
+ * @param vals the values array to use for the array
+ * @param len number of values
+ */
+RSValue *RSValue_NewArray(RSValue **vals, uint32_t len);
+
+/**
+ * Create a new map from existing pairs
+ * @param pairs the <key,value> pair array to use for the map.
+ * @param numPairs number of the pairs in the array (not the number of elements)
+ */
+RSValue *RSValue_NewMap(RSValue **pairs, uint32_t numPairs);
+
 /** Accesses the array element at a given position as an l-value */
 #define RSVALUE_ARRELEM(vv, pos) ((vv)->arrval.vals[pos])
 /** Accesses the array length as an lvalue */
@@ -359,7 +394,7 @@ RSValue *RS_StringArray(char **strs, uint32_t sz);
 RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st);
 
 /* Wrap a pair of RSValue into an RSValue Duo */
-RSValue *RS_DuoVal(RSValue *val, RSValue *otherval);
+RSValue *RS_DuoVal(RSValue *val, RSValue *otherval, RSValue *other2val);
 
 /* Compare 2 values for sorting */
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);
@@ -399,8 +434,13 @@ static inline uint32_t RSValue_ArrayLen(const RSValue *arr) {
   return arr ? arr->arrval.len : 0;
 }
 
+typedef enum {
+  SENDREPLY_FLAG_TYPED = 0x01,
+  SENDREPLY_FLAG_EXPAND = 0x02,
+} SendReplyFlags;
+
 /* Based on the value type, serialize the value into redis client response */
-int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, int typed);
+int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags);
 
 void RSValue_Print(const RSValue *v);
 
