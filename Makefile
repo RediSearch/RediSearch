@@ -249,9 +249,9 @@ _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST)
 
 #----------------------------------------------------------------------------------------------
 
-BOOST_INC_PATH.centos:=/usr/include/boost169
-CC_INCLUDES.centos7 += $(BOOST_INC_PATH.centos)
-CC_INCLUDES.centos8 += $(BOOST_INC_PATH.centos)
+# BOOST_INC_PATH.centos:=/usr/include/boost169
+# CC_INCLUDES.centos7 += $(BOOST_INC_PATH.centos)
+# CC_INCLUDES.centos8 += $(BOOST_INC_PATH.centos)
 
 CC_INCLUDES.macos += $(boost_prefix)/include
 

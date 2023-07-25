@@ -26,7 +26,7 @@ RUN make build COORD=rlec SHOW=1
 {% endif %}
 
 {% if TEST == "1" %}
-RUN make build VARIANT=power-oss SHOW=1
+RUN make build VARIANT=mt-oss SHOW=1
 RUN make build COORD=oss SHOW=1
 {% endif %}
 
@@ -42,7 +42,7 @@ RUN set -e ;\
 
 {% if TEST == "1" %}
 RUN TEST='' make test REDISEARCH_MT_BUILD=0 PLATFORM_MODE=1 QUICK=1
-RUN TEST='' make test VARIANT=power-oss PLATFORM_MODE=1 QUICK=1
+RUN TEST='' make test VARIANT=mt-oss PLATFORM_MODE=1 QUICK=1
 RUN TEST='' make test COORD=oss PLATFORM_MODE=1 QUICK=1
 {% endif %}
 
