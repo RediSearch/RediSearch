@@ -1246,3 +1246,4 @@ def test_vecsim_1():
                "params", "2", "BLOB", "\x00\x00\x00\x00\x00\x00\x00\x00")
     env.assertEqual(dict_diff(res, exp3 if env.protocol == 3 else exp2, show=True,
                     exclude_regex_paths=["\['sortkey'\]"]), {})
+
