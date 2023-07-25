@@ -96,7 +96,7 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->redisCtx = ctx;
   ret->bc = bc;
   RedisModule_Assert(ctx || bc);
-  ret->protocol = ctx ? (_is_resp3(ctx) ? 3 : 2) : 0;
+  ret->protocol = ctx ? (is_resp3(ctx) ? 3 : 2) : 0;
   ret->fn = NULL;
   totalAllocd++;
 

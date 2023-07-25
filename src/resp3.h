@@ -11,7 +11,7 @@
 #include "reply.h"
 
 
-static inline bool _is_resp3(RedisModuleCtx *ctx) {
+static inline bool is_resp3(RedisModuleCtx *ctx) {
     int ctxFlags = RedisModule_GetContextFlags(ctx);
     if (ctxFlags & REDISMODULE_CTX_FLAGS_RESP3) {
         return true;
@@ -19,8 +19,8 @@ static inline bool _is_resp3(RedisModuleCtx *ctx) {
     return false;
 }
 
-#define _ReplyMap(ctx) (RedisModule_ReplyWithMap != NULL && _is_resp3(ctx))
-#define _ReplySet(ctx) (RedisModule_ReplyWithSet != NULL && _is_resp3(ctx))
+#define _ReplyMap(ctx) (RedisModule_ReplyWithMap != NULL && is_resp3(ctx))
+#define _ReplySet(ctx) (RedisModule_ReplyWithSet != NULL && is_resp3(ctx))
 
 static inline void RedisModule_ReplySetMapOrArrayLength(RedisModuleCtx *ctx, long len, bool devide_by_two) {
     if (_ReplyMap(ctx)) {

@@ -116,6 +116,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
       break;
 
     case QN_GEO:       // TODO: ADD GEO support
+    case QN_GEOMETRY:
     case QN_IDS:       // NO SCORE
     case QN_TAG:       // NO SCORE
     case QN_VECTOR:    // NO SCORE
