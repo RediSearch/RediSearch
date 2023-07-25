@@ -673,7 +673,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     }
   }
 
-  req->format |= QEXEC_FORMAT_DEFAULT;
+  req->format = QEXEC_FORMAT_DEFAULT;
   argIndex = RMUtil_ArgExists("FORMAT", argv, argc, argvOffset);
   if(argIndex > 0) {
     argIndex++;
