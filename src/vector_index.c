@@ -514,9 +514,9 @@ void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref) {
   params->submitCb = (SubmitCB)ThreadPoolAPI_SubmitIndexJobs;
 }
 
-void VecSimLogCallback(void *ctx, const char *message) {
+void VecSimLogCallback(void *ctx, const char *level, const char *message) {
   VecSimLogCtx *log_ctx = (VecSimLogCtx *)ctx;
-  RedisModule_Log(NULL, "notice", "vector index '%s' - %s", log_ctx->index_field_name, message);
+  RedisModule_Log(NULL, level, "vector index '%s' - %s", log_ctx->index_field_name, message);
 }
 
 VecSimIndex **VecSim_GetAllTieredIndexes(StrongRef spec_ref) {
