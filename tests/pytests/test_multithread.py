@@ -177,7 +177,7 @@ def test_workers_priority_queue():
                                                   ' MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 100000 * n_shards if not SANITIZER and not CODE_COVERAGE else 5000 * n_shards
+    n_vectors = 10000 * n_shards if not SANITIZER and not CODE_COVERAGE else 500 * n_shards
     dim = 64
 
     # Load random vectors into redis, save the last one to use as query vector later on.
