@@ -502,7 +502,7 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
 /* Write a forward-index entry to an index writer */
 size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
                                        RSIndexResult *entry) {
-
+  size_t sz = 0;
   int same_doc = 0;
   if (idx->lastId && idx->lastId == docId) {
     if (encoder != encodeNumeric) {
@@ -527,6 +527,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   if (blk->numEntries >= blockSize && !same_doc) {
     // If same doc can span more than a single block - need to adjust IndexReader_SkipToBlock
     blk = InvertedIndex_AddBlock(idx, docId);
+    sz += INDEX_BLOCK_INITIAL_CAP;
   } else if (blk->numEntries == 0) {
     blk->firstId = blk->lastId = docId;
   }
@@ -542,12 +543,13 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   // For numeric encoder the maximal delta is practically not a limit (see structs `EncodingHeader` and `NumEncodingCommon`)
   if (delta > UINT32_MAX && encoder != encodeNumeric) {
     blk = InvertedIndex_AddBlock(idx, docId);
+    sz += INDEX_BLOCK_INITIAL_CAP;
     delta = 0;
   }
 
   BufferWriter bw = NewBufferWriter(&blk->buf);
 
-  size_t ret = encoder(&bw, delta, entry);
+  sz += encoder(&bw, delta, entry);
 
   idx->lastId = docId;
   blk->lastId = docId;
@@ -559,7 +561,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
     ++idx->numEntries;
   }
 
-  return ret;
+  return sz;
 }
 
 /** Write a forward-index entry to the index */
@@ -1377,7 +1379,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     return -1;
   }
 
-  params->bytesBeforFix = blk->buf.offset;
+  params->bytesBeforFix = blk->buf.cap;
 
   int docExists;
   while (!BufferReader_AtEnd(&br)) {
@@ -1472,7 +1474,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     blk->firstId = oldFirstBlock;
   }
 
-  params->bytesAfterFix = blk->buf.offset;
+  params->bytesAfterFix = blk->buf.cap;
 
   IndexResult_Free(res);
   return frags;

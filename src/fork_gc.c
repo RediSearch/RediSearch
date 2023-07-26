@@ -958,6 +958,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
       rt->numRanges += rv.numRanges;
       rt->emptyLeaves = 0;
+      FGC_updateStats(gc, &sctx, 0, -rv.sz);
     }
     RedisSearchCtx_UnlockSpec(&sctx);
     StrongRef_Release(spec_ref);

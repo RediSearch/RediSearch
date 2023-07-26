@@ -608,10 +608,9 @@ def testDebugRangeTree(env):
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps({'val': [1, 2, 3]}))
     conn.execute_command('JSON.SET', 'doc:2', '$', json.dumps({'val': [1, 2, 3]}))
     conn.execute_command('JSON.SET', 'doc:3', '$', json.dumps({'val': [3, 4, 5]}))
-
     env.expect('FT.DEBUG', 'DUMP_NUMIDXTREE', 'idx', 'val').equal( ['numRanges', 1, 'numEntries', 9, 'lastDocId', 3, 'revisionId', 0, 'uniqueId', 0,
         'root', ['value', 0, 'maxDepth', 0,
-            'range', ['minVal', 1, 'maxVal', 5, 'unique_sum', 0, 'invertedIndexSize', 11, 'card', 0, 'cardCheck', 1, 'splitCard', 16,
+            'range', ['minVal', 1, 'maxVal', 5, 'unique_sum', 0, 'invertedIndexSize', 13, 'card', 0, 'cardCheck', 1, 'splitCard', 16,
                 'entries', ['numDocs', 3, 'lastId', 3, 'size', 1, 'values',
                     ['value', 1, 'docId', 1, 'value', 2, 'docId', 1, 'value', 3, 'docId', 1, 'value', 1, 'docId', 2, 'value', 2, 'docId', 2, 'value', 3, 'docId', 2, 'value', 3, 'docId', 3, 'value', 4, 'docId', 3, 'value', 5, 'docId', 3]]],
             'left', [], 'right', []]])
