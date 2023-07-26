@@ -577,6 +577,7 @@ static int priority_queue_init(priority_queue* priority_queue_p, size_t num_priv
   jobqueue_init(&priority_queue_p->low_priority_jobqueue);
   bsem_init(priority_queue_p->has_jobs, 0);
   pthread_mutex_init(&priority_queue_p->jobqueues_rwmutex, NULL);
+  priority_queue_p->pulls = 0;
   priority_queue_p->n_privileged_threads = num_privileged_threads;
   return 0;
 }
