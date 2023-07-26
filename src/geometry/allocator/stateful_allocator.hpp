@@ -7,47 +7,52 @@
 #pragma once
 
 #include "../../rmalloc.h"
+#include "allocator.hpp"
 
 namespace RediSearch {
 namespace Allocator {
+/**
+ * Allocator which update a local memory tracker with all allocations done using this allocator.
+ * Manual memory tracking does need to be done to update an external tracker. May be default
+ * constructed.
+ */
 template <class T>
 struct StatefulAllocator {
   using value_type = T;
-  size_t allocated_ = 0;
+  std::size_t allocated_ = 0;
 
-  StatefulAllocator() = default;
+  explicit inline constexpr StatefulAllocator() = default;
   template <class U>
-  explicit inline StatefulAllocator(StatefulAllocator<U> const&) noexcept;
+  explicit inline constexpr StatefulAllocator(StatefulAllocator<U> const&) noexcept;
 
-  [[nodiscard]] inline auto allocate(size_t n) noexcept -> value_type*;
-  inline void deallocate(value_type* p, size_t n) noexcept;
+  [[nodiscard]] inline auto allocate(std::size_t n) noexcept -> value_type*;
+  inline void deallocate(value_type* p, std::size_t n) noexcept;
 
-  [[nodiscard]] inline constexpr size_t report() const noexcept;
+  [[nodiscard]] inline constexpr std::size_t report() const noexcept;
 };
 
 template <class T>
 template <class U>
-inline StatefulAllocator<T>::StatefulAllocator(StatefulAllocator<U> const&) noexcept {
+inline constexpr StatefulAllocator<T>::StatefulAllocator(StatefulAllocator<U> const&) noexcept {
 }
 
 template <class T>
-inline auto StatefulAllocator<T>::allocate(size_t n) noexcept -> value_type* {
-  auto alloc_size = n * sizeof(value_type);
-  auto p = static_cast<value_type*>(rm_malloc(alloc_size));
+inline auto StatefulAllocator<T>::allocate(std::size_t n) noexcept -> value_type* {
+  auto p = Allocator<T>::allocate(n);
   if (p) {
-    allocated_ += alloc_size;
+    allocated_ += n * sizeof(value_type);
   }
   return p;
 }
 
 template <class T>
-inline void StatefulAllocator<T>::deallocate(value_type* p, size_t n) noexcept {
-  rm_free(p);
+inline void StatefulAllocator<T>::deallocate(value_type* p, std::size_t n) noexcept {
+  Allocator<T>::deallocate(p, n);
   allocated_ -= n * sizeof(value_type);
 }
 
 template <class T>
-inline constexpr size_t StatefulAllocator<T>::report() const noexcept {
+inline constexpr std::size_t StatefulAllocator<T>::report() const noexcept {
   return allocated_;
 }
 

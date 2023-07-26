@@ -76,12 +76,20 @@ typedef enum {
 
   /* Optimize query */
   QEXEC_OPTIMIZE = 0x40000,
+
+  // Compound values are expanded (RESP3 w/JSON)
+  QEXEC_FORMAT_EXPAND = 0x80000,
+
+  // Compound values are returned serialized (RESP2 or HASH) or expanded (RESP3 w/JSON)
+  QEXEC_FORMAT_DEFAULT = 0x100000,
+
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
+#define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
 
@@ -135,6 +143,8 @@ typedef struct AREQ {
   uint32_t stateflags;
 
   struct timespec timeoutTime;
+
+  int protocol; // RESP2/3
 
   /*
   // Dialect version used on this request
@@ -308,6 +318,11 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
  * @return int REDISMODULE_OK in case of successful parsing, REDISMODULE_ERR otherwise
  */
 int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status);
+
+
+int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status);
+int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status);
+void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 
 #define AREQ_RP(req) (req)->qiter.endProc
 
