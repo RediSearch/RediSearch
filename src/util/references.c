@@ -8,6 +8,8 @@
 #include "rmalloc.h"
 #include <stdbool.h>
 
+extern RedisModuleCtx *RSDummyContext;
+
 // This is a weak reference to an object. It is used to prevent using an object that is being freed.
 // The object is freed when the strong refcount is 0.
 
@@ -37,18 +39,21 @@ static RefManager *RefManager_New(void *obj, RefManager_Free freeCB) {
   rm->weak_refcount = 1;
   rm->strong_refcount = 1;
   rm->isInvalid = false;
+  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "RefManager created: %p", rm);
   return rm;
 }
 
 static void RefManager_ReturnStrongReference(RefManager *rm) {
   if (__atomic_sub_fetch(&rm->strong_refcount, 1, __ATOMIC_SEQ_CST) == 0) {
     rm->freeCB(rm->obj);
+    RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "RefManager's object freed: %p", rm);
   }
 }
 
 static void RefManager_ReturnWeakReference(RefManager *rm) {
   if (__atomic_sub_fetch(&rm->weak_refcount, 1, __ATOMIC_SEQ_CST) == 0) {
     rm_free(rm);
+    RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "RefManager freed: %p", rm);
   }
 }
 
