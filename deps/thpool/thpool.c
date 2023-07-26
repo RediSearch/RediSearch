@@ -39,7 +39,7 @@
 #define err(str, ...)
 #endif
 
-#define LOG_IF_EXISTS(str) if (thread_p->log) {thread_p->log(str);}
+#define LOG_IF_EXISTS(level, str) if (thread_p->log) {thread_p->log(level, str);}
 
 static volatile int threads_on_hold;
 
@@ -469,10 +469,10 @@ static void* thread_do(struct thread* thread_p) {
       pthread_mutex_lock(&thpool_p->thcount_lock);
       thpool_p->num_threads_working--;
       if (!thpool_p->num_threads_working) {
-        LOG_IF_EXISTS("thpool contains no more jobs")
+        LOG_IF_EXISTS("debug", "thread pool contains no more jobs")
         pthread_cond_signal(&thpool_p->threads_all_idle);
         if (thpool_p->terminate_when_empty) {
-          LOG_IF_EXISTS("terminating thread pool after there are no more jobs")
+          LOG_IF_EXISTS("verbose", "terminating thread pool after there are no more jobs")
           thpool_p->keepalive = 0;
         }
       }
