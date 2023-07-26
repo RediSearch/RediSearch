@@ -1406,6 +1406,9 @@ void IndexSpec_Free(IndexSpec *spec) {
       FieldsGlobalStats_UpdateStats(spec->fields + i, -1);
     }
   }
+
+  IndexError_Clear(spec->stats.indexError);
+
   // Free unlinked index spec on a second thread
   if (RSGlobalConfig.freeResourcesThread == false) {
     IndexSpec_FreeUnlinkedData(spec);
