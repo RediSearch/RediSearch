@@ -140,7 +140,7 @@ commands:
       run_pack:
         type: boolean
         default: true
-      no_power:
+      mt_build:
         type: string
         default: "no"
     steps:
@@ -158,7 +158,7 @@ commands:
           name: Build (Search)
           shell: /bin/bash -l -eo pipefail
           command: |
-            if [[ "<<parameters.no_power>>" == "yes" ]]; then
+            if [[ "<<parameters.mt_build>>" == "yes" ]]; then
                 export REDISEARCH_MT_BUILD=0
             fi
             make build <<parameters.build_params>> SHOW=1 NPROC=16
@@ -191,7 +191,7 @@ commands:
       test_params:
         type: string
         default: ""
-      no_power:
+      mt_build:
         type: string
         default: "no"
     steps:
@@ -200,7 +200,7 @@ commands:
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
           command: |
-            if [[ "<<parameters.no_power>>" == "yes" ]]; then
+            if [[ "<<parameters.mt_build>>" == "yes" ]]; then
                 export REDISEARCH_MT_BUILD=0
             fi
             make test TEST_PARALLEL=16 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
@@ -479,10 +479,10 @@ jobs:
           name: Set up workspace
           command: mkdir -p ~/workspace
       - build-steps:
-          no_power: <<parameters.upload>>
+          mt_build: <<parameters.upload>>
       - test-steps:
           test_params: <<parameters.test_params>>
-          no_power: <<parameters.upload>>
+          mt_build: <<parameters.upload>>
       - run:
           name: Persist artifacts?
           command: |
@@ -514,10 +514,10 @@ jobs:
           name: Set up workspace
           command: mkdir -p ~/workspace
       - build-steps:
-          no_power: <<parameters.upload>>
+          mt_build: <<parameters.upload>>
       - test-steps:
           test_params: <<parameters.test_params>>
-          no_power: <<parameters.upload>>
+          mt_build: <<parameters.upload>>
       - run:
           name: Persist artifacts?
           command: |
@@ -1111,7 +1111,7 @@ workflows:
           test_params: ""
           matrix:
             parameters:
-              redis_version: ["7.2-rc2"]
+              redis_version: ["7.2-rc3"]
       - sanitize:
           name: full-sanitize-<< matrix.san-type >>
           <<: *never
@@ -1184,7 +1184,7 @@ workflows:
           test_params: ""
           matrix:
             parameters:
-              redis_version: ["7.2-rc2", "unstable"]
+              redis_version: ["7.2-rc3", "unstable"]
       - sanitize:
           name: nightly-sanitize-<< matrix.san-type >>
           test_params: ""
@@ -1199,9 +1199,11 @@ workflows:
           <<: *on-integ-branch-cron
     jobs:
       - build-macos-x64:
+          context: common
           # upload: "no"
           test_params: ""
       - build-macos-m1:
+          context: common
           # upload: "no"
           test_params: ""
 
