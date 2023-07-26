@@ -23,7 +23,7 @@ size_t yield_counter = 0;
 static void yieldCallback(void *yieldCtx) {
   yield_counter++;
   if (yield_counter % 10 == 0 || yield_counter == 1) {
-    RedisModule_Log(RSDummyContext, "notice", "Yield every 100 ms to allow redis server run while"
+    RedisModule_Log(RSDummyContext, "verbose", "Yield every 100 ms to allow redis server run while"
                     " waiting for workers to finish: call number %zu", yield_counter);
   }
   RedisModuleCtx *ctx = yieldCtx;
