@@ -28,7 +28,7 @@ typedef enum {
  * @param num_threads number of threads to be created in the threadpool
  * @return Newly allocated threadpool, or NULL if creation failed.
  */
-redisearch_threadpool redisearch_thpool_create(size_t num_threads);
+redisearch_threadpool redisearch_thpool_create(size_t num_threads, size_t num_privileged_threads);
 
 // A callback to call redis log.
 typedef void (*LogFunc)(const char *);
