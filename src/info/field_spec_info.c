@@ -78,7 +78,6 @@ FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply) {
 
     MRReply *identifier = MRReply_MapElement(reply, "identifier");
     RedisModule_Assert(identifier);
-    printf("identifier type: %d", MRReply_Type(identifier) );
     // In hiredis with resp2 '+' is a status reply.
     RedisModule_Assert(MRReply_Type(identifier) == MR_REPLY_STRING || MRReply_Type(identifier) == MR_REPLY_STATUS);
     info.identifier = MRReply_String(identifier, NULL);
