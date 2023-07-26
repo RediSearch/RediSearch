@@ -1011,11 +1011,12 @@ workflows:
             parameters:
               platform: [jammy, focal, bionic, centos7, rocky8, bullseye, amzn2]
       - build-arm-platforms:
-          <<: *on-integ-and-version-tags
+          #<<: *on-integ-and-version-tags
+          <<: *always
           context: common
           matrix:
             parameters:
-              platform: [jammy, focal, bionic]
+              platform: [jammy] #, focal, bionic]
       - build-macos-x64:
           <<: *on-version-tags
           context: common
