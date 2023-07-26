@@ -44,4 +44,4 @@ void LOGGING_INIT(int level);
 #endif
 
 // Write message to redis log in debug level
-void LogCallback(const char *message);
+void LogCallback(const char *level, const char *message);
