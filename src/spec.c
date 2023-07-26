@@ -2789,6 +2789,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     // if a document did not load properly, it is deleted
     // to prevent mismatch of index and hash
     IndexSpec_DeleteDoc(spec, ctx, key);
+    QueryError_ClearError(&status);
     Document_Free(&doc);
     return REDISMODULE_ERR;
   }

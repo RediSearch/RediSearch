@@ -298,6 +298,7 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
     IndexError_AddError(&sctx->spec->stats.indexError, status.detail, aCtx->doc->docKey);
     aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
     AddDocumentCtx_Free(aCtx);
+    QueryError_ClearError(&status);
     return 1;
   }
 
