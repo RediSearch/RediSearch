@@ -91,9 +91,9 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
       nArrs++;
       for (size_t j = 0; j < MRReply_Length(replies[i]); j++) {
         size_t sl = 0;
-        char *s = MRReply_String(MRReply_ArrayElement(replies[i], j), &sl);
+        const char *s = MRReply_String(MRReply_ArrayElement(replies[i], j), &sl);
         if (s && sl) {
-          TrieMap_Add(dict, s, sl, NULL, NULL);
+          TrieMap_Add(dict, (char*)s, sl, NULL, NULL);
         }
       }
     } else if (MRReply_Type(replies[i]) == MR_REPLY_ERROR && err == NULL) {
@@ -771,7 +771,7 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
     res->id = NULL;
     return res;
   }
-  res->id = MRReply_String(MRReply_ArrayElement(arr, j), &res->idLen);
+  res->id = (char*)MRReply_String(MRReply_ArrayElement(arr, j), &res->idLen);
   if (!res->id) {
     return res;
   }
@@ -833,7 +833,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
   }
 
   MRReply *result_id = MRReply_MapElement(result_j, "id");
-  res->id = MRReply_String(result_id, &res->idLen);
+  res->id = (char*)MRReply_String(result_id, &res->idLen);
   if (!res->id) {
     return res;
   }
