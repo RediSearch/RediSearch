@@ -14,6 +14,6 @@ void LOGGING_INIT(int level) {
   LOGGING_LEVEL = level;
 }
 
-void LogCallback(const char *message) {
-  RedisModule_Log(RSDummyContext, "debug", "%s", message);
+void LogCallback(const char *level, const char *message) {
+  RedisModule_Log(RSDummyContext, level, "%s", message);
 }
