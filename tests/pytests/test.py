@@ -2587,7 +2587,7 @@ def testMod_309(env):
     conn = getConnectionByEnv(env)
     for i in range(n):
         conn.execute_command('HSET', f'doc{i}', 'test', 'foo')
-    waitForIndex(conn, 'idx')
+    waitForIndex(env, 'idx')
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
     env.assertEqual(len(res), n + 1)
 
