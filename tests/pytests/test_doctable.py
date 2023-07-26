@@ -1,5 +1,6 @@
 from RLTest import Env
 from includes import *
+from common import waitForIndex
 
 
 # mainly this test adding and removing docs while the doc table size is 100
@@ -7,6 +8,7 @@ from includes import *
 def testDocTable():
     env = Env(moduleArgs='MAXDOCTABLESIZE 100')
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
+    waitForIndex(env, 'idx')
     # doc table size is 100 so insearting 1000 docs should gives us 10 docs in each bucket
     for i in range(1000):
         env.assertOk(env.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
