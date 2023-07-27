@@ -1374,10 +1374,6 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
  * Other resources are freed using IndexSpec_FreeData.
  */
 void IndexSpec_Free(IndexSpec *spec) {
-  if (spec->own_ref.rm) {
-    RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG,
-      "Freeing spec %s, which was managed by RefManager %p", spec->name, spec->own_ref.rm);
-  }
   // Stop scanner
   // Scanner has a weak reference to the spec, so at this point it will cancel itself and free
   // next time it will try to acquire the spec.
