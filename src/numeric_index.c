@@ -154,7 +154,6 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
 
   *lp = NewLeafNode(n->entries->numDocs / 2 + 1, 
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
-  #define INDEX_BLOCK_INITIAL_CAP 6
   rv->sz += INDEX_BLOCK_INITIAL_CAP;
   *rp = NewLeafNode(n->entries->numDocs / 2 + 1,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
@@ -192,8 +191,6 @@ NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard) {
       .values = array_new(CardinalityValue, 1),
       //.values = rm_calloc(splitCard, sizeof(CardinalityValue)),
       .entries = NewInvertedIndex(Index_StoreNumeric, 1),
-      // Initial capacity (in bytes) of a new block
-      #define INDEX_BLOCK_INITIAL_CAP 6
       .invertedIndexSize = INDEX_BLOCK_INITIAL_CAP // block size start from 1
   };
   return n;
@@ -510,9 +507,7 @@ int NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
 }
 
 NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t) {
-  NRN_AddRv rv = {.numRanges = 0,
-                  .changed = 0,
-                  .sz = 0 };
+  NRN_AddRv rv = {0};
   NumericRangeNode_RemoveChild(&t->root, &rv);
   return rv;
 }
@@ -602,7 +597,6 @@ static NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString 
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = (void (*)(void *))NumericRangeTree_Free;
   kdv->p = NewNumericRangeTree();
-  #define INDEX_BLOCK_INITIAL_CAP 6
   spec->stats.invertedSize += INDEX_BLOCK_INITIAL_CAP;
   dictAdd(spec->keysDict, keyName, kdv);
   return kdv->p;

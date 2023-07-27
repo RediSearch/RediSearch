@@ -145,7 +145,6 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
   RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, 1);
-  #define INDEX_BLOCK_INITIAL_CAP 6
   return InvertedIndex_WriteEntryGeneric(iv, enc, docId, &rec) + INDEX_BLOCK_INITIAL_CAP;
 }
 

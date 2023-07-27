@@ -242,7 +242,6 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = InvertedIndex_Free;
   kdv->p = NewInvertedIndex(ctx->spec->flags, 1);
-  #define INDEX_BLOCK_INITIAL_CAP 6
   ctx->spec->stats.invertedSize += INDEX_BLOCK_INITIAL_CAP;
   dictAdd(ctx->spec->keysDict, termKey, kdv);
   return kdv->p;
