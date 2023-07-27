@@ -191,10 +191,8 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
  
 int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status) {
   if (*flags & QEXEC_FORMAT_DEFAULT) {
-    if (is_json && is_resp3) {
-      *flags |= QEXEC_FORMAT_EXPAND;
-      *flags &= ~QEXEC_FORMAT_DEFAULT;
-    }
+    *flags &= ~QEXEC_FORMAT_EXPAND;
+    *flags &= ~QEXEC_FORMAT_DEFAULT;
   }
 
   if (*flags & QEXEC_FORMAT_EXPAND) {
@@ -229,6 +227,7 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req) {
 
 static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int allowLegacy) {
   int rv;
+  bool dialect_specified = false;
   // This handles the common arguments that are not stateful
   if (AC_AdvanceIfMatch(ac, "LIMIT")) {
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(&req->ap);
@@ -301,6 +300,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     }
     req->reqflags |= QEXEC_F_REQUIRED_FIELDS;
   } else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
+    dialect_specified = true;
     if (parseDialect(&req->reqConfig.dialectVersion, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
@@ -310,6 +310,11 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     }
   } else {
     return ARG_UNKNOWN;
+  }
+
+  if (dialect_specified && req->reqConfig.dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST && req->reqflags & QEXEC_FORMAT_EXPAND) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "EXPAND format requires dialect %u or greater", APIVERSION_RETURN_MULTI_CMP_FIRST);
+    return ARG_ERROR;
   }
 
   return ARG_HANDLED;
