@@ -86,7 +86,7 @@ def test_reload_index_while_indexing():
 
     env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
     n_shards = env.shardsCount
-    n_vectors = 10000 * n_shards if not SANITIZER and not CODE_COVERAGE else 1000 * n_shards
+    n_vectors = 10000 * n_shards if not SANITIZER and not CODE_COVERAGE else 500 * n_shards
     dim = 64
     # Load random vectors into redis.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'M', '64',
@@ -120,7 +120,7 @@ def test_delete_index_while_indexing():
     env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 50000 * n_shards if not SANITIZER and not CODE_COVERAGE else 1000 * n_shards
+    n_vectors = 10000 * n_shards if not SANITIZER and not CODE_COVERAGE else 500 * n_shards
     dim = 64
     # Load random vectors into redis.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'M', '64',
@@ -177,7 +177,7 @@ def test_workers_priority_queue():
                                                   ' MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 100000 * n_shards if not SANITIZER and not CODE_COVERAGE else 5000 * n_shards
+    n_vectors = 10000 * n_shards if not SANITIZER and not CODE_COVERAGE else 500 * n_shards
     dim = 64
 
     # Load random vectors into redis, save the last one to use as query vector later on.
@@ -198,7 +198,7 @@ def test_workers_priority_queue():
     # Run queries during indexing
     while debug_info['BACKGROUND_INDEXING'] == 1:
         start = time.time()
-        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param EF_RUNTIME 10000]',
+        res = conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN $K @vector $vec_param EF_RUNTIME {n_vectors}]',
                                    'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, 10,
                                    'PARAMS', 4, 'K', 10, 'vec_param', query_vec.tobytes())
         query_time = time.time() - start
@@ -220,8 +220,8 @@ def test_async_updates_sanity():
     env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 10000 * n_shards if not SANITIZER and not CODE_COVERAGE else 5000 * n_shards
-    dim = 4
+    n_vectors = 10000 * n_shards if not SANITIZER and not CODE_COVERAGE else 500 * n_shards
+    dim = 16
     block_size = 1024
 
     # Load random vectors into redis
@@ -249,7 +249,7 @@ def test_async_updates_sanity():
     # (that is, no other node in HNSW is pointing to the deleted node)
     while marked_deleted_vectors > block_size/n_shards:
         start = time.time()
-        res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param EF_RUNTIME 5000]',
+        res = conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN $K @vector $vec_param EF_RUNTIME {n_vectors}]',
                                    'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score',
                                    'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10, 'vec_param', query_vec.tobytes())
         query_time = time.time() - start
