@@ -222,15 +222,20 @@ def skipOnDialect(env, dialect):
         env.skip()
 
 def waitForRdbSaveToFinish(env):
-    # info command does not take a key therefore a cluster env is no good here
-    if env is RLTest.Env or env is RLTest.StandardEnv:
-        conn = env.getConnection()
+    if env.isCluster():
+        conns = env.getOSSMasterNodesConnectionList()
     else:
-        # probably not an Env but a Connection
-        conn = env
-    while True:
-        if not conn.execute_command('info', 'Persistence')['rdb_bgsave_in_progress']:
-            break
+        conns = [env.getConnection()]
+
+    # Busy wait until all connection are done rdb bgsave
+    check_bgsave = True
+    while check_bgsave:
+        check_bgsave = False
+        for conn in conns:
+            if conn.execute_command('info', 'Persistence')['rdb_bgsave_in_progress']:
+                check_bgsave = True
+                break
+
 
 def countKeys(env, pattern='*'):
     if not env.is_cluster():
