@@ -232,6 +232,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
       // should always be active.
       workersThreadPool_InitPool();
       DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
+      DO_LOG("verbose", "threadpool contains %lu privileged threads that always prefer running queries"
+             " when possible", RSGlobalConfig.privilegedThreadsNum);
     } else {
       // Otherwise, threads are not active, and we're performing inplace writes.
       // VSS lib is async by default.

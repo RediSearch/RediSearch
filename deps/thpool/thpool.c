@@ -72,6 +72,7 @@ typedef struct priority_queue {
   pthread_mutex_t jobqueues_rwmutex;  /* used for queue r/w access */
   bsem* has_jobs;                     /* flag as binary semaphore  */
   unsigned char pulls;                /* number of pulls from queue */
+  unsigned char n_privileged_threads; /* number of threads that always run high priority tasks */
 } priority_queue;
 
 /* Thread */
@@ -108,10 +109,10 @@ static void jobqueue_push_chain(jobqueue* jobqueue_p, struct job* first_newjob, 
 static struct job* jobqueue_pull(jobqueue* jobqueue_p);
 static void jobqueue_destroy(jobqueue* jobqueue_p);
 
-static int priority_queue_init(priority_queue* priority_queue_p);
+static int priority_queue_init(priority_queue* priority_queue_p, size_t num_privileged_threads);
 static void priority_queue_clear(priority_queue* priority_queue_p);
 static void priority_queue_push_chain(priority_queue* priority_queue_p, struct job* first_newjob, struct job* last_newjob, size_t num, thpool_priority priority);
-static struct job* priority_queue_pull(priority_queue* priority_queue_p);
+static struct job* priority_queue_pull(priority_queue* priority_queue_p, int thread_id);
 static void priority_queue_destroy(priority_queue* priority_queue_p);
 static size_t priority_queue_len(priority_queue* priority_queue_p);
 
@@ -124,7 +125,7 @@ static void bsem_wait(struct bsem* bsem_p);
 /* ========================== THREADPOOL ============================ */
 
 /* Create thread pool */
-struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
+struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t num_privileged_threads) {
   threads_on_hold = 0;
 
   /* Make new thread pool */
@@ -141,7 +142,8 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
   thpool_p->terminate_when_empty = 0;
 
   /* Initialise the job queue */
-  if(priority_queue_init(&thpool_p->jobqueue) == -1) {
+  if (num_privileged_threads > num_threads) num_privileged_threads = num_threads;
+  if(priority_queue_init(&thpool_p->jobqueue, num_privileged_threads) == -1) {
     err("redisearch_thpool_create(): Could not allocate memory for job queue\n");
     rm_free(thpool_p);
     return NULL;
@@ -458,7 +460,7 @@ static void* thread_do(struct thread* thread_p) {
       /* Read job from queue and execute it */
       void (*func_buff)(void*);
       void* arg_buff;
-      job* job_p = priority_queue_pull(&thpool_p->jobqueue);
+      job* job_p = priority_queue_pull(&thpool_p->jobqueue, thread_p->id);
       if (job_p) {
         func_buff = job_p->function;
         arg_buff = job_p->arg;
@@ -565,7 +567,7 @@ static void jobqueue_destroy(jobqueue* jobqueue_p) {
 
 /* ======================== PRIORITY QUEUE ========================== */
 
-static int priority_queue_init(priority_queue* priority_queue_p) {
+static int priority_queue_init(priority_queue* priority_queue_p, size_t num_privileged_threads) {
 
   priority_queue_p->has_jobs = (struct bsem*)rm_malloc(sizeof(struct bsem));
   if (priority_queue_p->has_jobs == NULL) {
@@ -576,6 +578,7 @@ static int priority_queue_init(priority_queue* priority_queue_p) {
   bsem_init(priority_queue_p->has_jobs, 0);
   pthread_mutex_init(&priority_queue_p->jobqueues_rwmutex, NULL);
   priority_queue_p->pulls = 0;
+  priority_queue_p->n_privileged_threads = num_privileged_threads;
   return 0;
 }
 
@@ -599,25 +602,35 @@ static void priority_queue_push_chain(priority_queue* priority_queue_p, struct j
   pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
 }
 
-static struct job* priority_queue_pull(priority_queue* priority_queue_p) {
+static struct job* priority_queue_pull(priority_queue* priority_queue_p, int thread_id) {
   struct job* job_p = NULL;
   pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
-  // We want to pull from the lower priority queue every 3rd time
-  if (priority_queue_p->pulls % 3 == 2) {
-    job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
-    // If the lower priority queue is empty, pull from the higher priority queue
-    if(!job_p) {
-      job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
-    }
-  } else {
+
+  if (thread_id < priority_queue_p->n_privileged_threads) {
+    // This is a privileged thread id, try taking from the high priority queue.
     job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
-    // If the higher priority queue is empty, pull from the lower priority queue
-    if(!job_p) {
+    // If the higher priority queue is empty, pull from the low priority queue.
+    if (!job_p) {
       job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
     }
+  } else {
+    // For non-privileged threads, alternate between both queues every iteration.
+    if (priority_queue_p->pulls % 2 == 1) {
+      job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
+      // If the lower priority queue is empty, pull from the higher priority queue
+      if (!job_p) {
+        job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
+      }
+    } else {
+      job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
+      // If the higher priority queue is empty, pull from the lower priority queue
+      if (!job_p) {
+        job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
+      }
+    }
+    priority_queue_p->pulls++;
   }
-  priority_queue_p->pulls++;
-  if(priority_queue_p->high_priority_jobqueue.len ||  priority_queue_p->low_priority_jobqueue.len ) {
+  if (priority_queue_p->high_priority_jobqueue.len ||  priority_queue_p->low_priority_jobqueue.len) {
     bsem_post(priority_queue_p->has_jobs);
   }
   pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
