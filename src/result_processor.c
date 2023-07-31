@@ -424,8 +424,11 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
 
     // if needed - pop it and insert a new result
     if (self->cmp(self->pooledResult, minh, self->cmpCtx) > 0) {
-      self->pooledResult->indexResult = NULL;
-      self->pooledResult = mmh_exchange_min(self->pq, self->pooledResult);
+      // perform the swap
+      SearchResult *tmp = self->pooledResult;
+      self->pooledResult = mmh_pop_min(self->pq);
+      tmp->indexResult = NULL;
+      mmh_insert(self->pq, tmp);
     }
     // clear the result in preparation for the next iteration
     SearchResult_Clear(self->pooledResult);
