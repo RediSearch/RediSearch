@@ -21,7 +21,7 @@ int ConcurrentSearch_CreatePool(int numThreads) {
     threadpools_g = array_new(redisearch_threadpool, 4);
   }
   int poolId = array_len(threadpools_g);
-  threadpools_g = array_append(threadpools_g, redisearch_thpool_create(numThreads));
+  threadpools_g = array_append(threadpools_g, redisearch_thpool_create(numThreads, DEFAULT_PRIVILEGED_THREADS_NUM));
   redisearch_thpool_init(threadpools_g[poolId], LogCallback);
 
   return poolId;

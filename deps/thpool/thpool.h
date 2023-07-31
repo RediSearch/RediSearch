@@ -8,6 +8,8 @@
 #define _THPOOL_
 #include <stddef.h>
 
+#define DEFAULT_PRIVILEGED_THREADS_NUM 1
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -26,9 +28,11 @@ typedef enum {
  * @brief  Create a new threadpool (without initializing the threads)
  *
  * @param num_threads number of threads to be created in the threadpool
+ * @param num_privileged_threads number of threads that run only high priority tasks as long as
+ * there are such tasks waiting (num_privileged_threads <= num_threads).
  * @return Newly allocated threadpool, or NULL if creation failed.
  */
-redisearch_threadpool redisearch_thpool_create(size_t num_threads);
+redisearch_threadpool redisearch_thpool_create(size_t num_threads, size_t num_privileged_threads);
 
 // A callback to call redis log.
 typedef void (*LogFunc)(const char *, const char *);
@@ -43,7 +47,7 @@ typedef void (*LogFunc)(const char *, const char *);
  *
  *    ..
  *    threadpool thpool;                       //First we declare a threadpool
- *    thpool = thpool_create(4);               //Next we create it with 4 threads
+ *    thpool = thpool_create(4, 1);            //Next we create it with 4 threads (1 privileged)
  *    thpool_init(&thpool, logCB);             //Then we initialize the threads
  *    ..
  *
@@ -165,7 +169,7 @@ typedef void (*yieldFunc)(void *);
  * @example
  *
  *    ..
- *    threadpool thpool = thpool_create(4);
+ *    threadpool thpool = thpool_create(4, 1);
  *    thpool_init(&thpool);
  *    ..
  *    // Add a bunch of work

@@ -35,7 +35,7 @@ int workersThreadPool_CreatePool(size_t worker_count) {
   assert(worker_count);
   assert(_workers_thpool == NULL);
 
-  _workers_thpool = redisearch_thpool_create(worker_count);
+  _workers_thpool = redisearch_thpool_create(worker_count, RSGlobalConfig.privilegedThreadsNum);
   if (_workers_thpool == NULL) return REDISMODULE_ERR;
 
   return REDISMODULE_OK;
