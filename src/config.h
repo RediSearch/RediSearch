@@ -118,6 +118,7 @@ typedef struct {
   size_t numWorkerThreads;
   MTMode mt_mode;
   size_t tieredVecSimIndexBufferLimit;
+  size_t privilegedThreadsNum;
 #endif
 
   size_t minPhoneticTermLen;
@@ -237,7 +238,8 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #ifdef MT_BUILD  
 #define MT_BUILD_CONFIG .numWorkerThreads = 0,                                                                     \
     .mt_mode = MT_MODE_OFF,                                                                                                     \
-    .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               
+    .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                            \
+    .privilegedThreadsNum = DEFAULT_PRIVILEGED_THREADS_NUM,
 #else 
 #define MT_BUILD_CONFIG
 #endif 
