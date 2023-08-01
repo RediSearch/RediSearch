@@ -24,7 +24,7 @@ The enhanced Redis experience with Redis Stack provides querying capabilities, s
 
 ## Primary features
 
-We support the following search an query features:
+We support the following search and query features:
 
 * Secondary indexing
 * Multi-field queries
