@@ -241,6 +241,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     ReplyWithStopWordsList(reply, sp->stopwords);
   }
 
+  if (sp->flags & Index_HasCustomDelimiters) {
+    ReplyWithDelimiterList(reply, sp->delimiters);
+  }
+
   REPLY_KVMAP("dialect_stats");
   for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {
     char *dialect_i;

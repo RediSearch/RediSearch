@@ -340,7 +340,7 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
     dd->isCn = 1;
   }
   if (!dd->data.cn.tokenizer) {
-    tokenizer = dd->data.cn.tokenizer = NewChineseTokenizer(NULL, NULL, 0);
+    tokenizer = dd->data.cn.tokenizer = NewChineseTokenizer(NULL, NULL, 0, NULL);
     dd->data.cn.tokList = NewVector(char *, 4);
   }
 

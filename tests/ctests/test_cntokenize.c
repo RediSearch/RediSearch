@@ -67,7 +67,7 @@ static char *getFile(const char *name) {
 
 static int testCnTokenize(void) {
   char *cnTxt = getFile("cn_sample.txt");
-  RSTokenizer *cnTok = NewChineseTokenizer(NULL, NULL, 0);
+  RSTokenizer *cnTok = NewChineseTokenizer(NULL, NULL, 0, NULL);
   ASSERT(cnTok != NULL);
   cnTok->Start(cnTok, cnTxt, strlen(cnTxt), 0);
   Token t;

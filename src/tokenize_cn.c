@@ -225,17 +225,19 @@ static void cnTokenizer_Free(RSTokenizer *base) {
 }
 
 static void cnTokenizer_Reset(RSTokenizer *base, Stemmer *stemmer, StopWordList *stopwords,
-                              uint32_t opts) {
+                              uint32_t opts, char *delimiters) {
   // Nothing to do here
   base->ctx.lastOffset = 0;
 }
 
-RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
+RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords,
+                                uint32_t opts, char *delimiters) {
   cnTokenizer *tokenizer = rm_calloc(1, sizeof(*tokenizer));
   tokenizer->fTask = friso_new_task();
   maybeFrisoInit();
   tokenizer->base.ctx.options = opts;
   tokenizer->base.ctx.stopwords = stopwords;
+  tokenizer->base.ctx.delimiters = delimiters;
   tokenizer->base.Start = cnTokenizer_Start;
   tokenizer->base.Next = cnTokenizer_Next;
   tokenizer->base.Free = cnTokenizer_Free;

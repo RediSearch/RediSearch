@@ -53,7 +53,7 @@ struct MyToken {
 };
 
 TEST_F(TokenizerTest, testChineseMixed) {
-  auto tk = NewChineseTokenizer(NULL, NULL, 0);
+  auto tk = NewChineseTokenizer(NULL, NULL, 0, NULL);
   std::string tokstr(
       "同时支持对 UTF-8/GBK \\\\ 编码的切分，hello-world hello\\-world \\:\\:world \\:\\:支持 php5 "
       "trailing\\-backslash\\- hi "
@@ -104,7 +104,7 @@ TEST_F(TokenizerTest, testChineseMixed) {
 }
 
 TEST_F(TokenizerTest, testTrailingEscapes) {
-  auto tk = NewChineseTokenizer(NULL, NULL, 0);
+  auto tk = NewChineseTokenizer(NULL, NULL, 0, NULL);
   char *txt = strdup("hello world\\ ");
   tk->Start(tk, txt, strlen(txt), 0);
 

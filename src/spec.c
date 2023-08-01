@@ -1101,6 +1101,7 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
 
   ArgsCursor ac = {0};
   ArgsCursor acStopwords = {0};
+  char *acDelimiters = NULL;
 
   ArgsCursor_InitCString(&ac, argv, argc);
   long long timeout = -1;
@@ -1125,6 +1126,7 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
       SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args){
           .name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
       {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
+      {.name = SPEC_DELIMITERS_STR, .target = &acDelimiters, .type = AC_ARGTYPE_STRING},
       {.name = NULL}};
 
   ACArgSpec *errarg = NULL;
@@ -1161,6 +1163,14 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
     }
     spec->stopwords = NewStopWordListCStr((const char **)acStopwords.objs, acStopwords.argc);
     spec->flags |= Index_HasCustomStopwords;
+  }
+
+  if (acDelimiters != NULL) {
+    if(spec->delimiters) {
+      DelimiterList_Unref(spec->delimiters);
+    }
+    spec->delimiters = NewDelimiterListCStr((const char *) acDelimiters);
+    spec->flags |= Index_HasCustomDelimiters;
   }
 
   if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
@@ -1598,6 +1608,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->nameLen = strlen(name);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->stopwords = DefaultStopWordList();
+  sp->delimiters = DefaultDelimiterList();
   sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   sp->suffix = NULL;
   sp->suffixMask = (t_fieldMask)0;
@@ -2232,6 +2243,11 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   // Stop words
   if (sp->flags & Index_HasCustomStopwords)
     AddStopWordsListToInfo(ctx, sp->stopwords);
+
+  // Delimiters
+  if (sp->flags & Index_HasCustomDelimiters) {
+    AddDelimiterListToInfo(ctx, sp->delimiters);
+  }
 }
 #endif // FTINFO_FOR_INFO_MODULES
 
@@ -2387,6 +2403,15 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
       goto cleanup;
   } else {
     sp->stopwords = DefaultStopWordList();
+  }
+
+  if(sp->flags & Index_HasCustomDelimiters) {
+    sp->delimiters = DelimiterList_RdbLoad(rdb, encver);
+    if (sp->delimiters == NULL) {
+      goto cleanup;
+    }
+  } else {
+    sp->delimiters = DefaultDelimiterList();
   }
 
   sp->uniqueId = spec_unique_ids++;
@@ -2609,6 +2634,11 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
     // If we have custom stopwords, save them
     if (sp->flags & Index_HasCustomStopwords) {
       StopWordList_RdbSave(rdb, sp->stopwords);
+    }
+
+    // If we have custom delimiters, save them
+    if (sp->flags & Index_HasCustomDelimiters) {
+      DelimiterList_RdbSave(rdb, sp->delimiters);
     }
 
     if (sp->flags & Index_HasSmap) {
