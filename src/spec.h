@@ -275,7 +275,7 @@ typedef struct IndexSpec {
 
   StopWordList *stopwords;        // List of stopwords for TEXT fields
 
-  char *delimiters;               // Delimiter character list
+  DelimiterList *delimiters;      // Delimiter character list
 
   GCContext *gc;                  // Garbage collection
 

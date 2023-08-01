@@ -155,7 +155,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
   Array_Resize(&bufTmp, headLen);
 
   while (bufTmp.len > 1) {
-    if (istoksep(bufTmp.data[bufTmp.len - 1])) {
+    if (istoksep(bufTmp.data[bufTmp.len - 1], NULL)) {
       break;
     }
     bufTmp.len--;

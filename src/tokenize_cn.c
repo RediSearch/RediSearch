@@ -12,6 +12,7 @@
 #include "util/minmax.h"
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
+#include "delimiters.h"
 
 static friso_config_t config_g;
 static friso_t friso_g;
@@ -62,11 +63,15 @@ static void cnTokenizer_Start(RSTokenizer *base, char *text, size_t len, uint32_
 }
 
 // check if the word has a trailing escape. assumes NUL-termination
-static int hasTrailingEscape(const char *s, size_t n) {
+static int hasTrailingEscape(const char *s, size_t n, DelimiterList *dl) {
   if (s[n] != '\\') {
     return 0;
   }
-  return istoksep(s[n + 1]);
+  if(dl != NULL) {
+    return istoksep(s[n + 1], dl);
+  } else {
+    return istoksep(s[n + 1], NULL);
+  }
 }
 
 static int appendToEscbuf(cnTokenizer *cn, const char *s, size_t n) {
@@ -107,7 +112,7 @@ static int appendEscapedChars(cnTokenizer *self, friso_token_t ftok, int mode) {
     if (self->fTask->idx < self->base.ctx.len) {
       // and this token is not completed (i.e. character _after_ escape
       // is not itself a word separator)
-      if (!istoksep(self->base.ctx.text[self->fTask->idx])) {
+      if (!istoksep(self->base.ctx.text[self->fTask->idx], self->base.ctx.delimiters)) {
         return 1;
       }
     }
@@ -159,7 +164,8 @@ static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t) {
         continue;
 
       case __LEX_PUNC_WORDS__:
-        if (tok->word[0] == '\\' && istoksep(ctx->text[tok->offset + 1])) {
+        
+        if (tok->word[0] == '\\' && istoksep(ctx->text[tok->offset + 1], ctx->delimiters)) {
           if (!appendEscapedChars(self, tok, ESCAPED_CHAR_SELF)) {
             break;
           }
@@ -188,7 +194,7 @@ static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t) {
       t->rawLen = (ctx->text + ctx->len) - t->raw;
     }
 
-    if (hasTrailingEscape(bufstart, tok->rlen)) {
+    if (hasTrailingEscape(bufstart, tok->rlen, ctx->delimiters)) {
       // We must continue the friso loop, because we have found an escape..
       if (!useEscBuf) {
         useEscBuf = 1;
@@ -225,13 +231,13 @@ static void cnTokenizer_Free(RSTokenizer *base) {
 }
 
 static void cnTokenizer_Reset(RSTokenizer *base, Stemmer *stemmer, StopWordList *stopwords,
-                              uint32_t opts, char *delimiters) {
+                              uint32_t opts, DelimiterList *delimiters) {
   // Nothing to do here
   base->ctx.lastOffset = 0;
 }
 
 RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords,
-                                uint32_t opts, char *delimiters) {
+                                uint32_t opts, DelimiterList *delimiters) {
   cnTokenizer *tokenizer = rm_calloc(1, sizeof(*tokenizer));
   tokenizer->fTask = friso_new_task();
   maybeFrisoInit();

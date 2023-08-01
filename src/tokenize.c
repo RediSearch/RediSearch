@@ -81,7 +81,12 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
   while (*self->pos != NULL) {
     // get the next token
     size_t origLen;
-    char *tok = toksep(self->pos, &origLen);
+    char *tok = NULL;
+    if(ctx->delimiters != NULL &&  ctx->delimiters->delimiterMap != NULL) {
+      tok = toksep(self->pos, &origLen, base->ctx.delimiters->delimiterMap);
+    } else {
+      tok = toksep(self->pos, &origLen, NULL);
+    }
 
     // normalize the token
     size_t normLen = origLen;
@@ -146,7 +151,7 @@ void simpleTokenizer_Free(RSTokenizer *self) {
 }
 
 static void doReset(RSTokenizer *tokbase, Stemmer *stemmer, StopWordList *stopwords,
-                    uint32_t opts, char *delimiters) {
+                    uint32_t opts, DelimiterList *delimiters) {
   simpleTokenizer *t = (simpleTokenizer *)tokbase;
   t->stemmer = stemmer;
   t->base.ctx.stopwords = stopwords;
@@ -160,7 +165,8 @@ static void doReset(RSTokenizer *tokbase, Stemmer *stemmer, StopWordList *stopwo
   }
 }
 
-RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts, char *delimiters) {
+RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords,
+                                uint32_t opts, DelimiterList *delimiters) {
   simpleTokenizer *t = rm_calloc(1, sizeof(*t));
   t->base.Free = simpleTokenizer_Free;
   t->base.Next = simpleTokenizer_Next;

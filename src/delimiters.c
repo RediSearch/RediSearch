@@ -4,25 +4,20 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
+#include <stdint.h>
 #define __REDISEARCH_DELIMITERS_C__
 #include "delimiters.h"
 #include "rdb.h"
-#include "spec.h"
 #include "rmalloc.h"
 
-
-// int DelimiterList_Contains(const DelimiterList dl, const char* term) {
-//   return 0;
-// }
-
-DelimiterList DefaultDelimiterList() {
+DelimiterList *DefaultDelimiterList() {
   return NewDelimiterListCStr(DEFAULT_DELIMITERS_STR);
 }
 
 void DelimiterList_FreeGlobals(void) {
 }
 
-DelimiterList NewDelimiterListCStr(const char* str) {
+struct DelimiterList *NewDelimiterListCStr(const char* str) {
   if(str == NULL) {
     return NULL;
   }
@@ -30,30 +25,40 @@ DelimiterList NewDelimiterListCStr(const char* str) {
   // Truncate?
   //}
 
-  DelimiterList dl = rm_malloc(sizeof(char) * (strlen(str)+1));
-  strcpy(dl, str);
+  // initialize the delimiter string
+  DelimiterList *dl = rm_malloc(sizeof(DelimiterList));
+  uint16_t len = strlen(str);
+  dl->delimiters = rm_malloc(sizeof(char) * (len + 1));
+  strcpy(dl->delimiters, str);
+  // initialize the delimiter map
+  memset(dl->delimiterMap, 0, 256);
+  for(uint16_t i = 0; i < len; i++) {
+    uint8_t pos = (uint8_t) str[i];
+    dl->delimiterMap[pos] = 1;
+  }
   return dl;
 }
 
-void DelimiterList_Unref(DelimiterList dl) {
+void DelimiterList_Unref(DelimiterList *dl) {
+  rm_free(dl->delimiters);
   rm_free(dl);
 }
 
-char *DelimiterList_RdbLoad(RedisModuleIO* rdb, int encver) {
+DelimiterList *DelimiterList_RdbLoad(RedisModuleIO* rdb, int encver) {
   if(encver >= INDEX_DELIMITERS_VERSION) {
-    size_t l;
     char *s;
     LoadStringBufferAlloc_IOErrors(rdb, s, NULL, goto fail);
-    return s;
+    return NewDelimiterListCStr(s);
+    rm_free(s);
   }
 
 fail:
   return DefaultDelimiterList();
 }
 
-void DelimiterList_RdbSave(RedisModuleIO* rdb, DelimiterList dl) {
-  if (dl != NULL) {
-    RedisModule_SaveStringBuffer(rdb, dl, strlen(dl) + 1);
+void DelimiterList_RdbSave(RedisModuleIO* rdb, DelimiterList *dl) {
+  if (dl != NULL && dl->delimiters != NULL) {
+    RedisModule_SaveStringBuffer(rdb, dl->delimiters, strlen(dl->delimiters) + 1);
   }
 }
 
@@ -61,20 +66,20 @@ void DelimiterList_RdbSave(RedisModuleIO* rdb, DelimiterList dl) {
 // void DelimiterList_Ref(DelimiterList dl) {
 // }
 
-void ReplyWithDelimiterList(RedisModule_Reply* reply, DelimiterList dl) {
+void ReplyWithDelimiterList(RedisModule_Reply* reply, DelimiterList *dl) {
   RedisModule_Reply_SimpleString(reply, "delimiters");
 
   RedisModule_Reply_Array(reply);
-  if (dl == NULL) {
+  if (dl == NULL || dl->delimiters == NULL) {
     RedisModule_Reply_Null(reply);
   } else {
-    RedisModule_Reply_StringBuffer(reply, dl, strlen(dl));
+    RedisModule_Reply_StringBuffer(reply, dl->delimiters, strlen(dl->delimiters));
   }
   RedisModule_Reply_ArrayEnd(reply);
 }
 
 // TODO:
-void AddDelimiterListToInfo(RedisModuleInfoCtx* ctx, DelimiterList dl) {
+void AddDelimiterListToInfo(RedisModuleInfoCtx* ctx, DelimiterList *dl) {
 }
 
 // TODO:

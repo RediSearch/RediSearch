@@ -325,21 +325,21 @@ static void FragmentList_FindContext(const FragmentList *fragList, const Fragmen
   // Find the context immediately prior to our fragment, this means to advance
   // the cursor as much as possible until a separator is reached, and then
   // seek past that separator (if there are separators)
-  for (; limitBefore < frag->buf && !istoksep(*limitBefore); limitBefore++) {
+  for (; limitBefore < frag->buf && !istoksep(*limitBefore, NULL); limitBefore++) {
     // Found a separator.
   }
-  for (; limitBefore < frag->buf && istoksep(*limitBefore); limitBefore++) {
+  for (; limitBefore < frag->buf && istoksep(*limitBefore, NULL); limitBefore++) {
     // Strip away future separators
   }
   before->iov_base = (void *)limitBefore;
   before->iov_len = frag->buf - limitBefore;
 
   // Do the same for the 'after' context.
-  for (; limitAfter > frag->buf + frag->len && !istoksep(*limitAfter); limitAfter--) {
+  for (; limitAfter > frag->buf + frag->len && !istoksep(*limitAfter, NULL); limitAfter--) {
     // Found a separator
   }
 
-  for (; limitAfter > frag->buf + frag->len && istoksep(*limitAfter); limitAfter--) {
+  for (; limitAfter > frag->buf + frag->len && istoksep(*limitAfter, NULL); limitAfter--) {
     // Seek to the end of the last non-separator word
   }
 
@@ -450,7 +450,7 @@ void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_
       len = curTerm->len;
     } else {
       len = 0;
-      for (size_t ii = curTerm->bytePos; ii < fragList->docLen && !istoksep(doc[ii]); ++ii, ++len) {
+      for (size_t ii = curTerm->bytePos; ii < fragList->docLen && !istoksep(doc[ii], NULL); ++ii, ++len) {
       }
     }
 
