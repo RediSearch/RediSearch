@@ -21,9 +21,8 @@
 extern "C" {
 #endif
 
-static const char DEFAULT_DELIMITERS_STR[33] = "!\"#$\%&'()*+,-./:;<=>?@[\\]^`{|}~";
-// static const char DEFAULT_DELIMITERS_STR[32] = "!\"#$\%&'()*+,-./:;<=>?@[\\]^`{|}~";
 //! " # $ % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ ` { | } ~
+static const char DEFAULT_DELIMITERS_STR[33] = "!\"#$\%&'()*+,-./:;<=>?@[\\]^`{|}~";
 // static const char DEFAULT_DELIMITERS[256] = {
 //     [' '] = 1, ['\t'] = 1, [','] = 1,  ['.'] = 1, ['/'] = 1, ['('] = 1, [')'] = 1, ['{'] = 1,
 //     ['}'] = 1, ['['] = 1,  [']'] = 1,  [':'] = 1, [';'] = 1, ['~'] = 1, ['!'] = 1, ['@'] = 1,

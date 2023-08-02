@@ -10,15 +10,17 @@
 #include "rdb.h"
 #include "rmalloc.h"
 
-DelimiterList *DefaultDelimiterList() {
-  return NewDelimiterListCStr(DEFAULT_DELIMITERS_STR);
-}
+static DelimiterList *__default_delimiters = NULL;
 
-void DelimiterList_FreeGlobals(void) {
+DelimiterList *DefaultDelimiterList() {
+  if(__default_delimiters == NULL) {
+    __default_delimiters = NewDelimiterListCStr(DEFAULT_DELIMITERS_STR);
+  }
+  return __default_delimiters;
 }
 
 struct DelimiterList *NewDelimiterListCStr(const char* str) {
-  if(str == NULL) {
+  if(str == NULL || strlen(str) == 0) {
     return NULL;
   }
   //if (len > MAX_DELIMITERLIST_SIZE) {
@@ -39,9 +41,28 @@ struct DelimiterList *NewDelimiterListCStr(const char* str) {
   return dl;
 }
 
+static void DelimiterList_FreeInternal(DelimiterList *dl) {
+  if(dl) {
+    if(dl->delimiters) {
+        rm_free(dl->delimiters);
+      }
+      rm_free(dl);
+  }
+}
+
 void DelimiterList_Unref(DelimiterList *dl) {
-  rm_free(dl->delimiters);
-  rm_free(dl);
+  if (dl == __default_delimiters) {
+    return;
+  }
+
+  DelimiterList_FreeInternal(dl);
+}
+
+void DelimiterList_FreeGlobals(void) {
+    if (__default_delimiters) {
+    DelimiterList_FreeInternal(__default_delimiters);
+    __default_delimiters = NULL;
+  }
 }
 
 DelimiterList *DelimiterList_RdbLoad(RedisModuleIO* rdb, int encver) {

@@ -221,7 +221,11 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
     aCtx->fwIdx->smap = NULL;
   }
 
-  aCtx->tokenizer = GetTokenizer(doc->language, aCtx->fwIdx->stemmer, sp->stopwords);
+  // TODO: Use the custom delimiters
+  // aCtx->tokenizer = GetTokenizer(doc->language, aCtx->fwIdx->stemmer,
+  //                                sp->stopwords, sp->delimiters);
+  aCtx->tokenizer = GetTokenizer(doc->language, aCtx->fwIdx->stemmer,
+                                sp->stopwords, NULL);
 //  aCtx->doc->docId = 0;
   return aCtx;
 }

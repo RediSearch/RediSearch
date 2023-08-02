@@ -75,11 +75,14 @@ typedef struct RSTokenizer {
   uint32_t (*Next)(struct RSTokenizer *self, Token *tok);
   void (*Free)(struct RSTokenizer *self);
   void (*Start)(struct RSTokenizer *self, char *txt, size_t len, uint32_t options);
-  void (*Reset)(struct RSTokenizer *self, Stemmer *stemmer, StopWordList *stopwords, uint32_t opts, DelimiterList *delimiters);
+  void (*Reset)(struct RSTokenizer *self, Stemmer *stemmer,
+      StopWordList *stopwords, uint32_t opts, DelimiterList *delimiters);
 } RSTokenizer;
 
-RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts, DelimiterList *delimiters);
-RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts, DelimiterList *delimiters);
+RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords,
+    uint32_t opts, DelimiterList *delimiters);
+RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords,
+    uint32_t opts, DelimiterList *delimiters);
 
 #define TOKENIZE_DEFAULT_OPTIONS 0x00
 // Don't modify buffer at all during tokenization.
@@ -100,9 +103,12 @@ RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint
  * Retrieves a tokenizer based on the language string. When this tokenizer
  * is no longer needed, return to the pool using Tokenizer_Release()
  */
-RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords);
-RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords);
-RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords);
+RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer,
+    StopWordList *stopwords, DelimiterList *delimiters);
+RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords,
+    DelimiterList *delimiters);
+RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords,
+    DelimiterList *delimiters);
 void Tokenizer_Release(RSTokenizer *t);
 
 #ifdef __cplusplus

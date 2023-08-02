@@ -23,10 +23,10 @@ static const char ToksepMap_g[256] = {
  * Function reads string pointed to by `s` and indicates the length of the next
  * token in `tokLen`. `s` is set to NULL if this is the last token.
  */
-static inline char *toksep(char **s, size_t *tokLen, const char toksepMap[256]) {
+static inline char *toksep(char **s, size_t *tokLen, DelimiterList *dl) {
   const char *map;
-  if(toksepMap != NULL) {
-    map = toksepMap;
+  if(dl != NULL && dl->delimiterMap != NULL) {
+    map = dl->delimiterMap;
   } else {
     map = ToksepMap_g;
   }

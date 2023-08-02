@@ -1101,7 +1101,7 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
 
   ArgsCursor ac = {0};
   ArgsCursor acStopwords = {0};
-  char *acDelimiters = NULL;
+  char *delimiters = NULL;
 
   ArgsCursor_InitCString(&ac, argv, argc);
   long long timeout = -1;
@@ -1126,7 +1126,7 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
       SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args){
           .name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
       {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-      {.name = SPEC_DELIMITERS_STR, .target = &acDelimiters, .type = AC_ARGTYPE_STRING},
+      {.name = SPEC_DELIMITERS_STR, .target = &delimiters, .type = AC_ARGTYPE_STRING},
       {.name = NULL}};
 
   ACArgSpec *errarg = NULL;
@@ -1165,11 +1165,11 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
     spec->flags |= Index_HasCustomStopwords;
   }
 
-  if (acDelimiters != NULL) {
+  if (delimiters != NULL) {
     if(spec->delimiters) {
       DelimiterList_Unref(spec->delimiters);
     }
-    spec->delimiters = NewDelimiterListCStr((const char *) acDelimiters);
+    spec->delimiters = NewDelimiterListCStr((const char *)delimiters);
     spec->flags |= Index_HasCustomDelimiters;
   }
 
@@ -1410,6 +1410,13 @@ void IndexSpec_Free(IndexSpec *spec) {
     StopWordList_Unref(spec->stopwords);
     spec->stopwords = NULL;
   }
+
+  // Fre delimiter list
+  if (spec->delimiters) {
+    DelimiterList_Unref(spec->delimiters);
+    spec->delimiters = NULL;
+  }
+
   // Reset fields stats
   if (spec->fields != NULL) {
     for (size_t i = 0; i < spec->numFields; i++) {
