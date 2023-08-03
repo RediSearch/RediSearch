@@ -13,9 +13,9 @@
 static DelimiterList *__default_delimiters = NULL;
 
 DelimiterList *DefaultDelimiterList() {
-  if(__default_delimiters == NULL) {
-    __default_delimiters = NewDelimiterListCStr(DEFAULT_DELIMITERS_STR);
-  }
+  // if(__default_delimiters == NULL) {
+  //   __default_delimiters = NewDelimiterListCStr(DEFAULT_DELIMITERS_STR);
+  // }
   return __default_delimiters;
 }
 

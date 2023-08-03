@@ -25,7 +25,7 @@ static const char ToksepMap_g[256] = {
  */
 static inline char *toksep(char **s, size_t *tokLen, DelimiterList *dl) {
   const char *map;
-  if(dl != NULL && dl->delimiterMap != NULL) {
+  if(dl != NULL) {
     map = dl->delimiterMap;
   } else {
     map = ToksepMap_g;
@@ -51,7 +51,7 @@ static inline char *toksep(char **s, size_t *tokLen, DelimiterList *dl) {
 }
 
 static inline int istoksep(int c, DelimiterList *dl) {
-  if(dl != NULL && dl->delimiterMap != NULL) {
+  if(dl != NULL) {
     return dl->delimiterMap [(uint8_t)c] != 0;
   } else {
     return ToksepMap_g[(uint8_t)c] != 0;
