@@ -1455,6 +1455,7 @@ void Indexes_Free(dict *d) {
 
   // cursor list is iterating through the list as well and consuming a lot of CPU
   CursorList_Empty(&g_CursorsList);
+  CursorList_Empty(&g_CursorsListCoord);
 
   arrayof(StrongRef) specs = array_new(StrongRef, dictSize(d));
   dictIterator *iter = dictGetIterator(d);
@@ -2227,7 +2228,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
     GCContext_RenderStatsForInfo(sp->gc, ctx);
 
   // Cursor stat
-  Cursors_RenderStatsForInfo(&g_CursorsList, sp, ctx);
+  Cursors_RenderStatsForInfo(&g_CursorsList, &g_CursorsListCoord, sp, ctx);
 
   // Stop words
   if (sp->flags & Index_HasCustomStopwords)
