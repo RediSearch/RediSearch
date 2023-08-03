@@ -24,17 +24,18 @@ static const char ToksepMap_g[256] = {
  * token in `tokLen`. `s` is set to NULL if this is the last token.
  */
 static inline char *toksep(char **s, size_t *tokLen, DelimiterList *dl) {
+  char delimiter;
   const char *map;
-  if(dl != NULL) {
-    map = dl->delimiterMap;
-  } else {
-    map = ToksepMap_g;
-  }
 
   uint8_t *pos = (uint8_t *)*s;
   char *orig = *s;
   for (; *pos; ++pos) {
-    if (map[*pos] && ((char *)pos == orig || *(pos - 1) != '\\')) {
+    if(dl != NULL) {
+      delimiter = dl->delimiterMap[*pos];
+    } else {
+      delimiter = 0;
+    }
+    if ((ToksepMap_g[*pos] && delimiter == 0) && ((char *)pos == orig || *(pos - 1) != '\\')) {
       *s = (char *)++pos;
       *tokLen = ((char *)pos - orig) - 1;
       if (!*pos) {
@@ -51,11 +52,11 @@ static inline char *toksep(char **s, size_t *tokLen, DelimiterList *dl) {
 }
 
 static inline int istoksep(int c, DelimiterList *dl) {
+  int delimiter = 0;
   if(dl != NULL) {
-    return dl->delimiterMap [(uint8_t)c] != 0;
-  } else {
-    return ToksepMap_g[(uint8_t)c] != 0;
+    delimiter = dl->delimiterMap[(uint8_t)c];
   }
+  return (ToksepMap_g[(uint8_t)c] != 0 && delimiter == 0);
 }
 
 #endif
