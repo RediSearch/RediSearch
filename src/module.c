@@ -1100,6 +1100,7 @@ void RediSearch_CleanupModule(void) {
   specDict_g = NULL;
 
   CursorList_Destroy(&RSCursors);
+  CursorList_Destroy(&RSCursorsCoord);
 
   if (legacySpecDict) {
     dictRelease(legacySpecDict);
