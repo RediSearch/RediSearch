@@ -305,7 +305,7 @@ void AREQ_Free(AREQ *req);
  * freed. If it returns REDISMODULE_ERR, then the cursor is still valid
  * and must be freed manually.
  */
-int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *status);
+int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *status, bool coord);
 
 int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
