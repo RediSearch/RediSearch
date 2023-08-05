@@ -20,7 +20,7 @@
 
 // Enumeration of possible value types
 enum RSValueType {
-  RSValue_Undef = 0, // nullptr/Empty
+  RSValue_Undef = 0, // NULL/Empty
 
   RSValue_Number = 1,
   RSValue_String = 3,
@@ -223,7 +223,7 @@ inline bool RSValue::IsString() const {
   return t == RSValue_String || t == RSValue_RedisString || t == RSValue_OwnRstring;
 }
 
-// Return 1 if the value is nullptr, RSValue_Null or a reference to RSValue_Null
+// Return 1 if the value is NULL, RSValue_Null or a reference to RSValue_Null
 
 inline bool RSValue::IsNull() const {
   if (t == RSValue_Null) return true;
@@ -254,7 +254,7 @@ RSValue *RS_NewCopiedString(const char *s, size_t dst);
 // New value from string, trying to parse it as a number
 RSValue *RSValue_ParseNumber(const char *p, size_t l);
 
-#define RSVALUE_nullptr_HASH 1337
+#define RSVALUE_NULL_HASH 1337
 
 // Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
 
@@ -295,7 +295,7 @@ RSValue *RS_Int64Val(int64_t ii);
 
 RSValue *RS_VStringArray(uint32_t sz, ...);
 
-// Wrap an array of nullptr terminated C strings into an RSValue array
+// Wrap an array of NULL terminated C strings into an RSValue array
 RSValue *RS_StringArray(char **strs, uint32_t sz);
 
 // Initialize all strings in the array with a given string type
@@ -303,7 +303,7 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st);
 
 extern RSValue RS_NULL;
 
-// Create a new nullptr RSValue
+// Create a new NULL RSValue
 inline RSValue *RS_NullVal() {
   return &RS_NULL;
 }
@@ -369,9 +369,9 @@ static RSValue RS_StaticUndef(RSValue_Undef);
 
 /**
  * This macro does three things:
- * (1) It checks if the value v is nullptr, if it isn't then it:
+ * (1) It checks if the value v is NULL, if it isn't then it:
  * (2) Decrements it
- * (3) Sets the variable to nullptr, as it no longer owns it.
+ * (3) Sets the variable to NULL, as it no longer owns it.
  */
 
 #define RSVALUE_CLEARVAR(v) \

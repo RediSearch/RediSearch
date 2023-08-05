@@ -124,7 +124,9 @@ void IndexReader::OnReopen(RedisModuleKey *k) {
 // We have 9 distinct ways to encode the index records.
 // Based on the index flags we select the correct encoder when writing to the index.
 
+//---------------------------------------------------------------------------------------------
 // 1. Encode the full data of the record, delta, frequency, field mask and offset vector
+
 static size_t encodeFull(BufferWriter *bw, uint32_t delta, TermResult *res) {
   size_t sz = qint_encode4(bw, delta, res->freq, (uint32_t)res->fieldMask, res->offsetsSz);
   sz += bw->Write(res->offsets.data, res->offsets.len);
@@ -138,7 +140,9 @@ static size_t encodeFullWide(BufferWriter *bw, uint32_t delta, TermResult *res) 
   return sz;
 }
 
+//---------------------------------------------------------------------------------------------
 // 2. (Frequency, Field)
+
 static size_t encodeFreqsFields(BufferWriter *bw, uint32_t delta, IndexResult *res) {
   return qint_encode3(bw, (uint32_t)delta, (uint32_t)res->freq, (uint32_t)res->fieldMask);
 }
@@ -149,12 +153,16 @@ static size_t encodeFreqsFieldsWide(BufferWriter *bw, uint32_t delta, IndexResul
   return sz;
 }
 
+//---------------------------------------------------------------------------------------------
 // 3. Frequencies only
+
 static size_t encodeFreqsOnly(BufferWriter *bw, uint32_t delta, IndexResult *res) {
   return qint_encode2(bw, (uint32_t)delta, (uint32_t)res->freq);
 }
 
+//---------------------------------------------------------------------------------------------
 // 4. Field mask only
+
 static size_t encodeFieldsOnly(BufferWriter *bw, uint32_t delta, IndexResult *res) {
   return qint_encode2(bw, (uint32_t)delta, (uint32_t)res->fieldMask);
 }
@@ -165,7 +173,9 @@ static size_t encodeFieldsOnlyWide(BufferWriter *bw, uint32_t delta, IndexResult
   return sz;
 }
 
+//---------------------------------------------------------------------------------------------
 // 5. (field, offset)
+
 static size_t encodeFieldsOffsets(BufferWriter *bw, uint32_t delta, TermResult *res) {
   size_t sz = qint_encode3(bw, delta, (uint32_t)res->fieldMask, res->offsets.len);
   sz += bw->Write(res->offsets.data, res->offsets.len);
@@ -179,24 +189,32 @@ static size_t encodeFieldsOffsetsWide(BufferWriter *bw, uint32_t delta, TermResu
   return sz;
 }
 
+//---------------------------------------------------------------------------------------------
 // 6. Offsets only
+
 static size_t encodeOffsetsOnly(BufferWriter *bw, uint32_t delta, TermResult *res) {
   size_t sz = qint_encode2(bw, delta, res->offsets.len);
   sz += bw->Write(res->offsets.data, res->offsets.len);
   return sz;
 }
 
+//---------------------------------------------------------------------------------------------
 // 7. Offsets and freqs
+
 static size_t encodeFreqsOffsets(BufferWriter *bw, uint32_t delta, TermResult *res) {
   size_t sz = qint_encode3(bw, delta, (uint32_t)res->freq, (uint32_t)res->offsets.len);
   sz += bw->Write(res->offsets.data, res->offsets.len);
   return sz;
 }
 
+//---------------------------------------------------------------------------------------------
 // 8. Encode only the doc ids
+
 static size_t encodeDocIdsOnly(BufferWriter *bw, uint32_t delta, IndexResult *res) {
   return bw->WriteVarint(delta);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * DeltaType{1,2} Float{3}(=1), IsInf{4}   -  Sign{5} IsDouble{6} Unused{7,8}
@@ -242,12 +260,16 @@ union EncodingHeader {
   NumEncodingFloat encFloat;
 };
 
+//---------------------------------------------------------------------------------------------
+
 static void dumpBits(uint64_t value, size_t numBits, FILE *fp) {
   while (numBits) {
     fprintf(fp, "%d", !!(value & (1 << (numBits - 1))));
     numBits--;
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void dumpEncoding(EncodingHeader header, FILE *fp) {
   fprintf(fp, "DeltaBytes: %u\n", header.encCommon.deltaEncoding + 1);
@@ -267,7 +289,9 @@ static void dumpEncoding(EncodingHeader header, FILE *fp) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
 // 9. Special encoder for numeric values
+
 static size_t encodeNumeric(BufferWriter *bw, uint32_t delta, NumericResult *res) {
   const double absVal = fabs(res->value);
   const double realVal = res->value;
@@ -339,7 +363,7 @@ static size_t encodeNumeric(BufferWriter *bw, uint32_t delta, NumericResult *res
   return sz;
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Get the appropriate encoder based on index flags
 
@@ -464,11 +488,20 @@ void IndexReader::AdvanceBlock() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+// Index Decoder Implementations.
+//
+// We have 9 distinct ways to decode the index records.
+// Based on the index flags we select the correct decoder for creating an index reader.
+// A decoder both decodes the entry and does initial filtering, returning 1 if the record is ok
+// or 0 if it is filtered.
+
 bool IndexDecoder::readFreqsFlags(BufferReader *br, IndexResult *res) {
   qint_decode3(br, (uint32_t *)&res->docId, &res->freq, (uint32_t *)&res->fieldMask);
   // qint_decode3(br, &res->docId, &res->freq, &res->fieldMask);
   return CHECK_FLAGS(res);
 }
+
+//---------------------------------------------------------------------------------------------
 
 bool IndexDecoder::readFreqsFlagsWide(BufferReader *br, IndexResult *res) {
   uint32_t maskSz;
@@ -476,6 +509,8 @@ bool IndexDecoder::readFreqsFlagsWide(BufferReader *br, IndexResult *res) {
   res->fieldMask = ReadVarintFieldMask(*br);
   return CHECK_FLAGS(res);
 }
+
+//---------------------------------------------------------------------------------------------
 
 bool TermIndexDecoder::readFreqOffsetsFlags(BufferReader *br, TermResult *res) {
   qint_decode4(br, (uint32_t *)&res->docId, &res->freq, (uint32_t *)&res->fieldMask,
@@ -485,6 +520,8 @@ bool TermIndexDecoder::readFreqOffsetsFlags(BufferReader *br, TermResult *res) {
   br->Skip(res->offsetsSz);
   return CHECK_FLAGS(res);
 }
+
+//---------------------------------------------------------------------------------------------
 
 bool TermIndexDecoder::seekFreqOffsetsFlags(BufferReader *br, IndexReader *ir, t_docId expid, TermResult *res) {
   uint32_t did = 0, freq = 0, offsz = 0;
@@ -542,6 +579,8 @@ done:
   return rc;
 }
 
+//---------------------------------------------------------------------------------------------
+
 bool TermIndexDecoder::readFreqOffsetsFlagsWide(BufferReader *br, TermResult *res) {
   uint32_t maskSz;
 
@@ -552,7 +591,9 @@ bool TermIndexDecoder::readFreqOffsetsFlagsWide(BufferReader *br, TermResult *re
   return CHECK_FLAGS(res);
 }
 
+//---------------------------------------------------------------------------------------------
 // special decoder for decoding numeric results
+
 bool NumericIndexDecoder::readNumeric(BufferReader *br, NumericResult *res) {
   EncodingHeader header;
   br->Read(&header, 1);
@@ -593,15 +634,21 @@ bool NumericIndexDecoder::readNumeric(BufferReader *br, NumericResult *res) {
   return true;
 }
 
+//---------------------------------------------------------------------------------------------
+
 bool IndexDecoder::readFreqs(BufferReader *br, IndexResult *res) {
   qint_decode2(br, (uint32_t *)&res->docId, &res->freq);
   return true;
 }
 
+//---------------------------------------------------------------------------------------------
+
 bool IndexDecoder::readFlags(BufferReader *br, IndexResult *res) {
   qint_decode2(br, (uint32_t *)&res->docId, (uint32_t *)&res->fieldMask);
   return CHECK_FLAGS(res);
 }
+
+//---------------------------------------------------------------------------------------------
 
 bool IndexDecoder::readFlagsWide(BufferReader *br, IndexResult *res) {
   res->docId = ReadVarint(*br);
@@ -610,12 +657,16 @@ bool IndexDecoder::readFlagsWide(BufferReader *br, IndexResult *res) {
   return CHECK_FLAGS(res);
 }
 
+//---------------------------------------------------------------------------------------------
+
 bool TermIndexDecoder::readFlagsOffsets(BufferReader *br, TermResult *res) {
   qint_decode3(br, (uint32_t *)&res->docId, (uint32_t *)&res->fieldMask, &res->offsetsSz);
   res->offsets = OffsetVector(br->Current(), res->offsetsSz);
   br->Skip(res->offsetsSz);
   return CHECK_FLAGS(res);
 }
+
+//---------------------------------------------------------------------------------------------
 
 bool TermIndexDecoder::readFlagsOffsetsWide(BufferReader *br, TermResult *res) {
   qint_decode2(br, (uint32_t *)&res->docId, &res->offsetsSz);
@@ -626,6 +677,8 @@ bool TermIndexDecoder::readFlagsOffsetsWide(BufferReader *br, TermResult *res) {
   return CHECK_FLAGS(res);
 }
 
+//---------------------------------------------------------------------------------------------
+
 bool TermIndexDecoder::readOffsets(BufferReader *br, TermResult *res) {
   qint_decode2(br, (uint32_t *)&res->docId, &res->offsetsSz);
   res->offsets = OffsetVector(br->Current(), res->offsetsSz);
@@ -633,12 +686,16 @@ bool TermIndexDecoder::readOffsets(BufferReader *br, TermResult *res) {
   return true;
 }
 
+//---------------------------------------------------------------------------------------------
+
 bool TermIndexDecoder::readFreqsOffsets(BufferReader *br, TermResult *res) {
   qint_decode3(br, (uint32_t *)&res->docId, &res->freq, &res->offsetsSz);
   res->offsets = OffsetVector(br->Current(), res->offsetsSz);
   br->Skip(res->offsetsSz);
   return true;
 }
+
+//---------------------------------------------------------------------------------------------
 
 bool IndexDecoder::readDocIdsOnly(BufferReader *br, IndexResult *res) {
   res->docId = ReadVarint(*br);
@@ -667,6 +724,7 @@ IndexDecoder::IndexDecoder(uint32_t flags, t_fieldMask mask, decoderType type) :
 //---------------------------------------------------------------------------------------------
 
 void IndexDecoder::ctor(uint32_t flags) {
+  _BB;
   switch (flags & INDEX_STORAGE_MASK) {
     // (freqs)
     case Index_StoreFreqs:

@@ -837,8 +837,12 @@ void IndexSpec::MakeKeyless() {
 //---------------------------------------------------------------------------------------------
 
 void IndexSpec::StartGCFromSpec(float initialHZ, uint32_t gcPolicy) {
+#ifndef NO_GC
   gc = new GC(this, initialHZ, uniqueId, gcPolicy);
   gc->Start();
+#else
+  gc = 0;
+#endif
 }
 
 //---------------------------------------------------------------------------------------------
@@ -850,8 +854,12 @@ void IndexSpec::StartGC(RedisModuleCtx *ctx, float initialHZ) {
   // we will not create a gc thread on temporary index
   if (RSGlobalConfig.enableGC && !(flags & Index_Temporary)) {
     RedisModuleString *keyName = RedisModule_CreateString(ctx, name, strlen(name));
+#ifndef NO_GC
     gc = new GC(keyName, initialHZ, uniqueId);
     gc->Start();
+#else
+    gc = 0;
+#endif
     RedisModule_Log(ctx, "verbose", "Starting GC for index %s", name);
   }
 }

@@ -55,6 +55,7 @@ endif()
 #----------------------------------------------------------------------------------------------
 
 # add_definitions(-DDEBUG_TRIE)
+add_definitions(-DNO_GC)
 
 #----------------------------------------------------------------------------------------------
 
@@ -78,7 +79,17 @@ file(GLOB RS_SRC
     "src/ext/*.c"
     "src/hll/*.c"
     "src/query_parser/*.c"
-    "src/util/*.c"
+    "src/util/arr.c"
+    "src/util/array.c"
+    "src/util/block_alloc.c"
+    "src/util/dict.c"
+    "src/util/fnv.c"
+    "src/util/heap.c"
+    # "src/util/khtable.c"
+    "src/util/logging.c"
+    "src/util/mempool.c"
+    "src/util/misc.c"
+    "src/util/quantile.c"
     "src/trie/*.c"
     ${RS_DEBUG_SRC}
 
