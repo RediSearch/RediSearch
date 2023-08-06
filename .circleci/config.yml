@@ -82,7 +82,7 @@ commands:
     parameters:
       redis_version:
         type: string
-        default: "7"
+        default: "unstable"
       getredis_params:
         type: string
         default: ""
@@ -1005,23 +1005,23 @@ workflows:
       - build-linux-arm-ubuntu:
           <<: *never
       - build-platforms:
-          <<: *on-integ-and-version-tags
+          <<: *always
           context: common
           matrix:
             parameters:
               platform: [jammy, focal, bionic, centos7, rocky8, bullseye, amzn2]
       - build-arm-platforms:
-          <<: *on-integ-and-version-tags
+          <<: *always
           context: common
           matrix:
             parameters:
               platform: [jammy, focal, bionic]
       - build-macos-x64:
-          <<: *on-version-tags
+          <<: *always
           context: common
       - build-macos-m1:
           context: common
-          <<: *on-version-tags
+          <<: *always
       - coverage:
           <<: *always
       - sanitize:
@@ -1035,52 +1035,52 @@ workflows:
           <<: *never
       - benchmark-search-oss-standalone-g1:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - benchmark-search-oss-standalone-g2:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - benchmark-search-oss-standalone-g3:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - benchmark-vecsim-oss-standalone-g1:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - benchmark-vecsim-oss-standalone-g2:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - benchmark-search-oss-cluster-g1:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - benchmark-search-oss-cluster-g2:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - benchmark-search-oss-cluster-g3:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - benchmark-search-oss-cluster-g4:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - benchmark-search-oss-cluster-g5:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - benchmark-search-oss-cluster-g6:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - benchmark-search-oss-standalone-profiler-g1:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - benchmark-search-oss-standalone-profiler-g2:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - benchmark-search-oss-standalone-profiler-g3:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - benchmark-vecsim-oss-standalone-profiler-g1:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - benchmark-vecsim-oss-standalone-profiler-g2:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - upload-artifacts:
           name: upload-artifacts-to-staging-lab
           staging-lab: "1"
