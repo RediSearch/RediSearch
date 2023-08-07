@@ -215,6 +215,12 @@ commands:
     parameters:
       platform:
         type: string
+      redis_version:
+        type: string
+        default: "unstable"
+      getredis_params:
+        type: string
+        default: ""
     steps:
       - early-returns
       - setup-executor
@@ -223,7 +229,7 @@ commands:
       - run:
           name: Install Redis
           shell: /bin/bash -l -eo pipefail
-          command: ./deps/readies/bin/getredis
+          command: ./deps/readies/bin/getredis -v '<<parameters.redis_version>>' --force <<parameters.getredis_params>>
       - run:
           name: Build for platform
           shell: /bin/bash -l -eo pipefail
@@ -260,6 +266,12 @@ commands:
     parameters:
       platform:
         type: string
+      redis_version:
+        type: string
+        default: "unstable"
+      getredis_params:
+        type: string
+        default: ""
     steps:
       - early-returns
       - checkout-all
@@ -271,7 +283,7 @@ commands:
       - run:
           name: Install Redis
           shell: /bin/bash -l -eo pipefail
-          command: ./deps/readies/bin/getredis
+          command: ./deps/readies/bin/getredis -v '<<parameters.redis_version>>' --force <<parameters.getredis_params>>
       - run:
           name: Build for platform
           command: |
