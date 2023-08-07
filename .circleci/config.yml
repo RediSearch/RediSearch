@@ -130,7 +130,7 @@ commands:
     parameters:
       redis_version:
         type: string
-        default: "7"
+        default: "unstable"
       getredis_params:
         type: string
         default: ""
@@ -399,7 +399,7 @@ jobs:
         default: "QUICK=1"
       redis_version:
         type: string
-        default: "7"
+        default: "unstable"
       upload:
         type: string
         default: "yes"
@@ -424,7 +424,7 @@ jobs:
     parameters:
       redis_version:
         type: string
-        default: "7"
+        default: "unstable"
       persist:
         type: string
         default: "no"
