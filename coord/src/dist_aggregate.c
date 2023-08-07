@@ -241,8 +241,10 @@ void processResultFormat(uint32_t *flags, MRReply *map) {
   RS_LOG_ASSERT(format, "missing format specification");
   if (MRReply_StringEquals(format, "EXPAND", false)) {
     *flags |= QEXEC_FORMAT_EXPAND;
-    *flags &= ~QEXEC_FORMAT_DEFAULT;
+  } else {
+    *flags &= ~QEXEC_FORMAT_EXPAND;
   }
+  *flags &= ~QEXEC_FORMAT_DEFAULT;
 }
 
 static int rpnetNext(ResultProcessor *self, SearchResult *r) {
