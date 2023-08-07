@@ -9,7 +9,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
-#include <delimiters.h>
+#include "separators.h"
 
 //! " # $ % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ ` { | } ~
 static const char ToksepMap_g[256] = {
@@ -23,19 +23,17 @@ static const char ToksepMap_g[256] = {
  * Function reads string pointed to by `s` and indicates the length of the next
  * token in `tokLen`. `s` is set to NULL if this is the last token.
  */
-static inline char *toksep(char **s, size_t *tokLen, DelimiterList *dl) {
-  char delimiter;
-  const char *map;
-
+static inline char *toksep(char **s, size_t *tokLen, SeparatorList *sl) {
+  char c;
   uint8_t *pos = (uint8_t *)*s;
   char *orig = *s;
   for (; *pos; ++pos) {
-    if(dl != NULL) {
-      delimiter = dl->delimiterMap[*pos];
+    if(sl != NULL) {
+      c = sl->separatorMap[*pos];
     } else {
-      delimiter = 0;
+      c = ToksepMap_g[*pos];
     }
-    if ((ToksepMap_g[*pos] && delimiter == 0) && ((char *)pos == orig || *(pos - 1) != '\\')) {
+    if (c && ((char *)pos == orig || *(pos - 1) != '\\')) {
       *s = (char *)++pos;
       *tokLen = ((char *)pos - orig) - 1;
       if (!*pos) {
@@ -51,12 +49,12 @@ static inline char *toksep(char **s, size_t *tokLen, DelimiterList *dl) {
   return orig;
 }
 
-static inline int istoksep(int c, DelimiterList *dl) {
-  int delimiter = 0;
-  if(dl != NULL) {
-    delimiter = dl->delimiterMap[(uint8_t)c];
+static inline int istoksep(int c, SeparatorList *sl) {
+  if(sl != NULL) {
+    return sl->separatorMap [(uint8_t)c] != 0;
+  } else {
+    return ToksepMap_g[(uint8_t)c] != 0;
   }
-  return (ToksepMap_g[(uint8_t)c] != 0 && delimiter == 0);
 }
 
 #endif

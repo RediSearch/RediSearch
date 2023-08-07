@@ -222,7 +222,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   }
 
   aCtx->tokenizer = GetTokenizer(doc->language, aCtx->fwIdx->stemmer,
-                                 sp->stopwords, sp->delimiters);
+                                 sp->stopwords, sp->separators);
 //  aCtx->doc->docId = 0;
   return aCtx;
 }

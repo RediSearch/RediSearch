@@ -241,8 +241,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     ReplyWithStopWordsList(reply, sp->stopwords);
   }
 
-  if (sp->flags & Index_HasCustomDelimiters) {
-    ReplyWithDelimiterList(reply, sp->delimiters);
+  if (sp->flags & Index_HasCustomSeparators) {
+      ReplyWithSeparatorList(reply, sp->separators);
   }
 
   REPLY_KVMAP("dialect_stats");

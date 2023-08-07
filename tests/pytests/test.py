@@ -3764,13 +3764,3 @@ def test_cluster_set(env):
             ).equal('OK')
     verify_address('::1')
 
-def test_Delimiters(env):
-    r = env
-    # TODO:
-    # Index with default delimiters
-    # env.expect('ft.create', 'idx1', 'ON', 'HASH', 'schema', 'foo', 'text').ok()
-    # assertInfoField(env, 'idx1', 'delimiters', [])
-
-    # Index with custom delimiters
-    env.expect('ft.create', 'idx2', 'ON', 'HASH', 'DELIMITERS', ';~.', 'schema', 'foo', 'text').ok()
-    assertInfoField(env, 'idx2', 'delimiters', [';~.'])

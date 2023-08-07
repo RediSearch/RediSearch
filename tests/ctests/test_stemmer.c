@@ -54,7 +54,8 @@ int testTokenize() {
   Stemmer *s = NewStemmer(SnowballStemmer, RS_LANG_ENGLISH);
   ASSERT(s != NULL)
 
-  RSTokenizer *tk = NewSimpleTokenizer(s, DefaultStopWordList(), 0, NULL);
+  RSTokenizer *tk = NewSimpleTokenizer(s, DefaultStopWordList(), 0,
+                                       DefaultSeparatorList());
   Token t;
 
   tokenContext *tx = &ctx;
