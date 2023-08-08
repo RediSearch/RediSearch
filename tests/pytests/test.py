@@ -3763,4 +3763,3 @@ def test_cluster_set(env):
                'MASTER'
             ).equal('OK')
     verify_address('::1')
-

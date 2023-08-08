@@ -23,7 +23,7 @@ static const char ToksepMap_g[256] = {
  * Function reads string pointed to by `s` and indicates the length of the next
  * token in `tokLen`. `s` is set to NULL if this is the last token.
  */
-static inline char *toksep(char **s, size_t *tokLen, SeparatorList *sl) {
+static inline char *toksep(char **s, size_t *tokLen, const SeparatorList *sl) {
   char c;
   uint8_t *pos = (uint8_t *)*s;
   char *orig = *s;
@@ -49,7 +49,7 @@ static inline char *toksep(char **s, size_t *tokLen, SeparatorList *sl) {
   return orig;
 }
 
-static inline int istoksep(int c, SeparatorList *sl) {
+static inline int istoksep(int c, const SeparatorList *sl) {
   if(sl != NULL) {
     return sl->separatorMap [(uint8_t)c] != 0;
   } else {

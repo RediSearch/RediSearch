@@ -1411,7 +1411,7 @@ void IndexSpec_Free(IndexSpec *spec) {
     spec->stopwords = NULL;
   }
 
-  // Fre delimiter list
+  // Fre separator list
   if (spec->separators) {
     SeparatorList_Unref(spec->separators);
     spec->separators = NULL;

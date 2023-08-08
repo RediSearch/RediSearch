@@ -48,7 +48,7 @@ typedef struct {
 static int fragmentizeOffsets(const RLookup *lookup, const char *fieldName, const char *fieldText,
                               size_t fieldLen, const RSIndexResult *indexResult,
                               const RSByteOffsets *byteOffsets, FragmentList *fragList,
-                              int options) {
+                              int options, SeparatorList *sl) {
   const FieldSpec *fs = findFieldInSpecCache(lookup, fieldName);
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
     return 0;
@@ -63,7 +63,7 @@ static int fragmentizeOffsets(const RLookup *lookup, const char *fieldName, cons
   }
 
   FragmentTermIterator_InitOffsets(&fragIter, &bytesIter, &offsIter);
-  FragmentList_FragmentizeIter(fragList, fieldText, fieldLen, &fragIter, options);
+  FragmentList_FragmentizeIter(fragList, fieldText, fieldLen, &fragIter, options, sl);
   if (fragList->numFrags == 0) {
     goto done;
   }
@@ -138,7 +138,7 @@ static void normalizeSettings(const ReturnedField *srcField, const ReturnedField
 // field, and on output it contains the length of the trimmed summary.
 // Returns a string which should be freed using free()
 static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_t *docLen,
-                       size_t estWordSize) {
+                       size_t estWordSize, SeparatorList *sl) {
 
   // Number of desired fragments times the number of context words in each fragments,
   // in characters (estWordSize)
@@ -155,7 +155,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
   Array_Resize(&bufTmp, headLen);
 
   while (bufTmp.len > 1) {
-    if (istoksep(bufTmp.data[bufTmp.len - 1], NULL)) {
+    if (istoksep(bufTmp.data[bufTmp.len - 1], sl)) {
       break;
     }
     bufTmp.len--;
@@ -168,7 +168,8 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
 
 static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *fieldInfo,
                                const char *fieldName, const RSValue *returnedField,
-                               hlpDocContext *docParams, int options) {
+                               hlpDocContext *docParams, int options,
+                               SeparatorList *sl) {
 
   FragmentList frags;
   FragmentList_Init(&frags, 8, 6);
@@ -182,11 +183,11 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
   const char *docStr = RSValue_StringPtrLen(returnedField, &docLen);
   if (docParams->byteOffsets == NULL ||
       !fragmentizeOffsets(lookup, fieldName, docStr, docLen, docParams->indexResult,
-                          docParams->byteOffsets, &frags, options)) {
+                          docParams->byteOffsets, &frags, options, sl)) {
     if (fieldInfo->mode == SummarizeMode_Synopsis) {
       // If summarizing is requested then trim the field so that the user isn't
       // spammed with a large blob of text
-      char *summarized = trimField(fieldInfo, docStr, &docLen, frags.estAvgWordSize);
+      char *summarized = trimField(fieldInfo, docStr, &docLen, frags.estAvgWordSize, sl);
       return RS_StringVal(summarized, docLen);
     } else {
       // Otherwise, just return the whole field, but without highlighting
@@ -210,7 +211,7 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
   }
 
   FragmentList_HighlightFragments(&frags, &tags, fieldInfo->summarizeSettings.contextLen,
-                                  docParams->iovsArr, numIovArr, HIGHLIGHT_ORDER_SCOREPOS);
+                                  docParams->iovsArr, numIovArr, HIGHLIGHT_ORDER_SCOREPOS, sl);
 
   // Buffer to store concatenated fragments
   Array bufTmp;
@@ -265,7 +266,8 @@ static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, Returne
     return;
   }
   RSValue *v = summarizeField(hlpCtx->lookup, spec, fName, fieldValue, docParams,
-                              hlpCtx->fragmentizeOptions);
+                              hlpCtx->fragmentizeOptions,
+                              hlpCtx->base.parent->sctx->spec->separators);
   if (v) {
     RLookup_WriteOwnKey(spec->lookupKey, docParams->row, v);
   }

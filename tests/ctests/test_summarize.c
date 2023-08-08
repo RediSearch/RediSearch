@@ -89,7 +89,8 @@ int testFragmentize() {
   }
 
   FragmentList_HighlightFragments(&fragList, &tags, 15, contexts, numFrags,
-                                  HIGHLIGHT_ORDER_SCOREPOS);
+                                  HIGHLIGHT_ORDER_SCOREPOS,
+                                  DefaultSeparatorList());
 
   // for (size_t ii = 0; ii < numFrags; ++ii) {
   //   struct iovec *iovs = (struct iovec *)Buffer_GetData(&contexts[ii]);
