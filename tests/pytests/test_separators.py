@@ -2,14 +2,14 @@
 
 from common import (assertInfoField, waitForIndex)
 
-def test00_Separators(env):
+def test01_Separators(env):
     # Index with custom separators
     env.expect(
         'FT.CREATE', 'idx1', 'ON', 'HASH',
         'SEPARATORS', ' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~',
         'SCHEMA', 'foo', 'text').ok()
     assertInfoField(env, 'idx1', 'separators', [' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~'])
-    env.cmd('FT.DROPINDEX', 'idx1')
+    env.execute_command('FT.DROPINDEX', 'idx1')
 
     env.expect(
         'FT.CREATE', 'idx1', 'ON', 'HASH',
@@ -17,16 +17,23 @@ def test00_Separators(env):
         'SEPARATORS', ';*,#@',
         'SCHEMA', 'foo', 'text').ok()
     assertInfoField(env, 'idx1', 'separators', [';*,#@'])
-    env.cmd('FT.DROPINDEX', 'idx1')
+    env.execute_command('FT.DROPINDEX', 'idx1')
 
-def test01_IndexOnHashWithCustomSeparator(env):
+def test02_IndexOnHashWithCustomSeparator(env):
     # Create sample data
-    env.cmd('HSET customer:1  code 101;111 email c01@rx.com name Kyle')
-    env.cmd('HSET customer:2  code 101;222 email c02@rx.com name Sarah')
-    env.cmd('HSET customer:3  code 101;333 email c03@rx.com name Ginger')
+    env.execute_command(
+        'HSET', 'customer:1', 'code', '101;111', 'email', 'c01@rx.com',
+        'name', 'Kyle')
+    env.execute_command(
+        'HSET', 'customer:2', 'code', '101;222', 'email', 'c02@rx.com',
+        'name', 'Sarah')
+    env.execute_command(
+        'HSET', 'customer:3', 'code', '101;333', 'email', 'c03@rx.com',
+        'name', 'Ginger')
 
     # Index with a single separator: semicolon (;)
-    env.expect('FT.CREATE idx1 ON hash SEPARATORS ; PREFIX 1 customer: \
+    env.expect(
+        'FT.CREATE idx1 ON hash SEPARATORS ; PREFIX 1 customer: \
         SCHEMA code TEXT SORTABLE email TEXT SORTABLE \
         name TEXT SORTABLE').equal('OK')
     waitForIndex(env, 'idx1')
@@ -44,7 +51,7 @@ def test01_IndexOnHashWithCustomSeparator(env):
     res = env.execute_command('FT.SEARCH idx1 @code:101\\;222 RETURN 1 code')
     env.assertEqual(res, [0])
 
-    env.cmd('FT.DROPINDEX', 'idx1')
+    env.execute_command('FT.DROPINDEX', 'idx1')
 
     # Index with custom separators: semicolon (;) was removed
     env.expect(
@@ -67,13 +74,16 @@ def test01_IndexOnHashWithCustomSeparator(env):
     expected_result = [1, 'customer:2', ['code', '101;222']]
     env.assertEqual(res, expected_result)
 
-    env.cmd('FT.DROPINDEX', 'idx2')
+    env.execute_command('FT.DROPINDEX', 'idx2')
 
-def test02_IndexOnJSONWithCustomSeparator(env):
+def test03_IndexOnJSONWithCustomSeparator(env):
     # Create sample data
-    env.cmd('JSON.SET', 'login:1', '$', '{"app":"a1","dev_id":"1b-e0:0f"}')
-    env.cmd('JSON.SET', 'login:2', '$', '{"app":"a2","dev_id":"1b-4a:70"}')
-    env.cmd('JSON.SET', 'login:3', '$', '{"app":"a3","dev_id":"1b-a3:0f"}')
+    env.execute_command(
+        'JSON.SET', 'login:1', '$', '{"app":"a1","dev_id":"1b-e0:0f"}')
+    env.execute_command(
+        'JSON.SET', 'login:2', '$', '{"app":"a2","dev_id":"1b-4a:70"}')
+    env.execute_command(
+        'JSON.SET', 'login:3', '$', '{"app":"a3","dev_id":"1b-a3:0f"}')
 
     # Index with custom separators: hyphen (-) was removed
     env.expect(
@@ -93,7 +103,8 @@ def test02_IndexOnJSONWithCustomSeparator(env):
     env.assertEqual(res, [2])
 
     # Search filtering two fields
-    res = env.execute_command('FT.SEARCH', 'idx_login', '@dev_id:0f @app:a1', 'LIMIT', '0', '0')
+    res = env.execute_command(
+        'FT.SEARCH', 'idx_login', '@dev_id:0f @app:a1', 'LIMIT', '0', '0')
     env.assertEqual(res, [1])
 
     # Searching using tokens
@@ -103,12 +114,14 @@ def test02_IndexOnJSONWithCustomSeparator(env):
     res = env.execute_command('FT.SEARCH idx_login @dev_id:70')
     env.assertEqual(res, expected_result)
 
-    env.cmd('FT.DROPINDEX', 'idx_login')
+    env.execute_command('FT.DROPINDEX', 'idx_login')
 
-def test03_SummarizeCustomSeparator(env):
+def test04_SummarizeCustomSeparator(env):
     # Index with custom separators: hyphen (-) was removed
     env.expect(
-        'FT.CREATE', 'idx', 'ON', 'HASH', 'SEPARATORS', ' \t!\"#$%&\'()*+,./:;<=>?@[]^`{|}~', 'SCHEMA', 'txt', 'TEXT').equal('OK')
+        'FT.CREATE', 'idx', 'ON', 'HASH',
+        'SEPARATORS', ' \t!\"#$%&\'()*+,./:;<=>?@[]^`{|}~',
+        'SCHEMA', 'txt', 'TEXT').equal('OK')
     waitForIndex(env, 'idx')
 
     env.expect(
@@ -123,4 +136,4 @@ def test03_SummarizeCustomSeparator(env):
     expected_result = [1, 'text1', ['txt', 'is <b>self-guided</b> tour... ']]
     env.assertEqual(res, expected_result)
 
-    env.cmd('FT.DROPINDEX', 'idx')
+    env.execute_command('FT.DROPINDEX', 'idx')
