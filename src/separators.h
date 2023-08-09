@@ -26,7 +26,6 @@ typedef struct SeparatorList {
 // int SeparatorList_Contains(const SeparatorList sl, const char *separator);
 
 struct SeparatorList *DefaultSeparatorList();
-void SeparatorList_FreeGlobals(void);
 
 /* Create a new separator list from a NULL-terminated C string */
 struct SeparatorList *NewSeparatorListCStr(const char *str);

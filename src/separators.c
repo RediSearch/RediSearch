@@ -9,23 +9,19 @@
 #include "separators.h"
 #include "rdb.h"
 #include "rmalloc.h"
+#include <assert.h>
 
 
-#define MAX_SEPARATORSTRING_SIZE 128
+#define MAX_SEPARATORSTRING_SIZE 64
 
 static SeparatorList *__default_separators = NULL;
 
 SeparatorList *DefaultSeparatorList() {
-  // if(__default_separators == NULL) {
-  //   __default_separators = NewSeparatorListCStr(DEFAULT_SEPARATORS_STR);
-  // }
   return __default_separators;
 }
 
 SeparatorList *NewSeparatorListCStr(const char* str) {
-  if(str == NULL) {
-    return NULL;
-  }
+  assert(str != NULL);
 
   SeparatorList *sl = rm_malloc(sizeof(SeparatorList));
 
@@ -35,7 +31,8 @@ SeparatorList *NewSeparatorListCStr(const char* str) {
     len = MAX_SEPARATORSTRING_SIZE;
   }
   sl->separatorString = rm_malloc(sizeof(char) * (len + 1));
-  strncpy(sl->separatorString, str, len + 1);
+  strncpy(sl->separatorString, str, len);
+  sl->separatorString[len]='\0';
 
   // initialize the separator map
   memset(sl->separatorMap, 0, sizeof(sl->separatorMap));
@@ -65,13 +62,6 @@ void SeparatorList_Unref(SeparatorList *sl) {
     return;
   }
   SeparatorList_FreeInternal(sl);
-}
-
-void SeparatorList_FreeGlobals(void) {
-    if (__default_separators) {
-    SeparatorList_FreeInternal(__default_separators);
-    __default_separators = NULL;
-  }
 }
 
 SeparatorList *SeparatorList_RdbLoad(RedisModuleIO* rdb) {
