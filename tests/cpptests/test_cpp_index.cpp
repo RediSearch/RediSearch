@@ -896,7 +896,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   RangeVectorQuery range_query = {.vector = query, .vecLen = d, .radius = 0.2, .order = BY_ID};
   VecSimQueryParams queryParams;
   queryParams.hnswRuntimeParams.efRuntime = n;
-  VecSimQueryResult_List results =
+  VecSimQueryReply *results =
       VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
 
   // Run simple range query.
