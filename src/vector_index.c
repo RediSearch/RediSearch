@@ -135,7 +135,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
       VecSimQueryReply *results =
           VecSimIndex_RangeQuery(vecsim, vq->range.vector, vq->range.radius,
                                  &qParams, vq->range.order);
-      if (VecSimQueryReply_GetCode(results) == VecSim_QueryResult_TimedOut) {
+      if (VecSimQueryReply_GetCode(results) == VecSim_QueryReply_TimedOut) {
         VecSimQueryReply_Free(results);
         QueryError_SetError(q->status, QUERY_TIMEDOUT, NULL);
         return NULL;

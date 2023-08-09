@@ -160,7 +160,7 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryReply_Iterator *ve
 
 static VecSimQueryReply_Code computeDistances(HybridIterator *hr) {
   double upper_bound = INFINITY;
-  VecSimQueryReply_Code rc = VecSim_QueryResult_OK;
+  VecSimQueryReply_Code rc = VecSim_QueryReply_OK;
   RSIndexResult *cur_res = hr->base.current;
   RSIndexResult *cur_child_res;  // This will use the memory of hr->child->current.
   RSIndexResult *cur_vec_res = NewMetricResult();
@@ -174,7 +174,7 @@ static VecSimQueryReply_Code computeDistances(HybridIterator *hr) {
 
   while (hr->child->Read(hr->child->ctx, &cur_child_res) != INDEXREAD_EOF) {
     if (TimedOut_WithCtx(&hr->timeoutCtx)) {
-      rc = VecSim_QueryResult_TimedOut;
+      rc = VecSim_QueryReply_TimedOut;
       break;
     }
     double metric = VecSimIndex_GetDistanceFrom(hr->index, cur_child_res->docId, qvector);
@@ -236,11 +236,11 @@ static VecSimQueryReply_Code prepareResults(HybridIterator *hr) {
   }
   // Batches mode.
   if (hr->child->NumEstimated(hr->child->ctx) == 0) {
-    return VecSim_QueryResult_OK;
+    return VecSim_QueryReply_OK;
   }
   VecSimBatchIterator *batch_it = VecSimBatchIterator_New(hr->index, hr->query.vector, &hr->runtimeParams);
   double upper_bound = INFINITY;
-  VecSimQueryReply_Code code = VecSim_QueryResult_OK;
+  VecSimQueryReply_Code code = VecSim_QueryReply_OK;
   size_t child_num_estimated = hr->child->NumEstimated(hr->child->ctx);
   // Since NumEstimated(child) is an upper bound, it can be higher than index size.
   if (child_num_estimated > VecSimIndex_IndexSize(hr->index)) {
@@ -263,7 +263,7 @@ static VecSimQueryReply_Code prepareResults(HybridIterator *hr) {
     // Get the next batch.
     hr->reply = VecSimBatchIterator_Next(batch_it, batch_size, BY_ID);
     code = VecSimQueryReply_GetCode(hr->reply);
-    if (VecSim_QueryResult_TimedOut == code) {
+    if (VecSim_QueryReply_TimedOut == code) {
       break;
     }
     hr->iter = VecSimQueryReply_GetIterator(hr->reply);
@@ -300,7 +300,7 @@ static int HR_ReadHybridUnsorted(void *ctx, RSIndexResult **hit) {
   HybridIterator *hr = ctx;
   if (!hr->resultsPrepared) {
     hr->resultsPrepared = true;
-    if (prepareResults(hr) == VecSim_QueryResult_TimedOut) {
+    if (prepareResults(hr) == VecSim_QueryReply_TimedOut) {
       return INDEXREAD_TIMEOUT;
     }
   }
@@ -321,7 +321,7 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
   HybridIterator *hr = ctx;
   if (!hr->resultsPrepared) {
     hr->resultsPrepared = true;
-    if (prepareResults(hr) == VecSim_QueryResult_TimedOut) {
+    if (prepareResults(hr) == VecSim_QueryReply_TimedOut) {
       return INDEXREAD_TIMEOUT;
     }
   }
