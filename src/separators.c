@@ -11,7 +11,7 @@
 #include "rmalloc.h"
 
 
-#define MAX_SEPARATORSTRING_SIZE 128
+#define MAX_SEPARATORSTRING_SIZE 64
 
 static SeparatorList *__default_separators = NULL;
 
@@ -36,6 +36,7 @@ SeparatorList *NewSeparatorListCStr(const char* str) {
   }
   sl->separatorString = rm_malloc(sizeof(char) * (len + 1));
   strncpy(sl->separatorString, str, len + 1);
+  sl->separatorString[len]='\0';
 
   // initialize the separator map
   memset(sl->separatorMap, 0, sizeof(sl->separatorMap));

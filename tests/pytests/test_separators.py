@@ -5,7 +5,7 @@ from common import *
 from RLTest import Env
 
 def test01_Separators(env):
-    # Index with custom separators
+    # Index with custom separators with escaped characters
     env.expect(
         'FT.CREATE', 'idx1', 'ON', 'HASH',
         'SEPARATORS', ' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~',
@@ -13,12 +13,23 @@ def test01_Separators(env):
     assertInfoField(env, 'idx1', 'separators', [' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~'])
     env.execute_command('FT.DROPINDEX', 'idx1')
 
+    # Index with custom separators
     env.expect(
         'FT.CREATE', 'idx1', 'ON', 'HASH',
         'SEPARATORS', ';*',
         'SEPARATORS', ';*,#@',
         'SCHEMA', 'foo', 'text').ok()
     assertInfoField(env, 'idx1', 'separators', [';*,#@'])
+    env.execute_command('FT.DROPINDEX', 'idx1')
+
+    # If SEPARATORS exceeds MAX_SEPARATORSTRING_SIZE = 64 it will be truncated
+    long_sep = ' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~ \t!\"#$%&\'()*+,-./:;<=>?@\
+[]^`{|}~ \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~ \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~'
+    env.expect(
+        'FT.CREATE', 'idx1', 'ON', 'HASH',
+        'SEPARATORS', long_sep,
+        'SCHEMA', 'foo', 'text').ok()
+    assertInfoField(env, 'idx1', 'separators', [long_sep[:64]])
     env.execute_command('FT.DROPINDEX', 'idx1')
 
 def test02_IndexOnHashWithCustomSeparator(env):
@@ -74,7 +85,7 @@ def test02_IndexOnHashWithCustomSeparator(env):
     env.assertEqual(res, [0])
 
     # Searching "@code=101;222" should return 1 result
-    res = env.execute_command('FT.SEARCH idx2 @code:101\;222 RETURN 1 code')
+    res = env.execute_command('FT.SEARCH idx2 @code:101\\;222 RETURN 1 code')
     expected_result = [1, 'customer:2', ['code', '101;222']]
     env.assertEqual(res, expected_result)
 
