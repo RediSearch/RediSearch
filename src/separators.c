@@ -16,9 +16,6 @@
 static SeparatorList *__default_separators = NULL;
 
 SeparatorList *DefaultSeparatorList() {
-  // if(__default_separators == NULL) {
-  //   __default_separators = NewSeparatorListCStr(DEFAULT_SEPARATORS_STR);
-  // }
   return __default_separators;
 }
 
@@ -69,10 +66,6 @@ void SeparatorList_Unref(SeparatorList *sl) {
 }
 
 void SeparatorList_FreeGlobals(void) {
-    if (__default_separators) {
-    SeparatorList_FreeInternal(__default_separators);
-    __default_separators = NULL;
-  }
 }
 
 SeparatorList *SeparatorList_RdbLoad(RedisModuleIO* rdb) {

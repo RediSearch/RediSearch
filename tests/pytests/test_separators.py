@@ -125,7 +125,7 @@ def test03_IndexOnJSONWithCustomSeparator(env):
 
     # Searching using tokens
     expected_result = [1, 'login:2', ['$', '{"app":"a2","dev_id":"1b-4a:70"}']]
-    res = env.execute_command('FT.SEARCH idx_login @dev_id:1b\-4a')
+    res = env.execute_command('FT.SEARCH idx_login @dev_id:1b\\-4a')
     env.assertEqual(res, expected_result)
     res = env.execute_command('FT.SEARCH idx_login @dev_id:70')
     env.assertEqual(res, expected_result)

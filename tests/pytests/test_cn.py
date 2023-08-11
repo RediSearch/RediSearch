@@ -114,3 +114,31 @@ def testSynonym(env):
     r = env.cmd('ft.search', 'idx', '近义词', 'language', 'chinese')
     env.assertEqual(1, r[0])
     env.assertIn('doc1', r)
+
+def testCustomSeparators(env):
+    # Test with custom separators: hyphen (-) and colon (:) were removed
+    env.cmd(
+        'ft.create', 'idx', 'ON', 'HASH',
+        'PREFIX', '1', 'doc',
+        'SEPARATORS', ' \t#$%&\'()*+,./;<=>?@^`{|}~',
+        'LANGUAGE_FIELD', 'language', 'schema', 'txt', 'text')
+    waitForIndex(env, 'idx')
+    env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', 'hello-world 那时')
+    env.cmd('ft.add', 'idx', 'doc2', 1.0, 'fields', 'txt', 'hello\\-world')
+    env.cmd('ft.add', 'idx', 'doc3', 1.0, 'language', 'chinese', 'fields', 'txt', 'one ::hello two 器上同步 -hello world- two 器上同步')
+
+    r = env.cmd('ft.search', 'idx', 'hello\\-world')
+    env.assertEqual(2, r[0])
+    env.assertIn('doc1', r)
+    env.assertIn('doc2', r)
+    r = env.cmd('ft.search', 'idx', '\\:\\:hello')
+    env.assertEqual(1, r[0])
+    env.assertIn('doc3', r)
+    r = env.cmd('ft.search', 'idx', '\\-hello')
+    env.assertEqual(1, r[0])
+    env.assertIn('doc3', r)
+    r = env.cmd('ft.search', 'idx', 'two')
+    env.assertEqual('doc3', r[1])
+    r = env.cmd('ft.search', 'idx', 'world\\-')
+    env.assertEqual(1, r[0])
+    env.assertIn('doc3', r)
