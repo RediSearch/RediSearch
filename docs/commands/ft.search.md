@@ -515,7 +515,8 @@ Query with `CONTAINS` operator:
 
 
 {{< highlight bash >}}
-127.0.0.1:6379> FT.SEARCH idx '@geom:[CONTAINS $poly]' PARAMS 2 poly "POLYGON((2 2, 2 50, 50 50, 50 2, 2 2))" DIALECT 3
+127.0.0.1:6379> FT.SEARCH idx '@geom:[CONTAINS $poly]' PARAMS 2 poly 'POLYGON((2 2, 2 50, 50 50, 50 2, 2 2))' DIALECT 3
+
 1) (integer) 2
 2) "small"
 3) 1) "geom"
