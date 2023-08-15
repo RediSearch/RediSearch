@@ -43,10 +43,10 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
     VecSimParams_Cleanup(&fs->vectorOpts.vecSimParams);
   }
 
-  // Free separator list
-  if (fs->separators != NULL) {
-    SeparatorList_Unref(fs->separators);
-    fs->separators = NULL;
+  // Free delimiter list
+  if (fs->delimiters != NULL) {
+    DelimiterList_Unref(fs->delimiters);
+    fs->delimiters = NULL;
   }
 }
 
@@ -122,8 +122,8 @@ void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
     RedisModule_SaveUnsigned(rdb, f->ftId);
     RedisModule_SaveDouble(rdb, f->ftWeight);
     
-    if (FieldSpec_HasCustomSeparators(f)){
-      SeparatorList_RdbSave(rdb, f->separators);
+    if (FieldSpec_HasCustomDelimiters(f)){
+      DelimiterList_RdbSave(rdb, f->delimiters);
     }
   }
   if (FIELD_IS(f, INDEXFLD_T_TAG) || (f->options & FieldSpec_Dynamic)) {
@@ -174,14 +174,14 @@ int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int en
     f->ftId = LoadUnsigned_IOError(rdb, goto fail);
     f->ftWeight = LoadDouble_IOError(rdb, goto fail);
 
-    if (encver >= INDEX_SEPARATORS_VERSION) {
-      if (FieldSpec_HasCustomSeparators(f)) {
-        f->separators = SeparatorList_RdbLoad(rdb);
-        if (f->separators == NULL) {
+    if (encver >= INDEX_DELIMITERS_VERSION) {
+      if (FieldSpec_HasCustomDelimiters(f)) {
+        f->delimiters = DelimiterList_RdbLoad(rdb);
+        if (f->delimiters == NULL) {
           goto fail;
         }
       } else {
-        f->separators = DefaultSeparatorList();
+        f->delimiters = DefaultDelimiterList();
       }
     }
   }

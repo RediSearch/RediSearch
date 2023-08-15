@@ -10,7 +10,7 @@
 
 #include "stemmer.h"
 #include "stopwords.h"
-#include "separators.h"
+#include "delimiters.h"
 #include "redisearch.h"
 #include "varint.h"
 #include <ctype.h>
@@ -64,7 +64,7 @@ typedef struct {
   char *text;
   size_t len;
   StopWordList *stopwords;
-  SeparatorList *separators;
+  DelimiterList *delimiters;
   uint32_t lastOffset;
   uint32_t options;
 } TokenizerCtx;
@@ -75,15 +75,15 @@ typedef struct RSTokenizer {
   uint32_t (*Next)(struct RSTokenizer *self, Token *tok);
   void (*Free)(struct RSTokenizer *self);
   void (*Start)(struct RSTokenizer *self, char *txt, size_t len,
-    uint32_t options, SeparatorList *fieldSeparatorList);
+    uint32_t options, DelimiterList *fieldDelimiterList);
   void (*Reset)(struct RSTokenizer *self, Stemmer *stemmer,
-      StopWordList *stopwords, uint32_t opts, SeparatorList *separators);
+      StopWordList *stopwords, uint32_t opts, DelimiterList *separators);
 } RSTokenizer;
 
 RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords,
-    uint32_t opts, SeparatorList *separators);
+    uint32_t opts, DelimiterList *separators);
 RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords,
-    uint32_t opts, SeparatorList *separators);
+    uint32_t opts, DelimiterList *separators);
 
 #define TOKENIZE_DEFAULT_OPTIONS 0x00
 // Don't modify buffer at all during tokenization.
@@ -105,11 +105,11 @@ RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords,
  * is no longer needed, return to the pool using Tokenizer_Release()
  */
 RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer,
-    StopWordList *stopwords, SeparatorList *separators);
+    StopWordList *stopwords, DelimiterList *separators);
 RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords,
-    SeparatorList *separators);
+    DelimiterList *separators);
 RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords,
-    SeparatorList *separators);
+    DelimiterList *separators);
 void Tokenizer_Release(RSTokenizer *t);
 
 #ifdef __cplusplus

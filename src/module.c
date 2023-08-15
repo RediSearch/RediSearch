@@ -1173,7 +1173,7 @@ void RediSearch_CleanupModule(void) {
   // free global structures
   Extensions_Free();
   StopWordList_FreeGlobals();
-  SeparatorList_FreeGlobals();
+  DelimiterList_FreeGlobals();
   FunctionRegistry_Free();
   mempool_free_global();
   IndexAlias_DestroyGlobal(&AliasTable_g);

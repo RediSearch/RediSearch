@@ -4,35 +4,35 @@ import unittest
 from common import *
 from RLTest import Env
 
-def test01_Separators(env):
-    # Index with custom separators with escaped characters
+def test01_Delimiters(env):
+    # Index with custom delimiters with escaped characters
     env.expect(
         'FT.CREATE', 'idx1', 'ON', 'HASH',
-        'SEPARATORS', ' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~',
+        'DELIMITERS', ' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~',
         'SCHEMA', 'foo', 'text').ok()
-    assertInfoField(env, 'idx1', 'separators', [' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~'])
+    assertInfoField(env, 'idx1', 'delimiters', [' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~'])
     env.execute_command('FT.DROPINDEX', 'idx1')
 
-    # Index with custom separators
+    # Index with custom delimiters
     env.expect(
         'FT.CREATE', 'idx1', 'ON', 'HASH',
-        'SEPARATORS', ';*',
-        'SEPARATORS', ';*,#@',
+        'DELIMITERS', ';*',
+        'DELIMITERS', ';*,#@',
         'SCHEMA', 'foo', 'text').ok()
-    assertInfoField(env, 'idx1', 'separators', [';*,#@'])
+    assertInfoField(env, 'idx1', 'delimiters', [';*,#@'])
     env.execute_command('FT.DROPINDEX', 'idx1')
 
-    # If SEPARATORS exceeds MAX_SEPARATORSTRING_SIZE = 64 it will be truncated
+    # If DELIMITERS exceeds MAX_DELIMITERSTRING_SIZE = 64 it will be truncated
     long_sep = ' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~ \t!\"#$%&\'()*+,-./:;<=>?@\
 []^`{|}~ \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~ \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~'
     env.expect(
         'FT.CREATE', 'idx1', 'ON', 'HASH',
-        'SEPARATORS', long_sep,
+        'DELIMITERS', long_sep,
         'SCHEMA', 'foo', 'text').ok()
-    assertInfoField(env, 'idx1', 'separators', [long_sep[:64]])
+    assertInfoField(env, 'idx1', 'delimiters', [long_sep[:64]])
     env.execute_command('FT.DROPINDEX', 'idx1')
 
-def test02_IndexOnHashWithCustomSeparator(env):
+def test02_IndexOnHashWithCustomDelimiter(env):
     conn = getConnectionByEnv(env)
 
     # Create sample data
@@ -46,19 +46,19 @@ def test02_IndexOnHashWithCustomSeparator(env):
         'HSET', 'customer:3', 'code', '101;333', 'email', 'c03@rx.com',
         'name', 'Ginger')
 
-    # Index with a single separator: semicolon (;)
+    # Index with a single delimiter: semicolon (;)
     env.expect(
-        'FT.CREATE idx1 ON hash SEPARATORS ; PREFIX 1 customer: \
+        'FT.CREATE idx1 ON hash DELIMITERS ; PREFIX 1 customer: \
         SCHEMA code TEXT SORTABLE email TEXT SORTABLE \
         name TEXT SORTABLE').equal('OK')
     waitForIndex(env, 'idx1')
-    assertInfoField(env, 'idx1', 'separators', [';'])
+    assertInfoField(env, 'idx1', 'delimiters', [';'])
 
     res = env.execute_command('FT.SEARCH idx1 @name:Sarah RETURN 1 code')
     expected_result = [1, 'customer:2', ['code', '101;222']]
     env.assertEqual(res, expected_result)
 
-    # Searching "@code:101" should return 3 results, because (;) is a separator
+    # Searching "@code:101" should return 3 results, because (;) is a delimiter
     res = env.execute_command('FT.SEARCH idx1 @code:101 RETURN 1 code LIMIT 0 0')
     env.assertEqual(res, [3])
 
@@ -68,17 +68,17 @@ def test02_IndexOnHashWithCustomSeparator(env):
 
     env.execute_command('FT.DROPINDEX', 'idx1')
 
-    # Index with custom separators: semicolon (;) was removed
+    # Index with custom delimiters: semicolon (;) was removed
     env.expect(
         'FT.CREATE', 'idx2', 'ON', 'HASH',
-        'SEPARATORS', ' \t!\"#$%&\'()*+,-./:<=>?@[]^`{|}~',
+        'DELIMITERS', ' \t!\"#$%&\'()*+,-./:<=>?@[]^`{|}~',
         'PREFIX', '1', 'customer:', 'SCHEMA',
         'code', 'TEXT', 'SORTABLE',
         'email', 'TEXT', 'SORTABLE',
         'name', 'TEXT', 'SORTABLE').equal('OK')
     waitForIndex(env, 'idx2')
     env.expect('FT.INFO idx2')
-    assertInfoField(env, 'idx2', 'separators', [' \t!\"#$%&\'()*+,-./:<=>?@[]^`{|}~'])
+    assertInfoField(env, 'idx2', 'delimiters', [' \t!\"#$%&\'()*+,-./:<=>?@[]^`{|}~'])
 
     # Searching "@code:101" should return 0 results, because 101 is not a token
     res = env.execute_command('FT.SEARCH idx2 @code:101')
@@ -91,7 +91,7 @@ def test02_IndexOnHashWithCustomSeparator(env):
 
     env.execute_command('FT.DROPINDEX', 'idx2')
 
-def test03_IndexOnJSONWithCustomSeparator(env):
+def test03_IndexOnJSONWithCustomDelimiter(env):
     conn = getConnectionByEnv(env)
     # Create sample data
     conn.execute_command(
@@ -101,10 +101,10 @@ def test03_IndexOnJSONWithCustomSeparator(env):
     conn.execute_command(
         'JSON.SET', 'login:3', '$', '{"app":"a3","dev_id":"1b-a3:0f"}')
 
-    # Index with custom separators: hyphen (-) was removed
+    # Index with custom delimiters: hyphen (-) was removed
     env.expect(
         'FT.CREATE', 'idx_login', 'ON', 'JSON',
-        'SEPARATORS', ' \t!\"#$%&\'()*+,./:;<=>?@[]^`{|}~',
+        'DELIMITERS', ' \t!\"#$%&\'()*+,./:;<=>?@[]^`{|}~',
         'PREFIX', '1', 'login:', 'SCHEMA',
         '$.app', 'AS', 'app', 'text',
         '$.dev_id', 'AS', 'dev_id', 'TEXT', 'NOSTEM').equal('OK')
@@ -132,11 +132,11 @@ def test03_IndexOnJSONWithCustomSeparator(env):
 
     env.execute_command('FT.DROPINDEX', 'idx_login')
 
-def test04_SummarizeCustomSeparator(env):
-    # Index with custom separators: hyphen (-) was removed
+def test04_SummarizeCustomDelimiter(env):
+    # Index with custom delimiters: hyphen (-) was removed
     env.expect(
         'FT.CREATE', 'idx', 'ON', 'HASH',
-        'SEPARATORS', ' \t!\"#$%&\'()*+,./:;<=>?@[]^`{|}~',
+        'DELIMITERS', ' \t!\"#$%&\'()*+,./:;<=>?@[]^`{|}~',
         'SCHEMA', 'txt', 'TEXT').equal('OK')
     waitForIndex(env, 'idx')
 
@@ -154,7 +154,7 @@ def test04_SummarizeCustomSeparator(env):
 
     env.execute_command('FT.DROPINDEX', 'idx')
 
-def test05_IndexOnHashCustomSeparatorByFieldDataFirst(env):
+def test05_IndexOnHashCustomDelimiterByFieldDataFirst(env):
     conn = getConnectionByEnv(env)
 
     # Create sample data
@@ -168,17 +168,17 @@ def test05_IndexOnHashCustomSeparatorByFieldDataFirst(env):
         'HSET', 'customer:3', 'code', '101;333@0f', 'email', 'c03@rx.com',
         'name', 'Ginger')
 
-    # Index with custom separators by field
-    # the separators of field 'code' is equal to @
-    # the separators of field 'email' does not contain: at (@), dot (.)
+    # Index with custom delimiters by field
+    # the delimiters of field 'code' is equal to @
+    # the delimiters of field 'email' does not contain: at (@), dot (.)
     env.expect(
         'FT.CREATE', 'idx2', 'ON', 'HASH',
-        'SEPARATORS', ' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~',
+        'DELIMITERS', ' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~',
         'PREFIX', '1', 'customer:',
         'SCHEMA',
-        'code', 'TEXT', 'SEPARATORS', '@',
+        'code', 'TEXT', 'DELIMITERS', '@',
         'SORTABLE',
-        'email', 'TEXT', 'SEPARATORS', ' \t!\"#$%^&\'()*+,-/:;<=>?[]^`{|}~',
+        'email', 'TEXT', 'DELIMITERS', ' \t!\"#$%^&\'()*+,-/:;<=>?[]^`{|}~',
         'SORTABLE',
         'name', 'TEXT', 'SORTABLE').equal('OK')
     waitForIndex(env, 'idx2')
@@ -194,8 +194,8 @@ def test05_IndexOnHashCustomSeparatorByFieldDataFirst(env):
         'HSET', 'customer:3', 'code', '101;333@0f', 'email', 'c03@rx.com',
         'name', 'Ginger')
 
-    # Custom separators
-    # Search by @code:101 should return 0, because (;) is not a separator
+    # Custom delimiters
+    # Search by @code:101 should return 0, because (;) is not a delimiter
     res = env.execute_command(
             'FT.SEARCH', 'idx2', '@code:101', 'LIMIT', '0', '0')
     env.assertEqual(res, [0])
@@ -229,20 +229,20 @@ def test05_IndexOnHashCustomSeparatorByFieldDataFirst(env):
     env.cmd('FT.DROPINDEX', 'idx2')
 
 
-def test06_IndexOnHashCustomSeparatorByFieldIndexFirst(env):
+def test06_IndexOnHashCustomDelimiterByFieldIndexFirst(env):
     conn = getConnectionByEnv(env)
 
-    # Index with custom separators by field
-    # the separators of field 'code' is equal to @
-    # the separators of field 'email' does not contain: at (@), dot (.)
+    # Index with custom delimiters by field
+    # the delimiters of field 'code' is equal to @
+    # the delimiters of field 'email' does not contain: at (@), dot (.)
     env.expect(
         'FT.CREATE', 'idx2', 'ON', 'HASH',
-        'SEPARATORS', ' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~',
+        'DELIMITERS', ' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~',
         'PREFIX', '1', 'customer:',
         'SCHEMA',
-        'code', 'TEXT', 'SEPARATORS', '@',
+        'code', 'TEXT', 'DELIMITERS', '@',
         'SORTABLE',
-        'email', 'TEXT', 'SEPARATORS', ' \t!\"#$%^&\'()*+,-/:;<=>?[]^`{|}~',
+        'email', 'TEXT', 'DELIMITERS', ' \t!\"#$%^&\'()*+,-/:;<=>?[]^`{|}~',
         'SORTABLE',
         'name', 'TEXT', 'SORTABLE').equal('OK')
     waitForIndex(env, 'idx2')
@@ -258,8 +258,8 @@ def test06_IndexOnHashCustomSeparatorByFieldIndexFirst(env):
         'HSET', 'customer:3', 'code', '101;333@0f', 'email', 'c03@rx.com',
         'name', 'Ginger')
 
-    # Custom separators
-    # Search by @code:101 should return 0, because (;) is not a separator
+    # Custom delimiters
+    # Search by @code:101 should return 0, because (;) is not a delimiter
     res = env.execute_command(
             'FT.SEARCH', 'idx2', '@code:101', 'LIMIT', '0', '0')
     env.assertEqual(res, [0])
@@ -292,12 +292,12 @@ def test06_IndexOnHashCustomSeparatorByFieldIndexFirst(env):
 
     env.cmd('FT.DROPINDEX', 'idx2')
 
-def test07_SummarizeCustomSeparatorByField(env):
-    # Index with custom separators by field: hyphen (-) was removed
+def test07_SummarizeCustomDelimiterByField(env):
+    # Index with custom delimiters by field: hyphen (-) was removed
     env.expect(
         'FT.CREATE', 'idx', 'ON', 'HASH',
         'SCHEMA', 'txt', 'TEXT',
-        'SEPARATORS', ' \t!\"#$%&\'()*+,./:;<=>?@[]^`{|}~').equal('OK')
+        'DELIMITERS', ' \t!\"#$%&\'()*+,./:;<=>?@[]^`{|}~').equal('OK')
     waitForIndex(env, 'idx')
 
     env.expect(

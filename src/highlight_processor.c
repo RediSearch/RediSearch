@@ -48,7 +48,7 @@ typedef struct {
 static int fragmentizeOffsets(const RLookup *lookup, const char *fieldName, const char *fieldText,
                               size_t fieldLen, const RSIndexResult *indexResult,
                               const RSByteOffsets *byteOffsets, FragmentList *fragList,
-                              int options, SeparatorList *sl) {
+                              int options, DelimiterList *dl) {
   const FieldSpec *fs = findFieldInSpecCache(lookup, fieldName);
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
     return 0;
@@ -63,7 +63,8 @@ static int fragmentizeOffsets(const RLookup *lookup, const char *fieldName, cons
   }
 
   FragmentTermIterator_InitOffsets(&fragIter, &bytesIter, &offsIter);
-  FragmentList_FragmentizeIter(fragList, fieldText, fieldLen, &fragIter, options, sl);
+  FragmentList_FragmentizeIter(fragList, fieldText, fieldLen, &fragIter, 
+                                options, dl);
   if (fragList->numFrags == 0) {
     goto done;
   }
@@ -138,7 +139,7 @@ static void normalizeSettings(const ReturnedField *srcField, const ReturnedField
 // field, and on output it contains the length of the trimmed summary.
 // Returns a string which should be freed using free()
 static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_t *docLen,
-                       size_t estWordSize, SeparatorList *sl) {
+                       size_t estWordSize, DelimiterList *sl) {
 
   // Number of desired fragments times the number of context words in each fragments,
   // in characters (estWordSize)
@@ -169,7 +170,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
 static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *fieldInfo,
                                const char *fieldName, const RSValue *returnedField,
                                hlpDocContext *docParams, int options,
-                               SeparatorList *sl) {
+                               DelimiterList *sl) {
 
   FragmentList frags;
   FragmentList_Init(&frags, 8, 6);
@@ -268,14 +269,14 @@ static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, Returne
   RSValue *v = NULL;
   const FieldSpec *fs = IndexSpec_GetField(hlpCtx->base.parent->sctx->spec,
                                             fName, strlen(fName));
-  if(fs != NULL && fs->separators != NULL) {
+  if(fs != NULL && fs->delimiters != NULL) {
     v = summarizeField(hlpCtx->lookup, spec, fName, fieldValue, docParams,
                         hlpCtx->fragmentizeOptions,
-                        fs->separators);
+                        fs->delimiters);
   } else {
     v = summarizeField(hlpCtx->lookup, spec, fName, fieldValue, docParams,
                         hlpCtx->fragmentizeOptions,
-                        hlpCtx->base.parent->sctx->spec->separators);
+                        hlpCtx->base.parent->sctx->spec->delimiters);
   }
 
   if (v) {

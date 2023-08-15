@@ -120,7 +120,7 @@ def testCustomSeparators(env):
     env.cmd(
         'ft.create', 'idx', 'ON', 'HASH',
         'PREFIX', '1', 'doc',
-        'SEPARATORS', ' \t#$%&\'()*+,./;<=>?@^`{|}~',
+        'DELIMITERS', ' \t#$%&\'()*+,./;<=>?@^`{|}~',
         'LANGUAGE_FIELD', 'language', 'schema', 'txt', 'text')
     waitForIndex(env, 'idx')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', 'hello-world 那时')

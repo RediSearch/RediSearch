@@ -222,7 +222,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   }
 
   aCtx->tokenizer = GetTokenizer(doc->language, aCtx->fwIdx->stemmer,
-                                 sp->stopwords, sp->separators);
+                                 sp->stopwords, sp->delimiters);
 //  aCtx->doc->docId = 0;
   return aCtx;
 }
@@ -496,7 +496,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       }
       ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->ftId, fs->ftWeight);
       aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options,
-        fs->separators);
+        fs->delimiters);
 
       Token tok = {0};
       uint32_t newTokPos;

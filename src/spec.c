@@ -455,7 +455,7 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       continue;
     } else if(AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
       fs->options |= FieldSpec_WithSuffixTrie;
-    } else if (AC_AdvanceIfMatch(ac, SPEC_SEPARATORS_STR)) {
+    } else if (AC_AdvanceIfMatch(ac, SPEC_DELIMITERS_STR)) {
       const char *separatorStr;
       size_t len;
       int rc;
@@ -463,8 +463,8 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
         return 0;
       }
       if(separatorStr != NULL) {
-          fs->separators = NewSeparatorListCStr(separatorStr);
-          fs->options |= FieldSpec_WithCustomSeparators;
+          fs->delimiters = NewDelimiterListCStr(separatorStr);
+          fs->options |= FieldSpec_WithCustomDelimiters;
       }
       
     } else {
@@ -1137,7 +1137,7 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
       SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args){
           .name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
       {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-      {.name = SPEC_SEPARATORS_STR, .target = &separators, .type = AC_ARGTYPE_STRING},
+      {.name = SPEC_DELIMITERS_STR, .target = &separators, .type = AC_ARGTYPE_STRING},
       {.name = NULL}};
 
   ACArgSpec *errarg = NULL;
@@ -1177,11 +1177,11 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
   }
 
   if (separators != NULL) {
-    if(spec->separators) {
-      SeparatorList_Unref(spec->separators);
+    if(spec->delimiters) {
+      DelimiterList_Unref(spec->delimiters);
     }
-    spec->separators = NewSeparatorListCStr((const char *)separators);
-    spec->flags |= Index_HasCustomSeparators;
+    spec->delimiters = NewDelimiterListCStr((const char *)separators);
+    spec->flags |= Index_HasCustomDelimiters;
   }
 
   if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
@@ -1267,7 +1267,7 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     ret->fields[ii] = spec->fields[ii];
     ret->fields[ii].name = rm_strdup(spec->fields[ii].name);
-    ret->fields[ii].separators = spec->fields[ii].separators;
+    ret->fields[ii].delimiters = spec->fields[ii].delimiters;
     // if name & path are pointing to the same string, copy pointer
     if (ret->fields[ii].path && (spec->fields[ii].name != spec->fields[ii].path)) {
       ret->fields[ii].path = rm_strdup(spec->fields[ii].path);
@@ -1424,9 +1424,9 @@ void IndexSpec_Free(IndexSpec *spec) {
   }
 
   // Free delimiter list
-  if (spec->separators) {
-    SeparatorList_Unref(spec->separators);
-    spec->separators = NULL;
+  if (spec->delimiters) {
+    DelimiterList_Unref(spec->delimiters);
+    spec->delimiters = NULL;
   }
 
   // Reset fields stats
@@ -1627,7 +1627,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->nameLen = strlen(name);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->stopwords = DefaultStopWordList();
-  sp->separators = DefaultSeparatorList();
+  sp->delimiters = DefaultDelimiterList();
   sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   sp->suffix = NULL;
   sp->suffixMask = (t_fieldMask)0;
@@ -1671,7 +1671,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   fs->ftId = (t_fieldId)-1;
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
-  fs->separators = DefaultSeparatorList();
+  fs->delimiters = DefaultDelimiterList();
   fs->tagOpts.tagFlags = TAG_FIELD_DEFAULT_FLAGS;
   if (!(sp->flags & Index_FromLLAPI)) {
     RS_LOG_ASSERT((sp->rule), "index w/o a rule?");
@@ -2092,7 +2092,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
 
   // Separators
   if (sp->flags & Index_HasCustomSeparators) {
-    AddSeparatorListToInfo(ctx, sp->separators);
+    AddDelimiterListToInfo(ctx, sp->separators);
   }
 }
 #endif // FTINFO_FOR_INFO_MODULES
@@ -2251,14 +2251,14 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     sp->stopwords = DefaultStopWordList();
   }
 
-  if (encver >= INDEX_SEPARATORS_VERSION) {
-    if (sp->flags & Index_HasCustomSeparators) {
-      sp->separators = SeparatorList_RdbLoad(rdb);
-      if (sp->separators == NULL) {
+  if (encver >= INDEX_DELIMITERS_VERSION) {
+    if (sp->flags & Index_HasCustomDelimiters) {
+      sp->delimiters = DelimiterList_RdbLoad(rdb);
+      if (sp->delimiters == NULL) {
         goto cleanup;
       }
     } else {
-      sp->separators = DefaultSeparatorList();
+      sp->delimiters = DefaultDelimiterList();
     }
   }
 
@@ -2485,8 +2485,8 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
     }
 
     // If we have custom separators, save them
-    if (sp->flags & Index_HasCustomSeparators) {
-      SeparatorList_RdbSave(rdb, sp->separators);
+    if (sp->flags & Index_HasCustomDelimiters) {
+      DelimiterList_RdbSave(rdb, sp->delimiters);
     }
 
     if (sp->flags & Index_HasSmap) {

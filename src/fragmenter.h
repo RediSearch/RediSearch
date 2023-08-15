@@ -14,7 +14,7 @@
 #include "stemmer.h"
 #include "redisearch.h"
 #include "stopwords.h"
-#include "separators.h"
+#include "delimiters.h"
 #include "byte_offsets.h"
 
 /**
@@ -178,7 +178,7 @@ void FragmentList_FragmentizeBuffer(FragmentList *fragList, const char *doc, Ste
 #define FRAGMENTIZE_TOKLEN_EXACT 0x01
 void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_t docLen,
                                   FragmentTermIterator *iter, int options,
-                                  const SeparatorList *sl);
+                                  const DelimiterList *dl);
 
 typedef struct {
   const char *openTag;
@@ -227,7 +227,7 @@ char *FragmentList_HighlightWholeDocS(const FragmentList *fragList, const Highli
  */
 void FragmentList_HighlightFragments(FragmentList *fragList, const HighlightTags *tags,
                                      size_t contextSize, Array *iovBufList, size_t niovs,
-                                     int order, const SeparatorList *sl);
+                                     int order, const DelimiterList *dl);
 
 void FragmentList_Dump(const FragmentList *fragList);
 
