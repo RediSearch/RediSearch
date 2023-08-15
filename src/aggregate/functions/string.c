@@ -58,7 +58,10 @@ static int stringfunc_tolower(ExprEval *ctx, RSValue *result, RSValue **argv, si
 
   VALIDATE_ARGS("lower", 1, 1, err);
   RSValue *val = RSValue_Dereference(argv[0]);
-  if (!RSValue_IsString(val)) {
+  if (val->t == RSValue_Duo) {
+    // continue with first value
+    val = RS_DUOVAL_VAL(*val);
+  } else if (!RSValue_IsString(val)) {
     RSValue_MakeReference(result, RS_NullVal());
     return EXPR_EVAL_OK;
   }
@@ -80,7 +83,10 @@ static int stringfunc_toupper(ExprEval *ctx, RSValue *result, RSValue **argv, si
   VALIDATE_ARGS("upper", 1, 1, err);
 
   RSValue *val = RSValue_Dereference(argv[0]);
-  if (!RSValue_IsString(val)) {
+  if (val->t == RSValue_Duo) {
+    // continue with first value
+    val = RS_DUOVAL_VAL(*val);
+  } else if (!RSValue_IsString(val)) {
     RSValue_MakeReference(result, RS_NullVal());
     return EXPR_EVAL_OK;
   }
