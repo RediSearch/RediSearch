@@ -495,7 +495,8 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
         c = DocumentField_GetArrayValueCStr(field, &fl, i);
       }
       ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->ftId, fs->ftWeight);
-      aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options);
+      aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options,
+        fs->separators);
 
       Token tok = {0};
       uint32_t newTokPos;

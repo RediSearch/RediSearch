@@ -265,9 +265,19 @@ static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, Returne
   if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
     return;
   }
-  RSValue *v = summarizeField(hlpCtx->lookup, spec, fName, fieldValue, docParams,
-                              hlpCtx->fragmentizeOptions,
-                              hlpCtx->base.parent->sctx->spec->separators);
+  RSValue *v = NULL;
+  const FieldSpec *fs = IndexSpec_GetField(hlpCtx->base.parent->sctx->spec,
+                                            fName, strlen(fName));
+  if(fs != NULL && fs->separators != NULL) {
+    v = summarizeField(hlpCtx->lookup, spec, fName, fieldValue, docParams,
+                        hlpCtx->fragmentizeOptions,
+                        fs->separators);
+  } else {
+    v = summarizeField(hlpCtx->lookup, spec, fName, fieldValue, docParams,
+                        hlpCtx->fragmentizeOptions,
+                        hlpCtx->base.parent->sctx->spec->separators);
+  }
+
   if (v) {
     RLookup_WriteOwnKey(spec->lookupKey, docParams->row, v);
   }

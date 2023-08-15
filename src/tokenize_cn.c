@@ -53,13 +53,18 @@ static void maybeFrisoInit() {
   config_g->en_sseg = 0;
 }
 
-static void cnTokenizer_Start(RSTokenizer *base, char *text, size_t len, uint32_t options) {
+static void cnTokenizer_Start(RSTokenizer *base, char *text, size_t len,
+  uint32_t options, SeparatorList *fieldSeparatorList) {
   cnTokenizer *self = (cnTokenizer *)base;
   base->ctx.text = text;
   base->ctx.len = len;
   base->ctx.options = options;
   friso_set_text(self->fTask, text);
   self->nescapebuf = 0;
+  if(fieldSeparatorList != NULL) {
+    base->ctx.separators = fieldSeparatorList;
+    SeparatorList_Ref(fieldSeparatorList);
+  }
 }
 
 // check if the word has a trailing escape. assumes NUL-termination
@@ -82,7 +87,7 @@ static int appendToEscbuf(cnTokenizer *cn, const char *s, size_t n) {
  * When we encounter a backslash, append the next character and continue
  * the loop
  */
-#define NOT_ESCAPED_CHAR  0   // the character is not escaped
+#define NOT_ESCAPED_CHAR  0  // the character is not escaped
 #define ESCAPED_CHAR_SELF 1  // buf + len is the escaped character'
 #define ESCAPED_CHAR_NEXT 2  // buf + len + 1 is the escaped character
 

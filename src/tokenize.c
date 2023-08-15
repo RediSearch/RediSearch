@@ -20,13 +20,18 @@ typedef struct {
   Stemmer *stemmer;
 } simpleTokenizer;
 
-static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uint32_t options) {
+static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len,
+  uint32_t options, SeparatorList *fieldSeparatorList) {
   simpleTokenizer *self = (simpleTokenizer *)base;
   TokenizerCtx *ctx = &base->ctx;
   ctx->text = text;
   ctx->options = options;
   ctx->len = len;
   self->pos = &ctx->text;
+  if(fieldSeparatorList != NULL) {
+    ctx->separators = fieldSeparatorList;
+    SeparatorList_Ref(fieldSeparatorList);
+  }
 }
 
 // Shortest word which can/should actually be stemmed

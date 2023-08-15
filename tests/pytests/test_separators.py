@@ -153,3 +153,163 @@ def test04_SummarizeCustomSeparator(env):
     env.assertEqual(res, expected_result)
 
     env.execute_command('FT.DROPINDEX', 'idx')
+
+def test05_IndexOnHashCustomSeparatorByFieldDataFirst(env):
+    conn = getConnectionByEnv(env)
+
+    # Create sample data
+    conn.execute_command(
+        'HSET', 'customer:1', 'code', '101;111@0f', 'email', 'c01@rx.com',
+        'name', 'Kyle')
+    conn.execute_command(
+        'HSET', 'customer:2', 'code', '101;222@70', 'email', 'c02@rx.com',
+        'name', 'Sarah')
+    conn.execute_command(
+        'HSET', 'customer:3', 'code', '101;333@0f', 'email', 'c03@rx.com',
+        'name', 'Ginger')
+
+    # Index with custom separators by field
+    # the separators of field 'code' is equal to @
+    # the separators of field 'email' does not contain: at (@), dot (.)
+    env.expect(
+        'FT.CREATE', 'idx2', 'ON', 'HASH',
+        'SEPARATORS', ' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~',
+        'PREFIX', '1', 'customer:',
+        'SCHEMA',
+        'code', 'TEXT', 'SEPARATORS', '@',
+        'SORTABLE',
+        'email', 'TEXT', 'SEPARATORS', ' \t!\"#$%^&\'()*+,-/:;<=>?[]^`{|}~',
+        'SORTABLE',
+        'name', 'TEXT', 'SORTABLE').equal('OK')
+    waitForIndex(env, 'idx2')
+
+    # Create sample data
+    conn.execute_command(
+        'HSET', 'customer:1', 'code', '101;111@0f', 'email', 'c01@rx.com',
+        'name', 'Kyle')
+    conn.execute_command(
+        'HSET', 'customer:2', 'code', '101;222@70', 'email', 'c02@rx.com',
+        'name', 'Sarah')
+    conn.execute_command(
+        'HSET', 'customer:3', 'code', '101;333@0f', 'email', 'c03@rx.com',
+        'name', 'Ginger')
+
+    # Custom separators
+    # Search by @code:101 should return 0, because (;) is not a separator
+    res = env.execute_command(
+            'FT.SEARCH', 'idx2', '@code:101', 'LIMIT', '0', '0')
+    env.assertEqual(res, [0])
+
+    # Search by @code:0f returns 2 results because 0f is a token
+    res = env.execute_command('FT.SEARCH idx2 @code:0f LIMIT 0 0')
+    env.assertEqual(res, [2])
+
+    # Search by a complete @email should return result
+    res = env.execute_command(
+        'FT.SEARCH', 'idx2', '@email:c03\\@rx\\.com',
+        'RETURN', '2', 'code', 'email')
+    expected_result = [1, 'customer:3',
+                       ['code', '101;333@0f', 'email', 'c03@rx.com']]
+    env.assertEqual(res, expected_result)
+
+    # Search by @email:c03 does not return results because it is not token
+    res = env.execute_command(
+        'FT.SEARCH', 'idx2', '@email:c03',
+        'RETURN', '2', 'code', 'email')
+    env.assertEqual(res, [0])
+
+    # Search using two fields
+    res = env.execute_command(
+            'FT.SEARCH', 'idx2', '@code:0f @email:c03\\@rx\\.com',
+            'RETURN', '2', 'code', 'email')
+    expected_result = [1, 'customer:3',
+                       ['code', '101;333@0f', 'email', 'c03@rx.com']]
+    env.assertEqual(res, expected_result)
+
+    env.cmd('FT.DROPINDEX', 'idx2')
+
+
+def test06_IndexOnHashCustomSeparatorByFieldIndexFirst(env):
+    conn = getConnectionByEnv(env)
+
+    # Index with custom separators by field
+    # the separators of field 'code' is equal to @
+    # the separators of field 'email' does not contain: at (@), dot (.)
+    env.expect(
+        'FT.CREATE', 'idx2', 'ON', 'HASH',
+        'SEPARATORS', ' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~',
+        'PREFIX', '1', 'customer:',
+        'SCHEMA',
+        'code', 'TEXT', 'SEPARATORS', '@',
+        'SORTABLE',
+        'email', 'TEXT', 'SEPARATORS', ' \t!\"#$%^&\'()*+,-/:;<=>?[]^`{|}~',
+        'SORTABLE',
+        'name', 'TEXT', 'SORTABLE').equal('OK')
+    waitForIndex(env, 'idx2')
+
+    # Create sample data
+    conn.execute_command(
+        'HSET', 'customer:1', 'code', '101;111@0f', 'email', 'c01@rx.com',
+        'name', 'Kyle')
+    conn.execute_command(
+        'HSET', 'customer:2', 'code', '101;222@70', 'email', 'c02@rx.com',
+        'name', 'Sarah')
+    conn.execute_command(
+        'HSET', 'customer:3', 'code', '101;333@0f', 'email', 'c03@rx.com',
+        'name', 'Ginger')
+
+    # Custom separators
+    # Search by @code:101 should return 0, because (;) is not a separator
+    res = env.execute_command(
+            'FT.SEARCH', 'idx2', '@code:101', 'LIMIT', '0', '0')
+    env.assertEqual(res, [0])
+
+    # Search by @code:0f returns 2 results because 0f is a token
+    res = env.execute_command('FT.SEARCH idx2 @code:0f LIMIT 0 0')
+    env.assertEqual(res, [2])
+
+    # Search by a complete @email should return result
+    res = env.execute_command(
+        'FT.SEARCH', 'idx2', '@email:c03\\@rx\\.com',
+        'RETURN', '2', 'code', 'email')
+    expected_result = [1, 'customer:3',
+                       ['code', '101;333@0f', 'email', 'c03@rx.com']]
+    env.assertEqual(res, expected_result)
+
+    # Search by @email:c03 does not return results because it is not token
+    res = env.execute_command(
+        'FT.SEARCH', 'idx2', '@email:c03',
+        'RETURN', '2', 'code', 'email')
+    env.assertEqual(res, [0])
+
+    # Search using two fields
+    res = env.execute_command(
+            'FT.SEARCH', 'idx2', '@code:0f @email:c03\\@rx\\.com',
+            'RETURN', '2', 'code', 'email')
+    expected_result = [1, 'customer:3',
+                       ['code', '101;333@0f', 'email', 'c03@rx.com']]
+    env.assertEqual(res, expected_result)
+
+    env.cmd('FT.DROPINDEX', 'idx2')
+
+def test07_SummarizeCustomSeparatorByField(env):
+    # Index with custom separators by field: hyphen (-) was removed
+    env.expect(
+        'FT.CREATE', 'idx', 'ON', 'HASH',
+        'SCHEMA', 'txt', 'TEXT',
+        'SEPARATORS', ' \t!\"#$%&\'()*+,./:;<=>?@[]^`{|}~').equal('OK')
+    waitForIndex(env, 'idx')
+
+    env.expect(
+        'FT.ADD', 'idx', 'text1', '1.0',
+        'FIELDS', 'txt', 'This is self-guided tour available for everyone.'
+    ).equal('OK')
+
+    res = env.execute_command(
+        'FT.SEARCH', 'idx', 'self\-guided',
+        'SUMMARIZE', 'FIELDS', '1', 'txt', 'LEN', '3',
+        'HIGHLIGHT', 'FIELDS', '1', 'txt', 'TAGS', '<b>', '</b>')
+    expected_result = [1, 'text1', ['txt', 'is <b>self-guided</b> tour... ']]
+    env.assertEqual(res, expected_result)
+
+    env.execute_command('FT.DROPINDEX', 'idx')

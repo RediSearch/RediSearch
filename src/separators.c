@@ -55,7 +55,7 @@ static void SeparatorList_FreeInternal(SeparatorList *sl) {
 }
 
 void SeparatorList_Unref(SeparatorList *sl) {
-  if (sl == __default_separators) {
+  if (sl == __default_separators || sl->refcount==0) {
     return;
   }
 
@@ -73,7 +73,6 @@ SeparatorList *SeparatorList_RdbLoad(RedisModuleIO* rdb) {
   size_t len;
   char *s = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   sl = NewSeparatorListCStr(s);
-  sl->refcount = 1;
   if(s) {
     rm_free(s);
   }

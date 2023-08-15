@@ -13,7 +13,7 @@ TEST_F(TokenizerTest, testTokenize) {
   char *txt = strdup("hello worlds    - - -,,, . . . -=- hello\\-world to be שלום עולם");
   const char *expected[] = {"hello", "worlds", "hello-world", "שלום", "עולם"};
   const char *stems[] = {NULL, "+world", NULL, NULL, NULL, NULL, NULL};
-  tk->Start(tk, txt, strlen(txt), TOKENIZE_DEFAULT_OPTIONS);
+  tk->Start(tk, txt, strlen(txt), TOKENIZE_DEFAULT_OPTIONS, NULL);
   Token tok;
   size_t i = 0;
   while (tk->Next(tk, &tok)) {
@@ -73,7 +73,7 @@ TEST_F(TokenizerTest, testChineseMixed) {
   // printf("tokstr: %s\n", tokstr.c_str());
 
   char *txt = strdup(tokstr.c_str());
-  tk->Start(tk, txt, strlen(txt), 0);
+  tk->Start(tk, txt, strlen(txt), 0, NULL);
   Token t = {0};
   size_t pos = 1;
   std::set<std::string> tokens;
@@ -106,7 +106,7 @@ TEST_F(TokenizerTest, testChineseMixed) {
 TEST_F(TokenizerTest, testTrailingEscapes) {
   auto tk = NewChineseTokenizer(NULL, NULL, 0, NULL);
   char *txt = strdup("hello world\\ ");
-  tk->Start(tk, txt, strlen(txt), 0);
+  tk->Start(tk, txt, strlen(txt), 0, NULL);
 
   std::set<std::string> tokens;
   Token t;
