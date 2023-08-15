@@ -27,7 +27,7 @@ dbconfig:
     - workers: 64
     - reporting-period: 1s
     - requests: 1000000
-    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-high_cardinality_numeric_and_tags-different_tags_10-different_numeric_1M/1M-high_cardinality_numeric_and_tags-different_tags_10-different_numeric_1M.redisearch.commands.BENCH.csv"
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-high_cardinality_numeric_and_tags-different_tags_10-different_numeric_1M/1M-high_cardinality_numeric_and_tags-different_tags_10-different_numeric_1M.redisearch.commands.SETUP.csv"
   - init_commands:
       - '"FT.CREATE" "idx:cardinality" "SCHEMA" "numeric_field" "NUMERIC" "SORTABLE" "tag_field" "TAG" "SORTABLE" "UNF"' 
   - dataset_load_timeout_secs: 180
