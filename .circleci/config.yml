@@ -1282,16 +1282,16 @@ workflows:
           <<: *always
       - benchmark-search-oss-cluster-g7:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - benchmark-search-oss-cluster-g8:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - benchmark-search-oss-cluster-g9:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
       - benchmark-search-oss-cluster-g10:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *always
 
   nightly:
     triggers:
