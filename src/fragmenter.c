@@ -5,7 +5,6 @@
  */
 
 #include "fragmenter.h"
-#include "toksep.h"
 #include "tokenize.h"
 #include "util/minmax.h"
 #include <ctype.h>

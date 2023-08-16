@@ -5,14 +5,12 @@
  */
 
 #include "tokenize.h"
-#include "toksep.h"
 #include "config.h"
 #include "friso/friso.h"
 #include "cndict_loader.h"
 #include "util/minmax.h"
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
-#include "delimiters.h"
 
 static friso_config_t config_g;
 static friso_t friso_g;

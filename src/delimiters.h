@@ -22,14 +22,22 @@ typedef struct DelimiterList {
   size_t refcount;
 } DelimiterList;
 
-/* Check if a delimiter list contains a char */
-// int DelimiterList_Contains(const DelimiterList dl, const char *delimiter);
 
 struct DelimiterList *DefaultDelimiterList();
+
+/* Return the string of default delimiters*/
+const char *DefaultDelimiterString();
+
 void DelimiterList_FreeGlobals(void);
 
 /* Create a new delimiter list from a NULL-terminated C string */
 struct DelimiterList *NewDelimiterListCStr(const char *str);
+
+/* Add delimiters in str to existing Delimiter list dl*/
+DelimiterList *AddDelimiterListCStr(const char* str, DelimiterList* dl);
+
+/* Remove delimiters in str from existing Delimiter list dl*/
+DelimiterList *RemoveDelimiterListCStr(const char* str, DelimiterList* dl);
 
 /* Free a delimiter list's memory */
 void DelimiterList_Unref(struct DelimiterList *dl);
@@ -46,14 +54,14 @@ void DelimiterList_Ref(struct DelimiterList *dl);
 
 void ReplyWithDelimiterList(RedisModule_Reply *reply, struct DelimiterList *dl);
 
-#ifdef FTINFO_FOR_INFO_MODULES
-void AddDelimiterListToInfo(RedisModuleInfoCtx *ctx, struct DelimiterList *dl);
-#endif
+// #ifdef FTINFO_FOR_INFO_MODULES
+// void AddDelimiterListToInfo(RedisModuleInfoCtx *ctx, struct DelimiterList *dl);
+// #endif
 
-// TODO:
-/* Returns a list of delimiters */
-// char *GetDelimiterList(DelimiterList *dl);
+char *toksep(char **s, size_t *tokLen, const DelimiterList *dl);
 
+/* Check if c if part of the delimiter list dl*/
+int istoksep(int c, const DelimiterList *dl);
 
 #ifdef __cplusplus
 }

@@ -4,13 +4,16 @@ import unittest
 from common import *
 from RLTest import Env
 
+_defaultDelimiters = '\t !\"#$%&\'()*+,-./:;<=>?@[]^`{|}~'
+
 def test01_Delimiters(env):
     # Index with custom delimiters with escaped characters
+    # the delimiters characters are printed ordered by its ASCII code
     env.expect(
         'FT.CREATE', 'idx1', 'ON', 'HASH',
         'DELIMITERS', ' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~',
         'SCHEMA', 'foo', 'text').ok()
-    assertInfoField(env, 'idx1', 'delimiters', [' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~'])
+    assertInfoField(env, 'idx1', 'delimiters', _defaultDelimiters)
     env.execute_command('FT.DROPINDEX', 'idx1')
 
     # Index with custom delimiters
@@ -19,17 +22,18 @@ def test01_Delimiters(env):
         'DELIMITERS', ';*',
         'DELIMITERS', ';*,#@',
         'SCHEMA', 'foo', 'text').ok()
-    assertInfoField(env, 'idx1', 'delimiters', [';*,#@'])
+    assertInfoField(env, 'idx1', 'delimiters', '#*,;@')
     env.execute_command('FT.DROPINDEX', 'idx1')
 
     # If DELIMITERS exceeds MAX_DELIMITERSTRING_SIZE = 64 it will be truncated
+    # and the duplicated values will be removed
     long_sep = ' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~ \t!\"#$%&\'()*+,-./:;<=>?@\
 []^`{|}~ \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~ \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~'
     env.expect(
         'FT.CREATE', 'idx1', 'ON', 'HASH',
         'DELIMITERS', long_sep,
         'SCHEMA', 'foo', 'text').ok()
-    assertInfoField(env, 'idx1', 'delimiters', [long_sep[:64]])
+    assertInfoField(env, 'idx1', 'delimiters', '\t !\"#$%&\'()*+,-./:;<=>?@[]^`{|}~')
     env.execute_command('FT.DROPINDEX', 'idx1')
 
 def test02_IndexOnHashWithCustomDelimiter(env):
@@ -52,7 +56,7 @@ def test02_IndexOnHashWithCustomDelimiter(env):
         SCHEMA code TEXT SORTABLE email TEXT SORTABLE \
         name TEXT SORTABLE').equal('OK')
     waitForIndex(env, 'idx1')
-    assertInfoField(env, 'idx1', 'delimiters', [';'])
+    assertInfoField(env, 'idx1', 'delimiters', ';')
 
     res = env.execute_command('FT.SEARCH idx1 @name:Sarah RETURN 1 code')
     expected_result = [1, 'customer:2', ['code', '101;222']]
@@ -78,7 +82,7 @@ def test02_IndexOnHashWithCustomDelimiter(env):
         'name', 'TEXT', 'SORTABLE').equal('OK')
     waitForIndex(env, 'idx2')
     env.expect('FT.INFO idx2')
-    assertInfoField(env, 'idx2', 'delimiters', [' \t!\"#$%&\'()*+,-./:<=>?@[]^`{|}~'])
+    assertInfoField(env, 'idx2', 'delimiters', '\t !\"#$%&\'()*+,-./:<=>?@[]^`{|}~')
 
     # Searching "@code:101" should return 0 results, because 101 is not a token
     res = env.execute_command('FT.SEARCH idx2 @code:101')
@@ -242,7 +246,7 @@ def test06_IndexOnHashCustomDelimiterByFieldIndexFirst(env):
         'SCHEMA',
         'code', 'TEXT', 'DELIMITERS', '@',
         'SORTABLE',
-        'email', 'TEXT', 'DELIMITERS', ' \t!\"#$%^&\'()*+,-/:;<=>?[]^`{|}~',
+        'email', 'TEXT', 'DELIMITERS-', '@.',
         'SORTABLE',
         'name', 'TEXT', 'SORTABLE').equal('OK')
     waitForIndex(env, 'idx2')
@@ -313,3 +317,72 @@ def test07_SummarizeCustomDelimiterByField(env):
     env.assertEqual(res, expected_result)
 
     env.execute_command('FT.DROPINDEX', 'idx')
+
+def test08_IndexDelimitersConfig(env):
+    conn = getConnectionByEnv(env)
+
+    # Index with custom delimiters by field, single rule by field
+    env.expect(
+        'FT.CREATE', 'idx', 'ON', 'HASH',
+        'PREFIX', '1', 'customer:',
+        'SCHEMA',
+        'code', 'TEXT', 'DELIMITERS+', 'abc',
+        'SORTABLE',
+        'email', 'TEXT', 'DELIMITERS-', '@.',
+        'SORTABLE',
+        'name', 'TEXT', 'DELIMITERS+', '',
+        'SORTABLE').equal('OK')
+    waitForIndex(env, 'idx')
+    res = env.execute_command('FT.INFO', 'idx')
+
+    # TODO: Should we print always the delimiters?
+    # assertInfoField(env, 'idx', 'delimiters', _defaultDelimiters)
+
+    # code delimiters
+    env.assertEqual(res[7][0][1], 'code')
+    env.assertEqual(res[7][0][8], 'delimiters')
+    env.assertEqual(res[7][0][9], '\t !"#$%&\'()*+,-./:;<=>?@[]^`abc{|}~')
+    # email delimiters
+    env.assertEqual(res[7][1][1], 'email')
+    env.assertEqual(res[7][1][8], 'delimiters')
+    env.assertEqual(res[7][1][9], '\t !\"#$%&\'()*+,-/:;<=>?[]^`{|}~')
+    # name delimiters
+    env.assertEqual(res[7][2][1], 'name')
+    env.assertEqual(res[7][2][8], 'delimiters')
+    env.assertEqual(res[7][2][9], _defaultDelimiters)
+
+    # Index with custom delimiters by field, multiple rules by field
+    env.expect(
+        'FT.CREATE', 'idx2', 'ON', 'HASH',
+        'DELIMITERS', '',
+        'PREFIX', '1', 'customer:',
+        'SCHEMA',
+        'field1', 'TEXT', 'DELIMITERS', '@-!', 'DELIMITERS+', '? \t',
+        'SORTABLE',
+        'field2', 'TEXT', 'DELIMITERS-', 'abc',
+        'SORTABLE',
+        'field3', 'TEXT', 'DELIMITERS+', '??z??', 'DELIMITERS-', 'zxy',
+        'SORTABLE',
+        'field4', 'TEXT', 'DELIMITERS+', '',
+        'SORTABLE').equal('OK')
+    waitForIndex(env, 'idx2')
+    res = env.execute_command('FT.INFO', 'idx2')
+
+    assertInfoField(env, 'idx2', 'delimiters', '')
+
+    # field1 delimiters
+    env.assertEqual(res[7][0][1], 'field1')
+    env.assertEqual(res[7][0][8], 'delimiters')
+    env.assertEqual(res[7][0][9], '\t !-?@')
+    # field2 delimiters
+    env.assertEqual(res[7][1][1], 'field2')
+    env.assertEqual(res[7][1][8], 'delimiters')
+    env.assertEqual(res[7][1][9], '')
+    # field3 delimiters
+    env.assertEqual(res[7][2][1], 'field3')
+    env.assertEqual(res[7][2][8], 'delimiters')
+    env.assertEqual(res[7][2][9], '?')
+    # field4 delimiters
+    env.assertEqual(res[7][3][1], 'field4')
+    env.assertEqual(res[7][3][8], 'delimiters')
+    env.assertEqual(res[7][3][9], '')

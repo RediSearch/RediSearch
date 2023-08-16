@@ -137,6 +137,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
       REPLY_KVNUM(SPEC_WEIGHT_STR, fs->ftWeight);
+
+      if(fs->delimiters != NULL) {
+        ReplyWithDelimiterList(reply, fs->delimiters);
+      }
     }
 
     bool reply_SPEC_TAG_CASE_SENSITIVE_STR = false;

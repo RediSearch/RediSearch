@@ -7,7 +7,6 @@
 #include "forward_index.h"
 #include "stopwords.h"
 #include "tokenize.h"
-#include "toksep.h"
 #include "rmalloc.h"
 #include <ctype.h>
 #include <stdlib.h>

@@ -413,7 +413,8 @@ static bool checkPhoneticAlgorithmAndLang(const char *matcher) {
   return langauge_found;
 }
 
-static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status,
+  DelimiterList *indexDelimiters) {
   int rc;
   // this is a text field
   // init default weight and type
@@ -455,18 +456,51 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       continue;
     } else if(AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
       fs->options |= FieldSpec_WithSuffixTrie;
-    } else if (AC_AdvanceIfMatch(ac, SPEC_DELIMITERS_STR)) {
+    } else if (AC_AdvanceIfMatch(ac, SPEC_SET_DELIMITERS_STR)) {
       const char *separatorStr;
       size_t len;
       int rc;
       if ((rc = AC_GetString(ac, &separatorStr, &len, 0)) != AC_OK) {
         return 0;
       }
+
       if(separatorStr != NULL) {
-          fs->delimiters = NewDelimiterListCStr(separatorStr);
-          fs->options |= FieldSpec_WithCustomDelimiters;
+        if(fs->delimiters) {
+          DelimiterList_Unref(fs->delimiters);
+        }
+        fs->delimiters = NewDelimiterListCStr(separatorStr);
+        fs->options |= FieldSpec_WithCustomDelimiters;
       }
-      
+    } else if (AC_AdvanceIfMatch(ac, SPEC_ADD_DELIMITERS_STR)) {
+      const char *addSeparatorStr;
+      size_t len;
+      int rc;
+      if ((rc = AC_GetString(ac, &addSeparatorStr, &len, 0)) != AC_OK) {
+        return 0;
+      }
+
+      if(addSeparatorStr != NULL) {
+        if(fs->delimiters == NULL && indexDelimiters != NULL) {
+          fs->delimiters = NewDelimiterListCStr(indexDelimiters->delimiterString);
+        }
+        fs->delimiters = AddDelimiterListCStr(addSeparatorStr, fs->delimiters);
+        fs->options |= FieldSpec_WithCustomDelimiters;
+      }
+    } else if (AC_AdvanceIfMatch(ac, SPEC_DEL_DELIMITERS_STR)) {
+      const char *delSeparatorStr;
+      size_t len;
+      int rc;
+      if ((rc = AC_GetString(ac, &delSeparatorStr, &len, 0)) != AC_OK) {
+        return 0;
+      }
+
+      if(delSeparatorStr != NULL) {
+        if(fs->delimiters == NULL && indexDelimiters != NULL) {
+          fs->delimiters = NewDelimiterListCStr(indexDelimiters->delimiterString);
+        }
+        fs->delimiters = RemoveDelimiterListCStr(delSeparatorStr, fs->delimiters);
+        fs->options |= FieldSpec_WithCustomDelimiters;
+      }
     } else {
       break;
     }
@@ -826,7 +860,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
 
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {  // text field
     fs->types |= INDEXFLD_T_FULLTEXT;
-    if (!parseTextField(fs, ac, status)) {
+    if (!parseTextField(fs, ac, status, sp->delimiters)) {
       goto error;
     }
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
@@ -1112,7 +1146,9 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
 
   ArgsCursor ac = {0};
   ArgsCursor acStopwords = {0};
-  char *separators = NULL;
+  char *setdelimiters = NULL;
+  char *adddelimiters = NULL;
+  char *deldelimiters = NULL;
 
   ArgsCursor_InitCString(&ac, argv, argc);
   long long timeout = -1;
@@ -1137,8 +1173,11 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
       SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args){
           .name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
       {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-      {.name = SPEC_DELIMITERS_STR, .target = &separators, .type = AC_ARGTYPE_STRING},
-      {.name = NULL}};
+      {.name = SPEC_SET_DELIMITERS_STR, .target = &setdelimiters, .type = AC_ARGTYPE_STRING},
+      {.name = SPEC_ADD_DELIMITERS_STR, .target = &adddelimiters, .type = AC_ARGTYPE_STRING},
+      {.name = SPEC_DEL_DELIMITERS_STR, .target = &deldelimiters, .type = AC_ARGTYPE_STRING},
+      {.name = NULL}
+  };
 
   ACArgSpec *errarg = NULL;
   int rc = AC_ParseArgSpec(&ac, argopts, &errarg);
@@ -1176,11 +1215,21 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
     spec->flags |= Index_HasCustomStopwords;
   }
 
-  if (separators != NULL) {
+  if (setdelimiters != NULL) {
     if(spec->delimiters) {
       DelimiterList_Unref(spec->delimiters);
     }
-    spec->delimiters = NewDelimiterListCStr((const char *)separators);
+    spec->delimiters = NewDelimiterListCStr((const char *)setdelimiters);
+    spec->flags |= Index_HasCustomDelimiters;
+  }
+
+  if (adddelimiters != NULL) {
+    spec->delimiters = AddDelimiterListCStr((const char *)adddelimiters, spec->delimiters);
+    spec->flags |= Index_HasCustomDelimiters;
+  }
+
+  if (deldelimiters != NULL) {
+    spec->delimiters = RemoveDelimiterListCStr((const char *)deldelimiters, spec->delimiters);
     spec->flags |= Index_HasCustomDelimiters;
   }
 

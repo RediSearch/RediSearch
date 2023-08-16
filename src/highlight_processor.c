@@ -8,7 +8,7 @@
 #include "fragmenter.h"
 #include "value.h"
 #include "util/minmax.h"
-#include "toksep.h"
+#include "delimiters.h"
 #include <ctype.h>
 
 typedef struct {
