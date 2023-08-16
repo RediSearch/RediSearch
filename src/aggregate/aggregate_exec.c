@@ -869,9 +869,11 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   return ret;
 }
 
+#define getCursorList(coord) ((coord) ? &g_CursorsListCoord : &g_CursorsList)
+
 // Assumes that the cursor has a strong ref to the relevant spec and that it is already locked.
 int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *err, bool coord) {
-  Cursor *cursor = Cursors_Reserve(coord ? &g_CursorsListCoord : &g_CursorsList, spec_ref, r->cursorMaxIdle, err);
+  Cursor *cursor = Cursors_Reserve(getCursorList(coord), spec_ref, r->cursorMaxIdle, err);
   if (cursor == NULL) {
     return REDISMODULE_ERR;
   }
@@ -956,10 +958,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 }
 
 static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count) {
-  Cursor *cursor = Cursors_TakeForExecution(&g_CursorsList, cid);
-  if(cursor == NULL) {
-    cursor = Cursors_TakeForExecution(&g_CursorsListCoord, cid);
-  }
+  Cursor *cursor = _Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
 
   if (cursor == NULL) {
     RedisModule_Reply_Error(reply, "Cursor not found");
@@ -1059,10 +1058,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
 
   } else if (cmdc == 'D') {
-    int rc = Cursors_Purge(&g_CursorsList, cid);
-    if(rc != REDISMODULE_OK) {
-      rc = Cursors_Purge(&g_CursorsListCoord, cid);
-    }
+    int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
     if (rc != REDISMODULE_OK) {
       RedisModule_Reply_Error(reply, "Cursor does not exist");
     } else {

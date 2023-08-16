@@ -299,6 +299,7 @@ void AREQ_Free(AREQ *req);
  * @param spec_ref a strong reference to the spec. The cursor saves a weak reference to the spec
  * to be promoted when cursor read is called.
  * @param status if this function errors, this contains the message
+ * @param coord if true, this is a coordinator cursor
  * @return REDISMODULE_OK or REDISMODULE_ERR
  *
  * If this function returns REDISMODULE_OK then the cursor might have been
