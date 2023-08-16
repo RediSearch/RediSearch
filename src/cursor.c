@@ -11,6 +11,8 @@
 #include <err.h>
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
+
+// coord cursors will have odd ids and regular cursors will have even ids
 CursorList g_CursorsList;
 CursorList g_CursorsListCoord;
 
@@ -39,7 +41,7 @@ void CursorList_Init(CursorList *cl, bool is_coord) {
 }
 
 static void Cursor_RemoveFromIdle(Cursor *cur) {
-  CursorList *cl = cur->is_coord ? &g_CursorsListCoord : &g_CursorsList;
+  CursorList *cl = getCursorList(cur->is_coord);
   Array *idle = &cl->idle;
   Cursor **ll = ARRAY_GETARRAY_AS(idle, Cursor **);
   size_t n = ARRAY_GETSIZE_AS(idle, Cursor *);
@@ -163,6 +165,9 @@ static void CursorList_IncrCounter(CursorList *cl) {
   }
 }
 
+#define rand_even48() (lrand48() & ~(1UL))
+#define rand_odd48() (lrand48() | (1UL))
+
 /**
  * Cursor ID is a 64 bit opaque integer. The upper 32 bits consist of the PID
  * of the process which generated the cursor, and the lower 32 bits consist of
@@ -171,7 +176,12 @@ static void CursorList_IncrCounter(CursorList *cl) {
  * a stuck client and a crashed server
  */
 static uint64_t CursorList_GenerateId(CursorList *curlist) {
-  uint64_t id = lrand48() + 1;  // 0 should never be returned as cursor id
+  uint64_t id = (curlist->is_coord ? rand_even48() : rand_odd48()) + 1;  // 0 should never be returned as cursor id
+
+  // For fast lookup we would like the coord cusors to have odd ids and the non-coord to have even
+  while((kh_get(cursors, curlist->lookup, id) != kh_end(curlist->lookup))) {
+    id = (curlist->is_coord ? rand_even48() : rand_odd48()) + 1;  // 0 should never be returned as cursor id
+  }
   return id;
 }
 

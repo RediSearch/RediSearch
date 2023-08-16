@@ -38,7 +38,7 @@ typedef struct Cursor {
   /** Position within idle list */
   int pos;
 
-  /** Is it coordinator cursor*/
+  /** Is it an internal coordinator cursor or a user cursor*/
   bool is_coord;
 } Cursor;
 
@@ -74,14 +74,19 @@ typedef struct CursorList {
    */
   uint64_t nextIdleTimeoutNs;
 
-  /** Is it coordinator cursor*/
+  /** Is it an internal coordinator cursor or a user cursor */
   bool is_coord;
 } CursorList;
 
 // This resides in the background as a global. We could in theory make this
 // part of the spec structure
+// Structs managing the cusrosrs
 extern CursorList g_CursorsList;
 extern CursorList g_CursorsListCoord;
+
+static inline CursorList *GetGlobalCursor(uint64_t cid) {
+  return cid % 2 == 1 ? &g_CursorsListCoord : &g_CursorsList;
+}
 
 /**
  * Threading/Concurrency behavior
