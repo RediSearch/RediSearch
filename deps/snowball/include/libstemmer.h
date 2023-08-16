@@ -4,6 +4,7 @@
 extern "C" {
 #endif
 
+
 struct sb_stemmer;
 typedef unsigned char sb_symbol;
 
@@ -43,7 +44,7 @@ const char ** sb_stemmer_list(void);
  *
  *  @note NULL will also be returned if an out of memory error occurs.
  */
-struct sb_stemmer * sb_stemmer_new(const char * algorithm, const char * charenc);
+struct sb_stemmer * sb_stemmer_new(const char * algorithm, const char * charenc, alloc_context *actx);
 
 /** Delete a stemmer object.
  *
@@ -53,7 +54,7 @@ struct sb_stemmer * sb_stemmer_new(const char * algorithm, const char * charenc)
  *  It is safe to pass a null pointer to this function - this will have
  *  no effect.
  */
-void                sb_stemmer_delete(struct sb_stemmer * stemmer);
+void                sb_stemmer_delete(struct sb_stemmer * stemmer, alloc_context *actx);
 
 /** Stem a word.
  *

@@ -26,7 +26,7 @@ typedef struct {
   BufferReader *rdr;
 } ReaderCtx;
 
-static int readRecord(ReaderCtx *ctx) {
+static int readRecord(alloc_context *actx, ReaderCtx *ctx) {
   BufferReader *rdr = ctx->rdr;
   // Read the flags
   char c;
@@ -61,7 +61,7 @@ static int readRecord(ReaderCtx *ctx) {
       size_t synLen = strlen(curSyn);
       rdr->pos += synLen + 1;
       // Store the synonym somewhere?
-      array_list_add(syns, rm_strdup(curSyn));
+      array_list_add(actx, syns, rm_strdup(actx, curSyn));
     }
   }
 
@@ -73,12 +73,12 @@ static int readRecord(ReaderCtx *ctx) {
   }
 
   // printf("Adding record TYPE: %u. TERM: %s. NSYNS: %u\n", lexType, term, numSyns);
-  friso_dic_add_with_fre(ctx->dic, lexType, rm_strdup(term), syns, freq);
+  friso_dic_add_with_fre(ctx->dic, lexType, rm_strdup(actx, term), syns, freq);
   return 1;
 }
 
 // Read the format
-int ChineseDictLoad(friso_dic_t d) {
+int ChineseDictLoad(alloc_context *actx, friso_dic_t d) {
   // Before doing anything, verify the version:
   uint32_t version;
   const char *inbuf = ChineseDict;
@@ -87,7 +87,7 @@ int ChineseDictLoad(friso_dic_t d) {
   RS_LOG_ASSERT(version == 0, "Chinese dictionary version should be 0");
 
   // First load the symbol..
-  char *expanded = rm_malloc(ChineseDictFullLength);
+  char *expanded = rm_malloc(actx, ChineseDictFullLength);
   mz_ulong dstLen = ChineseDictFullLength;
   int rv = mz_uncompress((unsigned char *)expanded, &dstLen, (const unsigned char *)inbuf,
                          ChineseDictCompressedLength);
@@ -106,10 +106,10 @@ int ChineseDictLoad(friso_dic_t d) {
   BufferReader reader = NewBufferReader(&tmpBuf);
 
   ReaderCtx ctx = {.dic = d, .rdr = &reader};
-  while (reader.pos < tmpBuf.cap && readRecord(&ctx)) {
+  while (reader.pos < tmpBuf.cap && readRecord(actx, &ctx)) {
     // Do nothing
   }
 
-  rm_free(expanded);
+  rm_free(actx, expanded);
   return 0;
 }

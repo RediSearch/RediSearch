@@ -1017,7 +1017,7 @@ TEST_F(IndexTest, testMetric_SkipTo) {
 TEST_F(IndexTest, testBuffer) {
   // TEST_START();
   Buffer b = {0};
-  Buffer_Init(&b, 2);
+  Buffer_Init(NULL, &b, 2);
   BufferWriter w = NewBufferWriter(&b);
   ASSERT_TRUE(w.buf->cap == 2) << "Wrong capacity";
   ASSERT_TRUE(w.buf->data != NULL);
@@ -1025,7 +1025,7 @@ TEST_F(IndexTest, testBuffer) {
   ASSERT_TRUE(w.buf->data == w.pos);
 
   const char *x = "helololoolo";
-  size_t l = Buffer_Write(&w, (void *)x, strlen(x) + 1);
+  size_t l = Buffer_Write(NULL, &w, (void *)x, strlen(x) + 1);
 
   ASSERT_TRUE(l == strlen(x) + 1);
   ASSERT_TRUE(Buffer_Offset(w.buf) == l);
@@ -1036,7 +1036,7 @@ TEST_F(IndexTest, testBuffer) {
   ASSERT_EQ(Buffer_Offset(w.buf), 15);
   ASSERT_EQ(Buffer_Capacity(w.buf), 17);
 
-  Buffer_Truncate(w.buf, 0);
+  Buffer_Truncate(NULL, w.buf, 0);
 
   ASSERT_TRUE(Buffer_Capacity(w.buf) == 15);
 
@@ -1055,7 +1055,7 @@ TEST_F(IndexTest, testBuffer) {
   int n = ReadVarint(&br);
   ASSERT_TRUE(n == 1337654);
 
-  Buffer_Free(w.buf);
+  Buffer_Free(NULL, w.buf);
 }
 
 typedef struct {
@@ -1344,7 +1344,7 @@ TEST_F(IndexTest, testIndexFlags) {
 
 TEST_F(IndexTest, testDocTable) {
   char buf[16];
-  DocTable dt = NewDocTable(10, 10);
+  DocTable dt = NewDocTable(10, 10, NULL);
   t_docId did = 0;
   // N is set to 100 and the max cap of the doc table is 10 so we surely will
   // get overflow and check that everything works correctly
@@ -1432,7 +1432,7 @@ TEST_F(IndexTest, testSortable) {
   ASSERT_EQ(1, RSSortingTable_GetFieldIdx(tbl, "bar"));
   ASSERT_EQ(-1, RSSortingTable_GetFieldIdx(tbl, "barbar"));
 
-  RSSortingVector *v = NewSortingVector(tbl->len);
+  RSSortingVector *v = NewSortingVector(tbl->len, NULL);
   ASSERT_EQ(v->len, tbl->len);
 
   const char *str = "hello";
@@ -1448,7 +1448,7 @@ TEST_F(IndexTest, testSortable) {
   RSSortingVector_Put(v, 1, &num, RSValue_Number, 0);
   ASSERT_EQ(v->values[1]->t, RS_SORTABLE_NUM);
 
-  RSSortingVector *v2 = NewSortingVector(tbl->len);
+  RSSortingVector *v2 = NewSortingVector(tbl->len, NULL);
   RSSortingVector_Put(v2, 0, masse, RS_SORTABLE_STR, 0);
 
   /// test string unicode lowercase normalization
@@ -1493,7 +1493,7 @@ TEST_F(IndexTest, testVarintFieldMask) {
   Buffer_Init(&b, 1);
   BufferWriter bw = NewBufferWriter(&b);
   for (int i = 0; i < sizeof(t_fieldMask); i++, x |= x << 8) {
-    size_t sz = WriteVarintFieldMask(x, &bw);
+    size_t sz = WriteVarintFieldMask(x, &bw, NULL);
     ASSERT_EQ(expected[i], sz);
     BufferWriter_Seek(&bw, 0);
     BufferReader br = NewBufferReader(bw.buf);

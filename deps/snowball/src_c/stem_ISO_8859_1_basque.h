@@ -5,7 +5,7 @@ extern "C" {
 #endif
 
 extern struct SN_env * basque_ISO_8859_1_create_env(void);
-extern void basque_ISO_8859_1_close_env(struct SN_env * z);
+extern void basque_ISO_8859_1_close_env(struct SN_env * z, alloc_context *actx);
 
 extern int basque_ISO_8859_1_stem(struct SN_env * z);
 

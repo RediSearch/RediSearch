@@ -1590,13 +1590,16 @@ void IndexSpec_InitializeSynonym(IndexSpec *sp) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexSpec *NewIndexSpec(const char *name) {
-  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
+  IndexSpec *sp = rm_calloc(NULL, 1, sizeof(IndexSpec));
+  sp->stats.invertedCap = 1;
+  memset(&sp->stats, 0, sizeof(sp->stats));
+  alloc_context actx = {.stats = &sp->stats};
+  sp->fields = rm_calloc(&actx, sizeof(FieldSpec), SPEC_MAX_FIELDS);
   sp->sortables = NewSortingTable();
   sp->flags = INDEX_DEFAULT_FLAGS;
-  sp->name = rm_strdup(name);
+  sp->name = rm_strdup(&actx, name);
   sp->nameLen = strlen(name);
-  sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
+  sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE, &actx);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   sp->suffix = NULL;
@@ -1612,8 +1615,6 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->scanner = NULL;
   sp->scan_in_progress = false;
   sp->used_dialects = 0;
-
-  memset(&sp->stats, 0, sizeof(sp->stats));
 
   int res = 0;
   pthread_rwlockattr_t attr;

@@ -531,14 +531,14 @@ DEBUG_COMMAND(DumpPhoneticHash) {
   char *primary = NULL;
   char *secondary = NULL;
 
-  PhoneticManager_ExpandPhonetics(NULL, term_c, len, &primary, &secondary);
+  PhoneticManager_ExpandPhonetics(NULL, term_c, len, &primary, &secondary, NULL);
 
   RedisModule_ReplyWithArray(ctx, 2);
   RedisModule_ReplyWithStringBuffer(ctx, primary, strlen(primary));
   RedisModule_ReplyWithStringBuffer(ctx, secondary, strlen(secondary));
 
-  rm_free(primary);
-  rm_free(secondary);
+  rm_free(NULL, primary);
+  rm_free(NULL, secondary);
   return REDISMODULE_OK;
 }
 

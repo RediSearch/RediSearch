@@ -48,7 +48,7 @@ unsigned char * base64_encode(const unsigned char *src, size_t len,
 	olen++; /* nul termination */
 	if (olen < len)
 		return NULL; /* integer overflow */
-	out = rm_malloc(olen);
+	out = rm_malloc(NULL, olen);
 	if (out == NULL)
 		return NULL;
 
@@ -104,7 +104,7 @@ unsigned char * base64_encode(const unsigned char *src, size_t len,
  * Caller is responsible for freeing the returned buffer.
  */
 unsigned char * base64_decode(const unsigned char *src, size_t len,
-			      size_t *out_len)
+			      size_t *out_len, alloc_context *actx)
 {
 	unsigned char dtable[256], *out, *pos, block[4], tmp;
 	size_t i, count, olen;
@@ -126,7 +126,7 @@ unsigned char * base64_decode(const unsigned char *src, size_t len,
 		return NULL;
 
 	olen = count / 4 * 3;
-	pos = out = rm_malloc(olen);
+	pos = out = rm_malloc(NULL, olen);
 	if (out == NULL)
 		return NULL;
 
@@ -152,7 +152,7 @@ unsigned char * base64_decode(const unsigned char *src, size_t len,
 					pos -= 2;
 				else {
 					/* Invalid padding */
-					rm_free(out);
+					rm_free(actx, out);
 					return NULL;
 				}
 				break;
@@ -165,5 +165,5 @@ unsigned char * base64_decode(const unsigned char *src, size_t len,
 }
 
 void base64_free(unsigned char *ptr) {
-	rm_free(ptr);
+	rm_free(NULL, ptr);
 }

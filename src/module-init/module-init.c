@@ -262,7 +262,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     // Load the extension so TODO: pass with param
     if (Extension_LoadDynamic(RSGlobalConfig.extLoad, &errMsg) == REDISMODULE_ERR) {
       DO_LOG("warning", "Could not load extension %s: %s", RSGlobalConfig.extLoad, errMsg);
-      rm_free(errMsg);
+      rm_free(NULL, errMsg);
       return REDISMODULE_ERR;
     }
     DO_LOG("notice", "Loaded RediSearch extension '%s'", RSGlobalConfig.extLoad);
@@ -285,7 +285,10 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   Initialize_RoleChangeNotifications(ctx);
 
   // Register rm_malloc memory functions as vector similarity memory functions.
+  #define COUNT_MEM_USAGE_PREV COUNT_MEM_USAGE
+  #undef COUNT_MEM_USAGE
   VecSimMemoryFunctions vecsimMemoryFunctions = {.allocFunction = rm_malloc, .callocFunction = rm_calloc, .reallocFunction = rm_realloc, .freeFunction = rm_free};
+  #define COUNT_MEM_USAGE COUNT_MEM_USAGE_PREV
   VecSim_SetMemoryFunctions(vecsimMemoryFunctions);
   VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
   VecSim_SetLogCallbackFunction(VecSimLogCallback);

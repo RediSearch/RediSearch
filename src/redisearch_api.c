@@ -326,6 +326,7 @@ void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* er
 int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char** errs) {
   RWLOCK_ACQUIRE_WRITE();
   IndexSpec* sp = __RefManager_Get_Object(rm);
+  alloc_context alctx = {.stats = &sp->stats};
 
   RSError err = {.s = errs};
   QueryError status = {0};
@@ -346,7 +347,7 @@ int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char**
       options |= DOCUMENT_ADD_REPLACE;
     } else {
       if (errs) {
-        *errs = rm_strdup("Document already exists");
+        *errs = rm_strdup(&alctx, "Document already exists");
       }
       AddDocumentCtx_Free(aCtx);
       RWLOCK_RELEASE();

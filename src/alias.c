@@ -11,13 +11,13 @@
 
 AliasTable *AliasTable_g = NULL;
 
-AliasTable *AliasTable_New(void) {
-  AliasTable *t = rm_calloc(1, sizeof(*t));
+AliasTable *AliasTable_New() {
+  AliasTable *t = rm_calloc(NULL, 1, sizeof(*t));
   t->d = dictCreate(&dictTypeHeapStrings, NULL);
   return t;
 }
 
-void IndexAlias_InitGlobal(void) {
+void IndexAlias_InitGlobal() {
   AliasTable_g = AliasTable_New();
 }
 
@@ -26,7 +26,7 @@ void IndexAlias_DestroyGlobal(AliasTable **t) {
     return;
   }
   dictRelease((*t)->d);
-  rm_free(*t);
+  rm_free(NULL, *t);
   *t = NULL;
 }
 
@@ -43,7 +43,8 @@ static int AliasTable_Add(AliasTable *table, const char *alias, StrongRef spec_r
   // Dictionary holds a pointer tho the spec manager. Its the same reference owned by the specs dictionary.
   e->v.val = spec_ref.rm;
   if (!(options & INDEXALIAS_NO_BACKREF)) {
-    char *duped = rm_strdup(alias);
+    alloc_context actx = {.stats = &spec->stats};
+    char *duped = rm_strdup(&actx, alias);
     spec->aliases = array_ensure_append(spec->aliases, &duped, 1, char *);
   }
   if (table->on_add) {
@@ -86,7 +87,8 @@ static int AliasTable_Del(AliasTable *table, const char *alias, StrongRef spec_r
   }
 
   if (toFree) {
-    rm_free(toFree);
+    alloc_context actx = {.stats = &spec->stats};
+    rm_free(&actx, toFree);
   }
   return REDISMODULE_OK;
 }
@@ -112,14 +114,15 @@ StrongRef IndexAlias_Get(const char *alias) {
   return AliasTable_Get(AliasTable_g, alias);
 }
 
-void IndexSpec_ClearAliases(StrongRef spec_ref) {
+void IndexSpec_ClearAliases(alloc_context *actx, StrongRef spec_ref) {
   IndexSpec *sp = StrongRef_Get(spec_ref);
   for (size_t ii = 0; ii < array_len(sp->aliases); ++ii) {
     char **pp = sp->aliases + ii;
     QueryError e = {0};
     int rc = IndexAlias_Del(*pp, spec_ref, INDEXALIAS_NO_BACKREF, &e);
     RS_LOG_ASSERT(rc == REDISMODULE_OK, "Alias delete has failed");
-    rm_free(*pp);
+    alloc_context actx = {.stats = &sp->stats};
+    rm_free(actx, *pp);
     // set to NULL so IndexAlias_Del skips over this
     *pp = NULL;
   }

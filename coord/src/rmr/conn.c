@@ -102,7 +102,7 @@ static MRConn *MRConnPool_Get(MRConnPool *pool) {
 /* Init the connection manager */
 void MRConnManager_Init(MRConnManager *mgr, int nodeConns) {
   /* Create the connection map */
-  mgr->map = NewTrieMap();
+  mgr->map = NewTrieMap(NULL);
   mgr->nodeConns = nodeConns;
 }
 

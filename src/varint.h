@@ -47,7 +47,7 @@ static inline t_fieldMask ReadVarintFieldMask(BufferReader *b) {
 
 size_t WriteVarint(uint32_t value, BufferWriter *w);
 
-size_t WriteVarintFieldMask(t_fieldMask value, BufferWriter *w);
+size_t WriteVarintFieldMask(t_fieldMask value, BufferWriter *w, alloc_context *actx);
 
 typedef struct {
   Buffer buf;

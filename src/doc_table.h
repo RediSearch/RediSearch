@@ -89,9 +89,9 @@ typedef struct {
   }
 
 /* Creates a new DocTable with a given capacity */
-DocTable NewDocTable(size_t cap, size_t max_size);
+DocTable NewDocTable(size_t cap, size_t max_size, alloc_context *actx);
 
-#define DocTable_New(cap) NewDocTable(cap, RSGlobalConfig.maxDocTableSize)
+#define DocTable_New(cap, actx) NewDocTable(cap, RSGlobalConfig.maxDocTableSize, actx)
 
 /* Get a reference to the metadata for a doc Id from the DocTable.
  * If docId is not inside the table, we return NULL */
@@ -150,10 +150,10 @@ static inline int DocTable_DeleteR(DocTable *t, RedisModuleString *r) {
   return DocTable_Delete(t, s, n);
 }
 
-RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n);
-static inline RSDocumentMetadata *DocTable_PopR(DocTable *t, RedisModuleString *r) {
+RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n, alloc_context *actx);
+static inline RSDocumentMetadata *DocTable_PopR(DocTable *t, RedisModuleString *r, alloc_context *actx) {
   STRVARS_FROM_RSTRING(r);
-  return DocTable_Pop(t, s, n);
+  return DocTable_Pop(t, s, n, actx);
 }
 
 static inline const RSDocumentMetadata *DocTable_BorrowByKey(DocTable *dt, const char *key) {

@@ -65,14 +65,14 @@ sb_stemmer_new(const char * algorithm, const char * charenc)
 }
 
 void
-sb_stemmer_delete(struct sb_stemmer * stemmer)
+sb_stemmer_delete(struct sb_stemmer * stemmer, alloc_context *actx)
 {
     if (stemmer == 0) return;
     if (stemmer->close) {
         stemmer->close(stemmer->env);
         stemmer->close = 0;
     }
-    rm_free(stemmer);
+    rm_free(stemmer, actx);
 }
 
 const sb_symbol *

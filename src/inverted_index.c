@@ -40,18 +40,18 @@ static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *id
                                           RSIndexResult *record);
 
 /* Add a new block to the index with a given document id as the initial id */
-IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
+IndexBlock *InvertedIndex_AddBlock(alloc_context *actx, InvertedIndex *idx, t_docId firstId) {
   TotalIIBlocks++;
   idx->size++;
-  idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
+  idx->blocks = rm_realloc(actx, idx->blocks, idx->size * sizeof(IndexBlock));
   IndexBlock *last = idx->blocks + (idx->size - 1);
   memset(last, 0, sizeof(*last));  // for msan
   last->firstId = last->lastId = firstId;
-  Buffer_Init(&INDEX_LAST_BLOCK(idx).buf, INDEX_BLOCK_INITIAL_CAP);
+  Buffer_Init(actx, &INDEX_LAST_BLOCK(idx).buf, INDEX_BLOCK_INITIAL_CAP);
   return &INDEX_LAST_BLOCK(idx);
 }
 
-InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
+InvertedIndex *NewInvertedIndex(alloc_context *actx, IndexFlags flags, int initBlock) {
   int useFieldMask = flags & Index_StoreFieldFlags;
   int useNumEntries = flags & Index_StoreNumeric;
   RedisModule_Assert(!(useFieldMask && useNumEntries));
@@ -59,7 +59,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
   size_t size = (useFieldMask || useNumEntries) ? sizeof(InvertedIndex) :
                                                   sizeof(InvertedIndex) - sizeof(t_fieldMask);
 
-  InvertedIndex *idx = rm_malloc(size);
+  InvertedIndex *idx = rm_malloc(actx, size);
   idx->blocks = NULL;
   idx->size = 0;
   idx->lastId = 0;
@@ -72,23 +72,23 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
     idx->numEntries = 0;
   }
   if (initBlock) {
-    InvertedIndex_AddBlock(idx, 0);
+    InvertedIndex_AddBlock(actx, idx, 0);
   }
   return idx;
 }
 
-void indexBlock_Free(IndexBlock *blk) {
-  Buffer_Free(&blk->buf);
+void indexBlock_Free(alloc_context *actx, IndexBlock *blk) {
+  Buffer_Free(actx, &blk->buf);
 }
 
-void InvertedIndex_Free(void *ctx) {
+void InvertedIndex_Free(alloc_context *actx, void *ctx) {
   InvertedIndex *idx = ctx;
   TotalIIBlocks -= idx->size;
   for (uint32_t i = 0; i < idx->size; i++) {
     indexBlock_Free(&idx->blocks[i]);
   }
-  rm_free(idx->blocks);
-  rm_free(idx);
+  rm_free(actx, idx->blocks);
+  rm_free(actx, idx);
 }
 
 static void IR_SetAtEnd(IndexReader *r, int value) {
@@ -150,7 +150,7 @@ void IndexReader_OnReopen(void *privdata) {
  *
  ******************************************************************************/
 
-#define ENCODER(f) static size_t f(BufferWriter *bw, uint32_t delta, RSIndexResult *res)
+#define ENCODER(f) static size_t f(alloc_context *actx, BufferWriter *bw, uint32_t delta, RSIndexResult *res)
 
 // 1. Encode the full data of the record, delta, frequency, field mask and offset vector
 ENCODER(encodeFull) {
@@ -217,8 +217,8 @@ ENCODER(encodeOffsetsOnly) {
 
 // 7. Offsets and freqs
 ENCODER(encodeFreqsOffsets) {
-  size_t sz = qint_encode3(bw, delta, (uint32_t)res->freq, (uint32_t)res->term.offsets.len);
-  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
+  size_t sz = qint_encode3(alloc_context *actx, bw, delta, (uint32_t)res->freq, (uint32_t)res->term.offsets.len);
+  sz += Buffer_Write(alloc_context *actx, bw, res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
 

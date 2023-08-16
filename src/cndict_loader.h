@@ -11,7 +11,7 @@
 
 // Defined in cndict_loader.c
 // Loads the built-in dictionary into the provided dictionary object
-int ChineseDictLoad(friso_dic_t);
+int ChineseDictLoad(alloc_context *actx, friso_dic_t);
 
 // Defined in generated/cndict_data.c
 // Configures the friso config object based on built-in settings.

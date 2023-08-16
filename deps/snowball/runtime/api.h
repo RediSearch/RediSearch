@@ -11,6 +11,8 @@ typedef unsigned char symbol;
 
 */
 
+#include "rmalloc.h"
+
 struct SN_env {
     symbol * p;
     int c; int l; int lb; int bra; int ket;
@@ -22,8 +24,8 @@ struct SN_env {
 extern "C" {
 #endif
 
-extern struct SN_env * SN_create_env(int S_size, int I_size);
-extern void SN_close_env(struct SN_env * z, int S_size);
+extern struct SN_env * SN_create_env(int S_size, int I_size, alloc_context *actx);
+extern void SN_close_env(struct SN_env * z, int S_size, alloc_context *actx);
 
 extern int SN_set_current(struct SN_env * z, int size, const symbol * s);
 

@@ -73,7 +73,7 @@ void ForwardIndexFree(ForwardIndex *idx);
 
 void ForwardIndex_Reset(ForwardIndex *idx, Document *doc, uint32_t idxFlags);
 
-ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags);
+ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags, alloc_context *actx);
 ForwardIndexIterator ForwardIndex_Iterate(ForwardIndex *i);
 ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter);
 

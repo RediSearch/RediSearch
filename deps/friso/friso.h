@@ -183,7 +183,7 @@ typedef friso_config_entry * friso_config_t;
  * This function used to create a new empty friso friso_t; 
  *        with default value.
  */
-FRISO_API friso_t friso_new( void );
+FRISO_API friso_t friso_new(alloc_context *actx);
 
 //creat a friso entry with a default value from a configuratile file.
 //@return 1 for successfully and 0 for failed.
@@ -220,7 +220,7 @@ FRISO_API void friso_set_mode( friso_config_t, friso_mode_t );
 
 /*create a new friso configuration entry and initialize 
   it with the default value.*/
-FRISO_API friso_config_t friso_new_config( void );
+FRISO_API friso_config_t friso_new_config(alloc_context *actx);
 
 //initialize the specified friso config entry with default value.
 FRISO_API void friso_init_config( friso_config_t );
@@ -235,7 +235,7 @@ FRISO_API void friso_init_config( friso_config_t );
  * ----------------------------------------
  * This function is used to create a new friso segment type; 
  */
-FRISO_API friso_task_t friso_new_task( void );
+FRISO_API friso_task_t friso_new_task(alloc_context *actx);
 
 /*
  * Function: friso_free_task;
@@ -288,7 +288,7 @@ FRISO_API friso_token_t next_detect_token( friso_t, friso_config_t, friso_task_t
  * -----------------------------
  * This function used to create a new dictionary.(memory allocation).
  */
-FRISO_API friso_dic_t friso_dic_new( void );
+FRISO_API friso_dic_t friso_dic_new( alloc_context *actx );
 
 FRISO_API fstring file_get_line( fstring, FILE * );
 

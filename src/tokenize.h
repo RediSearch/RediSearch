@@ -76,8 +76,8 @@ typedef struct RSTokenizer {
   void (*Reset)(struct RSTokenizer *self, Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
 } RSTokenizer;
 
-RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
-RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts, alloc_context *actx);
+RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts, alloc_context *actx);
 
 #define TOKENIZE_DEFAULT_OPTIONS 0x00
 // Don't modify buffer at all during tokenization.

@@ -93,8 +93,8 @@ static void threadHandleCommand(void *p) {
   RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, ctx->bc);
 
   RedisModule_UnblockClient(ctx->bc, NULL);
-  rm_free(ctx->argv);
-  rm_free(p);
+  rm_free(NULL, ctx->argv);
+  rm_free(NULL, p);
 }
 
 void ConcurrentCmdCtx_KeepRedisCtx(ConcurrentCmdCtx *cctx) {
@@ -104,7 +104,7 @@ void ConcurrentCmdCtx_KeepRedisCtx(ConcurrentCmdCtx *cctx) {
 // Used by RSCordinator
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  ConcurrentCmdCtx *cmdCtx = rm_malloc(sizeof(*cmdCtx));
+  ConcurrentCmdCtx *cmdCtx = rm_malloc(NULL, sizeof(*cmdCtx));
   cmdCtx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   cmdCtx->argc = argc;
   cmdCtx->ctx = RedisModule_GetThreadSafeContext(cmdCtx->bc);
@@ -112,7 +112,7 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentC
   cmdCtx->handler = handler;
   cmdCtx->options = options;
   // Copy command arguments so they can be released by the calling thread
-  cmdCtx->argv = rm_calloc(argc, sizeof(RedisModuleString *));
+  cmdCtx->argv = rm_calloc(NULL, argc, sizeof(RedisModuleString *));
   for (int i = 0; i < argc; i++) {
     cmdCtx->argv[i] = RedisModule_CreateStringFromString(cmdCtx->ctx, argv[i]);
   }
@@ -179,7 +179,7 @@ void ConcurrentSearchCtx_InitSingle(ConcurrentSearchCtx *ctx, RedisModuleCtx *rc
   ctx->ctx = rctx;
   ctx->isLocked = 0;
   ctx->numOpenKeys = 1;
-  ctx->openKeys = rm_calloc(1, sizeof(*ctx->openKeys));
+  ctx->openKeys = rm_calloc(NULL, 1, sizeof(*ctx->openKeys));
   ctx->openKeys->cb = cb;
 }
 
@@ -194,7 +194,7 @@ void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx) {
     }
   }
 
-  rm_free(ctx->openKeys);
+  rm_free(NULL, ctx->openKeys);
   ctx->numOpenKeys = 0;
 }
 
@@ -214,7 +214,7 @@ void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx) {
 void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, ConcurrentReopenCallback cb,
                              void *privdata, void (*freePrivDataCallback)(void *)) {
   ctx->numOpenKeys++;
-  ctx->openKeys = rm_realloc(ctx->openKeys, ctx->numOpenKeys * sizeof(ConcurrentKeyCtx));
+  ctx->openKeys = rm_realloc(NULL, ctx->openKeys, ctx->numOpenKeys * sizeof(ConcurrentKeyCtx));
   ctx->openKeys[ctx->numOpenKeys - 1] = (ConcurrentKeyCtx){.cb = cb,
                                                            .privdata = privdata,
                                                            .freePrivData = freePrivDataCallback};

@@ -23,6 +23,8 @@
 extern "C" {
 #endif
 
+#include "rmalloc.h"
+
 typedef struct {
   char *str;
   int length;
@@ -30,7 +32,7 @@ typedef struct {
   int free_string_on_destroy;
 } metastring;
 
-void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp);
+void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp, alloc_context *actx);
 
 #ifdef __cplusplus
 }

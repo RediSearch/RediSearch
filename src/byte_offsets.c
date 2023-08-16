@@ -7,19 +7,19 @@
 #include "byte_offsets.h"
 #include <arpa/inet.h>
 
-RSByteOffsets *NewByteOffsets() {
-  RSByteOffsets *ret = rm_calloc(1, sizeof(*ret));
+RSByteOffsets *NewByteOffsets(alloc_context *actx) {
+  RSByteOffsets *ret = rm_calloc(actx, 1, sizeof(*ret));
   return ret;
 }
 
-void RSByteOffsets_Free(RSByteOffsets *offsets) {
-  rm_free(offsets->offsets.data);
-  rm_free(offsets->fields);
-  rm_free(offsets);
+void RSByteOffsets_Free(alloc_context *actx, RSByteOffsets *offsets) {
+  rm_free(actx, offsets->offsets.data);
+  rm_free(actx, offsets->fields);
+  rm_free(actx, offsets);
 }
 
-void RSByteOffsets_ReserveFields(RSByteOffsets *offsets, size_t numFields) {
-  offsets->fields = rm_realloc(offsets->fields, sizeof(*offsets->fields) * numFields);
+void RSByteOffsets_ReserveFields(alloc_context *actx, RSByteOffsets *offsets, size_t numFields) {
+  offsets->fields = rm_realloc(actx, offsets->fields, sizeof(*offsets->fields) * numFields);
 }
 
 RSByteOffsetField *RSByteOffsets_AddField(RSByteOffsets *offsets, uint32_t fieldId,
@@ -39,24 +39,24 @@ void ByteOffsetWriter_Move(ByteOffsetWriter *w, RSByteOffsets *offsets) {
 void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b) {
   BufferWriter w = NewBufferWriter(b);
 
-  Buffer_WriteU8(&w, offsets->numFields);
+  Buffer_WriteU8(NULL, &w, offsets->numFields);
 
   for (size_t ii = 0; ii < offsets->numFields; ++ii) {
-    Buffer_WriteU8(&w, offsets->fields[ii].fieldId);
-    Buffer_WriteU32(&w, offsets->fields[ii].firstTokPos);
-    Buffer_WriteU32(&w, offsets->fields[ii].lastTokPos);
+    Buffer_WriteU8(NULL, &w, offsets->fields[ii].fieldId);
+    Buffer_WriteU32(NULL, &w, offsets->fields[ii].firstTokPos);
+    Buffer_WriteU32(NULL, &w, offsets->fields[ii].lastTokPos);
   }
 
-  Buffer_WriteU32(&w, offsets->offsets.len);
-  Buffer_Write(&w, offsets->offsets.data, offsets->offsets.len);
+  Buffer_WriteU32(NULL, &w, offsets->offsets.len);
+  Buffer_Write(NULL, &w, offsets->offsets.data, offsets->offsets.len);
 }
 
-RSByteOffsets *LoadByteOffsets(Buffer *buf) {
+RSByteOffsets *LoadByteOffsets(alloc_context *actx, Buffer *buf) {
   BufferReader r = NewBufferReader(buf);
 
-  RSByteOffsets *offsets = NewByteOffsets();
+  RSByteOffsets *offsets = NewByteOffsets(actx);
   uint8_t numFields = Buffer_ReadU8(&r);
-  RSByteOffsets_ReserveFields(offsets, numFields);
+  RSByteOffsets_ReserveFields(actx, offsets, numFields);
 
   for (size_t ii = 0; ii < numFields; ++ii) {
     uint8_t fieldId = Buffer_ReadU8(&r);
@@ -69,7 +69,7 @@ RSByteOffsets *LoadByteOffsets(Buffer *buf) {
   uint32_t offsetsLen = Buffer_ReadU32(&r);
   offsets->offsets.len = offsetsLen;
   if (offsetsLen) {
-    offsets->offsets.data = rm_malloc(offsetsLen);
+    offsets->offsets.data = rm_malloc(actx, offsetsLen);
     Buffer_Read(&r, offsets->offsets.data, offsetsLen);
   } else {
     offsets->offsets.data = NULL;

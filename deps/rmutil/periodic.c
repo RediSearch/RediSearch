@@ -74,7 +74,7 @@ static void *rmutilTimer_Loop(void *ctx) {
   // free resources associated with the timer
   pthread_cond_destroy(&tm->cond);
   pthread_mutex_unlock(&tm->lock);
-  rm_free(tm);
+  rm_free(NULL, tm);
 
   return NULL;
 }

@@ -43,9 +43,9 @@
  *         cause we should use emalloc,ecalloc .ege. in php.
  * so you could make it better apdat the php environment.
  */
-#define FRISO_CALLOC(_bytes, _blocks) rm_calloc(_bytes, _blocks)
-#define FRISO_MALLOC(_bytes) rm_malloc(_bytes)
-#define FRISO_FREE(_ptr) rm_free(_ptr)
+#define FRISO_CALLOC(ctx, _bytes, _blocks) rm_calloc(ctx, _bytes, _blocks)
+#define FRISO_MALLOC(ctx, _bytes) rm_malloc(ctx, _bytes)
+#define FRISO_FREE(ctx, _ptr) rm_free(ctx, _ptr)
 
 typedef unsigned short ushort_t;
 typedef unsigned char uchar_t;
@@ -165,7 +165,7 @@ typedef friso_array_entry *friso_array_t;
 #define new_array_list() new_array_list_with_opacity(__DEFAULT_ARRAY_LIST_OPACITY__)
 
 // create a new friso dynamic array with the given opacity
-FRISO_API friso_array_t new_array_list_with_opacity(uint_t);
+FRISO_API friso_array_t new_array_list_with_opacity(uint_t, alloc_context *actx);
 
 /*
  * free the given friso array.
@@ -195,7 +195,7 @@ FRISO_API void *array_list_set(friso_array_t, uint_t, void *);
 FRISO_API void *array_list_remove(friso_array_t, uint_t);
 
 /*trim the array list for final use.*/
-FRISO_API friso_array_t array_list_trim(friso_array_t);
+FRISO_API friso_array_t array_list_trim(friso_array_t, alloc_context *actx);
 
 /*
  * clear the array list.
@@ -316,7 +316,7 @@ typedef friso_hash_cdt *friso_hash_t;
  * --------------------------------
  * this function allocates a new symbol table with no entries.
  */
-FRISO_API friso_hash_t new_hash_table(void);
+FRISO_API friso_hash_t new_hash_table(alloc_context *actx);
 
 /*
  * Function: free_hash_table
