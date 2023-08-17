@@ -52,35 +52,13 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *result, RSValue **argv, siz
   return EXPR_EVAL_OK;
 }
 
-/* lower(str) */
-static int stringfunc_tolower(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
-                              QueryError *err) {
-
-  VALIDATE_ARGS("lower", 1, 1, err);
-  RSValue *val = RSValue_Dereference(argv[0]);
-  if (val->t == RSValue_Duo) {
-    // continue with first value
-    val = RS_DUOVAL_VAL(*val);
-  } else if (!RSValue_IsString(val)) {
-    RSValue_MakeReference(result, RS_NullVal());
-    return EXPR_EVAL_OK;
+static int stringfunc_tolowerupper(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                              QueryError *err, bool lower) {
+  if (lower) {
+    VALIDATE_ARGS("lower", 1, 1, err);
+  } else {
+    VALIDATE_ARGS("upper", 1, 1, err);
   }
-
-  size_t sz = 0;
-  char *p = (char *)RSValue_StringPtrLen(val, &sz);
-  char *np = ExprEval_UnalignedAlloc(ctx, sz + 1);
-  for (size_t i = 0; i < sz; i++) {
-    np[i] = tolower(p[i]);
-  }
-  np[sz] = '\0';
-  RSValue_SetConstString(result, np, sz);
-  return EXPR_EVAL_OK;
-}
-
-/* upper(str) */
-static int stringfunc_toupper(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
-                              QueryError *err) {
-  VALIDATE_ARGS("upper", 1, 1, err);
 
   RSValue *val = RSValue_Dereference(argv[0]);
 
@@ -95,15 +73,29 @@ static int stringfunc_toupper(ExprEval *ctx, RSValue *result, RSValue **argv, si
     return EXPR_EVAL_OK;
   }
 
+  int (*func)(int) = lower ? tolower : toupper;
+
   size_t sz = 0;
   char *p = (char *)RSValue_StringPtrLen(val, &sz);
   char *np = ExprEval_UnalignedAlloc(ctx, sz + 1);
   for (size_t i = 0; i < sz; i++) {
-    np[i] = toupper(p[i]);
+    np[i] = func(p[i]);
   }
   np[sz] = '\0';
   RSValue_SetConstString(result, np, sz);
   return EXPR_EVAL_OK;
+  }
+
+/* lower(str) */
+static int stringfunc_tolower(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                              QueryError *err) {
+  return stringfunc_tolowerupper(ctx, result, argv, argc, err, true);
+}
+
+/* upper(str) */
+static int stringfunc_toupper(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                              QueryError *err) {
+  return stringfunc_tolowerupper(ctx, result, argv, argc, err, false);
 }
 
 /* substr(str, offset, len) */
