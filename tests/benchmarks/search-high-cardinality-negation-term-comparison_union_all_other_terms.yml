@@ -1,0 +1,40 @@
+version: 0.2
+name: "search-high-cardinality-negation-term-comparison_union_all_other_terms"
+description: "
+             This dataset contains 1M docs. The documents contains a tag field with value between 1 an 10.
+             This means that when we filter a tag we get around 100K docs.
+             This benchmark specifically focusing on getting the negation of a term and checking what's faster: 'negate a term or union all the other options'
+             "
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5
+metadata:
+  component: "search"
+setups:
+  - oss-standalone
+  - oss-cluster-02-primaries
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+  - oss-cluster-16-primaries
+  - oss-cluster-20-primaries
+  - oss-cluster-24-primaries
+  - oss-cluster-32-primaries
+
+dbconfig:
+  - dataset_name: "1M-high_cardinality_numeric_and_tags-different_tags_10-different_numeric_1M"
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - requests: 1000000
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-high_cardinality_numeric_and_tags-different_tags_10-different_numeric_1M/1M-high_cardinality_numeric_and_tags-different_tags_10-different_numeric_1M.redisearch.commands.SETUP.csv"
+  - init_commands:
+      - '"FT.CREATE" "idx:cardinality" "SCHEMA" "numeric_field" "NUMERIC" "SORTABLE" "tag_field" "TAG" "SORTABLE" "UNF"' 
+  - dataset_load_timeout_secs: 180
+  - check:
+      keyspacelen: 1000000
+
+clientconfig:
+  benchmark_type: "read-only"
+  tool: memtier_benchmark
+  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.SEARCH idx:cardinality \"@tag_field:{10|9|8|7|6|5|4|3|2}\" LIMIT 0 10 TIMEOUT 0'"
