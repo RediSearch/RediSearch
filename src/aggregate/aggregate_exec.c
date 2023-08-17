@@ -958,7 +958,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 }
 
 static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count) {
-  Cursor *cursor = _Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
+  Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
 
   if (cursor == NULL) {
     RedisModule_Reply_Error(reply, "Cursor not found");
