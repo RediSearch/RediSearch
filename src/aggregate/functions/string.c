@@ -83,39 +83,14 @@ static int stringfunc_toupper(ExprEval *ctx, RSValue *result, RSValue **argv, si
   VALIDATE_ARGS("upper", 1, 1, err);
 
   RSValue *val = RSValue_Dereference(argv[0]);
+
   if (val->t == RSValue_Duo) {
-    if (RS_DUOVAL_OTHER2VAL(*val) == RS_NullVal()) {
-      // japi < 4, continue with first value
-      val = RS_DUOVAL_VAL(*val);
-    } else {
-      val = RS_DUOVAL_OTHER2VAL(*val);
-      uint n_vals = RSValue_ArrayLen(val);
-      // RSValue **vals = array_new(RSValue *, 1);
-      RSValue *vals[n_vals];
-      for (uint i = 0; i < n_vals; i++) {
-        RSValue *curr_p = RSValue_ArrayItem(val, i);
-        RSValue *curr_np = RS_NewValue(RSValue_String);
+    // We know that apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST and japi_ver >= 3
+    // continue with first value
+    val = RS_DUOVAL_VAL(*val);
+  }
 
-        size_t sz = 0;
-        char *p = (char *)RSValue_StringPtrLen(curr_p, &sz);
-        char *np = ExprEval_UnalignedAlloc(ctx, sz + 1);
-        for (size_t i = 0; i < sz; i++) {
-          np[i] = toupper(p[i]);
-        }
-        np[sz] = '\0';
-        RSValue_SetConstString(curr_np, np, sz);
-        vals[i] = curr_np;
-      }
-
-      // set result to array of upper values
-      result->t = RSValue_Array;
-      result->refcount = 1;
-      result->arrval.vals = vals;
-      result->arrval.len = n_vals;
-      result->arrval.staticarray = true;
-      return EXPR_EVAL_OK;
-    }
-  } else if (!RSValue_IsString(val)) {
+  if (!RSValue_IsString(val)) {
     RSValue_MakeReference(result, RS_NullVal());
     return EXPR_EVAL_OK;
   }
