@@ -473,7 +473,7 @@ jobs:
 
   build-macos-x64:
     macos:
-      xcode: 14.2.0
+      xcode: 13.4.1
     resource_class: macos.x86.medium.gen2
     parameters:
       test_params:
