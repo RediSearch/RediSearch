@@ -1134,4 +1134,12 @@ def testUpperLower(env):
 
     # validate the `lower` case
     env.assertOk(env.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["TAG1"]}'))
-    env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'lower(@tags)', 'AS', 'upp').equal([1, ['tags', '["TAG1"]', 'upp', 'tag1']])
+    env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'lower(@tags)', 'AS', 'low').equal([1, ['tags', '["TAG1"]', 'low', 'tag1']])
+
+    # the same with multi-values
+
+    env.assertOk(env.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["tag1, tag2"]}'))
+    env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'upper(@tags)', 'AS', 'upp').equal([1, ['tags', '["tag1", "tag2"]', 'upp', ['TAG1', 'TAG2']]])
+
+    env.assertOk(env.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["TAG1", "TAG2"]}'))
+    env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'lower(@tags)', 'AS', 'low').equal([1, ['tags', '["TAG1", "TAG2"]', 'low', ['tag1', 'tag2']]])
