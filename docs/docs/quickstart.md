@@ -1,14 +1,34 @@
 ---
-title: "Quickstart: Searching and Querying Redis data"
-linkTitle: Quickstart
-description: Learn how to search and query your Redis data
+title: Quick start
+linkTitle: Quick start
+description: Get started with search and query
 weight: 1
 aliases:
     - /docs/interact/search-and-query/quick_start
     - /docs/stack/search/quick_start
 ---
 
-Make sure that you have [Redis Stack installed](/docs/getting-started/install-stack/) and running. Alternatively, you can [create a free Redis Cloud account](https://redis.com/try-free/).
+Make sure that you have [Redis Stack installed](/docs/getting-started/install-stack/) and running. Alternatively, you can [create a free Redis Cloud account](https://redis.com/try-free/), which includes access to all Redis Stack features.
+
+## Overview
+
+In this guide, we'll demonstrate how to:
+
+* Create a secondary index.
+* Load [JSON](/docs/stack/json/) data into Redis.
+* Perform simple searches on the indexed data.
+
+The data we'll use is a simple bicycle inventory, a JSON array, where each element has the following structure:
+
+```json
+{
+  "brand": "brand name",
+  "condition": "new | used | refurbished",
+  "description": "description",
+  "model": "model",
+  "price": 0
+}
+```
 
 ## Connect to Redis Stack
 
@@ -16,22 +36,22 @@ Make sure that you have [Redis Stack installed](/docs/getting-started/install-st
 > redis-cli -h 127.0.0.1 -p 6379
 {{< /clients-example>}}
 
-## Create an Index
+## Create an index
 
-Use the `FT.CREATE` command to create an index with fields and weights (default weight is 1.0):
+The Redis keyspace is unstructured and flat. As such, you can only access data by primary key (keyname), making it cumbersome to find a document based on a secondary characteristic, such as finding a school by name or listing all schools in a particular city. Redis Stack addresses this need by providing the ability to add secondary indexes to your data. Redis currently supports secondary index creation on the [HASH](/docs/data-types/hashes) and [JSON](/docs/stack/json) data types.
+
+We'll use the `FT.CREATE` command to create an index with fields and weights, where the default weight is 1.0. Note how each term of the `SCHEMA` is an element of a JSON object, identified by its [JSONpath](/docs/data-types/json/path/).
 
 {{< clients-example search_quickstart create_index >}}
 > FT.CREATE idx:bicycle ON JSON PREFIX 1 bicycle: SCORE 1.0 SCHEMA $.brand AS brand TEXT WEIGHT 1.0 $.model AS model TEXT WEIGHT 1.0 $.description AS description TEXT WEIGHT 1.0 $.price AS price NUMERIC $.condition AS condition TAG SEPARATOR ,
 OK
 {{< / clients-example >}}
 
-Any existing JSON documents that have a key prefixed with `bicycle:` are automatically added to the index at this time.
+Any pre-existing JSON documents that have a key prefixed with `bicycle:` are automatically added to the index after it is created. Additionally, any JSON documents with the same prefix that are created after index creation are also added to the index.
 
-## Add Documents
+## Add JSON documents
 
-After you create the index, any new JSON documents with the `bicycle:` prefix are automatically indexed upon creation.
-
-Use the `JSON.SET` command to create a new [JSON](/docs/stack/json/) document and add it to the index:
+Use the `JSON.SET` command to create new JSON documents.
 
 {{< clients-example search_quickstart add_documents "" 2 >}}
 > JSON.SET "bicycle:0" "." "{\"brand\": \"Velorim\", \"model\": \"Jigger\", \"price\": 270, \"description\": \"Small and powerful, the Jigger is the best ride for the smallest of tikes! This is the tiniest kids\\u2019 pedal bike on the market available without a coaster brake, the Jigger is the vehicle of choice for the rare tenacious little rider raring to go.\", \"condition\": \"new\"}"
@@ -56,10 +76,11 @@ OK
 OK
 {{< / clients-example >}}
 
-## Search the Index
+## Search the data using the index
 
-### Wildcard Query
-Let's retrieve all indexed documents using the `FT.SEARCH` command. 
+### Wildcard query
+
+Let's retrieve all indexed documents using the `FT.SEARCH` command. Note the use of the `LIMIT` clause below, which provides for search result pagination.
 
 {{< clients-example search_quickstart wildcard_query "" 10 >}}
 > FT.SEARCH "idx:bicycle" "*" LIMIT 0 10
@@ -96,9 +117,9 @@ Let's retrieve all indexed documents using the `FT.SEARCH` command.
     2) "{\"brand\":\"nHill\",\"model\":\"Summit\",\"price\":1200,\"description\":\"This budget mountain bike from nHill performs well both on bike paths and on the trail. The fork with 100mm of travel absorbs rough terrain. Fat Kenda Booster tires give you grip in corners and on wet trails. The Shimano Tourney drivetrain offered enough gears for finding a comfortable pace to ride uphill, and the Tektro hydraulic disc brakes break smoothly. Whether you want an affordable bike that you can take to work, but also take trail in mountains on the weekends or you\xe2\x80\x99re just after a stable, comfortable ride for the bike path, the Summit gives a good value for money.\",\"condition\":\"new\"}"
 {{< / clients-example >}}
 
-### Query with a single term
+### Single-term query
 
-To perform simple single term query and find all bicycles with specific model we can use the following query:
+To perform a simple, single-term query, such as finding all bicycles with a specific model, we can use the following query:
 
 {{< clients-example search_quickstart query_single_term >}}
 > FT.SEARCH "idx:bicycle" "@model:Jigger" LIMIT 0 10
@@ -110,8 +131,7 @@ To perform simple single term query and find all bicycles with specific model we
 
 ### Exact match query
 
-To perform an exact match query, use double quotes around the search term. 
-For example, to find all bicycles with the brand `Noka Bikes`:
+To perform an exact match query, such as finding all bicycles with the brand name `Noka Bikes`, we can use the following query. Note the use double quotes around the search term.
 
 {{< clients-example search_quickstart query_exact_matching >}}
 > FT.SEARCH "idx:bicycle" "@brand:\"Noka Bikes\"" LIMIT 0 10
@@ -121,4 +141,4 @@ For example, to find all bicycles with the brand `Noka Bikes`:
    2) "{\"brand\":\"Noka Bikes\",\"model\":\"Kahuna\",\"price\":3200,\"description\":\"Whether you want to try your hand at XC racing or are looking for a lively trail bike that's just as inspiring on the climbs as it is over rougher ground, the Wilder is one heck of a bike built specifically for short women. Both the frames and components have been tweaked to include a women\xe2\x80\x99s saddle, different bars and unique colourway.\",\"condition\":\"used\"}"
 {{< / clients-example >}}
 
-To learn how to make more advanced queries, see the [Querying syntax](/docs/interact/search-and-query/query/).
+To learn how to make more advanced queries, see [Query](/docs/interact/search-and-query/query/).
