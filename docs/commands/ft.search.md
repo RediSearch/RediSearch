@@ -514,7 +514,8 @@ Adding a couple of geometries using `HSET`:
 Query with `WITHIN` operator:
 
 {{< highlight bash >}}
-127.0.0.1:6379> FT.SEARCH idx '@geom:[WITHIN POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]' DIALECT 3
+127.0.0.1:6379> FT.SEARCH idx '@geom:[WITHIN $poly]' PARAMS 2 poly 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))' DIALECT 3
+
 1) (integer) 1
 2) "small"
 3) 1) "geom"
@@ -525,7 +526,8 @@ Query with `CONTAINS` operator:
 
 
 {{< highlight bash >}}
-127.0.0.1:6379> FT.SEARCH idx '@geom:[CONTAINS POLYGON((2 2, 2 50, 50 50, 50 2, 2 2))]' DIALECT 3
+127.0.0.1:6379> FT.SEARCH idx '@geom:[CONTAINS $poly]' PARAMS 2 poly 'POLYGON((2 2, 2 50, 50 50, 50 2, 2 2))' DIALECT 3
+
 1) (integer) 2
 2) "small"
 3) 1) "geom"
