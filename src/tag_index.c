@@ -5,6 +5,7 @@
  */
 
 #include "tag_index.h"
+#include "delimiters.h"
 #include "suffix.h"
 #include "rmalloc.h"
 #include "rmutil/vector.h"
@@ -66,8 +67,10 @@ char *TagIndex_SepString(char sep, char **s, size_t *toklen) {
   return start;
 }
 
-static int tokenizeTagString(const char *str, char sep, TagFieldFlags flags, char ***resArray) {
-  if (sep == TAG_FIELD_DEFAULT_JSON_SEP) {
+static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resArray) {
+  TagFieldFlags flags = fs->tagOpts.tagFlags;
+  if ( !FieldSpec_HasCustomDelimiters(fs) &&
+        fs->tagOpts.tagSep == TAG_FIELD_DEFAULT_JSON_SEP) {
     char *tok = rm_strdup(str);
     if (!(flags & TagField_CaseSensitive)) { // check case sensitive
       tok = strtolower(tok);
@@ -81,7 +84,14 @@ static int tokenizeTagString(const char *str, char sep, TagFieldFlags flags, cha
   while (p) {
     // get the next token
     size_t toklen;
-    char *tok = TagIndex_SepString(sep, &p, &toklen);
+    char *tok = NULL;
+    if (!FieldSpec_HasCustomDelimiters(fs)) {
+      // backward compatibility
+      tok = TagIndex_SepString(fs->tagOpts.tagSep, &p, &toklen);
+    } else {
+      tok = toksep(&p, &toklen, fs->delimiters);
+    }
+
     // this means we're at the end
     if (tok == NULL) break;
     if (toklen > 0) {
@@ -97,21 +107,22 @@ static int tokenizeTagString(const char *str, char sep, TagFieldFlags flags, cha
   return REDISMODULE_OK;
 }
 
-int TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data, FieldIndexerData *fdata) {
+int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data,
+                        FieldIndexerData *fdata) {
   arrayof(char*) arr = array_new(char *, 4);
   const char *str;
   int ret = 1;
   switch (data->unionType) {
   case FLD_VAR_T_RMS:
     str = (char *)RedisModule_StringPtrLen(data->text, NULL);
-    tokenizeTagString(str, sep, flags, &arr);
+    tokenizeTagString(str, fs, &arr);
     break;
   case FLD_VAR_T_CSTR:
-    tokenizeTagString(data->strval, sep, flags, &arr);
+    tokenizeTagString(data->strval, fs, &arr);
     break;
   case FLD_VAR_T_ARRAY:
     for (int i = 0; i < data->arrayLen; i++) {
-      tokenizeTagString(data->multiVal[i], sep, flags, &arr);
+      tokenizeTagString(data->multiVal[i], fs, &arr);
     }
     break;
   case FLD_VAR_T_NULL:

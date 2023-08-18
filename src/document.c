@@ -787,7 +787,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 }
 
 FIELD_PREPROCESSOR(tagPreprocessor) {
-  if (TagIndex_Preprocess(fs->tagOpts.tagSep, fs->tagOpts.tagFlags, field, fdata)) {
+  if (TagIndex_Preprocess(fs, field, fdata)) {
     if (FieldSpec_IsSortable(fs)) {
       if (field->unionType != FLD_VAR_T_ARRAY) {
         size_t fl;

@@ -414,8 +414,9 @@ static bool checkPhoneticAlgorithmAndLang(const char *matcher) {
 }
 
 static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status,
-  DelimiterList *indexDelimiters) {
+                          DelimiterList *indexDelimiters) {
   int rc;
+  size_t len;
   // this is a text field
   // init default weight and type
   while (!AC_IsAtEnd(ac)) {
@@ -456,10 +457,15 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status,
       continue;
     } else if(AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
       fs->options |= FieldSpec_WithSuffixTrie;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
+      FieldSpec_SetSortable(fs);
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR)) {      // Explicitly requested UNF
+          fs->options |= FieldSpec_UNF;
+      }
+    } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
+      fs->options |= FieldSpec_NotIndexable;
     } else if (AC_AdvanceIfMatch(ac, SPEC_SET_DELIMITERS_STR)) {
       const char *separatorStr;
-      size_t len;
-      int rc;
       if ((rc = AC_GetString(ac, &separatorStr, &len, 0)) != AC_OK) {
         return 0;
       }
@@ -473,8 +479,6 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status,
       }
     } else if (AC_AdvanceIfMatch(ac, SPEC_ADD_DELIMITERS_STR)) {
       const char *addSeparatorStr;
-      size_t len;
-      int rc;
       if ((rc = AC_GetString(ac, &addSeparatorStr, &len, 0)) != AC_OK) {
         return 0;
       }
@@ -488,8 +492,81 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status,
       }
     } else if (AC_AdvanceIfMatch(ac, SPEC_DEL_DELIMITERS_STR)) {
       const char *delSeparatorStr;
-      size_t len;
-      int rc;
+      if ((rc = AC_GetString(ac, &delSeparatorStr, &len, 0)) != AC_OK) {
+        return 0;
+      }
+
+      if(delSeparatorStr != NULL) {
+        if(fs->delimiters == NULL && indexDelimiters != NULL) {
+          fs->delimiters = NewDelimiterListCStr(indexDelimiters->delimiterString);
+        }
+        fs->delimiters = RemoveDelimiterListCStr(delSeparatorStr, fs->delimiters);
+        fs->options |= FieldSpec_WithCustomDelimiters;
+      }
+    } else {
+      break;
+    }
+  }
+  return 1;
+}
+
+static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status,
+                          DelimiterList *indexDelimiters) {
+  int rc;
+  size_t len;
+  while (!AC_IsAtEnd(ac)) {
+    if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
+      if (AC_IsAtEnd(ac)) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_TAG_SEPARATOR_STR " requires an argument");
+        return 0;
+      }
+      const char *sep = AC_GetStringNC(ac, NULL);
+      if (strlen(sep) != 1) {
+        QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
+                              "Tag separator must be a single character. Got `%s`", sep);
+        return 0;
+      }
+      fs->tagOpts.tagSep = *sep;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_CASE_SENSITIVE_STR)) {
+      fs->tagOpts.tagFlags |= TagField_CaseSensitive;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
+      fs->options |= FieldSpec_WithSuffixTrie;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
+      FieldSpec_SetSortable(fs);
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
+          TAG_FIELD_IS(fs, TagField_CaseSensitive)) { // We don't normalize case sensitive tags. Implicit UNF
+        fs->options |= FieldSpec_UNF;
+      }
+    } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
+      fs->options |= FieldSpec_NotIndexable;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_SET_DELIMITERS_STR)) {
+      const char *separatorStr;
+      if ((rc = AC_GetString(ac, &separatorStr, &len, 0)) != AC_OK) {
+        return 0;
+      }
+
+      if(separatorStr != NULL) {
+        if(fs->delimiters) {
+          DelimiterList_Unref(fs->delimiters);
+        }
+        fs->delimiters = NewDelimiterListCStr(separatorStr);
+        fs->options |= FieldSpec_WithCustomDelimiters;
+      }
+    } else if (AC_AdvanceIfMatch(ac, SPEC_ADD_DELIMITERS_STR)) {
+      const char *addSeparatorStr;
+      if ((rc = AC_GetString(ac, &addSeparatorStr, &len, 0)) != AC_OK) {
+        return 0;
+      }
+
+      if(addSeparatorStr != NULL) {
+        if(fs->delimiters == NULL && indexDelimiters != NULL) {
+          fs->delimiters = NewDelimiterListCStr(indexDelimiters->delimiterString);
+        }
+        fs->delimiters = AddDelimiterListCStr(addSeparatorStr, fs->delimiters);
+        fs->options |= FieldSpec_WithCustomDelimiters;
+      }
+    } else if (AC_AdvanceIfMatch(ac, SPEC_DEL_DELIMITERS_STR)) {
+      const char *delSeparatorStr;
       if ((rc = AC_GetString(ac, &delSeparatorStr, &len, 0)) != AC_OK) {
         return 0;
       }
@@ -863,6 +940,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     if (!parseTextField(fs, ac, status, sp->delimiters)) {
       goto error;
     }
+    return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
     fs->types |= INDEXFLD_T_NUMERIC;
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEO_STR)) {  // geo field
@@ -876,27 +954,10 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
     fs->types |= INDEXFLD_T_TAG;
-    while (!AC_IsAtEnd(ac)) {
-      if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
-        if (AC_IsAtEnd(ac)) {
-          QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_TAG_SEPARATOR_STR " requires an argument");
-          goto error;
-        }
-        const char *sep = AC_GetStringNC(ac, NULL);
-        if (strlen(sep) != 1) {
-          QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
-                                "Tag separator must be a single character. Got `%s`", sep);
-          goto error;
-        }
-        fs->tagOpts.tagSep = *sep;
-      } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_CASE_SENSITIVE_STR)) {
-        fs->tagOpts.tagFlags |= TagField_CaseSensitive;
-      } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
-        fs->options |= FieldSpec_WithSuffixTrie;
-      } else {
-        break;
-      }
+    if (!parseTagField(fs, ac, status, sp->delimiters)) {
+      goto error;
     }
+    return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
     sp->flags |= Index_HasGeometry;
     fs->types |= INDEXFLD_T_GEOMETRY;
@@ -914,13 +975,17 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
 
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
-      FieldSpec_SetSortable(fs);
-      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
-          FIELD_IS(fs, INDEXFLD_T_NUMERIC) ||         // We don't normalize numeric fields. Implicit UNF
-          TAG_FIELD_IS(fs, TagField_CaseSensitive)) { // We don't normalize case sensitive tags. Implicit UNF
-        fs->options |= FieldSpec_UNF;
+      if(FIELD_IS(fs, INDEXFLD_T_NUMERIC) || FIELD_IS(fs, INDEXFLD_T_GEO)) {
+        FieldSpec_SetSortable(fs);
+        if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
+            FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {         // We don't normalize numeric fields. Implicit UNF
+          fs->options |= FieldSpec_UNF;
+        }
+        continue;
+      } else {
+        QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Field `%s` can't have the option SORTABLE", fs->name);
+        goto error;
       }
-      continue;
     } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
       fs->options |= FieldSpec_NotIndexable;
       continue;

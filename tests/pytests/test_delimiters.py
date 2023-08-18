@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
 
-import unittest
-from common import *
+from common import assertInfoField, getConnectionByEnv, waitForIndex
 from RLTest import Env
 
 _defaultDelimiters = '\t !\"#$%&\'()*+,-./:;<=>?@[]^`{|}~'
 
-def test01_Delimiters(env):
+def test01_IndexDelimiters(env):
     # Index with custom delimiters with escaped characters
     # the delimiters characters are printed ordered by its ASCII code
     env.expect(
@@ -35,6 +34,28 @@ def test01_Delimiters(env):
         'SCHEMA', 'foo', 'text').ok()
     assertInfoField(env, 'idx1', 'delimiters', '\t !\"#$%&\'()*+,-./:;<=>?@[]^`{|}~')
     env.execute_command('FT.DROPINDEX', 'idx1')
+
+    # # TODO:
+    # # Multiple rules for index level delimiters
+    # env.expect(
+    #     'FT.CREATE', 'idx1', 'ON', 'HASH',
+    #     'DELIMITERS', '', 'DELIMITERS+', 'a', 'DELIMITERS+', 'b',
+    #     'PREFIX', '1', 'customer:',
+    #     'SCHEMA',
+    #     'field1', 'TEXT').equal('OK')
+    # waitForIndex(env, 'idx1')
+    # assertInfoField(env, 'idx1', 'delimiters', 'ab')
+    # env.execute_command('FT.DROPINDEX', 'idx1')
+
+    # env.expect(
+    #     'FT.CREATE', 'idx1', 'ON', 'HASH',
+    #     'DELIMITERS', 'abcd', 'DELIMITERS-', 'a', 'DELIMITERS-', 'b',
+    #     'PREFIX', '1', 'customer:',
+    #     'SCHEMA',
+    #     'field1', 'TEXT').equal('OK')
+    # waitForIndex(env, 'idx1')
+    # assertInfoField(env, 'idx1', 'delimiters', 'cd')
+
 
 def test02_IndexOnHashWithCustomDelimiter(env):
     conn = getConnectionByEnv(env)
@@ -310,7 +331,7 @@ def test07_SummarizeCustomDelimiterByField(env):
     ).equal('OK')
 
     res = env.execute_command(
-        'FT.SEARCH', 'idx', 'self\-guided',
+        'FT.SEARCH', 'idx', 'self\\-guided',
         'SUMMARIZE', 'FIELDS', '1', 'txt', 'LEN', '3',
         'HIGHLIGHT', 'FIELDS', '1', 'txt', 'TAGS', '<b>', '</b>')
     expected_result = [1, 'text1', ['txt', 'is <b>self-guided</b> tour... ']]
@@ -318,7 +339,7 @@ def test07_SummarizeCustomDelimiterByField(env):
 
     env.execute_command('FT.DROPINDEX', 'idx')
 
-def test08_IndexDelimitersConfig(env):
+def test08_FieldDelimitersConfig(env):
 
     # Index with custom delimiters by field, single rule by field
     env.expect(
@@ -352,7 +373,7 @@ def test08_IndexDelimitersConfig(env):
         env.assertEqual(res[7][2][8], 'delimiters')
         env.assertEqual(res[7][2][9], _defaultDelimiters)
 
-def test09_IndexDelimitersConfigMultipleRules(env):
+def test09_FieldDelimitersConfigMultipleRules(env):
 
     # Index with custom delimiters by field, multiple rules by field
     env.expect(
@@ -367,7 +388,12 @@ def test09_IndexDelimitersConfigMultipleRules(env):
         'field3', 'TEXT', 'DELIMITERS+', '??z??', 'DELIMITERS-', 'zxy',
         'SORTABLE',
         'field4', 'TEXT', 'DELIMITERS+', '',
-        'SORTABLE').equal('OK')
+        'SORTABLE',
+        'field5', 'TEXT', 'DELIMITERS+', '??z??', 'DELIMITERS+', 'zxy',
+        'SORTABLE',
+        'field6', 'TEXT', 'DELIMITERS', 'abcd*', 'DELIMITERS-', 'b',
+        'DELIMITERS-', '*', 'SORTABLE',
+        ).equal('OK')
     waitForIndex(env, 'idx2')
 
     assertInfoField(env, 'idx2', 'delimiters', '')
@@ -391,3 +417,80 @@ def test09_IndexDelimitersConfigMultipleRules(env):
         env.assertEqual(res[7][3][1], 'field4')
         env.assertEqual(res[7][3][8], 'delimiters')
         env.assertEqual(res[7][3][9], '')
+        # field5 delimiters
+        env.assertEqual(res[7][4][1], 'field5')
+        env.assertEqual(res[7][4][8], 'delimiters')
+        env.assertEqual(res[7][4][9], '?xyz')
+        # field6 delimiters
+        env.assertEqual(res[7][5][1], 'field6')
+        env.assertEqual(res[7][5][8], 'delimiters')
+        env.assertEqual(res[7][5][9], 'acd')
+
+def test10_IndexOnHashTagDelimiters(env):
+    conn = getConnectionByEnv(env)
+
+    conn.execute_command(
+        'HSET', 'traveller:1', 'cities', 'New York, Barcelona, San Francisco',
+        'name', 'Tara Holden')
+    conn.execute_command(
+        'HSET', 'traveller:2', 'cities', 'San Francisco',
+        'name', 'Kate Connor')
+
+    # Create index without DELIMITER in TAG field should use the SEPARATOR char
+    # by default (backward comptible)
+    env.expect(
+        'FT.CREATE', 'tagIndex1', 'ON', 'HASH',
+        'PREFIX', '1', 'traveller:',
+        'SCHEMA', 'name', 'TEXT', 'cities', 'TAG').equal('OK')
+    waitForIndex(env, 'tagIndex1')
+
+    res = env.execute_command('FT.TAGVALS', 'tagIndex1', 'cities')
+    expected_result = ['barcelona', 'new york', 'san francisco']
+    env.assertEqual(res, expected_result)
+
+    res = env.execute_command(
+        'FT.SEARCH', 'tagIndex1', '@cities:{san francisco}',
+        'RETURN', '1', 'name')
+    env.assertEqual(res[0], 2)
+
+    # TODO: Check if this is the expected behavior
+    # Create index using DELIMITERS ','
+    env.expect(
+        'FT.CREATE', 'tagIndex2', 'ON', 'HASH',
+        'PREFIX', '1', 'traveller:',
+        'SCHEMA',
+        'name', 'TEXT',
+        'cities', 'TAG', 'DELIMITERS', ',').equal('OK')
+    waitForIndex(env, 'tagIndex2')
+
+    res = env.execute_command('FT.TAGVALS', 'tagIndex2', 'cities')
+    expected_result =  [' barcelona', ' san francisco', 'new york', 'san francisco']
+    env.assertEqual(res, expected_result)
+
+def test11_IndexOnJsonTagDelimiters(env):
+    conn = getConnectionByEnv(env)
+
+    # Create sample data
+    conn.execute_command(
+        'JSON.SET', 'page:1', '$',
+        '{"title":"p1", "url":"https://redis.io/"}')
+    conn.execute_command(
+        'JSON.SET', 'page:2', '$',
+        '{"title":"p2", "url":"https://www.youtube.com/watch?v=infTV4ifNZY"}')
+    conn.execute_command(
+        'JSON.SET', 'page:3', '$',
+        '{"title":"p3", "url":"https://www.youtube.com/watch?v=abc324XXXX"}')
+
+    # Create index using DELIMITERS '='
+    env.expect(
+        'FT.CREATE', 'idx', 'ON', 'JSON',
+        'PREFIX', '1', 'page:',
+        'SCHEMA',
+        '$..title', 'AS', 'title', 'TEXT', 'SORTABLE',
+        '$..url', 'AS', 'url', 'TAG', 'DELIMITERS', '=', 'SORTABLE').equal('OK')
+    waitForIndex(env, 'idx')
+
+    res = env.execute_command('FT.TAGVALS', 'idx', 'url')
+    expected_result = ['abc324xxxx', 'https://redis.io/',
+                        'https://www.youtube.com/watch?v', 'inftv4ifnzy']
+    env.assertEqual(res, expected_result)

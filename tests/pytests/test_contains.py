@@ -5,18 +5,20 @@ from RLTest import Env
 
 def testWITHSUFFIXTRIEParamText(env):
     conn = getConnectionByEnv(env)
-    env.expect('ft.create', 'idx', 'schema', 't', 'TEXT', 'SORTABLE', 'WITHSUFFIXTRIE').error()
-    env.expect('ft.create', 'idx', 'schema', 't', 'TEXT', 'SORTABLE', 'NOSTEM').error() # sortable must be last
 
     # without sortable
     env.expect('ft.create', 'idx', 'schema', 't', 'TEXT', 'WITHSUFFIXTRIE').ok()
     res_info = [['identifier', 't', 'attribute', 't', 'type', 'TEXT', 'WEIGHT', '1', 'WITHSUFFIXTRIE']]
     assertInfoField(env, 'idx', 'attributes', res_info)
 
-    # with sortable
+    # with sortable at last position
     env.expect('ft.create', 'idx_sortable', 'schema', 't', 'TEXT', 'WITHSUFFIXTRIE', 'SORTABLE').ok()
     res_info = [['identifier', 't', 'attribute', 't', 'type', 'TEXT', 'WEIGHT', '1', 'SORTABLE', 'WITHSUFFIXTRIE']]
     assertInfoField(env, 'idx_sortable', 'attributes', res_info)
+
+    # with SORTABLE before WITHSUFFIXTRIE
+    env.expect('ft.create', 'idx_sortable2', 'schema', 't', 'TEXT', 'SORTABLE', 'WITHSUFFIXTRIE').ok()
+    assertInfoField(env, 'idx_sortable2', 'attributes', res_info)
 
     # nostem 1st
     env.expect('ft.create', 'idx_nostem1', 'schema', 't', 'TEXT', 'WITHSUFFIXTRIE', 'NOSTEM').ok()
@@ -27,10 +29,13 @@ def testWITHSUFFIXTRIEParamText(env):
     env.expect('ft.create', 'idx_nostem2', 'schema', 't', 'TEXT', 'NOSTEM', 'WITHSUFFIXTRIE').ok()
     assertInfoField(env, 'idx_nostem2', 'attributes', res_info)
 
+    # NOSTEM after SORTABLE
+    env.expect('ft.create', 'idx_nostem3', 'schema', 't', 'TEXT', 'SORTABLE', 'NOSTEM').ok()
+    res_info = [['identifier', 't', 'attribute', 't', 'type', 'TEXT', 'WEIGHT', '1', 'SORTABLE', 'NOSTEM']]
+    assertInfoField(env, 'idx_nostem3', 'attributes', res_info)
+
 def testWITHSUFFIXTRIEParamTag(env):
     conn = getConnectionByEnv(env)
-    env.expect('ft.create', 'idx', 'schema', 't', 'TAG', 'SORTABLE', 'WITHSUFFIXTRIE').error()
-    env.expect('ft.create', 'idx', 'schema', 't', 'TAG', 'SORTABLE', 'CASESENSITIVE').error() # sortable must be last
 
     # without sortable
     env.expect('ft.create', 'idx', 'schema', 't', 'TAG', 'WITHSUFFIXTRIE').ok()
@@ -46,6 +51,16 @@ def testWITHSUFFIXTRIEParamTag(env):
     env.expect('ft.create', 'idx_casesensitive', 'schema', 't', 'TAG', 'WITHSUFFIXTRIE', 'CASESENSITIVE', 'SORTABLE').ok()
     res_info = [['identifier', 't', 'attribute', 't', 'type', 'TAG', 'SEPARATOR', ',', 'CASESENSITIVE', 'SORTABLE', 'UNF', 'WITHSUFFIXTRIE']]
     assertInfoField(env, 'idx_casesensitive', 'attributes', res_info)
+
+    # with SORTABLE before WITHSUFFIXTRIE
+    env.expect('ft.create', 'idx_sortable2', 'schema', 't', 'TAG', 'SORTABLE', 'WITHSUFFIXTRIE').ok()
+    res_info = [['identifier', 't', 'attribute', 't', 'type', 'TAG', 'SEPARATOR', ',', 'SORTABLE', 'WITHSUFFIXTRIE']]
+    assertInfoField(env, 'idx_sortable2', 'attributes', res_info)
+
+    # with SORTABLE before CASESENSITIVE
+    env.expect('ft.create', 'idx_sortable3', 'schema', 't', 'TAG', 'SORTABLE', 'CASESENSITIVE')
+    res_info = [['identifier', 't', 'attribute', 't', 'type', 'TAG', 'SEPARATOR', ',', 'CASESENSITIVE', 'SORTABLE']]
+    assertInfoField(env, 'idx_sortable3', 'attributes', res_info)
 
 def testBasicContains(env):
     conn = getConnectionByEnv(env)
