@@ -10,9 +10,9 @@ READIES=$ROOT/deps/readies
 
 export PYTHONUNBUFFERED=1
 
-VG_REDIS_VER=7.2-rc2
+VG_REDIS_VER=7.2-rc3
 VG_REDIS_SUFFIX=7.2
-SAN_REDIS_VER=7.2-rc2
+SAN_REDIS_VER=7.2-rc3
 SAN_REDIS_SUFFIX=7.2
 
 cd $HERE
@@ -44,10 +44,10 @@ help() {
 		UNSTABLE=1            Do not skip unstable tests (default: 0)
 		ONLY_STABLE=1         Skip unstable tests
 
-		REJSON=0|1|get        Also load RedisJSON module (get: force download from S3)
-		REJSON_BRANCH=branch  Use a snapshot of given branch name
-		REJSON_PATH=path      RedisJSON module path
-		REJSON_MODARGS=args   RedisJSON module arguments
+		REJSON=0|1|get|view     Also load RedisJSON module (get: force download from S3; view: from local view)
+		REJSON_BRANCH=branch    Use a snapshot of given branch name
+		REJSON_PATH=path|view   RedisJSON module path
+		REJSON_MODARGS=args     RedisJSON module arguments
 
 		REDIS_SERVER=path     Location of redis-server
 		REDIS_PORT=n          Redis server port
@@ -507,6 +507,8 @@ EXT_PORT=${EXT_PORT:-6379}
 
 PID=$$
 OS=$($READIES/bin/platform --os)
+ARCH=$($READIES/bin/platform --arch)
+OSNICK=$($READIES/bin/platform --osnick)
 
 #---------------------------------------------------------------------------------- Tests scope
 
@@ -620,6 +622,13 @@ if [[ $COV == 1 ]]; then
 	setup_coverage
 fi
 
+if [[ $REJSON == view ]]; then
+	REJSON=1
+	REJSON_PATH=view
+fi
+if [[ $REJSON_PATH == view ]]; then
+	REJSON_PATH=$(cd $ROOT/../RedisJSON; pwd)/bin/${OS}-${ARCH}-release/rejson.so
+fi
 setup_redisjson
 
 RLTEST_ARGS+=" $@"
@@ -708,8 +717,10 @@ if [[ -z $COORD ]]; then
 
 elif [[ $COORD == oss ]]; then
 	oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
-  # Increase timeout for tests with sanitizer in which commands execution takes longer
-  oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 60000"
+	
+	# Increase timeout (to 5 min) for tests with coordinator to avoid cluster fail when it take more time for
+	# passing PINGs between shards
+  oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 300000"
 
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
@@ -772,8 +783,6 @@ if [[ $NOP != 1 ]]; then
 fi
 
 if [[ $COLLECT_LOGS == 1 ]]; then
-	ARCH=$($READIES/bin/platform --arch)
-	OSNICK=$($READIES/bin/platform --osnick)
 	cd $ROOT
 	mkdir -p bin/artifacts/tests
 	test_tar="bin/artifacts/tests/tests-pytests-logs-${ARCH}-${OSNICK}.tgz"

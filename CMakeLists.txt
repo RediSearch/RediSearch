@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
+# set(CMAKE_CXX_STANDARD 20)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 include(${root}/deps/readies/cmake/main)
@@ -16,7 +17,8 @@ option(BUILD_STATIC "Build a static library" OFF)
 # BUILD_COORD_RLEC
 
 option(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
-option(BUILD_TESTS "Build tests" OFF)
+
+option(BUILD_SEARCH_UNIT_TESTS "Build unit tests" OFF)
 
 #----------------------------------------------------------------------------------------------
 
@@ -136,7 +138,7 @@ elseif (BUILD_STATIC)
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
-    target_link_libraries(redisearch redisearch-geometry VectorSimilarity  ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch redisearch-geometry VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
 
     set(TEST_MODULE "redisearch-static")
     set(TEST_MODULE_SO $<TARGET_FILE:redisearch>)
@@ -146,7 +148,7 @@ else() # OSS RediSearch
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
-    target_link_libraries(redisearch redisearch-geometry VectorSimilarity  ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch redisearch-geometry VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
 
     extract_debug_symbols(redisearch)
     
@@ -156,14 +158,10 @@ endif()
 #----------------------------------------------------------------------------------------------
 
 if (BUILD_COORDINATOR)
-    set(BUILD_TESTS OFF)
+    set(BUILD_SEARCH_UNIT_TESTS OFF)
 endif()
 
-if (BUILD_TESTS)
-    enable_testing()
-endif()
-
-if (BUILD_TESTS AND NOT BUILD_COORDINATOR AND NOT BUILD_STATIC)
+if (BUILD_SEARCH_UNIT_TESTS AND NOT BUILD_COORDINATOR AND NOT BUILD_STATIC)
     set(BUILD_GTEST ON CACHE BOOL "enable gtest" FORCE)
     set(BUILD_GMOCK OFF CACHE BOOL "disable gmock" FORCE)
 

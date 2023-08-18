@@ -215,11 +215,11 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   CleanPool_ThreadPoolStart();
   DO_LOG("notice", "Initialized thread pools!");
 
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
   // Init threadpool.
   // Threadpool size can only be set on load.
-  if (RSGlobalConfig.alwaysUseThreads && RSGlobalConfig.numWorkerThreads == 0) {
-    DO_LOG("warning", "Invalid configuration - cannot set ALWAYS_USE_THREADS while WORKERS_THREADS"
+  if ((RSGlobalConfig.mt_mode == MT_MODE_ONLY_ON_OPERATIONS || RSGlobalConfig.mt_mode == MT_MODE_FULL)  && RSGlobalConfig.numWorkerThreads == 0) {
+    DO_LOG("warning", "Invalid configuration - cannot run in MT_MODE (FULL/ONLY_ON_OPERATIONS) while WORKERS_THREADS"
            " number is set to zero");
     return REDISMODULE_ERR;
   }
@@ -227,11 +227,13 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
       return REDISMODULE_ERR;
     }
-    if (RSGlobalConfig.alwaysUseThreads) {
+    if (RSGlobalConfig.mt_mode == MT_MODE_FULL) {
       // Initialize the threads if the module configuration states that worker threads
       // should always be active.
       workersThreadPool_InitPool();
       DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
+      DO_LOG("verbose", "threadpool contains %lu privileged threads that always prefer running queries"
+             " when possible", RSGlobalConfig.privilegedThreadsNum);
     } else {
       // Otherwise, threads are not active, and we're performing inplace writes.
       // VSS lib is async by default.
@@ -246,7 +248,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   }
 
   // Init cursors mechanism
-  CursorList_Init(&RSCursors);
+  CursorList_Init(&g_CursorsList);
 
   IndexAlias_InitGlobal();
 

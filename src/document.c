@@ -611,21 +611,17 @@ FIELD_BULK_INDEXER(geometryIndexer) {
     rt = bulk->indexDatas[IXFLDPOS_GEOMETRY] =
         OpenGeometryIndex(ctx->redisCtx, ctx->spec, &bulk->indexKeys[IXFLDPOS_GEOMETRY], fs);
     if (!rt) {
-      QueryError_SetError(status, QUERY_EGENERIC, "Could not open geometry index for indexing");
+      QueryError_SetError(status, QUERY_EGENERIC, "Could not open geoshape index for indexing");
       return -1;
     }
   }
 
-  GeometryApi *api = GeometryApi_GetOrCreate(fs->geometryOpts.geometryLibType, NULL);
-  if (!api) {
-    QueryError_SetError(status, QUERY_EGENERIC, "Could not get geometry api for indexing");
-    return -1;
-  }
+  const GeometryApi *api = GeometryApi_Get(rt);
   RedisModuleString *errMsg;
   if (!fdata->isMulti) {
     if (!api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, &errMsg)) {
       ++ctx->spec->stats.indexingFailures;
-      // QueryError_SetErrorFmt(status, QUERY_EBADVAL, "Error indexing geometry: %s",
+      // QueryError_SetErrorFmt(status, QUERY_EBADVAL, "Error indexing geoshape: %s",
       //                        RedisModule_StringPtrLen(errMsg, NULL));
       RedisModule_FreeString(NULL, errMsg);
       return -1;

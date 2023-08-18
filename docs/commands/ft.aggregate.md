@@ -6,7 +6,7 @@ syntax: |
     [LOAD count field [field ...]] 
     [TIMEOUT timeout] 
     [ GROUPBY nargs property [property ...] [ REDUCE function nargs arg [arg ...] [AS name] [ REDUCE function nargs arg [arg ...] [AS name] ...]] ...]] 
-    [ SORTBY nargs [ property ASC | DESC [ property ASC | DESC ...]] [MAX num]] 
+    [ SORTBY nargs [ property ASC | DESC [ property ASC | DESC ...]] [MAX num] [WITHCOUNT] 
     [ APPLY expression AS name [ APPLY expression AS name ...]] 
     [ LIMIT offset num] 
     [FILTER filter] 
@@ -62,7 +62,7 @@ groups the results in the pipeline based on one or more properties. Each group s
 
 reduces the matching results in each group into a single record, using a reduction function. For example, `COUNT` counts the number of records in the group. The reducers can have their own property names using the `AS {name}` optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to `COUNT_DISTINCT` by property `@foo`, the resulting name will be `count_distinct(@foo)`.
   
-See [Supported GROUPBY reducers](/redisearch/reference/aggregations/#supported-groupby-reducers) for more details.   
+See [Supported GROUPBY reducers](/docs/interact/search-and-query/search/aggregations/#supported-groupby-reducers) for more details.   
 </details>
 
 <details open>
@@ -74,7 +74,16 @@ sorts the pipeline up until the point of `SORTBY`, using a list of properties.
  - `nargs` is the number of sorting parameters, including `ASC` and `DESC`, for example, `SORTBY 4 @foo ASC @bar DESC`.
  - `MAX` is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to `LIMIT`, you usually need just `SORTBY … MAX` for common queries.
 
-  Attributes needed for `SORTBY` should be stored as `SORTABLE` to be available with very low latency.
+Attributes needed for `SORTBY` should be stored as `SORTABLE` to be available with very low latency.
+
+**Sorting Optimizations**: performance is optimized for sorting operations on `DIALECT 4` in different scenarios:
+   - Skip Sorter - applied when there is no sort of any kind. The query can return once it reaches the `LIMIT` requested results.
+   - Partial Range - applied when there is a `SORTBY` clause over a numeric field, with no filter or filter by the same numeric field, the query iterate on a range large enough to satisfy the `LIMIT` requested results.
+   - Hybrid - applied when there is a `SORTBY` clause over a numeric field and another non-numeric filter. Some results will get filtered, and the initial range may not be large enough. The iterator is then rewinding with the following ranges, and an additional iteration takes place to collect the `LIMIT` requested results.
+   - No optimization - If there is a sort by score or by non-numeric field, there is no other option but to retrieve all results and compare their values.
+
+**Counts behavior**: optional `WITHCOUNT` argument returns accurate counts for the query results with sorting. This operation processes all results in order to get an accurate count, being less performant than the optimized option (default behavior on `DIALECT 4`)
+
 
 <details open>
 <summary><code>APPLY {expr} AS {name}</code></summary> 
@@ -107,7 +116,7 @@ filters the results using predicate expressions relating to values in each resul
 <summary><code>WITHCURSOR {COUNT} {read_size} [MAXIDLE {idle_time}]</code></summary> 
 
 Scan part of the results with a quicker alternative than `LIMIT`.
-See [Cursor API](/redisearch/reference/aggregations/#cursor-api) for more details.
+See [Cursor API](/docs/interact/search-and-query/search/aggregations/#cursor-api) for more details.
 </details>
 
 <details open>
@@ -271,6 +280,6 @@ Next, count GitHub events by user (actor), to produce the most active users.
 
 ## Related topics
 
-- [Aggregations](/redisearch/reference/aggregations)
-- [RediSearch](/docs/stack/search)
+- [Aggregations](/docs/interact/search-and-query/search/aggregations)
+- [RediSearch](/docs/interact/search-and-query)
 

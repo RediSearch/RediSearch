@@ -10,14 +10,12 @@
 #include "search_ctx.h"
 #include "index_iterator.h"
 
-typedef struct GeometryIndex GeometryIndex;
-
 typedef struct GeometryQuery {
     GEOMETRY_FORMAT format;
+    QueryType query_type;
     const char *attr;
     const char *str;
     size_t str_len;
-    enum QueryType query_type;
 } GeometryQuery;
 
 void GeometryQuery_Free(GeometryQuery *geomq);

@@ -8,11 +8,11 @@
 #include "workers.h"
 #include "redismodule.h"
 #include "config.h"
+#include "logging.h"
 
 #include <pthread.h>
 
-#ifdef POWER_TO_THE_WORKERS
-
+#ifdef MT_BUILD
 //------------------------------------------------------------------------------
 // Thread pool
 //------------------------------------------------------------------------------
@@ -23,7 +23,7 @@ size_t yield_counter = 0;
 static void yieldCallback(void *yieldCtx) {
   yield_counter++;
   if (yield_counter % 10 == 0 || yield_counter == 1) {
-    RedisModule_Log(RSDummyContext, "notice", "Yield every 100 ms to allow redis server run while"
+    RedisModule_Log(RSDummyContext, "verbose", "Yield every 100 ms to allow redis server run while"
                     " waiting for workers to finish: call number %zu", yield_counter);
   }
   RedisModuleCtx *ctx = yieldCtx;
@@ -35,7 +35,7 @@ int workersThreadPool_CreatePool(size_t worker_count) {
   assert(worker_count);
   assert(_workers_thpool == NULL);
 
-  _workers_thpool = redisearch_thpool_create(worker_count);
+  _workers_thpool = redisearch_thpool_create(worker_count, RSGlobalConfig.privilegedThreadsNum);
   if (_workers_thpool == NULL) return REDISMODULE_ERR;
 
   return REDISMODULE_OK;
@@ -44,7 +44,7 @@ int workersThreadPool_CreatePool(size_t worker_count) {
 void workersThreadPool_InitPool() {
   assert(_workers_thpool != NULL);
 
-  redisearch_thpool_init(_workers_thpool);
+  redisearch_thpool_init(_workers_thpool, LogCallback);
 }
 
 // return number of currently working threads
@@ -62,16 +62,16 @@ int workersThreadPool_AddWork(redisearch_thpool_proc function_p, void *arg_p) {
   return redisearch_thpool_add_work(_workers_thpool, function_p, arg_p, THPOOL_PRIORITY_HIGH);
 }
 
-// Wait until all jobs have finished
-void workersThreadPool_Wait(RedisModuleCtx *ctx) {
+// Wait until job queue contains no more than <threshold> pending jobs.
+void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
   if (!_workers_thpool) {
     return;
   }
   if (RedisModule_Yield) {
-    // Wait until all the threads in the pool finish the remaining jobs. Periodically return and
-    // call RedisModule_Yield even if threads are not done yet, so redis can answer PINGs
+    // Wait until all the threads in the pool run the jobs until there are no more than <threshold>
+    // jobs in the queue. Periodically return and call RedisModule_Yield, so redis can answer PINGs
     // (and other stuff) so that the node-watch dog won't kill redis, for example.
-    redisearch_thpool_timedwait(_workers_thpool, 100, yieldCallback, ctx);
+    redisearch_thpool_drain(_workers_thpool, 100, yieldCallback, ctx, threshold);
     yield_counter = 0;  // reset
   } else {
     // In Redis versions < 7, RedisModule_Yield doesn't exist. Just wait for without yield.
@@ -92,26 +92,39 @@ void workersThreadPool_InitIfRequired() {
     // Initialize the thread pool temporarily for fast RDB loading of vector index (if needed).
     VecSim_SetWriteMode(VecSim_WriteAsync);
     workersThreadPool_InitPool();
-    RedisModule_Log(RSDummyContext, "notice", "Created workers threadpool of size %lu for loading",
+    RedisModule_Log(RSDummyContext, "notice", "Created workers threadpool of size %lu",
                     RSGlobalConfig.numWorkerThreads);
   }
 }
 
 void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx) {
     // Wait until all the threads are finished the jobs currently in the queue. Note that we call
-    // RM_Yield periodically while we wait, so we won't block redis for too long
-    // (for answering PING etc.)
+    // block main thread while we wait, so we have to make sure that number of jobs isn't too large.
     if (RSGlobalConfig.numWorkerThreads == 0) return;
-    workersThreadPool_Wait(ctx);
+    redisearch_thpool_wait(_workers_thpool);
     RedisModule_Log(RSDummyContext, "notice",
                     "Done running pending background workers jobs");
     if (USE_BURST_THREADS()) {
       VecSim_SetWriteMode(VecSim_WriteInPlace);
       workersThreadPool_Terminate();
       RedisModule_Log(RSDummyContext, "notice",
-                      "Terminated workers threadpool of size %lu for loading",
+                      "Terminated workers threadpool of size %lu",
                       RSGlobalConfig.numWorkerThreads);
   }
 }
 
-#endif // POWER_TO_THE_WORKERS
+void workersThreadPool_SetTerminationWhenEmpty() {
+  if (RSGlobalConfig.numWorkerThreads == 0) return;
+
+  if (USE_BURST_THREADS()) {
+    // Set the library back to in place mode, and let all the async jobs that are still pending run,
+    // but after the last job is executed, terminate the running threads.
+    VecSim_SetWriteMode(VecSim_WriteInPlace);
+    redisearch_thpool_terminate_when_empty(_workers_thpool);
+    RedisModule_Log(RSDummyContext, "notice", "Termination of workers threadpool of size %lu is set to occur when all"
+                    " pending jobs are done",
+                    RSGlobalConfig.numWorkerThreads);
+  }
+}
+
+#endif // MT_BUILD

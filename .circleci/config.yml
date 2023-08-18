@@ -140,7 +140,7 @@ commands:
       run_pack:
         type: boolean
         default: true
-      no_power:
+      mt_build:
         type: string
         default: "no"
     steps:
@@ -158,8 +158,8 @@ commands:
           name: Build (Search)
           shell: /bin/bash -l -eo pipefail
           command: |
-            if [[ "<<parameters.no_power>>" == "yes" ]]; then
-                export REDISEARCH_POWER_TO_THE_WORKERS=0
+            if [[ "<<parameters.mt_build>>" == "yes" ]]; then
+                export REDISEARCH_MT_BUILD=0
             fi
             make build <<parameters.build_params>> SHOW=1 NPROC=16
       - run:
@@ -191,7 +191,7 @@ commands:
       test_params:
         type: string
         default: ""
-      no_power:
+      mt_build:
         type: string
         default: "no"
     steps:
@@ -200,8 +200,8 @@ commands:
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
           command: |
-            if [[ "<<parameters.no_power>>" == "yes" ]]; then
-                export REDISEARCH_POWER_TO_THE_WORKERS=0
+            if [[ "<<parameters.mt_build>>" == "yes" ]]; then
+                export REDISEARCH_MT_BUILD=0
             fi
             make test TEST_PARALLEL=16 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
       - run:
@@ -215,6 +215,12 @@ commands:
     parameters:
       platform:
         type: string
+      redis_version:
+        type: string
+        default: "7"
+      getredis_params:
+        type: string
+        default: ""
     steps:
       - early-returns
       - setup-executor
@@ -223,14 +229,14 @@ commands:
       - run:
           name: Install Redis
           shell: /bin/bash -l -eo pipefail
-          command: ./deps/readies/bin/getredis
+          command: ./deps/readies/bin/getredis -v '<<parameters.redis_version>>' --force <<parameters.getredis_params>>
       - run:
           name: Build for platform
           shell: /bin/bash -l -eo pipefail
           command: |
             ROOT="$PWD"
             cd build/docker
-            export REDISEARCH_POWER_TO_THE_WORKERS=0
+            export REDISEARCH_MT_BUILD=0
             make build verify OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
             cd $ROOT
             if [[ -e bin/artifacts/tests/tests-pytests-logs*.tgz ]]; then
@@ -260,6 +266,12 @@ commands:
     parameters:
       platform:
         type: string
+      redis_version:
+        type: string
+        default: "7"
+      getredis_params:
+        type: string
+        default: ""
     steps:
       - early-returns
       - checkout-all
@@ -271,13 +283,13 @@ commands:
       - run:
           name: Install Redis
           shell: /bin/bash -l -eo pipefail
-          command: ./deps/readies/bin/getredis
+          command: ./deps/readies/bin/getredis -v '<<parameters.redis_version>>' --force <<parameters.getredis_params>>
       - run:
           name: Build for platform
           command: |
             ROOT="$PWD"
             cd build/docker
-            export REDISEARCH_POWER_TO_THE_WORKERS=0
+            export REDISEARCH_MT_BUILD=0
             make build verify OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
             cd $ROOT
             if [[ -e bin/artifacts/tests/tests-pytests-logs*.tgz ]]; then
@@ -479,10 +491,10 @@ jobs:
           name: Set up workspace
           command: mkdir -p ~/workspace
       - build-steps:
-          no_power: <<parameters.upload>>
+          mt_build: <<parameters.upload>>
       - test-steps:
           test_params: <<parameters.test_params>>
-          no_power: <<parameters.upload>>
+          mt_build: <<parameters.upload>>
       - run:
           name: Persist artifacts?
           command: |
@@ -514,10 +526,10 @@ jobs:
           name: Set up workspace
           command: mkdir -p ~/workspace
       - build-steps:
-          no_power: <<parameters.upload>>
+          mt_build: <<parameters.upload>>
       - test-steps:
           test_params: <<parameters.test_params>>
-          no_power: <<parameters.upload>>
+          mt_build: <<parameters.upload>>
       - run:
           name: Persist artifacts?
           command: |
@@ -596,7 +608,7 @@ jobs:
           benchmark_glob: "search*.yml"
           module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
-          allowed_setups: oss-cluster-02-primaries,oss-cluster-04-primaries,oss-cluster-08-primaries
+          allowed_setups: oss-cluster-02-primaries
           benchmark_runner_group_member_id: "1"
           benchmark_runner_group_total: "2"
 
@@ -610,7 +622,7 @@ jobs:
           benchmark_glob: "search*.yml"
           module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
-          allowed_setups: oss-cluster-02-primaries,oss-cluster-04-primaries,oss-cluster-08-primaries
+          allowed_setups: oss-cluster-02-primaries
           benchmark_runner_group_member_id: "2"
           benchmark_runner_group_total: "2"
 
@@ -624,7 +636,7 @@ jobs:
           benchmark_glob: "search*.yml"
           module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
-          allowed_setups: oss-cluster-16-primaries,oss-cluster-20-primaries
+          allowed_setups: oss-cluster-04-primaries
           benchmark_runner_group_member_id: "1"
           benchmark_runner_group_total: "2"
 
@@ -638,7 +650,7 @@ jobs:
           benchmark_glob: "search*.yml"
           module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
-          allowed_setups: oss-cluster-16-primaries,oss-cluster-20-primaries
+          allowed_setups: oss-cluster-04-primaries
           benchmark_runner_group_member_id: "2"
           benchmark_runner_group_total: "2"
 
@@ -652,9 +664,9 @@ jobs:
           benchmark_glob: "search*.yml"
           module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
-          allowed_setups: oss-cluster-24-primaries,oss-cluster-32-primaries
+          allowed_setups: oss-cluster-08-primaries
           benchmark_runner_group_member_id: "1"
-          benchmark_runner_group_total: "2"
+          benchmark_runner_group_total: "3"
 
   benchmark-search-oss-cluster-g6:
     docker:
@@ -666,9 +678,93 @@ jobs:
           benchmark_glob: "search*.yml"
           module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
-          allowed_setups: oss-cluster-24-primaries,oss-cluster-32-primaries
+          allowed_setups: oss-cluster-08-primaries
           benchmark_runner_group_member_id: "2"
-          benchmark_runner_group_total: "2"
+          benchmark_runner_group_total: "3"
+
+  benchmark-search-oss-cluster-g7:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          run_pack: false
+      - benchmark-steps:
+          benchmark_glob: "search*.yml"
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          allowed_envs: oss-cluster
+          allowed_setups: oss-cluster-08-primaries
+          benchmark_runner_group_member_id: "3"
+          benchmark_runner_group_total: "3"
+
+  benchmark-search-oss-cluster-g8:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          run_pack: false
+      - benchmark-steps:
+          benchmark_glob: "search*.yml"
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          allowed_envs: oss-cluster
+          allowed_setups: oss-cluster-16-primaries
+          benchmark_runner_group_member_id: "1"
+          benchmark_runner_group_total: "3"
+
+  benchmark-search-oss-cluster-g9:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          run_pack: false
+      - benchmark-steps:
+          benchmark_glob: "search*.yml"
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          allowed_envs: oss-cluster
+          allowed_setups: oss-cluster-16-primaries
+          benchmark_runner_group_member_id: "2"
+          benchmark_runner_group_total: "3"
+
+  benchmark-search-oss-cluster-g10:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          run_pack: false
+      - benchmark-steps:
+          benchmark_glob: "search*.yml"
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          allowed_envs: oss-cluster
+          allowed_setups: oss-cluster-16-primaries
+          benchmark_runner_group_member_id: "3"
+          benchmark_runner_group_total: "3"
+
+  benchmark-search-oss-cluster-g11:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          run_pack: false
+      - benchmark-steps:
+          benchmark_glob: "search*.yml"
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          allowed_envs: oss-cluster
+          allowed_setups: oss-cluster-20-primaries
+          benchmark_runner_group_member_id: "1"
+          benchmark_runner_group_total: "1"
+
+  benchmark-search-oss-cluster-g12:
+    docker:
+      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
+    steps:
+      - build-steps:
+          run_pack: false
+      - benchmark-steps:
+          benchmark_glob: "search*.yml"
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          allowed_envs: oss-cluster
+          allowed_setups: oss-cluster-24-primaries
+          benchmark_runner_group_member_id: "1"
+          benchmark_runner_group_total: "1"
 
   benchmark-search-oss-standalone-profiler-g1:
     docker:
@@ -1066,6 +1162,18 @@ workflows:
       - benchmark-search-oss-cluster-g6:
           context: common
           <<: *on-integ-and-version-tags
+      - benchmark-search-oss-cluster-g7:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-search-oss-cluster-g8:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-search-oss-cluster-g9:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-search-oss-cluster-g10:
+          context: common
+          <<: *on-integ-and-version-tags
       - benchmark-search-oss-standalone-profiler-g1:
           context: common
           <<: *on-integ-and-version-tags
@@ -1111,7 +1219,7 @@ workflows:
           test_params: ""
           matrix:
             parameters:
-              redis_version: ["7.2-rc2"]
+              redis_version: ["7.2-rc3"]
       - sanitize:
           name: full-sanitize-<< matrix.san-type >>
           <<: *never
@@ -1172,6 +1280,18 @@ workflows:
       - benchmark-search-oss-cluster-g6:
           context: common
           <<: *always
+      - benchmark-search-oss-cluster-g7:
+          context: common
+          <<: *always
+      - benchmark-search-oss-cluster-g8:
+          context: common
+          <<: *always
+      - benchmark-search-oss-cluster-g9:
+          context: common
+          <<: *always
+      - benchmark-search-oss-cluster-g10:
+          context: common
+          <<: *always
 
   nightly:
     triggers:
@@ -1179,18 +1299,12 @@ workflows:
           cron: "20 17 * * 0,3"
           <<: *on-integ-branch-cron
     jobs:
-      - build-macos-x64:
-          upload: "no"
-          test_params: ""
-      - build-macos-m1:
-          upload: "no"
-          test_params: ""
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
           test_params: ""
           matrix:
             parameters:
-              redis_version: ["7.2-rc2", "unstable"]
+              redis_version: ["7.2-rc3", "unstable"]
       - sanitize:
           name: nightly-sanitize-<< matrix.san-type >>
           test_params: ""
@@ -1205,11 +1319,13 @@ workflows:
           <<: *on-integ-branch-cron
     jobs:
       - build-macos-x64:
-          name: nightly-build-macos-x64
           context: common
+          # upload: "no"
+          test_params: ""
       - build-macos-m1:
-          name: nightly-build-macos-m1
           context: common
+          # upload: "no"
+          test_params: ""
 
   nightly-benchmarks:
     triggers:
@@ -1233,12 +1349,30 @@ workflows:
           context: common
       - benchmark-search-oss-cluster-g4:
           context: common
-      # We only run g5 and g6 of oss cluster
-      # (oss-cluster-24-primaries, and oss-cluster-32-primaries) once a week
+      # We only run g11 and g12 of oss cluster
+      # (oss-cluster-20-primaries, and oss-cluster-24-primaries) once a week
       - benchmark-search-oss-cluster-g5:
           context: common
       - benchmark-search-oss-cluster-g6:
           context: common
+      - benchmark-search-oss-cluster-g7:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-search-oss-cluster-g8:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-search-oss-cluster-g9:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-search-oss-cluster-g10:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-search-oss-cluster-g11:
+          context: common
+          <<: *on-integ-and-version-tags
+      - benchmark-search-oss-cluster-g12:
+          context: common
+          <<: *on-integ-and-version-tags
       - benchmark-vecsim-oss-standalone-g1:
           context: common
       - benchmark-vecsim-oss-standalone-g2:

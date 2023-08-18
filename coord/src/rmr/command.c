@@ -375,7 +375,7 @@ int MRCommand_IsUnsharded(MRCommand *cmd) {
 }
 
 void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx) {
-  cmd->protocol = _is_resp3(ctx) ? 3 : 2;
+  cmd->protocol = is_resp3(ctx) ? 3 : 2;
 }
 
 void MRCommand_Print(MRCommand *cmd) {

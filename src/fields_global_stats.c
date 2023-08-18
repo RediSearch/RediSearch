@@ -20,7 +20,7 @@ void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd) {
     if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_BF)
       RSGlobalConfig.fieldsStats.numVectorFieldsFlat += toAdd;
     else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED) {
-      if (fs->vectorOpts.vecSimParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB)
+      if (fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB)
         RSGlobalConfig.fieldsStats.numVectorFieldsHNSW += toAdd;
     }
   } else if (fs->types & INDEXFLD_T_TAG) {  // tag field
@@ -104,8 +104,8 @@ void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
   }
 
   if (RSGlobalConfig.fieldsStats.numGeometryFields > 0) {
-    RedisModule_InfoBeginDictField(ctx, "fields_geometry");
-    RedisModule_InfoAddFieldLongLong(ctx, "Geometry", RSGlobalConfig.fieldsStats.numGeometryFields);
+    RedisModule_InfoBeginDictField(ctx, "geoshape");
+    RedisModule_InfoAddFieldLongLong(ctx, "Geoshape", RSGlobalConfig.fieldsStats.numGeometryFields);
     if (RSGlobalConfig.fieldsStats.numGeometryFieldsSortable > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "Sortable", RSGlobalConfig.fieldsStats.numGeometryFieldsSortable);
     if (RSGlobalConfig.fieldsStats.numGeometryFieldsNoIndex > 0)

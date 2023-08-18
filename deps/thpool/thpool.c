@@ -39,6 +39,8 @@
 #define err(str, ...)
 #endif
 
+#define LOG_IF_EXISTS(level, str) if (thread_p->log) {thread_p->log(level, str);}
+
 static volatile int threads_on_hold;
 
 /* ========================== STRUCTURES ============================ */
@@ -70,6 +72,7 @@ typedef struct priority_queue {
   pthread_mutex_t jobqueues_rwmutex;  /* used for queue r/w access */
   bsem* has_jobs;                     /* flag as binary semaphore  */
   unsigned char pulls;                /* number of pulls from queue */
+  unsigned char n_privileged_threads; /* number of threads that always run high priority tasks */
 } priority_queue;
 
 /* Thread */
@@ -77,6 +80,7 @@ typedef struct thread {
   int id;                   /* friendly id               */
   pthread_t pthread;        /* pointer to actual thread  */
   struct redisearch_thpool_t* thpool_p; /* access to thpool          */
+  LogFunc log;
 } thread;
 
 /* Threadpool */
@@ -86,6 +90,7 @@ typedef struct redisearch_thpool_t {
   volatile size_t num_threads_alive;   /* threads currently alive   */
   volatile size_t num_threads_working; /* threads currently working */
   volatile int keepalive;           /* keep pool alive           */
+  volatile int terminate_when_empty; /* terminate thread when there are no more pending jobs */
   pthread_mutex_t thcount_lock;     /* used for thread count etc */
   pthread_cond_t threads_all_idle;  /* signal to thpool_wait     */
   priority_queue jobqueue;          /* job queue                 */
@@ -93,7 +98,7 @@ typedef struct redisearch_thpool_t {
 
 /* ========================== PROTOTYPES ============================ */
 
-static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id);
+static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id, LogFunc log);
 static void* thread_do(struct thread* thread_p);
 static void thread_hold(int sig_id);
 static void thread_destroy(struct thread* thread_p);
@@ -104,10 +109,10 @@ static void jobqueue_push_chain(jobqueue* jobqueue_p, struct job* first_newjob, 
 static struct job* jobqueue_pull(jobqueue* jobqueue_p);
 static void jobqueue_destroy(jobqueue* jobqueue_p);
 
-static int priority_queue_init(priority_queue* priority_queue_p);
+static int priority_queue_init(priority_queue* priority_queue_p, size_t num_privileged_threads);
 static void priority_queue_clear(priority_queue* priority_queue_p);
 static void priority_queue_push_chain(priority_queue* priority_queue_p, struct job* first_newjob, struct job* last_newjob, size_t num, thpool_priority priority);
-static struct job* priority_queue_pull(priority_queue* priority_queue_p);
+static struct job* priority_queue_pull(priority_queue* priority_queue_p, int thread_id);
 static void priority_queue_destroy(priority_queue* priority_queue_p);
 static size_t priority_queue_len(priority_queue* priority_queue_p);
 
@@ -120,7 +125,7 @@ static void bsem_wait(struct bsem* bsem_p);
 /* ========================== THREADPOOL ============================ */
 
 /* Create thread pool */
-struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
+struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t num_privileged_threads) {
   threads_on_hold = 0;
 
   /* Make new thread pool */
@@ -134,9 +139,11 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
   thpool_p->num_threads_alive = 0;
   thpool_p->num_threads_working = 0;
   thpool_p->keepalive = 0;
+  thpool_p->terminate_when_empty = 0;
 
   /* Initialise the job queue */
-  if(priority_queue_init(&thpool_p->jobqueue) == -1) {
+  if (num_privileged_threads > num_threads) num_privileged_threads = num_threads;
+  if(priority_queue_init(&thpool_p->jobqueue, num_privileged_threads) == -1) {
     err("redisearch_thpool_create(): Could not allocate memory for job queue\n");
     rm_free(thpool_p);
     return NULL;
@@ -171,14 +178,15 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads) {
 }
 
 /* Initialise thread pool */
-void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p) {
+void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p, LogFunc log) {
   assert(thpool_p->keepalive == 0);
   thpool_p->keepalive = 1;
+  thpool_p->terminate_when_empty = 0;
 
   /* Thread init */
   size_t n;
   for (n = 0; n < thpool_p->total_threads_count; n++) {
-    thread_init(thpool_p, &thpool_p->threads[n], n);
+    thread_init(thpool_p, &thpool_p->threads[n], n, log);
 #if THPOOL_DEBUG
     printf("THPOOL_DEBUG: Created thread %d in pool \n", n);
 #endif
@@ -258,8 +266,8 @@ void redisearch_thpool_wait(redisearch_thpool_t* thpool_p) {
   pthread_mutex_unlock(&thpool_p->thcount_lock);
 }
 
-void redisearch_thpool_timedwait(redisearch_thpool_t* thpool_p, long timeout,
-                                 yieldFunc yieldCB, void *yield_ctx) {
+void redisearch_thpool_drain(redisearch_thpool_t* thpool_p, long timeout,
+                                 yieldFunc yieldCB, void *yield_ctx, size_t threshold) {
 
   // Set the *absolute* time for waiting the condition variable
   struct timespec time_spec;
@@ -276,7 +284,7 @@ void redisearch_thpool_timedwait(redisearch_thpool_t* thpool_p, long timeout,
   }
 
   pthread_mutex_lock(&thpool_p->thcount_lock);
-  while (priority_queue_len(&thpool_p->jobqueue) || thpool_p->num_threads_working) {
+  while (priority_queue_len(&thpool_p->jobqueue) > threshold) {
     int rc = pthread_cond_timedwait(&thpool_p->threads_all_idle, &thpool_p->thcount_lock, &time_spec);
     if (rc == ETIMEDOUT) {
       pthread_mutex_unlock(&thpool_p->thcount_lock);
@@ -321,6 +329,10 @@ void redisearch_thpool_terminate_threads(redisearch_thpool_t* thpool_p) {
     bsem_post_all(thpool_p->jobqueue.has_jobs);
     sleep(1);
   }
+}
+
+void redisearch_thpool_terminate_when_empty(redisearch_thpool_t* thpool_p) {
+  thpool_p->terminate_when_empty = 1;
 }
 
 /* Destroy the threadpool */
@@ -375,10 +387,11 @@ size_t redisearch_thpool_num_threads_working(redisearch_thpool_t* thpool_p) {
  * @param id            id to be given to the thread
  * @return 0 on success, -1 otherwise.
  */
-static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id) {
+static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id, LogFunc log) {
 
   (*thread_p)->thpool_p = thpool_p;
   (*thread_p)->id = id;
+  (*thread_p)->log = log;
 
   pthread_create(&(*thread_p)->pthread, NULL, (void*)thread_do, (*thread_p));
   pthread_detach((*thread_p)->pthread);
@@ -447,7 +460,7 @@ static void* thread_do(struct thread* thread_p) {
       /* Read job from queue and execute it */
       void (*func_buff)(void*);
       void* arg_buff;
-      job* job_p = priority_queue_pull(&thpool_p->jobqueue);
+      job* job_p = priority_queue_pull(&thpool_p->jobqueue, thread_p->id);
       if (job_p) {
         func_buff = job_p->function;
         arg_buff = job_p->arg;
@@ -458,7 +471,12 @@ static void* thread_do(struct thread* thread_p) {
       pthread_mutex_lock(&thpool_p->thcount_lock);
       thpool_p->num_threads_working--;
       if (!thpool_p->num_threads_working) {
+        LOG_IF_EXISTS("debug", "thread pool contains no more jobs")
         pthread_cond_signal(&thpool_p->threads_all_idle);
+        if (thpool_p->terminate_when_empty) {
+          LOG_IF_EXISTS("verbose", "terminating thread pool after there are no more jobs")
+          thpool_p->keepalive = 0;
+        }
       }
       pthread_mutex_unlock(&thpool_p->thcount_lock);
     }
@@ -549,7 +567,7 @@ static void jobqueue_destroy(jobqueue* jobqueue_p) {
 
 /* ======================== PRIORITY QUEUE ========================== */
 
-static int priority_queue_init(priority_queue* priority_queue_p) {
+static int priority_queue_init(priority_queue* priority_queue_p, size_t num_privileged_threads) {
 
   priority_queue_p->has_jobs = (struct bsem*)rm_malloc(sizeof(struct bsem));
   if (priority_queue_p->has_jobs == NULL) {
@@ -560,6 +578,7 @@ static int priority_queue_init(priority_queue* priority_queue_p) {
   bsem_init(priority_queue_p->has_jobs, 0);
   pthread_mutex_init(&priority_queue_p->jobqueues_rwmutex, NULL);
   priority_queue_p->pulls = 0;
+  priority_queue_p->n_privileged_threads = num_privileged_threads;
   return 0;
 }
 
@@ -583,25 +602,35 @@ static void priority_queue_push_chain(priority_queue* priority_queue_p, struct j
   pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
 }
 
-static struct job* priority_queue_pull(priority_queue* priority_queue_p) {
+static struct job* priority_queue_pull(priority_queue* priority_queue_p, int thread_id) {
   struct job* job_p = NULL;
   pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
-  // We want to pull from the lower priority queue every 3rd time
-  if (priority_queue_p->pulls % 3 == 2) {
-    job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
-    // If the lower priority queue is empty, pull from the higher priority queue
-    if(!job_p) {
-      job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
-    }
-  } else {
+
+  if (thread_id < priority_queue_p->n_privileged_threads) {
+    // This is a privileged thread id, try taking from the high priority queue.
     job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
-    // If the higher priority queue is empty, pull from the lower priority queue
-    if(!job_p) {
+    // If the higher priority queue is empty, pull from the low priority queue.
+    if (!job_p) {
       job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
     }
+  } else {
+    // For non-privileged threads, alternate between both queues every iteration.
+    if (priority_queue_p->pulls % 2 == 1) {
+      job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
+      // If the lower priority queue is empty, pull from the higher priority queue
+      if (!job_p) {
+        job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
+      }
+    } else {
+      job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
+      // If the higher priority queue is empty, pull from the lower priority queue
+      if (!job_p) {
+        job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
+      }
+    }
+    priority_queue_p->pulls++;
   }
-  priority_queue_p->pulls++;
-  if(priority_queue_p->high_priority_jobqueue.len ||  priority_queue_p->low_priority_jobqueue.len ) {
+  if (priority_queue_p->high_priority_jobqueue.len ||  priority_queue_p->low_priority_jobqueue.len) {
     bsem_post(priority_queue_p->has_jobs);
   }
   pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);

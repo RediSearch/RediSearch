@@ -41,21 +41,10 @@ extern "C" {
  *
  ********************************************************************************/
 
-/* Query processing state */
-typedef enum {
-  QITR_S_RUNNING,
-  QITR_S_ABORTED,
-
-  // TimedOut state differs from aborted in that it lets the processors drain their accumulated
-  // results instead of stopping in our tracks and returning nothing.
-  QITR_S_TIMEDOUT
-} QITRState;
-
 typedef enum {
   RP_INDEX,
   RP_LOADER,
-  RP_BUFFER_AND_LOCKER,
-  RP_UNLOCKER,
+  RP_SAFE_LOADER,
   RP_SCORER,
   RP_SORTER,
   RP_COUNTER,
@@ -93,11 +82,12 @@ typedef struct {
   // others who might disqualify results
   uint32_t totalResults;
 
+  // the number of results we requested to return at the current chunk. This value may be used by
+  // processors to optimize their work and to signal RP in the upstream their limit.
+  uint32_t resultLimit;
+
   // Object which contains the error
   QueryError *err;
-
-  // the state - used for aborting queries
-  QITRState state;
 
   struct timespec startTime;
 
@@ -108,19 +98,10 @@ IndexIterator *QITR_GetRootFilter(QueryIterator *it);
 void QITR_PushRP(QueryIterator *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryIterator *qitr);
 
-
-/*
- * Flags related to the search results.
- */
-
-#define SEARCHRESULT_VAL_IS_NULL 0x01
-
 /*
  * SearchResult - the object all the processing chain is working on.
- * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc.
- *
- * And a list of fields loaded by the chain - currenly only by the loader, but possibly by
- * aggregators later on
+ * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc,
+ * and a list of fields loaded by the chain
  */
 typedef struct {
   t_docId docId;
@@ -138,9 +119,6 @@ typedef struct {
 
   // Row data. Use RLookup_* functions to access
   RLookupRow rowdata;
-
-  // Result flags.
-  uint8_t flags;
 } SearchResult;
 
 /* Result processor return codes */
@@ -163,19 +141,6 @@ typedef enum {
   RS_RESULT_MAX
 } RPStatus;
 
-typedef enum {
-  RESULT_PROCESSOR_B_DEFAULT = 0,   // Default result processor class. nothing special.
-  RESULT_PROCESSOR_B_ACCESS_REDIS,  // The result processor requires access to redis keyspace.
-
-  // The result processor might abort the pipeline by changing RPStatus.
-  // Note that this kind of rp is also responsible to release the spec lock when it breaks the pipeline
-  // (declaring EOF or TIMEOUT), by calling UnlockSpec_and_ReturnRPResult.
-  RESULT_PROCESSOR_B_ABORTER,
-
-  // The result processor accumulates results (asks for all results from upstream before returning the first one)
-  RESULT_PROCESSOR_B_ACCUMULATOR,
-} TypicalRPBehavior;
-
 /**
  * Result processor structure. This should be "Subclassed" by the actual
  * implementations
@@ -189,8 +154,6 @@ typedef struct ResultProcessor {
 
   // Type of result processor
   ResultProcessorType type;
-  // Typical behavior of result processor - see BaseRPClass
-  TypicalRPBehavior behavior;
 
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is
@@ -242,14 +205,10 @@ void SortAscMap_Dump(uint64_t v, size_t n);
  * @param keys is an array of RLookupkeys to sort by them,
  * @param nkeys is the number of keys.
  * keys will be freed by the arrange step dtor.
- * @param loadKeys is an array of RLookupkeys that their value needs to be loaded from Redis keyspace.
- * @param nLoadKeys is the length of loadKeys.
- * If keys and loadKeys doesn't point to the same address, loadKeys will be freed in the sorter dtor.
  */
-ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascendingMap, bool quickExit);
+ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascendingMap);
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults, bool quickExit);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
@@ -261,47 +220,20 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  *
  * It fills the result objects' field map with values corresponding to the requested return fields
  *
+ * On thread safe mode, the loader will buffer results, in an internal phase will lock redis and load the requested
+ * fields and then unlock redis, and then will yield the results to the next processor in the chain.
+ * On non thread safe mode (running the query from the main thread), the loader will load the requested fields
+ * for each result, one result at a time, and yield it to the next processor in the chain.
+ *
  *******************************************************************************************************************/
-ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys);
+struct AREQ;
+ResultProcessor *RPLoader_New(struct AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys);
 
 /** Creates a new Highlight processor */
 ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
                                    const RLookup *lookup);
 
 void RP_DumpChain(const ResultProcessor *rp);
-
-/*******************************************************************************************************************
- *  Buffer and Locker Results Processor
- *
- * This component should be added to the query's execution pipeline if a thread safe access to
- * Redis keyspace is required.
- *
- * The buffer is responsible for buffering the document that pass the query filters and lock the access
- * to Redis key-space to allow the downstream result processor a thread safe access to it.
- *
- * Unlocking Redis should be done only by the Unlocker result processor that should be added as well.
- *
- * @param BlockSize is the number of results in each buffer block.
- * @param spec_version is the version of the spec during pipeline construction. This version will be compared
- * to the spec version after we unlock the spec, to decide if results' validation is needed.
- *******************************************************************************************************************/
-typedef struct RPBufferAndLocker RPBufferAndLocker;
-ResultProcessor *RPBufferAndLocker_New(size_t BlockSize, size_t spec_version);
-
-/*******************************************************************************************************************
- *  UnLocker Results Processor
- *
- * This component should be added to the query's execution pipeline if a thread safe access to
- * Redis keyspace is required.
- *
- * @param rpBufferAndLocker is a pointer to the buffer and locker result processor
- * that locked the GIL to be released.
- *
- * It is responsible for unlocking Redis keyspace lock.
- *
- *******************************************************************************************************************/
-
-ResultProcessor *RPUnlocker_New(RPBufferAndLocker *rpBufferAndLocker);
 
 /*******************************************************************************************************************
  *  Profiling Processor

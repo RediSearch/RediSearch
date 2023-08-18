@@ -11,6 +11,7 @@
 #include <util/arr.h>
 #include "doc_types.h"
 #include "value.h"
+#include "util/arr.h"
 
 // Allocate a new RLookupKey and add it to the RLookup table.
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t name_len, uint32_t flags) {
@@ -444,6 +445,75 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
   RS_LOG_ASSERT(0, "Cannot get here");
 }
 
+// {"a":1, "b":[2, 3, {"c": "foo"}, 4], "d": null}
+static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
+
+  RSValue *ret;
+  size_t len;
+  JSONType type = japi->getType(json);
+  if (type == JSONType_Object) {
+    // Object
+    japi->getLen(json, &len);
+    RSValue **pairs = NULL;
+    if (len) {
+      JSONKeyValuesIterator iter = japi->getKeyValues(json);
+      RedisModuleString *keyName;
+      size_t i = 0;
+      RedisJSON value;
+      pairs = rm_malloc(sizeof(RSValue*) * len * 2);
+      for (; (value = japi->nextKeyValue(iter, &keyName)); ++i) {
+        assert(i < len);
+        pairs[RSVALUE_MAP_KEYPOS(i)] = RS_StealRedisStringVal(keyName);
+        pairs[RSVALUE_MAP_VALUEPOS(i)] = jsonValToValueExpanded(ctx, value);
+      }
+      japi->freeKeyValuesIter(iter);
+      assert(i == len && !value);
+    }
+    ret = RSValue_NewMap(pairs, len);
+  } else if (type == JSONType_Array) {
+    // Array
+    japi->getLen(json, &len);
+    if (len) {
+      RSValue **arr = rm_malloc(sizeof(RSValue*) * len);
+      for (size_t i = 0; i < len; ++i) {
+        RedisJSON value = japi->getAt(json, i);
+        arr[i] = jsonValToValueExpanded(ctx, value);
+      }
+      ret = RSValue_NewArray(arr, len);
+    } else {
+      // Empty array
+      ret = RSValue_NewArrayEx(NULL, 0, RSVAL_ARRAY_ALLOC);
+    }
+  } else {
+    // Scalar
+    ret = jsonValToValue(ctx, json);
+  }
+  return ret;
+}
+
+// Return an array of expanded values from an iterator.
+// The iterator is being reset and is not being freed.
+// Required japi_ver >= 4
+RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) {
+  RSValue *ret;
+  RSValue **arr;
+  size_t len = japi->len(iter);
+  if (len) {
+    japi->resetIter(iter);
+    RedisJSON json;
+    RSValue **arr = rm_malloc(sizeof(RSValue*) * len);
+    for (size_t i = 0; (json = japi->next(iter)); ++i) {
+      arr[i] = jsonValToValueExpanded(ctx, json);
+    }
+    ret = RSValue_NewArray(arr, len);
+  } else {
+    // Empty array
+    ret = RSValue_NewArrayEx(NULL, 0, RSVAL_ARRAY_ALLOC);
+  }
+  return ret;
+}
+
+
 // Get the value from an iterator and free the iterator
 // Return REDISMODULE_OK, and set rsv to the value, if value exists
 // Return REDISMODULE_ERR otherwise
@@ -484,7 +554,8 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
     if (json) {
       RSValue *val = jsonValToValue(ctx, json);
       RSValue *otherval = RS_StealRedisStringVal(serialized);
-      *rsv = RS_DuoVal(val, otherval);
+      RSValue *expand = japi_ver >= 4 ? jsonIterToValueExpanded(ctx, iter) : RS_NullVal();
+      *rsv = RS_DuoVal(val, otherval, expand);
       res = REDISMODULE_OK;
     } else if (serialized) {
       RedisModule_FreeString(ctx, serialized);

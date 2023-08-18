@@ -6,29 +6,30 @@
 
 #pragma once
 
-#include "redismodule.h"
-#include "geometry.h"
-#include "geometry_index.h"
-
-typedef struct {
-    struct GeometryIndex* (*createIndex)();
-    void (*freeIndex)(GeometryIndex *index);
-    int (*addGeomStr)(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len, t_docId docId, RedisModuleString **err_msg);
-    int (*delGeom)(GeometryIndex *index, t_docId docId);
-    IndexIterator* (*query)(GeometryIndex *index, enum QueryType queryType, GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg);
-    void (*dump)(GeometryIndex *index, RedisModuleCtx *ctx);
-} GeometryApi; // TODO: GEOMETRY Rename to GeometryIndex
+#include <stddef.h>
+#include "redisearch.h"
+#include "index_iterator.h"
+#include "geometry_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-GeometryApi* GeometryApi_GetOrCreate(GEOMETRY_LIB_TYPE type, void *);
-void GeometryApi_Free();
+GeometryIndex *GeometryIndexFactory(GEOMETRY_COORDS tag);
+const GeometryApi *GeometryApi_Get(const GeometryIndex *index);
+const char *GeometryCoordsToName(GEOMETRY_COORDS tag);
 
-// Return the total memory usage of all Geometry indices
-size_t GeometryTotalMemUsage();
+struct GeometryApi {
+  void (*freeIndex)(GeometryIndex *index);
+  int (*addGeomStr)(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len,
+                    t_docId docId, RedisModuleString **err_msg);
+  int (*delGeom)(GeometryIndex *index, t_docId docId);
+  IndexIterator *(*query)(const GeometryIndex *index, QueryType queryType, GEOMETRY_FORMAT format,
+                          const char *str, size_t len, RedisModuleString **err_msg);
+  void (*dump)(const GeometryIndex *index, RedisModuleCtx *ctx);
+  size_t (*report)(const GeometryIndex *index);
+};
 
 #ifdef __cplusplus
-} // extrern "C"
+}
 #endif

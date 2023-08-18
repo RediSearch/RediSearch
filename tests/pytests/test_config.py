@@ -28,10 +28,11 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'TIMEOUT').res[0][0] == 'TIMEOUT'
     assert env.expect('ft.config', 'get', 'INDEX_THREADS').res[0][0] == 'INDEX_THREADS'
     assert env.expect('ft.config', 'get', 'SEARCH_THREADS').res[0][0] == 'SEARCH_THREADS'
-    if POWER_TO_THE_WORKERS:
+    if MT_BUILD:
         assert env.expect('ft.config', 'get', 'WORKER_THREADS').res[0][0] == 'WORKER_THREADS'
-        assert env.expect('ft.config', 'get', 'ALWAYS_USE_THREADS').res[0][0] == 'ALWAYS_USE_THREADS'
+        assert env.expect('ft.config', 'get', 'MT_MODE').res[0][0] == 'MT_MODE'
         assert env.expect('ft.config', 'get', 'TIERED_HNSW_BUFFER_LIMIT').res[0][0] == 'TIERED_HNSW_BUFFER_LIMIT'
+        assert env.expect('ft.config', 'get', 'PRIVILEGED_THREADS_NUM').res[0][0] == 'PRIVILEGED_THREADS_NUM'
     assert env.expect('ft.config', 'get', 'FRISOINI').res[0][0] == 'FRISOINI'
     assert env.expect('ft.config', 'get', 'MAXSEARCHRESULTS').res[0][0] == 'MAXSEARCHRESULTS'
     assert env.expect('ft.config', 'get', 'MAXAGGREGATERESULTS').res[0][0] == 'MAXAGGREGATERESULTS'
@@ -70,7 +71,7 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'TIMEOUT', 1).equal('OK')
     env.expect('ft.config', 'set', 'INDEX_THREADS', 1).equal('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'SEARCH_THREADS', 1).equal('Not modifiable at runtime')
-    if POWER_TO_THE_WORKERS:
+    if MT_BUILD:
         env.expect('ft.config', 'set', 'WORKER_THREADS', 1).equal('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'FRISOINI', 1).equal('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 1).equal('Success (not an error)')
@@ -110,10 +111,11 @@ def testAllConfig(env):
     env.assertIn(res_dict['TIMEOUT'][0], ['500', '0'])
     env.assertEqual(res_dict['INDEX_THREADS'][0], '8')
     env.assertEqual(res_dict['SEARCH_THREADS'][0], '20')
-    if POWER_TO_THE_WORKERS:
+    if MT_BUILD:
         env.assertEqual(res_dict['WORKER_THREADS'][0], '0')
-        env.assertEqual(res_dict['ALWAYS_USE_THREADS'][0], 'false')
+        env.assertEqual(res_dict['MT_MODE'][0], 'MT_MODE_OFF')
         env.assertEqual(res_dict['TIERED_HNSW_BUFFER_LIMIT'][0], '1024')
+        env.assertEqual(res_dict['PRIVILEGED_THREADS_NUM'][0], '1')
     env.assertEqual(res_dict['FRISOINI'][0], None)
     env.assertEqual(res_dict['ON_TIMEOUT'][0], 'return')
     env.assertEqual(res_dict['GCSCANSIZE'][0], '100')
@@ -156,9 +158,10 @@ def testInitConfig(env):
     test_arg_num('MAXPREFIXEXPANSIONS', 5)
     test_arg_num('INDEX_THREADS', 3)
     test_arg_num('SEARCH_THREADS', 3)
-    if POWER_TO_THE_WORKERS:
+    if MT_BUILD:
         test_arg_num('WORKER_THREADS', 3)
         test_arg_num('TIERED_HNSW_BUFFER_LIMIT', 50000)
+        test_arg_num('PRIVILEGED_THREADS_NUM', 4)
     test_arg_num('GCSCANSIZE', 3)
     test_arg_num('MIN_PHONETIC_TERM_LEN', 3)
     test_arg_num('FORK_GC_RUN_INTERVAL', 3)
@@ -220,10 +223,11 @@ def testImmutable(env):
     env.expect('ft.config', 'set', 'MAXDOCTABLESIZE').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'INDEX_THREADS').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'SEARCH_THREADS').error().contains('Not modifiable at runtime')
-    if POWER_TO_THE_WORKERS:
-        env.expect('ft.config', 'set', 'ALWAYS_USE_THREADS').error().contains('Not modifiable at runtime')
+    if MT_BUILD:
+        env.expect('ft.config', 'set', 'MT_MODE').error().contains('Not modifiable at runtime')
         env.expect('ft.config', 'set', 'WORKER_THREADS').error().contains('Not modifiable at runtime')
         env.expect('ft.config', 'set', 'TIERED_HNSW_BUFFER_LIMIT').error().contains('Not modifiable at runtime')
+        env.expect('ft.config', 'set', 'PRIVILEGED_THREADS_NUM').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'FRISOINI').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'GC_POLICY').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'NO_MEM_POOLS').error().contains('Not modifiable at runtime')

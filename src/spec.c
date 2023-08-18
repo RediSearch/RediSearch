@@ -83,6 +83,15 @@ static void setMemoryInfo(RedisModuleCtx *ctx) {
 }
 
 /*
+ * Initialize the spec's fields that are related to the cursors.
+ */
+
+static void Cursors_initSpec(IndexSpec *spec, size_t capacity) {
+  spec->activeCursors = 0;
+  spec->cursorsCap = capacity;
+}
+
+/*
  * Get a field spec by field name. Case sensetive!
  * Return the field spec if found, NULL if not.
  * Assuming the spec is properly locked before calling this function.
@@ -366,7 +375,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // Start the garbage collector
   IndexSpec_StartGC(ctx, spec_ref, sp);
 
-  CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
+  Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
 
   // Create the indexer
   sp->indexer = NewIndexer(sp);
@@ -504,19 +513,19 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
   // Calculating max block size (in # of vectors), according to memory limits
   size_t maxBlockSize = BLOCK_MEMORY_LIMIT / VecSimIndex_EstimateElementSize(params);
   // if Block size was not set by user, sets the default to min(maxBlockSize, DEFAULT_BLOCK_SIZE)
-  if (params->hnswParams.blockSize == 0) { // indicates that block size was not set by the user
-    params->hnswParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
+  if (params->algoParams.hnswParams.blockSize == 0) { // indicates that block size was not set by the user
+    params->algoParams.hnswParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
   }
-  if (params->hnswParams.initialCapacity == SIZE_MAX) { // indicates that initial capacity was not set by the user
-    params->hnswParams.initialCapacity = params->hnswParams.blockSize;
+  if (params->algoParams.hnswParams.initialCapacity == SIZE_MAX) { // indicates that initial capacity was not set by the user
+    params->algoParams.hnswParams.initialCapacity = params->algoParams.hnswParams.blockSize;
   }
   size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
   size_t free_memory = memoryLimit - used_memory;
-  if (params->hnswParams.initialCapacity > maxBlockSize) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index initial capacity %zu exceeded server limit (%zu with the given parameters)", params->hnswParams.initialCapacity, maxBlockSize);
+  if (params->algoParams.hnswParams.initialCapacity > maxBlockSize) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index initial capacity %zu exceeded server limit (%zu with the given parameters)", params->algoParams.hnswParams.initialCapacity, maxBlockSize);
     return 0;
   }
-  if (params->hnswParams.blockSize > maxBlockSize) {
+  if (params->algoParams.hnswParams.blockSize > maxBlockSize) {
     // TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
     // QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", fs->vectorOpts.vecSimParams.bfParams.blockSize, maxBlockSize);
     // return 0;
@@ -530,22 +539,22 @@ static int parseVectorField_validate_flat(VecSimParams *params, QueryError *stat
   // Calculating max block size (in # of vectors), according to memory limits
   size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
   // if Block size was not set by user, sets the default to min(maxBlockSize, DEFAULT_BLOCK_SIZE)
-  if (params->bfParams.blockSize == 0) { // indicates that block size was not set by the user
-    params->bfParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
+  if (params->algoParams.bfParams.blockSize == 0) { // indicates that block size was not set by the user
+    params->algoParams.bfParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
   }
-  if (params->bfParams.initialCapacity == SIZE_MAX) { // indicates that initial capacity was not set by the user
-    params->bfParams.initialCapacity = params->bfParams.blockSize;
+  if (params->algoParams.bfParams.initialCapacity == SIZE_MAX) { // indicates that initial capacity was not set by the user
+    params->algoParams.bfParams.initialCapacity = params->algoParams.bfParams.blockSize;
   }
   // Calculating index size estimation, after first vector block was allocated.
   size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
-  index_size_estimation += elementSize * params->bfParams.blockSize;
+  index_size_estimation += elementSize * params->algoParams.bfParams.blockSize;
   size_t free_memory = memoryLimit - used_memory;
-  if (params->bfParams.initialCapacity > maxBlockSize) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index initial capacity %zu exceeded server limit (%zu with the given parameters)", params->bfParams.initialCapacity, maxBlockSize);
+  if (params->algoParams.bfParams.initialCapacity > maxBlockSize) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index initial capacity %zu exceeded server limit (%zu with the given parameters)", params->algoParams.bfParams.initialCapacity, maxBlockSize);
     return 0;
   }
-  if (params->bfParams.blockSize > maxBlockSize) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", params->bfParams.blockSize, maxBlockSize);
+  if (params->algoParams.bfParams.blockSize > maxBlockSize) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Vector index block size %zu exceeded server limit (%zu with the given parameters)", params->algoParams.bfParams.blockSize, maxBlockSize);
     return 0;
   }
   RedisModule_Log(RSDummyContext, "warning", "creating vector index. Server memory limit: %zuB, required memory: %zuB, available memory: %zuB", memoryLimit, index_size_estimation, free_memory);
@@ -560,7 +569,7 @@ int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, Query
   } else if (VecSimAlgo_BF == params->algo) {
     valid = parseVectorField_validate_flat(params, status);
   } else if (VecSimAlgo_TIERED == params->algo) {
-    return VecSimIndex_validate_params(ctx, params->tieredParams.primaryIndexParams, status);
+    return VecSimIndex_validate_params(ctx, params->algoParams.tieredParams.primaryIndexParams, status);
   }
   return valid ? REDISMODULE_OK : REDISMODULE_ERR;
 }
@@ -587,45 +596,45 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
 
   while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
-      if ((rc = parseVectorField_GetType(ac, &params->hnswParams.type)) != AC_OK) {
+      if ((rc = parseVectorField_GetType(ac, &params->algoParams.hnswParams.type)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index type", rc);
         return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
-      if ((rc = AC_GetSize(ac, &params->hnswParams.dim, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.dim, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index dim", rc);
         return 0;
       }
       mandsize = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
-      if ((rc = parseVectorField_GetMetric(ac, &params->hnswParams.metric)) != AC_OK) {
+      if ((rc = parseVectorField_GetMetric(ac, &params->algoParams.hnswParams.metric)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index metric", rc);
         return 0;
       }
       mandmetric = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_INITIAL_CAP)) {
-      if ((rc = AC_GetSize(ac, &params->hnswParams.initialCapacity, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.initialCapacity, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index initial cap", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_M)) {
-      if ((rc = AC_GetSize(ac, &params->hnswParams.M, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.M, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index m", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EFCONSTRUCTION)) {
-      if ((rc = AC_GetSize(ac, &params->hnswParams.efConstruction, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.efConstruction, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index efConstruction", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EFRUNTIME)) {
-      if ((rc = AC_GetSize(ac, &params->hnswParams.efRuntime, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.efRuntime, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index efRuntime", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EPSILON)) {
-      if ((rc = AC_GetDouble(ac, &params->hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
+      if ((rc = AC_GetDouble(ac, &params->algoParams.hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity HNSW index epsilon", rc);
         return 0;
       }
@@ -652,7 +661,7 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
     return 0;
   }
   // Calculating expected blob size of a vector in bytes.
-  fs->vectorOpts.expBlobSize = params->hnswParams.dim * VecSimType_sizeof(params->hnswParams.type);
+  fs->vectorOpts.expBlobSize = params->algoParams.hnswParams.dim * VecSimType_sizeof(params->algoParams.hnswParams.type);
 
   return parseVectorField_validate_hnsw(params, status);
 }
@@ -679,30 +688,30 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
 
   while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
-      if ((rc = parseVectorField_GetType(ac, &params->bfParams.type)) != AC_OK) {
+      if ((rc = parseVectorField_GetType(ac, &params->algoParams.bfParams.type)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index type", rc);
         return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
-      if ((rc = AC_GetSize(ac, &params->bfParams.dim, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.bfParams.dim, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index dim", rc);
         return 0;
       }
       mandsize = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
-      if ((rc = parseVectorField_GetMetric(ac, &params->bfParams.metric)) != AC_OK) {
+      if ((rc = parseVectorField_GetMetric(ac, &params->algoParams.bfParams.metric)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index metric", rc);
         return 0;
       }
       mandmetric = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_INITIAL_CAP)) {
-      if ((rc = AC_GetSize(ac, &params->bfParams.initialCapacity, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.bfParams.initialCapacity, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index initial cap", rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_BLOCKSIZE)) {
-      if ((rc = AC_GetSize(ac, &params->bfParams.blockSize, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.bfParams.blockSize, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, "vector similarity FLAT index blocksize", rc);
         return 0;
       }
@@ -729,7 +738,7 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
     return 0;
   }
   // Calculating expected blob size of a vector in bytes.
-  fs->vectorOpts.expBlobSize = params->bfParams.dim * VecSimType_sizeof(params->bfParams.type);
+  fs->vectorOpts.expBlobSize = params->algoParams.bfParams.dim * VecSimType_sizeof(params->algoParams.bfParams.type);
 
   return parseVectorField_validate_flat(&fs->vectorOpts.vecSimParams, status);
 }
@@ -769,23 +778,23 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
 
   if (!strncasecmp(VECSIM_ALGORITHM_BF, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_BF;
-    fs->vectorOpts.vecSimParams.bfParams.initialCapacity = SIZE_MAX;
-    fs->vectorOpts.vecSimParams.bfParams.blockSize = 0;
-    fs->vectorOpts.vecSimParams.bfParams.multi = multi;
+    fs->vectorOpts.vecSimParams.algoParams.bfParams.initialCapacity = SIZE_MAX;
+    fs->vectorOpts.vecSimParams.algoParams.bfParams.blockSize = 0;
+    fs->vectorOpts.vecSimParams.algoParams.bfParams.multi = multi;
     return parseVectorField_flat(fs, &fs->vectorOpts.vecSimParams, ac, status);
   } else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
-    VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.tieredParams, sp_ref);
-    fs->vectorOpts.vecSimParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = 0; // Will be set to default value.
+    VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
+    fs->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = 0; // Will be set to default value.
 
-    VecSimParams *params = fs->vectorOpts.vecSimParams.tieredParams.primaryIndexParams;
+    VecSimParams *params = fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
     params->algo = VecSimAlgo_HNSWLIB;
-    params->hnswParams.initialCapacity = SIZE_MAX;
-    params->hnswParams.blockSize = 0;
-    params->hnswParams.M = HNSW_DEFAULT_M;
-    params->hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
-    params->hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
-    params->hnswParams.multi = multi;
+    params->algoParams.hnswParams.initialCapacity = SIZE_MAX;
+    params->algoParams.hnswParams.blockSize = 0;
+    params->algoParams.hnswParams.M = HNSW_DEFAULT_M;
+    params->algoParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
+    params->algoParams.hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
+    params->algoParams.hnswParams.multi = multi;
     // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
     params->logCtx = logCtx;
 
@@ -846,8 +855,13 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
     sp->flags |= Index_HasGeometry;
     fs->types |= INDEXFLD_T_GEOMETRY;
-    // TODO: GEOMETRY - Support more geometry libraries - if an optional successive token exist
-    fs->geometryOpts.geometryLibType = GEOMETRY_LIB_TYPE_BOOST_GEOMETRY;
+    if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_FLAT_STR)) {
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_SPHERE_STR)) {
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
+    } else {
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
+    }
   } else {  // nothing more supported currently
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;
@@ -856,7 +870,9 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
       FieldSpec_SetSortable(fs);
-      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) || FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
+          FIELD_IS(fs, INDEXFLD_T_NUMERIC) ||         // We don't normalize numeric fields. Implicit UNF
+          TAG_FIELD_IS(fs, TagField_CaseSensitive)) { // We don't normalize case sensitive tags. Implicit UNF
         fs->options |= FieldSpec_UNF;
       }
       continue;
@@ -1079,6 +1095,7 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
 StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
   StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
+  spec->own_ref = spec_ref;
 
   IndexSpec_MakeKeyless(spec);
 
@@ -1250,8 +1267,8 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
 
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
-    cleanPool = redisearch_thpool_create(1);
-    redisearch_thpool_init(cleanPool);
+    cleanPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM);
+    redisearch_thpool_init(cleanPool, LogCallback);
   }
 }
 
@@ -1294,7 +1311,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   if (spec->terms) {
     TrieType_Free(spec->terms);
   }
-  // Free TEXT TAG NUMERIC VECTOR and GEOMETRY fields trie and inverted indexes
+  // Free TEXT TAG NUMERIC VECTOR and GEOSHAPE fields trie and inverted indexes
   if (spec->keysDict) {
     dictRelease(spec->keysDict);
   }
@@ -1377,13 +1394,7 @@ void IndexSpec_Free(IndexSpec *spec) {
   if (spec->gc) {
     GCContext_Stop(spec->gc);
   }
-  // Remove existing cursors from global list
-  if (spec->uniqueId) {
-    // If uniqueid is 0, it means the index was not initialized
-    // and is being freed now during an error.
-    Cursors_PurgeWithName(&RSCursors, spec->name);
-    CursorList_RemoveSpec(&RSCursors, spec->name);
-  }
+
   // Free stopwords list (might use global pointer to default list)
   if (spec->stopwords) {
     StopWordList_Unref(spec->stopwords);
@@ -1425,8 +1436,11 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
   SchemaPrefixes_RemoveSpec(spec_ref);
 
   // Mark there are pending index drops.
-  // if ref count is > 1, the actual cleanup will be done only when StrongRefs are released. 
+  // if ref count is > 1, the actual cleanup will be done only when StrongRefs are released.
   addPendingIndexDrop();
+
+  // Nullify the spec's quick access to the strong ref. (doesn't decrements refrences count).
+  spec->own_ref = (StrongRef){0};
 
   // mark the spec as deleted and decrement the ref counts owned by the global dictionaries
   StrongRef_Invalidate(spec_ref);
@@ -1438,8 +1452,9 @@ void Indexes_Free(dict *d) {
   // spec<-->prefix
   SchemaPrefixes_Free(ScemaPrefixes_g);
   SchemaPrefixes_Create();
+
   // cursor list is iterating through the list as well and consuming a lot of CPU
-  CursorList_Empty(&RSCursors);
+  CursorList_Empty(&g_CursorsList);
 
   arrayof(StrongRef) specs = array_new(StrongRef, dictSize(d));
   dictIterator *iter = dictGetIterator(d);
@@ -1508,6 +1523,10 @@ StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options)
   }
 
   return spec_ref;
+}
+
+StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec) {
+  return spec->own_ref;
 }
 
 // Assuming the spec is properly locked before calling this function.
@@ -1608,7 +1627,6 @@ IndexSpec *NewIndexSpec(const char *name) {
 
   pthread_rwlock_init(&sp->rwlock, &attr);
 
-  sp->specVersion = 0;
   return sp;
 }
 
@@ -1687,19 +1705,6 @@ int bit(t_fieldMask id) {
   return 0;
 }
 
-// Return the current vesrion of the spec.
-// The value of the version number does'nt indicate if the index
-// is newer or older, and should be only tested for inequality.
-size_t IndexSpec_GetVersion(const IndexSpec *sp) {
-  return sp->specVersion;
-}
-
-// Update the spec vesrion if we update the index.
-// It is assumed that this function is called after locking Redis.
-// When the version number is overflowed, it will start from zero.
-void IndexSpec_UpdateVersion(IndexSpec *sp) {
-  ++sp->specVersion;
-}
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Backwards compat version of load for rdbs with version < 8
@@ -1752,10 +1757,9 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
     RedisModule_SaveUnsigned(rdb, f->vectorOpts.expBlobSize);
     VecSim_RdbSave(rdb, &f->vectorOpts.vecSimParams);
   }
-  // TODO: GEOMETRY - save geometry options if more than one geometry library is supported
-  // if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
-  //   RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryLibType);
-  // }
+  if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
+    RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryCoords);
+  }
 }
 
 static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
@@ -1830,22 +1834,22 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
         VecSimParams hnswParams = f->vectorOpts.vecSimParams;
 
         f->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
-        VecSim_TieredParams_Init(&f->vectorOpts.vecSimParams.tieredParams, sp_ref);
-        f->vectorOpts.vecSimParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = 0;
-        memcpy(f->vectorOpts.vecSimParams.tieredParams.primaryIndexParams, &hnswParams, sizeof(VecSimParams));
+        VecSim_TieredParams_Init(&f->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
+        f->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = 0;
+        memcpy(f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams, &hnswParams, sizeof(VecSimParams));
       }
     }
     // Calculate blob size limitation on lower encvers.
     if(encver < INDEX_VECSIM_2_VERSION) {
       switch (f->vectorOpts.vecSimParams.algo) {
       case VecSimAlgo_HNSWLIB:
-        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.hnswParams.type);
+        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.algoParams.hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.algoParams.hnswParams.type);
         break;
       case VecSimAlgo_BF:
-        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.bfParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.bfParams.type);
+        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.algoParams.bfParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.algoParams.bfParams.type);
         break;
       case VecSimAlgo_TIERED:
-        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.tieredParams.primaryIndexParams->hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.tieredParams.primaryIndexParams->hnswParams.type);
+        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.type);
         break;
       }
     }
@@ -1853,8 +1857,12 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
 
   // Load geometry specific options
   if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
-    // TODO: GEOMETRY - if more than one geometry library is supported - load it from rdb (currently hard-coded)
-    f->geometryOpts.geometryLibType = GEOMETRY_LIB_TYPE_BOOST_GEOMETRY;
+    if (encver >= INDEX_GEOMETRY_VERSION) {
+      f->geometryOpts.geometryCoords = LoadUnsigned_IOError(rdb, goto fail);
+    } else {
+      // In RedisSearch RC (2.8.1 - 2.8.3) we supported default coordinate system which was not written to RDB
+      f->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
+    }
   }
 
   return REDISMODULE_OK;
@@ -2072,8 +2080,8 @@ end:
 
 static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1);
-    redisearch_thpool_init(reindexPool);
+    reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM);
+    redisearch_thpool_init(reindexPool, LogCallback);
   }
 #ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Register index %s for async scan", ((IndexSpec*)StrongRef_Get(spec_ref))->name);
@@ -2219,7 +2227,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
     GCContext_RenderStatsForInfo(sp->gc, ctx);
 
   // Cursor stat
-  Cursors_RenderStatsForInfo(&RSCursors, sp->name, ctx);
+  Cursors_RenderStatsForInfo(&g_CursorsList, sp, ctx);
 
   // Stop words
   if (sp->flags & Index_HasCustomStopwords)
@@ -2298,8 +2306,8 @@ void Indexes_UpgradeLegacyIndexes() {
 
 void Indexes_ScanAndReindex() {
   if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1);
-    redisearch_thpool_init(reindexPool);
+    reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM);
+    redisearch_thpool_init(reindexPool, LogCallback);
   }
 
   RedisModule_Log(NULL, "notice", "Scanning all indexes");
@@ -2316,6 +2324,8 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
                                        QueryError *status) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
+  sp->own_ref = spec_ref;
+
   IndexSpec_MakeKeyless(sp);
 
   sp->sortables = NewSortingTable();
@@ -2382,7 +2392,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->uniqueId = spec_unique_ids++;
 
   IndexSpec_StartGC(ctx, spec_ref, sp);
-  CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
+  Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
 
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
@@ -2447,6 +2457,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
+  sp->own_ref = spec_ref;
+
   IndexSpec_MakeKeyless(sp);
   sp->sortables = NewSortingTable();
   sp->terms = NULL;
@@ -2537,7 +2549,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   // start the gc and add the spec to the cursor list
   IndexSpec_StartGC(RSDummyContext, spec_ref, sp);
-  CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
+  Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
 
   dictAdd(legacySpecDict, sp->name, spec_ref.rm);
   return spec_ref.rm;
@@ -2650,7 +2662,8 @@ int CompareVestions(Version v1, Version v2) {
 
   return 0;
 }
-
+// This funciton is called in case the server is started or
+// when the replica is loading the RDB file from the master.
 static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
                                  void *data) {
   if (subevent == REDISMODULE_SUBEVENT_LOADING_RDB_START ||
@@ -2663,7 +2676,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
     }
     RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
     workersThreadPool_InitIfRequired();
 #endif
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
@@ -2682,12 +2695,22 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       RedisModule_Log(ctx, "warning",
                       "Skip background reindex scan, redis version contains loaded event.");
     }
-#ifdef POWER_TO_THE_WORKERS
+#ifdef MT_BUILD
     workersThreadPool_waitAndTerminate(ctx);
 #endif
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
   }
 }
+
+#ifdef MT_BUILD
+static void LoadingProgressCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
+                                 void *data) {
+  RedisModule_Log(RSDummyContext, "debug", "Waiting for background jobs to be executed while"
+                  " loading is in progress (pregress is %d)",
+                  ((RedisModuleLoadingProgress *)data)->progress);
+  workersThreadPool_Drain(ctx, 100);
+}
+#endif
 
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {
@@ -2708,7 +2731,9 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   }
 
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Loading, Indexes_LoadingEvent);
-
+#ifdef MT_BUILD
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_LoadingProgress, LoadingProgressCallback);
+#endif
   return REDISMODULE_OK;
 }
 
@@ -2762,7 +2787,6 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   Document_Free(&doc);
 
   spec->stats.totalIndexTime += hires_clock_since_usec(&t0);
-  IndexSpec_UpdateVersion(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }
@@ -2816,7 +2840,6 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   RedisSearchCtx_LockSpecWrite(&sctx);
   IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, id);
-  IndexSpec_UpdateVersion(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }
@@ -3018,10 +3041,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
     if (entry) {
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
       RedisSearchCtx_LockSpecWrite(&sctx);
-      if(REDISMODULE_OK == DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len)) {
-        IndexSpec_UpdateVersion(spec);
-      }
-
+      DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
       RedisSearchCtx_UnlockSpec(&sctx);
       size_t index = entry->v.u64;
       dictDelete(to_specs->specs, spec->name);

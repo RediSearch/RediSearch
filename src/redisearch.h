@@ -55,8 +55,9 @@ typedef enum {
   DocumentType_Unsupported,
 } DocumentType;
 
-#define isSpecHash(spec) (spec->rule && spec->rule->type == DocumentType_Hash)
-#define isSpecJson(spec) (spec->rule && spec->rule->type == DocumentType_Json)
+#define isSpecHash(spec) ((spec)->rule && (spec)->rule->type == DocumentType_Hash)
+#define isSpecJson(spec) ((spec)->rule && (spec)->rule->type == DocumentType_Json)
+#define SpecRuleTypeName(spec) ((spec)->rule ? DocumentType_ToString((spec)->rule->type) : "Unknown")
 
 #define RS_IsMock (!RedisModule_CreateTimer)
 
@@ -75,6 +76,8 @@ typedef enum {
   Document_HasPayload = 0x02,
   Document_HasSortVector = 0x04,
   Document_HasOffsetVector = 0x08,
+  Document_FailedToOpen = 0x10, // Document was failed to opened by a loader (might expired) but not yet marked as deleted.
+                                // This is an optimization to avoid attempting opening the document for loading. May be used UN-ATOMICALLY
 } RSDocumentFlags;
 
 #define hasPayload(x) (x & Document_HasPayload)

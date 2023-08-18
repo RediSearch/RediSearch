@@ -239,13 +239,15 @@ static void invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
 
 static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
   Grouper *g = (Grouper *)base;
-
+  uint32_t chunkLimit = base->parent->resultLimit;
+  base->parent->resultLimit = UINT32_MAX; // we want to accumulate all the results
   int rc;
 
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
     invokeGroupReducers(g, &res->rowdata);
     SearchResult_Clear(res);
   }
+  base->parent->resultLimit = chunkLimit; // restore the limit
   if (rc == RS_RESULT_EOF) {
     base->Next = Grouper_rpYield;
     base->parent->totalResults = kh_size(g->groups);
@@ -311,7 +313,6 @@ Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, siz
   g->base.type = RP_GROUP;
   g->base.Next = Grouper_rpAccum;
   g->base.Free = Grouper_rpFree;
-  g->base.behavior = RESULT_PROCESSOR_B_ACCUMULATOR;
   return g;
 }
 

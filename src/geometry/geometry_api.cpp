@@ -5,98 +5,100 @@
  */
 
 #include "geometry_api.h"
-#include "geometry.h"
-#include "rmalloc.h"
+#include "rtree.hpp"
 
-GeometryApi* apis[GEOMETRY_LIB_TYPE__NUM] = {0};
+#include <array>    // std::array
+#include <variant>  // std::variant, std::monostate, std::get
 
-void bg_freeIndex(GeometryIndex *index) {
-  RTree_Free(reinterpret_cast<RTree*>(index));
-}
+using namespace RediSearch::GeoShape;
 
-struct GeometryIndex* bg_createIndex() {
-  return reinterpret_cast<GeometryIndex*>(RTree_New());
-}
+template <typename cs>
+using rtree_ptr = std::unique_ptr<RTree<cs>>;
 
-IndexIterator* bg_query(struct GeometryIndex *index, enum QueryType queryType, GEOMETRY_FORMAT format, const char *str, size_t len, RedisModuleString **err_msg) {
-  switch (format) {
-  case GEOMETRY_FORMAT_WKT:
-    return RTree_Query_WKT((struct RTree*)index, str, len, queryType, err_msg);
-  
-  case GEOMETRY_FORMAT_GEOJSON:
-  default:
-    return NULL;
+#define X(variant) , rtree_ptr<variant>
+struct GeometryIndex {
+  const GeometryApi *api;
+  std::variant<std::monostate GEO_VARIANTS(X)> index;
+
+  void *operator new(std::size_t) noexcept {
+    using alloc_type = RediSearch::Allocator::Allocator<GeometryIndex>;
+    return static_cast<void *>(alloc_type::allocate(1));
   }
-}
-
-int bg_addGeomStr(struct GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len, t_docId docId, RedisModuleString **err_msg) {
-  
-  switch (format) {
-  case GEOMETRY_FORMAT_WKT:
-    return !RTree_Insert_WKT((struct RTree*)index, str, len, docId, err_msg);
-
-  default:
-  case GEOMETRY_FORMAT_GEOJSON:
-    // TODO: GEOMETRY Support GeoJSON
-    return 1;
-
+  void operator delete(void *p) noexcept {
+    using alloc_type = RediSearch::Allocator::Allocator<GeometryIndex>;
+    alloc_type::deallocate(static_cast<GeometryIndex *>(p), 1);
   }
-  return 0;
+};
+#undef X
+
+auto GeometryApi_Get(const GeometryIndex *idx) -> const GeometryApi * {
+  return idx->api;
 }
 
-int bg_delGeom(struct GeometryIndex *index, t_docId docId) {
-  return RTree_RemoveByDocId(reinterpret_cast<RTree*>(index), docId);
-}
-
-void bg_dumpIndex(GeometryIndex *index, RedisModuleCtx *ctx) {
-  RTree_Dump(reinterpret_cast<RTree*>(index), ctx);
-}
-
-void s2_freeIndex(GeometryIndex *index) {
-  // TODO: GEOMETRY
-}
-
-size_t GeometryTotalMemUsage() {
-  return RTree_TotalMemUsage();
-}
-
-extern "C"
-GeometryApi* GeometryApi_GetOrCreate(GEOMETRY_LIB_TYPE type, __attribute__((__unused__)) void *pdata) {
-  if (type == GEOMETRY_LIB_TYPE_NONE) {
-    return NULL;
+namespace {
+#define X(variant)                                                                          \
+  void Index_##variant##_Free(GeometryIndex *idx) {                                         \
+    delete idx;                                                                             \
+  }                                                                                         \
+  int Index_##variant##_Insert(GeometryIndex *idx, GEOMETRY_FORMAT format, const char *str, \
+                               std::size_t len, t_docId id, RedisModuleString **err_msg) {  \
+    switch (format) {                                                                       \
+      case GEOMETRY_FORMAT_WKT:                                                             \
+        return !std::get<rtree_ptr<variant>>(idx->index)                                    \
+                    ->insertWKT(std::string_view{str, len}, id, err_msg);                   \
+      case GEOMETRY_FORMAT_GEOJSON:                                                         \
+      default:                                                                              \
+        return 1;                                                                           \
+    }                                                                                       \
+  }                                                                                         \
+  int Index_##variant##_Remove(GeometryIndex *idx, t_docId id) {                            \
+    return std::get<rtree_ptr<variant>>(idx->index)->remove(id);                            \
+  }                                                                                         \
+  auto Index_##variant##_Query(const GeometryIndex *idx, QueryType query_type,              \
+                               GEOMETRY_FORMAT format, const char *str, std::size_t len,    \
+                               RedisModuleString **err_msg)                                 \
+      ->IndexIterator * {                                                                   \
+    switch (format) {                                                                       \
+      case GEOMETRY_FORMAT_WKT:                                                             \
+        return std::get<rtree_ptr<variant>>(idx->index)                                     \
+            ->query(std::string_view{str, len}, query_type, err_msg);                       \
+      case GEOMETRY_FORMAT_GEOJSON:                                                         \
+      default:                                                                              \
+        return nullptr;                                                                     \
+    }                                                                                       \
+  }                                                                                         \
+  void Index_##variant##_Dump(const GeometryIndex *idx, RedisModuleCtx *ctx) {              \
+    std::get<rtree_ptr<variant>>(idx->index)->dump(ctx);                                    \
+  }                                                                                         \
+  std::size_t Index_##variant##_Report(const GeometryIndex *idx) {                          \
+    return std::get<rtree_ptr<variant>>(idx->index)->report();                              \
+  }                                                                                         \
+  constexpr GeometryApi GeometryApi_##variant = {                                           \
+      .freeIndex = Index_##variant##_Free,                                                  \
+      .addGeomStr = Index_##variant##_Insert,                                               \
+      .delGeom = Index_##variant##_Remove,                                                  \
+      .query = Index_##variant##_Query,                                                     \
+      .dump = Index_##variant##_Dump,                                                       \
+      .report = Index_##variant##_Report,                                                   \
+  };                                                                                        \
+  auto Index_##variant##_New()->GeometryIndex * {                                           \
+    return new GeometryIndex{&GeometryApi_##variant, std::make_unique<RTree<variant>>()};   \
   }
-  if (apis[type]) {
-    return apis[type];
-  }
-  
-  GeometryApi *api = (GeometryApi*)rm_malloc(sizeof(*api));
-  switch (type) {
-   case GEOMETRY_LIB_TYPE_BOOST_GEOMETRY:
-    api->createIndex = bg_createIndex;
-    api->freeIndex = bg_freeIndex;
-    api->addGeomStr = bg_addGeomStr;
-    api->delGeom = bg_delGeom;
-    api->query = bg_query;
-    api->dump = bg_dumpIndex;
-    break;
-   case GEOMETRY_LIB_TYPE_S2:
-    api->freeIndex = s2_freeIndex;
-    // TODO: GEOMETRY
-    break;
-   default:
-    rm_free(api);
-    return NULL;
-  }
+GEO_VARIANTS(X)
+#undef X
+}  // anonymous namespace
 
-  apis[type] = api;
-  return api;
+#define X(variant) /*[GEOMETRY_COORDS_##variant] =*/ Index_##variant##_New,
+auto GeometryIndexFactory(GEOMETRY_COORDS tag) -> GeometryIndex * {
+  // using GeometryConstructor_t = auto (*)() -> GeometryIndex *;
+  static constexpr auto geometry_ctors = std::array{GEO_VARIANTS(X)};
+  return geometry_ctors[tag]();
 }
+#undef X
 
-extern "C"
-void GeometryApi_Free() {
-  for (int i = 0; i < GEOMETRY_LIB_TYPE__NUM; ++i) {
-    if (apis[i]) {
-      rm_free(apis[i]);
-    }
-  }
+auto GeometryCoordsToName(GEOMETRY_COORDS tag) -> const char * {
+  static_assert(GEOMETRY_COORDS_Cartesian == 0 && GEOMETRY_COORDS_Geographic == 1);
+  using namespace std::literals;
+  static constexpr auto tag_names = std::array{"FLAT"sv, "SPHERICAL"sv}; 
+  return tag_names[tag].data();
 }

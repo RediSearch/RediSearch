@@ -298,6 +298,27 @@ class TestAggregate():
         self.env.assertListEqual([292, ['brand', 'zps', 'price', '0'], ['brand', 'zalman', 'price', '0'], ['brand', 'yoozoo', 'price', '0'], ['brand', 'white label', 'price', '0'], ['brand', 'stinky', 'price', '0'], [
                                  'brand', 'polaroid', 'price', '0'], ['brand', 'plantronics', 'price', '0'], ['brand', 'ozone', 'price', '0'], ['brand', 'oooo', 'price', '0'], ['brand', 'neon', 'price', '0']], res)
 
+        # Test Sorting by multiple properties with missing values
+        res = self.env.cmd('ft.aggregate', 'games', '*', 'LOAD', '1', '@nonexist',
+                           'SORTBY', 2, '@nonexist', '@price', 'MAX', 10,
+                           )
+            # We should get a tie for all the results on the nonexist property, and therefore sort by the second property and get the top 10
+            # docs with the lowest price
+        self.env.assertListEqual([2265, ['price', '0'], ['price', '0'], ['price', '0'], ['price', '0'], ['price', '0'],
+                                        ['price', '0'], ['price', '0'], ['price', '0'], ['price', '0'], ['price', '0']], res)
+
+            # make sure we get results sorted by the second property and not by doc ID (which is the default fallback)
+        res1 = self.env.cmd('ft.aggregate', 'games', '*', 'LOAD', '2', '@nonexist', '@price',
+                            'SORTBY', 2, '@nonexist', '@price', 'MAX', 10,
+                            'LOAD', '3', '@__key', 'AS', 'key',
+                           )
+        res2 = self.env.cmd('ft.aggregate', 'games', '*', 'LOAD', '2', '@nonexist', '@price',
+                            'SORTBY', 1, '@nonexist', 'MAX', 10,
+                            'LOAD', '3', '@__key', 'AS', 'key',
+                           )
+        self.env.assertNotEqual(res1, res2)
+
+
         # test LOAD with SORTBY
         expected_res = [2265, ['title', 'Logitech MOMO Racing - Wheel and pedals set - 6 button(s) - PC, MAC - black', 'price', '759.12'],
                                ['title', 'Sony PSP Slim &amp; Lite 2000 Console', 'price', '695.8']]
@@ -968,3 +989,123 @@ def testGroupProperties(env):
                                            'REDUCE', 'COUNT', '0', 'AS', 'my_output',
                                            'REDUCE', 'AVG', '1', '@n', 'AS', 'my_output').error().contains(
                'Property `my_output` specified more than once')
+
+def testGroupAfterSort(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'n', 'NUMERIC')
+    conn.execute_command('HSET', 'doc1', 't', 'AAAA', 'n', '0')
+    conn.execute_command('HSET', 'doc2', 't', 'AAAA', 'n', '1')
+    conn.execute_command('HSET', 'doc3', 't', 'BBBB', 'n', '0')
+    conn.execute_command('HSET', 'doc4', 't', 'BBBB', 'n', '1')
+
+    # CASE 1 #
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
+                               'SORTBY', '1', '@n', 'MAX', '2',
+                               'GROUPBY', '1', '@t',
+                               'REDUCE', 'COUNT', '0', 'AS', 'c')
+
+    # On a standalone mode this is strait forward:
+    # 1. we sort by `n` and take the first 2 results (doc1 and doc3)
+    # 2. we group by `t` and add a `COUNT` reducer as `c`
+    # 3. since doc1 and doc3 has different `t` value, we get two rows, each of COUNT 1.
+    # so the expected result is:
+    expected = [2, ['t', 'AAAA', 'c', '1'], ['t', 'BBBB', 'c', '1']]
+
+    # We expect to get the same results from the coordinator, no matter what is the distribution of the docs between the shards.
+    # Before the logic fix, the pipeline of ->sortby(n, limit(2))->group(t, COUNT() AS c) was changed to
+    #
+    # |--------------- on the shards ---------------|->|----------- on the coordinator -----------|
+    # ->sortby(n, limit(2))->group(t, COUNT() AS tmp)->sortby(n, limit(2))->group(t, SUM(tmp) AS c)
+    #
+    # and since `n` is not in the scope when we get to the second sorter, the query fails. ([0] is returned)
+
+    env.assertEqual(res, expected)
+
+    # CASE 2 #
+    conn.execute_command('HSET', 'doc5', 't', 'AAAA', 'n', '0')
+    conn.execute_command('HSET', 'doc6', 't', 'BBBB', 'n', '1')
+
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
+                               'SORTBY', '3', '@n', '@t', 'DESC', 'MAX', '3',
+                               'GROUPBY', '2', '@t', '@n',
+                               'REDUCE', 'COUNT', '0', 'AS', 'c')
+
+    # On a standalone mode this is strait forward:
+    # 1. we sort by `n` and take the first 3 results (doc1, doc3 and doc5)
+    # 2. we group by `t` and `n`, and add a `COUNT` reducer as `c`
+    # 3. since doc1, doc3 and doc5 has different `t` value, we get two rows, one of COUNT 2 and one of 1.
+    # 4. both rows has `n == 0` so it does not affect the aggregation
+    # so the expected result is:
+    expected = [2, ['t', 'AAAA', 'n', '0', 'c', '2'], ['t', 'BBBB', 'n', '0', 'c', '1']]
+
+    # We expect to get the same results from the coordinator, no matter what is the distribution of the docs between the shards.
+    # Before the logic fix, the pipeline of ->sortby(n, t, limit(3)->group(t, n, COUNT() AS c) was changed to
+    #
+    # |------------------ on the shards ------------------|->|-------------- on the coordinator --------------|
+    # ->sortby(n, t, limit(3))->group(t, n, COUNT() AS tmp)->sortby(n, t, limit(3))->group(t, n, SUM(tmp) AS c)
+    #
+    # now, no matter the docs distribution (unless they all in the same shard), some rows with `n == 1` will pass the first limit,
+    # will get their own row and get to the coordinator. then, we have 2 options:
+    # 1. doc1 doc3 and doc5 are all in different shards. the coordinator will get 3 rows with `n == 0` and only them will pass the second
+    #    sort and limit, and the second aggregation will results with the same result as in a standalone (lucky).
+    # 2. some of doc1 doc3 and doc5 are in the same shard. we won't get 3 rows of `n == 0` at the second sort and limit, so a row
+    #    with `n == 1` will get the the last aggregation and the final result will include 3 row:
+    #    one for (t == AAAA, n == 0), one for (t == BBBB, n == 0), and one for (t == ????, n == 1)
+
+    env.assertEqual(res, expected)
+
+
+def testWithKNN(env):
+    conn = getConnectionByEnv(env)
+    dim = 4
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+               'TYPE', 'FLOAT32', 'n', 'NUMERIC').ok()
+
+    # Use {1} and {3} hash slot to verify the distribution of the documents among 2 different shards.
+    conn.execute_command('HSET', 'doc1{1}', 'v', create_np_array_typed([1] * dim).tobytes(), 'n', '3')
+    conn.execute_command('HSET', 'doc5{1}', 'v', create_np_array_typed([5] * dim).tobytes(), 'n', '2')
+    conn.execute_command('HSET', 'doc6{1}', 'v', create_np_array_typed([6] * dim).tobytes(), 'n', '1')
+
+    conn.execute_command('HSET', 'doc2{3}', 'v', create_np_array_typed([2] * dim).tobytes(), 'n', '5')
+    conn.execute_command('HSET', 'doc3{3}', 'v', create_np_array_typed([3] * dim).tobytes(), 'n', '4')
+    conn.execute_command('HSET', 'doc4{3}', 'v', create_np_array_typed([4] * dim).tobytes(), 'n', '6')
+
+    # CASE 1 #
+    # Run KNN with SORTBY. We expect that the top 3 documents in terms of vector distance will be doc1, doc2 and doc3,
+    # and that after we sort by @n, we'll get doc1 and doc3 as the query results (with minial value of n among the 3
+    # documents). Note that here we are testing that in coordinator know NOT to run the sort by step in the shards, but
+    # run them ONLY, since there was a KNN step. Otherwise, we would get in-correct results, as doc1 would be filtered
+    # out in the first shard after the sortby step.
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]=>{$yield_distance_as: dist}',
+                               'SORTBY', '1', '@n', 'MAX', '2',
+                               'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
+    expected_res = [['dist', '4', 'n', '3'], ['dist', '36', 'n', '4']]
+    env.assertEqual(res[1:], expected_res)
+
+    # CASE 2 #
+    # Run KNN with APPLY - make sure that the pipeline is built correctly - APPLY should be distributed, while
+    # KNN is local (and the upcoming SORTBY steps).
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]=>{$yield_distance_as: square_dist}',
+                               "APPLY", "sqrt(@square_dist)", "AS", "L2_dist", 'SORTBY', '1', '@n', 'MAX', '2',
+                               'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
+    expected_res = [{'L2_dist': '2', 'square_dist': '4', 'n': '3'}, {'L2_dist': '6', 'square_dist': '36', 'n': '4'}]
+    env.assertEqual([to_dict(res_item) for res_item in res[1:]], expected_res)
+
+    # CASE 3 #
+    # Run GROUPBY after KNN. Validate that here as well we have the group by step run only local,
+    # otherwise, if the groupby+reduce had ran in each shard, we would get that the count is 2 for every value of @n
+    # (100 and 200), and that we would have seen in the 'c' value.
+    conn.execute_command('HSET', 'doc1{1}', 'v', create_np_array_typed([1] * dim).tobytes(), 'n', '100')
+    conn.execute_command('HSET', 'doc2{1}', 'v', create_np_array_typed([2] * dim).tobytes(), 'n', '100')
+    conn.execute_command('HSET', 'doc3{1}', 'v', create_np_array_typed([3] * dim).tobytes(), 'n', '100')
+
+    conn.execute_command('HSET', 'doc4{3}', 'v', create_np_array_typed([1] * dim).tobytes(), 'n', '200')
+    conn.execute_command('HSET', 'doc5{3}', 'v', create_np_array_typed([2] * dim).tobytes(), 'n', '200')
+    conn.execute_command('HSET', 'doc6{3}', 'v', create_np_array_typed([3] * dim).tobytes(), 'n', '200')
+
+    expected_res = [['n', '100', 'c', '1'], ['n', '200', 'c', '1']]
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 2 @v $blob]=>{$yield_distance_as: dist}',
+                               'GROUPBY', '1', '@n',
+                               'REDUCE', 'COUNT', '0', 'AS', 'c', 'SORTBY', '1', '@n',
+                               'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
+    env.assertEqual(res[1:], expected_res)
