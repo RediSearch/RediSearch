@@ -1118,14 +1118,13 @@ def testRedisCommands(env):
         env.expect('JSON.GET', 'doc:1', '$').equal(None)
         env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([0])
 
-@no_msan
-def testUpperLower(env):
+def testUpperLower():
 
     env = Env(moduleArgs='DEFAULT_DIALECT 3')
     conn = getConnectionByEnv(env)
 
     # create index
-    env.assertOk(conn.execute_command('FT.CREATE groupIdx  ON JSON PREFIX 1 group: SCHEMA $.tags.* AS tags TAG'))
+    env.assertOk(conn.execute_command('FT.CREATE' ,'groupIdx' ,'ON', 'JSON', 'PREFIX', 1, 'group:', 'SCHEMA', '$.tags.*', 'AS', 'tags', 'TAG'))
     waitForIndex(env, 'groupIdx')
 
     # validate the `upper` case
