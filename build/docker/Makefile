@@ -4,7 +4,7 @@ include $(ROOT)/deps/readies/mk/main
 
 REPO=redisearch
 
-REDIS_VERSION=7.2-rc3
+REDIS_VERSION=7.2.0
 OSNICK.official=bullseye
 
 INT_BRANCHES=2.8 2.6 2.4 2.2 2.0 1.6

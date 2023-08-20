@@ -473,7 +473,7 @@ jobs:
 
   build-macos-x64:
     macos:
-      xcode: 13.2.1
+      xcode: 13.4.1
     resource_class: macos.x86.medium.gen2
     parameters:
       test_params:
@@ -1219,7 +1219,7 @@ workflows:
           test_params: ""
           matrix:
             parameters:
-              redis_version: ["7.2-rc3"]
+              redis_version: ["7.2"]
       - sanitize:
           name: full-sanitize-<< matrix.san-type >>
           <<: *never
@@ -1304,7 +1304,7 @@ workflows:
           test_params: ""
           matrix:
             parameters:
-              redis_version: ["7.2-rc3", "unstable"]
+              redis_version: ["7.2", "unstable"]
       - sanitize:
           name: nightly-sanitize-<< matrix.san-type >>
           test_params: ""
