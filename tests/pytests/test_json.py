@@ -1128,19 +1128,19 @@ def testUpperLower():
     waitForIndex(env, 'groupIdx')
 
     # validate the `upper` case
-    env.assertOk(env.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["tag1"]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["tag1"]}'))
     env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'upper(@tags)', 'AS', 'upp').equal([1, ['tags', '["tag1"]', 'upp', 'TAG1']])
 
     # validate the `lower` case
-    env.assertOk(env.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["TAG1"]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["TAG1"]}'))
     env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'lower(@tags)', 'AS', 'low').equal([1, ['tags', '["TAG1"]', 'low', 'tag1']])
 
     # expect the same result for multi-value case
 
     # validate the `upper` case
-    env.assertOk(env.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["tag1", "tag2"]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["tag1", "tag2"]}'))
     env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'upper(@tags)', 'AS', 'upp').equal([1, ['tags', '["tag1","tag2"]', 'upp', 'TAG1']])
 
     # validate the `lower` case
-    env.assertOk(env.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["TAG1", "TAG2"]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["TAG1", "TAG2"]}'))
     env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'lower(@tags)', 'AS', 'low').equal([1, ['tags', '["TAG1","TAG2"]', 'low', 'tag1']])
