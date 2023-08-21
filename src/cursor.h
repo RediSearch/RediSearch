@@ -187,3 +187,5 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, IndexSpec 
 
 void Cursor_FreeExecState(void *);
 #endif
+
+#define getCursorList(coord) ((coord) ? &g_CursorsListCoord : &g_CursorsList)

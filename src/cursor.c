@@ -165,8 +165,9 @@ static void CursorList_IncrCounter(CursorList *cl) {
   }
 }
 
-#define rand_even48() (lrand48() & ~(1UL))
-#define rand_odd48() (lrand48() | (1UL))
+#define mask31(x) ((x) & 0x7fffffffUL) // mask to prevent overflow when adding 1 to the id
+#define rand_even48() (mask31(lrand48()) & ~(1UL))
+#define rand_odd48() (mask31(lrand48()) | (1UL))
 
 /**
  * Cursor ID is a 64 bit opaque integer. The upper 32 bits consist of the PID
