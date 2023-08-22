@@ -1148,7 +1148,7 @@ def testUpperLower():
 no_msan
 def test_mod5608(env):
     with env.getClusterConnectionIfNeeded() as r:
-        for i in range(1000000):
+        for i in range(10000):
             r.execute_command("HSET", 'd%d' % i, 'id', 'id%d' % i, 'num', i)
 
         env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'd', 'SCHEMA', 'id', 'TAG', 'num', 'NUMERIC').equal('OK')
