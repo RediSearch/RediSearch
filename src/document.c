@@ -158,9 +158,8 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   if (!actxPool_g) {
     mempool_options mopts = {.initialCap = 16,
                              .alloc = allocDocumentContext,
-                             .free = freeDocumentContext,
-                             .isGlobal = 1};
-    actxPool_g = mempool_new(&mopts);
+                             .free = freeDocumentContext};
+    mempool_test_set_global(&actxPool_g, &mopts);
   }
 
   // Get a new context

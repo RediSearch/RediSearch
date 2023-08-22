@@ -867,6 +867,55 @@ TEST_F(LLApiTest, testScorer) {
   RediSearch_DropIndex(index);
 }
 
+int testParallelScorer_worker(RSIndex* index) {
+  const char *s = "hello world";
+  RSResultsIterator *it = RediSearch_IterateQuery(index, s, strlen(s), NULL);
+  RediSearch_ResultsIteratorNext(it, index, NULL);
+  if (RediSearch_ResultsIteratorGetScore(it) != 2) {
+	  return 1;
+  }
+  RediSearch_ResultsIteratorNext(it, index, NULL);
+  if (RediSearch_ResultsIteratorGetScore(it) != 1.5) {
+	return 1;
+  }
+
+  RediSearch_ResultsIteratorFree(it);
+  return 0;
+}
+
+TEST_F(LLApiTest, testParallelScorer) {
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+
+  // adding text field to the index
+  RediSearch_CreateField(index, FIELD_NAME_1, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
+
+  // adding documents to the index
+  Document* d1 = RediSearch_CreateDocumentSimple("doc1");
+  Document* d2 = RediSearch_CreateDocumentSimple("doc2");
+
+  // adding document with a different TFIDF score
+  RediSearch_DocumentAddFieldCString(d1, FIELD_NAME_1, "hello world hello world", RSFLDTYPE_DEFAULT);
+  ASSERT_EQ(RediSearch_SpecAddDocument(index, d1), REDISMODULE_OK);
+  RediSearch_DocumentAddFieldCString(d2, FIELD_NAME_1, "hello world hello", RSFLDTYPE_DEFAULT);
+  ASSERT_EQ(RediSearch_SpecAddDocument(index, d2), REDISMODULE_OK);
+
+  sleep(1);
+  pthread_t threads[5];
+  for (int thi = 0; thi < sizeof(threads)/sizeof(*threads); ++thi) {
+    pthread_create(&threads[thi], NULL, (void *(*)(void *)) testParallelScorer_worker, (void*) index);
+  }
+
+  int rc = 0;
+  for (int thi = 0; thi < sizeof(threads)/sizeof(*threads); ++thi) {
+	int rc1 = 1;
+    pthread_join(threads[thi], (void **) &rc1);
+	if (rc1) rc = 1;
+  }
+  ASSERT_TRUE(rc == 0);
+
+  RediSearch_DropIndex(index);
+}
+
 TEST_F(LLApiTest, testStopwords) {
   // Check default stopword list
   RSIndex* index = RediSearch_CreateIndex("index", NULL);

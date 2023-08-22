@@ -149,10 +149,12 @@ else # COORD
 		___:=$(error COORD should be either oss or rlec)
 	endif
 
-	export LIBUV_BINDIR=$(realpath bin/$(FULL_VARIANT.release)/libuv)
+	LIBUV_DIR=$(ROOT)/deps/libuv
+	export LIBUV_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/libuv
 	include build/libuv/Makefile.defs
 
-	HIREDIS_BINDIR=bin/$(FULL_VARIANT.release)/hiredis
+	HIREDIS_DIR=$(ROOT)/deps/hiredis
+	HIREDIS_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/hiredis
 	include build/hiredis/Makefile.defs
 
 endif # COORD
@@ -217,18 +219,20 @@ MK_CUSTOM_CLEAN=1
 #----------------------------------------------------------------------------------------------
 
 MISSING_DEPS:=
+
 ifeq ($(wildcard $(LIBUV)),)
 MISSING_DEPS += $(LIBUV)
 endif
+
 ifeq ($(wildcard $(HIREDIS)),)
-MISSING_DEPS += $(HIREDIS)
+#@@ MISSING_DEPS += $(HIREDIS)
 endif
 
 ifneq ($(MISSING_DEPS),)
 DEPS=1
 endif
 
-DEPENDENCIES=libuv hiredis
+DEPENDENCIES=libuv #@@ hiredis
 
 ifneq ($(filter all deps $(DEPENDENCIES) pack,$(MAKECMDGOALS)),)
 DEPS=1
@@ -267,7 +271,7 @@ endif
 
 ifeq ($(DEPS),1)
 
-deps: $(LIBUV) $(HIREDIS)
+deps: $(LIBUV) #@@ $(HIREDIS)
 
 libuv: $(LIBUV)
 

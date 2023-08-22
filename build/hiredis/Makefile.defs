@@ -1,2 +1,2 @@
 
-HIREDIS=$(HIREDIS_BINDIR)/libhiredis.a
+export HIREDIS=$(HIREDIS_BINDIR)/libhiredis.a $(HIREDIS_BINDIR)/libhiredis_ssl.a

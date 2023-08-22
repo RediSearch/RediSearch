@@ -53,7 +53,7 @@ static inline mempoolThreadPool *getPoolInfo() {
   if (tp == NULL) {
     tp = rm_calloc(1, sizeof(*tp));
     mempool_options opts = {
-        .isGlobal = 0, .initialCap = 0, .maxCap = 1000, .alloc = _valueAlloc, .free = _valueFree};
+        .initialCap = 0, .maxCap = 1000, .alloc = _valueAlloc, .free = _valueFree};
     tp->values = mempool_new(&opts);
     pthread_setspecific(mempoolKey_g, tp);
   }
