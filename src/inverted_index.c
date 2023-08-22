@@ -1275,6 +1275,7 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask f
                                 RSQueryTerm *term, double weight) {
   if (term && sp) {
     // compute IDF based on num of docs in the header
+    term->numDocs = idx->numDocs;
     term->idf = CalculateIDF(sp->docs.size, idx->numDocs);
   }
 

@@ -220,7 +220,7 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
   }
   h->freq += MAX(1, (uint32_t)score);
   idx->maxFreq = MAX(h->freq, idx->maxFreq);
-  idx->totalFreq += h->freq;
+  idx->totalFreq += MAX(1, (uint32_t)score);
   if (h->vw) {
     VVW_Write(h->vw, pos);
   }

@@ -214,6 +214,9 @@ typedef struct {
   int id;
   /* Flags given by the engine or by the query expander */
   RSTokenFlags flags;
+
+  /* Number of documents in which this term appears in the index */
+  uint32_t numDocs;
 } RSQueryTerm;
 
 /**************************************

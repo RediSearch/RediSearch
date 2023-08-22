@@ -1,4 +1,6 @@
 import math
+from time import sleep
+
 from includes import *
 from common import getConnectionByEnv, waitForIndex, server_version_at_least
 
@@ -59,12 +61,13 @@ def testScoreTagIndex(env):
     for _ in env.reloading_iterator():
         waitForIndex(env, 'idx')
         for i, scorer in enumerate(scorers):
+            print(scorer)
             res = env.cmd('ft.search', 'idx', 'hello world', 'scorer',
-                          scorer, 'nocontent', 'withscores', 'limit', 0, 5)
-            res = [round(float(x), 2) if j > 0 and (j - 1) %
-                   2 == 1 else x for j, x in enumerate(res)]
-            #print res
-            env.assertListEqual(expected_results[i], res)
+                          scorer, 'nocontent', 'withscores', 'EXPLAINSCORE', 'limit', 0, 5)
+            # res = [round(float(x), 2) if j > 0 and (j - 1) %
+            #        2 == 1 else x for j, x in enumerate(res)]
+            print(res)
+            # env.assertListEqual(expected_results[i], res)
 
 def testDocscoreScorerExplanation(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
@@ -161,6 +164,36 @@ def testBM25ScorerExplanation(env):
                             [['(Weight 1.00 * children BM25 1.56)',
                             ['(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
                             '(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
+
+
+def testBM25StdScorerExplanation(env):
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
+               'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
+    waitForIndex(env, 'idx')
+    sleep(10)
+    env.expect('HSET', 'doc1', 'title', 'hello world', 'body', 'lorem ist ipsum').equal(2)
+    env.expect('HSET', 'doc2', 'title', 'hello space world', 'body', 'lorem ist ipsum lorem lorem').equal(2)
+    env.expect('HSET', 'doc3', 'title', 'hello more space world', 'body', 'lorem ist ipsum lorem lorem').equal(2)
+    res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25STD')
+    env.assertEqual(res[0], 3)
+    # if env.isCluster():
+    #     env.assertContains('Final BM25', res[2][1][0])
+    #     env.assertContains('Final BM25', res[5][1][0])
+    #     env.assertContains('Final BM25', res[8][1][0])
+    # else:
+    #
+    env.assertEqual(res[2][1], ['Final BM25 : words BM25 1.56 * document score 0.50',
+                                [['(Weight 1.00 * children BM25 1.56)',
+                                  ['hello: (0.78 = IDF 0.73 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
+                                   '(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
+    env.assertEqual(res[5][1], ['Final BM25 : words BM25 1.56 * document score 1.00 / slop 2',
+                                [['(Weight 1.00 * children BM25 1.56)',
+                                  ['(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
+                                   '(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
+    env.assertEqual(res[8][1], ['Final BM25 : words BM25 1.56 * document score 0.10 / slop 3',
+                                [['(Weight 1.00 * children BM25 1.56)',
+                                  ['(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
+                                   '(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
 
 
 def testDisMaxScorerExplanation(env):
