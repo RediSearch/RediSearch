@@ -14,6 +14,7 @@
 #include <math.h>
 #include "redismodule.h"
 #include "util/misc.h"
+#include "rmalloc.h"
 //#include "tests/time_sample.h"
 #define NR_EXPONENT 4
 #define NR_MAXRANGE_CARD 2500
@@ -536,11 +537,12 @@ IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
  * the filter */
 IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
                                      const NumericFilter *f, IteratorsConfig *config) {
+  alloc_context actx = {.stats = &sp->stats};
 
   Vector *v = NumericRangeTree_Find(t, f);
   if (!v || Vector_Size(v) == 0) {
     if (v) {
-      Vector_Free(v);
+      Vector_Free(v, &actx);
     }
     return NULL;
   }
@@ -551,13 +553,13 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
     NumericRange *rng;
     Vector_Get(v, 0, &rng);
     IndexIterator *it = NewNumericRangeIterator(sp, rng, f, true);
-    Vector_Free(v);
+    Vector_Free(v, &actx);
     return it;
   }
 
   // We create a  union iterator, advancing a union on all the selected range,
   // treating them as one consecutive range
-  IndexIterator **its = rm_calloc(n, sizeof(IndexIterator *));
+  IndexIterator **its = rm_calloc(&actx, n, sizeof(IndexIterator *));
 
   for (size_t i = 0; i < n; i++) {
     NumericRange *rng;
@@ -568,7 +570,7 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
 
     its[i] = NewNumericRangeIterator(sp, rng, f, true);
   }
-  Vector_Free(v);
+  Vector_Free(v, &actx);
 
   QueryNodeType type = (!f || NumericFilter_IsNumeric(f)) ? QN_NUMERIC : QN_GEO;
   IndexIterator *it = NewUnionIterator(its, n, NULL, 1, 1, type, NULL, config);

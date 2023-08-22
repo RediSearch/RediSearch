@@ -5,7 +5,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-extern int basque_ISO_8859_1_stem(struct SN_env * z);
+extern int basque_ISO_8859_1_stem(struct SN_env * z, alloc_context *actx);
 #ifdef __cplusplus
 }
 #endif
@@ -13,16 +13,16 @@ static int r_R1(struct SN_env * z);
 static int r_R2(struct SN_env * z);
 static int r_RV(struct SN_env * z);
 static int r_mark_regions(struct SN_env * z);
-static int r_adjetiboak(struct SN_env * z);
-static int r_izenak(struct SN_env * z);
-static int r_aditzak(struct SN_env * z);
+static int r_adjetiboak(struct SN_env * z, alloc_context *actx);
+static int r_izenak(struct SN_env * z, alloc_context *actx);
+static int r_aditzak(struct SN_env * z, alloc_context *actx);
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 
-extern struct SN_env * basque_ISO_8859_1_create_env(void);
-extern void basque_ISO_8859_1_close_env(struct SN_env * z);
+extern struct SN_env * basque_ISO_8859_1_create_env(alloc_context *actx);
+extern void basque_ISO_8859_1_close_env(struct SN_env * z, alloc_context *actx);
 
 
 #ifdef __cplusplus
@@ -998,7 +998,7 @@ static int r_R1(struct SN_env * z) {
     return 1;
 }
 
-static int r_aditzak(struct SN_env * z) {
+static int r_aditzak(struct SN_env * z, alloc_context *actx) {
     int among_var;
     z->ket = z->c;
     if (z->c - 1 <= z->lb || z->p[z->c - 1] >> 5 != 3 || !((70566434 >> (z->p[z->c - 1] & 0x1f)) & 1)) return 0;
@@ -1010,7 +1010,7 @@ static int r_aditzak(struct SN_env * z) {
             {   int ret = r_RV(z);
                 if (ret <= 0) return ret;
             }
-            {   int ret = slice_del(z);
+            {   int ret = slice_del(z, actx);
                 if (ret < 0) return ret;
             }
             break;
@@ -1018,22 +1018,22 @@ static int r_aditzak(struct SN_env * z) {
             {   int ret = r_R2(z);
                 if (ret <= 0) return ret;
             }
-            {   int ret = slice_del(z);
+            {   int ret = slice_del(z, actx);
                 if (ret < 0) return ret;
             }
             break;
         case 3:
-            {   int ret = slice_from_s(z, 7, s_0);
+            {   int ret = slice_from_s(z, 7, s_0, actx);
                 if (ret < 0) return ret;
             }
             break;
         case 4:
-            {   int ret = slice_from_s(z, 7, s_1);
+            {   int ret = slice_from_s(z, 7, s_1, actx);
                 if (ret < 0) return ret;
             }
             break;
         case 5:
-            {   int ret = slice_from_s(z, 6, s_2);
+            {   int ret = slice_from_s(z, 6, s_2, actx);
                 if (ret < 0) return ret;
             }
             break;
@@ -1041,7 +1041,7 @@ static int r_aditzak(struct SN_env * z) {
     return 1;
 }
 
-static int r_izenak(struct SN_env * z) {
+static int r_izenak(struct SN_env * z, alloc_context *actx) {
     int among_var;
     z->ket = z->c;
     if (z->c <= z->lb || z->p[z->c - 1] >> 5 != 3 || !((71162402 >> (z->p[z->c - 1] & 0x1f)) & 1)) return 0;
@@ -1053,7 +1053,7 @@ static int r_izenak(struct SN_env * z) {
             {   int ret = r_RV(z);
                 if (ret <= 0) return ret;
             }
-            {   int ret = slice_del(z);
+            {   int ret = slice_del(z, actx);
                 if (ret < 0) return ret;
             }
             break;
@@ -1061,12 +1061,12 @@ static int r_izenak(struct SN_env * z) {
             {   int ret = r_R2(z);
                 if (ret <= 0) return ret;
             }
-            {   int ret = slice_del(z);
+            {   int ret = slice_del(z, actx);
                 if (ret < 0) return ret;
             }
             break;
         case 3:
-            {   int ret = slice_from_s(z, 3, s_3);
+            {   int ret = slice_from_s(z, 3, s_3, actx);
                 if (ret < 0) return ret;
             }
             break;
@@ -1074,37 +1074,37 @@ static int r_izenak(struct SN_env * z) {
             {   int ret = r_R1(z);
                 if (ret <= 0) return ret;
             }
-            {   int ret = slice_del(z);
+            {   int ret = slice_del(z, actx);
                 if (ret < 0) return ret;
             }
             break;
         case 5:
-            {   int ret = slice_from_s(z, 3, s_4);
+            {   int ret = slice_from_s(z, 3, s_4, actx);
                 if (ret < 0) return ret;
             }
             break;
         case 6:
-            {   int ret = slice_from_s(z, 6, s_5);
+            {   int ret = slice_from_s(z, 6, s_5, actx);
                 if (ret < 0) return ret;
             }
             break;
         case 7:
-            {   int ret = slice_from_s(z, 5, s_6);
+            {   int ret = slice_from_s(z, 5, s_6, actx);
                 if (ret < 0) return ret;
             }
             break;
         case 8:
-            {   int ret = slice_from_s(z, 5, s_7);
+            {   int ret = slice_from_s(z, 5, s_7, actx);
                 if (ret < 0) return ret;
             }
             break;
         case 9:
-            {   int ret = slice_from_s(z, 5, s_8);
+            {   int ret = slice_from_s(z, 5, s_8, actx);
                 if (ret < 0) return ret;
             }
             break;
         case 10:
-            {   int ret = slice_from_s(z, 5, s_9);
+            {   int ret = slice_from_s(z, 5, s_9, actx);
                 if (ret < 0) return ret;
             }
             break;
@@ -1112,7 +1112,7 @@ static int r_izenak(struct SN_env * z) {
     return 1;
 }
 
-static int r_adjetiboak(struct SN_env * z) {
+static int r_adjetiboak(struct SN_env * z, alloc_context *actx) {
     int among_var;
     z->ket = z->c;
     if (z->c - 1 <= z->lb || z->p[z->c - 1] >> 5 != 3 || !((35362 >> (z->p[z->c - 1] & 0x1f)) & 1)) return 0;
@@ -1124,12 +1124,12 @@ static int r_adjetiboak(struct SN_env * z) {
             {   int ret = r_RV(z);
                 if (ret <= 0) return ret;
             }
-            {   int ret = slice_del(z);
+            {   int ret = slice_del(z, actx);
                 if (ret < 0) return ret;
             }
             break;
         case 2:
-            {   int ret = slice_from_s(z, 1, s_10);
+            {   int ret = slice_from_s(z, 1, s_10, actx);
                 if (ret < 0) return ret;
             }
             break;
@@ -1137,7 +1137,7 @@ static int r_adjetiboak(struct SN_env * z) {
     return 1;
 }
 
-extern int basque_ISO_8859_1_stem(struct SN_env * z) {
+extern int basque_ISO_8859_1_stem(struct SN_env * z, alloc_context *actx) {
     
     {   int ret = r_mark_regions(z);
         if (ret < 0) return ret;
@@ -1146,7 +1146,7 @@ extern int basque_ISO_8859_1_stem(struct SN_env * z) {
 
     while(1) {
         int m1 = z->l - z->c; (void)m1;
-        {   int ret = r_aditzak(z);
+        {   int ret = r_aditzak(z, actx);
             if (ret == 0) goto lab0;
             if (ret < 0) return ret;
         }
@@ -1157,7 +1157,7 @@ extern int basque_ISO_8859_1_stem(struct SN_env * z) {
     }
     while(1) {
         int m2 = z->l - z->c; (void)m2;
-        {   int ret = r_izenak(z);
+        {   int ret = r_izenak(z, actx);
             if (ret == 0) goto lab1;
             if (ret < 0) return ret;
         }
@@ -1167,7 +1167,7 @@ extern int basque_ISO_8859_1_stem(struct SN_env * z) {
         break;
     }
     {   int m3 = z->l - z->c; (void)m3;
-        {   int ret = r_adjetiboak(z);
+        {   int ret = r_adjetiboak(z, actx);
             if (ret < 0) return ret;
         }
         z->c = z->l - m3;
@@ -1176,7 +1176,7 @@ extern int basque_ISO_8859_1_stem(struct SN_env * z) {
     return 1;
 }
 
-extern struct SN_env * basque_ISO_8859_1_create_env(void) { return SN_create_env(0, 3); }
+extern struct SN_env * basque_ISO_8859_1_create_env(alloc_context *actx) { return SN_create_env(0, 3, actx); }
 
-extern void basque_ISO_8859_1_close_env(struct SN_env * z) { SN_close_env(z, 0); }
+extern void basque_ISO_8859_1_close_env(struct SN_env * z, alloc_context *actx) { SN_close_env(z, 0, actx); }
 

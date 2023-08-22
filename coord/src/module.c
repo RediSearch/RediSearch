@@ -82,7 +82,7 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   MRReply *err = NULL;
 
-  TrieMap *dict = NewTrieMap();
+  TrieMap *dict = NewTrieMap(NULL);
   int nArrs = 0;
   // Add all the set elements into the dedup dict
   for (int i = 0; i < count; i++) {
@@ -127,7 +127,7 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModule_Reply_SetEnd(reply);
 
 cleanup:
-  TrieMap_Free(dict, NULL);
+  TrieMap_Free(NULL, dict, NULL);
   RedisModule_EndReply(reply);
 
   return REDISMODULE_OK;
@@ -412,7 +412,7 @@ typedef struct {
 } scoredSearchResultWrapper;
 
 specialCaseCtx* SpecialCaseCtx_New() {
-  specialCaseCtx* ctx = rm_calloc(1, sizeof(specialCaseCtx));
+  specialCaseCtx* ctx = rm_calloc(NULL, 1, sizeof(specialCaseCtx));
   return ctx;
 }
 
@@ -421,13 +421,13 @@ void SpecialCaseCtx_Free(specialCaseCtx* ctx) {
   if(ctx->specialCaseType == SPECIAL_CASE_KNN) {
     QueryNode_Free(ctx->knn.queryNode);
   } else if(ctx->specialCaseType == SPECIAL_CASE_SORTBY) {
-    rm_free((void*)ctx->sortby.sortKey);
+    rm_free(NULL, (void*)ctx->sortby.sortKey);
   }
-  rm_free(ctx);
+  rm_free(NULL, ctx);
 }
 
 void searchRequestCtx_Free(searchRequestCtx *r) {
-  rm_free(r->queryString);
+  rm_free(NULL, r->queryString);
   if(r->specialCases) {
     size_t specialCasesLen = array_len(r->specialCases);
     for(size_t i = 0; i< specialCasesLen; i ++) {
@@ -439,7 +439,7 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
   if(r->requiredFields) {
     array_free(r->requiredFields);
   }
-  rm_free(r);
+  rm_free(NULL, r);
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies);
@@ -565,7 +565,7 @@ void prepareSortbyCase(searchRequestCtx *req, RedisModuleString **argv, int argc
   const char* sortkey = RedisModule_StringPtrLen(argv[sortByIndex + 1], NULL);
   specialCaseCtx *ctx = SpecialCaseCtx_New();
   ctx->specialCaseType = SPECIAL_CASE_SORTBY;
-  ctx->sortby.sortKey = rm_strdup(sortkey);
+  ctx->sortby.sortKey = rm_strdup(NULL, sortkey);
   ctx->sortby.asc = true;
   req->sortAscending = true;
   if (req->withSortby && sortByIndex + 2 < argc) {
@@ -586,7 +586,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     return NULL;
   }
 
-  searchRequestCtx *req = rm_malloc(sizeof *req);
+  searchRequestCtx *req = rm_malloc(NULL, sizeof *req);
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
@@ -594,7 +594,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   }
 
   int argvOffset = 2 + req->profileArgs;
-  req->queryString = rm_strdup(RedisModule_StringPtrLen(argv[argvOffset++], NULL));
+  req->queryString = rm_strdup(NULL, RedisModule_StringPtrLen(argv[argvOffset++], NULL));
   req->limit = 10;
   req->offset = 0;
   // marks the user set WITHSCORES. internally it's always set
@@ -764,7 +764,7 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
   int fieldsOffset = offsets->firstField;
   int payloadOffset = offsets->payload;
   int sortKeyOffset = offsets->sortKey;
-  searchResult *res = cached ? cached : rm_malloc(sizeof *res);
+  searchResult *res = cached ? cached : rm_malloc(NULL, sizeof *res);
   res->sortKey = NULL;
   res->sortKeyNum = HUGE_VAL;
   if (MRReply_Type(MRReply_ArrayElement(arr, j)) != MR_REPLY_STRING) {
@@ -822,7 +822,7 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
 }
 
 searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, searchReplyOffsets* offsets, bool explainScores, specialCaseCtx *reduceSpecialCaseCtxSortBy) {
-  searchResult *res = cached ? cached : rm_malloc(sizeof *res);
+  searchResult *res = cached ? cached : rm_malloc(NULL, sizeof *res);
   res->sortKey = NULL;
   res->sortKeyNum = HUGE_VAL;
 
@@ -1012,7 +1012,7 @@ static double parseNumeric(const char *str, const char *sortKey) {
 static void proccessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, double score, knnContext *knnCtx) {
   // As long as we don't have k results, keep insert
     if (heap_count(knnCtx->pq) < knnCtx->k) {
-      scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
+      scoredSearchResultWrapper* resWrapper = rm_malloc(NULL, sizeof(scoredSearchResultWrapper));
       resWrapper->result = res;
       resWrapper->score = score;
       heap_offerx(knnCtx->pq, resWrapper);
@@ -1024,14 +1024,14 @@ static void proccessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, d
       scoredSearchResultWrapper *largest = heap_peek(knnCtx->pq);
       int c = cmp_scored_results(&tmpWrapper, largest, rCtx->searchCtx);
       if (c < 0) {
-        scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
+        scoredSearchResultWrapper* resWrapper = rm_malloc(NULL, sizeof(scoredSearchResultWrapper));
         resWrapper->result = res;
         resWrapper->score = score;
         // Current result is smaller then upper bound, replace them.
         largest = heap_poll(knnCtx->pq);
         heap_offerx(knnCtx->pq, resWrapper);
         rCtx->cachedResult = largest->result;
-        rm_free(largest);
+        rm_free(NULL, largest);
       } else {
         rCtx->cachedResult = res;
       }
@@ -1236,7 +1236,7 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
     for (size_t i = 0; i < numberOfResults; i++) {
       scoredSearchResultWrapper* wrappedResult = heap_poll(reducerSpecialCaseCtx->knn.pq);
       searchResult* res = wrappedResult->result;
-      rm_free(wrappedResult);
+      rm_free(NULL, wrappedResult);
       if(heap_count(rCtx->pq) < heap_size(rCtx->pq)) {
         heap_offerx(rCtx->pq, res);
       }
@@ -1246,9 +1246,9 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
         if (c < 0) {
           smallest = heap_poll(rCtx->pq);
           heap_offerx(rCtx->pq, res);
-          rm_free(smallest);
+          rm_free(NULL, smallest);
         } else {
-          rm_free(res);
+          rm_free(NULL, res);
         }
       }
     }
@@ -1273,7 +1273,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
   // Load the results from the heap into a sorted array. Free the items in
   // the heap one-by-one so that we don't have to go through them again
-  searchResult **results = rm_malloc(sizeof(*results) * qlen);
+  searchResult **results = rm_malloc(NULL, sizeof(*results) * qlen);
   while (pos) {
     results[--pos] = heap_poll(rCtx->pq);
   }
@@ -1387,9 +1387,9 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
   // Free the sorted results
   for (pos = 0; pos < qlen; pos++) {
-    rm_free(results[pos]);
+    rm_free(NULL, results[pos]);
   }
-  rm_free(results);
+  rm_free(NULL, results);
 }
 
 /**
@@ -1401,7 +1401,7 @@ void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **repl
     char *shard_i;
     rm_asprintf(&shard_i, "Shard #%d", i + 1);
     RedisModule_Reply_SimpleString(reply, shard_i);
-    rm_free(shard_i);
+    rm_free(NULL, shard_i);
 
     // The 1st location always stores the results. On FT.AGGREGATE, the next place stores the
     // cursor ID. The last location (2nd for FT.SEARCH and 3rd for FT.AGGREGATE) stores the
@@ -1421,7 +1421,7 @@ void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **repl
     char *shard_i;
     rm_asprintf(&shard_i, "Shard #%d", i + 1);
     RedisModule_Reply_SimpleString(reply, shard_i);
-    rm_free(shard_i);
+    rm_free(NULL, shard_i);
 
     MRReply *profile = MRReply_MapElement(replies[i], "profile");
     if (profile) {
@@ -1509,7 +1509,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   // Init results heap.
   size_t num = req->requestedResultsCount;
-  rCtx.pq = rm_malloc(heap_sizeof(num));
+  rCtx.pq = rm_malloc(NULL, heap_sizeof(num));
   heap_init(rCtx.pq, cmp_results, req, num);
 
   // Default result process and post process operations
@@ -1524,7 +1524,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
         rCtx.postProcess = (postProcessReplyCB) knnPostProcess;
         rCtx.reduceSpecialCaseCtxKnn = knnCtx;
         if (knnCtx->knn.shouldSort) {
-          knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCtx->knn.k));
+          knnCtx->knn.pq = rm_malloc(NULL, heap_sizeof(knnCtx->knn.k));
           heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCtx->knn.k);
           rCtx.processReply = (processReplyCB) proccessKNNSearchReply;
           break;
@@ -1546,7 +1546,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   if (rCtx.cachedResult) {
-    rm_free(rCtx.cachedResult);
+    rm_free(NULL, rCtx.cachedResult);
   }
 
   // If we didn't get any results and we got an error - return it.
@@ -2054,8 +2054,8 @@ static void DistSearchCommandHandler(void* pd) {
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
   }
-  rm_free(sCmdCtx->argv);
-  rm_free(sCmdCtx);
+  rm_free(NULL, sCmdCtx->argv);
+  rm_free(NULL, sCmdCtx);
 }
 
 static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -2068,8 +2068,8 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
   RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-  SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
-  sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
+  SearchCmdCtx* sCmdCtx = rm_malloc(NULL, sizeof(*sCmdCtx));
+  sCmdCtx->argv = rm_malloc(NULL, sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
     // We need to copy the argv because it will be freed in the callback (from another thread).
     sCmdCtx->argv[i] = RedisModule_CreateStringFromString(ctx, argv[i]);

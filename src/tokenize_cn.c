@@ -26,14 +26,14 @@ typedef struct {
 } cnTokenizer;
 
 // TODO: This is just a global init
-static void maybeFrisoInit() {
+static void maybeFrisoInit(alloc_context *actx) {
   if (friso_g) {
     return;
   }
 
   const char *configfile = RSGlobalConfig.frisoIni;
-  friso_g = friso_new();
-  config_g = friso_new_config();
+  friso_g = friso_new(actx);
+  config_g = friso_new_config(actx);
 
   if (configfile) {
     if (!friso_init_from_ifile(friso_g, config_g, (char *)configfile)) {
@@ -41,8 +41,8 @@ static void maybeFrisoInit() {
       abort();
     }
   } else {
-    friso_dic_t dic = friso_dic_new();
-    ChineseDictLoad(dic);
+    friso_dic_t dic = friso_dic_new(actx);
+    ChineseDictLoad(actx, dic);
     ChineseDictConfigure(friso_g, config_g);
     friso_set_dic(friso_g, dic);
   }
@@ -230,9 +230,9 @@ static void cnTokenizer_Reset(RSTokenizer *base, Stemmer *stemmer, StopWordList 
   base->ctx.lastOffset = 0;
 }
 
-RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
-  cnTokenizer *tokenizer = rm_calloc(1, sizeof(*tokenizer));
-  tokenizer->fTask = friso_new_task();
+RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts, alloc_context *actx) {
+  cnTokenizer *tokenizer = rm_calloc(actx, 1, sizeof(*tokenizer));
+  tokenizer->fTask = friso_new_task(actx);
   maybeFrisoInit();
   tokenizer->base.ctx.options = opts;
   tokenizer->base.ctx.stopwords = stopwords;

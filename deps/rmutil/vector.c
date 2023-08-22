@@ -8,12 +8,12 @@
 #include <stdio.h>
 #include "rmalloc.h"
 
-inline int __vector_PushPtr(Vector *v, void *elem) {
+inline int __vector_PushPtr(Vector *v, void *elem, alloc_context *actx) {
   if (v->top == v->cap) {
-    Vector_Resize(v, v->cap ? v->cap * 2 : 1);
+    Vector_Resize(v, v->cap ? v->cap * 2 : 1, actx);
   }
 
-  __vector_PutPtr(v, v->top, elem);
+  __vector_PutPtr(v, v->top, elem, actx);
   return v->top;
 }
 
@@ -39,10 +39,10 @@ inline int Vector_Pop(Vector *v, void *ptr) {
   return 0;
 }
 
-inline int __vector_PutPtr(Vector *v, size_t pos, void *elem) {
+inline int __vector_PutPtr(Vector *v, size_t pos, void *elem, alloc_context *actx) {
   // resize if pos is out of bounds
   if (pos >= v->cap) {
-    Vector_Resize(v, pos + 1);
+    Vector_Resize(v, pos + 1, actx);
   }
 
   if (elem) {
@@ -57,11 +57,11 @@ inline int __vector_PutPtr(Vector *v, size_t pos, void *elem) {
   return 1;
 }
 
-int Vector_Resize(Vector *v, size_t newcap) {
+int Vector_Resize(Vector *v, size_t newcap, alloc_context *actx) {
   int oldcap = v->cap;
   v->cap = newcap;
 
-  v->data = rm_realloc(v->data, v->cap * v->elemSize);
+  v->data = rm_realloc(actx, v->data, v->cap * v->elemSize);
 
   // If we grew:
   // put all zeros at the newly realloc'd part of the vector
@@ -72,9 +72,9 @@ int Vector_Resize(Vector *v, size_t newcap) {
   return v->cap;
 }
 
-Vector *__newVectorSize(size_t elemSize, size_t cap) {
-  Vector *vec = rm_malloc(sizeof(Vector));
-  vec->data = rm_calloc(cap, elemSize);
+Vector *__newVectorSize(size_t elemSize, size_t cap, alloc_context *actx) {
+  Vector *vec = rm_malloc(actx, sizeof(Vector));
+  vec->data = rm_calloc(actx, cap, elemSize);
   vec->top = 0;
   vec->elemSize = elemSize;
   vec->cap = cap;
@@ -82,9 +82,9 @@ Vector *__newVectorSize(size_t elemSize, size_t cap) {
   return vec;
 }
 
-void Vector_Free(Vector *v) {
-  rm_free(v->data);
-  rm_free(v);
+void Vector_Free(Vector *v, alloc_context *actx) {
+  rm_free(actx, v->data);
+  rm_free(actx, v);
 }
 
 /* return the used size of the vector, regardless of capacity */

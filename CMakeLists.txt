@@ -46,6 +46,8 @@ add_compile_definitions(
     REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
+add_compile_definitions(COUNT_MEM_USAGE)
+
 if (USE_REDIS_ALLOCATOR)
     add_compile_definitions(REDIS_MODULE_TARGET)
 endif()

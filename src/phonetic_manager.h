@@ -18,6 +18,6 @@ typedef struct {
 } PhoneticManagerCtx;
 
 void PhoneticManager_ExpandPhonetics(PhoneticManagerCtx* ctx, const char* term, size_t len,
-                                     char** primary, char** secondary);
+                                     char** primary, char** secondary, alloc_context *actx);
 
 #endif /* SRC_PHONETIC_MANAGER_H_ */

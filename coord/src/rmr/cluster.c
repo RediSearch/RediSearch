@@ -25,7 +25,7 @@ void _MRClsuter_UpdateNodes(MRCluster *cl) {
     /* Get all the current node ids from the connection manager.  We will remove all the nodes
      * that are in the new topology, and after the update, delete all the nodes that are in this map
      * and not in the new topology */
-    TrieMap *currentNodes = NewTrieMap();
+    TrieMap *currentNodes = NewTrieMap(NULL);
     TrieMapIterator *it = TrieMap_Iterate(cl->mgr.map, "", 0);
     char *k;
     tm_len_t len;

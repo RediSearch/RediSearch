@@ -93,9 +93,9 @@ size_t MRNodeMap_NumNodes(MRNodeMap *m) {
 }
 
 MRNodeMap *MR_NewNodeMap() {
-  MRNodeMap *m = rm_malloc(sizeof(*m));
-  m->hosts = NewTrieMap();
-  m->nodes = NewTrieMap();
+  MRNodeMap *m = rm_malloc(NULL, sizeof(*m));
+  m->hosts = NewTrieMap(NULL);
+  m->nodes = NewTrieMap(NULL);
   return m;
 }
 

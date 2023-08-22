@@ -14,17 +14,17 @@
 #define __FRISO_LEX_IFILE__    "friso.lex.ini"
 
 //create a new lexicon
-FRISO_API friso_dic_t friso_dic_new() 
+FRISO_API friso_dic_t friso_dic_new(alloc_context *actx) 
 {
     register uint_t t;
-    friso_dic_t dic = ( friso_dic_t ) FRISO_CALLOC( 
+    friso_dic_t dic = ( friso_dic_t ) FRISO_CALLOC(actx, 
             sizeof( friso_hash_t ), __FRISO_LEXICON_LENGTH__ );
     if ( dic == NULL ) {
         ___ALLOCATION_ERROR___
     }
 
     for ( t = 0; t < __FRISO_LEXICON_LENGTH__; t++ ) {
-        dic[t] = new_hash_table();
+        dic[t] = new_hash_table(actx);
     }
 
     return dic;
@@ -36,28 +36,28 @@ FRISO_API friso_dic_t friso_dic_new()
  *
  * @date 2013-06-12
  */
-__STATIC_API__ void default_fdic_callback( hash_entry_t e ) 
+__STATIC_API__ void default_fdic_callback( hash_entry_t e, alloc_context *actx ) 
 {
     register uint_t i;
     friso_array_t syn;
     lex_entry_t lex = ( lex_entry_t ) e->_val;
     //free the lex->word
-    FRISO_FREE( lex->word );    
+    FRISO_FREE(actx, lex->word );    
     //free the lex->syn if it is not NULL
     if ( lex->syn != NULL ) {
         syn = lex->syn;
         for ( i = 0; i < syn->length; i++ ) {
-            FRISO_FREE( syn->items[i] );
+            FRISO_FREE(actx, syn->items[i] );
         }
         free_array_list( syn );
     }
 
     //free the e->_val
     //@date 2014-01-28 posted by mlemay@gmail.com
-    FRISO_FREE(lex);
+    FRISO_FREE(actx, lex);
 }
 
-FRISO_API void friso_dic_free( friso_dic_t dic ) 
+FRISO_API void friso_dic_free( friso_dic_t dic, alloc_context *actx ) 
 {
     register uint_t t;
     for ( t = 0; t < __FRISO_LEXICON_LENGTH__; t++ ) {
@@ -65,7 +65,7 @@ FRISO_API void friso_dic_free( friso_dic_t dic )
         free_hash_table( dic[t], default_fdic_callback );
     }
 
-    FRISO_FREE( dic );
+    FRISO_FREE(actx, dic);
 }
 
 
@@ -75,10 +75,11 @@ FRISO_API lex_entry_t new_lex_entry(
         friso_array_t syn, 
         uint_t fre, 
         uint_t length, 
-        uint_t type ) 
+        uint_t type,
+        alloc_context *actx ) 
 {
     lex_entry_t e = ( lex_entry_t ) 
-        FRISO_MALLOC( sizeof( lex_entry_cdt ) );
+        FRISO_MALLOC(actx, sizeof( lex_entry_cdt ) );
     if ( e == NULL ) {
         ___ALLOCATION_ERROR___
     }
@@ -106,7 +107,7 @@ FRISO_API lex_entry_t new_lex_entry(
  * 3. free its pos. (friso_array_t)
  * 4. free the lex_entry_t.
  */
-FRISO_API void free_lex_entry_full( lex_entry_t e ) 
+FRISO_API void free_lex_entry_full( lex_entry_t e, alloc_context *actx) 
 {
     register uint_t i;
     friso_array_t syn;
@@ -127,7 +128,7 @@ FRISO_API void free_lex_entry_full( lex_entry_t e )
     FRISO_FREE(e);
 }
 
-FRISO_API void free_lex_entry( lex_entry_t e ) 
+FRISO_API void free_lex_entry( lex_entry_t e, alloc_context *actx ) 
 {
     //if ( e->syn != NULL ) {
     //    if ( flag == 1 ) free_array_list( e->syn);
@@ -143,16 +144,16 @@ FRISO_API void friso_dic_add(
         friso_dic_t dic, 
         friso_lex_t lex,
         fstring word, 
-        friso_array_t syn ) 
+        friso_array_t syn, alloc_context *actx ) 
 {
     void *olex = NULL;
     if ( lex >= 0 && lex < __FRISO_LEXICON_LENGTH__ ) {
         //printf("lex=%d, word=%s, syn=%s\n", lex, word, syn);
         olex = hash_put_mapping( dic[lex], word, 
                 new_lex_entry( word, syn, 0, 
-                    (uint_t) strlen(word),  (uint_t) lex ) );
+                    (uint_t) strlen(word),  (uint_t) lex , actx) );
         if ( olex != NULL ) {
-            free_lex_entry_full((lex_entry_t)olex);
+            free_lex_entry_full((lex_entry_t)olex, actx);
         }
     }
 }
@@ -227,7 +228,7 @@ __STATIC_API__ fstring string_copy(
  * @param blocks    number of bytes to copy
  */
 __STATIC_API__ fstring string_copy_heap( 
-        fstring _src, uint_t blocks ) 
+        fstring _src, uint_t blocks, alloc_context *actx ) 
 {
     register uint_t t;
 
@@ -277,7 +278,8 @@ FRISO_API void friso_dic_load(
         friso_config_t config,
         friso_lex_t lex,
         fstring lex_file,
-        uint_t length ) 
+        uint_t length,
+        alloc_context *actx ) 
 {
 
     FILE * _stream;
@@ -331,7 +333,7 @@ FRISO_API void friso_dic_load(
              */
             if ( ! ( lex == __LEX_ECM_WORDS__ || lex == __LEX_CEM_WORDS__ )
                     && strlen( _word ) > length ) {
-                FRISO_FREE(_word);
+                FRISO_FREE(actx, _word);
                 continue;
             }
 
@@ -361,7 +363,7 @@ FRISO_API void friso_dic_load(
                     array_list_add( sywords, 
                             string_copy_heap(_buffer, strlen(_buffer)) );
                 }
-                sywords = array_list_trim( sywords );
+                sywords = array_list_trim( sywords, actx );
             }
 
             //4. add the word item
@@ -429,7 +431,8 @@ FRISO_API void friso_dic_load_from_ifile(
         friso_t friso, 
         friso_config_t config,
         fstring _path,
-        uint_t _limits  ) 
+        uint_t _limits,
+        alloc_context *actx  ) 
 {
 
     //1.parse the configuration file.
@@ -493,7 +496,7 @@ FRISO_API void friso_dic_load_from_ifile(
                     string_buffer_append( sb, _path );
                     string_buffer_append( sb, __key__ );
                     //printf("key=%s, type=%d\n", __key__, lex_t);
-                    friso_dic_load( friso, config, lex_t, sb->buffer, _limits );
+                    friso_dic_load( friso, config, lex_t, sb->buffer, _limits, actx );
                 }
 
             } 

@@ -37,9 +37,9 @@ static void mempool_append_to_global_pools(mempool_t *p) {
   pthread_mutex_unlock(&globalPools_lock);
 }
 
-mempool_t *mempool_new(const mempool_options *options) {
-  mempool_t *p = rm_calloc(1, sizeof(*p));
-  p->entries = rm_calloc(options->initialCap, sizeof(void *));
+mempool_t *mempool_new(const mempool_options *options, alloc_context *actx) {
+  mempool_t *p = rm_calloc(actx, 1, sizeof(*p));
+  p->entries = rm_calloc(actx, options->initialCap, sizeof(void *));
   p->alloc = options->alloc;
   p->free = options->free;
   p->cap = options->initialCap;
@@ -56,7 +56,7 @@ mempool_t *mempool_new(const mempool_options *options) {
   if (mempoolDisable_g || RSGlobalConfig.noMemPool) {
     p->cap = 0;
     p->max = 0;
-    rm_free(p->entries);
+    rm_free(actx, p->entries);
     p->entries = NULL;
   }
   return p;

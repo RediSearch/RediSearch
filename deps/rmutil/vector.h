@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include "rmalloc.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,16 +29,16 @@ typedef struct {
 
 /* Create a new vector with element size. This should generally be used
  * internall by the NewVector macro */
-Vector *__newVectorSize(size_t elemSize, size_t cap);
+Vector *__newVectorSize(size_t elemSize, size_t cap, alloc_context *actx);
 
 // Put a pointer in the vector. To be used internall by the library
-int __vector_PutPtr(Vector *v, size_t pos, void *elem);
+int __vector_PutPtr(Vector *v, size_t pos, void *elem, alloc_context *actx);
 
 /*
  * Create a new vector for a given type and a given capacity.
  * e.g. NewVector(int, 0) - empty vector of ints
  */
-#define NewVector(type, cap) __newVectorSize(sizeof(type), cap)
+#define NewVector(type, cap, actx) __newVectorSize(sizeof(type), cap, actx)
 
 /*
  * get the element at index pos. The value is copied in to ptr. If pos is outside
@@ -56,16 +57,16 @@ int Vector_Pop(Vector *v, void *ptr);
  * Put an element at pos.
  * Note: If pos is outside the vector capacity, we resize it accordingly
  */
-#define Vector_Put(v, pos, elem) __vector_PutPtr(v, pos, elem ? &(typeof(elem)){elem} : NULL)
+#define Vector_Put(v, pos, elem, actx) __vector_PutPtr(v, pos, elem ? &(typeof(elem)){elem} : NULL, actx)
 
 /* Push an element at the end of v, resizing it if needed. This macro wraps
  * __vector_PushPtr */
-#define Vector_Push(v, elem) __vector_PushPtr(v, elem ? &(typeof(elem)){elem} : NULL)
+#define Vector_Push(v, elem, actx) __vector_PushPtr(v, elem ? &(typeof(elem)){elem} : NULL, actx)
 
-int __vector_PushPtr(Vector *v, void *elem);
+int __vector_PushPtr(Vector *v, void *elem, alloc_context *actx);
 
 /* resize capacity of v */
-int Vector_Resize(Vector *v, size_t newcap);
+int Vector_Resize(Vector *v, size_t newcap, alloc_context *actx);
 
 /* return the used size of the vector, regardless of capacity */
 int Vector_Size(Vector *v);
@@ -75,7 +76,7 @@ int Vector_Cap(Vector *v);
 
 /* free the vector and the underlying data. Does not release its elements if
  * they are pointers*/
-void Vector_Free(Vector *v);
+void Vector_Free(Vector *v, alloc_context *actx);
 
 /* free the vector and the underlying data. Calls freeCB() for each non null element */
 void Vector_FreeEx(Vector *v, void (*freeCB)(void *));

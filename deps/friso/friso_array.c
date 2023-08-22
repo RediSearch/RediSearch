@@ -12,10 +12,10 @@
 /* ********************************************
  * friso array list static functions block    *
  **********************************************/
-__STATIC_API__ void **create_array_entries( uint_t __blocks ) 
+__STATIC_API__ void **create_array_entries( uint_t __blocks, alloc_context *actx) 
 {
     register uint_t t;
-    void **block = ( void ** ) FRISO_CALLOC( sizeof( void * ), __blocks );
+    void **block = ( void ** ) FRISO_CALLOC(actx, sizeof( void * ), __blocks );
     if ( block == NULL ) {
         ___ALLOCATION_ERROR___
     }
@@ -31,16 +31,16 @@ __STATIC_API__ void **create_array_entries( uint_t __blocks )
 //resize the array. (the opacity should not be smaller than array->length)
 __STATIC_API__ friso_array_t resize_array_list( 
         friso_array_t array, 
-        uint_t opacity ) 
+        uint_t opacity, alloc_context *actx ) 
 {
     register uint_t t;
-    void **block = create_array_entries( opacity );
+    void **block = create_array_entries( opacity, actx );
 
     for ( t = 0; t < array->length ; t++ ) {
         block[t] = array->items[t];
     }
 
-    FRISO_FREE( array->items );
+    FRISO_FREE(actx, array->items );
     array->items = block;
     array->allocs = opacity;
 
@@ -57,16 +57,16 @@ __STATIC_API__ friso_array_t resize_array_list(
 //}
 
 //create a new array list with a given opacity.
-FRISO_API friso_array_t new_array_list_with_opacity( uint_t opacity ) 
+FRISO_API friso_array_t new_array_list_with_opacity( uint_t opacity, alloc_context *actx ) 
 {
     friso_array_t array = ( friso_array_t ) 
-        FRISO_MALLOC( sizeof( friso_array_entry ) );
+        FRISO_MALLOC(actx, sizeof( friso_array_entry ) );
     if ( array == NULL ) {
         ___ALLOCATION_ERROR___
     }
 
     //initialize
-    array->items  = create_array_entries( opacity );
+    array->items  = create_array_entries( opacity, actx );
     array->allocs = opacity;
     array->length = 0;
 
@@ -89,16 +89,16 @@ FRISO_API void free_array_list( friso_array_t array )
     //    }
     //}
 
-    FRISO_FREE( array->items );
-    FRISO_FREE( array );
+    FRISO_FREE(actx, array->items );
+    FRISO_FREE(actx, array );
 }
 
 //add a new item to the array.
-FRISO_API void array_list_add( friso_array_t array, void *value ) 
+FRISO_API void array_list_add( friso_array_t array, void *value, alloc_context *actx ) 
 {
     //check the condition to resize.
     if ( array->length == array->allocs ) {
-        resize_array_list( array, array->length * 2 + 1 );
+        resize_array_list( array, array->length * 2 + 1, actx );
     }
     array->items[array->length++] = value;
 }
@@ -107,14 +107,14 @@ FRISO_API void array_list_add( friso_array_t array, void *value )
 FRISO_API void array_list_insert( 
         friso_array_t array, 
         uint_t idx, 
-        void *value ) 
+        void *value, alloc_context *actx ) 
 {
     register uint_t t;
 
     if ( idx <= array->length ) {
         //check the condition to resize the array.
         if ( array->length == array->allocs ) {
-            resize_array_list( array, array->length * 2 + 1 );
+            resize_array_list( array, array->length * 2 + 1, actx );
         }
 
         //move the elements after idx.
@@ -176,10 +176,10 @@ FRISO_API void * array_list_remove(
 }
 
 /*trim the array list*/
-FRISO_API friso_array_t array_list_trim( friso_array_t array ) 
+FRISO_API friso_array_t array_list_trim( friso_array_t array, alloc_context *actx ) 
 {
     if ( array->length < array->allocs ) {
-        return resize_array_list( array, array->length );
+        return resize_array_list( array, array->length, actx );
     }    
     return array;
 }

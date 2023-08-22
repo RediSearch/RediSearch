@@ -15,11 +15,11 @@
 #include "buffer.h"
 
 /* Create a sorting vector of a given length for a document */
-RSSortingVector *NewSortingVector(int len) {
+RSSortingVector *NewSortingVector(int len, alloc_context *actx) {
   if (len > RS_SORTABLES_MAX) {
     return NULL;
   }
-  RSSortingVector *ret = rm_calloc(1, sizeof(RSSortingVector) + len * (sizeof(RSValue*)));
+  RSSortingVector *ret = rm_calloc(actx, 1, sizeof(RSSortingVector) + len * (sizeof(RSValue*)));
   ret->len = len;
   // set all values to NIL
   for (int i = 0; i < len; i++) {

@@ -263,10 +263,11 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
 /** Assigns a document ID to a single document. */
 static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx *aCtx, IndexSpec *spec,
                                           int replace, QueryError *status) {
+  alloc_context alctx = {.stats = &spec->stats};
   DocTable *table = &spec->docs;
   Document *doc = aCtx->doc;
   if (replace) {
-    RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey);
+    RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey, &alctx);
     if (dmd) {
       // decrease the number of documents in the index stats only if the document was there
       --spec->stats.numDocuments;

@@ -79,10 +79,10 @@ __STATIC_API__ int next_prime( int n )
 __STATIC_API__ hash_entry_t new_hash_entry( 
     fstring key, 
     void * value, 
-    hash_entry_t next ) 
+    hash_entry_t next, alloc_context * actx ) 
 {
     hash_entry_t e = ( hash_entry_t ) 
-    FRISO_MALLOC( sizeof( friso_hash_entry ) );
+    FRISO_MALLOC(actx, sizeof( friso_hash_entry ) );
     if ( e == NULL ) {
         ___ALLOCATION_ERROR___
     }
@@ -96,11 +96,11 @@ __STATIC_API__ hash_entry_t new_hash_entry(
 }
 
 //create blocks copy of entries.
-__STATIC_API__ hash_entry_t * create_hash_entries( uint_t blocks ) 
+__STATIC_API__ hash_entry_t * create_hash_entries( uint_t blocks, alloc_context *actx ) 
 {
     register uint_t t;
     hash_entry_t *e = ( hash_entry_t * ) 
-    FRISO_CALLOC( sizeof( hash_entry_t ), blocks );
+    FRISO_CALLOC(actx, sizeof( hash_entry_t ), blocks );
     if ( e == NULL ) {
         ___ALLOCATION_ERROR___
     }
@@ -113,13 +113,13 @@ __STATIC_API__ hash_entry_t * create_hash_entries( uint_t blocks )
 }
 
 //a static function to do the re-hash work.
-__STATIC_API__ void rebuild_hash( friso_hash_t _hash ) 
+__STATIC_API__ void rebuild_hash( friso_hash_t _hash, alloc_context *actx) 
 {
     //printf("rehashed.\n");
     //find the next prime as the length of the hashtable.
     uint_t t, length = next_prime( _hash->length * 2 + 1 );
     hash_entry_t e, next, *_src = _hash->table, \
-                  *table = create_hash_entries( length );
+                  *table = create_hash_entries(length, actx );
     uint_t bucket;
 
     //copy the nodes
@@ -141,7 +141,7 @@ __STATIC_API__ void rebuild_hash( friso_hash_t _hash )
     _hash->threshold = ( uint_t ) ( _hash->length * _hash->factor );
 
     //free the old hash_entry_t blocks allocations.
-    FRISO_FREE( _src );
+    FRISO_FREE(actx, _src );
 }
 
 /* ********************************
@@ -149,9 +149,9 @@ __STATIC_API__ void rebuild_hash( friso_hash_t _hash )
  * ********************************/
 
 //create a new hash table.
-FRISO_API friso_hash_t new_hash_table( void ) 
+FRISO_API friso_hash_t new_hash_table( alloc_context *actx ) 
 {
-    friso_hash_t  _hash = ( friso_hash_t ) FRISO_MALLOC( sizeof ( friso_hash_cdt ) );
+    friso_hash_t  _hash = ( friso_hash_t ) FRISO_MALLOC(actx, sizeof ( friso_hash_cdt ) );
     if (  _hash == NULL ) {
         ___ALLOCATION_ERROR___
     }
@@ -161,14 +161,14 @@ FRISO_API friso_hash_t new_hash_table( void )
     _hash->size      = 0;
     _hash->factor    = DEFAULT_FACTOR;
     _hash->threshold = ( uint_t ) ( _hash->length * _hash->factor );
-    _hash->table     = create_hash_entries( _hash->length );
+    _hash->table     = create_hash_entries( _hash->length, actx );
 
     return _hash;
 }
 
 FRISO_API void free_hash_table( 
     friso_hash_t _hash, 
-    fhash_callback_fn_t fentry_func ) 
+    fhash_callback_fn_t fentry_func, alloc_context *actx ) 
 {
     register uint_t j;
     hash_entry_t e, n;
@@ -178,14 +178,14 @@ FRISO_API void free_hash_table(
         for ( ; e != NULL ; ) {
             n = e->_next;
             if ( fentry_func != NULL ) fentry_func(e);
-            FRISO_FREE( e );
+            FRISO_FREE(actx, e );
             e = n;
         }
     }
 
     //free the pointer array block ( 4 * htable->length continuous bytes ).
-    FRISO_FREE( _hash->table );
-    FRISO_FREE( _hash );
+    FRISO_FREE(actx,  _hash->table );
+    FRISO_FREE(actx,  _hash );
 }
 
 
@@ -194,7 +194,8 @@ FRISO_API void free_hash_table(
 FRISO_API void *hash_put_mapping( 
     friso_hash_t _hash, 
     fstring key, 
-    void * value ) 
+    void * value,
+    alloc_context *actx ) 
 {
     uint_t bucket = ( key == NULL ) ? 0 : hash( key, _hash->length );
     hash_entry_t e = *( _hash->table + bucket );
@@ -213,7 +214,7 @@ FRISO_API void *hash_put_mapping(
     }
 
     //put a new mapping into the hashtable.
-    _hash->table[bucket] = new_hash_entry( key, value, _hash->table[bucket] );
+    _hash->table[bucket] = new_hash_entry( key, value, _hash->table[bucket], actx );
     _hash->size++;
 
     //check the condition to rebuild the hashtable.

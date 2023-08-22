@@ -10,8 +10,8 @@
 #include "rmalloc.h"
 
 PriorityQueue *__newPriorityQueueSize(size_t elemSize, size_t cap, int (*cmp)(void *, void *)) {
-  PriorityQueue *pq = rm_malloc(sizeof(PriorityQueue));
-  pq->v = __newVectorSize(elemSize, cap);
+  PriorityQueue *pq = rm_malloc(NULL, sizeof(PriorityQueue));
+  pq->v = __newVectorSize(elemSize, cap, NULL);
   pq->cmp = cmp;
   return pq;
 }

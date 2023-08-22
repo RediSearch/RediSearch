@@ -113,21 +113,6 @@ extern size_t pending_global_indexing_ops;
 extern struct IndexesScanner *global_spec_scanner;
 extern dict *legacySpecRules;
 
-typedef struct {
-  size_t numDocuments;
-  size_t numTerms;
-  size_t numRecords;
-  size_t invertedSize;
-  size_t invertedCap;
-  size_t skipIndexesSize;
-  size_t scoreIndexesSize;
-  size_t offsetVecsSize;
-  size_t offsetVecRecords;
-  size_t termsSize;
-  size_t indexingFailures;
-  long double totalIndexTime; // usec
-} IndexStats;
-
 typedef enum {
   Index_StoreTermOffsets = 0x01,
   Index_StoreFieldFlags = 0x02,

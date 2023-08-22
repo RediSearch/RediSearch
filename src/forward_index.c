@@ -74,7 +74,7 @@ static void vvwFree(void *p) {
   rm_free(p);
 }
 
-static void ForwardIndex_InitCommon(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
+static void ForwardIndex_InitCommon(ForwardIndex *idx, Document *doc, uint32_t idxFlags, alloc_context *actx) {
   idx->idxFlags = idxFlags;
   idx->maxFreq = 0;
   idx->totalFreq = 0;
@@ -85,12 +85,12 @@ static void ForwardIndex_InitCommon(ForwardIndex *idx, Document *doc, uint32_t i
   }
 
   if (!idx->stemmer) {
-    idx->stemmer = NewStemmer(SnowballStemmer, doc->language);
+    idx->stemmer = NewStemmer(SnowballStemmer, doc->language, actx);
   }
 }
 
-ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
-  ForwardIndex *idx = rm_malloc(sizeof(ForwardIndex));
+ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags, alloc_context *actx) {
+  ForwardIndex *idx = rm_malloc(actx, sizeof(ForwardIndex));
 
   BlkAlloc_Init(&idx->terms);
   BlkAlloc_Init(&idx->entries);
@@ -102,15 +102,15 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   };
 
   size_t termCount = estimtateTermCount(doc);
-  idx->hits = rm_calloc(1, sizeof(*idx->hits));
+  idx->hits = rm_calloc(actx, 1, sizeof(*idx->hits));
   idx->stemmer = NULL;
   idx->totalFreq = 0;
 
   KHTable_Init(idx->hits, &procs, &idx->entries, termCount);
   mempool_options options = {.initialCap = termCount, .alloc = vvwAlloc, .free = vvwFree};
-  idx->vvwPool = mempool_new(&options);
+  idx->vvwPool = mempool_new(&options, actx);
 
-  ForwardIndex_InitCommon(idx, doc, idxFlags);
+  ForwardIndex_InitCommon(idx, doc, idxFlags, actx);
   return idx;
 }
 

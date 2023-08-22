@@ -17,8 +17,8 @@
 // friso instance about function
 /* {{{ create a new friso configuration variable.
  */
-FRISO_API friso_t friso_new(void) {
-  friso_t e = (friso_t)FRISO_MALLOC(sizeof(friso_entry));
+FRISO_API friso_t friso_new(alloc_context *actx) {
+  friso_t e = (friso_t)FRISO_MALLOC(actx, sizeof(friso_entry));
   if (e == NULL) {
     ___ALLOCATION_ERROR___
   }
@@ -34,7 +34,7 @@ FRISO_API friso_t friso_new(void) {
  *
  * @return 1 for successfully and 0 for failed.
  */
-FRISO_API int friso_init_from_ifile(friso_t friso, friso_config_t config, fstring __ifile) {
+FRISO_API int friso_init_from_ifile(friso_t friso, friso_config_t config, fstring __ifile, alloc_context *actx) {
   FILE *__stream;
   char __chars__[256], __key__[128], *__line__;
   char __lexi__[160], lexpath[160];
@@ -173,7 +173,7 @@ FRISO_API int friso_init_from_ifile(friso_t friso, friso_config_t config, fstrin
         }
       }
 
-      friso->dic = friso_dic_new();
+      friso->dic = friso_dic_new(actx);
       // add charset check for max word length counting
       friso_dic_load_from_ifile(friso, config, lexpath,
                                 config->max_len * (friso->charset == FRISO_UTF8 ? 3 : 2));
@@ -193,12 +193,12 @@ FRISO_API int friso_init_from_ifile(friso_t friso, friso_config_t config, fstrin
 /* {{{ friso free functions.
  * here we have to free its dictionary.
  */
-FRISO_API void friso_free(friso_t friso) {
+FRISO_API void friso_free(friso_t friso, alloc_context *actx) {
   // free the dictionary
   if (friso->dic != NULL) {
     friso_dic_free(friso->dic);
   }
-  FRISO_FREE(friso);
+  FRISO_FREE(actx, friso);
 }
 /* }}} */
 
@@ -226,8 +226,8 @@ FRISO_API void friso_set_mode(friso_config_t config, friso_mode_t mode) {
 
 /* {{{ create a new friso configuration entry and initialize
  * it with default value.*/
-FRISO_API friso_config_t friso_new_config(void) {
-  friso_config_t cfg = (friso_config_t)FRISO_MALLOC(sizeof(friso_config_entry));
+FRISO_API friso_config_t friso_new_config(alloc_context *actx) {
+  friso_config_t cfg = (friso_config_t)FRISO_MALLOC(actx, sizeof(friso_config_entry));
   if (cfg == NULL) {
     ___ALLOCATION_ERROR___;
   }
@@ -263,8 +263,8 @@ FRISO_API void friso_init_config(friso_config_t cfg) {
 
 /* {{{ create a new segment task entry.
  */
-FRISO_API friso_task_t friso_new_task() {
-  friso_task_t task = (friso_task_t)FRISO_MALLOC(sizeof(friso_task_entry));
+FRISO_API friso_task_t friso_new_task(alloc_context *actx) {
+  friso_task_t task = (friso_task_t)FRISO_MALLOC(actx, sizeof(friso_task_entry));
   if (task == NULL) {
     ___ALLOCATION_ERROR___
   }

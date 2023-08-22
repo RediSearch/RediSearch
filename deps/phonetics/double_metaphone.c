@@ -39,17 +39,17 @@
 
 #else
 
-#define META_MALLOC(v, n, t) (v = (t *)rm_malloc(((n) * sizeof(t))))
-#define META_REALLOC(v, n, t) (v = (t *)rm_realloc((v), ((n) * sizeof(t))))
-#define META_FREE(x) rm_free((x))
+#define META_MALLOC(ctx, v, n, t) (v = (t *)rm_malloc((ctx), ((n) * sizeof(t))))
+#define META_REALLOC(ctx, v, n, t) (v = (t *)rm_realloc((ctx), (v), ((n) * sizeof(t))))
+#define META_FREE(ctx, x) rm_free((ctx), (x))
 
 #endif /* META_USE_PERL_MALLOC */
 
-static metastring *NewMetaString(const char *init_str) {
+static metastring *NewMetaString(alloc_context *actx, const char *init_str) {
   metastring *s;
   char empty_string[] = "";
 
-  META_MALLOC(s, 1, metastring);
+  META_MALLOC(actx, s, 1, metastring);
   assert(s != NULL);
 
   if (init_str == NULL) init_str = empty_string;
@@ -57,7 +57,7 @@ static metastring *NewMetaString(const char *init_str) {
   /* preallocate a bit more for potential growth */
   s->bufsize = s->length + 7;
 
-  META_MALLOC(s->str, s->bufsize, char);
+  META_MALLOC(actx, s->str, s->bufsize, char);
   assert(s->str != NULL);
 
   strncpy(s->str, init_str, s->length + 1);
@@ -66,16 +66,16 @@ static metastring *NewMetaString(const char *init_str) {
   return s;
 }
 
-static void DestroyMetaString(metastring *s) {
+static void DestroyMetaString(alloc_context *actx, metastring *s) {
   if (s == NULL) return;
 
-  if (s->free_string_on_destroy && (s->str != NULL)) META_FREE(s->str);
+  if (s->free_string_on_destroy && (s->str != NULL)) META_FREE(actx, s->str);
 
-  META_FREE(s);
+  META_FREE(actx, s);
 }
 
-static void IncreaseBuffer(metastring *s, int chars_needed) {
-  META_REALLOC(s->str, (s->bufsize + chars_needed + 10), char);
+static void IncreaseBuffer(alloc_context *actx, metastring *s, int chars_needed) {
+  META_REALLOC(actx, s->str, (s->bufsize + chars_needed + 10), char);
   assert(s->str != NULL);
   s->bufsize = s->bufsize + chars_needed + 10;
 }
@@ -151,21 +151,21 @@ static int StringAt(metastring *s, int start, int length, ...) {
   return 0;
 }
 
-static void MetaphAdd(metastring *s, const char *new_str) {
+static void MetaphAdd(alloc_context *actx, metastring *s, const char *new_str) {
   int add_length;
 
   if (new_str == NULL) return;
 
   add_length = strlen(new_str);
   if ((s->length + add_length) > (s->bufsize - 1)) {
-    IncreaseBuffer(s, add_length);
+    IncreaseBuffer(actx, s, add_length);
   }
 
   strcat(s->str, new_str);
   s->length += add_length;
 }
 
-void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
+void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp, alloc_context *actx) {
   int length;
   metastring *original;
   metastring *primary;
@@ -177,12 +177,12 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
   /* we need the real length and last prior to padding */
   length = strlen(str);
   last = length - 1;
-  original = NewMetaString(str);
+  original = NewMetaString(actx, str);
   /* Pad original so we can index beyond end */
-  MetaphAdd(original, "     ");
+  MetaphAdd(actx, original, "     ");
 
-  primary = NewMetaString("");
-  secondary = NewMetaString("");
+  primary = NewMetaString(actx, "");
+  secondary = NewMetaString(actx, "");
 
   MakeUpper(original);
 
@@ -191,8 +191,8 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
 
   /* Initial 'X' is pronounced 'Z' e.g. 'Xavier' */
   if (GetAt(original, 0) == 'X') {
-    MetaphAdd(primary, "S"); /* 'Z' maps to 'S' */
-    MetaphAdd(secondary, "S");
+    MetaphAdd(actx, primary, "S"); /* 'Z' maps to 'S' */
+    MetaphAdd(actx, secondary, "S");
     current += 1;
   }
 
@@ -209,8 +209,8 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
       case 'Y':
         if (current == 0) {
           /* all init vowels now map to 'A' */
-          MetaphAdd(primary, "A");
-          MetaphAdd(secondary, "A");
+          MetaphAdd(actx, primary, "A");
+          MetaphAdd(actx, secondary, "A");
         }
         current += 1;
         break;
@@ -218,8 +218,8 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
       case 'B':
 
         /* "-mb", e.g", "dumb", already skipped over... */
-        MetaphAdd(primary, "P");
-        MetaphAdd(secondary, "P");
+        MetaphAdd(actx, primary, "P");
+        MetaphAdd(actx, secondary, "P");
 
         if (GetAt(original, current + 1) == 'B')
           current += 2;
@@ -242,24 +242,24 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
             ((GetAt(original, current + 2) != 'I') &&
              ((GetAt(original, current + 2) != 'E') ||
               StringAt(original, (current - 2), 6, "BACHER", "MACHER", "")))) {
-          MetaphAdd(primary, "K");
-          MetaphAdd(secondary, "K");
+          MetaphAdd(actx, primary, "K");
+          MetaphAdd(actx, secondary, "K");
           current += 2;
           break;
         }
 
         /* special case 'caesar' */
         if ((current == 0) && StringAt(original, current, 6, "CAESAR", "")) {
-          MetaphAdd(primary, "S");
-          MetaphAdd(secondary, "S");
+          MetaphAdd(actx, primary, "S");
+          MetaphAdd(actx, secondary, "S");
           current += 2;
           break;
         }
 
         /* italian 'chianti' */
         if (StringAt(original, current, 4, "CHIA", "")) {
-          MetaphAdd(primary, "K");
-          MetaphAdd(secondary, "K");
+          MetaphAdd(actx, primary, "K");
+          MetaphAdd(actx, secondary, "K");
           current += 2;
           break;
         }
@@ -267,8 +267,8 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
         if (StringAt(original, current, 2, "CH", "")) {
           /* find 'michael' */
           if ((current > 0) && StringAt(original, current, 4, "CHAE", "")) {
-            MetaphAdd(primary, "K");
-            MetaphAdd(secondary, "X");
+            MetaphAdd(actx, primary, "K");
+            MetaphAdd(actx, secondary, "X");
             current += 2;
             break;
           }
@@ -278,8 +278,8 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
               (StringAt(original, (current + 1), 5, "HARAC", "HARIS", "") ||
                StringAt(original, (current + 1), 3, "HOR", "HYM", "HIA", "HEM", "")) &&
               !StringAt(original, 0, 5, "CHORE", "")) {
-            MetaphAdd(primary, "K");
-            MetaphAdd(secondary, "K");
+            MetaphAdd(actx, primary, "K");
+            MetaphAdd(actx, secondary, "K");
             current += 2;
             break;
           }
@@ -293,21 +293,21 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
                /* e.g., 'wachtler', 'wechsler', but not 'tichner' */
                && StringAt(original, (current + 2), 1, "L", "R", "N", "M", "B", "H", "F", "V", "W",
                            " ", ""))) {
-            MetaphAdd(primary, "K");
-            MetaphAdd(secondary, "K");
+            MetaphAdd(actx, primary, "K");
+            MetaphAdd(actx, secondary, "K");
           } else {
             if (current > 0) {
               if (StringAt(original, 0, 2, "MC", "")) {
                 /* e.g., "McHugh" */
-                MetaphAdd(primary, "K");
-                MetaphAdd(secondary, "K");
+                MetaphAdd(actx, primary, "K");
+                MetaphAdd(actx, secondary, "K");
               } else {
-                MetaphAdd(primary, "X");
-                MetaphAdd(secondary, "K");
+                MetaphAdd(actx, primary, "X");
+                MetaphAdd(actx, secondary, "K");
               }
             } else {
-              MetaphAdd(primary, "X");
-              MetaphAdd(secondary, "X");
+              MetaphAdd(actx, primary, "X");
+              MetaphAdd(actx, secondary, "X");
             }
           }
           current += 2;
@@ -316,16 +316,16 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
         /* e.g, 'czerny' */
         if (StringAt(original, current, 2, "CZ", "") &&
             !StringAt(original, (current - 2), 4, "WICZ", "")) {
-          MetaphAdd(primary, "S");
-          MetaphAdd(secondary, "X");
+          MetaphAdd(actx, primary, "S");
+          MetaphAdd(actx, secondary, "X");
           current += 2;
           break;
         }
 
         /* e.g., 'focaccia' */
         if (StringAt(original, (current + 1), 3, "CIA", "")) {
-          MetaphAdd(primary, "X");
-          MetaphAdd(secondary, "X");
+          MetaphAdd(actx, primary, "X");
+          MetaphAdd(actx, secondary, "X");
           current += 3;
           break;
         }
@@ -339,26 +339,26 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
             /* 'accident', 'accede' 'succeed' */
             if (((current == 1) && (GetAt(original, current - 1) == 'A')) ||
                 StringAt(original, (current - 1), 5, "UCCEE", "UCCES", "")) {
-              MetaphAdd(primary, "KS");
-              MetaphAdd(secondary, "KS");
+              MetaphAdd(actx, primary, "KS");
+              MetaphAdd(actx, secondary, "KS");
               /* 'bacci', 'bertucci', other italian */
             } else {
-              MetaphAdd(primary, "X");
-              MetaphAdd(secondary, "X");
+              MetaphAdd(actx, primary, "X");
+              MetaphAdd(actx, secondary, "X");
             }
             current += 3;
             break;
           } else { /* Pierce's rule */
-            MetaphAdd(primary, "K");
-            MetaphAdd(secondary, "K");
+            MetaphAdd(actx, primary, "K");
+            MetaphAdd(actx, secondary, "K");
             current += 2;
             break;
           }
         }
 
         if (StringAt(original, current, 2, "CK", "CG", "CQ", "")) {
-          MetaphAdd(primary, "K");
-          MetaphAdd(secondary, "K");
+          MetaphAdd(actx, primary, "K");
+          MetaphAdd(actx, secondary, "K");
           current += 2;
           break;
         }
@@ -366,19 +366,19 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
         if (StringAt(original, current, 2, "CI", "CE", "CY", "")) {
           /* italian vs. english */
           if (StringAt(original, current, 3, "CIO", "CIE", "CIA", "")) {
-            MetaphAdd(primary, "S");
-            MetaphAdd(secondary, "X");
+            MetaphAdd(actx, primary, "S");
+            MetaphAdd(actx, secondary, "X");
           } else {
-            MetaphAdd(primary, "S");
-            MetaphAdd(secondary, "S");
+            MetaphAdd(actx, primary, "S");
+            MetaphAdd(actx, secondary, "S");
           }
           current += 2;
           break;
         }
 
         /* else */
-        MetaphAdd(primary, "K");
-        MetaphAdd(secondary, "K");
+        MetaphAdd(actx, primary, "K");
+        MetaphAdd(actx, secondary, "K");
 
         /* name sent in 'mac caffrey', 'mac gregor */
         if (StringAt(original, (current + 1), 2, " C", " Q", " G", ""))
@@ -394,29 +394,29 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
         if (StringAt(original, current, 2, "DG", "")) {
           if (StringAt(original, (current + 2), 1, "I", "E", "Y", "")) {
             /* e.g. 'edge' */
-            MetaphAdd(primary, "J");
-            MetaphAdd(secondary, "J");
+            MetaphAdd(actx, primary, "J");
+            MetaphAdd(actx, secondary, "J");
             current += 3;
             break;
           } else {
             /* e.g. 'edgar' */
-            MetaphAdd(primary, "TK");
-            MetaphAdd(secondary, "TK");
+            MetaphAdd(actx, primary, "TK");
+            MetaphAdd(actx, secondary, "TK");
             current += 2;
             break;
           }
         }
 
         if (StringAt(original, current, 2, "DT", "DD", "")) {
-          MetaphAdd(primary, "T");
-          MetaphAdd(secondary, "T");
+          MetaphAdd(actx, primary, "T");
+          MetaphAdd(actx, secondary, "T");
           current += 2;
           break;
         }
 
         /* else */
-        MetaphAdd(primary, "T");
-        MetaphAdd(secondary, "T");
+        MetaphAdd(actx, primary, "T");
+        MetaphAdd(actx, secondary, "T");
         current += 1;
         break;
 
@@ -425,15 +425,15 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
           current += 2;
         else
           current += 1;
-        MetaphAdd(primary, "F");
-        MetaphAdd(secondary, "F");
+        MetaphAdd(actx, primary, "F");
+        MetaphAdd(actx, secondary, "F");
         break;
 
       case 'G':
         if (GetAt(original, current + 1) == 'H') {
           if ((current > 0) && !IsVowel(original, current - 1)) {
-            MetaphAdd(primary, "K");
-            MetaphAdd(secondary, "K");
+            MetaphAdd(actx, primary, "K");
+            MetaphAdd(actx, secondary, "K");
             current += 2;
             break;
           }
@@ -442,11 +442,11 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
             /* 'ghislane', ghiradelli */
             if (current == 0) {
               if (GetAt(original, current + 2) == 'I') {
-                MetaphAdd(primary, "J");
-                MetaphAdd(secondary, "J");
+                MetaphAdd(actx, primary, "J");
+                MetaphAdd(actx, secondary, "J");
               } else {
-                MetaphAdd(primary, "K");
-                MetaphAdd(secondary, "K");
+                MetaphAdd(actx, primary, "K");
+                MetaphAdd(actx, secondary, "K");
               }
               current += 2;
               break;
@@ -464,12 +464,12 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
             /* e.g., 'laugh', 'McLaughlin', 'cough', 'gough', 'rough', 'tough' */
             if ((current > 2) && (GetAt(original, current - 1) == 'U') &&
                 StringAt(original, (current - 3), 1, "C", "G", "L", "R", "T", "")) {
-              MetaphAdd(primary, "F");
-              MetaphAdd(secondary, "F");
+              MetaphAdd(actx, primary, "F");
+              MetaphAdd(actx, secondary, "F");
             } else if ((current > 0) && GetAt(original, current - 1) != 'I') {
 
-              MetaphAdd(primary, "K");
-              MetaphAdd(secondary, "K");
+              MetaphAdd(actx, primary, "K");
+              MetaphAdd(actx, secondary, "K");
             }
 
             current += 2;
@@ -479,17 +479,17 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
 
         if (GetAt(original, current + 1) == 'N') {
           if ((current == 1) && IsVowel(original, 0) && !SlavoGermanic(original)) {
-            MetaphAdd(primary, "KN");
-            MetaphAdd(secondary, "N");
+            MetaphAdd(actx, primary, "KN");
+            MetaphAdd(actx, secondary, "N");
           } else
               /* not e.g. 'cagney' */
               if (!StringAt(original, (current + 2), 2, "EY", "") &&
                   (GetAt(original, current + 1) != 'Y') && !SlavoGermanic(original)) {
-            MetaphAdd(primary, "N");
-            MetaphAdd(secondary, "KN");
+            MetaphAdd(actx, primary, "N");
+            MetaphAdd(actx, secondary, "KN");
           } else {
-            MetaphAdd(primary, "KN");
-            MetaphAdd(secondary, "KN");
+            MetaphAdd(actx, primary, "KN");
+            MetaphAdd(actx, secondary, "KN");
           }
           current += 2;
           break;
@@ -497,8 +497,8 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
 
         /* 'tagliaro' */
         if (StringAt(original, (current + 1), 2, "LI", "") && !SlavoGermanic(original)) {
-          MetaphAdd(primary, "KL");
-          MetaphAdd(secondary, "L");
+          MetaphAdd(actx, primary, "KL");
+          MetaphAdd(actx, secondary, "L");
           current += 2;
           break;
         }
@@ -507,8 +507,8 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
         if ((current == 0) && ((GetAt(original, current + 1) == 'Y') ||
                                StringAt(original, (current + 1), 2, "ES", "EP", "EB", "EL", "EY",
                                         "IB", "IL", "IN", "IE", "EI", "ER", ""))) {
-          MetaphAdd(primary, "K");
-          MetaphAdd(secondary, "J");
+          MetaphAdd(actx, primary, "K");
+          MetaphAdd(actx, secondary, "J");
           current += 2;
           break;
         }
@@ -519,8 +519,8 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
             !StringAt(original, 0, 6, "DANGER", "RANGER", "MANGER", "") &&
             !StringAt(original, (current - 1), 1, "E", "I", "") &&
             !StringAt(original, (current - 1), 3, "RGY", "OGY", "")) {
-          MetaphAdd(primary, "K");
-          MetaphAdd(secondary, "J");
+          MetaphAdd(actx, primary, "K");
+          MetaphAdd(actx, secondary, "J");
           current += 2;
           break;
         }
@@ -532,16 +532,16 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
           if ((StringAt(original, 0, 4, "VAN ", "VON ", "") ||
                StringAt(original, 0, 3, "SCH", "")) ||
               StringAt(original, (current + 1), 2, "ET", "")) {
-            MetaphAdd(primary, "K");
-            MetaphAdd(secondary, "K");
+            MetaphAdd(actx, primary, "K");
+            MetaphAdd(actx, secondary, "K");
           } else {
             /* always soft if french ending */
             if (StringAt(original, (current + 1), 4, "IER ", "")) {
-              MetaphAdd(primary, "J");
-              MetaphAdd(secondary, "J");
+              MetaphAdd(actx, primary, "J");
+              MetaphAdd(actx, secondary, "J");
             } else {
-              MetaphAdd(primary, "J");
-              MetaphAdd(secondary, "K");
+              MetaphAdd(actx, primary, "J");
+              MetaphAdd(actx, secondary, "K");
             }
           }
           current += 2;
@@ -552,15 +552,15 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
           current += 2;
         else
           current += 1;
-        MetaphAdd(primary, "K");
-        MetaphAdd(secondary, "K");
+        MetaphAdd(actx, primary, "K");
+        MetaphAdd(actx, secondary, "K");
         break;
 
       case 'H':
         /* only keep if first & before vowel or btw. 2 vowels */
         if (((current == 0) || IsVowel(original, current - 1)) && IsVowel(original, current + 1)) {
-          MetaphAdd(primary, "H");
-          MetaphAdd(secondary, "H");
+          MetaphAdd(actx, primary, "H");
+          MetaphAdd(actx, secondary, "H");
           current += 2;
         } else /* also takes care of 'HH' */
           current += 1;
@@ -571,35 +571,35 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
         if (StringAt(original, current, 4, "JOSE", "") || StringAt(original, 0, 4, "SAN ", "")) {
           if (((current == 0) && (GetAt(original, current + 4) == ' ')) ||
               StringAt(original, 0, 4, "SAN ", "")) {
-            MetaphAdd(primary, "H");
-            MetaphAdd(secondary, "H");
+            MetaphAdd(actx, primary, "H");
+            MetaphAdd(actx, secondary, "H");
           } else {
-            MetaphAdd(primary, "J");
-            MetaphAdd(secondary, "H");
+            MetaphAdd(actx, primary, "J");
+            MetaphAdd(actx, secondary, "H");
           }
           current += 1;
           break;
         }
 
         if ((current == 0) && !StringAt(original, current, 4, "JOSE", "")) {
-          MetaphAdd(primary, "J"); /* Yankelovich/Jankelowicz */
-          MetaphAdd(secondary, "A");
+          MetaphAdd(actx, primary, "J"); /* Yankelovich/Jankelowicz */
+          MetaphAdd(actx, secondary, "A");
         } else {
           /* spanish pron. of e.g. 'bajador' */
           if (IsVowel(original, current - 1) && !SlavoGermanic(original) &&
               ((GetAt(original, current + 1) == 'A') || (GetAt(original, current + 1) == 'O'))) {
-            MetaphAdd(primary, "J");
-            MetaphAdd(secondary, "H");
+            MetaphAdd(actx, primary, "J");
+            MetaphAdd(actx, secondary, "H");
           } else {
             if (current == last) {
-              MetaphAdd(primary, "J");
-              MetaphAdd(secondary, "");
+              MetaphAdd(actx, primary, "J");
+              MetaphAdd(actx, secondary, "");
             } else {
               if (!StringAt(original, (current + 1), 1, "L", "T", "K", "S", "N", "M", "B", "Z",
                             "") &&
                   !StringAt(original, (current - 1), 1, "S", "K", "L", "")) {
-                MetaphAdd(primary, "J");
-                MetaphAdd(secondary, "J");
+                MetaphAdd(actx, primary, "J");
+                MetaphAdd(actx, secondary, "J");
               }
             }
           }
@@ -616,8 +616,8 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
           current += 2;
         else
           current += 1;
-        MetaphAdd(primary, "K");
-        MetaphAdd(secondary, "K");
+        MetaphAdd(actx, primary, "K");
+        MetaphAdd(actx, secondary, "K");
         break;
 
       case 'L':
@@ -628,16 +628,16 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
               ((StringAt(original, (last - 1), 2, "AS", "OS", "") ||
                 StringAt(original, last, 1, "A", "O", "")) &&
                StringAt(original, (current - 1), 4, "ALLE", ""))) {
-            MetaphAdd(primary, "L");
-            MetaphAdd(secondary, "");
+            MetaphAdd(actx, primary, "L");
+            MetaphAdd(actx, secondary, "");
             current += 2;
             break;
           }
           current += 2;
         } else
           current += 1;
-        MetaphAdd(primary, "L");
-        MetaphAdd(secondary, "L");
+        MetaphAdd(actx, primary, "L");
+        MetaphAdd(actx, secondary, "L");
         break;
 
       case 'M':
@@ -648,8 +648,8 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
           current += 2;
         else
           current += 1;
-        MetaphAdd(primary, "M");
-        MetaphAdd(secondary, "M");
+        MetaphAdd(actx, primary, "M");
+        MetaphAdd(actx, secondary, "M");
         break;
 
       case 'N':
@@ -657,22 +657,22 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
           current += 2;
         else
           current += 1;
-        MetaphAdd(primary, "N");
-        MetaphAdd(secondary, "N");
+        MetaphAdd(actx, primary, "N");
+        MetaphAdd(actx, secondary, "N");
         break;
 
 #if 0  // UTF8, not Latin1
       case 'Ñ':
         current += 1;
-        MetaphAdd(primary, "N");
-        MetaphAdd(secondary, "N");
+        MetaphAdd(actx, primary, "N");
+        MetaphAdd(actx, secondary, "N");
         break;
 #endif
 
       case 'P':
         if (GetAt(original, current + 1) == 'H') {
-          MetaphAdd(primary, "F");
-          MetaphAdd(secondary, "F");
+          MetaphAdd(actx, primary, "F");
+          MetaphAdd(actx, secondary, "F");
           current += 2;
           break;
         }
@@ -682,8 +682,8 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
           current += 2;
         else
           current += 1;
-        MetaphAdd(primary, "P");
-        MetaphAdd(secondary, "P");
+        MetaphAdd(actx, primary, "P");
+        MetaphAdd(actx, secondary, "P");
         break;
 
       case 'Q':
@@ -691,8 +691,8 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
           current += 2;
         else
           current += 1;
-        MetaphAdd(primary, "K");
-        MetaphAdd(secondary, "K");
+        MetaphAdd(actx, primary, "K");
+        MetaphAdd(actx, secondary, "K");
         break;
 
       case 'R':
@@ -700,11 +700,11 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
         if ((current == last) && !SlavoGermanic(original) &&
             StringAt(original, (current - 2), 2, "IE", "") &&
             !StringAt(original, (current - 4), 2, "ME", "MA", "")) {
-          MetaphAdd(primary, "");
-          MetaphAdd(secondary, "R");
+          MetaphAdd(actx, primary, "");
+          MetaphAdd(actx, secondary, "R");
         } else {
-          MetaphAdd(primary, "R");
-          MetaphAdd(secondary, "R");
+          MetaphAdd(actx, primary, "R");
+          MetaphAdd(actx, secondary, "R");
         }
 
         if (GetAt(original, current + 1) == 'R')
@@ -722,8 +722,8 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
 
         /* special case 'sugar-' */
         if ((current == 0) && StringAt(original, current, 5, "SUGAR", "")) {
-          MetaphAdd(primary, "X");
-          MetaphAdd(secondary, "S");
+          MetaphAdd(actx, primary, "X");
+          MetaphAdd(actx, secondary, "S");
           current += 1;
           break;
         }
@@ -731,11 +731,11 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
         if (StringAt(original, current, 2, "SH", "")) {
           /* germanic */
           if (StringAt(original, (current + 1), 4, "HEIM", "HOEK", "HOLM", "HOLZ", "")) {
-            MetaphAdd(primary, "S");
-            MetaphAdd(secondary, "S");
+            MetaphAdd(actx, primary, "S");
+            MetaphAdd(actx, secondary, "S");
           } else {
-            MetaphAdd(primary, "X");
-            MetaphAdd(secondary, "X");
+            MetaphAdd(actx, primary, "X");
+            MetaphAdd(actx, secondary, "X");
           }
           current += 2;
           break;
@@ -745,11 +745,11 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
         if (StringAt(original, current, 3, "SIO", "SIA", "") ||
             StringAt(original, current, 4, "SIAN", "")) {
           if (!SlavoGermanic(original)) {
-            MetaphAdd(primary, "S");
-            MetaphAdd(secondary, "X");
+            MetaphAdd(actx, primary, "S");
+            MetaphAdd(actx, secondary, "X");
           } else {
-            MetaphAdd(primary, "S");
-            MetaphAdd(secondary, "S");
+            MetaphAdd(actx, primary, "S");
+            MetaphAdd(actx, secondary, "S");
           }
           current += 3;
           break;
@@ -759,8 +759,8 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
            also, -sz- in slavic language altho in hungarian it is pronounced 's' */
         if (((current == 0) && StringAt(original, (current + 1), 1, "M", "N", "L", "W", "")) ||
             StringAt(original, (current + 1), 1, "Z", "")) {
-          MetaphAdd(primary, "S");
-          MetaphAdd(secondary, "X");
+          MetaphAdd(actx, primary, "S");
+          MetaphAdd(actx, secondary, "X");
           if (StringAt(original, (current + 1), 1, "Z", ""))
             current += 2;
           else
@@ -774,21 +774,21 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
             if (StringAt(original, (current + 3), 2, "OO", "ER", "EN", "UY", "ED", "EM", "")) {
               /* 'schermerhorn', 'schenker' */
               if (StringAt(original, (current + 3), 2, "ER", "EN", "")) {
-                MetaphAdd(primary, "X");
-                MetaphAdd(secondary, "SK");
+                MetaphAdd(actx, primary, "X");
+                MetaphAdd(actx, secondary, "SK");
               } else {
-                MetaphAdd(primary, "SK");
-                MetaphAdd(secondary, "SK");
+                MetaphAdd(actx, primary, "SK");
+                MetaphAdd(actx, secondary, "SK");
               }
               current += 3;
               break;
             } else {
               if ((current == 0) && !IsVowel(original, 3) && (GetAt(original, 3) != 'W')) {
-                MetaphAdd(primary, "X");
-                MetaphAdd(secondary, "S");
+                MetaphAdd(actx, primary, "X");
+                MetaphAdd(actx, secondary, "S");
               } else {
-                MetaphAdd(primary, "X");
-                MetaphAdd(secondary, "X");
+                MetaphAdd(actx, primary, "X");
+                MetaphAdd(actx, secondary, "X");
               }
               current += 3;
               break;
@@ -796,25 +796,25 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
           }
 
           if (StringAt(original, (current + 2), 1, "I", "E", "Y", "")) {
-            MetaphAdd(primary, "S");
-            MetaphAdd(secondary, "S");
+            MetaphAdd(actx, primary, "S");
+            MetaphAdd(actx, secondary, "S");
             current += 3;
             break;
           }
           /* else */
-          MetaphAdd(primary, "SK");
-          MetaphAdd(secondary, "SK");
+          MetaphAdd(actx, primary, "SK");
+          MetaphAdd(actx, secondary, "SK");
           current += 3;
           break;
         }
 
         /* french e.g. 'resnais', 'artois' */
         if ((current == last) && StringAt(original, (current - 2), 2, "AI", "OI", "")) {
-          MetaphAdd(primary, "");
-          MetaphAdd(secondary, "S");
+          MetaphAdd(actx, primary, "");
+          MetaphAdd(actx, secondary, "S");
         } else {
-          MetaphAdd(primary, "S");
-          MetaphAdd(secondary, "S");
+          MetaphAdd(actx, primary, "S");
+          MetaphAdd(actx, secondary, "S");
         }
 
         if (StringAt(original, (current + 1), 1, "S", "Z", ""))
@@ -825,15 +825,15 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
 
       case 'T':
         if (StringAt(original, current, 4, "TION", "")) {
-          MetaphAdd(primary, "X");
-          MetaphAdd(secondary, "X");
+          MetaphAdd(actx, primary, "X");
+          MetaphAdd(actx, secondary, "X");
           current += 3;
           break;
         }
 
         if (StringAt(original, current, 3, "TIA", "TCH", "")) {
-          MetaphAdd(primary, "X");
-          MetaphAdd(secondary, "X");
+          MetaphAdd(actx, primary, "X");
+          MetaphAdd(actx, secondary, "X");
           current += 3;
           break;
         }
@@ -842,11 +842,11 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
           /* special case 'thomas', 'thames' or germanic */
           if (StringAt(original, (current + 2), 2, "OM", "AM", "") ||
               StringAt(original, 0, 4, "VAN ", "VON ", "") || StringAt(original, 0, 3, "SCH", "")) {
-            MetaphAdd(primary, "T");
-            MetaphAdd(secondary, "T");
+            MetaphAdd(actx, primary, "T");
+            MetaphAdd(actx, secondary, "T");
           } else {
-            MetaphAdd(primary, "0"); /* yes, zero */
-            MetaphAdd(secondary, "T");
+            MetaphAdd(actx, primary, "0"); /* yes, zero */
+            MetaphAdd(actx, secondary, "T");
           }
           current += 2;
           break;
@@ -856,8 +856,8 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
           current += 2;
         else
           current += 1;
-        MetaphAdd(primary, "T");
-        MetaphAdd(secondary, "T");
+        MetaphAdd(actx, primary, "T");
+        MetaphAdd(actx, secondary, "T");
         break;
 
       case 'V':
@@ -865,15 +865,15 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
           current += 2;
         else
           current += 1;
-        MetaphAdd(primary, "F");
-        MetaphAdd(secondary, "F");
+        MetaphAdd(actx, primary, "F");
+        MetaphAdd(actx, secondary, "F");
         break;
 
       case 'W':
         /* can also be in middle of word */
         if (StringAt(original, current, 2, "WR", "")) {
-          MetaphAdd(primary, "R");
-          MetaphAdd(secondary, "R");
+          MetaphAdd(actx, primary, "R");
+          MetaphAdd(actx, secondary, "R");
           current += 2;
           break;
         }
@@ -882,12 +882,12 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
             (IsVowel(original, current + 1) || StringAt(original, current, 2, "WH", ""))) {
           /* Wasserman should match Vasserman */
           if (IsVowel(original, current + 1)) {
-            MetaphAdd(primary, "A");
-            MetaphAdd(secondary, "F");
+            MetaphAdd(actx, primary, "A");
+            MetaphAdd(actx, secondary, "F");
           } else {
             /* need Uomo to match Womo */
-            MetaphAdd(primary, "A");
-            MetaphAdd(secondary, "A");
+            MetaphAdd(actx, primary, "A");
+            MetaphAdd(actx, secondary, "A");
           }
         }
 
@@ -895,16 +895,16 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
         if (((current == last) && IsVowel(original, current - 1)) ||
             StringAt(original, (current - 1), 5, "EWSKI", "EWSKY", "OWSKI", "OWSKY", "") ||
             StringAt(original, 0, 3, "SCH", "")) {
-          MetaphAdd(primary, "");
-          MetaphAdd(secondary, "F");
+          MetaphAdd(actx, primary, "");
+          MetaphAdd(actx, secondary, "F");
           current += 1;
           break;
         }
 
         /* polish e.g. 'filipowicz' */
         if (StringAt(original, current, 4, "WICZ", "WITZ", "")) {
-          MetaphAdd(primary, "TS");
-          MetaphAdd(secondary, "FX");
+          MetaphAdd(actx, primary, "TS");
+          MetaphAdd(actx, secondary, "FX");
           current += 4;
           break;
         }
@@ -917,8 +917,8 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
         /* french e.g. breaux */
         if (!((current == last) && (StringAt(original, (current - 3), 3, "IAU", "EAU", "") ||
                                     StringAt(original, (current - 2), 2, "AU", "OU", "")))) {
-          MetaphAdd(primary, "KS");
-          MetaphAdd(secondary, "KS");
+          MetaphAdd(actx, primary, "KS");
+          MetaphAdd(actx, secondary, "KS");
         }
 
         if (StringAt(original, (current + 1), 1, "C", "X", ""))
@@ -930,18 +930,18 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
       case 'Z':
         /* chinese pinyin e.g. 'zhao' */
         if (GetAt(original, current + 1) == 'H') {
-          MetaphAdd(primary, "J");
-          MetaphAdd(secondary, "J");
+          MetaphAdd(actx, primary, "J");
+          MetaphAdd(actx, secondary, "J");
           current += 2;
           break;
         } else if (StringAt(original, (current + 1), 2, "ZO", "ZI", "ZA", "") ||
                    (SlavoGermanic(original) &&
                     ((current > 0) && GetAt(original, current - 1) != 'T'))) {
-          MetaphAdd(primary, "S");
-          MetaphAdd(secondary, "TS");
+          MetaphAdd(actx, primary, "S");
+          MetaphAdd(actx, secondary, "TS");
         } else {
-          MetaphAdd(primary, "S");
-          MetaphAdd(secondary, "S");
+          MetaphAdd(actx, primary, "S");
+          MetaphAdd(actx, secondary, "S");
         }
 
         if (GetAt(original, current + 1) == 'Z')
@@ -973,7 +973,7 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
     }
   }
 
-  DestroyMetaString(original);
-  DestroyMetaString(primary);
-  DestroyMetaString(secondary);
+  DestroyMetaString(actx, original);
+  DestroyMetaString(actx, primary);
+  DestroyMetaString(actx, secondary);
 }

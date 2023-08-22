@@ -28,7 +28,7 @@
   })
 
 /* Creates a new DocTable with a given capacity */
-DocTable NewDocTable(size_t cap, size_t max_size) {
+DocTable NewDocTable(size_t cap, size_t max_size, alloc_context *actx) {
   DocTable ret = {
       .size = 1,
       .cap = cap,
@@ -36,9 +36,9 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
       .memsize = 0,
       .sortablesSize = 0,
       .maxSize = max_size,
-      .dim = NewDocIdMap(),
+      .dim = NewDocIdMap(actx),
   };
-  ret.buckets = rm_calloc(cap, sizeof(*ret.buckets));
+  ret.buckets = rm_calloc(actx, cap, sizeof(*ret.buckets));
   return ret;
 }
 
@@ -112,7 +112,7 @@ const RSDocumentMetadata *DocTable_BorrowByKeyR(const DocTable *t, RedisModuleSt
   return DocTable_Borrow(t, id);
 }
 
-static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *dmd) {
+static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *dmd, alloc_context *actx) {
   uint32_t bucket = DocTable_GetBucket(t, docId);
   if (bucket >= t->cap && t->cap < t->maxSize) {
     /* We have to grow the array capacity.
@@ -124,7 +124,7 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
     t->cap += 1 + (t->cap ? MIN(t->cap / 2, 1024 * 1024) : 1);
     t->cap = MIN(t->cap, t->maxSize);  // make sure we do not excised maxSize
     t->cap = MAX(t->cap, bucket + 1);  // docs[bucket] needs to be valid, so t->cap > bucket
-    t->buckets = rm_realloc(t->buckets, t->cap * sizeof(DMDChain));
+    t->buckets = rm_realloc(actx, t->buckets, t->cap * sizeof(DMDChain));
 
     // We clear new extra allocation to Null all list pointers
     size_t memsetSize = (t->cap - oldcap) * sizeof(DMDChain);
@@ -226,12 +226,12 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
 
   RSDocumentMetadata *dmd;
   if (payload && payloadSize) {
-    dmd = rm_calloc(1, sizeof(*dmd));
+    dmd = rm_calloc(actx, 1, sizeof(*dmd));
     flags |= Document_HasPayload;
     t->memsize += sizeof(RSDocumentMetadata);
   } else {
     size_t leanSize = sizeof(*dmd) - sizeof(RSPayload *);
-    dmd = rm_calloc(1, leanSize);
+    dmd = rm_calloc(actx, 1, leanSize);
     t->memsize += leanSize;
   }
 
@@ -246,8 +246,8 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
 
   if (hasPayload(flags)) {
     /* Copy the payload since it's probably an input string not retained */
-    RSPayload *dpl = rm_malloc(sizeof(RSPayload));
-    dpl->data = rm_calloc(1, payloadSize + 1);
+    RSPayload *dpl = rm_malloc(actx, sizeof(RSPayload));
+    dpl->data = rm_calloc(actx, 1, payloadSize + 1);
     memcpy(dpl->data, payload, payloadSize);
     dpl->len = payloadSize;
     t->memsize += payloadSize + sizeof(RSPayload);
@@ -255,7 +255,7 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
     dmd->payload = dpl;
   }
 
-  DocTable_Set(t, docId, dmd);
+  DocTable_Set(t, docId, dmd, actx);
   ++t->size;
   t->memsize += sdsAllocSize(keyPtr);
   DocIdMap_Put(&t->dim, s, n, docId);
@@ -287,8 +287,8 @@ sds DocTable_GetKey(const DocTable *t, t_docId docId, size_t *lenp) {
 void DMD_Free(const RSDocumentMetadata *cmd) {
   RSDocumentMetadata * md = (RSDocumentMetadata *)cmd;
   if (hasPayload(md->flags)) {
-    rm_free(md->payload->data);
-    rm_free(md->payload);
+    rm_free(actx, md->payload->data);
+    rm_free(actx, md->payload);
     md->flags &= ~Document_HasPayload;
     md->payload = NULL;
   }
@@ -303,7 +303,7 @@ void DMD_Free(const RSDocumentMetadata *cmd) {
     md->flags &= ~Document_HasOffsetVector;
   }
   sdsfree(md->keyPtr);
-  rm_free(md);
+  rm_free(actx, md);
 }
 
 void DocTable_Free(DocTable *t) {
@@ -319,7 +319,7 @@ void DocTable_Free(DocTable *t) {
       DMD_Return(md);
     }
   }
-  rm_free(t->buckets);
+  rm_free(actx, t->buckets);
   DocIdMap_Free(&t->dim);
 }
 
@@ -338,7 +338,7 @@ int DocTable_Delete(DocTable *t, const char *s, size_t n) {
   return 0;
 }
 
-RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
+RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n, alloc_context *actx) {
   t_docId docId = DocIdMap_Get(&t->dim, s, n);
 
   if (docId && docId <= t->maxDocId) {
@@ -418,10 +418,10 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
 
       if (dmd->flags & Document_HasOffsetVector) {
         Buffer tmp;
-        Buffer_Init(&tmp, 16);
+        Buffer_Init(NULL, &tmp, 16);
         RSByteOffsets_Serialize(dmd->byteOffsets, &tmp);
         RedisModule_SaveStringBuffer(rdb, tmp.data, tmp.offset);
-        Buffer_Free(&tmp);
+        Buffer_Free(NULL, &tmp);
       }
       ++elements_written;
     }
@@ -449,14 +449,14 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
      * we don't have to rely on Set/Put to ensure the doc table array.
      */
     t->cap = t->maxSize;
-    rm_free(t->buckets);
-    t->buckets = rm_calloc(t->cap, sizeof(*t->buckets));
+    rm_free(actx, t->buckets);
+    t->buckets = rm_calloc(actx, t->cap, sizeof(*t->buckets));
   }
 
   for (size_t i = 1; i < t->size; i++) {
     size_t len;
 
-    RSDocumentMetadata *dmd = rm_calloc(1, sizeof(RSDocumentMetadata));
+    RSDocumentMetadata *dmd = rm_calloc(actx, 1, sizeof(RSDocumentMetadata));
     char *tmpPtr = RedisModule_LoadStringBuffer(rdb, &len);
     if (encver < INDEX_MIN_BINKEYS_VERSION) {
       // Previous versions would encode the NUL byte
@@ -484,9 +484,9 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     if (hasPayload(dmd->flags)) {
       dmd->payload = NULL;
       if (!(dmd->flags & Document_Deleted)) {
-        dmd->payload = rm_malloc(sizeof(RSPayload));
+        dmd->payload = rm_malloc(actx, sizeof(RSPayload));
         dmd->payload->data = RedisModule_LoadStringBuffer(rdb, &dmd->payload->len);
-        char *buf = rm_malloc(dmd->payload->len);
+        char *buf = rm_malloc(actx, dmd->payload->len);
         memcpy(buf, dmd->payload->data, dmd->payload->len);
         RedisModule_Free(dmd->payload->data);
         dmd->payload->data = buf;
@@ -507,7 +507,7 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       char *tmp = RedisModule_LoadStringBuffer(rdb, &nTmp);
       Buffer *bufTmp = Buffer_Wrap(tmp, nTmp);
       dmd->byteOffsets = LoadByteOffsets(bufTmp);
-      rm_free(bufTmp);
+      rm_free(actx, bufTmp);
       RedisModule_Free(tmp);
     }
 
@@ -550,7 +550,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   for (size_t i = 1; i < size; i++) {
     size_t len;
 
-    RSDocumentMetadata *dmd = rm_calloc(1, sizeof(RSDocumentMetadata));
+    RSDocumentMetadata *dmd = rm_calloc(actx, 1, sizeof(RSDocumentMetadata));
     char *tmpPtr = RedisModule_LoadStringBuffer(rdb, &len);
     if (encver < INDEX_MIN_BINKEYS_VERSION) {
       // Previous versions would encode the NUL byte
@@ -579,9 +579,9 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     // read payload if set
     if ((dmd->flags & Document_HasPayload)) {
       if (!(dmd->flags & Document_Deleted)) {
-        dmd->payload = rm_malloc(sizeof(RSPayload));
+        dmd->payload = rm_malloc(actx, sizeof(RSPayload));
         dmd->payload->data = RedisModule_LoadStringBuffer(rdb, &dmd->payload->len);
-        char *buf = rm_malloc(dmd->payload->len);
+        char *buf = rm_malloc(actx, dmd->payload->len);
         memcpy(buf, dmd->payload->data, dmd->payload->len);
         RedisModule_Free(dmd->payload->data);
         dmd->payload->data = buf;
@@ -602,7 +602,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       char *tmp = RedisModule_LoadStringBuffer(rdb, &nTmp);
       Buffer *bufTmp = Buffer_Wrap(tmp, nTmp);
       dmd->byteOffsets = LoadByteOffsets(bufTmp);
-      rm_free(bufTmp);
+      rm_free(actx, bufTmp);
       RedisModule_Free(tmp);
     }
 
@@ -619,9 +619,9 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   }
 }
 
-DocIdMap NewDocIdMap() {
+DocIdMap NewDocIdMap(alloc_context *actx) {
 
-  TrieMap *m = NewTrieMap();
+  TrieMap *m = NewTrieMap(actx);
   return (DocIdMap){m};
 }
 
@@ -636,22 +636,22 @@ t_docId DocIdMap_Get(const DocIdMap *m, const char *s, size_t n) {
 
 void *_docIdMap_replace(void *oldval, void *newval) {
   if (oldval) {
-    rm_free(oldval);
+    rm_free(actx, oldval);
   }
   return newval;
 }
 
 void DocIdMap_Put(DocIdMap *m, const char *s, size_t n, t_docId docId) {
 
-  t_docId *pd = rm_malloc(sizeof(t_docId));
+  t_docId *pd = rm_malloc(actx, sizeof(t_docId));
   *pd = docId;
   TrieMap_Add(m->tm, (char *)s, n, pd, _docIdMap_replace);
 }
 
 void DocIdMap_Free(DocIdMap *m) {
-  TrieMap_Free(m->tm, rm_free);
+  TrieMap_Free(m->tm, rm_free, actx);
 }
 
 int DocIdMap_Delete(DocIdMap *m, const char *s, size_t n) {
-  return TrieMap_Delete(m->tm, (char *)s, n, rm_free);
+  return TrieMap_Delete(m->tm, (char *)s, n, rm_free, actx);
 }

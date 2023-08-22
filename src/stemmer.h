@@ -12,6 +12,8 @@
 extern "C" {
 #endif
 
+#include "rmalloc.h"
+
 typedef enum { SnowballStemmer } StemmerType;
 
 #define STEM_PREFIX '+'
@@ -32,7 +34,7 @@ typedef struct stemmer {
   StemmerType type;  // Type of stemmer
 } Stemmer;
 
-Stemmer *NewStemmer(StemmerType type, RSLanguage language);
+Stemmer *NewStemmer(StemmerType type, RSLanguage language, alloc_context *actx);
 
 int ResetStemmer(Stemmer *stemmer, StemmerType type, RSLanguage language);
 
@@ -40,9 +42,9 @@ int ResetStemmer(Stemmer *stemmer, StemmerType type, RSLanguage language);
 void RegisterStemmerExpander();
 
 /* Snoball Stemmer wrapper implementation */
-const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *outlen);
+const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *outlen, alloc_context *actx);
 void __sbstemmer_Free(Stemmer *s);
-Stemmer *__newSnowballStemmer(RSLanguage language);
+Stemmer *__newSnowballStemmer(RSLanguage language, alloc_context *actx);
 
 #ifdef __cplusplus
 }

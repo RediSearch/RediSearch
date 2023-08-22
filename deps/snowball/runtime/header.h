@@ -2,6 +2,7 @@
 #include <limits.h>
 
 #include "api.h"
+#include "rmalloc.h"
 
 #define MAXINT INT_MAX
 #define MININT INT_MIN
@@ -20,8 +21,8 @@ struct among
     int (* function)(struct SN_env *);
 };
 
-extern symbol * create_s(void);
-extern void lose_s(symbol * p);
+extern symbol * create_s(alloc_context *actx);
+extern void lose_s(symbol * p, alloc_context *actx);
 
 extern int skip_utf8(const symbol * p, int c, int limit, int n);
 
@@ -45,16 +46,16 @@ extern int eq_v_b(struct SN_env * z, const symbol * p);
 extern int find_among(struct SN_env * z, const struct among * v, int v_size);
 extern int find_among_b(struct SN_env * z, const struct among * v, int v_size);
 
-extern int replace_s(struct SN_env * z, int c_bra, int c_ket, int s_size, const symbol * s, int * adjustment);
-extern int slice_from_s(struct SN_env * z, int s_size, const symbol * s);
-extern int slice_from_v(struct SN_env * z, const symbol * p);
-extern int slice_del(struct SN_env * z);
+extern int replace_s(struct SN_env * z, int c_bra, int c_ket, int s_size, const symbol * s, int * adjustment, alloc_context *actx);
+extern int slice_from_s(struct SN_env * z, int s_size, const symbol * s, alloc_context *actx);
+extern int slice_from_v(struct SN_env * z, const symbol * p, alloc_context *actx);
+extern int slice_del(struct SN_env * z, alloc_context *actx);
 
-extern int insert_s(struct SN_env * z, int bra, int ket, int s_size, const symbol * s);
-extern int insert_v(struct SN_env * z, int bra, int ket, const symbol * p);
+extern int insert_s(struct SN_env * z, int bra, int ket, int s_size, const symbol * s, alloc_context *actx);
+extern int insert_v(struct SN_env * z, int bra, int ket, const symbol * p, alloc_context *actx);
 
-extern symbol * slice_to(struct SN_env * z, symbol * p);
-extern symbol * assign_to(struct SN_env * z, symbol * p);
+extern symbol * slice_to(struct SN_env * z, symbol * p, alloc_context *actx);
+extern symbol * assign_to(struct SN_env * z, symbol * p, alloc_context *actx);
 
 extern int len_utf8(const symbol * p);
 

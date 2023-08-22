@@ -72,8 +72,8 @@ static char *strtolower(char *str) {
   return str;
 }
 
-static char *rm_strndup_unescape(const char *s, size_t len) {
-  char *ret = rm_strndup(s, len);
+static char *rm_strndup_unescape(alloc_context *ctx, const char *s, size_t len) {
+  char *ret = rm_strndup(ctx, s, len);
   char *dst = ret;
   char *src = (char *)s;
   while (*src && len) {

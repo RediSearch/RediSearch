@@ -149,6 +149,21 @@ typedef struct RSIdxInfo {
   long long lastRunTimeMs;
 } RSIdxInfo;
 
+typedef struct {
+  size_t numDocuments;
+  size_t numTerms;
+  size_t numRecords;
+  size_t invertedSize;
+  size_t invertedCap;
+  size_t skipIndexesSize;
+  size_t scoreIndexesSize;
+  size_t offsetVecsSize;
+  size_t offsetVecRecords;
+  size_t termsSize;
+  size_t indexingFailures;
+  long double totalIndexTime; // usec
+} IndexStats;
+
 /**
  * Allocate an index options struct. This structure can be used to set global
  * options on the index prior to it being created.

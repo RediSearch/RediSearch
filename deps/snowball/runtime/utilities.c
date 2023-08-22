@@ -8,9 +8,9 @@
 
 #define CREATE_SIZE 1
 
-extern symbol * create_s(void) {
+extern symbol * create_s(alloc_context *actx) {
     symbol * p;
-    void * mem = rm_malloc(HEAD + (CREATE_SIZE + 1) * sizeof(symbol));
+    void * mem = rm_malloc(actx, HEAD + (CREATE_SIZE + 1) * sizeof(symbol));
     if (mem == NULL) return NULL;
     p = (symbol *) (HEAD + (char *) mem);
     CAPACITY(p) = CREATE_SIZE;
@@ -18,9 +18,9 @@ extern symbol * create_s(void) {
     return p;
 }
 
-extern void lose_s(symbol * p) {
+extern void lose_s(symbol * p, alloc_context *actx) {
     if (p == NULL) return;
-    rm_free((char *) p - HEAD);
+    rm_free(actx, (char *) p - HEAD);
 }
 
 /*
@@ -358,13 +358,13 @@ extern int find_among_b(struct SN_env * z, const struct among * v, int v_size) {
 /* Increase the size of the buffer pointed to by p to at least n symbols.
  * If insufficient memory, returns NULL and frees the old buffer.
  */
-static symbol * increase_size(symbol * p, int n) {
+static symbol * increase_size(symbol * p, int n, alloc_context *actx) {
     symbol * q;
     int new_size = n + 20;
-    void * mem = rm_realloc((char *) p - HEAD,
+    void * mem = rm_realloc(actx, (char *) p - HEAD,
                          HEAD + (new_size + 1) * sizeof(symbol));
     if (mem == NULL) {
-        lose_s(p);
+        lose_s(p, actx);
         return NULL;
     }
     q = (symbol *) (HEAD + (char *)mem);
@@ -377,19 +377,19 @@ static symbol * increase_size(symbol * p, int n) {
    Returns 0 on success, -1 on error.
    Also, frees z->p (and sets it to NULL) on error.
 */
-extern int replace_s(struct SN_env * z, int c_bra, int c_ket, int s_size, const symbol * s, int * adjptr)
+extern int replace_s(struct SN_env * z, int c_bra, int c_ket, int s_size, const symbol * s, int * adjptr, alloc_context *actx)
 {
     int adjustment;
     int len;
     if (z->p == NULL) {
-        z->p = create_s();
+        z->p = create_s(actx);
         if (z->p == NULL) return -1;
     }
     adjustment = s_size - (c_ket - c_bra);
     len = SIZE(z->p);
     if (adjustment != 0) {
         if (adjustment + len > CAPACITY(z->p)) {
-            z->p = increase_size(z->p, adjustment + len);
+            z->p = increase_size(z->p, adjustment + len, actx);
             if (z->p == NULL) return -1;
         }
         memmove(z->p + c_ket + adjustment,
@@ -425,41 +425,41 @@ static int slice_check(struct SN_env * z) {
     return 0;
 }
 
-extern int slice_from_s(struct SN_env * z, int s_size, const symbol * s) {
+extern int slice_from_s(struct SN_env * z, int s_size, const symbol * s, alloc_context *actx) {
     if (slice_check(z)) return -1;
-    return replace_s(z, z->bra, z->ket, s_size, s, NULL);
+    return replace_s(z, z->bra, z->ket, s_size, s, NULL, actx);
 }
 
-extern int slice_from_v(struct SN_env * z, const symbol * p) {
-    return slice_from_s(z, SIZE(p), p);
+extern int slice_from_v(struct SN_env * z, const symbol * p, alloc_context *actx) {
+    return slice_from_s(z, SIZE(p), p, actx);
 }
 
-extern int slice_del(struct SN_env * z) {
-    return slice_from_s(z, 0, 0);
+extern int slice_del(struct SN_env * z, alloc_context *actx) {
+    return slice_from_s(z, 0, 0, actx);
 }
 
-extern int insert_s(struct SN_env * z, int bra, int ket, int s_size, const symbol * s) {
+extern int insert_s(struct SN_env * z, int bra, int ket, int s_size, const symbol * s, alloc_context *actx) {
     int adjustment;
-    if (replace_s(z, bra, ket, s_size, s, &adjustment))
+    if (replace_s(z, bra, ket, s_size, s, &adjustment, actx))
         return -1;
     if (bra <= z->bra) z->bra += adjustment;
     if (bra <= z->ket) z->ket += adjustment;
     return 0;
 }
 
-extern int insert_v(struct SN_env * z, int bra, int ket, const symbol * p) {
-    return insert_s(z, bra, ket, SIZE(p), p);
+extern int insert_v(struct SN_env * z, int bra, int ket, const symbol * p, alloc_context *actx) {
+    return insert_s(z, bra, ket, SIZE(p), p, actx);
 }
 
-extern symbol * slice_to(struct SN_env * z, symbol * p) {
+extern symbol * slice_to(struct SN_env * z, symbol * p, alloc_context *actx) {
     if (slice_check(z)) {
-        lose_s(p);
+        lose_s(p, actx);
         return NULL;
     }
     {
         int len = z->ket - z->bra;
         if (CAPACITY(p) < len) {
-            p = increase_size(p, len);
+            p = increase_size(p, len, actx);
             if (p == NULL)
                 return NULL;
         }
@@ -469,10 +469,10 @@ extern symbol * slice_to(struct SN_env * z, symbol * p) {
     return p;
 }
 
-extern symbol * assign_to(struct SN_env * z, symbol * p) {
+extern symbol * assign_to(struct SN_env * z, symbol * p, alloc_context *actx) {
     int len = z->l;
     if (CAPACITY(p) < len) {
-        p = increase_size(p, len);
+        p = increase_size(p, len, actx);
         if (p == NULL)
             return NULL;
     }

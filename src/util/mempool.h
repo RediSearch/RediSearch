@@ -31,7 +31,7 @@ typedef struct {
 } mempool_options;
 
 /* Create a new memory pool */
-mempool_t *mempool_new(const mempool_options *options);
+mempool_t *mempool_new(const mempool_options *options, alloc_context *actx);
 
 /* Get an entry from the pool, allocating a new instance if unavailable */
 void *mempool_get(struct mempool_t *p);

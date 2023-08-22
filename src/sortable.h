@@ -91,7 +91,7 @@ static inline RSValue *RSSortingVector_Get(RSSortingVector *v, size_t index) {
 size_t RSSortingVector_GetMemorySize(RSSortingVector *v);
 
 /* Create a sorting vector of a given length for a document */
-RSSortingVector *NewSortingVector(int len);
+RSSortingVector *NewSortingVector(int len, alloc_context *actx);
 
 /* Free a sorting vector */
 void SortingVector_Free(RSSortingVector *v);

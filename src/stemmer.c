@@ -4,12 +4,12 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
+#include "rmalloc.h"
 #include "stemmer.h"
 #include <string.h>
 #include <stdio.h>
 #include <sys/param.h>
 #include "snowball/include/libstemmer.h"
-#include "rmalloc.h"
 
 struct sbStemmerCtx {
   struct sb_stemmer *sb;
@@ -17,7 +17,7 @@ struct sbStemmerCtx {
   size_t cap;
 };
 
-const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *outlen) {
+const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *outlen, alloc_context *actx) {
   const sb_symbol *b = (const sb_symbol *)word;
   struct sbStemmerCtx *stctx = ctx;
   struct sb_stemmer *sb = stctx->sb;
@@ -36,7 +36,7 @@ const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *ou
     // make sure the expansion plus the 1 char prefix fit in our static buffer
     if (*outlen + 2 > stctx->cap) {
       stctx->cap = *outlen + 2;
-      stctx->buf = rm_realloc(stctx->buf, stctx->cap);
+      stctx->buf = rm_realloc(actx, stctx->buf, stctx->cap);
     }
     // the first location is saved for the + prefix
     memcpy(stctx->buf + 1, stemmed, *outlen + 1);
@@ -45,12 +45,12 @@ const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *ou
   return NULL;
 }
 
-void __sbstemmer_Free(Stemmer *s) {
+void __sbstemmer_Free(Stemmer *s, alloc_context *actx) {
   struct sbStemmerCtx *ctx = s->ctx;
-  sb_stemmer_delete(ctx->sb);
-  rm_free(ctx->buf);
-  rm_free(ctx);
-  rm_free(s);
+  sb_stemmer_delete(ctx->sb, actx);
+  rm_free(actx, ctx->buf);
+  rm_free(actx, ctx);
+  rm_free(actx, s);
 }
 
 static int sbstemmer_Reset(Stemmer *stemmer, StemmerType type, RSLanguage language) {
@@ -61,20 +61,20 @@ static int sbstemmer_Reset(Stemmer *stemmer, StemmerType type, RSLanguage langua
   return 1;
 }
 
-Stemmer *__newSnowballStemmer(RSLanguage language) {
-  struct sb_stemmer *sb = sb_stemmer_new(RSLanguage_ToString(language), NULL);
+Stemmer *__newSnowballStemmer(RSLanguage language, alloc_context *actx) {
+  struct sb_stemmer *sb = sb_stemmer_new(RSLanguage_ToString(language), NULL, actx);
   // No stemmer available for this language
   if (!sb) {
     return NULL;
   }
 
-  struct sbStemmerCtx *ctx = rm_malloc(sizeof(*ctx));
+  struct sbStemmerCtx *ctx = rm_malloc(actx, sizeof(*ctx));
   ctx->sb = sb;
   ctx->cap = 24;
-  ctx->buf = rm_malloc(ctx->cap);
+  ctx->buf = rm_malloc(actx, ctx->cap);
   ctx->buf[0] = STEM_PREFIX;
 
-  Stemmer *ret = rm_malloc(sizeof(Stemmer));
+  Stemmer *ret = rm_malloc(actx, sizeof(Stemmer));
   ret->ctx = ctx;
   ret->Stem = __sbstemmer_Stem;
   ret->Free = __sbstemmer_Free;
@@ -82,10 +82,10 @@ Stemmer *__newSnowballStemmer(RSLanguage language) {
   return ret;
 }
 
-Stemmer *NewStemmer(StemmerType type, RSLanguage language) {
+Stemmer *NewStemmer(StemmerType type, RSLanguage language, alloc_context *actx) {
   Stemmer *ret = NULL;
   if (type == SnowballStemmer) {
-    ret = __newSnowballStemmer(language);
+    ret = __newSnowballStemmer(language, actx);
     if (!ret) {
       return NULL;
     }

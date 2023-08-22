@@ -159,8 +159,8 @@ static void doReset(RSTokenizer *tokbase, Stemmer *stemmer, StopWordList *stopwo
   }
 }
 
-RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
-  simpleTokenizer *t = rm_calloc(1, sizeof(*t));
+RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts, alloc_context *actx) {
+  simpleTokenizer *t = rm_calloc(actx, 1, sizeof(*t));
   t->base.Free = simpleTokenizer_Free;
   t->base.Next = simpleTokenizer_Next;
   t->base.Start = simpleTokenizer_Start;
@@ -172,26 +172,26 @@ RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint3
 static mempool_t *tokpoolLatin_g = NULL;
 static mempool_t *tokpoolCn_g = NULL;
 
-static void *newLatinTokenizerAlloc() {
-  return NewSimpleTokenizer(NULL, NULL, 0);
+static void *newLatinTokenizerAlloc(alloc_context *actx) {
+  return NewSimpleTokenizer(NULL, NULL, 0, actx);
 }
-static void *newCnTokenizerAlloc() {
-  return NewChineseTokenizer(NULL, NULL, 0);
+static void *newCnTokenizerAlloc(alloc_context *actx) {
+  return NewChineseTokenizer(NULL, NULL, 0, actx);
 }
 static void tokenizerFree(void *p) {
   RSTokenizer *t = p;
   t->Free(t);
 }
 
-RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords) {
+RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords, alloc_context *actx) {
   if (language == RS_LANG_CHINESE) {
-    return GetChineseTokenizer(stemmer, stopwords);
+    return GetChineseTokenizer(stemmer, stopwords, actx);
   } else {
-    return GetSimpleTokenizer(stemmer, stopwords);
+    return GetSimpleTokenizer(stemmer, stopwords, actx);
   }
 }
 
-RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
+RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, alloc_context *actx) {
   if (!tokpoolCn_g) {
     mempool_options opts = {
         .initialCap = 16, .alloc = newCnTokenizerAlloc, .free = tokenizerFree};
@@ -203,7 +203,7 @@ RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
   return t;
 }
 
-RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
+RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, alloc_context *actx) {
   if (!tokpoolLatin_g) {
     mempool_options opts = {
         .initialCap = 16, .alloc = newLatinTokenizerAlloc, .free = tokenizerFree};

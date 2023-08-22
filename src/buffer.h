@@ -49,7 +49,7 @@ typedef struct {
 #define BUFFER_READ_BYTE(br) br->buf->data[br->pos++]
 //++b->buf->offset;
 
-void Buffer_Init(Buffer *b, size_t cap);
+void Buffer_Init(alloc_context *actx, Buffer *b, size_t cap);
 size_t Buffer_ReadByte(BufferReader *b, char *c);
 /**
 Read len bytes from the buffer into data. If offset + len are over capacity
@@ -107,24 +107,24 @@ typedef struct {
 
 } BufferWriter;
 
-size_t Buffer_Truncate(Buffer *b, size_t newlen);
+size_t Buffer_Truncate(alloc_context *actx, Buffer *b, size_t newlen);
 
 // Ensure that at least extraLen new bytes can be added to the buffer.
 // Returns 0 if no realloc was performed. 1 if realloc was performed.
-void Buffer_Grow(Buffer *b, size_t extraLen);
+void Buffer_Grow(alloc_context *actx, Buffer *b, size_t extraLen);
 
-static inline size_t Buffer_Reserve(Buffer *buf, size_t n) {
+static inline size_t Buffer_Reserve(alloc_context *actx, Buffer *buf, size_t n) {
   if (buf->offset + n <= buf->cap) {
     return 0;
   }
-  Buffer_Grow(buf, n);
+  Buffer_Grow(actx, buf, n);
   return 1;
 }
 
-static inline size_t Buffer_Write(BufferWriter *bw, const void *data, size_t len) {
+static inline size_t Buffer_Write(alloc_context *actx, BufferWriter *bw, const void *data, size_t len) {
 
   Buffer *buf = bw->buf;
-  if (Buffer_Reserve(buf, len)) {
+  if (Buffer_Reserve(actx, buf, len)) {
     bw->pos = buf->data + buf->offset;
   }
   memcpy(bw->pos, data, len);
@@ -136,16 +136,16 @@ static inline size_t Buffer_Write(BufferWriter *bw, const void *data, size_t len
 /**
  * These are convenience functions for writing numbers to/from a network
  */
-static inline size_t Buffer_WriteU32(BufferWriter *bw, uint32_t u) {
+static inline size_t Buffer_WriteU32(alloc_context *actx, BufferWriter *bw, uint32_t u) {
   u = htonl(u);
-  return Buffer_Write(bw, &u, 4);
+  return Buffer_Write(actx, bw, &u, 4);
 }
-static inline size_t Buffer_WriteU16(BufferWriter *bw, uint16_t u) {
+static inline size_t Buffer_WriteU16(alloc_context *actx, BufferWriter *bw, uint16_t u) {
   u = htons(u);
-  return Buffer_Write(bw, &u, 2);
+  return Buffer_Write(actx, bw, &u, 2);
 }
-static inline size_t Buffer_WriteU8(BufferWriter *bw, uint8_t u) {
-  return Buffer_Write(bw, &u, 1);
+static inline size_t Buffer_WriteU8(alloc_context *actx, BufferWriter *bw, uint8_t u) {
+  return Buffer_Write(actx, bw, &u, 1);
 }
 static inline uint32_t Buffer_ReadU32(BufferReader *r) {
   uint32_t u;
@@ -177,10 +177,10 @@ static inline char *BufferWriter_PtrAt(BufferWriter *b, size_t pos) {
 }
 
 size_t BufferWriter_Seek(BufferWriter *b, size_t offset);
-size_t Buffer_WriteAt(BufferWriter *b, size_t offset, void *data, size_t len);
+size_t Buffer_WriteAt(alloc_context *actx, BufferWriter *b, size_t offset, void *data, size_t len);
 
-Buffer *Buffer_Wrap(char *data, size_t len);
-void Buffer_Free(Buffer *buf);
+Buffer *Buffer_Wrap(alloc_context *actx, char *data, size_t len);
+void Buffer_Free(alloc_context *actx, Buffer *buf);
 
 #ifdef __cplusplus
 }

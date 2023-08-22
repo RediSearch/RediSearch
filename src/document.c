@@ -51,14 +51,14 @@ static void freeDocumentContext(void *p) {
 #define FIELD_IS_VALID(aCtx, ix) ((aCtx)->fspecs[ix].name != NULL)
 #define FIELD_IS_NULL(aCtx, ix) ((aCtx)->fdatas[ix].isNull)
 
-static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
+static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, alloc_context *alctx) {
   Document *doc = aCtx->doc;
   aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
   aCtx->stateFlags &= ~ACTX_F_TEXTINDEXED;
   aCtx->stateFlags &= ~ACTX_F_OTHERINDEXED;
 
-  aCtx->fspecs = rm_realloc(aCtx->fspecs, sizeof(*aCtx->fspecs) * doc->numFields);
-  aCtx->fdatas = rm_realloc(aCtx->fdatas, sizeof(*aCtx->fdatas) * doc->numFields);
+  aCtx->fspecs = rm_realloc(alctx, aCtx->fspecs, sizeof(*aCtx->fspecs) * doc->numFields);
+  aCtx->fdatas = rm_realloc(alctx, aCtx->fdatas, sizeof(*aCtx->fdatas) * doc->numFields);
 
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
     // zero out field data. We check at the destructor to see if there is any
@@ -143,7 +143,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
   }
 
   if ((aCtx->stateFlags & ACTX_F_SORTABLES) && aCtx->sv == NULL) {
-    aCtx->sv = NewSortingVector(sp->sortables->len);
+    aCtx->sv = NewSortingVector(sp->sortables->len, alctx);
   }
 
   int empty = (aCtx->sv == NULL) && !hasTextFields && !hasOtherFields;
@@ -162,7 +162,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
   return 0;
 }
 
-RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *status) {
+RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *status, alloc_context *alctx) {
 
   if (!actxPool_g) {
     mempool_options mopts = {.initialCap = 16,
@@ -186,9 +186,9 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   if (aCtx->specFlags & Index_Async) {
     size_t len = sp->nameLen + 1;
     if (aCtx->specName == NULL) {
-      aCtx->specName = rm_malloc(len);
+      aCtx->specName = rm_malloc(alctx, len);
     } else if (len > aCtx->specNameLen) {
-      aCtx->specName = rm_realloc(aCtx->specName, len);
+      aCtx->specName = rm_realloc(alctx, aCtx->specName, len);
       aCtx->specNameLen = len;
     }
     strncpy(aCtx->specName, sp->name, len);
@@ -199,7 +199,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
 
   // Assign the document:
   aCtx->doc = doc;
-  if (AddDocumentCtx_SetDocument(aCtx, sp) != 0) {
+  if (AddDocumentCtx_SetDocument(aCtx, sp, alctx) != 0) {
     *status = aCtx->status;
     aCtx->status.detail = NULL;
     mempool_release(actxPool_g, aCtx);
@@ -210,7 +210,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   if (aCtx->fwIdx) {
     ForwardIndex_Reset(aCtx->fwIdx, aCtx->doc, sp->flags);
   } else {
-    aCtx->fwIdx = NewForwardIndex(aCtx->doc, sp->flags);
+    aCtx->fwIdx = NewForwardIndex(aCtx->doc, sp->flags, alctx);
   }
 
   if (sp->smap) {
@@ -221,7 +221,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
     aCtx->fwIdx->smap = NULL;
   }
 
-  aCtx->tokenizer = GetTokenizer(doc->language, aCtx->fwIdx->stemmer, sp->stopwords);
+  aCtx->tokenizer = GetTokenizer(doc->language, aCtx->fwIdx->stemmer, sp->stopwords, alctx);
 //  aCtx->doc->docId = 0;
   return aCtx;
 }
@@ -801,6 +801,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(tagIndexer) {
+  alloc_context actx = {.stats = ctx->spec->stats};
   TagIndex *tidx = bulk->indexDatas[IXFLDPOS_TAG];
   if (!tidx) {
     RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG);
@@ -811,7 +812,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
       return -1;
     }
     if (FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
-      tidx->suffix = NewTrieMap();
+      tidx->suffix = NewTrieMap(&actx);
     }
   }
 

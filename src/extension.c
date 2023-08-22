@@ -24,26 +24,26 @@ static TrieMap *scorers_g = NULL;
 /* Init the extension system - currently just create the regsistries */
 void Extensions_Init() {
   if (!queryExpanders_g) {
-    queryExpanders_g = NewTrieMap();
-    scorers_g = NewTrieMap();
+    queryExpanders_g = NewTrieMap(NULL);
+    scorers_g = NewTrieMap(NULL);
   }
 }
 
 static void freeExpanderCb(void *p) {
-  rm_free(p);
+  rm_free(NULL, p);
 }
 
 static void freeScorerCb(void *p) {
-  rm_free(p);
+  rm_free(NULL, p);
 }
 
 void Extensions_Free() {
   if (queryExpanders_g) {
-    TrieMap_Free(queryExpanders_g, freeExpanderCb);
+    TrieMap_Free(queryExpanders_g, freeExpanderCb, NULL);
     queryExpanders_g = NULL;
   }
   if (scorers_g) {
-    TrieMap_Free(scorers_g, freeScorerCb);
+    TrieMap_Free(scorers_g, freeScorerCb, NULL);
     scorers_g = NULL;
   }
 }
@@ -55,14 +55,14 @@ int Ext_RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFre
   if (func == NULL || scorers_g == NULL) {
     return REDISEARCH_ERR;
   }
-  ExtScoringFunctionCtx *ctx = rm_new(ExtScoringFunctionCtx);
+  ExtScoringFunctionCtx *ctx = rm_new(NULL, ExtScoringFunctionCtx);
   ctx->privdata = privdata;
   ctx->ff = ff;
   ctx->sf = func;
 
   /* Make sure that two scorers are never registered under the same name */
   if (TrieMap_Find(scorers_g, (char *)alias, strlen(alias)) != TRIEMAP_NOTFOUND) {
-    rm_free(ctx);
+    rm_free(NULL, ctx);
     return REDISEARCH_ERR;
   }
 
@@ -76,14 +76,14 @@ int Ext_RegisterQueryExpander(const char *alias, RSQueryTokenExpander exp, RSFre
   if (exp == NULL || queryExpanders_g == NULL) {
     return REDISEARCH_ERR;
   }
-  ExtQueryExpanderCtx *ctx = rm_new(ExtQueryExpanderCtx);
+  ExtQueryExpanderCtx *ctx = rm_new(NULL, ExtQueryExpanderCtx);
   ctx->privdata = privdata;
   ctx->ff = ff;
   ctx->exp = exp;
 
   /* Make sure there are no two query expanders under the same name */
   if (TrieMap_Find(queryExpanders_g, (char *)alias, strlen(alias)) != TRIEMAP_NOTFOUND) {
-    rm_free(ctx);
+    rm_free(NULL, ctx);
     return REDISEARCH_ERR;
   }
   TrieMap_Add(queryExpanders_g, (char *)alias, strlen(alias), ctx, NULL);

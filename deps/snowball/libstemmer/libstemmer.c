@@ -1,10 +1,10 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include "rmalloc.h"
 #include "../include/libstemmer.h"
 #include "../runtime/api.h"
 #include "modules.h"
-#include "rmalloc.h"
 
 struct sb_stemmer {
     struct SN_env * (*create)(void);
@@ -33,7 +33,7 @@ sb_getenc(const char * charenc)
 }
 
 extern struct sb_stemmer *
-sb_stemmer_new(const char * algorithm, const char * charenc)
+sb_stemmer_new(const char * algorithm, const char * charenc, alloc_context *actx)
 {
     stemmer_encoding_t enc;
     const struct stemmer_modules * module;
@@ -47,7 +47,7 @@ sb_stemmer_new(const char * algorithm, const char * charenc)
     }
     if (module->name == NULL) return NULL;
     
-    stemmer = (struct sb_stemmer *) rm_malloc(sizeof(struct sb_stemmer));
+    stemmer = (struct sb_stemmer *) rm_malloc(actx, sizeof(struct sb_stemmer));
     if (stemmer == NULL) return NULL;
 
     stemmer->create = module->create;
@@ -57,7 +57,7 @@ sb_stemmer_new(const char * algorithm, const char * charenc)
     stemmer->env = stemmer->create();
     if (stemmer->env == NULL)
     {
-        sb_stemmer_delete(stemmer);
+        sb_stemmer_delete(stemmer, actx);
         return NULL;
     }
 
@@ -65,14 +65,14 @@ sb_stemmer_new(const char * algorithm, const char * charenc)
 }
 
 void
-sb_stemmer_delete(struct sb_stemmer * stemmer)
+sb_stemmer_delete(struct sb_stemmer * stemmer, alloc_context *actx)
 {
     if (stemmer == 0) return;
     if (stemmer->close) {
         stemmer->close(stemmer->env);
         stemmer->close = 0;
     }
-    rm_free(stemmer);
+    rm_free(actx, stemmer);
 }
 
 const sb_symbol *

@@ -155,7 +155,7 @@ lab0:
     return 1;
 }
 
-static int r_main_suffix(struct SN_env * z) {
+static int r_main_suffix(struct SN_env * z, alloc_context *actx) {
     int among_var;
 
     {   int mlimit1;
@@ -170,13 +170,13 @@ static int r_main_suffix(struct SN_env * z) {
     }
     switch (among_var) {
         case 1:
-            {   int ret = slice_del(z);
+            {   int ret = slice_del(z, actx);
                 if (ret < 0) return ret;
             }
             break;
         case 2:
             if (in_grouping_b(z, g_s_ending, 97, 229, 0)) return 0;
-            {   int ret = slice_del(z);
+            {   int ret = slice_del(z, actx);
                 if (ret < 0) return ret;
             }
             break;
@@ -184,7 +184,7 @@ static int r_main_suffix(struct SN_env * z) {
     return 1;
 }
 
-static int r_consonant_pair(struct SN_env * z) {
+static int r_consonant_pair(struct SN_env * z, alloc_context *actx) {
     {   int m_test1 = z->l - z->c;
 
         {   int mlimit2;
@@ -201,20 +201,20 @@ static int r_consonant_pair(struct SN_env * z) {
     if (z->c <= z->lb) return 0;
     z->c--;
     z->bra = z->c;
-    {   int ret = slice_del(z);
+    {   int ret = slice_del(z, actx);
         if (ret < 0) return ret;
     }
     return 1;
 }
 
-static int r_other_suffix(struct SN_env * z) {
+static int r_other_suffix(struct SN_env * z, alloc_context *actx) {
     int among_var;
     {   int m1 = z->l - z->c; (void)m1;
         z->ket = z->c;
         if (!(eq_s_b(z, 2, s_0))) goto lab0;
         z->bra = z->c;
         if (!(eq_s_b(z, 2, s_1))) goto lab0;
-        {   int ret = slice_del(z);
+        {   int ret = slice_del(z, actx);
             if (ret < 0) return ret;
         }
     lab0:
@@ -233,18 +233,18 @@ static int r_other_suffix(struct SN_env * z) {
     }
     switch (among_var) {
         case 1:
-            {   int ret = slice_del(z);
+            {   int ret = slice_del(z, actx);
                 if (ret < 0) return ret;
             }
             {   int m3 = z->l - z->c; (void)m3;
-                {   int ret = r_consonant_pair(z);
+                {   int ret = r_consonant_pair(z, actx);
                     if (ret < 0) return ret;
                 }
                 z->c = z->l - m3;
             }
             break;
         case 2:
-            {   int ret = slice_from_s(z, 3, s_2);
+            {   int ret = slice_from_s(z, 3, s_2, actx);
                 if (ret < 0) return ret;
             }
             break;
@@ -252,7 +252,7 @@ static int r_other_suffix(struct SN_env * z) {
     return 1;
 }
 
-static int r_undouble(struct SN_env * z) {
+static int r_undouble(struct SN_env * z, alloc_context *actx) {
 
     {   int mlimit1;
         if (z->c < z->I[1]) return 0;
@@ -260,18 +260,18 @@ static int r_undouble(struct SN_env * z) {
         z->ket = z->c;
         if (in_grouping_b(z, g_c, 98, 122, 0)) { z->lb = mlimit1; return 0; }
         z->bra = z->c;
-        z->S[0] = slice_to(z, z->S[0]);
+        z->S[0] = slice_to(z, z->S[0], actx);
         if (z->S[0] == 0) return -1;
         z->lb = mlimit1;
     }
     if (!(eq_v_b(z, z->S[0]))) return 0;
-    {   int ret = slice_del(z);
+    {   int ret = slice_del(z, actx);
         if (ret < 0) return ret;
     }
     return 1;
 }
 
-extern int danish_ISO_8859_1_stem(struct SN_env * z) {
+extern int danish_ISO_8859_1_stem(struct SN_env * z, alloc_context *actx) {
     {   int c1 = z->c;
         {   int ret = r_mark_regions(z);
             if (ret < 0) return ret;
@@ -281,25 +281,25 @@ extern int danish_ISO_8859_1_stem(struct SN_env * z) {
     z->lb = z->c; z->c = z->l;
 
     {   int m2 = z->l - z->c; (void)m2;
-        {   int ret = r_main_suffix(z);
+        {   int ret = r_main_suffix(z, actx);
             if (ret < 0) return ret;
         }
         z->c = z->l - m2;
     }
     {   int m3 = z->l - z->c; (void)m3;
-        {   int ret = r_consonant_pair(z);
+        {   int ret = r_consonant_pair(z, actx);
             if (ret < 0) return ret;
         }
         z->c = z->l - m3;
     }
     {   int m4 = z->l - z->c; (void)m4;
-        {   int ret = r_other_suffix(z);
+        {   int ret = r_other_suffix(z, actx);
             if (ret < 0) return ret;
         }
         z->c = z->l - m4;
     }
     {   int m5 = z->l - z->c; (void)m5;
-        {   int ret = r_undouble(z);
+        {   int ret = r_undouble(z, actx);
             if (ret < 0) return ret;
         }
         z->c = z->l - m5;
@@ -308,7 +308,7 @@ extern int danish_ISO_8859_1_stem(struct SN_env * z) {
     return 1;
 }
 
-extern struct SN_env * danish_ISO_8859_1_create_env(void) { return SN_create_env(1, 2); }
+extern struct SN_env * danish_ISO_8859_1_create_env(alloc_context *actx) { return SN_create_env(1, 2, actx); }
 
-extern void danish_ISO_8859_1_close_env(struct SN_env * z) { SN_close_env(z, 1); }
+extern void danish_ISO_8859_1_close_env(struct SN_env * z, alloc_context *actx) { SN_close_env(z, 1, actx); }
 

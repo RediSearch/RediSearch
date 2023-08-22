@@ -48,15 +48,15 @@ static inline void explain(RSScoreExplain *scrExp, char *fmt, ...) {
 
   va_list ap;
   va_start(ap, fmt);
-  rm_vasprintf((char **restrict) & scrExp->str, fmt, ap);
+  rm_vasprintf(NULL, (char **restrict) & scrExp->str, fmt, ap);
   va_end(ap);
 
-  rm_free(tempStr);
+  rm_free(NULL, tempStr);
 }
 
-static void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **scrExp) {
+static void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **scrExp, alloc_context *actx) {
   if (*scrExp) {
-    RSScoreExplain *finalScrExp = rm_calloc(1, sizeof(RSScoreExplain));
+    RSScoreExplain *finalScrExp = rm_calloc(actx, 1, sizeof(RSScoreExplain));
     finalScrExp->numChildren = 1;
     finalScrExp->children = *scrExp;
     ((ScoringFunctionArgs *)ctx)->scrExp = *scrExp = finalScrExp;
@@ -65,7 +65,7 @@ static void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **
 
 // recursively calculate tf-idf
 static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *dmd,
-                             RSScoreExplain *scrExp) {
+                             RSScoreExplain *scrExp, alloc_context *actx) {
   if (r->type == RSResultType_Term) {
     double idf = r->term.term ? r->term.term->idf : 0;
     double res = r->weight * ((double)r->freq) * idf;
@@ -77,13 +77,13 @@ static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *d
     int numChildren = r->agg.numChildren;
     if (!scrExp) {
       for (int i = 0; i < numChildren; i++) {
-        ret += tfidfRecursive(r->agg.children[i], dmd, NULL);
+        ret += tfidfRecursive(r->agg.children[i], dmd, NULL, actx);
       }
     } else {
       scrExp->numChildren = numChildren;
-      scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
+      scrExp->children = rm_calloc(actx, numChildren, sizeof(RSScoreExplain));
       for (int i = 0; i < numChildren; i++) {
-        ret += tfidfRecursive(r->agg.children[i], dmd, &scrExp->children[i]);
+        ret += tfidfRecursive(r->agg.children[i], dmd, &scrExp->children[i], actx);
       }
       EXPLAIN(scrExp, "(Weight %.2f * total children TFIDF %.2f)", r->weight, ret);
     }
@@ -96,16 +96,16 @@ static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *d
 
 /* internal common tf-idf function, where just the normalization method changes */
 static inline double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
-                                   const RSDocumentMetadata *dmd, double minScore, int normMode) {
+                                   const RSDocumentMetadata *dmd, double minScore, int normMode, alloc_context *actx) {
   RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
   if (dmd->score == 0) {
     EXPLAIN(scrExp, "Document score is 0");
     return 0;
   }
   uint32_t norm = normMode == NORM_MAXFREQ ? dmd->maxFreq : dmd->len;
-  double rawTfidf = tfidfRecursive(h, dmd, scrExp);
+  double rawTfidf = tfidfRecursive(h, dmd, scrExp, actx);
   double tfidf = dmd->score * rawTfidf / norm;
-  strExpCreateParent(ctx, &scrExp);
+  strExpCreateParent(ctx, &scrExp, actx);
 
   // no need to factor the distance if tfidf is already below minimal score
   if (tfidf < minScore) {
@@ -125,16 +125,16 @@ static inline double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSIndex
 /* Calculate sum(TF-IDF)*document score for each result, where TF is normalized by maximum frequency
  * in this document*/
 static double TFIDFScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
-                          const RSDocumentMetadata *dmd, double minScore) {
-  return tfIdfInternal(ctx, h, dmd, minScore, NORM_MAXFREQ);
+                          const RSDocumentMetadata *dmd, double minScore, alloc_context *actx) {
+  return tfIdfInternal(ctx, h, dmd, minScore, NORM_MAXFREQ, actx);
 }
 
 /* Identical scorer to TFIDFScorer, only the normalization is by total weighted frequency in the doc
  */
 static double TFIDFNormDocLenScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
-                                    const RSDocumentMetadata *dmd, double minScore) {
+                                    const RSDocumentMetadata *dmd, double minScore, alloc_context *actx) {
 
-  return tfIdfInternal(ctx, h, dmd, minScore, NORM_DOCLEN);
+  return tfIdfInternal(ctx, h, dmd, minScore, NORM_DOCLEN, actx);
 }
 
 /******************************************************************************************
@@ -147,7 +147,7 @@ static double TFIDFNormDocLenScorer(const ScoringFunctionArgs *ctx, const RSInde
 
 /* recursively calculate score for each token, summing up sub tokens */
 static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
-                            const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) {
+                            const RSDocumentMetadata *dmd, RSScoreExplain *scrExp, alloc_context *actx) {
   static const float b = 0.5;
   static const float k1 = 1.2;
   double f = (double)r->freq;
@@ -163,13 +163,13 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
     int numChildren = r->agg.numChildren;
     if (!scrExp) {
       for (int i = 0; i < numChildren; i++) {
-        ret += bm25Recursive(ctx, r->agg.children[i], dmd, NULL);
+        ret += bm25Recursive(ctx, r->agg.children[i], dmd, NULL, actx);
       }
     } else {
       scrExp->numChildren = numChildren;
-      scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
+      scrExp->children = rm_calloc(actx, numChildren, sizeof(RSScoreExplain));
       for (int i = 0; i < numChildren; i++) {
-        ret += bm25Recursive(ctx, r->agg.children[i], dmd, &scrExp->children[i]);
+        ret += bm25Recursive(ctx, r->agg.children[i], dmd, &scrExp->children[i], actx);
       }
       EXPLAIN(scrExp, "(Weight %.2f * children BM25 %.2f)", r->weight, ret);
     }
@@ -189,11 +189,11 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
 
 /* BM25 scoring function */
 static double BM25Scorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
-                         const RSDocumentMetadata *dmd, double minScore) {
+                         const RSDocumentMetadata *dmd, double minScore, alloc_context *actx) {
   RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
-  double bm25res = bm25Recursive(ctx, r, dmd, scrExp);
+  double bm25res = bm25Recursive(ctx, r, dmd, scrExp, actx);
   double score = dmd->score * bm25res;
-  strExpCreateParent(ctx, &scrExp);
+  strExpCreateParent(ctx, &scrExp, actx);
 
   // no need to factor the distance if tfidf is already below minimal score
   if (score < minScore) {
@@ -227,7 +227,7 @@ static double DocScoreScorer(const ScoringFunctionArgs *ctx, const RSIndexResult
  *
  ******************************************************************************************/
 static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
-                              RSScoreExplain *scrExp) {
+                              RSScoreExplain *scrExp, alloc_context *actx) {
   // for terms - we return the term frequency
   double ret = 0;
   switch (r->type) {
@@ -243,13 +243,13 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
     case RSResultType_Intersection:
       if (!scrExp) {
         for (int i = 0; i < r->agg.numChildren; i++) {
-          ret += dismaxRecursive(ctx, r->agg.children[i], NULL);
+          ret += dismaxRecursive(ctx, r->agg.children[i], NULL, actx);
         }
       } else {
         scrExp->numChildren = r->agg.numChildren;
-        scrExp->children = rm_calloc(r->agg.numChildren, sizeof(RSScoreExplain));
+        scrExp->children = rm_calloc(actx, r->agg.numChildren, sizeof(RSScoreExplain));
         for (int i = 0; i < r->agg.numChildren; i++) {
-          ret += dismaxRecursive(ctx, r->agg.children[i], &scrExp->children[i]);
+          ret += dismaxRecursive(ctx, r->agg.children[i], &scrExp->children[i], actx);
         }
         EXPLAIN(scrExp, "%.2f = Weight %.2f * children DISMAX %.2f", r->weight * ret, r->weight,
                 ret);
@@ -259,13 +259,13 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
     case RSResultType_Union:
       if (!scrExp) {
         for (int i = 0; i < r->agg.numChildren; i++) {
-          ret = MAX(ret, dismaxRecursive(ctx, r->agg.children[i], NULL));
+          ret = MAX(ret, dismaxRecursive(ctx, r->agg.children[i], NULL, actx));
         }
       } else {
         scrExp->numChildren = r->agg.numChildren;
-        scrExp->children = rm_calloc(r->agg.numChildren, sizeof(RSScoreExplain));
+        scrExp->children = rm_calloc(actx, r->agg.numChildren, sizeof(RSScoreExplain));
         for (int i = 0; i < r->agg.numChildren; i++) {
-          ret = MAX(ret, dismaxRecursive(ctx, r->agg.children[i], &scrExp->children[i]));
+          ret = MAX(ret, dismaxRecursive(ctx, r->agg.children[i], &scrExp->children[i], actx));
         }
         EXPLAIN(scrExp, "%.2f = Weight %.2f * children DISMAX %.2f", r->weight * ret, r->weight,
                 ret);
@@ -273,16 +273,16 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
       break;
     // for hybrid - just take the non-vector child score (the second one).
     case RSResultType_HybridMetric:
-      return dismaxRecursive(ctx, r->agg.children[1], scrExp);
+      return dismaxRecursive(ctx, r->agg.children[1], scrExp, actx);
   }
   return r->weight * ret;
 }
 /* Calculate sum(TF-IDF)*document score for each result */
 static double DisMaxScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
-                           const RSDocumentMetadata *dmd, double minScore) {
+                           const RSDocumentMetadata *dmd, double minScore, alloc_context *actx) {
   // printf("score for %d: %f\n", h->docId, dmd->score);
   // if (dmd->score == 0 || h == NULL) return 0;
-  return dismaxRecursive(ctx, h, ctx->scrExp);
+  return dismaxRecursive(ctx, h, ctx->scrExp, actx);
 }
 /* taken from redis - bitops.c */
 static const unsigned char bitsinbyte[256] = {
@@ -332,15 +332,15 @@ typedef struct {
   } data;
 } defaultExpanderCtx;
 
-static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
+static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token, alloc_context *actx) {
   defaultExpanderCtx *dd = ctx->privdata;
   RSTokenizer *tokenizer;
   if (!dd) {
-    dd = ctx->privdata = rm_calloc(1, sizeof(*dd));
+    dd = ctx->privdata = rm_calloc(actx, 1, sizeof(*dd));
     dd->isCn = 1;
   }
   if (!dd->data.cn.tokenizer) {
-    tokenizer = dd->data.cn.tokenizer = NewChineseTokenizer(NULL, NULL, 0);
+    tokenizer = dd->data.cn.tokenizer = NewChineseTokenizer(NULL, NULL, 0, actx);
     dd->data.cn.tokList = NewVector(char *, 4);
   }
 
@@ -352,7 +352,7 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
 
   Token tTok = {0};
   while (tokenizer->Next(tokenizer, &tTok)) {
-    char *s = rm_strndup(tTok.tok, tTok.tokLen);
+    char *s = rm_strndup(actx, tTok.tok, tTok.tokLen);
     Vector_Push(tokVec, s);
   }
 
@@ -364,7 +364,7 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
  * Stemmer based query expander
  *
  ******************************************************************************************/
-int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
+int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token, alloc_context *actx) {
 
   // we store the stemmer as private data on the first call to expand
   defaultExpanderCtx *dd = ctx->privdata;
@@ -372,17 +372,17 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
 
   if (!ctx->privdata) {
     if (ctx->language == RS_LANG_CHINESE) {
-      expandCn(ctx, token);
+      expandCn(ctx, token, actx);
       return REDISMODULE_OK;
     } else {
-      dd = ctx->privdata = rm_calloc(1, sizeof(*dd));
+      dd = ctx->privdata = rm_calloc(actx, 1, sizeof(*dd));
       dd->isCn = 0;
       sb = dd->data.latin = sb_stemmer_new(RSLanguage_ToString(ctx->language), NULL);
     }
   }
 
   if (dd->isCn) {
-    expandCn(ctx, token);
+    expandCn(ctx, token, actx);
     return REDISMODULE_OK;
   }
 
@@ -401,18 +401,18 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     int sl = sb_stemmer_length(sb);
 
     // Make a copy of the stemmed buffer with the + prefix given to stems
-    char *dup = rm_malloc(sl + 2);
+    char *dup = rm_malloc(actx, sl + 2);
     dup[0] = STEM_PREFIX;
     memcpy(dup + 1, stemmed, sl + 1);
     ctx->ExpandToken(ctx, dup, sl + 1, 0x0);  // TODO: Set proper flags here
     if (sl != token->len || strncmp((const char *)stemmed, token->str, token->len)) {
-      ctx->ExpandToken(ctx, rm_strndup((const char *)stemmed, sl), sl, 0x0);
+      ctx->ExpandToken(ctx, rm_strndup(actx, (const char *)stemmed, sl), sl, 0x0);
     }
   }
   return REDISMODULE_OK;
 }
 
-void StemmerExpanderFree(void *p) {
+void StemmerExpanderFree(void *p, alloc_context *actx) {
   if (!p) {
     return;
   }
@@ -423,7 +423,7 @@ void StemmerExpanderFree(void *p) {
   } else if (dd->data.latin) {
     sb_stemmer_delete(dd->data.latin);
   }
-  rm_free(dd);
+  rm_free(actx, dd);
 }
 
 /******************************************************************************************
@@ -431,10 +431,10 @@ void StemmerExpanderFree(void *p) {
  * phonetic based query expander
  *
  ******************************************************************************************/
-int PhoneticExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
+int PhoneticExpand(RSQueryExpanderCtx *ctx, RSToken *token, alloc_context *actx) {
   char *primary = NULL;
 
-  PhoneticManager_ExpandPhonetics(NULL, token->str, token->len, &primary, NULL);
+  PhoneticManager_ExpandPhonetics(NULL, token->str, token->len, &primary, NULL, actx);
 
   if (primary) {
     ctx->ExpandToken(ctx, primary, strlen(primary), 0x0);
@@ -447,7 +447,7 @@ int PhoneticExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
  * Synonyms based query expander
  *
  ******************************************************************************************/
-int SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
+int SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token, alloc_context *actx) {
 #define BUFF_LEN 100
   IndexSpec *spec = ctx->handle->spec;
   if (!spec->smap) {
@@ -461,7 +461,7 @@ int SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
   }
 
   for (int i = 0; i < array_len(t_data->groupIds); ++i) {
-    ctx->ExpandToken(ctx, rm_strdup(t_data->groupIds[i]), strlen(t_data->groupIds[i]), 0x0);
+    ctx->ExpandToken(ctx, rm_strdup(actx, t_data->groupIds[i]), strlen(t_data->groupIds[i]), 0x0);
   }
   return REDISMODULE_OK;
 }
@@ -472,9 +472,9 @@ int SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
  *
  ******************************************************************************************/
 // Assumes that the spec (ctx->handle->spec) is properly guarded for reading by the caller (read lock or redis lock)
-int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
+int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token, alloc_context *actx) {
   int phonetic = (*(ctx->currentNode))->opts.phonetic;
-  SynonymExpand(ctx, token);
+  SynonymExpand(ctx, token, actx);
 
   if (phonetic == PHONETIC_DEFAULT) {
     // Eliminate the phonetic expansion if we know that none of the fields
@@ -507,19 +507,19 @@ int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     }
   }
   if (phonetic == PHONETIC_ENABLED) {
-    PhoneticExpand(ctx, token);
+    PhoneticExpand(ctx, token, actx);
   }
 
   // stemmer is happenning last because it might free the given 'RSToken *token'
   // this is a bad solution and should be fixed, but for now its good enough
   // todo: fix the free of the 'RSToken *token' by the stemmer and allow any
   //       expnders ordering!!
-  StemmerExpander(ctx, token);
+  StemmerExpander(ctx, token, actx);
   return REDISMODULE_OK;
 }
 
-void DefaultExpanderFree(void *p) {
-  StemmerExpanderFree(p);
+void DefaultExpanderFree(void *p, alloc_context *actx) {
+  StemmerExpanderFree(p, actx);
 }
 
 /* Register the default extension */
