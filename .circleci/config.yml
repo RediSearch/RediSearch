@@ -465,15 +465,6 @@ jobs:
       - benchmark-steps:
           benchmark_glob: "search*.yml"
   
-  benchmark-vecsim-oss-standalone:
-    docker:
-      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
-    steps:
-      - build-steps:
-          run_pack: false
-      - benchmark-steps:
-          benchmark_glob: "vecsim*.yml"
-
   benchmark-search-oss-cluster:
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -497,19 +488,6 @@ jobs:
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
           module_path: bin/linux-x64-release-profile/search/redisearch.so
           benchmark_glob: "search*.yml"
-
-  benchmark-vecsim-oss-standalone-profiler:
-    docker:
-      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
-    steps:
-      - build-steps:
-          build_params: PROFILE=1
-          run_pack: false
-      - benchmark-steps:
-          profile_env: "1"
-          triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-          module_path: bin/linux-x64-release-profile/search/redisearch.so
-          benchmark_glob: "vecsim*.yml"
 
   coverage:
     docker:
@@ -652,13 +630,6 @@ jobs:
       - run:
           name: Run QA Automation (RediSearch Light)
           command: ./tests/qa/qatests -m "$CIRCLE_TAG" --light
-      - run:
-          name: Run QA Automation (RediSearch/VecSim)
-          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --vecsim
-      - run:
-          name: Run QA Automation (RediSearch Light/VecSim)
-          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --vecsim --light
-
 
 #----------------------------------------------------------------------------------------------------------------------------------
 
@@ -776,16 +747,10 @@ workflows:
       - benchmark-search-oss-standalone:
           context: common
           <<: *on-integ-and-version-tags
-      - benchmark-vecsim-oss-standalone:
-          context: common
-          <<: *on-integ-and-version-tags
       - benchmark-search-oss-cluster:
           context: common
           <<: *on-integ-and-version-tags
       - benchmark-search-oss-standalone-profiler:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-vecsim-oss-standalone-profiler:
           context: common
           <<: *on-integ-and-version-tags
       - upload-artifacts:
@@ -818,12 +783,6 @@ workflows:
       - benchmark-search-oss-standalone:
           context: common
           <<: *on-any-branch
-      - benchmark-vecsim-oss-standalone:
-          context: common
-          <<: *on-any-branch
-      - benchmark-vecsim-oss-standalone-profiler:
-          context: common
-          <<: *on-any-branch
       - benchmark-search-oss-standalone-profiler:
           context: common
           <<: *on-any-branch
@@ -852,10 +811,6 @@ workflows:
 
     jobs:
       - benchmark-search-oss-standalone:
-          context: common
-      - benchmark-vecsim-oss-standalone:
-          context: common
-      - benchmark-vecsim-oss-standalone-profiler:
           context: common
       - benchmark-search-oss-standalone-profiler:
           context: common
