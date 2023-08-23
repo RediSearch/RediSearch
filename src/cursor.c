@@ -98,7 +98,7 @@ static void Cursors_ForEach(CursorList *cl, void (*callback)(CursorList *, Curso
     while (cur && cur != oldCur) {
       callback(cl, cur, arg);
       oldCur = cur;
-      if (cl->idle.len > ii) {
+      if (ARRAY_GETSIZE_AS(&cl->idle, Cursor *) > ii) {
         cur = *ARRAY_GETITEM_AS(&cl->idle, ii, Cursor **);
       }
     }
