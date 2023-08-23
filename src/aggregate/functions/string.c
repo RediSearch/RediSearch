@@ -54,29 +54,24 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *result, RSValue **argv, siz
 
 static int stringfunc_tolowerupper(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                               QueryError *err, bool lower) {
+  int (*func)(int);
+
   if (lower) {
     VALIDATE_ARGS("lower", 1, 1, err);
+    func = tolower;
   } else {
     VALIDATE_ARGS("upper", 1, 1, err);
+    func = toupper;
   }
 
-  RSValue *val = RSValue_Dereference(argv[0]);
+  size_t sz = 0;
+  char *p;
 
-  if (val->t == RSValue_Duo) {
-    // We know that apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST and japi_ver >= 3
-    // continue with first value
-    val = RS_DUOVAL_VAL(*val);
-  }
-
-  if (!RSValue_IsString(val)) {
+  if (!(p = (char *)RSValue_StringPtrLen(argv[0], &sz))) {
     RSValue_MakeReference(result, RS_NullVal());
     return EXPR_EVAL_OK;
   }
 
-  int (*func)(int) = lower ? tolower : toupper;
-
-  size_t sz = 0;
-  char *p = (char *)RSValue_StringPtrLen(val, &sz);
   char *np = ExprEval_UnalignedAlloc(ctx, sz + 1);
   for (size_t i = 0; i < sz; i++) {
     np[i] = func(p[i]);

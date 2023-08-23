@@ -107,7 +107,7 @@ typedef struct RSValue {
       /**
        * Duo value
        * 
-       * Allows keeping a value, together with an addition value.
+       * Allows keeping a value, together with an additional value.
        * 
        * For example, keeping a value and, in addition, a different value for serialization, such as a JSON String representation.
        */ 
