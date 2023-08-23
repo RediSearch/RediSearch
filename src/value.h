@@ -106,12 +106,12 @@ typedef struct RSValue {
     struct {
       /**
        * Duo value
-       * 
+       *
        * Allows keeping a value, together with an additional value.
-       * 
+       *
        * For example, keeping a value and, in addition, a different value for serialization, such as a JSON String representation.
-       */ 
-      
+       */
+
       // An array of 2 RSValue *'s
       // The first entry is the value, the second entry is the additional value
       struct RSValue **vals;
@@ -123,9 +123,9 @@ typedef struct RSValue {
     // reference to another value
     struct RSValue *ref;
   };
-  RSValueType t : 8;
-  uint32_t refcount : 23;
+  RSValueType t : 7;
   uint8_t allocated : 1;
+  uint16_t refcount;
 
 #ifdef __cplusplus
   RSValue() {
@@ -156,13 +156,13 @@ void RSValue_Clear(RSValue *v);
 void RSValue_Free(RSValue *v);
 
 static inline RSValue *RSValue_IncrRef(RSValue *v) {
-  ++v->refcount;
+  __atomic_fetch_add(&v->refcount, 1, __ATOMIC_RELAXED);
   return v;
 }
 
-#define RSValue_Decref(v) \
-  if (!--(v)->refcount) { \
-    RSValue_Free(v);      \
+#define RSValue_Decref(v)                                         \
+  if (!__atomic_sub_fetch(&(v)->refcount, 1, __ATOMIC_RELAXED)) { \
+    RSValue_Free(v);                                              \
   }
 
 RSValue *RS_NewValue(RSValueType t);
