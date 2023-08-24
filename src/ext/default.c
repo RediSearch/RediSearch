@@ -269,7 +269,7 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
   return ret;
 }
 
-/* BM25 scoring function */
+/* BM25 scoring function - standard version */
 static double BM25StdScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
                          const RSDocumentMetadata *dmd, double minScore) {
   RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
