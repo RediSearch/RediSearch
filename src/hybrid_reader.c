@@ -172,9 +172,11 @@ static VecSimQueryReply_Code computeDistances(HybridIterator *hr) {
     VecSim_Normalize(qvector, hr->dimension, hr->vecType);
   }
 
+  VecSimTieredIndex_AcquireSharedLocks(hr->index);
   while (hr->child->Read(hr->child->ctx, &cur_child_res) != INDEXREAD_EOF) {
     if (TimedOut_WithCtx(&hr->timeoutCtx)) {
       rc = VecSim_QueryReply_TimedOut;
+      VecSimTieredIndex_ReleaseSharedLocks(hr->index);
       break;
     }
     double metric = VecSimIndex_GetDistanceFrom(hr->index, cur_child_res->docId, qvector);
@@ -189,6 +191,7 @@ static VecSimQueryReply_Code computeDistances(HybridIterator *hr) {
       insertResultToHeap(hr, cur_res, cur_child_res, &cur_vec_res, &upper_bound);
     }
   }
+  VecSimTieredIndex_ReleaseSharedLocks(hr->index);
   if (qvector != hr->query.vector) {
     rm_free(qvector);
   }
