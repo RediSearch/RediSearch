@@ -30,10 +30,12 @@ extern "C" {
 
 /* RSSortingVector is a vector of sortable values. All documents in a schema where sortable fields
  * are defined will have such a vector. */
+#pragma pack(1)
 typedef struct RSSortingVector {
   unsigned char len;
   RSValue *values[];
 } RSSortingVector;
+#pragma pack()
 
 /* RSSortingTable defines the length and names of the fields in a sorting vector. It is saved as
  * part of the spec */

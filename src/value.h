@@ -155,6 +155,8 @@ void RSValue_Clear(RSValue *v);
  * the actual value object */
 void RSValue_Free(RSValue *v);
 
+#ifdef MT_BUILD
+
 static inline RSValue *RSValue_IncrRef(RSValue *v) {
   __atomic_fetch_add(&v->refcount, 1, __ATOMIC_RELAXED);
   return v;
@@ -164,6 +166,20 @@ static inline RSValue *RSValue_IncrRef(RSValue *v) {
   if (!__atomic_sub_fetch(&(v)->refcount, 1, __ATOMIC_RELAXED)) { \
     RSValue_Free(v);                                              \
   }
+
+#else
+
+static inline RSValue *RSValue_IncrRef(RSValue *v) {
+  v->refcount++;
+  return v;
+}
+
+#define RSValue_Decref(v) \
+  if (!--(v)->refcount) { \
+    RSValue_Free(v);      \
+  }
+
+#endif
 
 RSValue *RS_NewValue(RSValueType t);
 
