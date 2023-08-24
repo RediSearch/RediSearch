@@ -303,8 +303,7 @@ void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
 }
 
 void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
-  RLookup_WriteOwnKey(key, row, v);
-  RSValue_IncrRef(v);
+  RLookup_WriteOwnKey(key, row, RSValue_IncrRef(v));
 }
 
 void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *dst, RSValue *v) {
