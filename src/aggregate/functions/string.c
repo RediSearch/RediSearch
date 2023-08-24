@@ -52,48 +52,45 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *result, RSValue **argv, siz
   return EXPR_EVAL_OK;
 }
 
-/* lower(str) */
-static int stringfunc_tolower(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
-                              QueryError *err) {
+static int stringfunc_tolowerupper(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                              QueryError *err, bool lower) {
+  int (*func)(int);
 
-  VALIDATE_ARGS("lower", 1, 1, err);
-  RSValue *val = RSValue_Dereference(argv[0]);
-  if (!RSValue_IsString(val)) {
+  if (lower) {
+    VALIDATE_ARGS("lower", 1, 1, err);
+    func = tolower;
+  } else {
+    VALIDATE_ARGS("upper", 1, 1, err);
+    func = toupper;
+  }
+
+  size_t sz = 0;
+  char *p;
+
+  if (!(p = (char *)RSValue_StringPtrLen(argv[0], &sz))) {
     RSValue_MakeReference(result, RS_NullVal());
     return EXPR_EVAL_OK;
   }
 
-  size_t sz = 0;
-  char *p = (char *)RSValue_StringPtrLen(val, &sz);
   char *np = ExprEval_UnalignedAlloc(ctx, sz + 1);
   for (size_t i = 0; i < sz; i++) {
-    np[i] = tolower(p[i]);
+    np[i] = func(p[i]);
   }
   np[sz] = '\0';
   RSValue_SetConstString(result, np, sz);
   return EXPR_EVAL_OK;
+  }
+
+/* lower(str) */
+static int stringfunc_tolower(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                              QueryError *err) {
+  return stringfunc_tolowerupper(ctx, result, argv, argc, err, true);
 }
 
 /* upper(str) */
 static int stringfunc_toupper(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                               QueryError *err) {
-  VALIDATE_ARGS("upper", 1, 1, err);
-
-  RSValue *val = RSValue_Dereference(argv[0]);
-  if (!RSValue_IsString(val)) {
-    RSValue_MakeReference(result, RS_NullVal());
-    return EXPR_EVAL_OK;
-  }
-
-  size_t sz = 0;
-  char *p = (char *)RSValue_StringPtrLen(val, &sz);
-  char *np = ExprEval_UnalignedAlloc(ctx, sz + 1);
-  for (size_t i = 0; i < sz; i++) {
-    np[i] = toupper(p[i]);
-  }
-  np[sz] = '\0';
-  RSValue_SetConstString(result, np, sz);
-  return EXPR_EVAL_OK;
+  return stringfunc_tolowerupper(ctx, result, argv, argc, err, false);
 }
 
 /* substr(str, offset, len) */
