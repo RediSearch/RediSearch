@@ -234,7 +234,7 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
   double ret = 0;
   if (r->type == RSResultType_Term) {
     // Compute IDF based on total number of docs in the index and the term's total frequency.
-    double idf = CalculateIDF_BM25(ctx->indexStats.numDocs, r->term.term ? r->term.term->numDocs : 0);
+    double idf = r->term.term->bm25_idf;
     ret = CalculateBM25Std(b, k1, idf, f, dmd->len, ctx->indexStats.avgDocLen, scrExp,
                            r->term.term->str);
   } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {

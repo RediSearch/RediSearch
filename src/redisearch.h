@@ -215,8 +215,8 @@ typedef struct {
   /* Flags given by the engine or by the query expander */
   RSTokenFlags flags;
 
-  /* Number of documents in which this term appears in the index */
-  uint32_t numDocs;
+  /* Inverse document frequency of the term in the index for computing BM25 */
+  double bm25_idf;
 } RSQueryTerm;
 
 /**************************************
