@@ -2031,12 +2031,12 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, IndexIterator *root, si
       ((IterType *)(root))->child, (text));                                            \
   }
 
-PRINT_PROFILE_SINGLE_NO_CHILD(printWildcardIt, "WILDCARD");
-PRINT_PROFILE_SINGLE_NO_CHILD(printIdListIt, "ID-LIST");
-PRINT_PROFILE_SINGLE_NO_CHILD(printEmptyIt, "EMPTY");
-PRINT_PROFILE_SINGLE(printNotIt, NotIterator, "NOT");
+PRINT_PROFILE_SINGLE_NO_CHILD(printWildcardIt,          "WILDCARD");
+PRINT_PROFILE_SINGLE_NO_CHILD(printIdListIt,            "ID-LIST");
+PRINT_PROFILE_SINGLE_NO_CHILD(printEmptyIt,             "EMPTY");
+PRINT_PROFILE_SINGLE(printNotIt, NotIterator,           "NOT");
 PRINT_PROFILE_SINGLE(printOptionalIt, OptionalIterator, "OPTIONAL");
-PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator, "VECTOR");
+PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator,     "VECTOR");
 PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator, "OPTIMIZER");
 
 PRINT_PROFILE_FUNC(printProfileIt) {
