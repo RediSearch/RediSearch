@@ -170,7 +170,7 @@ static inline RSValue *RSValue_IncrRef(RSValue *v) {
 #else
 
 static inline RSValue *RSValue_IncrRef(RSValue *v) {
-  v->refcount++;
+  ++v->refcount;
   return v;
 }
 
