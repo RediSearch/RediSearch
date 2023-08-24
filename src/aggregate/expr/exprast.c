@@ -29,7 +29,7 @@ static RSExpr *newExpr(RSExprType t) {
 }
 
 // unquote and unescape a stirng literal, and return a cleaned copy of it
-char *unescpeStringDup(const char *s, size_t sz) {
+char *unescapeStringDup(const char *s, size_t sz) {
 
   char *dst = rm_malloc(sz);
   char *dstStart = dst;
@@ -49,7 +49,7 @@ char *unescpeStringDup(const char *s, size_t sz) {
 RSExpr *RS_NewStringLiteral(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Literal);
   e->literal = RS_StaticValue(RSValue_String);
-  e->literal.strval.str = unescpeStringDup(str, len);
+  e->literal.strval.str = unescapeStringDup(str, len);
   e->literal.strval.len = strlen(e->literal.strval.str);
   e->literal.strval.stype = RSString_Malloc;
   return e;
@@ -146,7 +146,7 @@ void RSExpr_Free(RSExpr *e) {
   rm_free(e);
 }
 
-// Extract all field names from an RSExpr tree recursively 
+// Extract all field names from an RSExpr tree recursively
 void RSExpr_GetProperties(RSExpr *e, char ***props) {
   if (!e) return;
   switch (e->t) {

@@ -11,7 +11,11 @@
 #include <err.h>
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
+
+// coord cursors will have odd ids and regular cursors will have even ids
 CursorList g_CursorsList;
+CursorList g_CursorsListCoord;
+
 
 static uint64_t curTimeNs() {
   struct timespec tv;
@@ -27,16 +31,17 @@ static void CursorList_Unlock(CursorList *cl) {
   pthread_mutex_unlock(&cl->lock);
 }
 
-void CursorList_Init(CursorList *cl) {
+void CursorList_Init(CursorList *cl, bool is_coord) {
   *cl = (CursorList) {0};
   pthread_mutex_init(&cl->lock, NULL);
   cl->lookup = kh_init(cursors);
   Array_Init(&cl->idle);
+  cl->is_coord = is_coord;
   srand48(getpid());
 }
 
 static void Cursor_RemoveFromIdle(Cursor *cur) {
-  CursorList *cl = &g_CursorsList;
+  CursorList *cl = getCursorList(cur->is_coord);
   Array *idle = &cl->idle;
   Cursor **ll = ARRAY_GETARRAY_AS(idle, Cursor **);
   size_t n = ARRAY_GETSIZE_AS(idle, Cursor *);
@@ -54,9 +59,11 @@ static void Cursor_RemoveFromIdle(Cursor *cur) {
   cur->pos = -1;
 }
 
+#define get_g_CursorsList(is_coord) ((is_coord) ? &g_CursorsListCoord : &g_CursorsList)
+
 /* Assumed to be called under the cursors global lock or upon server shut down. */
 static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
-  CursorList *cl = &g_CursorsList;
+  CursorList *cl = get_g_CursorsList(cur->is_coord);
   /* Decrement the used count */
   RS_LOG_ASSERT(khi != kh_end(cl->lookup), "Iterator shouldn't be at end of cursor list");
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) != kh_end(cl->lookup),
@@ -160,6 +167,10 @@ static void CursorList_IncrCounter(CursorList *cl) {
   }
 }
 
+#define mask31(x) ((x) & 0x7fffffffUL) // mask to prevent overflow when adding 1 to the id
+#define rand_even48() (mask31(lrand48()) & ~(1UL))
+#define rand_odd48() (mask31(lrand48()) | (1UL))
+
 /**
  * Cursor ID is a 64 bit opaque integer. The upper 32 bits consist of the PID
  * of the process which generated the cursor, and the lower 32 bits consist of
@@ -168,7 +179,12 @@ static void CursorList_IncrCounter(CursorList *cl) {
  * a stuck client and a crashed server
  */
 static uint64_t CursorList_GenerateId(CursorList *curlist) {
-  uint64_t id = lrand48() + 1;  // 0 should never be returned as cursor id
+  uint64_t id = (curlist->is_coord ? rand_even48() : rand_odd48()) + 1;  // 0 should never be returned as cursor id
+
+  // For fast lookup we would like the coord cusors to have odd ids and the non-coord to have even
+  while((kh_get(cursors, curlist->lookup, id) != kh_end(curlist->lookup))) {
+    id = (curlist->is_coord ? rand_even48() : rand_odd48()) + 1;  // 0 should never be returned as cursor id
+  }
   return id;
 }
 
@@ -197,6 +213,7 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
   cur->id = CursorList_GenerateId(cl);
   cur->pos = -1;
   cur->timeoutIntervalMs = interval;
+  cur->is_coord = cl->is_coord;
   if(spec) {
     // Get a a weak reference to the spec out of the strong ref, and save it in the
     // cursor's struct.
@@ -214,7 +231,7 @@ done:
 }
 
 int Cursor_Pause(Cursor *cur) {
-  CursorList *cl = &g_CursorsList;
+  CursorList *cl = get_g_CursorsList(cur->is_coord);
 
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
@@ -275,16 +292,17 @@ int Cursors_Purge(CursorList *cl, uint64_t cid) {
 }
 
 int Cursor_Free(Cursor *cur) {
-  return Cursors_Purge(&g_CursorsList, cur->id);
+  return Cursors_Purge(get_g_CursorsList(cur->is_coord), cur->id);
 }
 
-void Cursors_RenderStats(CursorList *cl, IndexSpec *spec, RedisModule_Reply *reply) {
+void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModule_Reply *reply) {
   CursorList_Lock(cl);
 
   RedisModule_ReplyKV_Map(reply, "cursor_stats");
 
-    RedisModule_ReplyKV_LongLong(reply, "global_idle", ARRAY_GETSIZE_AS(&cl->idle, Cursor **));
-    RedisModule_ReplyKV_LongLong(reply, "global_total", kh_size(cl->lookup));
+    RedisModule_ReplyKV_LongLong(reply, "global_idle", ARRAY_GETSIZE_AS(&cl->idle, Cursor **) +
+                                                        ARRAY_GETSIZE_AS(&cl_coord->idle, Cursor **));
+    RedisModule_ReplyKV_LongLong(reply, "global_total", kh_size(cl->lookup) + kh_size(cl_coord->lookup));
     RedisModule_ReplyKV_LongLong(reply, "index_capacity", spec->cursorsCap);
     RedisModule_ReplyKV_LongLong(reply, "index_total", spec->activeCursors);
 
@@ -294,12 +312,13 @@ void Cursors_RenderStats(CursorList *cl, IndexSpec *spec, RedisModule_Reply *rep
 }
 
 #ifdef FTINFO_FOR_INFO_MODULES
-void Cursors_RenderStatsForInfo(CursorList *cl, IndexSpec *spec, RedisModuleInfoCtx *ctx) {
+void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModuleInfoCtx *ctx) {
   CursorList_Lock(cl);
 
   RedisModule_InfoBeginDictField(ctx, "cursor_stats");
-  RedisModule_InfoAddFieldLongLong(ctx, "global_idle", ARRAY_GETSIZE_AS(&cl->idle, Cursor **));
-  RedisModule_InfoAddFieldLongLong(ctx, "global_total", kh_size(cl->lookup));
+  RedisModule_InfoAddFieldLongLong(ctx, "global_idle", ARRAY_GETSIZE_AS(&cl->idle, Cursor **) +
+                                                        ARRAY_GETSIZE_AS(&cl_coord->idle, Cursor **));
+  RedisModule_InfoAddFieldLongLong(ctx, "global_total", kh_size(cl->lookup) + kh_size(cl_coord->lookup));
   RedisModule_InfoAddFieldLongLong(ctx, "index_capacity", spec->cursorsCap);
   RedisModule_InfoAddFieldLongLong(ctx, "index_total", spec->activeCursors);
   RedisModule_InfoEndDictField(ctx);
@@ -324,6 +343,7 @@ void CursorList_Destroy(CursorList *cl) {
 }
 
 void CursorList_Empty(CursorList *cl) {
+  bool is_coord = cl->is_coord;
   CursorList_Destroy(cl);
-  CursorList_Init(cl);
+  CursorList_Init(cl, is_coord);
 }
