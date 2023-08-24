@@ -626,7 +626,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
 
     StrongRef dummy_spec_ref = {.rm = NULL};
-    rc = AREQ_StartCursor(r, reply, dummy_spec_ref, &status);
+    rc = AREQ_StartCursor(r, reply, dummy_spec_ref, &status, true);
 
     if (rc != REDISMODULE_OK) {
       goto err;
