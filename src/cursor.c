@@ -231,7 +231,7 @@ done:
 }
 
 int Cursor_Pause(Cursor *cur) {
-  CursorList *cl = cur->is_coord ? &g_CursorsListCoord : &g_CursorsList;
+  CursorList *cl = get_g_CursorsList(cur->is_coord);
 
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
