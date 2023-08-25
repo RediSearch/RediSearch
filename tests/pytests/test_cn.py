@@ -144,8 +144,10 @@ def testCustomDelimiters(env):
     env.assertIn('doc3', r)
 
 def testCn_CustomDelimiters(env):
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
     txt = '2009年８月６日开始大学[之旅]，岳阳今天的-气温为38.6℃, 也就; hi-world hola\\-mundo 是101.48℉'
-    env.cmd('HSET', 'doc1', 'txt', txt)
+    conn.execute_command('HSET', 'doc1', 'txt', txt)
 
     # Create idx1 where the brackets [] are not delimiters
     env.cmd(
@@ -155,10 +157,16 @@ def testCn_CustomDelimiters(env):
     waitForIndex(env, 'idx1')
 
     # The text is not found because '[]' are not delimiters
-    res = env.cmd(
+    res = env.execute_command(
         'ft.search', 'idx1', '之旅',
         'SUMMARIZE', 'HIGHLIGHT','LANGUAGE', 'chinese')
-    print(res)
+    env.assertEqual(res, [0])
+
+    res = env.cmd('FT.DEBUG', 'DUMP_TERMS', 'idx1')
+    expected_result = ['101.48℉', '2009年', '38.6℃', '6日', '8月', 'hi',
+        'hola-mundo', 'world', '为', '也', '今天', '大学[之旅]岳阳', '就', '开始',
+        '是', '气温', '的']
+    env.assertEqual(res, expected_result)
 
     # Create idx2 where the delimiters are ' \t[]'
     env.cmd(
@@ -171,13 +179,14 @@ def testCn_CustomDelimiters(env):
     # The text is found because is bounded by brackets, then it is a term
     res = env.cmd(
         'ft.search', 'idx2', '之旅',
-        'SUMMARIZE', 'HIGHLIGHT','LANGUAGE', 'chinese')
-    print(res)
+        'SUMMARIZE', 'HIGHLIGHT','LANGUAGE', 'chinese', 'LIMIT', '0', '0')
+    env.assertEqual(res, [1])
 
-    res = env.cmd('FT.DEBUG', 'DUMP_TERMS', 'idx1')
-    print(res)
     res = env.cmd('FT.DEBUG', 'DUMP_TERMS', 'idx2')
-    print(res)
+    expected_result = ['101.48℉', '2009年', '38.6℃,也', '6日', '8月', 'hi',
+        'hola-mundo', 'world', '为', '之旅', '今天', '大学', '就', '岳阳', '开始',
+        '是', '气温', '的']
+    env.assertEqual(res, expected_result)
 
     env.execute_command('FT.DROPINDEX', 'idx1')
     env.execute_command('FT.DROPINDEX', 'idx2')
