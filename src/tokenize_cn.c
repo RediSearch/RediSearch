@@ -280,6 +280,6 @@ RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords,
   tokenizer->base.Next = cnTokenizer_Next;
   tokenizer->base.Free = cnTokenizer_Free;
   tokenizer->base.Reset = cnTokenizer_Reset;
-  tokenizer->base.Reset(&tokenizer->base, stemmer, stopwords, opts, delimiters);
+  // tokenizer->base.Reset(&tokenizer->base, stemmer, stopwords, opts, delimiters);
   return &tokenizer->base;
 }
