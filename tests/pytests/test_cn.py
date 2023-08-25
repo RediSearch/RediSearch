@@ -115,7 +115,7 @@ def testSynonym(env):
     env.assertEqual(1, r[0])
     env.assertIn('doc1', r)
 
-def testCustomSeparators(env):
+def testCustomDelimiters(env):
     # Test with custom separators: hyphen (-) and colon (:) were removed
     env.cmd(
         'ft.create', 'idx', 'ON', 'HASH',
@@ -142,3 +142,42 @@ def testCustomSeparators(env):
     r = env.cmd('ft.search', 'idx', 'world\\-')
     env.assertEqual(1, r[0])
     env.assertIn('doc3', r)
+
+def testCn_CustomDelimiters(env):
+    txt = '2009年８月６日开始大学[之旅]，岳阳今天的-气温为38.6℃, 也就; hi-world hola\\-mundo 是101.48℉'
+    env.cmd('HSET', 'doc1', 'txt', txt)
+
+    # Create idx1 where the brackets [] are not delimiters
+    env.cmd(
+        'FT.CREATE', 'idx1', 'ON', 'HASH',
+        'LANGUAGE', 'CHINESE',
+        'SCHEMA', 'txt', 'TEXT', 'DELIMITERS-', '[]')
+    waitForIndex(env, 'idx1')
+
+    # The text is not found because '[]' are not delimiters
+    res = env.cmd(
+        'ft.search', 'idx1', '之旅',
+        'SUMMARIZE', 'HIGHLIGHT','LANGUAGE', 'chinese')
+    print(res)
+
+    # Create idx2 where the delimiters are ' \t[]'
+    env.cmd(
+        'FT.CREATE', 'idx2', 'ON', 'HASH',
+        'DELIMITERS', ' \t;',
+        'LANGUAGE', 'CHINESE',
+        'SCHEMA', 'txt', 'TEXT', 'DELIMITERS+', '[]-')
+    waitForIndex(env, 'idx2')
+
+    # The text is found because is bounded by brackets, then it is a term
+    res = env.cmd(
+        'ft.search', 'idx2', '之旅',
+        'SUMMARIZE', 'HIGHLIGHT','LANGUAGE', 'chinese')
+    print(res)
+
+    res = env.cmd('FT.DEBUG', 'DUMP_TERMS', 'idx1')
+    print(res)
+    res = env.cmd('FT.DEBUG', 'DUMP_TERMS', 'idx2')
+    print(res)
+
+    env.execute_command('FT.DROPINDEX', 'idx1')
+    env.execute_command('FT.DROPINDEX', 'idx2')

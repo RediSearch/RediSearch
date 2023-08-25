@@ -65,7 +65,6 @@ static void cnTokenizer_Start(RSTokenizer *base, char *text, size_t len,
     }
     base->ctx.delimiters = fieldDelimiterList;
     DelimiterList_Ref(fieldDelimiterList);
-
   }
 }
 
@@ -229,14 +228,6 @@ static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t) {
         t->tok = self->escapebuf;
       }
       t->tokLen = self->nescapebuf;
-      if (!appendToEscbuf(self, tok->word, tok->length)) {
-        t->tokLen = self->nescapebuf;
-        return t->pos;
-      }
-      if (!appendEscapedChars(self, tok, NOT_ESCAPED_CHAR)) {
-        t->tokLen = self->nescapebuf;
-        return t->pos;
-      }
       continue;
     }
 

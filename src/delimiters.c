@@ -49,7 +49,8 @@ const char *DefaultDelimiterString() {
   return __defaultDelimiterString;
 }
 
-DelimiterList *AddDelimiterListCStr(const char* str, DelimiterList* dl) {
+DelimiterList *_UpdateDelimiterListCStr(const char* str, DelimiterList* dl,
+                                        char operation) {
   if(str == NULL) {
     return dl;
   }
@@ -58,9 +59,28 @@ DelimiterList *AddDelimiterListCStr(const char* str, DelimiterList* dl) {
     dl = NewDelimiterListCStr(__defaultDelimiterString);
   }
 
+  char new_value = 0;
+  char expected_value = 0;
+  int delta_change = 0;
+
+  // set the values according to operation
+  // + = SET value in map
+  // - = CLEAR value in map
+  if(operation == '+') {
+    expected_value = 0;
+    new_value = 1;
+    delta_change = 1;
+  } else if (operation == '-') {
+    expected_value = 1;
+    new_value = 0;
+    delta_change = -1;
+  } else {
+    return dl;
+  }
+
   // update delimiter map
   size_t ndelimiters = strlen(str);
-  size_t added_delimiters = 0;
+  int nchanges = 0;
   for(size_t i = 0; i < ndelimiters; i++) {
     uint8_t pos = (uint8_t)str[i];
     if(pos == '\\') {
@@ -70,53 +90,26 @@ DelimiterList *AddDelimiterListCStr(const char* str, DelimiterList* dl) {
         pos = '\t';
       }
     }
-    if(dl->delimiterMap[pos] == 0) {
-      added_delimiters++;
-      dl->delimiterMap[pos] = 1;
+    if(dl->delimiterMap[pos] == expected_value) {
+      nchanges += delta_change;
+      dl->delimiterMap[pos] = new_value;
     }
   }
 
   // update delimiter string
-  ndelimiters = strlen(dl->delimiterString) + added_delimiters;
+  ndelimiters = strlen(dl->delimiterString) + nchanges;
   rm_free(dl->delimiterString);
   dl->delimiterString = _GenerateDelimiterString(dl->delimiterMap, ndelimiters);
 
   return dl;
 }
 
+DelimiterList *AddDelimiterListCStr(const char* str, DelimiterList* dl) {
+  return _UpdateDelimiterListCStr(str, dl, '+');
+}
+
 DelimiterList *RemoveDelimiterListCStr(const char* str, DelimiterList* dl) {
-  if(str == NULL) {
-    return dl;
-  }
-
-  if(dl == NULL) {
-    dl = NewDelimiterListCStr(__defaultDelimiterString);
-  }
-
-  // update delimiter map
-  size_t ndelimiters = strlen(str);
-  size_t removed_delimiters = 0;
-  for(size_t i = 0; i < ndelimiters; i++) {
-    uint8_t pos = (uint8_t)str[i];
-    if(pos == '\\') {
-      pos = (uint8_t)str[++i];
-      // unescape tab character
-      if(pos == 't') {
-        pos = '\t';
-      }
-    }
-    if(dl->delimiterMap[pos] == 1) {
-      removed_delimiters++;
-      dl->delimiterMap[pos] = 0;
-    }
-  }
-
-  // update delimiter string
-  ndelimiters = strlen(dl->delimiterString) - removed_delimiters;
-  rm_free(dl->delimiterString);
-  dl->delimiterString = _GenerateDelimiterString(dl->delimiterMap, ndelimiters);
-
-  return dl;
+  return _UpdateDelimiterListCStr(str, dl, '-');
 }
 
 DelimiterList *NewDelimiterListCStr(const char* str) {
