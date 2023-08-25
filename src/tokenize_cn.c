@@ -260,12 +260,12 @@ static void cnTokenizer_Free(RSTokenizer *base) {
 static void cnTokenizer_Reset(RSTokenizer *base, Stemmer *stemmer, StopWordList *stopwords,
                               uint32_t opts, DelimiterList *delimiters) {
   // Nothing to do here
-  base->ctx.options = opts;
+  // base->ctx.options = opts;
   base->ctx.lastOffset = 0;
-  base->ctx.delimiters = delimiters;
-  if (delimiters) {
-    DelimiterList_Ref(delimiters);
-  }
+  // base->ctx.delimiters = delimiters;
+  // if (delimiters) {
+  //   DelimiterList_Ref(delimiters);
+  // }
 }
 
 RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords,
