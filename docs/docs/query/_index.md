@@ -138,6 +138,99 @@ As of v0.21, it is possible to add geo radius queries directly into the query la
 
 Radius filters can be added into the query just like numeric filters. For example, in a database of businesses, looking for Chinese restaurants near San Francisco (within a 5km radius) would be expressed as: `chinese restaurant @location:[-122.41 37.77 5 km]`.
 
+## Polygon search
+
+Geospatial databases are essential for managing and analyzing location-based data in a variety of industries. They help organizations make data-driven decisions, optimize operations, and achieve their strategic goals more efficiently. Polygon search extends Redis's geospatial search capabilities to be able to query against a value in a `GEOSHAPE` attribute. This value must follow a ["well-known text"](https://en.wikipedia.org/wiki/Well-known_text_representation_of_geometry) (WKT) representation of geometry. Two such geometries are supported:
+
+- `POINT`, for example `POINT(2 4)`.
+- `POLYGON`, for example `POLYGON((2 2, 2 8, 6 11, 10 8, 10 2, 2 2))`.
+
+There is a new schema field type called `GEOSHAPE`, which can be specified as either:
+
+- `FLAT` for Cartesian X Y coordinates
+- `SPHERICAL` for geographic longitude and latitude coordinates. This is the default coordinate system.
+
+Finally, there's new `FT.SEARCH` syntax that allows you to query for polygons that either contain or are within a given geoshape.
+
+`@field:[{WITHIN|CONTAINS} $geometry] PARAMS 2 geometry {geometry}`
+
+Here's an example using two stacked polygons that represent a box contained within a house.
+
+![two stacked polygons](../img/polygons.png)
+
+First, create an index using a `FLAT` `GEOSHAPE`, representing a 2D X Y coordinate system.
+
+`FT.CREATE polygon_idx PREFIX 1 shape: SCHEMA g GEOSHAPE FLAT t TEXT`
+
+Next, create the data structures that represent the geometries in the picture.
+
+```bash
+HSET shape:1 t "this is my house" g "POLYGON((2 2, 2 8, 6 11, 10 8, 10 2, 2 2))"
+HSET shape:2 t "this is a square in my house" g "POLYGON((4 4, 4 6, 6 6, 6 4, 4 4))"
+```
+Finally, use `FT.SEARCH` to query the geometries. Note the use of `DIALECT 3`, which is required. Here are a few examples.
+
+Search for a polygon that contains a specified point:
+
+```bash
+FT.SEARCH polygon_idx "@g:[CONTAINS $point]" PARAMS 2 point 'POINT(8 8)' DIALECT 3
+1) (integer) 1
+2) "shape:1"
+3) 1) "t"
+   2) "this is my house"
+   3) "g"
+   4) "POLYGON((2 2, 2 8, 6 11, 10 8, 10 2, 2 2))"
+```
+
+Search for geometries contained in a specified polygon:
+
+```bash
+FT.SEARCH polygon_idx "@g:[WITHIN $poly]" PARAMS 2 poly 'POLYGON((0 0, 0 100, 100 100, 100 0, 0 0))' DIALECT 3
+1) (integer) 2
+2) "shape:2"
+3) 1) "t"
+   2) "this is a square in my house"
+   3) "g"
+   4) "POLYGON((4 4, 4 6, 6 6, 6 4, 4 4))"
+4) "shape:1"
+5) 1) "t"
+   2) "this is my house"
+   3) "g"
+   4) "POLYGON((2 2, 2 8, 6 11, 10 8, 10 2, 2 2))"
+```
+
+Search for a polygon that is not contained in the indexed geometries:
+
+```bash
+FT.SEARCH polygon_idx "@g:[CONTAINS $poly]" PARAMS 2 poly 'POLYGON((14 4, 14 6, 16 6, 16 4, 14 4))' DIALECT 3
+1) (integer) 0
+```
+
+Search for a polygon that is known to be contained within the geometries (the box):
+
+```bash
+FT.SEARCH polygon_idx "@g:[CONTAINS $poly]" PARAMS 2 poly 'POLYGON((4 4, 4 6, 6 6, 6 4, 4 4))' DIALECT 3
+1) (integer) 2
+2) "shape:1"
+3) 1) "t"
+   2) "this is my house"
+   3) "g"
+   4) "POLYGON((2 2, 2 8, 6 11, 10 8, 10 2, 2 2))"
+4) "shape:2"
+5) 1) "t"
+   2) "this is a square in my house"
+   3) "g"
+   4) "POLYGON((4 4, 4 6, 6 6, 6 4, 4 4))"
+```
+
+Note that both the house and box shapes were returned.
+
+{{< alert title="Note" >}}
+GEOSHAPE does not support JSON multi-value or SORTABLE options.
+{{< /alert >}}
+
+For more examples, see the `FT.CREATE` and `FT.SEARCH` command pages.
+
 ## Vector similarity search
 
 You can add vector similarity queries directly into the query language by:
