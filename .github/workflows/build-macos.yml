@@ -6,22 +6,8 @@ on:
 
 jobs:
   build-macos:
-    runs-on: macos-11
-    defaults:
-      run:
-        shell: bash -l -eo pipefail {0}
-    steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: recursive
-        set-safe-directory: '*'
-    # - run: |
-    #     git config --global --add safe.directory '*'
-    #     git submodule update --init --recursive
-    - name: Setup
-      run: |
-        ./sbin/setup
-        export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-        ./deps/readies/bin/getredis --with-github-token
-    - name: Test flow
-      uses: ./.github/actions/common-flow.yml
+    uses: ./.github/workflows/common-flow.yml
+    with:
+      env: macos-11
+      get-redis: true
+    secrets: inherit

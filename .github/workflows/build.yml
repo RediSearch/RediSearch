@@ -6,23 +6,8 @@ on:
 
 jobs:
   build-linux-jammy:
-    runs-on: ubuntu-22.04
-    defaults:
-      run:
-        shell: bash -l -eo pipefail {0}
-    steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: recursive
-        set-safe-directory: '*'
-    # - run: |
-    #     git config --global --add safe.directory '*'
-    #     git submodule update --init --recursive
-    - name: Setup
-      run: |
-        sudo ./deps/readies/bin/getupdates
-        ./sbin/setup
-        export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-        ./deps/readies/bin/getredis --with-github-token
-    - name: Test flow
-      uses: ./.github/actions/common-flow.yml
+    uses: ./.github/workflows/common-flow.yml
+    with:
+      env: ubuntu-22.04
+      get-redis: true
+    secrets: inherit

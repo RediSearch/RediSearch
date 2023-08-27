@@ -9,26 +9,12 @@ on:
 
 jobs:
   build-linux-matrix:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash -l -eo pipefail {0}
     strategy:
       matrix:
         OS: ${{ fromJson(inputs.platforms) }}
       fail-fast: false
-    steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: recursive
-        set-safe-directory: '*'
-    # - run: |
-    #     git config --global --add safe.directory '*'
-    #     git submodule update --init --recursive
-    - name: Setup
-      run: |
-        ./sbin/setup
-        export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-        ./deps/readies/bin/getredis --with-github-token
-    - name: Test flow
-      uses: ./.github/actions/common-flow.yml
+    uses: ./.github/workflows/common-flow.yml
+    with:
+      get-redis: true
+      env: ${{ matrix.OS }}
+    secrets: inherit
