@@ -13,7 +13,7 @@ on:
 
 jobs:
   commom-flow:
-    runs-on: "${{ github.event.inputs.env }}"
+    runs-on: "${{ inputs.env }}"
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
