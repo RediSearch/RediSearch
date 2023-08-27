@@ -915,6 +915,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
       QueryError_FmtUnknownArg(status, &ac, "<main>");
       goto error;
     }
+  }
 
   return REDISMODULE_OK;
 
