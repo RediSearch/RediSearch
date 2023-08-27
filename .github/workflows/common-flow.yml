@@ -28,13 +28,13 @@ jobs:
         shell: bash -l -eo pipefail {0}
     steps:
       - uses: actions/checkout@v3
+      - name: Setup
+        run: |
+          ./sbin/setup
       - name: Setup Repo
         run: |
           git config --global --add safe.directory '*'
           git submodule update --init --recursive
-      - name: Setup
-        run: |
-          ./sbin/setup
       - name: Get Redis
         if: ${{ inputs.get-redis }}
         run: |
