@@ -21,8 +21,8 @@ jobs:
   commom-flow:
     runs-on: "${{ inputs.env }}"
     container:
-      image: "${{ inputs.container }}"
-      options: "${{ inputs.container_options }}"
+      image: ${{ inputs.container }}
+      options: ${{ inputs.container_options }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
