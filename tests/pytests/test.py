@@ -3765,3 +3765,13 @@ def test_cluster_set(env):
                'MASTER'
             ).equal('OK')
     verify_address('::1')
+
+def test_search_compatibility(env):
+    """Tests that the `FT.SEARCH` command is not compatible with the `LOAD`,
+    `APPLY` arguments"""
+
+    # LOAD
+    env.expect('FT.SEARCH', 'idx', '*', 'LOAD', '@title').error().equal('option `LOAD` is mutually exclusive with simple (i.e. search) options')
+
+    # APPLY
+    env.expect('FT.SEARCH', 'idx', '*', 'APPLY', 'upper(@title)', 'AS', 'TU').error().equal('option `APPLY` is mutually exclusive with simple (i.e. search) options')
