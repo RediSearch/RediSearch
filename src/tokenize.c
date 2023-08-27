@@ -246,6 +246,14 @@ void Tokenizer_Release(RSTokenizer *t) {
     }
     mempool_release(tokpoolLatin_g, t);
   } else {
+    if (t->ctx.stopwords) {
+      StopWordList_Unref(t->ctx.stopwords);
+      t->ctx.stopwords = NULL;
+    }
+    if(t->ctx.delimiters) {
+      DelimiterList_Unref(t->ctx.delimiters);
+      t->ctx.delimiters = NULL;
+    }
     mempool_release(tokpoolCn_g, t);
   }
 }
