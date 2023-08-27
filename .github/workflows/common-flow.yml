@@ -27,6 +27,11 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
+      - name: get git
+        if: ${{ inputs.container }}
+        run: |
+          apt-get update
+          apt-get install -y git
       - uses: actions/checkout@v3
       - name: Setup
         run: |
