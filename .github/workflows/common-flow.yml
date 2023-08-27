@@ -3,17 +3,24 @@ name: default (common) flow
 on:
   workflow_call:
     inputs:
+      env:
+        required: true
+        type: string
       san: # name of the flow to run
         type: string
       get-redis:
         type: boolean
-      env:
-        required: true
+      container:
+        type: string
+      container_options:
         type: string
 
 jobs:
   commom-flow:
     runs-on: "${{ inputs.env }}"
+    container:
+      image: "${{ inputs.container }}"
+      options: "${{ inputs.container_options }}"
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
