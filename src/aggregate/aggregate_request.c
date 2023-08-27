@@ -188,7 +188,7 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
   *flags &= ~QEXEC_FORMAT_DEFAULT;
   return REDISMODULE_OK;
 }
- 
+
 int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status) {
   if (*flags & QEXEC_FORMAT_DEFAULT) {
     *flags &= ~QEXEC_FORMAT_EXPAND;
@@ -760,7 +760,8 @@ PLN_MapFilterStep *PLNMapFilterStep_New(const char *expr, int mode) {
 static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, int isApply) {
   // Parse filters!
   const char *expr = NULL;
-  int rv = AC_GetString(ac, &expr, NULL, 0);
+  size_t exprLen;
+  int rv = AC_GetString(ac, &expr, &exprLen, 0);
   if (rv != AC_OK) {
     QERR_MKBADARGS_AC(status, "APPLY/FILTER", rv);
     return REDISMODULE_ERR;
@@ -772,13 +773,14 @@ static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, in
   if (isApply) {
     if (AC_AdvanceIfMatch(ac, "AS")) {
       const char *alias;
-      if (AC_GetString(ac, &alias, NULL, 0) != AC_OK) {
+      size_t aliasLen;
+      if (AC_GetString(ac, &alias, &aliasLen, 0) != AC_OK) {
         QERR_MKBADARGS_FMT(status, "AS needs argument");
         goto error;
       }
-      stp->base.alias = rm_strdup(alias);
+      stp->base.alias = rm_strndup(alias, aliasLen);
     } else {
-      stp->base.alias = rm_strdup(expr);
+      stp->base.alias = rm_strndup(expr, exprLen);
     }
   }
   return REDISMODULE_OK;
@@ -847,6 +849,7 @@ AREQ *AREQ_New(void) {
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
   req->args = rm_malloc(sizeof(*req->args) * argc);
   req->nargs = argc;
+  // Copy the arguments into an owned array of sds strings
   for (size_t ii = 0; ii < argc; ++ii) {
     size_t n;
     const char *s = RedisModule_StringPtrLen(argv[ii], &n);
@@ -974,7 +977,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     QueryError_SetErrorFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
     return REDISMODULE_ERR;
   }
-  
+
   bool resp3 = req->protocol == 3;
   if (SetValueFormat(resp3, isSpecJson(index), &req->reqflags, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
