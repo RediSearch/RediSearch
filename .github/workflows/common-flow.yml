@@ -12,10 +12,10 @@ on:
         type: boolean
       container:
         type: string
-        default:
+        default: null
       container_options:
         type: string
-        default:
+        default: null
 
 jobs:
   commom-flow:
@@ -28,16 +28,18 @@ jobs:
         shell: bash -l -eo pipefail {0}
     steps:
       - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-          set-safe-directory: "'*'"
+      - name: Setup Repo
+        run: |
+          git submodule update --init --recursive
+          git config --global --add safe.directory '*'
       - name: Setup
         run: |
           ./sbin/setup
-          if [ "${{ inputs.get-redis }}" = "true" ]; then
-            export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-            ./deps/readies/bin/getredis --with-github-token
-          fi
+      - name: Get Redis
+        if: ${{ inputs.get-redis }}
+        run: |
+          export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          ./deps/readies/bin/getredis --with-github-token
       - name: Build
         run: |
           make SAN=${{ inputs.san }}
