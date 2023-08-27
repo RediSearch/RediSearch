@@ -1334,7 +1334,7 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
   stats->numDocs = sp->stats.numDocuments;
   stats->numTerms = sp->stats.numTerms;
   stats->avgDocLen =
-      stats->numDocs ? (double)sp->stats.numRecords / (double)sp->stats.numDocuments : 0;
+      stats->numDocs ? (double)sp->stats.totalDocsLen / (double)sp->stats.numDocuments : 0;
 }
 
 // Assuming the spec is properly locked for writing before calling this function.
