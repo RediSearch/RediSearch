@@ -3770,6 +3770,11 @@ def test_search_compatibility(env):
     """Tests that the `FT.SEARCH` command is not compatible with the `LOAD`,
     `APPLY` arguments"""
 
+    # populate the db with data and an index
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc1', 'title', 'hello')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT').equal('OK')
+
     # LOAD
     env.expect('FT.SEARCH', 'idx', '*', 'LOAD', '@title').error().equal('option `LOAD` is mutually exclusive with simple (i.e. search) options')
 
