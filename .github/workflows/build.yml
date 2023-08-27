@@ -25,4 +25,4 @@ jobs:
         export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
         ./deps/readies/bin/getredis --with-github-token
     - name: Test flow
-      uses: ./.github/workflows/common-flow.yml
+      uses: ./.github/actions/common-flow.yml

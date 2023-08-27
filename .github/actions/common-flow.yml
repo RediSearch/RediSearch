@@ -1,15 +1,12 @@
 name: default (common) flow
 
-on:
-  workflow_call:
-    inputs:
-      san: # name of the flow to run
-        type: string
+inputs:
+  san: # name of the flow to run
+    type: string
 
-jobs:
-  flow:
-    runs-on: inehrited from caller workflow
-    steps:
+runs:
+  using: composite
+  steps:
     - name: Build
       run: |
         make SAN=${{ github.event.inputs.san }}

@@ -25,6 +25,6 @@ jobs:
       run: |
         ./sbin/setup
     - name: Test flow
-      uses: ./.github/workflows/common-flow.yml
+      uses: ./.github/actions/common-flow.yml
       with:
         san: addr
