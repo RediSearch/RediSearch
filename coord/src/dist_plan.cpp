@@ -96,8 +96,8 @@ struct ReducerDistCtx {
 typedef int (*reducerDistributionFunc)(ReducerDistCtx *rdctx, QueryError *status);
 reducerDistributionFunc getDistributionFunc(const char *key);
 
-static PLN_BaseStep *distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN_BaseStep *step,
-                                         PLN_DistributeStep *dstp, QueryError *status) {
+static void distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN_BaseStep *step,
+                                PLN_DistributeStep *dstp, QueryError *status) {
   PLN_GroupStep *gr = (PLN_GroupStep *)step;
   PLN_GroupStep *grLocal = PLNGroupStep_New(gr->properties, gr->nproperties);
   PLN_GroupStep *grRemote = PLNGroupStep_New(gr->properties, gr->nproperties);
@@ -118,18 +118,10 @@ static PLN_BaseStep *distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN
   rdctx.remoteGroup = grRemote;
   rdctx.currentLocal = &grLocal->base;
 
-  int rc = REDISMODULE_OK;
-
   for (size_t ii = 0; ii < nreducers; ii++) {
     rdctx.srcReducer = gr->reducers + ii;
     reducerDistributionFunc fn = getDistributionFunc(gr->reducers[ii].name);
-    if (fn) {
-      rc = fn(&rdctx, status);
-    } else {
-      goto cleanup;
-    }
-
-    if (rc != REDISMODULE_OK) {
+    if (!fn || fn(&rdctx, status) != REDISMODULE_OK) {
       goto cleanup;
     }
   }
@@ -140,9 +132,7 @@ static PLN_BaseStep *distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN
 
   // Add remote step
   AGPLN_AddStep(remote, &grRemote->base);
-
-  // Return step after current local step
-  return PLN_NEXT_STEP(rdctx.currentLocal);
+  return;
 
 cleanup:
     // printf("Couldn't find distribution implementation for %s\n", gr->reducers[ii].name);
@@ -161,7 +151,6 @@ cleanup:
       AGPLN_PopStep(origPlan, stp);
       stp->dtor(stp);
     }
-    return NULL;
 }
 
 /**
@@ -374,7 +363,6 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
   AGPLN_Init(remote);
 
   auto current = const_cast<PLN_BaseStep *>(AGPLN_FindStep(src, NULL, NULL, PLN_T_ROOT));
-  int cont = 1;
   bool hadArrange = false;
 
   PLN_DistributeStep *dstp = (PLN_DistributeStep *)rm_calloc(1, sizeof(*dstp));
@@ -385,7 +373,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
   dstp->base.getLookup = distStepGetLookup;
   BlkAlloc_Init(&dstp->alloc);
 
-  while (current && &current->llnodePln != &src->steps && cont) {
+  while (current != PLN_END_STEP(src)) {
     switch (current->type) {
       case PLN_T_ROOT:
         current = PLN_NEXT_STEP(current);
@@ -394,7 +382,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         // If we had an arrange step, it was split into a remote and local steps, and we must
         // have the filter step locally, otherwise we will move the filter step into in between
         // the remote and local arrange steps, which is logically incorrect.
-        // Otherwise, we can distribute the filter step.
+        // Otherwise (if there was no arrange step), we can move the filter step from local to remote
         current = hadArrange ? PLN_NEXT_STEP(current) : moveStep(remote, src, current);
         break;
       case PLN_T_LOAD:
@@ -424,22 +412,20 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         break;
       }
       case PLN_T_GROUP:
-        cont = 0; // After the group step, the rest of the steps are local only.
-        if (hadArrange) {
-          // If we had an arrange step, we must have the group step locally
-          break;
+        // If we had an arrange step, we must have the group step locally
+        if (!hadArrange) {
+          distributeGroupStep(src, remote, current, dstp, status);
+          if (QueryError_HasError(status)) {
+            freeDistStep((PLN_BaseStep *)dstp);
+            return REDISMODULE_ERR;
+          }
         }
-        current = distributeGroupStep(src, remote, current, dstp, status);
-        if (!current && QueryError_HasError(status)) {
-          freeDistStep((PLN_BaseStep *)dstp);
-          return REDISMODULE_ERR;
-        }
-        break;
+        // After the group step, the rest of the steps are local only.
       default:
-        cont = 0;
-        break;
+        goto loop_break;
     }
   }
+loop_break:
 
   RLookup_Init(&dstp->lk, nullptr);
 
@@ -527,19 +513,19 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
     }
   }
 
-  auto &serargs = *dstp->serialized;
+  auto &ser_args = *dstp->serialized;
   if (!loadFields.empty()) {
-    serargs.push_back(rm_strdup("LOAD"));
+    ser_args.push_back(rm_strndup("LOAD", 4));
     char *ldsze;
     rm_asprintf(&ldsze, "%lu", (unsigned long)loadFields.size());
-    serargs.push_back(ldsze);
+    ser_args.push_back(ldsze);
     for (auto kk : loadFields) {
-      serargs.push_back(rm_strdup(kk->name));
+      ser_args.push_back(rm_strndup(kk->name, kk->name_len));
     }
   }
 
   us->lookup = &dstp->lk;
-  us->serialized = const_cast<const char **>(&serargs[0]);
-  us->nserialized = serargs.size();
+  us->serialized = const_cast<const char **>(ser_args.data());
+  us->nserialized = ser_args.size();
   return REDISMODULE_OK;
 }
