@@ -12,8 +12,10 @@ on:
         type: boolean
       container:
         type: string
+        default:
       container_options:
         type: string
+        default:
 
 jobs:
   commom-flow:
