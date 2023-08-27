@@ -894,10 +894,16 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
         goto error;
       }
     } else if (AC_AdvanceIfMatch(&ac, "APPLY")) {
+      if (!ensureExtendedMode(req, "APPLY", status)) {
+        goto error;
+      }
       if (handleApplyOrFilter(req, &ac, status, 1) != REDISMODULE_OK) {
         goto error;
       }
     } else if (AC_AdvanceIfMatch(&ac, "LOAD")) {
+      if (!ensureExtendedMode(req, "LOAD", status)) {
+        goto error;
+      }
       if (handleLoad(req, &ac, status) != REDISMODULE_OK) {
         goto error;
       }
@@ -909,7 +915,6 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
       QueryError_FmtUnknownArg(status, &ac, "<main>");
       goto error;
     }
-  }
 
   return REDISMODULE_OK;
 
