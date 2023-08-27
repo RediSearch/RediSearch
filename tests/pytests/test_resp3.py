@@ -722,6 +722,8 @@ def testExpandErrorsResp3():
   env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT').error().contains('Need an argument for FORMAT')
   env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'XPAND').error().contains('FORMAT XPAND is not supported')
 
+  env.expect('FT.SEARCH', 'idx', '*', 'FORMAT', 'EXPAND', 'DIALECT', 2).error().contains('requires dialect 3 or greater')
+
   # On HASH
   env.cmd('ft.create', 'idx2', 'on', 'hash', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric')
   env.expect('FT.SEARCH', 'idx2', '*', 'FORMAT', 'EXPAND').error().contains('EXPAND format is only supported with JSON')
@@ -792,11 +794,11 @@ def testExpandJson():
       {'id': 'doc2', 'extra_attributes': {'num': [2], '$': [{"arr": [3, 4, None], "num": 2, "str": "bar", "sub":{"s2": 1 }, "sub2":{"arr": [40, 50, 66.66]}, "empty_arr":[],"empty_obj":{}}]}, 'values': []},
     ]
   }
-  # Default FORMAT is EXPAND
+  # Default FORMAT is STRING
 
   # Test FT.SEARCH
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'SORTBY', 'num')
-  env.assertEqual(res, exp_expand)
+  env.assertEqual(res, exp_string)
 
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'EXPAND', 'SORTBY', 'num')
   env.assertEqual(res, exp_expand)
@@ -812,7 +814,7 @@ def testExpandJson():
   del exp_string['results'][1]['id']
 
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'LOAD', '*', 'SORTBY', 2, '@num', 'ASC')
-  env.assertEqual(res, exp_expand)
+  env.assertEqual(res, exp_string)
 
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'EXPAND', 'LOAD', '*', 'SORTBY', 2, '@num', 'ASC')
   env.assertEqual(res, exp_expand)
@@ -835,6 +837,28 @@ def testExpandJson():
     ]
   }
 
+  exp_string_default_dialect = {
+    'attributes': [],
+    'error': [],
+    'total_results': ANY,
+    'format': 'STRING',
+    'results': [
+      {'id': 'doc1', 'extra_attributes': {'$.arr[?(@>2)]': '2.1', 'str': 'foo', 'multi': '1', "arr":'[1.0,2.1,3.14]'}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'$.arr[?(@>2)]': '3', 'str': 'bar', 'multi': '3', "arr": '[3,4,null]'}, 'values': []},
+    ]
+  }
+
+  exp_expand_default_dialect = {
+    'attributes': [],
+    'error': [],
+    'total_results': ANY,
+    'format': 'EXPAND',
+    'results': [
+      {'id': 'doc1', 'extra_attributes': {'$.arr[?(@>2)]':2.1, 'str':'foo', 'multi': 1, "arr":[1, 2.1, 3.14]}, 'values': []},
+      {'id': 'doc2', 'extra_attributes': {'$.arr[?(@>2)]':3, 'str':'bar', 'multi': 3, "arr":[3, 4, None]}, 'values': []},
+    ]
+  }
+
   exp_expand = {
     'attributes': [],
     'error': [],
@@ -849,8 +873,17 @@ def testExpandJson():
   load_args = [6, '$.arr[?(@>2)]', 'str', 'multi', 'arr', 'empty_arr', 'empty_obj']
 
   # Test FT.SEARCH
-  res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'RETURN', *load_args)
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'EXPAND', 'RETURN', *load_args, 'DIALECT', 3)
   env.assertEqual(res, exp_expand)
+
+  # Default FORMAT is STRING
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'RETURN', *load_args)
+  env.assertEqual(res, exp_string_default_dialect)
+
+  # Default FORMAT is STRING
+  # Add DIALECT 3 to get multi values as with EXAPND
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'RETURN', *load_args, 'DIALECT', 3)
+  env.assertEqual(res, exp_string)
 
   # Add DIALECT 3 to get multi values as with EXAPND
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'STRING', 'RETURN', *load_args, 'DIALECT', 3)
@@ -859,12 +892,22 @@ def testExpandJson():
   # Test FT.AGGREAGTE
   del exp_expand['results'][0]['id']
   del exp_expand['results'][1]['id']
+  
+  del exp_string_default_dialect['results'][0]['id']
+  del exp_string_default_dialect['results'][1]['id']
 
   del exp_string['results'][0]['id']
   del exp_string['results'][1]['id']
 
+  # Default FORMAT is STRING
+  # Add DIALECT 3 to get multi values as with EXAPND
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'LOAD', *load_args, 'SORTBY', 2, '@str', 'DESC', 'DIALECT', 3)
+  env.assertEqual(res, exp_string)
+
+  # Default FORMAT is STRING
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'LOAD', *load_args, 'SORTBY', 2, '@str', 'DESC')
-  env.assertEqual(res, exp_expand)
+  env.assertEqual(res, exp_string_default_dialect)
+
 
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'EXPAND', 'LOAD', *load_args, 'SORTBY', 2, '@str', 'DESC')
   env.assertEqual(res, exp_expand)
@@ -979,8 +1022,9 @@ def testExpandJsonVector():
   res = env.cmd(*cmd, 'FORMAT', 'STRING')
   env.assertEqual(res, exp_string)
 
+  # Default FORMAT is STRING
   res = env.cmd(*cmd)
-  env.assertEqual(res, exp_expand)
+  env.assertEqual(res, exp_string)
 
   res = env.cmd(*cmd, 'FORMAT', 'EXPAND')
   env.assertEqual(res, exp_expand)
@@ -1014,8 +1058,9 @@ def testExpandJsonVector():
   res = env.cmd(*cmd, 'FORMAT', 'STRING')
   env.assertEqual(res, exp_string)
 
+  # Default FORMAT is STRING
   res = env.cmd(*cmd)
-  env.assertEqual(res, exp_expand)
+  env.assertEqual(res, exp_string)
 
   res = env.cmd(*cmd, 'FORMAT', 'EXPAND')
   env.assertEqual(res, exp_expand)
@@ -1049,8 +1094,9 @@ def testExpandJsonVector():
   res = env.cmd(*cmd, 'FORMAT', 'STRING')
   env.assertEqual(res, exp_string)
 
+  # Default FORMAT is STRING
   res = env.cmd(*cmd)
-  env.assertEqual(res, exp_expand)
+  env.assertEqual(res, exp_string)
 
   res = env.cmd(*cmd, 'FORMAT', 'EXPAND')
   env.assertEqual(res, exp_expand)  
@@ -1084,8 +1130,9 @@ def testExpandJsonVector():
   res = env.cmd(*cmd, 'FORMAT', 'STRING')
   env.assertEqual(res, exp_string)
 
+  # Default FORMAT is STRING
   res = env.cmd(*cmd)
-  env.assertEqual(res, exp_expand)
+  env.assertEqual(res, exp_string)
 
   res = env.cmd(*cmd, 'FORMAT', 'EXPAND')
   env.assertEqual(res, exp_expand)
