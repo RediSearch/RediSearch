@@ -9,5 +9,6 @@ jobs:
     uses: ./.github/workflows/common-flow.yml
     with:
       env: ubuntu-22.04
+      container: ubuntu:22.04
       get-redis: true
     secrets: inherit
