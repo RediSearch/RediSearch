@@ -4,26 +4,34 @@ on:
   workflow_call:
     inputs:
       env:
-        required: true
+        default: "ubuntu-latest"
         type: string
       san:
         type: string
       get-redis:
         type: boolean
+      container:
+        type: string
+      container_options:
+        type: string
 
 # Cannot unify the two flows because of the container job definition
 # Make sure to keep them in sync
 jobs:
-  commom-host-flow:
-    runs-on: "${{ inputs.env }}"
+  common-container-flow:
+    runs-on: ${{ inputs.env }}
+    container:
+      image: ${{ inputs.container }}
+      options: ${{ inputs.container_options }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
       - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-          set-safe-directory: "'*'"
+      - name: Setup Repo
+        run: |
+          git config --global --add safe.directory '*'
+          git submodule update --init --recursive
       - name: Setup
         run: |
           ./sbin/setup

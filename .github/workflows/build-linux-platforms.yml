@@ -13,7 +13,7 @@ jobs:
       matrix:
         OS: ${{ fromJson(inputs.platforms) }}
       fail-fast: false
-    uses: ./.github/workflows/common-flow.yml
+    uses: ./.github/workflows/common-container-flow.yml
     with:
       get-redis: true
       container: ${{ matrix.OS }}
