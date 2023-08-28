@@ -28,5 +28,3 @@ capabilities:
 exclude_commands:
     - FT.CONFIG
     - FT.DEBUG
-    - search.CLUSTERREFRESH
-    - search.CLUSTERINFO
