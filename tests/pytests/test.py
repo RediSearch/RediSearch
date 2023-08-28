@@ -517,13 +517,15 @@ def testOptional(env):
     env.assertEqual([2, 'doc2', 'doc3'], res)
     res = r.execute_command(
         'ft.search', 'idx', 'hello ~world', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual(res, expected)
+    # Docs that contains the optional term would rank higher.
+    env.assertEqual(res, [3, 'doc2', 'doc3', 'doc1'])
     res = r.execute_command(
         'ft.search', 'idx', 'hello ~world ~werld', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual(res, expected)
+    env.assertEqual(res, [3, 'doc3', 'doc2', 'doc1'])
     res = r.execute_command(
         'ft.search', 'idx', '~world ~(werld hello)', 'withscores', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual(res, [3, 'doc3', '3', 'doc2', '2', 'doc1', '1'])
+    # Note that doc1 gets 0 score since neither 'world' appears in the doc nor the phrase 'werld hello'.
+    env.assertEqual(res, [3, 'doc3', '3', 'doc2', '1', 'doc1', '0'])
 
 def testExplain(env):
 
