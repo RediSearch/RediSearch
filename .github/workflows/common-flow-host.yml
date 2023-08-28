@@ -11,6 +11,9 @@ on:
       get-redis:
         type: boolean
 
+env:
+  SUDO: "sudo"
+
 jobs:
   common-flow:
     runs-on: ${{ inputs.env }}
@@ -25,7 +28,7 @@ jobs:
           sparse-checkout: .install
       - name: Setup
         run: |
-          sudo ./.install/install_script.sh
+          ${{env.SUDO}} ./.install/install_script.sh
       - name: Full checkout
         uses: actions/checkout@v3
         with:

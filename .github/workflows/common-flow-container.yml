@@ -17,6 +17,9 @@ on:
       get-redis:
         type: boolean
 
+env:
+  SUDO: ""
+
 jobs:
   common-flow:
     runs-on: ${{ inputs.env }}
