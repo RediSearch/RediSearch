@@ -6,10 +6,8 @@ on:
 
 jobs:
   build-macos:
-    uses: ./.github/workflows/common-flow.yml
+    uses: ./.github/workflows/common-flow-host.yml
     with:
       env: macos-11
-      container: null
-      container_options: null
       get-redis: true
     secrets: inherit

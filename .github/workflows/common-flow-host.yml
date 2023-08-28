@@ -1,0 +1,54 @@
+name: default (common) flow for host runner
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        required: true
+        type: string
+      san:
+        type: string
+      get-redis:
+        type: boolean
+
+jobs:
+  common-flow:
+    runs-on: ${{ inputs.env }}
+# From this point on, the file should be identical to the other common flow.
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      - name: Deps checkout
+        uses: actions/checkout@v3
+        with:
+          sparse-checkout: .install
+      - name: Setup
+        run: |
+          ./.install/install_script.sh
+      - name: Full checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+          set-safe-directory: "'*'"
+      - name: Get Redis
+        if: ${{ inputs.get-redis }}
+        run: |
+          export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          ./deps/readies/bin/getredis --with-github-token
+      - name: Build
+        run: |
+          make SAN=${{ inputs.san }}
+          make COORD=1 SAN=${{ inputs.san }}
+      - name: Unit tests
+        run: |
+          make unit-tests SAN=${{ inputs.san }}
+      - name: Flow tests
+        run: |
+          make pytest QUICK=1 SAN=${{ inputs.san }}
+      - name: Unit tests (coordinator)
+        run: |
+          make COORD=1 unit-tests SAN=${{ inputs.san }}
+      - name: Flow tests (coordinator)
+        run: |
+          make COORD=1 pytest QUICK=1 SAN=${{ inputs.san }}

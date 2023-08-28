@@ -4,14 +4,21 @@ on:
   workflow_dispatch:
     inputs:
       platforms:
+        type: choice
+        options:
+          - ubuntu:jammy
+          - ubuntu:bionic
+          - centos:7
+          - rockylinux:8
+          - debian:bullseye
         description: 'Build platforms'
-        default: '["ubuntu:jammy", "ubuntu:bionic", "centos:7", "rockylinux:8", "debian:bullseye"]'
+        default: 'all'
 
 jobs:
   build-linux-matrix:
     strategy:
       matrix:
-        OS: ${{ fromJson(inputs.platforms) }}
+        OS: ${{ fromJson(inputs.platforms.options) }}
       fail-fast: false
     uses: ./.github/workflows/common-flow.yml
     with:

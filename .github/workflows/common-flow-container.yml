@@ -1,4 +1,4 @@
-name: default (common) flow
+name: default (common) flow for container runs
 
 on:
   workflow_call:
@@ -23,6 +23,7 @@ jobs:
     container:
       image: ${{ inputs.container }}
       options: ${{ inputs.container_options }}
+# From this point on, the file should be identical to the other common flow.
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
