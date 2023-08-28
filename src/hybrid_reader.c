@@ -179,7 +179,7 @@ static VecSimQueryReply_Code computeDistances(HybridIterator *hr) {
       VecSimTieredIndex_ReleaseSharedLocks(hr->index);
       break;
     }
-    double metric = VecSimIndex_GetDistanceFrom(hr->index, cur_child_res->docId, qvector);
+    double metric = VecSimIndex_GetDistanceFrom_Unsafe(hr->index, cur_child_res->docId, qvector);
     // If this id is not in the vector index (since it was deleted), metric will return as NaN.
     if (isnan(metric)) {
       continue;
