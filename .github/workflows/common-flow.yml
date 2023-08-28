@@ -4,22 +4,59 @@ on:
   workflow_call:
     inputs:
       env:
-        required: true
+        default: "ubuntu-latest"
         type: string
-      san: # name of the flow to run
+      san:
         type: string
       get-redis:
         type: boolean
       container:
         type: string
-        default: null
       container_options:
         type: string
-        default: null
 
+# Cannot unify the two flows because of the container job definition
+# Make sure to keep them in sync
 jobs:
-  commom-flow:
+  commom-host-flow:
+    if: ${{ !inputs.container }}
     runs-on: "${{ inputs.env }}"
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+          set-safe-directory: "'*'"
+      - name: Setup
+        run: |
+          ./sbin/setup
+      - name: Get Redis
+        if: ${{ inputs.get-redis }}
+        run: |
+          export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          ./deps/readies/bin/getredis --with-github-token
+      - name: Build
+        run: |
+          make SAN=${{ inputs.san }}
+          make COORD=1 SAN=${{ inputs.san }}
+      - name: Unit tests
+        run: |
+          make unit-tests SAN=${{ inputs.san }}
+      - name: Flow tests
+        run: |
+          make pytest QUICK=1 SAN=${{ inputs.san }}
+      - name: Unit tests (coordinator)
+        run: |
+          make COORD=1 unit-tests SAN=${{ inputs.san }}
+      - name: Flow tests (coordinator)
+        run: |
+          make COORD=1 pytest QUICK=1 SAN=${{ inputs.san }}
+
+  common-container-flow:
+    if: ${{ inputs.container }}
+    runs-on: ${{ inputs.env }}
     container:
       image: ${{ inputs.container }}
       options: ${{ inputs.container_options }}
@@ -27,11 +64,6 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - name: get git
-        if: ${{ inputs.container }}
-        run: |
-          apt-get update
-          apt-get install -y git
       - uses: actions/checkout@v3
       - name: Setup
         run: |

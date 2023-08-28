@@ -8,7 +8,6 @@ jobs:
   clang-sanitizer:
     uses: ./.github/workflows/common-flow.yml
     with:
-      env: ubuntu-latest
       container: redisfab/clang:16-x64-bullseye
       container_options: --cpus 2
       san: addr

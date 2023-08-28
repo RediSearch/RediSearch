@@ -16,7 +16,6 @@ jobs:
     uses: ./.github/workflows/common-flow.yml
     with:
       get-redis: true
-      env: ubuntu-latest
       container: ${{ matrix.OS }}
       container_options: --cpus 2
     secrets: inherit
