@@ -3768,8 +3768,7 @@ def test_internal_commands(env):
     ''' Test that internal cluster commands cannot run from a script '''
     if not env.is_cluster():
         env.skip()
-    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
-
+    
     def fail_eval_call(r, env, cmd):
         cmd = str(cmd)[1:-1]
         try:
