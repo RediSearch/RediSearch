@@ -24,7 +24,7 @@ jobs:
             fi
           done
       - name: Compare common flows
-        shell: python3
+        shell: python
         run: |
           import os
           import sys
