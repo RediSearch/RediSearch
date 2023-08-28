@@ -29,9 +29,9 @@ jobs:
         id: get_platforms
         run: |
           if [ "${{ inputs.platforms }}" == "all" ]; then
-            echo '{platforms}={${{ toJson(env.ALL_IMAGES) }}}' >> $GITHUB_OUTPUT
+            echo '{platforms}={${{ env.ALL_IMAGES }}}' >> $GITHUB_OUTPUT
           else
-            echo '{platforms}={${{ toJson(inputs.platforms) }}}' >> $GITHUB_OUTPUT
+            echo '{platforms}={${{ inputs.platforms }}}' >> $GITHUB_OUTPUT
           fi
   build-linux-matrix:
     needs: get-required-envs
