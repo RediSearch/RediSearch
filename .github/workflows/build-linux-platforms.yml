@@ -27,11 +27,16 @@ jobs:
         run: |
           import os
           if '${{inputs.platforms}}' == 'all':
+            print('${{toJson(inputs.platforms.options)}}')
+            print('${{inputs.platforms.options}}')
+            print('${{inputs}}')
+            print('${{toJson(inputs)}}')
             platforms = list(${{toJson(inputs.platforms.options)}})
+            platforms.remove('all')
           else:
-            platforms = [${{inputs.platforms}}]
+            platforms = ['${{inputs.platforms}}']
           with os.fdopen(os.environ['GITHUB_OUTPUT'], 'a') as f:
-            f.write(f'platforms={platforms}'
+            f.write(f'platforms={platforms}')
   build-linux-matrix:
     needs: get-required-envs
     strategy:
