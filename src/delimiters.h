@@ -17,9 +17,9 @@ extern "C" {
 #endif
 
 typedef struct DelimiterList {
-  char *delimiterString;
-  char delimiterMap[256];
-  size_t refcount;
+  char *delimiterString;  // the string representation of delimiters
+  char delimiterMap[256]; // the map of delimiters, 1 if delimiter, 0 otherwise
+  size_t refcount;        // reference count
 } DelimiterList;
 
 

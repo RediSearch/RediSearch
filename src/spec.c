@@ -465,42 +465,42 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status,
     } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
       fs->options |= FieldSpec_NotIndexable;
     } else if (AC_AdvanceIfMatch(ac, SPEC_SET_DELIMITERS_STR)) {
-      const char *separatorStr;
-      if ((rc = AC_GetString(ac, &separatorStr, &len, 0)) != AC_OK) {
+      const char *delimiterStr;
+      if ((rc = AC_GetString(ac, &delimiterStr, &len, 0)) != AC_OK) {
         return 0;
       }
 
-      if(separatorStr != NULL) {
+      if(delimiterStr != NULL) {
         if(fs->delimiters) {
           DelimiterList_Unref(fs->delimiters);
         }
-        fs->delimiters = NewDelimiterListCStr(separatorStr);
+        fs->delimiters = NewDelimiterListCStr(delimiterStr);
         fs->options |= FieldSpec_WithCustomDelimiters;
       }
     } else if (AC_AdvanceIfMatch(ac, SPEC_ADD_DELIMITERS_STR)) {
-      const char *addSeparatorStr;
-      if ((rc = AC_GetString(ac, &addSeparatorStr, &len, 0)) != AC_OK) {
+      const char *addDelimiterStr;
+      if ((rc = AC_GetString(ac, &addDelimiterStr, &len, 0)) != AC_OK) {
         return 0;
       }
 
-      if(addSeparatorStr != NULL) {
+      if(addDelimiterStr != NULL) {
         if(fs->delimiters == NULL && indexDelimiters != NULL) {
           fs->delimiters = NewDelimiterListCStr(indexDelimiters->delimiterString);
         }
-        fs->delimiters = AddDelimiterListCStr(addSeparatorStr, fs->delimiters);
+        fs->delimiters = AddDelimiterListCStr(addDelimiterStr, fs->delimiters);
         fs->options |= FieldSpec_WithCustomDelimiters;
       }
     } else if (AC_AdvanceIfMatch(ac, SPEC_DEL_DELIMITERS_STR)) {
-      const char *delSeparatorStr;
-      if ((rc = AC_GetString(ac, &delSeparatorStr, &len, 0)) != AC_OK) {
+      const char *delDelimiterStr;
+      if ((rc = AC_GetString(ac, &delDelimiterStr, &len, 0)) != AC_OK) {
         return 0;
       }
 
-      if(delSeparatorStr != NULL) {
+      if(delDelimiterStr != NULL) {
         if(fs->delimiters == NULL && indexDelimiters != NULL) {
           fs->delimiters = NewDelimiterListCStr(indexDelimiters->delimiterString);
         }
-        fs->delimiters = RemoveDelimiterListCStr(delSeparatorStr, fs->delimiters);
+        fs->delimiters = RemoveDelimiterListCStr(delDelimiterStr, fs->delimiters);
         fs->options |= FieldSpec_WithCustomDelimiters;
       }
     } else {
@@ -540,42 +540,42 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status,
     } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
       fs->options |= FieldSpec_NotIndexable;
     } else if (AC_AdvanceIfMatch(ac, SPEC_SET_DELIMITERS_STR)) {
-      const char *separatorStr;
-      if ((rc = AC_GetString(ac, &separatorStr, &len, 0)) != AC_OK) {
+      const char *delimiterStr;
+      if ((rc = AC_GetString(ac, &delimiterStr, &len, 0)) != AC_OK) {
         return 0;
       }
 
-      if(separatorStr != NULL) {
+      if(delimiterStr != NULL) {
         if(fs->delimiters) {
           DelimiterList_Unref(fs->delimiters);
         }
-        fs->delimiters = NewDelimiterListCStr(separatorStr);
+        fs->delimiters = NewDelimiterListCStr(delimiterStr);
         fs->options |= FieldSpec_WithCustomDelimiters;
       }
     } else if (AC_AdvanceIfMatch(ac, SPEC_ADD_DELIMITERS_STR)) {
-      const char *addSeparatorStr;
-      if ((rc = AC_GetString(ac, &addSeparatorStr, &len, 0)) != AC_OK) {
+      const char *addDelimiterStr;
+      if ((rc = AC_GetString(ac, &addDelimiterStr, &len, 0)) != AC_OK) {
         return 0;
       }
 
-      if(addSeparatorStr != NULL) {
+      if(addDelimiterStr != NULL) {
         if(fs->delimiters == NULL && indexDelimiters != NULL) {
           fs->delimiters = NewDelimiterListCStr(indexDelimiters->delimiterString);
         }
-        fs->delimiters = AddDelimiterListCStr(addSeparatorStr, fs->delimiters);
+        fs->delimiters = AddDelimiterListCStr(addDelimiterStr, fs->delimiters);
         fs->options |= FieldSpec_WithCustomDelimiters;
       }
     } else if (AC_AdvanceIfMatch(ac, SPEC_DEL_DELIMITERS_STR)) {
-      const char *delSeparatorStr;
-      if ((rc = AC_GetString(ac, &delSeparatorStr, &len, 0)) != AC_OK) {
+      const char *delDelimiterStr;
+      if ((rc = AC_GetString(ac, &delDelimiterStr, &len, 0)) != AC_OK) {
         return 0;
       }
 
-      if(delSeparatorStr != NULL) {
+      if(delDelimiterStr != NULL) {
         if(fs->delimiters == NULL && indexDelimiters != NULL) {
           fs->delimiters = NewDelimiterListCStr(indexDelimiters->delimiterString);
         }
-        fs->delimiters = RemoveDelimiterListCStr(delSeparatorStr, fs->delimiters);
+        fs->delimiters = RemoveDelimiterListCStr(delDelimiterStr, fs->delimiters);
         fs->options |= FieldSpec_WithCustomDelimiters;
       }
     } else {

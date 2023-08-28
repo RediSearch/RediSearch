@@ -139,7 +139,7 @@ static void normalizeSettings(const ReturnedField *srcField, const ReturnedField
 // field, and on output it contains the length of the trimmed summary.
 // Returns a string which should be freed using free()
 static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_t *docLen,
-                       size_t estWordSize, DelimiterList *sl) {
+                       size_t estWordSize, DelimiterList *delimiters) {
 
   // Number of desired fragments times the number of context words in each fragments,
   // in characters (estWordSize)
@@ -156,7 +156,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
   Array_Resize(&bufTmp, headLen);
 
   while (bufTmp.len > 1) {
-    if (istoksep(bufTmp.data[bufTmp.len - 1], sl)) {
+    if (istoksep(bufTmp.data[bufTmp.len - 1], delimiters)) {
       break;
     }
     bufTmp.len--;
@@ -170,7 +170,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
 static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *fieldInfo,
                                const char *fieldName, const RSValue *returnedField,
                                hlpDocContext *docParams, int options,
-                               DelimiterList *sl) {
+                               DelimiterList *delimiters) {
 
   FragmentList frags;
   FragmentList_Init(&frags, 8, 6);
@@ -184,11 +184,12 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
   const char *docStr = RSValue_StringPtrLen(returnedField, &docLen);
   if (docParams->byteOffsets == NULL ||
       !fragmentizeOffsets(lookup, fieldName, docStr, docLen, docParams->indexResult,
-                          docParams->byteOffsets, &frags, options, sl)) {
+                          docParams->byteOffsets, &frags, options, delimiters)) {
     if (fieldInfo->mode == SummarizeMode_Synopsis) {
       // If summarizing is requested then trim the field so that the user isn't
       // spammed with a large blob of text
-      char *summarized = trimField(fieldInfo, docStr, &docLen, frags.estAvgWordSize, sl);
+      char *summarized = trimField(fieldInfo, docStr, &docLen,
+                                    frags.estAvgWordSize, delimiters);
       return RS_StringVal(summarized, docLen);
     } else {
       // Otherwise, just return the whole field, but without highlighting
@@ -211,8 +212,9 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
     Array_Resize(&docParams->iovsArr[ii], 0);
   }
 
-  FragmentList_HighlightFragments(&frags, &tags, fieldInfo->summarizeSettings.contextLen,
-                                  docParams->iovsArr, numIovArr, HIGHLIGHT_ORDER_SCOREPOS, sl);
+  FragmentList_HighlightFragments(&frags, &tags,fieldInfo->summarizeSettings.contextLen,
+                                  docParams->iovsArr, numIovArr,
+                                  HIGHLIGHT_ORDER_SCOREPOS, delimiters);
 
   // Buffer to store concatenated fragments
   Array bufTmp;

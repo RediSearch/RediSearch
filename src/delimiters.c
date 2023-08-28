@@ -25,6 +25,7 @@ static const char __defaultDelimiterMap[DELIMITERMAP_SIZE] = {
 static DelimiterList *__default_delimiters = NULL;
 
 // generate the delimiter string that represents the delimiter map
+// the string is allocated on the heap and must be freed by the caller
 static char *_GenerateDelimiterString(const char delimiterMap[DELIMITERMAP_SIZE],
   size_t ndelimiters
 ) {
