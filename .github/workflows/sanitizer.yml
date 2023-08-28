@@ -9,6 +9,5 @@ jobs:
     uses: ./.github/workflows/common-container-flow.yml
     with:
       container: redisfab/clang:16-x64-bullseye
-      container_options: --cpus 2
       san: addr
     secrets: inherit

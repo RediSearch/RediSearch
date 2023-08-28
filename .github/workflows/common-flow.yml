@@ -4,29 +4,41 @@ on:
   workflow_call:
     inputs:
       env:
+        default: "ubuntu-latest"
+        type: string
+      container:
         required: true
         type: string
+      container_options:
+        type: string
+        default: --cpus 2
       san:
         type: string
       get-redis:
         type: boolean
 
-# Cannot unify the two flows because of the container job definition
-# Make sure to keep them in sync
 jobs:
-  commom-host-flow:
-    runs-on: "${{ inputs.env }}"
+  common-flow:
+    runs-on: ${{ inputs.env }}
+    container:
+      image: ${{ inputs.container }}
+      options: ${{ inputs.container_options }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - uses: actions/checkout@v3
+      - name: Deps checkout
+        uses: actions/checkout@v3
+        with:
+          sparse-checkout: .install
+      - name: Setup
+        run: |
+          ./.install/install_script.sh
+      - name: Full checkout
+        uses: actions/checkout@v3
         with:
           submodules: recursive
           set-safe-directory: "'*'"
-      - name: Setup
-        run: |
-          ./sbin/setup
       - name: Get Redis
         if: ${{ inputs.get-redis }}
         run: |

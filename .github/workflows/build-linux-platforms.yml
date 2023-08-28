@@ -13,9 +13,8 @@ jobs:
       matrix:
         OS: ${{ fromJson(inputs.platforms) }}
       fail-fast: false
-    uses: ./.github/workflows/common-container-flow.yml
+    uses: ./.github/workflows/common-flow.yml
     with:
       get-redis: true
       container: ${{ matrix.OS }}
-      container_options: --cpus 2
     secrets: inherit

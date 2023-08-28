@@ -9,5 +9,7 @@ jobs:
     uses: ./.github/workflows/common-flow.yml
     with:
       env: macos-11
+      container: null
+      container_options: null
       get-redis: true
     secrets: inherit
