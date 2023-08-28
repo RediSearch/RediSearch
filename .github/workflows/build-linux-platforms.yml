@@ -2,7 +2,7 @@ name: Build on Linux Platforms
 
 # Keep aligned with the options below
 env:
-  ALL_IMAGES: '["ubuntu:jammy", "ubuntu:bionic", "centos:7", "rockylinux:8", "debian:bullseye"]'
+  ALL_IMAGES: "['ubuntu:jammy', 'ubuntu:bionic', 'centos:7', 'rockylinux:8', 'debian:bullseye']"
 
 on:
   workflow_dispatch:
@@ -29,15 +29,15 @@ jobs:
         id: get_platforms
         run: |
           if [ "${{ inputs.platforms }}" == "all" ]; then
-            echo '{platforms}={${{ env.ALL_IMAGES }}}' >> $GITHUB_OUTPUT
+            echo "{platforms}={${{ env.ALL_IMAGES }}}" >> $GITHUB_OUTPUT
           else
-            echo '{platforms}={${{ inputs.platforms }}}' >> $GITHUB_OUTPUT
+            echo "{platforms}={${{ inputs.platforms }}}" >> $GITHUB_OUTPUT
           fi
   build-linux-matrix:
     needs: get-required-envs
     strategy:
       matrix:
-        OS: ${{ needs.get-required-envs.outputs.platforms }}
+        OS: ${{ toJson(needs.get-required-envs.outputs.platforms) }}
       fail-fast: false
     uses: ./.github/workflows/common-flow-container.yml
     with:
