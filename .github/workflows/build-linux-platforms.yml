@@ -6,6 +6,7 @@ on:
       platforms:
         type: choice
         options:
+          - all
           - ubuntu:jammy
           - ubuntu:bionic
           - centos:7
@@ -15,12 +16,28 @@ on:
         default: 'all'
 
 jobs:
+  get-required-envs:
+    runs-on: ubuntu-latest
+    outputs:
+      platforms: ${{ steps.get_platforms.outputs.platforms }}
+    steps:
+      - name: Get platforms
+        id: get_platforms
+        run: |
+          if [ "${{ github.event.inputs.platforms }}" = "all" ]; then
+            # get all platforms from the options, except the first one
+            echo "::set-output name=platforms::${{ toJson(fromJson(inputs.platforms.options)[1:]) }}"
+          else
+            # get the chosen platform
+            echo "::set-output name=platforms::${{ toJson(inputs.platforms) }}"
+          fi
   build-linux-matrix:
+    needs: get-required-envs
     strategy:
       matrix:
-        OS: ${{ fromJson(inputs.platforms.options) }}
+        OS: ${{ fromJson(needs.get-required-envs.outputs.platforms) }}
       fail-fast: false
-    uses: ./.github/workflows/common-flow.yml
+    uses: ./.github/workflows/common-flow-container.yml
     with:
       get-redis: true
       container: ${{ matrix.OS }}
