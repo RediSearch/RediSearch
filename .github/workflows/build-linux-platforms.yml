@@ -27,7 +27,7 @@ jobs:
         run: |
           import os
           if '${{inputs.platforms}}' == 'all':
-            platforms = list(${{toJson(fromJson(inputs.platforms.options))}})
+            platforms = list(${{toJson(inputs.platforms.options)}})
           else:
             platforms = [${{inputs.platforms}}]
           with os.fdopen(os.environ['GITHUB_OUTPUT'], 'a') as f:
