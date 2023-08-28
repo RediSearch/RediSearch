@@ -25,12 +25,13 @@ jobs:
         id: get_platforms
         shell: python
         run: |
-          platforms = []
-          if ${{inputs.platforms}} == 'all':
-            platforms = list(${{inputs.platforms.options}})
+          import os
+          if '${{inputs.platforms}}' == 'all':
+            platforms = list(${{fromJson(inputs.platforms.options)}})
           else:
             platforms = [${{inputs.platforms}}]
-          print(f'::set-output name=platforms::{platforms}')
+          with os.fdopen(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f'platforms={platforms}'
   build-linux-matrix:
     needs: get-required-envs
     strategy:
