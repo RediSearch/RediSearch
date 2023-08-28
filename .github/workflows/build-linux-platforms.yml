@@ -23,14 +23,14 @@ jobs:
     steps:
       - name: Get platforms
         id: get_platforms
+        shell: python
         run: |
-          if [ "${{ github.event.inputs.platforms }}" = "all" ]; then
-            # get all platforms from the options, except the first one
-            echo "::set-output name=platforms::${{ toJson(fromJson(inputs.platforms.options)[1:]) }}"
-          else
-            # get the chosen platform
-            echo "::set-output name=platforms::${{ toJson(inputs.platforms) }}"
-          fi
+          platforms = []
+          if ${{inputs.platforms}} == 'all':
+            platforms = list(${{inputs.platforms.options}})
+          else:
+            platforms = [${{inputs.platforms}}]
+          print(f'::set-output name=platforms::{platforms}')
   build-linux-matrix:
     needs: get-required-envs
     strategy:
