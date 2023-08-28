@@ -1,7 +1,6 @@
-name: common flows syncer
+name: Verify common flows are in sync
 
-on:
-  push:
+on: [push]
 
 env:
   LINE_REGEX: "# From this point on, the file should be identical to the other common flow."
@@ -14,7 +13,7 @@ jobs:
     steps:
       - name: Deps checkout
         uses: actions/checkout@v3
-      - name: Verify common flows
+      - name: Verify common flow files contain the expected line
         run: |
           set -e
           for file in $(find . -name "${{ env.FILE_PREFIX }}"); do
@@ -23,7 +22,7 @@ jobs:
               exit 1
             fi
           done
-      - name: Compare common flows
+      - name: Compare common flow files
         shell: python
         run: |
           import os
