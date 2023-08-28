@@ -16,8 +16,8 @@ on:
           - centos:7
           - rockylinux:8
           - debian:bullseye
-        description: 'Build platforms'
-        default: 'all'
+        description: 'Platform to build on. Use "all" to build on all'
+        default: all
 
 jobs:
   get-required-envs:
@@ -31,7 +31,7 @@ jobs:
           if [ "${{ inputs.platforms }}" == "all" ]; then
             echo "platforms=${{ env.ALL_IMAGES }}" >> $GITHUB_OUTPUT
           else
-            echo "platforms=[${{ inputs.platforms }}]" >> $GITHUB_OUTPUT
+            echo "platforms=['${{ inputs.platforms }}']" >> $GITHUB_OUTPUT
           fi
   build-linux-matrix:
     needs: get-required-envs
