@@ -37,7 +37,7 @@ jobs:
     needs: get-required-envs
     strategy:
       matrix:
-        OS: ${{ fromJson(needs.get-required-envs.outputs.platforms) }}
+        OS: ${{ needs.get-required-envs.outputs.platforms }}
       fail-fast: false
     uses: ./.github/workflows/common-flow-container.yml
     with:
