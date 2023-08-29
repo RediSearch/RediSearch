@@ -1,6 +1,11 @@
 name: Build on Linux
 
-on: [push, workflow_dispatch]
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore:
+      - '*docs'
+      - '*noci'
 
 jobs:
   build-linux-jammy:
