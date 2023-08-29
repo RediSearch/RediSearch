@@ -11,6 +11,8 @@
 #include "module.h"
 #include "query_error.h"
 #include "rmutil/rm_assert.h"
+#include "json.h"
+#include "rlookup.h"
 
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
@@ -101,11 +103,17 @@ void RSValue_Clear(RSValue *v) {
       break;
     case RSValue_Null:
       return;  // prevent changing global RS_NULL to RSValue_Undef
-    case RSValue_Duo:
-      RSValue_Decref(RS_DUOVAL_VAL(*v));
-      RSValue_Decref(RS_DUOVAL_OTHERVAL(*v));
-      RSValue_Decref(RS_DUOVAL_OTHER2VAL(*v));
-      rm_free(v->duoval.vals);
+    case RSValue_JSON:
+      japi->freeIter(v->jsonval.iter);
+      if(v->jsonval.first) {
+        RSValue_Decref(v->jsonval.first);
+      }
+      if(v->jsonval.expanded) {
+        RSValue_Decref(v->jsonval.expanded);
+      }
+      if(v->jsonval.serialized) {
+        RSValue_Decref(v->jsonval.serialized);
+      }
       break;
     case RSValue_Array:
       for (uint32_t i = 0; i < v->arrval.len; i++) {
@@ -260,9 +268,9 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
     }
     case RSValue_Reference:
       return RSValue_ToString(dst, v->ref);
-
-    case RSValue_Duo:
-      return RSValue_ToString(dst, RS_DUOVAL_VAL(*v));
+    case RSValue_JSON:
+      // Return the string value of the first element
+      return RSValue_ToString(dst, RS_JSONVAL_FIRST(*v));
 
     case RSValue_Null:
     default:
@@ -308,8 +316,8 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
       p = RedisModule_StringPtrLen(v->rstrval, &l);
       break;
 
-    case RSValue_Duo:
-      return RSValue_ToNumber(RS_DUOVAL_VAL(*v), d);
+    case RSValue_JSON:
+      return RSValue_ToNumber(RS_JSONVAL_FIRST(*v), d);
 
     case RSValue_Null:
     case RSValue_Array:
@@ -347,8 +355,8 @@ const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
     case RSValue_RedisString:
     case RSValue_OwnRstring:
       return RedisModule_StringPtrLen(value->rstrval, lenp);
-    case RSValue_Duo:
-      return RSValue_StringPtrLen(RS_DUOVAL_VAL(*value), lenp);
+    case RSValue_JSON:
+      return RSValue_StringPtrLen(RS_JSONVAL_FIRST(*value), lenp);
     default:
       return NULL;
   }
@@ -478,13 +486,27 @@ inline RSValue *RS_NullVal() {
   return &RS_NULL;
 }
 
-RSValue *RS_DuoVal(RSValue *val, RSValue *otherval, RSValue *other2val) {
-  RSValue *duo = RS_NewValue(RSValue_Duo);
-  duo->duoval.vals = rm_calloc(3, sizeof(*duo->duoval.vals));
-  duo->duoval.vals[0] = val;
-  duo->duoval.vals[1] = otherval;
-  duo->duoval.vals[2] = other2val;
-  return duo;
+RSValue *RS_NewJSONVal(JSONResultsIterator iter, RedisModuleCtx *ctx) {
+  RSValue *v = RS_NewValue(RSValue_JSON);
+  v->jsonval.iter = iter;
+
+  // evaluate the first value of the iterator
+  RedisJSON json = japi->next(iter);
+  JSONType type = japi->getType(json);
+  if (type == JSONType_Array) {
+    // Empty array will return NULL
+    json = japi->getAt(json, 0);
+  }
+  v->jsonval.first = jsonValToValue(ctx, json);
+
+  // reset for next uses (evaluation of expanded and serialized values)
+  japi->resetIter(iter);
+
+  // Lazily evaluate the rest of the values (on demand)
+  v->jsonval.expanded = NULL;
+  v->jsonval.serialized = NULL;
+
+  return v;
 }
 
 static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t l2) {
@@ -562,8 +584,8 @@ static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2, QueryError *qerr)
       const char *s2 = RedisModule_StringPtrLen(v2->rstrval, &l2);
       return cmp_strings(s1, s2, l1, l2);
     }
-    case RSValue_Duo:
-      return RSValue_Cmp(RS_DUOVAL_VAL(*v1), RS_DUOVAL_VAL(*v2), qerr);
+    case RSValue_JSON:
+      return RSValue_Cmp(RS_JSONVAL_FIRST(*v1), RS_JSONVAL_FIRST(*v2), qerr);
     case RSValue_Null:
       return 0;
     case RSValue_Array:
@@ -721,7 +743,7 @@ static int RSValue_SendReply_Collection(RedisModule_Reply *reply, const RSValue 
 #endif //0
 
 /* Based on the value type, serialize the value into redis client response */
-int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
+int RSValue_SendReply(RedisModule_Reply *reply, RSValue *v, SendReplyFlags flags) {
   v = RSValue_Dereference(v);
 
   switch (v->t) {
@@ -755,8 +777,15 @@ int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags
     case RSValue_Null:
       return RedisModule_Reply_Null(reply);
 
-    case RSValue_Duo: {
-      return RSValue_SendReply(reply, RS_DUOVAL_OTHERVAL(*v), flags);
+    case RSValue_JSON: {
+      // Check if the value is already serialized
+      if (!RS_JSONVAL_SERIALIZED(*v)) {
+        RedisModuleString *serialized;
+        japi->getJSONFromIter(RS_JSONVAL_ITER(*v), reply->ctx, &serialized);
+        v->jsonval.serialized = RS_StealRedisStringVal(serialized);
+      }
+
+      return RSValue_SendReply(reply, RS_JSONVAL_SERIALIZED(*v), flags);
     }
 
 #if 1
@@ -837,8 +866,8 @@ void RSValue_Print(const RSValue *v) {
       RSValue_Print(v->ref);
       break;
 
-    case RSValue_Duo:
-      RSValue_Print(RS_DUOVAL_VAL(*v));
+    case RSValue_JSON:
+      RSValue_Print(RS_JSONVAL_FIRST(*v));
       break;
   }
 }
@@ -939,8 +968,8 @@ const char *RSValue_TypeName(RSValueType t) {
       return "redis-string";
     case RSValue_Reference:
       return "reference";
-    case RSValue_Duo:
-      return "duo";
+    case RSValue_JSON:
+      return "json";
     default:
       return "!!UNKNOWN TYPE!!";
   }

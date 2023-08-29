@@ -56,8 +56,8 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
   else {
     if (key->t == RSValue_Reference) {
       key = RSValue_Dereference(key);
-    } else if (key->t == RSValue_Duo) {
-      key = RS_DUOVAL_VAL(*key);
+    } else if (key->t == RSValue_JSON) {
+      key = RS_JSONVAL_FIRST(*key);
     }
     switch (key->t) {
       case RSValue_Number:
@@ -79,7 +79,7 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
       case RSValue_Array:
       case RSValue_Map:
       case RSValue_Reference:
-      case RSValue_Duo:
+      case RSValue_JSON:
         break;
     }
     if (rskey) {
@@ -172,9 +172,9 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     for(; currentField < requiredFieldsCount; currentField++) {
       const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       RSValue *v = rlk ? (RSValue*)getReplyKey(rlk, r) : NULL;
-      if (v && v->t == RSValue_Duo) {
-        // For duo value, we use the value here (not the other value)
-        v = RS_DUOVAL_VAL(*v);
+      if (v && v->t == RSValue_JSON) {
+        // For JSON value, we use the value here (not the other value)
+        v = RS_JSONVAL_FIRST(*v);
       }
       RSValue rsv;
       if (rlk && (rlk->flags & RLOOKUP_T_NUMERIC) && v && v->t != RSVALTYPE_DOUBLE && !RSValue_IsNull(v)) {
@@ -214,7 +214,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         if (!kk->name || !skipFieldIndex[i++]) {
           continue;
         }
-        const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
+        RSValue *v = RLookup_GetItem(kk, &r->rowdata);
         RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
         RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
@@ -223,20 +223,29 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         flags |= (req->reqflags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
 
         unsigned int apiVersion = req->sctx->apiVersion;
-        if (v && v->t == RSValue_Duo) {
-          // Which value to use for duo value
+        if (v && v->t == RSValue_JSON) {
+          // Which value to use for JSON value
           if (!(flags & SENDREPLY_FLAG_EXPAND)) {
             // STRING
             if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
               // Multi
-              v = RS_DUOVAL_OTHERVAL(*v);
+              if (!RS_JSONVAL_SERIALIZED(*v)) {
+                RedisModuleString *serialized;
+                japi->getJSONFromIter(RS_JSONVAL_ITER(*v), reply->ctx, &serialized);
+                v->jsonval.serialized = RS_StealRedisStringVal(serialized);
+              }
+              v = RS_JSONVAL_SERIALIZED(*v);
             } else {
               // Single
-              v = RS_DUOVAL_VAL(*v);
+              v = RS_JSONVAL_FIRST(*v);
             }
           } else {
             // EXPAND
-            v = RS_DUOVAL_OTHER2VAL(*v);
+            // Check if the value has already been expanded. If not, expand it
+            if(!RS_JSONVAL_EXPANDED(*v)) {
+              v->jsonval.expanded = japi_ver >= 4 ? jsonIterToValueExpanded(reply->ctx, RS_JSONVAL_ITER(*v)) : RS_NullVal();
+            }
+            v = RS_JSONVAL_EXPANDED(*v);
           }
         }
         RSValue_SendReply(reply, v, flags);
