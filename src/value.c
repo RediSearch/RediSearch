@@ -104,16 +104,9 @@ void RSValue_Clear(RSValue *v) {
     case RSValue_Null:
       return;  // prevent changing global RS_NULL to RSValue_Undef
     case RSValue_JSON:
-      japi->freeIter(v->jsonval.iter);
-      if(v->jsonval.first) {
-        RSValue_Decref(v->jsonval.first);
-      }
-      if(v->jsonval.expanded) {
-        RSValue_Decref(v->jsonval.expanded);
-      }
-      if(v->jsonval.serialized) {
-        RSValue_Decref(v->jsonval.serialized);
-      }
+      japi->freeIter(v->jsonval->iter);
+      RSValue_Decref(v->jsonval->first);
+      rm_free(v->jsonval);
       break;
     case RSValue_Array:
       for (uint32_t i = 0; i < v->arrval.len; i++) {
@@ -488,7 +481,8 @@ inline RSValue *RS_NullVal() {
 
 RSValue *RS_NewJSONVal(JSONResultsIterator iter, RedisModuleCtx *ctx) {
   RSValue *v = RS_NewValue(RSValue_JSON);
-  v->jsonval.iter = iter;
+  v->jsonval = rm_malloc(sizeof(*v->jsonval));
+  v->jsonval->iter = iter;
 
   // evaluate the first value of the iterator
   RedisJSON json = japi->next(iter);
@@ -497,14 +491,10 @@ RSValue *RS_NewJSONVal(JSONResultsIterator iter, RedisModuleCtx *ctx) {
     // Empty array will return NULL
     json = japi->getAt(json, 0);
   }
-  v->jsonval.first = jsonValToValue(ctx, json);
+  v->jsonval->first = jsonValToValue(ctx, json);
 
   // reset for next uses (evaluation of expanded and serialized values)
   japi->resetIter(iter);
-
-  // Lazily evaluate the rest of the values (on demand)
-  v->jsonval.expanded = NULL;
-  v->jsonval.serialized = NULL;
 
   return v;
 }
@@ -778,14 +768,10 @@ int RSValue_SendReply(RedisModule_Reply *reply, RSValue *v, SendReplyFlags flags
       return RedisModule_Reply_Null(reply);
 
     case RSValue_JSON: {
-      // Check if the value is already serialized
-      if (!RS_JSONVAL_SERIALIZED(*v)) {
-        RedisModuleString *serialized;
-        japi->getJSONFromIter(RS_JSONVAL_ITER(*v), reply->ctx, &serialized);
-        v->jsonval.serialized = RS_StealRedisStringVal(serialized);
-      }
+      RedisModuleString *serialized;
+      japi->getJSONFromIter(RS_JSONVAL_ITER(*v), reply->ctx, &serialized);
 
-      return RSValue_SendReply(reply, RS_JSONVAL_SERIALIZED(*v), flags);
+      return RSValue_SendReply(reply, RS_StealRedisStringVal(serialized), flags);
     }
 
 #if 1

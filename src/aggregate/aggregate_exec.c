@@ -229,23 +229,16 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
             // STRING
             if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
               // Multi
-              if (!RS_JSONVAL_SERIALIZED(*v)) {
-                RedisModuleString *serialized;
-                japi->getJSONFromIter(RS_JSONVAL_ITER(*v), reply->ctx, &serialized);
-                v->jsonval.serialized = RS_StealRedisStringVal(serialized);
-              }
-              v = RS_JSONVAL_SERIALIZED(*v);
+              RedisModuleString *serialized;
+              japi->getJSONFromIter(RS_JSONVAL_ITER(*v), reply->ctx, &serialized);
+              v = RS_StealRedisStringVal(serialized);
             } else {
               // Single
               v = RS_JSONVAL_FIRST(*v);
             }
           } else {
             // EXPAND
-            // Check if the value has already been expanded. If not, expand it
-            if(!RS_JSONVAL_EXPANDED(*v)) {
-              v->jsonval.expanded = japi_ver >= 4 ? jsonIterToValueExpanded(reply->ctx, RS_JSONVAL_ITER(*v)) : RS_NullVal();
-            }
-            v = RS_JSONVAL_EXPANDED(*v);
+            v = japi_ver >= 4 ? jsonIterToValueExpanded(reply->ctx, RS_JSONVAL_ITER(*v)) : RS_NullVal();
           }
         }
         RSValue_SendReply(reply, v, flags);

@@ -65,6 +65,11 @@ typedef enum {
   RSString_Volatile = 0x04,
 } RSStringType;
 
+typedef struct {
+  JSONResultsIterator iter; // JSON iterator
+  struct RSValue *first;    // first value
+} RS_JSONValue;
+
 #define RSVALUE_STATIC \
   { .allocated = 0 }
 
@@ -104,12 +109,7 @@ typedef struct RSValue {
       uint32_t len;           // number of pairs (not number of array elements)
     } mapval;
 
-    struct {
-      JSONResultsIterator iter;    // JSON iterator
-      struct RSValue *first;       // first value
-      struct RSValue *expanded;    // expanded format
-      struct RSValue *serialized;  // serialized value
-    } jsonval;
+    RS_JSONValue *jsonval;
 
     // redis string value
     struct RedisModuleString *rstrval;
@@ -131,10 +131,8 @@ typedef struct RSValue {
 } RSValue;
 #pragma pack()
 
-#define RS_JSONVAL_ITER(v) ((v).jsonval.iter)
-#define RS_JSONVAL_FIRST(v) ((v).jsonval.first)
-#define RS_JSONVAL_SERIALIZED(v) ((v).jsonval.serialized)
-#define RS_JSONVAL_EXPANDED(v) ((v).jsonval.expanded)
+#define RS_JSONVAL_ITER(v) ((v).jsonval->iter)
+#define RS_JSONVAL_FIRST(v) ((v).jsonval->first)
 
 #define APIVERSION_RETURN_MULTI_CMP_FIRST 3
 
