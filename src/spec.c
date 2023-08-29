@@ -1267,7 +1267,7 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
 
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
-    cleanPool = redisearch_thpool_create(1);
+    cleanPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM);
     redisearch_thpool_init(cleanPool, LogCallback);
   }
 }
@@ -2081,7 +2081,7 @@ end:
 
 static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1);
+    reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM);
     redisearch_thpool_init(reindexPool, LogCallback);
   }
 #ifdef _DEBUG
@@ -2307,7 +2307,7 @@ void Indexes_UpgradeLegacyIndexes() {
 
 void Indexes_ScanAndReindex() {
   if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1);
+    reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM);
     redisearch_thpool_init(reindexPool, LogCallback);
   }
 
