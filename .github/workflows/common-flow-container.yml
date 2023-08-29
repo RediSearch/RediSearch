@@ -34,10 +34,10 @@ jobs:
       - name: Deps checkout
         uses: actions/checkout@v3
         with:
-          fetch-depth: 5
-          sparse-checkout: |
-            deps
-            sbin
+          submodules: true
+      - run: |
+          git config --global --add safe.directory '*'
+          git submodule update --init --recursive
       - name: Setup
         run: |
           ./sbin/setup
