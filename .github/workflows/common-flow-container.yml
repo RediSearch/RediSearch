@@ -18,7 +18,7 @@ on:
         type: boolean
 
 env:
-  SUDO: ""
+  MODE: "" # user mode
 
 jobs:
   common-flow:
@@ -48,7 +48,7 @@ jobs:
       #     sparse-checkout: .install
       # - name: Setup
       #   run: |
-      #     ${{env.SUDO}} ./.install/install_script.sh
+      #     ${{env.MODE}} ./.install/install_script.sh
       - name: Full checkout
         uses: actions/checkout@v3
         with:
@@ -65,13 +65,28 @@ jobs:
           make COORD=1 SAN=${{ inputs.san }}
       - name: Unit tests
         run: |
-          make unit-tests SAN=${{ inputs.san }}
+          make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests
         run: |
-          make pytest QUICK=1 SAN=${{ inputs.san }}
+          make pytest QUICK=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Unit tests (coordinator)
         run: |
-          make COORD=1 unit-tests SAN=${{ inputs.san }}
+          make COORD=1 unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (coordinator)
         run: |
-          make COORD=1 pytest QUICK=1 SAN=${{ inputs.san }}
+          make COORD=1 pytest QUICK=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: Test Logs
+          path: |
+            tests/logs
+            tests/pytests/logs/*.log
+          if-no-files-found: ignore
+      - name: Upload Sanitizer Artifacts
+        if: ${{ inputs.san }}
+        uses: actions/upload-artifact@v2
+        with:
+          name: Sanitizer Logs
+          path: tests/pytests/logs/*.log.*
+          if-no-files-found: ignore
