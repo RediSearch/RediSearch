@@ -67,7 +67,7 @@ jobs:
         run: |
           make COORD=1 pytest QUICK=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: Test Logs
           path: |
@@ -76,7 +76,7 @@ jobs:
           if-no-files-found: ignore
       - name: Upload Sanitizer Artifacts
         if: ${{ inputs.san }}
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: Sanitizer Logs
           path: tests/pytests/logs/*.log.*
