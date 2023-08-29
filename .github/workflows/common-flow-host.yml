@@ -17,7 +17,7 @@ env:
 jobs:
   common-flow:
     runs-on: ${{ inputs.env }}
-# From this point on, the file should be identical to the other common flow.
+# From this point on, this file should be identical to the other common flow.
     defaults:
       run:
         shell: bash -l -eo pipefail {0}

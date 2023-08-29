@@ -3,7 +3,7 @@ name: Verify common flows are in sync
 on: [push]
 
 env:
-  LINE_REGEX: "# From this point on, the file should be identical to the other common flow."
+  LINE_REGEX: "# From this point on, this file should be identical to the other common flow."
   FILE_DIR: ".github/workflows"
   FILE_PREFIX: "common-flow-"
 
