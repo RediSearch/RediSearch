@@ -1,3 +1,10 @@
+
+How to use the template:
+a. Create a copy of this file, rename and remove the .TEMPLATE suffix
+b. Fill the missing data on steps 1-4 around the file. (search for `# [1-4].`)
+c. remove this comment and all other instructions
+
+#################################################################################
 name: TEMPLATE self-hosted flow # 1. Change the name of the workflow
 
 # 2. Change when the workflow will run
@@ -30,7 +37,6 @@ jobs:
         with:
           mode: start
           github-token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
-          # Ubuntu 22.04 region AMI for ARM
           ec2-image-id: ${{ env.AWS_IMAGE_ID }}
           ec2-instance-type: ${{ env.AWS_INSTANCE_TYPE }}
           subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID }}
@@ -41,8 +47,7 @@ jobs:
     runs-on: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
     steps:
       # 4. Put your workflow here
-      - name: work
-        run: ////////////////////// PUT YOUR WORKFLOW HERE //////////////////////
+      ///////////////////////////////// PUT YOUR WORKFLOW HERE /////////////////////////////////
 
   stop-runner:
     name: Stop self-hosted EC2 runner
