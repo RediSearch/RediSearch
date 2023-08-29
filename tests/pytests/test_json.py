@@ -1117,3 +1117,41 @@ def testRedisCommands(env):
         time.sleep(0.1)
         env.expect('JSON.GET', 'doc:1', '$').equal(None)
         env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([0])
+
+def testUpperLower():
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 3')
+    conn = getConnectionByEnv(env)
+
+    # create index
+    env.assertOk(conn.execute_command('FT.CREATE' ,'groupIdx' ,'ON', 'JSON', 'PREFIX', 1, 'group:', 'SCHEMA', '$.tags.*', 'AS', 'tags', 'TAG'))
+    waitForIndex(env, 'groupIdx')
+
+    # validate the `upper` case
+    env.assertOk(conn.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["tag1"]}'))
+    env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'upper(@tags)', 'AS', 'upp').equal([1, ['tags', '["tag1"]', 'upp', 'TAG1']])
+
+    # validate the `lower` case
+    env.assertOk(conn.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["TAG1"]}'))
+    env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'lower(@tags)', 'AS', 'low').equal([1, ['tags', '["TAG1"]', 'low', 'tag1']])
+
+    # expect the same result for multi-value case
+
+    # validate the `upper` case
+    env.assertOk(conn.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["tag1", "tag2"]}'))
+    env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'upper(@tags)', 'AS', 'upp').equal([1, ['tags', '["tag1","tag2"]', 'upp', 'TAG1']])
+
+    # validate the `lower` case
+    env.assertOk(conn.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["TAG1", "TAG2"]}'))
+    env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'lower(@tags)', 'AS', 'low').equal([1, ['tags', '["TAG1","TAG2"]', 'low', 'tag1']])
+
+no_msan
+def test_mod5608(env):
+    with env.getClusterConnectionIfNeeded() as r:
+        for i in range(10000):
+            r.execute_command("HSET", 'd%d' % i, 'id', 'id%d' % i, 'num', i)
+
+        env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'd', 'SCHEMA', 'id', 'TAG', 'num', 'NUMERIC').equal('OK')
+        waitForIndex(env, 'idx')
+        res = env.execute_command('FT.AGGREGATE', 'idx', "*", 'LOAD', 1, 'num', 'WITHCURSOR', 'MAXIDLE', 1, 'COUNT', 300)
+        cursor_id = res[1]

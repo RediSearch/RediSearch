@@ -214,6 +214,9 @@ typedef struct {
   int id;
   /* Flags given by the engine or by the query expander */
   RSTokenFlags flags;
+
+  /* Inverse document frequency of the term in the index for computing BM25 */
+  double bm25_idf;
 } RSQueryTerm;
 
 /**************************************
