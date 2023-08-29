@@ -1,8 +1,6 @@
 name: Build on macOS
 
-on:
-  push:
-  workflow_dispatch:
+on: [push, workflow_dispatch]
 
 jobs:
   build-macos:

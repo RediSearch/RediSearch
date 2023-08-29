@@ -34,10 +34,20 @@ jobs:
       - name: Deps checkout
         uses: actions/checkout@v3
         with:
-          sparse-checkout: .install
+          sparse-checkout: |
+            deps
+            sbin
       - name: Setup
         run: |
-          ${{env.SUDO}} ./.install/install_script.sh
+          ./sbin/setup
+      # TODO: use this instead
+      # - name: Deps checkout
+      # uses: actions/checkout@v3
+      # with:
+      #     sparse-checkout: .install
+      # - name: Setup
+      #   run: |
+      #     ${{env.SUDO}} ./.install/install_script.sh
       - name: Full checkout
         uses: actions/checkout@v3
         with:
