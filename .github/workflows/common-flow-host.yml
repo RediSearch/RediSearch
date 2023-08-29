@@ -25,6 +25,7 @@ jobs:
       - name: Deps checkout
         uses: actions/checkout@v3
         with:
+          fetch-depth: 5
           sparse-checkout: |
             deps
             sbin
