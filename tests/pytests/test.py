@@ -601,7 +601,7 @@ def testNoIndex(env):
         # to specific check on cluster, todo : change it to be generic enough
         res = env.cmd('ft.info', 'idx')
         env.assertEqual(res[7][1][8], 'NOINDEX')
-        env.assertEqual(res[7][2][9], 'NOINDEX')
+        env.assertEqual(res[7][2][11], 'NOINDEX')
 
     env.expect('ft.add', 'idx', 'doc1', '0.1', 'fields',
                                     'foo', 'hello world', 'num', 1, 'extra', 'hello lorem ipsum').ok()
@@ -1723,8 +1723,12 @@ def testInfoCommand(env):
 
         env.assertEqual(d['index_name'], 'idx')
         env.assertEqual(d['index_options'], ['NOFIELDS'])
+        defaultDelimiters = '\t !\"#$%&\'()*+,-./:;<=>?@[]^`{|}~'
         env.assertListEqual(
-            d['attributes'], [['identifier', 'title', 'attribute', 'title', 'type', 'TEXT', 'WEIGHT', '1']])
+            d['attributes'], [['identifier', 'title', 'attribute', 'title',
+                               'type', 'TEXT', 'WEIGHT', '1',
+                               'delimiters', defaultDelimiters
+                               ]])
 
         if not env.is_cluster():
             env.assertEquals(int(d['num_docs']), N)
@@ -1738,6 +1742,7 @@ def testInfoCommand(env):
             env.assertGreater(float(d['inverted_sz_mb']), 0)
             env.assertGreater(float(d['bytes_per_record_avg']), 0)
             env.assertGreater(float(d['doc_table_size_mb']), 0)
+            env.assertEqual(d['delimiters'], defaultDelimiters)
 
     for x in range(1, 6):
         for combo in combinations(('NOOFFSETS', 'NOFREQS', 'NOFIELDS', 'NOHL', ''), x):
@@ -1776,7 +1781,7 @@ def testNoStem(env):
     if not env.isCluster():
         # todo: change it to be more generic to pass on is_cluster
         res = env.cmd('ft.info', 'idx')
-        env.assertEqual(res[7][1][8], 'NOSTEM')
+        env.assertEqual(res[7][1][10], 'NOSTEM')
     for _ in env.retry_with_reload():
         waitForIndex(env, 'idx')
         try:
