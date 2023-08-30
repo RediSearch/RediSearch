@@ -406,7 +406,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
             load->base.dtor = [](PLN_BaseStep *stp) {
               PLN_LoadStep *load = (PLN_LoadStep *)stp;
               for (size_t ii = 0; ii < load->args.argc; ++ii) {
-                rm_free((sds)load->args.objs[ii]);
+                rm_free(load->args.objs[ii]);
               }
               rm_free(load->args.objs);
               rm_free(stp);
