@@ -379,6 +379,53 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         current = PLN_NEXT_STEP(current);
         break;
       case PLN_T_FILTER:
+        ///////////////// Part of non-breaking solution for MOD-5267. ///////////////////////////////
+        // #include "rmutil/sds.h"
+        // #include "hiredis/sds.h"
+        // TODO: remove, and enable (or verify that) a FILTER step can implicitly load missing keys
+        //       that are part of the index schema.
+        if (!hadArrange) {
+          // Step 1: parse the filter expression and extract the required keys
+          PLN_MapFilterStep *fstp = (PLN_MapFilterStep *)current;
+          RSExpr *tmpExpr = ExprAST_Parse(fstp->rawExpr, strlen(fstp->rawExpr), status);
+          if (tmpExpr == NULL) {
+            return REDISMODULE_ERR;
+          }
+          RLookup filter_keys;
+          RLookup_Init(&filter_keys, NULL);
+          filter_keys.options |= RLOOKUP_OPT_UNRESOLVED_OK;
+          ExprAST_GetLookupKeys(tmpExpr, &filter_keys, status);
+          if (QueryError_HasError(status)) {
+            RLookup_Cleanup(&filter_keys);
+            ExprAST_Free(tmpExpr);
+            return REDISMODULE_ERR;
+          }
+          // Step 2: generate a LOAD step for the keys. If the keys are already loaded (or sortable),
+          //         this step will be optimized out.
+          if (filter_keys.rowlen) {
+            PLN_LoadStep *load = (PLN_LoadStep *)rm_calloc(1, sizeof(*load));
+            load->base.type = PLN_T_LOAD;
+            load->base.dtor = [](PLN_BaseStep *stp) {
+              PLN_LoadStep *load = (PLN_LoadStep *)stp;
+              for (size_t ii = 0; ii < load->args.argc; ++ii) {
+                rm_free((sds)load->args.objs[ii]);
+              }
+              rm_free(load->args.objs);
+              rm_free(stp);
+            };
+            const char **argv = (const char**)rm_malloc(sizeof(char*) * filter_keys.rowlen);
+            size_t argc = 0;
+            for (RLookupKey *kk = filter_keys.head; kk != NULL; kk = kk->next) {
+              argv[argc++] = rm_strndup(kk->name, kk->name_len);
+            }
+            ArgsCursor_InitCString(&load->args, argv, argc);
+            AGPLN_AddStep(remote, &load->base);
+          }
+          // Step 3: cleanup
+          RLookup_Cleanup(&filter_keys);
+          ExprAST_Free(tmpExpr);
+        }
+        ///////////////// End of MOD-5267 solution //////////////////////////////////////////////////
         // If we had an arrange step, it was split into a remote and local steps, and we must
         // have the filter step locally, otherwise we will move the filter step into in between
         // the remote and local arrange steps, which is logically incorrect.
