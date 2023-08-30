@@ -380,8 +380,6 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         break;
       case PLN_T_FILTER:
         ///////////////// Part of non-breaking solution for MOD-5267. ///////////////////////////////
-        // #include "rmutil/sds.h"
-        // #include "hiredis/sds.h"
         // TODO: remove, and enable (or verify that) a FILTER step can implicitly load missing keys
         //       that are part of the index schema.
         if (!hadArrange) {
@@ -425,7 +423,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           RLookup_Cleanup(&filter_keys);
           ExprAST_Free(tmpExpr);
         }
-        ///////////////// End of MOD-5267 solution //////////////////////////////////////////////////
+        ///////////////// End of non-breaking MOD-5267 solution /////////////////////////////////////
         // If we had an arrange step, it was split into a remote and local steps, and we must
         // have the filter step locally, otherwise we will move the filter step into in between
         // the remote and local arrange steps, which is logically incorrect.
