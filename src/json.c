@@ -563,6 +563,8 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
     } else {
       rv = REDISMODULE_ERR;
     }
+  } else {
+    japi->resetIter(jsonIter);
   }
   return rv;
 }
