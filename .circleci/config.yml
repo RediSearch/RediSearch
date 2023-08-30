@@ -461,7 +461,7 @@ jobs:
 
   build-macos-x64:
     macos:
-      xcode: 13.2.1
+      xcode: 13.4.1
     resource_class: macos.x86.medium.gen2
     parameters:
       test_params:
@@ -1017,11 +1017,13 @@ workflows:
             parameters:
               platform: [jammy, focal, bionic]
       - build-macos-x64:
-          <<: *on-version-tags
+          #<<: *on-version-tags
+          <<: *always
           context: common
       - build-macos-m1:
           context: common
-          <<: *on-version-tags
+          #<<: *on-version-tags
+          <<: *always
       - coverage:
           <<: *always
       - sanitize:
