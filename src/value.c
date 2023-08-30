@@ -104,8 +104,8 @@ void RSValue_Clear(RSValue *v) {
     case RSValue_Null:
       return;  // prevent changing global RS_NULL to RSValue_Undef
     case RSValue_JSON:
-      japi->freeIter(v->jsonval->iter);
-      RSValue_Decref(v->jsonval->first);
+      japi->freeIter(RS_JSONVAL_ITER(*v));
+      RSValue_Decref(RS_JSONVAL_FIRST(*v));
       rm_free(v->jsonval);
       break;
     case RSValue_Array:

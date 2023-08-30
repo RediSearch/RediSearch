@@ -212,7 +212,6 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
       RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", field->path);
       goto done;
     }
-    japi->freeIter(jsonIter);
     jsonIter = NULL;
   }
   rv = REDISMODULE_OK;
