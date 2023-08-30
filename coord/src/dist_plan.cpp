@@ -175,7 +175,7 @@ static void freeDistStep(PLN_BaseStep *bstp) {
   if (dstp->serialized) {
     auto &v = *dstp->serialized;
     for (auto s : v) {
-      rm_free(s);
+      rm_free((void *)s);
     }
     delete &v;
   }
@@ -368,7 +368,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
   PLN_DistributeStep *dstp = (PLN_DistributeStep *)rm_calloc(1, sizeof(*dstp));
   dstp->base.type = PLN_T_DISTRIBUTE;
   dstp->plan = remote;
-  dstp->serialized = new std::vector<char *>();
+  dstp->serialized = new std::vector<const char *>();
   dstp->base.dtor = freeDistStep;
   dstp->base.getLookup = distStepGetLookup;
   BlkAlloc_Init(&dstp->alloc);
@@ -411,7 +411,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
               rm_free(load->args.objs);
               rm_free(stp);
             };
-            const char **argv = (const char**)rm_malloc(sizeof(char*) * filter_keys.rowlen);
+            const char **argv = (const char**)rm_malloc(sizeof(*argv) * filter_keys.rowlen);
             size_t argc = 0;
             for (RLookupKey *kk = filter_keys.head; kk != NULL; kk = kk->next) {
               argv[argc++] = rm_strndup(kk->name, kk->name_len);
@@ -570,7 +570,7 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
   }
 
   us->lookup = &dstp->lk;
-  us->serialized = const_cast<const char **>(ser_args.data());
+  us->serialized = ser_args.data();
   us->nserialized = ser_args.size();
   return REDISMODULE_OK;
 }
