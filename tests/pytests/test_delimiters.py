@@ -56,6 +56,21 @@ def test01_IndexDelimiters(env):
     # waitForIndex(env, 'idx1')
     # assertInfoField(env, 'idx1', 'delimiters', 'cd')
 
+    # Index without custom delimiters, should use the default delimiters
+    env.expect(
+        'FT.CREATE', 'idx1', 'ON', 'HASH',
+        'SCHEMA', 'field1', 'text').ok()
+    waitForIndex(env, 'idx1')
+    assertInfoField(env, 'idx1', 'delimiters', _defaultDelimiters)
+
+    if not env.isCluster():
+        res = env.execute_command('FT.INFO', 'idx1')
+        # field1 delimiters
+        env.assertEqual(res[7][0][1], 'field1')
+        env.assertEqual(res[7][0][8], 'delimiters')
+        env.assertEqual(res[7][0][9], _defaultDelimiters)
+
+    env.execute_command('FT.DROPINDEX', 'idx1')
 
 def test02_IndexOnHashWithCustomDelimiter(env):
     conn = getConnectionByEnv(env)
