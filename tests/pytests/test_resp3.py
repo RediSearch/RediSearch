@@ -1,7 +1,7 @@
-import json
 from common import *
 import operator
 from math import nan
+import json
 
 def order_dict(d):
     ''' Sorts a dictionary recursively by keys '''
