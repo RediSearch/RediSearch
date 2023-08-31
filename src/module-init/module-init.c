@@ -248,7 +248,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   }
 
   // Init cursors mechanism
-  CursorList_Init(&g_CursorsList);
+  CursorList_Init(&g_CursorsList, false);
+  CursorList_Init(&g_CursorsListCoord, true);
 
   IndexAlias_InitGlobal();
 
