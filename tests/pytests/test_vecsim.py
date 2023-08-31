@@ -1000,15 +1000,15 @@ def test_hybrid_query_non_vector_score():
     # use TFIDF.DOCNORM scorer
     expected_res_3 = [10,
                       '100', '3', ['__v_score', '0', 't', 'other'],
-                      '91', '0.33333333333333331', ['__v_score', '10368', 't', 'text value'],
-                      '92', '0.33333333333333331', ['__v_score', '8192', 't', 'text value'],
-                      '93', '0.33333333333333331', ['__v_score', '6272', 't', 'text value'],
-                      '94', '0.33333333333333331', ['__v_score', '4608', 't', 'text value'],
-                      '95', '0.33333333333333331', ['__v_score', '3200', 't', 'text value'],
-                      '96', '0.33333333333333331', ['__v_score', '2048', 't', 'text value'],
-                      '97', '0.33333333333333331', ['__v_score', '1152', 't', 'text value'],
-                      '98', '0.33333333333333331', ['__v_score', '512', 't', 'text value'],
-                      '99', '0.33333333333333331', ['__v_score', '128', 't', 'text value']]
+                      '91', '0.5', ['__v_score', '10368', 't', 'text value'],
+                      '92', '0.5', ['__v_score', '8192', 't', 'text value'],
+                      '93', '0.5', ['__v_score', '6272', 't', 'text value'],
+                      '94', '0.5', ['__v_score', '4608', 't', 'text value'],
+                      '95', '0.5', ['__v_score', '3200', 't', 'text value'],
+                      '96', '0.5', ['__v_score', '2048', 't', 'text value'],
+                      '97', '0.5', ['__v_score', '1152', 't', 'text value'],
+                      '98', '0.5', ['__v_score', '512', 't', 'text value'],
+                      '99', '0.5', ['__v_score', '128', 't', 'text value']]
     res = env.cmd('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'TFIDF.DOCNORM', 'WITHSCORES',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10)
@@ -1017,22 +1017,29 @@ def test_hybrid_query_non_vector_score():
     # Those scorers are scoring per shard.
     if not env.isCluster():
         # use BM25 scorer
-        expected_res_4 = [10, '100', '0.72815531789441912', ['__v_score', '0', 't', 'other'], '91', '0.24271843929813972', ['__v_score', '10368', 't', 'text value'], '92', '0.24271843929813972', ['__v_score', '8192', 't', 'text value'], '93', '0.24271843929813972', ['__v_score', '6272', 't', 'text value'], '94', '0.24271843929813972', ['__v_score', '4608', 't', 'text value'], '95', '0.24271843929813972', ['__v_score', '3200', 't', 'text value'], '96', '0.24271843929813972', ['__v_score', '2048', 't', 'text value'], '97', '0.24271843929813972', ['__v_score', '1152', 't', 'text value'], '98', '0.24271843929813972', ['__v_score', '512', 't', 'text value'], '99', '0.24271843929813972', ['__v_score', '128', 't', 'text value']]
+        expected_res_4 = [10, '100', '1.0489510218434552', ['__v_score', '0', 't', 'other'], '91', '0.34965034061448513', ['__v_score', '10368', 't', 'text value'], '92', '0.34965034061448513', ['__v_score', '8192', 't', 'text value'], '93', '0.34965034061448513', ['__v_score', '6272', 't', 'text value'], '94', '0.34965034061448513', ['__v_score', '4608', 't', 'text value'], '95', '0.34965034061448513', ['__v_score', '3200', 't', 'text value'], '96', '0.34965034061448513', ['__v_score', '2048', 't', 'text value'], '97', '0.34965034061448513', ['__v_score', '1152', 't', 'text value'], '98', '0.34965034061448513', ['__v_score', '512', 't', 'text value'], '99', '0.34965034061448513', ['__v_score', '128', 't', 'text value']]
         res = env.cmd('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'BM25', 'WITHSCORES',
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10)
         compare_lists(env, res, expected_res_4, delta=0.01)
 
+        # use BM25STD scorer
+        expected_res_5 = [10, '100', '2.6410360891609486', ['__v_score', '0', 't', 'other'], '91', '0.005028044957743152', ['__v_score', '10368', 't', 'text value'], '92', '0.005028044957743152', ['__v_score', '8192', 't', 'text value'], '93', '0.005028044957743152', ['__v_score', '6272', 't', 'text value'], '94', '0.005028044957743152', ['__v_score', '4608', 't', 'text value'], '95', '0.005028044957743152', ['__v_score', '3200', 't', 'text value'], '96', '0.005028044957743152', ['__v_score', '2048', 't', 'text value'], '97', '0.005028044957743152', ['__v_score', '1152', 't', 'text value'], '98', '0.005028044957743152', ['__v_score', '512', 't', 'text value'], '99', '0.005028044957743152', ['__v_score', '128', 't', 'text value']]
+        res = env.cmd('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'BM25STD', 'WITHSCORES',
+                  'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                  'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10)
+        compare_lists(env, res, expected_res_5, delta=0.01)
+
         # use DISMAX scorer
-        expected_res_5 = [10, '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value'], '100', '1', ['__v_score', '0', 't', 'other']]
+        expected_res_6 = [10, '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value'], '100', '1', ['__v_score', '0', 't', 'other']]
         env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'DISMAX', 'WITHSCORES',
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_5)
+                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_6)
 
         # use DOCSCORE scorer
         env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'DOCSCORE', 'WITHSCORES',
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_5)
+                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_6)
 
 
 def test_single_entry():

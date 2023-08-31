@@ -1276,6 +1276,7 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask f
   if (term && sp) {
     // compute IDF based on num of docs in the header
     term->idf = CalculateIDF(sp->docs.size, idx->numDocs);
+    term->bm25_idf = CalculateIDF_BM25(sp->stats.numDocuments, idx->numDocs);
   }
 
   // Get the decoder

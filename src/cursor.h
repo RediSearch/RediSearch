@@ -37,6 +37,9 @@ typedef struct Cursor {
 
   /** Position within idle list */
   int pos;
+
+  /** Is it an internal coordinator cursor or a user cursor*/
+  bool is_coord;
 } Cursor;
 
 KHASH_MAP_INIT_INT64(cursors, Cursor *);
@@ -70,11 +73,20 @@ typedef struct CursorList {
    * This is used as a hint to avoid excessive sweeps.
    */
   uint64_t nextIdleTimeoutNs;
+
+  /** Is it an internal coordinator cursor or a user cursor */
+  bool is_coord;
 } CursorList;
 
 // This resides in the background as a global. We could in theory make this
 // part of the spec structure
+// Structs managing the cusrosrs
 extern CursorList g_CursorsList;
+extern CursorList g_CursorsListCoord;
+
+static inline CursorList *GetGlobalCursor(uint64_t cid) {
+  return cid % 2 == 1 ? &g_CursorsListCoord : &g_CursorsList;
+}
 
 /**
  * Threading/Concurrency behavior
@@ -104,7 +116,7 @@ extern CursorList g_CursorsList;
 /**
  * Initialize the cursor list
  */
-void CursorList_Init(CursorList *cl);
+void CursorList_Init(CursorList *cl, bool is_coord);
 
 /**
  * Clear the cursor list
@@ -167,11 +179,13 @@ int Cursors_CollectIdle(CursorList *cl);
 /**
  * Assumed to be called by the main thread with a valid locked spec, under the cursors lock.
  */
-void Cursors_RenderStats(CursorList *cl, IndexSpec *spec, RedisModule_Reply *reply);
+void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModule_Reply *reply);
 
 #ifdef FTINFO_FOR_INFO_MODULES
-void Cursors_RenderStatsForInfo(CursorList *cl, IndexSpec *spec, RedisModuleInfoCtx *ctx);
+void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModuleInfoCtx *ctx);
 #endif
 
 void Cursor_FreeExecState(void *);
 #endif
+
+#define getCursorList(coord) ((coord) ? &g_CursorsListCoord : &g_CursorsList)
