@@ -251,12 +251,6 @@ class TestAggregate():
             self.env.assertGreater(int(row['count']), 2)
 
     def testFilterBeforeLoad(self):
-
-    # 'title',       'TEXT',   'SORTABLE',
-    # 'brand',       'TEXT',   'NOSTEM', 'SORTABLE',
-    # 'description', 'TEXT',
-    # 'price',       'NUMERIC',
-    # 'categories',  'TAG'
         cmd = ['ft.aggregate', 'games', '*',
                'FILTER', '@price > 500',
                'SORTBY', 2, '@price', 'desc',
@@ -1162,8 +1156,3 @@ def testWithKNN(env):
                                'REDUCE', 'COUNT', '0', 'AS', 'c', 'SORTBY', '1', '@n',
                                'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
     env.assertEqual(res[1:], expected_res)
-
-if __name__ == '__main__':
-    import redis
-    env = redis.RedisCluster(host='localhost', port=6379)
-    add_values(env)
