@@ -213,9 +213,16 @@ void ReplyWithDelimiterList(RedisModule_Reply* reply, DelimiterList *dl) {
   }
 }
 
-// TODO:
-// void AddDelimiterListToInfo(RedisModuleInfoCtx* ctx, DelimiterList *dl) {
-// }
+// TODO: How to test this function?
+#ifdef FTINFO_FOR_INFO_MODULES
+void AddDelimiterListToInfo(RedisModuleInfoCtx* ctx, DelimiterList *dl) {
+  if (dl == NULL) {
+    RedisModule_InfoAddFieldCString(ctx, "delimiters", DefaultDelimiterString());
+  } else {
+    RedisModule_InfoAddFieldCString(ctx, "delimiters", dl->delimiterString);
+  }
+}
+#endif
 
 /**
  * Function reads string pointed to by `s` and indicates the length of the next

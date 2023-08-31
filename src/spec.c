@@ -2142,8 +2142,10 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
     else
       RedisModule_InfoAddFieldCString(ctx, "type", (char*)FieldSpec_GetTypeNames(INDEXTYPE_TO_POS(fs->types)));
 
-    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT))
+    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
       RedisModule_InfoAddFieldDouble(ctx,  SPEC_WEIGHT_STR, fs->ftWeight);
+      AddDelimiterListToInfo(ctx, fs->delimiters);
+    }
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
       char buf[4];
       sprintf(buf, "\"%c\"", fs->tagOpts.tagSep);
@@ -2204,11 +2206,6 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   // Stop words
   if (sp->flags & Index_HasCustomStopwords)
     AddStopWordsListToInfo(ctx, sp->stopwords);
-
-  // Separators
-  if (sp->flags & Index_HasCustomSeparators) {
-    AddDelimiterListToInfo(ctx, sp->separators);
-  }
 }
 #endif // FTINFO_FOR_INFO_MODULES
 

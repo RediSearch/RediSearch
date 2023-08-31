@@ -138,7 +138,11 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
       REPLY_KVNUM(SPEC_WEIGHT_STR, fs->ftWeight);
 
-      ReplyWithDelimiterList(reply, fs->delimiters);
+      if(fs->delimiters != NULL) {
+        ReplyWithDelimiterList(reply, fs->delimiters);
+      } else {
+        ReplyWithDelimiterList(reply, sp->delimiters);
+      }
     }
 
     bool reply_SPEC_TAG_CASE_SENSITIVE_STR = false;
@@ -246,8 +250,6 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (sp->flags & Index_HasCustomStopwords) {
     ReplyWithStopWordsList(reply, sp->stopwords);
   }
-
-  ReplyWithDelimiterList(reply, sp->delimiters);
 
   REPLY_KVMAP("dialect_stats");
   for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {

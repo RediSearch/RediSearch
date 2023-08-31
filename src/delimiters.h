@@ -54,9 +54,9 @@ void DelimiterList_Ref(struct DelimiterList *dl);
 
 void ReplyWithDelimiterList(RedisModule_Reply *reply, struct DelimiterList *dl);
 
-// #ifdef FTINFO_FOR_INFO_MODULES
-// void AddDelimiterListToInfo(RedisModuleInfoCtx *ctx, struct DelimiterList *dl);
-// #endif
+#ifdef FTINFO_FOR_INFO_MODULES
+void AddDelimiterListToInfo(RedisModuleInfoCtx *ctx, struct DelimiterList *dl);
+#endif
 
 char *toksep(char **s, size_t *tokLen, const DelimiterList *dl);
 

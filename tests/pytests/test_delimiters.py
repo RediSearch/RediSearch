@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from common import assertInfoField, getConnectionByEnv, waitForIndex
+from common import getConnectionByEnv, slice_at, waitForIndex
 from RLTest import Env
 
 _defaultDelimiters = '\t !\"#$%&\'()*+,-./:;<=>?@[]^`{|}~'
@@ -12,7 +12,17 @@ def test01_IndexDelimiters(env):
         'FT.CREATE', 'idx1', 'ON', 'HASH',
         'DELIMITERS', ' \t!\"#$%&\'()*+,-./:;<=>?@[]^`{|}~',
         'SCHEMA', 'foo', 'text').ok()
-    assertInfoField(env, 'idx1', 'delimiters', _defaultDelimiters)
+
+    if not env.isCluster():
+        info = env.execute_command('FT.INFO', 'idx1')
+        # field delimiters
+        env.assertEqual(
+            slice_at(slice_at(info, 'attributes')[0][0], 'identifier')[0],
+            'foo')
+        env.assertEqual(
+            slice_at(slice_at(info, 'attributes')[0][0], 'delimiters')[0],
+            _defaultDelimiters)
+
     env.execute_command('FT.DROPINDEX', 'idx1')
 
     # Index with custom delimiters
@@ -21,7 +31,17 @@ def test01_IndexDelimiters(env):
         'DELIMITERS', ';*',
         'DELIMITERS', ';*,#@',
         'SCHEMA', 'foo', 'text').ok()
-    assertInfoField(env, 'idx1', 'delimiters', '#*,;@')
+
+    if not env.isCluster():
+        info = env.execute_command('FT.INFO', 'idx1')
+        # field delimiters
+        env.assertEqual(
+            slice_at(slice_at(info, 'attributes')[0][0], 'identifier')[0],
+            'foo')
+        env.assertEqual(
+            slice_at(slice_at(info, 'attributes')[0][0], 'delimiters')[0],
+            '#*,;@')
+
     env.execute_command('FT.DROPINDEX', 'idx1')
 
     # If DELIMITERS exceeds MAX_DELIMITERSTRING_SIZE = 64 it will be truncated
@@ -32,7 +52,17 @@ def test01_IndexDelimiters(env):
         'FT.CREATE', 'idx1', 'ON', 'HASH',
         'DELIMITERS', long_sep,
         'SCHEMA', 'foo', 'text').ok()
-    assertInfoField(env, 'idx1', 'delimiters', '\t !\"#$%&\'()*+,-./:;<=>?@[]^`{|}~')
+
+    if not env.isCluster():
+        info = env.execute_command('FT.INFO', 'idx1')
+        # field delimiters
+        env.assertEqual(
+            slice_at(slice_at(info, 'attributes')[0][0], 'identifier')[0],
+            'foo')
+        env.assertEqual(
+            slice_at(slice_at(info, 'attributes')[0][0], 'delimiters')[0],
+            _defaultDelimiters)
+
     env.execute_command('FT.DROPINDEX', 'idx1')
 
     # # TODO:
@@ -61,14 +91,16 @@ def test01_IndexDelimiters(env):
         'FT.CREATE', 'idx1', 'ON', 'HASH',
         'SCHEMA', 'field1', 'text').ok()
     waitForIndex(env, 'idx1')
-    assertInfoField(env, 'idx1', 'delimiters', _defaultDelimiters)
 
     if not env.isCluster():
         res = env.execute_command('FT.INFO', 'idx1')
         # field1 delimiters
-        env.assertEqual(res[7][0][1], 'field1')
-        env.assertEqual(res[7][0][8], 'delimiters')
-        env.assertEqual(res[7][0][9], _defaultDelimiters)
+        env.assertEqual(
+            slice_at(slice_at(info, 'attributes')[0][0], 'identifier')[0],
+            'foo')
+        env.assertEqual(
+            slice_at(slice_at(info, 'attributes')[0][0], 'delimiters')[0],
+            _defaultDelimiters)
 
     env.execute_command('FT.DROPINDEX', 'idx1')
 
@@ -92,7 +124,23 @@ def test02_IndexOnHashWithCustomDelimiter(env):
         SCHEMA code TEXT SORTABLE email TEXT SORTABLE \
         name TEXT SORTABLE').equal('OK')
     waitForIndex(env, 'idx1')
-    assertInfoField(env, 'idx1', 'delimiters', ';')
+
+    if not env.isCluster():
+        info = env.execute_command('FT.INFO', 'idx1')
+        # code delimiters
+        env.assertEqual(
+            slice_at(slice_at(info, 'attributes')[0][0], 'identifier')[0],
+            'code')
+        env.assertEqual(
+            slice_at(slice_at(info, 'attributes')[0][0], 'delimiters')[0],
+            ';')
+        # email delimiters
+        env.assertEqual(
+            slice_at(slice_at(info, 'attributes')[0][1], 'identifier')[0],
+            'email')
+        env.assertEqual(
+            slice_at(slice_at(info, 'attributes')[0][1], 'delimiters')[0],
+            ';')
 
     res = env.execute_command('FT.SEARCH idx1 @name:Sarah RETURN 1 code')
     expected_result = [1, 'customer:2', ['code', '101;222']]
@@ -117,8 +165,6 @@ def test02_IndexOnHashWithCustomDelimiter(env):
         'email', 'TEXT', 'SORTABLE',
         'name', 'TEXT', 'SORTABLE').equal('OK')
     waitForIndex(env, 'idx2')
-
-    assertInfoField(env, 'idx2', 'delimiters', '\t !\"#$%&\'()*+,-./:<=>?@[]^`{|}~')
 
     # Searching "@code:101" should return 0 results, because 101 is not a token
     res = env.execute_command('FT.SEARCH idx2 @code:101')
@@ -369,24 +415,23 @@ def test08_FieldDelimitersConfig(env):
         'SORTABLE').equal('OK')
     waitForIndex(env, 'idx')
 
-    # TODO: Should we print always the delimiters?
-    # assertInfoField(env, 'idx', 'delimiters', _defaultDelimiters)
-
     if not env.isCluster():
-        res = env.execute_command('FT.INFO', 'idx')
+        info = env.execute_command('FT.INFO', 'idx')
 
-        # code delimiters
-        env.assertEqual(res[7][0][1], 'code')
-        env.assertEqual(res[7][0][8], 'delimiters')
-        env.assertEqual(res[7][0][9], '\t !"#$%&\'()*+,-./:;<=>?@[]^`abc{|}~')
-        # email delimiters
-        env.assertEqual(res[7][1][1], 'email')
-        env.assertEqual(res[7][1][8], 'delimiters')
-        env.assertEqual(res[7][1][9], '\t !\"#$%&\'()*+,-/:;<=>?[]^`{|}~')
-        # name delimiters
-        env.assertEqual(res[7][2][1], 'name')
-        env.assertEqual(res[7][2][8], 'delimiters')
-        env.assertEqual(res[7][2][9], _defaultDelimiters)
+        delimiters_by_field = {
+            'code'  : '\t !"#$%&\'()*+,-./:;<=>?@[]^`abc{|}~',
+            'email' : '\t !\"#$%&\'()*+,-/:;<=>?[]^`{|}~',
+            'name'  : _defaultDelimiters,
+        }
+        i = 0
+        for field_name, delimiters in delimiters_by_field.items():
+            env.assertEqual(
+                slice_at(slice_at(info, 'attributes')[0][i], 'identifier')[0],
+                field_name)
+            env.assertEqual(
+                slice_at(slice_at(info, 'attributes')[0][i], 'delimiters')[0],
+                delimiters)
+            i += 1
 
 def test09_FieldDelimitersConfigMultipleRules(env):
 
@@ -411,35 +456,26 @@ def test09_FieldDelimitersConfigMultipleRules(env):
         ).equal('OK')
     waitForIndex(env, 'idx2')
 
-    assertInfoField(env, 'idx2', 'delimiters', '')
-
     if not env.isCluster():
-        res = env.execute_command('FT.INFO', 'idx2')
+        info = env.execute_command('FT.INFO', 'idx2')
 
-        # field1 delimiters
-        env.assertEqual(res[7][0][1], 'field1')
-        env.assertEqual(res[7][0][8], 'delimiters')
-        env.assertEqual(res[7][0][9], '\t !-?@')
-        # field2 delimiters
-        env.assertEqual(res[7][1][1], 'field2')
-        env.assertEqual(res[7][1][8], 'delimiters')
-        env.assertEqual(res[7][1][9], '')
-        # field3 delimiters
-        env.assertEqual(res[7][2][1], 'field3')
-        env.assertEqual(res[7][2][8], 'delimiters')
-        env.assertEqual(res[7][2][9], '?')
-        # field4 delimiters
-        env.assertEqual(res[7][3][1], 'field4')
-        env.assertEqual(res[7][3][8], 'delimiters')
-        env.assertEqual(res[7][3][9], '')
-        # field5 delimiters
-        env.assertEqual(res[7][4][1], 'field5')
-        env.assertEqual(res[7][4][8], 'delimiters')
-        env.assertEqual(res[7][4][9], '?xyz')
-        # field6 delimiters
-        env.assertEqual(res[7][5][1], 'field6')
-        env.assertEqual(res[7][5][8], 'delimiters')
-        env.assertEqual(res[7][5][9], 'acd')
+        delimiters_by_field = {
+            'field1' : '\t !-?@',
+            'field2' : '',
+            'field3' : '?',
+            'field4' : '',
+            'field5' : '?xyz',
+            'field6' : 'acd'
+        }
+        i = 0
+        for field_name, delimiters in delimiters_by_field.items():
+            env.assertEqual(
+                slice_at(slice_at(info, 'attributes')[0][i], 'identifier')[0],
+                field_name)
+            env.assertEqual(
+                slice_at(slice_at(info, 'attributes')[0][i], 'delimiters')[0],
+                delimiters)
+            i += 1
 
 def test10_IndexOnHashTagDelimiters(env):
     conn = getConnectionByEnv(env)

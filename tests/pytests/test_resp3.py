@@ -389,12 +389,13 @@ def test_info():
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     waitForIndex(env, 'idx1')
 
+    defaultDelimiters = '\t !\"#$%&\'()*+,-./:;<=>?@[]^`{|}~'
     exp = {
       'attributes': [{'WEIGHT': 1.0, 'attribute': 'f1',
-                      'delimiters': '\t !"#$%&\'()*+,-./:;<=>?@[]^`{|}~',
+                      'delimiters': defaultDelimiters,
                       'flags': [], 'identifier': 'f1', 'type': 'TEXT'},
                      {'WEIGHT': 1.0, 'attribute': 'f2',
-                      'delimiters': '\t !"#$%&\'()*+,-./:;<=>?@[]^`{|}~',
+                      'delimiters': defaultDelimiters,
                       'flags': [], 'identifier': 'f2', 'type': 'TEXT'}],
       'bytes_per_record_avg': ANY,
       'cleaning': 0,
@@ -422,8 +423,8 @@ def test_info():
       'sortable_values_size_mb': 0.0,
       'geoshapes_sz_mb': 0.0,
       'total_inverted_index_blocks': ANY,
-      'vector_index_sz_mb': 0.0,
-      'delimiters': '\t !"#$%&\'()*+,-./:;<=>?@[]^`{|}~'}
+      'vector_index_sz_mb': 0.0
+    }
     res = env.cmd('FT.info', 'idx1')
     res.pop('total_indexing_time', None)
     env.assertEqual(order_dict(res), order_dict(exp))
@@ -1147,6 +1148,7 @@ def test_ft_info():
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
     with env.getClusterConnectionIfNeeded() as r:
       res = order_dict(r.execute_command('ft.info', 'idx'))
+      defaultDelimiters = '\t !\"#$%&\'()*+,-./:;<=>?@[]^`{|}~'
       exp = {
         'attributes': [
           { 'WEIGHT': 1.0,
@@ -1154,7 +1156,7 @@ def test_ft_info():
             'flags': [],
             'identifier': 't',
             'type': 'TEXT',
-            'delimiters': '\t !"#$%&\'()*+,-./:;<=>?@[]^`{|}~'
+            'delimiters': defaultDelimiters
           }
         ],
         'bytes_per_record_avg': nan,
@@ -1206,8 +1208,7 @@ def test_ft_info():
         'geoshapes_sz_mb': 0.0,
         'total_indexing_time': 0.0,
         'total_inverted_index_blocks': 0.0,
-        'vector_index_sz_mb': 0.0,
-        'delimiters': '\t !"#$%&\'()*+,-./:;<=>?@[]^`{|}~'
+        'vector_index_sz_mb': 0.0
       }
 
       exp_cluster = {
@@ -1217,7 +1218,7 @@ def test_ft_info():
             'flags': [],
             'identifier': 't',
             'type': 'TEXT',
-            'delimiters': '\t !"#$%&\'()*+,-./:;<=>?@[]^`{|}~'
+            'delimiters': defaultDelimiters
           }
         ],
         'bytes_per_record_avg': nan,
@@ -1259,8 +1260,7 @@ def test_ft_info():
         'sortable_values_size_mb': 0.0,
         'geoshapes_sz_mb': 0.0,
         'total_inverted_index_blocks': 0,
-        'vector_index_sz_mb': 0.0,
-        'delimiters': '\t !"#$%&\'()*+,-./:;<=>?@[]^`{|}~'
+        'vector_index_sz_mb': 0.0
       }
 
       env.assertEqual(dict_diff(res, exp_cluster if env.isCluster() else exp), {})

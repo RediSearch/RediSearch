@@ -1742,7 +1742,6 @@ def testInfoCommand(env):
             env.assertGreater(float(d['inverted_sz_mb']), 0)
             env.assertGreater(float(d['bytes_per_record_avg']), 0)
             env.assertGreater(float(d['doc_table_size_mb']), 0)
-            env.assertEqual(d['delimiters'], defaultDelimiters)
 
     for x in range(1, 6):
         for combo in combinations(('NOOFFSETS', 'NOFREQS', 'NOFIELDS', 'NOHL', ''), x):
