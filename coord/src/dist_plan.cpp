@@ -390,6 +390,10 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
       case PLN_T_ROOT:
         current = PLN_NEXT_STEP(current);
         break;
+      case PLN_T_FILTER:
+        hadArrange = true; // Make sure we don't distribute the next arrange or group step
+        current = PLN_NEXT_STEP(current); // keep the filter step local (FIXME: should move to remote)
+        break;
       case PLN_T_LOAD:
       case PLN_T_APPLY: {
         current = moveStep(remote, src, current);
