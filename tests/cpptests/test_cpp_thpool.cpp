@@ -129,17 +129,17 @@ TEST_F(PriorityThpoolTestWithoutPrivilegedThreads, CombinationTest) {
         ts[i].index = i;
     }
 
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[0], THPOOL_PRIORITY_LOW);
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[0], THPOOL_PRIORITY_HIGH);
     redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[1], THPOOL_PRIORITY_HIGH);
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[2], THPOOL_PRIORITY_HIGH);
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[2], THPOOL_PRIORITY_LOW);
     redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[3], THPOOL_PRIORITY_HIGH);
     redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[4], THPOOL_PRIORITY_LOW);
 
     redisearch_thpool_wait(this->pool);
 
-    // Expect alternate high-low order: 1->0->2->4->3
-    ASSERT_LT(arr[1], arr[0]);
+    // Expect alternate high-low order: 0->2->1->4->3
     ASSERT_LT(arr[0], arr[2]);
-    ASSERT_LT(arr[2], arr[4]);
+    ASSERT_LT(arr[2], arr[1]);
+    ASSERT_LT(arr[1], arr[4]);
     ASSERT_LT(arr[4], arr[3]);
 }
