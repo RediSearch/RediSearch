@@ -250,6 +250,59 @@ class TestAggregate():
             self.env.assertLess(int(row['count']), 5)
             self.env.assertGreater(int(row['count']), 2)
 
+    def testFilterBeforeLoad(self):
+
+    # 'title',       'TEXT',   'SORTABLE',
+    # 'brand',       'TEXT',   'NOSTEM', 'SORTABLE',
+    # 'description', 'TEXT',
+    # 'price',       'NUMERIC',
+    # 'categories',  'TAG'
+        cmd = ['ft.aggregate', 'games', '*',
+               'FILTER', '@price > 500',
+               'SORTBY', 2, '@price', 'desc',
+               'LOAD', '1', '@categories',
+               'LIMIT', '0', '5']
+
+        # FIXME: should yield the same results in standalone cluster modes
+        if self.env.isCluster():
+            # On cluster, filter can implicitly load any field
+            res = self.env.cmd(*cmd)
+            self.env.assertEqual([
+                ['categories', 'Accessories,Controllers,PC,Steering Wheels,Video Games', 'price', '759.12'],
+                ['categories', 'Consoles,Sony PSP,Video Games', 'price', '695.8'],
+                ['categories', 'Accessories,PC,Video Games', 'price', '599.99'],
+                ['categories', 'Accessories,Gaming Keyboards,Mac,Video Games', 'price', '559.99'],
+                ['categories', 'Consoles,Sony PSP,Video Games', 'price', '518.48']
+            ], res[1:])
+        else:
+            # On standalone, filter can only refer to fields that available in the pipeline
+            self.env.expect(*cmd).error().contains('Property `price` not loaded nor in pipeline')
+
+        cmd = ['ft.aggregate', 'games', '*',
+               'FILTER', 'lower(@brand) == "sony"',
+               'LOAD', '1', '@categories',
+               'SORTBY', '1', '@price',
+               'LIMIT', '0', '5']
+
+        # FIXME: should yield the same results in standalone cluster modes (sony vs Sony)
+        res = self.env.cmd(*cmd)
+        if self.env.isCluster():
+            self.env.assertEqual([
+                ['categories', 'Accessories,Cables,Cables & Adapters,PlayStation 3,Video Games', 'brand', 'Sony', 'price', '5.88'],
+                ['categories', 'Games,PC,Video Games', 'brand', 'Sony', 'price', '9.19'],
+                ['categories', 'Accessories,Adapters,Cables & Adapters,Sony PSP,Video Games', 'brand', 'Sony', 'price', '11.74'],
+                ['categories', 'Accessories,Headsets,Sony PSP,Video Games', 'brand', 'Sony', 'price', '12.99'],
+                ['categories', 'Movies & TV,Sony PSP,TV,Video Games', 'brand', 'Sony', 'price', '25.99']
+            ], res[1:])
+        else:
+            self.env.assertEqual([
+                ['brand', 'sony', 'categories', 'Accessories,Cables,Cables & Adapters,PlayStation 3,Video Games', 'price', '5.88'],
+                ['brand', 'sony', 'categories', 'Games,PC,Video Games', 'price', '9.19'],
+                ['brand', 'sony', 'categories', 'Accessories,Adapters,Cables & Adapters,Sony PSP,Video Games', 'price', '11.74'],
+                ['brand', 'sony', 'categories', 'Accessories,Headsets,Sony PSP,Video Games', 'price', '12.99'],
+                ['brand', 'sony', 'categories', 'Movies & TV,Sony PSP,TV,Video Games', 'price', '25.99']
+            ], res[1:])
+
     def testToList(self):
         cmd = ['ft.aggregate', 'games', '*',
                'GROUPBY', '1', '@brand',
@@ -1109,3 +1162,8 @@ def testWithKNN(env):
                                'REDUCE', 'COUNT', '0', 'AS', 'c', 'SORTBY', '1', '@n',
                                'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
     env.assertEqual(res[1:], expected_res)
+
+if __name__ == '__main__':
+    import redis
+    env = redis.RedisCluster(host='localhost', port=6379)
+    add_values(env)
