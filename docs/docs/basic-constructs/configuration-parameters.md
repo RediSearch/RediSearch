@@ -1,7 +1,7 @@
 ---
 title: "Configuration parameters"
 linkTitle: "Configuration parameters"
-weight: 3
+weight: 4
 description: >
     Querying and searching in Redis can be tuned through multiple configuration parameters. Some of these parameters can only be set at load-time, while other parameters can be set either on load-time or on run-time.
 aliases: 
