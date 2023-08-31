@@ -1185,6 +1185,42 @@ def testExpandJsonVector():
   res = env.cmd(*cmd, 'FORMAT', 'EXPAND')
   env.assertEqual(res, exp_expand)
 
+  #
+  # Test FT.AGGREGATE
+  #
+  exp_string = {
+    'attributes': [],
+    'error': [],
+    'total_results': ANY,
+    'format': 'STRING',
+    'results': [
+      {'extra_attributes': {'__vec_score': '6.70958423615', '$': doc1_content_js, "num": "1", 'num_pow': '1'}, 'values': []},
+      {'extra_attributes': {'__vec_score': '12.7095842361', '$': doc2_content_js, "num": "2", 'num_pow': '8'}, 'values': []}
+    ]
+  }
+
+  exp_expand = {
+    'attributes': [],
+    'error': [],
+    'total_results': ANY,
+    'format': 'EXPAND',
+    'results': [
+      {'extra_attributes': {'__vec_score': 6.7095842361450195, '$': [doc1_content], 'num': [1], 'num_pow': 1}, 'values': []},
+      {'extra_attributes': {'__vec_score': 12.70958423614502, '$': [doc2_content], 'num': [2], 'num_pow': 8}, 'values': []},
+    ]
+  }
+  cmd = ['FT.AGGREGATE', 'idx', '*=>[KNN 2 @vec $B]', 'PARAMS', '2', 'B', '????????????', 'LOAD', '2', '$', '@num', 'APPLY', '@num^3', 'AS', 'num_pow', 'SORTBY', 2, '@num_pow', 'ASC']
+
+  res = env.cmd(*cmd, 'FORMAT', 'STRING')
+  env.assertEqual(res, exp_string)
+
+  # Default FORMAT is STRING
+  res = env.cmd(*cmd)
+  env.assertEqual(res, exp_string)
+
+  res = env.cmd(*cmd, 'FORMAT', 'EXPAND')
+  env.assertEqual(res, exp_expand)
+
 def test_ft_info():
     env = Env(protocol=3)
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
