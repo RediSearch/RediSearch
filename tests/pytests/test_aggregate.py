@@ -975,20 +975,26 @@ def test_aggregate_timeout():
         raise unittest.SkipTest("Skipping timeout test under valgrind")
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
     nshards = env.shardsCount
     num_docs = 10000 * nshards
     pipeline = conn.pipeline(transaction=False)
-    for i in range(num_docs):
-        pipeline.hset (f'doc_{i}', 't1', str(np.random.rand(1, 1024)))
+    for i, t1 in enumerate(np.random.randint(1, 1024, num_docs)):
+        pipeline.hset (i, 't1', str(t1))
         if i % 1000 == 0:
             pipeline.execute()
             pipeline = conn.pipeline(transaction=False)
     pipeline.execute()
 
-
-    env.expect('FT.AGGREGATE', 'idx', '*', 'groupby', '1', '@t1', 'REDUCE', 'count', '0', 'AS', 'count', 'TIMEOUT', '1'). \
-        equal( ['Timeout limit was reached'] if not env.isCluster() else [0])
+    # On coordinator, we currently get a single empty result on timeout,
+    # because all the shards timed out but the coordinator doesn't report it.
+    env.expect('FT.AGGREGATE', 'idx', '*',
+               'LOAD', '2', '@t1', '@__key',
+               'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
+               'groupby', '2', '@t1', '@t1exp',
+                    'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
+               'TIMEOUT', '1',
+        ).equal( ['Timeout limit was reached'] if not env.isCluster() else [1, ['t1', None, 't1exp', None, 'keys', []]])
 
 
 def testGroupProperties(env):
