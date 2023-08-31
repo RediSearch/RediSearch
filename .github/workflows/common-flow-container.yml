@@ -49,11 +49,11 @@ jobs:
       # - name: Setup
       #   run: |
       #     ${{env.MODE}} ./.install/install_script.sh
-      - name: Full checkout
-        uses: actions/checkout@v3
-        with:
-          submodules: recursive
-          set-safe-directory: "'*'"
+      # - name: Full checkout
+      #   uses: actions/checkout@v3
+      #   with:
+      #     submodules: recursive
+      #     set-safe-directory: "'*'"
       - name: Get Redis
         if: ${{ inputs.get-redis }}
         run: |
