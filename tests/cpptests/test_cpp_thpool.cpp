@@ -29,7 +29,7 @@ struct test_struct {
  * in the test_struct. 
 */
 void sleep_and_set(test_struct *ts) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     ts->arr[ts->index] = std::chrono::high_resolution_clock::now();
 }
 
@@ -74,8 +74,9 @@ TEST_F(PriorityThpoolTestBasic, AllHighPriority) {
 
 /* The purpose of the test is to check that tasks with different priorities are handled 
  * in FIFO manner. The test adds 2 tasks with high priority and 1 task with low priority between them
- * and checks that the high priority tasks are handled before the low priority task, since the ratio between
- * handling high priority tasks and low priority tasks is 2:1.
+ * and checks that the high priority tasks are handled before the low priority task, since the
+ * single thread in the pool is a privileged thread that is handling high priority tasks before low
+ * priority tasks.
  */
 TEST_F(PriorityThpoolTestBasic, HighLowHighTest) {
     int high_priority_tasks = 2;
@@ -101,14 +102,14 @@ TEST_F(PriorityThpoolTestBasic, HighLowHighTest) {
 }
 
 
-class PriorityThpoolTestWithPrivilegedThreads : public ::testing::Test {
+class PriorityThpoolTestWithoutPrivilegedThreads : public ::testing::Test {
 
    public:
     redisearch_threadpool pool;
     virtual void SetUp() {
         // Thread pool with two threads where one is a "privileged thread" that
         // runs high priority tasks before low priority tasks.
-        this->pool = redisearch_thpool_create(2, 1);
+        this->pool = redisearch_thpool_create(1, 0);
         redisearch_thpool_init(this->pool, nullptr);
     }
 
@@ -117,7 +118,7 @@ class PriorityThpoolTestWithPrivilegedThreads : public ::testing::Test {
     }
 };
 
-TEST_F(PriorityThpoolTestWithPrivilegedThreads, CombinationTest) {
+TEST_F(PriorityThpoolTestWithoutPrivilegedThreads, CombinationTest) {
     int total_tasks = 5;
     std::chrono::time_point<std::chrono::high_resolution_clock> arr[total_tasks];
 
@@ -128,25 +129,17 @@ TEST_F(PriorityThpoolTestWithPrivilegedThreads, CombinationTest) {
         ts[i].index = i;
     }
 
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[0], THPOOL_PRIORITY_HIGH);
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[1], THPOOL_PRIORITY_LOW);
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[0], THPOOL_PRIORITY_LOW);
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[1], THPOOL_PRIORITY_HIGH);
     redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[2], THPOOL_PRIORITY_HIGH);
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[3], THPOOL_PRIORITY_LOW);
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[4], THPOOL_PRIORITY_HIGH);
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[3], THPOOL_PRIORITY_HIGH);
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[4], THPOOL_PRIORITY_LOW);
 
     redisearch_thpool_wait(this->pool);
 
-    // Expect the following order:
-    // thread-0 (privileged) will take high priority task (can be first or third one).
-    // thread-1 (non-privileged) will take high priority task (can be first or third one),
-    // as it is an even iteration.
-    // thread-0 will take the next high priority task (the fifth one).
-    // thread-1 will take the first low priority task (the second one).
-    // either thread-0 or thread-1 will take the last low priority job (the forth one)
-    ASSERT_LT(arr[0], arr[1]);
-    ASSERT_LT(arr[0], arr[4]);
-    ASSERT_LT(arr[2], arr[1]);
+    // Expect alternate high-low order: 1->0->2->4->3
+    ASSERT_LT(arr[1], arr[0]);
+    ASSERT_LT(arr[0], arr[2]);
     ASSERT_LT(arr[2], arr[4]);
-    ASSERT_LT(arr[1], arr[3]);
     ASSERT_LT(arr[4], arr[3]);
 }
