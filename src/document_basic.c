@@ -161,7 +161,6 @@ done:
 }
 
 int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
-  int rv = REDISMODULE_ERR;
   if (!japi) {
     RedisModule_Log(sctx->redisCtx, "warning", "cannot operate on a JSON index as RedisJSON is not loaded");
     return REDISMODULE_ERR;
@@ -174,7 +173,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
 
   RedisJSON jsonRoot = japi->openKey(ctx, doc->docKey);
   if (!jsonRoot) {
-    goto done;
+    return REDISMODULE_ERR;
   }
   Document_MakeStringsOwner(doc); // TODO: necessary??
 
@@ -210,17 +209,11 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
     // TODO: change `fs->text` to support hash or json not RedisModuleString
     if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix], ctx) != REDISMODULE_OK) {
       RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", field->path);
-      goto done;
+      return REDISMODULE_ERR;
     }
-    jsonIter = NULL;
   }
-  rv = REDISMODULE_OK;
 
-done:
-  if (jsonIter) {
-    japi->freeIter(jsonIter);
-  }
-  return rv;
+  return REDISMODULE_OK;
 }
 
 /* used only by unit tests */
