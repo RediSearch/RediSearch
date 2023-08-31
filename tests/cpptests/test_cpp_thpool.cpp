@@ -143,10 +143,10 @@ TEST_F(PriorityThpoolTestWithPrivilegedThreads, CombinationTest) {
     // thread-0 will take the next high priority task (the fifth one).
     // thread-1 will take the first low priority task (the second one).
     // either thread-0 or thread-1 will take the last low priority job (the forth one)
-    ASSERT_LT(arr[0].time_since_epoch(), arr[1].time_since_epoch());
-    ASSERT_LT(arr[0].time_since_epoch(), arr[4].time_since_epoch());
-    ASSERT_LT(arr[2].time_since_epoch(), arr[1].time_since_epoch());
-    ASSERT_LT(arr[2].time_since_epoch(), arr[4].time_since_epoch());
-    ASSERT_LT(arr[1].time_since_epoch(), arr[3].time_since_epoch());
-    ASSERT_LT(arr[4].time_since_epoch(), arr[3].time_since_epoch());
+    ASSERT_LT(arr[0], arr[1]);
+    ASSERT_LT(arr[0], arr[4]);
+    ASSERT_LT(arr[2], arr[1]);
+    ASSERT_LT(arr[2], arr[4]);
+    ASSERT_LT(arr[1], arr[3]);
+    ASSERT_LT(arr[4], arr[3]);
 }
