@@ -297,6 +297,15 @@ class TestAggregate():
                 ['brand', 'sony', 'categories', 'Movies & TV,Sony PSP,TV,Video Games', 'price', '25.99']
             ], res[1:])
 
+    def testBadFilter(self):
+        cmd = ['ft.aggregate', 'games', '*',
+               'FILTER', 'bad filter',]
+        self.env.expect(*cmd).error().contains('Syntax error at offset')
+
+        cmd = ['ft.aggregate', 'games', '*',
+               'FILTER', '@price++',]
+        self.env.expect(*cmd).error().contains('Syntax error at offset')
+
     def testToList(self):
         cmd = ['ft.aggregate', 'games', '*',
                'GROUPBY', '1', '@brand',
