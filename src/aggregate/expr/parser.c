@@ -33,9 +33,9 @@
 /**************** End of %include directives **********************************/
 /* These constants specify the various numeric values for terminal symbols.
 ***************** Begin token definitions *************************************/
-#ifndef AND
-#define AND                             1
-#define OR                              2
+#ifndef OR
+#define OR                              1
+#define AND                             2
 #define NOT                             3
 #define EQ                              4
 #define NE                              5
@@ -219,10 +219,10 @@ typedef union {
 *********** Begin parsing tables **********************************************/
 #define YY_ACTTAB_COUNT (122)
 static const YYACTIONTYPE yy_action[] = {
- /*     0 */    96,    5,    4,   21,   11,   10,    9,    8,    7,    6,
- /*    10 */    18,   14,   16,   15,   12,   13,   77,   49,   78,    5,
- /*    20 */     4,    1,   11,   10,    9,    8,    7,    6,   18,   14,
- /*    30 */    16,   15,   12,   13,    5,    4,   68,   11,   10,    9,
+ /*     0 */    96,    4,    5,   21,   11,   10,    9,    8,    7,    6,
+ /*    10 */    18,   14,   16,   15,   12,   13,   77,   49,   78,    4,
+ /*    20 */     5,    1,   11,   10,    9,    8,    7,    6,   18,   14,
+ /*    30 */    16,   15,   12,   13,    4,    5,   68,   11,   10,    9,
  /*    40 */     8,    7,    6,   18,   14,   16,   15,   12,   13,   11,
  /*    50 */    10,    9,    8,    7,    6,   18,   14,   16,   15,   12,
  /*    60 */    13,    3,   18,   14,   16,   15,   12,   13,   96,   36,
@@ -379,8 +379,8 @@ void RSExprParser_ParseTrace(FILE *TraceFILE, char *zTracePrompt){
 ** are required.  The following table supplies these names */
 static const char *const yyTokenName[] = { 
   /*    0 */ "$",
-  /*    1 */ "AND",
-  /*    2 */ "OR",
+  /*    1 */ "OR",
+  /*    2 */ "AND",
   /*    3 */ "NOT",
   /*    4 */ "EQ",
   /*    5 */ "NE",
@@ -569,7 +569,7 @@ static void yy_destructor(
     case 26: /* program */
     case 27: /* expr */
 {
-RSExpr_Free((yypminor->yy19)); 
+ RSExpr_Free((yypminor->yy19)); 
 }
       break;
     case 24: /* number */
@@ -579,7 +579,7 @@ RSExpr_Free((yypminor->yy19));
       break;
     case 25: /* arglist */
 {
-RSArgList_Free((yypminor->yy46)); 
+ RSArgList_Free((yypminor->yy46)); 
 }
       break;
 /********* End destructor definitions *****************************************/
@@ -1058,9 +1058,9 @@ static YYACTIONTYPE yy_reduce(
     if (!cb) {
         rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s);
         ctx->ok = 0;
-        yylhsminor.yy19 = NULL; 
+        yylhsminor.yy19 = NULL;
     } else {
-         yylhsminor.yy19 = RS_NewFunc(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, yymsp[-1].minor.yy46, cb);
+        yylhsminor.yy19 = RS_NewFunc(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, yymsp[-1].minor.yy46, cb);
     }
 }
   yymsp[-3].minor.yy19 = yylhsminor.yy19;
@@ -1072,7 +1072,7 @@ static YYACTIONTYPE yy_reduce(
     } else {
         rm_asprintf(&ctx->errorMsg, "Unknown symbol '%.*s'", yymsp[0].minor.yy0.len, yymsp[0].minor.yy0.s);
         ctx->ok = 0;
-        yylhsminor.yy19 = NULL; 
+        yylhsminor.yy19 = NULL;
     }
 }
   yymsp[0].minor.yy19 = yylhsminor.yy19;
@@ -1085,7 +1085,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[0].minor.yy46 = yylhsminor.yy46;
         break;
       case 26: /* arglist ::= arglist COMMA expr */
-{ 
+{
     yylhsminor.yy46 = RSArgList_Append(yymsp[-2].minor.yy46, yymsp[0].minor.yy19);
 }
   yymsp[-2].minor.yy46 = yylhsminor.yy46;
@@ -1150,9 +1150,15 @@ static void yy_syntax_error(
   RSExprParser_ParseCTX_FETCH
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
-  
 
-    rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
+
+    if (ctx->errorMsg) {
+        char *reason = ctx->errorMsg;
+        rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s': %s", TOKEN.pos, TOKEN.len, TOKEN.s, reason);
+        rm_free(reason);
+    } else {
+        rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
+    }
     ctx->ok = 0;
 /************ End %syntax_error code ******************************************/
   RSExprParser_ParseARG_STORE /* Suppress warning about unused %extra_argument variable */
