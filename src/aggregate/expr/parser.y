@@ -1,3 +1,8 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
 
 %name RSExprParser_Parse
 
@@ -20,13 +25,13 @@
 
 %token_type { RSExprToken }
 %default_type {RSExpr *}
-%default_destructor {RSExpr_Free($$); }
+%default_destructor { RSExpr_Free($$); }
 
 %type number {double}
-%destructor number {} 
+%destructor number {}
 
 %type arglist { RSArgList * }
-%destructor arglist {RSArgList_Free($$); }
+%destructor arglist { RSArgList_Free($$); }
 
 %include {
 #include "token.h"
@@ -36,12 +41,18 @@
 
 }
 
-%syntax_error {  
+%syntax_error {
 
-    rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
+    if (ctx->errorMsg) {
+        char *reason = ctx->errorMsg;
+        rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s': %s", TOKEN.pos, TOKEN.len, TOKEN.s, reason);
+        rm_free(reason);
+    } else {
+        rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
+    }
     ctx->ok = 0;
-}   
-   
+}
+
 program ::= expr(A). { ctx->root = A; }
 
 expr(A) ::= LP expr(B) RP. { A = B; }
@@ -76,9 +87,9 @@ expr(A) ::= SYMBOL(B) LP arglist(C) RP. {
     if (!cb) {
         rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", B.len, B.s);
         ctx->ok = 0;
-        A = NULL; 
+        A = NULL;
     } else {
-         A = RS_NewFunc(B.s, B.len, C, cb);
+        A = RS_NewFunc(B.s, B.len, C, cb);
     }
 }
 
@@ -88,12 +99,12 @@ expr(A) ::= SYMBOL(B) . {
     } else {
         rm_asprintf(&ctx->errorMsg, "Unknown symbol '%.*s'", B.len, B.s);
         ctx->ok = 0;
-        A = NULL; 
+        A = NULL;
     }
 }
 
 arglist(A) ::= . [ARGLIST] { A = RS_NewArgList(NULL); }
 arglist(A) ::= expr(B) . [ARGLIST] { A = RS_NewArgList(B); }
-arglist(A) ::= arglist(B) COMMA expr(C) . [ARGLIST] { 
+arglist(A) ::= arglist(B) COMMA expr(C) . [ARGLIST] {
     A = RSArgList_Append(B, C);
 }
