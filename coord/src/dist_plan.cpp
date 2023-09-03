@@ -358,6 +358,8 @@ reducerDistributionFunc getDistributionFunc(const char *key) {
   return NULL;
 }
 
+static void finalize_distribution(AGGPlan *src, AGGPlan *remote, PLN_DistributeStep *dstp);
+
 int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
   AGGPlan *remote = (AGGPlan *)rm_malloc(sizeof(*remote));
   AGPLN_Init(remote);
@@ -387,7 +389,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           PLN_MapFilterStep *fstp = (PLN_MapFilterStep *)current;
           RSExpr *tmpExpr = ExprAST_Parse(fstp->rawExpr, strlen(fstp->rawExpr), status);
           if (tmpExpr == NULL) {
-            return REDISMODULE_ERR;
+            goto error;
           }
           RLookup filter_keys;
           RLookup_Init(&filter_keys, NULL);
@@ -396,7 +398,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           if (QueryError_HasError(status)) {
             RLookup_Cleanup(&filter_keys);
             ExprAST_Free(tmpExpr);
-            return REDISMODULE_ERR;
+            goto error;
           }
           // Step 2: generate a LOAD step for the keys. If the keys are already loaded (or sortable),
           //         this step will be optimized out.
@@ -461,8 +463,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         if (!hadArrange) {
           distributeGroupStep(src, remote, current, dstp, status);
           if (QueryError_HasError(status)) {
-            freeDistStep((PLN_BaseStep *)dstp);
-            return REDISMODULE_ERR;
+            goto error;
           }
         }
         // After the group step, the rest of the steps are local only.
@@ -472,6 +473,17 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
   }
 loop_break:
 
+  finalize_distribution(src, remote, dstp);
+  return REDISMODULE_OK;
+
+error:
+  freeDistStep((PLN_BaseStep *)dstp);
+  return REDISMODULE_ERR;
+}
+
+// We have splitted the logic plan into a remote and local plans. Now we need to make final
+// preparations and setups for the plans and the distributed step.
+static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_DistributeStep *dstp) {
   RLookup_Init(&dstp->lk, nullptr);
 
   // Find the bottom-most step with the current lookup and progress onwards
@@ -528,15 +540,14 @@ loop_break:
     }
   }
 
-  AGPLN_PopStep(src, &src->firstStep_s.base);
-  AGPLN_Prepend(src, &dstp->base);
+  AGPLN_PopStep(local, &local->firstStep_s.base);
+  AGPLN_Prepend(local, &dstp->base);
   auto tmp = (char **)AGPLN_Serialize(dstp->plan);
   auto &v = *dstp->serialized;
   for (size_t ii = 0; ii < array_len(tmp); ++ii) {
     v.push_back(tmp[ii]);
   }
   array_free(tmp);
-  return REDISMODULE_OK;
 }
 
 int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError *status) {
