@@ -25,26 +25,15 @@ jobs:
       - name: Deps checkout
         uses: actions/checkout@v3
         with:
-          submodules: true
-      - run: |
-          git config --global --add safe.directory '*'
-          git submodule update --init --recursive
+          sparse-checkout: .install
       - name: Setup
         run: |
-          ./sbin/setup
-      # TODO: use this instead
-      # - name: Deps checkout
-      # uses: actions/checkout@v3
-      # with:
-      #     sparse-checkout: .install
-      # - name: Setup
-      #   run: |
-      #     ${{env.MODE}} ./.install/install_script.sh
-      # - name: Full checkout
-      #   uses: actions/checkout@v3
-      #   with:
-      #     submodules: recursive
-      #     set-safe-directory: "'*'"
+          ${{env.MODE}} ./.install/install_script.sh
+      - name: Full checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+          set-safe-directory: "'*'"
       - name: Get Redis
         if: ${{ inputs.get-redis }}
         run: |
