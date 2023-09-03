@@ -231,14 +231,16 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
               // Multi
               RedisModuleString *serialized;
               japi->getJSONFromIter(RS_JSONVAL_ITER(*v), reply->ctx, &serialized);
-              v = RS_StealRedisStringVal(serialized);
+              RS_JSONVAL_SERIALIZED(*v) = RS_StealRedisStringVal(serialized);
+              v = RS_JSONVAL_SERIALIZED(*v);
             } else {
               // Single
               v = RS_JSONVAL_FIRST(*v);
             }
           } else {
             // EXPAND
-            v = japi_ver >= 4 ? jsonIterToValueExpanded(reply->ctx, RS_JSONVAL_ITER(*v)) : RS_NullVal();
+            RS_JSONVAL_EXPANDED(*v) = japi_ver >= 4 ? jsonIterToValueExpanded(reply->ctx, RS_JSONVAL_ITER(*v)) : RS_NullVal();
+            v = RS_JSONVAL_EXPANDED(*v);
           }
         }
         RSValue_SendReply(reply, v, flags);

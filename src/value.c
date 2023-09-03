@@ -106,6 +106,12 @@ void RSValue_Clear(RSValue *v) {
     case RSValue_JSON:
       japi->freeIter(RS_JSONVAL_ITER(*v));
       RSValue_Decref(RS_JSONVAL_FIRST(*v));
+      if(RS_JSONVAL_SERIALIZED(*v)) {
+        RSValue_Decref(RS_JSONVAL_SERIALIZED(*v));
+      }
+      if(RS_JSONVAL_EXPANDED(*v)) {
+        RSValue_Decref(RS_JSONVAL_EXPANDED(*v));
+      }
       rm_free(v->jsonval);
       break;
     case RSValue_Array:
@@ -496,6 +502,10 @@ RSValue *RS_NewJSONVal(JSONResultsIterator iter, RedisModuleCtx *ctx) {
   // reset for next uses (evaluation of expanded and serialized values)
   japi->resetIter(iter);
 
+  // lazily evaluate the expanded and serialized values
+  RS_JSONVAL_SERIALIZED(*v) = NULL;
+  RS_JSONVAL_EXPANDED(*v) = NULL;
+
   return v;
 }
 
@@ -768,10 +778,12 @@ int RSValue_SendReply(RedisModule_Reply *reply, RSValue *v, SendReplyFlags flags
       return RedisModule_Reply_Null(reply);
 
     case RSValue_JSON: {
+      // TODO: Do we need this? Do we ever get here?
       RedisModuleString *serialized;
       japi->getJSONFromIter(RS_JSONVAL_ITER(*v), reply->ctx, &serialized);
+      RS_JSONVAL_SERIALIZED(*v) = RS_StealRedisStringVal(serialized);
 
-      return RSValue_SendReply(reply, RS_StealRedisStringVal(serialized), flags);
+      return RSValue_SendReply(reply, RS_JSONVAL_SERIALIZED(*v), flags);
     }
 
 #if 1

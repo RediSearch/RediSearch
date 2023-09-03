@@ -65,9 +65,12 @@ typedef enum {
   RSString_Volatile = 0x04,
 } RSStringType;
 
+// Placeholder for a JSON value and its expanded formats
 typedef struct {
-  JSONResultsIterator iter; // JSON iterator
-  struct RSValue *first;    // first value
+  JSONResultsIterator iter;   // JSON iterator
+  struct RSValue *first;      // first value (to be removed once we support multi-value in pipeline)
+  struct RSValue *serialized; // serialized JSON string
+  struct RSValue *expanded;   // expanded JSON value
 } RS_JSONValue;
 
 #define RSVALUE_STATIC \
@@ -133,6 +136,8 @@ typedef struct RSValue {
 
 #define RS_JSONVAL_ITER(v) ((v).jsonval->iter)
 #define RS_JSONVAL_FIRST(v) ((v).jsonval->first)
+#define RS_JSONVAL_SERIALIZED(v) ((v).jsonval->serialized)
+#define RS_JSONVAL_EXPANDED(v) ((v).jsonval->expanded)
 
 #define APIVERSION_RETURN_MULTI_CMP_FIRST 3
 
