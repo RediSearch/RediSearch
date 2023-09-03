@@ -569,7 +569,7 @@ static void yy_destructor(
     case 26: /* program */
     case 27: /* expr */
 {
-RSExpr_Free((yypminor->yy19)); 
+ RSExpr_Free((yypminor->yy19)); 
 }
       break;
     case 24: /* number */
@@ -579,7 +579,7 @@ RSExpr_Free((yypminor->yy19));
       break;
     case 25: /* arglist */
 {
-RSArgList_Free((yypminor->yy46)); 
+ RSArgList_Free((yypminor->yy46)); 
 }
       break;
 /********* End destructor definitions *****************************************/
@@ -1058,9 +1058,9 @@ static YYACTIONTYPE yy_reduce(
     if (!cb) {
         rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s);
         ctx->ok = 0;
-        yylhsminor.yy19 = NULL; 
+        yylhsminor.yy19 = NULL;
     } else {
-         yylhsminor.yy19 = RS_NewFunc(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, yymsp[-1].minor.yy46, cb);
+        yylhsminor.yy19 = RS_NewFunc(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, yymsp[-1].minor.yy46, cb);
     }
 }
   yymsp[-3].minor.yy19 = yylhsminor.yy19;
@@ -1072,7 +1072,7 @@ static YYACTIONTYPE yy_reduce(
     } else {
         rm_asprintf(&ctx->errorMsg, "Unknown symbol '%.*s'", yymsp[0].minor.yy0.len, yymsp[0].minor.yy0.s);
         ctx->ok = 0;
-        yylhsminor.yy19 = NULL; 
+        yylhsminor.yy19 = NULL;
     }
 }
   yymsp[0].minor.yy19 = yylhsminor.yy19;
@@ -1085,7 +1085,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[0].minor.yy46 = yylhsminor.yy46;
         break;
       case 26: /* arglist ::= arglist COMMA expr */
-{ 
+{
     yylhsminor.yy46 = RSArgList_Append(yymsp[-2].minor.yy46, yymsp[0].minor.yy19);
 }
   yymsp[-2].minor.yy46 = yylhsminor.yy46;
@@ -1150,9 +1150,15 @@ static void yy_syntax_error(
   RSExprParser_ParseCTX_FETCH
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
-  
 
-    rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
+
+    if (ctx->errorMsg) {
+        char *reason = ctx->errorMsg;
+        rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s': %s", TOKEN.pos, TOKEN.len, TOKEN.s, reason);
+        rm_free(reason);
+    } else {
+        rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
+    }
     ctx->ok = 0;
 /************ End %syntax_error code ******************************************/
   RSExprParser_ParseARG_STORE /* Suppress warning about unused %extra_argument variable */
