@@ -196,7 +196,6 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
     size_t len = japi->len(jsonIter);
     if (len == 0) {
       japi->freeIter(jsonIter);
-      jsonIter = NULL;
       continue;
     }
 

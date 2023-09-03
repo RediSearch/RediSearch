@@ -519,10 +519,12 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
 
     JSONType jsonType = japi->getType(json);
     if (FieldSpec_CheckJsonType(fs->types, jsonType) != REDISMODULE_OK) {
+      japi->freeIter(jsonIter);
       return REDISMODULE_ERR;
     }
 
     if (JSON_StoreInDocField(json, jsonType, fs, df) != REDISMODULE_OK) {
+      japi->freeIter(jsonIter);
       return REDISMODULE_ERR;
     }
   } else {
