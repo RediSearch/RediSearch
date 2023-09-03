@@ -207,6 +207,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
     if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix], ctx) != REDISMODULE_OK) {
+      japi->freeIter(jsonIter);
       RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", field->path);
       return REDISMODULE_ERR;
     }

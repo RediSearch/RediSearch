@@ -519,12 +519,10 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
 
     JSONType jsonType = japi->getType(json);
     if (FieldSpec_CheckJsonType(fs->types, jsonType) != REDISMODULE_OK) {
-      japi->freeIter(jsonIter);
       return REDISMODULE_ERR;
     }
 
     if (JSON_StoreInDocField(json, jsonType, fs, df) != REDISMODULE_OK) {
-      japi->freeIter(jsonIter);
       return REDISMODULE_ERR;
     }
   } else {
@@ -563,10 +561,9 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
     if (jsonIterToValue(ctx, jsonIter, APIVERSION_RETURN_MULTI_CMP_FIRST, &rsv) == REDISMODULE_OK) {
       df->multisv = rsv;
     } else {
-      japi->freeIter(jsonIter);
       rv = REDISMODULE_ERR;
     }
-  } else {
+  } else if (rv == REDISMODULE_OK) {
     japi->freeIter(jsonIter);
   }
   return rv;
