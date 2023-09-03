@@ -1,5 +1,5 @@
-#define OR                               1
-#define AND                              2
+#define AND                              1
+#define OR                               2
 #define NOT                              3
 #define EQ                               4
 #define NE                               5

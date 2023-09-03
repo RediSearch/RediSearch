@@ -7,7 +7,7 @@
 
 %name RSExprParser_Parse
 
-%left OR AND NOT.
+%left AND OR NOT.
 %left EQ NE LT LE GT GE.
 
 %left PLUS MINUS.
