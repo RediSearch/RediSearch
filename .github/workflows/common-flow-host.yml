@@ -27,25 +27,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: PWD0
-        run: |
-          pwd
-          ls -la
       - name: Setup
         run: ${{ inputs.deps-install-mode }} ./.install/install_script.sh
-      - name: PWD1
-        run: |
-          pwd
-          ls -la
       - name: Setup Repo
         run: |
           git init
           git config --global --add safe.directory '*'
           git submodule update --init --recursive
-      - name: PWD2
-        run: |
-          pwd
-          ls -la
       - name: Get Redis
         if: ${{ inputs.get-redis }}
         uses: actions/checkout@v3
@@ -57,10 +45,6 @@ jobs:
         if: ${{ inputs.get-redis }}
         working-directory: redis
         run: ${{ inputs.deps-install-mode }} make install
-      - name: PWD3
-        run: |
-          pwd
-          ls -la
       - name: Build
         run: |
           make SAN=${{ inputs.san }}

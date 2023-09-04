@@ -36,16 +36,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: PWD0
-        run: |
-          pwd
-          ls -la
       - name: Setup
         run: ${{ inputs.deps-install-mode }} ./.install/install_script.sh
-      - name: PWD1
-        run: |
-          pwd
-          ls -la
       - name: Setup Repo
         run: |
           git init
