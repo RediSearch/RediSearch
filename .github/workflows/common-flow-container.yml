@@ -48,7 +48,8 @@ jobs:
           ls -la
       - name: Setup Repo
         run: |
-          git config --global --add safe.directory './*'
+          git init
+          git config --global --add safe.directory '*'
           git submodule update --init --recursive
       - name: Get Redis
         if: ${{ inputs.get-redis }}
