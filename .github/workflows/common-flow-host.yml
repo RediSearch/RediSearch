@@ -31,6 +31,8 @@ jobs:
           sparse-checkout: .install
       - name: Setup
         run: ${{ inputs.deps-install-mode }} ./.install/install_script.sh
+      - name: Get make version
+        run: make --version
       - name: Full checkout
         uses: actions/checkout@v3
         with:
@@ -47,8 +49,6 @@ jobs:
         if: ${{ inputs.get-redis }}
         working-directory: redis
         run: ${{ inputs.deps-install-mode }} make install
-      - name: Get make version
-        run: make --version
       - name: Build
         run: |
           make SAN=${{ inputs.san }}
