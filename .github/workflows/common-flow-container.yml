@@ -34,18 +34,22 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - name: Deps checkout
+      - name: Checkout
         uses: actions/checkout@v3
-        with:
-          sparse-checkout: .install
+      - name: PWD0
+        run: |
+          pwd
+          ls -la
       - name: Setup
         run: ${{ inputs.deps-install-mode }} ./.install/install_script.sh
-      - name: Full checkout
-        uses: actions/checkout@v3
-        with:
-          submodules: recursive
-          set-safe-directory: "'**'"
-          sparse-checkout: null
+      - name: PWD1
+        run: |
+          pwd
+          ls -la
+      - name: Setup Repo
+        run: |
+          git config --global --add safe.directory **
+          git submodule update --init --recursive
       - name: Get Redis
         if: ${{ inputs.get-redis }}
         uses: actions/checkout@v3

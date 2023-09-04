@@ -25,10 +25,8 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - name: Deps checkout
+      - name: Checkout
         uses: actions/checkout@v3
-        with:
-          sparse-checkout: .install
       - name: PWD0
         run: |
           pwd
@@ -39,11 +37,10 @@ jobs:
         run: |
           pwd
           ls -la
-      - name: Full checkout
-        uses: actions/checkout@v3
-        with:
-          submodules: recursive
-          set-safe-directory: "'**'"
+      - name: Setup Repo
+        run: |
+          git config --global --add safe.directory **
+          git submodule update --init --recursive
       - name: PWD2
         run: |
           pwd
