@@ -22,6 +22,9 @@ on:
         type: string
         default: ""
         description: "How to install dependencies. User mode is the default, pass 'sudo' to install as root."
+      boost-version:
+        type: string
+        default: "1.82.0"
 
 jobs:
   common-flow:
@@ -37,7 +40,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
       - name: Setup
-        run: ${{ inputs.deps-install-mode }} ./.install/install_script.sh
+        run: ${{ inputs.deps-install-mode }} ./.install/install_script.sh -b ${{ inputs.boost-version }}
       - name: Setup Repo
         run: |
           git init
