@@ -46,6 +46,7 @@ jobs:
           submodules: recursive
           set-safe-directory: "'*'"
       - name: Get Redis
+        if: ${{ inputs.get-redis }}
         uses: actions/checkout@v3
         with:
           repository: redis/redis
