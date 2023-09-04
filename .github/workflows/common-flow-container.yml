@@ -18,9 +18,10 @@ on:
         type: boolean
       redis-ref: # Only used if get-redis is true. Allows to specify a specific ref to checkout (barnch, tag, commit...)
         type: string
-
-env:
-  MODE: "" # user mode
+      deps-install-mode:
+        type: string
+        default: ""
+        description: "How to install dependencies. User mode is the default, pass 'sudo' to install as root."
 
 jobs:
   common-flow:
@@ -38,8 +39,7 @@ jobs:
         with:
           sparse-checkout: .install
       - name: Setup
-        run: |
-          ${{env.MODE}} ./.install/install_script.sh
+        run: ${{ inputs.deps-install-mode }} ./.install/install_script.sh
       - name: Full checkout
         uses: actions/checkout@v3
         with:
@@ -55,7 +55,7 @@ jobs:
       - name: Build Redis
         if: ${{ inputs.get-redis }}
         working-directory: redis
-        run: ${{ env.MODE }} make install
+        run: ${{ inputs.deps-install-mode }} make install
       - name: Build
         run: |
           make SAN=${{ inputs.san }}

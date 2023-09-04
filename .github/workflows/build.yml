@@ -13,4 +13,5 @@ jobs:
     with:
       env: ubuntu-latest
       get-redis: true
+      deps-install-mode: sudo
     secrets: inherit
