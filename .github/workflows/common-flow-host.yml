@@ -29,13 +29,25 @@ jobs:
         uses: actions/checkout@v3
         with:
           sparse-checkout: .install
+      - name: PWD0
+        run: |
+          pwd
+          ls -la
       - name: Setup
         run: ${{ inputs.deps-install-mode }} ./.install/install_script.sh
+      - name: PWD1
+        run: |
+          pwd
+          ls -la
       - name: Full checkout
         uses: actions/checkout@v3
         with:
           submodules: recursive
           set-safe-directory: "'*'"
+      - name: PWD2
+        run: |
+          pwd
+          ls -la
       - name: Get Redis
         if: ${{ inputs.get-redis }}
         uses: actions/checkout@v3
@@ -47,11 +59,10 @@ jobs:
         if: ${{ inputs.get-redis }}
         working-directory: redis
         run: ${{ inputs.deps-install-mode }} make install
-      - name: PWD
+      - name: PWD3
         run: |
           pwd
           ls -la
-          ls -la sbin
       - name: Build
         run: |
           make SAN=${{ inputs.san }}
