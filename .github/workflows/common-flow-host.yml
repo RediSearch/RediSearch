@@ -39,7 +39,7 @@ jobs:
           ls -la
       - name: Setup Repo
         run: |
-          git config --global --add safe.directory '*'
+          git config --global --add safe.directory './*'
           git submodule update --init --recursive
       - name: PWD2
         run: |
