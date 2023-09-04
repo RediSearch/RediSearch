@@ -16,6 +16,8 @@ on:
         type: string
       get-redis:
         type: boolean
+      redis-ref: # Only used if get-redis is true. Allows to specify a specific ref to checkout (barnch, tag, commit...)
+        type: string
 
 env:
   MODE: "" # user mode
@@ -44,10 +46,15 @@ jobs:
           submodules: recursive
           set-safe-directory: "'*'"
       - name: Get Redis
+        uses: actions/checkout@v3
+        with:
+          repository: redis/redis
+          ref: ${{ inputs.redis-ref || '7.2' }}
+          path: redis
+      - name: Build Redis
         if: ${{ inputs.get-redis }}
-        run: |
-          export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-          ./deps/readies/bin/getredis --with-github-token
+        working-directory: redis
+        run: ${{ env.MODE }} make install
       - name: Build
         run: |
           make SAN=${{ inputs.san }}
