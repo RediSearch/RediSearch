@@ -1,6 +1,14 @@
 #!/bin/bash
 
 OS_TYPE=$(uname -s)
+BUILD_BOOST=
+
+while getopts b: flag; do
+  case "${flag}" in
+    b)  BUILD_BOOST=$OPTARG ;;
+    *)  exit 1 ;;
+  esac
+done
 
 if [[ $OS_TYPE = 'Darwin' ]]
 then
@@ -20,10 +28,7 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 cd $SCRIPT_DIR
 source ${OS}.sh
 
-# input="install.txt"
-# apt-get update
-# while IFS= read -r line
-# do
-#   echo $line
-#   $($line)
-# done < "$OS"
+if [[ -n $BUILD_BOOST ]]
+then
+    source install_boost.sh ${BUILD_BOOST}
+fi
