@@ -48,7 +48,10 @@ jobs:
         working-directory: redis
         run: ${{ inputs.deps-install-mode }} make install
       - name: PWD
-        run: pwd
+        run: |
+          pwd
+          ls -la
+          ls -la sbin
       - name: Build
         run: |
           make SAN=${{ inputs.san }}
