@@ -76,7 +76,7 @@ void CmdArg_Print(CmdArg *n, int depth) {
   }
 }
 static inline CmdArg *NewCmdArg(CmdArgType t) {
-  CmdArg *ret = malloc(sizeof(CmdArg));
+  CmdArg *ret =rm_malloc(sizeof(CmdArg));
 
   ret->type = t;
   return ret;
@@ -138,24 +138,24 @@ int CmdArg_GetFlag(CmdArg *parent, const char *flag) {
 void CmdArg_Free(CmdArg *arg) {
   switch (arg->type) {
     case CmdArg_String:
-      free(arg->s.str);
+      rm_free(arg->s.str);
       break;
     case CmdArg_Object:
       for (size_t i = 0; i < arg->obj.len; i++) {
         CmdArg_Free(arg->obj.entries[i].v);
       }
-      free(arg->obj.entries);
+      rm_free(arg->obj.entries);
       break;
     case CmdArg_Array:
       for (size_t i = 0; i < arg->a.len; i++) {
         CmdArg_Free(arg->a.args[i]);
       }
-      free(arg->a.args);
+      rm_free(arg->a.args);
       break;
     default:
       break;
   }
-  free(arg);
+  rm_free(arg);
 }
 
 static int CmdObj_Set(CmdObject *obj, const char *key, CmdArg *val, int unique) {
@@ -460,10 +460,10 @@ void CmdSchemaNode_Free(CmdSchemaNode *n) {
     for (int i = 0; i < n->size; i++) {
       CmdSchemaNode_Free(n->edges[i]);
     }
-    free(n->edges);
+    rm_free(n->edges);
   }
-  free(n->val);
-  free(n);
+  rm_free(n->val);
+  rm_free(n);
 }
 typedef enum {
   CmdParser_New = 0x00,
@@ -881,7 +881,7 @@ int CmdParser_ParseRedisModuleCmd(CmdSchemaNode *schema, CmdArg **cmd, RedisModu
   }
 
   int rc = CmdParser_ParseCmd(schema, cmd, args, argc, err, strict);
-  free(args);
+  rm_free(args);
   return rc;
 }
 

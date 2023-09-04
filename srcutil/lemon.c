@@ -613,9 +613,9 @@ struct acttab {
 
 /* Free all memory associated with the given acttab */
 void acttab_free(acttab *p){
-  free( p->aAction );
-  free( p->aLookahead );
-  free( p );
+  rm_free( p->aAction );
+  rm_free( p->aLookahead );
+  rm_free( p );
 }
 
 /* Allocate a new acttab structure */
@@ -642,7 +642,7 @@ void acttab_action(acttab *p, int lookahead, int action){
     p->aLookahead = (struct lookahead_action *) realloc( p->aLookahead,
                              sizeof(p->aLookahead[0])*p->nLookaheadAlloc );
     if( p->aLookahead==0 ){
-      fprintf(stderr,"malloc failed\n");
+      fprintf(stderr,"rm_malloc failed\n");
       exit(1);
     }
   }
@@ -692,7 +692,7 @@ int acttab_insert(acttab *p, int makeItSafe){
     p->aAction = (struct lookahead_action *) realloc( p->aAction,
                           sizeof(p->aAction[0])*p->nActionAlloc);
     if( p->aAction==0 ){
-      fprintf(stderr,"malloc failed\n");
+      fprintf(stderr,"rm_malloc failed\n");
       exit(1);
     }
     for(i=oldAlloc; i<p->nActionAlloc; i++){
@@ -1531,7 +1531,7 @@ static void handle_D_option(char *z){
     exit(1);
   }
   paz = &azDefine[nDefine-1];
-  *paz = (char *) malloc( lemonStrlen(z)+1 );
+  *paz = (char *) rm_malloc( lemonStrlen(z)+1 );
   if( *paz==0 ){
     fprintf(stderr,"out of memory\n");
     exit(1);
@@ -1545,7 +1545,7 @@ static void handle_D_option(char *z){
 */
 static char *outputDir = NULL;
 static void handle_d_option(char *z){
-  outputDir = (char *) malloc( lemonStrlen(z)+1 );
+  outputDir = (char *) rm_malloc( lemonStrlen(z)+1 );
   if( outputDir==0 ){
     fprintf(stderr,"out of memory\n");
     exit(1);
@@ -1555,7 +1555,7 @@ static void handle_d_option(char *z){
 
 static char *user_templatename = NULL;
 static void handle_T_option(char *z){
-  user_templatename = (char *) malloc( lemonStrlen(z)+1 );
+  user_templatename = (char *) rm_malloc( lemonStrlen(z)+1 );
   if( user_templatename==0 ){
     memory_error();
   }
@@ -2977,10 +2977,10 @@ void Parse(struct lemon *gp)
   fseek(fp,0,2);
   filesize = ftell(fp);
   rewind(fp);
-  filebuf = (char *)malloc( filesize+1 );
+  filebuf = (char *)rm_malloc( filesize+1 );
   if( filesize>100000000 || filebuf==0 ){
     ErrorMsg(ps.filename,0,"Input file too large.");
-    free(filebuf);
+    rm_free(filebuf);
     gp->errorcnt++;
     fclose(fp);
     return;
@@ -2988,7 +2988,7 @@ void Parse(struct lemon *gp)
   if( fread(filebuf,1,filesize,fp)!=filesize ){
     ErrorMsg(ps.filename,0,"Can't read in all %d bytes of this file.",
       filesize);
-    free(filebuf);
+    rm_free(filebuf);
     gp->errorcnt++;
     fclose(fp);
     return;
@@ -3099,7 +3099,7 @@ void Parse(struct lemon *gp)
     *cp = (char)c;                  /* Restore the buffer */
     cp = nextcp;
   }
-  free(filebuf);                    /* Release the buffer after parsing */
+  rm_free(filebuf);                    /* Release the buffer after parsing */
   gp->rule = ps.firstrule;
   gp->errorcnt = ps.errorcnt;
 }
@@ -3189,7 +3189,7 @@ PRIVATE char *file_makename(struct lemon *lemp, const char *suffix)
   sz += lemonStrlen(suffix);
   if( outputDir ) sz += lemonStrlen(outputDir) + 1;
   sz += 5;
-  name = (char*)malloc( sz );
+  name = (char*)rm_malloc( sz );
   if( name==0 ){
     fprintf(stderr,"Can't allocate space for a filename.\n");
     exit(1);
@@ -3216,7 +3216,7 @@ PRIVATE FILE *file_open(
 ){
   FILE *fp;
 
-  if( lemp->outname ) free(lemp->outname);
+  if( lemp->outname ) rm_free(lemp->outname);
   lemp->outname = file_makename(lemp, suffix);
   fp = fopen(lemp->outname,mode);
   if( fp==0 && *mode=='w' ){
@@ -3532,14 +3532,14 @@ PRIVATE char *pathsearch(char *argv0, char *name, int modemask)
   if( cp ){
     c = *cp;
     *cp = 0;
-    path = (char *)malloc( lemonStrlen(argv0) + lemonStrlen(name) + 2 );
+    path = (char *)rm_malloc( lemonStrlen(argv0) + lemonStrlen(name) + 2 );
     if( path ) lemon_sprintf(path,"%s/%s",argv0,name);
     *cp = c;
   }else{
     pathlist = getenv("PATH");
     if( pathlist==0 ) pathlist = ".:/bin:/usr/bin";
-    pathbuf = (char *) malloc( lemonStrlen(pathlist) + 1 );
-    path = (char *)malloc( lemonStrlen(pathlist)+lemonStrlen(name)+2 );
+    pathbuf = (char *) rm_malloc( lemonStrlen(pathlist) + 1 );
+    path = (char *)rm_malloc( lemonStrlen(pathlist)+lemonStrlen(name)+2 );
     if( (pathbuf != 0) && (path!=0) ){
       pathbufptr = pathbuf;
       lemon_strcpy(pathbuf, pathlist);
@@ -3555,7 +3555,7 @@ PRIVATE char *pathsearch(char *argv0, char *name, int modemask)
         if( access(path,modemask)==0 ) break;
       }
     }
-    free(pathbufptr);
+    rm_free(pathbufptr);
   }
   return path;
 }
@@ -3686,7 +3686,7 @@ PRIVATE FILE *tplt_open(struct lemon *lemp)
     fprintf(stderr,"Can't open the template file \"%s\".\n",tpltname);
     lemp->errorcnt++;
   }
-  free(toFree);
+  rm_free(toFree);
   return in;
 }
 
@@ -4122,7 +4122,7 @@ void print_stack_union(
     len = lemonStrlen(sp->datatype);
     if( len>maxdtlength ) maxdtlength = len;
   }
-  stddt = (char*)malloc( maxdtlength*2 + 1 );
+  stddt = (char*)rm_malloc( maxdtlength*2 + 1 );
   if( stddt==0 ){
     fprintf(stderr,"Out of memory.\n");
     exit(1);
@@ -4171,7 +4171,7 @@ void print_stack_union(
     }
     if( types[hash]==0 ){
       sp->dtnum = hash + 1;
-      types[hash] = (char*)malloc( lemonStrlen(stddt)+1 );
+      types[hash] = (char*)rm_malloc( lemonStrlen(stddt)+1 );
       if( types[hash]==0 ){
         fprintf(stderr,"Out of memory.\n");
         exit(1);
@@ -4193,13 +4193,13 @@ void print_stack_union(
   for(i=0; i<arraysize; i++){
     if( types[i]==0 ) continue;
     fprintf(out,"  %s yy%d;\n",types[i],i+1); lineno++;
-    free(types[i]);
+    rm_free(types[i]);
   }
   if( lemp->errsym && lemp->errsym->useCnt ){
     fprintf(out,"  int yy%d;\n",lemp->errsym->dtnum); lineno++;
   }
-  free(stddt);
-  free(types);
+  rm_free(stddt);
+  rm_free(types);
   fprintf(out,"} YYMINORTYPE;\n"); lineno++;
   *plineno = lineno;
 }
@@ -4418,7 +4418,7 @@ void ReportTable(
   if( mhflag ){
     char *incName = file_makename(lemp, ".h");
     fprintf(out,"#include \"%s\"\n", incName); lineno++;
-    free(incName);
+    rm_free(incName);
   }
   tplt_xfer(lemp->name,in,out,&lineno);
 
@@ -4512,7 +4512,7 @@ void ReportTable(
   */
   ax = (struct axset *) calloc(lemp->nxstate*2, sizeof(ax[0]));
   if( ax==0 ){
-    fprintf(stderr,"malloc failed\n");
+    fprintf(stderr,"rm_malloc failed\n");
     exit(1);
   }
   for(i=0; i<lemp->nxstate; i++){
@@ -4568,7 +4568,7 @@ void ReportTable(
     }
 #endif
   }
-  free(ax);
+  rm_free(ax);
 
   /* Mark rules that are actually used for reduce actions after all
   ** optimizations have been applied
@@ -5188,7 +5188,7 @@ char *SetNew(void){
 /* Deallocate a set */
 void SetFree(char *s)
 {
-  free(s);
+  rm_free(s);
 }
 
 /* Add a new element to the set.  Return TRUE if the element was added
@@ -5236,7 +5236,7 @@ PRIVATE unsigned strhash(const char *x)
   return h;
 }
 
-/* Works like strdup, sort of.  Save a string in malloced memory, but
+/* Works like strdup, sort of.  Save a string in rm_malloced memory, but
 ** keep strings in a table so that the same string is not in more
 ** than one place.
 */
@@ -5247,7 +5247,7 @@ const char *Strsafe(const char *y)
 
   if( y==0 ) return 0;
   z = Strsafe_find(y);
-  if( z==0 && (cpy=(char *)malloc( lemonStrlen(y)+1 ))!=0 ){
+  if( z==0 && (cpy=(char *)rm_malloc( lemonStrlen(y)+1 ))!=0 ){
     lemon_strcpy(cpy,y);
     z = cpy;
     Strsafe_insert(z);
@@ -5283,13 +5283,13 @@ static struct s_x1 *x1a;
 /* Allocate a new associative array */
 void Strsafe_init(void){
   if( x1a ) return;
-  x1a = (struct s_x1*)malloc( sizeof(struct s_x1) );
+  x1a = (struct s_x1*)rm_malloc( sizeof(struct s_x1) );
   if( x1a ){
     x1a->size = 1024;
     x1a->count = 0;
     x1a->tbl = (x1node*)calloc(1024, sizeof(x1node) + sizeof(x1node*));
     if( x1a->tbl==0 ){
-      free(x1a);
+      rm_free(x1a);
       x1a = 0;
     }else{
       int i;
@@ -5325,7 +5325,7 @@ int Strsafe_insert(const char *data)
     array.size = arrSize = x1a->size*2;
     array.count = x1a->count;
     array.tbl = (x1node*)calloc(arrSize, sizeof(x1node) + sizeof(x1node*));
-    if( array.tbl==0 ) return 0;  /* Fail due to malloc failure */
+    if( array.tbl==0 ) return 0;  /* Fail due to rm_malloc failure */
     array.ht = (x1node**)&(array.tbl[arrSize]);
     for(i=0; i<arrSize; i++) array.ht[i] = 0;
     for(i=0; i<x1a->count; i++){
@@ -5451,13 +5451,13 @@ static struct s_x2 *x2a;
 /* Allocate a new associative array */
 void Symbol_init(void){
   if( x2a ) return;
-  x2a = (struct s_x2*)malloc( sizeof(struct s_x2) );
+  x2a = (struct s_x2*)rm_malloc( sizeof(struct s_x2) );
   if( x2a ){
     x2a->size = 128;
     x2a->count = 0;
     x2a->tbl = (x2node*)calloc(128, sizeof(x2node) + sizeof(x2node*));
     if( x2a->tbl==0 ){
-      free(x2a);
+      rm_free(x2a);
       x2a = 0;
     }else{
       int i;
@@ -5493,7 +5493,7 @@ int Symbol_insert(struct symbol *data, const char *key)
     array.size = arrSize = x2a->size*2;
     array.count = x2a->count;
     array.tbl = (x2node*)calloc(arrSize, sizeof(x2node) + sizeof(x2node*));
-    if( array.tbl==0 ) return 0;  /* Fail due to malloc failure */
+    if( array.tbl==0 ) return 0;  /* Fail due to rm_malloc failure */
     array.ht = (x2node**)&(array.tbl[arrSize]);
     for(i=0; i<arrSize; i++) array.ht[i] = 0;
     for(i=0; i<x2a->count; i++){
@@ -5561,7 +5561,7 @@ int Symbol_count()
 }
 
 /* Return an array of pointers to all data in the table.
-** The array is obtained from malloc.  Return NULL if memory allocation
+** The array is obtained from rm_malloc.  Return NULL if memory allocation
 ** problems, or if the array is empty. */
 struct symbol **Symbol_arrayof()
 {
@@ -5650,13 +5650,13 @@ static struct s_x3 *x3a;
 /* Allocate a new associative array */
 void State_init(void){
   if( x3a ) return;
-  x3a = (struct s_x3*)malloc( sizeof(struct s_x3) );
+  x3a = (struct s_x3*)rm_malloc( sizeof(struct s_x3) );
   if( x3a ){
     x3a->size = 128;
     x3a->count = 0;
     x3a->tbl = (x3node*)calloc(128, sizeof(x3node) + sizeof(x3node*));
     if( x3a->tbl==0 ){
-      free(x3a);
+      rm_free(x3a);
       x3a = 0;
     }else{
       int i;
@@ -5692,7 +5692,7 @@ int State_insert(struct state *data, struct config *key)
     array.size = arrSize = x3a->size*2;
     array.count = x3a->count;
     array.tbl = (x3node*)calloc(arrSize, sizeof(x3node) + sizeof(x3node*));
-    if( array.tbl==0 ) return 0;  /* Fail due to malloc failure */
+    if( array.tbl==0 ) return 0;  /* Fail due to rm_malloc failure */
     array.ht = (x3node**)&(array.tbl[arrSize]);
     for(i=0; i<arrSize; i++) array.ht[i] = 0;
     for(i=0; i<x3a->count; i++){
@@ -5707,7 +5707,7 @@ int State_insert(struct state *data, struct config *key)
       newnp->from = &(array.ht[h]);
       array.ht[h] = newnp;
     }
-    free(x3a->tbl);
+    rm_free(x3a->tbl);
     *x3a = array;
   }
   /* Insert the new data */
@@ -5740,7 +5740,7 @@ struct state *State_find(struct config *key)
 }
 
 /* Return an array of pointers to all data in the table.
-** The array is obtained from malloc.  Return NULL if memory allocation
+** The array is obtained from rm_malloc.  Return NULL if memory allocation
 ** problems, or if the array is empty. */
 struct state **State_arrayof(void)
 {
@@ -5790,13 +5790,13 @@ static struct s_x4 *x4a;
 /* Allocate a new associative array */
 void Configtable_init(void){
   if( x4a ) return;
-  x4a = (struct s_x4*)malloc( sizeof(struct s_x4) );
+  x4a = (struct s_x4*)rm_malloc( sizeof(struct s_x4) );
   if( x4a ){
     x4a->size = 64;
     x4a->count = 0;
     x4a->tbl = (x4node*)calloc(64, sizeof(x4node) + sizeof(x4node*));
     if( x4a->tbl==0 ){
-      free(x4a);
+      rm_free(x4a);
       x4a = 0;
     }else{
       int i;
@@ -5832,7 +5832,7 @@ int Configtable_insert(struct config *data)
     array.size = arrSize = x4a->size*2;
     array.count = x4a->count;
     array.tbl = (x4node*)calloc(arrSize, sizeof(x4node) + sizeof(x4node*));
-    if( array.tbl==0 ) return 0;  /* Fail due to malloc failure */
+    if( array.tbl==0 ) return 0;  /* Fail due to rm_malloc failure */
     array.ht = (x4node**)&(array.tbl[arrSize]);
     for(i=0; i<arrSize; i++) array.ht[i] = 0;
     for(i=0; i<x4a->count; i++){

@@ -24,6 +24,8 @@
 
 /* end standard C headers. */
 
+#include "rmalloc.h"
+
 /* flex integer type definitions */
 
 #ifndef FLEXINT_H
@@ -1897,7 +1899,7 @@ static int yy_flex_strlen (const char * s )
 
 void *yyalloc (yy_size_t  size )
 {
-			return malloc(size);
+			return rm_malloc(size);
 }
 
 void *yyrealloc  (void * ptr, yy_size_t  size )

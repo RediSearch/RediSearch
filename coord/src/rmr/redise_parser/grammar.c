@@ -50,7 +50,7 @@ void yyerror(char *s);
 
 static void parseCtx_Free(parseCtx *ctx) {
     if (ctx->my_id) {
-        free(ctx->my_id);
+        rm_free(ctx->my_id);
     }
 }
 #line 48 "grammar.c"
@@ -395,7 +395,7 @@ static int yyGrowStack(yyParser *p){
   newSize = p->yystksz*2 + 100;
   idx = p->yytos ? (int)(p->yytos - p->yystack) : 0;
   if( p->yystack==&p->yystk0 ){
-    pNew = malloc(newSize*sizeof(pNew[0]));
+    pNew = rm_malloc(newSize*sizeof(pNew[0]));
     if( pNew ) pNew[0] = p->yystk0;
   }else{
     pNew = realloc(p->yystack, newSize*sizeof(pNew[0]));
@@ -503,7 +503,7 @@ static void yy_destructor(
     case 23: /* unix_addr */
 {
 #line 30 "grammar.y"
-  free((yypminor->yy1));
+  rm_free((yypminor->yy1));
 #line 499 "grammar.c"
 }
       break;
@@ -578,7 +578,7 @@ void MRTopologyRequest_ParseFinalize(void *p){
   yyParser *pParser = (yyParser*)p;
   while( pParser->yytos>pParser->yystack ) yy_pop_parser_stack(pParser);
 #if YYSTACKDEPTH<=0
-  if( pParser->yystack!=&pParser->yystk0 ) free(pParser->yystack);
+  if( pParser->yystack!=&pParser->yystk0 ) rm_free(pParser->yystack);
 #endif
 }
 
@@ -1350,7 +1350,7 @@ MRClusterTopology *MR_ParseTopologyRequest(const char *c, size_t len, char **err
         MRTopologyRequest_Parse(pParser, 0, tok, &ctx);
     //}
 
-    MRTopologyRequest_ParseFree(pParser, free);
+    MRTopologyRequest_ParseFree(pParser, rm_free);
 
     if (err) {
         *err = ctx.errorMsg;
