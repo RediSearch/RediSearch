@@ -262,11 +262,11 @@ class TestAggregate():
             # On cluster, filter can implicitly load any field
             res = self.env.cmd(*cmd)
             self.env.assertEqual([
-                ['categories', 'Accessories,Controllers,PC,Steering Wheels,Video Games', 'price', '759.12'],
-                ['categories', 'Consoles,Sony PSP,Video Games', 'price', '695.8'],
-                ['categories', 'Accessories,PC,Video Games', 'price', '599.99'],
-                ['categories', 'Accessories,Gaming Keyboards,Mac,Video Games', 'price', '559.99'],
-                ['categories', 'Consoles,Sony PSP,Video Games', 'price', '518.48']
+                ['price', '759.12', 'categories', 'Accessories,Controllers,PC,Steering Wheels,Video Games'],
+                ['price', '695.8', 'categories', 'Consoles,Sony PSP,Video Games'],
+                ['price', '599.99', 'categories', 'Accessories,PC,Video Games'],
+                ['price', '559.99', 'categories', 'Accessories,Gaming Keyboards,Mac,Video Games'],
+                ['price', '518.48', 'categories', 'Consoles,Sony PSP,Video Games']
             ], res[1:])
         else:
             # On standalone, filter can only refer to fields that available in the pipeline
@@ -282,11 +282,11 @@ class TestAggregate():
         res = self.env.cmd(*cmd)
         if self.env.isCluster():
             self.env.assertEqual([
-                ['categories', 'Accessories,Cables,Cables & Adapters,PlayStation 3,Video Games', 'brand', 'Sony', 'price', '5.88'],
-                ['categories', 'Games,PC,Video Games', 'brand', 'Sony', 'price', '9.19'],
-                ['categories', 'Accessories,Adapters,Cables & Adapters,Sony PSP,Video Games', 'brand', 'Sony', 'price', '11.74'],
-                ['categories', 'Accessories,Headsets,Sony PSP,Video Games', 'brand', 'Sony', 'price', '12.99'],
-                ['categories', 'Movies & TV,Sony PSP,TV,Video Games', 'brand', 'Sony', 'price', '25.99']
+                ['brand', 'Sony', 'categories', 'Accessories,Cables,Cables & Adapters,PlayStation 3,Video Games', 'price', '5.88'],
+                ['brand', 'Sony', 'categories', 'Games,PC,Video Games', 'price', '9.19'],
+                ['brand', 'Sony', 'categories', 'Accessories,Adapters,Cables & Adapters,Sony PSP,Video Games', 'price', '11.74'],
+                ['brand', 'Sony', 'categories', 'Accessories,Headsets,Sony PSP,Video Games', 'price', '12.99'],
+                ['brand', 'Sony', 'categories', 'Movies & TV,Sony PSP,TV,Video Games', 'price', '25.99']
             ], res[1:])
         else:
             self.env.assertEqual([
@@ -296,6 +296,15 @@ class TestAggregate():
                 ['brand', 'sony', 'categories', 'Accessories,Headsets,Sony PSP,Video Games', 'price', '12.99'],
                 ['brand', 'sony', 'categories', 'Movies & TV,Sony PSP,TV,Video Games', 'price', '25.99']
             ], res[1:])
+
+    def testBadFilter(self):
+        cmd = ['ft.aggregate', 'games', '*',
+               'FILTER', 'bad filter',]
+        self.env.expect(*cmd).error().contains('Syntax error at offset')
+
+        cmd = ['ft.aggregate', 'games', '*',
+               'FILTER', '@price++',]
+        self.env.expect(*cmd).error().contains('Syntax error at offset')
 
     def testToList(self):
         cmd = ['ft.aggregate', 'games', '*',
