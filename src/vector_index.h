@@ -58,17 +58,17 @@ typedef struct {
 } VectorQueryParams;
 
 typedef struct {
-  void *vector;                   // query vector data
-  size_t vecLen;                  // vector length
-  size_t k;                       // number of vectors to return
-  VecSimQueryResult_Order order;  // specify the result order.
+  void *vector;                  // query vector data
+  size_t vecLen;                 // vector length
+  size_t k;                      // number of vectors to return
+  VecSimQueryReply_Order order;  // specify the result order.
 } KNNVectorQuery;
 
 typedef struct {
-  void *vector;                   // query vector data
-  size_t vecLen;                  // vector length
-  double radius;                  // the radius to search in
-  VecSimQueryResult_Order order;  // specify the result order.
+  void *vector;                  // query vector data
+  size_t vecLen;                 // vector length
+  double radius;                 // the radius to search in
+  VecSimQueryReply_Order order;  // specify the result order.
 } RangeVectorQuery;
 
 typedef struct VectorQuery {
@@ -142,7 +142,7 @@ void VecSim_CallTieredIndexesGC(VecSimIndex **tieredIndexes, WeakRef spRef);
 extern "C" {
 #endif
 
-IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List results,
+IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply,
                                                           bool yields_metric);
 #ifdef __cplusplus
 }
