@@ -25,10 +25,11 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - name: Deps checkout
+      - name: checkout
         uses: actions/checkout@v3
         with:
-          sparse-checkout: .install
+          submodules: recursive
+          set-safe-directory: "'**'"
       - name: PWD0
         run: |
           pwd
@@ -36,15 +37,6 @@ jobs:
       - name: Setup
         run: ${{ inputs.deps-install-mode }} ./.install/install_script.sh
       - name: PWD1
-        run: |
-          pwd
-          ls -la
-      - name: Full checkout
-        uses: actions/checkout@v3
-        with:
-          submodules: recursive
-          set-safe-directory: "'*'"
-      - name: PWD2
         run: |
           pwd
           ls -la
@@ -59,7 +51,7 @@ jobs:
         if: ${{ inputs.get-redis }}
         working-directory: redis
         run: ${{ inputs.deps-install-mode }} make install
-      - name: PWD3
+      - name: PWD2
         run: |
           pwd
           ls -la
