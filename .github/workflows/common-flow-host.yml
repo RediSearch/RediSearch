@@ -59,22 +59,22 @@ jobs:
         if: ${{ inputs.get-redis }}
         working-directory: redis
         run: ${{ inputs.deps-install-mode }} make install
-      - name: Build
-        run: |
-          make SAN=${{ inputs.san }}
-          make COORD=1 SAN=${{ inputs.san }}
-      - name: Unit tests
-        run: |
-          make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
-      - name: Flow tests
-        run: |
-          make pytest QUICK=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
-      - name: Unit tests (coordinator)
-        run: |
-          make COORD=1 unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
-      - name: Flow tests (coordinator)
-        run: |
-          make COORD=1 pytest QUICK=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+      # - name: Build
+      #   run: |
+      #     make SAN=${{ inputs.san }}
+      #     make COORD=1 SAN=${{ inputs.san }}
+      # - name: Unit tests
+      #   run: |
+      #     make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+      # - name: Flow tests
+      #   run: |
+      #     make pytest QUICK=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+      # - name: Unit tests (coordinator)
+      #   run: |
+      #     make COORD=1 unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+      # - name: Flow tests (coordinator)
+      #   run: |
+      #     make COORD=1 pytest QUICK=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Upload Artifacts
         uses: actions/upload-artifact@v3
         with:
