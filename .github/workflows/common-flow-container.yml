@@ -57,7 +57,8 @@ jobs:
       - name: Get Boost
         if: steps.boost-cache.outputs.cache-hit != 'true'
         run: ${{ inputs.deps-install-mode }} ./.install/install_boost.sh ${{ inputs.boost-version }}
-      - uses: actions/cache/save@v3
+      - name: Saving Boost cache
+        uses: actions/cache/save@v3
         if: steps.boost-cache.outputs.cache-hit != 'true'
         with:
           path: |
