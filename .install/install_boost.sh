@@ -9,5 +9,5 @@ wget https://boostorg.jfrog.io/artifactory/main/release/${VERSION}/source/${BOOS
 tar -xzf ${BOOST_DIR}.tar.gz
 cd ${BOOST_DIR}
 
-./bootstrap.sh --prefix=/$HOME/
+./bootstrap.sh --prefix=$HOME/
 ./b2 install

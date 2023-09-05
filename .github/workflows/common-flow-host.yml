@@ -42,8 +42,8 @@ jobs:
         uses: actions/cache/restore@v3
         with:
           path: |
-            /$HOME/**/boost
-            /$HOME/lib/**/libboost*
+            $HOME/**/boost
+            $HOME/lib/**/libboost*
           key: boost-${{ inputs.boost-version }}-${{ inputs.container || inputs.env }}
       - name: Get Boost
         if: steps.boost-cache.outputs.cache-hit != 'true'
