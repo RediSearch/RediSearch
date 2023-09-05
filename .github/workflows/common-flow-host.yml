@@ -47,7 +47,7 @@ jobs:
           key: boost-${{ inputs.boost-version }}-${{ inputs.container || inputs.env }}
       - name: Get Boost
         if: steps.boost-cache.outputs.cache-hit != 'true'
-        run: ${{ inputs.deps-install-mode }} ./.install/install_boost.sh ${{ inputs.boost-version }}
+        run: ${{ inputs.deps-install-mode }} . ./.install/install_boost.sh ${{ inputs.boost-version }}
       - name: Get Redis
         if: ${{ inputs.get-redis }}
         uses: actions/checkout@v3
