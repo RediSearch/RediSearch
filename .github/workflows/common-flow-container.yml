@@ -62,8 +62,8 @@ jobs:
         if: steps.boost-cache.outputs.cache-hit != 'true'
         with:
           path: |
-            /$HOME/**/boost
-            /$HOME/lib/**/libboost*
+            $HOME/**/boost
+            $HOME/lib/**/libboost*
           key: ${{ steps.boost-cache.outputs.cache-primary-key }}
       - name: Get Redis
         if: ${{ inputs.get-redis }}
