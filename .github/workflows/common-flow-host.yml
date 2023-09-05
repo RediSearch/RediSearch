@@ -31,12 +31,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
       - name: Setup
-        run: ${{ inputs.deps-install-mode }} ./.install/install_script.sh -b ${{ inputs.boost-version }}
+        run: ${{ inputs.deps-install-mode }} ./.install/install_script.sh
       - name: Setup Repo
         run: |
           git init
           git config --global --add safe.directory '*'
           git submodule update --init --recursive
+      - name: Get Boost
+        run: ${{ inputs.deps-install-mode }} ./.install/install_boost.sh ${{ inputs.boost-version }}
       - name: Get Redis
         if: ${{ inputs.get-redis }}
         uses: actions/checkout@v3

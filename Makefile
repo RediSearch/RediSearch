@@ -368,8 +368,8 @@ deps: $(CONAN_PRESETS) $(LIBUV) #@@ $(HIREDIS) $(S2GEOMETRY)
 conan: $(CONAN_PRESETS)
 
 $(CONAN_PRESETS):
-	@echo Fetching conan libraries... NOT!
-	# $(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG=''
+	@echo Fetching conan libraries...
+	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG=''
 
 # s2geometry: $(S2GEOMETRY)
 #
