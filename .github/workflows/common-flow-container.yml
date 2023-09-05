@@ -51,8 +51,9 @@ jobs:
         uses: actions/cache/restore@v3
         with:
           path: |
-            /tmp/**/boost
-            /tmp/lib/**/libboost*
+            /tmp/include/boost
+            /tmp/lib/libboost*
+            /tmp/lib/cmake/boost*
           key: boost-${{ inputs.boost-version }}-${{ inputs.container || inputs.env }}
       - name: Get Boost
         if: steps.boost-cache.outputs.cache-hit != 'true'
@@ -62,8 +63,9 @@ jobs:
         if: steps.boost-cache.outputs.cache-hit != 'true'
         with:
           path: |
-            /tmp/**/boost
-            /tmp/lib/**/libboost*
+            /tmp/include/boost
+            /tmp/lib/libboost*
+            /tmp/lib/cmake/boost*
           key: ${{ steps.boost-cache.outputs.cache-primary-key }}
       - name: Get Redis
         if: ${{ inputs.get-redis }}
