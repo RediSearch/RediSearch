@@ -662,6 +662,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   } else {
     int res = jsonIterToValue(ctx, jsonIter, options->sctx->apiVersion, &rsv);
     if (res == REDISMODULE_ERR) {
+      japi->freeIter(jsonIter);
       return REDISMODULE_OK;
     }
   }
@@ -859,6 +860,7 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   RSValue *vptr;
   int res = jsonIterToValue(ctx, jsonIter, options->sctx->apiVersion, &vptr);
   if (res == REDISMODULE_ERR) {
+    japi->freeIter(jsonIter);
     goto done;
   }
   RLookupKey *rlk = RLookup_FindKey(it, JSON_ROOT, strlen(JSON_ROOT));
