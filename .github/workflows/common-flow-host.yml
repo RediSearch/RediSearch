@@ -37,9 +37,9 @@ jobs:
           git init
           git config --global --add safe.directory '*'
           git submodule update --init --recursive
-      - name: Cache Boost
+      - name: Restoring cached Boost
         id: boost-cache
-        uses: actions/cache@v3
+        uses: actions/cache/restore@v3
         with:
           path: |
             /usr/**/boost
@@ -48,6 +48,12 @@ jobs:
       - name: Get Boost
         if: steps.boost-cache.outputs.cache-hit != 'true'
         run: ${{ inputs.deps-install-mode }} ./.install/install_boost.sh ${{ inputs.boost-version }}
+      - uses: actions/cache/save@v3
+        with:
+          path: |
+            /usr/**/boost
+            /usr/lib/**/libboost*
+          key: ${{ steps.boost-cache.outputs.cache-primary-key }}
       - name: Get Redis
         if: ${{ inputs.get-redis }}
         uses: actions/checkout@v3
