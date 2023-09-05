@@ -12,13 +12,13 @@ Make sure that you have [Redis Stack installed](/docs/getting-started/install-st
 
 ## Overview
 
-In this guide, we'll demonstrate how to:
+This quick start guide will demonstrate how to:
 
 * Create a secondary index.
 * Load [JSON](/docs/stack/json/) data into Redis.
 * Perform simple searches on the indexed data.
 
-The data we'll use is a simple bicycle inventory, a JSON array, where each element has the following structure:
+The data is a simple bicycle inventory consisting of a JSON array, where each element has the following structure:
 
 ```json
 {
@@ -40,7 +40,7 @@ The data we'll use is a simple bicycle inventory, a JSON array, where each eleme
 
 The Redis keyspace is unstructured and flat. As such, you can only access data by primary key (keyname), making it cumbersome to find a document based on a secondary characteristic, such as finding a school by name or listing all schools in a particular city. Redis Stack addresses this need by providing the ability to add secondary indexes to your data. Redis currently supports secondary index creation on the [HASH](/docs/data-types/hashes) and [JSON](/docs/stack/json) data types.
 
-We'll use the `FT.CREATE` command to create an index with fields and weights, where the default weight is 1.0. Note how each term of the `SCHEMA` is an element of a JSON object, identified by its [JSONpath](/docs/data-types/json/path/).
+Use the following `FT.CREATE` command to create an index with fields and weights, where the default weight is 1.0. Note how each term of the `SCHEMA` is an element of a JSON object, identified by its [JSONPath](/docs/data-types/json/path/).
 
 {{< clients-example search_quickstart create_index >}}
 > FT.CREATE idx:bicycle ON JSON PREFIX 1 bicycle: SCORE 1.0 SCHEMA $.brand AS brand TEXT WEIGHT 1.0 $.model AS model TEXT WEIGHT 1.0 $.description AS description TEXT WEIGHT 1.0 $.price AS price NUMERIC $.condition AS condition TAG SEPARATOR ,
@@ -80,7 +80,7 @@ OK
 
 ### Wildcard query
 
-Let's retrieve all indexed documents using the `FT.SEARCH` command. Note the use of the `LIMIT` clause below, which provides for search result pagination.
+Retrieve all indexed documents using the `FT.SEARCH` command. Note the use of the `LIMIT` clause below, which provides for search result pagination.
 
 {{< clients-example search_quickstart wildcard_query "" 10 >}}
 > FT.SEARCH "idx:bicycle" "*" LIMIT 0 10
@@ -119,7 +119,7 @@ Let's retrieve all indexed documents using the `FT.SEARCH` command. Note the use
 
 ### Single-term query
 
-To perform a simple, single-term query, such as finding all bicycles with a specific model, we can use the following query:
+Use the following command to perform a simple, single-term query, such as finding all bicycles with a specific model:
 
 {{< clients-example search_quickstart query_single_term >}}
 > FT.SEARCH "idx:bicycle" "@model:Jigger" LIMIT 0 10
@@ -131,7 +131,7 @@ To perform a simple, single-term query, such as finding all bicycles with a spec
 
 ### Exact match query
 
-To perform an exact match query, such as finding all bicycles with the brand name `Noka Bikes`, we can use the following query. Note the use double quotes around the search term.
+Use the following command to perform an exact match query, such as finding all bicycles with the brand name `Noka Bikes`. Note the use double quotes around the search term.
 
 {{< clients-example search_quickstart query_exact_matching >}}
 > FT.SEARCH "idx:bicycle" "@brand:\"Noka Bikes\"" LIMIT 0 10
