@@ -37,7 +37,16 @@ jobs:
           git init
           git config --global --add safe.directory '*'
           git submodule update --init --recursive
+      - name: Cache Boost
+        id: boost-cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            /usr/**/boost
+            /usr/lib/**/libboost*
+          key: boost-${{ inputs.boost-version }}-${{ inputs.container || inputs.env }}
       - name: Get Boost
+        if: steps.boost-cache.outputs.cache-hit != 'true'
         run: ${{ inputs.deps-install-mode }} ./.install/install_boost.sh ${{ inputs.boost-version }}
       - name: Get Redis
         if: ${{ inputs.get-redis }}
