@@ -49,6 +49,7 @@ jobs:
         if: steps.boost-cache.outputs.cache-hit != 'true'
         run: ${{ inputs.deps-install-mode }} ./.install/install_boost.sh ${{ inputs.boost-version }}
       - uses: actions/cache/save@v3
+        if: steps.boost-cache.outputs.cache-hit != 'true'
         with:
           path: |
             /usr/**/boost
