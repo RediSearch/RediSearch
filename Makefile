@@ -27,7 +27,7 @@ make build          # compile and link
   FORCE=1             # Force CMake rerun (default)
   CMAKE_ARGS=...      # extra arguments to CMake
   VG=1                # build for Valgrind
-  SAN=type            # build with LLVM sanitizer (type=address|memory|leak|thread) 
+  SAN=type            # build with LLVM sanitizer (type=address|memory|leak|thread)
   SLOW=1              # do not parallelize build (for diagnostics)
   GCC=1               # build with GCC (default unless Sanitizer)
   CLANG=1             # build with CLang
@@ -56,7 +56,7 @@ make pytest        # run python tests (tests/pytests)
   GDB=1              # RLTest interactive debugging
   VG=1               # use Valgrind
   VG_LEAKS=0         # do not search leaks with Valgrind
-  SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
+  SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread)
   ONLY_STABLE=1      # skip unstable tests
   TEST_PARALLEL=n    # test parallalization
 
@@ -245,7 +245,7 @@ ifeq ($(OS),macos)
 _CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DBOOST_DIR=$(boost_prefix)
 endif
 
-_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) 
+_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST)
 
 #----------------------------------------------------------------------------------------------
 
@@ -368,11 +368,11 @@ deps: $(CONAN_PRESETS) $(LIBUV) #@@ $(HIREDIS) $(S2GEOMETRY)
 conan: $(CONAN_PRESETS)
 
 $(CONAN_PRESETS):
-	@echo Fetching conan libraries...
-	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG=''
+	@echo Fetching conan libraries... (NOT!)
+	# $(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG=''
 
 # s2geometry: $(S2GEOMETRY)
-# 
+#
 # $(S2GEOMETRY):
 # 	@echo Building s2geometry...
 # 	$(SHOW)$(MAKE) --no-print-directory -C build/s2geometry DEBUG=''
@@ -566,7 +566,7 @@ upload-artifacts:
 #----------------------------------------------------------------------------------------------
 
 ifeq ($(REMOTE),1)
-BENCHMARK_ARGS=run-remote 
+BENCHMARK_ARGS=run-remote
 else
 BENCHMARK_ARGS=run-local
 endif
