@@ -3,9 +3,10 @@ name: CLang Sanitizer
 on:
   workflow_dispatch:
   push:
-    branches-ignore:
-      - '*docs'
-      - '*noci'
+    paths-ignore:
+      - "README.md"
+      - "docs/**"
+      - "licenses/**"
 
 jobs:
   clang-sanitizer:
