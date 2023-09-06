@@ -72,6 +72,7 @@ jobs:
         if: ${{ inputs.get-redis }}
         working-directory: redis
         run: ${{ inputs.deps-install-mode }} make install
+
       # - name: Build
       #   run: |
       #     make SAN=${{ inputs.san }}
