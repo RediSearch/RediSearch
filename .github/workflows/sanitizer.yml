@@ -13,5 +13,6 @@ jobs:
     uses: ./.github/workflows/common-flow-host.yml
     with:
       env: ubuntu-22.04
+      deps-install-mode: sudo
       san: addr
     secrets: inherit
