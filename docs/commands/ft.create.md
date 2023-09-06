@@ -257,7 +257,7 @@ In this example, keys for author data use the key pattern `author:details:<id>` 
 </details>
 
 <details open>
-<summary><b>Index a JSON document using a JSON Path expression</b></summary>
+<summary><b>Create index with filter</b></summary>
 
 Index authors whose names start with G.
 
@@ -274,10 +274,13 @@ Index only books that have a subtitle.
 Index books that have a "categories" attribute where each category is separated by a `;` character.
 
 {{< highlight bash >}}
-127.0.0.1:6379> FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categories TAG SEPARATOR ";"
+127.0.0.1:6379> FT.CREATE books-idx ON HASH PREFIX 1 book:details SCHEMA title TEXT categories TAG SEPARATOR ";"
 {{< / highlight >}}
 
-Index a JSON document using a JSON Path expression.
+</details>
+
+<details open>
+<summary><b>Index a JSON document using a JSON Path expression</b></summary>
 
 {{< highlight bash >}}
 127.0.0.1:6379> FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TAG
