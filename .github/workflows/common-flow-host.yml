@@ -34,7 +34,9 @@ jobs:
         run: ${{ inputs.deps-install-mode }} ./.install/install_script.sh
       - name: Set default compiler
         if: ${{ inputs.san }}
-        run: update-alternatives --set c++ /usr/bin/clang++ && update-alternatives --set cc /usr/bin/clang
+        run: |
+          ${{ inputs.deps-install-mode }} update-alternatives --set c++ /usr/bin/clang++
+          ${{ inputs.deps-install-mode }} update-alternatives --set cc /usr/bin/clang
       - name: Setup Repo
         run: |
           git init
