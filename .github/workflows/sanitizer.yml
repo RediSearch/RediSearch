@@ -10,8 +10,8 @@ on:
 
 jobs:
   clang-sanitizer:
-    uses: ./.github/workflows/common-flow-container.yml
+    uses: ./.github/workflows/common-flow-host.yml
     with:
-      container: redisfab/clang:16-x64-bullseye
+      env: ubuntu-22.04
       san: addr
     secrets: inherit
