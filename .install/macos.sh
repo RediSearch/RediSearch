@@ -1,7 +1,6 @@
 #!/bin/bash
 brew update
-brew install make
-mkdir -p /tmp/boostdir/
+brew install make wget mkdir
 ADD_GNUBIN_TO_PATH='export PATH="/usr/local/opt/make/libexec/gnubin:$PATH"'
 echo $ADD_GNUBIN_TO_PATH >> ~/.bashrc
 echo $ADD_GNUBIN_TO_PATH >> ~/.zshrc
