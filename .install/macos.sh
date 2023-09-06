@@ -1,6 +1,6 @@
 #!/bin/bash
 brew update
-brew install make gtar
+brew install make gnu-tar
 ADD_GNUBIN_TO_PATH='export PATH="/usr/local/opt/make/libexec/gnubin:$PATH"'
 echo $ADD_GNUBIN_TO_PATH >> ~/.bashrc
 echo $ADD_GNUBIN_TO_PATH >> ~/.zshrc
