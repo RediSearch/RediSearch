@@ -777,17 +777,6 @@ int RSValue_SendReply(RedisModule_Reply *reply, RSValue *v, SendReplyFlags flags
     case RSValue_Null:
       return RedisModule_Reply_Null(reply);
 
-    case RSValue_JSON: {
-      // TODO: Do we need this? Do we ever get here?
-      if(!RS_JSONVAL_SERIALIZED(*v)) {
-        RedisModuleString *serialized;
-        japi->getJSONFromIter(RS_JSONVAL_ITER(*v), reply->ctx, &serialized);
-        RS_JSONVAL_SERIALIZED(*v) = RS_StealRedisStringVal(serialized);
-      }
-
-      return RSValue_SendReply(reply, RS_JSONVAL_SERIALIZED(*v), flags);
-    }
-
 #if 1
     case RSValue_Array:
       RedisModule_Reply_Array(reply);
