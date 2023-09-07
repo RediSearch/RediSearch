@@ -90,7 +90,7 @@ MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
       // We need to get the port using the `RedisModule_GetClusterNodeInfo` API because on 7.2
       // invoking `cluster slot` from RM_Call will always return the none tls port.
       // For for information refer to: https://github.com/redis/redis/pull/12233
-      long long port = 0;
+      int port = 0;
       RedisModule_GetClusterNodeInfo(ctx, id_str, NULL, NULL, &port, NULL);
 
       MRClusterNode node = {
