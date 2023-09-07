@@ -561,7 +561,6 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
     if (jsonIterToValue(ctx, jsonIter, APIVERSION_RETURN_MULTI_CMP_FIRST, &rsv) == REDISMODULE_OK) {
       df->multisv = rsv;
     } else {
-      japi->freeIter(jsonIter);
       rv = REDISMODULE_ERR;
     }
   } else if (rv == REDISMODULE_OK) {
