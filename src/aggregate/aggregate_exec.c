@@ -229,10 +229,12 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
             // STRING
             if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
               // Multi
-              RedisModuleString *serialized;
-              japi->getJSONFromIter(RS_JSONVAL_ITER(*v), reply->ctx, &serialized);
-              RS_JSONVAL_SERIALIZED(*v) = RS_StealRedisStringVal(serialized);
-              v = RS_JSONVAL_SERIALIZED(*v);
+              if(!RS_JSONVAL_SERIALIZED(*v)) {
+                RedisModuleString *serialized;
+                japi->getJSONFromIter(RS_JSONVAL_ITER(*v), reply->ctx, &serialized);
+                RS_JSONVAL_SERIALIZED(*v) = RS_StealRedisStringVal(serialized);
+                v = RS_JSONVAL_SERIALIZED(*v);
+              }
             } else {
               // Single
               v = RS_JSONVAL_FIRST(*v);

@@ -81,8 +81,7 @@ RS_ENUM_BITWISE_HELPER(TagFieldFlags)
 
 /* The fieldSpec represents a single field in the document's field spec.
 Each field has a unique id that's a power of two, so we can filter fields
-by a bit mask.
-Each field has a type, allowing us to add non text fields in the future */
+by a bit mask. */
 typedef struct FieldSpec {
   char *name;
   char *path;

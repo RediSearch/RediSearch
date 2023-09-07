@@ -175,8 +175,9 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
     if (fs) {
       setKeyByFieldSpec(key, fs);
       if (key->flags & RLOOKUP_F_VAL_AVAILABLE && !(flags & RLOOKUP_F_FORCE_LOAD)) {
-        // If the key is marked as "value available", it means that it is sortable and un-normalized.
-        // so we can use the sorting vector as the source, and we don't need to load it from the document.
+        // If the key is marked as "value available" it means that it is sortable and un-normalized.
+        // Since force-load is not set we can use the sorting vector as the source,
+        // and we don't need to load it from the document.
         return NULL;
       }
     } else {
