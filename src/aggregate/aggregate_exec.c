@@ -233,6 +233,11 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
                 RedisModuleString *serialized;
                 japi->getJSONFromIter(RS_JSONVAL_ITER(*v), reply->ctx, &serialized);
                 RS_JSONVAL_SERIALIZED(*v) = RS_StealRedisStringVal(serialized);
+                if(RS_JSONVAL_SERIALIZED(*v) && RS_JSONVAL_EXPANDED(*v)) {
+                  // free iterator, as it is no longer needed
+                  japi->freeIter(RS_JSONVAL_ITER(*v));
+                  RS_JSONVAL_ITER(*v) = NULL;
+                }
                 v = RS_JSONVAL_SERIALIZED(*v);
               }
             } else {
@@ -242,6 +247,11 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
           } else {
             // EXPAND
             RS_JSONVAL_EXPANDED(*v) = japi_ver >= 4 ? jsonIterToValueExpanded(reply->ctx, RS_JSONVAL_ITER(*v)) : RS_NullVal();
+            if(RS_JSONVAL_SERIALIZED(*v) && RS_JSONVAL_EXPANDED(*v)) {
+              // free iterator, as it is no longer needed
+              japi->freeIter(RS_JSONVAL_ITER(*v));
+              RS_JSONVAL_ITER(*v) = NULL;
+            }
             v = RS_JSONVAL_EXPANDED(*v);
           }
         }

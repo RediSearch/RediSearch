@@ -104,7 +104,9 @@ void RSValue_Clear(RSValue *v) {
     case RSValue_Null:
       return;  // prevent changing global RS_NULL to RSValue_Undef
     case RSValue_JSON:
-      japi->freeIter(RS_JSONVAL_ITER(*v));
+      if(RS_JSONVAL_ITER(*v)) {
+        japi->freeIter(RS_JSONVAL_ITER(*v));
+      }
       RSValue_Decref(RS_JSONVAL_FIRST(*v));
       if(RS_JSONVAL_SERIALIZED(*v)) {
         RSValue_Decref(RS_JSONVAL_SERIALIZED(*v));
@@ -782,6 +784,11 @@ int RSValue_SendReply(RedisModule_Reply *reply, RSValue *v, SendReplyFlags flags
         RedisModuleString *serialized;
         japi->getJSONFromIter(RS_JSONVAL_ITER(*v), reply->ctx, &serialized);
         RS_JSONVAL_SERIALIZED(*v) = RS_StealRedisStringVal(serialized);
+        if(RS_JSONVAL_SERIALIZED(*v) && RS_JSONVAL_EXPANDED(*v)) {
+          // free iterator, as it is no longer needed
+          japi->freeIter(RS_JSONVAL_ITER(*v));
+          RS_JSONVAL_ITER(*v) = NULL;
+        }
       }
 
       return RSValue_SendReply(reply, RS_JSONVAL_SERIALIZED(*v), flags);
