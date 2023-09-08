@@ -10,6 +10,8 @@
 #include <stdlib.h>
 #include "rmalloc.h"
 
+#define MAX_TERM_TO_EXPAND_SIZE 128
+
 static void PhoneticManager_AddPrefix(char** phoneticTerm) {
   if (!phoneticTerm || !(*phoneticTerm)) {
     return;
@@ -22,6 +24,10 @@ static void PhoneticManager_AddPrefix(char** phoneticTerm) {
 
 void PhoneticManager_ExpandPhonetics(PhoneticManagerCtx* ctx, const char* term, size_t len,
                                      char** primary, char** secondary) {
+  if(len > MAX_TERM_TO_EXPAND_SIZE) {
+    len = MAX_TERM_TO_EXPAND_SIZE;
+  }
+
   // currently ctx is irrelevant we support only one universal algorithm for all 4 languages
   // this phonetic manager was built for future thinking and easily add more algorithms
   char bufTmp[len + 1];
