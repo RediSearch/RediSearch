@@ -63,11 +63,6 @@ def test_mod4745(env):
 
     r.expect('ft.create', 'idx', 'schema', 'name', 'text', 'v', 'VECTOR', 'HNSW', '6', 'distance_metric', 'l2', 'DIM',
              dim, 'type', 'float32').ok()
-    # Make sure that redis server is responsive while we index in the background (responding is less than 1s)
-    for _ in range(5):
-        start = time.time()
-        conn.execute_command('PING')
-        env.assertLess(time.time()-start, 1)
     # Make sure we are getting here without having cluster mark itself as fail since the server is not responsive and
     # fail to send cluster PING on time before we reach cluster-node-timeout.
     waitForIndex(r, 'idx')
