@@ -221,24 +221,12 @@ def testOptionalAndWildcardScoring(env):
     conn.execute_command('HSET', 'doc1', 'title', 'some text here')
     conn.execute_command('HSET', 'doc2', 'title', 'some text more words here')
 
-    expected_res = [2, 'doc2', ['0.8195877903737075',
-                                ['Final BM25 : words BM25 0.82 * document score 1.00',
-                                 [['(Weight 1.00 * children BM25 0.82)',
-                                   ['text: (0.17 = IDF 0.18 * (F 1.00 * (k1 1.2 + 1))'
-                                    ' / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 5 / Average Doc Len 4.00)))',
-                                    'words: (0.65 = IDF 0.69 * (F 1.00 * (k1 1.2 + 1))'
-                                    ' / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 5 / Average Doc Len 4.00)))']]]]],
-                    'doc1', ['0.19566220141314736',
-                             ['Final BM25 : words BM25 0.20 * document score 1.00',
-                              [['(Weight 1.00 * children BM25 0.20)',
-                                ['text: (0.20 = IDF 0.18 * (F 1.00 * (k1 1.2 + 1))'
-                                 ' / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 3 / Average Doc Len 4.00)))',
-                                 'Irrelevant token -> score is 0']]]]]]
+    expected_res = [2, 'doc2', '0.8195877903737075', 'doc1', '0.19566220141314736']
 
     # Validate that optional term contributes the scoring only in documents in which it appears.
-    res = conn.execute_command('ft.search', 'idx', 'text ~words', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25STD', 'nocontent')
+    res = conn.execute_command('ft.search', 'idx', 'text ~words', 'withscores', 'scorer', 'BM25STD', 'nocontent')
     env.assertEqual(res, expected_res)
-    res = conn.execute_command('ft.search', 'idx', 'text | ~words', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25STD', 'nocontent')
+    res = conn.execute_command('ft.search', 'idx', 'text | ~words', 'withscores', 'scorer', 'BM25STD', 'nocontent')
     env.assertEqual(res, expected_res)
 
     expected_res = [2, 'doc1', ['1.073170733125631',

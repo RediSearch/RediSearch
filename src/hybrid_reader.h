@@ -38,8 +38,8 @@ typedef struct {
   VecSimSearchMode searchMode;
   bool resultsPrepared;            // Indicates if the results were already processed
                                    // (should occur in the first call to Read)
-  VecSimQueryResult_List list;
-  VecSimQueryResult_Iterator *iter;
+  VecSimQueryReply *reply;
+  VecSimQueryReply_Iterator *iter;
   t_docId lastDocId;
   RSIndexResult **returnedResults; // Save the pointers to be freed in clean-up.
   char *scoreField;                // To use by the sorter, for distinguishing between different vector fields.
