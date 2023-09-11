@@ -109,7 +109,7 @@ def testIssue1313(env):
 
 def testIssue3836(env):
     env.expect('FT.CREATE idx schema text TEXT PHONETIC dm:en SORTABLE').ok()
-    env.expect('FT.ADD idx doc1 1.0 fields text morfix').ok()
+    env.expect('HSET doc1 text morfix').equal(1)
     res = env.execute_command('FT.SEARCH idx @text:morphix=>{$phonetic:true}')
     env.assertEqual(res, [1, 'doc1', ['text', 'morfix']])
 
