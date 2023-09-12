@@ -299,13 +299,14 @@ void AREQ_Free(AREQ *req);
  * @param spec_ref a strong reference to the spec. The cursor saves a weak reference to the spec
  * to be promoted when cursor read is called.
  * @param status if this function errors, this contains the message
+ * @param coord if true, this is a coordinator cursor
  * @return REDISMODULE_OK or REDISMODULE_ERR
  *
  * If this function returns REDISMODULE_OK then the cursor might have been
  * freed. If it returns REDISMODULE_ERR, then the cursor is still valid
  * and must be freed manually.
  */
-int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *status);
+int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *status, bool coord);
 
 int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 

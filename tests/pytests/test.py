@@ -517,13 +517,15 @@ def testOptional(env):
     env.assertEqual([2, 'doc2', 'doc3'], res)
     res = r.execute_command(
         'ft.search', 'idx', 'hello ~world', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual(res, expected)
+    # Docs that contains the optional term would rank higher.
+    env.assertEqual(res, [3, 'doc2', 'doc3', 'doc1'])
     res = r.execute_command(
         'ft.search', 'idx', 'hello ~world ~werld', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual(res, expected)
+    env.assertEqual(res, [3, 'doc3', 'doc2', 'doc1'])
     res = r.execute_command(
         'ft.search', 'idx', '~world ~(werld hello)', 'withscores', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual(res, [3, 'doc3', '3', 'doc2', '2', 'doc1', '1'])
+    # Note that doc1 gets 0 score since neither 'world' appears in the doc nor the phrase 'werld hello'.
+    env.assertEqual(res, [3, 'doc3', '3', 'doc2', '1', 'doc1', '0'])
 
 def testExplain(env):
 
@@ -2817,8 +2819,8 @@ def testHighlightOnAggregate(env):
 def testBadFilterExpression(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'FILTER', 'blabla').error()
     if not env.isCluster(): # todo: remove once fix on coordinator
+        env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'FILTER', 'blabla').error()
         env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'FILTER', '@test1 > 1').error()
 
 def testWithSortKeysOnNoneSortableValue(env):
@@ -3763,3 +3765,23 @@ def test_cluster_set(env):
                'MASTER'
             ).equal('OK')
     verify_address('::1')
+
+def test_internal_commands(env):
+    ''' Test that internal cluster commands cannot run from a script '''
+    if not env.is_cluster():
+        env.skip()
+    
+    def fail_eval_call(r, env, cmd):
+        cmd = str(cmd)[1:-1]
+        try:
+            r.eval(f'redis.call({cmd})', 0)
+            env.assertTrue(False, message=f'Failed to raise error during call to {cmd}')
+        except redis.ResponseError as e:
+            env.assertTrue(str(e).index("not allowed from script") != -1)
+
+    with env.getClusterConnectionIfNeeded() as r:
+        fail_eval_call(r, env, ['SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1', 'SHARD', '1', 'SLOTRANGE', '0', '16383', 'ADDR', 'password@127.0.0.1:22000', 'MASTER'])
+        fail_eval_call(r, env, ['SEARCH.CLUSTERREFRESH'])
+        fail_eval_call(r, env, ['SEARCH.CLUSTERINFO'])
+        
+
