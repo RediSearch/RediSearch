@@ -514,6 +514,7 @@ typedef struct MRIteratorCtx {
   void *privdata;
   MRIteratorCallback cb;
   int pending;
+  int inProcess;
 } MRIteratorCtx;
 
 typedef struct MRIteratorCallbackCtx {
@@ -547,19 +548,27 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx, MRCommand *cmd)
                                ctx);
 }
 
+void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
+  __atomic_fetch_sub(&ctx->ic->inProcess, 1, __ATOMIC_RELEASE);
+}
+
 void *MRITERATOR_DONE = "MRITERATOR_DONE";
 
 int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
+  int ret;
   if (--ctx->ic->pending <= 0) {
     // fprintf(stderr, "FINISHED iterator, error? %d pending %d\n", error, ctx->ic->pending);
     RQ_Done(rq_g);
 
     MRChannel_Close(ctx->ic->chan);
-    return 0;
+    ret = 0;
+  } else {
+    // fprintf(stderr, "Done iterator, error? %d pending %d\n", error, ctx->ic->pending);
+    ret = 1;
   }
-  // fprintf(stderr, "Done iterator, error? %d pending %d\n", error, ctx->ic->pending);
 
-  return 1;
+  MRIteratorCallback_ProcessDone(ctx);
+  return ret;
 }
 
 int MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
@@ -575,6 +584,32 @@ void iterStartCb(void *p) {
       MRIteratorCallback_Done(&it->cbxs[i], 1);
     }
   }
+}
+
+void iterManualNextCb(void *p) {
+  MRIterator *it = p;
+  for (size_t i = 0; i < it->len; i++) {
+    if (it->cbxs[i].cmd.depleted) {
+      MRIteratorCallback_ProcessDone(&it->cbxs[i]);
+    } else {
+      if (MRCluster_SendCommand(it->ctx.cluster, MRCluster_MastersOnly, &it->cbxs[i].cmd,
+                                mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
+        // fprintf(stderr, "Could not send command!\n");
+        MRIteratorCallback_Done(&it->cbxs[i], 1);
+      }
+    }
+  }
+}
+
+size_t MR_ManuallyTriggerNextIfNeeded(MRIterator *it) {
+  int inProcess = __atomic_load_n(&it->ctx.inProcess, __ATOMIC_ACQUIRE);
+  if (!inProcess && MRChannel_Size(it->ctx.chan) == 0) {
+    // At this point there is no race on the `inProcess` variable.
+    // for thread safety, set inProcess to the number of commands
+    it->ctx.inProcess = it->len;
+    RQ_Push(rq_g, iterManualNextCb, it);
+  }
+  return it->ctx.pending;
 }
 
 MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb, void *privdata) {
@@ -609,6 +644,7 @@ MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb, void *privd
     return NULL;
   }
   ret->ctx.pending = ret->len;
+  ret->ctx.inProcess = ret->len; // Initially all commands are in process
 
   RQ_Push(rq_g, iterStartCb, ret);
   return ret;
