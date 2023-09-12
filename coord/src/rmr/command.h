@@ -11,6 +11,7 @@
 #include "redismodule.h"
 
 #include <assert.h>
+#include <stdbool.h>
 
 /* A redis command is represented with all its arguments and its flags as MRCommand */
 typedef struct {
@@ -26,6 +27,12 @@ typedef struct {
 
   /* if not -1, this value indicate to which slot the command should be sent */
   int targetSlot;
+
+ /* Whether the user asked for a cursor */
+  bool forCursor;
+
+  /* Whether the command chain is depleted - don't resend */
+  bool depleted;
 
   sds cmd;
 } MRCommand;
