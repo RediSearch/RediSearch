@@ -29,6 +29,7 @@ static int getCursorCommand(MRReply *res, MRCommand *cmd) {
 
   if (cursorId == 0) {
     // Cursor was set to 0, end of reply chain.
+    cmd->depleted = true;
     return 0;
   }
   if (cmd->num < 2) {
@@ -42,6 +43,7 @@ static int getCursorCommand(MRReply *res, MRCommand *cmd) {
   MRCommand newCmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx, buf);
   newCmd.targetSlot = cmd->targetSlot;
   newCmd.protocol = cmd->protocol;
+  newCmd.forCursor = cmd->forCursor;
   MRCommand_Free(cmd);
   *cmd = newCmd;
 
@@ -103,6 +105,8 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand
 
   if (done) {
     MRIteratorCallback_Done(ctx, 0);
+  } else if (cmd->forCursor) {
+    MRIteratorCallback_ProcessDone(ctx);
   } else {
     // resend command
     if (REDIS_ERR == MRIteratorCallback_ResendCommand(ctx, cmd)) {
@@ -195,35 +199,41 @@ typedef struct {
 } RPNet;
 
 static int getNextReply(RPNet *nc) {
-  while (1) {
-    MRReply *root = MRIterator_Next(nc->it);
-    if (root == MRITERATOR_DONE) {
+  if (nc->cmd.forCursor) {
+    if (MR_ManuallyTriggerNextIfNeeded(nc->it) == 0) {
       // No more replies
       nc->current.root = NULL;
       nc->current.rows = NULL;
       return 0;
     }
-
-    MRReply *rows = MRReply_ArrayElement(root, 0);
-    if (   rows == NULL
-        || (MRReply_Type(rows) != MR_REPLY_ARRAY && MRReply_Type(rows) != MR_REPLY_MAP)
-        || MRReply_Length(rows) == 0) {
-      MRReply_Free(root);
-      root = NULL;
-      rows = NULL;
-      RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
-    }
-
-    // invariant: either rows == NULL or least one row exists
-
-    nc->current.root = root;
-    nc->current.rows = rows;
-
-    assert(   !nc->current.rows
-           || MRReply_Type(nc->current.rows) == MR_REPLY_ARRAY
-           || MRReply_Type(nc->current.rows) == MR_REPLY_MAP);
-    return 1;
   }
+  MRReply *root = MRIterator_Next(nc->it);
+  if (root == MRITERATOR_DONE) {
+    // No more replies
+    nc->current.root = NULL;
+    nc->current.rows = NULL;
+    return 0;
+  }
+
+  MRReply *rows = MRReply_ArrayElement(root, 0);
+  if (   rows == NULL
+      || (MRReply_Type(rows) != MR_REPLY_ARRAY && MRReply_Type(rows) != MR_REPLY_MAP)
+      || MRReply_Length(rows) == 0) {
+    MRReply_Free(root);
+    root = NULL;
+    rows = NULL;
+    RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
+  }
+
+  // invariant: either rows == NULL or least one row exists
+
+  nc->current.root = root;
+  nc->current.rows = rows;
+
+  assert(   !nc->current.rows
+         || MRReply_Type(nc->current.rows) == MR_REPLY_ARRAY
+         || MRReply_Type(nc->current.rows) == MR_REPLY_MAP);
+  return 1;
 }
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
@@ -609,6 +619,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   MRCommand xcmd;
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd);
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
+  xcmd.forCursor = r->reqflags & QEXEC_F_IS_CURSOR;
 
   // Build the result processor chain
   buildDistRPChain(r, &xcmd, sc, &us);
