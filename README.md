@@ -8,7 +8,7 @@
 [![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redis.com/c/modules/redisearch/)
 [![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/xTbqgTB)
 
-<img src="https://redis.io/docs/stack/search/img/logo.svg" alt="logo" width="300"/>
+<img src="docs/docs/img/logo.svg" alt="logo" width="300"/>
 
 ## Overview
 
@@ -26,7 +26,7 @@ The fastest way to get up and running with RediSearch is by using the [Redis Sta
 
 ## Trying RediSearch
 
-To try RediSearch, either use the RediSearch Docker image, or [create a free Redis Cloud Essentials account](https://redis.com/try-free/) to get a RediSearch instance in the cloud.
+To try RediSearch, use the RediSearch Docker image or [create a free Redis Cloud Essentials account](https://redis.com/try-free/) to get a RediSearch instance in the cloud.
 
 ### Docker image
 
@@ -151,7 +151,7 @@ If you have a more detailed question, drop us a line on the [RediSearch Discussi
 * Numeric filters and ranges
 * Geospatial searches using [Redis geospatial indexing](/commands/georadius)
 * A powerful aggregations engine
-* Supports for all utf-8 encoded text
+* Supports for all UTF-8 encoded text
 * Retrieve full documents, selected fields, or only the document IDs
 * Sorting results (for example, by creation date)
 
