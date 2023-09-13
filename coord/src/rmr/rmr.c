@@ -612,7 +612,7 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
     return true;
   }
   // At this point there is no race on the iterator since there are no commands in process.
-  // We have <= channelThreshold replies to process, so if there are no pending commands we want to trigger them.
+  // We have <= channelThreshold replies to process, so if there are pending commands we want to trigger them.
   if (it->ctx.pending) {
     // We have more commands to send
     it->ctx.inProcess = it->ctx.pending;
