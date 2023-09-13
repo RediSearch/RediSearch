@@ -557,7 +557,7 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
     RQ_Push(rq_g, iterManualNextCb, it);
     return true; // We may have more replies (and we surely will)
   }
-  // We have no pending commands and less than channelThreshold replies to process.
+  // We have no pending commands and no more than channelThreshold replies to process.
   // If we have more replies we will process them, otherwise we are done.
   return channelSize > 0;
 }
