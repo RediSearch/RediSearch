@@ -484,8 +484,14 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx, MRCommand *cmd)
                                ctx);
 }
 
+// Use after modifying `pending` (or any other variable of the iterator) to make sure it's visible to other threads
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
   __atomic_fetch_sub(&ctx->ic->inProcess, 1, __ATOMIC_RELEASE);
+}
+
+// Use before obtaining `pending` (or any other variable of the iterator) to make sure it's synchronized with other threads
+static int MRIteratorCallback_GetNumInProcess(MRIterator *it) {
+  return __atomic_load_n(&it->ctx.inProcess, __ATOMIC_ACQUIRE);
 }
 
 void *MRITERATOR_DONE = "MRITERATOR_DONE";
@@ -534,20 +540,26 @@ void iterManualNextCb(void *p) {
 }
 
 bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
-  int inProcess = __atomic_load_n(&it->ctx.inProcess, __ATOMIC_ACQUIRE);
-  size_t channelSize = MRChannel_Size(it->ctx.chan);
-  if (!inProcess && channelSize <= channelThreshold) {
-    // At this point there is no race on the `inProcess` variable.
-    if (it->ctx.pending == 0 && channelSize == 0) {
-      // Nothing to wait for
-      return false;
-    } else if (it->ctx.pending) {
-      // We have more commands to send
-      it->ctx.inProcess = it->ctx.pending;
-      RQ_Push(rq_g, iterManualNextCb, it);
-    }
+  if (MRIteratorCallback_GetNumInProcess(it)) {
+    // We have more replies to wait for
+    return true;
   }
-  return true; // We may have more replies
+  size_t channelSize = MRChannel_Size(it->ctx.chan);
+  if (channelSize > channelThreshold) {
+    // We have more replies to process
+    return true;
+  }
+  // At this point there is no race on the iterator since there are no commands in process.
+  // We have <= channelThreshold replies to process, so if there are no pending commands we want to trigger them.
+  if (it->ctx.pending) {
+    // We have more commands to send
+    it->ctx.inProcess = it->ctx.pending;
+    RQ_Push(rq_g, iterManualNextCb, it);
+    return true; // We may have more replies (and we surely will)
+  }
+  // We have no pending commands and less than channelThreshold replies to process.
+  // If we have more replies we will process them, otherwise we are done.
+  return channelSize > 0;
 }
 
 MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb, void *privdata) {
@@ -601,7 +613,7 @@ MRReply *MRIterator_Next(MRIterator *it) {
 void MRIterator_WaitDone(MRIterator *it, bool mayBeIdle) {
   if (mayBeIdle) {
     // Wait until all the commands are at least idle (it->ctx.inProcess == 0)
-    while (__atomic_load_n(&it->ctx.inProcess, __ATOMIC_ACQUIRE)) {
+    while (MRIteratorCallback_GetNumInProcess(it)) {
       usleep(1000);
     }
   } else {
