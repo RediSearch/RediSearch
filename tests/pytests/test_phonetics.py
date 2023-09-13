@@ -1,6 +1,6 @@
 import unittest
 from includes import *
-from common import toSortedFlatList
+from common import getConnectionByEnv, toSortedFlatList, waitForIndex
 
 
 def testBasicPoneticCase(env):
@@ -106,3 +106,22 @@ def testIssue1313(env):
 
     env.expect('FT.CREATE test1 ON HASH SCHEMA topic TEXT PHONETIC dm:en topic2 TEXT NOINDEX').ok()
     env.expect('FT.SEARCH', 'test1', '@topic:(tmp)=>{$phonetic: true}').equal([0])
+
+def testIssue3836(env):
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE idx schema text TEXT PHONETIC dm:en SORTABLE').ok()
+    waitForIndex(env, 'idx')
+    conn.execute_command('HSET', 'doc1', 'text', 'morfix')
+    res = conn.execute_command('FT.SEARCH', 'idx', '@text:morphix=>{$phonetic:true}')
+    env.assertEqual(res, [1, 'doc1', ['text', 'morfix']])
+
+    template = "@text:{0}=>{{$phonetic:true}}"
+    poc = [
+        "FT.SEARCH",
+        "idx",
+        template.format("A" * (65535*128)),
+    ]
+    res = env.execute_command(*poc)
+    env.assertEqual(res, [0])
+
