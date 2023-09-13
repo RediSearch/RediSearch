@@ -535,14 +535,17 @@ void iterManualNextCb(void *p) {
 
 bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   int inProcess = __atomic_load_n(&it->ctx.inProcess, __ATOMIC_ACQUIRE);
-  if (!inProcess && MRChannel_Size(it->ctx.chan) <= channelThreshold) {
+  size_t channelSize = MRChannel_Size(it->ctx.chan);
+  if (!inProcess && channelSize <= channelThreshold) {
     // At this point there is no race on the `inProcess` variable.
-    if (it->ctx.pending == 0) {
+    if (it->ctx.pending == 0 && channelSize == 0) {
       // Nothing to wait for
       return false;
+    } else if (it->ctx.pending) {
+      // We have more commands to send
+      it->ctx.inProcess = it->ctx.pending;
+      RQ_Push(rq_g, iterManualNextCb, it);
     }
-    it->ctx.inProcess = it->ctx.pending;
-    RQ_Push(rq_g, iterManualNextCb, it);
   }
   return true; // We may have more replies
 }
