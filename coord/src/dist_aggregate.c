@@ -200,7 +200,7 @@ typedef struct {
 
 static int getNextReply(RPNet *nc) {
   if (nc->cmd.forCursor) {
-    if (!MR_ManuallyTriggerNextIfNeeded(nc->it)) {
+    if (!MR_ManuallyTriggerNextIfNeeded(nc->it, RSGlobalConfig.cursorReadSize)) {
       // No more replies
       nc->current.root = NULL;
       nc->current.rows = NULL;
