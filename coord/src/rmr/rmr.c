@@ -596,8 +596,16 @@ MRReply *MRIterator_Next(MRIterator *it) {
   return p;
 }
 
-void MRIterator_WaitDone(MRIterator *it) {
-  MRChannel_WaitClose(it->ctx.chan);
+void MRIterator_WaitDone(MRIterator *it, bool mayBeIdle) {
+  if (mayBeIdle) {
+    // Wait until all the commands are at least idle (it->ctx.inProcess == 0)
+    while (__atomic_load_n(&it->ctx.inProcess, __ATOMIC_ACQUIRE)) {
+      usleep(1000);
+    }
+  } else {
+    // Wait until all the commands are done (it->ctx.pending == 0)
+    MRChannel_WaitClose(it->ctx.chan);
+  }
 }
 void MRIterator_Free(MRIterator *it) {
   if (!it) return;
