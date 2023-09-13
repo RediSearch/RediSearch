@@ -200,7 +200,8 @@ typedef struct {
 
 static int getNextReply(RPNet *nc) {
   if (nc->cmd.forCursor) {
-    if (!MR_ManuallyTriggerNextIfNeeded(nc->it, RSGlobalConfig.cursorReadSize)) {
+    // if there is only 1 reply left (or none), trigger READs at the shards
+    if (!MR_ManuallyTriggerNextIfNeeded(nc->it, 1)) {
       // No more replies
       nc->current.root = NULL;
       nc->current.rows = NULL;
@@ -300,6 +301,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   int new_reply = !root;
 
   // get the next reply from the channel
+
   while (!root || !rows || MRReply_Length(rows) == 0) {
       if (!getNextReply(nc)) {
         return RS_RESULT_EOF;
