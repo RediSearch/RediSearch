@@ -800,10 +800,11 @@ def test_mod5252(env):
 
 
 def test_mod5791(env):
+    con = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DISTANCE_METRIC', 'L2',
                'DIM', 2).equal('OK')
-    env.expect('HSET', 'doc1', 't', 'Hello world', 'v', 'abcdefgh').equal(2)
-    env.expect('HSET', 'doc2', 't', 'Hello world', 'v', 'abcdefgi').equal(2)
+    env.assertEqual(2, con.execute_command('HSET', 'doc1', 't', 'Hello world', 'v', 'abcdefgh'))
+    env.assertEqual(2, con.execute_command('HSET', 'doc2', 't', 'Hello world', 'v', 'abcdefgi'))
 
     # The RSIndexResult object should be contructed as following:
     # UNION:
