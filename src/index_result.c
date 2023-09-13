@@ -163,7 +163,7 @@ void IndexResult_Print(RSIndexResult *r, int depth) {
     printf("Virtual{%llu},\n", (unsigned long long)r->docId);
     return;
   }
-  if (r->type == RSResultType_Numeric) {
+  if (r->type == RS_RESULT_NUMERIC) {
     printf("Numeric{%llu:%f},\n", (unsigned long long)r->docId, r->num.value);
     return;
   }
@@ -224,11 +224,12 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
     case RSResultType_Union:
       // the intersection and union aggregates can have offsets if they are not purely made of
       // virtual results
-      return res->agg.typeMask != RSResultType_Virtual && res->agg.typeMask != RSResultType_Numeric;
+      return res->agg.typeMask != RSResultType_Virtual && res->agg.typeMask != RS_RESULT_NUMERIC;
 
     // a virtual result doesn't have offsets!
     case RSResultType_Virtual:
     case RSResultType_Numeric:
+    case RSResultType_Metric:
     default:
       return 0;
   }
@@ -476,7 +477,7 @@ int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positi
 int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
 
   // check if calculation is even relevant here...
-  if ((ir->type & (RSResultType_Term | RSResultType_Virtual | RSResultType_Numeric)) ||
+  if ((ir->type & (RSResultType_Term | RSResultType_Virtual | RS_RESULT_NUMERIC)) ||
       ir->agg.numChildren <= 1) {
     return 1;
   }

@@ -150,6 +150,7 @@ RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
     // virtual and numeric entries have no offsets and cannot participate
     case RSResultType_Virtual:
     case RSResultType_Numeric:
+    case RSResultType_Metric:
       return _emptyIterator();
 
     case RSResultType_Intersection:

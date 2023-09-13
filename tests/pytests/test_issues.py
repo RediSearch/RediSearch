@@ -797,3 +797,24 @@ def test_mod5252(env):
   # Test that the document is returned with the key name WITH ALIAS on an aggregate command
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '3', '@__key', 'AS', 'key_name', 'SORTBY', '1', '@key_name')
   env.assertEqual(res, [1, ['key_name', 'doc']])
+
+
+def test_mod5791(env):
+    con = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DISTANCE_METRIC', 'L2',
+               'DIM', 2).equal('OK')
+    env.assertEqual(2, con.execute_command('HSET', 'doc1', 't', 'Hello world', 'v', 'abcdefgh'))
+    env.assertEqual(2, con.execute_command('HSET', 'doc2', 't', 'Hello world', 'v', 'abcdefgi'))
+
+    # The RSIndexResult object should be contructed as following:
+    # UNION:
+    #   INTERSECTION:
+    #       metric
+    #       term
+    #   metric
+    # While computing the scores, RSIndexResult_IterateOffsets is called. Validate that there is no corruption when
+    # iterating the metric RSIndexResult (before, we treated it as "default" - which is the aggregate type, and we might
+    # try access non-existing fields).
+    res = env.cmd('FT.SEARCH', 'idx', '(@v:[VECTOR_RANGE 0.8 $blob] @t:hello) | @v:[VECTOR_RANGE 0.8 $blob]',
+                  'WITHSCORES', 'DIALECT', '2', 'params', '2', 'blob', 'abcdefgh')
+    env.assertEqual(res[:2], [1, 'doc1'])
