@@ -553,20 +553,18 @@ void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
 void *MRITERATOR_DONE = "MRITERATOR_DONE";
 
 int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
-  int ret;
-  if (--ctx->ic->pending <= 0) {
+  int pending = --ctx->ic->pending; // Decrease `pending` before decreasing `inProcess`
+  MRIteratorCallback_ProcessDone(ctx);
+  if (pending <= 0) {
     // fprintf(stderr, "FINISHED iterator, error? %d pending %d\n", error, ctx->ic->pending);
     RQ_Done(rq_g);
 
     MRChannel_Close(ctx->ic->chan);
-    ret = 0;
-  } else {
-    // fprintf(stderr, "Done iterator, error? %d pending %d\n", error, ctx->ic->pending);
-    ret = 1;
+    return 0;
   }
+  // fprintf(stderr, "Done iterator, error? %d pending %d\n", error, ctx->ic->pending);
 
-  MRIteratorCallback_ProcessDone(ctx);
-  return ret;
+  return 1;
 }
 
 int MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
