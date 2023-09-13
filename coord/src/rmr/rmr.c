@@ -589,9 +589,7 @@ void iterStartCb(void *p) {
 void iterManualNextCb(void *p) {
   MRIterator *it = p;
   for (size_t i = 0; i < it->len; i++) {
-    if (it->cbxs[i].cmd.depleted) {
-      MRIteratorCallback_ProcessDone(&it->cbxs[i]);
-    } else {
+    if (!it->cbxs[i].cmd.depleted) {
       if (MRCluster_SendCommand(it->ctx.cluster, MRCluster_MastersOnly, &it->cbxs[i].cmd,
                                 mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
         // fprintf(stderr, "Could not send command!\n");
@@ -601,15 +599,19 @@ void iterManualNextCb(void *p) {
   }
 }
 
-size_t MR_ManuallyTriggerNextIfNeeded(MRIterator *it) {
+bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it) {
   int inProcess = __atomic_load_n(&it->ctx.inProcess, __ATOMIC_ACQUIRE);
   if (!inProcess && MRChannel_Size(it->ctx.chan) == 0) {
     // At this point there is no race on the `inProcess` variable.
     // for thread safety, set inProcess to the number of commands
-    it->ctx.inProcess = it->len;
+    if (it->ctx.pending == 0) {
+      // Nothing to wait for
+      return false;
+    }
+    it->ctx.inProcess = it->ctx.pending;
     RQ_Push(rq_g, iterManualNextCb, it);
   }
-  return it->ctx.pending;
+  return true; // We may have more replies
 }
 
 MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb, void *privdata) {

@@ -77,8 +77,9 @@ typedef struct MRIterator MRIterator;
 
 typedef int (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd);
 
-// Trigger all the commands in the iterator to be sent, and return the number of pending commands
-size_t MR_ManuallyTriggerNextIfNeeded(MRIterator *it);
+// Trigger all the commands in the iterator to be sent.
+// Returns true if there may be more replies to come, false if we are done.
+bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it);
 
 MRReply *MRIterator_Next(MRIterator *it);
 
