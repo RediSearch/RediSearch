@@ -599,11 +599,10 @@ void iterManualNextCb(void *p) {
   }
 }
 
-bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it) {
+bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   int inProcess = __atomic_load_n(&it->ctx.inProcess, __ATOMIC_ACQUIRE);
-  if (!inProcess && MRChannel_Size(it->ctx.chan) == 0) {
+  if (!inProcess && MRChannel_Size(it->ctx.chan) <= channelThreshold) {
     // At this point there is no race on the `inProcess` variable.
-    // for thread safety, set inProcess to the number of commands
     if (it->ctx.pending == 0) {
       // Nothing to wait for
       return false;
