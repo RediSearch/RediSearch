@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import subprocess
+import redis
 
 from common import *
 from RLTest import Env
@@ -821,11 +822,13 @@ def test_mod5791(env):
                   'WITHSCORES', 'DIALECT', '2', 'params', '2', 'blob', 'abcdefgh')
     env.assertEqual(res[:2], [1, 'doc1'])
 
-def test_mod5778(env):
+
+def test_mod5778_add_new_shard_to_cluster(env):
     SkipOnNonCluster(env)
     env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards))
 
     # Create a new redis instance with redisearch loaded.
+    # TODO: add appropriate APIs to RLTest to avoid this abstraction braking.
     new_instance_port = env.envRunner.shards[-1].port + 2  # use a fresh port
     cmd_args = ['redis-server', '--cluster-enabled', 'yes']
     cmd_args += ['--port', str(new_instance_port)]
@@ -835,9 +838,27 @@ def test_mod5778(env):
     # Connect the new instance to the cluster (making sure the new instance didn't crash)
     env.cmd('CLUSTER', 'MEET', '127.0.0.1', new_instance_port)
     time.sleep(5)
-    stream = os.popen(f'redis-cli -p {new_instance_port} PING')
-    env.assertEqual(stream.read(), 'PONG\n')
+    new_instance_conn = redis.Redis(port=new_instance_port, decode_responses=True)
+    env.assertEqual(new_instance_conn.ping(), True)
     # Validate that the new shard has been recognized by the cluster.
     env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards)+1)
+    # Currently, the new shard is not assign on any slots.
+    env.assertEqual(len(env.cmd('CLUSTER SLOTS')), len(env.envRunner.shards))
+
+    # Move a slot (number 0) from the first shard to the new shard.
+    new_shard_id = new_instance_conn.cluster('MYID')
+    env.cmd(f'CLUSTER SETSLOT 0 NODE {new_shard_id}')
+    new_instance_conn.cluster('SETSLOT', 0, 'NODE', new_shard_id)
+
+    # Validate the updated state in old and new shards.
+    expected = [0, 0, ["127.0.0.1", new_instance_port, str(new_shard_id), []]]  # the first slot is in the new shard
+    res = env.cmd('CLUSTER SLOTS')
+    env.assertEqual(len(res), len(env.envRunner.shards) + 1)
+    env.assertEqual(res[0], expected)
+    res = new_instance_conn.cluster('SLOTS')
+    env.assertEqual(len(res), len(env.envRunner.shards) + 1)
+    env.assertEqual(res[0], expected)
+
+    # cleanup
     new_instance.kill()
     os.remove('nodes.conf')
