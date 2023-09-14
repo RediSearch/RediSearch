@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import os
+import subprocess
 
 from common import *
 from RLTest import Env
@@ -818,3 +820,22 @@ def test_mod5791(env):
     res = env.cmd('FT.SEARCH', 'idx', '(@v:[VECTOR_RANGE 0.8 $blob] @t:hello) | @v:[VECTOR_RANGE 0.8 $blob]',
                   'WITHSCORES', 'DIALECT', '2', 'params', '2', 'blob', 'abcdefgh')
     env.assertEqual(res[:2], [1, 'doc1'])
+
+def test_mod5778(env):
+    SkipOnNonCluster(env)
+    env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards))
+
+    # Create a new redis instance with redisearch loaded.
+    new_instance_port = env.envRunner.shards[-1].port + 2  # use a fresh port
+    cmd_args = ['redis-server', '--cluster-enabled', 'yes']
+    cmd_args += ['--port', str(new_instance_port)]
+    cmd_args += ['--loadmodule', env.envRunner.modulePath[0]]
+    new_instance = subprocess.Popen(cmd_args)
+
+    # Connect the new instance to the cluster (making sure
+    env.cmd('CLUSTER', 'MEET', '127.0.0.1', new_instance_port)
+    time.sleep(10)
+    print(os.system(f'redis-cli -p {new_instance_port} CLUSTER SHARDS'))
+    env.assertEqual(len(os.system(f'redis-cli -p {new_instance_port} CLUSTER SHARDS')), len(env.envRunner.shards)+1)
+    new_instance.kill()
+    os.remove('nodes.conf')
