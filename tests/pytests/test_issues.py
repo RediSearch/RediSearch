@@ -832,10 +832,12 @@ def test_mod5778(env):
     cmd_args += ['--loadmodule', env.envRunner.modulePath[0]]
     new_instance = subprocess.Popen(cmd_args)
 
-    # Connect the new instance to the cluster (making sure
+    # Connect the new instance to the cluster (making sure the new instance didn't crash)
     env.cmd('CLUSTER', 'MEET', '127.0.0.1', new_instance_port)
-    time.sleep(10)
-    print(os.system(f'redis-cli -p {new_instance_port} CLUSTER SHARDS'))
-    env.assertEqual(len(os.system(f'redis-cli -p {new_instance_port} CLUSTER SHARDS')), len(env.envRunner.shards)+1)
+    time.sleep(5)
+    stream = os.popen(f'redis-cli -p {new_instance_port} PING')
+    env.assertEqual(stream.read(), 'PONG\n')
+    # Validate that the new shard has been recognized by the cluster.
+    env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards)+1)
     new_instance.kill()
     os.remove('nodes.conf')
