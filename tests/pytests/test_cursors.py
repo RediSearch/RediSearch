@@ -159,8 +159,48 @@ def testNumericCursor(env):
         res, cursor = env.cmd('FT.CURSOR', 'READ', idx, str(cursor))
         env.assertNotEqual(res, [0])
         env.assertNotEqual(cursor, 0)
-    
+
     res, cursor = env.cmd('FT.CURSOR', 'READ', idx, str(cursor))
     env.assertEqual(res, [0])
     env.assertEqual(cursor, 0)
 
+def testCursorOnCoordinator(env):
+    SkipOnNonCluster(env)
+    env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+
+    # Verify that empty reply from some shard doesn't break the cursor
+    conn.execute_command('HSET', 0 ,'n', 0)
+    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)
+    env.assertEqual(res, [1, ['n', '0']])
+    env.expect(f'FT.CURSOR READ idx {cursor}').equal([[0], 0]) # empty reply from shard - 0 results and depleted cursor
+
+    # Verify we can read from the cursor all the results.
+    # The coverage proves that the `_FT.CURSOR READ` command is sent to the shards only when more results are needed.
+    n_docs =  2               # some multiplier (to make sure we have enough results on each shard)
+    n_docs *= 1000            # number of results per shard per cursor
+    n_docs *= env.shardsCount # number of results per cursor
+
+    for i in range(n_docs):
+        conn.execute_command('HSET', i ,'n', i)
+
+    result_set = set()
+    def add_results(res):
+        for r in res[1:]:
+            cur_res = int(r[1])
+            env.assertNotContains(cur_res, result_set)
+            result_set.add(cur_res)
+
+    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 100)
+    add_results(res)
+    while cursor:
+        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        add_results(res)
+
+    env.assertEqual(len(result_set), n_docs)
+    for i in range(n_docs):
+        env.assertContains(i, result_set)
+
+    # Test cursor deletion before reply arrives
+    _, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'SORTBY', '1', '@n', 'MAX', '10000', 'WITHCURSOR')
+    env.cmd('FT.CURSOR', 'DECIMATE', '"the cursor before getting the result"', cursor)
