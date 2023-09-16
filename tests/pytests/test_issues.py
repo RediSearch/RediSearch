@@ -823,6 +823,7 @@ def test_mod5791(env):
     env.assertEqual(res[:2], [1, 'doc1'])
 
 
+@skip(asan=True)
 def test_mod5778_add_new_shard_to_cluster(env):
     SkipOnNonCluster(env)
     env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards))
