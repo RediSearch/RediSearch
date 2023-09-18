@@ -408,7 +408,7 @@ jobs:
         default: ""
       test_params:
         type: string
-        default: "QUICK=1"
+        default: "QUICK=0"
       redis_version:
         type: string
         default: "7"
@@ -444,7 +444,7 @@ jobs:
       - build-steps:
           redis_version: <<parameters.redis_version>>
       - test-steps:
-          test_params: QUICK=1
+          test_params: QUICK=0
 
   build-platforms:
     parameters:
@@ -478,7 +478,7 @@ jobs:
     parameters:
       test_params:
         type: string
-        default: "QUICK=1"
+        default: "QUICK=0"
       upload:
         type: string
         default: "yes"
@@ -516,7 +516,7 @@ jobs:
     parameters:
       test_params:
         type: string
-        default: "QUICK=1"
+        default: "QUICK=0"
       upload:
         type: string
         default: "yes"
