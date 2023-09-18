@@ -281,10 +281,10 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
       break;
     }
     case RSValue_Number: {
-      char tmpbuf[128] = {0};
-      RSValue_NumToString(v->numval, tmpbuf);
+      char tmpbuf[128];
+      size_t len = RSValue_NumToString(v->numval, tmpbuf);
       char *buf = rm_strdup(tmpbuf);
-      RSValue_SetString(dst, buf, strlen(buf));
+      RSValue_SetString(dst, buf, len);
       break;
     }
     case RSValue_Reference:
@@ -712,13 +712,13 @@ int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v, int isTyped) {
     case RSValue_OwnRstring:
       return RedisModule_ReplyWithString(ctx, v->rstrval);
     case RSValue_Number: {
-      char buf[128] = {0};
-      RSValue_NumToString(v->numval, buf);
+      char buf[128];
+      size_t len = RSValue_NumToString(v->numval, buf);
 
       if (isTyped) {
         return RedisModule_ReplyWithError(ctx, buf);
       } else {
-        return RedisModule_ReplyWithStringBuffer(ctx, buf, strlen(buf));
+        return RedisModule_ReplyWithStringBuffer(ctx, buf, len);
       }
     }
     case RSValue_Null:
@@ -751,7 +751,7 @@ void RSValue_Print(const RSValue *v) {
       fprintf(fp, "\"%s\"", RedisModule_StringPtrLen(v->rstrval, NULL));
       break;
     case RSValue_Number: {
-      char tmp[128] = {0};
+      char tmp[128];
       RSValue_NumToString(v->numval, tmp);
       fprintf(fp, "%s", tmp);
       break;
