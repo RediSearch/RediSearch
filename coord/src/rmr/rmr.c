@@ -602,6 +602,10 @@ void iterManualNextCb(void *p) {
 }
 
 bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
+  // We currently trigger the next batch of commands only when no commands are in process,
+  // regardless of the number of replies we have in the channel.
+  // Since we push the triggering job to a single-threaded queue (currently), we can modify the logic here
+  // to trigger the next batch when we have no commands in process and no more than channelThreshold replies to process.
   if (MRIteratorCallback_GetNumInProcess(it)) {
     // We have more replies to wait for
     return true;
