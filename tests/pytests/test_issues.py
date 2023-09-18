@@ -880,7 +880,7 @@ def test_mod5778_add_new_shard_to_cluster(env):
     env.assertEqual(len(res), len(env.envRunner.shards) + 1)
     env.assertEqual(res[0], expected)
 
-    expected = {'primary': ('127.0.0.1', 6385), 'replicas': []}  # this is the expected reply from cluster_slots()
+    expected = {'primary': ('127.0.0.1', new_instance_port), 'replicas': []}  # the expected reply from cluster_slots()
     res = new_instance_conn.cluster_slots(cluster.ClusterNode('127.0.0.1', new_instance_port))
     env.assertEqual(len(res), len(env.envRunner.shards) + 1)
     env.assertEqual(res[(0, 0)], expected)
