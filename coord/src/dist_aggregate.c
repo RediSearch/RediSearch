@@ -148,7 +148,8 @@ typedef struct {
 
 static int getNextReply(RPNet *nc) {
   if (nc->cmd.forCursor) {
-    // if there is only 1 reply left (or none), trigger READs at the shards
+    // if there is only 1 reply left (or none), trigger READs at the shards.
+    // TODO: This hardcoded 1 could be replaced with a configurable value (global or query specific)
     if (!MR_ManuallyTriggerNextIfNeeded(nc->it, 1)) {
       // No more replies
       nc->current.root = NULL;
