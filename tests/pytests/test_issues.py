@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import subprocess
-import redis
+from redis import Redis, RedisCluster, cluster
 
 from common import *
 from RLTest import Env
@@ -832,14 +832,37 @@ def test_mod5778_add_new_shard_to_cluster(env):
     # TODO: add appropriate APIs to RLTest to avoid this abstraction braking.
     new_instance_port = env.envRunner.shards[-1].port + 2  # use a fresh port
     cmd_args = ['redis-server', '--cluster-enabled', 'yes']
-    cmd_args += ['--port', str(new_instance_port)]
     cmd_args += ['--loadmodule', env.envRunner.modulePath[0]]
-    new_instance = subprocess.Popen(cmd_args)
+    if env.envRunner.password:
+        cmd_args += ['--requirepass', env.envRunner.password]
+
+    if env.envRunner.isTLS():
+        cmd_args += ['--port', str(0), '--tls-port', str(new_instance_port), '--tls-cluster', 'yes']
+        cmd_args += ['--tls-cert-file', env.envRunner.shards[0].getTLSCertFile()]
+        cmd_args += ['--tls-key-file', env.envRunner.shards[0].getTLSKeyFile()]
+        cmd_args += ['--tls-ca-cert-file', env.envRunner.shards[0].getTLSCACertFile()]
+        if env.envRunner.tlsPassphrase:
+            cmd_args += ['--tls-key-file-pass', env.envRunner.tlsPassphrase]
+    else:
+        cmd_args += ['--port', str(new_instance_port)]
+
+    new_instance = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
     # Connect the new instance to the cluster (making sure the new instance didn't crash)
     env.cmd('CLUSTER', 'MEET', '127.0.0.1', new_instance_port)
     time.sleep(5)
-    new_instance_conn = redis.Redis(port=new_instance_port, decode_responses=True)
+    if env.envRunner.isTLS():
+        new_instance_conn = RedisCluster(host='127.0.0.1', port=new_instance_port, decode_responses=True,
+                                         ssl=True,
+                                         ssl_keyfile=env.envRunner.shards[0].getTLSKeyFile(),
+                                         ssl_certfile=env.envRunner.shards[0].getTLSCertFile(),
+                                         ssl_cert_reqs=None,
+                                         ssl_ca_certs=env.envRunner.shards[0].getTLSCACertFile(),
+                                         ssl_password=env.envRunner.tlsPassphrase,
+                                         password=env.envRunner.password)
+    else:
+        new_instance_conn = RedisCluster(host='127.0.0.1', port=new_instance_port, decode_responses=True,
+                                         password=env.envRunner.password)
     env.assertEqual(new_instance_conn.ping(), True)
     # Validate that the new shard has been recognized by the cluster.
     env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards)+1)
@@ -847,18 +870,20 @@ def test_mod5778_add_new_shard_to_cluster(env):
     env.assertEqual(len(env.cmd('CLUSTER SLOTS')), len(env.envRunner.shards))
 
     # Move a slot (number 0) from the first shard to the new shard.
-    new_shard_id = new_instance_conn.cluster('MYID')
+    new_shard_id = new_instance_conn.cluster_myid(cluster.ClusterNode('127.0.0.1', new_instance_port))
     env.cmd(f'CLUSTER SETSLOT 0 NODE {new_shard_id}')
-    new_instance_conn.cluster('SETSLOT', 0, 'NODE', new_shard_id)
+    new_instance_conn.cluster_setslot(cluster.ClusterNode('127.0.0.1', new_instance_port), new_shard_id, 0, 'NODE')
 
     # Validate the updated state in old and new shards.
     expected = [0, 0, ["127.0.0.1", new_instance_port, str(new_shard_id), []]]  # the first slot is in the new shard
     res = env.cmd('CLUSTER SLOTS')
     env.assertEqual(len(res), len(env.envRunner.shards) + 1)
     env.assertEqual(res[0], expected)
-    res = new_instance_conn.cluster('SLOTS')
+
+    expected = {'primary': ('127.0.0.1', 6385), 'replicas': []}  # this is the expected reply from cluster_slots()
+    res = new_instance_conn.cluster_slots(cluster.ClusterNode('127.0.0.1', new_instance_port))
     env.assertEqual(len(res), len(env.envRunner.shards) + 1)
-    env.assertEqual(res[0], expected)
+    env.assertEqual(res[(0, 0)], expected)
 
     # cleanup
     new_instance.kill()
