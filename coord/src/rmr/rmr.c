@@ -481,7 +481,9 @@ void SetMyPartition(MRClusterTopology *ct, MRClusterShard *myShard);
 /* on-loop update topology request. This can't be done from the main thread */
 static void uvUpdateTopologyRequest(struct MRRequestCtx *mc) {
   MRCLuster_UpdateTopology(cluster_g, (MRClusterTopology *)mc->ctx);
-  SetMyPartition((MRClusterTopology *)mc->ctx, cluster_g->myshard);
+  if (cluster_g->myshard) {
+    SetMyPartition((MRClusterTopology *)mc->ctx, cluster_g->myshard);
+  }
   RQ_Done(rq_g);
   // fprintf(stderr, "topo update: conc requests: %d\n", concurrentRequests_g);
   rm_free(mc);
