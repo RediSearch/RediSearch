@@ -829,7 +829,7 @@ def test_mod5778_add_new_shard_to_cluster(env):
     env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards))
 
     # Create a new redis instance with redisearch loaded.
-    # TODO: add appropriate APIs to RLTest to avoid this abstraction braking.
+    # TODO: add appropriate APIs to RLTest to avoid this abstraction breaking.
     new_instance_port = env.envRunner.shards[-1].port + 2  # use a fresh port
     cmd_args = ['redis-server', '--cluster-enabled', 'yes']
     cmd_args += ['--loadmodule', env.envRunner.modulePath[0]]
