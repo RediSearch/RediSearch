@@ -21,6 +21,7 @@ typedef struct {
   int timeoutMS;
   const char* globalPass;
   size_t connPerShard;
+  size_t cursorReplyThreshold;
 } SearchClusterConfig;
 
 extern SearchClusterConfig clusterConfig;
@@ -35,6 +36,7 @@ extern SearchClusterConfig clusterConfig;
     .type = DetectClusterType(),                                                           \
     .timeoutMS = 500,                                                                      \
     .globalPass = NULL,                                                                    \
+    .cursorReplyThreshold = 1,                                                             \
   }
 
 /* Detect the cluster type, by trying to see if we are running inside RLEC.

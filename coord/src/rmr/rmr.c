@@ -513,8 +513,8 @@ typedef struct MRIteratorCtx {
   MRChannel *chan;
   void *privdata;
   MRIteratorCallback cb;
-  int pending;
-  int inProcess;
+  int pending;   // Number of shards with more results (not depleted)
+  int inProcess; // Number of currently running commands on shards
 } MRIteratorCtx;
 
 typedef struct MRIteratorCallbackCtx {
