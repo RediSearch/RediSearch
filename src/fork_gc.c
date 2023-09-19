@@ -198,7 +198,12 @@ typedef struct {
 
 /**
  * headerCallback and hdrarg are invoked before the inverted index is sent, only
- * iff the inverted index was repaired.
+ * if the inverted index was repaired.
+ * This function sends the main process an info message with general info on the inverted index garbage collection.
+ * In addition, for each fixed block it sends a repair message. For deleted blocks it send delete message.
+ * If the index size (number of blocks) wasn't modified (no deleted blocks) we don't send a new block list.
+ * In this case, the main process will get the modifications from the fix messages, that contains also a copy of the
+ * repaired block.
  * RepairCallback and its argument are passed directly to IndexBlock_Repair; see
  * that function for more details.
  */
@@ -225,12 +230,14 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
       // Skip over blocks which have a wide variation. In the future we might
       // want to split a block into two (or more) on high-delta boundaries.
       // todo: is it ok??
+      // The above TODO was written 5 years ago. We currently don't split blocks,
+      // and it is also not clear why we care about high variations.
       blocklist = array_append(blocklist, *blk);
       continue;
     }
 
     // Capture the pointer address before the block is cleared; otherwise
-    // the pointer might be freed!
+    // the pointer might be freed! (IndexBlock_Repair rewrites blk->buf if there were repairs)
     void *bufptr = blk->buf.data;
     int nrepaired = IndexBlock_Repair(blk, &sctx->spec->docs, idx->flags, params);
     // We couldn't repair the block - return 0
@@ -251,17 +258,24 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
       MSG_RepairedBlock *fixmsg = array_ensure_tail(&fixed, MSG_RepairedBlock);
       fixmsg->newix = array_len(blocklist) - 1;
       fixmsg->oldix = i;
-      fixmsg->blk = *blk;
+      fixmsg->blk = *blk; // TODO: consider sending the blocklist even if there weren't any deleted blocks instead of this redundant copy.
       ixmsg.nblocksRepaired++;
     }
-
-    ixmsg.nbytesCollected += (params->bytesBeforFix - params->bytesAfterFix);
+    uint64_t curr_bytesCollected = params->bytesBeforFix - params->bytesAfterFix;
+    ixmsg.nbytesCollected += curr_bytesCollected;
     ixmsg.ndocsCollected += nrepaired;
     ixmsg.nentriesCollected += params->entriesCollected;
+    // Save last block statistics because the main process might want to ignore the changes if
+    // the block was modified while the fork was running.
     if (i == idx->size - 1) {
-      ixmsg.lastblkBytesCollected = ixmsg.nbytesCollected;
+      ixmsg.lastblkBytesCollected = curr_bytesCollected;
       ixmsg.lastblkDocsRemoved = nrepaired;
       ixmsg.lastblkEntriesRemoved = params->entriesCollected;
+      // Save the original number of entries of the last block so we can compare
+      // this value to the number of entries exist in the main process, to conclude if any new entries
+      // were added during the fork process was running. If there were, the main process will discard the last block
+      // fixes. We rely on the assumption that a block is small enough and it will be either handled in the next iteration,
+      // or it will get to its maximum capacity and will no longer be the last block.
       ixmsg.lastblkNumEntries = blk->numEntries + params->entriesCollected;
     }
   }
@@ -275,11 +289,12 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
   FGC_sendFixed(gc, &ixmsg, sizeof ixmsg);
   if (array_len(blocklist) == idx->size) {
     // no empty block, there is no need to send the blocks array. Don't send
-    // any new blocks
+    // any new blocks.
     FGC_sendBuffer(gc, NULL, 0);
   } else {
     FGC_sendBuffer(gc, blocklist, array_len(blocklist) * sizeof(*blocklist));
   }
+  // TODO: can we move it inside the if?
   FGC_sendBuffer(gc, deleted, array_len(deleted) * sizeof(*deleted));
 
   for (size_t i = 0; i < array_len(fixed); ++i) {
@@ -287,6 +302,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
     const MSG_RepairedBlock *msg = fixed + i;
     const IndexBlock *blk = blocklist + msg->newix;
     FGC_sendFixed(gc, msg, sizeof(*msg));
+    // TODO: check why we need to send the data if its part of the blk struct.
     FGC_sendBuffer(gc, IndexBlock_DataBuf(blk), IndexBlock_DataLen(blk));
   }
   rv = true;
@@ -633,12 +649,17 @@ static void checkLastBlock(ForkGC *gc, InvIdxBuffers *idxData, MSG_IndexInfo *in
     return;
   }
 
+  // Otherwise, we added new entries to the last block while the child was running. In this case we discard all
+  // the child garbage collection, assuming they will take place in the next gc iteration.
+
   if (info->lastblkEntriesRemoved == info->lastblkNumEntries) {
     // Last block was deleted entirely while updates on the main process.
-    // We need to remove it from delBlocks list
+
+
+    //Remove it from delBlocks list
     idxData->numDelBlocks--;
 
-    // Then We need add it to the newBlocklist.
+    // Then We need add it to the newBlocklist. // TODO: what if all the blocks were deletd and there is no newblocklist
     idxData->newBlocklistSize++;
     idxData->newBlocklist = rm_realloc(idxData->newBlocklist,
                                        sizeof(*idxData->newBlocklist) * idxData->newBlocklistSize);
@@ -664,6 +685,7 @@ static void checkLastBlock(ForkGC *gc, InvIdxBuffers *idxData, MSG_IndexInfo *in
 
   info->ndocsCollected -= info->lastblkDocsRemoved;
   info->nbytesCollected -= info->lastblkBytesCollected;
+  info->nentriesCollected -= info->lastblkEntriesRemoved;
   idxData->lastBlockIgnored = 1;
   gc->stats.gcBlocksDenied++;
 }
@@ -686,7 +708,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   // Ensure the old index is at least as big as the new index' size
   RS_LOG_ASSERT(idx->size >= info->nblocksOrig, "Old index should be larger or equal to new index");
 
-  if (idxData->newBlocklist) {
+  if (idxData->newBlocklist) { // we don't send a new block list if there weren't removed blocks or if we removed all the blocks
     /**
      * At this point, we check if the last block has had new data added to it,
      * but was _not_ repaired. We check for a repaired last block in
@@ -697,7 +719,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
       /**
        * Last block was unmodified-- let's prefer the last block's pointer
        * over our own (which may be stale).
-       * If the last block was repaired, this is handled above
+       * If the last block was repaired, this is handled above in checkLastBlock()
        */
       idxData->newBlocklist[idxData->newBlocklistSize - 1] = idx->blocks[info->nblocksOrig - 1];
     }
@@ -719,10 +741,11 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
     idx->blocks = idxData->newBlocklist;
     idx->size = idxData->newBlocklistSize;
   } else if (idxData->numDelBlocks) {
-    // In this case, all blocks the child has seen need to be deleted. We don't
-    // get a new block list, because they are all gone..
+    // if idxData->newBlocklist == NULL it's either because all the blocks the child has seen are gone or we didn't change the
+    // size of the index (idxData->numDelBlocks == 0).
+    //  If we enter here it's the first case, all blocks the child has seen need to be deleted.
     size_t newAddedLen = idx->size - info->nblocksOrig;
-    if (newAddedLen) {
+    if (newAddedLen) { //There were additions to the index in the main process while the child was running.
       memmove(idx->blocks, idx->blocks + info->nblocksOrig, sizeof(*idx->blocks) * newAddedLen);
     }
     idx->size = newAddedLen;
@@ -731,6 +754,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
     }
   }
 
+  // TODO : can we skip if we have newBlocklist?
   for (size_t i = 0; i < info->nblocksRepaired; ++i) {
     MSG_RepairedBlock *blockModified = idxData->changedBlocks + i;
     idx->blocks[blockModified->newix] = blockModified->blk;
