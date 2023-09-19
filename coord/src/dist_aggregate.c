@@ -13,6 +13,8 @@
 #include "dist_plan.h"
 #include "profile.h"
 #include "util/timeout.h"
+#include "coord/src/config.h"
+
 #include <err.h>
 
 /* Get cursor command using a cursor id and an existing aggregate command */
@@ -148,9 +150,9 @@ typedef struct {
 
 static int getNextReply(RPNet *nc) {
   if (nc->cmd.forCursor) {
-    // if there is only 1 reply left (or none), trigger READs at the shards.
-    // TODO: This hardcoded 1 could be replaced with a configurable value (global or query specific)
-    if (!MR_ManuallyTriggerNextIfNeeded(nc->it, 1)) {
+    // if there are no more than `clusterConfig.cursorReplyThreshold` replies, trigger READs at the shards.
+    // TODO: could be replaced with a query specific configuration
+    if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
       // No more replies
       nc->current.root = NULL;
       nc->current.rows = NULL;
