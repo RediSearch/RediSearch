@@ -2,10 +2,16 @@ version: 2.1
 
 parameters:
   run_default_flow:
-    default: true
+    default: false
     type: boolean
   run_benchmark_flow_label:
     default: false
+    type: boolean
+  run_nightly_flow_label:
+    default: false
+    type: boolean
+  run_nightly_twice_a_week_flow_label:
+    default: true
     type: boolean
 
 commands:
@@ -1386,6 +1392,8 @@ workflows:
           <<: *always
 
   nightly:
+    when:
+      << pipeline.parameters.run_nightly_flow_label >>
     triggers:
       - schedule:
           cron: "20 17 * * 0,3"
@@ -1405,6 +1413,8 @@ workflows:
               san-type: [address]
 
   nightly-twice-a-week:
+    when:
+      << pipeline.parameters.run_nightly_twice_a_week_flow_label >>
     triggers:
       - schedule:
           cron: "20 17 * * 0,3"
