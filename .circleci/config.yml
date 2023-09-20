@@ -2,7 +2,7 @@ version: 2.1
 
 parameters:
   run_default_flow:
-    default: false
+    default: true
     type: boolean
   run_benchmark_flow_label:
     default: false
@@ -11,7 +11,7 @@ parameters:
     default: false
     type: boolean
   run_nightly_twice_a_week_flow_label:
-    default: true
+    default: false
     type: boolean
 
 commands:
@@ -1392,12 +1392,27 @@ workflows:
           <<: *always
 
   nightly:
+    triggers:
+      - schedule:
+          cron: "20 17 * * 0,3"
+          <<: *on-integ-branch-cron
+    jobs:
+      - build-linux-debian:
+          name: build-with-redis-<<matrix.redis_version>>
+          test_params: ""
+          matrix:
+            parameters:
+              redis_version: ["7.2", "unstable"]
+      - sanitize:
+          name: nightly-sanitize-<< matrix.san-type >>
+          test_params: ""
+          matrix:
+            parameters:
+              san-type: [address]
+
+  nightly-by-param:
     when:
       << pipeline.parameters.run_nightly_flow_label >>
-    # triggers:
-    #   - schedule:
-    #       cron: "20 17 * * 0,3"
-    #       <<: *on-integ-branch-cron
     jobs:
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
@@ -1413,12 +1428,31 @@ workflows:
               san-type: [address]
 
   nightly-twice-a-week:
+    triggers:
+      - schedule:
+          cron: "20 17 * * 0,3"
+          <<: *on-integ-branch-cron
+    jobs:
+      - build-macos-x64-search:
+          context: common
+          # upload: "no"
+          test_params: ""
+      - build-macos-x64-coordinator:
+          context: common
+          # upload: "no"
+          test_params: ""
+      - build-macos-m1-search:
+          context: common
+          # upload: "no"
+          test_params: ""
+      - build-macos-m1-coordinator:
+          context: common
+          # upload: "no"
+          test_params: ""
+  
+  nightly-twice-a-week-by-param:
     when:
       << pipeline.parameters.run_nightly_twice_a_week_flow_label >>
-    # triggers:
-    #   - schedule:
-    #       cron: "20 17 * * 0,3"
-    #       <<: *on-integ-branch-cron
     jobs:
       - build-macos-x64-search:
           context: common
