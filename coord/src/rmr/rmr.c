@@ -35,7 +35,7 @@ static MRCluster *cluster_g = NULL;
 static MRWorkQueue *rq_g = NULL;
 
 /* Coordination request timeout */
-long long timeout_g = 5000;
+long long timeout_g = 5000; // unused value. will be set in MR_Init
 
 /* MapReduce context for a specific command's execution */
 typedef struct MRCtx {
