@@ -227,7 +227,7 @@ def testCursorOnCoordinator(env):
             env.assertTrue(cmd.startswith(exp), message=f'expected `{exp}` but got `{cmd}`')
         # we expect to observe the next `_FT.CURSOR READ` in the next 11 commands (most likely the next command)
         found = False
-        for i in range(11):
+        for i in range(1, 12):
             cmd = next_command()
             if not cmd.startswith('FT.CURSOR'):
                 exp = '_FT.CURSOR READ'
