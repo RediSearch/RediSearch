@@ -1394,10 +1394,10 @@ workflows:
   nightly:
     when:
       << pipeline.parameters.run_nightly_flow_label >>
-    triggers:
-      - schedule:
-          cron: "20 17 * * 0,3"
-          <<: *on-integ-branch-cron
+    # triggers:
+    #   - schedule:
+    #       cron: "20 17 * * 0,3"
+    #       <<: *on-integ-branch-cron
     jobs:
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
@@ -1415,10 +1415,10 @@ workflows:
   nightly-twice-a-week:
     when:
       << pipeline.parameters.run_nightly_twice_a_week_flow_label >>
-    triggers:
-      - schedule:
-          cron: "20 17 * * 0,3"
-          <<: *on-integ-branch-cron
+    # triggers:
+    #   - schedule:
+    #       cron: "20 17 * * 0,3"
+    #       <<: *on-integ-branch-cron
     jobs:
       - build-macos-x64-search:
           context: common
