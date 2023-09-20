@@ -35,7 +35,7 @@ static MRWorkQueue *rq_g = NULL;
 
 #define MAX_CONCURRENT_REQUESTS (MR_CONN_POOL_SIZE * 50)
 /* Coordination request timeout */
-long long timeout_g = 5000;
+long long timeout_g = 5000; // unused value. will be set in MR_Init
 
 /* MapReduce context for a specific command's execution */
 typedef struct MRCtx {
