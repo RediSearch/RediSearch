@@ -348,7 +348,7 @@ int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd, bool block
     ctx->redisCtx = RedisModule_BlockClient(
         ctx->redisCtx, unblockHandler, timeoutHandler,
         redisMajorVesion < 5 ? (void (*)(RedisModuleCtx *, void *))freePrivDataCB : freePrivDataCB_V5,
-        timeout_g);
+        0); // timeout_g);
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, ctx->redisCtx);
   }
   rc->ctx = ctx;
@@ -381,7 +381,7 @@ int MR_Map(struct MRCtx *ctx, MRReduceFunc reducer, MRCommandGenerator cmds, boo
                                             redisMajorVesion < 5
                                                 ? (void (*)(RedisModuleCtx *, void *))freePrivDataCB
                                                 : freePrivDataCB_V5,
-                                            timeout_g);
+                                            0); // timeout_g);
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, ctx->redisCtx);
   }
 
@@ -402,7 +402,7 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
   ctx->redisCtx = RedisModule_BlockClient(
       ctx->redisCtx, unblockHandler, timeoutHandler,
       redisMajorVesion < 5 ? (void (*)(RedisModuleCtx *, void *))freePrivDataCB : freePrivDataCB_V5,
-      timeout_g);
+      0); // timeout_g);
   RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, ctx->redisCtx);
 
   rc->cb = uvMapRequest;
