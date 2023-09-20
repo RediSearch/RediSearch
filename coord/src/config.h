@@ -34,7 +34,7 @@ extern SearchClusterConfig clusterConfig;
     .numPartitions = 0,                                                                    \
     .connPerShard = 0,                                                                     \
     .type = DetectClusterType(),                                                           \
-    .timeoutMS = 500,                                                                      \
+    .timeoutMS = 0,                                                                        \
     .globalPass = NULL,                                                                    \
     .cursorReplyThreshold = 1,                                                             \
   }
