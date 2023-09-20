@@ -1895,9 +1895,7 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 /* Perform basic configurations and init all threads and global structures */
-int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  clusterConfig.type = DetectClusterType();
-
+static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_Log(ctx, "notice",
                   "Cluster configuration: %ld partitions, type: %d, coordinator timeout: %dms",
                   clusterConfig.numPartitions, clusterConfig.type, clusterConfig.timeoutMS);
@@ -2043,14 +2041,6 @@ void Initialize_CoordKeyspaceNotifications(RedisModuleCtx *ctx) {
 
 int __attribute__((visibility("default")))
 RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  /**
-
-  FT.AGGREGATE gh * LOAD 1 @type GROUPBY 1 @type REDUCE COUNT 0 AS num REDUCE SUM 1 @date SORTBY 2
-  @num DESC MAX 10
-
-  */
-
-  printf("RSValue size: %lu\n", sizeof(RSValue));
 
   if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION,
                        REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
@@ -2072,7 +2062,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_Log(ctx, "notice", "redis version observed by redisearch : %d.%d.%d",
                   redisMajorVesion, redisMinorVesion, redisPatchVesion);
 
-  // Chain the config into RediSearch's global config
+  // Chain the config into RediSearch's global config and set the default values
+  clusterConfig = DEFAULT_CLUSTER_CONFIG;
   RSConfigOptions_AddConfigs(&RSGlobalConfigOptions, GetClusterConfigOptions());
 
   // Init RediSearch internal search
@@ -2081,7 +2072,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
-  // Init the configuration and global cluster structs
+  // Init the global cluster structs
   if (initSearchCluster(ctx, argv, argc) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Could not init MR search cluster");
     return REDISMODULE_ERR;
