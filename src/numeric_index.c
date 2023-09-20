@@ -383,7 +383,9 @@ NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value,
   NRN_AddRv rv = NumericRangeNode_Add(root, docId, value);
 
   // Since we never rebalance the root, we don't update its max depth.
-  root->maxDepth = MAX(root->right->maxDepth, root->left->maxDepth) + 1;
+  if (!NumericRangeNode_IsLeaf(root)) {
+    root->maxDepth = MAX(root->right->maxDepth, root->left->maxDepth) + 1;
+  }
 
   // rv != 0 means the tree nodes have changed, and concurrent iteration is not allowed now
   // we increment the revision id of the tree, so currently running query iterators on it
