@@ -43,7 +43,9 @@ FT.SEARCH idx:bicycle "*" FILTER price 270 270
 
 ## Tag field
 
-A tag is a short text. If you need to query for short texts only, then a tag query is more efficient than a full-text query. You can construct a tag query for a single tag in the following way:
+A tag is a short text. If you need to query for short texts only, then a tag query is more efficient than a full-text query. The [Tag vs. text article](TODO) explains you why this is the case. 
+
+You can construct a tag query for a single tag in the following way:
 
 ```
 FT.SEARCH index "@field:{tag}"
