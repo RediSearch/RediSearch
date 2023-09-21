@@ -24,7 +24,7 @@ To perform an exact match query on a numeric field, you need to construct a rang
 FT.SEARCH index "@field:[start end]"
 ```
 
-You can alternatively use the `FILTER` argument, but you need to know that the query execution plan is different because the filter gets applied after the wildcard query:
+As described in the [article about range queries](/docs/search-and-query/query/range), you can alternatively use the `FILTER` argument:
 
 ```
 FT.SEARCH index "*" FILTER field start end
@@ -43,7 +43,7 @@ FT.SEARCH idx:bicycle "*" FILTER price 270 270
 
 ## Tag field
 
-A tag is a short text. If you need to query for short texts only, then a tag query is more efficient than a full-text query. The [Tag vs. text article](TODO) explains you why this is the case. 
+A tag is a short text. If you need to query for short texts only, then a tag query is more efficient than a full-text query. The [tag vs. text article](TODO) explains why this is the case. 
 
 You can construct a tag query for a single tag in the following way:
 
@@ -51,7 +51,7 @@ You can construct a tag query for a single tag in the following way:
 FT.SEARCH index "@field:{tag}"
 ```
 
-> Note: The curly brackets are mandatory for tag queries. You can read further details about why in the [combined queries article](TODO).
+> Note: The curly brackets are mandatory for tag queries. You can read why in the [combined queries article](TODO).
 
 This short example shows you how to query for new bicycles:
 
