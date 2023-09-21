@@ -7,6 +7,12 @@ parameters:
   run_benchmark_flow_label:
     default: false
     type: boolean
+  run_nightly_flow_label:
+    default: false
+    type: boolean
+  run_nightly_twice_a_week_flow_label:
+    default: false
+    type: boolean
 
 commands:
   early-returns:
@@ -64,8 +70,12 @@ commands:
           name: Setup automation
           command: |
             git submodule update --init deps/readies
-            if [[ $(uname -s) == Darwin ]]; then rm -f /usr/local/bin/python3; fi
-            ./deps/readies/bin/getpy3
+            if [[ $(uname -s) == Darwin ]]; then
+              VERBOSE=1 PIP=0 FORCE=1 FIX=1 VENV=0 ./deps/readies/bin/getpy3
+              VERBOSE=1 FORCE=1 VENV=$HOME/.venv ./deps/readies/bin/getpyenv
+            else
+              ./deps/readies/bin/getpy3
+            fi
       - run:
           name: Setup automation (part 2)
           shell: /bin/bash -l -eo pipefail
@@ -194,21 +204,36 @@ commands:
       mt_build:
         type: string
         default: "no"
+      run_step:
+        type: string
+        default: ""
     steps:
-      - run:
-          name: Test (Search)
-          shell: /bin/bash -l -eo pipefail
-          no_output_timeout: 30m
-          command: |
-            if [[ "<<parameters.mt_build>>" == "yes" ]]; then
-                export REDISEARCH_MT_BUILD=0
-            fi
-            make test TEST_PARALLEL=16 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
-      - run:
-          name: Test (OSS Coordinator)
-          shell: /bin/bash -l -eo pipefail
-          no_output_timeout: 30m
-          command: make test COORD=oss TEST_PARALLEL=16 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
+      - when:
+          condition: 
+            or:
+              - equal : [ << parameters.run_step >>, ""]
+              - equal : [ << parameters.run_step >>, "search"]
+          steps:
+            - run:
+                name: Test (Search)
+                shell: /bin/bash -l -eo pipefail
+                no_output_timeout: 30m
+                command: |
+                  if [[ "<<parameters.mt_build>>" == "yes" ]]; then
+                      export REDISEARCH_MT_BUILD=0
+                  fi
+                  make test TEST_PARALLEL=16 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
+      - when:
+          condition: 
+            or:
+              - equal : [ << parameters.run_step >>, ""]
+              - equal : [ << parameters.run_step >>, "coordinator"]
+          steps:
+            - run:
+                name: Test (OSS Coordinator)
+                shell: /bin/bash -l -eo pipefail
+                no_output_timeout: 30m
+                command: make test COORD=oss TEST_PARALLEL=16 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
       - save-tests-logs
 
   build-platforms-steps:
@@ -459,7 +484,7 @@ jobs:
       - vm-build-platforms-steps:
           platform: <<parameters.platform>>
 
-  build-macos-x64:
+  build-macos-x64-search:
     macos:
       xcode: 13.2.1
     resource_class: macos.x86.medium.gen2
@@ -483,6 +508,7 @@ jobs:
       - test-steps:
           test_params: <<parameters.test_params>>
           mt_build: <<parameters.upload>>
+          run_step: "search"
       - run:
           name: Persist artifacts?
           command: |
@@ -497,7 +523,46 @@ jobs:
             fi
       - persist-artifacts
 
-  build-macos-m1:
+  build-macos-x64-coordinator:
+    macos:
+      xcode: 13.4.1
+    resource_class: macos.x86.medium.gen2
+    parameters:
+      test_params:
+        type: string
+        default: "QUICK=0"
+      upload:
+        type: string
+        default: "yes"
+    steps:
+      - early-returns
+      - run:
+          name: Brew update
+          command: brew update
+      - run:
+          name: Set up workspace
+          command: mkdir -p ~/workspace
+      - build-steps:
+          mt_build: <<parameters.upload>>
+      - test-steps:
+          test_params: <<parameters.test_params>>
+          mt_build: <<parameters.upload>>
+          run_step: "coordinator"
+      - run:
+          name: Persist artifacts?
+          command: |
+            if [[ "<<parameters.upload>>" != "yes" ]]; then
+              circleci step halt
+            fi
+      - run:
+          name: Upload artifacts to S3
+          command: |
+            if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
+                make upload-artifacts SHOW=1
+            fi
+      - persist-artifacts
+
+  build-macos-m1-search:
     macos:
       xcode: 14.2.0
     resource_class: macos.m1.large.gen1
@@ -518,6 +583,43 @@ jobs:
       - test-steps:
           test_params: <<parameters.test_params>>
           mt_build: <<parameters.upload>>
+          run_step: "search"
+      - run:
+          name: Persist artifacts?
+          command: |
+            if [[ "<<parameters.upload>>" != "yes" ]]; then
+              circleci step halt
+            fi
+      - run:
+          name: Upload artifacts to S3
+          command: |
+            if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
+                make upload-artifacts SHOW=1
+            fi
+      - persist-artifacts
+  
+  build-macos-m1-coordinator:
+    macos:
+      xcode: 14.2.0
+    resource_class: macos.m1.large.gen1
+    parameters:
+      test_params:
+        type: string
+        default: "QUICK=0"
+      upload:
+        type: string
+        default: "yes"
+    steps:
+      - early-returns
+      - run:
+          name: Set up workspace
+          command: mkdir -p ~/workspace
+      - build-steps:
+          mt_build: <<parameters.upload>>
+      - test-steps:
+          test_params: <<parameters.test_params>>
+          mt_build: <<parameters.upload>>
+          run_step: "coordinator"
       - run:
           name: Persist artifacts?
           command: |
@@ -1100,10 +1202,16 @@ workflows:
           matrix:
             parameters:
               platform: [jammy, focal, bionic]
-      - build-macos-x64:
+      - build-macos-x64-search:
           <<: *on-version-tags
           context: common
-      - build-macos-m1:
+      - build-macos-x64-coordinator:
+          <<: *on-version-tags
+          context: common
+      - build-macos-m1-search:
+          context: common
+          <<: *on-version-tags
+      - build-macos-m1-coordinator:
           context: common
           <<: *on-version-tags
       - coverage:
@@ -1194,8 +1302,10 @@ workflows:
           requires:
             - build-platforms
             - build-arm-platforms
-            - build-macos-x64
-            - build-macos-m1
+            - build-macos-x64-search
+            - build-macos-x64-coordinator
+            - build-macos-m1-search
+            - build-macos-m1-coordinator
       - release-qa-tests:
           context: common
           <<: *on-version-tags
@@ -1292,6 +1402,23 @@ workflows:
           test_params: ""
           matrix:
             parameters:
+              redis_version: ["7.2", "unstable"]
+      - sanitize:
+          name: nightly-sanitize-<< matrix.san-type >>
+          test_params: ""
+          matrix:
+            parameters:
+              san-type: [address]
+
+  nightly-by-param:
+    when:
+      << pipeline.parameters.run_nightly_flow_label >>
+    jobs:
+      - build-linux-debian:
+          name: build-with-redis-<<matrix.redis_version>>
+          test_params: ""
+          matrix:
+            parameters:
               redis_version: ["7.2-rc3", "unstable"]
       - sanitize:
           name: nightly-sanitize-<< matrix.san-type >>
@@ -1306,11 +1433,40 @@ workflows:
           cron: "20 17 * * 0,3"
           <<: *on-integ-branch-cron
     jobs:
-      - build-macos-x64:
+      - build-macos-x64-search:
           context: common
           # upload: "no"
           test_params: ""
-      - build-macos-m1:
+      - build-macos-x64-coordinator:
+          context: common
+          # upload: "no"
+          test_params: ""
+      - build-macos-m1-search:
+          context: common
+          # upload: "no"
+          test_params: ""
+      - build-macos-m1-coordinator:
+          context: common
+          # upload: "no"
+          test_params: ""
+  
+  nightly-twice-a-week-by-param:
+    when:
+      << pipeline.parameters.run_nightly_twice_a_week_flow_label >>
+    jobs:
+      - build-macos-x64-search:
+          context: common
+          # upload: "no"
+          test_params: ""
+      - build-macos-x64-coordinator:
+          context: common
+          # upload: "no"
+          test_params: ""
+      - build-macos-m1-search:
+          context: common
+          # upload: "no"
+          test_params: ""
+      - build-macos-m1-coordinator:
           context: common
           # upload: "no"
           test_params: ""
