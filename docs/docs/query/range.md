@@ -46,7 +46,4 @@ FT.SEARCH idx:bicycle "@price:[(1000 +inf]"
 FT.SEARCH idx:bicycle "@price:[-inf 2000]"
 ```
 
-You can learn more about non-numeric range queries, such as geo-spatial or vector similarity search queries, in their dedicated documentation articles:
-
-* [Geo-spatial](TODO)
-* [Vector similarity](TODO)
+You can learn more about non-numeric range queries, such as [geo-spatial](TODO) or [vector similarity search](TODO) queries, in their dedicated documentation articles.
