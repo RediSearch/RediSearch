@@ -1,6 +1,6 @@
 ---
-title: "Query"
-linkTitle: "Query"
+title: "Query syntax"
+linkTitle: "Query syntax"
 weight: 5
 description: >
     Learn how to use query syntax
