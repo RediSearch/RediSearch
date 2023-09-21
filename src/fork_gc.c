@@ -938,8 +938,8 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
-    RedisSearchCtx_UnlockSpec(sctx);
     if (sp) {
+      RedisSearchCtx_UnlockSpec(sctx);
       StrongRef_Release(cur_iter_spec_ref);
     }
   }
