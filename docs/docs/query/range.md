@@ -18,7 +18,7 @@ FT.SEARCH index "*" FILTER field start end
 
 Start and end values are by default inclusive, but you can prepend `(` to a value to exclude it from the range.
 
-The values `-inf`, `inf`, and `+inf` are valid values that allow you to define open ranges. Such open range queries can lead to large result sets. `FT.SEARCH` returns by default the first ten results only. You can find further details about using the `LIMIT` argument to scroll through the complete result set in the [`FT.SEARCH` command reference](/commands/ft.search/).
+The values `-inf`, `inf`, and `+inf` are valid values that allow you to define open ranges. Such a query can lead to a large result set. `FT.SEARCH` returns by default the first ten results only. You can find further details about using the `LIMIT` argument to scroll through the entire result set in the [`FT.SEARCH` command reference](/commands/ft.search/).
 
 Here are some examples:
 
