@@ -624,32 +624,28 @@ static void checkLastBlock(ForkGC *gc, InvIdxBuffers *idxData, MSG_IndexInfo *in
 
   if (info->lastblkEntriesRemoved == info->lastblkNumEntries) {
     // Last block was deleted entirely while updates on the main process.
-
-
-    //Remove it from delBlocks list
+    // Remove it from delBlocks list
     idxData->numDelBlocks--;
 
-    // Then We need add it to the newBlocklist. // TODO: what if all the blocks were deletd and there is no newblocklist
-    idxData->newBlocklistSize++;
-    idxData->newBlocklist = rm_realloc(idxData->newBlocklist,
-                                       sizeof(*idxData->newBlocklist) * idxData->newBlocklistSize);
-    idxData->newBlocklist[idxData->newBlocklistSize - 1] = *lastOld;
+    // If all the blocks were deleted, there is no newblocklist. Otherwise, we need to add it to the newBlocklist.
+    if (idxData->newBlocklist) {
+      idxData->newBlocklistSize++;
+      idxData->newBlocklist = rm_realloc(idxData->newBlocklist,
+                                        sizeof(*idxData->newBlocklist) * idxData->newBlocklistSize);
+      idxData->newBlocklist[idxData->newBlocklistSize - 1] = *lastOld;
+    }
   } else {
-    // Last block was modified on the child and on the parent.
+    // Last block was modified on the child and on the parent. (but not entirely deleted)
 
     // we need to remove it from changedBlocks
     MSG_RepairedBlock *rb = idxData->changedBlocks + info->nblocksRepaired - 1;
     indexBlock_Free(&rb->blk);
     info->nblocksRepaired--;
 
-    // Then add it to newBlocklist if newBlocklist is not NULL.
-    // If newBlocklist!=NULL then the last block must be there (it was changed and not deleted)
-    // If newBlocklist==NULL then by decreasing the nblocksOrig by one we make sure to keep the last
-    // block
+    // If newBlocklist!=NULL then the last block must be there (it was changed and not deleted),
+    // prefer the parent's block.
     if (idxData->newBlocklist) {
       idxData->newBlocklist[idxData->newBlocklistSize - 1] = *lastOld;
-    } else {
-      --info->nblocksOrig;
     }
   }
 
@@ -678,7 +674,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   // Ensure the old index is at least as big as the new index' size
   RS_LOG_ASSERT(idx->size >= info->nblocksOrig, "Old index should be larger or equal to new index");
 
-  if (idxData->newBlocklist) { // we don't send a new block list if there weren't removed blocks or if we removed all the blocks
+  if (idxData->newBlocklist) { // ther child removed some of the block, but not all of them
     /**
      * At this point, we check if the last block has had new data added to it,
      * but was _not_ repaired. We check for a repaired last block in
@@ -695,7 +691,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
     }
 
     // Number of blocks added in the parent process since the last scan
-    size_t newAddedLen = idx->size - info->nblocksOrig;
+    size_t newAddedLen = idx->size - info->nblocksOrig; // TODO: can we just decrease by numer of deleted.
 
     // The final size is the reordered block size, plus the number of blocks
     // which we haven't scanned yet, because they were added in the parent
@@ -713,12 +709,17 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   } else if (idxData->numDelBlocks) {
     // if idxData->newBlocklist == NULL it's either because all the blocks the child has seen are gone or we didn't change the
     // size of the index (idxData->numDelBlocks == 0).
-    //  If we enter here it's the first case, all blocks the child has seen need to be deleted.
-    size_t newAddedLen = idx->size - info->nblocksOrig;
-    if (newAddedLen) { //There were additions to the index in the main process while the child was running.
-      memmove(idx->blocks, idx->blocks + info->nblocksOrig, sizeof(*idx->blocks) * newAddedLen);
-    }
-    idx->size = newAddedLen;
+    // So if we enter here (idxData->numDelBlocks != 0) it's the first case, all blocks the child has seen need to be deleted.
+    // Note that we might want to keep the last block, although deleted by the child. In this case numDelBlocks will *not include*
+    // the last block.
+    idx->size -= idxData->numDelBlocks;
+
+    // There were new blocks added to the index in the main process while the child was running,
+    // and/or we decided to ignore changes made to the last block, we copy the blocks data strting from
+    // the first valid block we want to keep.
+
+    memmove(idx->blocks, idx->blocks + idxData->numDelBlocks, sizeof(*idx->blocks) * idx->size);
+
     if (idx->size == 0) {
       InvertedIndex_AddBlock(idx, 0);
     }
@@ -1252,7 +1253,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 #define NO_TSAN_CHECK
 #endif
 
-void FGC_WaitAtFork(ForkGC *gc) NO_TSAN_CHECK {
+void FGC_WaitBeforeFork(ForkGC *gc) NO_TSAN_CHECK {
   RS_LOG_ASSERT(gc->pauseState == 0, "FGC pause state should be 0");
   gc->pauseState = FGC_PAUSED_CHILD;
 
@@ -1261,7 +1262,7 @@ void FGC_WaitAtFork(ForkGC *gc) NO_TSAN_CHECK {
   }
 }
 
-void FGC_WaitAtApply(ForkGC *gc) NO_TSAN_CHECK {
+void FGC_ForkAndWaitBeforeApply(ForkGC *gc) NO_TSAN_CHECK {
   // Ensure that we're waiting for the child to begin
   RS_LOG_ASSERT(gc->pauseState == FGC_PAUSED_CHILD, "FGC pause state should be CHILD");
   RS_LOG_ASSERT(gc->execState == FGC_STATE_WAIT_FORK, "FGC exec state should be WAIT_FORK");
@@ -1272,7 +1273,7 @@ void FGC_WaitAtApply(ForkGC *gc) NO_TSAN_CHECK {
   }
 }
 
-void FGC_WaitClear(ForkGC *gc) NO_TSAN_CHECK {
+void FGC_Apply(ForkGC *gc) NO_TSAN_CHECK {
   gc->pauseState = FGC_PAUSED_UNPAUSED;
   while (gc->execState != FGC_STATE_IDLE) {
     usleep(500);
