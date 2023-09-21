@@ -4,7 +4,7 @@ linkTitle: "Range"
 description: Numeric range queries
 ---
 
-A range query on a numeric field returns you the values that are within a given start and end value:
+A range query on a numeric field returns you the values that are in between a given start and end value:
 
 ```
 FT.SEARCH index "@field:[start end]"
