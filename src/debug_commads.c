@@ -370,7 +370,7 @@ void NumericRangeTree_DebugReply(RedisModuleCtx *ctx, NumericRangeTree *rt) {
   RedisModule_ReplySetArrayLength(ctx, len);
 }
 
-// FT.DEBUG INDEX_NAME NUMERIC_FIELD_NAME
+// FT.DEBUG DUMP_NUMIDXTREE INDEX_NAME NUMERIC_FIELD_NAME
 DEBUG_COMMAND(DumpNumericIndexTree) {
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
