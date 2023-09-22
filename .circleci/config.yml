@@ -1205,12 +1205,16 @@ workflows:
       - build-macos-x64-search:
           <<: *on-version-tags
           context: common
+          # Avoid persist conflict with build-macos-x64-coordinator
+          upload: "no"
       - build-macos-x64-coordinator:
           <<: *on-version-tags
           context: common
       - build-macos-m1-search:
           context: common
           <<: *on-version-tags
+          # Avoid persist conflict with build-macos-m1-coordinator
+          upload: "no"
       - build-macos-m1-coordinator:
           context: common
           <<: *on-version-tags
@@ -1435,7 +1439,8 @@ workflows:
     jobs:
       - build-macos-x64-search:
           context: common
-          # upload: "no"
+          # Avoid persist conflict with build-macos-x64-coordinator
+          upload: "no"
           test_params: ""
       - build-macos-x64-coordinator:
           context: common
@@ -1443,7 +1448,8 @@ workflows:
           test_params: ""
       - build-macos-m1-search:
           context: common
-          # upload: "no"
+          # Avoid persist conflict with build-macos-m1-coordinator
+          upload: "no"
           test_params: ""
       - build-macos-m1-coordinator:
           context: common
@@ -1456,7 +1462,8 @@ workflows:
     jobs:
       - build-macos-x64-search:
           context: common
-          # upload: "no"
+          # Avoid persist conflict with build-macos-x64-coordinator
+          upload: "no"
           test_params: ""
       - build-macos-x64-coordinator:
           context: common
@@ -1464,7 +1471,8 @@ workflows:
           test_params: ""
       - build-macos-m1-search:
           context: common
-          # upload: "no"
+          # Avoid persist conflict with build-macos-m1-coordinator
+          upload: "no"
           test_params: ""
       - build-macos-m1-coordinator:
           context: common
