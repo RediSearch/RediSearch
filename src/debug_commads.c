@@ -40,6 +40,15 @@
   RedisModule_ReplyWithStringBuffer(ctx, name, strlen(name)); \
   len += 1;
 
+#define START_POSTPONED_LEN_ARRAY(array_name) \
+  size_t len_##array_name = 0;                \
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN)
+
+#define ARRAY_LEN_VAR(array_name) len_##array_name
+
+#define END_POSTPONED_LEN_ARRAY(array_name) \
+  RedisModule_ReplySetArrayLength(ctx, len_##array_name)
+
 static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
   IndexIterator *iter = NewReadIterator(reader);
   RSIndexResult *r;
@@ -177,7 +186,7 @@ end:
   return REDISMODULE_OK;
 }
 
-// FT.DEBUG INDEX_NAME NUMERIC_FIELD_NAME
+// FT.DEBUG NUMIDX_SUMMARY INDEX_NAME NUMERIC_FIELD_NAME
 DEBUG_COMMAND(NumericIndexSummary) {
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
@@ -195,17 +204,14 @@ DEBUG_COMMAND(NumericIndexSummary) {
     goto end;
   }
 
-  size_t invIdxBulkLen = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-
-  REPLY_WITH_LONG_LONG("numRanges", rt->numRanges, invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("numEntries", rt->numEntries, invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("lastDocId", rt->lastDocId, invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("revisionId", rt->revisionId, invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("emptyLeaves", rt->emptyLeaves, invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("RootMaxDepth", rt->root->maxDepth, invIdxBulkLen);
-
-  RedisModule_ReplySetArrayLength(ctx, invIdxBulkLen);
+  START_POSTPONED_LEN_ARRAY(numIdxSum);
+  REPLY_WITH_LONG_LONG("numRanges", rt->numRanges, ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("numEntries", rt->numEntries, ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("lastDocId", rt->lastDocId, ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("revisionId", rt->revisionId, ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("emptyLeaves", rt->emptyLeaves, ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("RootMaxDepth", rt->root->maxDepth, ARRAY_LEN_VAR(numIdxSum));
+  END_POSTPONED_LEN_ARRAY(numIdxSum);
 
 end:
   if (keyp) {
@@ -239,26 +245,24 @@ DEBUG_COMMAND(DumpNumericIndex) {
   NumericRangeNode *currNode;
   NumericRangeTreeIterator *iter = NumericRangeTreeIterator_New(rt);
   size_t InvertedIndexNumber = 0;
-  RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN); // start InvIdx array
+  START_POSTPONED_LEN_ARRAY(numericInvertedIndex);
   while ((currNode = NumericRangeTreeIterator_Next(iter))) {
     NumericRange *range = currNode->range;
     if (range) {
       if (with_headers) {
-        RedisModule_ReplyWithArray(sctx->redisCtx, 2); // start 1)Header 2)entries
+        RedisModule_ReplyWithArray(sctx->redisCtx, 2); // start 1) Header 2)entries
 
-        RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN); // Header array
+        START_POSTPONED_LEN_ARRAY(numericHeader); // Header array
         InvertedIndex* invidx = range->entries;
-        size_t headerSize = InvertedIndexSummaryHeader(sctx->redisCtx, invidx);
-        RedisModule_ReplySetArrayLength(ctx, headerSize); // Header array
-
-
+        ARRAY_LEN_VAR(numericHeader) += InvertedIndexSummaryHeader(sctx->redisCtx, invidx);
+        END_POSTPONED_LEN_ARRAY(numericHeader);
       }
       IndexReader *reader = NewNumericReader(NULL, range->entries, NULL, range->minVal, range->maxVal, true);
       ReplyReaderResults(reader, sctx->redisCtx);
-      ++InvertedIndexNumber; // end (1)Header 2))entries (header is optional)
+      ++ARRAY_LEN_VAR(numericInvertedIndex); // end (1)Header 2)entries (header is optional)
     }
   }
-  RedisModule_ReplySetArrayLength(sctx->redisCtx, InvertedIndexNumber); // end InvIdx array
+  END_POSTPONED_LEN_ARRAY(numericInvertedIndex); // end InvIdx array
   NumericRangeTreeIterator_Free(iter);
 end:
   if (keyp) {
@@ -270,53 +274,48 @@ end:
 
 InvertedIndexStats InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *idx) {
   InvertedIndexStats indexStats = {.blocks_efficiency = InvertedIndexGetEfficiency(idx)};
-  size_t len = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  START_POSTPONED_LEN_ARRAY(invertedIndexDump);
 
-  REPLY_WITH_LONG_LONG("numDocs", idx->numDocs, len);
-  REPLY_WITH_LONG_LONG("numEntries", idx->numEntries, len);
-  REPLY_WITH_LONG_LONG("lastId", idx->lastId, len);
-  REPLY_WITH_LONG_LONG("size", idx->size, len);
-  REPLY_WITH_DOUBLE("blocks_efficiency (numEntries/size)", indexStats.blocks_efficiency, len);
+  REPLY_WITH_LONG_LONG("numDocs", idx->numDocs, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_LONG_LONG("numEntries", idx->numEntries, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_LONG_LONG("lastId", idx->lastId, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_LONG_LONG("size", idx->size, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_DOUBLE("blocks_efficiency (numEntries/size)", indexStats.blocks_efficiency, ARRAY_LEN_VAR(invertedIndexDump));
 
-  RedisModule_ReplyWithStringBuffer(ctx, "values", strlen("values"));
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  len += 2;
-  size_t len_values = 0;
+  REPLY_WITH_STR("values", ARRAY_LEN_VAR(invertedIndexDump));
+  START_POSTPONED_LEN_ARRAY(invertedIndexValues);
   RSIndexResult *res = NULL;
   IndexReader *ir = NewNumericReader(NULL, idx, NULL ,0, 0, false);
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
-    REPLY_WITH_DOUBLE("value", res->num.value, len_values);
-    REPLY_WITH_LONG_LONG("docId", res->docId, len_values);
+    REPLY_WITH_DOUBLE("value", res->num.value, ARRAY_LEN_VAR(invertedIndexValues));
+    REPLY_WITH_LONG_LONG("docId", res->docId, ARRAY_LEN_VAR(invertedIndexValues));
   }
   IR_Free(ir);
-  RedisModule_ReplySetArrayLength(ctx, len_values);
+  END_POSTPONED_LEN_ARRAY(invertedIndexValues);
+  ARRAY_LEN_VAR(invertedIndexDump)++;
 
-  RedisModule_ReplySetArrayLength(ctx, len);
-
+  END_POSTPONED_LEN_ARRAY(invertedIndexDump);
   return indexStats;
 }
 
 InvertedIndexStats NumericRange_DebugReply(RedisModuleCtx *ctx, NumericRange *r) {
   InvertedIndexStats ret = {0};
-  size_t len = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  START_POSTPONED_LEN_ARRAY(numericRangeInfo);
   if (r) {
-    REPLY_WITH_LONG_LONG("minVal", r->minVal, len);
-    REPLY_WITH_LONG_LONG("maxVal", r->maxVal, len);
-    REPLY_WITH_LONG_LONG("unique_sum", r->unique_sum, len);
-    REPLY_WITH_LONG_LONG("invertedIndexSize [bytes]", r->invertedIndexSize, len);
-    REPLY_WITH_LONG_LONG("card", r->card, len);
-    REPLY_WITH_LONG_LONG("cardCheck", r->cardCheck, len);
-    REPLY_WITH_LONG_LONG("splitCard", r->splitCard, len);
+    REPLY_WITH_DOUBLE("minVal", r->minVal, ARRAY_LEN_VAR(numericRangeInfo));
+    REPLY_WITH_DOUBLE("maxVal", r->maxVal, ARRAY_LEN_VAR(numericRangeInfo));
+    REPLY_WITH_DOUBLE("unique_sum", r->unique_sum, ARRAY_LEN_VAR(numericRangeInfo));
+    REPLY_WITH_DOUBLE("invertedIndexSize [bytes]", r->invertedIndexSize, ARRAY_LEN_VAR(numericRangeInfo));
+    REPLY_WITH_LONG_LONG("card", r->card, ARRAY_LEN_VAR(numericRangeInfo));
+    REPLY_WITH_LONG_LONG("cardCheck", r->cardCheck, ARRAY_LEN_VAR(numericRangeInfo));
+    REPLY_WITH_LONG_LONG("splitCard", r->splitCard, ARRAY_LEN_VAR(numericRangeInfo));
 
-    RedisModule_ReplyWithStringBuffer(ctx, "entries", strlen("entries"));
+    REPLY_WITH_STR("entries", ARRAY_LEN_VAR(numericRangeInfo))
     ret = InvertedIndex_DebugReply(ctx, r->entries);
-
-    len += 2;
+    ++ARRAY_LEN_VAR(numericRangeInfo);
   }
 
-  RedisModule_ReplySetArrayLength(ctx, len);
+  END_POSTPONED_LEN_ARRAY(numericRangeInfo);
   return ret;
 }
 
@@ -352,22 +351,27 @@ InvertedIndexStats NumericRangeNode_DebugReply(RedisModuleCtx *ctx, NumericRange
 void NumericRangeTree_DebugReply(RedisModuleCtx *ctx, NumericRangeTree *rt) {
 
   size_t len = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  REPLY_WITH_LONG_LONG("numRanges", rt->numRanges, len);
-  REPLY_WITH_LONG_LONG("numEntries", rt->numEntries, len);
-  REPLY_WITH_LONG_LONG("lastDocId", rt->lastDocId, len);
-  REPLY_WITH_LONG_LONG("revisionId", rt->revisionId, len);
-  REPLY_WITH_LONG_LONG("uniqueId", rt->uniqueId, len);
-  REPLY_WITH_LONG_LONG("emptyLeaves", rt->emptyLeaves, len);
+  START_POSTPONED_LEN_ARRAY(NumericTreeSum);
 
-  REPLY_WITH_STR("root", len);
+  REPLY_WITH_LONG_LONG("numRanges", rt->numRanges, ARRAY_LEN_VAR(NumericTreeSum));
+  REPLY_WITH_LONG_LONG("numEntries", rt->numEntries, ARRAY_LEN_VAR(NumericTreeSum));
+  REPLY_WITH_LONG_LONG("lastDocId", rt->lastDocId, ARRAY_LEN_VAR(NumericTreeSum));
+  REPLY_WITH_LONG_LONG("revisionId", rt->revisionId, ARRAY_LEN_VAR(NumericTreeSum));
+  REPLY_WITH_LONG_LONG("uniqueId", rt->uniqueId, ARRAY_LEN_VAR(NumericTreeSum));
+  REPLY_WITH_LONG_LONG("emptyLeaves", rt->emptyLeaves, ARRAY_LEN_VAR(NumericTreeSum));
+
+  REPLY_WITH_STR("root", ARRAY_LEN_VAR(NumericTreeSum));
   InvertedIndexStats invIndexStats = NumericRangeNode_DebugReply(ctx, rt->root);
-  len += 1;
+  ++ARRAY_LEN_VAR(NumericTreeSum);
 
-  REPLY_WITH_STR("Tree stats:", len);
-  REPLY_WITH_DOUBLE("Average memory efficiency (numEntries/size)/numRanges", (invIndexStats.blocks_efficiency)/rt->numRanges, len);
+  REPLY_WITH_STR("Tree stats:", ARRAY_LEN_VAR(NumericTreeSum));
 
-  RedisModule_ReplySetArrayLength(ctx, len);
+  START_POSTPONED_LEN_ARRAY(tree_stats);
+  REPLY_WITH_DOUBLE("Average memory efficiency (numEntries/size)/numRanges", (invIndexStats.blocks_efficiency)/rt->numRanges, ARRAY_LEN_VAR(tree_stats));
+  END_POSTPONED_LEN_ARRAY(tree_stats);
+  ++ARRAY_LEN_VAR(NumericTreeSum);
+
+  END_POSTPONED_LEN_ARRAY(NumericTreeSum);
 }
 
 // FT.DEBUG DUMP_NUMIDXTREE INDEX_NAME NUMERIC_FIELD_NAME
