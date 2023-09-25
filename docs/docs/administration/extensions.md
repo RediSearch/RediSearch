@@ -10,34 +10,32 @@ aliases:
 
 # Extending the existing search and query features
 
-RediSearch supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions in run-time. Instead, extensions must be written in C (or a language that has an interface with C) and compiled into dynamic libraries that will be loaded at run-time.
+RediSearch supports an extension mechanism, much like Redis supports modules. The API is very minimal at the moment, and it does not yet support dynamic loading of extensions on a running server. Instead, extensions must be written in C (or a language that has an interface with C) and compiled into dynamic libraries that can be loaded at start up.
 
 There are two kinds of extension APIs at the moment: 
 
-1. **Query Expanders**, whose role is to expand query tokens (i.e. stemmers).
-2. **Scoring Functions**, whose role is to rank search results in query time.
+1. **Query expanders**, whose role is to expand query tokens (i.e., stemmers).
+2. **Scoring functions**, whose role is to rank search results at query time.
 
 ## Registering and loading extensions
 
-Extensions should be compiled into .so files, and loaded into the RediSearch module upon initialization. 
+Extensions should be compiled into dynamic library files (e.g., `.so` files), and loaded into the RediSearch module during initialization. 
 
-* Compiling 
+### Compiling 
 
     Extensions should be compiled and linked as dynamic libraries. An example Makefile for an extension [can be found here](https://github.com/RediSearch/RediSearch/blob/master/tests/ctests/ext-example/Makefile). 
 
     That folder also contains an example extension that is used for testing and can be taken as a skeleton for implementing your own extension.
 
-* Loading 
+### Loading 
 
     Loading an extension is done by appending `EXTLOAD {path/to/ext.so}` after the `loadmodule` configuration directive when loading the RediSearch module. For example:
-
 
     ```sh
     $ redis-server --loadmodule ./redisearch.so EXTLOAD ./ext/my_extension.so
     ```
 
     This causes the RediSearch module to automatically load the extension and register its expanders and scorers. 
-
 
 ## Initializing an extension
 
@@ -47,14 +45,13 @@ The entry point of an extension is a function with the signature:
 int RS_ExtensionInit(RSExtensionCtx *ctx);
 ```
 
-When loading the extension, RediSearch looks for this function and calls it. This function is responsible for registering and initializing the expanders and scorers. 
+When loading an extension, RediSearch looks for this function and calls it. This function is responsible for registering and initializing the expanders and scorers. 
 
 It should return REDISEARCH_ERR on error or REDISEARCH_OK on success.
 
 ### Example init function
 
 ```c
-
 #include <redisearch.h> //must be in the include path
 
 int RS_ExtensionInit(RSExtensionCtx *ctx) {
@@ -76,8 +73,7 @@ int RS_ExtensionInit(RSExtensionCtx *ctx) {
 
 ## Calling your custom functions
 
-When performing a query, you can use your scorers or expanders by specifying the SCORER or EXPANDER arguments, with the given alias.
-e.g.:
+When performing a query, you can use your scorers or expanders by specifying the SCORER or EXPANDER arguments with the given alias. For example:
 
 ```
 FT.SEARCH my_index "foo bar" EXPANDER my_expander SCORER my_scorer
@@ -87,7 +83,7 @@ FT.SEARCH my_index "foo bar" EXPANDER my_expander SCORER my_scorer
 
 ## The query expander API
 
-At the moment, we only support basic query expansion, one token at a time. An expander can decide to expand any given token with as many tokens it wishes, that will be Union-merged in query time.
+Only basic query expansion is supported, one token at a time. An expander can decide to expand any given token with as many tokens it wishes, which will be union-merged in query time.
 
 The API for an expander is the following:
 
@@ -101,7 +97,7 @@ void MyQueryExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
 
 ### RSQueryExpanderCtx
 
-RSQueryExpanderCtx is a context that contains private data of the extension, and a callback method to expand the query. It is defined as:
+`RSQueryExpanderCtx` is a context that contains private data of the extension, and a callback method to expand the query. It is defined as:
 
 ```c
 typedef struct RSQueryExpanderCtx {
@@ -134,8 +130,7 @@ typedef struct RSQueryExpanderCtx {
 
 ### RSToken
 
-RSToken represents a single query token to be expanded and is defined as:
-
+`RSToken` represents a single query token to be expanded, and is defined as:
 
 ```c
 /* A token in the query. The expanders receive query tokens and can expand the query with more query
@@ -152,55 +147,49 @@ typedef struct {
   /* Extension specific token flags that can be examined later by the scoring function */
   RSTokenFlags flags;
 } RSToken;
-
 ```
 
 ## The scoring function API
 
-A scoring function receives each document being evaluated by the query, for final ranking. 
-It has access to all the query terms that brought up the document,and to metadata about the
-document such as its a-priory score, length, etc.
+For the final ranking, the scoring function analyzes each document retrieved by the query, taking into account not only the terms that triggered the document's retrieval but also metadata like its prior score, length, and so on.
 
-Since the scoring function is evaluated per each document, potentially millions of times, and since
-redis is single threaded - it is important that it works as fast as possible and be heavily optimized. 
+Since the scoring function is evaluated for each document, potentially millions of times, and since
+redis is single threaded, it is important that it works as fast as possible and be heavily optimized. 
 
-A scoring function is applied to each potential result (per document) and is implemented with the following signature:
+A scoring function is applied to each potential result for each document and is implemented with the following signature:
 
 ```c
 double MyScoringFunction(RSScoringFunctionCtx *ctx, RSIndexResult *res,
                                     RSDocumentMetadata *dmd, double minScore);
 ```
 
-RSScoringFunctionCtx is a context that implements some helper methods. 
+`RSScoringFunctionCtx` is a context that implements some helper methods. 
 
-RSIndexResult is the result information - containing the document id, frequency, terms, and offsets. 
+`RSIndexResult` is the result information containing the document id, frequency, terms, and offsets. 
 
-RSDocumentMetadata is an object holding global information about the document, such as its a-priory score. 
+`RSDocumentMetadata` is an object holding global information about the document, such as its presumptive score. 
 
-minSocre is the minimal score that will yield a result that will be relevant to the search. It can be used to stop processing mid-way of before we even start.
+`minScore` is the minimal score that will yield a result that is relevant to the search. It can be used to stop processing midway or before or even before it starts.
 
-The return value of the function is double representing the final score of the result. 
+The return value of the function is a `double` representing the final score of the result. 
 Returning 0 causes the result to be counted, but if there are results with a score greater than 0, they will appear above it. 
-To completely filter out a result and not count it in the totals, the scorer should return the special value `RS_SCORE_FILTEROUT` (which is internally set to negative infinity, or -1/0). 
+To completely filter out a result and not count it in the totals, the scorer should return the special value `RS_SCORE_FILTEROUT`, which is internally set to negative infinity, or -1/0. 
 
 ### RSScoringFunctionCtx
 
 This is an object containing the following members:
 
-* **void *privdata**: a pointer to an object set by the extension on initialization time.
-* **RSPayload payload**: A Payload object set either by the query expander or the client.
-* **int GetSlop(RSIndexResult *res)**: A callback method that yields the total minimal distance between the query terms. This can be used to prefer results where the "slop" is smaller and the terms are nearer to each other.
+* `void *privdata`: a pointer to an object set by the extension on initialization time.
+* `RSPayload payload*`: A Payload object set either by the query expander or the client.
+* `int GetSlop(RSIndexResult *res)*`: A callback method that yields the total minimal distance between the query terms. This can be used to prefer results where the slop is smaller and the terms are nearer to each other.
 
 ### RSIndexResult
 
-This is an object holding the information about the current result in the index, which is an aggregate of all the terms that resulted in the current document being considered a valid result.
-
-See redisearch.h for details
+This is an object holding the information about the current result in the index, which is an aggregate of all the terms that resulted in the current document being considered a valid result. See `redisearch.h` for details.
 
 ### RSDocumentMetadata
 
 This is an object describing global information, unrelated to the current query, about the document being evaluated by the scoring function. 
-
 
 ## Example query expander
 
@@ -216,7 +205,7 @@ void DummyExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
 
 ## Example scoring function
 
-This is an actual scoring function, calculating TF-IDF for the document, multiplying that by the document score, and dividing that by the slop:
+This is an actual scoring function, which calculates TF-IDF for the document, multiplies it by the document score, and divides it by the slop:
 
 ```c
 #include <redisearch.h> //must be in the include path

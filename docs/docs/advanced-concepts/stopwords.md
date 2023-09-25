@@ -1,24 +1,24 @@
 ---
-title: "Stop-words"
-linkTitle: "Stop-words"
+title: "Stop words"
+linkTitle: "Stop words"
 weight: 1
-description: Stop-words support
+description: Stop words support
 aliases: 
     - /docs/stack/search/reference/stopwords/
     - /redisearch/reference/stopwords
 ---
 
-# Stop-Words
+# Stop words
 
-Redis Stack has a pre-defined default list of [stop-words](https://en.wikipedia.org/wiki/Stop_words). These are words that are usually so common that they do not add much information to search, but take up a lot of space and CPU time in the index. 
+Redis Stack has a default list of [stop words](https://en.wikipedia.org/wiki/Stop_words). These are words that are usually so common that they do not add much information to search, but take up a lot of space and CPU time in the index. 
 
-When indexing, stop-words are discarded and not indexed. When searching, they are also ignored and treated as if they were not sent to the query processor. This is done when parsing the query. 
+When indexing, stop words are discarded and not indexed. When searching, they are also ignored and treated as if they were not sent to the query processor. This is done when parsing the query. 
 
-At the moment, the default stop-word list applies to all full-text indexes in all languages and can be overridden manually at index creation time. 
+At the moment, the default stop word list applies to all full-text indexes in all languages and can be overridden manually at index creation time. 
 
-## Default stop-word list
+## Default stop word list
 
-The following words are treated as stop-words by default: 
+The following words are treated as stop words by default: 
 
 ```
  a,    is,    the,   an,   and,  are, as,  at,   be,   but,  by,   for,
@@ -26,21 +26,21 @@ The following words are treated as stop-words by default:
  then, there, these, they, this, to,  was, will, with
 ```
 
-## Overriding the default stop-words
+## Overriding the default stop word list
 
-Stop-words for an index can be defined (or disabled completely) on index creation using the `STOPWORDS` argument in the [`FT.CREATE` command.
+Stop words for an index can be defined (or disabled completely) on index creation using the `STOPWORDS` argument with the [`FT.CREATE` command.
 
-The format is `STOPWORDS {number} {stopword} ...` where number is the number of stopwords given. The `STOPWORDS` argument must come before the `SCHEMA` argument. For example:
+The format is `STOPWORDS {number} {stopword} ...` where number is the number of stop words given. The `STOPWORDS` argument must come before the `SCHEMA` argument. For example:
 
 ```
 FT.CREATE myIndex STOPWORDS 3 foo bar baz SCHEMA title TEXT body TEXT 
 ```
 
-## Disabling stop-words completely
+## Disable the use of stop words
 
-Disabling stopwords completely can be done by passing `STOPWORDS 0` on `FT.CREATE`.
+Disabling stop words completely can be done by passing `STOPWORDS 0` to `FT.CREATE`.
 
 
-## Avoiding stop-word detection in search queries
+## Avoiding stop word detection in search queries
 
-In rare use cases, where queries are very long and are guaranteed by the client application to not contain stopwords, it is possible to avoid checking for them when parsing the query. This saves some CPU time and is only worth it if the query has dozens or more terms in it. Using this without verifying that the query doesn't contain stop-words might result in empty queries. 
+In rare use cases, where queries are very long and are guaranteed by the client application not to contain stop words, it is possible to avoid checking for them when parsing the query. This saves some CPU time and is only worth it if the query has dozens or more terms in it. Using this without verifying that the query doesn't contain stop words might result in empty queries. 
