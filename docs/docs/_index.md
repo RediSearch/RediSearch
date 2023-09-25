@@ -10,11 +10,10 @@ stack: true
 highlighted: true
 ---
 
-
 [![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/xTbqgTB)
 [![Github](https://img.shields.io/static/v1?label=&message=repository&color=5961FF&logo=github)](https://github.com/RediSearch/RediSearch/)
 
-The enhanced Redis experience with Redis Stack provides querying capabilities, secondary indexing, full-text search, vector similarity search, and more. To use these features, you first declare indices on your Redis data and then use the query language to retrieve the data asset that your application requires. All future data will also be indexed automatically.
+The enhanced Redis experience with Redis Stack provides querying capabilities, secondary indexing, full-text search, vector similarity search, and more. To use these features, you first declare indexes on your Redis data, and then you use the query language to retrieve the data your application requires. All future data will also be indexed automatically.
 
 ## Quick links
   - [Quick start guide](/docs/interact/search-and-query/quickstart/)
@@ -24,7 +23,7 @@ The enhanced Redis experience with Redis Stack provides querying capabilities, s
 
 ## Primary features
 
-We support the following search an query features:
+Redis Stack supports the following search and query features:
 
 * Secondary indexing
 * Multi-field queries
@@ -32,16 +31,16 @@ We support the following search an query features:
 * Full-text indexing of multiple fields in a document
 * Incremental indexing without performance loss
 * Document ranking (provided manually by the user at index time)
-* Boolean queries with AND, OR, NOT operators between subqueries
+* Boolean queries with AND, OR, and NOT operators between subqueries
 * Optional query clauses
 * [Prefix-based searches](/docs/interact/search-and-query/query/#prefix-matching)
 * Field weights
-* [Auto-complete](/docs/interact/search-and-query/administration/overview/#auto-complete) suggestions (with fuzzy prefix suggestions)
+* [Auto-complete](/docs/interact/search-and-query/administration/overview/#auto-complete) and fuzzy prefix suggestions
 * Exact phrase search and slop-based search
-* [Stemming](/docs/interact/search-and-query/advanced-concepts/stemming/)-based query expansion for [many languages](/docs/interact/search-and-query/advanced-concepts/stemming//#supported-languages) (using [Snowball](http://snowballstem.org/))
+* [Stemming](/docs/interact/search-and-query/advanced-concepts/stemming/)-based query expansion for [many languages](/docs/interact/search-and-query/advanced-concepts/stemming//#supported-languages) using [Snowball](http://snowballstem.org/)
 * Support for custom functions for query expansion and scoring (see [Extensions](/docs/interact/search-and-query/administration/extensions/))
 * [Numeric filters](/docs/interact/search-and-query/query/#numeric-filters-in-query) and ranges
-* [Geofiltering](/docs/interact/search-and-query/query/#geo-filters-in-query) using Redis [geo commands](/commands/?group=geo)
+* [Geo-filtering](/docs/interact/search-and-query/query/#geo-filters-in-query) using Redis [geo commands](/commands/?group=geo)
 * [Vector similarity search](/docs/interact/search-and-query/query/#vector-similarity-search-in-query) for semantic search using exact and approximate algorithms
 * Unicode support (UTF-8 input required)
 * Retrieval of full document contents or only their IDs
@@ -50,7 +49,7 @@ We support the following search an query features:
 
 ## JSON documents
 
-When combined with the Redis [JSON](/docs/data-types/json/) module, (included with Redis Stack) Redis can index and query JSON documents.
+When combined with the Redis Stack's [JSON](/docs/data-types/json/) support, Redis can index and query JSON documents.
 
 To learn how to search and query your JSON documents, see [Indexing JSON documents](/docs/interact/search-and-query/indexing/).
 
@@ -82,7 +81,8 @@ Atom CPUs are not supported.
 1. [Getting Started with RediSearch 2.0](https://redis.com/blog/getting-started-with-redisearch-2-0/)
 1. [Mastering RediSearch / Part I](https://redis.com/blog/mastering-redisearch-part/)
 1. [Mastering RediSearch / Part II](https://redis.com/blog/mastering-redisearch-part-ii/)
-1. [Mastering RediSearch / Part III](https://redis.com/blog/mastering-redisearch-part-iii/)1. [Building Real-Time Full-Text Site Search with RediSearch](https://redis.com/blog/building-real-time-full-text-site-search-with-redisearch/)
+1. [Mastering RediSearch / Part III](https://redis.com/blog/mastering-redisearch-part-iii/)
+1. [Building Real-Time Full-Text Site Search with RediSearch](https://redis.com/blog/building-real-time-full-text-site-search-with-redisearch/)
 1. [RediSearch Version 1.6 Adds Features, Improves Performance](https://redis.com/blog/redisearch-version-1-6-adds-features-improves-performance/)
 1. [RediSearch 1.6 Boosts Performance Up to 64%](https://redis.com/blog/redisearch-1-6-boosts-performance-up-to-64/)
 
