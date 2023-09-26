@@ -246,7 +246,8 @@ def testDebugDump(env):
 
     env.expect('FT.DEBUG', 'DUMP_NUMIDX' ,'idx:top', 'val').equal([[1, 2]])
     env.expect('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx:top', 'val').equal(['numRanges', 1, 'numEntries', 6,
-                                                                      'lastDocId', 2, 'revisionId', 0])
+                                                                      'lastDocId', 2, 'revisionId', 0,
+                                                                      'emptyLeaves', 0, 'RootMaxDepth', 0])
 
 def testInvertedIndexMultipleBlocks(env):
     """ Test internal addition of new inverted index blocks (beyond INDEX_BLOCK_SIZE entries)"""
@@ -609,12 +610,11 @@ def testDebugRangeTree(env):
     conn.execute_command('JSON.SET', 'doc:2', '$', json.dumps({'val': [1, 2, 3]}))
     conn.execute_command('JSON.SET', 'doc:3', '$', json.dumps({'val': [3, 4, 5]}))
 
-    env.expect('FT.DEBUG', 'DUMP_NUMIDXTREE', 'idx', 'val').equal( ['numRanges', 1, 'numEntries', 9, 'lastDocId', 3, 'revisionId', 0, 'uniqueId', 0,
-        'root', ['value', 0, 'maxDepth', 0,
-            'range', ['minVal', 1, 'maxVal', 5, 'unique_sum', 0, 'invertedIndexSize', 11, 'card', 0, 'cardCheck', 1, 'splitCard', 16,
-                'entries', ['numDocs', 3, 'lastId', 3, 'size', 1, 'values',
-                    ['value', 1, 'docId', 1, 'value', 2, 'docId', 1, 'value', 3, 'docId', 1, 'value', 1, 'docId', 2, 'value', 2, 'docId', 2, 'value', 3, 'docId', 2, 'value', 3, 'docId', 3, 'value', 4, 'docId', 3, 'value', 5, 'docId', 3]]],
-            'left', [], 'right', []]])
+    env.expect('FT.DEBUG', 'DUMP_NUMIDXTREE', 'idx', 'val').equal(['numRanges', 1, 'numEntries', 9, 'lastDocId', 3, 'revisionId', 0, 'uniqueId', 0, 'emptyLeaves', 0,
+        'root', ['range', ['minVal', 1, 'maxVal', 5, 'unique_sum', 0, 'invertedIndexSize [bytes]', 11, 'card', 0, 'cardCheck', 1, 'splitCard', 16,
+                'entries', ['numDocs', 3, 'numEntries', 9, 'lastId', 3, 'size', 1, 'blocks_efficiency (numEntries/size)', 9, 'values',
+                    ['value', 1, 'docId', 1, 'value', 2, 'docId', 1, 'value', 3, 'docId', 1, 'value', 1, 'docId', 2, 'value', 2, 'docId', 2, 'value', 3, 'docId', 2, 'value', 3, 'docId', 3, 'value', 4, 'docId', 3, 'value', 5, 'docId', 3]]]],
+            'Tree stats:', ['Average memory efficiency (numEntries/size)/numRanges', 9]])
 
 def checkUpdateNumRecords(env, is_json):
     """ Helper function for testing update of `num_records` """
