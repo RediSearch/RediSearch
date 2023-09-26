@@ -38,7 +38,7 @@ The data is a simple bicycle inventory consisting of a JSON array, where each el
 
 ## Create an index
 
-The Redis keyspace is unstructured and flat. As such, you can only access data by primary key (keyname), making it cumbersome to find a document based on a secondary characteristic, such as finding a school by name or listing all schools in a particular city. Redis Stack addresses this need by providing the ability to add secondary indexes to your data. Redis currently supports secondary index creation on the [HASH](/docs/data-types/hashes) and [JSON](/docs/stack/json) data types.
+The Redis keyspace is unstructured and flat. As such, you can only access data by primary key (keyname), making it cumbersome to find a document based on a secondary characteristic, such as finding a school by name or listing all schools in a particular city. Redis Stack addresses this need by providing the ability to add secondary indexes to your data. Redis currently supports secondary index creation for the [HASH](/docs/data-types/hashes) and [JSON](/docs/stack/json) data types.
 
 Use the following `FT.CREATE` command to create an index with fields and weights, where the default weight is 1.0. Note how each term of the `SCHEMA` is an element of a JSON object, identified by its [JSONPath](/docs/data-types/json/path/).
 
@@ -47,7 +47,7 @@ Use the following `FT.CREATE` command to create an index with fields and weights
 OK
 {{< / clients-example >}}
 
-Any pre-existing JSON documents that have a key prefixed with `bicycle:` are automatically added to the index after it is created. Additionally, any JSON documents with the same prefix that are created after index creation are also added to the index.
+Any pre-existing JSON documents that have a key prefixed with `bicycle:` are automatically added to the index after it is created. Additionally, any JSON documents with the same prefix that are created or modified after index creation are also added or re-added to the index.
 
 ## Add JSON documents
 
@@ -119,7 +119,7 @@ Retrieve all indexed documents using the `FT.SEARCH` command. Note the use of th
 
 ### Single-term query
 
-Use the following command to perform a simple, single-term query, such as finding all bicycles with a specific model:
+Use the following command to perform a simple single-term query, such as finding all bicycles with a specific model:
 
 {{< clients-example search_quickstart query_single_term >}}
 > FT.SEARCH "idx:bicycle" "@model:Jigger" LIMIT 0 10

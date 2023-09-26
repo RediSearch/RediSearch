@@ -190,7 +190,7 @@ There are two types of vector queries: *KNN* and *range*:
 ### KNN search
 The syntax for vector similarity KNN queries is `*=>[<vector_similarity_query>]` for running the query on an entire vector field, or `<primary_filter_query>=>[<vector_similarity_query>]` for running similarity query on the result of the primary filter query. 
 
-As of version 2.4, you can use vector similarity *once* in the query, and over the entire query filter.
+As of version 2.4, you can use `vector_similarity_query` only per query and over the entire query filter.
 
 **Invalid example** 
 
