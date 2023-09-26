@@ -2592,14 +2592,14 @@ def testMod_309(env):
     waitForIndex(env, 'idx')
     info = index_info(env, 'idx')
     env.assertEqual(int(info['num_docs']), n)
-    res = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'TIMEOUT', 0)
+    res = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'TIMEOUT', 300000)
     env.assertEqual(len(res), n + 1)
 
     # test with cursor
     if env.isCluster():
         return
 
-    res, cursor = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR', 'TIMEOUT', 0)
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR', 'TIMEOUT', 300000)
     l = len(res) - 1  # do not count the number of results (the first element in the results)
     while cursor != 0:
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor))
