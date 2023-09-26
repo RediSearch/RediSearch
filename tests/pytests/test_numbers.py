@@ -7,6 +7,40 @@ from time import sleep
 from RLTest import Env
 import math
 
+
+def testUniqueSum(env):
+
+    # coordinator doesn't support FT.CONFIG FORK_GC_CLEAN_THRESHOLD
+    env.skipOnCluster()
+
+    # MOD-5815 TEST
+
+    hashes_number = 100
+
+    values = [("int", str(3)), ("negative double", str(-0.4)), ("positive double",str(4.67))]
+
+    for (title, value) in values:
+        print(f"\n\t{title}")
+        env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'numeric').ok()
+
+        # index documents with the same value
+        for i in range(hashes_number):
+            env.cmd('hset', f'doc:{i}', 'num', value)
+
+        numeric_index_tree = dump_numeric_index_tree_root(env, 'idx', 'num')
+        env.assertEqual((to_dict(numeric_index_tree['range']))['unique_sum'], value, message="before gc")
+
+        # delete one entry to trigger the gc
+        env.cmd('hdel', 'doc:1', 'num')
+
+        forceInvokeGC(env, 'idx')
+
+        numeric_index_tree = dump_numeric_index_tree_root(env, 'idx', 'num')
+        env.assertEqual((to_dict(numeric_index_tree['range']))['unique_sum'], value, message="after gc")
+
+        env.cmd('flushall')
+
 def testOverrides(env):
     env.skipOnCluster()
 
@@ -46,6 +80,7 @@ def testOverrides(env):
         env.assertEqual(hashes_number, numeric_tree['numEntries'], message = "expected numEntries")
         env.assertEqual(0, numeric_tree['emptyLeaves'], message = "expected emptyLeaves")
         env.assertEqual(expected_root_max_depth, numeric_tree['RootMaxDepth'], message = "expected RootMaxDepth")
+
 
 def testCompression(env):
 	accuracy = 0.000001
