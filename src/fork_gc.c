@@ -339,7 +339,11 @@ static void countRemain(const RSIndexResult *r, const IndexBlock *blk, void *arg
   }
   RS_LOG_ASSERT(ht, "cardvals should not be NULL");
   int added = 0;
-  numUnion u = {r->num.value};
+  // Save the FP binary representation of the value.
+  numUnion u = {.d48 = r->num.value};
+  //The hash table keys type is unsigned int. Since we used a union to save the value,
+  // u.u64 contains FP binary representation of the value read as an unsigned int.
+  // We will read it as a double when we retrieve the value from the hash table.
   khiter_t it = kh_put(cardvals, ht, u.u64, &added);
   if (!added) {
     // i.e. already existed
