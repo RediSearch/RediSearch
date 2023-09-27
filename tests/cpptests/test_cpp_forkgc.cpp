@@ -259,7 +259,6 @@ TEST_F(FGCTest, testModifyLastBlockWhileAddingNewBlocks) {
   const char *afterGcData = iv->blocks[0].buf.data;
   ASSERT_EQ(afterGcData, originalData);
 
-
   // gc stats
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
   ASSERT_EQ(0, fgc->stats.totalCollected);
@@ -316,14 +315,19 @@ TEST_F(FGCTest, testRemoveAllBlocksWhileUpdateLast) {
   size_t n = sprintf(buf, "doc%u", curId);
   lastBlockMemory += addDocumentWrapper(buf, "f1", "hello");
 
+  // Save the pointer to the original last block data.
+  const char *originalData = iv->blocks[iv->size - 1].buf.data;
+
   /** Apply the child changes. All the entries the child has seen are marked as deleted,
    * but since the last block was modified by the main the process, we keep it, assuming it
    * will be deleted in the next gc run (where the fork is not running during modifications,
    * or the we opened a new block and this block is no longer the last)
    */
   FGC_Apply(fgc);
-  //TODO:checkthat first id and last id are really the last block's
-  // gc stats
+
+  // gc stats - make sure we skipped the last block
+  const char *afterGcData = iv->blocks[iv->size - 1].buf.data;
+  ASSERT_EQ(afterGcData, originalData);
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
 
   // numDocuments is updated in the indexing process, while all other fields are only updated if

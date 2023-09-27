@@ -71,8 +71,8 @@ int DocTable_Exists(const DocTable *t, t_docId docId) {
   }
   DLLIST2_FOREACH(it, &chain->lroot) {
     const RSDocumentMetadata *md = DLLIST2_ITEM(it, RSDocumentMetadata, llnode);
-    if (md->id == docId && !(md->flags & Document_Deleted)) { //why don't we return 0 if md->id == docId && Document_Deleted ?
-      return 1;
+    if (md->id == docId) {
+      return !(md->flags & Document_Deleted);
     }
   }
   return 0;
