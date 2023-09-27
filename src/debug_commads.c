@@ -617,7 +617,7 @@ static int GCForceInvokeReplyTimeout(RedisModuleCtx *ctx, RedisModuleString **ar
 
 // FT.DEBUG GC_FORCEINVOKE [TIMEOUT]
 DEBUG_COMMAND(GCForceInvoke) {
-  if (argc > 2) {
+  if (argc == 0 || argc > 2) {
     return RedisModule_WrongArity(ctx);
   }
   long long timeout = 30000;
