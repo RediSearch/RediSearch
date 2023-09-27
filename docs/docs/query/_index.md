@@ -9,11 +9,13 @@ aliases:
   - /redisearch/reference/query_syntax
 ---
 
+## Basic syntax
+
 You can use simple syntax for complex queries using these rules:
 
-* Multiword phrases are lists of tokens, for example, `foo bar baz`, and imply intersection (AND) of the terms.
 * Exact phrases are wrapped in quotes, for example, `"hello world"`.
-* `OR` unions are expressed with a pipe (`|`), for example, `hello|hallo|shalom|hola`. 
+* Multiword phrases are lists of tokens, for example, `foo bar baz`, and imply intersection (AND) of the terms.
+* `OR` unions are expressed with a pipe (`|`) character, for example, `hello|hallo|shalom|hola`. 
 
    **Notes**:   
    
@@ -21,7 +23,7 @@ You can use simple syntax for complex queries using these rules:
    * In DIALECT 1, this query is interpreted as searching for `(hello world | "goodbye") moon`.
    * In DIALECT 2 or greater, this query is interpreted as searching for either `hello world` **OR** `"goodbye" moon`.
    
-* `NOT` negation of expressions or subqueries is expressed with a subtraction symbol (`-`), for example, `hello -world`. Purely negative queries (for example, `-foo` or `-@title:(foo|bar)`) are also supported.
+* `NOT` negation of expressions or subqueries is expressed with a subtraction symbol (`-`), for example, `hello -world`. Purely negative queries such as `-foo` and `-@title:(foo|bar)` are also supported.
 
    **Notes**:
    
@@ -30,25 +32,25 @@ You can use simple syntax for complex queries using these rules:
    * In DIALECT 2 or greater, this query is interpreted `as -hello` **AND** `world` (only `hello` is negated).
    * In DIALECT 2 or greater, to achieve the default behavior of DIALECT 1, update your query to `-(hello world)`.
   
-* Prefix/infix/suffix matches (all terms starting/containing/ending with a term) are expressed with a `*`. For performance reasons, a minimum term length is enforced (default is 2), but is configurable.
-* In DIALECT 2 or greater, wildcard pattern matches are expressed as `"w'foo*bar?'"`. **Note the use of double quotes to sustain the _w_ pattern.** 
-* A special _wildcard query_ that returns all results in the index, `*` (cannot be combined with other options).
-* `DIALECT 3` returns JSON rather than scalars from multivalue attributes **(as of v2.6.1)**.
+* Prefix/infix/suffix matches (all terms starting/containing/ending with a term) are expressed with an asterisk `*`. For performance reasons, a minimum term length is enforced. The default is 2, but it's configurable.
+* In DIALECT 2 or greater, wildcard pattern matches are expressed as `"w'foo*bar?'"`. Note the use of double quotes to contain the _w_ pattern.
+* A special wildcard query that returns all results in the index is just the asterisk `*`. This cannot be combined with other options.
+* As of v2.6.1, `DIALECT 3` returns JSON rather than scalars from multivalue attributes.
 * Selection of specific fields using the syntax `hello @field:world`.
 * Numeric range matches on numeric fields with the syntax `@field:[{min} {max}]`.
-* Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`.
-* Range queries on vector fields with the syntax `@field:[VECTOR_RANGE {radius} $query_vec]`, where `query_vec` is given as a query parameter **(as of v2.6)**.
-* KNN queries on vector fields with or without pre-filtering with the syntax `{filter_query}=>[KNN {num} @field $query_vec]` **(as of v2.4)**.
+* Georadius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`.
+* As of 2.6, range queries on vector fields with the syntax `@field:[VECTOR_RANGE {radius} $query_vec]`, where `query_vec` is given as a query parameter.
+* As of v2.4, k-nearest neighbors (KNN) queries on vector fields with or without pre-filtering with the syntax `{filter_query}=>[KNN {num} @field $query_vec]`.
 * Tag field filters with the syntax `@field:{tag | tag | ...}`. See the full documentation on [tags](/docs/interact/search-and-query/advanced-concepts/tags/).
 * Optional terms or clauses: `foo ~bar` means bar is optional but documents containing `bar` will rank higher.
-* Fuzzy matching on terms: `%hello%` means all terms with Levenshtein distance of 1 from it.
+* Fuzzy matching on terms: `%hello%` means all terms with Levenshtein distance of 1 from it. Use multiple pairs of '%' brackets to increase the Levenshtein distance.
 * An expression in a query can be wrapped in parentheses to disambiguate, for example, `(hello|hella) (world|werld)`.
 * Query attributes can be applied to individual clauses, for example, `(foo bar) => { $weight: 2.0; $slop: 1; $inorder: false; }`.
 * Combinations of the above can be used together, for example, `hello (world|foo) "bar baz" bbbb`.
 
 ## Pure negative queries
 
-As of v0.19.3, it is possible to have a query consisting of just a negative expression, for example, `-hello` or `-(@title:(foo|bar))`. The results are all the documents *NOT* containing the query terms.
+As of v0.19.3, it is possible to have a query consisting of just a negative expression. For example `-hello` or `-(@title:(foo|bar))`. The results are all the documents not containing the query terms.
 
 {{% alert title="Warning" color="warning" %}}
 Any complex expression can be negated this way, however, caution should be taken here: if a negative expression has little or no results, this is equivalent to traversing and ranking all the documents in the index, which can be slow and cause high CPU consumption.
@@ -58,7 +60,7 @@ Any complex expression can be negated this way, however, caution should be taken
 
 You can specify field modifiers in a query, and not just by using the `INFIELDS` global keyword.
 
-To specify which fields the query matches, prepend the expression with the `@` symbol, the field name, and a `:` (colon) symbol, per query expression or subexpression.
+To specify which fields the query matches, prepend the expression with the `@` symbol, the field name, and a `:` (colon) symbol, for each expression or subexpression.
 
 If a field modifier precedes multiple words or expressions, it applies only to the adjacent expression with DIALECT 1. With DIALECT 2 or greater, you extend the query to other fields.
 
@@ -86,7 +88,7 @@ Now, you search for documents that have `"hello"` and `"world"` either in the bo
 
 ## Numeric filters in query
 
-If a field in the schema is defined as NUMERIC, it is possible to either use the FILTER argument in the Redis request or filter with it by specifying filtering rules in the query. The syntax is `@field:[{min} {max}]`, for example, `@price:[100 200]`.
+If a field in the schema is defined as NUMERIC, it is possible to use the FILTER argument in the Redis request or filter with it by specifying filtering rules in the query. The syntax is `@field:[{min} {max}]`, for example, `@price:[100 200]`.
 
 ### A few notes on numeric predicates
 
@@ -102,7 +104,7 @@ If a field in the schema is defined as NUMERIC, it is possible to either use the
 
 ## Tag filters
 
-As of v0.91, you can use a special field type called _tag field_, with simpler tokenization and encoding in the index. You can't access the values in these fields using general fieldless search. Instead, you use special syntax:
+As of v0.91, you can use a special field type called _tag field_, with simpler tokenization and encoding in the index. You can't access the values in these fields using a general fieldless search. Instead, you use special syntax:
 
 ```
 @field:{ tag | tag | ...}
@@ -120,7 +122,7 @@ Tags can have multiple words or include other punctuation marks other than the f
 Before RediSearch 2.6, it was also recommended to escape spaces. The reason was that, if a multiword tag included stopwords, a syntax error was returned. So tags, like "to be or not to be" needed be escaped as "to\ be\ or\ not\ to\ be". For good measure, you also could escape all spaces within tags. Starting with RediSearch 2.6, using `DIALECT 2` or greater you can use spaces in a `tag` query, even with stopwords.
 {{% /alert %}}
 
-Notice that multiple tags in the same clause create a union of documents containing either tags. To create an intersection of documents containing *all* tags, you should repeat the tag filter several times, for example:
+Notice that multiple tags in the same clause create a union of documents containing either tags. To create an intersection of documents containing all tags, you should repeat the tag filter several times. For example:
 
 ```
 # Return all documents containing all three cities as tags
@@ -134,7 +136,7 @@ Tag clauses can be combined into any subclause, used as negative expressions, op
 
 ## Geo filters
 
-As of v0.21, it is possible to add geo radius queries directly into the query language  with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`. This filters the result to a given radius from a lon,lat point, defined in meters, kilometers, miles or feet. See Redis' own `GEORADIUS` command for more details as it is used internally for that).
+As of v0.21, it is possible to add geo radius queries directly into the query language with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`. This filters the result to a given radius from a lon,lat point, defined in meters, kilometers, miles or feet. See Redis's own `GEORADIUS` command for more details.
 
 Radius filters can be added into the query just like numeric filters. For example, in a database of businesses, looking for Chinese restaurants near San Francisco (within a 5km radius) would be expressed as: `chinese restaurant @location:[-122.41 37.77 5 km]`.
 
@@ -235,12 +237,11 @@ For more examples, see the `FT.CREATE` and `FT.SEARCH` command pages.
 
 You can add vector similarity queries directly into the query language by:
 
-1. Using a **range** query with the syntax of `@vector:[VECTOR_RANGE {radius} $query_vec]`, which filters the results to a given radius from a given query vector. The distance metric derives from the definition of @vector field in the index schema, for example, Cosine or L2 **(as of v2.6.1)**.
+1. Using a **range** query with the syntax of `@vector:[VECTOR_RANGE {radius} $query_vec]`, which filters the results to a given radius from a given query vector. The distance metric derives from the definition of a @vector field in the index schema, for example, Cosine or L2 (as of v2.6.1).
 
-2. Running a **KNN** (K Nearest Neighbors) query on @vector field. The basic syntax is `"*=>[ KNN {num|$num} @vector $query_vec ]"`.
-It is also possible to run a hybrid query on filtered results. A hybrid query allows the user to specify a filter criteria that all results in a KNN query must satisfy. The filter criteria can include any type of field (e.g., indexes created on both vectors and other values such as TEXT, PHONETIC, NUMERIC, GEO, etc.).
+2. Running a k nearest neighbors (KNN) query on a @vector field. The basic syntax is `"*=>[ KNN {num|$num} @vector $query_vec ]"`.
+It is also possible to run a hybrid query on filtered results. A hybrid query allows the user to specify a filter criteria that all results in a KNN query must satisfy. The filter criteria can include any type of field (i.e., indexes created on both vectors and other values, such as TEXT, PHONETIC, NUMERIC, GEO, etc.).
 The general syntax for hybrid query is `{some filter query}=>[ KNN {num|$num} @vector $query_vec]`, where `=>` separates the filter query from the vector KNN query. 
-
 
 **Examples:**
 
@@ -248,19 +249,19 @@ The general syntax for hybrid query is `{some filter query}=>[ KNN {num|$num} @v
   
   `*=>[KNN 10 @vector_field $query_vec]`
 
-* Among entities published between 2020 and 2022, return 10 "nearest neighbors" entities in which `query_vec` is closest to the vector stored in `@vector_field`: 
+* Among entities published between 2020 and 2022, return 10 nearest neighbors entities in which `query_vec` is closest to the vector stored in `@vector_field`: 
 
   `@published_year:[2020 2022]=>[KNN 10 @vector_field $query_vec]`
 
-* Return every entity for which the distance between the vector stored under its @vector_field and `query_vec` is at most 0.5, in terms of @vector_field distance metric:
+* Return every entity for which the distance between the vector stored under its @vector_field and `query_vec` is at most 0.5, in terms of the @vector_field distance metric:
 
   `@vector_field:[VECTOR_RANGE 0.5 $query_vec]`
 
-As of v2.4, the KNN vector search can be used **once** in the query, while, as of v2.6, the vector range filter can be used **multiple** times in a query. For more information on vector similarity syntax, see [Querying vector fields](/docs/stack/search/reference/vectors/#querying-vector-fields), and [Vector search examples](/docs/stack/search/reference/vectors/#vector-search-examples) sections.
+As of v2.4, the KNN vector search can be used at most once in a query, while, as of v2.6, the vector range filter can be used multiple times in a query. For more information on vector similarity syntax, see [Querying vector fields](/docs/interact/search-and-query/advanced-concepts/vectors/), and [Vector search examples](/docs/interact/search-and-query/advanced-concepts/vectors/#vector-search-examples) sections.
 
 ## Prefix matching
 
-On index updating, we maintain a dictionary of all terms in the index. This can be used to match all terms starting with a given prefix. Selecting prefix matches is done by appending `*` to a prefix token. For example:
+When indexes are updated, Redis maintains a dictionary of all terms in the index. This can be used to match all terms starting with a given prefix. Selecting prefix matches is done by appending `*` to a prefix token. For example:
 
 ```
 hel* world
@@ -270,9 +271,9 @@ Will be expanded to cover `(hello|help|helm|...) world`.
 
 ### A few notes on prefix searches
 
-1. As prefixes can be expanded into many many terms, use them with caution. There is no magic going on, the expansion will create a Union operation of all suffixes.
+1. As prefixes can be expanded into many terms, use them with caution. The expansion will create a Union operation of all suffixes.
 
-2. As a protective measure to avoid selecting too many terms, and block redis, which is single threaded, there are two limitations on prefix matching:
+2. As a protective measure to avoid selecting too many terms, blocking Redis, which is single threaded, there are two limitations on prefix matching:
 
   * Prefixes are limited to 2 letters or more. You can change this number by using the `MINPREFIX` setting on the module command line.
 
@@ -280,7 +281,7 @@ Will be expanded to cover `(hello|help|helm|...) world`.
 
 3. Prefix matching fully supports Unicode and is case insensitive.
 
-4. Currently, there is no sorting or bias based on suffix popularity, but this is on the near-term roadmap.
+4. Currently, there is no sorting or bias based on suffix popularity.
 
 ## Infix/suffix matching
 
@@ -298,7 +299,7 @@ All notes about prefix searches also apply to infix/suffix queries.
 
 ### Using a suffix trie
 
-A suffix trie maintains a list of terms which match the suffix. If you add a suffix trie to a field using the `WITHSUFFIXTRIE` keyword, you can create more efficient infix and suffix queries because it eliminates the need to iterate over the whole dictionary. However, the iteration on the union does not change. 
+A suffix trie maintains a list of terms that match the suffix. If you add a suffix trie to a field using the `WITHSUFFIXTRIE` keyword, you can create more efficient infix and suffix queries because it eliminates the need to iterate over the whole dictionary. However, the iteration on the union does not change. 
 
 Suffix queries create a union of the list of terms from the suffix term node. Infix queries use the suffix terms as prefixes to the trie and create a union of all terms from all matching nodes.
 
@@ -314,13 +315,13 @@ An example of the syntax is `"w'foo*bar?'"`.
 
 ### Using a suffix trie
 
-A _suffix trie_ maintains a list of terms which match the suffix. If you add a suffix trie to a field using the `WITHSUFFIXTRIE` keyword, you can create more efficient wildcard matching queries because it eliminates the need to iterate over the whole dictionary. However, the iteration on the union does not change. 
+A suffix trie maintains a list of terms which match the suffix. If you add a suffix trie to a field using the `WITHSUFFIXTRIE` keyword, you can create more efficient wildcard matching queries because it eliminates the need to iterate over the whole dictionary. However, the iteration on the union does not change. 
 
 With a suffix trie, the wildcard pattern is broken into tokens at every `*` character. A heuristic is used to choose the token with the least terms, and each term is matched with the wildcard pattern.
 
 ## Fuzzy matching
 
-As of v1.2.0, the dictionary of all terms in the index can also be used to perform [Fuzzy Matching](https://en.wikipedia.org/wiki/Approximate_string_matching). 
+As of v1.2.0, the dictionary of all terms in the index can also be used to perform [fuzzy matching](https://en.wikipedia.org/wiki/Approximate_string_matching). 
 Fuzzy matches are performed based on [Levenshtein distance](https://en.wikipedia.org/wiki/Levenshtein_distance) (LD). 
 Fuzzy matching on a term is performed by surrounding the term with '%', for example:
 
@@ -330,7 +331,7 @@ Fuzzy matching on a term is performed by surrounding the term with '%', for exam
 
 This performs fuzzy matching on `hello` for all terms where LD is 1.
 
-As of v1.4.0, the LD of the fuzzy match can be set by the number of '%' surrounding it, so that `%%hello%%` will perform fuzzy matching on 'hello' for all terms where LD is 2.
+As of v1.4.0, the LD of the fuzzy match can be set by the number of '%' characters surrounding it, so that `%%hello%%` will perform fuzzy matching on 'hello' for all terms where LD is 2.
 
 The maximum LD for fuzzy matching is 3.
 
@@ -354,14 +355,14 @@ The syntax is `(foo bar) => { $attribute: value; $attribute:value; ...}`:
 The supported attributes are:
 
 1. **$weight**: determines the weight of the sub-query or token in the overall ranking on the result (default: 1.0).
-2. **$slop**: determines the maximum allowed "slop" (space between terms) in the query clause (default: 0).
-3. **$inorder**: whether or not the terms in a query clause must appear in the same order as in the query, usually set alongside with `$slop` (default: false).
-4. **$phonetic**: whether or not to perform phonetic matching (default: true). Note: setting this attribute on for fields which were not creates as `PHONETIC` will produce an error.
+2. **$slop**: determines the maximum allowed slop (space between terms) in the query clause (default: 0).
+3. **$inorder**: whether or not the terms in a query clause must appear in the same order as in the query. This is usually set alongside with `$slop` (default: false).
+4. **$phonetic**: whether or not to perform phonetic matching (default: true). Note: setting this attribute to true for fields which were not created as `PHONETIC` will produce an error.
 
 As of v2.6.1, the query attributes syntax supports these additional attributes:
 
-* **$yield_distance_as**: specify the distance field name for later sorting by it and/or returning it, for clauses that yield some distance metric. It is currently supported for vector queries only (both KNN and range).   
-* **vector query params**: pass optional parameters for [vector queries](/docs/stack/search/reference/vectors/#querying-vector-fields) in key-value format.
+* **$yield_distance_as**: specifies the distance field name, used for later sorting and/or returning, for clauses that yield some distance metric. It is currently supported for vector queries only (both KNN and range).   
+* **vector query params**: pass optional parameters for [vector queries](/docs/interact/search-and-query/advanced-concepts/vectors/#querying-vector-fields) in key-value format.
 
 ## A few query examples
 
@@ -449,6 +450,6 @@ As of v2.6.1, the query attributes syntax supports these additional attributes:
 
 ## Technical notes
 
-The query parser is built using the Lemon Parser Generator and a Ragel based lexer. You can see the `dialect 2` grammar definition [at the git repo](https://github.com/RediSearch/RediSearch/blob/master/src/query_parser/v2/parser.y).
+The query parser is built using the Lemon Parser Generator and a Ragel based lexer. You can see the `DIALECT 2` grammar definition [at this git repo](https://github.com/RediSearch/RediSearch/blob/master/src/query_parser/v2/parser.y).
 
-You can also see the [DEFAULT_DIALECT](/docs/stack/search/configuring/#default_dialect) configuration parameter.
+You can also see the [DEFAULT_DIALECT](/docs/interact/search-and-query/basic-constructs/configuration-parameters/#default_dialect) configuration parameter.
