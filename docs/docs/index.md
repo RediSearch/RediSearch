@@ -36,8 +36,8 @@ The search and query features of Redis Stack allow you to use Redis as a:
 
 Here are the next steps to get you started:
 
-1. Read the installation instructions of [Redis Stack](/docs/getting-started/install-stack/) for your platform.
-2. Follow our [quick start guide](/docs/interact/search-and-query/quickstart/) to get some first hands-on experience.
+1. Read the [Redis Stack installation instructions](/docs/getting-started/install-stack/) for your platform.
+2. Follow the [quick start guide](/docs/interact/search-and-query/quickstart/) to get some initial hands-on experience.
 3. Understand how to [model documents](TODO).
 4. Learn how to [create an index](TODO).
 5. [Query](TODO) your data.
