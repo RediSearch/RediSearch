@@ -10,6 +10,7 @@ aliases:
 stack: true
 highlighted: true
 learnMore: [ { "title":"?", "descr": "?", "url":"?"}, ... ]
+hideListLinks: true
 ---
 
 
