@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+import os
+import subprocess
+from redis import Redis, RedisCluster, cluster
 
 from common import *
 from RLTest import Env
@@ -797,3 +800,91 @@ def test_mod5252(env):
   # Test that the document is returned with the key name WITH ALIAS on an aggregate command
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '3', '@__key', 'AS', 'key_name', 'SORTBY', '1', '@key_name')
   env.assertEqual(res, [1, ['key_name', 'doc']])
+
+
+def test_mod5791(env):
+    con = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DISTANCE_METRIC', 'L2',
+               'DIM', 2).equal('OK')
+    env.assertEqual(2, con.execute_command('HSET', 'doc1', 't', 'Hello world', 'v', 'abcdefgh'))
+    env.assertEqual(2, con.execute_command('HSET', 'doc2', 't', 'Hello world', 'v', 'abcdefgi'))
+
+    # The RSIndexResult object should be contructed as following:
+    # UNION:
+    #   INTERSECTION:
+    #       metric
+    #       term
+    #   metric
+    # While computing the scores, RSIndexResult_IterateOffsets is called. Validate that there is no corruption when
+    # iterating the metric RSIndexResult (before, we treated it as "default" - which is the aggregate type, and we might
+    # try access non-existing fields).
+    res = env.cmd('FT.SEARCH', 'idx', '(@v:[VECTOR_RANGE 0.8 $blob] @t:hello) | @v:[VECTOR_RANGE 0.8 $blob]',
+                  'WITHSCORES', 'DIALECT', '2', 'params', '2', 'blob', 'abcdefgh')
+    env.assertEqual(res[:2], [1, 'doc1'])
+
+
+@skip(asan=True)
+def test_mod5778_add_new_shard_to_cluster(env):
+    SkipOnNonCluster(env)
+    env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards))
+
+    # Create a new redis instance with redisearch loaded.
+    # TODO: add appropriate APIs to RLTest to avoid this abstraction breaking.
+    new_instance_port = env.envRunner.shards[-1].port + 2  # use a fresh port
+    cmd_args = ['redis-server', '--cluster-enabled', 'yes']
+    cmd_args += ['--loadmodule', env.envRunner.modulePath[0]]
+    if env.envRunner.password:
+        cmd_args += ['--requirepass', env.envRunner.password]
+
+    if env.envRunner.isTLS():
+        cmd_args += ['--port', str(0), '--tls-port', str(new_instance_port), '--tls-cluster', 'yes']
+        cmd_args += ['--tls-cert-file', env.envRunner.shards[0].getTLSCertFile()]
+        cmd_args += ['--tls-key-file', env.envRunner.shards[0].getTLSKeyFile()]
+        cmd_args += ['--tls-ca-cert-file', env.envRunner.shards[0].getTLSCACertFile()]
+        if env.envRunner.tlsPassphrase:
+            cmd_args += ['--tls-key-file-pass', env.envRunner.tlsPassphrase]
+    else:
+        cmd_args += ['--port', str(new_instance_port)]
+
+    new_instance = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+    # Connect the new instance to the cluster (making sure the new instance didn't crash)
+    env.cmd('CLUSTER', 'MEET', '127.0.0.1', new_instance_port)
+    time.sleep(5)
+    if env.envRunner.isTLS():
+        new_instance_conn = RedisCluster(host='127.0.0.1', port=new_instance_port, decode_responses=True,
+                                         ssl=True,
+                                         ssl_keyfile=env.envRunner.shards[0].getTLSKeyFile(),
+                                         ssl_certfile=env.envRunner.shards[0].getTLSCertFile(),
+                                         ssl_cert_reqs=None,
+                                         ssl_ca_certs=env.envRunner.shards[0].getTLSCACertFile(),
+                                         ssl_password=env.envRunner.tlsPassphrase,
+                                         password=env.envRunner.password)
+    else:
+        new_instance_conn = RedisCluster(host='127.0.0.1', port=new_instance_port, decode_responses=True,
+                                         password=env.envRunner.password)
+    env.assertEqual(new_instance_conn.ping(), True)
+    # Validate that the new shard has been recognized by the cluster.
+    env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards)+1)
+    # Currently, the new shard is not assign on any slots.
+    env.assertEqual(len(env.cmd('CLUSTER SLOTS')), len(env.envRunner.shards))
+
+    # Move a slot (number 0) from the first shard to the new shard.
+    new_shard_id = new_instance_conn.cluster_myid(cluster.ClusterNode('127.0.0.1', new_instance_port))
+    env.cmd(f'CLUSTER SETSLOT 0 NODE {new_shard_id}')
+    new_instance_conn.cluster_setslot(cluster.ClusterNode('127.0.0.1', new_instance_port), new_shard_id, 0, 'NODE')
+
+    # Validate the updated state in old and new shards.
+    expected = [0, 0, ["127.0.0.1", new_instance_port, str(new_shard_id), []]]  # the first slot is in the new shard
+    res = env.cmd('CLUSTER SLOTS')
+    env.assertEqual(len(res), len(env.envRunner.shards) + 1)
+    env.assertEqual(res[0], expected)
+
+    expected = {'primary': ('127.0.0.1', new_instance_port), 'replicas': []}  # the expected reply from cluster_slots()
+    res = new_instance_conn.cluster_slots(cluster.ClusterNode('127.0.0.1', new_instance_port))
+    env.assertEqual(len(res), len(env.envRunner.shards) + 1)
+    env.assertEqual(res[(0, 0)], expected)
+
+    # cleanup
+    new_instance.kill()
+    os.remove('nodes.conf')

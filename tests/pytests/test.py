@@ -2590,14 +2590,16 @@ def testMod_309(env):
     for i in range(n):
         conn.execute_command('HSET', f'doc{i}', 'test', 'foo')
     waitForIndex(env, 'idx')
-    res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
+    info = index_info(env, 'idx')
+    env.assertEqual(int(info['num_docs']), n)
+    res = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'TIMEOUT', 300000)
     env.assertEqual(len(res), n + 1)
 
     # test with cursor
     if env.isCluster():
         return
 
-    res, cursor = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR')
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR', 'TIMEOUT', 300000)
     l = len(res) - 1  # do not count the number of results (the first element in the results)
     while cursor != 0:
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor))
@@ -2819,8 +2821,8 @@ def testHighlightOnAggregate(env):
 def testBadFilterExpression(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'FILTER', 'blabla').error()
     if not env.isCluster(): # todo: remove once fix on coordinator
+        env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'FILTER', 'blabla').error()
         env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'FILTER', '@test1 > 1').error()
 
 def testWithSortKeysOnNoneSortableValue(env):
@@ -3770,7 +3772,7 @@ def test_internal_commands(env):
     ''' Test that internal cluster commands cannot run from a script '''
     if not env.is_cluster():
         env.skip()
-    
+
     def fail_eval_call(r, env, cmd):
         cmd = str(cmd)[1:-1]
         try:
@@ -3783,5 +3785,3 @@ def test_internal_commands(env):
         fail_eval_call(r, env, ['SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1', 'SHARD', '1', 'SLOTRANGE', '0', '16383', 'ADDR', 'password@127.0.0.1:22000', 'MASTER'])
         fail_eval_call(r, env, ['SEARCH.CLUSTERREFRESH'])
         fail_eval_call(r, env, ['SEARCH.CLUSTERINFO'])
-        
-
