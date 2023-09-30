@@ -72,6 +72,7 @@ OSNICK=$($READIES/bin/platform --osnick)
 [[ $OSNICK == centos8 ]] && OSNICK=rhel8
 [[ $OSNICK == ol8 ]]     && OSNICK=rhel8
 [[ $OSNICK == rocky8 ]]  && OSNICK=rhel8
+[[ $OSNICK == rocky9 ]]  && OSNICK=rhel9
 
 if [[ $OS == macos ]]; then
 	# as we don't build on macOS for every platform, we converge to a least common denominator
