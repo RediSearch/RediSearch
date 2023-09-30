@@ -40,18 +40,36 @@ class RediSearchSetup(paella.Setup):
                 self.install("libffi-dev")
 
     def redhat_compat(self):
-        self.install("redhat-lsb-core")
+        # redhat-lsb-core is not available for RHEL 9
+        if(self.os_version[0] < 9):
+            self.install("redhat-lsb-core")
+
         self.install("which")
         self.run(f"{READIES}/bin/getepel", sudo=True)
         self.install("libatomic")
 
-        if self.dist == "centos" and self.os_version[0] == 7:
+        if self.os_version[0] == 9:
+            # {READIES}/bin/getgcc install gcc 12 on centos 9, 
+            # but we need gcc 11. So we install it manually.
+            self.install("autoconf automake binutils")
+            self.install("gcc gcc-c++ gdb glibc-devel libtool make")
+            self.install("pkgconf pkgconf-m4 pkgconf-pkg-config")
+            self.install("strace")
+        elif self.dist == "centos" and self.os_version[0] == 7:
             self.run(f"{READIES}/bin/getgcc --modern --update-libstdc++")
         else:
             self.run(f"{READIES}/bin/getgcc --modern")
-        self.install("libtool m4 automake openssl-devel")
+
+        self.install("libtool m4 automake")
+        self.install("openssl-devel")
         self.install("python3-devel")
         # self.install("--skip-broken boost169-devel")
+
+        if(self.os_version[0] == 9):
+            if(self.dist == "redhat"):
+                self.install("libstdc++-static")
+            else:
+                self.install("--enablerepo=crb libstdc++-static")
 
         if not self.platform.is_arm():
             self.install_linux_gnu_tar()
@@ -82,7 +100,10 @@ class RediSearchSetup(paella.Setup):
     def common_last(self):
         self.run(f"{self.python} {READIES}/bin/getcmake --usr", sudo=self.os != 'macos')
         self.run(f"{self.python} {READIES}/bin/getrmpytools --reinstall --modern --redispy-version pypi:5.0.0b4")
-        if self.dist != "arch":
+        if self.dist == "redhat":
+            # TODO: There is a dependency issue with lcov in rhel 9
+            pass
+        elif self.dist != "arch":
             self.install("lcov")
         else:
             self.install("lcov-git", aur=True)
