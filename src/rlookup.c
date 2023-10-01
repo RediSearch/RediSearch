@@ -303,8 +303,7 @@ void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
 }
 
 void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
-  RLookup_WriteOwnKey(key, row, v);
-  RSValue_IncrRef(v);
+  RLookup_WriteOwnKey(key, row, RSValue_IncrRef(v));
 }
 
 void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *dst, RSValue *v) {
@@ -447,7 +446,7 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
 
 // {"a":1, "b":[2, 3, {"c": "foo"}, 4], "d": null}
 static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
-  
+
   RSValue *ret;
   size_t len;
   JSONType type = japi->getType(json);
@@ -469,7 +468,7 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       japi->freeKeyValuesIter(iter);
       assert(i == len && !value);
     }
-    ret = RSValue_NewMap(pairs, len);    
+    ret = RSValue_NewMap(pairs, len);
   } else if (type == JSONType_Array) {
     // Array
     japi->getLen(json, &len);
@@ -507,7 +506,7 @@ RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) 
     }
     ret = RSValue_NewArray(arr, len);
   } else {
-    // Empty array  
+    // Empty array
     ret = RSValue_NewArrayEx(NULL, 0, RSVAL_ARRAY_ALLOC);
   }
   return ret;
@@ -554,7 +553,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
     if (json) {
       RSValue *val = jsonValToValue(ctx, json);
       RSValue *otherval = RS_StealRedisStringVal(serialized);
-      RSValue *expand = jsonIterToValueExpanded(ctx, iter);
+      RSValue *expand = japi_ver >= 4 ? jsonIterToValueExpanded(ctx, iter) : RS_NullVal();
       *rsv = RS_DuoVal(val, otherval, expand);
       res = REDISMODULE_OK;
     } else if (serialized) {

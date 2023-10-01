@@ -5,6 +5,7 @@
  */
 
 #include "config.h"
+#include "deps/thpool/thpool.h"
 #include "err.h"
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
@@ -289,6 +290,17 @@ CONFIG_SETTER(setTieredIndexBufferLimit) {
 CONFIG_GETTER(getTieredIndexBufferLimit) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->tieredVecSimIndexBufferLimit);
+}
+
+// PRIVILEGED_THREADS_NUM
+CONFIG_SETTER(setPrivilegedThreadsNum) {
+  int acrc = AC_GetSize(ac, &config->privilegedThreadsNum, AC_F_GE0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getPrivilegedThreadsNum) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->privilegedThreadsNum);
 }
 #endif // MT_BUILD
 
@@ -740,6 +752,14 @@ RSConfigOptions RSGlobalConfigOptions = {
         .setValue = setTieredIndexBufferLimit,
         .getValue = getTieredIndexBufferLimit,
         .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
+        },
+        {.name = "PRIVILEGED_THREADS_NUM",
+            .helpText = "The number of threads in worker thread pool that always execute high"
+                        " priority tasks, if there exist any in the job queue. Other threads will"
+                        " excute high and low priority tasks alterntely.",
+            .setValue = setPrivilegedThreadsNum,
+            .getValue = getPrivilegedThreadsNum,
+            .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
         },
 #endif
         {.name = "FRISOINI",

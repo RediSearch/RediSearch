@@ -1199,7 +1199,7 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
   stats->numDocs = sp->stats.numDocuments;
   stats->numTerms = sp->stats.numTerms;
   stats->avgDocLen =
-      stats->numDocs ? (double)sp->stats.numRecords / (double)sp->stats.numDocuments : 0;
+      stats->numDocs ? (double)sp->stats.totalDocsLen / (double)sp->stats.numDocuments : 0;
 }
 
 // Assuming the spec is properly locked for writing before calling this function.
@@ -1267,7 +1267,7 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
 
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
-    cleanPool = redisearch_thpool_create(1);
+    cleanPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM);
     redisearch_thpool_init(cleanPool, LogCallback);
   }
 }
@@ -1455,6 +1455,7 @@ void Indexes_Free(dict *d) {
 
   // cursor list is iterating through the list as well and consuming a lot of CPU
   CursorList_Empty(&g_CursorsList);
+  CursorList_Empty(&g_CursorsListCoord);
 
   arrayof(StrongRef) specs = array_new(StrongRef, dictSize(d));
   dictIterator *iter = dictGetIterator(d);
@@ -2080,7 +2081,7 @@ end:
 
 static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1);
+    reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM);
     redisearch_thpool_init(reindexPool, LogCallback);
   }
 #ifdef _DEBUG
@@ -2227,7 +2228,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
     GCContext_RenderStatsForInfo(sp->gc, ctx);
 
   // Cursor stat
-  Cursors_RenderStatsForInfo(&g_CursorsList, sp, ctx);
+  Cursors_RenderStatsForInfo(&g_CursorsList, &g_CursorsListCoord, sp, ctx);
 
   // Stop words
   if (sp->flags & Index_HasCustomStopwords)
@@ -2306,7 +2307,7 @@ void Indexes_UpgradeLegacyIndexes() {
 
 void Indexes_ScanAndReindex() {
   if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1);
+    reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM);
     redisearch_thpool_init(reindexPool, LogCallback);
   }
 
