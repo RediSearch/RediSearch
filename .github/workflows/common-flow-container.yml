@@ -16,6 +16,15 @@ on:
         type: string
       get-redis:
         type: boolean
+      test-config:
+        description: 'Test configuration'
+        type: string
+      coordinator:
+        type: boolean
+        default: true
+      standalone:
+        type: boolean
+        default: true
 
 env:
   MODE: "" # user mode
@@ -39,8 +48,7 @@ jobs:
           git config --global --add safe.directory '*'
           git submodule update --init --recursive
       - name: Setup
-        run: |
-          ./sbin/setup
+        run: ./sbin/setup
       # TODO: use this instead
       # - name: Deps checkout
       # uses: actions/checkout@v3
@@ -59,22 +67,27 @@ jobs:
         run: |
           export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
           ./deps/readies/bin/getredis --with-github-token
-      - name: Build
-        run: |
-          make SAN=${{ inputs.san }}
-          make COORD=1 SAN=${{ inputs.san }}
-      - name: Unit tests
-        run: |
-          make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
-      - name: Flow tests
-        run: |
-          make pytest QUICK=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+
+      - name: Build Standalone
+        if: ${{ inputs.standalone }}
+        run: make SAN=${{ inputs.san }}
+      - name: Build Coordinator
+        if: ${{ inputs.coordinator }}
+        run: make COORD=1 SAN=${{ inputs.san }}
+
+      - name: Unit tests (standalone)
+        if: ${{ inputs.standalone }}
+        run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+      - name: Flow tests (standalone)
+        if: ${{ inputs.standalone }}
+        run: make pytest CONFIG=${{ inputs.test-config }} LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Unit tests (coordinator)
-        run: |
-          make COORD=1 unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+        if: ${{ inputs.coordinator }}
+        run: make COORD=1 unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (coordinator)
-        run: |
-          make COORD=1 pytest QUICK=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+        if: ${{ inputs.coordinator }}
+        run: make COORD=1 pytest CONFIG=${{ inputs.test-config }} LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@v3
         with:

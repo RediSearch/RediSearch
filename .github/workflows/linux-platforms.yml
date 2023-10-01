@@ -1,0 +1,93 @@
+name: Build on Linux Platforms
+
+# Keep aligned with the options below
+env:
+  ALL_IMAGES: "['ubuntu:jammy', 'ubuntu:bionic', 'centos:7', 'rockylinux:8', 'debian:bullseye']"
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        type: string
+      architecture:
+        type: string
+      test-config:
+        type: string
+      coordinator:
+        type: boolean
+        default: true
+      standalone:
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      platform:
+        type: choice
+        options:
+          - all
+          - ubuntu:jammy
+          - ubuntu:bionic
+          - centos:7
+          - rockylinux:8
+          - debian:bullseye
+        description: 'Platform to build on. Use "all" to build on all'
+        default: all
+      architecture:
+        type: choice
+        options:
+          - all
+          - x86_64
+          - arm64
+        description: 'Architecture to build on. Use "all" to build on all'
+        default: all
+      coordinator:
+        description: 'Whether to run coordinator tests'
+        type: boolean
+        default: true
+      standalone:
+        description: 'Whether to run standalone tests'
+        type: boolean
+        default: true
+
+jobs:
+  get-required-envs:
+    runs-on: ubuntu-latest
+    outputs:
+      platform: ${{ steps.get_platforms.outputs.platform }}
+    steps:
+      - name: Get platform
+        id: get_platforms
+        run: |
+          if [ "${{ inputs.platform }}" == "all" ]; then
+            echo "platform=${{ env.ALL_IMAGES }}" >> $GITHUB_OUTPUT
+          else
+            echo "platform=['${{ inputs.platform }}']" >> $GITHUB_OUTPUT
+          fi
+  linux-matrix-x86_64:
+    if: github.event.inputs.architecture == 'all' || github.event.inputs.architecture == 'x86_64'
+    needs: get-required-envs
+    strategy:
+      matrix:
+        OS: ${{ fromJson(needs.get-required-envs.outputs.platform) }}
+      fail-fast: false
+    uses: ./.github/workflows/common-flow-container.yml
+    with:
+      get-redis: true
+      container: ${{ matrix.OS }}
+      coordinator: ${{ inputs.coordinator }}
+      standalone: ${{ inputs.standalone }}
+      test-config: ${{ inputs.test-config }}
+    secrets: inherit
+  linux-matrix-arm64:
+    if: github.event.inputs.architecture == 'all' || github.event.inputs.architecture == 'arm64'
+    needs: get-required-envs
+    strategy:
+      matrix:
+        OS: ${{ fromJson(needs.get-required-envs.outputs.platform) }}
+      fail-fast: false
+    uses: ./.github/workflows/self-hosted-arm.yml
+    with:
+      container: ${{ matrix.OS }}
+      coordinator: ${{ inputs.coordinator }}
+      standalone: ${{ inputs.standalone }}
+      test-config: ${{ inputs.test-config }}

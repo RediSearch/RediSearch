@@ -1,0 +1,26 @@
+name: Build on macOS
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      test-config:
+        description: 'Test configuration'
+        type: string
+      coordinator:
+        type: boolean
+        default: true
+      standalone:
+        type: boolean
+        default: true
+
+jobs:
+  build-macos:
+    uses: ./.github/workflows/common-flow-host.yml
+    with:
+      env: macos-11
+      get-redis: true
+      test-config: ${{ inputs.test-config || ''   }}
+      coordinator: ${{ inputs.coordinator || true }}
+      standalone:  ${{ inputs.standalone  || true }}
+    secrets: inherit

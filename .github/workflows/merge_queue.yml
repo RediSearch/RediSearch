@@ -1,0 +1,88 @@
+name: Merge pull request
+
+on:
+  merge_group:
+    types: [checks_requested]
+
+jobs:
+  run-tests-on-linux:
+    strategy:
+      matrix:
+        include:
+          - test-config: concurrent_write
+            standalone:  true
+            coordinator: true
+          - test-config: max_unsorted
+            standalone:  true
+            coordinator: true
+          - test-config: union_iterator_heap
+            standalone:  true
+            coordinator: true
+          - test-config: raw_docid
+            standalone:  true
+            coordinator: true
+          - test-config: dialect_2
+            standalone:  true
+            coordinator: true
+
+          - test-config: global_password
+            standalone:  false
+            coordinator: true
+          - test-config: safemode
+            standalone:  false
+            coordinator: true
+          - test-config: tls
+            standalone:  false
+            coordinator: true
+
+    uses: ./.github/workflows/linux-platforms.yml
+    with:
+      platform: all
+      architecture: all
+      test-config: ${{ matrix.test-config }}
+      standalone: ${{ matrix.standalone }}
+      coordinator: ${{ matrix.coordinator }}
+
+  run-tests-on-macos:
+    strategy:
+      matrix:
+        include:
+          - test-config: concurrent_write
+            standalone:  true
+            coordinator: true
+          - test-config: max_unsorted
+            standalone:  true
+            coordinator: true
+          - test-config: union_iterator_heap
+            standalone:  true
+            coordinator: true
+          - test-config: raw_docid
+            standalone:  true
+            coordinator: true
+          - test-config: dialect_2
+            standalone:  true
+            coordinator: true
+
+          - test-config: global_password
+            standalone:  false
+            coordinator: true
+          - test-config: safemode
+            standalone:  false
+            coordinator: true
+          - test-config: tls
+            standalone:  false
+            coordinator: true
+
+    uses: ./.github/workflows/macos.yml
+    with:
+      test-config: ${{ matrix.test-config }}
+      standalone: ${{ matrix.standalone }}
+      coordinator: ${{ matrix.coordinator }}
+
+  coverage:
+    uses: ./.github/workflows/coverage.yml
+    secrets: inherit
+
+  sanitize:
+    uses: ./.github/workflows/sanitizer.yml
+    secrets: inherit
