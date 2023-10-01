@@ -1,0 +1,13 @@
+name: Nightly Flow
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+
+jobs:
+  run-flow:
+    uses: ./.github/workflows/merge-nightly-common.yml
+    secrets: inherit
+    with:
+      redis-ref: unstable
+      json-ref: master

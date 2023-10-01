@@ -63,6 +63,7 @@ jobs:
           else
             echo "platform=['${{ inputs.platform }}']" >> $GITHUB_OUTPUT
           fi
+
   linux-matrix-x86_64:
     if: github.event.inputs.architecture == 'all' || github.event.inputs.architecture == 'x86_64'
     needs: get-required-envs
@@ -71,13 +72,14 @@ jobs:
         OS: ${{ fromJson(needs.get-required-envs.outputs.platform) }}
       fail-fast: false
     uses: ./.github/workflows/common-flow-container.yml
+    secrets: inherit
     with:
       get-redis: true
       container: ${{ matrix.OS }}
       coordinator: ${{ inputs.coordinator }}
       standalone: ${{ inputs.standalone }}
       test-config: ${{ inputs.test-config }}
-    secrets: inherit
+
   linux-matrix-arm64:
     if: github.event.inputs.architecture == 'all' || github.event.inputs.architecture == 'arm64'
     needs: get-required-envs
@@ -86,6 +88,7 @@ jobs:
         OS: ${{ fromJson(needs.get-required-envs.outputs.platform) }}
       fail-fast: false
     uses: ./.github/workflows/self-hosted-arm.yml
+    secrets: inherit
     with:
       container: ${{ matrix.OS }}
       coordinator: ${{ inputs.coordinator }}

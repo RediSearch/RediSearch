@@ -1,0 +1,25 @@
+name: Weekly Flow
+
+on:
+  schedule:
+    - cron: "0 0 * * 0"
+
+jobs:
+  run-benchmarks:
+    uses: ./.github/workflows/trigger-benchmark.yml
+    secrets: inherit
+
+  deploy-milestone-artifacts:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        branch: [2.6, 2.8, 2.10, master]
+    steps:
+      - name: Dummy check for changes
+        id: check
+        run: |
+          echo "Dummy check for changes on branch ${{ matrix.branch }}"
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+      - name: Dummy deploy
+        if: steps.check.outputs.has_changes == 'true'
+        run: echo "Dummy milestone deploy for branch ${{ matrix.branch }}"
