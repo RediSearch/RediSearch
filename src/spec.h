@@ -35,6 +35,9 @@ extern "C" {
 struct IndexesScanner;
 struct DocumentIndexer;
 
+// Initial capacity (in bytes) of a new block
+#define INDEX_BLOCK_INITIAL_CAP 6
+
 #define SPEC_GEO_STR "GEO"
 #define SPEC_GEOMETRY_STR "GEOSHAPE"
 #define SPEC_TAG_STR "TAG"

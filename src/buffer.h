@@ -114,23 +114,24 @@ size_t Buffer_Truncate(Buffer *b, size_t newlen);
 void Buffer_Grow(Buffer *b, size_t extraLen);
 
 static inline size_t Buffer_Reserve(Buffer *buf, size_t n) {
+  size_t cap = buf->cap;
   if (buf->offset + n <= buf->cap) {
     return 0;
   }
   Buffer_Grow(buf, n);
-  return 1;
+  return buf->cap - cap;
 }
 
 static inline size_t Buffer_Write(BufferWriter *bw, const void *data, size_t len) {
-
+  size_t mem_growth = 0;
   Buffer *buf = bw->buf;
-  if (Buffer_Reserve(buf, len)) {
+  if (!!(mem_growth = Buffer_Reserve(buf, len))) {
     bw->pos = buf->data + buf->offset;
   }
   memcpy(bw->pos, data, len);
   bw->pos += len;
   buf->offset += len;
-  return len;
+  return mem_growth;
 }
 
 /**

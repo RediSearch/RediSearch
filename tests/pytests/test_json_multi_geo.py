@@ -129,10 +129,10 @@ def testBasic(env):
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
 
     # check stats after insert
-    checkInfo(env, 'idx1', 1, 0.00018310546875)
-    checkInfo(env, 'idx2', 1, 2.288818359375e-05)
-    checkInfo(env, 'idx3', 1, 3.814697265625e-05)
-    checkInfo(env, 'idx4', 1, 6.103515625e-05)
+    checkInfo(env, 'idx1', 1, 0.00020503997802734375)
+    checkInfo(env, 'idx2', 1, 2.384185791015625e-05)
+    checkInfo(env, 'idx3', 1, 4.38690185546875e-05)
+    checkInfo(env, 'idx4', 1, 6.771087646484375e-05)
 
     # Geo range and Not
     env.expect('FT.SEARCH', 'idx1', '@loc:[1.2 1.1 40 km]', 'NOCONTENT').equal([1, 'doc:1'])
