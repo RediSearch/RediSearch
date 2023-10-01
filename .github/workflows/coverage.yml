@@ -2,14 +2,11 @@ name: Coverage analysis
 
 on:
   workflow_dispatch:
-  push:
-    branches-ignore:
-      - '*docs'
-      - '*noci'
+  workflow_call:
 
 jobs:
   coverage:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash -l -eo pipefail {0}

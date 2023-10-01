@@ -1,0 +1,24 @@
+name: Pull Request Default Flow
+
+on:
+  pull_request:
+    paths-ignore:
+      - "README.md"
+      - "docs/**"
+      - "licenses/**"
+
+jobs:
+  quick-test:
+    uses: ./.github/workflows/common-flow-host.yml
+    with:
+      env: ubuntu-latest
+      get-redis: true
+    secrets: inherit
+
+  coverage:
+    uses: ./.github/workflows/coverage.yml
+    secrets: inherit
+
+  sanitize:
+    uses: ./.github/workflows/sanitizer.yml
+    secrets: inherit

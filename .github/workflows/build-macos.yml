@@ -2,10 +2,7 @@ name: Build on macOS
 
 on:
   workflow_dispatch:
-  push:
-    branches-ignore:
-      - '*docs'
-      - '*noci'
+  workflow_call:
 
 jobs:
   build-macos:

@@ -9,8 +9,7 @@ name: TEMPLATE self-hosted flow # 1. Change the name of the workflow
 
 # 2. Change when the workflow will run
 on:
-  push:
-    branches: []
+  workflow_call:
 
 # 3. Set the image and runner type
 env:

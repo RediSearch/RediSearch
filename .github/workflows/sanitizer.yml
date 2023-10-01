@@ -2,10 +2,7 @@ name: CLang Sanitizer
 
 on:
   workflow_dispatch:
-  push:
-    branches-ignore:
-      - '*docs'
-      - '*noci'
+  workflow_call:
 
 jobs:
   clang-sanitizer:
