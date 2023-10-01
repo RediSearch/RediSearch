@@ -1,6 +1,7 @@
 name: Check if needs trigger CircleCI benchmark
 
 on:
+  workflow_call:
   pull_request:
    types: [opened, labeled, unlabeled, synchronize]
 
@@ -16,7 +17,7 @@ jobs:
         with:
           contains: 'run-benchmark'
       - name: curl-circle-ci if labeled
-        if: steps.haslabel.outputs.labeled-run-benchmark
+        if: steps.haslabel.outputs.labeled-run-benchmark || github.event_name == 'workflow_call'
         run: |
           curl --request POST \
           --url https://circleci.com/api/v2/project/gh/${{ github.repository }}/pipeline \
