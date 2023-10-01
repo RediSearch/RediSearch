@@ -5,26 +5,18 @@ on:
    types: [opened, labeled, unlabeled, synchronize]
 
 jobs:
-  haslabel:
-    name: analyse labels
+  perf-ci:
+    name: Trigger CI benchmarks
     runs-on: ubuntu-latest
-    outputs:
-      benchmark: ${{ steps.haslabel.outputs.labeled-run-benchmark }}
     steps:
       - uses: actions/checkout@v3
-      - name: Labeled with run-benchmark
+      - name: Check if labeled with run-benchmark
         id: haslabel
         uses: DanielTamkin/HasLabel@v1.0.4
         with:
           contains: 'run-benchmark'
-  perf-ci:
-    name: Trigger CI benchmarks
-    needs: haslabel
-    if: needs.haslabel.outputs.benchmark
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: curl-circle-ci
+      - name: curl-circle-ci if labeled
+        if: steps.haslabel.outputs.labeled-run-benchmark
         run: |
           curl --request POST \
           --url https://circleci.com/api/v2/project/gh/${{ github.repository }}/pipeline \
