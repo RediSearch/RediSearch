@@ -8,7 +8,7 @@ jobs:
     strategy:
       matrix:
         member_id: [1, 2, 3]
-    uses: ./.github/workflows/benchmarks/run-benchmark.yml
+    uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
@@ -19,7 +19,7 @@ jobs:
     strategy:
       matrix:
         member_id: [1, 2]
-    uses: ./.github/workflows/benchmarks/run-benchmark.yml
+    uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       benchmark_glob: "vecsim*.yml"
@@ -30,7 +30,7 @@ jobs:
     strategy:
       matrix:
         member_id: [1, 2]
-    uses: ./.github/workflows/benchmarks/run-benchmark.yml
+    uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       cluster_env: 1
@@ -45,7 +45,7 @@ jobs:
     strategy:
       matrix:
         member_id: [1, 2]
-    uses: ./.github/workflows/benchmarks/run-benchmark.yml
+    uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       cluster_env: 1
@@ -60,7 +60,7 @@ jobs:
     strategy:
       matrix:
         member_id: [1, 2, 3]
-    uses: ./.github/workflows/benchmarks/run-benchmark.yml
+    uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       cluster_env: 1
@@ -75,7 +75,7 @@ jobs:
     strategy:
       matrix:
         member_id: [1, 2, 3]
-    uses: ./.github/workflows/benchmarks/run-benchmark.yml
+    uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       cluster_env: 1
@@ -91,7 +91,7 @@ jobs:
     strategy:
       matrix:
         member_id: [1]
-    uses: ./.github/workflows/benchmarks/run-benchmark.yml
+    uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       cluster_env: 1
@@ -107,7 +107,7 @@ jobs:
     strategy:
       matrix:
         member_id: [1]
-    uses: ./.github/workflows/benchmarks/run-benchmark.yml
+    uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       cluster_env: 1
@@ -122,7 +122,7 @@ jobs:
     strategy:
       matrix:
         member_id: [1, 2, 3]
-    uses: ./.github/workflows/benchmarks/run-benchmark.yml
+    uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       profile_env: 1
@@ -137,7 +137,7 @@ jobs:
     strategy:
       matrix:
         member_id: [1, 2]
-    uses: ./.github/workflows/benchmarks/run-benchmark.yml
+    uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       profile_env: 1
