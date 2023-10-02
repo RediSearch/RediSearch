@@ -147,11 +147,11 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'dump_terms', 'idx1').raiseError()
 
     def testInvertedIndexSummary(self):
-        self.env.expect('FT.DEBUG', 'invidx_summary', 'idx', 'meir').equal(['numDocs', 1, 'lastId', 1, 'flags',
+        self.env.expect('FT.DEBUG', 'invidx_summary', 'idx', 'meir').equal(['numDocs', 1, 'numEntries', 1, 'lastId', 1, 'flags',
                                                                             83, 'numberOfBlocks', 1, 'blocks',
                                                                             ['firstId', 1, 'lastId', 1, 'numEntries', 1]])
 
-        self.env.expect('FT.DEBUG', 'INVIDX_SUMMARY', 'idx', 'meir').equal(['numDocs', 1, 'lastId', 1, 'flags',
+        self.env.expect('FT.DEBUG', 'INVIDX_SUMMARY', 'idx', 'meir').equal(['numDocs', 1, 'numEntries', 1, 'lastId', 1, 'flags',
                                                                             83, 'numberOfBlocks', 1, 'blocks',
                                                                             ['firstId', 1, 'lastId', 1, 'numEntries', 1]])
 
@@ -166,10 +166,12 @@ class TestDebugCommands(object):
 
     def testNumericIdxIndexSummary(self):
         self.env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'age').equal(['numRanges', 1, 'numEntries', 1,
-                                                                           'lastDocId', 1, 'revisionId', 0])
+                                                                           'lastDocId', 1, 'revisionId', 0,
+                                                                           'emptyLeaves', 0, 'RootMaxDepth', 0])
 
         self.env.expect('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'age').equal(['numRanges', 1, 'numEntries', 1,
-                                                                           'lastDocId', 1, 'revisionId', 0])
+                                                                           'lastDocId', 1, 'revisionId', 0,
+                                                                           'emptyLeaves', 0, 'RootMaxDepth', 0])
 
     def testUnexistsNumericIndexSummary(self):
         self.env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'age1').raiseError()
