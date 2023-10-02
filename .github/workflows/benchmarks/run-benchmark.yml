@@ -1,0 +1,126 @@
+name: Benchmark
+
+on:
+  workflow_call:
+    inputs:
+      container:
+        type: string
+        default: redisfab/rmbuilder:6.2.7-x64-bullseye
+      module_path:
+        type: string
+        default: bin/linux-x64-release/search/redisearch.so
+      profile_env:
+        type: number
+      cluster_env:
+        type: number
+      benchmark_glob:
+        type: string
+        default: "*.yml"
+      triggering_env:
+        type: string
+        default: "github-actions"
+      allowed_envs:
+        type: string
+        default: "oss-standalone"
+      allowed_setups:
+        type: string
+      benchmark_runner_group_member_id:
+        type: number
+        default: 1
+      benchmark_runner_group_total:
+        type: number
+        default: 1
+      pull_request_number:
+        type: number
+        default: 0
+      boost-version:
+        type: string
+        default: "1.82.0"
+
+jobs:
+  benchmark-steps:
+    runs-on: ubuntu-latest
+    container: ${{ inputs.container }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup
+        run: ./.install/install_script.sh
+      - name: Setup Repo
+        run: |
+          git init
+          git config --global --add safe.directory '*'
+          git submodule update --init --recursive
+      - name: Restoring cached Boost
+        id: boost-cache
+        uses: actions/cache/restore@v3
+        with:
+          path: /tmp/boostdir
+          key: boost-${{ inputs.boost-version }}-${{ inputs.container }}
+      - name: Get Boost
+        if: steps.boost-cache.outputs.cache-hit != 'true'
+        run: ./.install/install_boost.sh ${{ inputs.boost-version }}
+      - name: Saving Boost cache
+        uses: actions/cache/save@v3
+        if: steps.boost-cache.outputs.cache-hit != 'true'
+        with:
+          path: /tmp/boostdir
+          key: ${{ steps.boost-cache.outputs.cache-primary-key }}
+      - name: Get Redis
+        uses: actions/checkout@v4
+        with:
+          repository: redis/redis
+          ref: '7.2'
+          path: redis
+      - name: Build Redis
+        working-directory: redis
+        run: make install
+      - name: Prepare Environment Variables
+        run: |
+          export REDISEARCH_MT_BUILD=0
+          export PERF_CALLGRAPH_MODE="dwarf"
+          export       MAX_PROFILERS=3
+
+          export     AWS_ACCESS_KEY_ID=$PERFORMANCE_EC2_ACCESS_KEY
+          export AWS_SECRET_ACCESS_KEY=$PERFORMANCE_EC2_SECRET_KEY
+          export    AWS_DEFAULT_REGION=$PERFORMANCE_EC2_REGION
+          export       EC2_PRIVATE_PEM=$PERFORMANCE_EC2_PRIVATE_PEM
+
+          export                      PROFILE=${{ inputs.profile_env }}
+          export               BENCHMARK_GLOB=${{ inputs.benchmark_glob }}
+          export  BENCHMARK_RUNNER_GROUP_M_ID=${{ inputs.benchmark_runner_group_member_id }}
+          export BENCHMARK_RUNNER_GROUP_TOTAL=${{ inputs.benchmark_runner_group_total }}
+      - name: Build RediSearch
+        run: make COORD=${{ inputs.cluster_env }} PROFILE=${{ inputs.profile_env }} SHOW=1 NPROC=16
+      - name: Prepare automation
+        run: |
+          ./deps/readies/bin/getpy3
+          python3 -m pip install -r tests/benchmarks/requirements.txt
+          VERSION=0.14.8 ./deps/readies/bin/getterraform
+      - name: Prepare ReJSON Module
+        run: MODULE_FILE=bin/REJSON_PATH ./sbin/get-redisjson
+
+      - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
+        timeout-minutes: 60 # timeout for the step
+        working-directory: tests/benchmarks
+        run: redisbench-admin run-remote
+              --module_path $(cat $PWD/bin/REJSON_PATH)
+              --module_path $PWD/${{ inputs.module_path }}
+              --github_actor ${{ github.triggering_actor }}
+              --github_repo ${{ github.event.repository.name }}
+              --github_org ${{ github.repository_owner }}
+              --required-module search
+              --github_sha ${{ github.sha }}
+              --github_branch ${{ github.head_ref || github.ref_name }}
+              --upload_results_s3
+              --triggering_env ${{ inputs.triggering_env }}
+              --push_results_redistimeseries
+              --allowed-envs ${{ inputs.allowed_envs }}
+              --allowed-setups ${{ inputs.allowed_setups }} || true
+      - name: Generate Pull Request Performance info
+        if: inputs.pull_request_number
+        run: redisbench-admin compare
+              --defaults_filename ./tests/benchmarks/defaults.yml
+              --comparison-branch ${{ github.head_ref || github.ref_name }}
+              --auto-approve
+              --pull-request ${{ inputs.pull_request_number }}
