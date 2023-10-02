@@ -70,6 +70,7 @@ OSNICK=$($READIES/bin/platform --osnick)
 [[ $OSNICK == jammy ]]   && OSNICK=ubuntu22.04
 [[ $OSNICK == centos7 ]] && OSNICK=rhel7
 [[ $OSNICK == centos8 ]] && OSNICK=rhel8
+[[ $OSNICK == centos9 ]] && OSNICK=rhel9
 [[ $OSNICK == ol8 ]]     && OSNICK=rhel8
 [[ $OSNICK == rocky8 ]]  && OSNICK=rhel8
 [[ $OSNICK == rocky9 ]]  && OSNICK=rhel9
