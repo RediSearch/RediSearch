@@ -1,4 +1,4 @@
-name: Check if needs trigger CircleCI benchmark
+name: Benchmark
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
@@ -21,7 +21,7 @@ jobs:
           contains: 'run-benchmark'
 
   perf-ci:
-    name: Trigger CI benchmarks
+    name: Trigger
     needs: haslabel
     if: needs.haslabel.outputs.benchmark
     uses: ./.github/workflows/benchmark-runner.yml

@@ -1,4 +1,4 @@
-name: Benchmark
+name: Run a Benchmark Flow
 
 on:
   workflow_call:
