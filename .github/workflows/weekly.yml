@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        branch: [2.6, 2.8, 2.10, master]
+        branch: [2.6, 2.8, 2.10]
     steps:
       - name: Dummy check for changes
         id: check
@@ -22,4 +22,4 @@ jobs:
           echo "has_changes=true" >> $GITHUB_OUTPUT
       - name: Dummy deploy
         if: steps.check.outputs.has_changes == 'true'
-        run: echo "Dummy milestone deploy for branch ${{ matrix.branch }}"
+        run: echo "Dummy milestone deploy for branch ${{ matrix.branch }} (callable workflow with parameters)"

@@ -11,3 +11,15 @@ jobs:
     with:
       redis-ref: unstable
       json-ref: master
+
+  deploy-master-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dummy check for changes on master
+        id: check
+        run: |
+          echo "Dummy check for changes on branch master"
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+      - name: Dummy deploy
+        if: steps.check.outputs.has_changes == 'true'
+        run: echo "Dummy milestone deploy for branch master (callable workflow with parameters)"
