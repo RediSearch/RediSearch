@@ -173,9 +173,9 @@ TEST_F(FGCTest, testRemoveEntryFromLastBlock) {
 
   // numDocuments is updated in the indexing process, while all other fields are only updated if
   // their memory was cleaned by the gc.
-  ASSERT_EQ(0, (sp->stats.numDocuments);
-  ASSERT_EQ(1, (sp->stats.numRecords);
-  ASSERT_EQ(invertedSizeBeforeApply - docSize, (sp->stats.invertedSize);
+  ASSERT_EQ(0, sp->stats.numDocuments);
+  ASSERT_EQ(1, sp->stats.numRecords);
+  ASSERT_EQ(invertedSizeBeforeApply - docSize, sp->stats.invertedSize);
   ASSERT_EQ(1, TotalIIBlocks);
 }
 
@@ -202,7 +202,7 @@ TEST_F(FGCTest, testRemoveLastBlockWhileUpdate) {
    * before it begins receiving results.
    */
   FGC_ForkAndWaitBeforeApply(fgc);
-  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc2", "f1", "hello"));
+  ASSERT_TRUE(RS::addDocument(ctx, sp, "doc2", "f1", "hello"));
 
   size_t invertedSizeBeforeApply = sp->stats.invertedSize;
   /** This function allows the gc to receive the results */
@@ -243,8 +243,7 @@ TEST_F(FGCTest, testModifyLastBlockWhileAddingNewBlocks) {
   FGC_ForkAndWaitBeforeApply(fgc);
 
   // Now add documents until we have new blocks added.
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  auto iv = getTagInvidx(&sctx,  "f1", "hello");
+  auto iv = getTagInvidx(ctx, sp, "f1", "hello");
   while (iv->size < 3) {
     ASSERT_TRUE(RS::addDocument(ctx, sp, numToDocid(curId++).c_str(), "f1", "hello"));
   }
@@ -281,10 +280,9 @@ TEST_F(FGCTest, testRemoveAllBlocksWhileUpdateLast) {
 
   unsigned curId = 1;
   char buf[1024];
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
 
   // Add documents to the index until it has 2 blocks (1 full block + 1 block with one entry)
-  auto iv = getTagInvidx(&sctx,  "f1", "hello");
+  auto iv = getTagInvidx(ctx, sp, "f1", "hello");
   // Measure the memory added by the last block.
   size_t lastBlockMemory = 0;
   while (iv->size < 2) {
@@ -298,10 +296,10 @@ TEST_F(FGCTest, testRemoveAllBlocksWhileUpdateLast) {
   // Delete all.
   for (unsigned i = 1; i < curId; i++) {
     size_t n = sprintf(buf, "doc%u", i);
-    ASSERT_TRUE(RS::deleteDocument(ctx, ism, buf));
+    ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
   }
 
-  ASSERT_EQ(0, sctx.spec->stats.numDocuments);
+  ASSERT_EQ(0, sp->stats.numDocuments);
 
   /**
    * This function allows the GC to perform fork(2), but makes it wait
@@ -310,7 +308,7 @@ TEST_F(FGCTest, testRemoveAllBlocksWhileUpdateLast) {
    */
   FGC_ForkAndWaitBeforeApply(fgc);
 
-  size_t invertedSizeBeforeApply = sctx.spec->stats.invertedSize;
+  size_t invertedSizeBeforeApply = sp->stats.invertedSize;
   // Add a new document so the last block's is different from the the one copied to the fork.
   size_t n = sprintf(buf, "doc%u", curId);
   lastBlockMemory += addDocumentWrapper(buf, "f1", "hello");
@@ -333,10 +331,10 @@ TEST_F(FGCTest, testRemoveAllBlocksWhileUpdateLast) {
   // numDocuments is updated in the indexing process, while all other fields are only updated if
   // their memory was cleaned by the gc.
   // In this case the spec contains only one valid document.
-  ASSERT_EQ(1, sctx.spec->stats.numDocuments);
+  ASSERT_EQ(1, sp->stats.numDocuments);
   // But the last block deletion was skipped.
-  ASSERT_EQ(2, sctx.spec->stats.numRecords);
-  ASSERT_EQ(lastBlockMemory, sctx.spec->stats.invertedSize);
+  ASSERT_EQ(2, sp->stats.numRecords);
+  ASSERT_EQ(lastBlockMemory, sp->stats.invertedSize);
   ASSERT_EQ(1, TotalIIBlocks);
 }
 
@@ -391,7 +389,7 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
 
   // curId - 1 = total added documents
   size_t valid_docs = curId - 1 - total_deletions;
-  ASSERT_EQ(valid_docs, sctx.spec->stats.numDocuments);
+  ASSERT_EQ(valid_docs, sp->stats.numDocuments);
 
   size_t lastBlockEntries = iv->blocks[2].numEntries;
   FGC_ForkAndWaitBeforeApply(fgc);
@@ -405,9 +403,9 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
   // Since we added entries to the last block after the fork, we ignore the fork updates in the last block
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
   // The deletion in the last block was ignored,
-  ASSERT_EQ(1 + valid_docs, sctx.spec->stats.numRecords);
+  ASSERT_EQ(1 + valid_docs, sp->stats.numRecords);
   // Other updates should take place.
-  ASSERT_EQ(valid_docs, sctx.spec->stats.numDocuments);
+  ASSERT_EQ(valid_docs, sp->stats.numDocuments);
   // We are left with the first + last block.
   ASSERT_EQ(2, iv->size);
   // The first entry was deleted. first block starts from docId = 2.
