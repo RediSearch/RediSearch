@@ -5,7 +5,7 @@ on:
     inputs:
       container:
         type: string
-        default: redisfab/rmbuilder:6.2.7-x64-bullseye
+        default: ubuntu:20.04
       module_path:
         type: string
         default: bin/linux-x64-release/search/redisearch.so
