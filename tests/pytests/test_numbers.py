@@ -7,34 +7,45 @@ from time import sleep
 from RLTest import Env
 import math
 
+def testOverrides(env):
+    env.skipOnCluster()
 
-def testNumEntries(env):
-	env.skipOnCluster()
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
-	env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'numeric').ok()
 
-	env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'numeric').ok()
+    loops = 10
+    hashes_number = 10_000
 
-	loops = 15
-	hashes_number = 10_000
-	expected_depth = 17
- 
-	for i in range(loops):
-		# In each loop re-index 0, 1,...,`hashes_number`-1 entries with increasing values
-		for i in range(hashes_number):
-			env.cmd('hset', f'{i}', 'num', f'{i}')
+    # Build the tree to get its structure statistics
+    for i in range(hashes_number):
+        env.cmd('hset', f'{i}', 'num', f'{i}')
 
-		# explicitly run gc to update spec stats and the inverted index number of entries.
-		forceInvokeGC(env, 'idx')
+    info = index_info(env, 'idx')
+    expected_inverted_sz_mb = round(float(info['inverted_sz_mb']), 4)
+    expected_root_max_depth = numeric_tree_summary(env, 'idx', 'num')['RootMaxDepth']
 
-		# num records should be equal to the number of indexed hashes.
-		info = index_info(env, 'idx')
-		env.assertEqual(int(info['num_records']), hashes_number)
+    for i in range(loops):
 
-		# the tree depth was experimentally calculated, and should remain constant since we are using the same values.
-		numeric_tree_depth = dump_numeric_index_tree_root(env, 'idx', 'num')[
-                    'maxDepth']
-		env.assertGreaterEqual(expected_depth, numeric_tree_depth)
+        # In each loop re-index 0, 1,...,`hashes_number`-1 entries with increasing values
+        for j in range(hashes_number):
+            env.cmd('hset', f'{j}', 'num', f'{j}')
+
+        # explicitly run gc to update spec stats and the inverted index number of entries.
+        forceInvokeGC(env, 'idx')
+
+        # num records should be equal to the number of indexed hashes.
+        info = index_info(env, 'idx')
+        env.assertEqual(hashes_number, int(info['num_records']), message = "expected ft.info:num_records")
+
+        # size in bytes shouldn't grow
+        env.assertEqual(expected_inverted_sz_mb, round(float(info['inverted_sz_mb']), 4), message = "expected ft.info:inverted_sz_mb")
+
+        # the tree depth was experimentally calculated, and should remain constant since we are using the same values.
+        numeric_tree = numeric_tree_summary(env, 'idx', 'num')
+        env.assertEqual(hashes_number, numeric_tree['numEntries'], message = "expected numEntries")
+        env.assertEqual(0, numeric_tree['emptyLeaves'], message = "expected emptyLeaves")
+        env.assertEqual(expected_root_max_depth, numeric_tree['RootMaxDepth'], message = "expected RootMaxDepth")
 
 def testCompression(env):
 	accuracy = 0.000001
@@ -64,7 +75,7 @@ def testSanity(env):
 		conn.execute_command('hset', i, 'n', i % 100)
 	env.expect('ft.search', 'idx', ('@n:[0 %d]' % (repeat)), 'limit', 0 ,0).equal([repeat])
 	env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'n') \
-				.equal(['numRanges', 15, 'numEntries', 100000, 'lastDocId', 100000, 'revisionId', 14])
+				.equal(['numRanges', 15, 'numEntries', 100000, 'lastDocId', 100000, 'revisionId', 14, 'emptyLeaves', 0, 'RootMaxDepth', 5])
 
 def testCompressionConfig(env):
 	env.skipOnCluster()
@@ -140,7 +151,7 @@ def testEmptyNumericLeakIncrease(env):
     env.assertGreater(num_summery_before['numRanges'], num_summery_after['numRanges'])
 
     # test for PR#3018. check `numEntries` is updated after GC
-    env.assertGreater(num_summery_before['numEntries'], num_summery_after['numEntries'])
+    env.assertEqual(docs, num_summery_after['numEntries'])
 
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
     env.assertEqual(res[0], docs)
@@ -155,7 +166,7 @@ def testEmptyNumericLeakCenter(env):
 	# Make sure GC is not triggerred sporadically (only manually)
     env.expect('FT.CONFIG', 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
     env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
-    
+
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
