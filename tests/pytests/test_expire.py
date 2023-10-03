@@ -56,8 +56,9 @@ def testExpireDocs(env):
                         empty_with_scores_and_explain_last, #  without sortby
                         empty_with_scores_and_explain_last] #  with sortby
 
-    expireDocs(env, False, # Without SORTABLE - since the fields are not SORTABLE, we need to load the results from Redis Keyspace
-                expected_results)
+    for isJson in [False, True]:
+        expireDocs(env, False, # Without SORTABLE - since the fields are not SORTABLE, we need to load the results from Redis Keyspace
+                expected_results, isJson)
 
 
 def testExpireDocsSortable(env):
@@ -76,13 +77,14 @@ def testExpireDocsSortable(env):
                         partial_with_scores_and_explain_last,  # without sortby
                         partial_with_scores_and_explain]       # with sortby
 
-    expireDocs(env, True,  # With SORTABLE -
+    for isJson in [False, True]:
+        expireDocs(env, True,  # With SORTABLE -
                # The documents data exists in the index.
                # Since we are not trying to load the document in the sorter, it is not discarded from the results,
                # but it is marked as deleted and we reply with None.
-               expected_results)
+               expected_results, isJson)
 
-def expireDocs(env, isSortable, expected_results):
+def expireDocs(env, isSortable, expected_results, isJson):
     '''
     This test creates an index and two documents
     We disable active expiration
@@ -102,10 +104,16 @@ def expireDocs(env, isSortable, expected_results):
         conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
         sortby_cmd = [] if i == 0 else ['SORTBY', 't']
         sortable_arg = [] if not isSortable else ['SORTABLE']
-        conn.execute_command(
-            'FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', *sortable_arg)
-        conn.execute_command('HSET', 'doc1', 't', 'bar')
-        conn.execute_command('HSET', 'doc2', 't', 'foo')
+        if isJson:
+            conn.execute_command(
+                'FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT', *sortable_arg)
+            conn.execute_command('JSON.SET', 'doc1', '$', '{"t":"bar"}')
+            conn.execute_command('JSON.SET', 'doc2', '$', '{"t":"foo"}')
+        else:
+            conn.execute_command(
+                'FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', *sortable_arg)
+            conn.execute_command('HSET', 'doc1', 't', 'bar')
+            conn.execute_command('HSET', 'doc2', 't', 'foo')
 
         # Both docs exist.
         res = conn.execute_command('FT.SEARCH', 'idx', '*')

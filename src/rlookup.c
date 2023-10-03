@@ -878,7 +878,9 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
 
   JSONResultsIterator jsonIter = NULL;
   RedisModuleCtx *ctx = options->sctx->redisCtx;
-  RedisJSON jsonRoot = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
+  RedisModuleString* keyName = RedisModule_CreateString(ctx, options->dmd->keyPtr, strlen(options->dmd->keyPtr));
+  RedisJSON jsonRoot = japi->openKey_withFlags(ctx, keyName, REDISMODULE_OPEN_KEY_NOEFFECTS);
+  RedisModule_FreeString(ctx, keyName);
   if (!jsonRoot) {
     goto done;
   }
