@@ -75,7 +75,9 @@ else
 			nick=ubuntu18.04
 		fi
 	elif [[ $dist == centos || $dist == redhat || $dist == fedora || $dist == rocky ]]; then
-		if [[ $nick == centos8 || $nick == rocky8 ]]; then
+		if [[ $nick == centos9 || $nick == ol9 || $nick == rocky9 || $nick == rhel9 ]]; then
+			nick="rhel9"
+		elif [[ $nick == centos8 || $nick == rocky8 ]]; then
 			nick="rhel8"
 		else
 			nick="rhel7"
