@@ -2,26 +2,24 @@
 title: "Vector similarity"
 linkTitle: "Vector similarity"
 weight: 15
-description: Learn how to use vector fields and vector similarity queries
+description: Use Redis as a vector database
 aliases:
   - /docs/stack/search/reference/vectors/
   - /redisearch/reference/vectors
 ---
-# Vector similarity search (VSS) using Redis as a vector database
-
 ## The unstructured data problem
 
 Today, about 80% of the data organizations generate is unstructured; data that either does not have a well-defined schema or cannot be restructured into a familiar columnar format. Typical examples of unstructured data include free-form text, images, videos, and sound clips. The amount of unstructured data is expected to grow in the coming decades.
 
 Unstructured data is high-dimensional and noisy, making it more challenging to analyze and interpret using traditional methods. But it is also packed with information and meaning.  
 
-Traditionally, unstructured data is processed to extract specific features, effectively turning it into structured data. Once in the realm of structured data, we can search the data with SQL queries (if stored in a relational database) or with a text search engine.
+Traditionally, unstructured data is processed to extract specific features, effectively turning it into structured data. Once in the realm of structured data, you can search the data with SQL queries (if stored in a relational database) or with a text search engine.
 
-The approach of transforming unstructured data into structured data has a few issues. First, engineering features out of unstructured data can be computationally expensive and error-prone, significantly delaying when we can effectively use the data. Second, some fidelity and information may be lost in the extraction/transformation process, because unique, latent features can't be easily categorized or quantified.
+The approach of transforming unstructured data into structured data has a few issues. First, engineering features out of unstructured data can be computationally expensive and error-prone, significantly delaying when you can effectively use the data. Second, some fidelity and information may be lost in the extraction/transformation process, because unique, latent features can't be easily categorized or quantified.
 
 ## Enter vector databases
 
-An approach to dealing with unstructured data is to vectorize the data. By vectorizing, we mean to somehow convert something like a text passage, an image, a video, or a song into a flat sequence of numbers representing a particular piece of data. These vectors are representations of the data in N-dimensional space. With vectorizing, we gain the ability to use linear algebra techniques to compare, group, and operate on our data. This is the foundation of a vector database; the ability to store and operate on vectors. This approach is not new and has been around for a long time. The difference today is how the techniques for generating the vectors have advanced.
+An approach to dealing with unstructured data is to vectorize the data. Vectorizing means to somehow convert something like a text passage, an image, a video, or a song into a flat sequence of numbers representing a particular piece of data. These vectors are representations of the data in N-dimensional space. Vectorizing provides the ability to use linear algebra techniques to compare, group, and operate on our data. This is the foundation of a vector database; the ability to store and operate on vectors. This approach is not new and has been around for a long time. The difference today is how the techniques for generating the vectors have advanced.
 
 ## Using machine learning embeddings as vectors
 
@@ -33,7 +31,7 @@ This is where advancements in machine learning, particularly deep learning, make
 
 ### Generate embeddings for the bikes dataset
 
-To investigate vector similarity, we'll use a subset of the **bikes** dataset, a relatively simple synthetic dataset. The dataset has 11 bicycle records in a JSON file named `bikes.json` and includes the fields `model`, `brand`, `price`, `type`, `specs`, and `description`. The `description` field is particularly interesting for our purposes since it consists of a free-form textual description of a bicycle.
+To investigate vector similarity, you'll use a subset of the **bikes** dataset, a relatively simple synthetic dataset. The dataset has 11 bicycle records in a JSON file named `bikes.json` and includes the fields `model`, `brand`, `price`, `type`, `specs`, and `description`. The `description` field is particularly interesting for our purposes since it consists of a free-form textual description of a bicycle.
 
 #### Before getting started with the code examples
 
@@ -63,14 +61,7 @@ Let's inspect the content of the JSON array in table form:
 | Jigger | Velorim | 270 | Kids bikes | {'material': 'aluminium', 'weight': '10'} | Small and powerful, the Jigger is the best rid... |
 | Hillcraft | Bicyk | 1200 | Kids Mountain Bikes | {'material': 'carbon', 'weight': '11'} | Kids want to ride with as little weight as pos... |
 | Chook air 5 | Nord | 815 | Kids Mountain Bikes | {'material': 'alloy', 'weight': '9.1'} | The Chook Air 5  gives kids aged six years and... |
-| Eva 291 | Eva | 3400 | Mountain Bikes | {'material': 'carbon', 'weight': '9.1'} | The sister company to Nord, Eva launched in 20... |
-| Kahuna | Noka Bikes | 3200 | Mountain Bikes | {'material': 'alloy', 'weight': '9.8'} | Whether you want to try your hand at XC racing... |
-| XBN 2.1 Alloy | Breakout | 810 | Road Bikes | {'material': 'alloy', 'weight': '7.2'} | The XBN 2.1 Alloy is our entry-level road bike... |
-| WattBike | ScramBikes | 2300 | eBikes | {'material': 'alloy', 'weight': '15'} | The WattBike is the best e-bike for people who... |
-| Soothe Electric bike | Peaknetic | 1950 | eBikes | {'material': 'alloy', 'weight': '14.7'} | The Soothe is an everyday electric bike, from ... |
-| Secto | Peaknetic | 430 | Commuter bikes | {'material': 'aluminium', 'weight': '10.0'} | If you struggle with stiff fingers or a kinked... |
-| Summit | nHill | 1200 | Mountain Bike | {'material': 'alloy', 'weight': '11.3'} | This budget mountain bike from nHill performs ... |
-| ThrillCycle | BikeShind | 815 | Commuter Bikes | {'material': 'alloy', 'weight': '12.7'} | An artsy,  retro-inspired bicycle that’s as fu... |
+`...`
 
 Let's take a look at the structure of one of our bike JSON documents:
 
@@ -92,11 +83,11 @@ Let's take a look at the structure of one of our bike JSON documents:
 
 #### Generating text embeddings using SentenceTransformers
 
-We will use the [SentenceTransformers](https://www.sbert.net/) framework to generate embeddings for the bikes descriptions. Sentence-BERT (SBERT) is a [BERT](https://en.wikipedia.org/wiki/BERT_(language_model)) model modification that produces consistent and contextually rich sentence embeddings. SBERT improves tasks like semantic search and text grouping by allowing for efficient and meaningful comparison of sentence-level semantic similarity.
+You will use the [SentenceTransformers](https://www.sbert.net/) framework to generate embeddings for the bikes descriptions. Sentence-BERT (SBERT) is a [BERT](https://en.wikipedia.org/wiki/BERT_(language_model)) model modification that produces consistent and contextually rich sentence embeddings. SBERT improves tasks like semantic search and text grouping by allowing for efficient and meaningful comparison of sentence-level semantic similarity.
 
 ### Selecting a suitable pre-trained model
 
-We must pick a suitable model based on the task at hand when generating embeddings. In our case, we want to query for bicycles using short sentences against the longer bicycle descriptions. This is referred to as **asymmetric semantic search**, often employed in cases where the search query and the documents being searched are of a different nature or structure. Suitable models for asymmetric semantic search include pre-trained [MS MARCO](https://microsoft.github.io/msmarco/) models. MS MARCO models are optimized for understanding real-world queries and retrieving relevant responses. They are widely used in search engines, chatbots, and other AI applications. At the time this tutorial was written, the highest performing MS MARCO model tuned for cosine-similarity available in the SentenceTranformers package is `msmarco-distilbert-base-v4`. 
+You must pick a suitable model based on the task at hand when generating embeddings. In this case, you want to query for bicycles using short sentences against the longer bicycle descriptions. This is referred to as **asymmetric semantic search**, often employed in cases where the search query and the documents being searched are of a different nature or structure. Suitable models for asymmetric semantic search include pre-trained [MS MARCO](https://microsoft.github.io/msmarco/) models. MS MARCO models are optimized for understanding real-world queries and retrieving relevant responses. They are widely used in search engines, chatbots, and other AI applications. At the time this tutorial was written, the highest performing MS MARCO model tuned for cosine-similarity available in the SentenceTranformers package is `msmarco-distilbert-base-v4`. 
 
 Let's load the model using the `SentenceTransformer` function:
 
@@ -117,17 +108,10 @@ print(wrapped_sample_description)
 ['Small and powerful, the Jigger is the best ride for the smallest of tikes! This is the tiniest kids’ pedal bike on the',
  'market available without a coaster brake, the Jigger is the vehicle of choice for the rare tenacious little rider raring',
  'to go. We say rare because this smokin’ little bike is not ideal for a nervous first-time rider, but it’s a true giddy',
- 'up for a true speedster. The Jigger is a 12 inch lightweight kids bicycle and it will meet your little one’s need for',
- 'speed. It’s a single speed bike that makes learning to pump pedals simple and intuitive. It even has  a handle in the',
- 'bottom of the saddle so you can easily help your child during training!  The Jigger is among the most lightweight',
- 'children’s bikes on the planet. It is designed so that 2-3 year-olds fit comfortably in a molded ride position that',
- 'allows for efficient riding, balanced handling and agility. The Jigger’s frame design and gears work together so your',
- 'buddingbiker can stand up out of the seat, stop rapidly, rip over trails and pump tracks. The Jigger’s is amazing on',
- 'dirt or pavement. Your tike will speed down the bike path in no time. The Jigger will ship with a coaster brake. A',
- 'freewheel kit is provided at no cost.']
+ ...]
 ```
 
-To generate the vector embeddings, we use the `encode` function:
+To generate the vector embeddings, use the `encode` function:
 
 ```python
 embedding = embedder.encode(sample_description)
@@ -155,15 +139,15 @@ The chosen model generates vector embeddings of length `768` regardless of the l
 
 There are many ways to install and run Redis. See [Install Redis Stack](https://redis.io/docs/getting-started/install-stack/) for more information.
 
-Now that we know how to vectorize the bikes descriptions, it's time to start working with Redis.
+Now that you know how to vectorize the bikes descriptions, it's time to start working with Redis.
 
 ### Redis Python client
 
-To interact with Redis, we'll install the [redis-py](https://github.com/redis/redis-py) client library, which encapsulates the commands to work with OSS Redis as well as Redis Stack. For an overview of how to use `redis-py`, see the [Redis Python Guide](https://redis.io/docs/clients/python/).
+To interact with Redis, install the [redis-py](https://github.com/redis/redis-py) client library, which encapsulates the commands to work with OSS Redis as well as Redis Stack. For an overview of how to use `redis-py`, see the [Redis Python Guide](https://redis.io/docs/clients/python/).
 
 #### Create a `redis-py` client and test the server
 
-We'll instantiate the Redis client, connecting to the localhost on Redis' default port `6379`. By default, Redis returns binary responses; to decode them, we'll pass the `decode_responses` parameter set to `True`:
+Instantiate the Redis client, connecting to the localhost on Redis' default port `6379`. By default, Redis returns binary responses; to decode them, you'll pass the `decode_responses` parameter set to `True`:
 
 {{< clients-example search_vss connect />}}
 
@@ -173,7 +157,7 @@ Let's use Redis' [PING](https://redis.io/commands/ping/) command to check that R
 
 ### Storing the bikes as JSON documents in Redis
 
-Redis Stack includes a [JSON](https://redis.io/docs/stack/json/) data type. Like any other Redis data type, the JSON datatype allows you to use Redis commands to save, update, and retrieve JSON values. Since we already have the bikes data loaded in memory as the `bikes` JSON array. We will iterate over `bikes`, generate a suitable Redis key and store them in Redis using the [JSON.SET](https://redis.io/commands/json.set/) command. We'll do this using a [pipeline](https://redis.io/docs/manual/pipelining/) to minimize the round-trip times:
+Redis Stack includes a [JSON](https://redis.io/docs/stack/json/) data type. Like any other Redis data type, the JSON datatype allows you to use Redis commands to save, update, and retrieve JSON values. The bikes data is already loaded in memory as the `bikes` JSON array. You will iterate over `bikes`, generate a suitable Redis key and store them in Redis using the [JSON.SET](https://redis.io/commands/json.set/) command. You'll do this using a [pipeline](https://redis.io/docs/manual/pipelining/) to minimize the round-trip times:
 
 {{< clients-example search_vss load_data />}}
 
@@ -181,21 +165,21 @@ Let's retrieve a specific value from one of the JSON bikes in Redis using a [JSO
 
 {{< clients-example search_vss get />}}
 
-### Vectorize all of the Bikes descriptions
+### Vectorize all of the bike descriptions
 
-To vectorize all the descriptions in the database, we will first collect all the Redis keys for the bikes. Then 
+To vectorize all the descriptions in the database, first collect all the Redis keys for the bikes.
 
 {{< clients-example search_vss get_keys />}}
 
-We'll use the keys as a parameter to the [JSON.MGET](https://redis.io/commands/json.mget/) command, along with the JSONPath expression `$.description` to collect the descriptions in a list. We will then pass the list to the `encode` method to get a list of vectorized embeddings:
+Next, use the keys as a parameter to the [JSON.MGET](https://redis.io/commands/json.mget/) command, along with the JSONPath expression `$.description` to collect the descriptions in a list. Then, pass the list to the `encode` method to get a list of vectorized embeddings:
 
 {{< clients-example search_vss generate_embeddings />}}
 
-Now we can add the vectorized descriptions to the JSON documents in Redis using the `JSON.SET` command to insert a new field in each of the documents under the JSONPath `$.description_embeddings`. Once again we'll do this using a pipeline:
+Now you can add the vectorized descriptions to the JSON documents in Redis using the `JSON.SET` command to insert a new field in each of the documents under the JSONPath `$.description_embeddings`. Once again, you'll do this using a pipeline:
 
 {{< clients-example search_vss load_embeddings />}}
 
-Let's inspect one of the vectorized bike documents using the `JSON.GET` command:
+Inspect one of the vectorized bike documents using the `JSON.GET` command:
 
 {{< clients-example search_vss dump_example />}}
 
@@ -205,7 +189,7 @@ When storing a vector embedding as part of a JSON datatype, the embedding is sto
 
 Redis Stack provides a [powerful search engine](https://redis.io/docs/stack/search/) that introduces [commands](https://redis.io/commands/?group=search) to create and maintain search indexes for both collections of HASHES and [JSON](https://redis.io/docs/stack/search/indexing_json/) documents.
 
-To create a search index for the bikes collection, we'll use the [FT.CREATE](https://redis.io/commands/ft.create/) command:
+To create a search index for the bikes collection, use the [FT.CREATE](https://redis.io/commands/ft.create/) command:
 
 {{< clients-example search_vss create_index >}}
 1️⃣ FT.CREATE idx:bikes_vss ON JSON 
@@ -219,9 +203,9 @@ To create a search index for the bikes collection, we'll use the [FT.CREATE](htt
 9️⃣    $.description_embeddings AS vector VECTOR FLAT 6 TYPE FLOAT32 DIM 768 DISTANCE_METRIC COSINE
 {{< /clients-example >}}
 
-There is a lot to unpack here, so let's take it from the top:
+More detail on each step:
 
-1. We start by specifying the name of the index; `idx:bikes` indexing keys of type `JSON`.
+1. Specify the name of the index; `idx:bikes` indexing keys of type `JSON`.
 1. The keys being indexed are found using the `bikes:` key prefix.
 1. The `SCHEMA` keyword marks the beginning of the schema field definitions.
 1. Declares that field in the JSON document at the JSONPath `$.model` will be indexed as a `TEXT` field, allowing full-text search queries (disabling stemming).
@@ -231,11 +215,11 @@ There is a lot to unpack here, so let's take it from the top:
 1. The `$.description` field will also be indexed as a `TEXT` field
 1. Finally, the vector embeddings in `$.description_embeddings` are indexed as a `VECTOR` field and assigned to the alias `vector`. 
   
-Let's break down the `VECTOR` schema field definition to better understand the inner workings of vector similarity in Redis:
+Here's a break down of the `VECTOR` schema field definition to better understand the inner workings of vector similarity in Redis:
 
 * `FLAT`: Specifies the indexing method, which can be `FLAT` or `HNSW`. FLAT (brute-force indexing) provides exact results but at a higher computational cost, while HNSW (Hierarchical Navigable Small World) is a more efficient method that provides approximate results with lower computational overhead.
 * `TYPE`: Set to `FLOAT32`. Current supported types are `FLOAT32` and `FLOAT64`.
-* `DIM`: The length or dimension of our embeddings, which we determined previosly to be `768`.
+* `DIM`: The length or dimension of the embeddings, which you determined previously to be `768`.
 * `DISTANCE_METRIC`: One of `L2`, `IP`, `COSINE`. 
   - `L2` stands for Euclidean distance, a straight-line distance between the vectors. Preferred when the absolute differences, including magnitude, matter most.
   - `IP` stands for inner product; `IP` measures the projection of one vector onto another. It emphasizes the angle between vectors rather than their absolute positions in the vector space.
@@ -244,7 +228,7 @@ Let's break down the `VECTOR` schema field definition to better understand the i
 
 #### Check the state of the index
 
-After the `FT.CREATE` command creates the index, the indexing process is automatically started in the background. In a short amount of time, our 11 JSON documents should be indexed and ready to be searched. To validate that, we use the [FT.INFO](https://redis.io/commands/ft.info/) command to check some information and statistics of the index. Of particular interest are the number of documents successfully indexed and the number of failures:  
+After the `FT.CREATE` command creates the index, the indexing process is automatically started in the background. In a short amount of time, all eleven JSON documents should be indexed and ready to be searched. To validate that, use the [FT.INFO](https://redis.io/commands/ft.info/) command to check some information and statistics of the index. Of particular interest are the number of documents successfully indexed and the number of failures:  
 
 {{< clients-example search_vss validate_index >}}
 FT_INFO idx:bikes_vss
@@ -252,46 +236,46 @@ FT_INFO idx:bikes_vss
 
 ### Structured data searches with Redis
 
-The index `idx:bikes_vss` indexes the structured fields of our JSON documents `model`, `brand`, `price`, and `type`. It also indexes the unstructured free-form text `description` and the generated embeddings in `description_embeddings`. Before we dive deeper into Vector Similarity Search (VSS), we need to understand the basics of querying a Redis index. The Redis command of interest is [FT.SEARCH](https://redis.io/commands/ft.search/). Like a SQL `select` statement, an `FT.SEARCH` statement can be as simple or as complex as needed. 
+The index `idx:bikes_vss` indexes the structured fields of our JSON documents `model`, `brand`, `price`, and `type`. It also indexes the unstructured free-form text `description` and the generated embeddings in `description_embeddings`. Before diving deeper into Vector Similarity Search (VSS), you need to understand the basics of querying a Redis index. The Redis command of interest is [FT.SEARCH](https://redis.io/commands/ft.search/). Like a SQL `select` statement, an `FT.SEARCH` statement can be as simple or as complex as needed. 
 
-Let's try a few simple queries that give enough context to complete our VSS examples. For example, to retrieve all bikes where the `brand` is `Peaknetic`, we can use the following command:
+Here are a few simple queries that give enough context to complete the VSS examples. For example, to retrieve all bikes where the `brand` is `Peaknetic`, use the following command:
 
 {{< clients-example search_vss simple_query_1 >}}
 FT.SEARCH idx:bikes_vss '@brand:Peaknetic'
 {{< /clients-example >}}
 
-This command will return all matching documents. With the inclusion of the vector embeddings, that's a little too verbose. If we wanted only to return specific fields from our JSON documents, for example, the document `id`, the `brand`, `model` and `price`, we could use:
+This command will return all matching documents. With the inclusion of the vector embeddings, that's a little too verbose. If you only wanted to return specific fields from the JSON documents, for example, the document `id`, the `brand`, `model` and `price`, you could use:
 
 {{< clients-example search_vss simple_query_2 >}}
 FT.SEARCH idx:bikes_vss '@brand:Peaknetic' RETURN 4 id, brand, model, price
 {{< /clients-example >}}
 
-In this query, we are searching against a schema field of type `TEXT`.
+In this query, you are searching against a schema field of type `TEXT`.
 
-Let's say we only wanted bikes under $1000. We can add a numeric range clause to our query since the `price` field is indexed as `NUMERIC`:
+If you wanted a list of bikes under $1000, you can add a numeric range clause to the query since the `price` field is indexed as `NUMERIC`:
 
 {{< clients-example search_vss simple_query_3 />}}
 
 ### Semantic searching with VSS
 
-Now that the bikes collection is stored and properly indexed in Redis, we want to query it using short query prompts. Let's put our queries in a list so we can execute them in bulk:
+Now that the bikes collection is stored and properly indexed in Redis, you can query it using short query prompts. Arrange your queries in a list so you can execute them in bulk:
 
 {{< clients-example search_vss def_bulk_queries />}}
 
-We need to encode the query prompts to query the database using VSS. Just like we did with the descriptions of the bikes, we'll use the SentenceTransformers model to encode the queries:
+You need to encode the query prompts to query the database using VSS. Just like you did with the descriptions of the bikes, you'll use the SentenceTransformers model to encode the queries:
 
 {{< clients-example search_vss enc_bulk_queries />}}
 
 #### Constructing a pure K-nearest neighbors (KNN) VSS query
 
-We'll start with a KNN query. KNN is a foundational algorithm used in VSS, where the goal is to find the most similar items to a given query item. Using the chosen distance metric, the KNN algorithm calculates the distance between the query vector and each vector in the database. It then returns the K items with the smallest distances to the query vector. These are the most similar items.
+Start with a KNN query. KNN is a foundational algorithm used in VSS, where the goal is to find the most similar items to a given query item. Using the chosen distance metric, the KNN algorithm calculates the distance between the query vector and each vector in the database. It then returns the K items with the smallest distances to the query vector. These are the most similar items.
 
 The syntax for vector similarity KNN queries is `(*)=>[<vector_similarity_query>]` where the `(*)` (the `*` meaning all) is the filter query for the search engine. That way, one can reduce the search space by filtering the collection on which the KNN algorithm operates. 
 
-* The `$query_vector` represents the query parameter we'll use to pass the vectorized query prompt.
+* The `$query_vector` represents the query parameter you'll use to pass the vectorized query prompt.
 * The results will be filtered by `vector_score`, which is a field derived from the name of the field indexed as a vector by appending `_score` to it, in our case, `vector` (the alias for `$.description_embeddings`). 
 * Our query will return the `vector_score`, the `id`s of the matched documents, and the `$.brand`, `$.model`, and `$.description`. 
-* Finally, to utilize a vector similarity query with the `FT.SEARCH` command, we must specify DIALECT 2 or greater.
+* Finally, to utilize a vector similarity query with the `FT.SEARCH` command, you must specify DIALECT 2 or greater.
 
 ```python
 query = (
@@ -302,15 +286,15 @@ query = (
 )
 ```
 
-We pass the vectorized query as `$query_vector` to the search function to execute the query. The following code shows an example of creating a NumPy array from a vectorized query prompt (`encoded_query`) as a single precision floating point array and converting it into a compact, byte-level representation that we can pass as a Redis parameter:
+Pass the vectorized query as `$query_vector` to the search function to execute the query. The following code shows an example of creating a Python NumPy array from a vectorized query prompt (`encoded_query`) as a single precision floating point array and converting it into a compact, byte-level representation that can be passed as a Redis parameter:
 
 ```python
 client.ft(INDEX_NAME).search(query, { 'query_vector': np.array(encoded_query, dtype=np.float32).tobytes() }).docs
 ```
 
-With the template for the query in place, we can use Python to execute all query prompts in a loop, passing the vectorized query prompts. Notice that for each result we calculate the `vector_score` as `1 - doc.vector_score`, since we use cosine "distance" as the metric, the items with the smallest "distance" are closer and therefore more similar to our query. 
+With the template for the query in place, use Python to execute all query prompts in a loop, passing the vectorized query prompts. Notice that for each result, the script calculates the `vector_score` as `1 - doc.vector_score`. Because cosine "distance" is used as the metric, the items with the smallest "distance" are closer and therefore more similar to the query. 
 
-We will then loop over the matched documents and create a list of results we can convert into a Pandas table to visualize the results:
+Then loop over the matched documents and create a list of results that can be converted into a Pandas table to visualize the results:
 
 {{< clients-example search_vss define_bulk_query />}}
 
@@ -318,7 +302,7 @@ The query results show the individual queries' top 3 matches (our K parameter) a
 
 > "The Chook Air 5 gives kids aged six years and older a durable and uberlight mountain bike for their first experience on tracks and easy cruising through forests and fields. The lower top tube makes it easy to mount and dismount in any situation, giving your kids greater safety on the trails. The Chook Air 5 is the perfect intro to mountain biking."
 
-From the description, we gather that this bike is an excellent match for younger children, and the MS MARCO model-generated embeddings seem to have captured the semantics of the description accurately.
+From the description, this bike is an excellent match for younger children, and the MS MARCO model-generated embeddings seem to have captured the semantics of the description accurately.
 
 {{< clients-example search_vss run_knn_query />}}
 
@@ -327,38 +311,9 @@ From the description, we gather that this bike is an excellent match for younger
 | Best Mountain bikes for kids | 0.54 | bikes:003 | Nord | Chook air 5 | The Chook Air 5  gives kids aged six years and older a durable and uberlight mountain bike for their first experience on tracks and easy cruising through forests and fields. The lower  top tube makes it easy to mount and dismount in any situation, giving your kids greater safety on the trails. The Chook Air 5 is the perfect intro to mountain biking. |
 |  | 0.51 | bikes:010 | nHill | Summit | This budget mountain bike from nHill performs well both on bike paths and on the trail. The fork with 100mm of travel absorbs rough terrain. Fat Kenda Booster tires give you grip in corners and on wet trails. The Shimano Tourney drivetrain offered enough gears for finding a comfortable pace to ride uphill, and the Tektro hydraulic disc brakes break smoothly. Whether you want an affordable bike that you can take to work, but also take trail riding on the weekends or you’re just after a stable,... |
 |  | 0.46 | bikes:001 | Velorim | Jigger | Small and powerful, the Jigger is the best ride for the smallest of tikes! This is the tiniest kids’ pedal bike on the market available without a coaster brake, the Jigger is the vehicle of choice for the rare tenacious little rider raring to go. We say rare because this smokin’ little bike is not ideal for a nervous first-time rider, but it’s a true giddy up for a true speedster. The Jigger is a 12 inch lightweight kids bicycle and it will meet your little one’s need for speed. It’s a single... |
-| Bike for small kids | 0.52 | bikes:001 | Velorim | Jigger | Small and powerful, the Jigger is the best ride for the smallest of tikes! This is the tiniest kids’ pedal bike on the market available without a coaster brake, the Jigger is the vehicle of choice for the rare tenacious little rider raring to go. We say rare because this smokin’ little bike is not ideal for a nervous first-time rider, but it’s a true giddy up for a true speedster. The Jigger is a 12 inch lightweight kids bicycle and it will meet your little one’s need for speed. It’s a single... |
-|  | 0.45 | bikes:007 | ScramBikes | WattBike | The WattBike is the best e-bike for people who still feel young at heart. It has a  Bafang 500 watt geared hub motor that can reach 20 miles per hour on both steep inclines and city streets. The lithium-ion battery, which gets nearly 40 miles per charge, has a lightweight form factor, making it easier for seniors to use. It comes fully assembled (no convoluted instructions!) and includes a sturdy helmet at no cost. The Plush saddle softens over time with use. The included Seatpost, however, i... |
-|  | 0.41 | bikes:003 | Nord | Chook air 5 | The Chook Air 5  gives kids aged six years and older a durable and uberlight mountain bike for their first experience on tracks and easy cruising through forests and fields. The lower  top tube makes it easy to mount and dismount in any situation, giving your kids greater safety on the trails. The Chook Air 5 is the perfect intro to mountain biking. |
-| Cheap Mountain bike for kids | 0.49 | bikes:003 | Nord | Chook air 5 | The Chook Air 5  gives kids aged six years and older a durable and uberlight mountain bike for their first experience on tracks and easy cruising through forests and fields. The lower  top tube makes it easy to mount and dismount in any situation, giving your kids greater safety on the trails. The Chook Air 5 is the perfect intro to mountain biking. |
-|  | 0.45 | bikes:010 | nHill | Summit | This budget mountain bike from nHill performs well both on bike paths and on the trail. The fork with 100mm of travel absorbs rough terrain. Fat Kenda Booster tires give you grip in corners and on wet trails. The Shimano Tourney drivetrain offered enough gears for finding a comfortable pace to ride uphill, and the Tektro hydraulic disc brakes break smoothly. Whether you want an affordable bike that you can take to work, but also take trail riding on the weekends or you’re just after a stable,... |
-|  | 0.39 | bikes:001 | Velorim | Jigger | Small and powerful, the Jigger is the best ride for the smallest of tikes! This is the tiniest kids’ pedal bike on the market available without a coaster brake, the Jigger is the vehicle of choice for the rare tenacious little rider raring to go. We say rare because this smokin’ little bike is not ideal for a nervous first-time rider, but it’s a true giddy up for a true speedster. The Jigger is a 12 inch lightweight kids bicycle and it will meet your little one’s need for speed. It’s a single... |
-| Comfortable city bike | 0.45 | bikes:007 | ScramBikes | WattBike | The WattBike is the best e-bike for people who still feel young at heart. It has a  Bafang 500 watt geared hub motor that can reach 20 miles per hour on both steep inclines and city streets. The lithium-ion battery, which gets nearly 40 miles per charge, has a lightweight form factor, making it easier for seniors to use. It comes fully assembled (no convoluted instructions!) and includes a sturdy helmet at no cost. The Plush saddle softens over time with use. The included Seatpost, however, i... |
-|  | 0.44 | bikes:006 | Breakout | XBN 2.1 Alloy | The XBN 2.1 Alloy is our entry-level road bike – but that’s not to say that it’s a basic machine. With an internal weld aluminium frame, a full carbon fork, and the slick-shifting Claris gears from Shimano’s, this is a bike which doesn’t break the bank and delivers craved performance. The 6061 alloy frame is triple-butted which ensures a lighter weight and smoother ride. And it’s comfortable with dropped seat stays and the carbon fork. The carefully crafted 50-34 tooth chainset and 11-32 toot... |
-|  | 0.42 | bikes:008 | Peaknetic | Soothe Electric bike | The Soothe is an everyday electric bike, from the makers of Exercycle  bikes, that conveys style while you get around the city. The Soothe lives up to its name by keeping your posture upright and relaxed for the ride ahead, keeping those aches and pains from riding at bay. It includes a low-step frame , our memory foam seat, bump-resistant shocks and conveniently placed thumb throttle. |
-| Comfortable commuter bike | 0.47 | bikes:008 | Peaknetic | Soothe Electric bike | The Soothe is an everyday electric bike, from the makers of Exercycle  bikes, that conveys style while you get around the city. The Soothe lives up to its name by keeping your posture upright and relaxed for the ride ahead, keeping those aches and pains from riding at bay. It includes a low-step frame , our memory foam seat, bump-resistant shocks and conveniently placed thumb throttle. |
-|  | 0.47 | bikes:007 | ScramBikes | WattBike | The WattBike is the best e-bike for people who still feel young at heart. It has a  Bafang 500 watt geared hub motor that can reach 20 miles per hour on both steep inclines and city streets. The lithium-ion battery, which gets nearly 40 miles per charge, has a lightweight form factor, making it easier for seniors to use. It comes fully assembled (no convoluted instructions!) and includes a sturdy helmet at no cost. The Plush saddle softens over time with use. The included Seatpost, however, i... |
-|  | 0.41 | bikes:006 | Breakout | XBN 2.1 Alloy | The XBN 2.1 Alloy is our entry-level road bike – but that’s not to say that it’s a basic machine. With an internal weld aluminium frame, a full carbon fork, and the slick-shifting Claris gears from Shimano’s, this is a bike which doesn’t break the bank and delivers craved performance. The 6061 alloy frame is triple-butted which ensures a lighter weight and smoother ride. And it’s comfortable with dropped seat stays and the carbon fork. The carefully crafted 50-34 tooth chainset and 11-32 toot... |
-| Commuter bike for people over 60 | 0.48 | bikes:007 | ScramBikes | WattBike | The WattBike is the best e-bike for people who still feel young at heart. It has a  Bafang 500 watt geared hub motor that can reach 20 miles per hour on both steep inclines and city streets. The lithium-ion battery, which gets nearly 40 miles per charge, has a lightweight form factor, making it easier for seniors to use. It comes fully assembled (no convoluted instructions!) and includes a sturdy helmet at no cost. The Plush saddle softens over time with use. The included Seatpost, however, i... |
-|  | 0.42 | bikes:011 | BikeShind | ThrillCycle | An artsy,  retro-inspired bicycle that’s as functional as it is pretty: The ThrillCycle steel frame offers a smooth ride. A 9-speed drivetrain has enough gears for coasting in the city, but we wouldn’t suggest taking it to the mountains. Fenders protect you from mud, and a rear basket lets you transport groceries, flowers and books. The ThrillCycle comes with a limited lifetime warranty, so this little guy will last you long past graduation. |
-|  | 0.37 | bikes:006 | Breakout | XBN 2.1 Alloy | The XBN 2.1 Alloy is our entry-level road bike – but that’s not to say that it’s a basic machine. With an internal weld aluminium frame, a full carbon fork, and the slick-shifting Claris gears from Shimano’s, this is a bike which doesn’t break the bank and delivers craved performance. The 6061 alloy frame is triple-butted which ensures a lighter weight and smoother ride. And it’s comfortable with dropped seat stays and the carbon fork. The carefully crafted 50-34 tooth chainset and 11-32 toot... |
-| Female specific mountain bike | 0.47 | bikes:005 | Noka Bikes | Kahuna | Whether you want to try your hand at XC racing or are looking for a lively trail bike that's just as inspiring on the climbs as it is over rougher ground, the Wilder is one heck of a bike built specifically for short women. Both the frames and components have been tweaked to include a women’s saddle, different bars and unique colourway. |
-|  | 0.39 | bikes:004 | Eva | Eva 291 | The sister company to Nord, Eva launched in 2005 as the first and only women-dedicated bicycle brand. Designed by women for women, allEva bikes are optimized for the feminine physique using analytics from a body metrics database. If you like 29ers, try the Eva 291. It’s a brand new bike for 2022.. This full-suspension, cross-country ride has been designed for velocity. The 291 has 100mm of front and rear travel, a superlight aluminum frame and fast-rolling 29-inch wheels. Yippee! |
-|  | 0.32 | bikes:010 | nHill | Summit | This budget mountain bike from nHill performs well both on bike paths and on the trail. The fork with 100mm of travel absorbs rough terrain. Fat Kenda Booster tires give you grip in corners and on wet trails. The Shimano Tourney drivetrain offered enough gears for finding a comfortable pace to ride uphill, and the Tektro hydraulic disc brakes break smoothly. Whether you want an affordable bike that you can take to work, but also take trail riding on the weekends or you’re just after a stable,... |
-| Good bike for college students | 0.47 | bikes:007 | ScramBikes | WattBike | The WattBike is the best e-bike for people who still feel young at heart. It has a  Bafang 500 watt geared hub motor that can reach 20 miles per hour on both steep inclines and city streets. The lithium-ion battery, which gets nearly 40 miles per charge, has a lightweight form factor, making it easier for seniors to use. It comes fully assembled (no convoluted instructions!) and includes a sturdy helmet at no cost. The Plush saddle softens over time with use. The included Seatpost, however, i... |
-|  | 0.43 | bikes:006 | Breakout | XBN 2.1 Alloy | The XBN 2.1 Alloy is our entry-level road bike – but that’s not to say that it’s a basic machine. With an internal weld aluminium frame, a full carbon fork, and the slick-shifting Claris gears from Shimano’s, this is a bike which doesn’t break the bank and delivers craved performance. The 6061 alloy frame is triple-butted which ensures a lighter weight and smoother ride. And it’s comfortable with dropped seat stays and the carbon fork. The carefully crafted 50-34 tooth chainset and 11-32 toot... |
-|  | 0.40 | bikes:010 | nHill | Summit | This budget mountain bike from nHill performs well both on bike paths and on the trail. The fork with 100mm of travel absorbs rough terrain. Fat Kenda Booster tires give you grip in corners and on wet trails. The Shimano Tourney drivetrain offered enough gears for finding a comfortable pace to ride uphill, and the Tektro hydraulic disc brakes break smoothly. Whether you want an affordable bike that you can take to work, but also take trail riding on the weekends or you’re just after a stable,... |
-| Mountain bike for beginners | 0.54 | bikes:010 | nHill | Summit | This budget mountain bike from nHill performs well both on bike paths and on the trail. The fork with 100mm of travel absorbs rough terrain. Fat Kenda Booster tires give you grip in corners and on wet trails. The Shimano Tourney drivetrain offered enough gears for finding a comfortable pace to ride uphill, and the Tektro hydraulic disc brakes break smoothly. Whether you want an affordable bike that you can take to work, but also take trail riding on the weekends or you’re just after a stable,... |
-|  | 0.49 | bikes:003 | Nord | Chook air 5 | The Chook Air 5  gives kids aged six years and older a durable and uberlight mountain bike for their first experience on tracks and easy cruising through forests and fields. The lower  top tube makes it easy to mount and dismount in any situation, giving your kids greater safety on the trails. The Chook Air 5 is the perfect intro to mountain biking. |
-|  | 0.42 | bikes:008 | Peaknetic | Soothe Electric bike | The Soothe is an everyday electric bike, from the makers of Exercycle  bikes, that conveys style while you get around the city. The Soothe lives up to its name by keeping your posture upright and relaxed for the ride ahead, keeping those aches and pains from riding at bay. It includes a low-step frame , our memory foam seat, bump-resistant shocks and conveniently placed thumb throttle. |
-| Road bike for beginners | 0.45 | bikes:010 | nHill | Summit | This budget mountain bike from nHill performs well both on bike paths and on the trail. The fork with 100mm of travel absorbs rough terrain. Fat Kenda Booster tires give you grip in corners and on wet trails. The Shimano Tourney drivetrain offered enough gears for finding a comfortable pace to ride uphill, and the Tektro hydraulic disc brakes break smoothly. Whether you want an affordable bike that you can take to work, but also take trail riding on the weekends or you’re just after a stable,... |
-|  | 0.44 | bikes:008 | Peaknetic | Soothe Electric bike | The Soothe is an everyday electric bike, from the makers of Exercycle  bikes, that conveys style while you get around the city. The Soothe lives up to its name by keeping your posture upright and relaxed for the ride ahead, keeping those aches and pains from riding at bay. It includes a low-step frame , our memory foam seat, bump-resistant shocks and conveniently placed thumb throttle. |
-|  | 0.44 | bikes:011 | BikeShind | ThrillCycle | An artsy,  retro-inspired bicycle that’s as functional as it is pretty: The ThrillCycle steel frame offers a smooth ride. A 9-speed drivetrain has enough gears for coasting in the city, but we wouldn’t suggest taking it to the mountains. Fenders protect you from mud, and a rear basket lets you transport groceries, flowers and books. The ThrillCycle comes with a limited lifetime warranty, so this little guy will last you long past graduation. |
-| Vintage bike | 0.42 | bikes:011 | BikeShind | ThrillCycle | An artsy,  retro-inspired bicycle that’s as functional as it is pretty: The ThrillCycle steel frame offers a smooth ride. A 9-speed drivetrain has enough gears for coasting in the city, but we wouldn’t suggest taking it to the mountains. Fenders protect you from mud, and a rear basket lets you transport groceries, flowers and books. The ThrillCycle comes with a limited lifetime warranty, so this little guy will last you long past graduation. |
-|  | 0.41 | bikes:007 | ScramBikes | WattBike | The WattBike is the best e-bike for people who still feel young at heart. It has a  Bafang 500 watt geared hub motor that can reach 20 miles per hour on both steep inclines and city streets. The lithium-ion battery, which gets nearly 40 miles per charge, has a lightweight form factor, making it easier for seniors to use. It comes fully assembled (no convoluted instructions!) and includes a sturdy helmet at no cost. The Plush saddle softens over time with use. The included Seatpost, however, i... |
-|  | 0.35 | bikes:006 | Breakout | XBN 2.1 Alloy | The XBN 2.1 Alloy is our entry-level road bike – but that’s not to say that it’s a basic machine. With an internal weld aluminium frame, a full carbon fork, and the slick-shifting Claris gears from Shimano’s, this is a bike which doesn’t break the bank and delivers craved performance. The 6061 alloy frame is triple-butted which ensures a lighter weight and smoother ride. And it’s comfortable with dropped seat stays and the carbon fork. The carefully crafted 50-34 tooth chainset and 11-32 toot... |
+`...`
 
-Sometimes, a picture is worth a thousand words. Using the dimensionality reduction technique [t-SNE](https://en.wikipedia.org/wiki/T-distributed_stochastic_neighbor_embedding) we can create a 3-d representation of our description embeddings, as well as the query embeddings which shows how well the MS MARCO sentence embeddings clustered our bicycle descriptions and we can visually judge a query's distance to a specific bike:
+Using the dimensionality reduction technique [t-SNE](https://en.wikipedia.org/wiki/T-distributed_stochastic_neighbor_embedding) you can create a 3-d representation of our description embeddings, as well as the query embeddings which shows how well the MS MARCO sentence embeddings clustered the bicycle descriptions and you can visually judge a query's distance to a specific bike:
 
 ![t-SNE 3-D Embeddings Visualization](https://raw.githubusercontent.com/bsbodden/redis_vss_getting_started/3ac967dfbdd84dad25ade620826c0e01ac0251ca/embeddings-tsne.png)
 
@@ -366,9 +321,9 @@ Sometimes, a picture is worth a thousand words. Using the dimensionality reducti
 
 Pure KNN queries, as described in the previous section, evaluate a query against the whole space of vectors in a data collection. The larger the collection, the more computationally expensive the KNN search will be. But in the real world, unstructured data does not live in isolation, and users expecting rich search experiences need to be able to search via a combination of structured and unstructured data. 
 
-For example, users might arrive at your search interface with a brand preference in mind for the bikes dataset. Redis VSS queries can use this information to pre-filter the search space using a **primary filter query**. In the following query definition, we pre-filter using `brand` to consider only `Peaknetic` brand bikes. Before, our primary filter query was `(*)`, in other words, everything. But now we can narrow the search space using `(@brand:Peaknetic)` before the KNN query.
+For example, users might arrive at your search interface with a brand preference in mind for the bikes dataset. Redis VSS queries can use this information to pre-filter the search space using a **primary filter query**. In the following query definition, `brand` is pre-filtered to consider only `Peaknetic` brand bikes. In previous examples, the primary filter query was `(*)`, in other words, everything. But now you can narrow the search space using `(@brand:Peaknetic)` before the KNN query.
 
-Filtering by the `Peaknetic` brand, for which there are 2 bikes in our collection, we can see the results returned for each of the query prompts. The query with the highest returned similarity score is "Comfortable commuter bike", followed by "Road bike for beginners". Using filtering by brand, we fulfill the users' preferences and reduce the KNN search space by 80%.
+Filtering by the `Peaknetic` brand, for which there are 2 bikes in the collection, you can see the results returned for each of the query prompts. The query with the highest returned similarity score is "Comfortable commuter bike", followed by "Road bike for beginners". Using filtering by brand, the users' preferences are fulfilled and the KNN search space is reduced by 80%.
 
 {{< clients-example search_vss run_hybrid_query />}}
 
@@ -377,31 +332,13 @@ Filtering by the `Peaknetic` brand, for which there are 2 bikes in our collectio
 | Best Mountain bikes for kids | 0.30 | bikes:008 | Peaknetic | Soothe Electric bike | The Soothe is an everyday electric bike, from the makers of Exercycle  bikes, that conveys style while you get around the city. The Soothe lives up to its name by keeping your posture upright and relaxed for the ride ahead, keeping those aches and pains from riding at bay. It includes a low-step frame , our memory foam seat, bump-resistant shocks and conveniently placed thumb throttle. |
 |  | 0.23 | bikes:009 | Peaknetic | Secto | If you struggle with stiff fingers or a kinked neck or back after a few minutes on the road, this lightweight, aluminum bike alleviates those issues and allows you to enjoy the ride. From the ergonomic grips to the lumbar-supporting seat position, the Roll Low-Entry offers incredible comfort. The rear-inclined seat tube facilitates stability by allowing you to put a foot on the ground to balance at a stop, and the low step-over frame makes it accessible for all ability and mobility levels. Th... |
 | Bike for small kids | 0.37 | bikes:008 | Peaknetic | Soothe Electric bike | The Soothe is an everyday electric bike, from the makers of Exercycle  bikes, that conveys style while you get around the city. The Soothe lives up to its name by keeping your posture upright and relaxed for the ride ahead, keeping those aches and pains from riding at bay. It includes a low-step frame , our memory foam seat, bump-resistant shocks and conveniently placed thumb throttle. |
-|  | 0.25 | bikes:009 | Peaknetic | Secto | If you struggle with stiff fingers or a kinked neck or back after a few minutes on the road, this lightweight, aluminum bike alleviates those issues and allows you to enjoy the ride. From the ergonomic grips to the lumbar-supporting seat position, the Roll Low-Entry offers incredible comfort. The rear-inclined seat tube facilitates stability by allowing you to put a foot on the ground to balance at a stop, and the low step-over frame makes it accessible for all ability and mobility levels. Th... |
-| Cheap Mountain bike for kids | 0.21 | bikes:008 | Peaknetic | Soothe Electric bike | The Soothe is an everyday electric bike, from the makers of Exercycle  bikes, that conveys style while you get around the city. The Soothe lives up to its name by keeping your posture upright and relaxed for the ride ahead, keeping those aches and pains from riding at bay. It includes a low-step frame , our memory foam seat, bump-resistant shocks and conveniently placed thumb throttle. |
-|  | 0.12 | bikes:009 | Peaknetic | Secto | If you struggle with stiff fingers or a kinked neck or back after a few minutes on the road, this lightweight, aluminum bike alleviates those issues and allows you to enjoy the ride. From the ergonomic grips to the lumbar-supporting seat position, the Roll Low-Entry offers incredible comfort. The rear-inclined seat tube facilitates stability by allowing you to put a foot on the ground to balance at a stop, and the low step-over frame makes it accessible for all ability and mobility levels. Th... |
-| Comfortable city bike | 0.42 | bikes:008 | Peaknetic | Soothe Electric bike | The Soothe is an everyday electric bike, from the makers of Exercycle  bikes, that conveys style while you get around the city. The Soothe lives up to its name by keeping your posture upright and relaxed for the ride ahead, keeping those aches and pains from riding at bay. It includes a low-step frame , our memory foam seat, bump-resistant shocks and conveniently placed thumb throttle. |
-|  | 0.36 | bikes:009 | Peaknetic | Secto | If you struggle with stiff fingers or a kinked neck or back after a few minutes on the road, this lightweight, aluminum bike alleviates those issues and allows you to enjoy the ride. From the ergonomic grips to the lumbar-supporting seat position, the Roll Low-Entry offers incredible comfort. The rear-inclined seat tube facilitates stability by allowing you to put a foot on the ground to balance at a stop, and the low step-over frame makes it accessible for all ability and mobility levels. Th... |
-| Comfortable commuter bike | 0.47 | bikes:008 | Peaknetic | Soothe Electric bike | The Soothe is an everyday electric bike, from the makers of Exercycle  bikes, that conveys style while you get around the city. The Soothe lives up to its name by keeping your posture upright and relaxed for the ride ahead, keeping those aches and pains from riding at bay. It includes a low-step frame , our memory foam seat, bump-resistant shocks and conveniently placed thumb throttle. |
-|  | 0.38 | bikes:009 | Peaknetic | Secto | If you struggle with stiff fingers or a kinked neck or back after a few minutes on the road, this lightweight, aluminum bike alleviates those issues and allows you to enjoy the ride. From the ergonomic grips to the lumbar-supporting seat position, the Roll Low-Entry offers incredible comfort. The rear-inclined seat tube facilitates stability by allowing you to put a foot on the ground to balance at a stop, and the low step-over frame makes it accessible for all ability and mobility levels. Th... |
-| Commuter bike for people over 60 | 0.36 | bikes:008 | Peaknetic | Soothe Electric bike | The Soothe is an everyday electric bike, from the makers of Exercycle  bikes, that conveys style while you get around the city. The Soothe lives up to its name by keeping your posture upright and relaxed for the ride ahead, keeping those aches and pains from riding at bay. It includes a low-step frame , our memory foam seat, bump-resistant shocks and conveniently placed thumb throttle. |
-|  | 0.33 | bikes:009 | Peaknetic | Secto | If you struggle with stiff fingers or a kinked neck or back after a few minutes on the road, this lightweight, aluminum bike alleviates those issues and allows you to enjoy the ride. From the ergonomic grips to the lumbar-supporting seat position, the Roll Low-Entry offers incredible comfort. The rear-inclined seat tube facilitates stability by allowing you to put a foot on the ground to balance at a stop, and the low step-over frame makes it accessible for all ability and mobility levels. Th... |
-| Female specific mountain bike | 0.23 | bikes:009 | Peaknetic | Secto | If you struggle with stiff fingers or a kinked neck or back after a few minutes on the road, this lightweight, aluminum bike alleviates those issues and allows you to enjoy the ride. From the ergonomic grips to the lumbar-supporting seat position, the Roll Low-Entry offers incredible comfort. The rear-inclined seat tube facilitates stability by allowing you to put a foot on the ground to balance at a stop, and the low step-over frame makes it accessible for all ability and mobility levels. Th... |
-|  | 0.21 | bikes:008 | Peaknetic | Soothe Electric bike | The Soothe is an everyday electric bike, from the makers of Exercycle  bikes, that conveys style while you get around the city. The Soothe lives up to its name by keeping your posture upright and relaxed for the ride ahead, keeping those aches and pains from riding at bay. It includes a low-step frame , our memory foam seat, bump-resistant shocks and conveniently placed thumb throttle. |
-| Good bike for college students | 0.34 | bikes:009 | Peaknetic | Secto | If you struggle with stiff fingers or a kinked neck or back after a few minutes on the road, this lightweight, aluminum bike alleviates those issues and allows you to enjoy the ride. From the ergonomic grips to the lumbar-supporting seat position, the Roll Low-Entry offers incredible comfort. The rear-inclined seat tube facilitates stability by allowing you to put a foot on the ground to balance at a stop, and the low step-over frame makes it accessible for all ability and mobility levels. Th... |
-|  | 0.24 | bikes:008 | Peaknetic | Soothe Electric bike | The Soothe is an everyday electric bike, from the makers of Exercycle  bikes, that conveys style while you get around the city. The Soothe lives up to its name by keeping your posture upright and relaxed for the ride ahead, keeping those aches and pains from riding at bay. It includes a low-step frame , our memory foam seat, bump-resistant shocks and conveniently placed thumb throttle. |
-| Mountain bike for beginners | 0.42 | bikes:008 | Peaknetic | Soothe Electric bike | The Soothe is an everyday electric bike, from the makers of Exercycle  bikes, that conveys style while you get around the city. The Soothe lives up to its name by keeping your posture upright and relaxed for the ride ahead, keeping those aches and pains from riding at bay. It includes a low-step frame , our memory foam seat, bump-resistant shocks and conveniently placed thumb throttle. |
-|  | 0.29 | bikes:009 | Peaknetic | Secto | If you struggle with stiff fingers or a kinked neck or back after a few minutes on the road, this lightweight, aluminum bike alleviates those issues and allows you to enjoy the ride. From the ergonomic grips to the lumbar-supporting seat position, the Roll Low-Entry offers incredible comfort. The rear-inclined seat tube facilitates stability by allowing you to put a foot on the ground to balance at a stop, and the low step-over frame makes it accessible for all ability and mobility levels. Th... |
-| Road bike for beginners | 0.44 | bikes:008 | Peaknetic | Soothe Electric bike | The Soothe is an everyday electric bike, from the makers of Exercycle  bikes, that conveys style while you get around the city. The Soothe lives up to its name by keeping your posture upright and relaxed for the ride ahead, keeping those aches and pains from riding at bay. It includes a low-step frame , our memory foam seat, bump-resistant shocks and conveniently placed thumb throttle. |
-|  | 0.29 | bikes:009 | Peaknetic | Secto | If you struggle with stiff fingers or a kinked neck or back after a few minutes on the road, this lightweight, aluminum bike alleviates those issues and allows you to enjoy the ride. From the ergonomic grips to the lumbar-supporting seat position, the Roll Low-Entry offers incredible comfort. The rear-inclined seat tube facilitates stability by allowing you to put a foot on the ground to balance at a stop, and the low step-over frame makes it accessible for all ability and mobility levels. Th... |
-| Vintage bike | 0.31 | bikes:008 | Peaknetic | Soothe Electric bike | The Soothe is an everyday electric bike, from the makers of Exercycle  bikes, that conveys style while you get around the city. The Soothe lives up to its name by keeping your posture upright and relaxed for the ride ahead, keeping those aches and pains from riding at bay. It includes a low-step frame , our memory foam seat, bump-resistant shocks and conveniently placed thumb throttle. |
-|  | 0.17 | bikes:009 | Peaknetic | Secto | If you struggle with stiff fingers or a kinked neck or back after a few minutes on the road, this lightweight, aluminum bike alleviates those issues and allows you to enjoy the ride. From the ergonomic grips to the lumbar-supporting seat position, the Roll Low-Entry offers incredible comfort. The rear-inclined seat tube facilitates stability by allowing you to put a foot on the ground to balance at a stop, and the low step-over frame makes it accessible for all ability and mobility levels. Th... |
+`...`
 
 #### Creating a VSS range query 
 
-Range queries in VSS involve retrieving items within a specific distance from a query vector. In this case, we consider "distance" to be the measure of similarity we've used to build our search indexes; the smaller the distance, the more similar the items.
+Range queries in VSS involve retrieving items within a specific distance from a query vector. In this case, "distance" is the measure of similarity that is used to build search indexes; the smaller the distance, the more similar the items.
 
-Let's say you want to find the bikes whose descriptions are within a certain distance from a query vector. We can use a range query to achieve this.
+If you want to find the bikes whose descriptions are within a certain distance from a query vector, you can use a range query.
 For example, the query command to return the top `4` documents within a `0.55` radius of a vectorized query would be as follows: 
 
 {{< clients-example search_vss run_range_query >}}
@@ -413,16 +350,16 @@ For example, the query command to return the top `4` documents within a `0.55` r
 6️⃣   PARAMS 4 range 0.55 query_vector "\x9d|\x99>bV#\xbfm\x86\x8a\xbd\xa7~$?*...."
 {{< /clients-example >}}
 
-Where:
+where
 
-1. We use the `FT.SEARCH` command with our `idx:bikes_vss`.
-1. and filter by the `vector` using the `VECTOR_RANGE` operator pasing the `$range` parameter, yield the vector distance between the vector field and the query result in a field named `vector_score`.
-1. We sort the results by the yielded `vector_score`.
+1. The `FT.SEARCH` command is used with `idx:bikes_vss`.
+1. This result is filtered by the `vector` using the `VECTOR_RANGE` operator, passing the `$range` parameter, yielding the vector distance between the vector field and the query result in a field named `vector_score`.
+1. Sort the results by the yielded `vector_score`.
 1. Limit the results to at most 4.
-1. Once again, we set the RediSearch dialect to `2` to enable VSS functionality.
-1. Finally we set the parameter values, `range` (`$range`) to `0.55` and the `query_vector` (`$query_vector`) to the encoded vectorized query.
+1. Once again, set the RediSearch dialect to `2` to enable VSS functionality.
+1. Finally, set the parameter values, `range` (`$range`) to `0.55` and the `query_vector` (`$query_vector`) to the encoded vectorized query.
 
-Here, we're using the first query prompt in our collection of queries, "Bike for small kids", using the VSS range query (`range_query`).
+Here, the first query prompt in our collection of queries is being used, "Bike for small kids", using the VSS range query (`range_query`).
 
 | query | score | id | brand | model | description |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -433,12 +370,12 @@ The query returns two bikes in the specified range of our vectorized query, both
 
 ## Wrapping Up
 
-In this guide, we learned how Redis, using the Redis Stack distribution, provides powerful search capabilities over structured and unstructured data. Redis support for vector data can enrich and enhance the user's search experience.
-Although we focused on generating embeddings for unstructured data, the vector similarity approach can equally be employed with structure data, as long as a suitable vector generation technique is used.
+This guide showed how Redis, using the Redis Stack distribution, provides powerful search capabilities over structured and unstructured data. Redis support for vector data can enrich and enhance the user's search experience.
+Although the focus was on generating embeddings for unstructured data, the vector similarity approach can also be used equally well with structure data, as long as a suitable vector generation technique is used.
 
 The references below can help you learn more about Redis search capabilities:
-* https://redis.io/docs/stack/search/
-* https://redis.io/docs/stack/search/indexing_json/
+* https://redis.io/docs/interact/search-and-query/
+* https://redis.io/docs/interact/search-and-query/indexing/
 
-The Jupyter notebook on which this documentation was based is available here:
+The Jupyter notebook on which this documentation is based is available here:
 * https://github.com/RedisVentures/redis-vss-getting-started
