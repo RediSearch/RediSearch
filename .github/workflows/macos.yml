@@ -16,11 +16,15 @@ on:
 
 jobs:
   build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [macos-11, macos-13-xlarge] # macos-13-xlarge has M1 chip
     uses: ./.github/workflows/common-flow-host.yml
     with:
-      env: macos-11
+      env: ${{ matrix.arch }}
       get-redis: true
-      test-config: ${{ inputs.test-config || ''   }}
+      test-config: ${{ inputs.test-config || ''   }} # fallbacks for workflow_dispatch
       coordinator: ${{ inputs.coordinator || true }}
       standalone:  ${{ inputs.standalone  || true }}
     secrets: inherit
