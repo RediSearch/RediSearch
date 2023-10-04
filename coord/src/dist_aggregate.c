@@ -188,6 +188,7 @@ typedef struct {
   MRCommand cmd;
   MRCommandGenerator cg;
   AREQ *areq;
+  struct timespec timeout;
 
   // profile vars
   MRReply **shardsProfile;
@@ -197,6 +198,7 @@ typedef struct {
 static int getNextReply(RPNet *nc) {
   while (1) {
     MRReply *root = MRIterator_Next(nc->it);
+
     if (root == MRITERATOR_DONE) {
       // No more replies
       nc->current.root = NULL;
@@ -295,6 +297,13 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
         return RS_RESULT_EOF;
       }
 
+      // TODO: Make sure we get here in case of a timeout in a shard, i.e.,
+      // getNextReply doesn't return 0. If not, move this code to getNextReply.
+      // Check for timeout
+      if(TimedOut(&nc->timeout)) {
+        return RS_RESULT_TIMEDOUT;
+      }
+
       root = nc->current.root;
       rows = nc->current.rows;
   }
@@ -357,6 +366,9 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   if (!it) {
     return RS_RESULT_ERROR;
   }
+
+  // TODO: Add a timeout check here? Only if MR_Iterate is pulling results from the shards.
+
   nc->it = it;
   nc->base.Next = rpnetNext;
   return rpnetNext(rp, r);
@@ -390,12 +402,13 @@ static void rpnetFree(ResultProcessor *rp) {
   rm_free(rp);
 }
 
-static RPNet *RPNet_New(const MRCommand *cmd, SearchCluster *sc) {
+static RPNet *RPNet_New(const MRCommand *cmd, SearchCluster *sc, struct timespec timeout) {
   //  MRCommand_FPrint(stderr, &cmd);
   RPNet *nc = rm_calloc(1, sizeof(*nc));
   nc->cmd = *cmd;
   nc->cg = SearchCluster_MultiplexCommand(sc, &nc->cmd);
   nc->areq = NULL;
+  nc->timeout = timeout;
   nc->shardsProfileIdx = 0;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
@@ -474,7 +487,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
 static void buildDistRPChain(AREQ *r, MRCommand *xcmd, SearchCluster *sc,
                              AREQDIST_UpstreamInfo *us) {
   // Establish our root processor, which is the distributed processor
-  RPNet *rpRoot = RPNet_New(xcmd, sc);
+  RPNet *rpRoot = RPNet_New(xcmd, sc, r->timeoutTime);
   rpRoot->base.parent = &r->qiter;
   rpRoot->lookup = us->lookup;
   rpRoot->areq = r;
@@ -596,6 +609,10 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
       }
     }
   }
+
+  // Set the timeout
+  updateTimeout(&r->timeoutTime, r->reqConfig.queryTimeoutMS);
+
   rc = AGGPLN_Distribute(&r->ap, &status);
   if (rc != REDISMODULE_OK) goto err;
 
@@ -620,7 +637,8 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   r->sctx = rm_new(RedisSearchCtx);
   *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
   r->sctx->apiVersion = dialect;
-  // r->sctx->expanded should be recieved from shards
+  r->sctx->timeout = r->timeoutTime;
+  // r->sctx->expanded should be received from shards
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
     // Keep the original concurrent context
