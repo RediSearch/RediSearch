@@ -46,10 +46,6 @@ jobs:
           git submodule update --init --recursive
       - name: Setup
         run: ./sbin/setup
-      # - name: Get Redis
-      #   run: |
-      #     export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-      #     ./deps/readies/bin/getredis --with-github-token
       - name: Get Redis
         uses: actions/checkout@v4
         with:
@@ -66,6 +62,7 @@ jobs:
           export       MAX_PROFILERS=3
           export                SHOW=1
           export               NPROC=16
+          export                ROOT=$PWD
 
           export   COORD=${{ inputs.cluster_env }}
           export PROFILE=${{ inputs.profile_env }}
@@ -92,8 +89,8 @@ jobs:
         timeout-minutes: 60 # timeout for the step
         working-directory: tests/benchmarks
         run: redisbench-admin run-remote
-              --module_path $(cat $PWD/bin/REJSON_PATH)
-              --module_path $PWD/${{ inputs.module_path }}
+              --module_path $(cat $ROOT/bin/REJSON_PATH)
+              --module_path $ROOT/${{ inputs.module_path }}
               --github_actor ${{ github.triggering_actor }}
               --github_repo ${{ github.event.repository.name }}
               --github_org ${{ github.repository_owner }}
