@@ -278,6 +278,8 @@ commands:
             if [[ -n $CIRCLE_BRANCH ]]; then
                 make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1
             fi
+      - run:
+          persist-artifacts
 
   vm-build-platforms-steps:
     parameters:
@@ -1117,37 +1119,37 @@ workflows:
       << pipeline.parameters.run_default_flow >>
     jobs:
       - build-linux-debian:
-          <<: *not-on-integ-branch
+          <<: *always
       - build-linux-arm-ubuntu:
           <<: *never
       - build-platforms:
-          <<: *on-integ-and-version-tags
+          <<: *always
           context: common
           matrix:
             parameters:
               platform: [jammy, focal, bionic, centos7, rocky8, rocky9, bullseye, amzn2]
       - build-arm-platforms:
-          <<: *on-integ-and-version-tags
+          <<: *always
           context: common
           matrix:
             parameters:
               platform: [jammy, focal, bionic]
       - build-macos-x64-search:
-          <<: *on-version-tags
+          <<: *always
           context: common
           # Avoid persist conflict with build-macos-x64-coordinator
           upload: "no"
       - build-macos-x64-coordinator:
-          <<: *on-version-tags
+          <<: *always
           context: common
       - build-macos-m1-search:
           context: common
-          <<: *on-version-tags
+          <<: *always
           # Avoid persist conflict with build-macos-m1-coordinator
           upload: "no"
       - build-macos-m1-coordinator:
           context: common
-          <<: *on-version-tags
+          <<: *always
       - coverage:
           <<: *always
       - sanitize:
@@ -1223,7 +1225,7 @@ workflows:
           name: upload-artifacts-to-staging-lab
           staging-lab: "1"
           context: common
-          <<: *on-integ-branch
+          <<: *always
           requires:
             - build-platforms
             - build-arm-platforms
