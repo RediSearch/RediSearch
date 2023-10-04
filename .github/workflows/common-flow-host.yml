@@ -32,7 +32,7 @@ jobs:
         shell: bash -l -eo pipefail {0}
     steps:
       - name: Deps checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: true
       - run: |
@@ -42,14 +42,14 @@ jobs:
         run: ./sbin/setup
       # TODO: use this instead
       # - name: Deps checkout
-      # uses: actions/checkout@v3
+      # uses: actions/checkout@v4
       # with:
       #     sparse-checkout: .install
       # - name: Setup
       #   run: |
       #     ${{env.MODE}} ./.install/install_script.sh
       # - name: Full checkout
-      #   uses: actions/checkout@v3
+      #   uses: actions/checkout@v4
       #   with:
       #     submodules: recursive
       #     set-safe-directory: "'*'"

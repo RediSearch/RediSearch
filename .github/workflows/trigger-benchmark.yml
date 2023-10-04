@@ -10,7 +10,7 @@ jobs:
     name: Trigger CI benchmarks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Check if labeled with run-benchmark
         id: haslabel
         uses: DanielTamkin/HasLabel@v1.0.4
