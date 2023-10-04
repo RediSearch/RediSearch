@@ -10,9 +10,9 @@ on:
         type: string
         default: bin/linux-x64-release/search/redisearch.so
       profile_env:
-        type: string
+        type: number # for default of 0
       cluster_env:
-        type: string
+        type: string # for default of ""
       benchmark_glob:
         type: string
         default: "*.yml"
