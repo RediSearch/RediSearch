@@ -11,7 +11,7 @@
 
 #define VECTOR_RESULT(p) (p->type == RSResultType_Metric ? p : p->agg.children[0])
 
-static void prepareResults(HybridIterator *hr); // forward declaration
+static VecSimQueryReply_Code prepareResults(HybridIterator *hr); // forward declaration
 
 static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata) {
   const RSIndexResult *e1 = p1, *e2 = p2;
@@ -39,8 +39,8 @@ static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata
 // Simulate the logic of "SkipTo", but it is limited to the results in a specific batch.
 static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
   HybridIterator *hr = ctx;
-  while(VecSimQueryResult_IteratorHasNext(hr->iter)) {
-    VecSimQueryResult *res = VecSimQueryResult_IteratorNext(hr->iter);
+  while(VecSimQueryReply_IteratorHasNext(hr->iter)) {
+    VecSimQueryResult *res = VecSimQueryReply_IteratorNext(hr->iter);
     t_docId id = VecSimQueryResult_GetId(res);
     if (docId > id) {
       // consider binary search for next value
@@ -57,10 +57,10 @@ static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
 // Simulate the logic of "Read", but it is limited to the results in a specific batch.
 static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
   HybridIterator *hr = ctx;
-  if (!VecSimQueryResult_IteratorHasNext(hr->iter)) {
+  if (!VecSimQueryReply_IteratorHasNext(hr->iter)) {
     return INDEXREAD_EOF;
   }
-  VecSimQueryResult *res = VecSimQueryResult_IteratorNext(hr->iter);
+  VecSimQueryResult *res = VecSimQueryReply_IteratorNext(hr->iter);
   // Set the item that we read in the current RSIndexResult
   (*hit)->docId = VecSimQueryResult_GetId(res);
   (*hit)->num.value = VecSimQueryResult_GetScore(res);
@@ -117,7 +117,7 @@ static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexRe
   }
 }
 
-static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *vecsim_iter,
+static void alternatingIterate(HybridIterator *hr, VecSimQueryReply_Iterator *vecsim_iter,
                                double *upper_bound) {
   RSIndexResult *cur_vec_res = NewMetricResult();
   RSIndexResult *cur_child_res;  // This will use the memory of hr->child->current.
@@ -148,7 +148,7 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
         rc = HR_ReadInBatch(hr, &cur_vec_res);
         if (rc == INDEXREAD_EOF) break;
       }
-    } else if (VecSimQueryResult_IteratorHasNext(vecsim_iter)){
+    } else if (VecSimQueryReply_IteratorHasNext(vecsim_iter)){
       int rc = HR_SkipToInBatch(hr, cur_child_res->docId, &cur_vec_res);
       if (rc == INDEXREAD_EOF) break;
     } else {
@@ -158,8 +158,9 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryResult_Iterator *v
   IndexResult_Free(cur_vec_res);
 }
 
-void computeDistances(HybridIterator *hr) {
+static VecSimQueryReply_Code computeDistances(HybridIterator *hr) {
   double upper_bound = INFINITY;
+  VecSimQueryReply_Code rc = VecSim_QueryReply_OK;
   RSIndexResult *cur_res = hr->base.current;
   RSIndexResult *cur_child_res;  // This will use the memory of hr->child->current.
   RSIndexResult *cur_vec_res = NewMetricResult();
@@ -171,12 +172,14 @@ void computeDistances(HybridIterator *hr) {
     VecSim_Normalize(qvector, hr->dimension, hr->vecType);
   }
 
+  VecSimTieredIndex_AcquireSharedLocks(hr->index);
   while (hr->child->Read(hr->child->ctx, &cur_child_res) != INDEXREAD_EOF) {
-    if(TimedOut_WithCtx(&hr->timeoutCtx)) {
-      hr->list.code = VecSim_QueryResult_TimedOut;
+    if (TimedOut_WithCtx(&hr->timeoutCtx)) {
+      rc = VecSim_QueryReply_TimedOut;
+      VecSimTieredIndex_ReleaseSharedLocks(hr->index);
       break;
     }
-    double metric = VecSimIndex_GetDistanceFrom(hr->index, cur_child_res->docId, qvector);
+    double metric = VecSimIndex_GetDistanceFrom_Unsafe(hr->index, cur_child_res->docId, qvector);
     // If this id is not in the vector index (since it was deleted), metric will return as NaN.
     if (isnan(metric)) {
       continue;
@@ -188,10 +191,12 @@ void computeDistances(HybridIterator *hr) {
       insertResultToHeap(hr, cur_res, cur_child_res, &cur_vec_res, &upper_bound);
     }
   }
+  VecSimTieredIndex_ReleaseSharedLocks(hr->index);
   if (qvector != hr->query.vector) {
     rm_free(qvector);
   }
   IndexResult_Free(cur_vec_res);
+  return rc;
 }
 
 // Review the estimated child results num, and returns true if hybrid policy should change.
@@ -218,36 +223,27 @@ static bool reviewHybridSearchPolicy(HybridIterator *hr, size_t n_res_left, size
   if ((VecSimSearchMode)hr->runtimeParams.searchMode == VECSIM_HYBRID_BATCHES) {
     return false;
   }
-  if (VecSimIndex_PreferAdHocSearch(hr->index, *child_num_estimated, hr->query.k, false)) {
-    // Change policy from batches to AD-HOC BF.
-    hr->searchMode = VECSIM_HYBRID_BATCHES_TO_ADHOC_BF;
-    // Clean the saved results, and restart the hybrid search in ad-hoc BF mode.
-    mmh_clear(hr->topResults);
-    hr->child->Rewind(hr->child->ctx);
-    computeDistances(hr);
-    return true;
-  }
-  return false;
+  return VecSimIndex_PreferAdHocSearch(hr->index, *child_num_estimated, hr->query.k, false);
 }
 
-static void prepareResults(HybridIterator *hr) {
+static VecSimQueryReply_Code prepareResults(HybridIterator *hr) {
   if (hr->searchMode == VECSIM_STANDARD_KNN) {
-    hr->list = VecSimIndex_TopKQuery(hr->index, hr->query.vector, hr->query.k, &(hr->runtimeParams), hr->query.order);
-    hr->iter = VecSimQueryResult_List_GetIterator(hr->list);
-    return;
+    hr->reply = VecSimIndex_TopKQuery(hr->index, hr->query.vector, hr->query.k, &(hr->runtimeParams), hr->query.order);
+    hr->iter = VecSimQueryReply_GetIterator(hr->reply);
+    return VecSimQueryReply_GetCode(hr->reply);
   }
 
   if (hr->searchMode == VECSIM_HYBRID_ADHOC_BF) {
     // Go over child_it results, compute distances, sort and store results in topResults.
-    computeDistances(hr);
-    return;
+    return computeDistances(hr);
   }
   // Batches mode.
   if (hr->child->NumEstimated(hr->child->ctx) == 0) {
-    return;
+    return VecSim_QueryReply_OK;
   }
   VecSimBatchIterator *batch_it = VecSimBatchIterator_New(hr->index, hr->query.vector, &hr->runtimeParams);
   double upper_bound = INFINITY;
+  VecSimQueryReply_Code code = VecSim_QueryReply_OK;
   size_t child_num_estimated = hr->child->NumEstimated(hr->child->ctx);
   // Since NumEstimated(child) is an upper bound, it can be higher than index size.
   if (child_num_estimated > VecSimIndex_IndexSize(hr->index)) {
@@ -264,17 +260,16 @@ static void prepareResults(HybridIterator *hr) {
     if (batch_size == 0) {
       batch_size = n_res_left * ((float)vec_index_size / child_num_estimated) + 1;
     }
-    VecSimQueryResult_Free(hr->list);
-    if (hr->iter) {
-      VecSimQueryResult_IteratorFree(hr->iter);
-      hr->iter = NULL;
-    }
+    VecSimQueryReply_Free(hr->reply);
+    VecSimQueryReply_IteratorFree(hr->iter);
+    hr->iter = NULL;
     // Get the next batch.
-    hr->list = VecSimBatchIterator_Next(batch_it, batch_size, BY_ID);
-    if (hr->list.code == VecSim_QueryResult_TimedOut) {
+    hr->reply = VecSimBatchIterator_Next(batch_it, batch_size, BY_ID);
+    code = VecSimQueryReply_GetCode(hr->reply);
+    if (VecSim_QueryReply_TimedOut == code) {
       break;
     }
-    hr->iter = VecSimQueryResult_List_GetIterator(hr->list);
+    hr->iter = VecSimQueryReply_GetIterator(hr->reply);
     hr->child->Rewind(hr->child->ctx);
 
     // Go over both iterators and save mutual results in the heap.
@@ -284,11 +279,17 @@ static void prepareResults(HybridIterator *hr) {
     }
 
     if (reviewHybridSearchPolicy(hr, n_res_left, child_num_estimated, &child_num_estimated)) {
-      // Hybrid policy has changed to adhoc-bf, results are now prepared.
+      // Change policy from batches to AD-HOC BF.
+      hr->searchMode = VECSIM_HYBRID_BATCHES_TO_ADHOC_BF;
+      // Clean the saved results, and restart the hybrid search in ad-hoc BF mode.
+      mmh_clear(hr->topResults);
+      hr->child->Rewind(hr->child->ctx);
+      code = computeDistances(hr);
       break;
     }
   }
   VecSimBatchIterator_Free(batch_it);
+  return code;
 }
 
 static int HR_HasNext(void *ctx) {
@@ -301,9 +302,8 @@ static int HR_HasNext(void *ctx) {
 static int HR_ReadHybridUnsorted(void *ctx, RSIndexResult **hit) {
   HybridIterator *hr = ctx;
   if (!hr->resultsPrepared) {
-    prepareResults(hr);
     hr->resultsPrepared = true;
-    if (hr->list.code == VecSim_QueryResult_TimedOut) {
+    if (prepareResults(hr) == VecSim_QueryReply_TimedOut) {
       return INDEXREAD_TIMEOUT;
     }
   }
@@ -323,9 +323,8 @@ static int HR_ReadHybridUnsorted(void *ctx, RSIndexResult **hit) {
 static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
   HybridIterator *hr = ctx;
   if (!hr->resultsPrepared) {
-    prepareResults(hr);
     hr->resultsPrepared = true;
-    if (hr->list.code == VecSim_QueryResult_TimedOut) {
+    if (prepareResults(hr) == VecSim_QueryReply_TimedOut) {
       return INDEXREAD_TIMEOUT;
     }
   }
@@ -368,12 +367,10 @@ static void HR_Rewind(void *ctx) {
   HybridIterator *hr = ctx;
   hr->resultsPrepared = false;
   hr->numIterations = 0;
-  VecSimQueryResult_Free(hr->list);
-  memset(&hr->list, 0, sizeof(hr->list));
-  if (hr->iter) {
-    VecSimQueryResult_IteratorFree(hr->iter);
-    hr->iter = NULL;
-  }
+  VecSimQueryReply_Free(hr->reply);
+  VecSimQueryReply_IteratorFree(hr->iter);
+  hr->reply = NULL;
+  hr->iter = NULL;
   hr->lastDocId = 0;
   hr->base.isValid = 1;
 
@@ -400,8 +397,8 @@ void HybridIterator_Free(struct indexIterator *self) {
     array_free_ex(it->returnedResults, IndexResult_Free(*(RSIndexResult **)ptr));
   }
   IndexResult_Free(it->base.current);
-  VecSimQueryResult_Free(it->list);
-  if (it->iter) VecSimQueryResult_IteratorFree(it->iter);
+  VecSimQueryReply_Free(it->reply);
+  VecSimQueryReply_IteratorFree(it->iter);
   if (it->child) {
     it->child->Free(it->child);
   }
@@ -426,7 +423,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->runtimeParams = hParams.qParams;
   hi->scoreField = hParams.vectorScoreField;
   hi->base.isValid = 1;
-  memset(&hi->list, 0, sizeof(hi->list));
+  hi->reply = NULL;
   hi->iter = NULL;
   hi->topResults = NULL;
   hi->returnedResults = NULL;

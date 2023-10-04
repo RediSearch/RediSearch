@@ -1,7 +1,7 @@
 ---
 title: "Query constructs"
 linkTitle: "Query constructs"
-weight: 1
+weight: 3
 description: >
     High-level comparison of FT.SEARCH and FT.AGGREGATE
 ---
