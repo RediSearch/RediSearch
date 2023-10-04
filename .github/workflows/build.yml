@@ -3,9 +3,10 @@ name: Build on Linux
 on:
   workflow_dispatch:
   push:
-    branches-ignore:
-      - '*docs'
-      - '*noci'
+    paths-ignore:
+      - "README.md"
+      - "docs/**"
+      - "licenses/**"
 
 jobs:
   build-linux-jammy:
@@ -13,4 +14,5 @@ jobs:
     with:
       env: ubuntu-latest
       get-redis: true
+      deps-install-mode: sudo
     secrets: inherit
