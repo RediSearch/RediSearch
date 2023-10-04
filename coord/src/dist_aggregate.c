@@ -300,6 +300,8 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
       // TODO: Make sure we get here in case of a timeout in a shard, i.e.,
       // getNextReply doesn't return 0. If not, move this code to getNextReply.
       // Check for timeout
+      // TODO2: We can add a check for the timeout policy here, and if it's
+      // TimeoutPolicyReturn, set a flag in the rp and finish returning these results.
       if(TimedOut(&nc->timeout)) {
         return RS_RESULT_TIMEDOUT;
       }

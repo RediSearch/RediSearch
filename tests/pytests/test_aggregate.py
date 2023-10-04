@@ -1003,8 +1003,7 @@ def test_aggregate_timeout():
                'groupby', '2', '@t1', '@t1exp',
                     'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
                'TIMEOUT', '1',
-        ).equal( ['Timeout limit was reached'] if not env.isCluster() else [1, ['t1', None, 't1exp', None, 'keys', []]])
-
+        ).equal(['Timeout limit was reached'])
 
 def testGroupProperties(env):
     conn = getConnectionByEnv(env)
