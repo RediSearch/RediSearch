@@ -253,8 +253,7 @@ commands:
             if [[ -n $CIRCLE_BRANCH ]]; then
                 make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1
             fi
-      - run:
-          persist-artifacts
+      - persist-artifacts
 
   vm-build-platforms-steps:
     parameters:
