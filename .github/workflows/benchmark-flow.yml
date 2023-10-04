@@ -40,12 +40,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Setup
+        run: ./sbin/setup
       - run: |
           git init
           git config --global --add safe.directory '*'
           git submodule update --init --recursive
-      - name: Setup
-        run: ./sbin/setup
       # - name: Get Redis
       #   run: |
       #     export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
