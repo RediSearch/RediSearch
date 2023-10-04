@@ -30,8 +30,6 @@ on:
       benchmark_runner_group_total:
         type: number
         default: 1
-      pull_request_number:
-        type: number
 
 jobs:
   benchmark-steps:
@@ -55,28 +53,13 @@ jobs:
       - name: Build Redis
         working-directory: redis
         run: make install
-      - name: Prepare Environment Variables
-        run: |
-          export REDISEARCH_MT_BUILD=0
-          export PERF_CALLGRAPH_MODE="dwarf"
-          export       MAX_PROFILERS=3
-          export                SHOW=1
-          export               NPROC=16
-          export                ROOT=$PWD
-
-          export   COORD=${{ inputs.cluster_env }}
-          export PROFILE=${{ inputs.profile_env }}
-
-          export     AWS_ACCESS_KEY_ID=$PERFORMANCE_EC2_ACCESS_KEY
-          export AWS_SECRET_ACCESS_KEY=$PERFORMANCE_EC2_SECRET_KEY
-          export    AWS_DEFAULT_REGION=$PERFORMANCE_EC2_REGION
-          export       EC2_PRIVATE_PEM=$PERFORMANCE_EC2_PRIVATE_PEM
-
-          export               BENCHMARK_GLOB=${{ inputs.benchmark_glob }}
-          export  BENCHMARK_RUNNER_GROUP_M_ID=${{ inputs.benchmark_runner_group_member_id }}
-          export BENCHMARK_RUNNER_GROUP_TOTAL=${{ inputs.benchmark_runner_group_total }}
       - name: Build RediSearch
         run: make conan build
+            COORD=${{ inputs.cluster_env }}
+            PROFILE=${{ inputs.profile_env }}
+            REDISEARCH_MT_BUILD=0
+            NPROC=16
+            SHOW=1
       - name: Prepare automation
         run: |
           ./deps/readies/bin/getpy3
@@ -85,10 +68,27 @@ jobs:
       - name: Prepare ReJSON Module
         run: MODULE_FILE=bin/REJSON_PATH ./sbin/get-redisjson
 
+      # TODO: move env vars to the repo vars or move to `redisbench-admin` parameters
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
         timeout-minutes: 60 # timeout for the step
         working-directory: tests/benchmarks
-        run: redisbench-admin run-remote
+        continue-on-error: true # why?
+        run:
+          export ROOT=$PWD/../..                                                              &&
+          export PERF_CALLGRAPH_MODE="dwarf"                                                  &&
+          export MAX_PROFILERS=3                                                              &&
+          export PROFILE=${{ inputs.profile_env }}                                            &&
+
+          export AWS_ACCESS_KEY_ID=$PERFORMANCE_EC2_ACCESS_KEY                                &&
+          export AWS_SECRET_ACCESS_KEY=$PERFORMANCE_EC2_SECRET_KEY                            &&
+          export AWS_DEFAULT_REGION=$PERFORMANCE_EC2_REGION                                   &&
+          export EC2_PRIVATE_PEM=$PERFORMANCE_EC2_PRIVATE_PEM                                 &&
+
+          export BENCHMARK_GLOB=${{ inputs.benchmark_glob }}                                  &&
+          export BENCHMARK_RUNNER_GROUP_M_ID=${{ inputs.benchmark_runner_group_member_id }}   &&
+          export BENCHMARK_RUNNER_GROUP_TOTAL=${{ inputs.benchmark_runner_group_total }}      &&
+
+          redisbench-admin run-remote
               --module_path $(cat $ROOT/bin/REJSON_PATH)
               --module_path $ROOT/${{ inputs.module_path }}
               --github_actor ${{ github.triggering_actor }}
@@ -101,11 +101,11 @@ jobs:
               --triggering_env ${{ inputs.triggering_env }}
               --push_results_redistimeseries
               --allowed-envs ${{ inputs.allowed_envs }}
-              --allowed-setups ${{ inputs.allowed_setups }} || true
+              --allowed-setups ${{ inputs.allowed_setups }}
       - name: Generate Pull Request Performance info
-        if: inputs.pull_request_number
+        if: github.event.number
         run: redisbench-admin compare
               --defaults_filename ./tests/benchmarks/defaults.yml
               --comparison-branch ${{ github.head_ref || github.ref_name }}
               --auto-approve
-              --pull-request ${{ inputs.pull_request_number }}
+              --pull-request ${{ github.event.number }}
