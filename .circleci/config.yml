@@ -291,12 +291,6 @@ commands:
             if [[ -n $CIRCLE_BRANCH ]]; then
                 make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1
             fi
-      - run:
-          name: Publish container
-          command: |
-            docker login -u redisfab -p $DOCKER_REDISFAB_PWD
-            cd build/docker
-            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=1 SHOW=1 VERBOSE=1
       - persist-artifacts
 
   benchmark-steps:
@@ -1147,7 +1141,7 @@ workflows:
           <<: *always
           requires:
             - build-platforms
-            - build-arm-platforms
+            #- build-arm-platforms
             # - build-macos-x64
             # - build-macos-m1
       - upload-artifacts:
