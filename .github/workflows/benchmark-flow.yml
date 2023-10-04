@@ -32,10 +32,6 @@ on:
         default: 1
       pull_request_number:
         type: number
-        default: 0
-      boost-version:
-        type: string
-        default: "1.82.0"
 
 jobs:
   benchmark-steps:
@@ -44,28 +40,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Setup
-        run: ./.install/install_script.sh
-      - name: Setup Repo
-        run: |
-          git init
-          git config --global --add safe.directory '*'
-          git submodule update --init --recursive
-      - name: Restoring cached Boost
-        id: boost-cache
-        uses: actions/cache/restore@v3
-        with:
-          path: /tmp/boostdir
-          key: boost-${{ inputs.boost-version }}-${{ inputs.container }}
-      - name: Get Boost
-        if: steps.boost-cache.outputs.cache-hit != 'true'
-        run: ./.install/install_boost.sh ${{ inputs.boost-version }}
-      - name: Saving Boost cache
-        uses: actions/cache/save@v3
-        if: steps.boost-cache.outputs.cache-hit != 'true'
-        with:
-          path: /tmp/boostdir
-          key: ${{ steps.boost-cache.outputs.cache-primary-key }}
       - name: Get Redis
         uses: actions/checkout@v4
         with:
@@ -80,18 +54,22 @@ jobs:
           export REDISEARCH_MT_BUILD=0
           export PERF_CALLGRAPH_MODE="dwarf"
           export       MAX_PROFILERS=3
+          export                SHOW=1
+          export               NPROC=16
+
+          export   COORD=${{ inputs.cluster_env }}
+          export PROFILE=${{ inputs.profile_env }}
 
           export     AWS_ACCESS_KEY_ID=$PERFORMANCE_EC2_ACCESS_KEY
           export AWS_SECRET_ACCESS_KEY=$PERFORMANCE_EC2_SECRET_KEY
           export    AWS_DEFAULT_REGION=$PERFORMANCE_EC2_REGION
           export       EC2_PRIVATE_PEM=$PERFORMANCE_EC2_PRIVATE_PEM
 
-          export                      PROFILE=${{ inputs.profile_env }}
           export               BENCHMARK_GLOB=${{ inputs.benchmark_glob }}
           export  BENCHMARK_RUNNER_GROUP_M_ID=${{ inputs.benchmark_runner_group_member_id }}
           export BENCHMARK_RUNNER_GROUP_TOTAL=${{ inputs.benchmark_runner_group_total }}
       - name: Build RediSearch
-        run: make COORD=${{ inputs.cluster_env }} PROFILE=${{ inputs.profile_env }} SHOW=1 NPROC=16
+        run: make conan build
       - name: Prepare automation
         run: |
           ./deps/readies/bin/getpy3
