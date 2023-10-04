@@ -323,6 +323,7 @@ commands:
             if [[ -n $CIRCLE_BRANCH ]]; then
                 make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1
             fi
+      - persist-artifacts
 
   benchmark-steps:
     parameters:
@@ -1227,7 +1228,7 @@ workflows:
           <<: *always
           requires:
             - build-platforms
-            - build-arm-platforms
+            #- build-arm-platforms
             # - build-macos-x64
             # - build-macos-m1
       - upload-artifacts:
