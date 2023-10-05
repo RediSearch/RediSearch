@@ -21,7 +21,7 @@ jobs:
         export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
         ./deps/readies/bin/getredis --with-github-token
     - name: Build and test
-      timeout-minutes: 30
+      timeout-minutes: 60
       run: make coverage QUICK=1 TEST_PARALLEL=16 NPROC=16 SHOW=1
     - name: Upload coverage
       run: make upload-cov SHOW=1
