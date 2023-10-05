@@ -8,7 +8,7 @@ on:
 
 jobs:
   run-benchmarks:
-    uses: ./.github/workflows/trigger-benchmark.yml
+    uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
 
   deploy-milestone-artifacts:
