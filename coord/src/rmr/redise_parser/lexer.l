@@ -31,7 +31,7 @@ int yycolumn = 1;
   return INTEGER;
 }
 
-[0-9A-Za-z][A-Za-z0-9_\.\:\@\-\/]* {
+[0-9A-Za-z][A-Za-z0-9_\.\:\@\-\/\[\]]* {
     *(yytext+strlen(yytext)) = '\0';
   	tok.strval = yytext;
   	return STRING;

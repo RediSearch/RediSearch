@@ -1,11 +1,8 @@
-import json
-
-from RLTest import Env
-
 from common import *
-from includes import *
 
+import json
 from json_multi_text_content import *
+
 
 def testMultiTagReturnSimple(env):
     """ test multiple TAG values (array of strings) """
@@ -19,18 +16,17 @@ def testMultiTagReturnSimple(env):
     env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.category[*]', 'AS', 'category', 'TAG').ok()
     # Index an array
     env.expect('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TAG').ok()
-    
+
     waitForIndex(env, 'idx1')
     waitForIndex(env, 'idx2')
-    
+
     res1 = [1, 'doc:1', ['category', 'mathematics and computer science']]
     res2 = [1, 'doc:1', ['category_arr', '["mathematics and computer science","logic","programming","database"]']]
-    
+
     # Currently return a single value (only the first value)
     env.expect('FT.SEARCH', 'idx1', '@category:{mathematics\ and\ computer\ science}', 'RETURN', '1', 'category').equal(res1)
     env.expect('FT.SEARCH', 'idx1', '@category:{logic}', 'RETURN', '1', 'category').equal(res1)
     env.expect('FT.SEARCH', 'idx1', '@category:{logic}', 'RETURN', '3', '$.category', 'AS', 'category_arr').equal(res2)
-
 
 def testMultiTagBool(env):
     """ test multiple TAG values (array of Boolean) """
@@ -45,9 +41,9 @@ def testMultiTagBool(env):
     waitForIndex(env, 'idx_multi')
     waitForIndex(env, 'idx_single')
 
-    # FIXME:    
+    # FIXME:
     # res = env.execute_command('FT.SEARCH', 'idx_multi', '@bar:{true}', 'NOCONTENT')
-    # env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:1']))    
+    # env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:1']))
     # res = env.execute_command('FT.SEARCH', 'idx_multi', '@bar:{false}', 'NOCONTENT')
     # env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:3', 'doc:1']))
 
@@ -55,10 +51,9 @@ def testMultiTagBool(env):
     env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:1']))
     env.expect('FT.SEARCH', 'idx_single', '@bar:{false}', 'NOCONTENT').equal([1, 'doc:3'])
 
-
 def testMultiTag(env):
     """ test multiple TAG values at root level (array of strings) """
-    
+
     conn = getConnectionByEnv(env)
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(json.loads(doc1_content)['category']))
     conn.execute_command('JSON.SET', 'doc:2', '$', json.dumps(json.loads(doc2_content)['category']))
@@ -73,11 +68,11 @@ def testMultiTag(env):
     env.execute_command('FT.CREATE', 'idx_category_arr_author_flat', 'ON', 'JSON', 'SCHEMA',
         '$.[*]', 'AS', 'author', 'TAG', # testing root path, so reuse the single top-level value
         '$', 'AS', 'category', 'TAG')
-    
+
     waitForIndex(env, 'idx_category_flat')
     waitForIndex(env, 'idx_category_arr')
     waitForIndex(env, 'idx_category_arr_author_flat')
-    
+
     searchMultiTagCategory(env)
 
 def testMultiTagNested(env):
@@ -100,7 +95,7 @@ def testMultiTagNested(env):
     env.execute_command('FT.CREATE', 'idx_category_arr_author_flat', 'ON', 'JSON', 'SCHEMA',
         '$.books[*].authors[*]', 'AS', 'author', 'TAG',
         '$.category', 'AS', 'category', 'TAG')
-    
+
     waitForIndex(env, 'idx_category_flat')
     waitForIndex(env, 'idx_author_flat')
     waitForIndex(env, 'idx_category_arr')
@@ -127,18 +122,17 @@ def searchMultiTagCategory(env):
     conn = getConnectionByEnv(env)
 
     for idx in ['idx_category_arr', 'idx_category_arr_author_flat']:
-        env.debugPrint(idx, force=True)
-        
+        env.debugPrint(idx, force=TEST_DEBUG)
+
         # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)
         res = env.execute_command('FT.SEARCH', idx, '@category:{database}', 'NOCONTENT')
         env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:1', 'doc:2']), message="A " + idx)
-        
+
         res = env.execute_command('FT.SEARCH', idx, '@category:{performance}', 'NOCONTENT')
         env.assertListEqual(toSortedFlatList(res), toSortedFlatList([1, 'doc:3']), message="B " + idx)
 
         env.expect('FT.SEARCH', idx, '@category:{high\ performance}', 'NOCONTENT').equal([1, 'doc:2'])
         env.expect('FT.SEARCH', idx, '@category:{cloud}', 'NOCONTENT').equal([1, 'doc:3'])
-    
 
 def searchMultiTagAuthor(env):
     """ helper function for searching multi-value attributes """
@@ -147,9 +141,8 @@ def searchMultiTagAuthor(env):
     env.assertEqual(int(index_info(env, 'idx_author_arr')['hash_indexing_failures']), 3)
 
     for idx in ['idx_author_flat']:
-        env.debugPrint(idx, force=True)
         env.expect('FT.SEARCH', idx, '@author:{Donald\ Knuth}', 'NOCONTENT').equal([1, 'doc:1'])
-        
+
         # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)
         res = env.execute_command('FT.SEARCH', idx, '@author:{Brendan*}', 'NOCONTENT')
         env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:3']))
@@ -159,7 +152,7 @@ def searchMultiTagAuthor(env):
         env.assertListEqual(toSortedFlatList(res), toSortedFlatList([3, 'doc:1', 'doc:2', 'doc:3']))
 
     env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:{programming}', 'NOCONTENT').equal([1, 'doc:1'])
-    
+
 def testMultiNonText(env):
     """
     test multiple TAG values which include some non-text values at root level (null, number, bool, array, object)
@@ -167,9 +160,9 @@ def testMultiNonText(env):
     Fail on number, bool, object, arr of strings, arr with mixed types
     """
     conn = getConnectionByEnv(env)
-    
+
     non_text_dict = json.loads(doc_non_text_content)
-    
+
     # Create indices and a key per index, e.g.,
     #   FT.CREATE idx1 ON JSON PREFIX 1 doc:1: SCHEMA $ AS root TAG
     #   JSON.SET doc:1: $ '["first", "second", null, "third", null, "null", null]'
@@ -183,7 +176,7 @@ def testMultiNonText(env):
         conn.execute_command('JSON.SET', doc, '$', json.dumps(v))
         res_failures = 0 if i+1 <= 5 else 1
         env.assertEqual(int(index_info(env, idx)['hash_indexing_failures']), res_failures, message=str(i))
-    
+
     # Search good indices with content
     env.expect('FT.SEARCH', 'idx1', '@root:{third}', 'NOCONTENT').equal([1, 'doc:1:'])
     env.expect('FT.SEARCH', 'idx2', '@root:{third}', 'NOCONTENT').equal([1, 'doc:2:'])
@@ -198,23 +191,21 @@ def testMultiNonTextNested(env):
     conn = getConnectionByEnv(env)
 
     non_text_dict = json.loads(doc_non_text_content)
-    
+
     # Create indices, e.g.,
     #   FT.CREATE idx1 ON JSON SCHEMA $.attr1 AS attr TEXT
     for (i,v) in enumerate(non_text_dict.values()):
         env.execute_command('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'TAG')
     conn.execute_command('JSON.SET', 'doc:1', '$', doc_non_text_content)
-    
+
     # First 5 indices are OK (nulls are skipped)
     for (i,v) in enumerate(non_text_dict.values()):
         res_failures = 0 if i+1 <= 5 else 1
         env.assertEqual(int(index_info(env, 'idx{}'.format(i+1))['hash_indexing_failures']), res_failures)
-    
+
     # Search good indices with content
     env.expect('FT.SEARCH', 'idx1', '@attr:{third}', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx2', '@attr:{third}', 'NOCONTENT').equal([1, 'doc:1'])
-
-
 
 def checkMultiTagReturn(env, expected, default_dialect, is_sortable, is_sortable_unf):
     """ Helper function for RETURN with multiple TAG values """
@@ -242,14 +233,14 @@ def checkMultiTagReturn(env, expected, default_dialect, is_sortable, is_sortable
 
     env.expect('FT.CREATE', 'idx_flat', 'ON', 'JSON', 'SCHEMA', '$.Sellers[*].Locations[*]', 'AS', 'val', 'TAG', *sortable_param).ok()
     env.expect('FT.CREATE', 'idx_arr', 'ON', 'JSON', 'SCHEMA', '$.Sellers[0].Locations', 'AS', 'val', 'TAG', *sortable_param).ok()
-    
+
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
 
     def expect_case(val):
         return val.lower() if (is_sortable and not is_sortable_unf) and isinstance(val,str) else val
 
     expr = '@val:{al}'
-    
+
     # Multi flat
     env.expect('FT.SEARCH', 'idx_flat', expr,
                'RETURN', '3', '$.Sellers[0].Locations[1]', 'AS', 'arr_1', *dialect_param).equal(expect_case(expected[0]))
@@ -298,7 +289,6 @@ def checkMultiTagReturn(env, expected, default_dialect, is_sortable, is_sortable
     res = conn.execute_command('FT.SEARCH', 'idx_flat', expr, *dialect_param)
     env.assertEqual(json.loads(res[2][1]), [doc1_content] if not default_dialect else doc1_content)
 
-
 def testMultiTagReturn(env):
     """ test RETURN with multiple TAG values """
 
@@ -306,7 +296,6 @@ def testMultiTagReturn(env):
     res2 = [1, 'doc:1', ['val', '["FL","AL"]']]
     res3 = [1, 'doc:1', ['val', '[["FL","AL"]]']]
     res4 = [1, 'doc:1', ['val', '["FL","AL","MS","GA"]']]
-    
 
     checkMultiTagReturn(env, [res1, res2, res3, res4], False, False, False)
     env.flush()

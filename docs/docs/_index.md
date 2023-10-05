@@ -1,71 +1,68 @@
 ---
-title: RediSearch
-description: Queries, secondary indexing, and full-text search for Redis
-linkTitle: Search
+title: "Search and query"
+linkTitle: "Search and query"
+description: Searching and querying Redis data
 type: docs
+weight: 10
+aliases: 
+    - /docs/stack/search
+stack: true
+highlighted: true
 ---
 
 [![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/xTbqgTB)
 [![Github](https://img.shields.io/static/v1?label=&message=repository&color=5961FF&logo=github)](https://github.com/RediSearch/RediSearch/)
 
-
-RediSearch is a [source-available](https://github.com/RediSearch/RediSearch/blob/master/LICENSE) Redis module that enables querying, secondary indexing, and full-text search for Redis. These features enable multi-field queries, [aggregation](/docs/stack/search/reference/aggregations), exact phrase matching, [numeric filtering](/docs/stack/search/reference/query_syntax/#numeric-filters-in-query), [geo filtering](/docs/stack/search/reference/query_syntax/#geo-filters-in-query) and [vector similarity semantic search](/docs/stack/search/reference/query_syntax/#vector-similarity-search-in-query) on top of text queries.
+The enhanced Redis experience with Redis Stack provides querying capabilities, secondary indexing, full-text search, vector similarity search, and more. To use these features, you first declare indexes on your Redis data, and then you use the query language to retrieve the data your application requires. All future data will also be indexed automatically.
 
 ## Quick links
-  - [Quick start guide](/redisearch/quick_start)
+  - [Quick start guide](/docs/interact/search-and-query/quickstart/)
   - [Source code](https://github.com/RediSearch/RediSearch)
   - [Latest release](https://github.com/RediSearch/RediSearch/releases)
   - [Docker image](https://hub.docker.com/r/redis/redis-stack-server/)
 
 ## Primary features
 
-RediSearch supports the following features:
+Redis Stack supports the following search and query features:
 
 * Secondary indexing
 * Multi-field queries
-* [Aggregation](/docs/stack/search/reference/aggregations)
+* [Aggregation](/docs/interact/search-and-query/search/aggregations/)
 * Full-text indexing of multiple fields in a document
 * Incremental indexing without performance loss
 * Document ranking (provided manually by the user at index time)
-* Boolean queries with AND, OR, NOT operators between subqueries
+* Boolean queries with AND, OR, and NOT operators between subqueries
 * Optional query clauses
-* [Prefix-based searches](/docs/stack/search/reference/query_syntax/#prefix-matching)
+* [Prefix-based searches](/docs/interact/search-and-query/query/#prefix-matching)
 * Field weights
-* [Auto-complete](/docs/stack/search/design/overview/#auto-completion) suggestions (with fuzzy prefix suggestions)
+* [Auto-complete](/docs/interact/search-and-query/administration/overview/#auto-complete) and fuzzy prefix suggestions
 * Exact phrase search and slop-based search
-* [Stemming](/docs/stack/search/reference/stemming)-based query expansion for [many languages](/docs/stack/search/reference/stemming/#supported-languages) (using [Snowball](http://snowballstem.org/))
-* Support for custom functions for query expansion and scoring (see [Extensions](/docs/stack/search/reference/extensions))
-* [Numeric filters](/docs/stack/search/reference/query_syntax/#numeric-filters-in-query) and ranges
-* [Geofiltering](/docs/stack/search/reference/query_syntax/#geo-filters-in-query) using Redis [geo commands](/commands/?group=geo)
-* [Vector similarity search](/docs/stack/search/reference/query_syntax/#vector-similarity-search-in-query) for semantic search using exact and approximate algorithms
+* [Stemming](/docs/interact/search-and-query/advanced-concepts/stemming/)-based query expansion for [many languages](/docs/interact/search-and-query/advanced-concepts/stemming//#supported-languages) using [Snowball](http://snowballstem.org/)
+* Support for custom functions for query expansion and scoring (see [Extensions](/docs/interact/search-and-query/administration/extensions/))
+* [Numeric filters](/docs/interact/search-and-query/query/#numeric-filters-in-query) and ranges
+* [Geo-filtering](/docs/interact/search-and-query/query/#geo-filters-in-query) using Redis [geo commands](/commands/?group=geo)
+* [Vector similarity search](/docs/interact/search-and-query/query/#vector-similarity-search-in-query) for semantic search using exact and approximate algorithms
 * Unicode support (UTF-8 input required)
 * Retrieval of full document contents or only their IDs
 * Document deletion and updating with index garbage collection
 
-For more information about RediSearch features, see the [feature reference](/docs/stack/search/reference) pages.
 
 ## JSON documents
 
-When combined with the [RedisJSON](/docs/stack/json) module, which is included with Redis Stack, RediSearch can index and query JSON documents.
+When combined with the Redis Stack's [JSON](/docs/data-types/json/) support, Redis can index and query JSON documents.
 
-To learn how to use RediSearch with JSON documents, see [Indexing JSON documents](/docs/stack/search/indexing_json).
-
-## Client libraries
-
-Official and community client libraries are available for Python, Java, JavaScript, Ruby, Go, C#, and PHP.
-
-See the [clients page](clients) for the full list.
+To learn how to search and query your JSON documents, see [Indexing JSON documents](/docs/interact/search-and-query/indexing/).
 
 ## Cluster support
 
-RediSearch provides a distributed cluster version that scales to billions of documents and hundreds of servers.
+The search and query features of Redis Stack are also available for distributed databases that can scale to billions of documents and hundreds of servers.
 
 ## Commercial support
 
-Commercial support for RediSearch is provided by Redis Ltd. See the [Redis Ltd. website](https://redis.com/redis-enterprise/technology/redis-search/#sds) for more details and contact information.
+Commercial support for Redis Stack is provided by Redis Ltd. See the [Redis Ltd. website](https://redis.com/redis-enterprise/technology/redis-search/#sds) for more details and contact information.
 
 ## Supported platforms
-RediSearch is developed and tested on Linux and macOS on x86_64 CPUs.
+Redis Stack is developed and tested on Linux and macOS on x86_64 CPUs.
 
 Atom CPUs are not supported.
 
@@ -77,7 +74,7 @@ Atom CPUs are not supported.
 
 
 ### Course
-* [RU203: Querying, Indexing, and Full-Text Search](https://university.redis.com/courses/ru203/) - An online RediSearch course from [Redis University](https://university.redis.com/).
+* [RU203: Querying, Indexing, and Full-Text Search](https://university.redis.com/courses/ru203/) - An online Search and Query course from [Redis University](https://university.redis.com/).
 
 ### Blog posts
 1. [Introducing RediSearch 2.0](https://redis.com/blog/introducing-redisearch-2-0/)
@@ -91,7 +88,7 @@ Atom CPUs are not supported.
 
 ## Mailing list / forum
 
-Got questions? Feel free to ask at the [RediSearch forum](https://forum.redis.com/c/modules/redisearch/).
+Got questions? Feel free to ask at the [Search and Query forum](https://forum.redis.com/c/modules/redisearch/).
 
 ## License
 

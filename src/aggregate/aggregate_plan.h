@@ -62,6 +62,7 @@ typedef struct PLN_BaseStep {
 
 #define PLN_NEXT_STEP(step) DLLIST_ITEM((step)->llnodePln.next, PLN_BaseStep, llnodePln)
 #define PLN_PREV_STEP(step) DLLIST_ITEM((step)->llnodePln.prev, PLN_BaseStep, llnodePln)
+#define PLN_END_STEP(plan) DLLIST_ITEM(&(plan)->steps, PLN_BaseStep, llnodePln)
 
 /**
  * JUNCTION/REDUCTION POINTS
@@ -83,11 +84,9 @@ typedef struct {
   PLN_BaseStep base;
   const char *rawExpr;
   RSExpr *parsedExpr;
-  int shouldFreeRaw;  // Whether we own the raw expression, used on coordinator only
+  bool shouldFreeRaw;  // Whether we own the raw expression, used on coordinator only
+  bool noOverride;     // Whether we should override the alias if it exists. We allow it by default
 } PLN_MapFilterStep;
-
-// Magic value -- will sort by score. For use in SEARCH mode
-#define PLN_SORTKEYS_DFLSCORE (const char **)0xdeadbeef
 
 /** ARRANGE covers sort, limit, and so on */
 typedef struct {
@@ -95,7 +94,8 @@ typedef struct {
   const RLookupKey **sortkeysLK;  // simple array
   const char **sortKeys;          // array_*
   uint64_t sortAscMap;            // Mapping of ascending/descending. Bitwise
-  int isLimited;                  // Flag if `LIMIT` keyward was used.
+  bool isLimited;                 // Flag if `LIMIT` keyword was used.
+  bool runLocal;                  // Indicator that this step should run only local (not in shards)
   uint64_t offset;                // Seek results. If 0, then no paging is applied
   uint64_t limit;                 // Number of rows to output
 } PLN_ArrangeStep;
@@ -120,6 +120,7 @@ typedef struct {
   struct PLN_Reducer {
     const char *name;  // Name of function
     char *alias;       // Output key
+    bool isHidden;     // If the output key is hidden. Used by the coordinator
     ArgsCursor args;
   } * reducers;
   int idx;
@@ -147,6 +148,15 @@ typedef PLN_GroupStep::PLN_Reducer PLN_Reducer;
 #else
 typedef struct PLN_Reducer PLN_Reducer;
 #endif
+
+/**
+ * Find a reducer by name and args in the group step
+ * @param gstp the group step
+ * @param name the name of the reducer
+ * @param ac arguments to the reducer; if an alias is used, it is provided
+ *  here as well.
+ */
+PLN_Reducer *PLNGroupStep_FindReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac);
 
 /* A plan is a linked list of all steps */
 struct AGGPlan {
@@ -185,6 +195,18 @@ int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t);
  *
  */
 PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln);
+
+/**
+ * Add an arrange step that corresponds a KNN clause in the query, where the field to sort by it is
+ * the distFieldName, and k is the limit. We add this step to the head of the steps linked list,
+ * as this is the first one to be executed before the rest of the local pipeline.
+ * @param pln the local aggregate plan the was built.
+ * @param k the number of results to return from this step onward.
+ * @param distFieldName the field that stores the vector metric distance of some result from the
+ * query vector to sort by it (note that this is owned  by the query node).
+ * @return the newly created step
+ */
+PLN_ArrangeStep *AGPLN_AddKNNArrangeStep(AGGPlan *pln, size_t k, const char *distFieldName);
 
 /**
  * Gets the last arrange step for the current pipeline stage. If no arrange

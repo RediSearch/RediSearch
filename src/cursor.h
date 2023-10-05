@@ -13,23 +13,15 @@
 #include "util/array.h"
 #include "search_ctx.h"
 
-typedef struct {
-  char *keyName; /** Name of the key that refers to the spec */
-  size_t cap;    /** Maximum number of cursors for the spec */
-  size_t used;   /** Number of cursors currently open */
-} CursorSpecInfo;
-
 struct CursorList;
 
 typedef struct Cursor {
   /**
-   * Link to info on parent. This is used to increment/decrement the count,
-   * and also to reopen the spec
+   * The cursor is holding a weak reference to spec. When read cursor is called
+   * we will try to promote the reference to a strong reference. if the promotion fails -
+   *  it means that the index was dropped. The cursor is no longer valid and should be freed.
    */
-  CursorSpecInfo *specInfo;
-
-  /** Parent - used for deletion, etc */
-  struct CursorList *parent;
+  WeakRef spec_ref;
 
   /** Execution state. Opaque to the cursor - managed by consumer */
   void *execState;
@@ -45,6 +37,9 @@ typedef struct Cursor {
 
   /** Position within idle list */
   int pos;
+
+  /** Is it an internal coordinator cursor or a user cursor*/
+  bool is_coord;
 } Cursor;
 
 KHASH_MAP_INIT_INT64(cursors, Cursor *);
@@ -55,9 +50,6 @@ KHASH_MAP_INIT_INT64(cursors, Cursor *);
 typedef struct CursorList {
   /** Cursor lookup by ID */
   khash_t(cursors) * lookup;
-
-  /** List of spec infos; we just iterate over this */
-  dict *specsDict;
 
   /** List of idle cursors */
   Array idle;
@@ -81,11 +73,20 @@ typedef struct CursorList {
    * This is used as a hint to avoid excessive sweeps.
    */
   uint64_t nextIdleTimeoutNs;
+
+  /** Is it an internal coordinator cursor or a user cursor */
+  bool is_coord;
 } CursorList;
 
 // This resides in the background as a global. We could in theory make this
 // part of the spec structure
-extern CursorList RSCursors;
+// Structs managing the cusrosrs
+extern CursorList g_CursorsList;
+extern CursorList g_CursorsListCoord;
+
+static inline CursorList *GetGlobalCursor(uint64_t cid) {
+  return cid % 2 == 1 ? &g_CursorsListCoord : &g_CursorsList;
+}
 
 /**
  * Threading/Concurrency behavior
@@ -115,7 +116,7 @@ extern CursorList RSCursors;
 /**
  * Initialize the cursor list
  */
-void CursorList_Init(CursorList *cl);
+void CursorList_Init(CursorList *cl, bool is_coord);
 
 /**
  * Clear the cursor list
@@ -123,7 +124,9 @@ void CursorList_Init(CursorList *cl);
 void CursorList_Destroy(CursorList *cl);
 
 /**
- * Empty the cursor list
+ * Empty the cursor list.
+ * It is assumed that this function is called from the main thread, and that
+ * are are no cursors that run in the background.
  */
 void CursorList_Empty(CursorList *cl);
 
@@ -132,12 +135,11 @@ void CursorList_Empty(CursorList *cl);
 #define RSCURSORS_SWEEP_THROTTLE (1 * (1000000000)) /* Throttle, in NS */
 
 /**
- * Add an index spec to the cursor list. This has the effect of adding the
- * spec (via its key) along with its capacity
+ * Check if the cursor has a reference to a spec.
  */
-void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity);
-
-void CursorList_RemoveSpec(CursorList *cl, const char *k);
+static inline bool cursor_HasSpecWeakRef(const Cursor *cursor) {
+  return cursor->spec_ref.rm != NULL;
+}
 
 /**
  * Reserve a cursor for use with a given query.
@@ -147,7 +149,7 @@ void CursorList_RemoveSpec(CursorList *cl, const char *k);
  * Timeout is the max idle timeout (activated at each call to Pause()) in
  * milliseconds.
  */
-Cursor *Cursors_Reserve(CursorList *cl, const char *lookupName, unsigned timeout,
+Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned timeout,
                         QueryError *status);
 
 /**
@@ -174,14 +176,16 @@ int Cursors_Purge(CursorList *cl, uint64_t cid);
 
 int Cursors_CollectIdle(CursorList *cl);
 
-/** Remove all cursors with the given lookup name */
-void Cursors_PurgeWithName(CursorList *cl, const char *lookupName);
-
-void Cursors_RenderStats(CursorList *cl, const char *key, RedisModuleCtx *ctx);
+/**
+ * Assumed to be called by the main thread with a valid locked spec, under the cursors lock.
+ */
+void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModule_Reply *reply);
 
 #ifdef FTINFO_FOR_INFO_MODULES
-void Cursors_RenderStatsForInfo(CursorList *cl, const char *name, RedisModuleInfoCtx *ctx);
+void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModuleInfoCtx *ctx);
 #endif
 
 void Cursor_FreeExecState(void *);
 #endif
+
+#define getCursorList(coord) ((coord) ? &g_CursorsListCoord : &g_CursorsList)

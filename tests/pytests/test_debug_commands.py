@@ -25,7 +25,7 @@ class TestDebugCommands(object):
 
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
-        help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_NUMIDXTREE', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO',
+        help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_NUMIDXTREE', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'DUMP_GEOMIDX', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO',
                      'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE', 'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY',
                      'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC', 'GIT_SHA', 'TTL', 'VECSIM_INFO']
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
@@ -147,11 +147,11 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'dump_terms', 'idx1').raiseError()
 
     def testInvertedIndexSummary(self):
-        self.env.expect('FT.DEBUG', 'invidx_summary', 'idx', 'meir').equal(['numDocs', 1, 'lastId', 1, 'flags',
+        self.env.expect('FT.DEBUG', 'invidx_summary', 'idx', 'meir').equal(['numDocs', 1, 'numEntries', 1, 'lastId', 1, 'flags',
                                                                             83, 'numberOfBlocks', 1, 'blocks',
                                                                             ['firstId', 1, 'lastId', 1, 'numEntries', 1]])
 
-        self.env.expect('FT.DEBUG', 'INVIDX_SUMMARY', 'idx', 'meir').equal(['numDocs', 1, 'lastId', 1, 'flags',
+        self.env.expect('FT.DEBUG', 'INVIDX_SUMMARY', 'idx', 'meir').equal(['numDocs', 1, 'numEntries', 1, 'lastId', 1, 'flags',
                                                                             83, 'numberOfBlocks', 1, 'blocks',
                                                                             ['firstId', 1, 'lastId', 1, 'numEntries', 1]])
 
@@ -166,10 +166,12 @@ class TestDebugCommands(object):
 
     def testNumericIdxIndexSummary(self):
         self.env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'age').equal(['numRanges', 1, 'numEntries', 1,
-                                                                           'lastDocId', 1, 'revisionId', 0])
+                                                                           'lastDocId', 1, 'revisionId', 0,
+                                                                           'emptyLeaves', 0, 'RootMaxDepth', 0])
 
         self.env.expect('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'age').equal(['numRanges', 1, 'numEntries', 1,
-                                                                           'lastDocId', 1, 'revisionId', 0])
+                                                                           'lastDocId', 1, 'revisionId', 0,
+                                                                           'emptyLeaves', 0, 'RootMaxDepth', 0])
 
     def testUnexistsNumericIndexSummary(self):
         self.env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'age1').raiseError()

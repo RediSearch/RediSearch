@@ -5,12 +5,12 @@
  */
 
 #include "redismodule.h"
-#include <rmr/command.h>
-#include <crc16_tags.h>
+#include "rmr/command.h"
+#include "crc16_tags.h"
 #include "search_cluster.h"
 #include "alias.h"
 #include "minunit.h"
-#include "../rmutil/alloc.h"
+#include "rmutil/alloc.h"
 
 const char *FNVTagFunc(const char *key, size_t len, size_t k);
 // void testTagFunc() {

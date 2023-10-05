@@ -246,7 +246,8 @@ def testDebugDump(env):
 
     env.expect('FT.DEBUG', 'DUMP_NUMIDX' ,'idx:top', 'val').equal([[1, 2]])
     env.expect('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx:top', 'val').equal(['numRanges', 1, 'numEntries', 6,
-                                                                      'lastDocId', 2, 'revisionId', 0])
+                                                                      'lastDocId', 2, 'revisionId', 0,
+                                                                      'emptyLeaves', 0, 'RootMaxDepth', 0])
 
 def testInvertedIndexMultipleBlocks(env):
     """ Test internal addition of new inverted index blocks (beyond INDEX_BLOCK_SIZE entries)"""
@@ -609,12 +610,11 @@ def testDebugRangeTree(env):
     conn.execute_command('JSON.SET', 'doc:2', '$', json.dumps({'val': [1, 2, 3]}))
     conn.execute_command('JSON.SET', 'doc:3', '$', json.dumps({'val': [3, 4, 5]}))
 
-    env.expect('FT.DEBUG', 'DUMP_NUMIDXTREE', 'idx', 'val').equal( ['numRanges', 1, 'numEntries', 9, 'lastDocId', 3, 'revisionId', 0, 'uniqueId', 0,
-        'root', ['value', 0, 'maxDepth', 0,
-            'range', ['minVal', 1, 'maxVal', 5, 'unique_sum', 0, 'invertedIndexSize', 11, 'card', 0, 'cardCheck', 1, 'splitCard', 16,
-                'entries', ['numDocs', 3, 'lastId', 3, 'size', 1, 'values',
-                    ['value', 1, 'docId', 1, 'value', 2, 'docId', 1, 'value', 3, 'docId', 1, 'value', 1, 'docId', 2, 'value', 2, 'docId', 2, 'value', 3, 'docId', 2, 'value', 3, 'docId', 3, 'value', 4, 'docId', 3, 'value', 5, 'docId', 3]]],
-            'left', [], 'right', []]])
+    env.expect('FT.DEBUG', 'DUMP_NUMIDXTREE', 'idx', 'val').equal(['numRanges', 1, 'numEntries', 9, 'lastDocId', 3, 'revisionId', 0, 'uniqueId', 0, 'emptyLeaves', 0,
+        'root', ['range', ['minVal', str(1), 'maxVal', str(5), 'unique_sum', str(0), 'invertedIndexSize [bytes]', str(11), 'card', 0, 'cardCheck', 1, 'splitCard', 16,
+                'entries', ['numDocs', 3, 'numEntries', 9, 'lastId', 3, 'size', 1, 'blocks_efficiency (numEntries/size)', str(9), 'values',
+                    ['value', str(1), 'docId', 1, 'value', str(2), 'docId', 1, 'value', str(3), 'docId', 1, 'value', str(1), 'docId', 2, 'value', str(2), 'docId', 2, 'value', str(3), 'docId', 2, 'value', str(3), 'docId', 3, 'value', str(4), 'docId', 3, 'value', str(5), 'docId', 3]]]],
+            'Tree stats:', ['Average memory efficiency (numEntries/size)/numRanges', str(9)]])
 
 def checkUpdateNumRecords(env, is_json):
     """ Helper function for testing update of `num_records` """
@@ -704,7 +704,8 @@ def checkMultiNumericReturn(env, expected, default_dialect, is_sortable):
 
     dialect_param = ['DIALECT', 3] if not default_dialect else []
     sortable_param = ['SORTABLE'] if is_sortable else []
-    env.assertEqual(len(expected), 3, message='dialect {}, sortable {}'.format(dialect_param, is_sortable))
+    message='dialect {}, sortable {}'.format('default' if default_dialect else 3, is_sortable)
+    env.assertEqual(len(expected), 3, message=message)
 
     env.expect('FT.CREATE', 'idx_flat', 'ON', 'JSON', 'SCHEMA', '$.arr[*]', 'AS', 'val', 'NUMERIC', *sortable_param).ok()
     env.expect('FT.CREATE', 'idx_arr', 'ON', 'JSON', 'SCHEMA', '$.arr', 'AS', 'val', 'NUMERIC', *sortable_param).ok()
@@ -712,30 +713,30 @@ def checkMultiNumericReturn(env, expected, default_dialect, is_sortable):
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
 
     # Multi flat
-    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
-               'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', *dialect_param).equal(expected[0])
-    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
-               'RETURN', '1', 'val', *dialect_param).equal(expected[1])
-    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
-               'RETURN', '3', '$.arr[*]', 'AS', 'val', *dialect_param).equal(expected[1])
-    env.expect('FT.SEARCH', 'idx_flat', '@val:[2 3]',
-               'RETURN', '3', '$.arr', 'AS', 'val', *dialect_param).equal(expected[2])
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]', 'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', *dialect_param),
+                    expected[0], message=message)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]', 'RETURN', '1', 'val', *dialect_param),
+                    expected[1], message=message)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]', 'RETURN', '3', '$.arr[*]', 'AS', 'val', *dialect_param),
+                    expected[1], message=message)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]', 'RETURN', '3', '$.arr', 'AS', 'val', *dialect_param),
+                    expected[2], message=message)
 
-    env.expect('FT.AGGREGATE', 'idx_flat',
-               '@val:[2 3]', 'LOAD', '1', '@val', *dialect_param).equal([1, ['val', expected[1][2][1]]])
+    env.assertEqual(conn.execute_command('FT.AGGREGATE', 'idx_flat', '@val:[2 3]', 'LOAD', '1', '@val', *dialect_param),
+                    [1, ['val', expected[1][2][1]]], message=message)
 
-    env.expect('FT.AGGREGATE', 'idx_flat',
-               '@val:[2 3]', 'GROUPBY', '1', '@val', *dialect_param).equal([1, ['val', expected[1][2][1]]])
+    env.assertEqual(conn.execute_command('FT.AGGREGATE', 'idx_flat', '@val:[2 3]', 'GROUPBY', '1', '@val', *dialect_param),
+                    [1, ['val', expected[1][2][1]]], message=message)
 
     # Array
-    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
-               'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', *dialect_param).equal(expected[0])
-    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
-               'RETURN', '1', 'val', *dialect_param).equal(expected[2])
-    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
-               'RETURN', '3', '$.arr[*]', 'AS', 'val', *dialect_param).equal(expected[1])
-    env.expect('FT.SEARCH', 'idx_arr', '@val:[2 3]',
-               'RETURN', '3', '$.arr', 'AS', 'val', *dialect_param).equal(expected[2])
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx_arr', '@val:[2 3]', 'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', *dialect_param),
+                    expected[0], message=message)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx_arr', '@val:[2 3]', 'RETURN', '1', 'val', *dialect_param),
+                    expected[2], message=message)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx_arr', '@val:[2 3]', 'RETURN', '3', '$.arr[*]', 'AS', 'val', *dialect_param),
+                    expected[1], message=message)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx_arr', '@val:[2 3]', 'RETURN', '3', '$.arr', 'AS', 'val', *dialect_param),
+                    expected[2], message=message)
 
     res = conn.execute_command('FT.AGGREGATE', 'idx_arr',
         '@val:[2 3]', 'GROUPBY', '1', '@val', *dialect_param)
@@ -745,8 +746,8 @@ def checkMultiNumericReturn(env, expected, default_dialect, is_sortable):
         env.assertEqual(res, [1, ['val', expected[2][2][1]]])
 
 
-    env.expect('FT.AGGREGATE', 'idx_arr',
-               '@val:[2 3]', 'LOAD', '1', '@val', *dialect_param).equal([1, ['val', expected[2][2][1]]])
+    env.assertEqual(conn.execute_command('FT.AGGREGATE', 'idx_arr', '@val:[2 3]', 'LOAD', '1', '@val', *dialect_param),
+                    [1, ['val', expected[2][2][1]]], message=message)
 
     # RETURN ALL
     res = conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]', *dialect_param)

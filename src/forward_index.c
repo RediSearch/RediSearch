@@ -174,6 +174,7 @@ static khIdxEntry *makeEntry(ForwardIndex *idx, const char *s, size_t n, uint32_
 #define TOKOPT_F_STEM 0x01
 #define TOKOPT_F_COPYSTR 0x02
 #define TOKOPT_F_SUFFIX_TRIE 0x04
+#define TOKOPT_F_RAW 0x08
 
 static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t tokLen,
                                      uint32_t pos, float fieldScore, t_fieldId fieldId,
@@ -220,7 +221,10 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
   }
   h->freq += MAX(1, (uint32_t)score);
   idx->maxFreq = MAX(h->freq, idx->maxFreq);
-  idx->totalFreq += h->freq;
+  if (options & TOKOPT_F_RAW) {
+    // Account for this term as part of the document's length.
+    idx->totalFreq += MAX(1, (uint32_t)score);
+  }
   if (h->vw) {
     VVW_Write(h->vw, pos);
   }
@@ -234,7 +238,7 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
 int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
 #define SYNONYM_BUFF_LEN 100
   const ForwardIndexTokenizerCtx *tokCtx = ctx;
-  int options = 0;
+  int options = TOKOPT_F_RAW;  // this is the actual word given in the query
   if (tokInfo->flags & Token_CopyRaw) {
     options |= TOKOPT_F_COPYSTR;
     options |= TOKOPT_F_SUFFIX_TRIE;

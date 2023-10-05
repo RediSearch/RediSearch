@@ -126,8 +126,7 @@ def testSearchUpdatedContent(env):
 # TODO: Check arrays
 # TODO: Check Object/Map
 
-@no_msan
-@skip
+@skip()
 def testHandleUnindexedTypes(env):
     # TODO: Ignore and resume indexing when encountering an Object/Array/null
     # TODO: Except for array of only scalars which is defined as a TAG in the schema
@@ -236,6 +235,32 @@ def testSet(env):
     env.expect('ft.search', 'idx', 'ReJSON').equal(res)
     env.expect('ft.search', 'idx', 're*').equal(res)
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([1, 'doc:1'])
+
+@no_msan
+def testMSet(env):
+    # JSON.MSET (either set the entire keys or a sub-value of the keys)
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.details.a', 'AS', 'a', 'NUMERIC')
+
+    env.execute_command('JSON.MSET', 'doc:1', '$', r'{"t":"ReJSON", "details":{"a":1}}')
+    res = [1, 'doc:1', ['$', '{"t":"ReJSON","details":{"a":1}}']]
+    env.expect('ft.search', 'idx', 'ReJSON').equal(res)
+
+    env.execute_command('JSON.MSET', 'doc:1', '$.details.a', r'8', 'doc:1', '$.t', r'"newReJSON"')
+    res = [1, 'doc:1', ['$', '{"t":"newReJSON","details":{"a":8}}']]
+    env.expect('ft.search', 'idx', '@a:[7 9]').equal(res)
+
+@no_msan
+def testMerge(env):
+    # JSON.MERGE 
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.details.a', 'AS', 'a', 'NUMERIC')
+
+    env.execute_command('JSON.MERGE', 'doc:1', '$', r'{"t":"ReJSON","details":{"a":1}}')
+    res = [1, 'doc:1', ['$', '{"t":"ReJSON","details":{"a":1}}']]
+    env.expect('ft.search', 'idx', 'ReJSON').equal(res)
+
+    env.execute_command('JSON.MERGE', 'doc:1', '$', r'{"t":"newReJSON","details":{"a":8,"b":3}}')
+    res = [1, 'doc:1', ['$', '{"t":"newReJSON","details":{"a":8,"b":3}}']]
+    env.expect('ft.search', 'idx', '@a:[7 9]').equal(res)
 
 @no_msan
 def testDel(env):
@@ -681,7 +706,7 @@ def testAsProjectionRedefinedLabel(env):
     env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '4', '@$.n', 'AS', 'labelT', 'labelN').equal(
         [1, ['labelT', '9072', 'labelN', '9072']])
 
-@no_msan
+@skip(msan=True)
 def testNumeric(env):
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.n', 'AS', 'n', 'NUMERIC', "$.f", 'AS', 'f', 'NUMERIC')
@@ -693,8 +718,7 @@ def testNumeric(env):
     env.expect('FT.SEARCH', 'idx', '@f:[9.5 9.9]', 'RETURN', '3', '$.f', 'AS', 'flt') \
         .equal([1, 'doc:1', ['flt', '9.72']])
 
-@no_msan
-@skip
+@skip()
 def testLanguage(env):
     # TODO: Check stemming? e.g., trad is stem of traduzioni and tradurre ?
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'LANGUAGE_FIELD', '$.lang', 'SCHEMA', '$.t', 'TEXT')
@@ -706,7 +730,7 @@ def testLanguage(env):
     env.execute_command('JSON.SET', 'doc:2', '$', r'{"domanda":"perché"}')
     env.expect('ft.search', 'idx2', 'per*', 'RETURN', '1', '$.domanda' ).equal([1, 'doc:2', ['$.domanda', '"perch\xc3\xa9"']])
 
-@no_msan
+@skip(msan=True)
 def testDifferentType(env):
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'hidx', 'ON', 'HASH', 'SCHEMA', '$.t', 'TEXT')
@@ -944,6 +968,28 @@ def testNullValue(env):
     check_index_with_null(env, 'idx_separator')
     check_index_with_null(env, 'idx_casesensitive')
 
+def testNullValueSkipped(env):
+    ''' check null values are skipped from indexing '''
+
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.num', 'AS', 'num', 'NUMERIC',
+                                                           '$.txt', 'AS', 'txt', 'TEXT',
+                                                           '$.tag', 'AS', 'tag', 'TAG',
+                                                           '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2',
+                                                           '$.geo', 'AS', 'geo', 'GEO').ok()
+
+    conn.execute_command('JSON.SET', 'doc1', '$', r'{"num": null}')
+    conn.execute_command('JSON.SET', 'doc2', '$', r'{"txt": null}')
+    conn.execute_command('JSON.SET', 'doc3', '$', r'{"tag": null}')
+    conn.execute_command('JSON.SET', 'doc4', '$', r'{"geo": null}')
+    conn.execute_command('JSON.SET', 'doc5', '$', r'{"vec": null}')
+
+    info_res = index_info(env, 'idx')
+    env.assertEqual(int(info_res['hash_indexing_failures']), 0)
+    env.assertEqual(int(info_res['num_records']), 0)
+    env.assertEqual(int(info_res['num_terms']), 0)
+
+
 @no_msan
 def testVector_empty_array(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -1071,3 +1117,41 @@ def testRedisCommands(env):
         time.sleep(0.1)
         env.expect('JSON.GET', 'doc:1', '$').equal(None)
         env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([0])
+
+def testUpperLower():
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 3')
+    conn = getConnectionByEnv(env)
+
+    # create index
+    env.assertOk(conn.execute_command('FT.CREATE' ,'groupIdx' ,'ON', 'JSON', 'PREFIX', 1, 'group:', 'SCHEMA', '$.tags.*', 'AS', 'tags', 'TAG'))
+    waitForIndex(env, 'groupIdx')
+
+    # validate the `upper` case
+    env.assertOk(conn.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["tag1"]}'))
+    env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'upper(@tags)', 'AS', 'upp').equal([1, ['tags', '["tag1"]', 'upp', 'TAG1']])
+
+    # validate the `lower` case
+    env.assertOk(conn.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["TAG1"]}'))
+    env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'lower(@tags)', 'AS', 'low').equal([1, ['tags', '["TAG1"]', 'low', 'tag1']])
+
+    # expect the same result for multi-value case
+
+    # validate the `upper` case
+    env.assertOk(conn.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["tag1", "tag2"]}'))
+    env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'upper(@tags)', 'AS', 'upp').equal([1, ['tags', '["tag1","tag2"]', 'upp', 'TAG1']])
+
+    # validate the `lower` case
+    env.assertOk(conn.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["TAG1", "TAG2"]}'))
+    env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'lower(@tags)', 'AS', 'low').equal([1, ['tags', '["TAG1","TAG2"]', 'low', 'tag1']])
+
+no_msan
+def test_mod5608(env):
+    with env.getClusterConnectionIfNeeded() as r:
+        for i in range(10000):
+            r.execute_command("HSET", 'd%d' % i, 'id', 'id%d' % i, 'num', i)
+
+        env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'd', 'SCHEMA', 'id', 'TAG', 'num', 'NUMERIC').equal('OK')
+        waitForIndex(env, 'idx')
+        res = env.execute_command('FT.AGGREGATE', 'idx', "*", 'LOAD', 1, 'num', 'WITHCURSOR', 'MAXIDLE', 1, 'COUNT', 300)
+        cursor_id = res[1]

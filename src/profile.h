@@ -11,33 +11,16 @@
 #include "aggregate/aggregate.h"
 
 #define CLOCKS_PER_MILLISEC  (CLOCKS_PER_SEC / 1000)
-#define PROFILE_VERBOSE RSGlobalConfig.printProfileClock
 
-#define printProfileType(vtype)                       \
-  do {                                                \
-    RedisModule_ReplyWithSimpleString(ctx, "Type");   \
-    RedisModule_ReplyWithSimpleString(ctx, vtype);    \
-  } while (0)
+#define printProfileType(vtype) RedisModule_ReplyKV_SimpleString(reply, "Type", (vtype))
+#define printProfileTime(vtime) RedisModule_ReplyKV_Double(reply, "Time", (vtime))
+#define printProfileCounter(vcounter) RedisModule_ReplyKV_LongLong(reply, "Counter", (vcounter))
+#define printProfileNumBatches(hybrid_reader) \
+  RedisModule_ReplyKV_LongLong(reply, "Batches number", (hybrid_reader)->numIterations)
+#define printProfileOptimizationType(oi) \
+  RedisModule_ReplyKV_SimpleString(reply, "Optimizer mode", QOptimizer_PrintType((oi)->optim))
 
-#define printProfileTime(vtime)                       \
-  do {                                                \
-    RedisModule_ReplyWithSimpleString(ctx, "Time");   \
-    RedisModule_ReplyWithDouble(ctx, vtime);          \
-  } while (0)
+int Profile_Print(RedisModule_Reply *reply, AREQ *req);
 
-#define printProfileCounter(vcounter)                 \
-  do {                                                \
-    RedisModule_ReplyWithSimpleString(ctx, "Counter");\
-    RedisModule_ReplyWithLongLong(ctx, vcounter);     \
-  } while (0)
-
-#define printProfileNumBatches(hybrid_reader)                         \
-  do {                                                                \
-    RedisModule_ReplyWithSimpleString(ctx, "Batches number");         \
-    RedisModule_ReplyWithLongLong(ctx, hybrid_reader->numIterations);\
-  } while (0)
-
-int Profile_Print(RedisModuleCtx *ctx, AREQ *req);
-
-void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter,
-                 double cpuTime);
+void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter,
+                 double cpuTime, PrintProfileConfig *config);

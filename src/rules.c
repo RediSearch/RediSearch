@@ -76,7 +76,7 @@ void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx) {
   legacySpecRules = NULL;
 }
 
-SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError *status) {
+SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *status) {
   SchemaRule *rule = rm_calloc(1, sizeof(*rule));
 
   if (DocumentType_Parse(args->type, &rule->type, status) == REDISMODULE_ERR) {
@@ -118,8 +118,6 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
     rule->prefixes = array_append(rule->prefixes, p);
   }
 
-  rule->spec = spec;
-
   if (rule->filter_exp_str) {
     rule->filter_exp = ExprAST_Parse(rule->filter_exp_str, strlen(rule->filter_exp_str), status);
     if (!rule->filter_exp) {
@@ -129,7 +127,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
   }
 
   for (int i = 0; i < array_len(rule->prefixes); ++i) {
-    SchemaPrefixes_Add(rule->prefixes[i], spec);
+    SchemaPrefixes_Add(rule->prefixes[i], ref);
   }
 
   return rule;
@@ -148,9 +146,9 @@ error:
  * At documentation, the field index is used to load required fields instead of
  * expensive comparisons.
  */
-void SchemaRule_FilterFields(SchemaRule *rule) {
+void SchemaRule_FilterFields(IndexSpec *spec) {
   char **properties = array_new(char *, 8);
-  IndexSpec *spec = rule->spec;
+  SchemaRule *rule = spec->rule;
   RSExpr_GetProperties(rule->filter_exp, &properties);
   int propLen = array_len(properties);
   if (array_len(properties) > 0) {
@@ -189,11 +187,11 @@ void SchemaRule_Free(SchemaRule *rule) {
 
 //---------------------------------------------------------------------------------------------
 
-static SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, IndexSpec *index) {
+static SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, StrongRef ref) {
   SchemaPrefixNode *node = rm_calloc(1, sizeof(*node));
   node->prefix = rm_strdup(prefix);
-  node->index_specs = array_new(IndexSpec *, 1);
-  node->index_specs = array_append(node->index_specs, index);
+  node->index_specs = array_new(StrongRef, 1);
+  node->index_specs = array_append(node->index_specs, ref);
   return node;
 }
 
@@ -348,7 +346,7 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
 
 //---------------------------------------------------------------------------------------------
 
-int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
+int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver) {
   SchemaRuleArgs args = {0};
   size_t len;
 #define RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK 32
@@ -389,16 +387,18 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
   RSLanguage lang_default = LoadUnsigned_IOError(rdb, goto cleanup);
 
   QueryError status = {0};
-  SchemaRule *rule = SchemaRule_Create(&args, sp, &status);
+  SchemaRule *rule = SchemaRule_Create(&args, ref, &status);
   if (!rule) {
     RedisModule_LogIOError(rdb, "warning", "%s", QueryError_GetError(&status));
     RedisModule_Assert(rule);
-  } else {
-    rule->score_default = score_default;
-    rule->lang_default = lang_default;
-    sp->rule = rule;
   }
-  SchemaRule_FilterFields(rule);
+  rule->score_default = score_default;
+  rule->lang_default = lang_default;
+
+  // No need to validate the reference here, since we are loading it from the RDB
+  IndexSpec *sp = StrongRef_Get(ref);
+  sp->rule = rule;
+  SchemaRule_FilterFields(sp);
 
 cleanup:
   if (args.type) {
@@ -489,12 +489,12 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
   int ret = true;
   SchemaRule *rule = sp->rule;
   if (rule->filter_exp) {
-    EvalCtx *r = NULL;     
+    EvalCtx *r = NULL;
     // load hash only if required
     r = EvalCtx_Create();
 
-    RLookup_LoadRuleFields(RSDummyContext, &r->lk, &r->row, rule, keyCstr);
- 
+    RLookup_LoadRuleFields(RSDummyContext, &r->lk, &r->row, sp, keyCstr);
+
     if (EvalCtx_EvalExpr(r, rule->filter_exp) != EXPR_EVAL_OK ||
         !RSValue_BoolTest(&r->res)) {
       ret = false;
@@ -521,19 +521,20 @@ void SchemaPrefixes_Free(TrieMap *t) {
   TrieMap_Free(t, freePrefixNode);
 }
 
-void SchemaPrefixes_Add(const char *prefix, IndexSpec *spec) {
+void SchemaPrefixes_Add(const char *prefix, StrongRef ref) {
   size_t nprefix = strlen(prefix);
   void *p = TrieMap_Find(ScemaPrefixes_g, (char *)prefix, nprefix);
   if (p == TRIEMAP_NOTFOUND) {
-    SchemaPrefixNode *node = SchemaPrefixNode_Create(prefix, spec);
+    SchemaPrefixNode *node = SchemaPrefixNode_Create(prefix, ref);
     TrieMap_Add(ScemaPrefixes_g, (char *)prefix, nprefix, node, NULL);
   } else {
     SchemaPrefixNode *node = (SchemaPrefixNode *)p;
-    node->index_specs = array_append(node->index_specs, spec);
+    node->index_specs = array_append(node->index_specs, ref);
   }
 }
 
-void SchemaPrefixes_RemoveSpec(IndexSpec *spec) {
+void SchemaPrefixes_RemoveSpec(StrongRef ref) {
+  IndexSpec *spec = StrongRef_Get(ref);
   if (!spec || !spec->rule || !spec->rule->prefixes) return;
 
   const char **prefixes = spec->rule->prefixes;
@@ -545,7 +546,7 @@ void SchemaPrefixes_RemoveSpec(IndexSpec *spec) {
     }
     // iterate over specs list and remove
     for (int j = 0; j < array_len(node->index_specs); ++j) {
-      if (node->index_specs[j] == spec) {
+      if (StrongRef_Equals(node->index_specs[j], ref)) {
         array_del_fast(node->index_specs, j);
         if (array_len(node->index_specs) == 0) {
           // if all specs were deleted, remove the node

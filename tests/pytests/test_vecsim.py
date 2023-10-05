@@ -24,17 +24,6 @@ def assert_query_results(env, expected_res, actual_res, error_msg='', data_type=
             env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-9, depth=1, message=error_msg)
 
 
-def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32'):
-    conn = getConnectionByEnv(env)
-    np.random.seed(10)
-    for i in range(n_vec):
-        vector = create_np_array_typed(np.random.rand(vec_size), data_type)
-        if i == query_vec_index:
-            query_vec = vector
-        conn.execute_command('HSET', i, 'vector', vector.tobytes())
-    return query_vec
-
-
 def get_vecsim_memory(env, index_key, field_name):
     return float(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", index_key, field_name))["MEMORY"])/0x100000
 
@@ -87,11 +76,9 @@ def test_sanity_cosine():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
-    index_types = ['FLAT', 'HNSW']
-    data_types = ['FLOAT32', 'FLOAT64']
     score_field_syntaxs = ['AS dist]', ']=>{$yield_distance_as:dist}']
-    for index_type in index_types:
-        for data_type in data_types:
+    for index_type in VECSIM_ALGOS:
+        for data_type in VECSIM_DATA_TYPES:
             for i, score_field_syntax in enumerate(score_field_syntaxs):
                 env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index_type, '6', 'TYPE', data_type,
                            'DIM', '2', 'DISTANCE_METRIC', 'COSINE').ok()
@@ -157,10 +144,8 @@ def test_sanity_l2():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
-    index_types = ['FLAT', 'HNSW']
-    data_types = ['FLOAT32', 'FLOAT64']
-    for index_type in index_types:
-        for data_type in data_types:
+    for index_type in VECSIM_ALGOS:
+        for data_type in VECSIM_DATA_TYPES:
             env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index_type, '6', 'TYPE', data_type,
                        'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
             conn.execute_command('HSET', 'a', 'v', create_np_array_typed([0.1, 0.1], data_type).tobytes())
@@ -217,6 +202,36 @@ def test_sanity_l2():
                                     'PARAMS', '2', 'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
             assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
 
+            conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+
+
+def test_sanity_zero_results():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 4
+
+    for index_type in VECSIM_ALGOS:
+        for data_type in VECSIM_DATA_TYPES:
+            env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index_type, '6', 'TYPE', data_type,
+                       'DIM', dim, 'DISTANCE_METRIC', 'L2', 'n', 'NUMERIC').ok()
+            conn.execute_command('HSET', 'a', 'n', 0xa, 'v', create_np_array_typed(np.random.rand(dim), data_type).tobytes())
+            conn.execute_command('HSET', 'b', 'n', 0xb, 'v', create_np_array_typed(np.random.rand(dim), data_type).tobytes())
+            conn.execute_command('HSET', 'c', 'n', 0xc, 'v', create_np_array_typed(np.random.rand(dim), data_type).tobytes())
+            conn.execute_command('HSET', 'd', 'n', 0xd, 'v', create_np_array_typed(np.random.rand(dim), data_type).tobytes())
+
+            query_vec = create_np_array_typed(np.random.rand(dim), data_type)
+
+            # Test looking for 0 results
+            env.expect('FT.SEARCH', 'idx', '*=>[KNN 0 @v $blob AS dist]', 'PARAMS', '2', 'blob', query_vec.tobytes()).equal([0])
+            env.expect('FT.SEARCH', 'idx', '*=>[KNN $K @v $blob AS dist]', 'PARAMS', '4', 'K', 0, 'blob', query_vec.tobytes()).equal([0])
+            env.expect('FT.SEARCH', 'idx', '*=>[KNN 0 @v $blob AS dist]', 'PARAMS', '2', 'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist', 'LIMIT', 0, 10).equal([0])
+
+            # Test looking for 0 results with a filter
+            env.expect('FT.SEARCH', 'idx', '@n:[0 10]=>[KNN 0 @v $blob AS dist]', 'PARAMS', '2', 'blob', query_vec.tobytes()).equal([0])
+            env.expect('FT.SEARCH', 'idx', '@n:[0 10]=>[KNN $K @v $blob AS dist]', 'PARAMS', '4', 'K', 0, 'blob', query_vec.tobytes()).equal([0])
+            env.expect('FT.SEARCH', 'idx', '@n:[0 10]=>[KNN 0 @v $blob AS dist]', 'PARAMS', '2', 'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist', 'LIMIT', 0, 10).equal([0])
+
+            # End of round cleanup
             conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
@@ -304,6 +319,10 @@ def test_create():
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
+    # A value to use as a dummy value for memory fields in the info command (and any other irrelevant fields)
+    # as we don't care about the actual value of these fields in this test
+    dummy_val = 'dummy_supplement'
+
     # Test for INT32, INT64 as well when support for these types is added.
     for data_type in VECSIM_DATA_TYPES:
         conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v_HNSW', 'VECTOR', 'HNSW', '14', 'TYPE', data_type,
@@ -312,18 +331,28 @@ def test_create():
         conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'v_FLAT', 'VECTOR', 'FLAT', '8', 'TYPE', data_type,
                              'DIM', '1024', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', '10')
 
+        expected_HNSW = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024 if MT_BUILD else 0, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'HNSW', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'EPSILON', '0.01', 'NUMBER_OF_MARKED_DELETED', 0], 'TIERED_HNSW_SWAP_JOBS_THRESHOLD', 1024]
+        expected_FLAT = ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024]
+
         for _ in env.retry_with_rdb_reload():
             info = [['identifier', 'v_HNSW', 'attribute', 'v_HNSW', 'type', 'VECTOR']]
             assertInfoField(env, 'idx1', 'attributes', info)
             info_data_HNSW = conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx1", "v_HNSW")
-            env.assertEqual(info_data_HNSW[:-5], ['ALGORITHM', 'HNSW', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'MEMORY'])
-            # skip the memory value
-            env.assertEqual(info_data_HNSW[-4:], ['LAST_SEARCH_MODE', 'EMPTY_MODE', 'EPSILON', '0.01'])
+            # replace memory values with a dummy value - irrelevant for the test
+            info_data_HNSW[info_data_HNSW.index('MEMORY') + 1] = dummy_val
+            info_data_HNSW[info_data_HNSW.index('MANAGEMENT_LAYER_MEMORY') + 1] = dummy_val
+            front = info_data_HNSW[info_data_HNSW.index('FRONTEND_INDEX') + 1]
+            front[front.index('MEMORY') + 1] = dummy_val
+            back = info_data_HNSW[info_data_HNSW.index('BACKEND_INDEX') + 1]
+            back[back.index('MEMORY') + 1] = dummy_val
+
+            env.assertEqual(info_data_HNSW, expected_HNSW)
 
             info_data_FLAT = conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx2", "v_FLAT")
-            env.assertEqual(info_data_FLAT[:-3], ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'BLOCK_SIZE', 1024, 'MEMORY'])
-            # skip the memory value
-            env.assertEqual(info_data_FLAT[-2:], ['LAST_SEARCH_MODE', 'EMPTY_MODE'])
+            # replace memory value with a dummy value - irrelevant for the test
+            info_data_FLAT[info_data_FLAT.index('MEMORY') + 1] = dummy_val
+
+            env.assertEqual(info_data_FLAT, expected_FLAT)
 
         conn.execute_command('FT.DROP', 'idx1')
         conn.execute_command('FT.DROP', 'idx2')
@@ -340,7 +369,11 @@ def test_create_multiple_vector_fields():
 
     # Validate each index type.
     info_data = to_dict(conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx", "v"))
-    env.assertEqual(info_data['ALGORITHM'], 'HNSW')
+    for nested in ['BACKEND_INDEX', 'FRONTEND_INDEX']:
+        info_data[nested] = to_dict(info_data[nested])
+
+    env.assertEqual(info_data['ALGORITHM'], 'TIERED')
+    env.assertEqual(info_data['BACKEND_INDEX']['ALGORITHM'], 'HNSW')
     info_data = to_dict(conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat"))
     env.assertEqual(info_data['ALGORITHM'], 'FLAT')
 
@@ -623,7 +656,7 @@ def test_memory_info():
         env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
 
 
-def test_hybrid_query_batches_mode_with_text():
+def test_hybrid_query_batches_mode_with_text(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
@@ -967,15 +1000,15 @@ def test_hybrid_query_non_vector_score():
     # use TFIDF.DOCNORM scorer
     expected_res_3 = [10,
                       '100', '3', ['__v_score', '0', 't', 'other'],
-                      '91', '0.33333333333333331', ['__v_score', '10368', 't', 'text value'],
-                      '92', '0.33333333333333331', ['__v_score', '8192', 't', 'text value'],
-                      '93', '0.33333333333333331', ['__v_score', '6272', 't', 'text value'],
-                      '94', '0.33333333333333331', ['__v_score', '4608', 't', 'text value'],
-                      '95', '0.33333333333333331', ['__v_score', '3200', 't', 'text value'],
-                      '96', '0.33333333333333331', ['__v_score', '2048', 't', 'text value'],
-                      '97', '0.33333333333333331', ['__v_score', '1152', 't', 'text value'],
-                      '98', '0.33333333333333331', ['__v_score', '512', 't', 'text value'],
-                      '99', '0.33333333333333331', ['__v_score', '128', 't', 'text value']]
+                      '91', '0.5', ['__v_score', '10368', 't', 'text value'],
+                      '92', '0.5', ['__v_score', '8192', 't', 'text value'],
+                      '93', '0.5', ['__v_score', '6272', 't', 'text value'],
+                      '94', '0.5', ['__v_score', '4608', 't', 'text value'],
+                      '95', '0.5', ['__v_score', '3200', 't', 'text value'],
+                      '96', '0.5', ['__v_score', '2048', 't', 'text value'],
+                      '97', '0.5', ['__v_score', '1152', 't', 'text value'],
+                      '98', '0.5', ['__v_score', '512', 't', 'text value'],
+                      '99', '0.5', ['__v_score', '128', 't', 'text value']]
     res = env.cmd('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'TFIDF.DOCNORM', 'WITHSCORES',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10)
@@ -984,22 +1017,29 @@ def test_hybrid_query_non_vector_score():
     # Those scorers are scoring per shard.
     if not env.isCluster():
         # use BM25 scorer
-        expected_res_4 = [10, '100', '0.72815531789441912', ['__v_score', '0', 't', 'other'], '91', '0.24271843929813972', ['__v_score', '10368', 't', 'text value'], '92', '0.24271843929813972', ['__v_score', '8192', 't', 'text value'], '93', '0.24271843929813972', ['__v_score', '6272', 't', 'text value'], '94', '0.24271843929813972', ['__v_score', '4608', 't', 'text value'], '95', '0.24271843929813972', ['__v_score', '3200', 't', 'text value'], '96', '0.24271843929813972', ['__v_score', '2048', 't', 'text value'], '97', '0.24271843929813972', ['__v_score', '1152', 't', 'text value'], '98', '0.24271843929813972', ['__v_score', '512', 't', 'text value'], '99', '0.24271843929813972', ['__v_score', '128', 't', 'text value']]
+        expected_res_4 = [10, '100', '1.0489510218434552', ['__v_score', '0', 't', 'other'], '91', '0.34965034061448513', ['__v_score', '10368', 't', 'text value'], '92', '0.34965034061448513', ['__v_score', '8192', 't', 'text value'], '93', '0.34965034061448513', ['__v_score', '6272', 't', 'text value'], '94', '0.34965034061448513', ['__v_score', '4608', 't', 'text value'], '95', '0.34965034061448513', ['__v_score', '3200', 't', 'text value'], '96', '0.34965034061448513', ['__v_score', '2048', 't', 'text value'], '97', '0.34965034061448513', ['__v_score', '1152', 't', 'text value'], '98', '0.34965034061448513', ['__v_score', '512', 't', 'text value'], '99', '0.34965034061448513', ['__v_score', '128', 't', 'text value']]
         res = env.cmd('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'BM25', 'WITHSCORES',
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10)
         compare_lists(env, res, expected_res_4, delta=0.01)
 
+        # use BM25STD scorer
+        expected_res_5 = [10, '100', '2.6410360891609486', ['__v_score', '0', 't', 'other'], '91', '0.005028044957743152', ['__v_score', '10368', 't', 'text value'], '92', '0.005028044957743152', ['__v_score', '8192', 't', 'text value'], '93', '0.005028044957743152', ['__v_score', '6272', 't', 'text value'], '94', '0.005028044957743152', ['__v_score', '4608', 't', 'text value'], '95', '0.005028044957743152', ['__v_score', '3200', 't', 'text value'], '96', '0.005028044957743152', ['__v_score', '2048', 't', 'text value'], '97', '0.005028044957743152', ['__v_score', '1152', 't', 'text value'], '98', '0.005028044957743152', ['__v_score', '512', 't', 'text value'], '99', '0.005028044957743152', ['__v_score', '128', 't', 'text value']]
+        res = env.cmd('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'BM25STD', 'WITHSCORES',
+                  'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                  'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10)
+        compare_lists(env, res, expected_res_5, delta=0.01)
+
         # use DISMAX scorer
-        expected_res_5 = [10, '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value'], '100', '1', ['__v_score', '0', 't', 'other']]
+        expected_res_6 = [10, '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value'], '100', '1', ['__v_score', '0', 't', 'other']]
         env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'DISMAX', 'WITHSCORES',
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_5)
+                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_6)
 
         # use DOCSCORE scorer
         env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'DOCSCORE', 'WITHSCORES',
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_5)
+                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_6)
 
 
 def test_single_entry():
@@ -1114,7 +1154,8 @@ def test_hybrid_query_cosine():
                                   'PARAMS', 2, 'vec_param', query_data.tobytes(),
                                   'RETURN', 0)
         prefix = "_" if env.isCluster() else ""
-        env.assertEqual(env.cmd(prefix + "FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_BATCHES')
+        debug_info = to_dict(env.cmd(prefix + "FT.DEBUG", "VECSIM_INFO", "idx", "v"))
+        env.assertEqual(debug_info['LAST_SEARCH_MODE'], 'HYBRID_BATCHES')
         actual_res_ids = [res[1:][i] for i in range(10)]
         if data_type == 'FLOAT32':
             # The order of ids is not accurate due to floating point numeric errors, but the top k should be
@@ -1136,7 +1177,8 @@ def test_hybrid_query_cosine():
                                   'SORTBY', '__v_score',
                                   'PARAMS', 2, 'vec_param', query_data.tobytes(),
                                   'RETURN', 0)
-        env.assertEqual(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v")[-1], 'HYBRID_ADHOC_BF')
+        debug_info = to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "v"))
+        env.assertEqual(debug_info['LAST_SEARCH_MODE'], 'HYBRID_ADHOC_BF')
         actual_res_ids = [res[1:][i] for i in range(10)]
         if data_type == 'FLOAT32':
             for res_id in actual_res_ids:
@@ -1147,21 +1189,47 @@ def test_hybrid_query_cosine():
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
-def test_fail_ft_aggregate():
+def test_ft_aggregate_basic():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     dim = 1
     conn = getConnectionByEnv(env)
-    one_vector = np.full((1, 1), 1, dtype = np.float32)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
-                        'DIM', dim, 'DISTANCE_METRIC', 'COSINE')
-    conn.execute_command("HSET", "i", "v", one_vector.tobytes())
-    for query in ["*=>[KNN 10 @v $BLOB]", "@v:[VECTOR_RANGE 10 $BLOB]"]:
-        res = env.expect("FT.AGGREGATE", "idx", query, "PARAMS", 2, "BLOB", one_vector.tobytes())
-        if not env.isCluster():
-            res.error().contains("VSS is not yet supported on FT.AGGREGATE")
-        else:
-            # Currently coordinator does not return errors returned from shard during shard execution. It returns empty list
-            res.equal([0])
+
+    for algo in VECSIM_ALGOS:
+        conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', algo, '6', 'TYPE', 'FLOAT32',
+                            'DIM', dim, 'DISTANCE_METRIC', 'L2', 'n', 'NUMERIC')
+
+        # Use {1} and {3} hash slot to verify the distribution of the documents among 2 different shards.
+        for i in range(1, 11, 2):
+            conn.execute_command("HSET", f'doc{i}{{1}}', "v", create_np_array_typed([i] * dim).tobytes(), 'n', f'{11-i}')
+
+        for i in range(2, 11, 2):
+            conn.execute_command("HSET", f'doc{i}{{3}}', "v", create_np_array_typed([i] * dim).tobytes(), 'n', f'{11-i}')
+
+        # Expect both queries to return doc1, doc2 and doc3, as these are the closest 3 documents in terms of
+        # the vector fields, and the ones with distance lower than 10.
+        expected_res = [['dist', '1'], ['dist', '4'], ['dist', '9']]
+
+        query = "*=>[KNN 3 @v $BLOB]=>{$yield_distance_as: dist}"
+        res = conn.execute_command("FT.AGGREGATE", "idx", query,
+                                       "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes())
+        env.assertEqual(res[1:], expected_res)
+
+        # For range query we explicitly yield the distance metric and sort by it, as it wouldn't be
+        # the case in default, unlike in KNN.
+        query = "@v:[VECTOR_RANGE 10 $BLOB]=>{$yield_distance_as: dist}"
+        res = conn.execute_command("FT.AGGREGATE", "idx", query, 'SORTBY', '1', '@dist',
+                                   "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes())
+        env.assertEqual(res[1:], expected_res)
+
+        # Test simple hybrid query - get results with n value between 0 and 5, that is ids 6-10. The top 3 among those
+        # are doc6, doc7 and doc8 (where the dist is id**2).
+        query = "(@n:[0 5])=>[KNN 3 @v $BLOB]=>{$yield_distance_as: dist}"
+        res = conn.execute_command("FT.AGGREGATE", "idx", query, 'SORTBY', '1', '@dist',
+                                       "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes())
+        expected_res = [['dist', '36'], ['dist', '49'], ['dist', '64']]
+        env.assertEqual(res[1:], expected_res)
+
+        conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
 def test_fail_on_v1_dialect():
@@ -1326,7 +1394,7 @@ def test_system_memory_limits():
     float64_byte_size = 8
 
     for data_type in VECSIM_DATA_TYPES:
-    # OK parameters
+        # OK parameters
         env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
                                           'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 10000, 'BLOCK_SIZE', 100))
         currIdx+=1
@@ -1419,6 +1487,7 @@ def test_redis_memory_limits():
         if data_type == 'FLOAT32':
             env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
                        'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
+            currIdx+=1
         else:
             env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
                        'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
@@ -1428,42 +1497,69 @@ def test_redis_memory_limits():
         # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', 'FLOAT32',
         #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
         #            f'Vector index block size {block_size} exceeded server limit')
-        conn.execute_command("FLUSHALL")
 
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
 
-def test_default_block_size():
+def test_default_block_size_and_initial_capacity():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
-    used_memory = int(conn.execute_command('info', 'memory')['used_memory'])
-    maxmemory = used_memory + 800000
-    conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
-    dim = 128
+    dim = 1024
+    default_blockSize = 1024 # default block size
     float32_byte_size = 4
     float64_byte_size = 8
+    currIdx = 0
+    used_memory = None
+    maxmemory = None
 
-    for data_type, data_byte_size in zip(VECSIM_DATA_TYPES, [float32_byte_size, float64_byte_size]):
-        currIdx = 0
-        exp_block_size = maxmemory // 10 // (dim*data_byte_size)
-
-        env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '8', 'TYPE', data_type,
-                                            'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0))
-        env.assertLessEqual(to_dict(conn.execute_command("FT.DEBUG", "VECSIM_INFO", currIdx, 'v'))['BLOCK_SIZE'], exp_block_size)
-        currIdx+=1
-
+    def set_memory_limit(data_byte_size = 1):
+        nonlocal used_memory, maxmemory
         used_memory = int(conn.execute_command('info', 'memory')['used_memory'])
-        maxmemory = used_memory + 800000
+        maxmemory = used_memory + (20 * 1024 * 1024) # 20MB
         conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
-        env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
-                                            'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0))
-        # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
-        # exp_block_size = maxmemory // 10 // (128*4) # limit * 10% / dim * size of float
-        # env.assertLessEqual(to_dict(conn.execute_command("FT.DEBUG", "VECSIM_INFO", currIdx, 'v'))['BLOCK_SIZE'], exp_block_size)
-        conn.execute_command("FLUSHALL")
+        return maxmemory // 10 // (dim*data_byte_size)
+
+    def check_algorithm_and_type_combination(with_memory_limit):
+        nonlocal currIdx
+        exp_block_size = default_blockSize
+
+        for data_type, data_byte_size in zip(VECSIM_DATA_TYPES, [float32_byte_size, float64_byte_size]):
+            for algo in VECSIM_ALGOS:
+                if with_memory_limit:
+                    exp_block_size = set_memory_limit(data_byte_size)
+                    env.assertLess(exp_block_size, default_blockSize)
+                    # Explicitly, the default values should fail:
+                    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', algo, '8', 'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+                               'INITIAL_CAP', default_blockSize).error().contains(
+                               f"Vector index initial capacity {default_blockSize} exceeded server limit")
+                    if algo == 'FLAT': # TODO: remove condition when BLOCK_SIZE is added to FT.CREATE on HNSW
+                        env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', algo, '10', 'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0,
+                               'BLOCK_SIZE', default_blockSize).error().contains(
+                        f"Vector index block size {default_blockSize} exceeded server limit")
+
+                env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', algo, '6',
+                                                  'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2'))
+                debug_info = to_dict(conn.execute_command("FT.DEBUG", "VECSIM_INFO", currIdx, 'v'))
+                if algo == 'FLAT': # TODO: remove condition when BLOCK_SIZE is added to FT.CREATE on HNSW
+                    env.assertLessEqual(debug_info['BLOCK_SIZE'], exp_block_size)
+                # TODO: if we ever add INITIAL_CAP to debug data, uncomment this
+                # env.assertEqual(debug_info['BLOCK_SIZE'], debug_info['INITIAL_CAP'])
+                currIdx+=1
+
+    # Test defaults with no memory limit
+    check_algorithm_and_type_combination(False)
+
+    # set memory limits and reload, to verify that we succeed to load with the new limits
+    num_indexes = len(conn.execute_command('FT._LIST'))
+    set_memory_limit()
+    env.dumpAndReload()
+    env.assertEqual(num_indexes, len(conn.execute_command('FT._LIST')))
+
+    # Test defaults with memory limit
+    check_algorithm_and_type_combination(True)
 
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
@@ -1481,31 +1577,31 @@ def test_redisearch_memory_limit():
     dim = 16
     float32_byte_size = 4
     float64_byte_size = 8
+    currIdx = 0
 
     for data_type, data_byte_size in zip(VECSIM_DATA_TYPES, [float32_byte_size, float64_byte_size]):
-        currIdx = 0
         block_size = maxmemory // (dim*data_byte_size) // 2  # half of memory limit divided by blob size
 
-        env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
+        env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
                     'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
                     f'Vector index block size {block_size} exceeded server limit')
         currIdx+=1
         # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
-        # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', 'FLOAT32',
+        # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', data_type,
         #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
         #            f'Vector index block size {block_size} exceeded server limit')
         # currIdx+=1
 
         env.expect('FT.CONFIG', 'SET', 'VSS_MAX_RESIZE', maxmemory).ok()
 
-        env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', 'FLOAT32',
+        env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
                     'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
+        currIdx+=1
         # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
-        # currIdx+=1
-        # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', 'FLOAT32',
+        # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', data_type,
         #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
+        # currIdx+=1
         env.expect('FT.CONFIG', 'SET', 'VSS_MAX_RESIZE', '0').ok()
-        conn.execute_command("FLUSHALL")
 
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
@@ -1553,6 +1649,8 @@ def test_rdb_memory_limit():
 
 def test_timeout_reached():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+    if SANITIZER:
+        env.skip()
     conn = getConnectionByEnv(env)
     nshards = env.shardsCount
     timeout_expected = 0 if env.isCluster() else 'Timeout limit was reached'
@@ -1593,7 +1691,7 @@ def test_timeout_reached():
             # run query with 1 millisecond timeout. should fail.
             env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
                        'PARAMS', 2, 'vec_param', query_vec.tobytes(),
-                       'TIMEOUT', 1).error().equal('Timeout limit was reached')
+                       'TIMEOUT', 1).error().contains('Timeout limit was reached')
 
             # HYBRID MODES
             for mode in hybrid_modes:
@@ -1618,7 +1716,6 @@ def test_create_multi_value_json():
     conn = getConnectionByEnv(env)
     prefix = '_' if env.isCluster() else ''
     dim = 4
-    algos = ['FLAT', 'HNSW']
     multi_paths = ['$..vec', '$.vecs[*]', '$.*.vec']
     single_paths = ['$.path.to.vec', '$.vecs[0]']
 
@@ -1627,7 +1724,7 @@ def test_create_multi_value_json():
                '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).error().equal(
                 f"Invalid JSONPath '{path}' in attribute 'vec' in index 'idx'")
 
-    for algo in algos:
+    for algo in VECSIM_ALGOS:
         for path in multi_paths:
             conn.flushall()
             env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
@@ -1682,7 +1779,7 @@ def test_index_multi_value_json():
 
         for _ in env.retry_with_rdb_reload():
             waitForIndex(env, 'idx')
-            info = conn.ft('idx').info()
+            info = index_info(env, 'idx')
             env.assertEqual(info['num_docs'], info_type(n))
             env.assertEqual(info['num_records'], info_type(n * per_doc * len(info['attributes'])))
             env.assertEqual(info['hash_indexing_failures'], info_type(0))
@@ -1719,12 +1816,12 @@ def test_bad_index_multi_value_json():
     # By default, we assume that a static path leads to a single value, so we can't index an array of vectors as multi-value
     conn.json().set(46, '.', {'vecs': [[0.46] * dim] * per_doc})
     failures += 1
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
 
     # We also don't support an array of length 1 that wraps an array for single value
     conn.json().set(46, '.', {'vecs': [[0.46] * dim]})
     failures += 1
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
 
     conn.flushall()
     failures = 0
@@ -1734,30 +1831,30 @@ def test_bad_index_multi_value_json():
     # dynamic path returns a non array type
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), 'not a vector']})
     failures += 1
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
 
     # we should NOT fail if some of the vectors are NULLs
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), None, (np.ones(dim) * 2).tolist()]})
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
-    env.assertEqual(conn.ft('idx').info()['num_records'], info_type(2))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['num_records'], info_type(2))
 
     # ...or if the path returns NULL
     conn.json().set(46, '.', {'vecs': None})
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
 
     # some of the vectors are not of the right dimension
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), np.ones(dim + 46).tolist()]})
     failures += 1
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), []]})
     failures += 1
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
 
     # some of the elements in some of vectors are not numerics
     vec = [42] * dim
     vec[-1] = 'not a number'
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), vec]})
     failures += 1
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
 
 
 def test_range_query_basic():
@@ -1767,7 +1864,7 @@ def test_range_query_basic():
     n = 999
 
     for data_type in VECSIM_DATA_TYPES:
-        for index in ['FLAT', 'HNSW']:
+        for index in VECSIM_ALGOS:
             env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index, '6', 'TYPE', data_type, 'DIM',
                        dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT').ok()
 
@@ -1935,7 +2032,7 @@ def test_range_query_complex_queries():
         env.assertEqual(con.execute_command('HSET', str(index_size), 't', 'unique'), 0)
 
         radius = dim * 10**2
-        expected_res = [11, str(index_size), '8' if env.isCluster() else '9']  # Todo: fix this inconsistency
+        expected_res = [11, str(index_size), '8' if env.isCluster() and env.shardsCount > 1 else '9']  # Todo: fix this inconsistency
         for i in range(index_size-10, index_size, 5):
             expected_res.extend([str(i), '2'])
         for i in sorted(set(range(index_size-10, index_size))-set(range(index_size-10, index_size+1, 5))):
@@ -2084,3 +2181,151 @@ def test_multiple_range_queries():
                    'RETURN', 2, 'dist_hnsw', 'knn_dist', 'LIMIT', 0, 20).equal(expected_res)
 
         conn.flushall()
+
+
+# Test that a query that contains KNN as subset is parsed correctly (specially in coordinator, where we
+# have a special treatment for these cases)
+def test_query_with_knn_substr():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 2
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+                         'DIM', dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
+
+    for i in range(10):
+        conn.execute_command("HSET", f'doc{i}', "v", create_np_array_typed([i] * dim).tobytes(),
+                             't', 'knn' if i % 2 else 'val')
+
+    # Expect that doc1, doc3 and doc5 that has "knn" in their @t field and their vector in @v
+    # field is the closest to the query vector will be returned.
+    query_with_vecsim = "(@t:KNN)=>[KNN 3 @v $BLOB]=>{$yield_distance_as: dist}"
+    expected_res = [{'dist': '2'}, {'dist': '18'}, {'dist': '50'}]
+    res = conn.execute_command("FT.AGGREGATE", "idx", query_with_vecsim,
+                               "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes())
+    env.assertEqual([to_dict(res_item) for res_item in res[1:]], expected_res)
+
+    res = conn.execute_command("FT.SEARCH", "idx", query_with_vecsim,
+                               "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes(), 'RETURN', '1', 'dist')
+    env.assertEqual([to_dict(res_item) for res_item in res[2::2]], expected_res)
+
+    # Expect that all the odd numbers documents (doc1, doc3, doc5, doc7 and doc9) that has "knn" in their @t field
+    # will be returned.
+    query_without_vecsim = "(@t:KNN)"
+    expected_res = ['doc1', 'doc3', 'doc5', 'doc7', 'doc9']
+    res = conn.execute_command("FT.AGGREGATE", "idx", query_without_vecsim, 'LOAD', '1', '@__key',
+                               'SORTBY', '1', '@__key')
+    env.assertEqual([res_item[1] for res_item in res[1:]], expected_res)
+
+    res = conn.execute_command("FT.SEARCH", "idx", query_without_vecsim,
+                               "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes(), 'nocontent')
+    env.assertEqual(res[1:], expected_res)
+
+
+def test_score_name_case_sensitivity():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 2
+
+    k = 10
+    score_name = 'SCORE'
+    vec_fieldname = 'VEC'
+    default_score_name = f'__{vec_fieldname}_score'
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
+                         vec_fieldname, 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2')
+
+    def expected(cur_score_name = None):
+        expected = [k]
+        if cur_score_name is not None:
+            for i in range(k):
+                expected += [f'doc{i}', [cur_score_name, str(i * i * dim)]]
+        else:
+            for i in range(k):
+                expected += [f'doc{i}', []]
+        return expected
+
+    for i in range(10):
+        conn.execute_command("HSET", f'doc{i}', vec_fieldname, create_np_array_typed([i] * dim).tobytes())
+
+    # Test yield_distance_as
+    res = conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN $k @{vec_fieldname} $BLOB]=>{{$yield_distance_as: {score_name}}}',
+                               'PARAMS', 4, 'k', k, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+                               'RETURN', '1', score_name)
+    env.assertEqual(res, expected(score_name))
+        # mismatch cases
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN $k @{vec_fieldname} $BLOB]=>{{$yield_distance_as: {score_name}}}',
+               'PARAMS', 4, 'k', k, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+               'RETURN', '1', score_name.lower()).equal(expected())
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN $k @{vec_fieldname} $BLOB]=>{{$yield_distance_as: {score_name.lower()}}}',
+               'PARAMS', 4, 'k', k, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+               'RETURN', '1', score_name).equal(expected())
+
+    # Test AS
+    res = conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB AS {score_name}]',
+                               'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+                               'RETURN', '1', score_name)
+    env.assertEqual(res, expected(score_name))
+        # mismatch cases
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB AS {score_name}]',
+               'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+               'RETURN', '1', score_name.lower()).equal(expected())
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB AS {score_name.lower()}]',
+               'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+               'RETURN', '1', score_name).equal(expected())
+
+    # Test default score name
+    res = conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB]',
+                               'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+                               'RETURN', '1', default_score_name)
+    env.assertEqual(res, expected(default_score_name))
+        # mismatch case
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB]',
+               'PARAMS', 4, 'k', k, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+               'RETURN', '1', score_name.lower()).equal(expected())
+
+
+@skip(cluster=True, noWorkers=True)
+def test_tiered_index_gc(env):
+    fork_gc_interval_sec = '10'
+    N = 1000
+    env = Env(moduleArgs=f'WORKER_THREADS 2 MT_MODE MT_MODE_FULL FORK_GC_RUN_INTERVAL {fork_gc_interval_sec}'
+                         f' FORK_GC_CLEAN_THRESHOLD {N}')
+    conn = getConnectionByEnv(env)
+    dim = 16
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
+                         'v1', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+                         'v2', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT64', 'DIM', dim, 'DISTANCE_METRIC', 'COSINE',
+                         't', 'TEXT')
+
+    # Insert random vectors to an index with two vector fields.
+    for i in range(N):
+        res = conn.execute_command('hset', i, 't', f'some string with to be cleaned by GC for id {i}',
+                                   'v1', create_np_array_typed(np.random.random((1, dim))).tobytes(),
+                                   'v2', create_np_array_typed(np.random.random((1, dim)), 'FLOAT64').tobytes())
+        env.assertEqual(res, 3)
+
+    # Wait until all vectors are indexed into HNSW.
+    while True:
+        debug_info_v1 = get_vecsim_debug_dict(env, 'idx', 'v1')
+        debug_info_v2 = get_vecsim_debug_dict(env, 'idx', 'v2')
+        if debug_info_v1['BACKGROUND_INDEXING'] or debug_info_v2['BACKGROUND_INDEXING']:
+            time.sleep(1)
+        else:
+            break
+
+    # Delete all documents. Note that we have less than TIERED_HNSW_SWAP_JOBS_THRESHOLD docs (1024),
+    # so we know that we won't execute swap jobs during the 'DEL' command execution.
+    for i in range(N):
+        res = conn.execute_command('DEL', i)
+        env.assertEqual(res, 1)
+
+    debug_info_v1 = get_vecsim_debug_dict(env, 'idx', 'v1')
+    debug_info_v2 = get_vecsim_debug_dict(env, 'idx', 'v2')
+    env.assertEqual(to_dict(debug_info_v1['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
+    env.assertEqual(to_dict(debug_info_v2['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
+
+    # Wait for GC to remove the deleted vectors.
+    time.sleep(2*int(fork_gc_interval_sec))
+    debug_info_v1 = get_vecsim_debug_dict(env, 'idx', 'v1')
+    debug_info_v2 = get_vecsim_debug_dict(env, 'idx', 'v2')
+    env.assertEqual(to_dict(debug_info_v1['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+    env.assertEqual(to_dict(debug_info_v2['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)

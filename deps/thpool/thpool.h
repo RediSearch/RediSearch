@@ -6,6 +6,9 @@
 
 #ifndef _THPOOL_
 #define _THPOOL_
+#include <stddef.h>
+
+#define DEFAULT_PRIVILEGED_THREADS_NUM 1
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,29 +16,45 @@ extern "C" {
 
 /* =================================== API ======================================= */
 
+typedef struct redisearch_thpool_t* redisearch_threadpool;
+typedef struct timespec timespec;
 
-typedef struct thpool_* threadpool;
-
+typedef enum {
+  THPOOL_PRIORITY_HIGH,
+  THPOOL_PRIORITY_LOW,
+} thpool_priority;
 
 /**
- * @brief  Initialize threadpool
+ * @brief  Create a new threadpool (without initializing the threads)
  *
- * Initializes a threadpool. This function will not return untill all
+ * @param num_threads number of threads to be created in the threadpool
+ * @param num_privileged_threads number of threads that run only high priority tasks as long as
+ * there are such tasks waiting (num_privileged_threads <= num_threads).
+ * @return Newly allocated threadpool, or NULL if creation failed.
+ */
+redisearch_threadpool redisearch_thpool_create(size_t num_threads, size_t num_privileged_threads);
+
+// A callback to call redis log.
+typedef void (*LogFunc)(const char *, const char *);
+
+/**
+ * @brief  Initialize an existing threadpool
+ *
+ * Initializes a threadpool. This function will not return until all
  * threads have initialized successfully.
  *
  * @example
  *
  *    ..
- *    threadpool thpool;                     //First we declare a threadpool
- *    thpool = thpool_init(4);               //then we initialize it to 4 threads
+ *    threadpool thpool;                       //First we declare a threadpool
+ *    thpool = thpool_create(4, 1);            //Next we create it with 4 threads (1 privileged)
+ *    thpool_init(&thpool, logCB);             //Then we initialize the threads
  *    ..
  *
- * @param  num_threads   number of threads to be created in the threadpool
- * @return threadpool    created threadpool on success,
- *                       NULL on error
+ * @param threadpool    threadpool to initialize
+ * @param threadpool    callback to be called for printing debug messages to the log
  */
-threadpool thpool_init(int num_threads);
-
+void redisearch_thpool_init(redisearch_threadpool, LogFunc logCB);
 
 /**
  * @brief Add work to the job queue
@@ -62,11 +81,50 @@ threadpool thpool_init(int num_threads);
  * @param  threadpool    threadpool to which the work will be added
  * @param  function_p    pointer to function to add as work
  * @param  arg_p         pointer to an argument
+ * @param  priority      priority of the work, default is high
  * @return 0 on successs, -1 otherwise.
  */
-typedef void (*thpool_proc)(void*);
-int thpool_add_work(threadpool, thpool_proc function_p, void* arg_p);
+typedef void (*redisearch_thpool_proc)(void*);
+int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc function_p,
+                               void* arg_p, thpool_priority priority);
 
+/**
+ * @brief Add n jobs to the job queue
+ *
+ * Takes an action and its argument and adds it to the threadpool's job queue.
+ * If you want to add to work a function with more than one arguments then
+ * a way to implement this is by passing a pointer to a structure.
+ *
+ * NOTICE: You have to cast both the function and argument to not get warnings.
+ *
+ * @example
+ *
+ *    void print_num(int num){
+ *       printf("%d\n", num);
+ *    }
+ *
+ *    int main() {
+ *       ..
+ *       int data = {10, 20, 30};
+ *       redisearch_thpool_work_t jobs[] = {{print_num, data + 0}, {print_num, data + 1}, {print_num, data + 2}};
+ *
+ *       thpool_add_n_work(thpool, jobs, 3, THPOOL_PRIORITY_LOW);
+ *       ..
+ *    }
+ *
+ * @param  threadpool    threadpool to which the work will be added
+ * @param  function_pp   array of pointers to function to add as work
+ * @param  arg_pp        array of  pointer to an argument
+ * @param  n             number of elements in the array
+ * @param  priority      priority of the jobs
+ * @return 0 on success, -1 otherwise.
+ */
+typedef struct thpool_work_t {
+  redisearch_thpool_proc function_p;
+  void* arg_p;
+} redisearch_thpool_work_t;
+int redisearch_thpool_add_n_work(redisearch_threadpool, redisearch_thpool_work_t* jobs,
+                                 size_t n_jobs, thpool_priority priority);
 
 /**
  * @brief Wait for all queued jobs to finish
@@ -95,8 +153,44 @@ int thpool_add_work(threadpool, thpool_proc function_p, void* arg_p);
  * @param threadpool     the threadpool to wait for
  * @return nothing
  */
-void thpool_wait(threadpool);
+void redisearch_thpool_wait(redisearch_threadpool);
 
+// A callback to be called periodically when waiting for the thread pool to finish.
+typedef void (*yieldFunc)(void *);
+
+/**
+ * @brief Wait until the job queue contains no more than a given number of jobs, yield periodically
+ * while we wait.
+ *
+ * The same as redisearch_thpool_wait, but with a timeout and a threshold, so that if time passed
+ * and we're still waiting, we run a yield callback function, and go back waiting again.
+ * We do so until the queue contains no more than the number of jobs specified in the threshold.
+ *
+ * @example
+ *
+ *    ..
+ *    threadpool thpool = thpool_create(4, 1);
+ *    thpool_init(&thpool);
+ *    ..
+ *    // Add a bunch of work
+ *    ..
+ *    long time_to_wait = 100;  // 100 ms
+ *    redisearch_thpool_drain(&thpool, time_to_wait, yieldCallback, ctx);
+ *
+ *    puts("All added work has finished");
+ *    ..
+ *
+ * @param threadpool    the threadpool to wait for it to finish
+ * @param timeout       indicates the time in ms to wait before we wake up and call yieldCB
+ * @param yieldCB       A callback to be called periodically whenever we wait for the jobs
+ *                      to finish, every <x> time (as specified in timeout).
+ * @param yieldCtx      The context to send to yieldCB
+ * @param threshold     The maximum number of jobs to be left in the job queue after the drain.
+ * @return nothing
+ */
+
+void redisearch_thpool_drain(redisearch_threadpool, long timeout, yieldFunc yieldCB,
+                                 void *yieldCtx, size_t threshold);
 
 /**
  * @brief Pauses all threads immediately
@@ -119,8 +213,7 @@ void thpool_wait(threadpool);
  * @param threadpool    the threadpool where the threads should be paused
  * @return nothing
  */
-void thpool_pause(threadpool);
-
+void redisearch_thpool_pause(redisearch_threadpool);
 
 /**
  * @brief Unpauses all threads if they are paused
@@ -135,8 +228,18 @@ void thpool_pause(threadpool);
  * @param threadpool     the threadpool where the threads should be unpaused
  * @return nothing
  */
-void thpool_resume(threadpool);
+void redisearch_thpool_resume(redisearch_threadpool);
 
+/**
+ * @brief Terminate the working threads (without deallocating the job queue and the thread objects).
+ */
+void redisearch_thpool_terminate_threads(redisearch_threadpool);
+
+/**
+ * @brief Set the terminate_when_empty flag, so that all threads are terminated when there are
+ * no more pending jobs in the queue.
+ */
+void redisearch_thpool_terminate_when_empty(redisearch_threadpool thpool_p);
 
 /**
  * @brief Destroy the threadpool
@@ -157,7 +260,7 @@ void thpool_resume(threadpool);
  * @param threadpool     the threadpool to destroy
  * @return nothing
  */
-void thpool_destroy(threadpool);
+void redisearch_thpool_destroy(redisearch_threadpool);
 
 
 /**
@@ -170,7 +273,7 @@ void thpool_destroy(threadpool);
  *    threadpool thpool1 = thpool_init(2);
  *    threadpool thpool2 = thpool_init(2);
  *    ..
- *    printf("Working threads: %d\n", thpool_num_threads_working(thpool1));
+ *    printf("Working threads: %d\n", redisearch_thpool_num_threads_working(thpool1));
  *    ..
  *    return 0;
  * }
@@ -178,8 +281,7 @@ void thpool_destroy(threadpool);
  * @param threadpool     the threadpool of interest
  * @return integer       number of threads working
  */
-int thpool_num_threads_working(threadpool);
-
+size_t redisearch_thpool_num_threads_working(redisearch_threadpool);
 
 #ifdef __cplusplus
 }

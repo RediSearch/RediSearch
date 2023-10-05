@@ -1,12 +1,13 @@
 display_name: RediSearch 2
+capability_name: Search and Query
 author: RedisLabs
 email: meir@redislabs.com
 description: High performance search index on top of redis
 homepage: http://redisearch.io
 license:  Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1)
 command_line_args: ""
-min_redis_version: "6.0"
-min_redis_pack_version: "6.0"
+min_redis_version: "7.1"
+min_redis_pack_version: "7.2"
 config_command: "FT.CONFIG SET"
 capabilities:
     - types
@@ -21,4 +22,3 @@ capabilities:
     - crdb
     - eviction_expiry
     - hash_policy
-

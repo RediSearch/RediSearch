@@ -8,6 +8,7 @@
 
 #include "search_options.h"
 #include "util/timeout.h"
+
 struct MetricRequest;
 
 typedef struct QueryEvalCtx {
@@ -20,4 +21,5 @@ typedef struct QueryEvalCtx {
   uint32_t tokenId;
   DocTable *docTable;
   uint32_t reqFlags;
+  IteratorsConfig *config;
 } QueryEvalCtx;

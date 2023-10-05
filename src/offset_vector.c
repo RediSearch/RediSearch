@@ -4,6 +4,8 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
+#include <pthread.h>
+
 #include "redisearch.h"
 #include "varint.h"
 #include "rmalloc.h"
@@ -40,12 +42,17 @@ uint32_t _ovi_Next(void *ctx, RSQueryTerm **t);
 void _ovi_Rewind(void *ctx);
 
 /* memory pool for buffer iterators */
-static mempool_t *__offsetIters = NULL;
-static mempool_t *__aggregateIters = NULL;
+static pthread_key_t __offsetIters;
+static pthread_key_t __aggregateIters;
+
+static void __attribute__((constructor)) initKeys() {
+  pthread_key_create(&__offsetIters, (void(*)(void*))mempool_destroy);
+  pthread_key_create(&__aggregateIters, (void(*)(void*))mempool_destroy);
+}
 
 /* Free it */
 void _ovi_free(void *ctx) {
-  mempool_release(__offsetIters, ctx);
+  mempool_release(pthread_getspecific(__offsetIters), ctx);
 }
 
 void *newOffsetIterator() {
@@ -53,12 +60,14 @@ void *newOffsetIterator() {
 }
 /* Create an offset iterator interface  from a raw offset vector */
 RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t) {
-  if (!__offsetIters) {
+  mempool_t *pool = pthread_getspecific(__offsetIters);
+  if (!pool) {
     mempool_options options = {
-        .isGlobal = 1, .initialCap = 8, .alloc = newOffsetIterator, .free = rm_free};
-    __offsetIters = mempool_new(&options);
+        .initialCap = 8, .alloc = newOffsetIterator, .free = rm_free};
+    pool = mempool_new(&options);
+    pthread_setspecific(__offsetIters, pool);
   }
-  _RSOffsetVectorIterator *it = mempool_get(__offsetIters);
+  _RSOffsetVectorIterator *it = mempool_get(pool);
   it->buf = (Buffer){.data = v->data, .offset = v->len, .cap = v->len};
   it->br = NewBufferReader(&it->buf);
   it->lastValue = 0;
@@ -91,12 +100,14 @@ static void aggiterFree(void *p) {
 
 /* Create an iterator from the aggregate offset iterators of the aggregate result */
 static RSOffsetIterator _aggregateResult_iterate(const RSAggregateResult *agg) {
-  if (!__aggregateIters) {
+  mempool_t *pool = pthread_getspecific(__aggregateIters);
+  if (!pool) {
     mempool_options opts = {
-        .isGlobal = 1, .initialCap = 8, .alloc = aggiterNew, .free = aggiterFree};
-    __aggregateIters = mempool_new(&opts);
+        .initialCap = 8, .alloc = aggiterNew, .free = aggiterFree};
+    pool = mempool_new(&opts);
+    pthread_setspecific(__aggregateIters, pool);
   }
-  _RSAggregateOffsetIterator *it = mempool_get(__aggregateIters);
+  _RSAggregateOffsetIterator *it = mempool_get(pool);
   it->res = agg;
 
   if (agg->numChildren > it->size) {
@@ -139,6 +150,7 @@ RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
     // virtual and numeric entries have no offsets and cannot participate
     case RSResultType_Virtual:
     case RSResultType_Numeric:
+    case RSResultType_Metric:
       return _emptyIterator();
 
     case RSResultType_Intersection:
@@ -210,7 +222,7 @@ void _aoi_Free(void *ctx) {
     it->iters[i].Free(it->iters[i].ctx);
   }
 
-  mempool_release(__aggregateIters, ctx);
+  mempool_release(pthread_getspecific(__aggregateIters), ctx);
 }
 
 void _aoi_Rewind(void *ctx) {

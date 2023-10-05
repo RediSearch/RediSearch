@@ -6,10 +6,16 @@
 	url = https://github.com/google/googletest.git
 [submodule "deps/hiredis"]
 	path = deps/hiredis
-	url = https://github.com/redisfab/hiredis.git
+	url = https://github.com/redis/hiredis.git
 [submodule "deps/libuv"]
 	path = deps/libuv
 	url = https://github.com/libuv/libuv.git
 [submodule "deps/VectorSimilarity"]
 	path = deps/VectorSimilarity
 	url = https://github.com/RedisAI/VectorSimilarity.git
+[submodule "deps/s2geometry"]
+	path = deps/s2geometry
+	url = https://github.com/google/s2geometry.git
+[submodule "deps/RedisModulesSDK"]
+	path = deps/RedisModulesSDK
+	url = https://github.com/RedisLabs/RedisModulesSDK.git

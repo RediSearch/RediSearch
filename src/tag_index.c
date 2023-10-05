@@ -14,6 +14,7 @@
 #include "util/misc.h"
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
+#include "resp3.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -96,30 +97,34 @@ static int tokenizeTagString(const char *str, char sep, TagFieldFlags flags, cha
   return REDISMODULE_OK;
 }
 
-/* Preprocess a document tag field, returning a vector of all tags split from the content */
-char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data) {
-  char **ret = array_new(char *, 4);
+int TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data, FieldIndexerData *fdata) {
+  arrayof(char*) arr = array_new(char *, 4);
   const char *str;
+  int ret = 1;
   switch (data->unionType) {
   case FLD_VAR_T_RMS:
     str = (char *)RedisModule_StringPtrLen(data->text, NULL);
-    tokenizeTagString(str, sep, flags, &ret);
+    tokenizeTagString(str, sep, flags, &arr);
     break;
   case FLD_VAR_T_CSTR:
-    tokenizeTagString(data->strval, sep, flags, &ret);
+    tokenizeTagString(data->strval, sep, flags, &arr);
     break;
   case FLD_VAR_T_ARRAY:
     for (int i = 0; i < data->arrayLen; i++) {
-      tokenizeTagString(data->multiVal[i], sep, flags, &ret);
+      tokenizeTagString(data->multiVal[i], sep, flags, &arr);
     }
     break;
   case FLD_VAR_T_NULL:
+    fdata->isNull = 1;
+    ret = 0;
     break;
   case FLD_VAR_T_GEO:
   case FLD_VAR_T_NUM:
   case FLD_VAR_T_BLOB_ARRAY:
+  case FLD_VAR_T_GEOMETRY:
     RS_LOG_ASSERT(0, "nope")
   }
+  fdata->tags = arr;
   return ret;
 }
 
@@ -311,14 +316,14 @@ void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
   char *str;
   tm_len_t slen;
   void *ptr;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_ReplyWithSetOrArray(ctx, REDISMODULE_POSTPONED_LEN);
   long long count = 0;
   while (TrieMapIterator_Next(it, &str, &slen, &ptr)) {
     ++count;
     RedisModule_ReplyWithStringBuffer(ctx, str, slen);
   }
 
-  RedisModule_ReplySetArrayLength(ctx, count);
+  RedisModule_ReplySetSetOrArrayLength(ctx, count);
 
   TrieMapIterator_Free(it);
 }

@@ -14,6 +14,7 @@
 #include "json.h"
 #include "spec.h"
 #include "redisearch.h"
+#include "util/references.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,7 +47,6 @@ typedef struct {
 
 typedef struct SchemaRule {
   DocumentType type;
-  struct IndexSpec *spec;
   arrayof(const char *) prefixes;
   char *filter_exp_str;
   struct RSExpr *filter_exp;
@@ -66,8 +66,8 @@ typedef struct SchemaRule {
 void SchemaRuleArgs_Free(SchemaRuleArgs *args);
 void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx);
 
-SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, struct IndexSpec *spec, QueryError *status);
-void SchemaRule_FilterFields(SchemaRule *rule);
+SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef spec_ref, QueryError *status);
+void SchemaRule_FilterFields(struct IndexSpec *sp);
 void SchemaRule_Free(SchemaRule *);
 
 RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
@@ -82,7 +82,7 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
                                           RedisModuleKey *key, const char *kname);
 
 void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb);
-int SchemaRule_RdbLoad(struct IndexSpec *sp, RedisModuleIO *rdb, int encver);
+int SchemaRule_RdbLoad(StrongRef spec_ref, RedisModuleIO *rdb, int encver);
 
 bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type);
 
@@ -92,12 +92,12 @@ extern TrieMap *ScemaPrefixes_g;
 
 void SchemaPrefixes_Create();
 void SchemaPrefixes_Free(TrieMap *t);
-void SchemaPrefixes_Add(const char *prefix, struct IndexSpec *index);
-void SchemaPrefixes_RemoveSpec(struct IndexSpec *spec);
+void SchemaPrefixes_Add(const char *prefix, StrongRef spec);
+void SchemaPrefixes_RemoveSpec(StrongRef spec);
 
 typedef struct {
   char *prefix;
-  arrayof(struct IndexSpec *) index_specs;
+  arrayof(StrongRef) index_specs;
 } SchemaPrefixNode;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

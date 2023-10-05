@@ -14,8 +14,6 @@
 #include "command.h"
 #include "triemap/triemap.h"
 
-#define MR_CONN_POOL_SIZE 1
-
 /*
  * The state of the connection.
  * TODO: Not all of these are "real" states
@@ -58,6 +56,7 @@ typedef struct {
   redisAsyncContext *conn;
   MRConnState state;
   void *timer;
+  int protocol; // 0 (undetermined), 2, or 3
 } MRConn;
 
 /* A pool indexes connections by the node id */

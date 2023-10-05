@@ -17,8 +17,9 @@
 #include "spec.h"
 #include "thpool/thpool.h"
 #include "rmutil/rm_assert.h"
+#include "util/logging.h"
 
-static threadpool gcThreadpool_g = NULL;
+static redisearch_threadpool gcThreadpool_g = NULL;
 
 static GCTask *GCTaskCreate(GCContext *gc, RedisModuleBlockedClient* bClient, int debug) {
   GCTask *task = rm_malloc(sizeof(*task));
@@ -28,32 +29,14 @@ static GCTask *GCTaskCreate(GCContext *gc, RedisModuleBlockedClient* bClient, in
   return task;
 }
 
-GCContext* GCContext_CreateGCFromSpec(IndexSpec* sp, float initialHZ, uint64_t uniqueId,
-                                      uint32_t gcPolicy) {
+GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy) {
   GCContext* ret = rm_calloc(1, sizeof(GCContext));
   switch (gcPolicy) {
     case GCPolicy_Fork:
-      ret->gcCtx = FGC_NewFromSpec(sp, uniqueId, &ret->callbacks);
+      ret->gcCtx = FGC_New(spec_ref, &ret->callbacks);
       break;
   }
   return ret;
-}
-
-GCContext* GCContext_CreateGC(RedisModuleString* keyName, float initialHZ, uint64_t uniqueId) {
-  GCContext* ret = rm_calloc(1, sizeof(GCContext));
-  switch (RSGlobalConfig.gcPolicy) {
-    case GCPolicy_Fork:
-      ret->gcCtx = FGC_New(keyName, uniqueId, &ret->callbacks);
-      break;
-  }
-  return ret;
-}
-
-static void stopGC(GCContext* gc) {
-  gc->stopped = 1;
-  if (gc->callbacks.kill) {
-    gc->callbacks.kill(gc->gcCtx);
-  }
 }
 
 static void timerCallback(RedisModuleCtx* ctx, void* data);
@@ -61,6 +44,10 @@ static void timerCallback(RedisModuleCtx* ctx, void* data);
 static long long getNextPeriod(GCContext* gc) {
   struct timespec interval = gc->callbacks.getInterval(gc->gcCtx);
   long long ms = interval.tv_sec * 1000 + interval.tv_nsec / 1000000;  // convert to millisecond
+
+  // add randomness to avoid congestion by multiple GCs from different shards
+  ms += (rand() % interval.tv_sec) * 1000;
+
   return ms;
 }
 
@@ -72,26 +59,12 @@ static RedisModuleTimerID scheduleNext(GCTask *task) {
 }
 
 static void threadCallback(void* data) {
-  GCTask* task= data;
+  GCTask* task = data;
   GCContext* gc = task->gc;
   RedisModuleBlockedClient* bc = task->bClient;
   RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
 
-  if (gc->stopped) {
-    // if the client is blocked, lets release it
-    if (bc) {
-      RedisModule_ThreadSafeContextLock(ctx);
-      RedisModule_UnblockClient(bc, NULL);
-      RedisModule_ThreadSafeContextUnlock(ctx);
-    }
-    RedisModule_FreeThreadSafeContext(ctx);
-    rm_free(task);
-    return;
-  }
-
   int ret = gc->callbacks.periodicCallback(ctx, gc->gcCtx);
-
-  RedisModule_ThreadSafeContextLock(ctx);
 
   // if GC was invoke by debug command, we release the client
   // and terminate without rescheduling the task again.
@@ -103,27 +76,24 @@ static void threadCallback(void* data) {
     goto end;
   }
 
-  if (!ret || gc->stopped) {
-    stopGC(gc);
+  if (!ret) {
     rm_free (task);
     goto end;
   }
 
+  RedisModule_ThreadSafeContextLock(ctx);
   gc->timerID = scheduleNext(task);
+  RedisModule_ThreadSafeContextUnlock(ctx);
 
 end:
-  RedisModule_ThreadSafeContextUnlock(ctx);
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
 static void destroyCallback(void* data) {
   GCContext* gc = data;
-  assert(gc->stopped == 1);
 
-  RedisModule_ThreadSafeContextLock(RSDummyContext);
   gc->callbacks.onTerm(gc->gcCtx);
   rm_free(gc);
-  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
 }
 
 static void timerCallback(RedisModuleCtx* ctx, void* data) {
@@ -135,7 +105,7 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
     task->gc->timerID = scheduleNext(task);
     return;
   }
-  thpool_add_work(gcThreadpool_g, threadCallback, data);
+  redisearch_thpool_add_work(gcThreadpool_g, threadCallback, data, THPOOL_PRIORITY_HIGH);
 }
 
 void GCContext_Start(GCContext* gc) {
@@ -151,29 +121,29 @@ void GCContext_Stop(GCContext* gc) {
   if (RS_IsMock) {
     // for fork gc debug
     RedisModule_FreeThreadSafeContext(((ForkGC *)gc->gcCtx)->ctx);
+    array_free(((ForkGC *)gc->gcCtx)->tieredIndexes);
+    WeakRef_Release(((ForkGC *)gc->gcCtx)->index);
     free(gc->gcCtx);
     free(gc);
     return;
   }
 
-  RedisModuleCtx* ctx = RSDummyContext;
-  stopGC(gc);
   GCTask *data = NULL;
-
-  if (RedisModule_StopTimer(ctx, gc->timerID, (void**)&data) == REDISMODULE_OK) {
+  if (RedisModule_StopTimer(RSDummyContext, gc->timerID, (void**)&data) == REDISMODULE_OK) {
+    // GC is not running, we can free it immediately
     assert(data->gc == gc);
     rm_free(data);  // release task memory
 
     // free gc
-    gc->callbacks.onTerm(gc->gcCtx);
-    rm_free(gc);
-    return;
+    destroyCallback(gc);
+  } else {
+    // GC is running, we add a task to the thread pool to free it
+    redisearch_thpool_add_work(gcThreadpool_g, destroyCallback, gc, THPOOL_PRIORITY_HIGH);
   }
-  thpool_add_work(gcThreadpool_g, destroyCallback, gc);
 }
 
-void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx) {
-  gc->callbacks.renderStats(ctx, gc->gcCtx);
+void GCContext_RenderStats(GCContext* gc, RedisModule_Reply* reply) {
+  gc->callbacks.renderStats(reply, gc->gcCtx);
 }
 
 #ifdef FTINFO_FOR_INFO_MODULES
@@ -189,13 +159,8 @@ void GCContext_OnDelete(GCContext* gc) {
 }
 
 void GCContext_CommonForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
-  if (gc->stopped) {
-    RedisModule_Log(RSDummyContext, "warning", "ForceInvokeGC command received after shut down");
-    return;
-  }
-
   GCTask *task = GCTaskCreate(gc, bc, 1);
-  thpool_add_work(gcThreadpool_g, threadCallback, task);
+  redisearch_thpool_add_work(gcThreadpool_g, threadCallback, task, THPOOL_PRIORITY_HIGH);
 }
 
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
@@ -208,14 +173,15 @@ void GCContext_ForceBGInvoke(GCContext* gc) {
 
 void GC_ThreadPoolStart() {
   if (gcThreadpool_g == NULL) {
-    gcThreadpool_g = thpool_init(1);
+    gcThreadpool_g = redisearch_thpool_create(GC_THREAD_POOL_SIZE, DEFAULT_PRIVILEGED_THREADS_NUM);
+    redisearch_thpool_init(gcThreadpool_g, LogCallback);
   }
 }
 
 void GC_ThreadPoolDestroy() {
   if (gcThreadpool_g != NULL) {
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-    thpool_destroy(gcThreadpool_g);
+    redisearch_thpool_destroy(gcThreadpool_g);
     gcThreadpool_g = NULL;
     RedisModule_ThreadSafeContextLock(RSDummyContext);
   }

@@ -357,6 +357,7 @@ void Document_Clear(Document *d) {
           rm_free(field->strval);
           break;
         case FLD_VAR_T_ARRAY:
+        // TODO: GEOMETRY Handle multi-value geometry fields
           if (field->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG | INDEXFLD_T_GEO)) {
             for (int i = 0; i < field->arrayLen; ++i) {
               rm_free(field->multiVal[i]);
@@ -367,7 +368,7 @@ void Document_Clear(Document *d) {
             array_free(field->arrNumval);
           }
           if (field->multisv) {
-            RSValue_Free(field->multisv);            
+            RSValue_Free(field->multisv);
           }
           break;
         case FLD_VAR_T_BLOB_ARRAY:
@@ -376,6 +377,7 @@ void Document_Clear(Document *d) {
           break;
         case FLD_VAR_T_GEO:
         case FLD_VAR_T_NUM:
+        case FLD_VAR_T_GEOMETRY:
         case FLD_VAR_T_NULL:
           break;
       }
@@ -435,25 +437,31 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   if (opts->score != DEFAULT_SCORE || (opts->options & DOCUMENT_ADD_PARTIAL)) {
     arguments = array_append(arguments, globalAddRSstrings[0]);
     arguments = array_append(arguments, opts->scoreStr);
+    RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->score_field == NULL) {
       ctx->spec->rule->score_field = rm_strndup(UNDERSCORE_SCORE, strlen(UNDERSCORE_SCORE));
     }
+    RedisSearchCtx_UnlockSpec(ctx);
   }
 
   if (opts->languageStr) {
     arguments = array_append(arguments, globalAddRSstrings[1]);
     arguments = array_append(arguments, opts->languageStr);
+    RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->lang_field == NULL) {
       ctx->spec->rule->lang_field = rm_strndup(UNDERSCORE_LANGUAGE, strlen(UNDERSCORE_LANGUAGE));
     }
+    RedisSearchCtx_UnlockSpec(ctx);
   }
 
   if (opts->payload) {
     arguments = array_append(arguments, globalAddRSstrings[2]);
     arguments = array_append(arguments, opts->payload);
+    RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->payload_field == NULL) {
       ctx->spec->rule->payload_field = rm_strndup(UNDERSCORE_PAYLOAD, strlen(UNDERSCORE_PAYLOAD));
     }
+    RedisSearchCtx_UnlockSpec(ctx);
   }
 
   RedisModuleCallReply *rep = NULL;

@@ -67,16 +67,17 @@ void _MRClsuter_UpdateNodes(MRCluster *cl) {
   }
 }
 
-MRCluster *MR_NewCluster(MRClusterTopology *initialTopolgy, ShardFunc sf,
+MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, ShardFunc sf,
                          long long minTopologyUpdateInterval) {
   MRCluster *cl = rm_malloc(sizeof(MRCluster));
   cl->sf = sf;
   cl->topologyUpdateMinInterval = minTopologyUpdateInterval;
   cl->lastTopologyUpdate = 0;
-  cl->topo = initialTopolgy;
+  cl->topo = initialTopology;
   cl->nodeMap = NULL;
   cl->myNode = NULL;  // tODO: discover local ip/port
-  MRConnManager_Init(&cl->mgr, MR_CONN_POOL_SIZE);
+  cl->myshard = NULL;
+  MRConnManager_Init(&cl->mgr, conn_pool_size);
 
   if (cl->topo) {
     _MRClsuter_UpdateNodes(cl);
@@ -179,6 +180,8 @@ int MRCluster_FanoutCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCo
     return 0;
   }
 
+  int cmd_proto = cmd->protocol;
+
   MRNodeMapIterator it;
   switch (strategy & ~(MRCluster_MastersOnly)) {
     case MRCluster_RemoteCoordination:
@@ -200,6 +203,14 @@ int MRCluster_FanoutCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCo
     MRConn *conn = MRConn_Get(&cl->mgr, n->id);
     // printf("Sending fanout command to %s:%d\n", conn->ep.host, conn->ep.port);
     if (conn) {
+      //@@TODO: maybe not required
+      if (!conn->protocol || cmd_proto != conn->protocol) {
+        MRCommand hello = MR_NewCommand(2, "HELLO", cmd_proto == 3 ? "3" : "2");
+        int rc = MRConn_SendCommand(conn, &hello, NULL, privdata);
+        MRCommand_Free(&hello);
+        conn->protocol = cmd_proto;
+      }
+
       if (MRConn_SendCommand(conn, cmd, fn, privdata) != REDIS_ERR) {
         ret++;
       }

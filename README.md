@@ -1,8 +1,7 @@
 [![Release](https://img.shields.io/github/v/release/redisearch/redisearch.svg?sort=semver)](https://github.com/RediSearch/RediSearch/releases)
 [![CircleCI](https://circleci.com/gh/RediSearch/RediSearch/tree/master.svg?style=svg)](https://circleci.com/gh/RediSearch/RediSearch/tree/master)
-[![Dockerhub](https://img.shields.io/badge/dockerhub-redislabs%2Fredisearch-blue)](https://hub.docker.com/r/redislabs/redisearch/tags/)
+[![Dockerhub](https://img.shields.io/docker/pulls/redis/redis-stack-server?label=redis-stack-server)](https://hub.docker.com/r/redis/redis-stack-server/)
 [![Codecov](https://codecov.io/gh/RediSearch/RediSearch/branch/master/graph/badge.svg)](https://codecov.io/gh/RediSearch/RediSearch)
-[![Total alerts](https://img.shields.io/lgtm/alerts/g/RediSearch/RediSearch.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/RediSearch/RediSearch/alerts/)
 
 # RediSearch
 ## Querying, secondary indexing, and full-text search for Redis
@@ -47,11 +46,11 @@ $ redis-cli
 
 ## Documentation
 
-The [RediSearch documentation](https://redis.io/docs/stack/search/) provides a complete overview of RediSearch. Helpful sections include:
+The [RediSearch documentation](https://redis.io/docs/interact/search-and-query/) provides a complete overview of RediSearch. Helpful sections include:
 
-* The [RediSearch quick start](https://redis.io/docs/stack/search/Quick_Start/)
-* The [RediSearch command reference](https://redis.io/docs/stack/search/Commands/)
-* References on features such as [aggregations](https://redis.io/docs/stack/search/reference/aggregations), [highlights](https://redis.io/docs/stack/search/reference/highlight/), [stemming](https://redis.io/docs/stack/search/reference/stemming/), and [spelling correction](https://redis.io/docs/stack/search/reference/spellcheck/).
+* The [RediSearch quick start](https://redis.io/docs/interact/search-and-query/quickstart/)
+* The [RediSearch command reference](https://redis.io/commands/?group=search)
+* References on features such as [aggregations](https://redis.io/docs/interact/search-and-query/search/aggregations/), [highlights](https://redis.io/docs/interact/search-and-query/advanced-concepts/highlight/), [stemming](https://redis.io/docs/interact/search-and-query/advanced-concepts/stemming/), and [spelling correction](https://redis.io/docs/interact/search-and-query/advanced-concepts/spellcheck/).
 
 ## Mailing list and forum
 
@@ -61,63 +60,44 @@ If you have a more detailed question, drop us a line on the [RediSearch Discussi
 
 ## Client libraries
 
-You can use any standard Redis client library to run RediSearch commands, but it's easiest to use a library that wraps the RediSearch API.
+### Official clients
+| [<img width="75" src="https://user-images.githubusercontent.com/1655867/228534778-d0b41ce8-3ce4-4340-bd32-754f01ebed43.svg" />][dotnet-quickstart]  | [<img width="75" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/java/java-plain-wordmark.svg" />][java-quickstart] | [<img width="75" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/nodejs/nodejs-original-wordmark.svg" />][nodejs-quickstart]   | [<img width="75" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/python/python-original-wordmark.svg" />][python-quickstart]  |
+|---|------------------------------------------------------------------------------------------------------------------------------------------|---|---|
+|  [NRedisStack][dotnet-quickstart] | [Jedis][java-quickstart]                                                                                                                 | [node-redis][nodejs-quickstart]  |  [redis-py][python-quickstart] |
+|  [Redis.OM][dotnet-om] | [Redis OM Spring][java-om]                                                                                                               | [redis-om-node][nodejs-om]  |  [redis-om][python-om] |
 
-| Language | Library | Author | License | Stars | Comment |
-|----------|---------|--------|---------|-------|---------|
-| Python | [redis-py][redis-py-url] | [Redis][redis-py-author] | BSD | [![redis-py-stars]][redis-py-url] |
-| Python | [redis-om][redis-om-python-url] | [Redis][redis-om-python-author] | BSD-3-Clause | [![redis-om-python-stars]][redis-om-python-url] |
-| Java | [Jedis][Jedis-url] | [Redis][Jedis-author] | MIT | [![Jedis-stars]][Jedis-url] |
-| Java | [JRediSearch][JRediSearch-url] | [Redis][JRediSearch-author] | BSD | [![JRediSearch-stars]][JRediSearch-url] | Deprecated |
-| Java | [lettusearch][lettusearch-url] | [Redis][lettusearch-author] | Apache-2.0 | [![lettusearch-stars]][lettusearch-url] |
-| Java | [spring-redisearch][spring-redisearch-url] | [Redis][spring-redisearch-author] | Apache-2.0 | [![spring-redisearch-stars]][spring-redisearch-url] |
-| Java | [redis-om-spring][redis-om-spring-url] | [Redis][redis-om-spring-author] | BSD-3-Clause | [![redis-om-spring-stars]][redis-om-spring-url] |
-| Java | [redis-modules-java][redis-modules-java-url] | [dengliming][redis-modules-java-author] | Apache-2.0 | [![redis-modules-java-stars]][redis-modules-java-url]|
-| Go | [redisearch-go][redisearch-go-url] | [Redis][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] |
-| Go | [rueidis][rueidis-url] | [Rueian][rueidis-author] | Apache-2.0 | [![rueidis-stars]][rueidis-url] |
-| JavaScript | [Redis-om][redis-om-node-url] | [Redis][redis-om-node-author] | BSD-3-Clause | [![redis-om-node-stars]][redis-om-node-url] |
-| TypeScript | [Node-Redis][node-redis-url] | [Redis][node-redis-author] | MIT | [![node-redis-stars]][node-redis-url]|
-| TypeScript | [redis-modules-sdk][redis-modules-sdk-url] | [Dani Tseitlin][redis-modules-sdk-author] | BSD-3-Clause | [![redis-modules-sdk-stars]][redis-modules-sdk-url]|
-| C# | [NRediSearch][NRediSearch-url] | [Marc Gravell][NRediSearch-author] | MIT | [![NRediSearch-stars]][NRediSearch-url] |
-| C# | [Redis.OM][redis-om-dotnet-url] | [Redis][redis-om-dotnet-author] | BSD-3-Clause | [![redis-om-dotnet-stars]][redis-om-dotnet-url] |
-| PHP | [redisearch-php][redisearch-php-url] | [Ethan Hann][redisearch-php-author] | MIT | [![redisearch-php-stars]][redisearch-php-url] |
-| PHP | [php-redisearch][php-redisearch-url] | [MacFJA][php-redisearch-author] | MIT | [![php-redisearch-stars]][php-redisearch-url] |
-| Rust | [redisearch-api-rs][redisearch-api-rs-url] | [Redis][redisearch-api-rs-author] | BSD | [![redisearch-api-rs-stars]][redisearch-api-rs-url] |
-| Ruby on Rails | [redi_search_rails][redi_search_rails-url] | [Dmitry Polyakovsky][redi_search_rails-author] | MIT | [![redi_search_rails-stars]][redi_search_rails-url]|
-| Ruby | [redisearch-rb][redisearch-rb-url] | [Victor Ruiz][redisearch-rb-author] | MIT | [![redisearch-rb-stars]][redisearch-rb-url]|
-| Ruby | [redi_search][redi_search-url] | [Nick Pezza][redi_search-author] | MIT | [![redi_search-stars]][redi_search-url] |
+[dotnet-quickstart]: https://redis.io/docs/clients/dotnet/
+[dotnet-om]: https://github.com/redis/redis-om-dotnet
 
-[redis-py-url]: https://github.com/redis/redis-py
-[redis-py-author]: https://redis.com
-[redis-py-stars]: https://img.shields.io/github/stars/redis/redis-py.svg?style=social&amp;label=Star&amp;maxAge=2592000
+[java-quickstart]: https://redis.io/docs/clients/java/
+[java-om]: https://github.com/redis/redis-om-spring
 
-[redis-om-python-url]: https://github.com/redis/redis-om-python
-[redis-om-python-author]: https://redis.com
-[redis-om-python-stars]: https://img.shields.io/github/stars/redis/redis-om-python.svg?style=social&amp;label=Star&amp;maxAge=2592000
+[nodejs-quickstart]: https://redis.io/docs/clients/nodejs/
+[nodejs-om]: https://github.com/redis/redis-om-node
 
-[Jedis-url]: https://github.com/redis/jedis
-[Jedis-author]: https://redis.com
-[Jedis-stars]: https://img.shields.io/github/stars/redis/jedis.svg?style=social&amp;label=Star&amp;maxAge=2592000
+[python-quickstart]: https://redis.io/docs/clients/python/
+[python-om]: https://github.com/redis/redis-om-python
 
-[JRediSearch-url]: https://github.com/RediSearch/JRediSearch
-[JRediSearch-author]: https://redis.com
-[JRediSearch-stars]: https://img.shields.io/github/stars/RediSearch/JRediSearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
+### Community-maintained clients
 
-[lettusearch-url]: https://github.com/RediSearch/lettusearch
-[lettusearch-author]: https://redis.com
-[lettusearch-stars]: https://img.shields.io/github/stars/RediSearch/lettusearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
+| Project | Language | License | Author                                         | Stars |
+|----------|---------|--------|------------------------------------------------|-------|
+| [redisson][redisson-url] | Java | MIT | [Redisson][redisson-url] | ![Stars][redisson-stars] | |
+| [redisearch-go][redisearch-go-url] | Go | BSD | [Redis][redisearch-go-author]                  | [![redisearch-go-stars]][redisearch-go-url] |
+| [rueidis][rueidis-url] | Go | Apache 2.0 | [Rueian][rueidis-author]                       | [![rueidis-stars]][rueidis-url] |
+| [redisearch-php][redisearch-php-url] | PHP | MIT | [Ethan Hann][redisearch-php-author]            | [![redisearch-php-stars]][redisearch-php-url] |
+| [php-redisearch][php-redisearch-url] | PHP | MIT | [MacFJA][php-redisearch-author]                | [![php-redisearch-stars]][php-redisearch-url] |
+| [redisearch-api-rs][redisearch-api-rs-url] | Rust | BSD | [Redis][redisearch-api-rs-author]              | [![redisearch-api-rs-stars]][redisearch-api-rs-url] |
+| [redi_search_rails][redi_search_rails-url] | Ruby | MIT | [Dmitry Polyakovsky][redi_search_rails-author] | [![redi_search_rails-stars]][redi_search_rails-url]|
+| [redisearch-rb][redisearch-rb-url] | Ruby | MIT | [Victor Ruiz][redisearch-rb-author] | [![redisearch-rb-stars]][redisearch-rb-url]|
+| [redi_search][redi_search-url] | Ruby | MIT | [Nick Pezza][redi_search-author] | [![redi_search-stars]][redi_search-url] |
+| [coredis][coredis-url] | Python | MIT | [Ali-Akber Saifee][coredis-author] | [![coredis-stars]][coredis-url] | [Documentation][coredis-documentation]
 
-[spring-redisearch-url]: https://github.com/RediSearch/spring-redisearch
-[spring-redisearch-author]: https://redis.com
-[spring-redisearch-stars]: https://img.shields.io/github/stars/RediSearch/spring-redisearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
+[redis-url]: https://redis.com
 
-[redis-om-spring-url]: https://github.com/redis/redis-om-spring
-[redis-om-spring-author]: https://redis.com
-[redis-om-spring-stars]: https://img.shields.io/github/stars/redis/redis-om-spring.svg?style=social&amp;label=Star&amp;maxAge=2592000
-
-[redis-modules-java-url]: https://github.com/dengliming/redis-modules-java
-[redis-modules-java-author]: https://github.com/dengliming
-[redis-modules-java-stars]: https://img.shields.io/github/stars/dengliming/redis-modules-java.svg?style=social&amp;label=Star&amp;maxAge=2592000
+[redisson-url]: https://github.com/redisson/redisson
+[redisson-stars]: https://img.shields.io/github/stars/redisson/redisson.svg?style=social&amp;label=Star&amp;maxAge=2592000
+[redisson-package]: https://central.sonatype.com/artifact/org.redisson/redisson
 
 [redisearch-go-url]: https://github.com/RediSearch/redisearch-go
 [redisearch-go-author]: https://redis.com
@@ -126,26 +106,6 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [rueidis-url]: https://github.com/rueian/rueidis
 [rueidis-author]: https://github.com/rueian
 [rueidis-stars]: https://img.shields.io/github/stars/rueian/rueidis.svg?style=social&amp;label=Star&amp;maxAge=2592000
-
-[redis-om-node-url]: https://github.com/redis/redis-om-node
-[redis-om-node-author]: https://redis.com
-[redis-om-node-stars]: https://img.shields.io/github/stars/redis/redis-om-node.svg?style=social&amp;label=Star&amp;maxAge=2592000
-
-[node-redis-url]: https://github.com/redis/node-redis
-[node-redis-author]: https://github.com/redis
-[node-redis-stars]: https://img.shields.io/github/stars/redis/node-redis.svg?style=social&amp;label=Star&amp;maxAge=2592000
-
-[redis-modules-sdk-url]: https://github.com/danitseitlin/redis-modules-sdk
-[redis-modules-sdk-author]: https://github.com/danitseitlin
-[redis-modules-sdk-stars]: https://img.shields.io/github/stars/danitseitlin/redis-modules-sdk.svg?style=social&amp;label=Star&amp;maxAge=2592000
-
-[NRediSearch-url]: https://libraries.io/nuget/NRediSearch
-[NRediSearch-author]: https://github.com/StackExchange/
-[NRediSearch-stars]: https://img.shields.io/github/stars/StackExchange/NRediSearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
-
-[redis-om-dotnet-url]: https://github.com/redis/redis-om-dotnet
-[redis-om-dotnet-author]: https://redis.com
-[redis-om-dotnet-stars]: https://img.shields.io/github/stars/redis/redis-om-dotnet.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [redisearch-php-url]: https://github.com/ethanhann/redisearch-php
 [redisearch-php-author]: https://github.com/ethanhann
@@ -171,6 +131,11 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [redisearch-api-rs-author]: https://redis.com
 [redisearch-api-rs-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-api-rs.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
+[coredis-url]: https://github.com/alisaifee/coredis
+[coredis-author]: https://github.com/alisaifee
+[coredis-stars]: https://img.shields.io/github/stars/alisaifee/coredis.svg?style=social&amp;label=Star&amp;maxAge=2592000
+[coredis-documentation]: https://coredis.readthedocs.io/en/stable/handbook/modules.html#redisearch
+
 ## RediSearch features
 
 * Full-Text indexing of multiple fields in Redis hashes
@@ -179,7 +144,7 @@ You can use any standard Redis client library to run RediSearch commands, but it
 * Field weighting
 * Complex boolean queries with AND, OR, and NOT operators
 * Prefix matching, fuzzy matching, and exact-phrase queries
-* Support for [double-metaphone phonetic matching](https://redis.io/docs/stack/search/reference/phonetic_matching/)
+* Support for [double-metaphone phonetic matching](https://redis.io/docs/interact/search-and-query/advanced-concepts/phonetic_matching/)
 * Auto-complete suggestions (with fuzzy prefix suggestions)
 * Stemming-based query expansion in [many languages](https://redis.io/docs/stack/search/reference/stemming/) (using [Snowball](http://snowballstem.org/))
 * Support for Chinese-language tokenization and querying (using [Friso](https://github.com/lionsoul2014/friso))

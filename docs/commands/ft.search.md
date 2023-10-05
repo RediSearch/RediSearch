@@ -7,12 +7,12 @@ syntax: |
     [WITHSCORES] 
     [WITHPAYLOADS] 
     [WITHSORTKEYS] 
-    [ FILTER numeric_field min max [ FILTER numeric_field min max ...]] 
-    [ GEOFILTER geo_field lon lat radius m | km | mi | ft [ GEOFILTER geo_field lon lat radius m | km | mi | ft ...]] 
-    [ INKEYS count key [key ...]] [ INFIELDS count field [field ...]] 
-    [ RETURN count identifier [AS property] [ identifier [AS property] ...]] 
-    [ SUMMARIZE [ FIELDS count field [field ...]] [FRAGS num] [LEN fragsize] [SEPARATOR separator]] 
-    [ HIGHLIGHT [ FIELDS count field [field ...]] [ TAGS open close]] 
+    [FILTER numeric_field min max [ FILTER numeric_field min max ...]] 
+    [GEOFILTER geo_field lon lat radius m | km | mi | ft [ GEOFILTER geo_field lon lat radius m | km | mi | ft ...]] 
+    [INKEYS count key [key ...]] [ INFIELDS count field [field ...]] 
+    [RETURN count identifier [AS property] [ identifier [AS property] ...]] 
+    [SUMMARIZE [ FIELDS count field [field ...]] [FRAGS num] [LEN fragsize] [SEPARATOR separator]] 
+    [HIGHLIGHT [ FIELDS count field [field ...]] [ TAGS open close]] 
     [SLOP slop] 
     [TIMEOUT timeout] 
     [INORDER] 
@@ -21,9 +21,9 @@ syntax: |
     [SCORER scorer] 
     [EXPLAINSCORE] 
     [PAYLOAD payload] 
-    [ SORTBY sortby [ ASC | DESC]] 
-    [ LIMIT offset num] 
-    [ PARAMS nargs name value [ name value ...]] 
+    [SORTBY sortby [ ASC | DESC] [WITHCOUNT]] 
+    [LIMIT offset num] 
+    [PARAMS nargs name value [ name value ...]] 
     [DIALECT dialect]
 ---
 
@@ -42,7 +42,7 @@ is index name. You must first create the index using `FT.CREATE`.
 <details open>
 <summary><code>query</code></summary> 
 
-is text query to search. If it's more than a single word, put it in quotes. Refer to [Query syntax](/redisearch/reference/query_syntax) for more details.
+is text query to search. If it's more than a single word, put it in quotes. Refer to [Query syntax](/docs/interact/search-and-query/query/) for more details.
 </details>
 
 ## Optional arguments
@@ -113,25 +113,29 @@ limits the attributes returned from the document. `num` is the number of attribu
 <details open>
 <summary><code>SUMMARIZE ...</code></summary>
 
-returns only the sections of the attribute that contain the matched text. See [Highlighting](/redisearch/reference/highlight) for more information.
+returns only the sections of the attribute that contain the matched text. See [Highlighting](/docs/interact/search-and-query/advanced-concepts/highlight/) for more information.
 </details>
 
 <details open>
 <summary><code>HIGHLIGHT ...</code></summary>
 
-formats occurrences of matched text. See [Highlighting](/redisearch/reference/highlight) for more information.
+formats occurrences of matched text. See [Highlighting](/docs/interact/search-and-query/advanced-concepts/highlight/) for more information.
 </details>
 
 <details open>
 <summary><code>SLOP {slop}</code></summary>
 
-allows a maximum of N intervening number of unmatched offsets between phrase terms. In other words, the slop for exact phrases is 0.
+is the number of intermediate terms allowed to appear between the terms of the query. 
+Suppose you're searching for a phrase _hello world_.
+If some terms appear in-between _hello_ and _world_, a `SLOP` greater than `0` allows for these text attributes to match.
+By default, there is no `SLOP` constraint.
 </details>
 
 <details open>
 <summary><code>INORDER</code></summary>
 
-puts the query terms in the same order in the document as in the query, regardless of the offsets between them. Typically used in conjunction with `SLOP`.
+requires the terms in the document to have the same order as the terms in the query, regardless of the offsets between them. Typically used in conjunction with `SLOP`. Default is `false`.
+
 </details>
 
 <details open>
@@ -145,31 +149,41 @@ use a stemmer for the supplied language during search for query expansion. If qu
 <details open>
 <summary><code>EXPANDER {expander}</code></summary>
 
-uses a custom query expander instead of the stemmer. See [Extensions](/redisearch/reference/extensions).
+uses a custom query expander instead of the stemmer. See [Extensions](/docs/interact/search-and-query/administration/extensions/).
 </details>
 
 <details open>
 <summary><code>SCORER {scorer}</code></summary>
 
-uses a custom scoring function you define. See [Extensions](/redisearch/reference/extensions).
+uses a [built-in](/docs/interact/search-and-query/advanced-concepts/scoring/) or a [user-provided](/docs/interact/search-and-query/administration/extensions/) scoring function.
 </details>
 
 <details open>
 <summary><code>EXPLAINSCORE</code></summary>
 
-returns a textual description of how the scores were calculated. Using this options requires the WITHSCORES option.
+returns a textual description of how the scores were calculated. Using this option requires `WITHSCORES`.
 </details>
 
 <details open>
 <summary><code>PAYLOAD {payload}</code></summary>
 
-adds an arbitrary, binary safe payload that is exposed to custom scoring functions. See [Extensions](/redisearch/reference/extensions).
+adds an arbitrary, binary safe payload that is exposed to custom scoring functions. See [Extensions](/docs/interact/search-and-query/administration/extensions/).
 </details>
 
 <details open>
-<summary><code>SORTBY {attribute} [ASC|DESC]</code></summary>
+<summary><code>SORTBY {attribute} [ASC|DESC] [WITHCOUNT]</code></summary>
 
 orders the results by the value of this attribute. This applies to both text and numeric attributes. Attributes needed for `SORTBY` should be declared as `SORTABLE` in the index, in order to be available with very low latency. Note that this adds memory overhead.
+
+**Sorting Optimizations**: performance is optimized for sorting operations on `DIALECT 4` in different scenarios:
+  - Skip Sorter - applied when there is no sort of any kind. The query can return after it reaches the `LIMIT` requested results.
+  - Partial Range - applied when there is a `SORTBY` clause over a numeric field, with no filter or filter by the same numeric field, the query iterate on a range large enough to satisfy the `LIMIT` requested results.
+  - Hybrid - applied when there is a `SORTBY` clause over a numeric field and another non-numeric filter. Some results will get filtered, and the initial range may not be large enough. The iterator is then rewinding with the following ranges, and an additional iteration takes place to collect the `LIMIT` requested results.
+  - No optimization - If there is a sort by score or by non-numeric field, there is no other option but to retrieve all results and compare their values.
+
+**Counts behavior**: optional`WITHCOUNT`argument returns accurate counts for the query results with sorting. This operation processes all results in order to get an accurate count, being less performant than the optimized option (default behavior on `DIALECT 4`)
+
+
 </details>
 
 <details open>
@@ -322,7 +336,7 @@ Search for books with _dogs_ in any TEXT attribute in the index and request an e
 <details open>
 <summary><b>Search for a book by a term and TAG</b></summary>
 
-Searching for books with _space_ in the title that have `science` in the TAG attribute `categories`:
+Search for books with _space_ in the title that have `science` in the TAG attribute `categories`.
 
 {{< highlight bash >}}
 127.0.0.1:6379> FT.SEARCH books-idx "@title:space @categories:{science}"
@@ -332,7 +346,7 @@ Searching for books with _space_ in the title that have `science` in the TAG att
 <details open>
 <summary><b>Search for a book by a term but limit the number</b></summary>
 
-Searching for books with _Python_ in any TEXT attribute, returning ten results starting with the eleventh result in the entire result set (the offset parameter is zero-based), and returning only the `title` attribute for each result:
+Search for books with _Python_ in any `TEXT` attribute, returning 10 results starting with the 11th result in the entire result set (the offset parameter is zero-based), and return only the `title` attribute for each result.
 
 {{< highlight bash >}}
 127.0.0.1:6379> FT.SEARCH books-idx "python" LIMIT 10 10 RETURN 1 title
@@ -342,7 +356,7 @@ Searching for books with _Python_ in any TEXT attribute, returning ten results s
 <details open>
 <summary><b>Search for a book by a term and price</b></summary>
 
-Search for books with _Python_ in any TEXT attribute, returning the price stored in the original JSON document.
+Search for books with _Python_ in any `TEXT` attribute, returning the price stored in the original JSON document.
 
 {{< highlight bash >}}
 127.0.0.1:6379> FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
@@ -359,13 +373,179 @@ Search for books with semantically similar title to _Planet Earth_. Return top 1
 {{< / highlight >}}
 </details>
 
+<details open>
+<summary><b>Search for a phrase using SLOP</b></summary>
+
+Search for a phrase _hello world_.
+First, create an index.
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.CREATE memes SCHEMA phrase TEXT
+OK
+{{< / highlight >}}
+
+Add variations of the phrase _hello world_.
+
+{{< highlight bash >}}
+127.0.0.1:6379> HSET s1 phrase "hello world"
+(integer) 1
+127.0.0.1:6379> HSET s2 phrase "hello simple world"
+(integer) 1
+127.0.0.1:6379> HSET s3 phrase "hello somewhat less simple world"
+(integer) 1
+127.0.0.1:6379> HSET s4 phrase "hello complicated yet encouraging problem solving world"
+(integer) 1
+127.0.0.1:6379> HSET s5 phrase "hello complicated yet amazingly encouraging problem solving world"
+(integer) 1
+{{< / highlight >}}
+
+Then, search for the phrase _hello world_. The result returns all documents that contain the phrase.
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SEARCH memes '@phrase:(hello world)' NOCONTENT 
+1) (integer) 5
+2) "s1"
+3) "s2"
+4) "s3"
+5) "s4"
+6) "s5"
+{{< / highlight >}}
+
+Now, return all documents that have one of fewer words between _hello_ and _world_.
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SEARCH memes '@phrase:(hello world)' NOCONTENT SLOP 1
+1) (integer) 2
+2) "s1"
+3) "s2"
+{{< / highlight >}}
+
+Now, return all documents with three or fewer words between _hello_ and _world_.
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SEARCH memes '@phrase:(hello world)' NOCONTENT SLOP 3
+1) (integer) 3
+2) "s1"
+3) "s2"
+4) "s3"
+{{< / highlight >}}
+
+`s5` needs a higher `SLOP` to match, `SLOP 6` or higher, to be exact. See what happens when you set `SLOP` to `5`.
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SEARCH memes '@phrase:(hello world)' NOCONTENT SLOP 5
+1) (integer) 4
+2) "s1"
+3) "s2"
+4) "s3"
+5) "s4"
+{{< / highlight >}}
+
+If you add additional terms (and stemming), you get these results.
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SEARCH memes '@phrase:(hello amazing world)' NOCONTENT 
+1) (integer) 1
+2) "s5"
+{{< / highlight >}}
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SEARCH memes '@phrase:(hello encouraged world)' NOCONTENT SLOP 5
+1) (integer) 2
+2) "s4"
+3) "s5"
+{{< / highlight >}}
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SEARCH memes '@phrase:(hello encouraged world)' NOCONTENT SLOP 4
+1) (integer) 1
+2) "s4"
+{{< / highlight >}}
+
+If you swap the terms, you can still retrieve the correct phrase.
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SEARCH memes '@phrase:(amazing hello world)' NOCONTENT
+1) (integer) 1
+2) "s5"
+{{< / highlight >}}
+
+But, if you use `INORDER`, you get zero results.
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SEARCH memes '@phrase:(amazing hello world)' NOCONTENT INORDER
+1) (integer) 0
+{{< / highlight >}}
+
+Likewise, if you use a query attribute `$inorder` set to `true`, `s5` is not retrieved.
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SEARCH memes '@phrase:(amazing hello world)=>{$inorder: true;}' NOCONTENT
+1) (integer) 0
+{{< / highlight >}}
+
+To sum up, the `INORDER` argument or `$inorder` query attribute require the query terms to match terms with similar ordering.
+
+</details>
+
+<details open>
+<summary><b>NEW!!! Polygon Search with WITHIN and CONTAINS operators</b></summary>
+
+Query for polygons which contain a given geoshape or are within a given geoshape
+
+First, create an index using `GEOSHAPE` type with a `FLAT` coordinate system:
+
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.CREATE idx SCHEMA geom GEOSHAPE FLAT
+OK
+{{< / highlight >}}
+
+Adding a couple of geometries using `HSET`:
+
+
+{{< highlight bash >}}
+127.0.0.1:6379> HSET small geom 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))'
+(integer) 1
+127.0.0.1:6379> HSET large geom 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))'
+(integer) 1
+{{< / highlight >}}
+
+Query with `WITHIN` operator:
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SEARCH idx '@geom:[WITHIN $poly]' PARAMS 2 poly 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))' DIALECT 3
+
+1) (integer) 1
+2) "small"
+3) 1) "geom"
+   2) "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))"
+{{< / highlight >}}
+
+Query with `CONTAINS` operator:
+
+
+{{< highlight bash >}}
+127.0.0.1:6379> FT.SEARCH idx '@geom:[CONTAINS $poly]' PARAMS 2 poly 'POLYGON((2 2, 2 50, 50 50, 50 2, 2 2))' DIALECT 3
+
+1) (integer) 2
+2) "small"
+3) 1) "geom"
+   2) "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))"
+4) "large"
+5) 1) "geom"
+   2) "POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))"
+{{< / highlight >}}
+
+</details>
+
 ## See also
 
-`FT.SEARCH` | `FT.AGGREGATE` 
+`FT.CREATE` | `FT.AGGREGATE` 
 
 ## Related topics
 
-- [Extensions](/redisearch/reference/extensions)
-- [Highlighting](/redisearch/reference/highlight)
-- [Query syntax](/redisearch/reference/query_syntax)
+- [Extensions](/docs/interact/search-and-query/administration/extensions/)
+- [Highlighting](/docs/interact/search-and-query/advanced-concepts/highlight/)
+- [Query syntax](/docs/interact/search-and-query/query/)
 - [RediSearch](/docs/stack/search)

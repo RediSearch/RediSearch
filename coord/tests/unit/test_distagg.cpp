@@ -63,8 +63,10 @@ static void testAverage() {
   printf("Printing local plan\n");
   AGPLN_Dump(&r->ap);
 
+  r->reqflags |= QEXEC_F_BUILDPIPELINE_NO_ROOT; // mark for coordinator pipeline
+
   dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;
-  rc = AREQ_BuildPipeline(r, AREQ_BUILDPIPELINE_NO_ROOT, &status);
+  rc = AREQ_BuildPipeline(r, &status);
   dstp->lk.options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
   printf("Built pipeline.. rc=%d\n", rc);
   if (rc != REDISMODULE_OK) {
@@ -83,6 +85,7 @@ static void testAverage() {
  */
 static void testCountDistinct() {
   AREQ *r = AREQ_New();
+  r->reqflags |= QEXEC_F_BUILDPIPELINE_NO_ROOT; // mark for coordinator pipeline
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
                     "GROUPBY", "1", "@brand",                                                  // nl
@@ -120,6 +123,7 @@ static void testCountDistinct() {
 
 static void testSplit() {
   AREQ *r = AREQ_New();
+  r->reqflags |= QEXEC_F_BUILDPIPELINE_NO_ROOT; // mark for coordinator pipeline
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
                     "GROUPBY", "1", "@brand",                                                  // nl

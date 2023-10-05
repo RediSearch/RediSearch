@@ -39,15 +39,26 @@ OS=$($READIES/bin/platform --os)
 [[ $OS == linux ]] && OS="Linux"
 
 [[ -z $OSNICK ]] && OSNICK=$($READIES/bin/platform --osnick)
-[[ $OSNICK == trusty ]] && OSNICK=ubuntu14.04
-[[ $OSNICK == xenial ]] && OSNICK=ubuntu16.04
-[[ $OSNICK == bionic ]] && OSNICK=ubuntu18.04
-[[ $OSNICK == focal ]] && OSNICK=ubuntu20.04
-[[ $OSNICK == jammy ]] && OSNICK=ubuntu22.04
+[[ $OSNICK == trusty ]]  && OSNICK=ubuntu14.04
+[[ $OSNICK == xenial ]]  && OSNICK=ubuntu16.04
+[[ $OSNICK == bionic ]]  && OSNICK=ubuntu18.04
+[[ $OSNICK == focal ]]   && OSNICK=ubuntu20.04
+[[ $OSNICK == jammy ]]   && OSNICK=ubuntu22.04
 [[ $OSNICK == centos7 ]] && OSNICK=rhel7
 [[ $OSNICK == centos8 ]] && OSNICK=rhel8
+[[ $OSNICK == centos9 ]] && OSNICK=rhel9
 [[ $OSNICK == ol8 ]]     && OSNICK=rhel8
 [[ $OSNICK == rocky8 ]]  && OSNICK=rhel8
+[[ $OSNICK == rocky9 ]]  && OSNICK=rhel9
+
+if [[ $OS == macos ]]; then
+	# as we don't build on macOS for every platform, we converge to a least common denominator
+	if [[ $ARCH == x86_64 ]]; then
+		[[ $OSNICK == bigsur || $OSNICK == ventura ]] && OSNICK=catalina
+	else
+		[[ $OSNICK == ventura ]] && OSNICK=monterey
+	fi
+fi
 
 PLATFORM="$OS-$OSNICK-$ARCH"
 
@@ -103,8 +114,8 @@ s3_ls() {
 }
 
 s3_upload() {
-	local prod_subdir="$1"
-	local prefix="$2"
+	local prod_subdir="$PROD"
+	local prefix="$PREFIX"
 	local upload_dir="${S3_URL}/${prod_subdir}${MAYBE_SNAP}"
 	local file
 	if [[ $SNAPSHOT == 1 ]]; then
@@ -123,6 +134,6 @@ s3_upload() {
 
 #----------------------------------------------------------------------------------------------
 
-s3_upload redisearch redisearch
-s3_upload redisearch redisearch-light
-s3_upload redisearch-oss redisearch-oss
+PROD=redisearch PREFIX=redisearch s3_upload
+PROD=redisearch PREFIX=redisearch-light s3_upload
+PROD=redisearch-oss PREFIX=redisearch-oss s3_upload

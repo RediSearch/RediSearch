@@ -49,14 +49,6 @@ typedef struct GeoFilter {
 /* Create a geo filter from parsed strings and numbers */
 GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t unit_len);
 
-/*
- * Substitute parameters with actual values used by geo filter
- * If a parameters is missing, has wrong kind, or the resulting geo filter is invalid
- * Returns REDISMODULE_ERR
- * Otherwise, returns REDISMODULE_OK
- */
-int GeoFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
-
 /** @param s CString (null-terminated string) */
 GeoDistance GeoDistance_Parse(const char *s);
 const char *GeoDistance_ToString(GeoDistance dist);
@@ -71,7 +63,7 @@ int GeoFilter_Validate(const GeoFilter *gf, QueryError *status);
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0] */
 int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status);
 void GeoFilter_Free(GeoFilter *gf);
-IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf);
+IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf, IteratorsConfig *config);
 
 /*****************************************************************************/
 

@@ -156,3 +156,4 @@ IndexIterator *NewGeoRangeIterator(GeoIndex *gi, const GeoFilter *gf, double wei
   IndexIterator *it = NewUnionIterator(iters, iterCount, NULL, 1, 1);
   return it;
 }*/
+

@@ -41,7 +41,7 @@ void SearchCluster_Release(SearchCluster *sc) {
   rm_free(sc->shardsStartSlots);
   sc->shardsStartSlots = NULL;
 }
-void GlobalSearchCluser_Release() {
+void GlobalSearchCluster_Release() {
   SearchCluster_Release(&__searchCluster);
 }
 
@@ -187,7 +187,9 @@ static const char *getUntaggedId(const char *id, size_t *outlen) {
 }
 
 static const char *lookupAlias(const char *orig, size_t *len) {
-  IndexSpec *sp = IndexAlias_Get(orig);
+  // borrowing the global reference to the spec
+  StrongRef global = IndexAlias_Get(orig);
+  IndexSpec *sp = StrongRef_Get(global);
   if (!sp) {
     *len = strlen(orig);
     return orig;
@@ -220,7 +222,9 @@ int SearchCluster_RewriteCommand(SearchCluster *sc, MRCommand *cmd, int partIdx)
     const char *tag = PartitionTag(&sc->part, partId);
     if (MRCommand_GetFlags(cmd) & MRCommand_Aliased) {
       // 1:1 partition mapping
-      IndexSpec *spec = IndexAlias_Get(target);
+      // borrowing the global reference to the index spec
+      StrongRef global = IndexAlias_Get(target);
+      IndexSpec *spec = StrongRef_Get(global);
       if (spec) {
         target = spec->name;
         targetLen = rindex(spec->name, '{') - target;

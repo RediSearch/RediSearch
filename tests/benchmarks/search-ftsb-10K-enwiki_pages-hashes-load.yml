@@ -1,0 +1,34 @@
+name: "ftsb-10K-enwiki_pages-hashes-load"
+description: "
+             enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-pages-benchmark/description.md), 
+             from English-language Wikipedia:Database page edition data. 
+             This use case generates 100K docs, with 3 TEXT fields (all sortable), 1 sortable TAG field, and 1 sortable NUMERIC fields per document.
+             Specifically for this testcase:
+                - Type (read/write/mixed): write
+                - Query type: N/A
+                - Query sample: N/A
+             "
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5
+metadata:
+  component: "search"
+setups:
+  - oss-standalone
+  - oss-cluster-02-primaries
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+  - oss-cluster-16-primaries
+  - oss-cluster-20-primaries
+  - oss-cluster-24-primaries
+  - oss-cluster-32-primaries
+
+dbconfig:
+  - init_commands:
+      - '"FT.CREATE" "enwiki_pages" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "text" "text" "SORTABLE" "comment" "text" "SORTABLE" "username" "tag" "SORTABLE" "timestamp" "numeric" "SORTABLE"'
+clientconfig:
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.commands.SETUP.csv"

@@ -13,6 +13,7 @@
 #include "value.h"
 #include "geo_index.h"
 #include "vector_index.h"
+#include "indexer.h"
 
 struct InvertedIndex;
 
@@ -116,8 +117,10 @@ void TagIndex_Free(void *p);
 
 char *TagIndex_SepString(char sep, char **s, size_t *toklen);
 
-/* Preprocess a document tag field, returning a vector of all tags split from the content */
-char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data);
+/* Preprocess a document tag field, split the content in data into fdata `tags` array
+   Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise
+ */
+int TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data, FieldIndexerData *fdata);
 
 static inline void TagIndex_FreePreprocessedData(char **s) {
   array_foreach(s, tmpv, { rm_free(tmpv); });

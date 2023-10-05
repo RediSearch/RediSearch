@@ -3,10 +3,12 @@
 import collections
 import random
 import re
+import shutil
 import subprocess
 import tempfile
 import zipfile
 from itertools import chain
+import tempfile
 
 import gevent.queue
 import gevent.server
@@ -15,7 +17,6 @@ import gevent.socket
 from common import *
 from includes import *
 
-CREATE_INDICES_TARGET_DIR = '/tmp/test'
 
 SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '1'))
 SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
@@ -25,6 +26,8 @@ RDBS_SHORT_READS = [
     'short-reads/redisearch_2.2.0.rdb.zip',
     'short-reads/rejson_2.0.0.rdb.zip',
     'short-reads/redisearch_2.2.0_rejson_2.0.0.rdb.zip',
+    'short-reads/redisearch_2.8.0.rdb.zip',
+    'short-reads/redisearch_2.8.4.rdb.zip',
 ]
 RDBS_COMPATIBILITY = [
     'redisearch_2.0.9.rdb',
@@ -33,9 +36,11 @@ RDBS_COMPATIBILITY = [
 ExpectedIndex = collections.namedtuple('ExpectedIndex', ['count', 'pattern', 'search_result_count'])
 RDBS_EXPECTED_INDICES = [
                          ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
-                         ExpectedIndex(2, 'shortread_idxJson_[1-9]', [55, 20]),  # TODO: why order of indices is first _2 then _1
-                         ExpectedIndex(2, 'shortread_idxSearchJson_[1-9]', [10, 35])
-                         ]
+                         ExpectedIndex(2, 'shortread_idxJson_[1-9]', [20, 55]),
+                         ExpectedIndex(2, 'shortread_idxSearchJson_[1-9]', [10, 35]),
+                         ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
+                         ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
+                        ]
 
 RDBS = []
 RDBS.extend(RDBS_SHORT_READS)
@@ -43,6 +48,7 @@ if not CODE_COVERAGE and SANITIZER == '' and SHORT_READ_FULL_TEST:
     RDBS.extend(RDBS_COMPATIBILITY)
     RDBS_EXPECTED_INDICES.append(ExpectedIndex(1, 'idx', [1000]))
 
+LOCAL_RDBS_DIR = None # '/tmp'
 
 def unzip(zip_path, to_dir):
     if not zipfile.is_zipfile(zip_path):
@@ -60,6 +66,11 @@ def downloadFiles(target_dir):
         path_dir = os.path.dirname(path)
         if not os.path.exists(path_dir):
             os.makedirs(path_dir)
+        if LOCAL_RDBS_DIR:
+            local_path = os.path.join(LOCAL_RDBS_DIR, os.path.basename(f))
+            if os.path.exists(local_path):
+                shutil.copyfile(local_path, path)
+                unzip(path, path_dir)
         if not os.path.exists(path):
             dpath = paella.wget(BASE_RDBS_URL + f, dest=path)
             _, ext = os.path.splitext(dpath)
@@ -80,25 +91,25 @@ def rand_name(k):
 
 def rand_num(k):
     # rand positive number with between 2 to k digits
-    return chr(random.randint(ord('1'), ord('9'))) + ''.join([chr(random.randint(ord('0'), ord('9'))) for _ in range(0, random.randint(1, max(1, k)))])
+    return chr(random.randint(ord('1'), ord('9'))) + ''.join([chr(random.randint(ord('0'), ord('9'))) for _ in range(0, random.randint(1, max(1, k-1)))])
     # return random.choices(''.join(string.digits, k=k))
 
 
-def create_indices(env, rdbFileName, idxNameStem, isHash, isJson):
+def create_indices(env, rdbFileName, idxNameStem, isHash, isJson, num_geometry_keys=0):
     env.flush()
     idxNameStem = 'shortread_' + idxNameStem + '_'
     if isHash and isJson:
         # 1 Hash index and 1 Json index
-        add_index(env, True, idxNameStem + '1', 'c', 10, 20)
-        add_index(env, False, idxNameStem + '2', 'd', 35, 40)
+        add_index(env, True, idxNameStem + '1', 'c', 10, 20, num_geometry_keys)
+        add_index(env, False, idxNameStem + '2', 'd', 35, 40, num_geometry_keys)
     elif isHash:
         # 2 Hash indices
-        add_index(env, True, idxNameStem + '1', 'e', 10, 20)
-        add_index(env, True, idxNameStem + '2', 'f', 35, 40)
+        add_index(env, True, idxNameStem + '1', 'e', 10, 20, num_geometry_keys)
+        add_index(env, True, idxNameStem + '2', 'f', 35, 40, num_geometry_keys)
     elif isJson:
         # 2 Json indices
-        add_index(env, False, idxNameStem + '1', 'g', 10, 20)
-        add_index(env, False, idxNameStem + '2', 'h', 35, 40)
+        add_index(env, False, idxNameStem + '1', 'g', 10, 20, num_geometry_keys)
+        add_index(env, False, idxNameStem + '2', 'h', 35, 40, num_geometry_keys)
     else:
         env.assertTrue(False, "should not reach here")
 
@@ -110,19 +121,29 @@ def create_indices(env, rdbFileName, idxNameStem, isHash, isJson):
 
     env.assertTrue(env.cmd('save'))
     # Copy to avoid truncation of rdb due to RLTest flush and save
-    dbCopyFilePath = os.path.join(CREATE_INDICES_TARGET_DIR, dbFileName)
+    tempdir = tempfile.TemporaryDirectory(prefix='test_')
+    dbCopyFilePath = os.path.join(tempdir.name, dbFileName)
     dbCopyFileDir = os.path.dirname(dbCopyFilePath)
     if not os.path.exists(dbCopyFileDir):
         os.makedirs(dbCopyFileDir)
-    with zipfile.ZipFile(dbCopyFilePath + '.zip', 'w') as db_zip:
-        db_zip.write(dbFilePath, os.path.join(os.path.curdir, os.path.basename(dbCopyFilePath)))
-
+    zipFilePath = dbCopyFilePath + '.zip'
+    with zipfile.ZipFile(zipFilePath, 'w') as db_zip:
+        db_zip.write(dbFilePath, dbFileName)
+    if LOCAL_RDBS_DIR:
+        shutil.copyfile(zipFilePath, os.path.join(LOCAL_RDBS_DIR, os.path.basename(zipFilePath)))
 
 def get_identifier(name, isHash):
     return '$.' + name if not isHash else name
 
+def get_polygon(x, y, i):
+    return 'POLYGON({} {}, {} {}, {} {}, {} {}, {} {})'.format(
+        x, y,
+        x + 15*i, y,
+        x + 15*i, y + 17.2*i,
+        x, y + 17.2*i,
+        x, y)
 
-def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys):
+def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geometry_keys=0):
     ''' Cover most of the possible options of an index
 
     FT.CREATE {index}
@@ -167,13 +188,21 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys):
                        get_identifier('field2', isHash), 'as', 'f2', 'numeric', 'sortable',
                        get_identifier('field3', isHash), 'as', 'f3', 'geo',
                        get_identifier('field4', isHash), 'as', 'f4', 'tag', 'separator', ';',
+                       
                        get_identifier('field11', isHash), 'text', 'nostem',
                        get_identifier('field12', isHash), 'numeric', 'noindex',
                        get_identifier('field13', isHash), 'geo',
                        get_identifier('field14', isHash), 'tag', 'noindex',
+                       
                        get_identifier('myLang', isHash), 'text',
                        get_identifier('myScore', isHash), 'numeric',
                        ])
+    if num_geometry_keys > 0:
+        cmd_create.extend([
+            get_identifier('field5', isHash), 'as', 'geom', 'geoshape', 'flat',
+            get_identifier('field15', isHash), 'geoshape', 'spherical',
+        ])
+
     conn = getConnectionByEnv(env)
     env.expect(*cmd_create).ok()
     waitForIndex(env, index_name)
@@ -188,21 +217,42 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys):
         else:
             cmd = ['json.set', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, '$', r'{"field1":"' + rand_name(5) + r'", "field2":' + rand_num(3) + r'}']
             env.assertOk(conn.execute_command(*cmd))
+    
+    for i in range(num_keys + 1, num_keys + num_geometry_keys + 1):
+        geom_wkt = get_polygon(int(rand_num(3)), int(rand_num(3)), i)
+        if isHash:
+            cmd = ['hset', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, 'field5', geom_wkt, 'field15', geom_wkt]
+            env.assertEqual(conn.execute_command(*cmd), 2)
+        else:
+            cmd = ['json.set', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, '$', r'{"field5":"' + geom_wkt + r'", "field15":"' + geom_wkt + r'"}']
+            env.assertOk(conn.execute_command(*cmd))
 
-
-def testCreateIndexRdbFiles(env):
+def _testCreateIndexRdbFiles(env):
     if not server_version_at_least(env, "6.2.0"):
         env.skip()
     create_indices(env, 'redisearch_2.2.0.rdb', 'idxSearch', True, False)
 
-@no_msan
-def testCreateIndexRdbFilesWithJSON(env):
+def _testCreateIndexRdbFilesWithJSON(env):
     if not server_version_at_least(env, "6.2.0"):
         env.skip()
     if OS == 'macos':
         env.skip()
     create_indices(env, 'rejson_2.0.0.rdb', 'idxJson', False, True)
     create_indices(env, 'redisearch_2.2.0_rejson_2.0.0.rdb', 'idxSearchJson', True, True)
+
+def _testCreateIndexRdbFilesWithGeometry(env):
+    if not server_version_at_least(env, "6.2.0"):
+        env.skip()
+    if OS == 'macos':
+        env.skip()
+    create_indices(env, 'redisearch_2.8.4.rdb', 'idxSearch_with_geom', True, False, 5)
+
+# def _testCreateIndexRdbFilesWithGeometryWithJSON(env):
+#     if not server_version_at_least(env, "6.2.0"):
+#         env.skip()
+#     if OS == 'macos':
+#         env.skip()
+#     create_indices(env, 'redisearch_2.8.4_rejson_2.0.0.rdb', 'idxSearchJson_with_geom', True, True, 5)
 
 
 class Connection(object):
@@ -500,9 +550,9 @@ def sendShortReads(env, rdb_file, expected_index):
     # When entire rdb is successfully sent and loaded (from swapdb) - backup should be discarded
     env.assertCmdOk('replicaof', 'no', 'one')
     env.flush()
-    add_index(env, True,  'idxBackup1', 'a', 5, 10)
-    add_index(env, False, 'idxBackup2', 'b', 5, 10)
-
+    add_index(env, True,  'idxBackup1', 'a', 5, 10, 5)
+    add_index(env, False, 'idxBackup2', 'b', 5, 10, 5)
+    
     res = env.cmd('ft.search ', 'idxBackup1', '*', 'limit', '0', '0')
     env.assertEqual(res[0], 5)
     res = env.cmd('ft.search ', 'idxBackup2', '*', 'limit', '0', '0')
@@ -583,6 +633,7 @@ def runShortRead(env, data, total_len, expected_index):
         else:
             # Verify new data was loaded and the backup was discarded
             # TODO: How to verify internal backup was indeed discarded
+            res.sort()
             env.assertEqual(len(res), expected_index.count)
             r = re.compile(expected_index.pattern)
             expected_indices = list(filter(lambda x: r.match(x), res))

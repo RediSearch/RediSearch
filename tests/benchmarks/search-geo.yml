@@ -7,7 +7,14 @@ metadata:
   component: "search"
 setups:
   - oss-standalone
-  - oss-cluster-03-primaries
+  - oss-cluster-02-primaries
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+  - oss-cluster-16-primaries
+  - oss-cluster-20-primaries
+  - oss-cluster-24-primaries
+  - oss-cluster-32-primaries
+
 dbconfig:
   - tool: ftsb_redisearch
   - parameters:
@@ -23,4 +30,4 @@ dbconfig:
 clientconfig:
   benchmark_type: "read-only"
   tool: memtier_benchmark
-  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.SEARCH nyc @pickup_location_long_lat:[-73.987679,40.719749,420,m]& LIMIT 0 0'"
+  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.SEARCH nyc @pickup_location_long_lat:[-73.987679,40.719749,420,m]'"

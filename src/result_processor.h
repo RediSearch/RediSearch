@@ -41,19 +41,10 @@ extern "C" {
  *
  ********************************************************************************/
 
-/* Query processing state */
-typedef enum {
-  QITR_S_RUNNING,
-  QITR_S_ABORTED,
-
-  // TimedOut state differs from aborted in that it lets the processors drain their accumulated
-  // results instead of stopping in our tracks and returning nothing.
-  QITR_S_TIMEDOUT
-} QITRState;
-
 typedef enum {
   RP_INDEX,
   RP_LOADER,
+  RP_SAFE_LOADER,
   RP_SCORER,
   RP_SORTER,
   RP_COUNTER,
@@ -91,13 +82,16 @@ typedef struct {
   // others who might disqualify results
   uint32_t totalResults;
 
+  // the number of results we requested to return at the current chunk. This value may be used by
+  // processors to optimize their work and to signal RP in the upstream their limit.
+  uint32_t resultLimit;
+
   // Object which contains the error
   QueryError *err;
 
-  // the state - used for aborting queries
-  QITRState state;
-
   struct timespec startTime;
+
+  RSTimeoutPolicy timeoutPolicy;
 } QueryIterator, QueryProcessingCtx;
 
 IndexIterator *QITR_GetRootFilter(QueryIterator *it);
@@ -106,10 +100,8 @@ void QITR_FreeChain(QueryIterator *qitr);
 
 /*
  * SearchResult - the object all the processing chain is working on.
- * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc.
- *
- * And a list of fields loaded by the chain - currenly only by the loader, but possibly by
- * aggregators later on
+ * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc,
+ * and a list of fields loaded by the chain
  */
 typedef struct {
   t_docId docId;
@@ -118,7 +110,7 @@ typedef struct {
   double score;
   RSScoreExplain *scoreExplain;
 
-  RSDocumentMetadata *dmd;
+  const RSDocumentMetadata *dmd;
 
   // index result should cover what you need for highlighting,
   // but we will add a method to duplicate index results to make
@@ -180,8 +172,6 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
-// Get the index spec from the result processor
-#define RP_SPEC(rpctx) ((rpctx)->parent->sctx->spec)
 
 /**
  * This function resets the search result, so that it may be reused again.
@@ -210,8 +200,13 @@ ResultProcessor *RPMetricsLoader_New();
 #define SORTASCMAP_GETASC(mm, pos) ((mm) & (1LLU << (pos)))
 void SortAscMap_Dump(uint64_t v, size_t n);
 
-ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascendingMap);
+/**
+ * Creates a sorter result processor.
+ * @param keys is an array of RLookupkeys to sort by them,
+ * @param nkeys is the number of keys.
+ * keys will be freed by the arrange step dtor.
+ */
+ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascendingMap);
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults);
 
@@ -225,15 +220,20 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  *
  * It fills the result objects' field map with values corresponding to the requested return fields
  *
+ * On thread safe mode, the loader will buffer results, in an internal phase will lock redis and load the requested
+ * fields and then unlock redis, and then will yield the results to the next processor in the chain.
+ * On non thread safe mode (running the query from the main thread), the loader will load the requested fields
+ * for each result, one result at a time, and yield it to the next processor in the chain.
+ *
  *******************************************************************************************************************/
-ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys);
+struct AREQ;
+ResultProcessor *RPLoader_New(struct AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys);
 
 /** Creates a new Highlight processor */
 ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
                                    const RLookup *lookup);
 
 void RP_DumpChain(const ResultProcessor *rp);
-
 
 /*******************************************************************************************************************
  *  Profiling Processor

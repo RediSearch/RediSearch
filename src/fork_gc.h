@@ -10,12 +10,11 @@
 
 #include "redismodule.h"
 #include "gc.h"
+#include "VecSim/vec_sim.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-struct IndexSpec;
 
 typedef struct {
   // total bytes collected by the GC
@@ -30,40 +29,31 @@ typedef struct {
   uint64_t gcBlocksDenied;
 } ForkGCStats;
 
-typedef enum FGCType { FGC_TYPE_INKEYSPACE, FGC_TYPE_NOKEYSPACE } FGCType;
-
 /* Internal definition of the garbage collector context (each index has one) */
 typedef struct ForkGC {
 
-  // inverted index key name for reopening the index
-  union {
-    const RedisModuleString *keyName;
-    struct IndexSpec *sp;
-  };
+  // owner of the gc
+  WeakRef index;
 
   RedisModuleCtx *ctx;
-
-  FGCType type;
-
-  uint64_t specUniqueId;
 
   // statistics for reporting
   ForkGCStats stats;
 
-  // flag for rdb loading. Set to 1 initially, but unce it's set to 0 we don't need to check anymore
-  int rdbPossiblyLoading;
-  // Whether the gc has been requested for deletion
-  volatile int deleting;
   int pipefd[2];
   volatile uint32_t pauseState;
   volatile uint32_t execState;
 
   struct timespec retryInterval;
   volatile size_t deletedDocsFromLastRun;
+
+  // current value of RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes
+  // This value is updated during the periodic callback execution.
+  int cleanNumericEmptyNodes;
+  VecSimIndex **tieredIndexes;
 } ForkGC;
 
-ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks);
-ForkGC *FGC_NewFromSpec(struct IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks);
+ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks);
 
 typedef enum {
   // Normal "open" state. No pausing will happen
@@ -102,22 +92,24 @@ typedef enum {
  * may not be visible by the fork gc engine.
  *
  * This function will return before the fork is performed. You
- * must call WaitAtApply or WaitClear to allow the GC to
+ * must call FGC_ForkAndWaitBeforeApply or FGC_Apply to allow the GC to
  * resume functioning
  */
-void FGC_WaitAtFork(ForkGC *gc);
+//TODO: I'm not sure this one is necessary, we already wait before we call the callback. (in cbWrapper)
+void FGC_WaitBeforeFork(ForkGC *gc);
 
 /**
- * Indicate that the GC should unpause from WaitAtFork, and
- * instead wait before the changes are applied. This is in order
- * to change the state of the index at the parent
+ * Indicate that the GC should continue from FGC_WaitBeforeFork, and
+ * wait before the changes are applied. At this point, the child and parent process
+ * no longer share the same memory, hence, the child will not be aware of any
+ * changes made in the main process.
  */
-void FGC_WaitAtApply(ForkGC *gc);
+void FGC_ForkAndWaitBeforeApply(ForkGC *gc);
 
 /**
- * Don't perform diagnostic waits
+ * Apply the changes the parent received from the child.
  */
-void FGC_WaitClear(ForkGC *gc);
+void FGC_Apply(ForkGC *gc);
 
 #ifdef __cplusplus
 }

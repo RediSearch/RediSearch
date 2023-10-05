@@ -7,8 +7,10 @@
 #ifndef __REDISEARCH_STOPWORDS_H___
 #define __REDISEARCH_STOPWORDS_H___
 
-#include <stdlib.h>
+#include "reply.h"
 #include "redismodule.h"
+
+#include <stdlib.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,9 +33,6 @@ int StopWordList_Contains(const struct StopWordList *sl, const char *term, size_
 struct StopWordList *DefaultStopWordList();
 void StopWordList_FreeGlobals(void);
 
-/* Create a new stopword list from a list of redis strings */
-struct StopWordList *NewStopWordList(RedisModuleString **strs, size_t len);
-
 /* Create a new stopword list from a list of NULL-terminated C strings */
 struct StopWordList *NewStopWordListCStr(const char **strs, size_t len);
 
@@ -50,7 +49,7 @@ void StopWordList_RdbSave(RedisModuleIO *rdb, struct StopWordList *sl);
 
 void StopWordList_Ref(struct StopWordList *sl);
 
-void ReplyWithStopWordsList(RedisModuleCtx *ctx, struct StopWordList *sl);
+void ReplyWithStopWordsList(RedisModule_Reply *reply, struct StopWordList *sl);
 
 #ifdef FTINFO_FOR_INFO_MODULES
 void AddStopWordsListToInfo(RedisModuleInfoCtx *ctx, struct StopWordList *sl);

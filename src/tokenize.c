@@ -85,14 +85,14 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
 
     // normalize the token
     size_t normLen = origLen;
+    if (normLen > MAX_NORMALIZE_SIZE) {
+      normLen = MAX_NORMALIZE_SIZE;
+    }
 
     char normalized_s[MAX_NORMALIZE_SIZE];
     char *normBuf;
     if (ctx->options & TOKENIZE_NOMODIFY) {
       normBuf = normalized_s;
-      if (normLen > MAX_NORMALIZE_SIZE) {
-        normLen = MAX_NORMALIZE_SIZE;
-      }
     } else {
       normBuf = tok;
     }
@@ -194,8 +194,8 @@ RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *s
 RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
   if (!tokpoolCn_g) {
     mempool_options opts = {
-        .isGlobal = 1, .initialCap = 16, .alloc = newCnTokenizerAlloc, .free = tokenizerFree};
-    tokpoolCn_g = mempool_new(&opts);
+        .initialCap = 16, .alloc = newCnTokenizerAlloc, .free = tokenizerFree};
+    mempool_test_set_global(&tokpoolCn_g, &opts);
   }
 
   RSTokenizer *t = mempool_get(tokpoolCn_g);
@@ -206,8 +206,8 @@ RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
 RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
   if (!tokpoolLatin_g) {
     mempool_options opts = {
-        .isGlobal = 1, .initialCap = 16, .alloc = newLatinTokenizerAlloc, .free = tokenizerFree};
-    tokpoolLatin_g = mempool_new(&opts);
+        .initialCap = 16, .alloc = newLatinTokenizerAlloc, .free = tokenizerFree};
+    mempool_test_set_global(&tokpoolLatin_g, &opts);
   }
   RSTokenizer *t = mempool_get(tokpoolLatin_g);
   t->Reset(t, stemmer, stopwords, 0);

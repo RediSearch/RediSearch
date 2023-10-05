@@ -55,8 +55,9 @@ typedef enum {
   DocumentType_Unsupported,
 } DocumentType;
 
-#define isSpecHash(spec) (spec->rule && spec->rule->type == DocumentType_Hash)
-#define isSpecJson(spec) (spec->rule && spec->rule->type == DocumentType_Json)
+#define isSpecHash(spec) ((spec)->rule && (spec)->rule->type == DocumentType_Hash)
+#define isSpecJson(spec) ((spec)->rule && (spec)->rule->type == DocumentType_Json)
+#define SpecRuleTypeName(spec) ((spec)->rule ? DocumentType_ToString((spec)->rule->type) : "Unknown")
 
 #define RS_IsMock (!RedisModule_CreateTimer)
 
@@ -75,6 +76,8 @@ typedef enum {
   Document_HasPayload = 0x02,
   Document_HasSortVector = 0x04,
   Document_HasOffsetVector = 0x08,
+  Document_FailedToOpen = 0x10, // Document was failed to opened by a loader (might expired) but not yet marked as deleted.
+                                // This is an optimization to avoid attempting opening the document for loading. May be used UN-ATOMICALLY
 } RSDocumentFlags;
 
 #define hasPayload(x) (x & Document_HasPayload)
@@ -101,15 +104,16 @@ typedef struct RSDocumentMetadata_s {
   /* The maximum frequency of any term in the index, used to normalize frequencies */
   uint32_t maxFreq : 24;
 
+  /* Document flags  */
+  RSDocumentFlags flags : 8;
+
   /* The total weighted number of tokens in the document, weighted by field weights */
   uint32_t len : 24;
 
-  /* Document flags  */
-  RSDocumentFlags flags : 8;
   // Type of source document. Hash or JSON.
   DocumentType type : 8;
 
-  uint32_t ref_count : 16;
+  uint16_t ref_count;
 
   struct RSSortingVector *sortVector;
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
@@ -210,6 +214,9 @@ typedef struct {
   int id;
   /* Flags given by the engine or by the query expander */
   RSTokenFlags flags;
+
+  /* Inverse document frequency of the term in the index for computing BM25 */
+  double bm25_idf;
 } RSQueryTerm;
 
 /**************************************
@@ -267,6 +274,7 @@ typedef enum {
 } RSResultType;
 
 #define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)
+#define RS_RESULT_NUMERIC (RSResultType_Numeric | RSResultType_Metric)
 
 typedef struct {
   /* The number of child records */
@@ -302,6 +310,7 @@ typedef struct RSIndexResult {
    *******************************************************************************/
   /* The docId of the result */
   t_docId docId;
+  const RSDocumentMetadata *dmd;
 
   /* the total frequency of all the records in this result */
   uint32_t freq;

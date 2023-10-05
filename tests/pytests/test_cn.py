@@ -100,6 +100,10 @@ def testMixedEscapes(env):
     env.assertEqual('doc3', r[1])
 
 def testSynonym(env):
+    # TODO: remove once Sanitizer/Coordinator problem is fixed (issue #3523)
+    if SANITIZER:
+        env.skipOnCluster()
+    
     txt = r"""
 测试 同义词 功能
 """

@@ -9,6 +9,7 @@
 #include "document.h"
 #include "rmutil/rm_assert.h"
 #include "util/dict.h"
+#include "util/references.h"
 #include "query_node.h"
 #include "search_options.h"
 #include "query_internal.h"
@@ -23,16 +24,24 @@
 #include "fork_gc.h"
 #include "module.h"
 
+/**
+ * Most of the spec interaction is done through the RefManager, which is wrapped by a strong or weak reference struct.
+ * In the LLAPI we return a pointer to an RSIndex. In order to not break the API, we typedef the RSIndex to be RefManager
+ * and we return it instead of the strong reference that should wrap it. we can assume that every time we get a RefManager,
+ * we can cast it to (wrap it with) a strong reference and use it as such.
+ */
+
 int RediSearch_GetCApiVersion() {
   return REDISEARCH_CAPI_VERSION;
 }
 
-IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* options) {
+RefManager* RediSearch_CreateIndex(const char* name, const RSIndexOptions* options) {
   RSIndexOptions opts_s = {.gcPolicy = GC_POLICY_FORK, .stopwordsLen = -1};
   if (!options) {
     options = &opts_s;
   }
   IndexSpec* spec = NewIndexSpec(name);
+  StrongRef ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   IndexSpec_MakeKeyless(spec);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
   spec->flags |= Index_FromLLAPI;
@@ -52,24 +61,27 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
     spec->docs.maxSize = DOCID_MAX;
   }
   if (options->gcPolicy != GC_POLICY_NONE) {
-    IndexSpec_StartGCFromSpec(spec, GC_DEFAULT_HZ, options->gcPolicy);
+    IndexSpec_StartGCFromSpec(ref, spec, options->gcPolicy);
   }
   if (options->stopwordsLen != -1) {
     // replace default list which is a global so no need to free anything.
     spec->stopwords = NewStopWordListCStr((const char **)options->stopwords,
                                                          options->stopwordsLen);
   }
-  return spec;
+  return ref.rm;
 }
 
-void RediSearch_DropIndex(IndexSpec* sp) {
+void RediSearch_DropIndex(RefManager* rm) {
   RWLOCK_ACQUIRE_WRITE();
-  IndexSpec_FreeInternals(sp);
+  StrongRef ref = {rm};
+  StrongRef_Invalidate(ref);
+  StrongRef_Release(ref);
   RWLOCK_RELEASE();
 }
 
-char **RediSearch_IndexGetStopwords(IndexSpec* sp, size_t *size) {
-  return GetStopWordsList(sp->stopwords, size);
+char **RediSearch_IndexGetStopwords(RefManager* rm, size_t *size) {
+  IndexSpec *spec = __RefManager_Get_Object(rm);
+  return GetStopWordsList(spec->stopwords, size);
 }
 
 void RediSearch_StopwordsList_Free(char **list, size_t size) {
@@ -79,16 +91,18 @@ void RediSearch_StopwordsList_Free(char **list, size_t size) {
   rm_free(list);
 }
 
-double RediSearch_IndexGetScore(IndexSpec* sp) {
-  if (sp->rule) {
-    return sp->rule->score_default;
+double RediSearch_IndexGetScore(RefManager* rm) {
+  IndexSpec *spec = __RefManager_Get_Object(rm);
+  if (spec->rule) {
+    return spec->rule->score_default;
   }
   return DEFAULT_SCORE;
 }
 
-const char *RediSearch_IndexGetLanguage(IndexSpec* sp) {
-  if (sp->rule) {
-    return RSLanguage_ToString(sp->rule->lang_default);
+const char *RediSearch_IndexGetLanguage(RefManager* rm) {
+  IndexSpec *spec = __RefManager_Get_Object(rm);
+  if (spec->rule) {
+    return RSLanguage_ToString(spec->rule->lang_default);
   }
   return RSLanguage_ToString(DEFAULT_LANGUAGE);
 }
@@ -100,10 +114,11 @@ int RediSearch_ValidateLanguage(const char *lang) {
   return REDISEARCH_OK;
 }
 
-RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types,
+RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned types,
                                  unsigned options) {
   RS_LOG_ASSERT(types, "types should not be RSFLDTYPE_DEFAULT");
   RWLOCK_ACQUIRE_WRITE();
+  IndexSpec *sp = __RefManager_Get_Object(rm);
 
   // TODO: add a function which can take both path and name
   FieldSpec* fs = IndexSpec_CreateField(sp, name, NULL);
@@ -136,6 +151,11 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
     fs->types |= INDEXFLD_T_TAG;
     numTypes++;
   }
+  // TODO: GEOMETRY
+  // if (types & RSFLDTYPE_GEOMETRY) {
+  //   fs->types |= INDEXFLD_T_GEOMETRY;
+  //   numTypes++;
+  // }
 
   if (numTypes > 1) {
     fs->options |= FieldSpec_Dynamic;
@@ -170,19 +190,22 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
   return fs->index;
 }
 
-void RediSearch_TextFieldSetWeight(IndexSpec* sp, RSFieldID id, double w) {
+void RediSearch_TextFieldSetWeight(RefManager* rm, RSFieldID id, double w) {
+  IndexSpec *sp = __RefManager_Get_Object(rm);
   FieldSpec* fs = sp->fields + id;
   RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_FULLTEXT), "types should be INDEXFLD_T_FULLTEXT");
   fs->ftWeight = w;
 }
 
-void RediSearch_TagFieldSetSeparator(IndexSpec* sp, RSFieldID id, char sep) {
+void RediSearch_TagFieldSetSeparator(RefManager* rm, RSFieldID id, char sep) {
+  IndexSpec *sp = __RefManager_Get_Object(rm);
   FieldSpec* fs = sp->fields + id;
   RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
   fs->tagOpts.tagSep = sep;
 }
 
-void RediSearch_TagFieldSetCaseSensitive(IndexSpec* sp, RSFieldID id, int enable) {
+void RediSearch_TagFieldSetCaseSensitive(RefManager* rm, RSFieldID id, int enable) {
+  IndexSpec *sp = __RefManager_Get_Object(rm);
   FieldSpec* fs = sp->fields + id;
   RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
   if (enable) {
@@ -202,8 +225,9 @@ RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, c
   return ret;
 }
 
-RSDoc* RediSearch_CreateDocument2(const void* docKey, size_t len, IndexSpec* sp,
+RSDoc* RediSearch_CreateDocument2(const void* docKey, size_t len, RefManager* rm,
                                   double score, const char* lang) {
+  IndexSpec* sp = __RefManager_Get_Object(rm);
   RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
 
   RSLanguage language = lang ? RSLanguage_Find(lang, 0) :
@@ -223,8 +247,9 @@ void RediSearch_FreeDocument(RSDoc* doc) {
   rm_free(doc);
 }
 
-int RediSearch_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
+int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
   RWLOCK_ACQUIRE_WRITE();
+  IndexSpec* sp = __RefManager_Get_Object(rm);
   int rc = REDISMODULE_OK;
   t_docId id = DocTable_GetId(&sp->docs, docKey, len);
   if (id == 0) {
@@ -298,8 +323,9 @@ void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* er
   }
 }
 
-int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** errs) {
+int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char** errs) {
   RWLOCK_ACQUIRE_WRITE();
+  IndexSpec* sp = __RefManager_Get_Object(rm);
 
   RSError err = {.s = errs};
   QueryError status = {0};
@@ -337,7 +363,8 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
   return err.hasErr ? REDISMODULE_ERR : REDISMODULE_OK;
 }
 
-QueryNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* token) {
+QueryNode* RediSearch_CreateTokenNode(RefManager* rm, const char* fieldName, const char* token) {
+  IndexSpec* sp = __RefManager_Get_Object(rm);
   if (StopWordList_Contains(sp->stopwords, token, strlen(token))) {
     return NULL;
   }
@@ -351,26 +378,26 @@ QueryNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, cons
   return ret;
 }
 
-QueryNode* RediSearch_CreateTagTokenNode(IndexSpec* sp, const char* token) {
+QueryNode* RediSearch_CreateTagTokenNode(RefManager* rm, const char* token) {
   QueryNode* ret = NewQueryNode(QN_TOKEN);
   ret->tn = (QueryTokenNode){
       .str = (char*)rm_strdup(token), .len = strlen(token), .expanded = 0, .flags = 0};
   return ret;
 }
 
-QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
+QueryNode* RediSearch_CreateNumericNode(RefManager* rm, const char* field, double max, double min,
                                         int includeMax, int includeMin) {
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
-  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax);
+  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax, true);
   ret->nn.nf->fieldName = rm_strdup(field);
-  ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
+  ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, strlen(field));
   return ret;
 }
 
-QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lat, double lon,
+QueryNode* RediSearch_CreateGeoNode(RefManager* rm, const char* field, double lat, double lon,
                                         double radius, RSGeoDistance unitType) {
   QueryNode* ret = NewQueryNode(QN_GEO);
-  ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
+  ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, strlen(field));
 
   GeoFilter *flt = rm_malloc(sizeof(*flt));
   flt->lat = lat;
@@ -402,16 +429,16 @@ static QueryNode* RediSearch_CreateAffixNode(IndexSpec* sp, const char* fieldNam
   return ret;
 }
 
-QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
-  return RediSearch_CreateAffixNode(sp, fieldName, s, NODE_PREFIX);
+QueryNode* RediSearch_CreatePrefixNode(RefManager* rm, const char* fieldName, const char* s) {
+  return RediSearch_CreateAffixNode(__RefManager_Get_Object(rm), fieldName, s, NODE_PREFIX);
 }
 
-QueryNode* RediSearch_CreateContainsNode(IndexSpec* sp, const char* fieldName, const char* s) {
-  return RediSearch_CreateAffixNode(sp, fieldName, s, NODE_PREFIX | NODE_SUFFIX);
+QueryNode* RediSearch_CreateContainsNode(RefManager* rm, const char* fieldName, const char* s) {
+  return RediSearch_CreateAffixNode(__RefManager_Get_Object(rm), fieldName, s, NODE_PREFIX | NODE_SUFFIX);
 }
 
-QueryNode* RediSearch_CreateSuffixNode(IndexSpec* sp, const char* fieldName, const char* s) {
-  return RediSearch_CreateAffixNode(sp, fieldName, s, NODE_SUFFIX);
+QueryNode* RediSearch_CreateSuffixNode(RefManager* rm, const char* fieldName, const char* s) {
+  return RediSearch_CreateAffixNode(__RefManager_Get_Object(rm), fieldName, s, NODE_SUFFIX);
 }
 
 static QueryNode* RediSearch_CreateTagAffixNode(IndexSpec* sp, const char* s, int flags) {
@@ -424,19 +451,19 @@ static QueryNode* RediSearch_CreateTagAffixNode(IndexSpec* sp, const char* s, in
   return ret;
 }
 
-QueryNode* RediSearch_CreateTagPrefixNode(IndexSpec* sp, const char* s) {
-  return RediSearch_CreateTagAffixNode(sp, s, NODE_PREFIX);
+QueryNode* RediSearch_CreateTagPrefixNode(RefManager* rm, const char* s) {
+  return RediSearch_CreateTagAffixNode(__RefManager_Get_Object(rm), s, NODE_PREFIX);
 }
 
-QueryNode* RediSearch_CreateTagContainsNode(IndexSpec* sp, const char* s) {
-  return RediSearch_CreateTagAffixNode(sp, s, NODE_PREFIX | NODE_SUFFIX);
+QueryNode* RediSearch_CreateTagContainsNode(RefManager* rm, const char* s) {
+  return RediSearch_CreateTagAffixNode(__RefManager_Get_Object(rm), s, NODE_PREFIX | NODE_SUFFIX);
 }
 
-QueryNode* RediSearch_CreateTagSuffixNode(IndexSpec* sp, const char* s) {
-  return RediSearch_CreateTagAffixNode(sp, s, NODE_SUFFIX);
+QueryNode* RediSearch_CreateTagSuffixNode(RefManager* rm, const char* s) {
+  return RediSearch_CreateTagAffixNode(__RefManager_Get_Object(rm), s, NODE_SUFFIX);
 }
 
-QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const char* begin,
+QueryNode* RediSearch_CreateLexRangeNode(RefManager* rm, const char* fieldName, const char* begin,
                                          const char* end, int includeBegin, int includeEnd) {
   QueryNode* ret = NewQueryNode(QN_LEXRANGE);
   if (begin) {
@@ -448,12 +475,12 @@ QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, c
     ret->lxrng.includeEnd = includeEnd;
   }
   if (fieldName) {
-    ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, fieldName, strlen(fieldName));
+    ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
   }
   return ret;
 }
 
-QueryNode* RediSearch_CreateTagLexRangeNode(IndexSpec* sp, const char* begin,
+QueryNode* RediSearch_CreateTagLexRangeNode(RefManager* rm, const char* begin,
                                          const char* end, int includeBegin, int includeEnd) {
   QueryNode* ret = NewQueryNode(QN_LEXRANGE);
   if (begin) {
@@ -467,29 +494,29 @@ QueryNode* RediSearch_CreateTagLexRangeNode(IndexSpec* sp, const char* begin,
   return ret;
 }
 
-QueryNode* RediSearch_CreateTagNode(IndexSpec* sp, const char* field) {
+QueryNode* RediSearch_CreateTagNode(RefManager* rm, const char* field) {
   QueryNode* ret = NewQueryNode(QN_TAG);
   ret->tag.fieldName = rm_strdup(field);
   ret->tag.len = strlen(field);
-  ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
+  ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, strlen(field));
   return ret;
 }
 
-QueryNode* RediSearch_CreateIntersectNode(IndexSpec* sp, int exact) {
+QueryNode* RediSearch_CreateIntersectNode(RefManager* rm, int exact) {
   QueryNode* ret = NewQueryNode(QN_PHRASE);
   ret->pn.exact = exact;
   return ret;
 }
 
-QueryNode* RediSearch_CreateUnionNode(IndexSpec* sp) {
+QueryNode* RediSearch_CreateUnionNode(RefManager* rm) {
   return NewQueryNode(QN_UNION);
 }
 
-QueryNode* RediSearch_CreateEmptyNode(IndexSpec* sp) {
+QueryNode* RediSearch_CreateEmptyNode(RefManager* rm) {
   return NewQueryNode(QN_NULL);
 }
 
-QueryNode* RediSearch_CreateNotNode(IndexSpec* sp) {
+QueryNode* RediSearch_CreateNotNode(RefManager* rm) {
   return NewQueryNode(QN_NOT);
 }
 
@@ -562,6 +589,9 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
     it->qast.root = input->u.qn;
   }
 
+  // set queryAST configuration parameters
+  iteratorsConfig_init(&it->qast.config);
+
   if (QAST_Expand(&it->qast, NULL, &options, &sctx, &status) != REDISMODULE_OK) {
     goto end;
   }
@@ -596,23 +626,24 @@ end:
   return it;
 }
 
-int RediSearch_DocumentExists(IndexSpec* sp, const void* docKey, size_t len) {
+int RediSearch_DocumentExists(RefManager* rm, const void* docKey, size_t len) {
+  IndexSpec* sp = __RefManager_Get_Object(rm);
   return DocTable_GetId(&sp->docs, docKey, len) != 0;
 }
 
-RS_ApiIter* RediSearch_IterateQuery(IndexSpec* sp, const char* s, size_t n, char** error) {
+RS_ApiIter* RediSearch_IterateQuery(RefManager* rm, const char* s, size_t n, char** error) {
   QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {.qs = s, .n = n, .dialect = 1}}};
-  return handleIterCommon(sp, &input, error);
+  return handleIterCommon(__RefManager_Get_Object(rm), &input, error);
 }
 
-RS_ApiIter* RediSearch_IterateQueryWithDialect(IndexSpec* sp, const char* s, size_t n, unsigned int dialect, char** error) {
+RS_ApiIter* RediSearch_IterateQueryWithDialect(RefManager* rm, const char* s, size_t n, unsigned int dialect, char** error) {
   QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {.qs = s, .n = n, .dialect = dialect}}};
-  return handleIterCommon(sp, &input, error);
+  return handleIterCommon(__RefManager_Get_Object(rm), &input, error);
 }
 
-RS_ApiIter* RediSearch_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
+RS_ApiIter* RediSearch_GetResultsIterator(QueryNode* qn, RefManager* rm) {
   QueryInput input = {.qtype = QUERY_INPUT_NODE, .u = {.qn = qn}};
-  return handleIterCommon(sp, &input, NULL);
+  return handleIterCommon(__RefManager_Get_Object(rm), &input, NULL);
 }
 
 void RediSearch_QueryNodeFree(QueryNode* qn) {
@@ -624,12 +655,14 @@ int RediSearch_QueryNodeType(QueryNode* qn) {
 }
 
 // use only by LLAPI + unittest
-const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, IndexSpec* sp, size_t* len) {
+const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, RefManager* rm, size_t* len) {
+  IndexSpec *sp = __RefManager_Get_Object(rm);
   while (iter->internal->Read(iter->internal->ctx, &iter->res) != INDEXREAD_EOF) {
-    const RSDocumentMetadata* md = DocTable_Get(&sp->docs, iter->res->docId);
-    if (md == NULL || ((md)->flags & Document_Deleted)) {
+    const RSDocumentMetadata* md = DocTable_Borrow(&sp->docs, iter->res->docId);
+    if (md == NULL) {
       continue;
     }
+    DMD_Return(iter->lastmd);
     iter->lastmd = md;
     if (len) {
       *len = sdslen(md->keyPtr);
@@ -653,7 +686,10 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
     iter->scorerFree(iter->scargs.extdata);
   }
   QAST_Destroy(&iter->qast);
-  dictResumeRehashing(iter->sp->keysDict);
+  DMD_Return(iter->lastmd);
+  if (iter->sp && iter->sp->keysDict) {
+    dictResumeRehashing(iter->sp->keysDict);
+  }
   rm_free(iter);
   RWLOCK_RELEASE();
 }
@@ -746,14 +782,15 @@ int RediSearch_ExportCapi(RedisModuleCtx* ctx) {
 
 void RediSearch_SetCriteriaTesterThreshold(size_t num) {
   if (num == 0) {
-    RSGlobalConfig.maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE;
+    RSGlobalConfig.iteratorsConfigParams.maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE;
   } else {
-    RSGlobalConfig.maxResultsToUnsortedMode = num;
+    RSGlobalConfig.iteratorsConfigParams.maxResultsToUnsortedMode = num;
   }
 }
 
 int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len) {
-  return StopWordList_Contains(idx->stopwords, term, len);
+  IndexSpec *sp = __RefManager_Get_Object(idx);
+  return StopWordList_Contains(sp->stopwords, term, len);
 }
 
 void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
@@ -774,6 +811,11 @@ void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
   if (specField->types & INDEXFLD_T_GEO) {
     infoField->types |= RSFLDTYPE_GEO;
   }
+  // TODO: GEMOMETRY
+  // if (specField->types & INDEXFLD_T_GEOMETRY) {
+  //   infoField->types |= RSFLDTYPE_GEOMETRY;
+  // }
+
 
   if (FieldSpec_IsSortable(specField)) {
     infoField->options |= RSFLDOPT_SORTABLE;
@@ -789,12 +831,13 @@ void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
   }
 }
 
-int RediSearch_IndexInfo(RSIndex* sp, RSIdxInfo *info) {
+int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   if (info->version < RS_INFO_INIT_VERSION || info->version > RS_INFO_CURRENT_VERSION) {
     return REDISEARCH_ERR;
   }
 
   RWLOCK_ACQUIRE_READ();
+  IndexSpec *sp = __RefManager_Get_Object(rm);
   /* We might have multiple readers that reads from the index,
    * Avoid rehashing the terms dictionary */
   dictPauseRehashing(sp->keysDict);
@@ -846,7 +889,8 @@ int RediSearch_IndexInfo(RSIndex* sp, RSIdxInfo *info) {
   return REDISEARCH_OK;
 }
 
-size_t RediSearch_MemUsage(RSIndex* sp) {
+size_t RediSearch_MemUsage(RSIndex* rm) {
+  IndexSpec *sp = __RefManager_Get_Object(rm);
   size_t res = 0;
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;

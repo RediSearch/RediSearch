@@ -1,7 +1,9 @@
 ---
-title: "Administration Guide"
-linkTitle: "Administration Guide"
-weight: 5
+title: "Administration"
+linkTitle: "Administration"
+weight: 9
 description: >
-    Administration of the RediSearch module
+    Administration of search and query
+aliases:
+    - /docs/stack/search/administration/
 ---

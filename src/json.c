@@ -35,7 +35,7 @@ void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
     char ver[128];
     // Obtain the newest version of JSON API
-    for (int i = 3; i >= 1; --i) {
+    for (int i = RedisJSONAPI_LATEST_API_VER; i >= 1; --i) {
       sprintf(ver, "RedisJSON_V%d", i);
       japi = RedisModule_GetSharedAPI(ctx, ver);
       if (japi) {
@@ -95,8 +95,9 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
   int rv = REDISMODULE_ERR;
   switch (type) {
   // TEXT, TAG and GEO fields are represented as string
+  // GEOMETRY field can be represented as WKT string
   case JSONType_String:
-    if (fieldType == INDEXFLD_T_FULLTEXT || fieldType == INDEXFLD_T_TAG || fieldType == INDEXFLD_T_GEO) {
+    if (fieldType & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG | INDEXFLD_T_GEO | INDEXFLD_T_GEOMETRY)) {
       rv = REDISMODULE_OK;
     }
     break;
@@ -117,12 +118,18 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
     rv = REDISMODULE_OK;
     break;
   case JSONType_Array:
-    if (fieldType == INDEXFLD_T_FULLTEXT  || fieldType == INDEXFLD_T_VECTOR || fieldType == INDEXFLD_T_NUMERIC || fieldType == INDEXFLD_T_TAG || fieldType == INDEXFLD_T_GEO) {
+    if (!(fieldType & INDEXFLD_T_GEOMETRY)) { // TODO: GEOMETRY Handle multi-value geometry
       rv = REDISMODULE_OK;
     }
     break;
-  // An object or null type are not supported
   case JSONType_Object:
+    if (fieldType == INDEXFLD_T_GEOMETRY) {
+      // TODO: GEOMETRY
+      // GEOMETRY field can be represented as GEOJSON "geoshape" object
+      rv = REDISMODULE_OK;
+    }
+    break;
+  // null type is not supported
   case JSONType__EOF:
     break;
   }
@@ -199,14 +206,19 @@ int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct Docume
   size_t dim;
   getJSONElementFunc getElement;
 
-  switch (fs->vectorOpts.vecSimParams.algo) {
+  VecSimParams *params = &fs->vectorOpts.vecSimParams;
+  if (params->algo == VecSimAlgo_TIERED) {
+    params = params->algoParams.tieredParams.primaryIndexParams;
+  }
+
+  switch (params->algo) {
     case VecSimAlgo_HNSWLIB:
-      type = fs->vectorOpts.vecSimParams.hnswParams.type;
-      dim = fs->vectorOpts.vecSimParams.hnswParams.dim;
+      type = params->algoParams.hnswParams.type;
+      dim = params->algoParams.hnswParams.dim;
       break;
     case VecSimAlgo_BF:
-      type = fs->vectorOpts.vecSimParams.bfParams.type;
-      dim = fs->vectorOpts.vecSimParams.bfParams.dim;
+      type = params->algoParams.bfParams.type;
+      dim = params->algoParams.bfParams.dim;
       break;
     default: return REDISMODULE_ERR;
   }
@@ -239,16 +251,21 @@ int JSON_StoreMultiVectorInDocField(FieldSpec *fs, JSONIterable *itr, size_t len
   getJSONElementFunc getElement;
   RedisJSON element;
 
-  switch (fs->vectorOpts.vecSimParams.algo) {
+  VecSimParams *params = &fs->vectorOpts.vecSimParams;
+  if (params->algo == VecSimAlgo_TIERED) {
+    params = params->algoParams.tieredParams.primaryIndexParams;
+  }
+
+switch (params->algo) {
     case VecSimAlgo_HNSWLIB:
-      type = fs->vectorOpts.vecSimParams.hnswParams.type;
-      dim = fs->vectorOpts.vecSimParams.hnswParams.dim;
-      multi = fs->vectorOpts.vecSimParams.hnswParams.multi;
+      type = params->algoParams.hnswParams.type;
+      dim = params->algoParams.hnswParams.dim;
+      multi = params->algoParams.hnswParams.multi;
       break;
     case VecSimAlgo_BF:
-      type = fs->vectorOpts.vecSimParams.bfParams.type;
-      dim = fs->vectorOpts.vecSimParams.bfParams.dim;
-      multi = fs->vectorOpts.vecSimParams.bfParams.multi;
+      type = params->algoParams.bfParams.type;
+      dim = params->algoParams.bfParams.dim;
+      multi = params->algoParams.bfParams.multi;
       break;
     default: goto fail;
   }
@@ -474,6 +491,9 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
           break;
         case INDEXFLD_T_NUMERIC:
           rv = JSON_StoreNumericInDocFieldFromArr(json, df);
+          break;
+        case INDEXFLD_T_GEOMETRY:
+          rv = REDISMODULE_ERR; // TODO: GEOMETRY = JSON_StoreGeometryInDocFieldFromArr(json, df);
           break;
         default:
           rv = REDISMODULE_ERR;

@@ -546,7 +546,7 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
   A = NewQueryParam(QP_NUMERIC_FILTER);
-  A->nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive);
+  A->nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive, true);
 }
 
 /////////////////////////////////////////////////////////////////

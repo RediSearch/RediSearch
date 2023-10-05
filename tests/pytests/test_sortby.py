@@ -43,11 +43,11 @@ def check_sortby(env, query, params, msg=None):
         for i in range(len(res_list) - 1):
             if not check_order(env, res_list[i], res_list[i+1], sort_order[sort] == sort_order[0]):
                 print_err = True
-    
+
         if print_err:
             if (len(res)) < 100:
-                env.debugPrint(str(res), force=True)
-                env.debugPrint(str(res_list), force=True)
+                env.debugPrint(str(res), force=TEST_DEBUG)
+                env.debugPrint(str(res_list), force=TEST_DEBUG)
                 input('stop')
 
         env.assertFalse(print_err, message=err_msg)
@@ -57,14 +57,14 @@ def check_sortby(env, query, params, msg=None):
 def compare_asc_desc(env, query, params, msg=None):
     asc_res = env.cmd(*query, 'ASC', *params)[1:]
     desc_res = env.cmd(*query, 'DESC', *params)[1:]
-    #env.debugPrint(str(asc_res), force=True)
-    #env.debugPrint(str(desc_res), force=True)
+    #env.debugPrint(str(asc_res), force=TEST_DEBUG)
+    #env.debugPrint(str(desc_res), force=TEST_DEBUG)
 
     desc_res.reverse()
     cmp_res = []
     for i, j in zip(desc_res[0::2], desc_res[1::2]):
-        cmp_res.extend([j, i]) 
-    #env.debugPrint(str(cmp_res), force=True)
+        cmp_res.extend([j, i])
+    #env.debugPrint(str(cmp_res), force=TEST_DEBUG)
 
     failed = False
     for i in range(1,len(asc_res),2):
@@ -74,7 +74,10 @@ def compare_asc_desc(env, query, params, msg=None):
 
 
 def testSortby(env):
-    repeat = 10000
+    if SANITIZER:
+        repeat = 1000  # TODO: get back to 10000
+    else:
+        repeat = 10000
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT', 'tag', 'TAG')
     env.cmd('FT.CREATE', 'idx_sortable', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 't', 'TEXT', 'tag', 'TAG')
@@ -103,7 +106,7 @@ def testSortby(env):
             params[2] = limits[i][1]
             for j in range(len(ranges)):
                 numRange = str('@n:[%s %s]' % (ranges[j][0],ranges[j][1]))
-                
+
                 ### (1) TEXT and range with sort ###
                 check_sortby(env, ['ft.search', 'idx', 'foo ' + numRange, 'SORTBY', 'n'], params, 'case 1 ' + numRange)
 
@@ -133,7 +136,7 @@ def testSortby(env):
         for i in range(len(limits)):
             params[1] = limits[i][0]
             params[2] = limits[i][1]
-            
+
             for j in range(len(ranges)):
                 numRange = '@n:[%s %s]' % (ranges[j][0],ranges[j][1])
 
@@ -167,4 +170,4 @@ def testSortby(env):
     params[2] = 10015
     compare_asc_desc(env, ['ft.search', 'idx', 'foo @n:[-inf inf]', 'SORTBY', 'n'], params)
     compare_asc_desc(env, ['ft.search', 'idx', '@n:[-inf inf]', 'SORTBY', 'n'], params)
-    
+

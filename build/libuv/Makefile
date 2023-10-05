@@ -1,42 +1,55 @@
 
 ROOT=../..
-MK.pyver:=3
+
+MK.cmake=1
+
 include $(ROOT)/deps/readies/mk/main
 
-MK.configure=1
+#----------------------------------------------------------------------------------------------
 
 define HELPTEXT
-make build    # configure and compile
-make clean    # clean generated sbinaries
-  ALL=1       # remote entire binary directory
-make source   # fetch sources and generate configure script
+make build          # compile and link
+  DEBUG=1             # build for debugging
+  WHY=1               # explain CMake decisions (in /tmp/cmake-why)
+  FORCE=1             # Force CMake rerun (default)
+  CMAKE_ARGS=...      # extra arguments to CMake
+  SLOW=1              # do not parallelize build (for diagnostics)
+make clean         # remove build artifacts
+  ALL=1              # remove entire artifacts directory
+
 endef
 
 #----------------------------------------------------------------------------------------------
 
-BINDIR=$(BINROOT)/libuv
 SRCDIR=$(ROOT)/deps/libuv
 
-TARGET=$(BINDIR)/.libs/libevent.a
+BINDIR=$(BINROOT)/libuv
 
-# export CFLAGS += -fPIC
+TARGET=$(BINDIR)/libuv_a.a
 
 #----------------------------------------------------------------------------------------------
 
 include $(MK)/defs
-include $(MK)/rules
 
-CONFIGURE_FLAGS += \
-	--with-pic \
-	--disable-shared \
-	--enable-static \
-	--disable-silent-rules
+define CMAKE_DEFS +=
+	DISABLE_TESTS=on
+	ENABLE_SSL=on
+	CMAKE_POSITION_INDEPENDENT_CODE=on
+endef
 
 #----------------------------------------------------------------------------------------------
 
-source: $(SRCDIR)/configure
+MK_CUSTOM_CLEAN=1
 
-.PHONY: source
+include $(MK)/rules
 
-$(SRCDIR)/configure:
-	$(SHOW)cd $(SRCDIR); ./autogen.sh
+#----------------------------------------------------------------------------------------------
+
+clean:
+ifeq ($(ALL),1)
+	$(SHOW)rm -rf $(BINDIR)
+else
+	$(SHOW)$(MAKE) -C $(BINDIR) clean
+endif
+
+.PHONY: clean

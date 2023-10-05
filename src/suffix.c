@@ -460,7 +460,7 @@ arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t l
 /* This function iterates the suffix trie, find matches to a `token` and returns an
  * array with terms matching the pattern.
  * The 'token' address is 'pattern + tokenidx' with length of tokenlen. */
-static arrayof(char*) _getWildcardArray(TrieMapIterator *it, const char *pattern, uint32_t plen) {
+static arrayof(char*) _getWildcardArray(TrieMapIterator *it, const char *pattern, uint32_t plen, long long maxPrefixExpansions) {
   char *s;
   tm_len_t sl;
   suffixData *nodeData;;
@@ -468,7 +468,7 @@ static arrayof(char*) _getWildcardArray(TrieMapIterator *it, const char *pattern
 
   while (TrieMapIterator_NextWildcard(it, &s, &sl, (void **)&nodeData)) {
     for (int i = 0; i < array_len(nodeData->array); ++i) {
-      if (array_len(resArray) > RSGlobalConfig.maxPrefixExpansions) {
+      if (array_len(resArray) > maxPrefixExpansions) {
         goto end;
       }
       if (Wildcard_MatchChar(pattern, plen, nodeData->array[i], strlen(nodeData->array[i])) == FULL_MATCH) {
@@ -484,7 +484,7 @@ end:
 }
 
 arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
-                                              struct timespec timeout) {
+                                              struct timespec timeout, long long maxPrefixExpansions) {
   size_t idx[len];
   size_t lens[len];
   // find best token
@@ -503,7 +503,7 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern
   TrieMapIterator_SetTimeout(it, timeout);
   it->mode = prefix ? TM_WILDCARD_MODE : TM_WILDCARD_FIXED_LEN_MODE;
 
-  arrayof(char*) arr = _getWildcardArray(it, pattern, len);
+  arrayof(char*) arr = _getWildcardArray(it, pattern, len, maxPrefixExpansions);
 
   // token does not have hits
   if (array_len(arr) == 0) {

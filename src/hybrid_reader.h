@@ -10,7 +10,7 @@
 #include "vector_index.h"
 #include "redisearch.h"
 #include "spec.h"
-#include "util/heap.h"
+#include "util/minmax_heap.h"
 #include "util/timeout.h"
 
 typedef struct {
@@ -38,13 +38,12 @@ typedef struct {
   VecSimSearchMode searchMode;
   bool resultsPrepared;            // Indicates if the results were already processed
                                    // (should occur in the first call to Read)
-  VecSimQueryResult_List list;
-  VecSimQueryResult_Iterator *iter;
+  VecSimQueryReply *reply;
+  VecSimQueryReply_Iterator *iter;
   t_docId lastDocId;
   RSIndexResult **returnedResults; // Save the pointers to be freed in clean-up.
   char *scoreField;                // To use by the sorter, for distinguishing between different vector fields.
-  heap_t *topResults;              // Sorted by score (max heap).
-  //heap_t *orderedResults;        // Sorted by id (min heap) - for future use.
+  mm_heap_t *topResults;           // Sorted by score (min-max heap).
   size_t numIterations;
   bool ignoreScores;               // Ignore the document scores, only vector score matters.
   TimeoutCtx timeoutCtx;           // Timeout parameters
@@ -54,7 +53,7 @@ typedef struct {
 extern "C" {
 #endif
 
-IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams);
+IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status);
 
 #ifdef __cplusplus
 }

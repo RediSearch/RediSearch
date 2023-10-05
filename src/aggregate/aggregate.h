@@ -6,12 +6,15 @@
 
 #ifndef RS_AGGREGATE_H__
 #define RS_AGGREGATE_H__
+
 #include "value.h"
 #include "query.h"
 #include "reducer.h"
 #include "result_processor.h"
 #include "expr/expression.h"
 #include "aggregate_plan.h"
+#include "reply.h"
+
 #include "rmutil/rm_assert.h"
 #include "rmutil/cxx/chrono-clock.h"
 
@@ -22,6 +25,7 @@ extern "C" {
 #define DEFAULT_LIMIT 10
 
 typedef struct Grouper Grouper;
+struct QOptimizer;
 
 typedef enum {
   QEXEC_F_IS_EXTENDED = 0x01,     // Contains aggregations or projections
@@ -32,8 +36,18 @@ typedef enum {
   QEXEC_F_IS_CURSOR = 0x20,       // Is a cursor-type query
   QEXEC_F_REQUIRED_FIELDS = 0x40, // Send multiple required fields
 
-  /** Don't use concurrent execution */
-  QEXEC_F_SAFEMODE = 0x100,
+  /**
+   * Do not create the root result processor. Only process those components
+   * which process fully-formed, fully-scored results. This also means
+   * that a scorer is not created. It will also not initialize the
+   * first step or the initial lookup table
+   */
+  QEXEC_F_BUILDPIPELINE_NO_ROOT = 0x80,
+
+  /**
+   * Add the ability to run the query in a multi threaded environment
+   */
+  QEXEC_F_RUN_IN_BACKGROUND = 0x100,
 
   /* The inverse of IS_EXTENDED. The two cannot coexist together */
   QEXEC_F_IS_SEARCH = 0x200,
@@ -60,18 +74,37 @@ typedef enum {
   /* FT.AGGREGATE load all fields */
   QEXEC_AGG_LOAD_ALL = 0x20000,
 
+  /* Optimize query */
+  QEXEC_OPTIMIZE = 0x40000,
+
+  // Compound values are expanded (RESP3 w/JSON)
+  QEXEC_FORMAT_EXPAND = 0x80000,
+
+  // Compound values are returned serialized (RESP2 or HASH) or expanded (RESP3 w/JSON)
+  QEXEC_FORMAT_DEFAULT = 0x100000,
+
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
+#define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
+#define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
+#define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
+#define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
+
+#ifdef MT_BUILD
+// Indicates whether a query should run in the background. This
+// will also guarantee that there is a running thread pool with al least 1 thread.
+#define RunInThread() (RSGlobalConfig.mt_mode == MT_MODE_FULL)
+#endif
 
 typedef enum {
   /* Received EOF from iterator */
   QEXEC_S_ITERDONE = 0x02,
 } QEStateFlags;
 
-typedef struct {
+typedef struct AREQ {
   /* plan containing the logical sequence of steps */
   AGGPlan ap;
 
@@ -109,16 +142,26 @@ typedef struct {
   /** Flags indicating current execution state */
   uint32_t stateflags;
 
-  /** Query timeout in milliseconds */
-  int32_t reqTimeout;
   struct timespec timeoutTime;
+
+  int protocol; // RESP2/3
+
+  /*
+  // Dialect version used on this request
+  unsigned int dialectVersion;
+  // Query timeout in milliseconds
+  long long reqTimeout;
+  RSTimeoutPolicy timeoutPolicy;
+  // reply with time on profile
+  int printProfileClock;
+  */
+
+  RequestConfig reqConfig;
 
   /** Cursor settings */
   unsigned cursorMaxIdle;
   unsigned cursorChunkSize;
 
-  /** Dialect version used on this request **/
-  unsigned int dialectVersion;
 
   /** Profile variables */
   hires_clock_t initClock;  // Time of start. Reset for each cursor call
@@ -127,6 +170,14 @@ typedef struct {
   double pipelineBuildTime;  // Time for creating the pipeline
 
   const char** requiredFields;
+
+  struct QOptimizer *optimizer;        // Hold parameters for query optimizer
+
+  // Currently we need both because maxSearchResults limits the OFFSET also in
+  // FT.AGGREGATE execution.
+  size_t maxSearchResults;
+  size_t maxAggregateResults;
+
 } AREQ;
 
 /**
@@ -177,17 +228,10 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
 /**
- * Do not create the root result processor. Only process those components
- * which process fully-formed, fully-scored results. This also means
- * that a scorer is not created. It will also not initialize the
- * first step or the initial lookup table
- */
-#define AREQ_BUILDPIPELINE_NO_ROOT 0x01
-/**
  * Constructs the pipeline objects needed to actually start processing
  * the requests. This does not yet start iterating over the objects
  */
-int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status);
+int AREQ_BuildPipeline(AREQ *req, QueryError *status);
 
 /******************************************************************************
  ******************************************************************************
@@ -244,34 +288,42 @@ ResultProcessor *Grouper_GetRP(Grouper *gr);
 void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
-void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit);
+int prepareExecutionPlan(AREQ *req, QueryError *status);
+void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
 void AREQ_Free(AREQ *req);
 
 /**
  * Start the cursor on the current request
  * @param r the request
- * @param outctx the context used for replies (only used in current command)
- * @param lookupName the name of the index used for the cursor reservation
+ * @param reply the context used for replies (only used in current command)
+ * @param spec_ref a strong reference to the spec. The cursor saves a weak reference to the spec
+ * to be promoted when cursor read is called.
  * @param status if this function errors, this contains the message
+ * @param coord if true, this is a coordinator cursor
  * @return REDISMODULE_OK or REDISMODULE_ERR
  *
  * If this function returns REDISMODULE_OK then the cursor might have been
  * freed. If it returns REDISMODULE_ERR, then the cursor is still valid
  * and must be freed manually.
  */
-int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, QueryError *status);
+int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *status, bool coord);
 
 int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /**
  * @brief Parse a dialect version from var args
- * 
+ *
  * @param dialect pointer to unsigned int to store the parsed value
  * @param ac ArgsCruser set to point on the dialect version position in the var args list
  * @param status QueryError struct to contain error messages
  * @return int REDISMODULE_OK in case of successful parsing, REDISMODULE_ERR otherwise
  */
 int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status);
+
+
+int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status);
+int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status);
+void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 
 #define AREQ_RP(req) (req)->qiter.endProc
 

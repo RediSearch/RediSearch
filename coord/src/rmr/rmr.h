@@ -44,13 +44,18 @@ MRClusterTopology *MR_GetCurrentTopology();
 MRClusterNode *MR_GetMyNode();
 
 /* Get the user stored private data from the context */
-void *MRCtx_GetPrivdata(struct MRCtx *ctx);
+void *MRCtx_GetPrivData(struct MRCtx *ctx);
 
 /* The request duration in microsecnds, relevant only on the reducer */
 int64_t MR_RequestDuration(struct MRCtx *ctx);
 
 struct RedisModuleCtx *MRCtx_GetRedisCtx(struct MRCtx *ctx);
+int MRCtx_GetNumReplied(struct MRCtx *ctx);
+MRReply** MRCtx_GetReplies(struct MRCtx *ctx);
 void MRCtx_SetRedisCtx(struct MRCtx *ctx, void* rctx);
+RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx);
+int MRCtx_GetProtocol(struct MRCtx *ctx);
+void MRCtx_SetProtocol(struct MRCtx *ctx, int protocol);
 MRCommand *MRCtx_GetCmds(struct MRCtx *ctx);
 int MRCtx_GetCmdsSize(struct MRCtx *ctx);
 void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
@@ -62,7 +67,7 @@ void MRCtx_Free(struct MRCtx *ctx);
 
 /* Create a new MapReduce context with a given private data. In a redis module
  * this should be the RedisModuleCtx */
-struct MRCtx *MR_CreateCtx(struct RedisModuleCtx *ctx, void *privdata);
+struct MRCtx *MR_CreateCtx(struct RedisModuleCtx *ctx, struct RedisModuleBlockedClient *bc, void *privdata);
 
 extern void *MRITERATOR_DONE;
 

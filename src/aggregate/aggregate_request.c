@@ -17,6 +17,8 @@
 #include "profile.h"
 #include "config.h"
 #include "util/timeout.h"
+#include "query_optimizer.h"
+#include "resp3.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -85,10 +87,6 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, con
 }
 
 static void FieldList_RestrictReturn(FieldList *fields) {
-  if (!fields->explicitReturn) {
-    return;
-  }
-
   size_t oix = 0;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     if (fields->fields[ii].explicitReturn == 0) {
@@ -171,12 +169,65 @@ int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
     return REDISMODULE_OK;
 }
 
+// Parse the available formats for search result values: FORMAT STRING|EXPAND
+int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
+  const char *format;
+  int rv = AC_GetString(ac, &format, NULL, 0);
+  if (rv != AC_OK) {
+    QueryError_SetError(status, QUERY_EBADVAL, "Need an argument for FORMAT");
+    return REDISMODULE_ERR;
+  }
+  if (!strcasecmp(format, "EXPAND")) {
+    *flags |= QEXEC_FORMAT_EXPAND;
+  } else if (!strcasecmp(format, "STRING")) {
+    *flags &= ~QEXEC_FORMAT_EXPAND;
+  } else {
+    QERR_MKBADARGS_FMT(status, "FORMAT %s is not supported", format);
+    return REDISMODULE_ERR;
+  }
+  *flags &= ~QEXEC_FORMAT_DEFAULT;
+  return REDISMODULE_OK;
+}
+
+int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status) {
+  if (*flags & QEXEC_FORMAT_DEFAULT) {
+    *flags &= ~QEXEC_FORMAT_EXPAND;
+    *flags &= ~QEXEC_FORMAT_DEFAULT;
+  }
+
+  if (*flags & QEXEC_FORMAT_EXPAND) {
+    if (!is_resp3) {
+      QueryError_SetError(status, QUERY_EBADVAL, "EXPAND format is only supported with RESP3");
+      return REDISMODULE_ERR;
+    }
+    if (!is_json) {
+      QueryError_SetErrorFmt(status, QUERY_EBADVAL, "EXPAND format is only supported with JSON");
+      return REDISMODULE_ERR;
+    }
+    if (japi_ver < 4) {
+      QueryError_SetError(status, QUERY_EBADVAL, "EXPAND format requires a newer RedisJSON (with API version RedisJSON_V4)");
+      return REDISMODULE_ERR;
+    }
+  }
+  return REDISMODULE_OK;
+}
+
+void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req) {
+  if (req->reqflags & QEXEC_FORMAT_EXPAND) {
+    sctx->expanded = 1;
+    sctx->apiVersion = MAX(APIVERSION_RETURN_MULTI_CMP_FIRST, req->reqConfig.dialectVersion);
+  } else {
+    sctx->apiVersion = req->reqConfig.dialectVersion;
+  }
+}
+
 #define ARG_HANDLED 1
 #define ARG_ERROR -1
 #define ARG_UNKNOWN 0
 
 static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int allowLegacy) {
   int rv;
+  bool dialect_specified = false;
   // This handles the common arguments that are not stateful
   if (AC_AdvanceIfMatch(ac, "LIMIT")) {
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(&req->ap);
@@ -196,19 +247,21 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       // LIMIT 0 0 - only count
       req->reqflags |= QEXEC_F_NOROWS;
       req->reqflags |= QEXEC_F_SEND_NOFIELDS;
-    } else if ((arng->limit > RSGlobalConfig.maxSearchResults) &&
+      // TODO: unify if when req holds only maxResults according to the query type.
+      //(SEARCH / AGGREGATE)
+    } else if ((arng->limit > req->maxSearchResults) &&
                (req->reqflags & QEXEC_F_IS_SEARCH)) {
       QueryError_SetErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
-                             RSGlobalConfig.maxSearchResults);
+                             req->maxSearchResults);
       return ARG_ERROR;
-    } else if ((arng->limit > RSGlobalConfig.maxAggregateResults) &&
+    } else if ((arng->limit > req->maxAggregateResults) &&
                !(req->reqflags & QEXEC_F_IS_SEARCH)) {
       QueryError_SetErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
-                             RSGlobalConfig.maxAggregateResults);
+                             req->maxAggregateResults);
       return ARG_ERROR;
-    } else if (arng->offset > RSGlobalConfig.maxSearchResults) {
+    } else if (arng->offset > req->maxSearchResults) {
       QueryError_SetErrorFmt(status, QUERY_ELIMIT, "OFFSET exceeds maximum of %llu",
-                             RSGlobalConfig.maxSearchResults);
+                             req->maxSearchResults);
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
@@ -225,7 +278,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");
       return ARG_ERROR;
     }
-    if (AC_GetInt(ac, &req->reqTimeout, AC_F_GE0) != AC_OK) {
+    if (AC_GetUnsignedLongLong(ac, &req->reqConfig.queryTimeoutMS, AC_F_GE0) != AC_OK) {
       QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a non negative integer");
       return ARG_ERROR;
     }
@@ -250,13 +303,22 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
     req->reqflags |= QEXEC_F_REQUIRED_FIELDS;
-  }
-    else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
-    if (parseDialect(&req->dialectVersion, ac, status) != REDISMODULE_OK) {
+  } else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
+    dialect_specified = true;
+    if (parseDialect(&req->reqConfig.dialectVersion, ac, status) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
+  } else if(AC_AdvanceIfMatch(ac, "FORMAT")) {
+    if (parseValueFormat(&req->reqflags, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else {
     return ARG_UNKNOWN;
+  }
+
+  if (dialect_specified && req->reqConfig.dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST && req->reqflags & QEXEC_FORMAT_EXPAND) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "EXPAND format requires dialect %u or greater", APIVERSION_RETURN_MULTI_CMP_FIRST);
+    return ARG_ERROR;
   }
 
   return ARG_HANDLED;
@@ -419,6 +481,8 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
        .len = &req->ast.udatalen},
       {NULL}};
 
+  req->reqflags |= QEXEC_FORMAT_DEFAULT;
+  bool optimization_specified = false;
   while (!AC_IsAtEnd(ac)) {
     ACArgSpec *errSpec = NULL;
     int rv = AC_ParseArgSpec(ac, querySpecs, &errSpec);
@@ -460,6 +524,12 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       if (rv == ARG_ERROR) {
         return REDISMODULE_ERR;
       }
+    } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
+      req->reqflags &= ~QEXEC_OPTIMIZE;
+      optimization_specified = true;
+    } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
+      req->reqflags |= QEXEC_OPTIMIZE;
+      optimization_specified = true;
     } else {
       int rv = handleCommonArgs(req, ac, status, 1);
       if (rv == ARG_HANDLED) {
@@ -470,6 +540,11 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         break;
       }
     }
+  }
+
+  if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
+    // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4
+    req->reqflags |= QEXEC_OPTIMIZE;
   }
 
   if ((req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) && !(req->reqflags & QEXEC_F_SEND_SCORES)) {
@@ -510,9 +585,8 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       ReturnedField *f = FieldList_GetCreateField(&req->outFields, name, path);
       f->explicitReturn = 1;
     }
+    FieldList_RestrictReturn(&req->outFields);
   }
-
-  FieldList_RestrictReturn(&req->outFields);
   return REDISMODULE_OK;
 }
 
@@ -565,6 +639,22 @@ static RLookup *groupStepGetLookup(PLN_BaseStep *bstp) {
   return &((PLN_GroupStep *)bstp)->lookup;
 }
 
+
+PLN_Reducer *PLNGroupStep_FindReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac) {
+  long long nvars;
+  if (AC_GetLongLong(ac, &nvars, 0) != AC_OK) {
+    return NULL;
+  }
+  size_t nreducers = array_len(gstp->reducers);
+  for (size_t ii = 0; ii < nreducers; ++ii) {
+    PLN_Reducer *gr = gstp->reducers + ii;
+    if (nvars == AC_NumArgs(&gr->args) && !strcasecmp(gr->name, name) && AC_Equals(ac, &gr->args)) {
+      return gr;
+    }
+  }
+  return NULL;
+}
+
 int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac,
                             QueryError *status) {
   // Just a list of functions..
@@ -591,6 +681,7 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
   } else {
     gr->alias = rm_strdup(alias);
   }
+  gr->isHidden = 0; // By default, reducers are not hidden
   return REDISMODULE_OK;
 
 error:
@@ -620,6 +711,14 @@ static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
   if (rv != AC_OK) {
     QERR_MKBADARGS_AC(status, "GROUPBY", rv);
     return REDISMODULE_ERR;
+  }
+
+  for (size_t ii = 0; ii < groupArgs.argc; ++ii) {
+    if (*(char*)groupArgs.objs[ii] != '@') {
+      QERR_MKBADARGS_FMT(status, "Bad arguments for GROUPBY: Unknown property `%s`. Did you mean `@%s`?",
+                         groupArgs.objs[ii], groupArgs.objs[ii]);
+      return REDISMODULE_ERR;
+    }
   }
 
   // Number of fields.. now let's see the reducers
@@ -665,7 +764,8 @@ PLN_MapFilterStep *PLNMapFilterStep_New(const char *expr, int mode) {
 static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, int isApply) {
   // Parse filters!
   const char *expr = NULL;
-  int rv = AC_GetString(ac, &expr, NULL, 0);
+  size_t exprLen;
+  int rv = AC_GetString(ac, &expr, &exprLen, 0);
   if (rv != AC_OK) {
     QERR_MKBADARGS_AC(status, "APPLY/FILTER", rv);
     return REDISMODULE_ERR;
@@ -677,13 +777,14 @@ static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, in
   if (isApply) {
     if (AC_AdvanceIfMatch(ac, "AS")) {
       const char *alias;
-      if (AC_GetString(ac, &alias, NULL, 0) != AC_OK) {
+      size_t aliasLen;
+      if (AC_GetString(ac, &alias, &aliasLen, 0) != AC_OK) {
         QERR_MKBADARGS_FMT(status, "AS needs argument");
         goto error;
       }
-      stp->base.alias = rm_strdup(alias);
+      stp->base.alias = rm_strndup(alias, aliasLen);
     } else {
-      stp->base.alias = rm_strdup(expr);
+      stp->base.alias = rm_strndup(expr, exprLen);
     }
   }
   return REDISMODULE_OK;
@@ -733,14 +834,26 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
 
 AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
-  req->dialectVersion = RSGlobalConfig.defaultDialectVersion;
-  req->reqTimeout = RSGlobalConfig.queryTimeoutMS;
+  /*
+  unsigned int dialectVersion;
+  long long queryTimeoutMS;
+  RSTimeoutPolicy timeoutPolicy;
+  int printProfileClock;
+  */
+  req->reqConfig = RSGlobalConfig.requestConfigParams;
+
+  // TODO: save only one of the configuration paramters according to the query type
+  // once query offset is bounded by both.
+  req->maxSearchResults = RSGlobalConfig.maxSearchResults;
+  req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
+  req->optimizer = QOptimizer_New();
   return req;
 }
 
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
   req->args = rm_malloc(sizeof(*req->args) * argc);
   req->nargs = argc;
+  // Copy the arguments into an owned array of sds strings
   for (size_t ii = 0; ii < argc; ++ii) {
     size_t n;
     const char *s = RedisModule_StringPtrLen(argv[ii], &n);
@@ -802,9 +915,6 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     }
   }
 
-  // Set timeout for the query
-  updateTimeout(&req->timeoutTime, req->reqTimeout);
-
   return REDISMODULE_OK;
 
 error:
@@ -843,8 +953,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
-  sctx->timeout = req->timeoutTime;
-  sctx->apiVersion = req->dialectVersion;
   req->sctx = sctx;
 
   if ((index->flags & Index_StoreByteOffsets) == 0 && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
@@ -873,14 +981,21 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     QueryError_SetErrorFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
     return REDISMODULE_ERR;
   }
+
+  bool resp3 = req->protocol == 3;
+  if (SetValueFormat(resp3, isSpecJson(index), &req->reqflags, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+
   if (!(opts->flags & Search_NoStopwrods)) {
     opts->stopwords = sctx->spec->stopwords;
     StopWordList_Ref(sctx->spec->stopwords);
   }
 
+  SetSearchCtx(sctx, req);
   QueryAST *ast = &req->ast;
 
-  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), req->dialectVersion, status);
+  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), req->reqConfig.dialectVersion, status);
   if (rv != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
@@ -898,31 +1013,50 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     }
   }
 
-  ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
-  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
 
-  TimedOut_WithStatus(&req->timeoutTime, status);
+  // set queryAST configuration parameters
+  iteratorsConfig_init(&ast->config);
 
-  if (QueryError_HasError(status))
+
+  if (IsOptimized(req)) {
+    // parse inputs for optimizations
+    QOptimizer_Parse(req);
+    // check possible optimization after creation of QueryNode tree
+    QOptimizer_QueryNodes(req->ast.root, req->optimizer);
+  }
+
+  if (QueryError_HasError(status)) {
     return REDISMODULE_ERR;
-  if (IsProfile(req)) {
-    // Add a Profile iterators before every iterator in the tree
-    Profile_AddIters(&req->rootiter);
   }
 
   return REDISMODULE_OK;
 }
 
-static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, QueryError *err) {
+static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
+                                     const RLookupKey ***loadKeys, QueryError *err) {
   const RLookupKey *srckeys[gstp->nproperties], *dstkeys[gstp->nproperties];
   for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
     const char *fldname = gstp->properties[ii] + 1;  // account for the @-
-    srckeys[ii] = RLookup_GetKey(srclookup, fldname, RLOOKUP_F_NOINCREF);
+    size_t fldname_len = strlen(fldname);
+    srckeys[ii] = RLookup_GetKeyEx(srclookup, fldname, fldname_len, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
     if (!srckeys[ii]) {
-      QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "No such property `%s`", fldname);
+      if (loadKeys) {
+        // We faild to get the key for reading, so we know getting it for loading will succeed.
+        srckeys[ii] = RLookup_GetKey_LoadEx(srclookup, fldname, fldname_len, fldname, RLOOKUP_F_NOFLAGS);
+        *loadKeys = array_ensure_append_1(*loadKeys, srckeys[ii]);
+      }
+      // We currently allow implicit loading only for known fields from the schema.
+      // If we can't load keys, or the key we loaded is not in the schema, we fail.
+      if (!loadKeys || !(srckeys[ii]->flags & RLOOKUP_F_SCHEMASRC)) {
+        QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "No such property `%s`", fldname);
+        return NULL;
+      }
+    }
+    dstkeys[ii] = RLookup_GetKeyEx(&gstp->lookup, fldname, fldname_len, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+    if (!dstkeys[ii]) {
+      QueryError_SetErrorFmt(err, QUERY_EDUPFIELD, "Property `%s` specified more than once", fldname);
       return NULL;
     }
-    dstkeys[ii] = RLookup_GetKey(&gstp->lookup, fldname, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
   }
 
   Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties);
@@ -931,7 +1065,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
   for (size_t ii = 0; ii < nreducers; ++ii) {
     // Build the actual reducer
     PLN_Reducer *pr = gstp->reducers + ii;
-    ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, err);
+    ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, loadKeys, err);
     ReducerFactory ff = RDCR_GetFactory(pr->name);
     if (!ff) {
       // No such reducer!
@@ -946,9 +1080,15 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
     }
 
     // Set the destination key for the grouper!
-    RLookupKey *dstkey =
-        RLookup_GetKey(&gstp->lookup, pr->alias, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
+    uint32_t flags = pr->isHidden ? RLOOKUP_F_HIDDEN : RLOOKUP_F_NOFLAGS;
+    RLookupKey *dstkey = RLookup_GetKey(&gstp->lookup, pr->alias, RLOOKUP_M_WRITE, flags);
+    // Adding the reducer before validating the key, so we free the reducer if the key is invalid
     Grouper_AddReducer(grp, rr, dstkey);
+    if (!dstkey) {
+      Grouper_Free(grp);
+      QueryError_SetErrorFmt(err, QUERY_EDUPFIELD, "Property `%s` specified more than once", pr->alias);
+      return NULL;
+    }
   }
 
   return Grouper_GetRP(grp);
@@ -971,29 +1111,21 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
                                    QueryError *status) {
   AGGPlan *pln = &req->ap;
   RLookup *lookup = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_PREV);
-  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, status);
+  RLookup *firstLk = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_FIRST); // first lookup can load fields from redis
+  const RLookupKey **loadKeys = NULL;
+  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, (firstLk == lookup && firstLk->spcache) ? &loadKeys : NULL, status);
 
   if (!groupRP) {
+    array_free(loadKeys);
     return NULL;
   }
 
   // See if we need a LOADER group here...?
-  RLookup *firstLk = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_FIRST);
-
-  if (firstLk == lookup) {
-    // See if we need a loader step?
-    const RLookupKey **kklist = NULL;
-    for (RLookupKey *kk = firstLk->head; kk; kk = kk->next) {
-      if ((kk->flags & RLOOKUP_F_DOCSRC) && (!(kk->flags & RLOOKUP_F_SVSRC))) {
-        *array_ensure_tail(&kklist, const RLookupKey *) = kk;
-      }
-    }
-    if (kklist != NULL) {
-      ResultProcessor *rpLoader = RPLoader_New(firstLk, kklist, array_len(kklist));
-      array_free(kklist);
-      RS_LOG_ASSERT(rpLoader, "RPLoader_New failed");
-      rpUpstream = pushRP(req, rpLoader, rpUpstream);
-    }
+  if (loadKeys) {
+    ResultProcessor *rpLoader = RPLoader_New(req, firstLk, loadKeys, array_len(loadKeys));
+    array_free(loadKeys);
+    RS_LOG_ASSERT(rpLoader, "RPLoader_New failed");
+    rpUpstream = pushRP(req, rpLoader, rpUpstream);
   }
 
   return pushRP(req, groupRP, rpUpstream);
@@ -1003,15 +1135,17 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
   MetricRequest *requests = req->ast.metricRequests;
   for (size_t i = 0; i < array_len(requests); i++) {
     char *name = requests[i].metric_name;
-    if (IndexSpec_GetField(req->sctx->spec, name, strlen(name))) {
+    size_t name_len = strlen(name);
+    if (IndexSpec_GetField(req->sctx->spec, name, name_len)) {
       QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", name);
       return NULL;
     }
-    RLookupKey *key = RLookup_GetKey(rl, name, RLOOKUP_F_OEXCL | RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
+    RLookupKey *key = RLookup_GetKeyEx(rl, name, name_len, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
     if (!key) {
       QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", name);
       return NULL;
     }
+
     // In some cases the iterator that requested the additional field can be NULL (if some other iterator knows early
     // that it has no results), but we still want the rest of the pipline to know about the additional field name,
     // because there is no syntax error and the sorter should be able to "sort" by this field.
@@ -1028,15 +1162,11 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
   PLN_ArrangeStep astp_s = {.base = {.type = PLN_T_ARRANGE}};
   PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
   IndexSpec *spec = req->sctx ? req->sctx->spec : NULL; // check for sctx?
+  // Store and count keys that require loading from Redis.
+  const RLookupKey **loadKeys = NULL;
 
   if (!astp) {
     astp = &astp_s;
-  }
-
-  if (IsCount(req)) {
-    rp = RPCounter_New();
-    up = pushRP(req, rp, up);
-    return up;
   }
 
   size_t limit = astp->offset + astp->limit;
@@ -1044,50 +1174,78 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     limit = DEFAULT_LIMIT;
   }
 
-  if ((req->reqflags & QEXEC_F_IS_SEARCH) && RSGlobalConfig.maxSearchResults != UINT64_MAX) {
-    limit = MIN(limit, RSGlobalConfig.maxSearchResults);
+  // TODO: unify if when req holds only maxResults according to the query type.
+  //(SEARCH / AGGREGATE)
+  if (IsSearch(req) && req->maxSearchResults != UINT64_MAX) {
+    limit = MIN(limit, req->maxSearchResults);
   }
 
-  if (!(req->reqflags & QEXEC_F_IS_SEARCH) && RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
-    limit = MIN(limit, RSGlobalConfig.maxAggregateResults);
-
+  if (!IsSearch(req) && req->maxAggregateResults != UINT64_MAX) {
+    limit = MIN(limit, req->maxAggregateResults);
   }
 
-  if (astp->sortKeys) {
-    size_t nkeys = array_len(astp->sortKeys);
-    astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
+  if (IsCount(req) || !limit) {
+    rp = RPCounter_New();
+    up = pushRP(req, rp, up);
+    return up;
+  }
 
-    const RLookupKey **sortkeys = astp->sortkeysLK;
+  if (req->optimizer->type != Q_OPT_NO_SORTER) {
+    if (astp->sortKeys) {
+      size_t nkeys = array_len(astp->sortKeys);
+      astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
 
-    RLookup *lk = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
+      const RLookupKey **sortkeys = astp->sortkeysLK;
 
-    for (size_t ii = 0; ii < nkeys; ++ii) {
-      const char *keystr = astp->sortKeys[ii];
-      sortkeys[ii] = RLookup_GetKey(lk, keystr, RLOOKUP_F_NOINCREF);
-      if (!sortkeys[ii]) {
-        QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", keystr);
-        return NULL;
+      RLookup *lk = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
+
+      for (size_t ii = 0; ii < nkeys; ++ii) {
+        const char *keystr = astp->sortKeys[ii];
+        RLookupKey *sortkey = RLookup_GetKey(lk, keystr, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
+        if (!sortkey) {
+          // if the key is not sortable, and also not loaded by another result processor,
+          // add it to the loadkeys list.
+          // We failed to get the key for reading, so we can't fail to get it for loading.
+          sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
+          // We currently allow implicit loading only for known fields from the schema.
+          // If the key we loaded is not in the schema, we fail.
+          if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
+            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", keystr);
+            goto end;
+          }
+          *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
+        }
+        sortkeys[ii] = sortkey;
       }
+      if (loadKeys) {
+        // If we have keys to load, add a loader step.
+        ResultProcessor *rpLoader = RPLoader_New(req, lk, loadKeys, array_len(loadKeys));
+        up = pushRP(req, rpLoader, up);
+      }
+      rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
+      up = pushRP(req, rp, up);
+    } else if (IsSearch(req) && (!IsOptimized(req) || HasScorer(req))) {
+      // No sort? then it must be sort by score, which is the default.
+      // In optimize mode, add sorter for queries with a scorer.
+      rp = RPSorter_NewByScore(limit);
+      up = pushRP(req, rp, up);
     }
-
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
-    up = pushRP(req, rp, up);
-  }
-
-  // No sort? then it must be sort by score, which is the default.
-  if (rp == NULL && (req->reqflags & QEXEC_F_IS_SEARCH)) {
-    rp = RPSorter_NewByScore(limit);
-    up = pushRP(req, rp, up);
   }
 
   if (astp->offset || (astp->limit && !rp)) {
     rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(req, rp, up);
+  } else if (IsSearch(req) && IsOptimized(req) && !rp) {
+    rp = RPPager_New(0, limit);
+    up = pushRP(req, rp, up);
   }
 
+end:
+  array_free(loadKeys);
   return rp;
 }
 
+// Assumes that the spec is locked
 static ResultProcessor *getScorerRP(AREQ *req) {
   const char *scorer = req->searchopts.scorerName;
   if (!scorer) {
@@ -1108,17 +1266,8 @@ static ResultProcessor *getScorerRP(AREQ *req) {
 
 static int hasQuerySortby(const AGGPlan *pln) {
   const PLN_BaseStep *bstp = AGPLN_FindStep(pln, NULL, NULL, PLN_T_GROUP);
-  if (bstp != NULL) {
-    const PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(pln, NULL, bstp, PLN_T_ARRANGE);
-    if (arng && arng->sortKeys) {
-      return 1;
-    }
-  } else {
-    // no group... just see if we have an arrange step
-    const PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(pln, NULL, NULL, PLN_T_ARRANGE);
-    return arng && arng->sortKeys;
-  }
-  return 0;
+  const PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(pln, NULL, bstp, PLN_T_ARRANGE);
+  return arng && arng->sortKeys;
 }
 
 #define PUSH_RP()                           \
@@ -1160,7 +1309,8 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
    *  * WITHSCORES is defined
    *  * there is no subsequent sorter within this grouping */
   if ((req->reqflags & QEXEC_F_SEND_SCORES) ||
-      (!hasQuerySortby(&req->ap) && IsSearch(req) && !IsCount(req))) {
+      (IsSearch(req) && !IsCount(req) &&
+       (IsOptimized(req) ? HasScorer(req) : !hasQuerySortby(&req->ap)))) {
     rp = getScorerRP(req);
     PUSH_RP();
   }
@@ -1170,7 +1320,7 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
  * This handles the RETURN and SUMMARIZE keywords, which operate on the result
  * which is about to be returned. It is only used in FT.SEARCH mode
  */
-int buildOutputPipeline(AREQ *req, QueryError *status) {
+int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status) {
   AGGPlan *pln = &req->ap;
   ResultProcessor *rp = NULL, *rpUpstream = req->qiter.endProc;
 
@@ -1179,41 +1329,38 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
   const RLookupKey **loadkeys = NULL;
   if (req->outFields.explicitReturn) {
     // Go through all the fields and ensure that each one exists in the lookup stage
+    loadFlags |= RLOOKUP_F_EXPLICITRETURN;
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       const ReturnedField *rf = req->outFields.fields + ii;
-      RLookupKey *lk = RLookup_GetKey(lookup, rf->name, RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
-      if (!lk) {
-        // TODO: this is a dead code
-        QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property '%s' not loaded or in schema",
-                               rf->name);
-        goto error;
+      RLookupKey *lk = RLookup_GetKey_Load(lookup, rf->name, rf->path, loadFlags);
+      if (lk) {
+        *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
       }
-
-      // change path to be used by loader
-      lk->path = rf->path;
-
-      *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
-      // assign explicit output flag
-      lk->flags |= RLOOKUP_F_EXPLICITRETURN;
     }
   }
-  rp = RPLoader_New(lookup, loadkeys, loadkeys ? array_len(loadkeys) : 0);
-  if (loadkeys) {
+
+  // If we have explicit return and some of the keys' values are missing,
+  // or if we don't have explicit return, meaning we use LOAD ALL
+  if (loadkeys || !req->outFields.explicitReturn) {
+    rp = RPLoader_New(req, lookup, loadkeys, array_len(loadkeys));
+    if (isSpecJson(req->sctx->spec)) {
+      // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
+      lookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
+    }
     array_free(loadkeys);
+    PUSH_RP();
   }
-  PUSH_RP();
 
   if (req->reqflags & QEXEC_F_SEND_HIGHLIGHT) {
     RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       ReturnedField *ff = req->outFields.fields + ii;
-      RLookupKey *kk = RLookup_GetKey(lookup, ff->name, 0);
+      RLookupKey *kk = RLookup_GetKey(lookup, ff->name, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!kk) {
         QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "No such property `%s`", ff->name);
         goto error;
-      } else if (!(kk->flags & (RLOOKUP_F_DOCSRC | RLOOKUP_F_SVSRC))) {
-        // TODO: this is a dead code
-        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Property `%s` is not in document", ff->name);
+      } else if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
+        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Property `%s` is not in schema", ff->name);
         goto error;
       }
       ff->lookupKey = kk;
@@ -1227,8 +1374,8 @@ error:
   return REDISMODULE_ERR;
 }
 
-int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
-  if (!(options & AREQ_BUILDPIPELINE_NO_ROOT)) {
+int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+  if (!(req->reqflags & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     buildImplicitPipeline(req, status);
     if (status->code != QUERY_OK) {
       goto error;
@@ -1238,6 +1385,11 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
   AGGPlan *pln = &req->ap;
   ResultProcessor *rp = NULL, *rpUpstream = req->qiter.endProc;
 
+  // If we have a JSON spec, and an "old" API version (DIALECT < 3), we don't store all the data of a multi-value field
+  // in the SV as we want to return it, so we need to load and override all requested return fields that are SV source.
+  uint32_t loadFlags = req->sctx && isSpecJson(req->sctx->spec) && (req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST) ?
+                       RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NOFLAGS;
+
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
 
@@ -1246,6 +1398,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
 
     switch (stp->type) {
       case PLN_T_GROUP: {
+        // Adds group result processor and loader if needed.
         rpUpstream = getGroupRP(req, (PLN_GroupStep *)stp, rpUpstream, status);
         if (!rpUpstream) {
           goto error;
@@ -1260,26 +1413,32 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
         }
         hasArrange = 1;
         rpUpstream = rp;
+
         break;
       }
 
       case PLN_T_APPLY:
       case PLN_T_FILTER: {
         PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)stp;
-        // Ensure the lookups can actually find what they need
-        RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
         mstp->parsedExpr = ExprAST_Parse(mstp->rawExpr, strlen(mstp->rawExpr), status);
         if (!mstp->parsedExpr) {
           goto error;
         }
 
+        // Ensure the lookups can actually find what they need
+        RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
         if (!ExprAST_GetLookupKeys(mstp->parsedExpr, curLookup, status)) {
           goto error;
         }
 
         if (stp->type == PLN_T_APPLY) {
-          RLookupKey *dstkey =
-              RLookup_GetKey(curLookup, stp->alias, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
+          uint32_t flags = mstp->noOverride ? RLOOKUP_F_NOFLAGS : RLOOKUP_F_OVERRIDE;
+          RLookupKey *dstkey = RLookup_GetKey(curLookup, stp->alias, RLOOKUP_M_WRITE, flags);
+          if (!dstkey) {
+            // Can only happen if we're in noOverride mode
+            QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", stp->alias);
+            goto error;
+          }
           rp = RPEvaluator_NewProjector(mstp->parsedExpr, curLookup, dstkey);
         } else {
           rp = RPEvaluator_NewFilter(mstp->parsedExpr, curLookup);
@@ -1299,37 +1458,39 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
         }
         // Get all the keys for this lookup...
         while (!AC_IsAtEnd(&lstp->args)) {
-          const char *path = AC_GetStringNC(&lstp->args, NULL);
+          size_t name_len;
+          const char *name, *path = AC_GetStringNC(&lstp->args, &name_len);
           if (*path == '@') {
             path++;
+            name_len--;
           }
-          const char *name = path;
-
-          RLookupKey *kk = RLookup_GetKey(curLookup, path, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
-          if (!kk) {
-            // We only get a NULL return if the key already exists, which means
-            // that we don't need to retrieve it again.
-            continue;
-          }
-
           if (AC_AdvanceIfMatch(&lstp->args, SPEC_AS_STR)) {
-            int rv = AC_GetString(&lstp->args, &name, NULL, 0);
+            int rv = AC_GetString(&lstp->args, &name, &name_len, 0);
             if (rv != AC_OK) {
-              QERR_MKBADARGS_FMT(status, "RETURN path AS name - must be accompanied with NAME");
+              QERR_MKBADARGS_FMT(status, "LOAD path AS name - must be accompanied with NAME");
               return REDISMODULE_ERR;
             } else if (!strcasecmp(name, SPEC_AS_STR)) {
-              QERR_MKBADARGS_FMT(status, "Alias for RETURN cannot be `AS`");
+              QERR_MKBADARGS_FMT(status, "Alias for LOAD cannot be `AS`");
               return REDISMODULE_ERR;
             }
+          } else {
+            // Set the name to the path. name_len is already the length of the path.
+            name = path;
           }
-          // set lookupkey name to name.
-          // by defualt "name = path"
-          kk->name = name;
-          kk->name_len = strlen(name);
-          lstp->keys[lstp->nkeys++] = kk;
+
+          RLookupKey *kk = RLookup_GetKey_LoadEx(curLookup, name, name_len, path, loadFlags);
+          // We only get a NULL return if the key already exists, which means
+          // that we don't need to retrieve it again.
+          if (kk) {
+            lstp->keys[lstp->nkeys++] = kk;
+          }
         }
         if (lstp->nkeys || lstp->base.flags & PLN_F_LOAD_ALL) {
-          rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
+          rp = RPLoader_New(req, curLookup, lstp->keys, lstp->nkeys);
+          if (isSpecJson(req->sctx->spec)) {
+            // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
+            curLookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
+          }
           PUSH_RP();
         }
         break;
@@ -1349,7 +1510,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
 
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
-  if (!hasArrange && (req->reqflags & QEXEC_F_IS_SEARCH)) {
+  if (!hasArrange && IsSearch(req)) {
     rp = getArrangeRP(req, pln, NULL, status, rpUpstream);
     if (!rp) {
       goto error;
@@ -1359,8 +1520,8 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
 
   // If this is an FT.SEARCH command which requires returning of some of the
   // document fields, handle those options in this function
-  if ((req->reqflags & QEXEC_F_IS_SEARCH) && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
-    if (buildOutputPipeline(req, status) != REDISMODULE_OK) {
+  if (IsSearch(req) && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
+    if (buildOutputPipeline(req, loadFlags, status) != REDISMODULE_OK) {
       goto error;
     }
   }
@@ -1369,6 +1530,9 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
   if (IsProfile(req) && req->qiter.endProc) {
     Profile_AddRPs(&req->qiter);
   }
+
+  // Copy timeout policy to the parent struct of the result processors
+  req->qiter.timeoutPolicy = req->reqConfig.timeoutPolicy;
 
   return REDISMODULE_OK;
 error:
@@ -1387,6 +1551,9 @@ void AREQ_Free(AREQ *req) {
     req->rootiter->Free(req->rootiter);
     req->rootiter = NULL;
   }
+  if (req->optimizer) {
+    QOptimizer_Free(req->optimizer);
+  }
 
   // Go through each of the steps and free it..
   AGPLN_FreeSteps(&req->ap);
@@ -1399,16 +1566,16 @@ void AREQ_Free(AREQ *req) {
 
   ConcurrentSearchCtx_Free(&req->conc);
 
-  // Finally, free the context. If we are a cursor, some more
-  // cleanup is required since we also now own the
-  // detached ("Thread Safe") context.
+  // Finally, free the context. If we are a cursor or have multi workers threads,
+  // we need also to detach the ("Thread Safe") context.
   RedisModuleCtx *thctx = NULL;
   if (req->sctx) {
     if (req->reqflags & QEXEC_F_IS_CURSOR) {
       thctx = req->sctx->redisCtx;
       req->sctx->redisCtx = NULL;
     }
-    SearchCtx_Decref(req->sctx);
+    // Here we unlock the spec
+    SearchCtx_Free(req->sctx);
   }
   for (size_t ii = 0; ii < req->nargs; ++ii) {
     sdsfree(req->args[ii]);

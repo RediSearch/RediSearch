@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+import os
+import subprocess
+from redis import Redis, RedisCluster, cluster
 
 from common import *
 from RLTest import Env
@@ -198,8 +201,9 @@ def testIssue2104(env):
   # load a field implicitly with `APPLY`
   res = env.cmd('FT.AGGREGATE', 'hash_idx', '*', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')
   env.assertEqual(toSortedFlatList([1, ['subj1', '20', 'avg', '20']]), toSortedFlatList(res))
-  env.expect('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg') \
-      .equal([1, ['a', '20', 'avg', '20']])
+
+  res = env.cmd('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')
+  env.assertEqual(toSortedFlatList([1, ['a', '20', 'subj1', '20', 'avg', '20']]), toSortedFlatList(res))
 
   # json
   env.execute_command('FT.CREATE', 'json_idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT', 'SORTABLE',
@@ -271,11 +275,11 @@ def testMemAllocated(env):
   # mass
   env.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT')
   for i in range(1000):
-    conn.execute_command('HSET', 'doc%d' % i, 't', 'text%d' % i)
+    conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
   assertInfoField(env, 'idx2', 'key_table_size_mb', '0.027684211730957031', delta=0.01)
 
   for i in range(1000):
-    conn.execute_command('DEL', 'doc%d' % i)
+    conn.execute_command('DEL', f'doc{i}')
   assertInfoField(env, 'idx2', 'key_table_size_mb', '0')
 
 def testUNF(env):
@@ -430,13 +434,12 @@ def testOverMaxResults():
   ]
 
   for c in commands:
-
     env.cmd(*c)
 
     env.cmd('flushall')
 
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
-    
+
     # test with number of documents lesser than MAXSEARCHRESULTS
     for i in range(10):
       conn.execute_command('HSET', i, 't', i)
@@ -500,14 +503,14 @@ def test_MOD_3540(env):
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
   for i in range(10):
     conn.execute_command('HSET', i, 't', i)
-  
+
   env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'MAX', '1').error()  \
                   .contains('SORTBY MAX is not supported by FT.SEARCH')
 
   env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'DESC', 'MAX', '1', 'LOAD', '*')  \
                   .equal([10, ['t', '9']])
 
-  # SORTBY MAX followed by LIMIT 
+  # SORTBY MAX followed by LIMIT
   env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'DESC', 'MAX', '1', 'LIMIT', '0', '2', 'LOAD', '*')  \
                   .equal([10, ['t', '9'], ['t', '8']])
   env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'DESC', 'MAX', '2', 'LIMIT', '0', '1', 'LOAD', '*')  \
@@ -517,7 +520,7 @@ def test_MOD_3540(env):
   env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'DESC', 'MAX', '0', 'LIMIT', '0', '1', 'LOAD', '*')  \
                   .equal([10, ['t', '9']])
 
-  # LIMIT followed by SORTBY MAX 
+  # LIMIT followed by SORTBY MAX
   env.expect('FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', '2', 'SORTBY', '2', '@t', 'DESC', 'MAX', '1', 'LOAD', '*')  \
                   .equal([10, ['t', '9']])
   env.expect('FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', '1', 'SORTBY', '2', '@t', 'DESC', 'MAX', '2', 'LOAD', '*')  \
@@ -539,11 +542,11 @@ def test_sortby_Noexist(env):
   env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '2').equal([4, 'doc1', ['t', '1'], 'doc3', ['t', '3']])
   env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '2').equal([4, 'doc3', ['t', '3'], 'doc1', ['t', '1']])
 
-  # receive a result w/o sortby field at the end. 
+  # receive a result w/o sortby field at the end.
   # remove in test to support test on cluster
   res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '3')
   env.assertEqual(res[0:5], [4, 'doc1', ['t', '1'], 'doc3', ['t', '3']])
- 
+
   res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '3')
   env.assertEqual(res[0:5], [4, 'doc3', ['t', '3'], 'doc1', ['t', '1']])
 
@@ -551,8 +554,111 @@ def test_sortby_Noexist(env):
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '3').equal([4, 'doc1', ['t', '1'], 'doc3', ['t', '3'], 'doc2', ['somethingelse', '2']])
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '3').equal([4, 'doc3', ['t', '3'], 'doc1', ['t', '1'], 'doc4', ['somethingelse', '4']])
 
+def test_sortby_Noexist_Sortables(env):
+  ''' issue 3457 '''
+
+  conn = getConnectionByEnv(env)
+  sortable_options = [[True,True], [True,False], [False,True], [False,False]]
+
+  for count, args in enumerate(sortable_options):
+    sortable1 = ['SORTABLE'] if args[0] else []
+    sortable2 = ['SORTABLE'] if args[1] else []
+    conn.execute_command('FT.CREATE', 'idx{}'.format(count), 'SCHEMA', 'numval', 'NUMERIC' , *sortable1,
+                                                'text', 'TEXT', *sortable2)
+
+  for count, args in enumerate(sortable_options):
+    # Use cluster {hashtag} to handle which keys are on the same shard (same cluster slot)
+    conn.execute_command('HSET', '{key1}1', 'numval', '110')
+    conn.execute_command('HSET', '{key1}2', 'numval', '108')
+    conn.execute_command('HSET', '{key2}1', 'text', 'Meow')
+    conn.execute_command('HSET', '{key2}2', 'text', 'Chirp')
+
+    msg = 'sortable1: {}, sortable2: {}'.format(sortable1, sortable2)
+
+    # Check ordering of docs:
+    #   In cluster: Docs without sortby field are ordered by key name
+    #   In non-cluster: Docs without sortby field are ordered by doc id (order of insertion/update)
+
+    res = conn.execute_command('FT.SEARCH', 'idx{}'.format(count), '*', 'sortby', 'numval', 'ASC')
+    env.assertEqual(res, [4,
+        '{key1}2', ['numval', '108'], '{key1}1', ['numval', '110'],
+        '{key2}1', ['text', 'Meow'], '{key2}2', ['text', 'Chirp'],
+      ], message=msg)
+
+    res = conn.execute_command('FT.SEARCH', 'idx{}'.format(count), '*', 'sortby', 'numval', 'DESC')
+    env.assertEqual(res, [4,
+        '{key1}1', ['numval', '110'], '{key1}2', ['numval', '108'],
+        '{key2}2', ['text', 'Chirp'], '{key2}1', ['text', 'Meow'],
+      ], message=msg)
+
+  # Add more keys
+  conn.execute_command('HSET', '{key1}3', 'text', 'Bark')
+  conn.execute_command('HSET', '{key1}4', 'text', 'Quack')
+  conn.execute_command('HSET', '{key2}3', 'numval', '109')
+  conn.execute_command('HSET', '{key2}4', 'numval', '111')
+  conn.execute_command('HSET', '{key2}5', 'numval', '108')
+  conn.execute_command('HSET', '{key2}6', 'text', 'Squeak')
+
+  for count, args in enumerate(sortable_options):
+    res = conn.execute_command('FT.SEARCH', 'idx{}'.format(count), '*', 'sortby', 'numval', 'ASC')
+    if env.isCluster():
+      env.assertEqual(res, [10,
+          '{key1}2', ['numval', '108'],
+          '{key2}5', ['numval', '108'],
+          '{key2}3', ['numval', '109'],
+          '{key1}1', ['numval', '110'],
+          '{key2}4', ['numval', '111'],
+          '{key1}3', ['text', 'Bark'],
+          '{key1}4', ['text', 'Quack'],
+          '{key2}1', ['text', 'Meow'],
+          '{key2}2', ['text', 'Chirp'],
+          '{key2}6', ['text', 'Squeak'],
+        ], message=msg)
+    else:
+      env.assertEqual(res, [10,
+          '{key1}2', ['numval', '108'],
+          '{key2}5', ['numval', '108'],
+          '{key2}3', ['numval', '109'],
+          '{key1}1', ['numval', '110'],
+          '{key2}4', ['numval', '111'],
+          '{key2}1', ['text', 'Meow'],
+          '{key2}2', ['text', 'Chirp'],
+          '{key1}3', ['text', 'Bark'],
+          '{key1}4', ['text', 'Quack'],
+          '{key2}6', ['text', 'Squeak'],
+        ], message=msg)
+
+    res = conn.execute_command('FT.SEARCH', 'idx{}'.format(count), '*', 'sortby', 'numval', 'DESC')
+    if env.isCluster():
+      env.assertEqual(res, [10,
+          '{key2}4', ['numval', '111'],
+          '{key1}1', ['numval', '110'],
+          '{key2}3', ['numval', '109'],
+          '{key2}5', ['numval', '108'],
+          '{key1}2', ['numval', '108'],
+          '{key2}6', ['text', 'Squeak'],
+          '{key2}2', ['text', 'Chirp'],
+          '{key2}1', ['text', 'Meow'],
+          '{key1}4', ['text', 'Quack'],
+          '{key1}3', ['text', 'Bark'],
+        ], message=msg)
+    else:
+      env.assertEqual(res, [10,
+          '{key2}4', ['numval', '111'],
+          '{key1}1', ['numval', '110'],
+          '{key2}3', ['numval', '109'],
+          '{key2}5', ['numval', '108'],
+          '{key1}2', ['numval', '108'],
+          '{key2}6', ['text', 'Squeak'],
+          '{key1}4', ['text', 'Quack'],
+          '{key1}3', ['text', 'Bark'],
+          '{key2}2', ['text', 'Chirp'],
+          '{key2}1', ['text', 'Meow'],
+        ], message=msg)
+
+
 def testDeleteIndexes(env):
-  # test cleaning of all specs from a prefix 
+  # test cleaning of all specs from a prefix
   conn = getConnectionByEnv(env)
   for i in range(10):
     env.execute_command('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')
@@ -602,7 +708,7 @@ def test_mod_4255(env):
   res = env.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
   cursor = res[1]
   for i in range(3, 1001, 1):
-      conn.execute_command('HSET', 'doc%i' % i, 'test', str(i))
+      conn.execute_command('HSET', f'doc{i}', 'test', str(i))
   res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
   env.assertEqual(res[0] ,[1, ['test', '2']])
   env.assertNotEqual(cursor ,0)
@@ -613,7 +719,7 @@ def test_mod_4255(env):
   cursor = res[1]
   env.assertNotEqual(cursor ,0)
   for i in range(3, 1001, 1):
-    env.cmd('DEL', 'doc%i' % i, 'test', str(i))
+    conn.execute_command('DEL', f'doc{i}', 'test', str(i))
   forceInvokeGC(env, 'idx')
 
   res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
@@ -629,16 +735,156 @@ def test_as_startswith_as(env):
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.attr1', 'AS', 'asa', 'TEXT').equal('OK')
     conn.execute_command('JSON.SET', 'doc2', '$', '{"attr1": "foo", "attr2": "bar"}')
-    
+
     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 1, 'asa').equal([1, 'doc2', ['asa', 'foo']])
     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, 'asa', 'AS', 'asa').equal([1, 'doc2', ['asa', 'foo']])
     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, '$.attr1', 'AS', 'asa').equal([1, 'doc2', ['asa', 'foo']])
     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, '$.attr1', 'AS', '$.attr2').equal([1, 'doc2', ['$.attr2', 'foo']])
     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, 'asa', 'AS', '$.attr2').equal([1, 'doc2', ['$.attr2', 'foo']])
-    
+
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 1, 'asa').equal([1, ['asa', 'foo']])
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, 'asa', 'AS', 'asa').equal([1, ['asa', 'foo']])
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, '$.attr1', 'AS', 'asa').equal([1, ['asa', 'foo']])
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, '$.attr1', 'AS', '$.attr2').equal([1, ['$.attr2', 'foo']])
     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, 'asa', 'AS', '$.attr2').equal([1, ['$.attr2', 'foo']])
-    
+
+def test_mod4296_badexpr(env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').equal('OK')
+  env.expect('HSET', 'doc', 't', 'foo').equal(1)
+  env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1%0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
+  env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1/0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
+
+def test_mod5062(env):
+  env.skipOnCluster()
+  env.expect('FT.CONFIG', 'SET', 'MAXSEARCHRESULTS', '0').ok()
+  env.expect('FT.CONFIG', 'SET', 'MAXAGGREGATERESULTS', '0').ok()
+  n = 100
+
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+
+  for i in range(n):
+    env.expect('HSET', i, 't', 'hello world').equal(1)
+
+  # verify no crash
+  env.expect('FT.SEARCH', 'idx', 'hello').equal([n])
+
+  # verify using counter instead of sorter
+  search_profile = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello')
+  env.assertEquals('Counter', search_profile[1][4][3][1])
+
+  # verify no crash
+  env.expect('FT.AGGREGATE', 'idx', 'hello').noError()
+  env.expect('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0).equal([n])
+
+  # verify using counter instead of sorter, even with explicit sort
+  aggregate_profile = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'hello', 'SORTBY', '1', '@t')
+  env.assertEquals('Counter', aggregate_profile[1][4][2][1])
+
+def test_mod5252(env):
+  # Create an index and add a document
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC').equal('OK')
+  env.expect('HSET', 'doc', 't', 'Hello', 'n', '1').equal(2)
+
+  # Test that the document is returned with the key name on a search command
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'RETURN', '1', '__key')
+  env.assertEqual(res, [1, 'doc', ['__key', 'doc']])
+
+  # Test that the document is returned with the key name WITH ALIAS on a search command
+  res = env.cmd('FT.SEARCH', 'idx', '*', 'RETURN', '3', '__key', 'AS', 'key_name')
+  env.assertEqual(res, [1, 'doc', ['key_name', 'doc']])
+
+  # Test that the document is returned with the key name on an aggregate command
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@__key', 'SORTBY', '1', '@__key')
+  env.assertEqual(res, [1, ['__key', 'doc']])
+
+  # Test that the document is returned with the key name WITH ALIAS on an aggregate command
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '3', '@__key', 'AS', 'key_name', 'SORTBY', '1', '@key_name')
+  env.assertEqual(res, [1, ['key_name', 'doc']])
+
+
+def test_mod5791(env):
+    con = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DISTANCE_METRIC', 'L2',
+               'DIM', 2).equal('OK')
+    env.assertEqual(2, con.execute_command('HSET', 'doc1', 't', 'Hello world', 'v', 'abcdefgh'))
+    env.assertEqual(2, con.execute_command('HSET', 'doc2', 't', 'Hello world', 'v', 'abcdefgi'))
+
+    # The RSIndexResult object should be contructed as following:
+    # UNION:
+    #   INTERSECTION:
+    #       metric
+    #       term
+    #   metric
+    # While computing the scores, RSIndexResult_IterateOffsets is called. Validate that there is no corruption when
+    # iterating the metric RSIndexResult (before, we treated it as "default" - which is the aggregate type, and we might
+    # try access non-existing fields).
+    res = env.cmd('FT.SEARCH', 'idx', '(@v:[VECTOR_RANGE 0.8 $blob] @t:hello) | @v:[VECTOR_RANGE 0.8 $blob]',
+                  'WITHSCORES', 'DIALECT', '2', 'params', '2', 'blob', 'abcdefgh')
+    env.assertEqual(res[:2], [1, 'doc1'])
+
+
+@skip(asan=True)
+def test_mod5778_add_new_shard_to_cluster(env):
+    SkipOnNonCluster(env)
+    env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards))
+
+    # Create a new redis instance with redisearch loaded.
+    # TODO: add appropriate APIs to RLTest to avoid this abstraction breaking.
+    new_instance_port = env.envRunner.shards[-1].port + 2  # use a fresh port
+    cmd_args = ['redis-server', '--cluster-enabled', 'yes']
+    cmd_args += ['--loadmodule', env.envRunner.modulePath[0]]
+    if env.envRunner.password:
+        cmd_args += ['--requirepass', env.envRunner.password]
+
+    if env.envRunner.isTLS():
+        cmd_args += ['--port', str(0), '--tls-port', str(new_instance_port), '--tls-cluster', 'yes']
+        cmd_args += ['--tls-cert-file', env.envRunner.shards[0].getTLSCertFile()]
+        cmd_args += ['--tls-key-file', env.envRunner.shards[0].getTLSKeyFile()]
+        cmd_args += ['--tls-ca-cert-file', env.envRunner.shards[0].getTLSCACertFile()]
+        if env.envRunner.tlsPassphrase:
+            cmd_args += ['--tls-key-file-pass', env.envRunner.tlsPassphrase]
+    else:
+        cmd_args += ['--port', str(new_instance_port)]
+
+    new_instance = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+    # Connect the new instance to the cluster (making sure the new instance didn't crash)
+    env.cmd('CLUSTER', 'MEET', '127.0.0.1', new_instance_port)
+    time.sleep(5)
+    if env.envRunner.isTLS():
+        new_instance_conn = RedisCluster(host='127.0.0.1', port=new_instance_port, decode_responses=True,
+                                         ssl=True,
+                                         ssl_keyfile=env.envRunner.shards[0].getTLSKeyFile(),
+                                         ssl_certfile=env.envRunner.shards[0].getTLSCertFile(),
+                                         ssl_cert_reqs=None,
+                                         ssl_ca_certs=env.envRunner.shards[0].getTLSCACertFile(),
+                                         ssl_password=env.envRunner.tlsPassphrase,
+                                         password=env.envRunner.password)
+    else:
+        new_instance_conn = RedisCluster(host='127.0.0.1', port=new_instance_port, decode_responses=True,
+                                         password=env.envRunner.password)
+    env.assertEqual(new_instance_conn.ping(), True)
+    # Validate that the new shard has been recognized by the cluster.
+    env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards)+1)
+    # Currently, the new shard is not assign on any slots.
+    env.assertEqual(len(env.cmd('CLUSTER SLOTS')), len(env.envRunner.shards))
+
+    # Move a slot (number 0) from the first shard to the new shard.
+    new_shard_id = new_instance_conn.cluster_myid(cluster.ClusterNode('127.0.0.1', new_instance_port))
+    env.cmd(f'CLUSTER SETSLOT 0 NODE {new_shard_id}')
+    new_instance_conn.cluster_setslot(cluster.ClusterNode('127.0.0.1', new_instance_port), new_shard_id, 0, 'NODE')
+
+    # Validate the updated state in old and new shards.
+    expected = [0, 0, ["127.0.0.1", new_instance_port, str(new_shard_id), []]]  # the first slot is in the new shard
+    res = env.cmd('CLUSTER SLOTS')
+    env.assertEqual(len(res), len(env.envRunner.shards) + 1)
+    env.assertEqual(res[0], expected)
+
+    expected = {'primary': ('127.0.0.1', new_instance_port), 'replicas': []}  # the expected reply from cluster_slots()
+    res = new_instance_conn.cluster_slots(cluster.ClusterNode('127.0.0.1', new_instance_port))
+    env.assertEqual(len(res), len(env.envRunner.shards) + 1)
+    env.assertEqual(res[(0, 0)], expected)
+
+    # cleanup
+    new_instance.kill()
+    os.remove('nodes.conf')

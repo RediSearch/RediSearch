@@ -126,13 +126,13 @@ def testTagVals(env):
     N = 100
     alltags = set()
     for n in range(N):
-        tags = ('foo %d' % n, 'bar %d' % n, 'x')
+        tags = (f'foo {n}', f'bar {n}', 'x')
         alltags.add(tags[0])
         alltags.add(tags[1])
         alltags.add(tags[2])
 
-        env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
-                                       'tags', ','.join(tags), 'othertags', 'baz %d' % int(n // 2)))
+        env.expect('ft.add', 'idx', f'doc{n}', 1.0, 'fields',
+                   'tags', ','.join(tags), 'othertags', f'baz {int(n // 2)}').ok()
     for _ in r.retry_with_rdb_reload():
         waitForIndex(r, 'idx')
         res = r.execute_command('ft.tagvals', 'idx', 'tags')
@@ -160,7 +160,8 @@ def testIssue1305(env):
     env.expect('FT.ADD myIdx doc2 1.0 FIELDS title "hello"').error()
     env.expect('FT.ADD myIdx doc3 1.0 FIELDS title "hello"').ok()
     env.expect('FT.ADD myIdx doc1 1.0 FIELDS title "hello,work"').ok()
-    expectedRes = {'doc1' : ['inf', ['title', '"hello,work"']], 'doc3' : ['inf', ['title', '"hello"']], 'doc2' : ['inf', ['title', '"work"']]}
+    expectedRes = {'doc2': ['nan', ['title', '"work"']], 'doc3' : ['nan', ['title', '"hello"']],
+                   'doc1' : ['nan', ['title', '"hello,work"']]}
     res = env.cmd('ft.search', 'myIdx', '~@title:{wor} ~@title:{hell}', 'WITHSCORES')[1:]
     res = {res[i]:res[i + 1: i + 3] for i in range(0, len(res), 3)}
     env.assertEqual(res, expectedRes)

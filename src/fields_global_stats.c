@@ -7,6 +7,7 @@
 #include "fields_global_stats.h"
 #include "config.h"
 
+// TODO: multithreaded: additions should be atomic
 void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd) {
   if (fs->types & INDEXFLD_T_FULLTEXT) {  // text field
     RSGlobalConfig.fieldsStats.numTextFields += toAdd;
@@ -18,26 +19,32 @@ void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd) {
     RSGlobalConfig.fieldsStats.numVectorFields += toAdd;
     if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_BF)
       RSGlobalConfig.fieldsStats.numVectorFieldsFlat += toAdd;
-    else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB)
-      RSGlobalConfig.fieldsStats.numVectorFieldsHSNW += toAdd;
+    else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED) {
+      if (fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB)
+        RSGlobalConfig.fieldsStats.numVectorFieldsHNSW += toAdd;
+    }
   } else if (fs->types & INDEXFLD_T_TAG) {  // tag field
     RSGlobalConfig.fieldsStats.numTagFields += toAdd;
     if (fs->tagOpts.tagFlags & TagField_CaseSensitive) {
       RSGlobalConfig.fieldsStats.numTagFieldsCaseSensitive += toAdd;
     }
-  }
+  } else if (fs->types & INDEXFLD_T_GEOMETRY) {  // geometry field
+    RSGlobalConfig.fieldsStats.numGeometryFields += toAdd;
+  } 
 
   if (fs->options & FieldSpec_Sortable) {
     if (fs->types & INDEXFLD_T_FULLTEXT) RSGlobalConfig.fieldsStats.numTextFieldsSortable += toAdd;
     else if (fs->types & INDEXFLD_T_NUMERIC) RSGlobalConfig.fieldsStats.numNumericFieldsSortable += toAdd;
     else if (fs->types & INDEXFLD_T_GEO) RSGlobalConfig.fieldsStats.numGeoFieldsSortable += toAdd;
     else if (fs->types & INDEXFLD_T_TAG) RSGlobalConfig.fieldsStats.numTagFieldsSortable += toAdd;
+    else if (fs->types & INDEXFLD_T_GEOMETRY) RSGlobalConfig.fieldsStats.numGeometryFieldsSortable += toAdd;
   }
   if (fs->options & FieldSpec_NotIndexable) {
     if (fs->types & INDEXFLD_T_FULLTEXT) RSGlobalConfig.fieldsStats.numTextFieldsNoIndex += toAdd;
     else if (fs->types & INDEXFLD_T_NUMERIC) RSGlobalConfig.fieldsStats.numNumericFieldsNoIndex += toAdd;
     else if (fs->types & INDEXFLD_T_GEO) RSGlobalConfig.fieldsStats.numGeoFieldsNoIndex += toAdd;
     else if (fs->types & INDEXFLD_T_TAG) RSGlobalConfig.fieldsStats.numTagFieldsNoIndex += toAdd;
+    else if (fs->types & INDEXFLD_T_GEOMETRY) RSGlobalConfig.fieldsStats.numGeometryFieldsNoIndex += toAdd;
   }
 }
 
@@ -91,8 +98,18 @@ void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
     RedisModule_InfoAddFieldLongLong(ctx, "Vector", RSGlobalConfig.fieldsStats.numVectorFields);
     if (RSGlobalConfig.fieldsStats.numVectorFieldsFlat > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "Flat", RSGlobalConfig.fieldsStats.numVectorFieldsFlat);
-    if (RSGlobalConfig.fieldsStats.numVectorFieldsHSNW > 0)
-      RedisModule_InfoAddFieldLongLong(ctx, "HSNW", RSGlobalConfig.fieldsStats.numVectorFieldsHSNW);
+    if (RSGlobalConfig.fieldsStats.numVectorFieldsHNSW > 0)
+      RedisModule_InfoAddFieldLongLong(ctx, "HNSW", RSGlobalConfig.fieldsStats.numVectorFieldsHNSW);
+    RedisModule_InfoEndDictField(ctx);
+  }
+
+  if (RSGlobalConfig.fieldsStats.numGeometryFields > 0) {
+    RedisModule_InfoBeginDictField(ctx, "geoshape");
+    RedisModule_InfoAddFieldLongLong(ctx, "Geoshape", RSGlobalConfig.fieldsStats.numGeometryFields);
+    if (RSGlobalConfig.fieldsStats.numGeometryFieldsSortable > 0)
+      RedisModule_InfoAddFieldLongLong(ctx, "Sortable", RSGlobalConfig.fieldsStats.numGeometryFieldsSortable);
+    if (RSGlobalConfig.fieldsStats.numGeometryFieldsNoIndex > 0)
+      RedisModule_InfoAddFieldLongLong(ctx, "NoIndex", RSGlobalConfig.fieldsStats.numGeometryFieldsNoIndex);
     RedisModule_InfoEndDictField(ctx);
   }
 }

@@ -1,18 +1,16 @@
 # -*- coding: utf-8 -*-
 
+from common import *
 import redis
-import unittest
 from hotels import hotels
 import random
 import time
-from RLTest import Env
-from includes import *
-from common import *
+
 
 # this tests is not longer relevant
 # def testAdd(env):
 #     if env.is_cluster():
-#         raise unittest.SkipTest()
+#         env.skip()
 
 #     r = env
 #     env.expect('ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text').ok()
@@ -519,13 +517,15 @@ def testOptional(env):
     env.assertEqual([2, 'doc2', 'doc3'], res)
     res = r.execute_command(
         'ft.search', 'idx', 'hello ~world', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual(res, expected)
+    # Docs that contains the optional term would rank higher.
+    env.assertEqual(res, [3, 'doc2', 'doc3', 'doc1'])
     res = r.execute_command(
         'ft.search', 'idx', 'hello ~world ~werld', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual(res, expected)
+    env.assertEqual(res, [3, 'doc3', 'doc2', 'doc1'])
     res = r.execute_command(
         'ft.search', 'idx', '~world ~(werld hello)', 'withscores', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual(res, [3, 'doc3', '3', 'doc2', '2', 'doc1', '1'])
+    # Note that doc1 gets 0 score since neither 'world' appears in the doc nor the phrase 'werld hello'.
+    env.assertEqual(res, [3, 'doc3', '3', 'doc2', '1', 'doc1', '0'])
 
 def testExplain(env):
 
@@ -545,7 +545,7 @@ def testExplain(env):
 
     # expected = ['INTERSECT {', '  UNION {', '    hello', '    <HL(expanded)', '    +hello(expanded)', '  }', '  UNION {', '    world', '    <ARLT(expanded)', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      <HL(expanded)', '      +hello(expanded)', '    }', '    UNION {', '      world', '      <ARLT(expanded)', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
     if env.is_cluster():
-        raise unittest.SkipTest()
+        env.skip()
     res = env.cmd('ft.explainCli', 'idx', q)
     expected = ['INTERSECT {', '  UNION {', '    hello', '    +hello(expanded)', '  }', '  UNION {', '    world', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
     env.assertEqual(expected, res)
@@ -600,7 +600,7 @@ def testNoIndex(env):
     if not env.isCluster():
         # to specific check on cluster, todo : change it to be generic enough
         res = env.cmd('ft.info', 'idx')
-        env.assertEqual(res[7][1][7], 'NOINDEX')
+        env.assertEqual(res[7][1][8], 'NOINDEX')
         env.assertEqual(res[7][2][9], 'NOINDEX')
 
     env.expect('ft.add', 'idx', 'doc1', '0.1', 'fields',
@@ -735,6 +735,93 @@ def testPrefix(env):
         env.assertGreater(res[0], 2)
         env.expect('ft.search', 'idx', 'const* -term*', 'nocontent').equal([0])
         env.expect('ft.search', 'idx', 'constant term9*', 'nocontent').equal([0])
+
+def testPrefixNodeCaseSensitive(env):
+
+    conn = getConnectionByEnv(env)
+    modes = ["TEXT", "TAG", "TAG_CASESENSITIVE"]
+    create_functions = {
+        "TEXT": ['FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT'],
+        "TAG": ['FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG'],
+        "TAG_CASESENSITIVE": ['FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'CASESENSITIVE']
+    }
+
+    # For each mode, we test both lowercase and uppercase queries with CONTAINS, so we
+    # can check both prefix and suffix modes.
+    queries_expectations = {
+        "TEXT": {
+            "lowercase":
+            {  "query": ["@t:(*el*)"],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            },
+            "lowercase_params":
+            {  "query": ["@t:(*$p*)", "PARAMS", "2", "p", "el", "DIALECT", "2" ],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            },
+            "uppercase":
+            {  "query": ["@t:(*EL*)"],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            },
+            "uppercase_params":
+            {  "query": ["@t:(*$p*)", "PARAMS", "2", "p", "EL", "DIALECT", "2" ],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            },
+        },
+        "TAG": {
+            "lowercase":
+            {  "query": ["@t:{*el*}"],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            },
+            "lowercase_params":
+            {  "query": ["@t:{*$p*}", "PARAMS", "2", "p", "el", "DIALECT", "2"],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            },
+            "uppercase": {
+                "query": ["@t:{*EL*}"],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            },
+            "uppercase_params": {
+                "query": ["@t:{*$p*}", "PARAMS", "2", "p", "EL", "DIALECT", "2"],
+                "expectation": [4, 'doc1', 'doc2', 'doc3', 'doc4']
+            }
+        },
+        "TAG_CASESENSITIVE": {
+            "lowercase":
+            {  "query": ["@t:{*el*}"],
+                "expectation": [2, 'doc1', 'doc3']
+            },
+            "lowercase_params":
+            {  "query": ["@t:{*$p*}", "PARAMS", "2", "p", "el", "DIALECT", "2"],
+                "expectation": [2, 'doc1', 'doc3']
+            },
+            "uppercase": {
+                "query": ["@t:{*EL*}"],
+                "expectation": [2, 'doc2', 'doc4']
+            },
+            "uppercase_params": {
+                "query": ["@t:{*$p*}", "PARAMS", "2", "p", "EL", "DIALECT", "2"],
+                "expectation": [2, 'doc2', 'doc4']
+            }
+        }
+    }
+
+    for mode in modes:
+        env.expect(*create_functions[mode]).ok()
+        conn.execute_command('HSET', 'doc1', 't', 'hello')
+        conn.execute_command('HSET', 'doc2', 't', 'HELLO')
+        conn.execute_command('HSET', 'doc3', 't', 'help')
+        conn.execute_command('HSET', 'doc4', 't', 'HELP')
+        for case in queries_expectations[mode]:
+            query = queries_expectations[mode][case]["query"]
+            expectation = queries_expectations[mode][case]["expectation"]
+            res = env.cmd('ft.search', 'idx', *query, 'NOCONTENT')
+            # Sort to avoid coordinator reorder.
+            docs = res[1:]
+            docs.sort()
+            env.assertEqual(res[0], expectation[0])
+            env.assertEqual(docs, expectation[1:])
+        env.expect('FT.DROP', 'idx').ok()
+
 
 def testSortBy(env):
     r = env
@@ -1104,8 +1191,8 @@ def testTagErrors(env):
 
 def testGeoDeletion(env):
     if env.is_cluster():
-        raise unittest.SkipTest()
         # Can't properly test if deleted on cluster
+        env.skip()
 
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema',
@@ -1383,9 +1470,9 @@ def testNumericRange(env):
         res = r.execute_command(
             'ft.search', 'idx', 'hello kitty -@score:[(0 (50]', 'verbatim', "nocontent", 'limit', 0, 51)
         env.assertEqual(51, res[0])
-        env.debugPrint(', '.join(toSortedFlatList(res[2:])), force=True)
-        print (r.execute_command(
-            'ft.profile', 'idx', 'search', 'query', 'hello kitty -@score:[(0 (50]', 'verbatim', "nocontent", 'limit', 0, 51))
+        env.debugPrint(', '.join(toSortedFlatList(res[2:])), force=TEST_DEBUG)
+        r.execute_command(
+            'ft.profile', 'idx', 'search', 'query', 'hello kitty -@score:[(0 (50]', 'verbatim', "nocontent", 'limit', 0, 51)
         res = r.execute_command(
             'ft.search', 'idx', 'hello kitty @score:[-inf +inf]', "nocontent")
         env.assertEqual(100, res[0])
@@ -1401,45 +1488,45 @@ def testNotIter(env):
     res = env.execute_command(
         'ft.search', 'idx', '-@score:[2 4]', 'verbatim', "nocontent")
     env.assertEqual(5, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=TEST_DEBUG)
 
     res = env.execute_command(
         'ft.search', 'idx', 'hello kitty -@score:[2 4]', 'verbatim', "nocontent")
     env.assertEqual(5, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=TEST_DEBUG)
 
     # start chunk
     res = env.execute_command(
         'ft.search', 'idx', '-@score:[0 2]', 'verbatim', "nocontent")
     env.assertEqual(5, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=TEST_DEBUG)
 
     res = env.execute_command(
         'ft.search', 'idx', 'hello kitty -@score:[0 2]', 'verbatim', "nocontent")
     env.assertEqual(5, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=TEST_DEBUG)
 
     # end chunk
     res = env.execute_command(
         'ft.search', 'idx', '-@score:[5 7]', 'verbatim', "nocontent")
     env.assertEqual(5, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=TEST_DEBUG)
 
     res = env.execute_command(
         'ft.search', 'idx', 'hello kitty -@score:[5 7]', 'verbatim', "nocontent")
     env.assertEqual(5, res[0])
-    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=True)
+    env.debugPrint(', '.join(toSortedFlatList(res[1:])), force=TEST_DEBUG)
 
     # whole chunk
     res = env.execute_command(
         'ft.search', 'idx', '-@score:[0 7]', 'verbatim', "nocontent")
     env.assertEqual(0, res[0])
-    env.debugPrint(str(len(res)), force=True)
+    env.debugPrint(str(len(res)), force=TEST_DEBUG)
 
     res = env.execute_command(
         'ft.search', 'idx', 'hello kitty -@score:[0 7]', 'verbatim', "nocontent")
     env.assertEqual(0, res[0])
-    env.debugPrint(str(len(res)), force=True)
+    env.debugPrint(str(len(res)), force=TEST_DEBUG)
 
 def testPayload(env):
     r = env
@@ -1464,7 +1551,8 @@ def testGarbageCollector(env):
     env.skipOnCluster()
     if env.moduleArgs is not None and 'GC_POLICY FORK' in env.moduleArgs:
         # this test is not relevent for fork gc cause its not cleaning the last block
-        raise unittest.SkipTest()
+        env.skip()
+
     N = 100
     r = env
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text').ok()
@@ -1651,8 +1739,8 @@ def testInfoCommand(env):
             env.assertGreater(float(d['bytes_per_record_avg']), 0)
             env.assertGreater(float(d['doc_table_size_mb']), 0)
 
-    for x in range(1, 5):
-        for combo in combinations(('NOOFFSETS', 'NOFREQS', 'NOFIELDS', ''), x):
+    for x in range(1, 6):
+        for combo in combinations(('NOOFFSETS', 'NOFREQS', 'NOFIELDS', 'NOHL', ''), x):
             combo = list(filter(None, combo))
             options = combo + ['schema', 'f1', 'text']
             try:
@@ -1672,6 +1760,15 @@ def testInfoCommand(env):
 
             for option in filter(None, combo):
                 env.assertTrue(option in opts)
+
+def testInfoCommandImplied(env):
+    ''' Test that NOHL is implied by NOOFFSETS '''
+    r = env
+    env.assertCmdOk('ft.create', 'idx', 'ON', 'HASH', 'NOOFFSETS', 'schema', 'f1', 'text')
+    res = env.cmd('ft.info', 'idx')
+    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+    env.assertNotEqual(-1, d['index_options'].index('NOOFFSETS'))
+    env.assertNotEqual(-1, d['index_options'].index('NOHL'))
 
 def testNoStem(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH',
@@ -1758,7 +1855,7 @@ def testDoubleAdd(env):
 
 def testConcurrentErrors(env):
     # Workaround for: Can't pickle local object 'testConcurrentErrors.<locals>.thrfn'
-    if sys.version_info >= (3, 9):
+    if sys.version_info >= (3, 8):
         env.skip()
 
     from multiprocessing import Process
@@ -1805,7 +1902,7 @@ def testBinaryKeys(env):
 
 def testNonDefaultDb(env):
     if env.is_cluster():
-        raise unittest.SkipTest()
+        env.skip()
 
     # Should be ok
     env.cmd('FT.CREATE', 'idx1', 'ON', 'HASH', 'schema', 'txt', 'text')
@@ -1847,6 +1944,7 @@ def testSortbyMissingFieldSparse(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'lastName', 'text', 'SORTABLE', 'firstName', 'text', 'SORTABLE')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'lastName', 'mark')
+    waitForIndex(env, 'idx')
     res = env.cmd('ft.search', 'idx', 'mark', 'WITHSORTKEYS', "SORTBY",
                    "firstName", "ASC", "limit", 0, 100)
     # commented because we don't filter out exclusive sortby fields
@@ -1855,7 +1953,7 @@ def testSortbyMissingFieldSparse(env):
 def testLuaAndMulti(env):
     env.skip() # addhash isn't supported
     if env.is_cluster():
-        raise unittest.SkipTest()
+        env.skip()
     # Ensure we can work in Lua and Multi environments without crashing
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'f1', 'text', 'n1', 'numeric')
     env.cmd('HMSET', 'hashDoc', 'f1', 'v1', 'n1', 4)
@@ -2487,18 +2585,22 @@ def testIssue_848(env):
 
 def testMod_309(env):
     n = 10000 if VALGRIND else 100000
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').ok()
     conn = getConnectionByEnv(env)
     for i in range(n):
-        conn.execute_command('HSET', 'doc%d'%i, 'test', 'foo')
-    res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
+        conn.execute_command('HSET', f'doc{i}', 'test', 'foo')
+    waitForIndex(env, 'idx')
+    info = index_info(env, 'idx')
+    env.assertEqual(int(info['num_docs']), n)
+    res = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'TIMEOUT', 300000)
     env.assertEqual(len(res), n + 1)
 
     # test with cursor
-    env.skipOnCluster()
-    res = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR')
-    l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
-    cursor = res[1]
+    if env.isCluster():
+        return
+
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR', 'TIMEOUT', 300000)
+    l = len(res) - 1  # do not count the number of results (the first element in the results)
     while cursor != 0:
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor))
         l += len(r) - 1
@@ -2720,8 +2822,8 @@ def testHighlightOnAggregate(env):
 def testBadFilterExpression(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'FILTER', 'blabla').error()
     if not env.isCluster(): # todo: remove once fix on coordinator
+        env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'FILTER', 'blabla').error()
         env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'FILTER', '@test1 > 1').error()
 
 def testWithSortKeysOnNoneSortableValue(env):
@@ -2755,6 +2857,7 @@ def testBadCursor(env):
 
 def testGroupByWithApplyError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').ok()
+    waitForIndex(env, 'idx')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').ok()
     err = env.cmd('FT.AGGREGATE', 'idx', '*', 'APPLY', 'split()', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'AS', 'count')[1][0]
     assertEqualIgnoreCluster(env, 'Invalid number of arguments for split', str(err))
@@ -2895,7 +2998,7 @@ def testParseTime(env):
 
     # valid test
     res = env.execute_command('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(@test, "%Y%m%d")', 'as', 'a')
-    assertEqualIgnoreCluster(env, res, [1, ['test', '20210401', 'a', '1617235200']])
+    env.assertEqual(res, [1, ['test', '20210401', 'a', '1617235200']])
 
 def testMathFunctions(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
@@ -2923,8 +3026,8 @@ def testErrorOnOpperation(env):
     err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', '!(split("bad" + "bad"))', 'as', 'a')[1]
     assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
 
-    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'APPLY', '!@test', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    if not env.isCluster():
+        env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'APPLY', '!@test', 'as', 'a').error().contains('not loaded nor in pipeline')
 
 
 def testSortkeyUnsortable(env):
@@ -3167,11 +3270,11 @@ def testFieldsCaseSensetive(env):
 
     # make sure aggregation apply are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@n', 'as', 'r').equal([1, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@N', 'as', 'r').error().contains('not loaded in pipeline')
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@N', 'as', 'r').error().contains('not loaded nor in pipeline')
 
     # make sure aggregation filter are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@n==1.0').equal([1, ['n', '1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@N==1.0').error().contains('not loaded in pipeline')
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@N==1.0').error().contains('not loaded nor in pipeline')
 
     # make sure aggregation groupby are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
@@ -3227,11 +3330,11 @@ def testSortedFieldsCaseSensetive(env):
 
     # make sure aggregation apply are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@n', 'as', 'r').equal([1, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@N', 'as', 'r').error().contains('not loaded in pipeline')
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@N', 'as', 'r').error().contains('not loaded nor in pipeline')
 
     # make sure aggregation filter are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@n==1.0').equal([1, ['n', '1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@N==1.0').error().contains('not loaded in pipeline')
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@N==1.0').error().contains('not loaded nor in pipeline')
 
     # make sure aggregation groupby are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
@@ -3614,3 +3717,72 @@ def test_missing_schema(env):
     conn.execute_command('HSET', 'doc1', 'foo', 'bar')
     env.expect('FT.SEARCH', 'idx1', '*').equal([1, 'doc1', ['foo', 'bar']] )
     env.expect('FT.SEARCH', 'idx2', '*').error().equal('idx2: no such index')
+
+def test_cluster_set(env):
+    if not env.isCluster():
+        # this test is only relevant on cluster
+        env.skip()
+
+    def verify_address(addr):
+        try:
+            with TimeLimit(10):
+                res = None
+                while res is None or res[9][2][1] != addr:
+                    res = env.cmd('SEARCH.CLUSTERINFO')
+        except Exception:
+            env.assertTrue(False, message='Failed waiting cluster set command to be updated with the new IP address %s' % addr)
+
+    # test ipv4
+    env.expect('SEARCH.CLUSTERSET',
+               'MYID',
+               '1',
+               'RANGES',
+               '1',
+               'SHARD',
+               '1',
+               'SLOTRANGE',
+               '0',
+               '16383',
+               'ADDR',
+               'password@127.0.0.1:22000',
+               'MASTER'
+            ).equal('OK')
+    verify_address('127.0.0.1')
+
+    env.stop()
+    env.start()
+
+    # test ipv6 test
+    env.expect('SEARCH.CLUSTERSET',
+               'MYID',
+               '1',
+               'RANGES',
+               '1',
+               'SHARD',
+               '1',
+               'SLOTRANGE',
+               '0',
+               '16383',
+               'ADDR',
+               'password@[::1]:22000',
+               'MASTER'
+            ).equal('OK')
+    verify_address('::1')
+
+def test_internal_commands(env):
+    ''' Test that internal cluster commands cannot run from a script '''
+    if not env.is_cluster():
+        env.skip()
+
+    def fail_eval_call(r, env, cmd):
+        cmd = str(cmd)[1:-1]
+        try:
+            r.eval(f'redis.call({cmd})', 0)
+            env.assertTrue(False, message=f'Failed to raise error during call to {cmd}')
+        except redis.ResponseError as e:
+            env.assertTrue(str(e).index("not allowed from script") != -1)
+
+    with env.getClusterConnectionIfNeeded() as r:
+        fail_eval_call(r, env, ['SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1', 'SHARD', '1', 'SLOTRANGE', '0', '16383', 'ADDR', 'password@127.0.0.1:22000', 'MASTER'])
+        fail_eval_call(r, env, ['SEARCH.CLUSTERREFRESH'])
+        fail_eval_call(r, env, ['SEARCH.CLUSTERINFO'])

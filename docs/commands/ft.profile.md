@@ -3,7 +3,7 @@ syntax: |
   FT.PROFILE index SEARCH | AGGREGATE [LIMITED] QUERY query
 ---
 
-Perform a `FT.SEARCH` or `FT.AGGREGATE` command and collects performance information
+Apply `FT.SEARCH` or `FT.AGGREGATE` command to collect performance details
 
 [Examples](#examples)
 
@@ -12,11 +12,11 @@ Perform a `FT.SEARCH` or `FT.AGGREGATE` command and collects performance informa
 <details open>
 <summary><code>index</code></summary>
 
-is index name. You must first create the index using `FT.CREATE`.
+is index name, created using `FT.CREATE`.
 </details>
 
 <details open>
-<summary><code>SEARCH,AGGREGATE</code></summary>
+<summary><code>SEARCH | AGGREGATE</code></summary>
 
 is difference between `FT.SEARCH` and `FT.AGGREGATE`.
 </details>
@@ -30,26 +30,26 @@ removes details of `reader` iterator.
 <details open>
 <summary><code>QUERY {query}</code></summary>
 
-is query string, as if sent to FT.SEARCH.
+is query string, sent to `FT.SEARCH`.
 </details>
 
-<note><b>Note:</b> To reduce the size of the output, use `NOCONTENT` or `LIMIT 0 0` to reduce results reply or `LIMITED` to not reply with details of `reader iterators` inside builtin-unions such as `fuzzy` or `prefix`.</note>
+<note><b>Note:</b> To reduce the size of the output, use `NOCONTENT` or `LIMIT 0 0` to reduce the reply results or `LIMITED` to not reply with details of `reader iterators` inside built-in unions such as `fuzzy` or `prefix`.</note>
 
 ## Return
 
-FT.PROFILE returns an array reply, with the first array reply identical to the reply of `FT.SEARCH` and `FT.AGGREGATE` and a second array reply with information of time used to create the query and time and count of calls of iterators and result-processors.
+`FT.PROFILE` returns an array reply, with the first array reply identical to the reply of `FT.SEARCH` and `FT.AGGREGATE` and a second array reply with information of time in milliseconds (ms) used to create the query and time and count of calls of iterators and result-processors.
 
 Return value has an array with two elements:
 
 - Results - The normal reply from RediSearch, similar to a cursor.
 - Profile - The details in the profile are:
-  - Total profile time - The total runtime of the query.
-  - Parsing time - Parsing time of the query and parameters into an execution plan.
+  - Total profile time - The total runtime of the query, in ms.
+  - Parsing time - Parsing time of the query and parameters into an execution plan, in ms.
   - Pipeline creation time - Creation time of execution plan including iterators,
-  result processors and reducers creation.
+  result processors, and reducers creation, in ms.
   - Iterators profile - Index iterators information including their type, term, count, and time data.
   Inverted-index iterators have in addition the number of elements they contain. Hybrid vector iterators returning the top results from the vector index in batches, include the number of batches.
-  - Result processors profile - Result processors chain with type, count and time data.
+  - Result processors profile - Result processors chain with type, count, and time data.
 
 ## Examples
 

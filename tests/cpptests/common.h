@@ -19,6 +19,8 @@
             ; \
     } while(0)
 
+#define get_spec(x) ((IndexSpec*)__RefManager_Get_Object(x))
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -34,7 +36,7 @@ static void donecb(RSAddDocumentCtx *aCtx, RedisModuleCtx *, void *) {
 }
 
 template <typename... Ts>
-bool addDocument(RedisModuleCtx *ctx, IndexSpec *sp, const char *docid, Ts... args) {
+bool addDocument(RedisModuleCtx *ctx, RSIndex *index, const char *docid, Ts... args) {
   RWLOCK_ACQUIRE_WRITE();
   RMCK::ArgvList argv(ctx, args...);
   AddDocumentOptions options = {0};
@@ -46,14 +48,14 @@ bool addDocument(RedisModuleCtx *ctx, IndexSpec *sp, const char *docid, Ts... ar
   options.options = DOCUMENT_ADD_REPLACE;
 
   QueryError status = {QueryErrorCode(0)};
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(index));
   int rv = RS_AddDocument(&sctx, RMCK::RString(docid), &options, &status);
   RedisModule_FreeString(ctx, options.keyStr);
   RWLOCK_RELEASE();
   return rv == REDISMODULE_OK;
 }
 
-bool deleteDocument(RedisModuleCtx *ctx, IndexSpec *sp, const char *docid);
+bool deleteDocument(RedisModuleCtx *ctx, RSIndex *index, const char *docid);
 
 template <typename... Ts>
 IndexSpec *createIndex(RedisModuleCtx *ctx, const char *name, Ts... args) {

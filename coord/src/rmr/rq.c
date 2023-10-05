@@ -90,7 +90,7 @@ static void rqAsyncCb(uv_async_t *async) {
   }
 }
 
-MRWorkQueue *RQ_New(size_t cap, int maxPending) {
+MRWorkQueue *RQ_New(int maxPending) {
 
   MRWorkQueue *q = rm_calloc(1, sizeof(*q));
   q->sz = 0;

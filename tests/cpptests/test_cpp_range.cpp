@@ -9,7 +9,7 @@
 
 extern "C" {
 // declaration for an internal function implemented in numeric_index.c
-IndexIterator *createNumericIterator(const IndexSpec* sp, NumericRangeTree *t, const NumericFilter *f);
+IndexIterator *createNumericIterator(const IndexSpec* sp, NumericRangeTree *t, const NumericFilter *f, IteratorsConfig *config);
 }
 
 // Helper so we get the same pseudo-random numbers
@@ -40,8 +40,8 @@ TEST_F(RangeTest, testRangeTree) {
   } rngs[] = {{0, 100}, {10, 1000}, {2500, 3500}, {0, 5000}, {4999, 4999}, {0, 0}};
 
   for (int r = 0; rngs[r].min || rngs[r].max; r++) {
-
-    Vector *v = NumericRangeTree_Find(t, rngs[r].min, rngs[r].max);
+    NumericFilter nf = { .min = rngs[r].min, .max = rngs[r].max };
+    Vector *v = NumericRangeTree_Find(t, &nf);
     ASSERT_TRUE(Vector_Size(v) > 0);
     // printf("Got %d ranges for %f..%f...\n", Vector_Size(v), rngs[r].min, rngs[r].max);
     for (int i = 0; i < Vector_Size(v); i++) {
@@ -86,11 +86,13 @@ void testRangeIteratorHelper(bool isMulti) {
     }
   }
 
+    IteratorsConfig config{};
+    iteratorsConfig_init(&config);
   for (size_t i = 0; i < 5; i++) {
     double min = (double)(1 + prng() % (N / 5));
     double max = (double)(1 + prng() % (N / 5));
-    memset(&matched[0], 0, sizeof(uint8_arr) * (N + 1));
-    NumericFilter *flt = NewNumericFilter(std::min(min, max), std::max(min, max), 1, 1);
+    memset(&matched[0], 0, sizeof(uint8_t) * (N + 1));
+    NumericFilter *flt = NewNumericFilter(std::min(min, max), std::max(min, max), 1, 1, true);
 
     // count the number of elements in the range
     size_t count = 0;
@@ -104,9 +106,8 @@ void testRangeIteratorHelper(bool isMulti) {
         }
       }
     }
-
     // printf("Testing range %f..%f, should have %d docs\n", min, max, count);
-    IndexIterator *it = createNumericIterator(NULL, t, flt);
+    IndexIterator *it = createNumericIterator(NULL, t, flt, &config);
 
     int xcount = 0;
     RSIndexResult *res = NULL;
@@ -177,6 +178,30 @@ void testRangeIteratorHelper(bool isMulti) {
 
   ASSERT_EQ(t->numRanges, !isMulti ? 14 : 42);
   ASSERT_EQ(t->numEntries, !isMulti ? N : N * MULT_COUNT);
+
+
+  // test loading limited range
+  double rangeArray[6][2] = {{0, 1000}, {0, 3000}, {1000, 3000}, {15000, 20000}, {19500, 20000}, {-1000, 21000}}; 
+
+  for (size_t i = 0; i < 6; i++) {
+    for (int j = 0; j < 2; ++j) {   
+      // j==1 for ascending order, j==0 for descending order
+      NumericFilter *flt = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j);
+      IndexIterator *it = createNumericIterator(NULL, t, flt, &config);
+      size_t numEstimated = it->NumEstimated(it->ctx);
+      NumericFilter *fltLimited = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j);
+      fltLimited->limit = 50;
+      IndexIterator *itLimited = createNumericIterator(NULL, t, fltLimited, &config);
+      size_t numEstimatedLimited = itLimited->NumEstimated(itLimited->ctx);
+      // printf("%f %f %ld %ld\n", rangeArray[i][0], rangeArray[i][1], numEstimated, numEstimatedLimited);
+      ASSERT_TRUE(numEstimated >= numEstimatedLimited );
+      it->Free(it);
+      NumericFilter_Free(flt);
+      itLimited->Free(itLimited);
+      NumericFilter_Free(fltLimited);
+    }
+  }
+
   NumericRangeTree_Free(t);
 }
 

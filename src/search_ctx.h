@@ -23,43 +23,53 @@ extern "C" {
 #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
 #endif
 
+typedef enum {
+  RS_CTX_UNSET,
+  RS_CTX_READONLY,
+  RS_CTX_READWRITE
+} RSContextFlags;
+
+
 /** Context passed to all redis related search handling functions. */
 typedef struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
   RedisModuleKey *key_;
   IndexSpec *spec;
-  uint32_t refcount;
-  int isStatic;
   uint64_t specId;  // Unique id of the spec; used when refreshing
   struct timespec timeout;
   unsigned int apiVersion; // API Version to allow for backward compatibility / alternative functionality
+  unsigned int expanded; // Reply format
+  RSContextFlags flags;
 } RedisSearchCtx;
-
-#define SEARCH_CTX_STATIC(ctx, sp) \
-  { ctx, NULL, sp, 0, 1, 0, {0, 0} }
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
 // Create a string context on the heap
+// Returned context includes a strong reference to the spec
 RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL);
-RedisSearchCtx *NewSearchCtxDefault(RedisModuleCtx *ctx);
-
-RedisSearchCtx *SearchCtx_Refresh(RedisSearchCtx *sctx, RedisModuleString *keyName);
 
 // Same as above, only from c string (null terminated)
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL);
 
-#define SearchCtx_Incref(sctx) \
-  ({                           \
-    (sctx)->refcount++;        \
-    sctx;                      \
-  })
+static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *sp) {
+  RedisSearchCtx sctx = {
+                          .redisCtx = ctx,
+                          .key_ = NULL,
+                          .spec = sp,
+                          .timeout = { 0, 0 },
+                          .flags = RS_CTX_UNSET, };
+  return sctx;
+}
 
-#define SearchCtx_Decref(sctx) \
-  if (!--((sctx)->refcount)) { \
-    SearchCtx_Free(sctx);      \
-  }
+void SearchCtx_CleanUp(RedisSearchCtx * sctx);
 
 void SearchCtx_Free(RedisSearchCtx *sctx);
+
+void RedisSearchCtx_LockSpecRead(RedisSearchCtx *sctx);
+
+void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *sctx);
+
+void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx);
+
 #ifdef __cplusplus
 }
 #endif

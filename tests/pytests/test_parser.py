@@ -538,8 +538,8 @@ def testUnsupportedNesting(env):
 
     and_exp = nest_exp('mod', 'a', True, nest_level)
     or_exp = nest_exp('mod', 'a', False, nest_level)
-    # env.debugPrint(and_exp, force=True)
-    # env.debugPrint(or_exp, force=True)
+    # env.debugPrint(and_exp, force=TEST_DEBUG)
+    # env.debugPrint(or_exp, force=TEST_DEBUG)
     env.expect('ft.search', 'idx', and_exp, 'DIALECT', 1).error().contains('Syntax error at offset')
     env.expect('ft.search', 'idx', and_exp, 'DIALECT', 2).error().contains('Parser stack overflow.')
     env.expect('ft.search', 'idx', or_exp, 'DIALECT', 1).error().contains('Syntax error at offset')
@@ -552,8 +552,8 @@ def testSupportedNesting_v1():
 
     and_exp = nest_exp('mod', 'a', True, nest_level)
     or_exp = nest_exp('mod', 'a', False, nest_level)
-    # env.debugPrint(and_exp, force=True)
-    # env.debugPrint(or_exp, force=True)
+    # env.debugPrint(and_exp, force=TEST_DEBUG)
+    # env.debugPrint(or_exp, force=TEST_DEBUG)
     env.expect('ft.search', 'idx', and_exp).equal([0])
     env.expect('ft.search', 'idx', or_exp).equal([0])
 
@@ -564,11 +564,25 @@ def testSupportedNesting_v2():
 
     and_exp = nest_exp('mod', 'a', True, nest_level)
     or_exp = nest_exp('mod', 'a', False, nest_level)
-    # env.debugPrint(and_exp, force=True)
-    # env.debugPrint(or_exp, force=True)
+    # env.debugPrint(and_exp, force=TEST_DEBUG)
+    # env.debugPrint(or_exp, force=TEST_DEBUG)
     env.expect('ft.search', 'idx', and_exp).equal([0])
     env.expect('ft.search', 'idx', or_exp).equal([0])
 
+def testLongUnionList(env):
+    env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'n', 'NUMERIC', 't', 'TAG').ok()
+    conn = getConnectionByEnv(env)
+    num_args = 300
+    for i in range(1, num_args+1):
+        conn.execute_command('HSET', f'doc{i}', 't', f't{i}', 'n', i)
+    arg = '|'.join([f't{i}' for i in range(1, num_args+1)])
+    env.expect('ft.search', 'idx1', f'@t:({arg})', 'SORTBY', 'n', 'NOCONTENT').equal([num_args, *[f'doc{i}' for i in range(1, 11)]])
+    env.expect('ft.search', 'idx2', f'@t:{{{arg}}}', 'SORTBY', 'n', 'NOCONTENT').equal([num_args, *[f'doc{i}' for i in range(1, 11)]])
+
+    # Make sure we get a single union node of all the args, and not a deep tree
+    exact_arg = '|'.join([f'"t{i}"' for i in range(1, num_args+1)])
+    env.expect('FT.EXPLAIN', 'idx1', f'@t:({exact_arg})').equal('@t:UNION {\n' + '\n'.join([f'  @t:t{i}' for i in range(1, num_args+1)]) + '\n}\n')
 
 def testModifierList(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT').ok()
@@ -585,4 +599,3 @@ def testModifierList(env):
   }
 }
 '''[1:])
-
