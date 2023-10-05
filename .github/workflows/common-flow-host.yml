@@ -77,18 +77,22 @@ jobs:
         run: make COORD=1 SAN=${{ inputs.san }}
 
       - name: Unit tests (standalone)
+        id: test1
         if: ${{ inputs.standalone }}
         continue-on-error: ${{ steps.continue-on-error.outputs.decision }}
         run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (standalone)
+        id: test2
         if: ${{ inputs.standalone }}
         continue-on-error: ${{ steps.continue-on-error.outputs.decision }}
         run: make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
       - name: Unit tests (coordinator)
+        id: test3
         if: ${{ inputs.coordinator }}
         continue-on-error: ${{ steps.continue-on-error.outputs.decision }}
         run: make COORD=1 unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (coordinator)
+        id: test4
         if: ${{ inputs.coordinator }}
         continue-on-error: ${{ steps.continue-on-error.outputs.decision }}
         run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
@@ -108,3 +112,13 @@ jobs:
           name: Sanitizer Logs
           path: tests/pytests/logs/*.log.*
           if-no-files-found: ignore
+
+      - name: Fail flow if tests failed
+        if: ${{ steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' || steps.test4.outcome == 'failure' }}
+        run: exit 1
+      - name: Fail flow if sanitizer failed
+        if: ${{ inputs.san }}
+        run: |
+          if [[ -n "$(ls tests/pytests/logs/*.log.* 2>/dev/null)" ]]; then
+            exit 1
+          fi
