@@ -14,20 +14,21 @@ jobs:
   run-tests-on-linux:
     strategy:
       matrix:
-        include:
-          - test-config: concurrent_write
-          - test-config: max_unsorted
-          - test-config: union_iterator_heap
-          - test-config: raw_docid
-          - test-config: dialect_2
-
+        standalone: [true]  # Set a default value
+        coordinator: [true] # Set a default value
+        test-config: # configurations for both standalone and coordinator
+          - concurrent_write
+          - max_unsorted
+          - union_iterator_heap
+          - raw_docid
+          - dialect_2
+        include: # spacial configurations
           - test-config: global_password
             standalone:  false
           - test-config: safemode
             standalone:  false
           - test-config: tls
             standalone:  false
-            coordinator: true
 
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
@@ -35,33 +36,34 @@ jobs:
       platform: all
       architecture: all
       test-config: CONFIG=${{ matrix.test-config }}
-      standalone: ${{ matrix.standalone || true }}
-      coordinator: ${{ matrix.coordinator || true }}
+      standalone: ${{ matrix.standalone }}
+      coordinator: ${{ matrix.coordinator }}
 
   run-tests-on-macos:
     strategy:
       matrix:
-        include:
-          - test-config: concurrent_write
-          - test-config: max_unsorted
-          - test-config: union_iterator_heap
-          - test-config: raw_docid
-          - test-config: dialect_2
-
+        standalone: [true]  # Set a default value
+        coordinator: [true] # Set a default value
+        test-config: # configurations for both standalone and coordinator
+          - concurrent_write
+          - max_unsorted
+          - union_iterator_heap
+          - raw_docid
+          - dialect_2
+        include: # spacial configurations
           - test-config: global_password
             standalone:  false
           - test-config: safemode
             standalone:  false
           - test-config: tls
             standalone:  false
-            coordinator: true
 
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
       test-config: CONFIG=${{ matrix.test-config }}
-      standalone: ${{ matrix.standalone || true }}
-      coordinator: ${{ matrix.coordinator || true }}
+      standalone: ${{ matrix.standalone }}
+      coordinator: ${{ matrix.coordinator }}
 
   coverage:
     uses: ./.github/workflows/flow-coverage.yml
