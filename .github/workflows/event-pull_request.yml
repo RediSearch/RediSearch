@@ -35,7 +35,11 @@ jobs:
         with:
           result-encoding: string
           script: |
-            return github.rest.repos.getLatestRelease({owner: 'redis', repo: 'redis'}).tag_name;
+            var rep = github.rest.repos.getLatestRelease({owner: 'redis', repo: 'redis'});
+            console.log(rep);
+            console.log(rep.data);
+            console.log(rep.data.tag_name);
+            return rep.data.tag_name;
       - name: Get RedisJSON latest version
         id: get-json-ref
         uses: actions/github-script@v6
