@@ -344,12 +344,12 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
 
     RedisModule_ReplyKV_Array(reply, "error"); // >errors
-      if (rc == RS_RESULT_TIMEDOUT) {
-        RedisModule_Reply_SimpleString(reply, "Timeout limit was reached");
-      } else if (rc == RS_RESULT_ERROR) {
-        RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
-        QueryError_ClearError(req->qiter.err);
-      }
+    if (rc == RS_RESULT_TIMEDOUT) {
+      RedisModule_Reply_SimpleString(reply, "Timeout limit was reached");
+    } else if (rc == RS_RESULT_ERROR) {
+      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
+      QueryError_ClearError(req->qiter.err);
+    }
     RedisModule_Reply_ArrayEnd(reply); // >errors
 
     if (rc == RS_RESULT_TIMEDOUT) {
@@ -395,6 +395,9 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
       // Serialize it as a search result
       SearchResult_Clear(&r);
     }
+
+    // TODO: Add the "error" KV section of the response here, so error (specifically
+    // timeouts) will be responded as well.
 
 done_3:
     SearchResult_Destroy(&r);
