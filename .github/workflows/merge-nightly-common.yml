@@ -16,27 +16,15 @@ jobs:
       matrix:
         include:
           - test-config: concurrent_write
-            standalone:  true
-            coordinator: true
           - test-config: max_unsorted
-            standalone:  true
-            coordinator: true
           - test-config: union_iterator_heap
-            standalone:  true
-            coordinator: true
           - test-config: raw_docid
-            standalone:  true
-            coordinator: true
           - test-config: dialect_2
-            standalone:  true
-            coordinator: true
 
           - test-config: global_password
             standalone:  false
-            coordinator: true
           - test-config: safemode
             standalone:  false
-            coordinator: true
           - test-config: tls
             standalone:  false
             coordinator: true
@@ -47,35 +35,23 @@ jobs:
       platform: all
       architecture: all
       test-config: CONFIG=${{ matrix.test-config }}
-      standalone: ${{ matrix.standalone }}
-      coordinator: ${{ matrix.coordinator }}
+      standalone: ${{ matrix.standalone || true }}
+      coordinator: ${{ matrix.coordinator || true }}
 
   run-tests-on-macos:
     strategy:
       matrix:
         include:
           - test-config: concurrent_write
-            standalone:  true
-            coordinator: true
           - test-config: max_unsorted
-            standalone:  true
-            coordinator: true
           - test-config: union_iterator_heap
-            standalone:  true
-            coordinator: true
           - test-config: raw_docid
-            standalone:  true
-            coordinator: true
           - test-config: dialect_2
-            standalone:  true
-            coordinator: true
 
           - test-config: global_password
             standalone:  false
-            coordinator: true
           - test-config: safemode
             standalone:  false
-            coordinator: true
           - test-config: tls
             standalone:  false
             coordinator: true
@@ -84,8 +60,8 @@ jobs:
     secrets: inherit
     with:
       test-config: CONFIG=${{ matrix.test-config }}
-      standalone: ${{ matrix.standalone }}
-      coordinator: ${{ matrix.coordinator }}
+      standalone: ${{ matrix.standalone || true }}
+      coordinator: ${{ matrix.coordinator || true }}
 
   coverage:
     uses: ./.github/workflows/flow-coverage.yml
