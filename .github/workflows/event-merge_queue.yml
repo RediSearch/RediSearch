@@ -16,13 +16,15 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
-            return github.rest.repos.getLatestRelease({owner: 'redis', repo: 'redis'});
+            var rep = await github.rest.repos.getLatestRelease({owner: 'redis', repo: 'redis'});
+            return rep.data.tag_name;
       - name: Get RedisJSON latest version
         id: get-json-ref
         uses: actions/github-script@v6
         with:
           script: |
-            return github.rest.repos.getLatestRelease({owner: 'RedisJSON', repo: 'RedisJSON'});
+            var rep = await github.rest.repos.getLatestRelease({owner: 'RedisJSON', repo: 'RedisJSON'});
+            return rep.data.tag_name;
 
   run-flow:
     needs: get-latest-versions
