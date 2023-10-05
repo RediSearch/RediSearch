@@ -46,7 +46,7 @@ jobs:
     with:
       platform: all
       architecture: all
-      test-config: ${{ matrix.test-config }}
+      test-config: CONFIG=${{ matrix.test-config }}
       standalone: ${{ matrix.standalone }}
       coordinator: ${{ matrix.coordinator }}
 
@@ -83,7 +83,7 @@ jobs:
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
-      test-config: ${{ matrix.test-config }}
+      test-config: CONFIG=${{ matrix.test-config }}
       standalone: ${{ matrix.standalone }}
       coordinator: ${{ matrix.coordinator }}
 
@@ -94,3 +94,5 @@ jobs:
   sanitize:
     uses: ./.github/workflows/flow-sanitizer.yml
     secrets: inherit
+    with:
+      flow-config: '' # full sanitization

@@ -13,6 +13,7 @@ jobs:
     with:
       env: ubuntu-latest
       get-redis: true
+      test-config: QUICK=1
     secrets: inherit
 
   coverage:
@@ -22,3 +23,5 @@ jobs:
   sanitize:
     uses: ./.github/workflows/flow-sanitizer.yml
     secrets: inherit
+    with:
+      flow-config: QUICK=1

@@ -3,11 +3,16 @@ name: CLang Sanitizer
 on:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      flow-config:
+        type: string
+        required: true
 
 jobs:
   clang-sanitizer:
     uses: ./.github/workflows/common-flow-container.yml
     with:
       container: redisfab/clang:16-x64-bullseye
+      test-config: ${{ inputs.flow-config || 'QUICK=1' }} # fallback for workflow_dispatch
       san: addr
     secrets: inherit

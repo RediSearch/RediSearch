@@ -7,6 +7,7 @@ on:
         required: true
         type: string
       test-config:
+        description: 'Test configuration environment variable (e.g. "CONFIG=concurrent_write" or "QUICK=1")'
         type: string
       coordinator:
         type: boolean

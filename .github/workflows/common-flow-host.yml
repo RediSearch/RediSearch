@@ -11,7 +11,8 @@ on:
       get-redis:
         type: boolean
       test-config:
-        description: 'Test configuration'
+        description: 'Test configuration environment variable (e.g. "CONFIG=concurrent_write" or "QUICK=1")'
+        required: true
         type: string
       coordinator:
         type: boolean
@@ -71,13 +72,13 @@ jobs:
         run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (standalone)
         if: ${{ inputs.standalone }}
-        run: make pytest CONFIG=${{ inputs.test-config }} LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+        run: make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
       - name: Unit tests (coordinator)
         if: ${{ inputs.coordinator }}
         run: make COORD=1 unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (coordinator)
         if: ${{ inputs.coordinator }}
-        run: make COORD=1 pytest CONFIG=${{ inputs.test-config }} LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+        run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v3
