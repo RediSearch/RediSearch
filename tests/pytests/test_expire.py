@@ -39,30 +39,55 @@ def testExpireIndex(env):
 
 res_score_and_explanation = ['1', ['Final TFIDF : words TFIDF 1.00 * document score 1.00 / norm 1 / slop 1',
                                     ['(TFIDF 1.00 = Weight 1.00 * Frequency 1)']]]
-                                    
+both_docs_no_sortby = "both_docs_no_sortby"
+both_docs_sortby = "both_docs_sortby"
+doc1_is_empty = "doc1_is_empty"
+doc1_is_empty_sortby = "doc1_is_empty_sortby"
+doc1_is_partial = "doc1_is_partial"
+doc1_is_partial_sortby = "doc1_is_partial_sortby"
+doc1_is_empty_last = "doc1_is_empty_last"
+doc1_is_empty_last_sortby = "doc1_is_empty_last_sortby"
+doc1_is_partial_last = "doc1_is_partial_last"
+doc1_is_partial_last_sortby = "doc1_is_partial_last_sortby"
+only_doc2_sortby = "only_doc2_sortby"
+only_doc2_no_sortby = "only_doc2_no_sortby"
+
+def add_explain_to_results(results):
+    results = results.copy()
+    for offset, i in enumerate(range(2, len(results), 2)):
+        results.insert(i+offset, res_score_and_explanation)
+    return results
+                           
 def buildExpireDocsResults(isSortable, isJson):
-    both_docs = [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']] if not isJson else [2, 'doc1', ['$', '{"t":"bar"}'], 'doc2', ['$', '{"t":"foo"}']]
-    res_doc1_is_empty = [2, 'doc1', [], 'doc2', ['t', 'foo']] if not isJson else [2, 'doc1', [], 'doc2', ['$', '{"t":"foo"}']]
-    res_doc1_is_empty_last = [2, 'doc2', ['t', 'foo'], 'doc1', []] if not isJson else [2, 'doc2', ['t', 'foo', '$', '{"t":"foo"}'], 'doc1', []]
-    res_doc1_is_partial = [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']] if not isJson else [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo', '$', '{"t":"foo"}']]
-    res_doc1_is_partial_last = [2, 'doc2', ['t', 'foo'], 'doc1', ['t', 'bar']] if not isJson else [2, 'doc2', ['$', '{"t":"foo"}'], 'doc1', []]
+    results = {}
+    # When calling FT.SEARCH with SORTBY on json index, the sortby field is loaded into the result together with the json document
+    results[both_docs_no_sortby] = [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']] if not isJson else [2, 'doc1', ['$', '{"t":"bar"}'], 'doc2', ['$', '{"t":"foo"}']]
+    results[both_docs_sortby] = [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']] if not isJson else [2, 'doc1', ['t', 'bar','$', '{"t":"bar"}'], 'doc2', ['t', 'foo', '$', '{"t":"foo"}']]
+ 
+    results[doc1_is_empty] = [2, 'doc1', [], 'doc2', ['t', 'foo']] if not isJson else [2, 'doc1', [], 'doc2', ['$', '{"t":"foo"}']]
+    results[doc1_is_empty_sortby] = [2, 'doc2', ['t', 'foo'], 'doc1', []] if not isJson else [2, 'doc2', ['t', 'foo', '$', '{"t":"foo"}'], 'doc1', []]
 
-    empty_with_scores_and_explain_last = res_doc1_is_empty_last.copy()
-    for offset, i in enumerate(range(2, len(res_doc1_is_partial), 2)):
-        empty_with_scores_and_explain_last.insert(i + offset, res_score_and_explanation)
-    
-    partial_with_scores_and_explain = res_doc1_is_partial.copy()
-    partial_with_scores_and_explain_last = res_doc1_is_partial_last.copy()
-    for offset, i in enumerate(range(2, len(res_doc1_is_partial), 2)):
-        partial_with_scores_and_explain.insert(i + offset, res_score_and_explanation)
-        partial_with_scores_and_explain_last.insert(i + offset, res_score_and_explanation)
+    results[doc1_is_partial] = [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']] if not isJson else [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo', '$', '{"t":"foo"}']]
+    results[doc1_is_partial_sortby] = [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']] if not isJson else [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo', '$', '{"t":"foo"}']]
 
-    return [both_docs, # both docs exist
-            res_doc1_is_empty_last if not isSortable else res_doc1_is_partial, # With sortby - sorter compares a missing value (doc1) to an existing value (doc2) and prefers the existing value
-            res_doc1_is_empty, # Without sortby -  both docs exist but we failed to load doc1 since it was expired lazily
-            # WITHSCORES, EXPLAINSCORE
-            empty_with_scores_and_explain_last if not isSortable else partial_with_scores_and_explain,
-            empty_with_scores_and_explain_last if not isSortable else partial_with_scores_and_explain_last]
+    results[doc1_is_empty_last] = [2, 'doc2', ['t', 'foo'], 'doc1', []] if not isJson else [2, 'doc2', ['t', 'foo', '$', '{"t":"foo"}'], 'doc1', []]
+    results[doc1_is_empty_last_sortby] = [2, 'doc2', ['t', 'foo'], 'doc1', []] if not isJson else [2, 'doc2', ['t', 'foo', '$', '{"t":"foo"}'], 'doc1', []]
+
+    results[doc1_is_partial_last] = [2, 'doc2', ['t', 'foo'], 'doc1', ['t', 'bar']] if not isJson else [2, 'doc2', ['$', '{"t":"foo"}'], 'doc1', ['t', 'bar']]
+    results[doc1_is_partial_last_sortby] = [2, 'doc2', ['t', 'foo'], 'doc1', ['t', 'bar']] if not isJson else [2, 'doc2', ['t', 'foo', '$', '{"t":"foo"}'], 'doc1', ['t', 'bar', '$', '{"t":"bar"}']]
+
+    results[only_doc2_sortby] = [1, 'doc2', ['t', 'foo']] if not isJson else [1, 'doc2', ['t', 'foo', '$', '{"t":"foo"}']]
+    results[only_doc2_no_sortby] = [1, 'doc2', ['t', 'foo']] if not isJson else [1, 'doc2', ['$', '{"t":"foo"}']]
+
+
+    return results
+
+    # return [both_docs_no_sortby, # both docs exist
+    #         res_doc1_is_empty_last if not isSortable else res_doc1_is_partial, # With sortby - sorter compares a missing value (doc1) to an existing value (doc2) and prefers the existing value
+    #         res_doc1_is_empty, # Without sortby -  both docs exist but we failed to load doc1 since it was expired lazily
+    #         # WITHSCORES, EXPLAINSCORE
+    #         empty_with_scores_and_explain_last if not isSortable else partial_with_scores_and_explain,
+    #         empty_with_scores_and_explain_last if not isSortable else partial_with_scores_and_explain_last]
 
 def testExpireDocs(env):
 
@@ -85,6 +110,8 @@ def testExpireDocsSortable(env):
                # but it is marked as deleted and we reply with None.
                expected_results, isJson)
 
+
+#TODO: DvirDu: I think this test should be broken down to smaller tests, due to the complexity of the test and the number of cases it covers it is hard to debug
 def expireDocs(env, isSortable, expected_results, isJson):
     '''
     This test creates an index and two documents
@@ -100,9 +127,7 @@ def expireDocs(env, isSortable, expected_results, isJson):
     conn = env.getConnection()
 
     # i = 2 -> without sortby, i = 1 -> with sortby
-    for i in [1, 2]:
-        sortby = i==1
-        print ('sortby = {}'.format(sortby), "isSortable = {}".format(isSortable), "isJson = {}".format(isJson))
+    for sortby in [False, True]:
         # Use "lazy" expire (expire only when key is accessed)
         conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
         sortby_cmd = [] if not sortby else ['SORTBY', 't']
@@ -120,7 +145,7 @@ def expireDocs(env, isSortable, expected_results, isJson):
 
         # Both docs exist.
         res = conn.execute_command('FT.SEARCH', 'idx', '*')
-        env.assertEqual(res, expected_results[0])
+        env.assertEqual(res, expected_results[both_docs_no_sortby], message='both docs exist')
 
         conn.execute_command('PEXPIRE', 'doc1', 1)
         # ensure expiration before search
@@ -128,31 +153,35 @@ def expireDocs(env, isSortable, expected_results, isJson):
 
         msg = '{}{} sortby'.format(
             'SORTABLE ' if isSortable else '', 'without' if not sortby else 'with')
-        print("before expire")
         # First iteration
         res = conn.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
-        env.assertEqual(res, expected_results[i], message=msg)
+        if isSortable:
+            expected_res = expected_results[doc1_is_partial_sortby if sortby else doc1_is_empty] # We don't load the field to the rlookup when it is sortable on sortby
+        else:
+            expected_res = expected_results[doc1_is_empty_sortby if sortby else doc1_is_empty]
+        env.assertEqual(res, expected_res, message=msg)
 
         # Cancel lazy expire to allow the deletion of the key
         conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
         # ensure expiration before search
         time.sleep(0.5)
 
-        print("before expire")
         # Second iteration - only 1 doc is left
         res = conn.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
-        env.assertEqual(res, [1, 'doc2', ['t', 'foo']] if not isJson else ([1, 'doc2', ['t', 'foo', '$', '{"t":"foo"}'] if sortby else ['$', '{"t":"foo"}']]), message=msg)
+        env.assertEqual(res, expected_results[only_doc2_sortby if sortby else only_doc2_no_sortby], message=msg)
 
 
         # test with WITHSCORES and EXPLAINSCORE - make sure all memory is released
+        # we need to re-write the documents since in case of score tie they will be returned by internal id order. This will break once we will ignore stale updates to documents
         if isJson:
             conn.execute_command('JSON.SET', 'doc1', '$', '{"t":"bar"}')
+            conn.execute_command('JSON.SET', 'doc2', '$', '{"t":"foo"}')
         else: 
             conn.execute_command('HSET', 'doc1', 't', 'bar')
+            conn.execute_command('HSET', 'doc2', 't', 'foo')
 
         # both docs exist
-        expected_res = [2, 'doc2', res_score_and_explanation, ['t', 'foo'] if not isJson else ['$', '{"t":"foo"}'],
-                           'doc1', res_score_and_explanation, ['t', 'bar'] if not isJson else ['$', '{"t":"bar"}']]
+        expected_res = add_explain_to_results(expected_results[both_docs_no_sortby])
 
         res = conn.execute_command('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'EXPLAINSCORE')
         env.assertEqual(res, expected_res)
@@ -166,7 +195,11 @@ def expireDocs(env, isSortable, expected_results, isJson):
         time.sleep(0.01)
 
         res = conn.execute_command('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'EXPLAINSCORE', *sortby_cmd)
-        env.assertEqual(res, expected_results[i + 2], message=(msg + ' WITHSCORES, EXPLAINSCORE'))
+
+        if isSortable:
+            env.assertEqual(res, add_explain_to_results(expected_results[doc1_is_partial if sortby else doc1_is_empty]), message=(msg + ' WITHSCORES, EXPLAINSCORE'))
+        else:
+            env.assertEqual(res, add_explain_to_results(expected_results[doc1_is_empty_last if sortby else doc1_is_empty]), message=(msg + ' WITHSCORES, EXPLAINSCORE'))
 
         # Cancel lazy expire to allow the deletion of the key
         conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
@@ -174,7 +207,7 @@ def expireDocs(env, isSortable, expected_results, isJson):
         time.sleep(0.5)
 
         # only 1 doc is left
-        res = [1, 'doc2', res_score_and_explanation, ['t', 'foo'] if not isJson else ['$', '{"t":"foo"}']]
+        res = add_explain_to_results(expected_results[only_doc2_no_sortby])
         env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'EXPLAINSCORE').equal(res)
 
         conn.execute_command('FLUSHALL')

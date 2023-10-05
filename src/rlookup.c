@@ -670,7 +670,9 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   char *keyPtr = options->dmd ? options->dmd->keyPtr : (char *)options->keyPtr;
   if (!*keyobj) {
 
-    *keyobj = japi->openKeyFromStr(ctx, keyPtr);
+    RedisModuleString* keyName = RedisModule_CreateString(ctx, keyPtr, strlen(keyPtr));
+    *keyobj = japi->openKey_withFlags(ctx, keyName, REDISMODULE_OPEN_KEY_NOEFFECTS);
+    RedisModule_FreeString(ctx, keyName);
     if (!*keyobj) {
       QueryError_SetCode(options->status, QUERY_ENODOC);
       return REDISMODULE_ERR;
