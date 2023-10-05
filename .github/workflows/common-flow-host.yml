@@ -63,7 +63,7 @@ jobs:
       - name: Decide if to continue after failure
         id: continue-on-error
         run: |
-          if [[ -z "${{ inputs.san }}" ]]; then
+          if [[ -n "${{ inputs.san }}" ]]; then
             echo "decision=true" >> $GITHUB_OUTPUT
           else
             echo "decision=false" >> $GITHUB_OUTPUT
