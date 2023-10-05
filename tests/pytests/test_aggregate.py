@@ -979,29 +979,40 @@ def testResultCounter(env):
     #env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([0])
 
 def test_aggregate_timeout():
-    if VALGRIND:
-        # You don't want to run this under valgrind, it will take forever
-        raise unittest.SkipTest("Skipping timeout test under valgrind")
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
-    conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
-    nshards = env.shardsCount
-    num_docs = 10000 * nshards
-    pipeline = conn.pipeline(transaction=False)
-    for i, t1 in enumerate(np.random.randint(1, 1024, num_docs)):
-        pipeline.hset (i, 't1', str(t1))
-        if i % 1000 == 0:
-            pipeline.execute()
-            pipeline = conn.pipeline(transaction=False)
-    pipeline.execute()
+    def test_timeout_env(env):
+        if VALGRIND:
+            # You don't want to run this under valgrind, it will take forever
+            raise unittest.SkipTest("Skipping timeout test under valgrind")
+        conn = getConnectionByEnv(env)
+        conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
+        nshards = env.shardsCount
+        num_docs = 10000 * nshards
+        pipeline = conn.pipeline(transaction=False)
+        for i, t1 in enumerate(np.random.randint(1, 1024, num_docs)):
+            pipeline.hset (i, 't1', str(t1))
+            if i % 1000 == 0:
+                pipeline.execute()
+                pipeline = conn.pipeline(transaction=False)
+        pipeline.execute()
 
-    env.expect('FT.AGGREGATE', 'idx', '*',
-               'LOAD', '2', '@t1', '@__key',
-               'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
-               'groupby', '2', '@t1', '@t1exp',
-                    'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
-               'TIMEOUT', '1',
-        ).equal(['Timeout limit was reached'])
+        res = env.execute_command('FT.AGGREGATE', 'idx', '*',
+                    'LOAD', '2', '@t1', '@__key',
+                    'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
+                    'groupby', '2', '@t1', '@t1exp',
+                            'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
+                    'TIMEOUT', '1',)
+        if env.protocol == 2:
+            env.assertEqual(res, ['Timeout limit was reached'])
+        elif env.protocol == 3:
+            env.assertEqual(res['error'], ['Timeout limit was reached'])
+
+    # resp2
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+    test_timeout_env(env)
+
+    # resp3
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL', protocol=3)
+    test_timeout_env(env)
 
 def testGroupProperties(env):
     conn = getConnectionByEnv(env)
