@@ -34,13 +34,13 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
-            return github.rest.repos.getLatestRelease({owner: 'redis', repo: 'redis'});
+            return github.rest.repos.getLatestRelease({owner: 'redis', repo: 'redis'}).data.tag_name;
       - name: Get RedisJSON latest version
         id: get-json-ref
         uses: actions/github-script@v6
         with:
           script: |
-            return github.rest.repos.getLatestRelease({owner: 'RedisJSON', repo: 'RedisJSON'});
+            return github.rest.repos.getLatestRelease({owner: 'RedisJSON', repo: 'RedisJSON'}).data.tag_name;
 
   TEMP-use-version:
     runs-on: ubuntu-latest
