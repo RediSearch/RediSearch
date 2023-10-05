@@ -35,18 +35,14 @@ jobs:
         with:
           result-encoding: string
           script: |
-            var rep = await github.rest.repos.getLatestRelease({owner: 'redis', repo: 'redis'});
-            console.log(rep);
-            console.log(rep.data);
-            console.log(rep.data.tag_name);
-            return rep.data.tag_name;
+            return await github.rest.repos.getLatestRelease({owner: 'redis', repo: 'redis'}).data.tag_name;
       - name: Get RedisJSON latest version
         id: get-json-ref
         uses: actions/github-script@v6
         with:
           result-encoding: string
           script: |
-            return github.rest.repos.getLatestRelease({owner: 'RedisJSON', repo: 'RedisJSON'}).tag_name;
+            return await github.rest.repos.getLatestRelease({owner: 'RedisJSON', repo: 'RedisJSON'}).data.tag_name;
 
   TEMP-use-version:
     runs-on: ubuntu-latest
