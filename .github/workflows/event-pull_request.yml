@@ -22,3 +22,41 @@ jobs:
   sanitize:
     uses: ./.github/workflows/flow-sanitizer.yml
     secrets: inherit
+
+  TEMP-get-latest-versions:
+    runs-on: ubuntu-latest
+    outputs:
+      redis-ref: ${{ steps.get-redis-ref.outputs.result }}
+      json-ref: ${{ steps.get-json-ref.outputs.result }}
+    steps:
+      - name: Get Redis latest version
+        id: get-redis-ref
+        uses: actions/github-script@v6
+        with:
+          script: |
+            return github.rest.repos.getLatestRelease({owner: 'redis', repo: 'redis'});
+      - name: Get RedisJSON latest version
+        id: get-json-ref
+        uses: actions/github-script@v6
+        with:
+          script: |
+            return github.rest.repos.getLatestRelease({owner: 'RedisJSON', repo: 'RedisJSON'});
+
+  TEMP-use-version:
+    runs-on: ubuntu-latest
+    needs: TEMP-get-latest-versions
+    steps:
+      - name: Print Versions
+        run: |
+          echo "Redis: ${{ needs.TEMP-get-latest-versions.outputs.redis-ref }}"
+          echo "RedisJSON: ${{ needs.TEMP-get-latest-versions.outputs.json-ref }}"
+      - name: Checkout Redis
+        uses: actions/checkout@v4
+        with:
+          repository: redis/redis
+          ref: ${{ needs.TEMP-get-latest-versions.outputs.redis-ref }}
+      - name: Checkout RedisJSON
+        uses: actions/checkout@v4
+        with:
+          repository: RedisJSON/RedisJSON
+          ref: ${{ needs.TEMP-get-latest-versions.outputs.json-ref }}
