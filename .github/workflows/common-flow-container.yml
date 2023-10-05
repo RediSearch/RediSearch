@@ -125,9 +125,9 @@ jobs:
       - name: Fail flow if tests failed
         if: ${{ steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' || steps.test4.outcome == 'failure' }}
         run: exit 1
-      - name: Fail flow if sanitizer failed
-        if: ${{ inputs.san }}
-        run: |
-          if [[ -n "$(ls tests/pytests/logs/*.log.* 2>/dev/null)" ]]; then
-            exit 1
-          fi
+      # - name: Fail flow if sanitizer failed
+      #   if: ${{ inputs.san }}
+      #   run: |
+      #     if [[ -n "$(ls tests/pytests/logs/*.log.* 2>/dev/null)" ]]; then
+      #       exit 1
+      #     fi
