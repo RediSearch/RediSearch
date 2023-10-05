@@ -87,7 +87,7 @@ jobs:
       matrix:
         OS: ${{ fromJson(needs.get-required-envs.outputs.platform) }}
       fail-fast: false
-    uses: ./.github/workflows/self-hosted-arm.yml
+    uses: ./.github/workflows/flow-self-hosted-arm.yml
     secrets: inherit
     with:
       container: ${{ matrix.OS }}

@@ -16,9 +16,9 @@ jobs:
     secrets: inherit
 
   coverage:
-    uses: ./.github/workflows/coverage.yml
+    uses: ./.github/workflows/flow-coverage.yml
     secrets: inherit
 
   sanitize:
-    uses: ./.github/workflows/sanitizer.yml
+    uses: ./.github/workflows/flow-sanitizer.yml
     secrets: inherit
