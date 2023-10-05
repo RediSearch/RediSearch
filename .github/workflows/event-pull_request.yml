@@ -35,7 +35,7 @@ jobs:
         with:
           result-encoding: string
           script: |
-            var rep = github.rest.repos.getLatestRelease({owner: 'redis', repo: 'redis'});
+            var rep = await github.rest.repos.getLatestRelease({owner: 'redis', repo: 'redis'});
             console.log(rep);
             console.log(rep.data);
             console.log(rep.data.tag_name);
