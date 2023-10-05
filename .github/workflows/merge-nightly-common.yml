@@ -2,7 +2,7 @@ name: Common Flow for Nightly and PRs
 
 on:
   workflow_call:
-    inputs:
+    inputs: # TODO: Use these inputs for getting the correct branch/version of Redis and RedisJSON for the flow
       redis-ref:
         required: true
         type: string
