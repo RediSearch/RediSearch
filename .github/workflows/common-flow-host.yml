@@ -60,6 +60,15 @@ jobs:
           export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
           ./deps/readies/bin/getredis --with-github-token
 
+      - name: Decide if to continue after failure
+        id: continue-on-error
+        run: |
+          if [[ -z "${{ inputs.san }}" ]]; then
+            echo "decision=true" >> $GITHUB_OUTPUT
+          else
+            echo "decision=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build Standalone
         if: ${{ inputs.standalone }}
         run: make SAN=${{ inputs.san }}
@@ -69,15 +78,19 @@ jobs:
 
       - name: Unit tests (standalone)
         if: ${{ inputs.standalone }}
+        continue-on-error: ${{ steps.continue-on-error.outputs.decision }}
         run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (standalone)
         if: ${{ inputs.standalone }}
+        continue-on-error: ${{ steps.continue-on-error.outputs.decision }}
         run: make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
       - name: Unit tests (coordinator)
         if: ${{ inputs.coordinator }}
+        continue-on-error: ${{ steps.continue-on-error.outputs.decision }}
         run: make COORD=1 unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (coordinator)
         if: ${{ inputs.coordinator }}
+        continue-on-error: ${{ steps.continue-on-error.outputs.decision }}
         run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
 
       - name: Upload Artifacts
