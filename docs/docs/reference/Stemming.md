@@ -30,7 +30,7 @@ redis> FT.CREATE idx:german ON HASH PREFIX 1 "wort:" LANGUAGE GERMAN SCHEMA wort
 
 **Adding words**
 
-Adding some words with same stem in German: `stück stücke stuck stucke` => `stuck`
+Adding some words with same stem in German, all variations of the word `stück` ( `piece` in english): `stück stücke stuck stucke` => `stuck`
 
 {{< highlight bash >}}
 redis> HSET wort:1 wort stück
