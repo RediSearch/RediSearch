@@ -117,10 +117,12 @@ def testIssue3836(env):
     env.assertEqual(res, [1, 'doc1', ['text', 'morfix']])
 
     template = "@text:{0}=>{{$phonetic:true}}"
+    # For RediSearch 2.6 we need to set a minimum timeout of 10000
     poc = [
         "FT.SEARCH",
         "idx",
         template.format("A" * (65535*128)),
+        "TIMEOUT", "20000"
     ]
     res = env.execute_command(*poc)
     env.assertEqual(res, [0])
