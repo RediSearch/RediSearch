@@ -1,7 +1,6 @@
 name: Coverage analysis
 
 on:
-  workflow_dispatch:
   workflow_call:
 
 jobs:
