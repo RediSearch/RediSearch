@@ -8,7 +8,7 @@ description: >
 
 # Stemming and Multi-language Support
 
-RediSearch supports stemming - that is adding the base form of a word to the index. This allows the query for "`going`" to also return results for "`go`" and "`gone`", for example.
+RediSearch supports stemming - that is adding the base form of a word to the index. This allows the query for "`hiring`" to also return results for "`hire`" and "`hired`", for example.
 
 The current stemming support is based on the Snowball stemmer library, which supports most European languages, as well as Arabic and other. See the "[Supported languages](#supported-languages)" section below. We hope to include more languages soon (if you need a specific language support, please open an issue).
 
