@@ -12,11 +12,7 @@
 
 
 static inline bool is_resp3(RedisModuleCtx *ctx) {
-    int ctxFlags = RedisModule_GetContextFlags(ctx);
-    if (ctxFlags & REDISMODULE_CTX_FLAGS_RESP3) {
-        return true;
-    }
-    return false;
+    return RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_RESP3;
 }
 
 #define _ReplyMap(ctx) (RedisModule_ReplyWithMap != NULL && is_resp3(ctx))
