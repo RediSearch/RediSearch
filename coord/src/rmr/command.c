@@ -193,6 +193,7 @@ MRCommand MRCommand_Copy(const MRCommand *cmd) {
   MRCommand_Init(&ret, cmd->num);
   ret.id = cmd->id;
   ret.protocol = cmd->protocol;
+  ret.forCursor = cmd->forCursor;
 
   for (int i = 0; i < cmd->num; i++) {
     copyStr(&ret, i, cmd, i);
