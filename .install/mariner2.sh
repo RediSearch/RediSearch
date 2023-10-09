@@ -6,9 +6,9 @@ tdnf install -q -y build-essential git wget ca-certificates tar openssl-devel \
 pip install -q --upgrade setuptools
 pip install -q --upgrade pip
 pwd
-ls -alh tests/pytest/requirements.txt
+ls -alh tests/pytests/requirements.txt
 whoami
-pip install -q -r tests/pytest/requirements.txt
+pip install -q -r tests/pytests/requirements.txt
 
 # These packages are needed to build the package
 pip install -q addict toml jinja2 ramp-packer
