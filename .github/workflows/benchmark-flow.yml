@@ -71,10 +71,9 @@ jobs:
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
         timeout-minutes: 60 # timeout for the step
         working-directory: tests/benchmarks
-        continue-on-error: true # why?
         env:
           # Hard-coded
-          ROOT: $PWD/../..
+          ROOT: "`pwd`/../.."
           PERF_CALLGRAPH_MODE: dwarf
           MAX_PROFILERS: 3
           # Secrets
