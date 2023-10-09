@@ -68,7 +68,7 @@ jobs:
         run: MODULE_FILE=bin/REJSON_PATH ./sbin/get-redisjson
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
-        timeout-minutes: 60 # timeout for the step
+        timeout-minutes: 120 # timeout for the step
         working-directory: tests/benchmarks
         continue-on-error: true
         env:
