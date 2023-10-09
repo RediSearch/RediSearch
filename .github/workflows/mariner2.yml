@@ -30,8 +30,8 @@ jobs:
           bash .install/mariner2.sh
       - name: Build RedisSearch
         run: |
-          make conan SHOW=1
-          make build REDISEARCH_MT_BUILD=0 SHOW=1
+          make conan SHOW=1 BRANCH=${{ github.ref_name }}
+          make build REDISEARCH_MT_BUILD=0 SHOW=1 BRANCH=${{ github.ref_name }}
       - name: Get Redis
         uses: actions/checkout@v4
         with:
@@ -43,8 +43,8 @@ jobs:
         run: make install
       - name: Test
         run: |
-          make build VARIANT=mt-oss SHOW=1
-          make build COORD=oss SHOW=1
+          make build VARIANT=mt-oss SHOW=1 BRANCH=${{ github.ref_name }}
+          make build COORD=oss SHOW=1 BRANCH=${{ github.ref_name }}
           make test REDISEARCH_MT_BUILD=0 PLATFORM_MODE=1 QUICK=1
           make test VARIANT=mt-oss PLATFORM_MODE=1 QUICK=1
           make test COORD=oss PLATFORM_MODE=1 QUICK=1
