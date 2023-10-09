@@ -2,7 +2,16 @@ name: Run RediSearch Benchmarks
 
 on:
   workflow_dispatch:
+    inputs:
+      extended:
+        type: boolean
+        description: 'Run extended benchmarks'
+        default: false
   workflow_call:
+    inputs:
+      extended:
+        type: boolean
+        default: false
 
 jobs:
   benchmark-search-oss-standalone:
@@ -89,6 +98,7 @@ jobs:
 
 
   benchmark-search-oss-cluster-20-primaries:
+    if: inputs.extended
     strategy:
       matrix:
         member_id: [1]
@@ -105,6 +115,7 @@ jobs:
 
 
   benchmark-search-oss-cluster-24-primaries:
+    if: inputs.extended
     strategy:
       matrix:
         member_id: [1]
