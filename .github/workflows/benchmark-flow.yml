@@ -18,7 +18,7 @@ on:
         default: "*.yml"
       triggering_env:
         type: string
-        default: "github-actions"
+        default: "circleci" # TODO: change to "github-actions" when ready on grafana
       allowed_envs:
         type: string
         default: "oss-standalone"
@@ -58,7 +58,6 @@ jobs:
             COORD=${{ inputs.cluster_env }}
             PROFILE=${{ inputs.profile_env }}
             REDISEARCH_MT_BUILD=0
-            NPROC=16
             SHOW=1
       - name: Prepare automation
         run: |
@@ -73,22 +72,22 @@ jobs:
         timeout-minutes: 60 # timeout for the step
         working-directory: tests/benchmarks
         continue-on-error: true # why?
-        run:
-          export ROOT=$PWD/../..                                                              &&
-          export PERF_CALLGRAPH_MODE="dwarf"                                                  &&
-          export MAX_PROFILERS=3                                                              &&
-          export PROFILE=${{ inputs.profile_env }}                                            &&
-
-          export AWS_ACCESS_KEY_ID=$PERFORMANCE_EC2_ACCESS_KEY                                &&
-          export AWS_SECRET_ACCESS_KEY=$PERFORMANCE_EC2_SECRET_KEY                            &&
-          export AWS_DEFAULT_REGION=$PERFORMANCE_EC2_REGION                                   &&
-          export EC2_PRIVATE_PEM=$PERFORMANCE_EC2_PRIVATE_PEM                                 &&
-
-          export BENCHMARK_GLOB=${{ inputs.benchmark_glob }}                                  &&
-          export BENCHMARK_RUNNER_GROUP_M_ID=${{ inputs.benchmark_runner_group_member_id }}   &&
-          export BENCHMARK_RUNNER_GROUP_TOTAL=${{ inputs.benchmark_runner_group_total }}      &&
-
-          redisbench-admin run-remote
+        env:
+          # Hard-coded
+          ROOT: $PWD/../..
+          PERF_CALLGRAPH_MODE: dwarf
+          MAX_PROFILERS: 3
+          # Secrets
+          AWS_ACCESS_KEY_ID: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.PERFORMANCE_EC2_REGION }}
+          EC2_PRIVATE_PEM: ${{ secrets.PERFORMANCE_EC2_PRIVATE_PEM }}
+          # Inputs
+          PROFILE: ${{ inputs.profile_env }}
+          BENCHMARK_GLOB: ${{ inputs.benchmark_glob }}
+          BENCHMARK_RUNNER_GROUP_M_ID: ${{ inputs.benchmark_runner_group_member_id }}
+          BENCHMARK_RUNNER_GROUP_TOTAL: ${{ inputs.benchmark_runner_group_total }}
+        run: redisbench-admin run-remote
               --module_path $(cat $ROOT/bin/REJSON_PATH)
               --module_path $ROOT/${{ inputs.module_path }}
               --github_actor ${{ github.triggering_actor }}
