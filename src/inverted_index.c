@@ -124,6 +124,10 @@ void TermReader_OnReopen(void *privdata) {
 
 void IndexReader_OnReopen(void *privdata) {
   IndexReader *ir = privdata;
+  if (IR_IS_AT_END(ir)) {
+    // Save time and state if we are already at the end
+    return;
+  }
   // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
   if (ir->gcMarker == ir->idx->gcMarker) {
     // no GC - we just go to the same offset we were at
