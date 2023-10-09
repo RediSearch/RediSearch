@@ -138,7 +138,8 @@ jobs:
     secrets: inherit
     with:
       profile_env: 1
-      triggering_env: "github-actions.profilers" # results generated with profilers attached are not mixed with the ones without it
+      # TODO: change to "github-actions.profilers" when ready on grafana
+      triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
       module_path: bin/linux-x64-release-profile/search/redisearch.so
       benchmark_glob: "search*.yml"
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
@@ -153,7 +154,8 @@ jobs:
     secrets: inherit
     with:
       profile_env: 1
-      triggering_env: "github-actions.profilers" # results generated with profilers attached are not mixed with the ones without it
+      # TODO: change to "github-actions.profilers" when ready on grafana
+      triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
       module_path: bin/linux-x64-release-profile/search/redisearch.so
       benchmark_glob: "vecsim*.yml"
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
