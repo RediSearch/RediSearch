@@ -122,8 +122,7 @@ void TermReader_OnReopen(void *privdata) {
   IndexReader_OnReopen(ir);
 }
 
-void IndexReader_OnReopen(void *privdata) {
-  IndexReader *ir = privdata;
+void IndexReader_OnReopen(IndexReader *ir) {
   if (IR_IS_AT_END(ir)) {
     // Save time and state if we are already at the end
     return;
