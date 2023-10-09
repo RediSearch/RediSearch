@@ -188,7 +188,6 @@ typedef struct {
   MRCommand cmd;
   MRCommandGenerator cg;
   AREQ *areq;
-  struct timespec timeout;
 
   // profile vars
   MRReply **shardsProfile;
@@ -297,7 +296,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
         return RS_RESULT_EOF;
       }
 
-      if(TimedOut(&nc->timeout)) {
+      if(TimedOut(&self->parent->sctx->timeout)) {
         return RS_RESULT_TIMEDOUT;
       }
 
@@ -403,7 +402,6 @@ static RPNet *RPNet_New(const MRCommand *cmd, SearchCluster *sc, struct timespec
   nc->cmd = *cmd;
   nc->cg = SearchCluster_MultiplexCommand(sc, &nc->cmd);
   nc->areq = NULL;
-  nc->timeout = timeout;
   nc->shardsProfileIdx = 0;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
