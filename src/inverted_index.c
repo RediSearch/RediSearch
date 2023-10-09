@@ -101,11 +101,10 @@ static void IR_SetAtEnd(IndexReader *r, int value) {
 
 /* A callback called from the ConcurrentSearchCtx after regaining execution and reopening the
  * underlying term key. We check for changes in the underlying key, or possible deletion of it */
-void IndexReader_OnReopen(void *privdata) {
-
+void TermReader_OnReopen(void *privdata) {
   IndexReader *ir = privdata;
   if (ir->record->type == RSResultType_Term) {
-    // we need to reopen the inverted index to make sure its stil valid.
+    // we need to reopen the inverted index to make sure its still valid.
     // the GC might have deleted it by now.
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, (IndexSpec *)ir->sp);
     InvertedIndex *idx = Redis_OpenInvertedIndexEx(&sctx, ir->record->term.term->str,
@@ -120,6 +119,11 @@ void IndexReader_OnReopen(void *privdata) {
     }
   }
 
+  IndexReader_OnReopen(ir);
+}
+
+void IndexReader_OnReopen(void *privdata) {
+  IndexReader *ir = privdata;
   // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
   if (ir->gcMarker == ir->idx->gcMarker) {
     // no GC - we just go to the same offset we were at
