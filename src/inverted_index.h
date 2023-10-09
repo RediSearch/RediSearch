@@ -167,6 +167,10 @@ typedef struct IndexReader {
   uint32_t gcMarker;
 } IndexReader;
 
+// On Reopen callback for term index
+void TermReader_OnReopen(void *privdata);
+
+// On Reopen callback for common use
 void IndexReader_OnReopen(void *privdata);
 
 /* An index encoder is a callback that writes records to the index. It accepts a pre-calculated
