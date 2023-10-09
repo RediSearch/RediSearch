@@ -4,5 +4,5 @@ deepdiff
 conan
 
 # redis ~= 4.5.0
-# RLTest ~= 0.6.0
+RLTest ~= 0.7.2
 # ramp-packer ~= 2.5.2
