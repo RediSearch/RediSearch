@@ -230,6 +230,8 @@ int IR_Next(void *ctx);
  */
 int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 
+void IR_Rewind(void *ctx);
+
 RSIndexResult *IR_Current(void *ctx);
 
 /* The number of docs in an inverted index entry */
