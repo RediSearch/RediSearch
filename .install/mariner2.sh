@@ -8,7 +8,7 @@ pip install -q --upgrade pip
 pip install -q -r tests/pytest/requirements.txt
 
 # These packages are needed to build the package
-pip install -q addict toml jinja2 ramp-packer
+pip install -q addict toml jinja2 ramp-packer conan
 
 # List installed packages
 pip list

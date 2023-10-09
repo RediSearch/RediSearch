@@ -1,7 +1,6 @@
 packaging >= 20.8
 gevent
 deepdiff
-conan
 
 # redis ~= 4.5.0
 # RLTest ~= 0.6.0
