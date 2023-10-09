@@ -96,9 +96,12 @@ jobs:
               --github_branch ${{ github.head_ref || github.ref_name }}
               --upload_results_s3
               --triggering_env ${{ inputs.triggering_env }}
-              --push_results_redistimeseries
               --allowed-envs ${{ inputs.allowed_envs }}
               --allowed-setups ${{ inputs.allowed_setups }}
+              --push_results_redistimeseries
+              --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
+              --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
+              --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
       - name: Generate Pull Request Performance info
         if: github.event.number
         run: redisbench-admin compare
@@ -106,3 +109,6 @@ jobs:
               --comparison-branch ${{ github.head_ref || github.ref_name }}
               --auto-approve
               --pull-request ${{ github.event.number }}
+              --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
+              --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
+              --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
