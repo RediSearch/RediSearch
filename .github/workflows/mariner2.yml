@@ -1,0 +1,65 @@
+name: Build for mariner2
+
+on:
+  push
+  # push:
+  #   branches:
+  #     - master
+  #   tags:
+  #     - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    container:
+      image: mcr.microsoft.com/cbl-mariner/base/core:2.0
+    steps:
+      - name: Install prereqs
+        run: |
+          tdnf install --noplugins --skipsignature -y ca-certificates
+          tdnf install -q -y git
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - name: Install dependencies
+        run: |
+          bash .install/mariner2.sh
+      - name: Get Redis
+        uses: actions/checkout@v4
+        with:
+          repository: redis/redis
+          ref: '7.2.1'
+          path: redis
+      - name: Build Redis
+        working-directory: redis
+        run: make install
+      - name: Build
+        run: |
+          make conan SHOW=1
+          make build REDISEARCH_MT_BUILD=0 SHOW=1
+      - name: Test
+        run: |
+          make build VARIANT=mt-oss SHOW=1
+          make build COORD=oss SHOW=1
+          make test REDISEARCH_MT_BUILD=0 PLATFORM_MODE=1 QUICK=1
+          make test VARIANT=mt-oss PLATFORM_MODE=1 QUICK=1
+          make test COORD=oss PLATFORM_MODE=1 QUICK=1
+      - name: Pack module
+        run: |
+          make pack BRANCH=${{ github.ref_name }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: "us-east-1"
+      - name: Upload artifacts to S3 - staging
+        run: |
+          make upload-artifacts SHOW=1 STAGING=1 VERBOSE=1
+      # - name: Upload artifacts to S3 - release  # todo: trigger this manually instead
+      #   if: ${{ github.ref != 'refs/heads/master' }}
+      #   run: make upload-artifacts SHOW=1 VERBOSE=1
