@@ -1275,11 +1275,6 @@ static int hasQuerySortby(const AGGPlan *pln) {
  * subsequent execution stages actually have data to operate on.
  */
 static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
-  RedisSearchCtx *sctx = req->sctx;
-  req->qiter.conc = &req->conc;
-  req->qiter.sctx = sctx;
-  req->qiter.err = Status;
-
   IndexSpecCache *cache = IndexSpec_GetSpecCache(req->sctx->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
   RLookup *first = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_FIRST);
@@ -1371,6 +1366,11 @@ error:
 }
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+  RedisSearchCtx *sctx = req->sctx;
+  req->qiter.conc = &req->conc;
+  req->qiter.sctx = sctx;
+  req->qiter.err = status;
+
   if (!(req->reqflags & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     buildImplicitPipeline(req, status);
     if (status->code != QUERY_OK) {
@@ -1383,7 +1383,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
 
   // If we have a JSON spec, and an "old" API version (DIALECT < 3), we don't store all the data of a multi-value field
   // in the SV as we want to return it, so we need to load and override all requested return fields that are SV source.
-  uint32_t loadFlags = req->sctx && isSpecJson(req->sctx->spec) && (req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST) ?
+  uint32_t loadFlags = req->sctx && req->sctx->spec && isSpecJson(req->sctx->spec) && (req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST) ?
                        RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NOFLAGS;
 
   // Whether we've applied a SORTBY yet..

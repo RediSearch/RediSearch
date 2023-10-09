@@ -606,6 +606,14 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Set the timeout
   updateTimeout(&r->timeoutTime, r->reqConfig.queryTimeoutMS);
 
+  // Create the Search context
+  // (notice with cursor, we rely on the existing mechanism of AREQ to free the ctx object when the cursor is exhausted)
+  r->sctx = rm_new(RedisSearchCtx);
+  *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
+  r->sctx->apiVersion = dialect;
+  r->sctx->timeout = r->timeoutTime;
+  // r->sctx->expanded should be received from shards
+
   rc = AGGPLN_Distribute(&r->ap, &status);
   if (rc != REDISMODULE_OK) goto err;
 
@@ -624,14 +632,6 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   buildDistRPChain(r, &xcmd, sc, &us);
 
   if (IsProfile(r)) r->parseTime = clock() - r->initClock;
-
-  // Create the Search context
-  // (notice with cursor, we rely on the existing mechanism of AREQ to free the ctx object when the cursor is exhausted)
-  r->sctx = rm_new(RedisSearchCtx);
-  *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
-  r->sctx->apiVersion = dialect;
-  r->sctx->timeout = r->timeoutTime;
-  // r->sctx->expanded should be received from shards
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
     // Keep the original concurrent context
