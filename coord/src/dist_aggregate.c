@@ -242,7 +242,7 @@ static void rpnetFree(ResultProcessor *rp) {
   // the iterator might not be done - some producers might still be sending data, let's wait for
   // them...
   if (nc->it) {
-    MRIterator_WaitDone(nc->it, nc->areq->reqflags & QEXEC_F_IS_CURSOR);
+    MRIterator_WaitDone(nc->it, nc->cmd.forCursor);
   }
 
   nc->cg.Free(nc->cg.ctx);
