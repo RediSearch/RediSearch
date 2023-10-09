@@ -979,10 +979,11 @@ def testResultCounter(env):
     #env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([0])
 
 def test_aggregate_timeout():
+    if VALGRIND:
+        # You don't want to run this under valgrind, it will take forever
+        raise unittest.SkipTest("Skipping timeout test under valgrind")
+
     def test_timeout_env(env):
-        if VALGRIND:
-            # You don't want to run this under valgrind, it will take forever
-            raise unittest.SkipTest("Skipping timeout test under valgrind")
         conn = getConnectionByEnv(env)
         conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
         nshards = env.shardsCount
