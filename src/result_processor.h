@@ -89,8 +89,6 @@ typedef struct {
   // Object which contains the error
   QueryError *err;
 
-  struct timespec startTime;
-
   RSTimeoutPolicy timeoutPolicy;
 } QueryIterator, QueryProcessingCtx;
 
