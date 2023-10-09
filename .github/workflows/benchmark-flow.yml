@@ -73,7 +73,6 @@ jobs:
         working-directory: tests/benchmarks
         env:
           # Hard-coded
-          ROOT: "`pwd`/../.."
           PERF_CALLGRAPH_MODE: dwarf
           MAX_PROFILERS: 3
           # Secrets
@@ -87,8 +86,8 @@ jobs:
           BENCHMARK_RUNNER_GROUP_M_ID: ${{ inputs.benchmark_runner_group_member_id }}
           BENCHMARK_RUNNER_GROUP_TOTAL: ${{ inputs.benchmark_runner_group_total }}
         run: redisbench-admin run-remote
-              --module_path $(cat $ROOT/bin/REJSON_PATH)
-              --module_path $ROOT/${{ inputs.module_path }}
+              --module_path $(cat ../../bin/REJSON_PATH)
+              --module_path ../../${{ inputs.module_path }}
               --github_actor ${{ github.triggering_actor }}
               --github_repo ${{ github.event.repository.name }}
               --github_org ${{ github.repository_owner }}
