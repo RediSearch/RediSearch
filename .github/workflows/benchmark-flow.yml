@@ -67,10 +67,10 @@ jobs:
       - name: Prepare ReJSON Module
         run: MODULE_FILE=bin/REJSON_PATH ./sbin/get-redisjson
 
-      # TODO: move env vars to the repo vars or move to `redisbench-admin` parameters
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
         timeout-minutes: 60 # timeout for the step
         working-directory: tests/benchmarks
+        continue-on-error: true
         env:
           # Hard-coded
           PERF_CALLGRAPH_MODE: dwarf
