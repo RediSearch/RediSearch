@@ -203,12 +203,10 @@ static void TagReader_OnReopen(void *privdata) {
       // if there has been a GC cycle on this key while we were asleep, the offset might not be
       // valid anymore. This means that we need to seek to last docId we were at
 
-      // reset the state of the reader
+      // keep the last docId we were at
       t_docId lastId = ir->lastId;
-      ir->currentBlock = 0;
-      ir->br = NewBufferReader(&ir->idx->blocks[ir->currentBlock].buf);
-      ir->lastId = 0;
-
+      // reset the state of the reader
+      IR_Rewind(ir);
       // seek to the previous last id
       RSIndexResult *dummy = NULL;
       IR_SkipTo(ir, lastId, &dummy);
