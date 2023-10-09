@@ -192,25 +192,8 @@ static void TagReader_OnReopen(void *privdata) {
         return;
       }
     }
-
-    // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
-    if (ir->gcMarker == ir->idx->gcMarker) {
-      // no GC - we just go to the same offset we were at
-      size_t offset = ir->br.pos;
-      ir->br = NewBufferReader(&ir->idx->blocks[ir->currentBlock].buf);
-      ir->br.pos = offset;
-    } else {
-      // if there has been a GC cycle on this key while we were asleep, the offset might not be
-      // valid anymore. This means that we need to seek to last docId we were at
-
-      // keep the last docId we were at
-      t_docId lastId = ir->lastId;
-      // reset the state of the reader
-      IR_Rewind(ir);
-      // seek to the previous last id
-      RSIndexResult *dummy = NULL;
-      IR_SkipTo(ir, lastId, &dummy);
-    }
+    // Use generic `OnReopen` callback for all readers
+    IndexReader_OnReopen(ir);
   }
 }
 
