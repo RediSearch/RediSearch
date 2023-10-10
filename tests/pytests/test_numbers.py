@@ -176,7 +176,6 @@ def testOverrides(env):
         env.assertEqual(0, numeric_tree['emptyLeaves'], message = "expected emptyLeaves")
         env.assertEqual(expected_root_max_depth, numeric_tree['RootMaxDepth'], message = "expected RootMaxDepth")
 
-
 def testCompression(env):
 	accuracy = 0.000001
 	repeat = int(math.sqrt(1 / accuracy))
