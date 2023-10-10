@@ -288,7 +288,7 @@ def testCursorOnCoordinator(env):
                 return monitor.next_command()['command']
             except ValueError:
                 return next_command()
-        res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 100)
+        res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 100, 'TIMEOUT', '0')
         add_results(res)
         while cursor:
             res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
