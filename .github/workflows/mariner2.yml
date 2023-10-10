@@ -28,9 +28,11 @@ jobs:
       - name: Install dependencies
         run: |
           bash .install/mariner2.sh
+      - name: Build Conan library
+        run: |
+          make conan SHOW=1
       - name: Build RedisSearch
         run: |
-          make conan SHOW=1 BRANCH=${{ github.ref_name }}
           make build REDISEARCH_MT_BUILD=0 SHOW=1 BRANCH=${{ github.ref_name }}
       - name: Get Redis
         uses: actions/checkout@v4

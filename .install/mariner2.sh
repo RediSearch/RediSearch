@@ -2,6 +2,7 @@
 
 tdnf install -q -y build-essential git wget ca-certificates tar openssl-devel \
     cmake python3 python3-pip which unzip
+git config --global --add safe.directory $PWD
 
 pip install -q --upgrade setuptools
 pip install -q --upgrade pip
@@ -17,6 +18,6 @@ pip list
 curdir="$PWD"
 cd /tmp/
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip awscliv2.zip
+unzip -q awscliv2.zip
 ./aws/install
 cd $curdir
