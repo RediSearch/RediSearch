@@ -177,6 +177,10 @@ def dump_numeric_index_tree_root(env, idx, numeric_field):
                  for i in range(0, len(tree_root_stats), 2)}
     return root_dump
 
+def numeric_tree_summary(env, idx, numeric_field):
+    res = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', idx, numeric_field)
+    tree_summary = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+    return tree_summary
 
 def skipOnExistingEnv(env):
     if 'existing' in env.env:
