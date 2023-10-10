@@ -28,12 +28,6 @@ jobs:
       - name: Install dependencies
         run: |
           bash .install/mariner2.sh
-      - name: Build Conan library
-        run: |
-          make conan SHOW=1
-      - name: Build RedisSearch
-        run: |
-          make build REDISEARCH_MT_BUILD=0 SHOW=1
       - name: Get Redis
         uses: actions/checkout@v4
         with:
@@ -43,10 +37,20 @@ jobs:
       - name: Build Redis
         working-directory: redis
         run: make install
-      - name: Test
+      - name: Build Conan library
+        run: |
+          make conan SHOW=1
+      - name: Build RedisSearch
+        run: |
+          make build REDISEARCH_MT_BUILD=0 SHOW=1
+      - name: Build VARIANT=mt-oss
         run: |
           make build VARIANT=mt-oss SHOW=1
+      - name: Build COORD=oss
+        run: |
           make build COORD=oss SHOW=1
+      - name: Test
+        run: |
           make test REDISEARCH_MT_BUILD=0 PLATFORM_MODE=1 QUICK=1
           make test VARIANT=mt-oss PLATFORM_MODE=1 QUICK=1
           make test COORD=oss PLATFORM_MODE=1 QUICK=1
