@@ -38,7 +38,7 @@ QINT_API size_t qint_encode(BufferWriter *bw, uint32_t arr[], int len) {
     leading |= (((n - 1) & 0x03) << i * 2);
   }
 
-  Buffer_WriteAt(bw, pos, &leading, 1);
+  ret += Buffer_WriteAt(bw, pos, &leading, 1);
   return ret;
 }
 
@@ -65,51 +65,51 @@ inline size_t __qint_encode(char *leading, BufferWriter *bw, uint32_t i, int off
 
 /* Encode one number ... */
 QINT_API size_t qint_encode1(BufferWriter *bw, uint32_t i) {
-  size_t ret = 1;
+  size_t ret = 0;
   char leading = 0;
   size_t pos = Buffer_Offset(bw->buf);
-  Buffer_Write(bw, "\0", 1);
+  ret += Buffer_Write(bw, "\0", 1);
   ret += __qint_encode(&leading, bw, i, 0);
-  Buffer_WriteAt(bw, pos, &leading, 1);
+  ret += Buffer_WriteAt(bw, pos, &leading, 1);
   return ret;
 }
 
 /* Encode two integers with one leading byte. return the size of the encoded data written */
 QINT_API size_t qint_encode2(BufferWriter *bw, uint32_t i1, uint32_t i2) {
-  size_t ret = 1;
+  size_t ret = 0;
   char leading = 0;
   size_t pos = Buffer_Offset(bw->buf);
-  Buffer_Write(bw, "\0", 1);
+  ret += Buffer_Write(bw, "\0", 1);
   ret += __qint_encode(&leading, bw, i1, 0);
   ret += __qint_encode(&leading, bw, i2, 1);
-  Buffer_WriteAt(bw, pos, &leading, 1);
+  ret += Buffer_WriteAt(bw, pos, &leading, 1);
   return ret;
 }
 
 /* Encode three integers with one leading byte. return the size of the encoded data written */
 QINT_API size_t qint_encode3(BufferWriter *bw, uint32_t i1, uint32_t i2, uint32_t i3) {
-  size_t ret = 1;
+  size_t ret = 0;
   char leading = 0;
   size_t pos = Buffer_Offset(bw->buf);
-  Buffer_Write(bw, "\0", 1);
+  ret += Buffer_Write(bw, "\0", 1);
   ret += __qint_encode(&leading, bw, i1, 0);
   ret += __qint_encode(&leading, bw, i2, 1);
   ret += __qint_encode(&leading, bw, i3, 2);
-  Buffer_WriteAt(bw, pos, &leading, 1);
+  ret += Buffer_WriteAt(bw, pos, &leading, 1);
   return ret;
 }
 
 /* Encode 4 integers with one leading byte. return the size of the encoded data written */
 QINT_API size_t qint_encode4(BufferWriter *bw, uint32_t i1, uint32_t i2, uint32_t i3, uint32_t i4) {
-  size_t ret = 1;
+  size_t ret = 0;
   char leading = 0;
   size_t pos = Buffer_Offset(bw->buf);
-  Buffer_Write(bw, "\0", 1);
+  ret += Buffer_Write(bw, "\0", 1);
   ret += __qint_encode(&leading, bw, i1, 0);
   ret += __qint_encode(&leading, bw, i2, 1);
   ret += __qint_encode(&leading, bw, i3, 2);
   ret += __qint_encode(&leading, bw, i4, 3);
-  Buffer_WriteAt(bw, pos, &leading, 1);
+  ret += Buffer_WriteAt(bw, pos, &leading, 1);
 
   return ret;
 }

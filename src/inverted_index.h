@@ -92,9 +92,6 @@ void InvertedIndex_Free(void *idx);
 #define IndexBlock_DataBuf(b) (b)->buf.data
 #define IndexBlock_DataLen(b) (b)->buf.offset
 
-int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock,
-                         IndexRepairParams *params);
-
 /**
  * Decode a single record from the buffer reader. This function is responsible for:
  * (1) Decoding the record at the given position of br

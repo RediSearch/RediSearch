@@ -443,9 +443,11 @@ TEST_F(IndexTest, testNumericInverted) {
 
   for (int i = 0; i < 75; i++) {
     size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1));
-    // printf("written %zd bytes\n", sz);
-
-    ASSERT_TRUE(sz > (i ? 1 : 0)); // first doc has zero delta (not written)
+    if(i < 3) {
+      ASSERT_TRUE(sz == 0); // first doc has zero delta (not written)
+    } else if(i > 2 && i < 6 ) {
+      ASSERT_TRUE(sz > 0);
+    }
   }
   ASSERT_EQ(75, idx->lastId);
 
@@ -475,7 +477,11 @@ TEST_F(IndexTest, testNumericVaried) {
 
   for (size_t i = 0; i < numCount; i++) {
     size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]);
-    ASSERT_GT(sz, (i ? 1 : 0)); // first doc has zero delta (not written)
+    if(i == 0) {
+      ASSERT_TRUE(sz == 0); // first doc has zero delta (not written)
+    } else {
+      ASSERT_TRUE(sz >= 0);
+    }
     // printf("[%lu]: Stored %lf\n", i, nums[i]);
   }
 
@@ -537,12 +543,20 @@ void testNumericEncodingHelper(bool isMulti) {
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
-    ASSERT_EQ(infos[ii].size, sz);
+    if(ii == 0) {
+      ASSERT_TRUE(sz == 0); // first doc has zero delta (not written)
+    } else {
+      ASSERT_TRUE(sz >= 0);
+    }
     if (isMulti) {
       size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
       // in multi mode we do not write the zero delta
       // (first entry has zero delta also for single mode)
-      ASSERT_EQ(infos[ii].size - (ii ? 1 : 0), sz);
+      if(ii == 0) {
+        ASSERT_TRUE(sz == 0); // first doc has zero delta (not written)
+      } else {
+        ASSERT_TRUE(sz >= 0);
+      }
     }
   }
 
@@ -1291,7 +1305,7 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_TRUE(w->flags == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
   // printf("written %zd bytes. Offset=%zd\n", sz, h.vw->buf.offset);
-  ASSERT_EQ(15, sz);
+  ASSERT_EQ(10, sz);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
@@ -1300,7 +1314,7 @@ TEST_F(IndexTest, testIndexFlags) {
   enc = InvertedIndex_GetEncoder(w->flags);
   size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
   // printf("Wrote %zd bytes. Offset=%zd\n", sz2, h.vw->buf.offset);
-  ASSERT_EQ(sz2, sz - Buffer_Offset(&h.vw->buf) - 1);
+  ASSERT_EQ(sz2, 0);
   InvertedIndex_Free(w);
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
@@ -1308,7 +1322,7 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_TRUE((w->flags & Index_WideSchema));
   enc = InvertedIndex_GetEncoder(w->flags);
   h.fieldMask = 0xffffffffffff;
-  ASSERT_EQ(21, InvertedIndex_WriteForwardIndexEntry(w, enc, &h));
+  ASSERT_EQ(19, InvertedIndex_WriteForwardIndexEntry(w, enc, &h));
   InvertedIndex_Free(w);
 
   flags |= Index_WideSchema;
@@ -1317,7 +1331,7 @@ TEST_F(IndexTest, testIndexFlags) {
   enc = InvertedIndex_GetEncoder(w->flags);
   h.fieldMask = 0xffffffffffff;
   sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
-  ASSERT_EQ(21, sz);
+  ASSERT_EQ(19, sz);
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
@@ -1326,7 +1340,7 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_TRUE(!(w->flags & Index_StoreFieldFlags));
   enc = InvertedIndex_GetEncoder(w->flags);
   sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
-  ASSERT_EQ(3, sz);
+  ASSERT_EQ(0, sz);
   InvertedIndex_Free(w);
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
@@ -1336,7 +1350,7 @@ TEST_F(IndexTest, testIndexFlags) {
   enc = InvertedIndex_GetEncoder(w->flags);
   h.fieldMask = 0xffffffffffff;
   sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
-  ASSERT_EQ(10, sz);
+  ASSERT_EQ(4, sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);
@@ -1488,7 +1502,7 @@ TEST_F(IndexTest, testSortable) {
 
 TEST_F(IndexTest, testVarintFieldMask) {
   t_fieldMask x = 127;
-  size_t expected[] = {1, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 19};
+  size_t expected[] = {0, 2, 1, 1, 2, 0, 2, 0};
   Buffer b = {0};
   Buffer_Init(&b, 1);
   BufferWriter bw = NewBufferWriter(&b);

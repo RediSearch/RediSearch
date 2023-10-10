@@ -128,12 +128,13 @@ int TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data
   return ret;
 }
 
-struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_t len, int create) {
+struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_t len, int create, size_t *sz) {
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
   if (iv == TRIEMAP_NOTFOUND) {
     if (create) {
       iv = NewInvertedIndex(Index_DocIdsOnly, 1);
       TrieMap_Add(idx->values, (char *)value, len, iv, NULL);
+      (*sz) += INDEX_BLOCK_INITIAL_CAP;
     }
   }
   return iv;
@@ -141,11 +142,11 @@ struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_
 
 /* Ecode a single docId into a specific tag value */
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
-
+  size_t sz = 0;
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
   RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
-  InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, 1);
-  return InvertedIndex_WriteEntryGeneric(iv, enc, docId, &rec);
+  InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, 1, &sz);
+  return InvertedIndex_WriteEntryGeneric(iv, enc, docId, &rec) + sz;
 }
 
 /* Index a vector of pre-processed tags for a docId */
@@ -179,10 +180,11 @@ static void TagReader_OnReopen(void *privdata) {
   for (size_t ii = 0; ii < nits; ++ii) {
     IndexReader *ir = its[ii]->ctx;
     if (ir->record->type == RSResultType_Term) {
+      size_t sz = 0;
       // we need to reopen the inverted index to make sure its still valid.
       // the GC might have deleted it by now.
       InvertedIndex *idx = TagIndex_OpenIndex(ctx->idx, ir->record->term.term->str,
-                                                    ir->record->term.term->len, 0);
+                                                    ir->record->term.term->len, 0, &sz);
       if (idx == TRIEMAP_NOTFOUND || ir->idx != idx) {
         // the inverted index was collected entirely by GC, lets stop searching.
         // notice, it might be that a new inverted index was created, we will not

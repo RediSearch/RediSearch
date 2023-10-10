@@ -246,6 +246,7 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = InvertedIndex_Free;
   kdv->p = NewInvertedIndex(ctx->spec->flags, 1);
+  ctx->spec->stats.invertedSize += INDEX_BLOCK_INITIAL_CAP;
   dictAdd(ctx->spec->keysDict, termKey, kdv);
   return kdv->p;
 }
@@ -276,6 +277,7 @@ InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, 
         }
         idx = NewInvertedIndex(ctx->spec->flags, 1);
         RedisModule_ModuleTypeSetValue(k, InvertedIndexType, idx);
+        ctx->spec->stats.invertedSize += INDEX_BLOCK_INITIAL_CAP;
       }
     } else if (kType == REDISMODULE_KEYTYPE_MODULE &&
                RedisModule_ModuleTypeGetType(k) == InvertedIndexType) {

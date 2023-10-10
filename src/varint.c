@@ -60,8 +60,9 @@ size_t WriteVarint(uint32_t value, BufferWriter *w) {
   varintBuf varint;
   size_t pos = varintEncode(value, varint);
   size_t nw = VARINT_LEN(pos);
+  size_t mem_growth = 0;
 
-  if (Buffer_Reserve(w->buf, nw)) {
+  if(!!(mem_growth = Buffer_Reserve(w->buf, nw))) {
     w->pos = w->buf->data + w->buf->offset;
   }
 
@@ -70,7 +71,7 @@ size_t WriteVarint(uint32_t value, BufferWriter *w) {
   w->buf->offset += nw;
   w->pos += nw;
 
-  return nw;
+  return mem_growth;
 }
 
 size_t WriteVarintFieldMask(t_fieldMask value, BufferWriter *w) {
