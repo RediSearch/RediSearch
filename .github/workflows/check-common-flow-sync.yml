@@ -1,0 +1,46 @@
+name: Verify common flows are in sync
+
+on: [push]
+
+env:
+  LINE_REGEX: "# From this point on, this file should be identical to the other common flow."
+  FILE_DIR: ".github/workflows"
+  FILE_PREFIX: "common-flow-"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deps checkout
+        uses: actions/checkout@v3
+      - name: Verify common flow files contain the expected line
+        run: |
+          set -e
+          for file in $(find . -name "${{ env.FILE_PREFIX }}"); do
+            if ! grep -q "${{ env.LINE_REGEX }}" "$file"; then
+              echo "File $file does not contain the expected line"
+              exit 1
+            fi
+          done
+      - name: Compare common flow files
+        shell: python
+        run: |
+          import os
+          import sys
+
+          prefix = os.getenv("FILE_PREFIX")
+          common_line = os.getenv("LINE_REGEX")
+          file_dir = os.getenv("FILE_DIR")
+          files = [f for f in os.listdir(file_dir) if f.startswith(prefix)]
+          files = [os.path.join(file_dir, f) for f in files]
+          if len(files) < 2:
+            print("Not enough files to compare")
+            sys.exit(1)
+
+          for i in range(1, len(files)):
+            for line0, linei in zip(reversed(open(files[0]).readlines()), reversed(open(files[i]).readlines())):
+              if line0 != linei:
+                print(f"Files {files[0]} and {files[i]} differ")
+                sys.exit(1)
+              if line0[:-1] == common_line:
+                break
