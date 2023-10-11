@@ -5,31 +5,34 @@ on:
     types: [checks_requested]
 
 jobs:
-  get-latest-versions:
-    runs-on: ubuntu-latest
-    outputs:
-      redis-ref: ${{ steps.get-redis-ref.outputs.result }}
-      json-ref: ${{ steps.get-json-ref.outputs.result }}
-    steps:
-      - name: Get Redis latest version
-        id: get-redis-ref
-        uses: actions/github-script@v6
-        with:
-          script: |
-            var rep = await github.rest.repos.getLatestRelease({owner: 'redis', repo: 'redis'});
-            return rep.data.tag_name;
-      - name: Get RedisJSON latest version
-        id: get-json-ref
-        uses: actions/github-script@v6
-        with:
-          script: |
-            var rep = await github.rest.repos.getLatestRelease({owner: 'RedisJSON', repo: 'RedisJSON'});
-            return rep.data.tag_name;
+  # This job is used to get the latest **release** of Redis and RedisJSON, which may be different from the latest **version**.
+  # get-latest-versions:
+  #   runs-on: ubuntu-latest
+  #   outputs:
+  #     redis-ref: ${{ steps.get-redis-ref.outputs.result }}
+  #     json-ref: ${{ steps.get-json-ref.outputs.result }}
+  #   steps:
+  #     - name: Get Redis latest version
+  #       id: get-redis-ref
+  #       uses: actions/github-script@v6
+  #       with:
+  #         script: |
+  #           var rep = await github.rest.repos.getLatestRelease({owner: 'redis', repo: 'redis'});
+  #           return rep.data.tag_name;
+  #     - name: Get RedisJSON latest version
+  #       id: get-json-ref
+  #       uses: actions/github-script@v6
+  #       with:
+  #         script: |
+  #           var rep = await github.rest.repos.getLatestRelease({owner: 'RedisJSON', repo: 'RedisJSON'});
+  #           return rep.data.tag_name;
 
   run-flow:
-    needs: get-latest-versions
+    # needs: get-latest-versions
     uses: ./.github/workflows/merge-nightly-common.yml
     secrets: inherit
     with:
-      redis-ref: ${{ needs.get-latest-versions.outputs.redis-ref }}
-      json-ref: ${{ needs.get-latest-versions.outputs.json-ref }}
+      # TODO: use some script to get the latest version, or have an environment variables at the repo level
+      #       for the latest versions of Redis and RedisJSON (so we can update them in one place without a PR)
+      redis-ref: 7.2.1
+      json-ref: v2.6.6
