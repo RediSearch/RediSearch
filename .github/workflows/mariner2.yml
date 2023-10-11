@@ -19,7 +19,7 @@ jobs:
     steps:
       - name: Install prereqs
         run: |
-          tdnf install --noplugins --skipsignature -y ca-certificates git
+          tdnf install --noplugins --skipsignature -y -q ca-certificates git
       - name: Checkout
         uses: actions/checkout@v4
         with:
