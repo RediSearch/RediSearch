@@ -267,7 +267,7 @@ def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(ftDebugCmdName(env), "VECSIM_INFO", index_name, vector_field))
 
 
-def forceInvokeGC(env, idx):
+def forceInvokeGC(env, idx = 'idx'):
     waitForRdbSaveToFinish(env)
     env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx)
 
