@@ -1,41 +1,16 @@
 name: CLang Sanitizer
 
 on:
-  push:
   workflow_dispatch:
+  push:
+    branches-ignore:
+      - '*docs'
+      - '*noci'
 
 jobs:
   clang-sanitizer:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash -l -eo pipefail {0}
-    container:
-      image: redisfab/clang:16-x64-bullseye
-      options: --cpus 2
-    steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: true
-    - run: |
-        git config --global --add safe.directory '*'
-        git submodule update --init --recursive
-    - name: Setup
-      run: |
-        ./sbin/setup
-    - name: Build
-      run: |
-        make SAN=addr
-        make COORD=1 SAN=addr
-    - name: Unit tests
-      run: |
-        make unit-tests SAN=addr
-    - name: Flow tests
-      run: |
-        make pytest SAN=addr QUICK=1
-    - name: Unit tests (coordinator)
-      run: |
-        make COORD=1 unit-tests SAN=addr
-    - name: Flow tests (coordinator)
-      run: |
-        make COORD=1 pytest SAN=addr QUICK=1
+    uses: ./.github/workflows/common-flow-container.yml
+    with:
+      container: redisfab/clang:16-x64-bullseye
+      san: addr
+    secrets: inherit

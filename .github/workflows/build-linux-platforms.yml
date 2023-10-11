@@ -1,47 +1,46 @@
 name: Build on Linux Platforms
 
+# Keep aligned with the options below
+env:
+  ALL_IMAGES: "['ubuntu:jammy', 'ubuntu:bionic', 'centos:7', 'rockylinux:8', 'debian:bullseye']"
+
 on:
   workflow_dispatch:
     inputs:
       platforms:
-        description: 'Build platforms'
-        default: '["ubuntu:jammy", "ubuntu:bionic", "centos:7", "rockylinux:8", "debian:bullseye"]'
+        type: choice
+        options:
+          - all
+          - ubuntu:jammy
+          - ubuntu:bionic
+          - centos:7
+          - rockylinux:8
+          - debian:bullseye
+        description: 'Platform to build on. Use "all" to build on all'
+        default: all
 
 jobs:
-  build-linux-matrix:
+  get-required-envs:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash -l -eo pipefail {0}
+    outputs:
+      platforms: ${{ steps.get_platforms.outputs.platforms }}
+    steps:
+      - name: Get platforms
+        id: get_platforms
+        run: |
+          if [ "${{ inputs.platforms }}" == "all" ]; then
+            echo "platforms=${{ env.ALL_IMAGES }}" >> $GITHUB_OUTPUT
+          else
+            echo "platforms=['${{ inputs.platforms }}']" >> $GITHUB_OUTPUT
+          fi
+  build-linux-matrix:
+    needs: get-required-envs
     strategy:
       matrix:
-        OS: ${{ fromJson(inputs.platforms) }}
+        OS: ${{ fromJson(needs.get-required-envs.outputs.platforms) }}
       fail-fast: false
-    steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: true
-    - run: |
-        git config --global --add safe.directory '*'
-        git submodule update --init --recursive
-    - name: Setup
-      run: |
-        ./sbin/setup
-        export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-        ./deps/readies/bin/getredis --with-github-token
-    - name: Build
-      run: |
-        make
-        make COORD=1
-    - name: Unit tests
-      run: |
-        make unit-tests
-    - name: Flow tests
-      run: |
-        make pytest QUICK=1
-    - name: Unit tests (coordinator)
-      run: |
-        make COORD=1 unit-tests
-    - name: Flow tests (coordinator)
-      run: |
-        make COORD=1 pytest QUICK=1
+    uses: ./.github/workflows/common-flow-container.yml
+    with:
+      get-redis: true
+      container: ${{ matrix.OS }}
+    secrets: inherit

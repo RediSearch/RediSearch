@@ -1071,28 +1071,28 @@ workflows:
       << pipeline.parameters.run_default_flow >>
     jobs:
       - build-linux-debian:
-          <<: *not-on-integ-branch
+          <<: *never
       - build-linux-arm-ubuntu:
           <<: *never
       - build-platforms:
-          <<: *on-integ-and-version-tags
+          <<: *never
           context: common
           matrix:
             parameters:
               platform: [jammy, focal, bionic, centos7, rocky8, rocky9, bullseye, amzn2]
       - build-arm-platforms:
-          <<: *on-integ-and-version-tags
+          <<: *never
           context: common
           matrix:
             parameters:
               platform: [jammy, focal, bionic]
       - build-macos-x64-search:
-          <<: *on-version-tags
+          <<: *never
           context: common
           # Avoid persist conflict with build-macos-x64-coordinator
           upload: "no"
       - build-macos-x64-coordinator:
-          <<: *on-version-tags
+          <<: *never
           context: common
       - build-macos-m1-search:
           context: common
@@ -1101,12 +1101,12 @@ workflows:
           upload: "no"
       - build-macos-m1-coordinator:
           context: common
-          <<: *on-version-tags
+          <<: *never
       - coverage:
-          <<: *always
+          <<: *never
       - sanitize:
           name: sanitize-<< matrix.san-type >>
-          <<: *always
+          <<: *never
           test_params: QUICK=1
           matrix:
             parameters:
@@ -1115,69 +1115,69 @@ workflows:
           <<: *never
       - benchmark-search-oss-standalone-g1:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-search-oss-standalone-g2:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-search-oss-standalone-g3:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-vecsim-oss-standalone-g1:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-vecsim-oss-standalone-g2:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-search-oss-cluster-g1:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-search-oss-cluster-g2:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-search-oss-cluster-g3:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-search-oss-cluster-g4:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-search-oss-cluster-g5:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-search-oss-cluster-g6:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-search-oss-cluster-g7:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-search-oss-cluster-g8:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-search-oss-cluster-g9:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-search-oss-cluster-g10:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-search-oss-standalone-profiler-g1:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-search-oss-standalone-profiler-g2:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-search-oss-standalone-profiler-g3:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-vecsim-oss-standalone-profiler-g1:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - benchmark-vecsim-oss-standalone-profiler-g2:
           context: common
-          <<: *on-integ-and-version-tags
+          <<: *never
       - upload-artifacts:
           name: upload-artifacts-to-staging-lab
           staging-lab: "1"
           context: common
-          <<: *on-integ-branch
+          <<: *never
           requires:
             - build-platforms
             - build-arm-platforms
@@ -1186,7 +1186,7 @@ workflows:
       - upload-artifacts:
           name: upload-release-artifacts
           context: common
-          <<: *on-version-tags
+          <<: *never
           requires:
             - build-platforms
             - build-arm-platforms

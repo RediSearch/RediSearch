@@ -1,8 +1,11 @@
 name: Coverage analysis
 
 on:
-  push:
   workflow_dispatch:
+  push:
+    branches-ignore:
+      - '*docs'
+      - '*noci'
 
 jobs:
   coverage:
@@ -13,10 +16,8 @@ jobs:
     steps:
     - uses: actions/checkout@v3
       with:
-        submodules: true
-    - run: |
-        git config --global --add safe.directory '*'
-        git submodule update --init --recursive
+        submodules: recursive
+        set-safe-directory: "'*'"
     - name: Setup
       run: |
         ./sbin/setup

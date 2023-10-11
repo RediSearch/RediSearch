@@ -1,40 +1,16 @@
 name: Build on macOS
 
 on:
-  push:
   workflow_dispatch:
+  push:
+    branches-ignore:
+      - '*docs'
+      - '*noci'
 
 jobs:
   build-macos:
-    runs-on: macos-11
-    defaults:
-      run:
-        shell: bash -l -eo pipefail {0}
-    steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: true
-    - run: |
-        git config --global --add safe.directory '*'
-        git submodule update --init --recursive
-    - name: Setup
-      run: |
-        ./sbin/setup
-        export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-        ./deps/readies/bin/getredis --with-github-token
-    - name: Build
-      run: |
-        make
-        make COORD=1
-    - name: Unit tests
-      run: |
-        make unit-tests
-    - name: Flow tests
-      run: |
-        make pytest QUICK=1
-    - name: Unit tests (coordinator)
-      run: |
-        make COORD=1 unit-tests
-    - name: Flow tests (coordinator)
-      run: |
-        make COORD=1 pytest QUICK=1
+    uses: ./.github/workflows/common-flow-host.yml
+    with:
+      env: macos-11
+      get-redis: true
+    secrets: inherit
