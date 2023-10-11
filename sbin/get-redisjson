@@ -83,8 +83,12 @@ else
 			nick="rhel7"
 		fi
 	elif [[ $dist == mariner ]]; then
-		# nick is already set
 		OSS=1
+		if [[ -z $REPO_PATH ]]; then
+			# Mariner2 is created using github actions,
+			# for master branch the artifacts are uploaded to staging
+			STAGING=1
+		fi
 	elif [[ $os == macos ]]; then
 		# as we don't build on macOS for every platform, we converge to a least common denominator
 		if [[ $arch == x86_64 ]]; then
@@ -107,7 +111,13 @@ if [[ $OSS == 1 ]]; then
 else
 	STEM=rejson
 fi
-MOD_S3_URL="https://redismodules.s3.amazonaws.com/${STEM}/snapshots"
+
+if [[ $STAGING == 1 ]]; then
+	MOD_S3_URL="https://redismodules.s3.amazonaws.com/lab/staging/${STEM}/snapshots"
+else
+	MOD_S3_URL="https://redismodules.s3.amazonaws.com/${STEM}/snapshots"
+fi
+
 MOD_RAMP="${STEM}.${platform}.${BRANCH}.zip"
 
 if [[ $OSS == 1 && -z $REPO_PATH ]]; then
