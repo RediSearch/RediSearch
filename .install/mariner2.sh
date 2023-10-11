@@ -8,6 +8,8 @@ pip install -q --upgrade setuptools
 pip install -q --upgrade pip
 pip install -q -r tests/pytests/requirements.txt
 
+# These packages are needed to test the package
+pip install -q numpy scipy
 # These packages are needed to build the package
 pip install -q addict toml jinja2 ramp-packer
 
