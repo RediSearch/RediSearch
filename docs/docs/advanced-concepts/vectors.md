@@ -241,7 +241,7 @@ The syntax for range query is `@<vector_field>: [VECTOR_RANGE (<radius> | $<radi
 
 ## Support for hybrid queries
 
-The definition of hybrid query combines different conditions and predicates with scoring methods from multiple fields in a compound score. These queries are executed against an index that encompasses both searchable field content and generated embeddings. With a single query, you can employ document selection and diverse scoring choices, consolidating the resulting scores using a chosen function to influence the relevance and importance of the results for a given use case.
+Hybrid queries combine different conditions and predicates with scoring methods from multiple fields in a compound score. These queries are executed against an index that encompasses both searchable field content and generated embeddings. With a single query, you can employ document selection and diverse scoring choices, consolidating the resulting scores using a chosen function to influence the relevance and importance of the results for a given use case.
 
 Currently, Redis doesn't support Hybrid Queries with multiple scoring options. Redis approach combines pre-filtering documents against an index containing searchable fields (`TEXT`, `TAG`, `NUMERIC`, `GEO`, `GEOSHAPE`, `VECTOR`) and generated embeddings, finding similarity between them according to the chosen algorithm (for example, KNN).
 
