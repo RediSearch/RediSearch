@@ -21,21 +21,20 @@
 
 // Get cursor command using a cursor id and an existing aggregate command
 
-static int getCursorCommand(MRReply *res, MRCommand *cmd) {
+static bool getCursorCommand(MRReply *res, MRCommand *cmd) {
   long long cursorId;
   if (!MRReply_ToInteger(MRReply_ArrayElement(res, 1), &cursorId)) {
     // Invalid format?!
-    return 0;
+    return false;
   }
 
   if (cursorId == 0) {
     // Cursor was set to 0, end of reply chain.
     cmd->depleted = true;
-    return 0;
+    return false;
   }
-  if (cmd->num < 2) {
-    return 0;  // Invalid command!??
-  }
+
+  assert(cmd->num >= 2 && "Invalid command?!");
 
   char buf[128];
   sprintf(buf, "%lld", cursorId);
@@ -48,27 +47,28 @@ static int getCursorCommand(MRReply *res, MRCommand *cmd) {
   MRCommand_Free(cmd);
   *cmd = newCmd;
 
-  return 1;
+  return true;
 }
 
 static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd) {
-  // Should we assert this??
-  bool bail_out = !rep || MRReply_Type(rep) != MR_REPLY_ARRAY;
-  if (!bail_out) {
-    size_t len = MRReply_Length(rep);
-    if (cmd->protocol == 3) {
-      bail_out = len != 2; // (map, cursor)
-    } else {
-      bail_out = len != 2 && len != 3; // (results, cursor) or (results, cursor, profile)
-    }
+  // Check if an error returned from the shard
+  if(MRReply_Type(rep) == MR_REPLY_ERROR) {
+    MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
+    rep = NULL;
+    MRIteratorCallback_Done(ctx, 1);  // Remove this?
+    return REDIS_ERR;
   }
 
-  if (bail_out) {
+  if(MRReply_Type(rep) != MR_REPLY_ARRAY) {
     MRReply_Free(rep);
     MRIteratorCallback_Done(ctx, 1);
     RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
     return REDIS_ERR;
   }
+
+  size_t len = MRReply_Length(rep);
+  assert(cmd->protocol == 3 ? len == 2 : (len == 2 || len == 3));
+  // unused(len);
 
   // rewrite and resend the cursor command if needed
   int rc = REDIS_OK;
@@ -218,6 +218,12 @@ static int getNextReply(RPNet *nc) {
     return 0;
   }
 
+  // Check if an error was returned
+  if(MRReply_Type(root) == MR_REPLY_ERROR) {
+    nc->current.root = root;
+    return 1;
+  }
+
   MRReply *rows = MRReply_ArrayElement(root, 0);
   if (   rows == NULL
       || (MRReply_Type(rows) != MR_REPLY_ARRAY && MRReply_Type(rows) != MR_REPLY_MAP)
@@ -306,6 +312,13 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   while (!root || !rows || MRReply_Length(rows) == 0) {
       if (!getNextReply(nc)) {
         return RS_RESULT_EOF;
+      }
+
+      // If an error was returned, propagate it
+      if(MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
+        // set the error
+        QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC, MRReply_String(nc->current.root, NULL));
+        return RS_RESULT_ERROR;
       }
 
       root = nc->current.root;
