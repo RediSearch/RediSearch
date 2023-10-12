@@ -243,7 +243,7 @@ The syntax for range query is `@<vector_field>: [VECTOR_RANGE (<radius> | $<radi
 
 Hybrid queries combine different conditions and predicates with scoring methods from multiple fields in a compound score. These queries are executed against an index that encompasses both searchable field content and generated embeddings. With a single query, you can employ document selection and diverse scoring choices, consolidating the resulting scores using a chosen function to influence the relevance and importance of the results for a given use case.
 
-Currently, Redis doesn't support Hybrid Queries with multiple scoring options. Redis approach combines pre-filtering documents against an index containing searchable fields (`TEXT`, `TAG`, `NUMERIC`, `GEO`, `GEOSHAPE`, `VECTOR`) and generated embeddings, finding similarity between them according to the chosen algorithm (for example, KNN).
+Currently, Redis doesn't support hybrid queries with multiple scoring options. Redis's approach combines pre-filtering documents against an index containing searchable fields (`TEXT`, `TAG`, `NUMERIC`, `GEO`, `GEOSHAPE`, `VECTOR`) and generated embeddings, finding similarity between them according to the chosen algorithm (for example, KNN).
 
 Pre-filter with a Vector Similarity KNN query syntax has a form of  `<primary_filter_query>=>[<vector_similarity_query>]`. The first part defines the document selection and filtering, and the second is represented by Query Modifiers Attributes that define similarity should be applied, in this case, KNN. Redis Stack has an internal mechanism for optimizing the computation of such queries. Two modes in which pre-filter queries are executed are:
 
