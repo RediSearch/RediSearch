@@ -560,6 +560,7 @@ static int MRIteratorCallback_GetNumInProcess(MRIterator *it) {
 
 void *MRITERATOR_DONE = "MRITERATOR_DONE";
 
+// TODO: Remove second parameter - not used.
 int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
   int pending = --ctx->ic->pending; // Decrease `pending` before decreasing `inProcess`
   MRIteratorCallback_ProcessDone(ctx);
