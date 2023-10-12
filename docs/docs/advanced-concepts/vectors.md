@@ -245,7 +245,7 @@ Hybrid queries combine different conditions and predicates with scoring methods 
 
 Currently, Redis doesn't support hybrid queries with multiple scoring options. Redis's approach combines pre-filtering documents against an index containing searchable fields (`TEXT`, `TAG`, `NUMERIC`, `GEO`, `GEOSHAPE`, `VECTOR`) and generated embeddings, finding similarity between them according to the chosen algorithm (for example, KNN).
 
-Pre-filter with a vector similarity KNN query has the form `<primary_filter_query>=>[<vector_similarity_query>]`. The first part defines document selection and filtering, and the second part is represented by query modifier Attributes that define how similarity should be applied, in this case, KNN. Redis Stack has an internal mechanism for optimizing the computation of such queries. Two modes in which pre-filter queries are executed are:
+Pre-filter with a vector similarity KNN query has the form `<primary_filter_query>=>[<vector_similarity_query>]`. The first part defines document selection and filtering, and the second part is represented by query modifier attributes that define how similarity should be applied, in this case, KNN. Redis Stack has an internal mechanism for optimizing the computation of such queries. Two modes in which pre-filter queries are executed are:
 
 1. Batches mode - In this mode, a batch of the high-scoring documents from the vector index are retrieved. These documents are returned ONLY if `<primary_filter_query>` is satisfied. In other words, the document contains a similar vector and meets the filter criteria. The procedure terminates when `k` documents that pass the `<primary_filter_query>` are returned or after every vector in the index was obtained and processed.
 
