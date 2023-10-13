@@ -209,7 +209,7 @@ commands:
         default: ""
     steps:
       - when:
-          condition: 
+          condition:
             or:
               - equal : [ << parameters.run_step >>, ""]
               - equal : [ << parameters.run_step >>, "search"]
@@ -224,7 +224,7 @@ commands:
                   fi
                   make test TEST_PARALLEL=16 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
       - when:
-          condition: 
+          condition:
             or:
               - equal : [ << parameters.run_step >>, ""]
               - equal : [ << parameters.run_step >>, "coordinator"]
@@ -235,57 +235,6 @@ commands:
                 no_output_timeout: 30m
                 command: make test COORD=oss TEST_PARALLEL=16 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
       - save-tests-logs
-
-  build-platforms-steps:
-    parameters:
-      platform:
-        type: string
-      redis_version:
-        type: string
-        default: "7"
-      getredis_params:
-        type: string
-        default: ""
-    steps:
-      - early-returns
-      - setup-executor
-      - checkout-all
-      - setup-automation
-      - run:
-          name: Install Redis
-          shell: /bin/bash -l -eo pipefail
-          command: ./deps/readies/bin/getredis -v '<<parameters.redis_version>>' --force <<parameters.getredis_params>>
-      - run:
-          name: Build for platform
-          shell: /bin/bash -l -eo pipefail
-          command: |
-            ROOT="$PWD"
-            cd build/docker
-            export REDISEARCH_MT_BUILD=0
-            make build verify OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
-            cd $ROOT
-            if [[ -e bin/artifacts/tests/tests-pytests-logs*.tgz ]]; then
-                mkdir -p tests/pytests/logs
-                tar -xzf bin/artifacts/tests/tests-pytests-logs*.tgz
-            fi
-          no_output_timeout: 60m
-      - save-tests-logs
-      - early-return-for-forked-pull-requests
-      - run:
-          name: Upload artifacts to S3
-          shell: /bin/bash -l -eo pipefail
-          command: |
-            if [[ -n $CIRCLE_BRANCH ]]; then
-                make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1
-            fi
-      - run:
-          name: Publish container
-          shell: /bin/bash -l -eo pipefail
-          command: |
-            docker login -u redisfab -p $DOCKER_REDISFAB_PWD
-            cd build/docker
-            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=1 SHOW=1 VERBOSE=1
-      - persist-artifacts
 
   vm-build-platforms-steps:
     parameters:
@@ -330,12 +279,6 @@ commands:
             if [[ -n $CIRCLE_BRANCH ]]; then
                 make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1
             fi
-      - run:
-          name: Publish container
-          command: |
-            docker login -u redisfab -p $DOCKER_REDISFAB_PWD
-            cd build/docker
-            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=1 SHOW=1 VERBOSE=1
       - persist-artifacts
 
   benchmark-steps:
@@ -609,7 +552,7 @@ jobs:
                 make upload-artifacts SHOW=1
             fi
       - persist-artifacts
-  
+
   build-macos-m1-coordinator:
     macos:
       xcode: 14.2.0
@@ -1022,52 +965,6 @@ jobs:
           no_output_timeout: 30m
       - save-tests-logs
 
-  test-rlec:
-    machine:
-      enabled: true
-      image: ubuntu-2004:202010-01
-      resource_class: large
-    working_directory: ~/RediSearch
-    steps:
-      - early-returns
-      - checkout-all
-      - setup-automation
-      - run:
-          name: Install prerequisites
-          shell: /bin/bash -l -eo pipefail
-          command: |
-            ./sbin/system-setup.py
-            ./deps/readies/bin/getredis
-            ./deps/readies/bin/getdocker --just-enable-exp
-            docker version
-      - run:
-          name: Install Arlecchino
-          command: |
-            FORCE=1 ./deps/readies/bin/getrlec
-      - run:
-          name: Build
-          shell: /bin/bash -l -eo pipefail
-          command: |
-            make -C build/docker build OSNICK=bionic VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH SHOW=1
-          no_output_timeout: 30m
-      - run:
-          name: Start RLEC
-          shell: /bin/bash -l -eo pipefail
-          command: |
-            cd
-            mkdir -p rlec
-            cp RediSearch/tests/rlec/redis-modules.yaml rlec/
-            rlec start --os bionic
-      - run:
-          name: Flow Test
-          shell: /bin/bash -l -eo pipefail
-          no_output_timeout: 30m
-          command: |
-            python3 -m pip list
-            mkdir -p ~/workspace/tests
-            make test COORD=1 SHOW=1
-      - save-tests-logs
-
   upload-artifacts:
     parameters:
       staging-lab:
@@ -1092,27 +989,6 @@ jobs:
             else
                 make upload-release SHOW=1 STAGING=1
             fi
-
-  release-qa-tests:
-    docker:
-      - image: redisfab/rmbuilder:6.2.7-x64-bullseye
-    steps:
-      - early-returns
-      - early-return-for-forked-pull-requests
-      - checkout
-      - setup-automation
-      - run:
-          name: Run QA Automation (RediSearch)
-          command: ./tests/qa/qatests -m "$CIRCLE_TAG"
-      - run:
-          name: Run QA Automation (RediSearch Light)
-          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --light
-      - run:
-          name: Run QA Automation (RediSearch/VecSim)
-          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --vecsim
-      - run:
-          name: Run QA Automation (RediSearch Light/VecSim)
-          command: ./tests/qa/qatests -m "$CIRCLE_TAG" --vecsim --light
 
 
 #----------------------------------------------------------------------------------------------------------------------------------
@@ -1207,7 +1083,7 @@ workflows:
           context: common
           matrix:
             parameters:
-              platform: [jammy, focal, bionic, centos7, rocky8, bullseye, amzn2]
+              platform: [jammy, focal, bionic, centos7, rocky8, rocky9, bullseye, amzn2]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -1322,11 +1198,6 @@ workflows:
             - build-macos-x64-coordinator
             - build-macos-m1-search
             - build-macos-m1-coordinator
-      - release-qa-tests:
-          context: common
-          <<: *on-version-tags
-          requires:
-            - upload-release-artifacts
       - build-linux-debian:
           name: full-with-redis-<<matrix.redis_version>>
           <<: *never
@@ -1467,7 +1338,7 @@ workflows:
           context: common
           # upload: "no"
           test_params: ""
-  
+
   nightly-twice-a-week-by-param:
     when:
       << pipeline.parameters.run_nightly_twice_a_week_flow_label >>
