@@ -55,7 +55,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand
   if(MRReply_Type(rep) == MR_REPLY_ERROR) {
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     rep = NULL;
-    MRIteratorCallback_Done(ctx, 1);  // Remove this?
+    MRIteratorCallback_Done(ctx, 1);
     return REDIS_ERR;
   }
 
