@@ -68,7 +68,6 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand
 
   size_t len = MRReply_Length(rep);
   assert(cmd->protocol == 3 ? len == 2 : (len == 2 || len == 3));
-  // unused(len);
 
   // rewrite and resend the cursor command if needed
   int rc = REDIS_OK;
@@ -316,7 +315,6 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
       // If an error was returned, propagate it
       if(MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
-        // set the error
         QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC, MRReply_String(nc->current.root, NULL));
         return RS_RESULT_ERROR;
       }
