@@ -89,7 +89,6 @@ def test_error_propagation_from_shards(env):
 
     * Timeouts are handled and tested separately.
     """
-    # TODO: Unite the error-response formats for `FT.SEARCH` and `FT.AGGREGATE`
 
     SkipOnNonCluster(env)
 
