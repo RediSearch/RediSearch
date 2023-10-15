@@ -20,7 +20,7 @@
 #include <err.h>
 
 // Get cursor command using a cursor id and an existing aggregate command
-
+// Returns true if the cursor is not done (i.e., not depleted)
 static bool getCursorCommand(MRReply *res, MRCommand *cmd) {
   long long cursorId;
   if (!MRReply_ToInteger(MRReply_ArrayElement(res, 1), &cursorId)) {

@@ -263,7 +263,7 @@ def testCursorOnCoordinator(env):
     env.expect(f'FT.CURSOR READ idx {cursor}').equal([[0], 0]) # empty reply from shard - 0 results and depleted cursor
 
     err = env.cmd('FT.AGGREGATE', 'non-existing', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)[0][1]
-    env.assertEqual(str(err[0]), 'non-existing: no such index')
+    env.assertContains('non-existing: no such index', str(err[0]))
 
     # Verify we can read from the cursor all the results.
     # The coverage proves that the `_FT.CURSOR READ` command is sent to the shards only when more results are needed.

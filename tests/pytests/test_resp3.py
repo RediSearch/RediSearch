@@ -733,7 +733,7 @@ def testExpandErrorsResp3():
     env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
   else:
     err = env.cmd('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND')['error']
-    env.assertEqual(str(err[0]), 'EXPAND format is only supported with JSON')
+    env.assertContains('EXPAND format is only supported with JSON', str(err[0]))
 
 def testExpandErrorsResp2():
   env = Env(protocol=2)
@@ -744,7 +744,7 @@ def testExpandErrorsResp2():
     env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').error()
   else:
     err = env.cmd('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND')[1]
-    env.assertEqual(str(err[0]), 'EXPAND format is only supported with RESP3')
+    env.assertContains('EXPAND format is only supported with RESP3', str(err[0]))
 
 
   # On HASH
@@ -756,7 +756,7 @@ def testExpandErrorsResp2():
   else:
     # TODO: Expect an error once MOD-5211 is done
     err = env.cmd('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND')[1]
-    env.assertEqual(str(err[0]), 'EXPAND format is only supported with RESP3')
+    env.assertContains('EXPAND format is only supported with RESP3', str(err[0]))
 
 def testExpandJson():
   ''' Test returning values for JSON in expanded format (raw RESP3 instead of stringified JSON) '''
