@@ -3,11 +3,12 @@ name: Merge pull request
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
 on:
+  pull_request:
   merge_group:
     types: [checks_requested]
 
 jobs:
-  run-flow:
+  pr-validation:
     # needs: get-latest-versions
     uses: ./.github/workflows/common-merge-and-nightly.yml
     secrets: inherit
