@@ -3,6 +3,9 @@ name: Coverage analysis
 on:
   workflow_call:
 
+env:
+  REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
+
 jobs:
   coverage:
     runs-on: ubuntu-latest

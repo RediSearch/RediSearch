@@ -40,18 +40,6 @@ jobs:
       - run: |
           git config --global --add safe.directory '*'
           git submodule update --init --recursive
-
-      - name: TEMP test
-        run: |
-          echo 1:
-          echo $REDISEARCH_MT_BUILD
-          echo 2:
-          echo "$REDISEARCH_MT_BUILD"
-          echo 3:
-          echo ${{vars.REDISEARCH_MT_BUILD}}
-          echo 4:
-          echo "${{vars.REDISEARCH_MT_BUILD}}"
-
       - name: Setup
         run: ./sbin/setup
       # TODO: use this instead
