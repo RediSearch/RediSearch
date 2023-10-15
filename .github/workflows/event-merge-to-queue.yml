@@ -3,17 +3,16 @@ name: Merge pull request
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
 on:
-  pull_request:
+  push:
   merge_group:
     types: [checks_requested]
 
 jobs:
   pr-validation:
-    # needs: get-latest-versions
     uses: ./.github/workflows/common-merge-and-nightly.yml
     secrets: inherit
     with:
-      # TODO: use some script to get the latest version, or have an environment variables at the repo level
-      #       for the latest versions of Redis and RedisJSON (so we can update them in one place without a PR)
       redis-ref: 7.2.1
       json-ref: v2.6.6
+      # TODO: use some script to get the latest version, or have an environment variables at the repo level
+      #       for the latest versions of Redis and RedisJSON (so we can update them in one place without a PR)
