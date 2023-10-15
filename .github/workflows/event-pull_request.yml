@@ -10,7 +10,7 @@ on:
       - "licenses/**"
 
 jobs:
-  quick-test:
+  pr-validation:
     uses: ./.github/workflows/common-flow-host.yml
     with:
       env: ubuntu-latest
