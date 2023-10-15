@@ -39,6 +39,10 @@ jobs:
       - run: |
           git config --global --add safe.directory '*'
           git submodule update --init --recursive
+
+      - name: TEMP test
+        run: echo $REDISEARCH_MT_BUILD
+
       - name: Setup
         run: ./sbin/setup
       # TODO: use this instead
@@ -122,7 +126,3 @@ jobs:
       #     if [[ -n "$(ls tests/pytests/logs/*.log.* 2>/dev/null)" ]]; then
       #       exit 1
       #     fi
-
-
-      - name: TEMP test
-        run: echo $REDISEARCH_MT_BUILD
