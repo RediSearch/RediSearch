@@ -1,5 +1,7 @@
 name: Common Flow for Nightly and PRs
 
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
 on:
   workflow_call:
     inputs: # TODO: Use these inputs for getting the correct branch/version of Redis and RedisJSON for the flow

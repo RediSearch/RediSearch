@@ -1,5 +1,7 @@
 name: Build on Linux Platforms
 
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
 # Keep aligned with the options below
 env:
   ALL_IMAGES: "['ubuntu:jammy',

@@ -7,6 +7,8 @@ c. remove this comment and all other instructions
 #################################################################################
 name: TEMPLATE self-hosted flow # 1. Change the name of the workflow
 
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
 # 2. Change when the workflow will run
 on:
   workflow_call:
