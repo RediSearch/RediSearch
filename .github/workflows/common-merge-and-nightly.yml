@@ -16,7 +16,7 @@ jobs:
   run-tests-on-linux:
     strategy:
       matrix:
-        standalone: [true]  # Set a default value
+        standalone:  [true] # Set a default value
         coordinator: [true] # Set a default value
         test-config: # configurations for both standalone and coordinator
           - concurrent_write
@@ -44,7 +44,7 @@ jobs:
   run-tests-on-macos:
     strategy:
       matrix:
-        standalone: [true]  # Set a default value
+        standalone:  [true] # Set a default value
         coordinator: [true] # Set a default value
         test-config: # configurations for both standalone and coordinator
           - concurrent_write
