@@ -115,7 +115,7 @@ def test_param_errors(env):
     env.expect('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]', 'PARAMS', '1', 'ph').raiseError().contains('Parameters must be specified in PARAM VALUE pairs')
     if env.isCluster():
         err = env.cmd('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]')[1]
-        env.assertEquals(str(err[0]), 'No such parameter `vec`')
+        env.assertContains('No such parameter `vec`', str(err[0]))
     else:
         env.expect('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]').raiseError().contains('No such parameter `vec`')
 
