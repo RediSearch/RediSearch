@@ -2852,6 +2852,9 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
     return;
   }
   Indexes_Free(specDict_g);
+#ifdef MT_BUILD
+    workersThreadPool_waitAndTerminate(ctx);
+#endif
   Dictionary_Clear();
   RSGlobalConfig.used_dialects = 0;
 }
