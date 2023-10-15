@@ -1,22 +1,26 @@
-
-How to use the template:
-a. Create a copy of this file, rename and remove the .TEMPLATE suffix
-b. Fill the missing data on steps 1-4 around the file. (search for `# [1-4].`)
-c. remove this comment and all other instructions
-
-#################################################################################
-name: TEMPLATE self-hosted flow # 1. Change the name of the workflow
+name: self-hosted ARM flow (container)
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
-# 2. Change when the workflow will run
 on:
   workflow_call:
+    inputs:
+      container:
+        required: true
+        type: string
+      test-config:
+        description: 'Test configuration environment variable (e.g. "CONFIG=concurrent_write" or "QUICK=1")'
+        type: string
+      coordinator:
+        type: boolean
+        default: true
+      standalone:
+        type: boolean
+        default: true
 
-# 3. Set the image and runner type
 env:
-  AWS_IMAGE_ID: ami-XXXXXXXXXXXXX
-  AWS_INSTANCE_TYPE: XX.XXX
+  AWS_IMAGE_ID: ami-0d8e10b4bd5d65c57  # Ubuntu 22.04 region AMI for ARM with Docker installed
+  AWS_INSTANCE_TYPE: t4g.medium
 
 jobs:
   start-runner:
@@ -27,7 +31,7 @@ jobs:
       ec2-instance-id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v3
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -45,10 +49,15 @@ jobs:
 
   run:
     needs: start-runner # required to start the main job when the runner is ready
-    runs-on: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
-    steps:
-      # 4. Put your workflow here
-      ///////////////////////////////// PUT YOUR WORKFLOW HERE /////////////////////////////////
+    uses: ./.github/workflows/common-flow-container.yml
+    secrets: inherit
+    with:
+      env: ${{ needs.start-runner.outputs.label }}
+      get-redis: true
+      container: ${{ inputs.container }}
+      coordinator: ${{ inputs.coordinator }}
+      standalone: ${{ inputs.standalone }}
+      test-config: ${{ inputs.test-config }}
 
   stop-runner:
     name: Stop self-hosted EC2 runner
@@ -59,7 +68,7 @@ jobs:
     if: ${{ always() }} # required to stop the runner even if the error happened in the previous jobs
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v3
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

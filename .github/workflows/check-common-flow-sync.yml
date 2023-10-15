@@ -1,6 +1,11 @@
 name: Verify common flows are in sync
 
-on: [push]
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  push:
+    paths:
+      - ".github/workflows/common-flow-*"
 
 env:
   LINE_REGEX: "# From this point on, this file should be identical to the other common flow."
@@ -12,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deps checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Verify common flow files contain the expected line
         run: |
           set -e

@@ -1,0 +1,19 @@
+name: CLang Sanitizer
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  workflow_call:
+    inputs:
+      flow-config:
+        type: string
+        required: true
+
+jobs:
+  clang-sanitizer:
+    uses: ./.github/workflows/common-flow-container.yml
+    with:
+      container: redisfab/clang:16-x64-bullseye
+      test-config: ${{ inputs.flow-config }}
+      san: addr
+    secrets: inherit

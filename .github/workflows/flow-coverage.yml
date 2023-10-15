@@ -1,20 +1,21 @@
 name: Coverage analysis
 
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
 on:
-  workflow_dispatch:
-  push:
-    branches-ignore:
-      - '*docs'
-      - '*noci'
+  workflow_call:
+
+env:
+  REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
 
 jobs:
   coverage:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: recursive
         set-safe-directory: "'*'"
@@ -24,5 +25,7 @@ jobs:
         export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
         ./deps/readies/bin/getredis --with-github-token
     - name: Build and test
-      run: |
-        make coverage QUICK=1
+      timeout-minutes: 60
+      run: make coverage QUICK=1 SHOW=1
+    - name: Upload coverage
+      run: make upload-cov SHOW=1
