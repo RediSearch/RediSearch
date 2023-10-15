@@ -214,6 +214,9 @@ typedef struct {
   int id;
   /* Flags given by the engine or by the query expander */
   RSTokenFlags flags;
+
+  /* Inverse document frequency of the term in the index for computing BM25 */
+  double bm25_idf;
 } RSQueryTerm;
 
 /**************************************
@@ -271,6 +274,7 @@ typedef enum {
 } RSResultType;
 
 #define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)
+#define RS_RESULT_NUMERIC (RSResultType_Numeric | RSResultType_Metric)
 
 typedef struct {
   /* The number of child records */

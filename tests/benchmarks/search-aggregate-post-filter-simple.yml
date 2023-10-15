@@ -1,0 +1,19 @@
+version: 0.2
+name: "search-aggregate-post-filter-simple.yml"
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5
+metadata:
+  component: "search"
+setups:
+  - oss-standalone
+
+dbconfig:
+  - init_commands:
+    - '"FT.CREATE" "idx" "ON" "HASH" "SCHEMA" "numeric_field" "NUMERIC" "SORTABLE" "tag_field" "TAG" "SORTABLE" "UNF"'
+    - '"HSET" "doc:1" "tag_field" "value1" "numeric_field" "10"'
+
+clientconfig:
+  benchmark_type: "read-only"
+  tool: memtier_benchmark
+  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.AGGREGATE idx '*' FILTER \"@numeric_field>1\"'"
