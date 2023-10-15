@@ -5,31 +5,9 @@ on:
     types: [checks_requested]
 
 jobs:
-  # This job is used to get the latest **release** of Redis and RedisJSON, which may be different from the latest **version**.
-  # get-latest-versions:
-  #   runs-on: ubuntu-latest
-  #   outputs:
-  #     redis-ref: ${{ steps.get-redis-ref.outputs.result }}
-  #     json-ref: ${{ steps.get-json-ref.outputs.result }}
-  #   steps:
-  #     - name: Get Redis latest version
-  #       id: get-redis-ref
-  #       uses: actions/github-script@v6
-  #       with:
-  #         script: |
-  #           var rep = await github.rest.repos.getLatestRelease({owner: 'redis', repo: 'redis'});
-  #           return rep.data.tag_name;
-  #     - name: Get RedisJSON latest version
-  #       id: get-json-ref
-  #       uses: actions/github-script@v6
-  #       with:
-  #         script: |
-  #           var rep = await github.rest.repos.getLatestRelease({owner: 'RedisJSON', repo: 'RedisJSON'});
-  #           return rep.data.tag_name;
-
   run-flow:
     # needs: get-latest-versions
-    uses: ./.github/workflows/merge-nightly-common.yml
+    uses: ./.github/workflows/common-merge-and-nightly.yml
     secrets: inherit
     with:
       # TODO: use some script to get the latest version, or have an environment variables at the repo level

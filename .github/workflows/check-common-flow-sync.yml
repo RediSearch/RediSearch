@@ -1,6 +1,9 @@
 name: Verify common flows are in sync
 
-on: [push]
+on:
+  push:
+    paths:
+      - ".github/workflows/common-flow-*"
 
 env:
   LINE_REGEX: "# From this point on, this file should be identical to the other common flow."

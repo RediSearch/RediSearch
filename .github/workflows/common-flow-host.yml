@@ -122,3 +122,7 @@ jobs:
       #     if [[ -n "$(ls tests/pytests/logs/*.log.* 2>/dev/null)" ]]; then
       #       exit 1
       #     fi
+
+
+      - name: TEMP test
+        run: echo $REDISEARCH_MT_BUILD

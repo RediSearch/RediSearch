@@ -2,7 +2,13 @@ name: Build on Linux Platforms
 
 # Keep aligned with the options below
 env:
-  ALL_IMAGES: "['ubuntu:jammy', 'ubuntu:bionic', 'centos:7', 'rockylinux:8', 'debian:bullseye']"
+  ALL_IMAGES: "['ubuntu:jammy',
+                'ubuntu:bionic',
+                'centos:7',
+                'rockylinux:8',
+                'rockylinux:9',
+                'debian:bullseye',
+                'amazonlinux:2']"
 
 on:
   workflow_call:
@@ -30,7 +36,9 @@ on:
           - ubuntu:bionic
           - centos:7
           - rockylinux:8
+          - rockylinux:9
           - debian:bullseye
+          - amazonlinux:2
         description: 'Platform to build on. Use "all" to build on all'
         default: all
       architecture:
