@@ -333,6 +333,8 @@ void redisearch_thpool_terminate_threads(redisearch_thpool_t* thpool_p) {
 
 void redisearch_thpool_terminate_when_empty(redisearch_thpool_t* thpool_p) {
   thpool_p->terminate_when_empty = 1;
+  // Wake up all threads (in case threads are waiting since there are not enough jobs on the queue)
+  bsem_post_all(thpool_p->jobqueue.has_jobs);
 }
 
 /* Destroy the threadpool */
@@ -474,7 +476,7 @@ static void* thread_do(struct thread* thread_p) {
         LOG_IF_EXISTS("debug", "thread pool contains no more jobs")
         pthread_cond_signal(&thpool_p->threads_all_idle);
         if (thpool_p->terminate_when_empty) {
-          LOG_IF_EXISTS("verbose", "terminating thread pool after there are no more jobs")
+          LOG_IF_EXISTS("notice", "Terminating thread pool after there are no more jobs")
           thpool_p->keepalive = 0;
         }
       }
