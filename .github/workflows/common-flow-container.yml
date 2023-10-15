@@ -29,6 +29,7 @@ on:
 
 env:
   MODE: "" # user mode
+  REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
 
 jobs:
   common-flow:
