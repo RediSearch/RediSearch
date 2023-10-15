@@ -1383,7 +1383,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
 
   // If we have a JSON spec, and an "old" API version (DIALECT < 3), we don't store all the data of a multi-value field
   // in the SV as we want to return it, so we need to load and override all requested return fields that are SV source.
-  uint32_t loadFlags = req->sctx && req->sctx->spec && isSpecJson(req->sctx->spec) && (req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST) ?
+  uint32_t loadFlags = req->sctx && isSpecJson(req->sctx->spec) && (req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST) ?
                        RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NOFLAGS;
 
   // Whether we've applied a SORTBY yet..

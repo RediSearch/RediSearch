@@ -408,7 +408,7 @@ static void rpnetFree(ResultProcessor *rp) {
   rm_free(rp);
 }
 
-static RPNet *RPNet_New(const MRCommand *cmd, SearchCluster *sc, struct timespec timeout) {
+static RPNet *RPNet_New(const MRCommand *cmd, SearchCluster *sc) {
   //  MRCommand_FPrint(stderr, &cmd);
   RPNet *nc = rm_calloc(1, sizeof(*nc));
   nc->cmd = *cmd;
@@ -492,7 +492,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
 static void buildDistRPChain(AREQ *r, MRCommand *xcmd, SearchCluster *sc,
                              AREQDIST_UpstreamInfo *us) {
   // Establish our root processor, which is the distributed processor
-  RPNet *rpRoot = RPNet_New(xcmd, sc, r->timeoutTime);
+  RPNet *rpRoot = RPNet_New(xcmd, sc);
   rpRoot->base.parent = &r->qiter;
   rpRoot->lookup = us->lookup;
   rpRoot->areq = r;
