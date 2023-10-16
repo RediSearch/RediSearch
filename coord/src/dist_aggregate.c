@@ -34,7 +34,7 @@ static bool getCursorCommand(MRReply *res, MRCommand *cmd) {
     return false;
   }
 
-  assert(cmd->num >= 2 && "Invalid command?!");
+  RS_LOG_ASSERT(cmd->num >= 2, "Invalid command?!");
 
   char buf[128];
   sprintf(buf, "%lld", cursorId);

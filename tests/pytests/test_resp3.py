@@ -754,7 +754,6 @@ def testExpandErrorsResp2():
   if not env.isCluster():
     env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
   else:
-    # TODO: Expect an error once MOD-5211 is done
     err = env.cmd('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND')[1]
     env.assertContains('EXPAND format is only supported with RESP3', str(err[0]))
 
