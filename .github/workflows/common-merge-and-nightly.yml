@@ -1,4 +1,4 @@
-name: Common Flow for Nightly and PRs
+name: Common Flow for Nightly and PRs' Merge Queue
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
@@ -13,7 +13,7 @@ on:
         type: string
 
 jobs:
-  run-tests-on-linux:
+  run-tests-on-linux-x86_64:
     strategy:
       matrix:
         standalone:  [true] # Set a default value
@@ -36,7 +36,45 @@ jobs:
     secrets: inherit
     with:
       platform: all
-      architecture: all
+      architecture: x86_64
+      test-config: CONFIG=${{ matrix.test-config }}
+      standalone: ${{ matrix.standalone }}
+      coordinator: ${{ matrix.coordinator }}
+
+  # TODO: Remove this step and change the `architecture` above to `all` once github actions supports
+  #       workflow call depth of >= 5 (currently it's 4).
+  #       In the meantime, we have to split the x86_64 and arm64 tests into two separate jobs,
+  #       and maintain the list of platforms from the `flow-linux-platforms.yml` file here as well.
+  run-tests-on-linux-arm64:
+    strategy:
+      matrix:
+        platform: [ubuntu:jammy,
+                   ubuntu:bionic,
+                   centos:7,
+                   rockylinux:8,
+                   rockylinux:9,
+                   debian:bullseye,
+                   amazonlinux:2]
+        standalone:  [true] # Set a default value
+        coordinator: [true] # Set a default value
+        test-config: # configurations for both standalone and coordinator
+          - concurrent_write
+          - max_unsorted
+          - union_iterator_heap
+          - raw_docid
+          - dialect_2
+        include: # spacial configurations
+          - test-config: global_password
+            standalone:  false
+          - test-config: safemode
+            standalone:  false
+          - test-config: tls
+            standalone:  false
+
+    uses: ./.github/workflows/flow-self-hosted-arm.yml
+    secrets: inherit
+    with:
+      container: ${{ matrix.platform }}
       test-config: CONFIG=${{ matrix.test-config }}
       standalone: ${{ matrix.standalone }}
       coordinator: ${{ matrix.coordinator }}
