@@ -4,15 +4,15 @@ name: Merge a pull request
 
 on:
   push:
-  # merge_group:
-  #   types: [checks_requested]
+  merge_group:
+    types: [checks_requested]
 
 jobs:
   pr-validation:
     uses: ./.github/workflows/common-merge-and-nightly.yml
     secrets: inherit
     with:
-      redis-ref: '7.2.1'
-      json-ref: 'v2.6.6'
       # TODO: use some script to get the latest version, or have an environment variables at the repo level
       #       for the latest versions of Redis and RedisJSON (so we can update them in one place without a PR)
+      redis-ref: 7.2.1
+      json-ref: v2.6.6
