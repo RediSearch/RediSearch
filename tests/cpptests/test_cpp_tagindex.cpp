@@ -18,15 +18,14 @@ TEST_F(TagIndexTest, testCreate) {
   size_t totalSZ = 0;
   for (t_docId d = 1; d <= N; d++) {
     size_t sz = TagIndex_Index(idx, &v[0], v.size(), d);
-    ASSERT_GT(sz, 0);
     totalSZ += sz;
     // make sure repeating push of the same vector doesn't get indexed
     sz = TagIndex_Index(idx, &v[0], v.size(), d);
-    ASSERT_EQ(18, sz);
+    ASSERT_EQ(0, sz);
   }
 
   ASSERT_EQ(v.size(), idx->values->cardinality);
-  ASSERT_EQ(2123082, totalSZ);
+  ASSERT_EQ(323100, totalSZ);
 
   IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1);
   ASSERT_TRUE(it != NULL);

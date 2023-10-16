@@ -1502,7 +1502,7 @@ TEST_F(IndexTest, testSortable) {
 
 TEST_F(IndexTest, testVarintFieldMask) {
   t_fieldMask x = 127;
-  size_t expected[] = {0, 2, 1, 1, 2, 0, 2, 0};
+  size_t expected[] = {0, 2, 1, 1, 2, 0, 2, 0, 2, 3, 0, 0, 3, 0, 0, 4};
   Buffer b = {0};
   Buffer_Init(&b, 1);
   BufferWriter bw = NewBufferWriter(&b);

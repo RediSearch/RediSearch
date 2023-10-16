@@ -1215,16 +1215,18 @@ TEST_F(LLApiTest, testInfoSize) {
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(RSDummyContext, gc->gcCtx);
-  ASSERT_EQ(RediSearch_MemUsage(index), 113);
+  ASSERT_EQ(RediSearch_MemUsage(index), 119);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  ASSERT_EQ(RediSearch_MemUsage(index), 14);
+  ASSERT_EQ(RediSearch_MemUsage(index), 20);
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(RSDummyContext, gc->gcCtx);
-  ASSERT_EQ(RediSearch_MemUsage(index), 2);
-  // we have 2 left over b/c of the offset vector size which we cannot clean
-  // since the data is not maintained
+  ASSERT_EQ(RediSearch_MemUsage(index), 20);
+  // we have 20 left over b/c of the offset vector size which we cannot clean
+  // since the data is not maintained.
+  // Also the numeric inverted index size is grown from 2 to 6 because when we delete the only existing block
+  // We always allocate a new block of size 6.
 
   RediSearch_DropIndex(index);
 }
