@@ -328,4 +328,4 @@ def temp_testCursorOnCoordinator(env):
 @skip(noWorkers=True)
 def testCursorOnCoordinatorBG():
     env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
-    testCursorOnCoordinator(env)
+    temp_testCursorOnCoordinator(env)
