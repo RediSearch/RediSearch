@@ -273,57 +273,66 @@ def testCursorOnCoordinator(env):
     for i in range(n_docs):
         conn.execute_command('HSET', i ,'n', i)
 
-    result_set = set()
-    def add_results(res):
-        for r in res[1:]:
-            cur_res = int(r[1])
-            env.assertNotContains(cur_res, result_set)
-            result_set.add(cur_res)
+    default = int(env.execute_command('_FT.CONFIG', 'GET', 'CURSOR_REPLY_THRESHOLD')[0][1])
+    configs = {default, 1, env.shardsCount - 1, env.shardsCount}
+    for threshold in configs:
+        env.expect('_FT.CONFIG', 'SET', 'CURSOR_REPLY_THRESHOLD', threshold).ok()
 
-    with conn.monitor() as monitor:
-        # Some periodic cluster commands are sent to the shards and also break the monitor.
-        # This function skips them and returns the actual next command we want to observe.
-        def next_command():
-            try:
-                return monitor.next_command()['command']
-            except ValueError:
-                return next_command()
-        res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 100)
-        add_results(res)
-        while cursor:
-            res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        result_set = set()
+        def add_results(res):
+            for cur_res in [int(r[1]) for r in res[1:]]:
+                env.assertNotContains(cur_res, result_set)
+                result_set.add(cur_res)
+
+        with conn.monitor() as monitor:
+            # Some periodic cluster commands are sent to the shards and also break the monitor.
+            # This function skips them and returns the actual next command we want to observe.
+            def next_command():
+                try:
+                    while True:
+                        command = monitor.next_command()['command']
+                        # Filter out the periodic cluster commands
+                        if command.startswith('_FT.') or command.startswith('FT.'):
+                            return command
+                except ValueError:
+                    return next_command() # recursively retry
+
+            # Generate the cursor and read all the results
+            res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 100)
             add_results(res)
+            while cursor:
+                res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+                add_results(res)
 
-        cmd = next_command()
-        while not cmd.startswith('FT.AGGREGATE'):
-            cmd = next_command()
-        env.assertContains('_FT.AGGREGATE', next_command())
+            # Check the monitor for the expected commands
 
-        # Verify that after the first chunk, we make `FT.CURSOR READ` without triggering `_FT.CURSOR READ`.
-        # Each shard has more than 1000 results, and the initial aggregation request yielded in `nShards` * 1000 results
-        # with `nShards` replies. We expect more ((`nShards` - 1) * 1000 / 100) - 1 `FT.CURSOR READ` before we need to
-        # trigger the shards. On the next `FT.CURSOR READ` we expect to  trigger the next `_FT.CURSOR READ`.
-        # ((`nShards` - 1) * 1000 / 100) - 1 + 1 => (`nShards` - 1) * 10
-        exp = 'FT.CURSOR READ'
-        for _ in range((env.shardsCount - 1) * 10):
-            cmd = next_command()
-            env.assertTrue(cmd.startswith(exp), message=f'expected `{exp}` but got `{cmd}`')
-        # we expect to observe the next `_FT.CURSOR READ` in the next 11 commands (most likely the next command)
-        found = False
-        for i in range(1, 12):
-            cmd = next_command()
-            if not cmd.startswith('FT.CURSOR'):
-                exp = '_FT.CURSOR READ'
+            env.assertContains('FT.AGGREGATE', next_command())
+            env.assertContains('_FT.AGGREGATE', next_command())
+
+            # Verify that after the first chunk, we make `FT.CURSOR READ` without triggering `_FT.CURSOR READ`.
+            # Each shard has more than 1000 results, and the initial aggregation request yielded in `nShards` * 1000 results
+            # with `nShards` replies. We expect more ((`nShards` - `threshold`) * 1000 / 100) - 1 `FT.CURSOR READ` before we
+            # need to trigger the shards. On the next `FT.CURSOR READ` we expect to  trigger the next `_FT.CURSOR READ`.
+            # ((`nShards` - `threshold`) * 1000 / 100) - 1 + 1 => (`nShards` - `threshold`) * 10
+            exp = 'FT.CURSOR READ'
+            for _ in range((env.shardsCount - threshold) * 10):
+                cmd = next_command()
                 env.assertTrue(cmd.startswith(exp), message=f'expected `{exp}` but got `{cmd}`')
-                found = True
-                break
-        env.assertTrue(found, message=f'`_FT.CURSOR READ` was not observed within {i} commands')
-        suffix = 'st' if i == 1 else 'nd' if i == 2 else 'rd' if i == 3 else 'th'
-        env.debugPrint(f'Found `_FT.CURSOR READ` in the {i}{suffix} try')
+            # we expect to observe the next `_FT.CURSOR READ` in the next 11 commands (most likely the next command)
+            found = False
+            for i in range(1, 12):
+                cmd = next_command()
+                if not cmd.startswith('FT.CURSOR'):
+                    exp = '_FT.CURSOR READ'
+                    env.assertTrue(cmd.startswith(exp), message=f'expected `{exp}` but got `{cmd}`')
+                    found = True
+                    break
+            env.assertTrue(found, message=f'`_FT.CURSOR READ` was not observed within {i} commands')
+            env.debugPrint(f'Found `_FT.CURSOR READ` in the {number_to_ordinal(i)} try')
 
-    env.assertEqual(len(result_set), n_docs)
-    for i in range(n_docs):
-        env.assertContains(i, result_set)
+            env.assertEqual(len(result_set), n_docs)
+            for i in range(n_docs):
+                env.assertContains(i, result_set)
 
 @skip(noWorkers=True)
 def testCursorOnCoordinatorBG():
