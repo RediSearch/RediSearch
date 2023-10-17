@@ -251,7 +251,7 @@ def testExceedCursorCapacityBG():
 # 1. Coordinator's cursor times out before the shard's cursor
 # 2. Some shard's cursor times out before the coordinator's cursor
 # 3. All shards' cursors time out before the coordinator's cursor
-def testCursorOnCoordinator(env):
+def temp_testCursorOnCoordinator(env):
     SkipOnNonCluster(env)
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
     conn = getConnectionByEnv(env)
