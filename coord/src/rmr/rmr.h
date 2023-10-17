@@ -75,7 +75,7 @@ extern void *MRITERATOR_DONE;
 typedef struct MRIteratorCallbackCtx MRIteratorCallbackCtx;
 typedef struct MRIterator MRIterator;
 
-typedef int (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd);
+typedef int (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
 // Trigger all the commands in the iterator to be sent.
 // Returns true if there may be more replies to come, false if we are done.
@@ -84,6 +84,8 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold);
 MRReply *MRIterator_Next(MRIterator *it);
 
 MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb, void *privdata);
+
+MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 
 int MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep);
 

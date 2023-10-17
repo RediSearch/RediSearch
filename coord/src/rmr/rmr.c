@@ -506,7 +506,7 @@ int MR_UpdateTopology(MRClusterTopology *newTopo) {
 
 struct MRIteratorCallbackCtx;
 
-typedef int (*MRIteratorCallback)(struct MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd);
+typedef int (*MRIteratorCallback)(struct MRIteratorCallbackCtx *ctx, MRReply *rep);
 
 typedef struct MRIteratorCtx {
   MRCluster *cluster;
@@ -538,7 +538,7 @@ static void mrIteratorRedisCB(redisAsyncContext *c, void *r, void *privdata) {
     // ctx->numErrored++;
     // TODO: report error
   } else {
-    ctx->ic->cb(ctx, r, &ctx->cmd);
+    ctx->ic->cb(ctx, r);
   }
 }
 
@@ -573,6 +573,10 @@ int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
   // fprintf(stderr, "Done iterator, error? %d pending %d\n", error, ctx->ic->pending);
 
   return 1;
+}
+
+MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx) {
+  return &ctx->cmd;
 }
 
 int MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {

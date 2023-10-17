@@ -51,7 +51,9 @@ static int getCursorCommand(MRReply *res, MRCommand *cmd) {
   return 1;
 }
 
-static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd) {
+static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+  MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
+
   // Should we assert this??
   bool bail_out = !rep || MRReply_Type(rep) != MR_REPLY_ARRAY;
   if (!bail_out) {
