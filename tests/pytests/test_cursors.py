@@ -275,8 +275,7 @@ def testCursorOnCoordinator(env):
 
     result_set = set()
     def add_results(res):
-        for r in res[1:]:
-            cur_res = int(r[1])
+        for cur_res in [int(r[1]) for r in res[1:]]:
             env.assertNotContains(cur_res, result_set)
             result_set.add(cur_res)
 
@@ -285,7 +284,11 @@ def testCursorOnCoordinator(env):
         # This function skips them and returns the actual next command we want to observe.
         def next_command():
             try:
-                return monitor.next_command()['command']
+                while True:
+                    command = monitor.next_command()['command']
+                    # Filter out the periodic cluster commands
+                    if command.startswith('_FT.') or command.startswith('FT.'):
+                        return command
             except ValueError:
                 return next_command()
         res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 100)
