@@ -28,7 +28,6 @@ BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
 VECSIM_ALGOS = ['FLAT', 'HNSW']
 
-
 class TimeLimit(object):
     """
     A context manager that fires a TimeExpired exception if it does not
@@ -488,3 +487,10 @@ def dict_diff(res, exp, show=False, ignore_order=True, significant_digits=7,
     if dd != {} and show:
         pp(dd)
     return dd
+
+def number_to_ordinal(n: int) -> str:
+    if 11 <= (n % 100) <= 13:
+        suffix = 'th'
+    else:
+        suffix = ['th', 'st', 'nd', 'rd', 'th'][min(n % 10, 4)]
+    return str(n) + suffix
