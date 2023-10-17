@@ -515,7 +515,7 @@ typedef struct MRIteratorCtx {
   MRIteratorCallback cb;
   int pending;    // Number of shards with more results (not depleted)
   int inProcess;  // Number of currently running commands on shards
-  bool timedOut;  // whether the coordinator experienced a timeout
+  int timedOut;  // whether the coordinator experienced a timeout
 } MRIteratorCtx;
 
 typedef struct MRIteratorCallbackCtx {

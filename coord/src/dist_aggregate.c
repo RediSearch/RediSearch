@@ -49,6 +49,7 @@ static int getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
   if (timedout) {
     newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
     cmd->depleted = true;
+    newCmd.forCursor = cmd->forCursor;
     // newCmd.forCursor = false;  // Always send the DEL command to the shard - Do we want this?
   } else {
     newCmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx, buf);
