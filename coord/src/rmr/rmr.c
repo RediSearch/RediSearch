@@ -566,7 +566,7 @@ bool MRIteratorCallback_GetTimedOut(MRIteratorCtx *ctx) {
 void MRIteratorCallback_SetTimedOut(MRIteratorCtx *ctx) {
   // atomically set the timedOut field of the ctx
   uint16_t count = __atomic_fetch_add(&ctx->timedOut, 1, __ATOMIC_RELAXED);
-  RS_LOG_ASSERT(count == 1, "Problematic coordinator timeout value");
+  RS_LOG_ASSERT(count == 0, "Problematic coordinator timeout value");
 }
 
 void *MRITERATOR_DONE = "MRITERATOR_DONE";

@@ -45,18 +45,17 @@ static int getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
   sprintf(buf, "%lld", cursorId);
   int shardingKey = MRCommand_GetShardingKey(cmd);
   const char *idx = MRCommand_ArgStringPtrLen(cmd, shardingKey, NULL);
-  // If we timed out, we want to the shard a DEL command, instead of a READ command
-  if (timedout) {
+  // If we timed out and not in cursor mode, we want to the shard a DEL command
+  // instead of a READ command
+  if (timedout && !cmd->forCursor) {
     newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
     cmd->depleted = true;
-    newCmd.forCursor = cmd->forCursor;
-    // newCmd.forCursor = false;  // Always send the DEL command to the shard - Do we want this?
   } else {
     newCmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx, buf);
-    newCmd.forCursor = cmd->forCursor;
   }
   newCmd.targetSlot = cmd->targetSlot;
   newCmd.protocol = cmd->protocol;
+  newCmd.forCursor = cmd->forCursor;
   MRCommand_Free(cmd);
   *cmd = newCmd;
 
