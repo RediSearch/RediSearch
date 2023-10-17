@@ -21,7 +21,7 @@
 
 // Get cursor command using a cursor id and an existing aggregate command
 
-static int getCursorCommand(MRReply *res, MRCommand *cmd) {
+static int getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
   long long cursorId;
   if (!MRReply_ToInteger(MRReply_ArrayElement(res, 1), &cursorId)) {
     // Invalid format?!
@@ -37,14 +37,25 @@ static int getCursorCommand(MRReply *res, MRCommand *cmd) {
     return 0;  // Invalid command!??
   }
 
+  // Check if the coordinator experienced a timeout or not
+  bool timedout = MRIteratorCallback_GetTimedOut(ctx);
+
+  MRCommand newCmd;
   char buf[128];
   sprintf(buf, "%lld", cursorId);
   int shardingKey = MRCommand_GetShardingKey(cmd);
   const char *idx = MRCommand_ArgStringPtrLen(cmd, shardingKey, NULL);
-  MRCommand newCmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx, buf);
+  // If we timed out, we want to the shard a DEL command, instead of a READ command
+  if (timedout) {
+    newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
+    cmd->depleted = true;
+    // newCmd.forCursor = false;  // Always send the DEL command to the shard - Do we want this?
+  } else {
+    newCmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx, buf);
+    newCmd.forCursor = cmd->forCursor;
+  }
   newCmd.targetSlot = cmd->targetSlot;
   newCmd.protocol = cmd->protocol;
-  newCmd.forCursor = cmd->forCursor;
   MRCommand_Free(cmd);
   *cmd = newCmd;
 
@@ -74,7 +85,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
   // rewrite and resend the cursor command if needed
   int rc = REDIS_OK;
-  bool done = !getCursorCommand(rep, cmd);
+  bool done = !getCursorCommand(rep, cmd, MRIteratorCallback_GetCtx(ctx));
 
   // Push the reply down the chain
   if (cmd->protocol == 3) // RESP3
@@ -112,7 +123,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     MRIteratorCallback_ProcessDone(ctx);
   } else {
     // resend command
-    if (REDIS_ERR == MRIteratorCallback_ResendCommand(ctx, cmd)) {
+    if (MRIteratorCallback_ResendCommand(ctx, cmd) == REDIS_ERR) {
       MRIteratorCallback_Done(ctx, 1);
       rc = REDIS_ERR;
     }
@@ -311,6 +322,10 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
       }
 
       if(TimedOut(&self->parent->sctx->timeout)) {
+        // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
+        // callback
+        MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+
         return RS_RESULT_TIMEDOUT;
       }
 

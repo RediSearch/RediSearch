@@ -408,6 +408,7 @@ MRCommandGenerator SearchCluster_MultiplexCommand(SearchCluster *c, MRCommand *c
       size_t newlen = 0;
       const char *target = lookupAlias(cmd->strs[mux->keyOffset], &newlen);
       if (oldlen != newlen) {
+        // This condition seems odd. Can't they have the same length but different values?
         mux->keyAlias = rm_strndup(target, newlen);
       }
     }

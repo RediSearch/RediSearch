@@ -513,8 +513,9 @@ typedef struct MRIteratorCtx {
   MRChannel *chan;
   void *privdata;
   MRIteratorCallback cb;
-  int pending;   // Number of shards with more results (not depleted)
-  int inProcess; // Number of currently running commands on shards
+  int pending;    // Number of shards with more results (not depleted)
+  int inProcess;  // Number of currently running commands on shards
+  bool timedOut;  // whether the coordinator experienced a timeout
 } MRIteratorCtx;
 
 typedef struct MRIteratorCallbackCtx {
@@ -558,6 +559,16 @@ static int MRIteratorCallback_GetNumInProcess(MRIterator *it) {
   return __atomic_load_n(&it->ctx.inProcess, __ATOMIC_ACQUIRE);
 }
 
+bool MRIteratorCallback_GetTimedOut(MRIteratorCtx *ctx) {
+  return __atomic_load_n(&ctx->timedOut, __ATOMIC_ACQUIRE);
+}
+
+void MRIteratorCallback_SetTimedOut(MRIteratorCtx *ctx) {
+  // atomically set the timedOut field of the ctx
+  uint16_t count = __atomic_fetch_add(&ctx->timedOut, 1, __ATOMIC_RELAXED);
+  RS_LOG_ASSERT(count == 1, "Problematic coordinator timeout value");
+}
+
 void *MRITERATOR_DONE = "MRITERATOR_DONE";
 
 int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
@@ -577,6 +588,10 @@ int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
 
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx) {
   return &ctx->cmd;
+}
+
+MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx) {
+  return ctx->ic;
 }
 
 int MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
@@ -670,6 +685,10 @@ MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb, void *privd
 
   RQ_Push(rq_g, iterStartCb, ret);
   return ret;
+}
+
+MRIteratorCtx *MRIterator_GetCtx(MRIterator *it) {
+  return &it->ctx;
 }
 
 MRReply *MRIterator_Next(MRIterator *it) {

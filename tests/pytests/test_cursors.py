@@ -310,16 +310,18 @@ def testCursorOnCoordinator(env):
             env.assertTrue(cmd.startswith(exp), message=f'expected `{exp}` but got `{cmd}`')
         # we expect to observe the next `_FT.CURSOR READ` in the next 11 commands (most likely the next command)
         found = False
+        found_idx = 1
         for i in range(1, 12):
             cmd = next_command()
             if not cmd.startswith('FT.CURSOR'):
                 exp = '_FT.CURSOR READ'
                 env.assertTrue(cmd.startswith(exp), message=f'expected `{exp}` but got `{cmd}`')
                 found = True
+                found_idx = i
                 break
-        env.assertTrue(found, message=f'`_FT.CURSOR READ` was not observed within {i} commands')
-        suffix = 'st' if i == 1 else 'nd' if i == 2 else 'rd' if i == 3 else 'th'
-        env.debugPrint(f'Found `_FT.CURSOR READ` in the {i}{suffix} try')
+        env.assertTrue(found, message=f'`_FT.CURSOR READ` was not observed within 11 commands')
+        suffix = 'st' if found_idx == 1 else 'nd' if found_idx == 2 else 'rd' if found_idx == 3 else 'th'
+        env.debugPrint(f'Found `_FT.CURSOR READ` in the {found_idx}{suffix} try')
 
     env.assertEqual(len(result_set), n_docs)
     for i in range(n_docs):
