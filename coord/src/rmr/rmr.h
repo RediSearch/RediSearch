@@ -96,6 +96,8 @@ bool MRIteratorCallback_GetTimedOut(MRIteratorCtx *ctx);
 
 void MRIteratorCallback_SetTimedOut(MRIteratorCtx *ctx);
 
+void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx);
+
 int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error);
 
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx);

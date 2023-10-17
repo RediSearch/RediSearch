@@ -45,11 +45,15 @@ static int getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
   sprintf(buf, "%lld", cursorId);
   int shardingKey = MRCommand_GetShardingKey(cmd);
   const char *idx = MRCommand_ArgStringPtrLen(cmd, shardingKey, NULL);
-  // If we timed out and not in cursor mode, we want to the shard a DEL command
-  // instead of a READ command
+  // If we timed out and not in cursor mode, we want to send the shard a DEL
+  // command instead of a READ command
   if (timedout && !cmd->forCursor) {
     newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
     cmd->depleted = true;
+  } else if (timedout) {
+    // Reset the `timedOut` value in case it was set (for next iterations, as
+    // we're in cursor mode)
+    MRIteratorCallback_ResetTimedOut(ctx);
   } else {
     newCmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx, buf);
   }
@@ -317,20 +321,20 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root || !rows || MRReply_Length(rows) == 0) {
-      if (!getNextReply(nc)) {
-        return RS_RESULT_EOF;
-      }
+    if(TimedOut(&self->parent->sctx->timeout)) {
+      // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
+      // callback
+      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
 
-      if(TimedOut(&self->parent->sctx->timeout)) {
-        // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
-        // callback
-        MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+      return RS_RESULT_TIMEDOUT;
+    }
 
-        return RS_RESULT_TIMEDOUT;
-      }
+    if (!getNextReply(nc)) {
+      return RS_RESULT_EOF;
+    }
 
-      root = nc->current.root;
-      rows = nc->current.rows;
+    root = nc->current.root;
+    rows = nc->current.rows;
   }
 
   // invariant: at least one row exists
