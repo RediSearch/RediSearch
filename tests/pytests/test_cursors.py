@@ -290,16 +290,15 @@ def testCursorOnCoordinator(env):
                     if command.startswith('_FT.') or command.startswith('FT.'):
                         return command
             except ValueError:
-                return next_command()
+                return next_command() # recursively retry
+
         res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 100)
         add_results(res)
         while cursor:
             res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
             add_results(res)
 
-        cmd = next_command()
-        while not cmd.startswith('FT.AGGREGATE'):
-            cmd = next_command()
+        env.assertContains('FT.AGGREGATE', next_command())
         env.assertContains('_FT.AGGREGATE', next_command())
 
         # Verify that after the first chunk, we make `FT.CURSOR READ` without triggering `_FT.CURSOR READ`.
@@ -321,8 +320,7 @@ def testCursorOnCoordinator(env):
                 found = True
                 break
         env.assertTrue(found, message=f'`_FT.CURSOR READ` was not observed within {i} commands')
-        suffix = 'st' if i == 1 else 'nd' if i == 2 else 'rd' if i == 3 else 'th'
-        env.debugPrint(f'Found `_FT.CURSOR READ` in the {i}{suffix} try')
+        env.debugPrint(f'Found `_FT.CURSOR READ` in the {number_to_ordinal(i)} try')
 
     env.assertEqual(len(result_set), n_docs)
     for i in range(n_docs):
