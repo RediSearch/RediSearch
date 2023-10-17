@@ -1,0 +1,35 @@
+name: "search-ftsb-5500K-docs-union-iterators-q2-sortable"
+description: "
+             "
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5
+metadata:
+  component: "search"
+setups:
+  - oss-standalone
+  - oss-cluster-02-primaries
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+  - oss-cluster-16-primaries
+  - oss-cluster-20-primaries
+  - oss-cluster-24-primaries
+  - oss-cluster-32-primaries
+
+dbconfig:
+  - dataset_name: "5500K-docs-union-iterators.idx21.sortable"
+  - init_commands:
+    - '"FT.CREATE" "idx21" "PREFIX" "1" "idx21:" "SCHEMA" "field1" "NUMERIC" "SORTABLE" "field2" "TEXT" "SORTABLE" "field3" "TEXT" "SORTABLE" "field4" "NUMERIC" "SORTABLE" "field5" "NUMERIC" "SORTABLE" "field6" "NUMERIC" "SORTABLE" "field7" "NUMERIC" "SORTABLE" "field8" "NUMERIC" "SORTABLE" "field9" "NUMERIC" "SORTABLE"'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/5500K-docs-union-iterators/5500K-docs-union-iterators.idx21.commands.SETUP.csv"
+  - dataset_load_timeout_secs: 180
+  - check:
+      keyspacelen: 5524673
+
+clientconfig:
+  benchmark_type: "read-only"
+  tool: memtier_benchmark
+  arguments: "--test-time 180 -c 4 -t 1 --hide-histogram --command 'FT.SEARCH idx21 \"@field4: [-inf 60712065 ] @field5: [60712065 +inf ] @field8: [-inf 354.44 ] @field9:[354.44 +inf ] ( @field3: (283)|(861)|(279)|(860) @field6: [-inf 12.524 ] @field7: [12.524 +inf ] )| ( @field3: (565)|(564)|(566)|(567) @field6: [-inf 11 ] @field7: [11 +inf ] )| ( @field3: (659)|(660)|(664)|(1594)|(1798)|(2284)|(656)|(657)|(658)|(661)|(662)|(663) @field6: [-inf 18.786 ] @field7: [18.786 +inf ] )| ( @field3: (1789)|(1790)|(2079) @field6: [-inf 15.655 ] @field7: [15.655 +inf ] )| ( @field3: (1808)|(1953)|(635)|(649) @field6: [-inf 10.458 ] @field7: [10.458 +inf ] )| ( @field3: (2345) @field6: [-inf 17.534 ] @field7: [17.534 +inf ] )\"'"

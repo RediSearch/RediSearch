@@ -1,0 +1,35 @@
+name: "search-ftsb-1700K-docs-union-iterators-q3-dialect-4"
+description: "
+             "
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5
+metadata:
+  component: "search"
+setups:
+  - oss-standalone
+  - oss-cluster-02-primaries
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+  - oss-cluster-16-primaries
+  - oss-cluster-20-primaries
+  - oss-cluster-24-primaries
+  - oss-cluster-32-primaries
+
+dbconfig:
+  - dataset_name: "1700K-docs-union-iterators.idx133"
+  - init_commands:
+    - '"FT.CREATE" "idx133" "PREFIX" "1" "idx133:" "SCHEMA" "field1" "NUMERIC" "field2" "TEXT" "field3" "TEXT" "field4" "NUMERIC" "field5" "NUMERIC" "field6" "NUMERIC" "field7" "NUMERIC" "field8" "NUMERIC" "field9" "NUMERIC"'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1700K-docs-union-iterators/1700K-docs-union-iterators.idx133.commands.SETUP.csv"
+  - dataset_load_timeout_secs: 180
+  - check:
+      keyspacelen: 1667304
+
+clientconfig:
+  benchmark_type: "read-only"
+  tool: memtier_benchmark
+  arguments: "--test-time 180 -c 4 -t 1 --hide-histogram --command 'FT.SEARCH idx133 \"@field4: [-inf 4605003 ] @field5: [4605003 +inf ] @field8: [-inf 458.1 ] @field9:[458.1 +inf ] ( @field3: (1135)|(1137)|(1148)|(1155)|(1289)|(1290)|(1323)|(1360)|(1375)|(1399)|(1413)|(1414)|(1417)|(1418)|(1420)|(1421)|(1422)|(1432)|(1951)|(1952) @field6: [-inf 32.6 ] @field7: [32.6 +inf ] )\" DIALECT 4'"
