@@ -2701,6 +2701,12 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
 #endif
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
   }
+#ifdef MT_BUILD
+  else if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
+    // Clear pending jobs from job queue in case of short read.
+    workersThreadPool_waitAndTerminate(ctx);
+  }
+#endif
 }
 
 #ifdef MT_BUILD
@@ -2853,7 +2859,7 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   }
   Indexes_Free(specDict_g);
 #ifdef MT_BUILD
-    workersThreadPool_waitAndTerminate(ctx);
+  workersThreadPool_Drain(ctx, 0);
 #endif
   Dictionary_Clear();
   RSGlobalConfig.used_dialects = 0;
