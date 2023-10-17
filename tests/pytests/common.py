@@ -419,3 +419,10 @@ class ConditionalExpected:
         if cond_val == self.cond_val:
             func(self.env.expect(*self.query))
         return self
+
+def number_to_ordinal(n: int) -> str:
+    if 11 <= (n % 100) <= 13:
+        suffix = 'th'
+    else:
+        suffix = ['th', 'st', 'nd', 'rd', 'th'][min(n % 10, 4)]
+    return str(n) + suffix
