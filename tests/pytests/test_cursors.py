@@ -292,11 +292,14 @@ def testCursorOnCoordinator(env):
             except ValueError:
                 return next_command() # recursively retry
 
+        # Generate the cursor and read all the results
         res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 100)
         add_results(res)
         while cursor:
             res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
             add_results(res)
+
+        # Check the monitor for the expected commands
 
         env.assertContains('FT.AGGREGATE', next_command())
         env.assertContains('_FT.AGGREGATE', next_command())
