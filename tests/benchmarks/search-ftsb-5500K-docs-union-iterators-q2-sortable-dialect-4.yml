@@ -27,7 +27,7 @@ dbconfig:
     - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/5500K-docs-union-iterators/5500K-docs-union-iterators.idx21.commands.SETUP.csv"
   - dataset_load_timeout_secs: 180
   - check:
-      keyspacelen: 5524673
+      keyspacelen: 5524674
 
 clientconfig:
   benchmark_type: "read-only"
