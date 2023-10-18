@@ -49,14 +49,20 @@ static int getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
   // command instead of a READ command
   if (timedout && !cmd->forCursor) {
     newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
-    cmd->depleted = true;
-  } else if (timedout) {
+    newCmd.depleted = true;
+    // Mark that the last command was a DEL command
+    newCmd.rootCommand = C_DEL;
+  } else {
+    newCmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx, buf);
+    newCmd.rootCommand = C_READ;
+  }
+
+  if(timedout && cmd->forCursor) {
     // Reset the `timedOut` value in case it was set (for next iterations, as
     // we're in cursor mode)
     MRIteratorCallback_ResetTimedOut(ctx);
-  } else {
-    newCmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx, buf);
   }
+
   newCmd.targetSlot = cmd->targetSlot;
   newCmd.protocol = cmd->protocol;
   newCmd.forCursor = cmd->forCursor;
@@ -70,7 +76,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
   // Should we assert this??
-  bool bail_out = !rep || MRReply_Type(rep) != MR_REPLY_ARRAY;
+  bool bail_out = !rep || MRReply_Type(rep) != MR_REPLY_ARRAY || cmd->rootCommand == C_DEL;
   if (!bail_out) {
     size_t len = MRReply_Length(rep);
     if (cmd->protocol == 3) {
@@ -83,7 +89,14 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   if (bail_out) {
     MRReply_Free(rep);
     MRIteratorCallback_Done(ctx, 1);
-    RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
+
+    if (cmd->rootCommand == C_DEL && MRReply_Type(rep) == MR_REPLY_ERROR) {
+      // Unsuccessful DEL command
+      RedisModule_Log(NULL, "warning", "No index was found for deletion in the shard");
+    } else if (cmd->rootCommand == C_READ) {
+      RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
+    }
+
     return REDIS_ERR;
   }
 
@@ -653,6 +666,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd);
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = r->reqflags & QEXEC_F_IS_CURSOR;
+  xcmd.rootCommand = C_READ;  // Response is equivalent to a `CURSOR READ` response
 
   // Build the result processor chain
   buildDistRPChain(r, &xcmd, sc, &us);

@@ -515,7 +515,7 @@ typedef struct MRIteratorCtx {
   MRIteratorCallback cb;
   int pending;    // Number of shards with more results (not depleted)
   int inProcess;  // Number of currently running commands on shards
-  int timedOut;  // whether the coordinator experienced a timeout
+  int timedOut;   // whether the coordinator experienced a timeout
 } MRIteratorCtx;
 
 typedef struct MRIteratorCallbackCtx {
@@ -667,13 +667,14 @@ MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb, void *privd
               .privdata = privdata,
               .cb = cb,
               .pending = 0,
+              .timedOut = 0,
           },
       .cbxs = rm_calloc(len, sizeof(MRIteratorCallbackCtx)),
       .len = len,
 
   };
-  for (size_t i = 0; i < len; i++) {
 
+  for (size_t i = 0; i < len; i++) {
     ret->cbxs[i].ic = &ret->ctx;
     if (!cg.Next(cg.ctx, &(ret->cbxs[i].cmd))) {
       ret->len = i;
