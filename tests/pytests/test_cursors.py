@@ -263,6 +263,7 @@ def testCursorOnCoordinator(env):
     env.expect(f'FT.CURSOR READ idx {cursor}').equal([[0], 0]) # empty reply from shard - 0 results and depleted cursor
 
     err = env.cmd('FT.AGGREGATE', 'non-existing', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)[0][1]
+    env.assertEquals(type(err[0]), ResponseError)
     env.assertContains('non-existing: no such index', str(err[0]))
 
     # Verify we can read from the cursor all the results.

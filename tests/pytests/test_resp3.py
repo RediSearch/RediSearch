@@ -2,6 +2,7 @@ from common import *
 import operator
 from math import nan
 import json
+from redis import ResponseError
 
 def order_dict(d):
     ''' Sorts a dictionary recursively by keys '''
@@ -733,6 +734,7 @@ def testExpandErrorsResp3():
     env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
   else:
     err = env.cmd('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND')['error']
+    env.assertEquals(type(err[0]), ResponseError)
     env.assertContains('EXPAND format is only supported with JSON', str(err[0]))
 
 def testExpandErrorsResp2():
@@ -744,6 +746,7 @@ def testExpandErrorsResp2():
     env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').error()
   else:
     err = env.cmd('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND')[1]
+    env.assertEquals(type(err[0]), ResponseError)
     env.assertContains('EXPAND format is only supported with RESP3', str(err[0]))
 
 
@@ -755,6 +758,7 @@ def testExpandErrorsResp2():
     env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
   else:
     err = env.cmd('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND')[1]
+    env.assertEquals(type(err[0]), ResponseError)
     env.assertContains('EXPAND format is only supported with RESP3', str(err[0]))
 
 def testExpandJson():
@@ -1373,3 +1377,39 @@ def test_vecsim_1():
                "params", "2", "BLOB", "\x00\x00\x00\x00\x00\x00\x00\x00")
     env.assertEqual(dict_diff(res, exp3 if env.protocol == 3 else exp2, show=True,
                     exclude_regex_paths=["\['sortkey'\]"]), {})
+
+def test_error_propagation_from_shards_resp3():
+    """Tests that errors from the shards are propagated properly to the
+    coordinator, for both `FT.SEARCH` and `FT.AGGREGATE` commands.
+    We check the following errors:
+    1. Non-existing index.
+    2. Bad query.
+
+    * Timeouts are handled and tested separately.
+
+    * This is a duplicate of the test test_coordinator:test_error_propagation_from_shards,
+    for resp3.
+    """
+
+    env = Env(protocol=3)
+
+    SkipOnNonCluster(env)
+
+    # indexing an index that doesn't exist (today revealed only in the shards)
+    err = env.cmd('FT.AGGREGATE', 'idx', '*')['error']
+    env.assertContains('idx: no such index', str(err[0]))
+    # The same for `FT.SEARCH`.
+    env.expect('FT.SEARCH', 'idx', '*').error().contains('idx: no such index')
+
+    # Bad query
+    # create the index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    err = env.cmd('FT.AGGREGATE', 'idx', '**')['error']
+    env.assertContains('Syntax error', str(err[0]))
+    # The same for `FT.SEARCH`.
+    env.expect('FT.SEARCH', 'idx', '**').error().contains('Syntax error')
+
+    # Other stuff that are being checked only on the shards (FYI):
+    #   1. The language requested in the command.
+    #   2. The scorer requested in the command.
+    #   3. Parameters evaluation
