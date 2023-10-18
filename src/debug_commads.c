@@ -615,10 +615,15 @@ static int GCForceInvokeReplyTimeout(RedisModuleCtx *ctx, RedisModuleString **ar
   return REDISMODULE_OK;
 }
 
+// FT.DEBUG GC_FORCEINVOKE [TIMEOUT]
 DEBUG_COMMAND(GCForceInvoke) {
-#define INVOKATION_TIMEOUT 30000  // gc invocation timeout ms
-  if (argc < 1) {
+  if (argc == 0 || argc > 2) {
     return RedisModule_WrongArity(ctx);
+  }
+  long long timeout = 30000;
+
+  if (argc == 2) {
+    RedisModule_StringToLongLong(argv[1], &timeout);
   }
   StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
   IndexSpec *sp = StrongRef_Get(ref);
@@ -627,7 +632,7 @@ DEBUG_COMMAND(GCForceInvoke) {
   }
 
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(
-      ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, INVOKATION_TIMEOUT);
+      ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, timeout);
   GCContext_ForceInvoke(sp->gc, bc);
   return REDISMODULE_OK;
 }
