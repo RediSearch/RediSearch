@@ -121,7 +121,6 @@ RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx) {
 }
 
 int RedisModule_EndReply(RedisModule_Reply *reply) {
-  int n = reply->stack ? array_len(reply->stack) : -1;
   RS_LOG_ASSERT(!reply->stack || !array_len(reply->stack), "incomplete reply");
   if (reply->stack) {
     array_free(reply->stack);

@@ -1009,10 +1009,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     }
   }
 
-
   // set queryAST configuration parameters
   iteratorsConfig_init(&ast->config);
-
 
   if (IsOptimized(req)) {
     // parse inputs for optimizations
