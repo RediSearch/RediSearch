@@ -17,7 +17,7 @@ setups:
   - oss-cluster-32-primaries
 
 dbconfig:
-  - dataset_name: "1700K-docs-union-iterators.idx133.sortable"
+  - dataset_name: "1700K-docs-union-iterators.idx133.sortable.nostem.unf"
   - init_commands:
     - '"FT.CREATE" "idx133" "PREFIX" "1" "idx133:" "SCHEMA" "field1" "NUMERIC" "SORTABLE" "field2" "TEXT" "NOSTEM" "SORTABLE" "UNF" "field3" "TEXT" "NOSTEM" "SORTABLE" "UNF" "field4" "NUMERIC" "SORTABLE" "field5" "NUMERIC" "SORTABLE" "field6" "NUMERIC" "SORTABLE" "field7" "NUMERIC" "SORTABLE" "field8" "NUMERIC" "SORTABLE" "field9" "NUMERIC" "SORTABLE"'
   - tool: ftsb_redisearch
