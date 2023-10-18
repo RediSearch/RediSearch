@@ -266,9 +266,10 @@ def testCursorOnCoordinator(env):
 
     # Verify we can read from the cursor all the results.
     # The coverage proves that the `_FT.CURSOR READ` command is sent to the shards only when more results are needed.
-    n_docs =  2               # some multiplier (to make sure we have enough results on each shard)
+    n_docs =  1.1             # some multiplier (to make sure we have enough results on each shard)
     n_docs *= 1000            # number of results per shard per cursor
     n_docs *= env.shardsCount # number of results per cursor
+    n_docs = int(n_docs)
 
     for i in range(n_docs):
         conn.execute_command('HSET', i ,'n', i)
