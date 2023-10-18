@@ -396,9 +396,6 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
       SearchResult_Clear(&r);
     }
 
-    // TODO: Add the "error" KV section of the response here, so error (specifically
-    // timeouts) will be responded as well.
-
 done_3:
     SearchResult_Destroy(&r);
     if (rc != RS_RESULT_OK) {

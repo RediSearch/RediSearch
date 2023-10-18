@@ -87,15 +87,15 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   }
 
   if (bail_out) {
-    MRReply_Free(rep);
-    MRIteratorCallback_Done(ctx, 1);
-
     if (cmd->rootCommand == C_DEL && MRReply_Type(rep) == MR_REPLY_ERROR) {
       // Unsuccessful DEL command
       RedisModule_Log(NULL, "warning", "No index was found for deletion in the shard");
     } else if (cmd->rootCommand == C_READ) {
       RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
     }
+
+    MRReply_Free(rep);
+    MRIteratorCallback_Done(ctx, 1);
 
     return REDIS_ERR;
   }
