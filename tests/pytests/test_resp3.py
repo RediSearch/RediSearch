@@ -3,6 +3,7 @@ import operator
 from math import nan
 import json
 from redis import ResponseError
+from test_coordinator import test_error_propagation_from_shards
 
 def order_dict(d):
     ''' Sorts a dictionary recursively by keys '''
@@ -1379,37 +1380,5 @@ def test_vecsim_1():
                     exclude_regex_paths=["\['sortkey'\]"]), {})
 
 def test_error_propagation_from_shards_resp3():
-    """Tests that errors from the shards are propagated properly to the
-    coordinator, for both `FT.SEARCH` and `FT.AGGREGATE` commands.
-    We check the following errors:
-    1. Non-existing index.
-    2. Bad query.
-
-    * Timeouts are handled and tested separately.
-
-    * This is a duplicate of the test test_coordinator:test_error_propagation_from_shards,
-    for resp3.
-    """
-
     env = Env(protocol=3)
-
-    SkipOnNonCluster(env)
-
-    # indexing an index that doesn't exist (today revealed only in the shards)
-    err = env.cmd('FT.AGGREGATE', 'idx', '*')['error']
-    env.assertContains('idx: no such index', str(err[0]))
-    # The same for `FT.SEARCH`.
-    env.expect('FT.SEARCH', 'idx', '*').error().contains('idx: no such index')
-
-    # Bad query
-    # create the index
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    err = env.cmd('FT.AGGREGATE', 'idx', '**')['error']
-    env.assertContains('Syntax error', str(err[0]))
-    # The same for `FT.SEARCH`.
-    env.expect('FT.SEARCH', 'idx', '**').error().contains('Syntax error')
-
-    # Other stuff that are being checked only on the shards (FYI):
-    #   1. The language requested in the command.
-    #   2. The scorer requested in the command.
-    #   3. Parameters evaluation
+    test_error_propagation_from_shards(env)
