@@ -1,4 +1,5 @@
 from common import *
+from redis import ResponseError
 
 def testInfo(env):
     SkipOnNonCluster(env)
@@ -94,6 +95,7 @@ def test_error_propagation_from_shards(env):
 
     # indexing an index that doesn't exist (today revealed only in the shards)
     err = env.cmd('FT.AGGREGATE', 'idx', '*')[1]
+    env.assertEquals(type(err[0]), ResponseError)
     env.assertContains('idx: no such index', str(err[0]))
     # The same for `FT.SEARCH`.
     env.expect('FT.SEARCH', 'idx', '*').error().contains('idx: no such index')
@@ -102,6 +104,7 @@ def test_error_propagation_from_shards(env):
     # create the index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     err = env.cmd('FT.AGGREGATE', 'idx', '**')[1]
+    env.assertEquals(type(err[0]), ResponseError)
     env.assertContains('Syntax error', str(err[0]))
     # The same for `FT.SEARCH`.
     env.expect('FT.SEARCH', 'idx', '**').error().contains('Syntax error')

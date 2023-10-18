@@ -54,20 +54,29 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand
   // Check if an error returned from the shard
   if(MRReply_Type(rep) == MR_REPLY_ERROR) {
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
-    rep = NULL;
     MRIteratorCallback_Done(ctx, 1);
     return REDIS_ERR;
   }
 
+  bool bail_out = false;
+
   if(MRReply_Type(rep) != MR_REPLY_ARRAY) {
+    bail_out = true;
+  } else {
+    size_t len = MRReply_Length(rep);
+    if (cmd->protocol == 3) {
+      bail_out = len != 2; // (map, cursor)
+    } else {
+      bail_out = len != 2 && len != 3; // (results, cursor) or (results, cursor, profile)
+    }
+  }
+
+  if (bail_out) {
     MRReply_Free(rep);
     MRIteratorCallback_Done(ctx, 1);
     RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
     return REDIS_ERR;
   }
-
-  size_t len = MRReply_Length(rep);
-  assert(cmd->protocol == 3 ? len == 2 : (len == 2 || len == 3));
 
   // rewrite and resend the cursor command if needed
   int rc = REDIS_OK;

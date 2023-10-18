@@ -2,6 +2,7 @@
 from includes import *
 from common import *
 from RLTest import Env
+from redis import ResponseError
 
 
 def test_geo(env):
@@ -115,6 +116,7 @@ def test_param_errors(env):
     env.expect('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]', 'PARAMS', '1', 'ph').raiseError().contains('Parameters must be specified in PARAM VALUE pairs')
     if env.isCluster():
         err = env.cmd('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]')[1]
+        env.assertEquals(type(err[0]), ResponseError)
         env.assertContains('No such parameter `vec`', str(err[0]))
     else:
         env.expect('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]').raiseError().contains('No such parameter `vec`')
