@@ -1,6 +1,9 @@
 from common import *
 import operator
 from math import nan
+import json
+from redis import ResponseError
+from test_coordinator import test_error_propagation_from_shards
 
 def order_dict(d):
     ''' Sorts a dictionary recursively by keys '''
@@ -731,11 +734,9 @@ def testExpandErrorsResp3():
   if not env.isCluster():
     env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
   else:
-    # TODO: Expect an error once MOD-5211 is done
-    env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').equal(
-       {'attributes': [], 'error': [], 'total_results': 0, 'format': 'EXPAND', 'results': []}
-    )
-
+    err = env.cmd('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND')['error']
+    env.assertEquals(type(err[0]), ResponseError)
+    env.assertContains('EXPAND format is only supported with JSON', str(err[0]))
 
 def testExpandErrorsResp2():
   env = Env(protocol=2)
@@ -745,8 +746,9 @@ def testExpandErrorsResp2():
   if not env.isCluster():
     env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').error()
   else:
-    # TODO: Expect an error once MOD-5211 is done
-    env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').equal([0])
+    err = env.cmd('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND')[1]
+    env.assertEquals(type(err[0]), ResponseError)
+    env.assertContains('EXPAND format is only supported with RESP3', str(err[0]))
 
 
   # On HASH
@@ -756,9 +758,9 @@ def testExpandErrorsResp2():
   if not env.isCluster():
     env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
   else:
-    # TODO: Expect an error once MOD-5211 is done
-    env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').equal([0])
-
+    err = env.cmd('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND')[1]
+    env.assertEquals(type(err[0]), ResponseError)
+    env.assertContains('EXPAND format is only supported with RESP3', str(err[0]))
 
 def testExpandJson():
   ''' Test returning values for JSON in expanded format (raw RESP3 instead of stringified JSON) '''
@@ -1293,3 +1295,7 @@ def test_vecsim_1():
                "params", "2", "BLOB", "\x00\x00\x00\x00\x00\x00\x00\x00")
     env.assertEqual(dict_diff(res, exp3 if env.protocol == 3 else exp2, show=True,
                     exclude_regex_paths=["\['sortkey'\]"]), {})
+
+def test_error_propagation_from_shards_resp3():
+    env = Env(protocol=3)
+    test_error_propagation_from_shards(env)
