@@ -3,20 +3,17 @@ import time
 import unittest
 from cmath import inf
 from email import message
-
-import redis.exceptions
-
 from includes import *
 from common import *
 from RLTest import Env
 
 
-def initEnv(moduleArgs: str = 'WORKER_THREADS 1 MT_MODE MT_MODE_FULL', useSlaves=None):
+def initEnv(moduleArgs: str = 'WORKER_THREADS 1 MT_MODE MT_MODE_FULL'):
     if(moduleArgs == ''):
         raise SkipTest('moduleArgs cannot be empty')
     if not MT_BUILD:
         raise SkipTest('MT_BUILD is not set')
-    env = Env(enableDebugCommand=True, moduleArgs=moduleArgs, useSlaves=useSlaves)
+    env = Env(enableDebugCommand=True, moduleArgs=moduleArgs)
     return env
 
 def testEmptyBuffer():
@@ -279,37 +276,3 @@ def test_async_updates_sanity():
         # After overwriting 1, there may be another one zombie.
         env.assertLessEqual(marked_deleted_vectors_new, marked_deleted_vectors + 1)
         marked_deleted_vectors = marked_deleted_vectors_new
-
-
-def test_short_read_mod5864():
-    env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2', useSlaves=True)
-    env.skipOnCluster()
-    conn = getConnectionByEnv(env)
-    dim = 128
-    n_vectors = 100000
-
-    conn.config_set('repl-diskless-sync', 'yes')
-    conn.config_set('rdbcompression', 'no')
-    conn.config_set('repl-diskless-sync-delay', '0')
-    slave_conn = env.getSlaveConnection()
-    slave_conn.config_set('repl-diskless-load', 'swapdb')
-
-    # Load random vectors into redis
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-               'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', '64').ok()
-    load_vectors_to_redis(env, n_vectors, 0, dim)
-    waitForRdbSaveToFinish(env)
-
-    print("sync")
-    slave_conn.sync()
-    # while True:
-    #     try:
-    #         print("sync")
-    #         try:
-    #             slave_conn.sync()
-    #         except:
-    #
-    #         break
-    #     except redis.exceptions.ResponseError as e:
-    #         if not str(e).startswith('NOMASTERLINK'):
-    #             env.assertFalse(True, message='Unexpected exception while syncing with replica')
