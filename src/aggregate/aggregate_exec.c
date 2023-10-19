@@ -685,7 +685,6 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // ctx is always assigned after ApplyContext
   if (rc != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
-    goto done;
   }
 
 done:
