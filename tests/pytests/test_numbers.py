@@ -28,7 +28,7 @@ def testUniqueSum(env):
             env.cmd('hset', f'doc:{i}', 'num', value)
 
         numeric_index_tree = dump_numeric_index_tree_root(env, 'idx', 'num')
-        env.assertEqual((to_dict(numeric_index_tree['range']))['unique_sum'], value, message=f"{title} before gc")
+        env.assertEqual(float((to_dict(numeric_index_tree['range']))['unique_sum']), float(value), message=f"{title} before gc")
 
         # delete one entry to trigger the gc
         env.cmd('hdel', 'doc:1', 'num')
@@ -40,7 +40,7 @@ def testUniqueSum(env):
         # representation back into unique_sum, which is double, without casting it back to double.
         # for example, for value = 1.0, the unique sum became ~1.482E-323
         numeric_index_tree = dump_numeric_index_tree_root(env, 'idx', 'num')
-        env.assertEqual((to_dict(numeric_index_tree['range']))['unique_sum'], value, message=f"{title} after gc")
+        env.assertEqual(float((to_dict(numeric_index_tree['range']))['unique_sum']), float(value), message=f"{title} after gc")
 
         env.cmd('flushall')
 
