@@ -20,22 +20,21 @@
 #include <err.h>
 
 // Get cursor command using a cursor id and an existing aggregate command
-
-static int getCursorCommand(MRReply *res, MRCommand *cmd) {
+// Returns true if the cursor is not done (i.e., not depleted)
+static bool getCursorCommand(MRReply *res, MRCommand *cmd) {
   long long cursorId;
   if (!MRReply_ToInteger(MRReply_ArrayElement(res, 1), &cursorId)) {
     // Invalid format?!
-    return 0;
+    return false;
   }
 
   if (cursorId == 0) {
     // Cursor was set to 0, end of reply chain.
     cmd->depleted = true;
-    return 0;
+    return false;
   }
-  if (cmd->num < 2) {
-    return 0;  // Invalid command!??
-  }
+
+  RS_LOG_ASSERT(cmd->num >= 2, "Invalid command?!");
 
   char buf[128];
   sprintf(buf, "%lld", cursorId);
@@ -48,13 +47,22 @@ static int getCursorCommand(MRReply *res, MRCommand *cmd) {
   MRCommand_Free(cmd);
   *cmd = newCmd;
 
-  return 1;
+  return true;
 }
 
 static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd) {
-  // Should we assert this??
-  bool bail_out = !rep || MRReply_Type(rep) != MR_REPLY_ARRAY;
-  if (!bail_out) {
+  // Check if an error returned from the shard
+  if(MRReply_Type(rep) == MR_REPLY_ERROR) {
+    MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
+    MRIteratorCallback_Done(ctx, 1);
+    return REDIS_ERR;
+  }
+
+  bool bail_out = false;
+
+  if(MRReply_Type(rep) != MR_REPLY_ARRAY) {
+    bail_out = true;
+  } else {
     size_t len = MRReply_Length(rep);
     if (cmd->protocol == 3) {
       bail_out = len != 2; // (map, cursor)
@@ -218,6 +226,12 @@ static int getNextReply(RPNet *nc) {
     return 0;
   }
 
+  // Check if an error was returned
+  if(MRReply_Type(root) == MR_REPLY_ERROR) {
+    nc->current.root = root;
+    return 1;
+  }
+
   MRReply *rows = MRReply_ArrayElement(root, 0);
   if (   rows == NULL
       || (MRReply_Type(rows) != MR_REPLY_ARRAY && MRReply_Type(rows) != MR_REPLY_MAP)
@@ -306,6 +320,12 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   while (!root || !rows || MRReply_Length(rows) == 0) {
       if (!getNextReply(nc)) {
         return RS_RESULT_EOF;
+      }
+
+      // If an error was returned, propagate it
+      if(MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
+        QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC, MRReply_String(nc->current.root, NULL));
+        return RS_RESULT_ERROR;
       }
 
       root = nc->current.root;
