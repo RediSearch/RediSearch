@@ -76,7 +76,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
   // Check if an error returned from the shard
-  if(MRReply_Type(rep) == MR_REPLY_ERROR && !cmd->rootCommand == C_DEL) {
+  if(MRReply_Type(rep) == MR_REPLY_ERROR && !(cmd->rootCommand == C_DEL)) {
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
     return REDIS_ERR;
@@ -88,10 +88,14 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     size_t len = MRReply_Length(rep);
     if (cmd->protocol == 3) {
       bail_out = len != 2; // (map, cursor)
-      RedisModule_Log(NULL, "warning", "Expected reply of length 2, got %d", len);
+      if (bail_out) {
+        RedisModule_Log(NULL, "warning", "Expected reply of length 2, got %ld", len);
+      }
     } else {
       bail_out = len != 2 && len != 3; // (results, cursor) or (results, cursor, profile)
-      RedisModule_Log(NULL, "warning", "Expected reply of length 2 or 3, got %d", len);
+      if (bail_out) {
+        RedisModule_Log(NULL, "warning", "Expected reply of length 2 or 3, got %ld", len);
+      }
     }
   }
 
