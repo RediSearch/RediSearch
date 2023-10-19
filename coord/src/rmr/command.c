@@ -172,6 +172,8 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->id = 0;
   cmd->targetSlot = -1;
   cmd->cmd = NULL;
+  cmd->depleted = false;
+  cmd->forCursor = false;
 }
 
 MRCommand MR_NewCommandArgv(int argc, const char **argv) {
