@@ -81,17 +81,19 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     size_t len = MRReply_Length(rep);
     if (cmd->protocol == 3) {
       bail_out = len != 2; // (map, cursor)
+      RedisModule_Log(NULL, "warning", "Expected reply of length 2, got %d", len);
     } else {
       bail_out = len != 2 && len != 3; // (results, cursor) or (results, cursor, profile)
+      RedisModule_Log(NULL, "warning", "Expected reply of length 2 or 3, got %d", len);
     }
   }
 
   if (bail_out) {
     if (cmd->rootCommand == C_DEL && MRReply_Type(rep) == MR_REPLY_ERROR) {
       // Unsuccessful DEL command
-      RedisModule_Log(NULL, "warning", "No index was found for deletion in the shard");
+      RedisModule_Log(NULL, "warning", "Error returned for CURSOR.DEL command from coordinator to shard");
     } else if (cmd->rootCommand == C_READ) {
-      RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
+      RedisModule_Log(NULL, "warning", "An unexpected reply was received from a shard");
     }
 
     MRReply_Free(rep);

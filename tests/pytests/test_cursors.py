@@ -328,7 +328,7 @@ def testCursorOnCoordinator(env):
                     env.assertTrue(cmd.startswith(exp), message=f'expected `{exp}` but got `{cmd}`')
                     found = True
                     break
-            env.assertTrue(found, message=f'`_FT.CURSOR READ` was not observed within {i} commands')
+            env.assertTrue(found, message=f'`_FT.CURSOR READ` was not observed within 11 commands')
             env.debugPrint(f'Found `_FT.CURSOR READ` in the {number_to_ordinal(i)} try')
 
             env.assertEqual(len(result_set), n_docs)
