@@ -368,12 +368,20 @@ void ReplicaBackupCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t s
   }
 }
 
+void ReplicaAsyncLoad(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+	REDISMODULE_NOT_USED(eid);
+	// Todo: implement callbacks to support async read requests during diskless rdb replication
+	//  in "swapdb" mode.
+}
+
 
 int CheckVersionForShortRead() {
   // Minimal versions: 6.2.5
   // (6.0.15 is not supporting the required event notification for modules)
-  if (redisVersion.majorVersion == 6 &&
-      redisVersion.minorVersion == 2) {
+  if (redisVersion.majorVersion >= 7 || (redisVersion.majorVersion == 6 && redisVersion.minorVersion >= 2)) {
+	  return REDISMODULE_OK;
+  }
+  if (redisVersion.majorVersion == 6 && redisVersion.minorVersion == 2) {
       return redisVersion.patchVersion >= 5 ? REDISMODULE_OK : REDISMODULE_ERR;
   } else if (redisVersion.majorVersion == 255 &&
            redisVersion.minorVersion == 255 &&
@@ -388,8 +396,15 @@ void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
   if (CheckVersionForShortRead() == REDISMODULE_OK) {
     int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
     RedisModule_Assert(success != REDISMODULE_ERR); // should be supported in this redis version/release
-    RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
+	RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
     RedisModule_Log(ctx, "notice", "Enabled diskless replication");
+#ifdef MT_BUILD
+	// Currently here for testing short reads during master-replica diskless loading, which requires
+	// this option to be enabled. However, in enterprise this is not required (diskless replication is enabled
+	// without setting "swapdb" option which requires the module handling async load).
+	success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplAsyncLoad, ReplicaAsyncLoad);
+	RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS | REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD);
+#endif
   }
 }
 
