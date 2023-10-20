@@ -353,10 +353,15 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root || !rows || MRReply_Length(rows) == 0) {
+    // if(TimedOut(&self->parent->sctx->timeout)) {
     if(TimedOut(&self->parent->sctx->timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
-      // callback
-      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+      // callback so that a `CURSOR DEL` command will be dispatched instead of
+      // a `CURSOR READ` command.
+      // Do not set it again, in case the last time timeout was not cleaned
+      if (MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it)) == 0) {
+        MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+      }
 
       return RS_RESULT_TIMEDOUT;
     }

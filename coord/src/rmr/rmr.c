@@ -671,7 +671,6 @@ MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb, void *privd
           },
       .cbxs = rm_calloc(len, sizeof(MRIteratorCallbackCtx)),
       .len = len,
-
   };
 
   for (size_t i = 0; i < len; i++) {
