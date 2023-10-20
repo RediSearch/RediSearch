@@ -1,4 +1,5 @@
 from common import *
+from redis import ResponseError
 
 def testInfo(env):
     SkipOnNonCluster(env)
@@ -79,3 +80,44 @@ def test_MOD_3540(env):
         conn.execute_command('HSET', i, 't', i)
 
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'MAX', '20')
+
+def test_error_propagation_from_shards(env):
+    """Tests that errors from the shards are propagated properly to the
+    coordinator, for both `FT.SEARCH` and `FT.AGGREGATE` commands.
+    We check the following errors:
+    1. Non-existing index.
+    2. Bad query.
+
+    * Timeouts are handled and tested separately.
+    """
+
+    SkipOnNonCluster(env)
+
+    # indexing an index that doesn't exist (today revealed only in the shards)
+    if env.protocol == 3:
+        err = env.cmd('FT.AGGREGATE', 'idx', '*')['error']
+    else:
+        err = env.cmd('FT.AGGREGATE', 'idx', '*')[1]
+
+    env.assertEquals(type(err[0]), ResponseError)
+    env.assertContains('idx: no such index', str(err[0]))
+    # The same for `FT.SEARCH`.
+    env.expect('FT.SEARCH', 'idx', '*').error().contains('idx: no such index')
+
+    # Bad query
+    # create the index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    if env.protocol == 3:
+        err = env.cmd('FT.AGGREGATE', 'idx', '**')['error']
+    else:
+        err = env.cmd('FT.AGGREGATE', 'idx', '**')[1]
+
+    env.assertEquals(type(err[0]), ResponseError)
+    env.assertContains('Syntax error', str(err[0]))
+    # The same for `FT.SEARCH`.
+    env.expect('FT.SEARCH', 'idx', '**').error().contains('Syntax error')
+
+    # Other stuff that are being checked only on the shards (FYI):
+    #   1. The language requested in the command.
+    #   2. The scorer requested in the command.
+    #   3. Parameters evaluation
