@@ -250,6 +250,62 @@ class TestAggregate():
             self.env.assertLess(int(row['count']), 5)
             self.env.assertGreater(int(row['count']), 2)
 
+    def testFilterBeforeLoad(self):
+        cmd = ['ft.aggregate', 'games', '*',
+               'FILTER', '@price > 500',
+               'SORTBY', 2, '@price', 'desc',
+               'LOAD', '1', '@categories',
+               'LIMIT', '0', '5']
+
+        # FIXME: should yield the same results in standalone cluster modes
+        if self.env.isCluster():
+            # On cluster, filter can implicitly load any field
+            res = self.env.cmd(*cmd)
+            self.env.assertEqual([
+                ['price', '759.12', 'categories', 'Accessories,Controllers,PC,Steering Wheels,Video Games'],
+                ['price', '695.8', 'categories', 'Consoles,Sony PSP,Video Games'],
+                ['price', '599.99', 'categories', 'Accessories,PC,Video Games'],
+                ['price', '559.99', 'categories', 'Accessories,Gaming Keyboards,Mac,Video Games'],
+                ['price', '518.48', 'categories', 'Consoles,Sony PSP,Video Games']
+            ], res[1:])
+        else:
+            # On standalone, filter can only refer to fields that available in the pipeline
+            self.env.expect(*cmd).error().contains('Property `price` not loaded nor in pipeline')
+
+        cmd = ['ft.aggregate', 'games', '*',
+               'FILTER', 'lower(@brand) == "sony"',
+               'LOAD', '1', '@categories',
+               'SORTBY', '1', '@price',
+               'LIMIT', '0', '5']
+
+        # FIXME: should yield the same results in standalone cluster modes (sony vs Sony)
+        res = self.env.cmd(*cmd)
+        if self.env.isCluster():
+            self.env.assertEqual([
+                ['brand', 'Sony', 'categories', 'Accessories,Cables,Cables & Adapters,PlayStation 3,Video Games', 'price', '5.88'],
+                ['brand', 'Sony', 'categories', 'Games,PC,Video Games', 'price', '9.19'],
+                ['brand', 'Sony', 'categories', 'Accessories,Adapters,Cables & Adapters,Sony PSP,Video Games', 'price', '11.74'],
+                ['brand', 'Sony', 'categories', 'Accessories,Headsets,Sony PSP,Video Games', 'price', '12.99'],
+                ['brand', 'Sony', 'categories', 'Movies & TV,Sony PSP,TV,Video Games', 'price', '25.99']
+            ], res[1:])
+        else:
+            self.env.assertEqual([
+                ['brand', 'sony', 'categories', 'Accessories,Cables,Cables & Adapters,PlayStation 3,Video Games', 'price', '5.88'],
+                ['brand', 'sony', 'categories', 'Games,PC,Video Games', 'price', '9.19'],
+                ['brand', 'sony', 'categories', 'Accessories,Adapters,Cables & Adapters,Sony PSP,Video Games', 'price', '11.74'],
+                ['brand', 'sony', 'categories', 'Accessories,Headsets,Sony PSP,Video Games', 'price', '12.99'],
+                ['brand', 'sony', 'categories', 'Movies & TV,Sony PSP,TV,Video Games', 'price', '25.99']
+            ], res[1:])
+
+    def testBadFilter(self):
+        cmd = ['ft.aggregate', 'games', '*',
+               'FILTER', 'bad filter',]
+        self.env.expect(*cmd).error().contains('Syntax error at offset')
+
+        cmd = ['ft.aggregate', 'games', '*',
+               'FILTER', '@price++',]
+        self.env.expect(*cmd).error().contains('Syntax error at offset')
+
     def testToList(self):
         cmd = ['ft.aggregate', 'games', '*',
                'GROUPBY', '1', '@brand',
@@ -928,20 +984,26 @@ def test_aggregate_timeout():
         raise unittest.SkipTest("Skipping timeout test under valgrind")
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
     nshards = env.shardsCount
     num_docs = 10000 * nshards
     pipeline = conn.pipeline(transaction=False)
-    for i in range(num_docs):
-        pipeline.hset (f'doc_{i}', 't1', str(np.random.rand(1, 1024)))
+    for i, t1 in enumerate(np.random.randint(1, 1024, num_docs)):
+        pipeline.hset (i, 't1', str(t1))
         if i % 1000 == 0:
             pipeline.execute()
             pipeline = conn.pipeline(transaction=False)
     pipeline.execute()
 
-
-    env.expect('FT.AGGREGATE', 'idx', '*', 'groupby', '1', '@t1', 'REDUCE', 'count', '0', 'AS', 'count', 'TIMEOUT', '1'). \
-        equal( ['Timeout limit was reached'] if not env.isCluster() else [0])
+    # On coordinator, we currently get a single empty result on timeout,
+    # because all the shards timed out but the coordinator doesn't report it.
+    env.expect('FT.AGGREGATE', 'idx', '*',
+               'LOAD', '2', '@t1', '@__key',
+               'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
+               'groupby', '2', '@t1', '@t1exp',
+                    'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
+               'TIMEOUT', '1',
+        ).equal( ['Timeout limit was reached'] if not env.isCluster() else [1, ['t1', None, 't1exp', None, 'keys', []]])
 
 
 def testGroupProperties(env):

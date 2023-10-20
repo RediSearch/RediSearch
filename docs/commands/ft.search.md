@@ -176,7 +176,7 @@ adds an arbitrary, binary safe payload that is exposed to custom scoring functio
 orders the results by the value of this attribute. This applies to both text and numeric attributes. Attributes needed for `SORTBY` should be declared as `SORTABLE` in the index, in order to be available with very low latency. Note that this adds memory overhead.
 
 **Sorting Optimizations**: performance is optimized for sorting operations on `DIALECT 4` in different scenarios:
-  - Skip Sorter - applied when there is no sort of any kind. The query can return once it reaches the `LIMIT` requested results.
+  - Skip Sorter - applied when there is no sort of any kind. The query can return after it reaches the `LIMIT` requested results.
   - Partial Range - applied when there is a `SORTBY` clause over a numeric field, with no filter or filter by the same numeric field, the query iterate on a range large enough to satisfy the `LIMIT` requested results.
   - Hybrid - applied when there is a `SORTBY` clause over a numeric field and another non-numeric filter. Some results will get filtered, and the initial range may not be large enough. The iterator is then rewinding with the following ranges, and an additional iteration takes place to collect the `LIMIT` requested results.
   - No optimization - If there is a sort by score or by non-numeric field, there is no other option but to retrieve all results and compare their values.
@@ -514,7 +514,8 @@ Adding a couple of geometries using `HSET`:
 Query with `WITHIN` operator:
 
 {{< highlight bash >}}
-127.0.0.1:6379> FT.SEARCH idx '@geom:[WITHIN POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]' DIALECT 3
+127.0.0.1:6379> FT.SEARCH idx '@geom:[WITHIN $poly]' PARAMS 2 poly 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))' DIALECT 3
+
 1) (integer) 1
 2) "small"
 3) 1) "geom"
@@ -525,7 +526,8 @@ Query with `CONTAINS` operator:
 
 
 {{< highlight bash >}}
-127.0.0.1:6379> FT.SEARCH idx '@geom:[CONTAINS POLYGON((2 2, 2 50, 50 50, 50 2, 2 2))]' DIALECT 3
+127.0.0.1:6379> FT.SEARCH idx '@geom:[CONTAINS $poly]' PARAMS 2 poly 'POLYGON((2 2, 2 50, 50 50, 50 2, 2 2))' DIALECT 3
+
 1) (integer) 2
 2) "small"
 3) 1) "geom"

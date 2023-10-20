@@ -161,7 +161,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
 
   // Coordinator only - handle required fields for coordinator request
   if (options & QEXEC_F_REQUIRED_FIELDS) {
-    
+
     // Sortkey is the first key to reply on the required fields, if we already replied it, continue to the next one.
     size_t currentField = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
     size_t requiredFieldsCount = array_len(req->requiredFields);
@@ -565,7 +565,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 
   if (req->reqflags & QEXEC_F_IS_CURSOR) {
     RedisModule_Reply _reply = RedisModule_NewReply(outctx), *reply = &_reply;
-    int rc = AREQ_StartCursor(req, reply, execution_ref, &status);
+    int rc = AREQ_StartCursor(req, reply, execution_ref, &status, false);
     RedisModule_EndReply(reply);
     if (rc != REDISMODULE_OK) {
       goto error;
@@ -685,7 +685,6 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // ctx is always assigned after ApplyContext
   if (rc != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
-    goto done;
   }
 
 done:
@@ -777,7 +776,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       // found in buildRequest
       StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(r->sctx->spec);
       RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-      int rc = AREQ_StartCursor(r, reply, spec_ref, &status);
+      int rc = AREQ_StartCursor(r, reply, spec_ref, &status, false);
       RedisModule_EndReply(reply);
       if (rc != REDISMODULE_OK) {
         goto error;
@@ -870,8 +869,8 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 // Assumes that the cursor has a strong ref to the relevant spec and that it is already locked.
-int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *err) {
-  Cursor *cursor = Cursors_Reserve(&g_CursorsList, spec_ref, r->cursorMaxIdle, err);
+int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *err, bool coord) {
+  Cursor *cursor = Cursors_Reserve(getCursorList(coord), spec_ref, r->cursorMaxIdle, err);
   if (cursor == NULL) {
     return REDISMODULE_ERR;
   }
@@ -956,7 +955,8 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 }
 
 static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count) {
-  Cursor *cursor = Cursors_TakeForExecution(&g_CursorsList, cid);
+  Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
+
   if (cursor == NULL) {
     RedisModule_Reply_Error(reply, "Cursor not found");
     return;
@@ -1055,7 +1055,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
 
   } else if (cmdc == 'D') {
-    int rc = Cursors_Purge(&g_CursorsList, cid);
+    int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
     if (rc != REDISMODULE_OK) {
       RedisModule_Reply_Error(reply, "Cursor does not exist");
     } else {
@@ -1064,6 +1064,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   } else if (cmdc == 'G') {
     int rc = Cursors_CollectIdle(&g_CursorsList);
+    rc += Cursors_CollectIdle(&g_CursorsListCoord);
     RedisModule_Reply_LongLong(reply, rc);
   } else {
     RedisModule_Reply_Error(reply, "Unknown subcommand");
@@ -1073,6 +1074,5 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 void Cursor_FreeExecState(void *p) {
-  AREQ *r = p;
-  AREQ_Free(p);
+  AREQ_Free((AREQ *)p);
 }

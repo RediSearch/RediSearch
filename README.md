@@ -26,7 +26,7 @@ The fastest way to get up and running with RediSearch is by using the [Redis Sta
 
 ## Trying RediSearch
 
-To try RediSearch, either use the RediSearch Docker image, or [create a free Redis Cloud Essentials account](https://redis.com/try-free/) to get a RediSearch instance in the cloud.
+To try RediSearch, either use the RediSearch Docker image, or [create a free Redis Cloud Essentials account](https://redis.com/try-free/?utm_source=redisio&utm_medium=referral&utm_campaign=2023-09-try_free&utm_content=cu-redis_cloud_users) to get a RediSearch instance in the cloud.
 
 ### Docker image
 
