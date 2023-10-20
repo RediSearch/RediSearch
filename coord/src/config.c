@@ -116,6 +116,22 @@ CONFIG_GETTER(getConnPerShard) {
   return sdscatprintf(ss, "%zu", realConfig->connPerShard);
 }
 
+// CURSOR_REPLY_THRESHOLD
+CONFIG_SETTER(setCursorReplyThreshold) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  int acrc = AC_GetSize(ac, &realConfig->cursorReplyThreshold, AC_F_GE1);
+  if (acrc != AC_OK) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, AC_Strerror(acrc));
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getCursorReplyThreshold) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+  return sdsfromlonglong(realConfig->cursorReplyThreshold);
+}
+
 static RSConfigOptions clusterOptions_g = {
     .vars =
         {
@@ -137,6 +153,10 @@ static RSConfigOptions clusterOptions_g = {
              .setValue = setConnPerShard,
              .getValue = getConnPerShard,
              .flags = RSCONFIGVAR_F_IMMUTABLE},
+            {.name = "CURSOR_REPLY_THRESHOLD",
+             .helpText = "Maximum number of replies to accumulate before triggering `_FT.CURSOR READ` on the shards",
+             .setValue = setCursorReplyThreshold,
+             .getValue = getCursorReplyThreshold,},
             {.name = NULL}
             // fin
         }
