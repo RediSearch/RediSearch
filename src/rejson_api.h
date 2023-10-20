@@ -37,7 +37,6 @@ typedef struct RedisJSONAPI {
   /* RedisJSON functions */
   RedisJSON (*openKey)(RedisModuleCtx *ctx, RedisModuleString *key_name);
   RedisJSON (*openKeyFromStr)(RedisModuleCtx *ctx, const char *path);
-  RedisJSON (*openKey_withFlags)(RedisModuleCtx *ctx, RedisModuleString *key_name, int flags);
 
   JSONResultsIterator (*get)(RedisJSON json, const char *path);
   
@@ -116,9 +115,15 @@ typedef struct RedisJSONAPI {
   // Free the iterator
   void (*freeKeyValuesIter)(JSONKeyValuesIterator iter);
 
+  ////////////////
+  // V5 entries //
+  ////////////////
+
+  RedisJSON (*openKeyWithFlags)(RedisModuleCtx *ctx, RedisModuleString *key_name, int flags);
+
 } RedisJSONAPI;
 
-#define RedisJSONAPI_LATEST_API_VER 4
+#define RedisJSONAPI_LATEST_API_VER 5
 #ifdef __cplusplus
 }
 #endif
