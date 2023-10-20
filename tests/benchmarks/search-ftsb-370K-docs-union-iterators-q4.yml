@@ -1,0 +1,35 @@
+name: "search-ftsb-370K-docs-union-iterators-q4"
+description: "
+             "
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5
+metadata:
+  component: "search"
+setups:
+  - oss-standalone
+  - oss-cluster-02-primaries
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+  - oss-cluster-16-primaries
+  - oss-cluster-20-primaries
+  - oss-cluster-24-primaries
+  - oss-cluster-32-primaries
+
+dbconfig:
+  - dataset_name: "370K-docs-union-iterators.idx174"
+  - init_commands:
+    - '"FT.CREATE" "idx174" "PREFIX" "1" "idx174:" "SCHEMA" "field1" "NUMERIC" "field2" "TEXT" "field3" "TEXT" "field4" "NUMERIC" "field5" "NUMERIC" "field6" "NUMERIC" "field7" "NUMERIC" "field8" "NUMERIC" "field9" "NUMERIC"'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/370K-docs-union-iterators/370K-docs-union-iterators.idx174.commands.SETUP.csv"
+  - dataset_load_timeout_secs: 180
+  - check:
+      keyspacelen: 370757
+
+clientconfig:
+  benchmark_type: "read-only"
+  tool: memtier_benchmark
+  arguments: "--test-time 180 -c 4 -t 1 --hide-histogram --command 'FT.SEARCH idx174 \"@field4: [-inf 18053372 ] @field5: [18053372 +inf ] @field8: [-inf 0.01 ] @field9:[0.01 +inf ] ( @field3: (1685)|(1876)|(1880)|(1882)|(1883)|(2257)|(2258) @field6: [-inf 0.325 ] @field7: [0.325 +inf ] )| ( @field3: (1866)|(1868)|(1874)|(1878)|(1879)|(2227)|(2610) @field6: [-inf 3.794 ] @field7: [3.794 +inf ] )| ( @field3: (1867)|(1869)|(1872) @field6: [-inf 4.743 ] @field7: [4.743 +inf ] )| ( @field3: (1873)|(1887)|(2215) @field6: [-inf 5.692 ] @field7: [5.692 +inf ] )| ( @field3: (1881)|(1888) @field6: [-inf 3.168 ] @field7: [3.168 +inf ] )| ( @field3: (2008)|(2221) @field6: [-inf 3.605 ] @field7: [3.605 +inf ] )\"'"
