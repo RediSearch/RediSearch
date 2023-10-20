@@ -804,6 +804,8 @@ def test_mod5791(env):
 @skip(asan=True)
 def test_mod5778_add_new_shard_to_cluster(env):
     SkipOnNonCluster(env)
+    if server_version_at_least(env, '7.0.0'):
+        env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards))
 
     # Create a new redis instance with redisearch loaded.
     # TODO: add appropriate APIs to RLTest to avoid this abstraction breaking.
@@ -844,6 +846,9 @@ def test_mod5778_add_new_shard_to_cluster(env):
 
     # Currently, the new shard is not assign on any slots.
     env.assertEqual(len(env.cmd('CLUSTER SLOTS')), len(env.envRunner.shards))
+    if server_version_at_least(env, '7.0.0'):
+        # Validate that the new shard has been recognized by the cluster.
+        env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards)+1)
 
     # Move a slot (number 0) from the first shard to the new shard.
     new_shard_id = new_instance_conn.cluster_myid(cluster.ClusterNode('127.0.0.1', new_instance_port))
@@ -851,7 +856,9 @@ def test_mod5778_add_new_shard_to_cluster(env):
     new_instance_conn.cluster_setslot(cluster.ClusterNode('127.0.0.1', new_instance_port), new_shard_id, 0, 'NODE')
 
     # Validate the updated state in old and new shards.
-    expected = [0, 0, ["127.0.0.1", new_instance_port, str(new_shard_id), []]]  # the first slot is in the new shard
+    expected = [0, 0, ["127.0.0.1", new_instance_port, str(new_shard_id)]]  # the first slot is in the new shard
+    if server_version_at_least(env, '7.0.0'):
+        expected[2].append([])  # another field was added to the response in redis >= 7 (empty in this case)
     res = env.cmd('CLUSTER SLOTS')
     env.assertEqual(len(res), len(env.envRunner.shards) + 1)
     env.assertEqual(res[0], expected)
