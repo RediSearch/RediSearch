@@ -8,7 +8,7 @@ aliases:
     - /docs/stack/search/quick_start
 ---
 
-Make sure that you have [Redis Stack installed](/docs/getting-started/install-stack/) and running. Alternatively, you can [create a free Redis Cloud account](https://redis.com/try-free/), which includes access to all Redis Stack features.
+Make sure that you have [Redis Stack installed](/docs/getting-started/install-stack/) and running. Alternatively, you can [create a free Redis Cloud account](https://redis.com/try-free/?utm_source=redisio&utm_medium=referral&utm_campaign=2023-09-try_free&utm_content=cu-redis_cloud_users), which includes access to all Redis Stack features.
 
 ## Overview
 
