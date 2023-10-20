@@ -648,6 +648,7 @@ def runShortRead(env, data, total_len, expected_index):
         env.assertCmdOk('replicaof', 'no', 'one')
 
 
+@skip(cluster=True, macos=True, msan=True)
 def test_short_read_with_MT():
     env = Env(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_ONLY_ON_OPERATIONS')
     if not MT_BUILD:
