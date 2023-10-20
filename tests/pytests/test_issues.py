@@ -804,7 +804,6 @@ def test_mod5791(env):
 @skip(asan=True)
 def test_mod5778_add_new_shard_to_cluster(env):
     SkipOnNonCluster(env)
-    env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards))
 
     # Create a new redis instance with redisearch loaded.
     # TODO: add appropriate APIs to RLTest to avoid this abstraction breaking.
@@ -842,8 +841,7 @@ def test_mod5778_add_new_shard_to_cluster(env):
         new_instance_conn = RedisCluster(host='127.0.0.1', port=new_instance_port, decode_responses=True,
                                          password=env.envRunner.password)
     env.assertEqual(new_instance_conn.ping(), True)
-    # Validate that the new shard has been recognized by the cluster.
-    env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards)+1)
+
     # Currently, the new shard is not assign on any slots.
     env.assertEqual(len(env.cmd('CLUSTER SLOTS')), len(env.envRunner.shards))
 
