@@ -978,7 +978,7 @@ def testResultCounter(env):
     env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([4])
     #env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([0])
 
-def populate_cluster(env):
+def populate_db(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
     nshards = env.shardsCount
@@ -991,13 +991,19 @@ def populate_cluster(env):
             pipeline = conn.pipeline(transaction=False)
     pipeline.execute()
 
-def test_aggregate_timeout_resp2():
+def aggregate_test(protocol=2):
     if VALGRIND:
         # You don't want to run this under valgrind, it will take forever
         raise unittest.SkipTest("Skipping timeout test under valgrind")
 
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
-    populate_cluster(env)
+    if protocol == 2:
+        env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+    elif protocol == 3:
+        env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL', protocol=3)
+    else:
+        env.skip()
+
+    populate_db(env)
 
     res = env.execute_command('FT.AGGREGATE', 'idx', '*',
                 'LOAD', '2', '@t1', '@__key',
@@ -1005,24 +1011,17 @@ def test_aggregate_timeout_resp2():
                 'groupby', '2', '@t1', '@t1exp',
                         'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
                 'TIMEOUT', '1',)
-    env.assertEqual(res, ['Timeout limit was reached'])
+
+    if protocol == 2:
+        env.assertEqual(res, ['Timeout limit was reached'])
+    else:
+        env.assertEqual(res['error'], ['Timeout limit was reached'])
+
+def test_aggregate_timeout_resp2():
+    aggregate_test(protocol=2)
 
 def test_aggregate_timeout_resp3():
-    if VALGRIND:
-        # You don't want to run this under valgrind, it will take forever
-        raise unittest.SkipTest("Skipping timeout test under valgrind")
-
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL', protocol=3)
-    populate_cluster(env)
-
-    res = env.execute_command('FT.AGGREGATE', 'idx', '*',
-                'LOAD', '2', '@t1', '@__key',
-                'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
-                'groupby', '2', '@t1', '@t1exp',
-                        'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
-                'TIMEOUT', '1',)
-
-    env.assertEqual(res['error'], ['Timeout limit was reached'])
+    aggregate_test(protocol=3)
 
 def testGroupProperties(env):
     conn = getConnectionByEnv(env)
