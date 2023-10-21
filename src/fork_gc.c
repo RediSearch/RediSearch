@@ -372,7 +372,11 @@ static void countRemain(const RSIndexResult *r, const IndexBlock *blk, void *arg
   }
   RS_LOG_ASSERT(ht, "cardvals should not be NULL");
   int added = 0;
-  numUnion u = {r->num.value};
+  // Save the floating-point binary representation of the value.
+  numUnion u = {.d48 = r->num.value};
+  //The hash table keys type is unsigned int. Since we used a union to save the value,
+  // u.u64 contains floating-point binary representation of the value read as an unsigned int.
+  // We will read it as a double when we retrieve the value from the hash table.
   khiter_t it = kh_put(cardvals, ht, u.u64, &added);
   if (!added) {
     // i.e. already existed
@@ -858,10 +862,10 @@ typedef struct {
 } NumGcInfo;
 
 static int recvCardvals(ForkGC *fgc, arrayof(CardinalityValue) *tgt, size_t *len, double *uniqueSum) {
+  // len = CardinalityValue count
   if (FGC_recvFixed(fgc, len, sizeof(*len)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  *len *= sizeof(**tgt);
   if (!*len) {
     *tgt = NULL;
     return REDISMODULE_OK;
@@ -869,12 +873,16 @@ static int recvCardvals(ForkGC *fgc, arrayof(CardinalityValue) *tgt, size_t *len
   if (*tgt) {
     rm_free(*tgt);
   }
-  *tgt = array_new(CardinalityValue, *len);
 
-  if (FGC_recvFixed(fgc, *tgt, *len) != REDISMODULE_OK) {
+  // We use array_newlen since we read the cardinality values entries directly to the memory in tgt.
+  // Meaning the header of the array will not be updates, including the length.
+  // The length of the array will be used to update the range cardinality. If we don't update the len, it will be 0.
+  *tgt = array_newlen(CardinalityValue, *len);
+
+  size_t tgt_size_bytes = *len * sizeof(**tgt);
+  if (FGC_recvFixed(fgc, *tgt, tgt_size_bytes) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  *len /= sizeof(**tgt);
 
   if (FGC_recvFixed(fgc, uniqueSum, sizeof(*uniqueSum)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
