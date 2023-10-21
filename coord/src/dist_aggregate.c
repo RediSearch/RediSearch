@@ -358,10 +358,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.
-      // Do not set it again, in case the last time timeout was not cleaned
-      if (MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it)) == 0) {
-        MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
-      }
+      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
 
       return RS_RESULT_TIMEDOUT;
     }
