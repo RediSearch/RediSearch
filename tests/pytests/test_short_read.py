@@ -532,6 +532,20 @@ def testShortReadSearch(env):
     env.assertNotEqual(seed, None, message='random seed ' + seed)
     random.seed(seed)
 
+    # Check that all modules have the required options
+    # Otherwise short read is not really enabled, also seen in redis log as:
+    #   "Skipping diskless-load because there are modules that don't handle read errors."
+    #   "Skipping diskless-load because there are modules that are not aware of async replication.""
+    abort = False
+    flags = ['handle-io-errors', 'handle-repl-async-load']
+    for m in env.cmd('info', 'modules')['modules']:
+        for flag in flags:
+            if flag not in m.get('options'):
+                abort = True
+                env.assertTrue(False, message='module "{}" does not have option "{}"'.format(m['name'], flag))
+    if abort:
+        return
+
     with tempfile.TemporaryDirectory(prefix="short-read_") as temp_dir:
         if not downloadFiles(temp_dir):
             env.assertTrue(False, "downloadFiles failed")

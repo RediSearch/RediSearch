@@ -370,11 +370,8 @@ void ReplicaBackupCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t s
 
 
 int CheckVersionForShortRead() {
-  // Minimal versions: 6.2.5
-  // (6.0.15 is not supporting the required event notification for modules)
-  if (redisVersion.majorVersion == 6 &&
-      redisVersion.minorVersion == 2) {
-      return redisVersion.patchVersion >= 5 ? REDISMODULE_OK : REDISMODULE_ERR;
+  if (redisVersion.majorVersion >= 7) {
+    return REDISMODULE_OK;
   } else if (redisVersion.majorVersion == 255 &&
            redisVersion.minorVersion == 255 &&
            redisVersion.patchVersion == 255) {
@@ -389,6 +386,7 @@ void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
     int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
     RedisModule_Assert(success != REDISMODULE_ERR); // should be supported in this redis version/release
     RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
+    // TODO: Set REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD
     RedisModule_Log(ctx, "notice", "Enabled diskless replication");
   }
 }
