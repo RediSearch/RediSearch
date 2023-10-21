@@ -157,5 +157,5 @@ def test_timeout(env):
 
     # Client cursor mid execution
     # If the cursor id is 0, this means there was a timeout throughout execution
-    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'TIMEOUT', 1)
+    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', '2500', 'TIMEOUT', 1)
     env.assertEquals(cursor, 0)
