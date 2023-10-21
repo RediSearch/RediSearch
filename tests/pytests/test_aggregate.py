@@ -979,6 +979,7 @@ def testResultCounter(env):
     #env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([0])
 
 def populate_db(env):
+    """Creates an index and populates the database"""
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
     nshards = env.shardsCount
