@@ -37,11 +37,11 @@ jobs:
     steps:
       - name: Deps checkout
         uses: actions/checkout@v3
+      - name: Setup
+        run: ./sbin/setup
       - run: |
           git config --global --add safe.directory '*'
           git submodule update --init --recursive
-      - name: Setup
-        run: ./sbin/setup
       # TODO: use this instead
       # - name: Deps checkout
       # uses: actions/checkout@v4
