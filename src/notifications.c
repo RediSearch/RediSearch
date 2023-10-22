@@ -397,14 +397,11 @@ void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
     int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
     RedisModule_Assert(success != REDISMODULE_ERR); // should be supported in this redis version/release
 	RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
-    RedisModule_Log(ctx, "notice", "Enabled diskless replication");
-#ifdef MT_BUILD
-	// Currently here for testing short reads during master-replica diskless loading, which requires
-	// this option to be enabled. However, in enterprise this is not required (diskless replication is enabled
-	// without setting "swapdb" option which requires the module handling async load).
-	success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplAsyncLoad, ReplicaAsyncLoad);
-	RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS | REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD);
-#endif
+    if (redisVersion.majorVersion < 7 || IsEnterprise()) {
+	    RedisModule_Log(ctx, "notice", "Enabled diskless replication");
+	    // TODO: in OSS, in redis >= 7, we must set REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD as well to allow
+	    //  diskless replication, as diskless replication occurs only in 'swapdb' mode.
+    }
   }
 }
 
