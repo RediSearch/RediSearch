@@ -13,14 +13,14 @@ on:
         type: string
 
 env:
-  LINUX_PLATFORMS: |
-    ubuntu:jammy
-    ubuntu:bionic
-    centos:7
-    rockylinux:8
-    rockylinux:9
-    debian:bullseye
-    amazonlinux:2
+  LINUX_PLATFORMS: "[
+    'ubuntu:jammy',
+    'ubuntu:bionic',
+    'centos:7',
+    'rockylinux:8',
+    'rockylinux:9',
+    'debian:bullseye',
+    'amazonlinux:2']"
 
 jobs:
   # run-tests-on-linux:
@@ -59,7 +59,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: ${{ github.env.LINUX_PLATFORMS }}
+        platform: ${{ toJson(github.env.LINUX_PLATFORMS) }}
         standalone:  [true] # Set a default value
         coordinator: [true] # Set a default value
         test-config: # configurations for both standalone and coordinator
@@ -87,7 +87,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: ${{ github.env.LINUX_PLATFORMS }}
+        platform: ${{ toJson(github.env.LINUX_PLATFORMS) }}
         standalone:  [true] # Set a default value
         coordinator: [true] # Set a default value
         test-config: # configurations for both standalone and coordinator
