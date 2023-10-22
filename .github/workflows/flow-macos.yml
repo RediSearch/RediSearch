@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [macos-11, macos-13-xlarge] # macos-13-xlarge has M1 chip
+        arch: [macos-11] #, macos-13-xlarge] # macos-13-xlarge has M1 chip
     uses: ./.github/workflows/common-flow-host.yml
     with:
       env: ${{ matrix.arch }}
