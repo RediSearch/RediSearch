@@ -153,9 +153,9 @@ def test_timeout(env):
     # TODO: Add this once the response will be fixed to be and error instead of a string
     # env.assertEquals(type(res[0]), ResponseError)
     env.assertContains('Timeout limit was reached', str(res[0]))
-    # Check that (some of) the shards revieved a `CURSOR DEL` command (?)
 
     # Client cursor mid execution
     # If the cursor id is 0, this means there was a timeout throughout execution
+    # caught by the coordinator
     res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', '2500', 'TIMEOUT', 1)
     env.assertEquals(cursor, 0)

@@ -21,7 +21,7 @@
 
 // Get cursor command using a cursor id and an existing aggregate command
 // Returns true if the cursor is not done (i.e., not depleted)
-static int getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
+static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
   long long cursorId;
   if (!MRReply_ToInteger(MRReply_ArrayElement(res, 1), &cursorId)) {
     // Invalid format?!
@@ -45,7 +45,7 @@ static int getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
   int shardingKey = MRCommand_GetShardingKey(cmd);
   const char *idx = MRCommand_ArgStringPtrLen(cmd, shardingKey, NULL);
   // If we timed out and not in cursor mode, we want to send the shard a DEL
-  // command instead of a READ command
+  // command instead of a READ command (here we know it has more results)
   if (timedout && !cmd->forCursor) {
     newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
     newCmd.depleted = true;
@@ -372,7 +372,8 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
     // If an error was returned, propagate it
     if(MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
-      QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC, MRReply_String(nc->current.root, NULL));
+      QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC,
+        MRReply_String(nc->current.root, NULL));
       return RS_RESULT_ERROR;
     }
 
