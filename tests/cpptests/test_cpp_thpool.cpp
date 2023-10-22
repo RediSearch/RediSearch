@@ -11,8 +11,8 @@ class PriorityThpoolTestBasic : public ::testing::Test {
         virtual void SetUp() {
             // Thread pool with a single thread which is also a "privileged thread" that
             // runs high priority tasks before low priority tasks.
-            this->pool = redisearch_thpool_create(1, 1);
-            redisearch_thpool_init(this->pool, nullptr);
+            this->pool = redisearch_thpool_create(1, 1, nullptr);
+            redisearch_thpool_init(this->pool);
         }
 
         virtual void TearDown() {
@@ -109,7 +109,7 @@ class PriorityThpoolTestWithoutPrivilegedThreads : public ::testing::Test {
     virtual void SetUp() {
         // Thread pool with one thread which is not a "privileged thread", meaning that
         // it runs high priority tasks and low priority alternately.
-        this->pool = redisearch_thpool_create(1, 0);
+        this->pool = redisearch_thpool_create(1, 0, nullptr);
     }
 
     virtual void TearDown() {
@@ -136,7 +136,7 @@ TEST_F(PriorityThpoolTestWithoutPrivilegedThreads, CombinationTest) {
     redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[3], THPOOL_PRIORITY_HIGH);
     redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[4], THPOOL_PRIORITY_LOW);
 
-    redisearch_thpool_init(this->pool, nullptr);
+    redisearch_thpool_init(this->pool);
     redisearch_thpool_wait(this->pool);
 
     // Expect alternate high-low order: 1->0->2->4->3
