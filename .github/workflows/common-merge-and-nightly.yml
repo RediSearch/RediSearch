@@ -114,6 +114,7 @@ jobs:
 
   run-tests-on-macos:
     strategy:
+      fail-fast: false
       matrix:
         standalone:  [true] # Set a default value
         coordinator: [true] # Set a default value
