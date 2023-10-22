@@ -37,8 +37,6 @@ jobs:
     steps:
       - name: Deps checkout
         uses: actions/checkout@v4
-        with:
-          submodules: true
       - run: |
           git config --global --add safe.directory '*'
           git submodule update --init --recursive
