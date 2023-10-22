@@ -33,12 +33,6 @@
 #define THPOOL_DEBUG 0
 #endif
 
-#if !defined(DISABLE_PRINT) || defined(THPOOL_DEBUG)
-#define err(str, ...) fprintf(stderr, str, ##__VA_ARGS__)
-#else
-#define err(str, ...)
-#endif
-
 #define LOG_IF_EXISTS(level, str, ...) if (thpool_p->log) {thpool_p->log(level, str, ##__VA_ARGS__);}
 
 static volatile int threads_on_hold;
@@ -134,7 +128,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t 
   redisearch_thpool_t* thpool_p;
   thpool_p = (struct redisearch_thpool_t*)rm_malloc(sizeof(struct redisearch_thpool_t));
   if (thpool_p == NULL) {
-    err("redisearch_thpool_create(): Could not allocate memory for thread pool\n");
+    LOG_IF_EXISTS("warning", "redisearch_thpool_create(): Could not allocate memory for thread pool")
     return NULL;
   }
   thpool_p->log = log;
@@ -147,7 +141,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t 
   /* Initialise the job queue */
   if (num_privileged_threads > num_threads) num_privileged_threads = num_threads;
   if(priority_queue_init(&thpool_p->jobqueue, num_threads, num_privileged_threads) == -1) {
-    err("redisearch_thpool_create(): Could not allocate memory for job queue\n");
+    LOG_IF_EXISTS("warning", "redisearch_thpool_create(): Could not allocate memory for job queue")
     rm_free(thpool_p);
     return NULL;
   }
@@ -155,7 +149,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t 
   /* Make threads in pool */
   thpool_p->threads = (struct thread**)rm_malloc(num_threads * sizeof(struct thread*));
   if (thpool_p->threads == NULL) {
-    err("redisearch_thpool_create(): Could not allocate memory for threads\n");
+    LOG_IF_EXISTS("warning", "redisearch_thpool_create(): Could not allocate memory for threads")
     priority_queue_destroy(&thpool_p->jobqueue);
     rm_free(thpool_p);
     return NULL;
@@ -164,7 +158,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t 
   for (size_t i = 0; i < num_threads; i++) {
     thpool_p->threads[i] = (struct thread*)rm_malloc(sizeof(struct thread));
     if (thpool_p->threads[i] == NULL) {
-      err("thread_create(): Could not allocate memory for thread\n");
+	  LOG_IF_EXISTS("warning", "thread_create(): Could not allocate memory for thread")
       priority_queue_destroy(&thpool_p->jobqueue);
       for (size_t j = 0; j < i; j++) {
         rm_free(thpool_p->threads[j]);
@@ -204,7 +198,7 @@ int redisearch_thpool_add_work(redisearch_thpool_t* thpool_p, void (*function_p)
 
   newjob = (struct job*)rm_malloc(sizeof(struct job));
   if (newjob == NULL) {
-    err("thpool_add_work(): Could not allocate memory for new job\n");
+    LOG_IF_EXISTS("warning", "thpool_add_work(): Could not allocate memory for new job");
     return -1;
   }
 
@@ -249,7 +243,7 @@ int redisearch_thpool_add_n_work(redisearch_threadpool thpool_p, redisearch_thpo
   return 0;
 
 fail:
-  err("redisearch_thpool_add_n_work(): Could not allocate memory for %zu new jobs\n", n_jobs);
+  LOG_IF_EXISTS("warning", "redisearch_thpool_add_n_work(): Could not allocate memory for %zu new jobs", n_jobs);
   while (first_newjob) {
     job* tmp = first_newjob->prev;
     rm_free(first_newjob);
@@ -420,7 +414,7 @@ static void* thread_do(struct thread* thread_p) {
 #elif defined(__APPLE__) && defined(__MACH__)
   pthread_setname_np(thread_name);
 #else
-  err("thread_do(): pthread_setname_np is not supported on this system");
+	LOG_IF_EXISTS("warning", "thread_do(): pthread_setname_np is not supported on this system")
 #endif
 
   /* Assure all threads have been created before starting serving */
@@ -433,7 +427,7 @@ static void* thread_do(struct thread* thread_p) {
   act.sa_flags = 0;
   act.sa_handler = thread_hold;
   if (sigaction(SIGUSR2, &act, NULL) == -1) {
-    err("thread_do(): cannot handle SIGUSR1");
+    LOG_IF_EXISTS("warning", "thread_do(): cannot handle SIGUSR1")
   }
 
   /* Mark thread as alive (initialized) */
@@ -469,7 +463,7 @@ static void* thread_do(struct thread* thread_p) {
 	      pthread_cond_signal(&thpool_p->threads_all_idle);
       }
 	  if (priority_queue_len(&thpool_p->jobqueue) == 0 && thpool_p->terminate_when_empty) {
-		  LOG_IF_EXISTS("notice", "Job queue is empty - terminating thread %d", thread_p->id);
+		  LOG_IF_EXISTS("verbose", "Job queue is empty - terminating thread %d", thread_p->id);
           thpool_p->keepalive = 0;
 	  }
       pthread_mutex_unlock(&thpool_p->thcount_lock);
