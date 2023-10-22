@@ -47,7 +47,7 @@ jobs:
       - name: Deps checkout
         uses: actions/checkout@v3
       - name: Setup
-        run: ./sbin/setup
+        run: ${{ env.MODE }} make setup
       - run: |
           git config --global --add safe.directory '*'
           git submodule update --init --recursive
