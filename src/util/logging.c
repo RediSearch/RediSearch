@@ -5,6 +5,7 @@
  */
 
 #include "logging.h"
+#include <stdarg.h>
 #include "module.h"
 
 int LOGGING_LEVEL = 0;
@@ -14,6 +15,9 @@ void LOGGING_INIT(int level) {
   LOGGING_LEVEL = level;
 }
 
-void LogCallback(const char *level, const char *message) {
-  RedisModule_Log(RSDummyContext, level, "%s", message);
+void LogCallback(const char *level, const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  RedisModule_Log(RSDummyContext, level, fmt, ap);
+  va_end(ap);
 }

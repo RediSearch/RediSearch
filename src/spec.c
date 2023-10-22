@@ -1267,8 +1267,8 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
 
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
-    cleanPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM);
-    redisearch_thpool_init(cleanPool, LogCallback);
+    cleanPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM, LogCallback);
+    redisearch_thpool_init(cleanPool);
   }
 }
 
@@ -2081,8 +2081,8 @@ end:
 
 static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM);
-    redisearch_thpool_init(reindexPool, LogCallback);
+    reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM, LogCallback);
+    redisearch_thpool_init(reindexPool);
   }
 #ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Register index %s for async scan", ((IndexSpec*)StrongRef_Get(spec_ref))->name);
@@ -2307,8 +2307,8 @@ void Indexes_UpgradeLegacyIndexes() {
 
 void Indexes_ScanAndReindex() {
   if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM);
-    redisearch_thpool_init(reindexPool, LogCallback);
+    reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM, LogCallback);
+    redisearch_thpool_init(reindexPool);
   }
 
   RedisModule_Log(NULL, "notice", "Scanning all indexes");
@@ -2701,6 +2701,12 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
 #endif
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
   }
+#ifdef MT_BUILD
+  else if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
+    // Clear pending jobs from job queue in case of short read.
+    workersThreadPool_waitAndTerminate(ctx);
+  }
+#endif
 }
 
 #ifdef MT_BUILD
@@ -2852,6 +2858,9 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
     return;
   }
   Indexes_Free(specDict_g);
+#ifdef MT_BUILD
+  workersThreadPool_Drain(ctx, 0);
+#endif
   Dictionary_Clear();
   RSGlobalConfig.used_dialects = 0;
 }
