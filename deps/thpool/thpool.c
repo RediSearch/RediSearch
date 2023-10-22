@@ -127,7 +127,7 @@ static void bsem_wait(struct bsem* bsem_p);
 /* ========================== THREADPOOL ============================ */
 
 /* Create thread pool */
-struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t num_privileged_threads) {
+struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t num_privileged_threads, LogFunc log) {
   threads_on_hold = 0;
 
   /* Make new thread pool */
@@ -137,6 +137,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t 
     err("redisearch_thpool_create(): Could not allocate memory for thread pool\n");
     return NULL;
   }
+  thpool_p->log = log;
   thpool_p->total_threads_count = num_threads;
   thpool_p->num_threads_alive = 0;
   thpool_p->num_threads_working = 0;
@@ -180,11 +181,10 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t 
 }
 
 /* Initialise thread pool */
-void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p, LogFunc log) {
+void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p) {
   assert(thpool_p->keepalive == 0);
   thpool_p->keepalive = 1;
   thpool_p->terminate_when_empty = 0;
-  thpool_p->log = log;
 
   /* Thread init */
   size_t n;
@@ -323,7 +323,9 @@ void redisearch_thpool_terminate_threads(redisearch_thpool_t* thpool_p) {
 
 void redisearch_thpool_terminate_when_empty(redisearch_thpool_t* thpool_p) {
   thpool_p->terminate_when_empty = 1;
-  // Wake up all threads (in case threads are waiting since there are not enough jobs on the queue)
+  // Wake up all threads (in case threads are waiting since there are not enough jobs on the queue).
+  // If there are jobs in the queue, the semaphore value should become n_jobs+n_threads, so that each thread
+  // will run one more time after the job queue is empty and then terminate.
   bsem_post_all(thpool_p->jobqueue.has_jobs);
 }
 
@@ -462,15 +464,14 @@ static void* thread_do(struct thread* thread_p) {
 
       pthread_mutex_lock(&thpool_p->thcount_lock);
       thpool_p->num_threads_working--;
-      if (!thpool_p->num_threads_working) {
-        LOG_IF_EXISTS("debug", "Thread pool contains no more jobs")
-        pthread_cond_signal(&thpool_p->threads_all_idle);
-        if (thpool_p->terminate_when_empty) {
-          LOG_IF_EXISTS("notice", "Job queue is empty - terminating thread pool")
-          thpool_p->keepalive = 0;
-          bsem_post_all(thpool_p->jobqueue.has_jobs);
-        }
+      if (thpool_p->num_threads_working == 0) {
+	      LOG_IF_EXISTS("debug", "All threads are idle")
+	      pthread_cond_signal(&thpool_p->threads_all_idle);
       }
+	  if (priority_queue_len(&thpool_p->jobqueue) == 0 && thpool_p->terminate_when_empty) {
+		  LOG_IF_EXISTS("notice", "Job queue is empty - terminating thread %d", thread_p->id);
+          thpool_p->keepalive = 0;
+	  }
       pthread_mutex_unlock(&thpool_p->thcount_lock);
     }
   }
@@ -651,12 +652,8 @@ static size_t priority_queue_len(priority_queue* priority_queue_p) {
 
 /* ======================== SYNCHRONISATION ========================= */
 
-/* Init semaphore to 1 or 0 */
+/* Init semaphore */
 static void bsem_init(bsem* bsem_p, int value, size_t n_threads) {
-  if (value < 0 || value > 1) {
-    err("bsem_init(): Binary semaphore can take only values 1 or 0");
-    exit(1);
-  }
   pthread_mutex_init(&(bsem_p->mutex), NULL);
   pthread_cond_init(&(bsem_p->cond), NULL);
   bsem_p->v = value;
@@ -668,7 +665,7 @@ static void bsem_reset(bsem* bsem_p) {
   bsem_p->v = 0;
 }
 
-/* Post to at least one thread */
+/* Post to exactly one thread */
 static void bsem_post(bsem* bsem_p) {
   pthread_mutex_lock(&bsem_p->mutex);
   bsem_p->v++;
