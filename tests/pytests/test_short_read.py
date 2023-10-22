@@ -565,7 +565,7 @@ def sendShortReads(env, rdb_file, expected_index):
     env.assertGreater(total_len, SHORT_READ_BYTES_DELTA)
     r = range(0, total_len + 1, SHORT_READ_BYTES_DELTA)
     if (total_len % SHORT_READ_BYTES_DELTA) != 0:
-        r = chain(r,range(total_len, total_len + 1))
+        r = chain(r, range(total_len, total_len + 1))
     for b in r:
         rdb = full_rdb[0:b]
         runShortRead(env, rdb, total_len, expected_index)
@@ -622,25 +622,52 @@ def runShortRead(env, data, total_len, expected_index):
         conn = shardMock.GetConnection(timeout=3)
         env.assertNotEqual(conn, None)
 
-        res = env.cmd('ft._list')
-        if is_shortread:
-            # Verify original data, that existed before the failed attempt to short-read, is restored
-            env.assertEqual(res, ['idxBackup2', 'idxBackup1'])
-            res = env.cmd('ft.search ', 'idxBackup1', '*', 'limit', '0', '0')
-            env.assertEqual(res[0], 5)
-            res = env.cmd('ft.search ', 'idxBackup2', '*', 'limit', '0', '0')
-            env.assertEqual(res[0], 5)
-        else:
-            # Verify new data was loaded and the backup was discarded
-            # TODO: How to verify internal backup was indeed discarded
-            res.sort()
-            env.assertEqual(len(res), expected_index.count)
-            r = re.compile(expected_index.pattern)
-            expected_indices = list(filter(lambda x: r.match(x), res))
-            env.assertEqual(len(expected_indices), expected_index.count)
-            for ind, expected_result_count in zip(expected_indices, expected_index.search_result_count):
-                res = env.cmd('ft.search ', ind, '*', 'limit', '0', '0')
-                env.assertEqual(res[0], expected_result_count)
+        if server_version_less_than(env, '7.0.0'):
+            # Async load in 'swapdb' mode is supported in redis < 7.
+            res = env.cmd('ft._list')
+            if is_shortread:
+                # Verify original data, that existed before the failed attempt to short-read, is restored
+                env.assertEqual(res, ['idxBackup2', 'idxBackup1'])
+                res = env.cmd('ft.search ', 'idxBackup1', '*', 'limit', '0', '0')
+                env.assertEqual(res[0], 5)
+                res = env.cmd('ft.search ', 'idxBackup2', '*', 'limit', '0', '0')
+                env.assertEqual(res[0], 5)
+            else:
+                # Verify new data was loaded and the backup was discarded
+                # TODO: How to verify internal backup was indeed discarded
+                res.sort()
+                env.assertEqual(len(res), expected_index.count)
+                r = re.compile(expected_index.pattern)
+                expected_indices = list(filter(lambda x: r.match(x), res))
+                env.assertEqual(len(expected_indices), expected_index.count)
+                for ind, expected_result_count in zip(expected_indices, expected_index.search_result_count):
+                    res = env.cmd('ft.search ', ind, '*', 'limit', '0', '0')
+                    env.assertEqual(res[0], expected_result_count)
 
         # Exit (avoid read-only exception with flush on replica)
         env.assertCmdOk('replicaof', 'no', 'one')
+
+
+@skip(cluster=True, macos=True, msan=True)
+def test_short_read_with_MT():
+    env = Env(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_ONLY_ON_OPERATIONS')
+    if not MT_BUILD:
+        raise SkipTest('MT_BUILD is not set')
+    if not server_version_at_least(env, "7.0.0"):
+        env.skip()
+
+    seed = str(time.time())
+    env.assertNotEqual(seed, None, message='random seed ' + seed)
+    random.seed(seed)
+
+    with tempfile.TemporaryDirectory(prefix="short-read_") as temp_dir:
+        if not downloadFiles(temp_dir):
+            env.assertTrue(False, "downloadFiles failed")
+
+        for f, expected_index in zip(RDBS, RDBS_EXPECTED_INDICES):
+            name, ext = os.path.splitext(f)
+            if ext == '.zip':
+                f = name
+            fullfilePath = os.path.join(temp_dir, f)
+            env.assertNotEqual(fullfilePath, None, message='testShortReadSearch')
+            sendShortReads(env, fullfilePath, expected_index)
