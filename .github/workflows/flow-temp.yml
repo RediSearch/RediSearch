@@ -2,6 +2,16 @@ name: temporary testing
 
 on: [push]
 
+
+env:
+    ALL_IMAGES: "['ubuntu:jammy',
+                  'ubuntu:bionic',
+                  'centos:7',
+                  'rockylinux:8',
+                  'rockylinux:9',
+                  'debian:bullseye',
+                  'amazonlinux:2']"
+
 jobs:
     get-required-envs:
       runs-on: ubuntu-latest
@@ -15,7 +25,7 @@ jobs:
             import os
             import uuid
 
-            platforms = '${{ inputs.platform }}'
+            platforms = 'all'
             include = {}
 
             if platforms == 'all':
