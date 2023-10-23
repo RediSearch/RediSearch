@@ -55,7 +55,8 @@ jobs:
         needs: get-required-envs
         runs-on: ubuntu-latest
         strategy:
-            matrix: ${{ needs.get-required-envs.outputs.matrix }}
+            matrix:
+                ${{ needs.get-required-envs.outputs.matrix }}
         steps:
             - name: Print
               run: |
