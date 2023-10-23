@@ -95,7 +95,7 @@ jobs:
 
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
             delimiter = uuid.uuid1()
-            print(f'{matrix}<<{delimiter}', file=fh)
+            print(f'matrix<<{delimiter}', file=fh)
             print(serialized, file=fh)
             print(delimiter, file=fh)
 
