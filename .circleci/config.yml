@@ -1019,7 +1019,7 @@ workflows:
             parameters:
               platform: [jammy, focal, bionic]
       - build-macos-x64-search:
-          <<: *always
+          <<: *on-version-tags
           context: common
           # Avoid persist conflict with build-macos-x64-coordinator
           upload: "no"
