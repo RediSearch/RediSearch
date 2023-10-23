@@ -70,12 +70,8 @@ commands:
           name: Setup automation
           command: |
             git submodule update --init deps/readies
-            if [[ $(uname -s) == Darwin ]]; then
-              VERBOSE=1 PIP=0 FORCE=1 FIX=1 VENV=0 ./deps/readies/bin/getpy3
-              VERBOSE=1 FORCE=1 VENV=$HOME/.venv ./deps/readies/bin/getpyenv
-            else
-              ./deps/readies/bin/getpy3
-            fi
+            if [[ $(uname -s) == Darwin ]]; then rm -f /usr/local/bin/python3; fi
+            VERBOSE=1 ./deps/readies/bin/getpy3
       - run:
           name: Setup automation (part 2)
           shell: /bin/bash -l -eo pipefail
