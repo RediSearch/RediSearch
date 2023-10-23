@@ -3,16 +3,51 @@ name: temporary testing
 on: [push]
 
 jobs:
+    get-required-envs:
+      runs-on: ubuntu-latest
+      outputs:
+        matrix: ${{ steps.get_platforms.outputs.matrix }}
+      steps:
+        - name: Get platform
+          id: get_platforms
+          shell: python
+          run: |
+            import os
+            import uuid
+
+            platforms = '${{ inputs.platform }}'
+            include = {}
+
+            if platforms == 'all':
+              platforms = ${{ env.ALL_IMAGES }}
+            else:
+              platforms = [platforms]
+
+            # Special cases:
+
+            # amazonlinux:2 needs pre-checkout dependencies
+            if platforms.count('amazonlinux:2') > 0:
+              include['amazonlinux:2'] = "yum install -y tar"
+
+            # Serialize the platforms to a string
+            serialized = "OS: " + str(platforms)
+            serialized += "\n" + "include:"
+            for key, value in include.items():
+              serialized += "\n- OS:" + key + "\n pre-deps:" + value
+
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+              delimiter = uuid.uuid1()
+              print(f'{matrix}<<{delimiter}', file=fh)
+              print(serialized, file=fh)
+              print(delimiter, file=fh)
+
     test-matrix:
+        needs: get-required-envs
         runs-on: ubuntu-latest
         strategy:
-            matrix:
-                OS: [ubuntu-latest, windows-latest, macOS-latest]
-                include:
-                    - OS: ubuntu-latest
-                      msg: 'ubuntu'
+            matrix: ${{ fromJson(needs.get-required-envs.outputs.matrix) }}
         steps:
             - name: Print
               run: |
                     echo "OS: ${{ matrix.OS }}"
-                    echo "msg: ${{ matrix.msg || 'none' }}"
+                    echo "msg: ${{ matrix.pre-deps || 'none' }}"
