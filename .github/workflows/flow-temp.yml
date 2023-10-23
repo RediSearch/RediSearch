@@ -8,7 +8,6 @@ jobs:
         strategy:
             matrix:
                 OS: [ubuntu-latest, windows-latest, macOS-latest]
-                msg: ['default']
                 include:
                     - OS: ubuntu-latest
                       msg: 'ubuntu'
@@ -16,4 +15,4 @@ jobs:
             - name: Print
               run: |
                     echo "OS: ${{ matrix.OS }}"
-                    echo "msg: ${{ matrix.msg }}"
+                    echo "msg: ${{ matrix.msg || 'none' }}"
