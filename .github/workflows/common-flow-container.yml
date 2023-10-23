@@ -11,9 +11,6 @@ on:
       container:
         required: true
         type: string
-      container_options:
-        type: string
-        default: --cpus 2
       san:
         type: string
       get-redis:
@@ -29,6 +26,9 @@ on:
       standalone:
         type: boolean
         default: true
+      pre-steps-script:
+        type: string
+        description: 'Script to run before any other steps (extremely basic dependency needs only)'
 
 env:
   MODE: "" # user mode
@@ -37,14 +37,15 @@ env:
 jobs:
   common-flow:
     runs-on: ${{ inputs.env }}
-    container:
-      image: ${{ inputs.container }}
-      options: ${{ inputs.container_options }}
+    container: ${{ inputs.container }}
 # From this point on, this file should be identical to the other common flow.
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
+      - name: Pre-steps Dependencies
+        if: inputs.pre-steps-script
+        run: ${{ inputs.pre-steps-script }}
       - name: Deps checkout
         uses: actions/checkout@v3
         with:

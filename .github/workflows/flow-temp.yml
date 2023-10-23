@@ -1,0 +1,19 @@
+name: temporary testing
+
+on: [push]
+
+jobs:
+    test-matrix:
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                OS: [ubuntu-latest, windows-latest, macOS-latest]
+                msg: ['default']
+                include:
+                    - OS: ubuntu-latest
+                      msg: 'ubuntu'
+        steps:
+            - name: Print
+              run: |
+                    echo "OS: ${{ matrix.OS }}"
+                    echo "msg: ${{ matrix.msg }}"

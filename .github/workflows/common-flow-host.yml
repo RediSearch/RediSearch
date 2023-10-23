@@ -23,6 +23,9 @@ on:
       standalone:
         type: boolean
         default: true
+      pre-steps-script:
+        type: string
+        description: 'Script to run before any other steps (extremely basic dependency needs only)'
 
 env:
   MODE: "sudo"
@@ -36,6 +39,9 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
+      - name: Pre-steps Dependencies
+        if: inputs.pre-steps-script
+        run: ${{ inputs.pre-steps-script }}
       - name: Deps checkout
         uses: actions/checkout@v3
         with:
