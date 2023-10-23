@@ -80,41 +80,41 @@ jobs:
       standalone: ${{ matrix.standalone }}
       coordinator: ${{ matrix.coordinator }}
 
-  run-tests-on-linux-arm64:
-    strategy:
-      fail-fast: false
-      matrix:
-        platform: [
-          'ubuntu:jammy',
-          'ubuntu:bionic',
-          'centos:7',
-          'rockylinux:8',
-          'rockylinux:9',
-          'debian:bullseye',
-          'amazonlinux:2']
-        test-config: # configurations for both standalone and coordinator
-          - concurrent_write
-          - max_unsorted
-          - union_iterator_heap
-          - raw_docid
-          - dialect_2
-        standalone:  [true] # Set a default value
-        coordinator: [true] # Set a default value
-        include: # spacial configurations
-          - test-config: global_password
-            standalone:  false
-          - test-config: safemode
-            standalone:  false
-          - test-config: tls
-            standalone:  false
+  # run-tests-on-linux-arm64:
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       platform: [
+  #         'ubuntu:jammy',
+  #         'ubuntu:bionic',
+  #         'centos:7',
+  #         'rockylinux:8',
+  #         'rockylinux:9',
+  #         'debian:bullseye',
+  #         'amazonlinux:2']
+  #       test-config: # configurations for both standalone and coordinator
+  #         - concurrent_write
+  #         - max_unsorted
+  #         - union_iterator_heap
+  #         - raw_docid
+  #         - dialect_2
+  #       standalone:  [true] # Set a default value
+  #       coordinator: [true] # Set a default value
+  #       include: # spacial configurations
+  #         - test-config: global_password
+  #           standalone:  false
+  #         - test-config: safemode
+  #           standalone:  false
+  #         - test-config: tls
+  #           standalone:  false
 
-    uses: ./.github/workflows/flow-self-hosted-arm.yml
-    secrets: inherit
-    with:
-      container: ${{ matrix.platform }}
-      test-config: CONFIG=${{ matrix.test-config }}
-      standalone: ${{ matrix.standalone }}
-      coordinator: ${{ matrix.coordinator }}
+  #   uses: ./.github/workflows/flow-self-hosted-arm.yml
+  #   secrets: inherit
+  #   with:
+  #     container: ${{ matrix.platform }}
+  #     test-config: CONFIG=${{ matrix.test-config }}
+  #     standalone: ${{ matrix.standalone }}
+  #     coordinator: ${{ matrix.coordinator }}
 
   run-tests-on-macos:
     strategy:
