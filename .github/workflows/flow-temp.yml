@@ -43,7 +43,7 @@ jobs:
             serialized = "OS: " + str(platforms)
             serialized += "\n" + "include:"
             for key, value in include.items():
-              serialized += "\n- OS:" + key + "\n pre-deps:" + value
+              serialized += "\n- OS:" + key + "\n  pre-deps:" + value
 
             with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
               delimiter = uuid.uuid1()
