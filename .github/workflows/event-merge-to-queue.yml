@@ -12,7 +12,5 @@ jobs:
     uses: ./.github/workflows/common-merge-and-nightly.yml
     secrets: inherit
     with:
-      # TODO: use some script to get the latest version, or have an environment variables at the repo level
-      #       for the latest versions of Redis and RedisJSON (so we can update them in one place without a PR)
-      redis-ref: 7.2.1
-      json-ref: v2.6.6
+      redis-ref: ${{ vars.DEFAULT_REDIS_REF }}
+      json-ref: ${{ vars.DEFAULT_REDISJSON_REF }}

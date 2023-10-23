@@ -17,9 +17,10 @@ on:
       san:
         type: string
       get-redis:
-        type: boolean
+        type: string
+        default: ${{ vars.DEFAULT_REDIS_REF }}
       test-config:
-        description: 'Test configuration environment variable (e.g. "CONFIG=concurrent_write" or "QUICK=1")'
+        description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
         type: string
       coordinator:
@@ -46,29 +47,29 @@ jobs:
     steps:
       - name: Deps checkout
         uses: actions/checkout@v3
+        with:
+            sparse-checkout: .install
+            path: setup
       - name: Setup
-        run: ${{ env.MODE }} make setup
-      - run: |
-          git config --global --add safe.directory '*'
-          git submodule update --init --recursive
-      # TODO: use this instead
-      # - name: Deps checkout
-      # uses: actions/checkout@v4
-      # with:
-      #     sparse-checkout: .install
-      # - name: Setup
-      #   run: |
-      #     ${{env.MODE}} ./.install/install_script.sh
-      # - name: Full checkout
-      #   uses: actions/checkout@v4
-      #   with:
-      #     submodules: recursive
-      #     set-safe-directory: "'*'"
+        working-directory: setup
+        run: ./.install/install_script.sh ${{ env.MODE }}
+      - name: Full checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+          set-safe-directory: "'*'"
+
       - name: Get Redis
-        if: ${{ inputs.get-redis }}
-        run: |
-          export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-          ./deps/readies/bin/getredis --with-github-token
+        if: inputs.get-redis
+        uses: actions/checkout@v3
+        with:
+          repository: redis/redis
+          ref: ${{ inputs.get-redis }}
+          path: redis
+      - name: Build Redis
+        if: inputs.get-redis
+        working-directory: redis
+        run: ${{ env.MODE }} make install
 
       - name: Decide if to continue after failure
         id: continue-on-error

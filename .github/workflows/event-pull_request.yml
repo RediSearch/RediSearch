@@ -14,7 +14,6 @@ jobs:
     uses: ./.github/workflows/common-flow-host.yml
     with:
       env: ubuntu-latest
-      get-redis: true
       test-config: QUICK=1
     secrets: inherit
 
