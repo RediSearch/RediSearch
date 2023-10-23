@@ -56,7 +56,7 @@ jobs:
         runs-on: ubuntu-latest
         strategy:
             matrix:
-                ${{ needs.get-required-envs.outputs.matrix }}
+                ${{ toJson(needs.get-required-envs.outputs.matrix) }}
         steps:
             - name: Print
               run: |
