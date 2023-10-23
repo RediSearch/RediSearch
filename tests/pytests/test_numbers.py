@@ -150,7 +150,7 @@ def testOverrides(env):
         env.cmd('hset', f'{i}', 'num', f'{i}')
 
     info = index_info(env, 'idx')
-    expected_inverted_sz_mb = round(float(info['inverted_sz_mb']), 4)
+    expected_inverted_sz_mb = float(info['inverted_sz_mb'])
     expected_root_max_depth = numeric_tree_summary(env, 'idx', 'num')['RootMaxDepth']
 
     for i in range(loops):
@@ -167,7 +167,7 @@ def testOverrides(env):
         env.assertEqual(hashes_number, int(info['num_records']), message = "expected ft.info:num_records")
 
         # size in bytes shouldn't grow
-        env.assertEqual(expected_inverted_sz_mb, round(float(info['inverted_sz_mb']), 4), message = "expected ft.info:inverted_sz_mb")
+        env.assertAlmostEqual(expected_inverted_sz_mb, float(info['inverted_sz_mb']), 0.001, message = "expected ft.info:inverted_sz_mb")
 
         # the tree depth was experimentally calculated, and should remain constant since we are using the same values.
         numeric_tree = numeric_tree_summary(env, 'idx', 'num')

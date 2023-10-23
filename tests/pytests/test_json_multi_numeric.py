@@ -288,6 +288,14 @@ def testInvertedIndexMultipleBlocks(env):
     expected_docs = ['doc:{}'.format(i) for i in chain(range(1, overlap + 1), range(doc_num - overlap + 1, doc_num + 1))]
     env.assertEqual(toSortedFlatList(res[1:]),toSortedFlatList(expected_docs), message='FT.SEARCH')
 
+def ft_info_to_dict(env, idx):
+    res = env.execute_command('ft.info', idx)
+    return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+
+def check_empty(env, idx, values_count):
+    d = ft_info_to_dict(env, idx)
+    env.assertEqual(float(d['num_records']), 0)
+    env.assertGreaterEqual(float(values_count)*6.0e-6, float(d['inverted_sz_mb']))
 
 def checkInfoAndGC(env, idx, doc_num, create, delete):
     """ Helper function for testInfoAndGC """
@@ -315,7 +323,7 @@ def checkInfoAndGC(env, idx, doc_num, create, delete):
     info = index_info(env, idx)
     env.assertEqual(int(info['num_docs']), 0)
     env.assertLessEqual(int(info['total_inverted_index_blocks']), 1) # 1 block might be left
-    env.assertEqual(float(info['inverted_sz_mb']), 0)
+    check_empty(env, idx, doc_num)
 
 def printSeed(env):
     # Print the random seed for reproducibility

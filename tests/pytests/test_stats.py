@@ -16,10 +16,10 @@ def ft_debug_to_dict(env, idx, n):
     res = env.cmd('ft.debug', 'NUMIDX_SUMMARY', idx, n)
     return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
 
-def check_empty(env, idx):
+def check_empty(env, idx, values_count):
     d = ft_info_to_dict(env, idx)
-    env.assertEqual(float(d['inverted_sz_mb']), 0)
     env.assertEqual(float(d['num_records']), 0)
+    env.assertGreaterEqual(float(values_count)*6.0e-6, float(d['inverted_sz_mb']))
 
 def check_not_empty(env, idx):
     d = ft_info_to_dict(env, idx)
@@ -46,7 +46,7 @@ def runTestWithSeed(env, s=None):
     env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
 
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
-    check_empty(env, idx)
+    check_empty(env, idx, 0)
 
     for i in range(count):
         conn.execute_command('HSET', 'doc%d' % i, 'n', i)
@@ -65,7 +65,7 @@ def runTestWithSeed(env, s=None):
 
     for i in range(count):
         env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i))#.equal([0])
-    check_empty(env, idx)
+    check_empty(env, idx, count)
 
     ### test random integers
     env.expect('FLUSHALL')
@@ -82,11 +82,11 @@ def runTestWithSeed(env, s=None):
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
         forceInvokeGC(env, 'idx')
-    check_empty(env, idx)
+    check_empty(env, idx, count)
 
     for i in range(count):
         env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i))#.equal([0])
-    check_empty(env, idx)
+    check_empty(env, idx, count)
 
     ## test random floats
     env.expect('FLUSHALL')
@@ -103,7 +103,7 @@ def runTestWithSeed(env, s=None):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
         for jj in range(10):
             forceInvokeGC(env, 'idx')
-    check_empty(env, idx)
+    check_empty(env, idx, count)
 
 def testRandom(env):
     env.skipOnCluster()
@@ -151,8 +151,8 @@ def testMemoryAfterDrop(env):
             forceInvokeGC(env, 'idx%d' % i)
 
     for i in range(idx_count):
-        check_empty(env, 'idx%d' % i)
-
+        check_empty(env, 'idx%d' % i, doc_count*5)
+    
 def testIssue1497(env):
     env.skipOnCluster()
 
@@ -191,9 +191,7 @@ def testIssue1497(env):
 
     res = env.cmd('ft.info', 'idx')
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    env.assertEqual(d['inverted_sz_mb'], '0')
-    env.assertEqual(d['num_records'], '0')
-    check_empty(env, 'idx')
+    check_empty(env, 'idx', 5*count)
 
 def testDocTableInfo(env):
     conn = getConnectionByEnv(env)
