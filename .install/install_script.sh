@@ -1,6 +1,7 @@
 #!/bin/bash
 
 OS_TYPE=$(uname -s)
+MODE=$1 # whether to install using sudo or not
 
 if [[ $OS_TYPE = 'Darwin' ]]
 then
@@ -18,4 +19,4 @@ echo $OS
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 cd $SCRIPT_DIR
-source ${OS}.sh
+source ${OS}.sh $MODE
