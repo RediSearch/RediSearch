@@ -51,8 +51,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        OS: ${{ needs.get-required-envs.outputs.platforms }}
-        include: ${{ needs.get-required-envs.outputs.include }}
+        OS: ${{ fromJson(needs.get-required-envs.outputs.platforms) }}
+        include: ${{ fromJson(needs.get-required-envs.outputs.include) }}
     steps:
       - name: Print
         run: |
