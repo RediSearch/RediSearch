@@ -31,15 +31,12 @@ jobs:
             'union_iterator_heap',
             'raw_docid',
             'dialect_2',
-            'global_password',
-            'safemode',
-            'tls',
           ]
           # Spacial configurations
           includes = [
-            {'test-config': 'global_password', 'standalone': False},
-            {'test-config': 'safemode',        'standalone': False},
-            {'test-config': 'tls',             'standalone': False},
+            {'test-config': 'global_password', 'standalone': 'False'},
+            {'test-config': 'safemode',        'standalone': 'False'},
+            {'test-config': 'tls',             'standalone': 'False'},
           ]
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
             print(f'configurations={configurations}', file=fh)
