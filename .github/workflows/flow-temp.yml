@@ -28,3 +28,39 @@ jobs:
             echo '${{ fromJson(needs.print.outputs.json).foo }}'
             echo '${{ fromJson(needs.print.outputs.json).boo }}'
             echo '${{ fromJson(needs.print.outputs.json) }}'
+
+  user1:
+    needs: print
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ needs.print.outputs.json }}
+    steps:
+      - name: user
+        run: |
+            echo '${{ matrix.foo }}'
+            echo '${{ matrix.boo }}'
+            echo '${{ matrix }}'
+
+  user2:
+    needs: print
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.print.outputs.json) }}
+    steps:
+      - name: user
+        run: |
+            echo '${{ matrix.foo }}'
+            echo '${{ matrix.boo }}'
+            echo '${{ matrix }}'
+
+  user3:
+    needs: print
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ toJson(fromJson(needs.print.outputs.json)) }}
+    steps:
+      - name: user
+        run: |
+            echo '${{ matrix.foo }}'
+            echo '${{ matrix.boo }}'
+            echo '${{ matrix }}'
