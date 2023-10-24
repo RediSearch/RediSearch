@@ -1,0 +1,28 @@
+name: temporary testing
+
+on: [push]
+
+jobs:
+  print:
+    runs-on: ubuntu-latest
+    outputs:
+      json: ${{ steps.print.outputs.json }}
+    steps:
+      - name: print
+        id: print
+        shell: python
+        run: |
+            import os
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+              print('json={"foo": "bar",
+                "boo": False,
+                "baz": 123,
+                }', file=fh)
+
+  read:
+    needs: print
+    runs-on: ubuntu-latest
+    steps:
+      - name: read
+        run: |
+            echo "${{ needs.print.outputs.json }}"
