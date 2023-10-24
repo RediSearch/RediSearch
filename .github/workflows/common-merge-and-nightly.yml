@@ -132,7 +132,7 @@ jobs:
         # configurations for both standalone and coordinator
         test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
         # spacial configurations
-        include: ${{ needs.print-configurations.outputs.include-configurations }}
+        include: ${{ toJson(fromJson(needs.print-configurations.outputs.include-configurations)) }}
 
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
