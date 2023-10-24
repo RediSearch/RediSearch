@@ -16,17 +16,17 @@ jobs:
   get-required-envs:
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.get_platforms.outputs.matrix }}
+      platforms: ${{ steps.get_platforms.outputs.platforms }}
+      include: ${{ steps.get_platforms.outputs.include }}
     steps:
       - name: Get platform
         id: get_platforms
         shell: python
         run: |
           import os
-          import uuid
 
           platforms = 'all'
-          include = {}
+          include = []
 
           if platforms == 'all':
             platforms = ${{ env.ALL_IMAGES }}
@@ -37,26 +37,22 @@ jobs:
 
           # amazonlinux:2 needs pre-checkout dependencies
           if platforms.count('amazonlinux:2') > 0:
-            include['amazonlinux:2'] = "yum install -y tar"
+            include.append({'OS': 'amazonlinux:2', 'pre-deps': "yum install -y tar"})
 
           # Serialize the platforms to a string
-          serialized = "OS: " + str(platforms)
-          serialized += "\n" + "include:"
-          for key, value in include.items():
-            serialized += "\n  - OS: " + key + "\n    pre-deps: " + value
-
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
-            delimiter = uuid.uuid1()
-            print(f'matrix<<{delimiter}', file=fh)
-            print(serialized, file=fh)
-            print(delimiter, file=fh)
+            print(f'platforms={platforms}', file=fh)
+            print(f'include={include}', file=fh)
+            # for case in include:
+            #   print(f
 
   test-matrix:
     needs: get-required-envs
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        ${{ needs.get-required-envs.outputs.matrix }}
+        OS: ${{ needs.get-required-envs.outputs.platforms }}
+        include: ${{ needs.get-required-envs.outputs.include }}
     steps:
       - name: Print
         run: |
