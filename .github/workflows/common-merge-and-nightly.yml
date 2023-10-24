@@ -34,9 +34,9 @@ jobs:
           ]
           # Spacial configurations
           includes = [
-            {'test-config': 'global_password', 'standalone': 'False'},
-            {'test-config': 'safemode',        'standalone': 'False'},
-            {'test-config': 'tls',             'standalone': 'False'},
+            {'test-config': 'global_password', 'standalone': 'false'},
+            {'test-config': 'safemode',        'standalone': 'false'},
+            {'test-config': 'tls',             'standalone': 'false'},
           ]
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
             print(f'configurations={configurations}', file=fh)
@@ -88,8 +88,8 @@ jobs:
     with:
       container: ${{ matrix.platform }}
       test-config: CONFIG=${{ matrix.test-config }}
-      standalone: ${{ matrix.standalone   || true }} # Set a default value
-      coordinator: ${{ matrix.coordinator || true }} # Set a default value
+      standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
+      coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
       pre-steps-script: ${{ matrix.pre-steps }}
 
 
@@ -118,8 +118,8 @@ jobs:
   #   with:
   #     container: ${{ matrix.platform }}
   #     test-config: CONFIG=${{ matrix.test-config }}
-      # standalone: ${{ matrix.standalone   || true }} # Set a default value
-      # coordinator: ${{ matrix.coordinator || true }} # Set a default value
+      # standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
+      # coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
       # pre-steps-script: ${{ matrix.pre-steps }}
 
   ### End of Linux Flows - Ugly workaround for the lack of workflow call depth of >= 5 ###
@@ -132,14 +132,14 @@ jobs:
         # configurations for both standalone and coordinator
         test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
         # spacial configurations
-        include: ${{ toJson(fromJson(needs.print-configurations.outputs.include-configurations)) }}
+        include: ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
 
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
       test-config: CONFIG=${{ matrix.test-config }}
-      standalone: ${{ matrix.standalone   || true }} # Set a default value
-      coordinator: ${{ matrix.coordinator || true }} # Set a default value
+      standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
+      coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
 
   coverage:
     uses: ./.github/workflows/flow-coverage.yml
