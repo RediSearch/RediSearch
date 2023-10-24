@@ -13,24 +13,44 @@ on:
         type: string
 
 jobs:
+  print-configurations:
+    runs-on: ubuntu-latest
+    outputs:
+      test-configurations: ${{ steps.print-configurations.outputs.configurations }}
+      include-configurations: ${{ steps.print-configurations.outputs.includes }}
+    steps:
+      - name: Print Configurations
+        id: print-configurations
+        shell: python
+        run: |
+          import os
+          configurations = [
+            'concurrent_write',
+            'max_unsorted',
+            'union_iterator_heap',
+            'raw_docid',
+            'dialect_2',
+          ]
+          includes = [
+            {'test-config': 'global_password',
+             'standalone': False},
+            {'test-config': 'safemode',
+             'standalone': False},
+            {'test-config': 'tls',
+             'standalone': False},
+          ]
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+            print(f'configurations={configurations}', file=fh)
+            print(f'includes={includes}', file=fh)
+
   # run-tests-on-linux:
+  #   needs: print-configurations
   #   strategy:
   #     matrix:
-  #       standalone:  [true] # Set a default value
-  #       coordinator: [true] # Set a default value
   #       test-config: # configurations for both standalone and coordinator
-  #         - concurrent_write
-  #         - max_unsorted
-  #         - union_iterator_heap
-  #         - raw_docid
-  #         - dialect_2
+  #         ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
   #       include: # spacial configurations
-  #         - test-config: global_password
-  #           standalone:  false
-  #         - test-config: safemode
-  #           standalone:  false
-  #         - test-config: tls
-  #           standalone:  false
+  #         ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
 
   #   uses: ./.github/workflows/flow-linux-platforms.yml
   #   secrets: inherit
@@ -38,14 +58,15 @@ jobs:
   #     platform: all
   #     architecture: all
   #     test-config: CONFIG=${{ matrix.test-config }}
-  #     standalone: ${{ matrix.standalone }}
-  #     coordinator: ${{ matrix.coordinator }}
+  #     standalone: ${{ matrix.standalone   || true }} # Set a default value
+  #     coordinator: ${{ matrix.coordinator || true }} # Set a default value
 
-  # TODO: Remove this two steps and use the one above, once github actions supports
-  #       workflow call depth of >= 5 (currently it's 4).
+  # TODO: Remove following jobs until end mark and use the one above, once
+  #       github actions supports workflow call depth of >= 5 (currently it's 4).
   #       In the meantime, we have to re-write the `flow-linux-platforms.yml` flow here
   #       and maintain the list of platforms from the `flow-linux-platforms.yml` file here as well (twice).
   run-tests-on-linux-x86_64:
+    needs: print-configurations
     strategy:
       fail-fast: false
       matrix:
@@ -58,18 +79,9 @@ jobs:
           'debian:bullseye',
           'amazonlinux:2']
         test-config: # configurations for both standalone and coordinator
-          - concurrent_write
-          # - max_unsorted
-          # - union_iterator_heap
-          # - raw_docid
-          # - dialect_2
+          ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
         include: # spacial configurations
-          # - test-config: global_password
-          #   standalone:  false
-          # - test-config: safemode
-          #   standalone:  false
-          # - test-config: tls
-          #   standalone:  false
+          - ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
           - platform: amazonlinux:2
             pre-steps: yum install -y tar gzip
     uses: ./.github/workflows/common-flow-container.yml
@@ -83,6 +95,7 @@ jobs:
 
 
   # run-tests-on-linux-arm64:
+  #   needs: print-configurations
   #   strategy:
   #     fail-fast: false
   #     matrix:
@@ -95,18 +108,9 @@ jobs:
   #         'debian:bullseye',
   #         'amazonlinux:2']
   #       test-config: # configurations for both standalone and coordinator
-  #         - concurrent_write
-  #         - max_unsorted
-  #         - union_iterator_heap
-  #         - raw_docid
-  #         - dialect_2
+  #         ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
   #       include: # spacial configurations
-  #         - test-config: global_password
-  #           standalone:  false
-  #         - test-config: safemode
-  #           standalone:  false
-  #         - test-config: tls
-  #           standalone:  false
+  #         ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
   #         - platform: amazonlinux:2
   #           pre-steps: yum install -y tar
 
@@ -119,23 +123,17 @@ jobs:
       # coordinator: ${{ matrix.coordinator || true }} # Set a default value
       # pre-steps-script: ${{ matrix.pre-steps }}
 
+  ### End of Linux Flows - Ugly workaround for the lack of workflow call depth of >= 5 ###
+
   run-tests-on-macos:
+    needs: print-configurations
     strategy:
       fail-fast: false
       matrix:
         test-config: # configurations for both standalone and coordinator
-          - concurrent_write
-          - max_unsorted
-          - union_iterator_heap
-          - raw_docid
-          - dialect_2
+          ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
         include: # spacial configurations
-          - test-config: global_password
-            standalone:  false
-          - test-config: safemode
-            standalone:  false
-          - test-config: tls
-            standalone:  false
+          ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
 
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
