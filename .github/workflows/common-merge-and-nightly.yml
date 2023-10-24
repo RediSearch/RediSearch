@@ -71,7 +71,7 @@ jobs:
           # - test-config: tls
           #   standalone:  false
           - platform: amazonlinux:2
-            pre-steps: yum install -y tar
+            pre-steps: yum install -y tar gzip
     uses: ./.github/workflows/common-flow-container.yml
     secrets: inherit
     with:

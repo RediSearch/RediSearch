@@ -85,7 +85,9 @@ jobs:
 
           # amazonlinux:2 needs pre-checkout dependencies
           if platforms.count('amazonlinux:2') > 0:
-            include.append({'OS': 'amazonlinux:2', 'pre-deps': "yum install -y tar"})
+            include.append({
+              'OS': 'amazonlinux:2',
+              'pre-deps': "yum install -y tar gzip"})
 
           # Serialize the platforms to a string
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
