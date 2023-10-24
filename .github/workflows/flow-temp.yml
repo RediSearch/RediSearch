@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        foo: ['bar']
+        # foo: ['bar']
         include: ${{ fromJson(needs.print.outputs.json) }}
     steps:
       - name: user
@@ -44,4 +44,5 @@ jobs:
             echo '${{ matrix.foo }}'
             echo '${{ matrix.boo == 'true' || 'banana' }}'
             echo '${{ matrix.boo == 'true' || true }}'
+            echo '${{ matrix.boo == 'true' }}'
             echo '${{ matrix }}'
