@@ -33,7 +33,8 @@ jobs:
     needs: print
     runs-on: ubuntu-latest
     strategy:
-      matrix: ${{ needs.print.outputs.json }}
+      matrix:
+        include: ${{ needs.print.outputs.json }}
     steps:
       - name: user
         run: |
@@ -45,7 +46,8 @@ jobs:
     needs: print
     runs-on: ubuntu-latest
     strategy:
-      matrix: ${{ fromJson(needs.print.outputs.json) }}
+      matrix:
+        include: ${{ fromJson(needs.print.outputs.json) }}
     steps:
       - name: user
         run: |
@@ -57,7 +59,8 @@ jobs:
     needs: print
     runs-on: ubuntu-latest
     strategy:
-      matrix: ${{ toJson(fromJson(needs.print.outputs.json)) }}
+      matrix:
+        include: ${{ toJson(fromJson(needs.print.outputs.json)) }}
     steps:
       - name: user
         run: |
