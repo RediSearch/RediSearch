@@ -13,8 +13,9 @@ jobs:
         shell: python
         run: |
             import os
+            json = {"foo": "bar", "boo": False, "baz": 123,}
             with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
-              print('json={"foo": "bar", "boo": False, "baz": 123,}', file=fh)
+              print(f'json={json}', file=fh)
 
   read:
     needs: print
@@ -22,4 +23,4 @@ jobs:
     steps:
       - name: read
         run: |
-            echo "${{ fromJson(needs.print.outputs.json) }}"
+            echo '${{ fromJson(needs.print.outputs.json) }}'
