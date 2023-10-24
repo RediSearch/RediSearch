@@ -25,7 +25,7 @@ jobs:
     uses: ./.github/workflows/common-flow-host.yml
     with:
       env: ${{ matrix.arch }}
-      test-config: ${{ inputs.test-config || ''   }} # fallbacks for workflow_dispatch
-      coordinator: ${{ inputs.coordinator || true }}
-      standalone:  ${{ inputs.standalone  || true }}
+      test-config: ${{ inputs.test-config }}
+      coordinator: ${{ inputs.coordinator }}
+      standalone:  ${{ inputs.standalone }}
     secrets: inherit
