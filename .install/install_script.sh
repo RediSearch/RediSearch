@@ -13,6 +13,10 @@ else
     OS_NAME=${OS_NAME#"NAME="}
     OS=${OS_NAME,,}_${VERSION}
     OS=${OS// /'_'}
+
+    echo '------- Beggining of `os-release` -------'
+    cat /etc/os-release
+    echo '------- End of `os-release` -------------'
 fi
 echo $OS
 
