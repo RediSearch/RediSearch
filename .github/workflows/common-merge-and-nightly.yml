@@ -31,6 +31,9 @@ jobs:
             'union_iterator_heap',
             'raw_docid',
             'dialect_2',
+            'global_password',
+            'safemode',
+            'tls',
           ]
           # Spacial configurations
           includes = [
