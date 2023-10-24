@@ -34,18 +34,15 @@ jobs:
           ]
           # Spacial configurations
           includes = [
-            {'test-config': 'global_password',
-             'standalone': False},
-            {'test-config': 'safemode',
-             'standalone': False},
-            {'test-config': 'tls',
-             'standalone': False},
+            {'test-config': 'global_password', 'standalone': 'false'},
+            {'test-config': 'safemode', 'standalone': 'false'},
+            {'test-config': 'tls', 'standalone': 'false'},
           ]
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
             print(f'configurations={configurations}', file=fh)
             print(f'includes={includes}', file=fh)
 
-  # run-tests-on-linux:
+  # test-linux:
   #   needs: print-configurations
   #   strategy:
   #     matrix:
@@ -67,7 +64,7 @@ jobs:
   #       github actions supports workflow call depth of >= 5 (currently it's 4).
   #       In the meantime, we have to re-write the `flow-linux-platforms.yml` flow here
   #       and maintain the list of platforms from the `flow-linux-platforms.yml` file here as well (twice).
-  run-tests-on-linux-x86_64:
+  test-linux-x86_64:
     needs: print-configurations
     strategy:
       fail-fast: false
@@ -96,7 +93,7 @@ jobs:
       pre-steps-script: ${{ matrix.pre-steps }}
 
 
-  # run-tests-on-linux-arm64:
+  # test-linux-arm64:
   #   needs: print-configurations
   #   strategy:
   #     fail-fast: false
@@ -127,7 +124,7 @@ jobs:
 
   ### End of Linux Flows - Ugly workaround for the lack of workflow call depth of >= 5 ###
 
-  run-tests-on-macos:
+  test-macos:
     needs: print-configurations
     strategy:
       fail-fast: false
