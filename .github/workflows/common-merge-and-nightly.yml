@@ -129,8 +129,6 @@ jobs:
           - union_iterator_heap
           - raw_docid
           - dialect_2
-        standalone:  [true] # Set a default value
-        coordinator: [true] # Set a default value
         include: # spacial configurations
           - test-config: global_password
             standalone:  false
@@ -143,8 +141,8 @@ jobs:
     secrets: inherit
     with:
       test-config: CONFIG=${{ matrix.test-config }}
-      standalone: ${{ matrix.standalone }}
-      coordinator: ${{ matrix.coordinator }}
+      standalone: ${{ matrix.standalone   || true }} # Set a default value
+      coordinator: ${{ matrix.coordinator || true }} # Set a default value
 
   coverage:
     uses: ./.github/workflows/flow-coverage.yml
