@@ -14,7 +14,8 @@ jobs:
         run: |
             import os
             json = [{"foo": "bar", "boo": "false", "baz": 123,},
-                    {"foo": "bazz", "boo": "true", "baz": 456,}]
+                    {"foo": "bazz", "boo": "true", "baz": 456,},
+                    {"foo": "bazz",                "baz": 789,},]
             with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
               print(f'json={json}', file=fh)
 
@@ -36,25 +37,11 @@ jobs:
     strategy:
       matrix:
         foo: ['bar']
-        boo: [true]
         include: ${{ fromJson(needs.print.outputs.json) }}
     steps:
       - name: user
         run: |
             echo '${{ matrix.foo }}'
-            echo '${{ matrix.boo == 'true' || 'banana'}}'
-            echo '${{ matrix }}'
-
-  user2:
-    needs: print
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        foo: ['bazz']
-        include: ${{ fromJson(needs.print.outputs.json) }}
-    steps:
-      - name: user
-        run: |
-            echo '${{ matrix.foo }}'
-            echo '${{ matrix.boo == 'true' || 'banana'}}'
+            echo '${{ matrix.boo == 'true' || 'banana' }}'
+            echo '${{ matrix.boo == 'true' || true }}'
             echo '${{ matrix }}'
