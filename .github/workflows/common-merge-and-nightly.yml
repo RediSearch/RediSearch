@@ -143,32 +143,6 @@ jobs:
       test-config: CONFIG=${{ matrix.test-config }}
       standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
       coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
-  debug-macos:
-    needs: print-configurations
-    strategy:
-      fail-fast: false
-      matrix:
-        # configurations for both standalone and coordinator
-        test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
-        # spacial configurations
-        include: ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
-
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          echo CONFIG=${{ matrix.test-config }}
-          echo ${{ matrix.standalone  != 'false' }}
-          echo ${{ matrix.coordinator != 'false' }}
-      - run: echo standalone is actually true
-        if: matrix.standalone  != 'false'
-      - env:
-          CONFIG: ${{ matrix.test-config }}
-          STANDALONE: ${{ matrix.standalone  != 'false' }}
-          COORDINATOR: ${{ matrix.coordinator != 'false' }}
-        run: |
-          echo CONFIG=$CONFIG
-          echo STANDALONE=$STANDALONE
-          echo COORDINATOR=$COORDINATOR
 
   coverage:
     uses: ./.github/workflows/flow-coverage.yml

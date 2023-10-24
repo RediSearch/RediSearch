@@ -42,6 +42,11 @@ jobs:
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script
         run: ${{ inputs.pre-steps-script }}
+      - name: TEMP input print
+        run: |
+          echo "standalone: ${{ inputs.standalone }}"
+          echo "coordinator: ${{ inputs.coordinator }}"
+          echo "test-config: ${{ inputs.test-config }}"
       - name: Deps checkout
         uses: actions/checkout@v3
         with:
