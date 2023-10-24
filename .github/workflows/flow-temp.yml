@@ -14,10 +14,7 @@ jobs:
         run: |
             import os
             with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
-              print('json={"foo": "bar",
-                "boo": False,
-                "baz": 123,
-                }', file=fh)
+              print('json={"foo": "bar", "boo": False, "baz": 123,}', file=fh)
 
   read:
     needs: print
