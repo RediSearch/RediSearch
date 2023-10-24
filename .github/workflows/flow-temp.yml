@@ -32,7 +32,7 @@ jobs:
         run: |
           import os
 
-          platforms = '${{ inputs.platforms || 'all' }}'
+          platforms = '${{ inputs.platforms || 'ubuntu:jammy' }}'
           include = []
 
           if platforms == 'all':
