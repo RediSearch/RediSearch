@@ -13,7 +13,8 @@ jobs:
         shell: python
         run: |
             import os
-            json = [{"foo": "bar", "boo": "false", "baz": 123,}]
+            json = [{"foo": "bar", "boo": "false", "baz": 123,},
+                    {"foo": "bazz", "boo": "true", "baz": 456,}}]
             with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
               print(f'json={json}', file=fh)
 
