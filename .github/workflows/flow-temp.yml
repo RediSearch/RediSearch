@@ -41,5 +41,5 @@ jobs:
     steps:
       - name: user
         run: |
-            echo '${{ matrix.boo == 'true' && matrix.boo || true }}'
-            echo '${{ matrix.boo == 'true' && matrix.boo }}'
+            echo '${{ matrix.boo == 'true' && matrix.boo != '' || true }}'
+            echo '${{ matrix.boo == 'true' && matrix.boo != '' }}'
