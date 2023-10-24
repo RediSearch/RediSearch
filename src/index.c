@@ -639,7 +639,7 @@ void trimUnionIterator(IndexIterator *iter, size_t offset, size_t limit, bool as
         curTotal += it->NumEstimated(it->ctx);
         if (curTotal > limit) {
           ui->num = i + 1;
-          memset(ui->its + ui->num, 0, ui->norig - ui->num); 
+          memset(ui->its + ui->num, 0, ui->norig - ui->num);
           break;
         }
       }
@@ -650,10 +650,10 @@ void trimUnionIterator(IndexIterator *iter, size_t offset, size_t limit, bool as
         if (curTotal > limit) {
           ui->num -= i;
           memmove(ui->its, ui->its + i, ui->num);
-          memset(ui->its + ui->num, 0, ui->norig - ui->num); 
+          memset(ui->its + ui->num, 0, ui->norig - ui->num);
           break;
         }
-      }  
+      }
     }
   } else {
     UI_SyncIterList(ui);
@@ -1793,7 +1793,7 @@ typedef struct {
 static int PI_Read(void *ctx, RSIndexResult **e) {
   ProfileIterator *pi = ctx;
   pi->counter++;
-  hires_clock_t t0; 
+  hires_clock_t t0;
   hires_clock_get(&t0);
   int ret = pi->child->Read(pi->child->ctx, e);
   if (ret == INDEXREAD_EOF) pi->eof = 1;
@@ -1805,7 +1805,7 @@ static int PI_Read(void *ctx, RSIndexResult **e) {
 static int PI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   ProfileIterator *pi = ctx;
   pi->counter++;
-  hires_clock_t t0; 
+  hires_clock_t t0;
   hires_clock_get(&t0);
   int ret = pi->child->SkipTo(pi->child->ctx, docId, hit);
   if (ret == INDEXREAD_EOF) pi->eof = 1;
@@ -1984,11 +1984,9 @@ PRINT_PROFILE_FUNC(printMetricIt) {
   RedisModule_Reply_MapEnd(reply);
 }
 
-void PrintIteratorChildProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter,
-    double cpuTime, int depth, int limited, PrintProfileConfig *config,
-    IndexIterator *child, const char *text, bool hasChild) {
+void PrintIteratorChildProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime,
+                  int depth, int limited, PrintProfileConfig *config, IndexIterator *child, const char *text) {
   size_t nlen = 0;
-  int addChild = hasChild && child;
   RedisModule_Reply_Map(reply);
     printProfileType(text);
     if (config->printProfileClock) {
@@ -2008,32 +2006,33 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, IndexIterator *root, si
       OptimizerIterator *oi = root->ctx;
       printProfileOptimizationType(oi);
     }
-                                                                        
-    if (addChild) {
+
+    if (child) {
       RedisModule_Reply_SimpleString(reply, "Child iterator");
       printIteratorProfile(reply, child, 0, 0, depth + 1, limited, config);
     }
   RedisModule_Reply_MapEnd(reply);
 }
 
-#define PRINT_PROFILE_SINGLE(name, IterType, text, hasChild)                           \
+#define PRINT_PROFILE_SINGLE_NO_CHILD(name, text)                                      \
   PRINT_PROFILE_FUNC(name) {                                                           \
     PrintIteratorChildProfile(reply, (root), counter, cpuTime, depth, limited, config, \
-      ((IterType *)(root))->child, (text), (hasChild));                                \
+      NULL, (text));                                                                   \
   }
 
-typedef struct {
-  IndexIterator base;
-  IndexIterator *child;
-} DummyIterator;
+#define PRINT_PROFILE_SINGLE(name, IterType, text)                                     \
+  PRINT_PROFILE_FUNC(name) {                                                           \
+    PrintIteratorChildProfile(reply, (root), counter, cpuTime, depth, limited, config, \
+      ((IterType *)(root))->child, (text));                                            \
+  }
 
-PRINT_PROFILE_SINGLE(printNotIt, NotIterator, "NOT", 1);
-PRINT_PROFILE_SINGLE(printOptionalIt, OptionalIterator, "OPTIONAL", 1);
-PRINT_PROFILE_SINGLE(printWildcardIt, DummyIterator, "WILDCARD", 0);
-PRINT_PROFILE_SINGLE(printIdListIt, DummyIterator, "ID-LIST", 0);
-PRINT_PROFILE_SINGLE(printEmptyIt, DummyIterator, "EMPTY", 0);
-PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator, "VECTOR", 1);
-PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator, "OPTIMIZER", 1);
+PRINT_PROFILE_SINGLE_NO_CHILD(printWildcardIt,          "WILDCARD");
+PRINT_PROFILE_SINGLE_NO_CHILD(printIdListIt,            "ID-LIST");
+PRINT_PROFILE_SINGLE_NO_CHILD(printEmptyIt,             "EMPTY");
+PRINT_PROFILE_SINGLE(printNotIt, NotIterator,           "NOT");
+PRINT_PROFILE_SINGLE(printOptionalIt, OptionalIterator, "OPTIONAL");
+PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator,     "VECTOR");
+PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator, "OPTIMIZER");
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
