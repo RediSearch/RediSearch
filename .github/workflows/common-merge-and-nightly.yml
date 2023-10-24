@@ -24,13 +24,16 @@ jobs:
         shell: python
         run: |
           import os
-          # Configurations for both standalone and coordinator
+          # All configurations (by default runs both standalone and coordinator)
           configurations = [
             'concurrent_write',
             'max_unsorted',
             'union_iterator_heap',
             'raw_docid',
             'dialect_2',
+            'global_password',
+            'safemode',
+            'tls',
           ]
           # Spacial configurations
           includes = [
