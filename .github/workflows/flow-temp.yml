@@ -22,4 +22,4 @@ jobs:
     steps:
       - name: read
         run: |
-            echo "${{ needs.print.outputs.json }}"
+            echo "${{ fromJson(needs.print.outputs.json) }}"
