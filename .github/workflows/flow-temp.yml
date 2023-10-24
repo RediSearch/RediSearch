@@ -7,7 +7,7 @@ on:
       platforms:
         description: 'Platforms to test'
         required: true
-        default: 'all'
+        default: all
 
 
 env:
@@ -32,7 +32,7 @@ jobs:
         run: |
           import os
 
-          platforms = ${{ inputs.platforms || 'all' }}
+          platforms = '${{ inputs.platforms || 'all' }}'
           include = []
 
           if platforms == 'all':
