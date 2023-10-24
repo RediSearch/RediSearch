@@ -8,6 +8,8 @@ on:
       container:
         required: true
         type: string
+      pre-steps-script:
+        type: string
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         type: string

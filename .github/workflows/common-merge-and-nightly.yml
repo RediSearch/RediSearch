@@ -59,26 +59,28 @@ jobs:
           'amazonlinux:2']
         test-config: # configurations for both standalone and coordinator
           - concurrent_write
-          # - max_unsorted
-          # - union_iterator_heap
-          # - raw_docid
-          # - dialect_2
-        standalone:  [true] # Set a default value
-        coordinator: [true] # Set a default value
-        # include: # spacial configurations
-        #   - test-config: global_password
-        #     standalone:  false
-        #   - test-config: safemode
-        #     standalone:  false
-        #   - test-config: tls
-        #     standalone:  false
+          - max_unsorted
+          - union_iterator_heap
+          - raw_docid
+          - dialect_2
+        include: # spacial configurations
+          - test-config: global_password
+            standalone:  false
+          - test-config: safemode
+            standalone:  false
+          - test-config: tls
+            standalone:  false
+          - platform: amazonlinux:2
+            pre-steps: yum install -y tar
     uses: ./.github/workflows/common-flow-container.yml
     secrets: inherit
     with:
       container: ${{ matrix.platform }}
       test-config: CONFIG=${{ matrix.test-config }}
-      standalone: ${{ matrix.standalone }}
-      coordinator: ${{ matrix.coordinator }}
+      standalone: ${{ matrix.standalone   || true }} # Set a default value
+      coordinator: ${{ matrix.coordinator || true }} # Set a default value
+      pre-steps-script: ${{ matrix.pre-steps }}
+
 
   # run-tests-on-linux-arm64:
   #   strategy:
@@ -98,8 +100,6 @@ jobs:
   #         - union_iterator_heap
   #         - raw_docid
   #         - dialect_2
-  #       standalone:  [true] # Set a default value
-  #       coordinator: [true] # Set a default value
   #       include: # spacial configurations
   #         - test-config: global_password
   #           standalone:  false
@@ -107,14 +107,17 @@ jobs:
   #           standalone:  false
   #         - test-config: tls
   #           standalone:  false
+  #         - platform: amazonlinux:2
+  #           pre-steps: yum install -y tar
 
   #   uses: ./.github/workflows/flow-self-hosted-arm.yml
   #   secrets: inherit
   #   with:
   #     container: ${{ matrix.platform }}
   #     test-config: CONFIG=${{ matrix.test-config }}
-  #     standalone: ${{ matrix.standalone }}
-  #     coordinator: ${{ matrix.coordinator }}
+      # standalone: ${{ matrix.standalone   || true }} # Set a default value
+      # coordinator: ${{ matrix.coordinator || true }} # Set a default value
+      # pre-steps-script: ${{ matrix.pre-steps }}
 
   run-tests-on-macos:
     strategy:
