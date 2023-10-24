@@ -24,6 +24,7 @@ jobs:
         shell: python
         run: |
           import os
+          # Configurations for both standalone and coordinator
           configurations = [
             'concurrent_write',
             'max_unsorted',
@@ -31,6 +32,7 @@ jobs:
             'raw_docid',
             'dialect_2',
           ]
+          # Spacial configurations
           includes = [
             {'test-config': 'global_password',
              'standalone': False},
@@ -78,10 +80,10 @@ jobs:
           'rockylinux:9',
           'debian:bullseye',
           'amazonlinux:2']
-        test-config: # configurations for both standalone and coordinator
-          ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
-        include: # spacial configurations
-          # - ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
+        # configurations for both standalone and coordinator
+        test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
+        # spacial configurations
+        include: #${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
           - platform: amazonlinux:2
             pre-steps: yum install -y tar gzip
     uses: ./.github/workflows/common-flow-container.yml
@@ -107,10 +109,10 @@ jobs:
   #         'rockylinux:9',
   #         'debian:bullseye',
   #         'amazonlinux:2']
-  #       test-config: # configurations for both standalone and coordinator
-  #         ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
-  #       include: # spacial configurations
-  #         ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
+  #       # configurations for both standalone and coordinator
+  #       test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
+  #       # spacial configurations
+  #       include: ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
   #         - platform: amazonlinux:2
   #           pre-steps: yum install -y tar
 
@@ -130,10 +132,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test-config: # configurations for both standalone and coordinator
-          ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
-        include: # spacial configurations
-          ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
+        # configurations for both standalone and coordinator
+        test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
+        # spacial configurations
+        include: ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
 
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
