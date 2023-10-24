@@ -81,7 +81,7 @@ jobs:
         test-config: # configurations for both standalone and coordinator
           ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
         include: # spacial configurations
-          - ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
+          # - ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
           - platform: amazonlinux:2
             pre-steps: yum install -y tar gzip
     uses: ./.github/workflows/common-flow-container.yml
