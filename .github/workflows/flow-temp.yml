@@ -27,3 +27,4 @@ jobs:
             echo '${{ toJson(fromJson(needs.print.outputs.json)) }}'
             echo '${{ fromJson(needs.print.outputs.json).foo }}'
             echo '${{ fromJson(needs.print.outputs.json).boo }}'
+            echo '${{ fromJson(needs.print.outputs.json) }}'
