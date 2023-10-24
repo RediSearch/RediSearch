@@ -43,8 +43,6 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
             print(f'platforms={platforms}', file=fh)
             print(f'include={include}', file=fh)
-            # for case in include:
-            #   print(f
 
   test-matrix:
     needs: get-required-envs
@@ -57,4 +55,4 @@ jobs:
       - name: Print
         run: |
           echo "OS: ${{ matrix.OS }}"
-          echo "msg: ${{ matrix.pre-deps || 'none' }}"
+          echo "msg: ${{ matrix.pre-deps }}"
