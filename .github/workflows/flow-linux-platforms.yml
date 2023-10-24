@@ -5,6 +5,7 @@ name: Build on Linux Platforms
 # Keep aligned with the options below
 env:
   ALL_IMAGES: "['ubuntu:jammy',
+                'ubuntu:focal',
                 'ubuntu:bionic',
                 'centos:7',
                 'rockylinux:8',
@@ -35,6 +36,7 @@ on:
         options:
           - all
           - ubuntu:jammy
+          - ubuntu:focal
           - ubuntu:bionic
           - centos:7
           - rockylinux:8
