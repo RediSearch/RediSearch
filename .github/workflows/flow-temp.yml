@@ -23,4 +23,5 @@ jobs:
     steps:
       - name: read
         run: |
-            echo '${{ fromJson(needs.print.outputs.json) }}'
+            echo '${{ needs.print.outputs.json }}'
+            echo '${{ toJson(fromJson(needs.print.outputs.json)) }}'
