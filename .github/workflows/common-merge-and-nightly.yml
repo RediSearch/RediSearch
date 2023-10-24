@@ -60,10 +60,10 @@ jobs:
   #     platform: all
   #     architecture: all
   #     test-config: CONFIG=${{ matrix.test-config }}
-  #     standalone: ${{ matrix.standalone   || true }} # Set a default value
-  #     coordinator: ${{ matrix.coordinator || true }} # Set a default value
+  #     standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
+  #     coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
 
-  # TODO: Remove following jobs until end mark and use the one above, once
+  # TODO: Remove following jobs until the end mark and use the one above, once
   #       github actions supports workflow call depth of >= 5 (currently it's 4).
   #       In the meantime, we have to re-write the `flow-linux-platforms.yml` flow here
   #       and maintain the list of platforms from the `flow-linux-platforms.yml` file here as well (twice).
@@ -78,15 +78,11 @@ jobs:
           'centos:7',
           'rockylinux:8',
           'rockylinux:9',
-          'debian:bullseye',
-          'amazonlinux:2']
+          'debian:bullseye']
         # configurations for both standalone and coordinator
         test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
         # spacial configurations
-        include:
-          - platform: amazonlinux:2
-            pre-steps: yum install -y tar gzip
-          ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
+        include: ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
     uses: ./.github/workflows/common-flow-container.yml
     secrets: inherit
     with:
@@ -94,8 +90,24 @@ jobs:
       test-config: CONFIG=${{ matrix.test-config }}
       standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
       coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
-      pre-steps-script: ${{ matrix.pre-steps }}
 
+  test-linux-x86_64-amazonlinux2:
+    needs: print-configurations
+    strategy:
+      fail-fast: false
+      matrix:
+        # configurations for both standalone and coordinator
+        test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
+        # spacial configurations
+        include: ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
+    uses: ./.github/workflows/common-flow-container.yml
+    secrets: inherit
+    with:
+      container: amazonlinux:2
+      pre-steps-script: yum install -y tar gzip
+      test-config: CONFIG=${{ matrix.test-config }}
+      standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
+      coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
 
   # test-linux-arm64:
   #   needs: print-configurations
@@ -108,14 +120,11 @@ jobs:
   #         'centos:7',
   #         'rockylinux:8',
   #         'rockylinux:9',
-  #         'debian:bullseye',
-  #         'amazonlinux:2']
+  #         'debian:bullseye']
   #       # configurations for both standalone and coordinator
   #       test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
   #       # spacial configurations
   #       include: ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
-  #         - platform: amazonlinux:2
-  #           pre-steps: yum install -y tar
 
   #   uses: ./.github/workflows/flow-self-hosted-arm.yml
   #   secrets: inherit
@@ -125,6 +134,24 @@ jobs:
       # standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
       # coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
       # pre-steps-script: ${{ matrix.pre-steps }}
+
+  # test-linux-arm64-amazonlinux2:
+  #   needs: print-configurations
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       # configurations for both standalone and coordinator
+  #       test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
+  #       # spacial configurations
+  #       include: ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
+  #   uses: ./.github/workflows/flow-self-hosted-arm.yml
+  #   secrets: inherit
+  #   with:
+  #     container: amazonlinux:2
+  #     pre-steps-script: yum install -y tar gzip
+  #     test-config: CONFIG=${{ matrix.test-config }}
+  #     standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
+  #     coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
 
   ### End of Linux Flows - Ugly workaround for the lack of workflow call depth of >= 5 ###
 

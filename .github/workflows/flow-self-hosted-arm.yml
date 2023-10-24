@@ -59,6 +59,7 @@ jobs:
       coordinator: ${{ inputs.coordinator }}
       standalone: ${{ inputs.standalone }}
       test-config: ${{ inputs.test-config }}
+      pre-steps-script: ${{ inputs.pre-steps-script }}
 
   stop-runner:
     name: Stop self-hosted EC2 runner
