@@ -877,5 +877,9 @@ void NumericRangeIterator_OnReopen(void *privdata) {
     IndexReader_OnReopen(it->ctx);
   } else if (it->type == UNION_ITERATOR) {
     UI_Foreach(it, IndexReader_OnReopen);
+  } else {
+    RS_LOG_ASSERT_FMT(0,
+      "Unexpected iterator type %d. Expected `READ_ITERATOR` (%d) or `UNION_ITERATOR` (%d)",
+      it->type, READ_ITERATOR, UNION_ITERATOR);
   }
 }
