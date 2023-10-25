@@ -1,6 +1,6 @@
 #!/bin/bash
 version=3.25.1
-processor=$(uname -p)
+processor=$(uname -m)
 OS_TYPE=$(uname -s)
 MODE=$1 # whether to install using sudo or not
 
