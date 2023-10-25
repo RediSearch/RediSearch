@@ -19,7 +19,7 @@ Redis Stack offers an enhanced Redis experience via the following search and que
 - Geospatial queries
 - Aggregations
 
-You can find a complete list of features in the [reference documentation](TODO).
+You can find a complete list of features in the [reference documentation](/docs/interact/search-and-query/advanced-concepts/).
 
 The search and query features of Redis Stack allow you to use Redis as a:
 
