@@ -56,6 +56,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Setup (readies)
+        run: ./sbin/setup
+
       - name: Get Redis
         if: inputs.get-redis
         uses: actions/checkout@v3
