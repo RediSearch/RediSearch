@@ -54,13 +54,13 @@ jobs:
       - name: Setup
         working-directory: setup/.install
         run: ./install_script.sh ${{ env.MODE }}
-      - name: Set safe directory
-        run: git config --global --add safe.directory `pwd`
+      # - name: Set safe directory
+      #   run: git config --global --add safe.directory `pwd`
       - name: Full checkout
         uses: actions/checkout@v3
         with:
           submodules: recursive
-          set-safe-directory: "'*'"
+          set-safe-directory: "`pwd`"
 
       - name: Get Redis
         if: inputs.get-redis
