@@ -11,7 +11,7 @@ A vector similarity query on a vector field allows you to find all vectors in a 
 The examples in this article use a schema with the following fields:
 
 ```
-| JSON field name | Field alias |Field type | Description |
+| JSON field | Field alias | Field type | Description |
 | ---------- | ---------- | ----------- |
 | $.description| description | TEXT | The description of a bicycle as unstructured text |
 | $.description_embeddings | vector | VECTOR | The vector that was derived by a machine learning model from the description text | 
@@ -36,11 +36,20 @@ Here is a more detailed explanation of this query:
 
 You can read more about the `PARAMS` argument in the [`FT.SEARCH` command reference](/commands/ft.search/).
 
-The following example shows you how to query based on the description embedddings (by using the field alias `vector`). The result is returned in ascending order based on the distance. You can see that the query only returns the fields `vector_score` and `description`. The field `__vector_score` is out of the box present. The vector score field name depends on the name of the vector field. If you replace `@vector` in the query below with `@foo`, the score field name changes to `__foo_score`.
+The following example shows you how to query for the three bikes based on the description embedddings and by using the field alias `vector`. The result is returned in ascending order based on the distance. You can see that the query only returns the fields `__vector_score` and `description`. The field `__vector_score` is out of the box present. The vector score field name depends on the name of the vector field. If you change the field name `@vector` to `@foo`, the score field name changes to `__foo_score`.
 
 ```
 FT.SEARCH idx:bikes_vss "(*)=>[KNN 3 @vector $query_vector]" PARAMS 2 "query_vector" "Z\xf8\x15:\xf23\xa1\xbfZ\x1dI>\r\xca9..." SORTBY "__vector_score" ASC RETURN 2 "__vector_score" "description" DIALECT 2
 ```
+
+<!-- Python query>
+query = (
+    Query('(*)=>[KNN 3 @vector $query_vector]')
+     .sort_by('__vector_score')
+     .return_fields('__vector_score', 'description')
+     .dialect(2)
+)
+</!-->
 
 {{% alert title="Note" color="warning" %}}
 The binary value of the query vector is significantly shortened in this example.
@@ -70,15 +79,22 @@ Here is a more detailed explanation of this query:
 5. **Dialect**: Vector similarity search is available since version two of the query dialect.
 
 
-TODO: Examples
+{{% alert title="Note" color="warning" %}}
+By default, `FT.SEARCH` returns only the first ten results. The [range query article](/docs/interact/search-and-query/query/range) explains you how to scroll through the result set.
+{{% /alert  %}}
 
 
+The example below shows a radius query that returns the description and the distance within a radius of `0.5`. The result is again sorted by the distance:
 
+```
+FT.SEARCH idx:bikes_vss "@vector:[VECTOR_RANGE 0.5 $query_vector]=>{$YIELD_DISTANCE_AS: vector_dist}" PARAMS 2 "query_vector" "Z\xf8\x15:\xf23\xa1\xbfZ\x1dI>\r\xca9..." SORTBY vector_dist ASC RETURN 2 vector_dist description DIALECT 2
+```
 
-
-
-
-
-
-
-
+<!-- Python query>
+query = (
+    Query('@vector:[VECTOR_RANGE 0.5 $query_vector]=>{$YIELD_DISTANCE_AS: vector_dist}')
+     .sort_by('vector_dist')
+     .return_fields('vector_dist', 'description')
+     .dialect(2)
+)
+</!-->

@@ -51,7 +51,9 @@ You can construct a tag query for a single tag in the following way:
 FT.SEARCH index "@field:{tag}"
 ```
 
-> Note: The curly brackets are mandatory for tag queries. You can read why in the [combined queries article](TODO).
+{{% alert title="Note" color="warning" %}}
+The curly brackets are mandatory for tag queries. You can read why in the [combined queries article](TODO).
+{{% /alert  %}}
 
 This short example shows you how to query for new bicycles:
 
