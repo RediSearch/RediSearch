@@ -2239,7 +2239,7 @@ def testTimeout(env):
        .error().contains('Timeout limit was reached')
 
     # test sorter
-    env.expect('FT.AGGREGATE', 'myIdx', '*',
+    env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
                'LOAD', 1, 't',
                'SORTBY', 1, '@t',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
