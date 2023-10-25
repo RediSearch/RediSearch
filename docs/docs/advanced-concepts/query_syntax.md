@@ -1,11 +1,11 @@
 ---
-title: "Query"
-linkTitle: "Query"
+title: "Query syntax"
+linkTitle: "Query syntax"
 weight: 5
 description: >
     Learn how to use query syntax
 aliases:
-  - /docs/stack/search/reference/query_syntax/    
+  - /docs/stack/search/reference/query_syntax/
   - /redisearch/reference/query_syntax
 ---
 
