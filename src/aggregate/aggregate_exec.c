@@ -345,7 +345,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
     RedisModule_ReplyKV_Array(reply, "error"); // >errors
       if (rc == RS_RESULT_TIMEDOUT) {
-        RedisModule_Reply_SimpleString(reply, "Timeout limit was reached");
+        RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_TIMEDOUT));
       } else if (rc == RS_RESULT_ERROR) {
         RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
         QueryError_ClearError(req->qiter.err);
@@ -438,7 +438,7 @@ done_3:
     if (rc == RS_RESULT_TIMEDOUT) {
       if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
          req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-        RedisModule_Reply_SimpleString(reply, "Timeout limit was reached");
+        RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_TIMEDOUT));
       } else {
         rc = RS_RESULT_OK;
         RedisModule_Reply_LongLong(reply, req->qiter.totalResults);

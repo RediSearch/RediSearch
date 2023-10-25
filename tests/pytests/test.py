@@ -2205,8 +2205,8 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0').noEqual([num_range])
 
     env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0') \
-       .contains('Timeout limit was reached')
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0'). \
+       error().contains('Timeout limit was reached')
 
     # test `TIMEOUT` param in query
     res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 10000)
@@ -2236,16 +2236,16 @@ def testTimeout(env):
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
-       .contains('Timeout limit was reached')
+       .error().contains('Timeout limit was reached')
 
     # test sorter
-    env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
+    env.expect('FT.AGGREGATE', 'myIdx', '*',
                'LOAD', 1, 't',
                'SORTBY', 1, '@t',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
-       .contains('Timeout limit was reached')
+       .error().contains('Timeout limit was reached')
 
     # test cursor
     res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 500)
