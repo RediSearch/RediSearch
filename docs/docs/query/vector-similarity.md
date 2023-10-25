@@ -2,6 +2,7 @@
 title: "Vector similarity"
 linkTitle: "Vector similarity"
 description: Query for similar data based on vector embeddings
+weight: 3
 ---
 
 This article gives you a good overview how to perform vector similarity queries with Redis Stack. It's recommended to read more about Redis as a vector database in the [Redis as a vector database quick start guide](/docs/get-started/vector-database/). You can find more detailed information about all the parameters in [vector reference documentation](/docs/interact/search-and-query/advanced-concepts/vectors/).

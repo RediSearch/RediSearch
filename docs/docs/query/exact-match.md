@@ -2,6 +2,7 @@
 title: "Exact match"
 linkTitle: "Exact match"
 description: Simple exact match queries
+weight: 1
 ---
 
 An exact match query allows you to select all documents where a field matches a specific value. 

@@ -2,6 +2,7 @@
 title: "Range"
 linkTitle: "Range"
 description: Numeric range queries
+weight: 2
 ---
 
 A range query on a numeric field returns the values that are in between a given start and end value:
