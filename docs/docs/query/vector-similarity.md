@@ -11,12 +11,10 @@ A vector similarity query on a vector field allows you to find all vectors in a 
 
 The examples in this article use a schema with the following fields:
 
-```
-| JSON field | Field alias | Field type | Description |
-| ---------- | ---------- | ----------- |
-| $.description| description | TEXT | The description of a bicycle as unstructured text |
-| $.description_embeddings | vector | VECTOR | The vector that a machine learning model derived from the description text | 
-```
+| JSON field               | Field alias | Field type  | Description |
+| ------------------------ | ----------- | ----------- | ----------- |
+| $.description            | description | TEXT        | The description of a bicycle as unstructured text |
+| $.description_embeddings | vector      | VECTOR      | The vector that a machine learning model derived from the description text | 
 
 
 ## K-neareast neighbours (KNN)
