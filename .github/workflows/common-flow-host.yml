@@ -47,6 +47,7 @@ jobs:
         with:
             sparse-checkout: .install
             path: setup
+            set-safe-directory: .
       - name: Setup
         working-directory: setup/.install
         run: ./install_script.sh ${{ env.MODE }}

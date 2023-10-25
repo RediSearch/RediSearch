@@ -1,6 +1,6 @@
 #!/bin/bash
 MODE=$1 # whether to install using sudo or not
 set -e
-$MODE yum install -y gcc-toolset-10-gcc gcc-toolset-10-gcc-c++ make valgrind wget git
-$MODE source /opt/rh/gcc-toolset-10/enable
+$MODE dnf update
+$MODE dnf install -y gcc gcc-c++ make wget git
 source install_cmake.sh $MODE
