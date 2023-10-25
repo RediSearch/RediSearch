@@ -61,6 +61,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           submodules: recursive
+          path: "."
           set-safe-directory: "."
 
       - name: Get Redis
