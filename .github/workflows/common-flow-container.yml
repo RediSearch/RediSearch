@@ -51,18 +51,16 @@ jobs:
         with:
             sparse-checkout: .install
             path: setup
-            set-safe-directory: .
       - name: Setup
         working-directory: setup/.install
         run: ./install_script.sh ${{ env.MODE }}
-      - name: Cleanup
-        run: rm -rf setup
+      - name: Set safe directory
+        run: git config --global --add safe.directory .
       - name: Full checkout
         uses: actions/checkout@v3
         with:
           submodules: recursive
-          path: "."
-          set-safe-directory: "."
+          set-safe-directory: "'*'"
 
       - name: Get Redis
         if: inputs.get-redis
