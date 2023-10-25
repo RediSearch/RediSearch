@@ -37,17 +37,17 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ secrets.CI_CTO_AWS_REGION }}
       - name: Start EC2 runner
         id: start-ec2-runner
         uses: machulav/ec2-github-runner@v2
         with:
           mode: start
-          github-token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           ec2-image-id: ${{ env.AWS_IMAGE_ID }}
           ec2-instance-type: ${{ env.AWS_INSTANCE_TYPE }}
-          subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID }}
-          security-group-id: ${{ secrets.AWS_EC2_SG_ID }}
+          subnet-id: ${{ secrets.CI_CTO_AWS_EC2_SUBNET_ID }}
+          security-group-id: ${{ secrets.CI_CTO_AWS_EC2_SG_ID }}
 
   run:
     needs: start-runner # required to start the main job when the runner is ready
