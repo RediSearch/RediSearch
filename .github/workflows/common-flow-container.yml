@@ -55,6 +55,8 @@ jobs:
       - name: Setup
         working-directory: setup/.install
         run: ./install_script.sh ${{ env.MODE }}
+      - name: Cleanup
+        run: rm -rf setup
       - name: Full checkout
         uses: actions/checkout@v3
         with:
