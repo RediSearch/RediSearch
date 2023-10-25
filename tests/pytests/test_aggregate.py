@@ -3,8 +3,7 @@ from common import *
 import bz2
 import json
 import unittest
-
-
+from redis import ResponseError
 
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
 
@@ -997,14 +996,19 @@ def test_aggregate_timeout():
 
     # On coordinator, we currently get a single empty result on timeout,
     # because all the shards timed out but the coordinator doesn't report it.
-    env.expect('FT.AGGREGATE', 'idx', '*',
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
                'LOAD', '2', '@t1', '@__key',
                'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
                'groupby', '2', '@t1', '@t1exp',
                     'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
-               'TIMEOUT', '1',
-        ).equal( ['Timeout limit was reached'] if not env.isCluster() else [1, ['t1', None, 't1exp', None, 'keys', []]])
-
+               'TIMEOUT', '1')
+    err = res[0]
+    if not env.isCluster():
+        env.assertEquals(type(err), ResponseError)
+        env.assertContains('Timeout limit was reached', str(err))
+    else:
+        # TODO: Remove once coordinator returns the error as well
+        env.assertEquals(res, [1, ['t1', None, 't1exp', None, 'keys', []]])
 
 def testGroupProperties(env):
     conn = getConnectionByEnv(env)

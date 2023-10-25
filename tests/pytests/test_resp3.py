@@ -162,7 +162,7 @@ def test_search_timeout():
 
     env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0'). \
-      contains('Timeout limit was reached')
+      error().contains('Timeout limit was reached')
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1).\
       error().contains('Timeout limit was reached')
 
