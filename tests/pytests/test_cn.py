@@ -114,3 +114,79 @@ def testSynonym(env):
     r = env.cmd('ft.search', 'idx', '近义词', 'language', 'chinese')
     env.assertEqual(1, r[0])
     env.assertIn('doc1', r)
+
+def testCustomDelimiters(env):
+    # Test with custom separators: hyphen (-) and colon (:) were removed
+    env.cmd(
+        'ft.create', 'idx', 'ON', 'HASH',
+        'PREFIX', '1', 'doc',
+        'DELIMITERS', ' \t#$%&\'()*+,./;<=>?@^`{|}~',
+        'LANGUAGE_FIELD', 'language', 'schema', 'txt', 'text')
+    waitForIndex(env, 'idx')
+    env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', 'hello-world 那时')
+    env.cmd('ft.add', 'idx', 'doc2', 1.0, 'fields', 'txt', 'hello\\-world')
+    env.cmd('ft.add', 'idx', 'doc3', 1.0, 'language', 'chinese', 'fields', 'txt', 'one ::hello two 器上同步 -hello world- two 器上同步')
+
+    r = env.cmd('ft.search', 'idx', 'hello\\-world')
+    env.assertEqual(2, r[0])
+    env.assertIn('doc1', r)
+    env.assertIn('doc2', r)
+    r = env.cmd('ft.search', 'idx', '\\:\\:hello')
+    env.assertEqual(1, r[0])
+    env.assertIn('doc3', r)
+    r = env.cmd('ft.search', 'idx', '\\-hello')
+    env.assertEqual(1, r[0])
+    env.assertIn('doc3', r)
+    r = env.cmd('ft.search', 'idx', 'two')
+    env.assertEqual('doc3', r[1])
+    r = env.cmd('ft.search', 'idx', 'world\\-')
+    env.assertEqual(1, r[0])
+    env.assertIn('doc3', r)
+
+def testCn_CustomDelimiters(env):
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+    txt = '2009年８月６日开始大学[之旅]，岳阳今天的-气温为38.6℃, 也就; hi-world hola\\-mundo 是101.48℉'
+    conn.execute_command('HSET', 'doc1', 'txt', txt)
+
+    # Create idx1 where the brackets [] are not delimiters
+    env.cmd(
+        'FT.CREATE', 'idx1', 'ON', 'HASH',
+        'LANGUAGE', 'CHINESE',
+        'SCHEMA', 'txt', 'TEXT', 'DELIMITERS-', '[]')
+    waitForIndex(env, 'idx1')
+
+    # The text is not found because '[]' are not delimiters
+    res = env.execute_command(
+        'ft.search', 'idx1', '之旅',
+        'SUMMARIZE', 'HIGHLIGHT','LANGUAGE', 'chinese')
+    env.assertEqual(res, [0])
+
+    res = env.cmd('FT.DEBUG', 'DUMP_TERMS', 'idx1')
+    expected_result = ['101.48℉', '2009年', '38.6℃', '6日', '8月', 'hi',
+        'hola-mundo', 'world', '为', '也', '今天', '大学[之旅]岳阳', '就', '开始',
+        '是', '气温', '的']
+    env.assertEqual(res, expected_result)
+
+    # Create idx2 where the delimiters are ' \t[]'
+    env.cmd(
+        'FT.CREATE', 'idx2', 'ON', 'HASH',
+        'DELIMITERS', ' \t;',
+        'LANGUAGE', 'CHINESE',
+        'SCHEMA', 'txt', 'TEXT', 'DELIMITERS+', '[]-')
+    waitForIndex(env, 'idx2')
+
+    # The text is found because is bounded by brackets, then it is a term
+    res = env.cmd(
+        'ft.search', 'idx2', '之旅',
+        'SUMMARIZE', 'HIGHLIGHT','LANGUAGE', 'chinese', 'LIMIT', '0', '0')
+    env.assertEqual(res, [1])
+
+    res = env.cmd('FT.DEBUG', 'DUMP_TERMS', 'idx2')
+    expected_result = ['101.48℉', '2009年', '38.6℃,也', '6日', '8月', 'hi',
+        'hola-mundo', 'world', '为', '之旅', '今天', '大学', '就', '岳阳', '开始',
+        '是', '气温', '的']
+    env.assertEqual(res, expected_result)
+
+    env.execute_command('FT.DROPINDEX', 'idx1')
+    env.execute_command('FT.DROPINDEX', 'idx2')

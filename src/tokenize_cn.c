@@ -5,7 +5,6 @@
  */
 
 #include "tokenize.h"
-#include "toksep.h"
 #include "config.h"
 #include "friso/friso.h"
 #include "cndict_loader.h"
@@ -52,21 +51,29 @@ static void maybeFrisoInit() {
   config_g->en_sseg = 0;
 }
 
-static void cnTokenizer_Start(RSTokenizer *base, char *text, size_t len, uint32_t options) {
+static void cnTokenizer_Start(RSTokenizer *base, char *text, size_t len,
+  uint32_t options, DelimiterList *fieldDelimiterList) {
   cnTokenizer *self = (cnTokenizer *)base;
   base->ctx.text = text;
   base->ctx.len = len;
   base->ctx.options = options;
   friso_set_text(self->fTask, text);
   self->nescapebuf = 0;
+  if(fieldDelimiterList != NULL) {
+    if(base->ctx.delimiters != NULL) {
+      DelimiterList_Free(base->ctx.delimiters);
+    }
+    base->ctx.delimiters = fieldDelimiterList;
+    DelimiterList_Ref(fieldDelimiterList);
+  }
 }
 
 // check if the word has a trailing escape. assumes NUL-termination
-static int hasTrailingEscape(const char *s, size_t n) {
+static int hasTrailingEscape(const char *s, size_t n, DelimiterList *dl) {
   if (s[n] != '\\') {
     return 0;
   }
-  return istoksep(s[n + 1]);
+  return istoksep(s[n + 1], dl);
 }
 
 static int appendToEscbuf(cnTokenizer *cn, const char *s, size_t n) {
@@ -81,6 +88,7 @@ static int appendToEscbuf(cnTokenizer *cn, const char *s, size_t n) {
  * When we encounter a backslash, append the next character and continue
  * the loop
  */
+#define NOT_ESCAPED_CHAR  0  // the character is not escaped
 #define ESCAPED_CHAR_SELF 1  // buf + len is the escaped character'
 #define ESCAPED_CHAR_NEXT 2  // buf + len + 1 is the escaped character
 
@@ -92,9 +100,11 @@ static int appendToEscbuf(cnTokenizer *cn, const char *s, size_t n) {
 static int appendEscapedChars(cnTokenizer *self, friso_token_t ftok, int mode) {
   const char *escbegin = self->base.ctx.text + ftok->offset + ftok->length;
   size_t skipBy;
-  if (mode == ESCAPED_CHAR_SELF) {
+  if (mode == NOT_ESCAPED_CHAR) {
+    skipBy = 0;
+  } else if (mode == ESCAPED_CHAR_SELF) {
     skipBy = 1;
-  } else {
+  } else if (mode == ESCAPED_CHAR_NEXT){
     skipBy = 2;
     escbegin++;
   }
@@ -106,8 +116,8 @@ static int appendEscapedChars(cnTokenizer *self, friso_token_t ftok, int mode) {
     // if there are more tokens...
     if (self->fTask->idx < self->base.ctx.len) {
       // and this token is not completed (i.e. character _after_ escape
-      // is not itself a word separator)
-      if (!istoksep(self->base.ctx.text[self->fTask->idx])) {
+      // is not itself a word delimiter)
+      if (!istoksep(self->base.ctx.text[self->fTask->idx], self->base.ctx.delimiters)) {
         return 1;
       }
     }
@@ -159,7 +169,7 @@ static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t) {
         continue;
 
       case __LEX_PUNC_WORDS__:
-        if (tok->word[0] == '\\' && istoksep(ctx->text[tok->offset + 1])) {
+        if (tok->word[0] == '\\' && istoksep(ctx->text[tok->offset + 1], ctx->delimiters)) {
           if (!appendEscapedChars(self, tok, ESCAPED_CHAR_SELF)) {
             break;
           }
@@ -188,8 +198,10 @@ static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t) {
       t->rawLen = (ctx->text + ctx->len) - t->raw;
     }
 
-    if (hasTrailingEscape(bufstart, tok->rlen)) {
-      // We must continue the friso loop, because we have found an escape..
+    if (hasTrailingEscape(bufstart, tok->rlen, ctx->delimiters) ||
+        (bufstart[tok->rlen]=='\\' && !istoksep(bufstart[tok->rlen + 1], ctx->delimiters) )) {
+      // We must continue the friso loop, because we have found an escaped delimiter..
+      // or an escaped character that is not part of the delimiter
       if (!useEscBuf) {
         useEscBuf = 1;
         t->tok = self->escapebuf;
@@ -200,6 +212,27 @@ static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t) {
         return t->pos;
       }
       if (!appendEscapedChars(self, tok, ESCAPED_CHAR_NEXT)) {
+        t->tokLen = self->nescapebuf;
+        return t->pos;
+      }
+      continue;
+    } else if (
+      bufstart[tok->rlen]!='\\' &&
+      !istoksep(bufstart[tok->rlen], ctx->delimiters) &&
+      istoksep(bufstart[tok->rlen], NULL)
+      ) {
+      // We must continue if we found an unescaped punctuation character
+      // (default delimiters)
+      if (!useEscBuf) {
+        useEscBuf = 1;
+        t->tok = self->escapebuf;
+      }
+      t->tokLen = self->nescapebuf;
+      if (!appendToEscbuf(self, tok->word, tok->length)) {
+        t->tokLen = self->nescapebuf;
+        return t->pos;
+      }
+      if (!appendEscapedChars(self, tok, NOT_ESCAPED_CHAR)) {
         t->tokLen = self->nescapebuf;
         return t->pos;
       }
@@ -225,17 +258,19 @@ static void cnTokenizer_Free(RSTokenizer *base) {
 }
 
 static void cnTokenizer_Reset(RSTokenizer *base, Stemmer *stemmer, StopWordList *stopwords,
-                              uint32_t opts) {
+                              uint32_t opts, DelimiterList *delimiters) {
   // Nothing to do here
   base->ctx.lastOffset = 0;
 }
 
-RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
+RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords,
+                                uint32_t opts, DelimiterList *delimiters) {
   cnTokenizer *tokenizer = rm_calloc(1, sizeof(*tokenizer));
   tokenizer->fTask = friso_new_task();
   maybeFrisoInit();
   tokenizer->base.ctx.options = opts;
   tokenizer->base.ctx.stopwords = stopwords;
+  tokenizer->base.ctx.delimiters = delimiters;
   tokenizer->base.Start = cnTokenizer_Start;
   tokenizer->base.Next = cnTokenizer_Next;
   tokenizer->base.Free = cnTokenizer_Free;

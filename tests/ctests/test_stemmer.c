@@ -54,11 +54,12 @@ int testTokenize() {
   Stemmer *s = NewStemmer(SnowballStemmer, RS_LANG_ENGLISH);
   ASSERT(s != NULL)
 
-  RSTokenizer *tk = NewSimpleTokenizer(s, DefaultStopWordList(), 0);
+  RSTokenizer *tk = NewSimpleTokenizer(s, DefaultStopWordList(), 0,
+                                       DefaultDelimiterList());
   Token t;
 
   tokenContext *tx = &ctx;
-  tk->Start(tk, txt, strlen(txt), 0);
+  tk->Start(tk, txt, strlen(txt), 0, DefaultDelimiterList());
   while (tk->Next(tk, &t)) {
     printf("round %d\n", ctx.num);
     int ret = strncmp(t.tok, tx->expectedTokens[tx->num], t.tokLen);

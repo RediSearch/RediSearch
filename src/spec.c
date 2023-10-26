@@ -37,7 +37,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver);
 
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
 
@@ -414,8 +413,10 @@ static bool checkPhoneticAlgorithmAndLang(const char *matcher) {
   return langauge_found;
 }
 
-static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status,
+                          DelimiterList *indexDelimiters) {
   int rc;
+  size_t len;
   // this is a text field
   // init default weight and type
   while (!AC_IsAtEnd(ac)) {
@@ -456,6 +457,127 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       continue;
     } else if(AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
       fs->options |= FieldSpec_WithSuffixTrie;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
+      FieldSpec_SetSortable(fs);
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR)) {      // Explicitly requested UNF
+          fs->options |= FieldSpec_UNF;
+      }
+    } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
+      fs->options |= FieldSpec_NotIndexable;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_SET_DELIMITERS_STR)) {
+      const char *delimiterStr;
+      if ((rc = AC_GetString(ac, &delimiterStr, &len, 0)) != AC_OK) {
+        return 0;
+      }
+
+      if(delimiterStr != NULL) {
+        if(fs->delimiters) {
+          DelimiterList_Unref(fs->delimiters);
+        }
+        fs->delimiters = NewDelimiterListCStr(delimiterStr);
+        fs->options |= FieldSpec_WithCustomDelimiters;
+      }
+    } else if (AC_AdvanceIfMatch(ac, SPEC_ADD_DELIMITERS_STR)) {
+      const char *addDelimiterStr;
+      if ((rc = AC_GetString(ac, &addDelimiterStr, &len, 0)) != AC_OK) {
+        return 0;
+      }
+
+      if(addDelimiterStr != NULL) {
+        if(fs->delimiters == NULL && indexDelimiters != NULL) {
+          fs->delimiters = NewDelimiterListCStr(indexDelimiters->delimiterString);
+        }
+        fs->delimiters = AddDelimiterListCStr(addDelimiterStr, fs->delimiters);
+        fs->options |= FieldSpec_WithCustomDelimiters;
+      }
+    } else if (AC_AdvanceIfMatch(ac, SPEC_DEL_DELIMITERS_STR)) {
+      const char *delDelimiterStr;
+      if ((rc = AC_GetString(ac, &delDelimiterStr, &len, 0)) != AC_OK) {
+        return 0;
+      }
+
+      if(delDelimiterStr != NULL) {
+        if(fs->delimiters == NULL && indexDelimiters != NULL) {
+          fs->delimiters = NewDelimiterListCStr(indexDelimiters->delimiterString);
+        }
+        fs->delimiters = RemoveDelimiterListCStr(delDelimiterStr, fs->delimiters);
+        fs->options |= FieldSpec_WithCustomDelimiters;
+      }
+    } else {
+      break;
+    }
+  }
+  return 1;
+}
+
+static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status,
+                          DelimiterList *indexDelimiters) {
+  int rc;
+  size_t len;
+  while (!AC_IsAtEnd(ac)) {
+    if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
+      if (AC_IsAtEnd(ac)) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_TAG_SEPARATOR_STR " requires an argument");
+        return 0;
+      }
+      const char *sep = AC_GetStringNC(ac, NULL);
+      if (strlen(sep) != 1) {
+        QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
+                              "Tag separator must be a single character. Got `%s`", sep);
+        return 0;
+      }
+      fs->tagOpts.tagSep = *sep;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_CASE_SENSITIVE_STR)) {
+      fs->tagOpts.tagFlags |= TagField_CaseSensitive;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
+      fs->options |= FieldSpec_WithSuffixTrie;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
+      FieldSpec_SetSortable(fs);
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
+          TAG_FIELD_IS(fs, TagField_CaseSensitive)) { // We don't normalize case sensitive tags. Implicit UNF
+        fs->options |= FieldSpec_UNF;
+      }
+    } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
+      fs->options |= FieldSpec_NotIndexable;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_SET_DELIMITERS_STR)) {
+      const char *delimiterStr;
+      if ((rc = AC_GetString(ac, &delimiterStr, &len, 0)) != AC_OK) {
+        return 0;
+      }
+
+      if(delimiterStr != NULL) {
+        if(fs->delimiters) {
+          DelimiterList_Unref(fs->delimiters);
+        }
+        fs->delimiters = NewDelimiterListCStr(delimiterStr);
+        fs->options |= FieldSpec_WithCustomDelimiters;
+      }
+    } else if (AC_AdvanceIfMatch(ac, SPEC_ADD_DELIMITERS_STR)) {
+      const char *addDelimiterStr;
+      if ((rc = AC_GetString(ac, &addDelimiterStr, &len, 0)) != AC_OK) {
+        return 0;
+      }
+
+      if(addDelimiterStr != NULL) {
+        if(fs->delimiters == NULL && indexDelimiters != NULL) {
+          fs->delimiters = NewDelimiterListCStr(indexDelimiters->delimiterString);
+        }
+        fs->delimiters = AddDelimiterListCStr(addDelimiterStr, fs->delimiters);
+        fs->options |= FieldSpec_WithCustomDelimiters;
+      }
+    } else if (AC_AdvanceIfMatch(ac, SPEC_DEL_DELIMITERS_STR)) {
+      const char *delDelimiterStr;
+      if ((rc = AC_GetString(ac, &delDelimiterStr, &len, 0)) != AC_OK) {
+        return 0;
+      }
+
+      if(delDelimiterStr != NULL) {
+        if(fs->delimiters == NULL && indexDelimiters != NULL) {
+          fs->delimiters = NewDelimiterListCStr(indexDelimiters->delimiterString);
+        }
+        fs->delimiters = RemoveDelimiterListCStr(delDelimiterStr, fs->delimiters);
+        fs->options |= FieldSpec_WithCustomDelimiters;
+      }
     } else {
       break;
     }
@@ -815,9 +937,10 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
 
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {  // text field
     fs->types |= INDEXFLD_T_FULLTEXT;
-    if (!parseTextField(fs, ac, status)) {
+    if (!parseTextField(fs, ac, status, sp->delimiters)) {
       goto error;
     }
+    return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
     fs->types |= INDEXFLD_T_NUMERIC;
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEO_STR)) {  // geo field
@@ -831,27 +954,10 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
     fs->types |= INDEXFLD_T_TAG;
-    while (!AC_IsAtEnd(ac)) {
-      if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
-        if (AC_IsAtEnd(ac)) {
-          QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_TAG_SEPARATOR_STR " requires an argument");
-          goto error;
-        }
-        const char *sep = AC_GetStringNC(ac, NULL);
-        if (strlen(sep) != 1) {
-          QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
-                                "Tag separator must be a single character. Got `%s`", sep);
-          goto error;
-        }
-        fs->tagOpts.tagSep = *sep;
-      } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_CASE_SENSITIVE_STR)) {
-        fs->tagOpts.tagFlags |= TagField_CaseSensitive;
-      } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
-        fs->options |= FieldSpec_WithSuffixTrie;
-      } else {
-        break;
-      }
+    if (!parseTagField(fs, ac, status, sp->delimiters)) {
+      goto error;
     }
+    return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
     sp->flags |= Index_HasGeometry;
     fs->types |= INDEXFLD_T_GEOMETRY;
@@ -869,13 +975,17 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
 
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
-      FieldSpec_SetSortable(fs);
-      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
-          FIELD_IS(fs, INDEXFLD_T_NUMERIC) ||         // We don't normalize numeric fields. Implicit UNF
-          TAG_FIELD_IS(fs, TagField_CaseSensitive)) { // We don't normalize case sensitive tags. Implicit UNF
-        fs->options |= FieldSpec_UNF;
+      if(FIELD_IS(fs, INDEXFLD_T_NUMERIC) || FIELD_IS(fs, INDEXFLD_T_GEO)) {
+        FieldSpec_SetSortable(fs);
+        if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
+            FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {         // We don't normalize numeric fields. Implicit UNF
+          fs->options |= FieldSpec_UNF;
+        }
+        continue;
+      } else {
+        QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Field `%s` can't have the option SORTABLE", fs->name);
+        goto error;
       }
-      continue;
     } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
       fs->options |= FieldSpec_NotIndexable;
       continue;
@@ -1101,6 +1211,9 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
 
   ArgsCursor ac = {0};
   ArgsCursor acStopwords = {0};
+  char *setdelimiters = NULL;
+  char *adddelimiters = NULL;
+  char *deldelimiters = NULL;
 
   ArgsCursor_InitCString(&ac, argv, argc);
   long long timeout = -1;
@@ -1125,7 +1238,11 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
       SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args){
           .name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
       {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-      {.name = NULL}};
+      {.name = SPEC_SET_DELIMITERS_STR, .target = &setdelimiters, .type = AC_ARGTYPE_STRING},
+      {.name = SPEC_ADD_DELIMITERS_STR, .target = &adddelimiters, .type = AC_ARGTYPE_STRING},
+      {.name = SPEC_DEL_DELIMITERS_STR, .target = &deldelimiters, .type = AC_ARGTYPE_STRING},
+      {.name = NULL}
+  };
 
   ACArgSpec *errarg = NULL;
   int rc = AC_ParseArgSpec(&ac, argopts, &errarg);
@@ -1161,6 +1278,24 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
     }
     spec->stopwords = NewStopWordListCStr((const char **)acStopwords.objs, acStopwords.argc);
     spec->flags |= Index_HasCustomStopwords;
+  }
+
+  if (setdelimiters != NULL) {
+    if(spec->delimiters) {
+      DelimiterList_Unref(spec->delimiters);
+    }
+    spec->delimiters = NewDelimiterListCStr((const char *)setdelimiters);
+    spec->flags |= Index_HasCustomDelimiters;
+  }
+
+  if (adddelimiters != NULL) {
+    spec->delimiters = AddDelimiterListCStr((const char *)adddelimiters, spec->delimiters);
+    spec->flags |= Index_HasCustomDelimiters;
+  }
+
+  if (deldelimiters != NULL) {
+    spec->delimiters = RemoveDelimiterListCStr((const char *)deldelimiters, spec->delimiters);
+    spec->flags |= Index_HasCustomDelimiters;
   }
 
   if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
@@ -1246,6 +1381,7 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     ret->fields[ii] = spec->fields[ii];
     ret->fields[ii].name = rm_strdup(spec->fields[ii].name);
+    ret->fields[ii].delimiters = spec->fields[ii].delimiters;
     // if name & path are pointing to the same string, copy pointer
     if (ret->fields[ii].path && (spec->fields[ii].name != spec->fields[ii].path)) {
       ret->fields[ii].path = rm_strdup(spec->fields[ii].path);
@@ -1400,6 +1536,13 @@ void IndexSpec_Free(IndexSpec *spec) {
     StopWordList_Unref(spec->stopwords);
     spec->stopwords = NULL;
   }
+
+  // Free delimiter list
+  if (spec->delimiters) {
+    DelimiterList_Unref(spec->delimiters);
+    spec->delimiters = NULL;
+  }
+
   // Reset fields stats
   if (spec->fields != NULL) {
     for (size_t i = 0; i < spec->numFields; i++) {
@@ -1599,6 +1742,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->nameLen = strlen(name);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->stopwords = DefaultStopWordList();
+  sp->delimiters = DefaultDelimiterList();
   sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   sp->suffix = NULL;
   sp->suffixMask = (t_fieldMask)0;
@@ -1642,6 +1786,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   fs->ftId = (t_fieldId)-1;
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
+  fs->delimiters = DefaultDelimiterList();
   fs->tagOpts.tagFlags = TAG_FIELD_DEFAULT_FLAGS;
   if (!(sp->flags & Index_FromLLAPI)) {
     RS_LOG_ASSERT((sp->rule), "index w/o a rule?");
@@ -1696,181 +1841,7 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef global, IndexSpec *sp) {
   }
 }
 
-// given a field mask with one bit lit, it returns its offset
-int bit(t_fieldMask id) {
-  for (int i = 0; i < sizeof(t_fieldMask) * 8; i++) {
-    if (((id >> i) & 1) == 1) {
-      return i;
-    }
-  }
-  return 0;
-}
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-// Backwards compat version of load for rdbs with version < 8
-static int FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
-  LoadStringBufferAlloc_IOErrors(rdb, f->name, NULL, goto fail);
-
-  // the old versions encoded the bit id of the field directly
-  // we convert that to a power of 2
-  if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
-    f->ftId = bit(LoadUnsigned_IOError(rdb, goto fail));
-  } else {
-    // the new version encodes just the power of 2 of the bit
-    f->ftId = LoadUnsigned_IOError(rdb, goto fail);
-  }
-  f->types = LoadUnsigned_IOError(rdb, goto fail);
-  f->ftWeight = LoadDouble_IOError(rdb, goto fail);
-  f->tagOpts.tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-  f->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP;
-  if (encver >= 4) {
-    f->options = LoadUnsigned_IOError(rdb, goto fail);
-    f->sortIdx = LoadSigned_IOError(rdb, goto fail);
-  }
-  return REDISMODULE_OK;
-
-fail:
-  return REDISMODULE_ERR;
-}
-
-static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
-  RedisModule_SaveStringBuffer(rdb, f->name, strlen(f->name) + 1);
-  if (f->path != f->name) {
-    RedisModule_SaveUnsigned(rdb, 1);
-    RedisModule_SaveStringBuffer(rdb, f->path, strlen(f->path) + 1);
-  } else {
-    RedisModule_SaveUnsigned(rdb, 0);
-  }
-  RedisModule_SaveUnsigned(rdb, f->types);
-  RedisModule_SaveUnsigned(rdb, f->options);
-  RedisModule_SaveSigned(rdb, f->sortIdx);
-  // Save text specific options
-  if (FIELD_IS(f, INDEXFLD_T_FULLTEXT) || (f->options & FieldSpec_Dynamic)) {
-    RedisModule_SaveUnsigned(rdb, f->ftId);
-    RedisModule_SaveDouble(rdb, f->ftWeight);
-  }
-  if (FIELD_IS(f, INDEXFLD_T_TAG) || (f->options & FieldSpec_Dynamic)) {
-    RedisModule_SaveUnsigned(rdb, f->tagOpts.tagFlags);
-    RedisModule_SaveStringBuffer(rdb, &f->tagOpts.tagSep, 1);
-  }
-  if (FIELD_IS(f, INDEXFLD_T_VECTOR)) {
-    RedisModule_SaveUnsigned(rdb, f->vectorOpts.expBlobSize);
-    VecSim_RdbSave(rdb, &f->vectorOpts.vecSimParams);
-  }
-  if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
-    RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryCoords);
-  }
-}
-
-static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
-                                         [IDXFLD_LEGACY_NUMERIC] = INDEXFLD_T_NUMERIC,
-                                         [IDXFLD_LEGACY_GEO] = INDEXFLD_T_GEO,
-                                         [IDXFLD_LEGACY_TAG] = INDEXFLD_T_TAG};
-                                         // CHECKED: Not related to new data types - legacy code
-
-static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver) {
-
-  // Fall back to legacy encoding if needed
-  if (encver < INDEX_MIN_TAGFIELD_VERSION) {
-    return FieldSpec_RdbLoadCompat8(rdb, f, encver);
-  }
-
-  LoadStringBufferAlloc_IOErrors(rdb, f->name, NULL, goto fail);
-  f->path = f->name;
-  if (encver >= INDEX_JSON_VERSION) {
-    if (LoadUnsigned_IOError(rdb, goto fail) == 1) {
-      LoadStringBufferAlloc_IOErrors(rdb, f->path, NULL,goto fail);
-    }
-  }
-
-  f->types = LoadUnsigned_IOError(rdb, goto fail);
-  f->options = LoadUnsigned_IOError(rdb, goto fail);
-  f->sortIdx = LoadSigned_IOError(rdb, goto fail);
-
-  if (encver < INDEX_MIN_MULTITYPE_VERSION) {
-    RS_LOG_ASSERT(f->types <= IDXFLD_LEGACY_MAX, "field type should be string or numeric");
-    f->types = fieldTypeMap[f->types];
-  }
-
-  // Load text specific options
-  if (FIELD_IS(f, INDEXFLD_T_FULLTEXT) || (f->options & FieldSpec_Dynamic)) {
-    f->ftId = LoadUnsigned_IOError(rdb, goto fail);
-    f->ftWeight = LoadDouble_IOError(rdb, goto fail);
-  }
-  // Load tag specific options
-  if (FIELD_IS(f, INDEXFLD_T_TAG) || (f->options & FieldSpec_Dynamic)) {
-    f->tagOpts.tagFlags = LoadUnsigned_IOError(rdb, goto fail);
-    // Load the separator
-    size_t l;
-    char *s = LoadStringBuffer_IOError(rdb, &l, goto fail);
-    RS_LOG_ASSERT(l == 1, "buffer length should be 1");
-    f->tagOpts.tagSep = *s;
-    RedisModule_Free(s);
-  }
-  // Load vector specific options
-  if (encver >= INDEX_VECSIM_VERSION && FIELD_IS(f, INDEXFLD_T_VECTOR)) {
-    if (encver >= INDEX_VECSIM_2_VERSION) {
-      f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
-    }
-    if (encver >= INDEX_VECSIM_TIERED_VERSION) {
-      if (VecSim_RdbLoad_v3(rdb, &f->vectorOpts.vecSimParams, sp_ref, f->name) != REDISMODULE_OK) {
-        goto fail;
-      }
-    } else {
-      if (encver >= INDEX_VECSIM_MULTI_VERSION) {
-        if (VecSim_RdbLoad_v2(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
-          goto fail;
-        }
-      } else {
-        if (VecSim_RdbLoad(rdb, &f->vectorOpts.vecSimParams) != REDISMODULE_OK) {
-          goto fail;
-        }
-      }
-      // If we're loading an old (< 2.8) rdb, we need to convert an HNSW index to a tiered index
-      VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
-      logCtx->index_field_name = f->name;
-      f->vectorOpts.vecSimParams.logCtx = logCtx;
-      if (f->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
-        VecSimParams hnswParams = f->vectorOpts.vecSimParams;
-
-        f->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
-        VecSim_TieredParams_Init(&f->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
-        f->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = 0;
-        memcpy(f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams, &hnswParams, sizeof(VecSimParams));
-      }
-    }
-    // Calculate blob size limitation on lower encvers.
-    if(encver < INDEX_VECSIM_2_VERSION) {
-      switch (f->vectorOpts.vecSimParams.algo) {
-      case VecSimAlgo_HNSWLIB:
-        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.algoParams.hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.algoParams.hnswParams.type);
-        break;
-      case VecSimAlgo_BF:
-        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.algoParams.bfParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.algoParams.bfParams.type);
-        break;
-      case VecSimAlgo_TIERED:
-        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.type);
-        break;
-      }
-    }
-  }
-
-  // Load geometry specific options
-  if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
-    if (encver >= INDEX_GEOMETRY_VERSION) {
-      f->geometryOpts.geometryCoords = LoadUnsigned_IOError(rdb, goto fail);
-    } else {
-      // In RedisSearch RC (2.8.1 - 2.8.3) we supported default coordinate system which was not written to RDB
-      f->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
-    }
-  }
-
-  return REDISMODULE_OK;
-
-fail:
-  return REDISMODULE_ERR;
-}
 
 static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
   stats->numDocuments = RedisModule_LoadUnsigned(rdb);
@@ -2171,8 +2142,10 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
     else
       RedisModule_InfoAddFieldCString(ctx, "type", (char*)FieldSpec_GetTypeNames(INDEXTYPE_TO_POS(fs->types)));
 
-    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT))
+    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
       RedisModule_InfoAddFieldDouble(ctx,  SPEC_WEIGHT_STR, fs->ftWeight);
+      AddDelimiterListToInfo(ctx, fs->delimiters);
+    }
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
       char buf[4];
       sprintf(buf, "\"%c\"", fs->tagOpts.tagSep);
@@ -2388,6 +2361,17 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
       goto cleanup;
   } else {
     sp->stopwords = DefaultStopWordList();
+  }
+
+  if (encver >= INDEX_DELIMITERS_VERSION) {
+    if (sp->flags & Index_HasCustomDelimiters) {
+      sp->delimiters = DelimiterList_RdbLoad(rdb);
+      if (sp->delimiters == NULL) {
+        goto cleanup;
+      }
+    } else {
+      sp->delimiters = DefaultDelimiterList();
+    }
   }
 
   sp->uniqueId = spec_unique_ids++;
@@ -2610,6 +2594,11 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
     // If we have custom stopwords, save them
     if (sp->flags & Index_HasCustomStopwords) {
       StopWordList_RdbSave(rdb, sp->stopwords);
+    }
+
+    // If we have custom separators, save them
+    if (sp->flags & Index_HasCustomDelimiters) {
+      DelimiterList_RdbSave(rdb, sp->delimiters);
     }
 
     if (sp->flags & Index_HasSmap) {

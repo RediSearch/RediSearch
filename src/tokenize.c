@@ -7,7 +7,6 @@
 #include "forward_index.h"
 #include "stopwords.h"
 #include "tokenize.h"
-#include "toksep.h"
 #include "rmalloc.h"
 #include <ctype.h>
 #include <stdlib.h>
@@ -20,13 +19,21 @@ typedef struct {
   Stemmer *stemmer;
 } simpleTokenizer;
 
-static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uint32_t options) {
+static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len,
+  uint32_t options, DelimiterList *fieldDelimiterList) {
   simpleTokenizer *self = (simpleTokenizer *)base;
   TokenizerCtx *ctx = &base->ctx;
   ctx->text = text;
   ctx->options = options;
   ctx->len = len;
   self->pos = &ctx->text;
+  if(fieldDelimiterList != NULL) {
+    if(ctx->delimiters != NULL) {
+      DelimiterList_Free(ctx->delimiters);
+    }
+    ctx->delimiters = fieldDelimiterList;
+    DelimiterList_Ref(fieldDelimiterList);
+  }
 }
 
 // Shortest word which can/should actually be stemmed
@@ -81,7 +88,8 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
   while (*self->pos != NULL) {
     // get the next token
     size_t origLen;
-    char *tok = toksep(self->pos, &origLen);
+    char *tok = NULL;
+    tok = toksep(self->pos, &origLen, base->ctx.delimiters);
 
     // normalize the token
     size_t normLen = origLen;
@@ -146,26 +154,33 @@ void simpleTokenizer_Free(RSTokenizer *self) {
 }
 
 static void doReset(RSTokenizer *tokbase, Stemmer *stemmer, StopWordList *stopwords,
-                    uint32_t opts) {
+                    uint32_t opts, DelimiterList *delimiters) {
   simpleTokenizer *t = (simpleTokenizer *)tokbase;
   t->stemmer = stemmer;
   t->base.ctx.stopwords = stopwords;
   t->base.ctx.options = opts;
   t->base.ctx.lastOffset = 0;
+  t->base.ctx.delimiters = delimiters;
   if (stopwords) {
     // Initially this function is called when we receive it from the mempool;
     // in which case stopwords is NULL.
     StopWordList_Ref(stopwords);
   }
+  if (delimiters) {
+    // Initially this function is called when we receive it from the mempool;
+    // in which case delimiters is NULL.
+    DelimiterList_Ref(delimiters);
+  }
 }
 
-RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
+RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords,
+                                uint32_t opts, DelimiterList *delimiters) {
   simpleTokenizer *t = rm_calloc(1, sizeof(*t));
   t->base.Free = simpleTokenizer_Free;
   t->base.Next = simpleTokenizer_Next;
   t->base.Start = simpleTokenizer_Start;
   t->base.Reset = doReset;
-  t->base.Reset(&t->base, stemmer, stopwords, opts);
+  t->base.Reset(&t->base, stemmer, stopwords, opts, delimiters);
   return &t->base;
 }
 
@@ -173,25 +188,27 @@ static mempool_t *tokpoolLatin_g = NULL;
 static mempool_t *tokpoolCn_g = NULL;
 
 static void *newLatinTokenizerAlloc() {
-  return NewSimpleTokenizer(NULL, NULL, 0);
+  return NewSimpleTokenizer(NULL, NULL, 0, NULL);
 }
 static void *newCnTokenizerAlloc() {
-  return NewChineseTokenizer(NULL, NULL, 0);
+  return NewChineseTokenizer(NULL, NULL, 0, NULL);
 }
 static void tokenizerFree(void *p) {
   RSTokenizer *t = p;
   t->Free(t);
 }
 
-RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords) {
+RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer,
+                          StopWordList *stopwords, DelimiterList *delimiters) {
   if (language == RS_LANG_CHINESE) {
-    return GetChineseTokenizer(stemmer, stopwords);
+    return GetChineseTokenizer(stemmer, stopwords, delimiters);
   } else {
-    return GetSimpleTokenizer(stemmer, stopwords);
+    return GetSimpleTokenizer(stemmer, stopwords, delimiters);
   }
 }
 
-RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
+RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords,
+                                 DelimiterList *delimiters) {
   if (!tokpoolCn_g) {
     mempool_options opts = {
         .initialCap = 16, .alloc = newCnTokenizerAlloc, .free = tokenizerFree};
@@ -199,18 +216,19 @@ RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
   }
 
   RSTokenizer *t = mempool_get(tokpoolCn_g);
-  t->Reset(t, stemmer, stopwords, 0);
+  t->Reset(t, stemmer, stopwords, 0, delimiters);
   return t;
 }
 
-RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
+RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords,
+                                DelimiterList *delimiters) {
   if (!tokpoolLatin_g) {
     mempool_options opts = {
         .initialCap = 16, .alloc = newLatinTokenizerAlloc, .free = tokenizerFree};
     mempool_test_set_global(&tokpoolLatin_g, &opts);
   }
   RSTokenizer *t = mempool_get(tokpoolLatin_g);
-  t->Reset(t, stemmer, stopwords, 0);
+  t->Reset(t, stemmer, stopwords, 0, delimiters);
   return t;
 }
 
@@ -222,8 +240,20 @@ void Tokenizer_Release(RSTokenizer *t) {
       StopWordList_Unref(t->ctx.stopwords);
       t->ctx.stopwords = NULL;
     }
+    if(t->ctx.delimiters) {
+      DelimiterList_Unref(t->ctx.delimiters);
+      t->ctx.delimiters = NULL;
+    }
     mempool_release(tokpoolLatin_g, t);
   } else {
+    if (t->ctx.stopwords) {
+      StopWordList_Unref(t->ctx.stopwords);
+      t->ctx.stopwords = NULL;
+    }
+    if(t->ctx.delimiters) {
+      DelimiterList_Unref(t->ctx.delimiters);
+      t->ctx.delimiters = NULL;
+    }
     mempool_release(tokpoolCn_g, t);
   }
 }

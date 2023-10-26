@@ -221,7 +221,8 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
     aCtx->fwIdx->smap = NULL;
   }
 
-  aCtx->tokenizer = GetTokenizer(doc->language, aCtx->fwIdx->stemmer, sp->stopwords);
+  aCtx->tokenizer = GetTokenizer(doc->language, aCtx->fwIdx->stemmer,
+                                 sp->stopwords, sp->delimiters);
 //  aCtx->doc->docId = 0;
   return aCtx;
 }
@@ -494,7 +495,8 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
         c = DocumentField_GetArrayValueCStr(field, &fl, i);
       }
       ForwardIndexTokenizerCtx_Init(&tokCtx, aCtx->fwIdx, c, curOffsetWriter, fs->ftId, fs->ftWeight);
-      aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options);
+      aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options,
+        fs->delimiters);
 
       Token tok = {0};
       uint32_t newTokPos;
@@ -785,7 +787,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 }
 
 FIELD_PREPROCESSOR(tagPreprocessor) {
-  if (TagIndex_Preprocess(fs->tagOpts.tagSep, fs->tagOpts.tagFlags, field, fdata)) {
+  if (TagIndex_Preprocess(fs, field, fdata)) {
     if (FieldSpec_IsSortable(fs)) {
       if (field->unionType != FLD_VAR_T_ARRAY) {
         size_t fl;

@@ -16,6 +16,7 @@
 #include "trie/trie_type.h"
 #include "sortable.h"
 #include "stopwords.h"
+#include "delimiters.h"
 #include "gc.h"
 #include "synonym_map.h"
 #include "query_error.h"
@@ -56,6 +57,9 @@ struct DocumentIndexer;
 #define SPEC_SORTABLE_STR "SORTABLE"
 #define SPEC_UNF_STR "UNF"
 #define SPEC_STOPWORDS_STR "STOPWORDS"
+#define SPEC_SET_DELIMITERS_STR "DELIMITERS"
+#define SPEC_ADD_DELIMITERS_STR "DELIMITERS+"
+#define SPEC_DEL_DELIMITERS_STR "DELIMITERS-"
 #define SPEC_NOINDEX_STR "NOINDEX"
 #define SPEC_TAG_SEPARATOR_STR "SEPARATOR"
 #define SPEC_TAG_CASE_SENSITIVE_STR "CASESENSITIVE"
@@ -157,6 +161,7 @@ typedef enum {
 
   Index_HasGeometry = 0x40000,
 
+  Index_HasCustomDelimiters = 0x80000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -189,7 +194,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 23
+#define INDEX_CURRENT_VERSION 24
+#define INDEX_DELIMITERS_VERSION 24
 #define INDEX_GEOMETRY_VERSION 23
 #define INDEX_VECSIM_TIERED_VERSION 22
 #define INDEX_VECSIM_MULTI_VERSION 21
@@ -271,6 +277,8 @@ typedef struct IndexSpec {
   DocTable docs;                  // Contains metadata of all documents
 
   StopWordList *stopwords;        // List of stopwords for TEXT fields
+
+  DelimiterList *delimiters;      // Delimiter character list
 
   GCContext *gc;                  // Garbage collection
 
