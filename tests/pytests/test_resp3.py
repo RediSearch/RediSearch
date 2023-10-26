@@ -166,10 +166,10 @@ def test_search_timeout():
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1).\
       error().contains('Timeout limit was reached')
 
-    # Later failure than the above tests - in pipeline execution phase
-    # For this, we need more documents in the index, such that we will fail for
-    # sure
-    num_range_2 = 15000
+    # (coverage) Later failure than the above tests - in pipeline execution
+    # phase. For this, we need more documents in the index, such that we will
+    # fail for sure
+    num_range_2 = 30000
     for i in range(num_range, num_range_2):
       env.cmd('HSET', f'doc{i}', 't', f'{i}', 'geo', f"{i/10000},{i/1000}")
 
