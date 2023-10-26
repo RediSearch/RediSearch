@@ -66,7 +66,7 @@ def testFuzzyMultipleResults(env):
     res = r.execute_command('ft.search', 'idx', '%word%')
     env.assertEqual(res[0], 3)
     for i in range(1,6,2):
-        env.assertIn(res[i], ['doc1', 'doc2', 'doc3'])
+        env.assertContains(res[i], ['doc1', 'doc2', 'doc3'])
 
 def testFuzzySyntaxError(env):
     r = env

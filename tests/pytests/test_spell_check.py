@@ -168,7 +168,7 @@ def testSpellCheckResultsOrder(env):
 
 def testSpellCheckDictReleadRDB(env):
     env.expect('FT.DICTADD test 1 2 3').equal(3)
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         env.expect('FT.DICTDUMP test').equal(['1', '2', '3'])
 
 def testSpellCheckIssue437(env):

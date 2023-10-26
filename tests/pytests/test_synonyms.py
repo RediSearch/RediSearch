@@ -131,7 +131,7 @@ def testSynonymsRdb(env):
     r = env
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     env.assertEqual(r.execute_command('ft.synupdate', 'idx', 'id1', 'boy', 'child', 'offspring'), 'OK')
-    for _ in env.reloading_iterator():
+    for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         res = r.execute_command('ft.syndump', 'idx')
         res = {res[i] : res[i + 1] for i in range(0,len(res),2)}
@@ -159,7 +159,7 @@ def testSynonymsIntensiveLoad(env):
     for i in range(iterations):
         env.expect('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                    'title', 'he is a boy%d' % i, 'body', 'this is a test').ok()
-    for _ in env.reloading_iterator():
+    for _ in env.reloadingIterator():
         waitForIndex(r, 'idx')
         for i in range(iterations):
             res = r.execute_command('ft.search', 'idx', 'child%d' % i, 'EXPANDER', 'SYNONYM')

@@ -100,7 +100,7 @@ def testMultipleIndexes(env):
     env.assertEqual(['f1', 'goodbye'], last2)
 
 def testCapacities(env):
-    if env.is_cluster():
+    if env.isCluster():
         env.skip()
 
     loadDocs(env, idx='idx1')
@@ -213,7 +213,7 @@ def testIndexDropWhileIdle(env):
 
     # Try to read from the cursor
 
-    if env.is_cluster():
+    if env.isCluster():
         res, cursor = env.cmd(f'FT.CURSOR READ idx {str(cursor)}')
 
         # Return the next results. count should equal the count at the first cursor's call.
@@ -263,7 +263,7 @@ def testCursorOnCoordinator(env):
     env.expect(f'FT.CURSOR READ idx {cursor}').equal([[0], 0]) # empty reply from shard - 0 results and depleted cursor
 
     err = env.cmd('FT.AGGREGATE', 'non-existing', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)[0][1]
-    env.assertEquals(type(err[0]), ResponseError)
+    env.assertEqual(type(err[0]), ResponseError)
     env.assertContains('non-existing: no such index', str(err[0]))
 
     # Verify we can read from the cursor all the results.
@@ -276,7 +276,7 @@ def testCursorOnCoordinator(env):
     for i in range(n_docs):
         conn.execute_command('HSET', i ,'n', i)
 
-    default = int(env.execute_command('_FT.CONFIG', 'GET', 'CURSOR_REPLY_THRESHOLD')[0][1])
+    default = int(env.cmd('_FT.CONFIG', 'GET', 'CURSOR_REPLY_THRESHOLD')[0][1])
     configs = {default, 1, env.shardsCount - 1, env.shardsCount}
     for threshold in configs:
         env.expect('_FT.CONFIG', 'SET', 'CURSOR_REPLY_THRESHOLD', threshold).ok()

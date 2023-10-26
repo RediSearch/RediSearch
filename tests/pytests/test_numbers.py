@@ -212,7 +212,7 @@ def testCompressionConfig(env):
 	# w/o compression. exact number match.
 	env.expect('ft.config', 'set', '_NUMERIC_COMPRESS', 'false').equal('OK')
 	for i in range(100):
-	  	env.execute_command('hset', i, 'n', str(1 + i / 100.0))
+	  	env.cmd('hset', i, 'n', str(1 + i / 100.0))
 	for i in range(100):
 		num = str(1 + i / 100.0)
 		env.expect('ft.search', 'idx', '@n:[%s %s]' % (num, num)).equal([1, str(i), ['n', num]])
@@ -220,13 +220,13 @@ def testCompressionConfig(env):
 	# with compression. no exact number match.
 	env.expect('ft.config', 'set', '_NUMERIC_COMPRESS', 'true').equal('OK')
 	for i in range(100):
-	  env.execute_command('hset', i, 'n', str(1 + i / 100.0))
+	  env.cmd('hset', i, 'n', str(1 + i / 100.0))
 
 	# delete keys where compression does not change value
-	env.execute_command('del', '0')
-	env.execute_command('del', '25')
-	env.execute_command('del', '50')
-	env.execute_command('del', '75')
+	env.cmd('del', '0')
+	env.cmd('del', '25')
+	env.cmd('del', '50')
+	env.cmd('del', '75')
 
 	for i in range(100):
 		num = str(1 + i / 100.0)
@@ -245,7 +245,7 @@ def testRangeParentsConfig(env):
 		# check number of ranges
 		env.cmd('ft.create', 'idx0', 'SCHEMA', 'n', 'numeric')
 		for i in range(elements):
-			env.execute_command('hset', i, 'n', i)
+			env.cmd('hset', i, 'n', i)
 		actual_res = env.cmd('FT.DEBUG', 'numidx_summary', 'idx0', 'n')
 		env.assertEqual(actual_res[0:2], result[test])
 

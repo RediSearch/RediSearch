@@ -21,7 +21,7 @@ def testSuggestions(env):
         r.expect('ft.SUGADD', 'ac', term, sz - 1).equal(sz)
         sz += 1
 
-    for _ in r.retry_with_rdb_reload():
+    for _ in r.reloadingIterator():
         r.expect('ft.SUGLEN', 'ac').equal(7)
 
         # search not fuzzy
@@ -74,10 +74,10 @@ def testSuggestPayload(env):
         'ft.SUGADD', 'ac', 'hello nopayload2', 1))
 
     res = r.execute_command('FT.SUGGET', 'ac', 'hello', 'WITHPAYLOADS')
-    env.assertListEqual(['hello world', 'foo', 'hello werld', 'bar', 'hello nopayload', None, 'hello nopayload2', None],
+    env.assertEqual(['hello world', 'foo', 'hello werld', 'bar', 'hello nopayload', None, 'hello nopayload2', None],
                          res)
     res = r.execute_command('FT.SUGGET', 'ac', 'hello')
-    env.assertListEqual(['hello world',  'hello werld', 'hello nopayload', 'hello nopayload2'],
+    env.assertEqual(['hello world',  'hello werld', 'hello nopayload', 'hello nopayload2'],
                          res)
     res = r.execute_command(
         'FT.SUGGET', 'ac', 'hello', 'WITHPAYLOADS', 'WITHSCORES')
@@ -117,7 +117,7 @@ def testSuggestMax2(env):
     for i in range(1,7):
         res = env.cmd('FT.SUGGET', 'sug', 'test ', 'MAX', i)
         for item in res:
-            env.assertIn(item, expected_res[0:i])
+            env.assertContains(item, expected_res[0:i])
 
 def testIssue_490(env):
     skipOnCrdtEnv(env)

@@ -13,7 +13,7 @@ def testTagIndex(env):
     for n in range(N):
         env.expect('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
                                        'title', 'hello world term%d' % n, 'tags', 'foo bar,xxx,tag %d' % n).ok()
-    for _ in r.retry_with_rdb_reload():
+    for _ in r.reloadingIterator():
         waitForIndex(r, 'idx')
         res = env.cmd('ft.search', 'idx', 'hello world')
         env.assertEqual(10, res[0])
@@ -58,7 +58,7 @@ def testSeparator(env):
 
     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                    'title', 'hello world', 'tags', 'x:hello world: fooz bar:foo,bar:BOO FAR').ok()
-    for _ in r.retry_with_rdb_reload():
+    for _ in r.reloadingIterator():
         waitForIndex(r, 'idx')
         for q in ('@tags:{hello world}', '@tags:{fooz bar}', '@tags:{foo\\,bar}', '@tags:{boo\\ far}', '@tags:{x}'):
             res = env.cmd('ft.search', 'idx', q)
@@ -76,7 +76,7 @@ def testTagPrefix(env):
     env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tags')    \
         .equal([['hell', [1]], ['hello world', [1]], ['hello-world', [1]], ['jell', [1]]])
 
-    for _ in r.retry_with_rdb_reload():
+    for _ in r.reloadingIterator():
         waitForIndex(r, 'idx')
         for q in ('@tags:{hello world}', '@tags:{hel*}', '@tags:{hello\\-*}', '@tags:{he*}'):
             res = env.cmd('ft.search', 'idx', q)
@@ -90,15 +90,15 @@ def testTagFieldCase(env):
 
     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                    'title', 'hello world', 'TAgs', 'HELLO WORLD,FOO BAR').ok()
-    for _ in r.retry_with_rdb_reload():
+    for _ in r.reloadingIterator():
         waitForIndex(r, 'idx')
-        env.assertListEqual([0], r.execute_command(
+        env.assertEqual([0], r.execute_command(
             'FT.SEARCH', 'idx', '@tags:{HELLO WORLD}'))
-        env.assertListEqual([1, 'doc1'], r.execute_command(
+        env.assertEqual([1, 'doc1'], r.execute_command(
             'FT.SEARCH', 'idx', '@TAgs:{HELLO WORLD}', 'NOCONTENT'))
-        env.assertListEqual([1, 'doc1'], r.execute_command(
+        env.assertEqual([1, 'doc1'], r.execute_command(
             'FT.SEARCH', 'idx', '@TAgs:{foo bar}', 'NOCONTENT'))
-        env.assertListEqual([0], r.execute_command(
+        env.assertEqual([0], r.execute_command(
             'FT.SEARCH', 'idx', '@TAGS:{foo bar}', 'NOCONTENT'))
 
 def testInvalidSyntax(env):
@@ -133,7 +133,7 @@ def testTagVals(env):
 
         env.expect('ft.add', 'idx', f'doc{n}', 1.0, 'fields',
                    'tags', ','.join(tags), 'othertags', f'baz {int(n // 2)}').ok()
-    for _ in r.retry_with_rdb_reload():
+    for _ in r.reloadingIterator():
         waitForIndex(r, 'idx')
         res = r.execute_command('ft.tagvals', 'idx', 'tags')
         env.assertEqual(N * 2 + 1, len(res))
@@ -179,7 +179,7 @@ def testTagCaseSensitive(env):
     conn.execute_command('HSET', 'doc2', 't', 'FOO')
     conn.execute_command('HSET', 'doc3', 't', 'foo')
 
-    if not env.is_cluster():
+    if not env.isCluster():
         conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
         env.expect('FT.DEBUG', 'dump_tagidx', 'idx1', 't').equal([['foo', [1, 2, 3]]])
         env.expect('FT.DEBUG', 'dump_tagidx', 'idx2', 't').equal([['FOO', [1, 2]], ['foo', [1, 3]]])
@@ -201,7 +201,7 @@ def testTagCaseSensitive(env):
     conn.execute_command('HSET', 'doc2', 't', 'F O')
     conn.execute_command('HSET', 'doc3', 't', 'f o')
 
-    if not env.is_cluster():
+    if not env.isCluster():
         forceInvokeGC(env, 'idx1')
         forceInvokeGC(env, 'idx2')
         forceInvokeGC(env, 'idx3')
