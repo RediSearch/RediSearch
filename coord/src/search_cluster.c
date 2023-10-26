@@ -403,7 +403,7 @@ MRCommandGenerator SearchCluster_MultiplexCommand(SearchCluster *c, MRCommand *c
       size_t oldlen = strlen(cmd->strs[mux->keyOffset]);
       size_t newlen = 0;
       const char *target = lookupAlias(cmd->strs[mux->keyOffset], &newlen);
-      if (oldlen != newlen) {
+      if (strcmp(cmd->strs[mux->keyOffset], target) != 0) {
         mux->keyAlias = rm_strndup(target, newlen);
       }
     }
