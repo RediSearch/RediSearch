@@ -143,11 +143,11 @@ def testTagVals(env):
         res = r.execute_command('ft.tagvals', 'idx', 'othertags')
         env.assertEqual(N / 2, len(res))
 
-        env.expect('ft.tagvals', 'idx').raiseError()
-        env.expect('ft.tagvals', 'idx', 'idx', 'idx').raiseError()
-        env.expect('ft.tagvals', 'fake_idx', 'tags').raiseError()
-        env.expect('ft.tagvals', 'idx', 'fake_tags').raiseError()
-        env.expect('ft.tagvals', 'idx', 'title').raiseError()
+        env.expect('ft.tagvals', 'idx').error()
+        env.expect('ft.tagvals', 'idx', 'idx', 'idx').error()
+        env.expect('ft.tagvals', 'fake_idx', 'tags').error()
+        env.expect('ft.tagvals', 'idx', 'fake_tags').error()
+        env.expect('ft.tagvals', 'idx', 'title').error()
 
 def testSearchNotExistsTagValue(env):
     # this test basically make sure we are not leaking

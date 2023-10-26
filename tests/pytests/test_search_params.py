@@ -58,72 +58,72 @@ def test_param_errors(env):
     env.assertEqual(conn.execute_command('HSET', 'key1', 'foo', 'PARAMS', 'bar', 'PARAMS'), 2)
 
     # Test errors in PARAMS definition: duplicated param, missing param value, wrong count
-    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '4', 'param1', 'val1').raiseError().contains('Bad arguments for PARAMS: Expected an argument')
-    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '2', 'param1').raiseError().contains('Bad arguments for PARAMS: Expected an argument')
-    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '4', 'param1', 'val1', 'param1', 'val2').raiseError().contains('Duplicate parameter `param1`')
-    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '3').raiseError()
-    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS').raiseError()
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '4', 'param1', 'val1').error().contains('Bad arguments for PARAMS: Expected an argument')
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '2', 'param1').error().contains('Bad arguments for PARAMS: Expected an argument')
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '4', 'param1', 'val1', 'param1', 'val2').error().contains('Duplicate parameter `param1`')
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '3').error()
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS').error()
 
     # The search query can be literally 'PARAMS'
     env.assertEqual(env.execute_command('FT.SEARCH', 'idx', 'PARAMS', 'PARAMS', '4', 'foo', 'x', 'bar', '100'), [1, 'key1', ['foo', 'PARAMS', 'bar', 'PARAMS']])
     env.assertEqual(env.execute_command('FT.AGGREGATE', 'idx', 'PARAMS', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'LOAD', 2, '@foo', '@bar'), [1, ['foo', 'PARAMS', 'bar', 'PARAMS']])
 
     # Parameter definitions cannot come before the search query
-    env.expect('FT.SEARCH', 'idx', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS').raiseError()
-    env.expect('FT.AGGREGATE', 'idx', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS').raiseError()
+    env.expect('FT.SEARCH', 'idx', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS').error()
+    env.expect('FT.AGGREGATE', 'idx', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS').error()
 
     # Parameters can be defined only once
-    env.expect('FT.SEARCH', 'idx', '*', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS', '4', 'goo', 'y', 'baz', '900').raiseError()
-    env.expect('FT.AGGREGATE', 'idx', '*', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS', '4', 'goo', 'y', 'baz', '900').raiseError()
+    env.expect('FT.SEARCH', 'idx', '*', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS', '4', 'goo', 'y', 'baz', '900').error()
+    env.expect('FT.AGGREGATE', 'idx', '*', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS', '4', 'goo', 'y', 'baz', '900').error()
 
     # Test errors in param usage: missing param, wrong param value
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius 100]', 'NOCONTENT').raiseError().contains('No such parameter `radius`')
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'm').raiseError().equal('No such parameter `rapido`')
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT').raiseError().equal('No such parameter `rapido`')
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'rapido', 'bad', 'units', 'm').raiseError().equal('Invalid numeric value (bad) for parameter `rapido`')
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 200 100]', 'NOCONTENT').raiseError().contains('Invalid GeoFilter unit')
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'badm').raiseError().contains('Invalid GeoFilter unit')
-    env.expect('FT.SEARCH', 'idx', '@num:[$min $max]', 'NOCONTENT', 'PARAMS', '4', 'min', '102', 'max', '-inf').raiseError().contains('Bad upper range')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius 100]', 'NOCONTENT').error().contains('No such parameter `radius`')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'm').error().equal('No such parameter `rapido`')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT').error().equal('No such parameter `rapido`')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'rapido', 'bad', 'units', 'm').error().equal('Invalid numeric value (bad) for parameter `rapido`')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 200 100]', 'NOCONTENT').error().contains('Invalid GeoFilter unit')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'badm').error().contains('Invalid GeoFilter unit')
+    env.expect('FT.SEARCH', 'idx', '@num:[$min $max]', 'NOCONTENT', 'PARAMS', '4', 'min', '102', 'max', '-inf').error().contains('Bad upper range')
 
     # Test parsing errors
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 badval $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'rapido', 'bad', 'units', 'm').raiseError().contains('Syntax error')
-    env.expect('FT.SEARCH', 'idx', '@g:[foo bar $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'badm').raiseError().contains('Syntax error')
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 badval $units]', 'NOCONTENT').raiseError().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 badval $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'rapido', 'bad', 'units', 'm').error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', '@g:[foo bar $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'badm').error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 badval $units]', 'NOCONTENT').error().contains('Syntax error')
 
-    env.expect('FT.SEARCH', 'idx', '@numval:[-inf max]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105').raiseError().contains('Syntax error')
-    env.expect('FT.SEARCH', 'idx', '@numval:[min 105]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105').raiseError().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', '@numval:[-inf max]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105').error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', '@numval:[min 105]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105').error().contains('Syntax error')
 
-    env.expect('FT.SEARCH', 'idx', '*=>[TKOO 4 @v $B]').raiseError().contains('Syntax error')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN badval @v $B]').raiseError().contains('Syntax error')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN $k @v $B]', 'PARAMS', '2', 'k', 'TKOO').raiseError().contains('No such parameter `B`')
+    env.expect('FT.SEARCH', 'idx', '*=>[TKOO 4 @v $B]').error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN badval @v $B]').error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN $k @v $B]', 'PARAMS', '2', 'k', 'TKOO').error().contains('No such parameter `B`')
 
     # Test Attribute errors
-    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', 'zzz', 'EF', '10').raiseError().contains('Invalid numeric value')
-    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2.71', 'EF', '10').raiseError().contains('Invalid numeric value')
-    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '-3', 'EF', '10').raiseError().contains('Invalid numeric value')
-    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'lunchtime', 'zzz').raiseError().contains('No such parameter')
-    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', 'zzz', 'EF', '10').raiseError().contains('Invalid numeric value')
-    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2.71', 'EF', '10').raiseError().contains('Invalid numeric value')
-    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '-3', 'EF', '10').raiseError().contains('Invalid numeric value')
-    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'lunchtime', 'zzz').raiseError().contains('No such parameter')
-    env.expect('FT.SEARCH', 'idx', '@pron:(jon) => { $slop:1; $phonetic:$ph}', 'NOCONTENT', 'PARAMS', '6', 'min', '102', 'max', '204', 'ph', 'maybe').raiseError().contains('Invalid value')
-    env.expect('FT.SEARCH', 'idx', '@pron:(jon) => { $slop:1; $phonetic:$ph;} => [KNN $k @v $vec]', 'NOCONTENT', 'PARAMS', '2', 'ph', 'maybe').raiseError().contains('Invalid value')
-    env.expect('FT.SEARCH', 'idx', '@pron:(jon) => { $slop:1; $phonetic:$ph;} => [KNN $k @v $vec]', 'NOCONTENT', 'PARAMS', '2', 'ph').raiseError().contains('Bad arguments for PARAMS: Expected an argument, but none provided')
-    env.expect('FT.SEARCH', 'idx', '@pron:(KNN) => { $slop:1; $phonetic:$ph;} => [KNN $k @v $vec]', 'NOCONTENT', 'PARAMS', '1', 'ph').raiseError().contains('Parameters must be specified in PARAM VALUE pairs')
-    env.expect('FT.SEARCH', 'idx', '@pron:(KNN) => [KNN $k @v $vec]', 'NOCONTENT').raiseError().contains('No such parameter `vec`')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', 'zzz', 'EF', '10').error().contains('Invalid numeric value')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2.71', 'EF', '10').error().contains('Invalid numeric value')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '-3', 'EF', '10').error().contains('Invalid numeric value')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec EF_RUNTIME $EF]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'lunchtime', 'zzz').error().contains('No such parameter')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', 'zzz', 'EF', '10').error().contains('Invalid numeric value')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2.71', 'EF', '10').error().contains('Invalid numeric value')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '-3', 'EF', '10').error().contains('Invalid numeric value')
+    env.expect('FT.SEARCH', 'idx', '* => [KNN $k @v $vec]=>{$EF_RUNTIME: $EF;}', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'k', '2', 'lunchtime', 'zzz').error().contains('No such parameter')
+    env.expect('FT.SEARCH', 'idx', '@pron:(jon) => { $slop:1; $phonetic:$ph}', 'NOCONTENT', 'PARAMS', '6', 'min', '102', 'max', '204', 'ph', 'maybe').error().contains('Invalid value')
+    env.expect('FT.SEARCH', 'idx', '@pron:(jon) => { $slop:1; $phonetic:$ph;} => [KNN $k @v $vec]', 'NOCONTENT', 'PARAMS', '2', 'ph', 'maybe').error().contains('Invalid value')
+    env.expect('FT.SEARCH', 'idx', '@pron:(jon) => { $slop:1; $phonetic:$ph;} => [KNN $k @v $vec]', 'NOCONTENT', 'PARAMS', '2', 'ph').error().contains('Bad arguments for PARAMS: Expected an argument, but none provided')
+    env.expect('FT.SEARCH', 'idx', '@pron:(KNN) => { $slop:1; $phonetic:$ph;} => [KNN $k @v $vec]', 'NOCONTENT', 'PARAMS', '1', 'ph').error().contains('Parameters must be specified in PARAM VALUE pairs')
+    env.expect('FT.SEARCH', 'idx', '@pron:(KNN) => [KNN $k @v $vec]', 'NOCONTENT').error().contains('No such parameter `vec`')
 
-    env.expect('FT.AGGREGATE', 'idx', '@pron:(jon) => [KNN $k @v $vec]', 'PARAMS', '2', 'ph').raiseError().contains('Bad arguments for PARAMS: Expected an argument, but none provided')
-    env.expect('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]', 'PARAMS', '1', 'ph').raiseError().contains('Parameters must be specified in PARAM VALUE pairs')
+    env.expect('FT.AGGREGATE', 'idx', '@pron:(jon) => [KNN $k @v $vec]', 'PARAMS', '2', 'ph').error().contains('Bad arguments for PARAMS: Expected an argument, but none provided')
+    env.expect('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]', 'PARAMS', '1', 'ph').error().contains('Parameters must be specified in PARAM VALUE pairs')
     if env.isCluster():
         err = env.cmd('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]')[1]
         env.assertEquals(type(err[0]), ResponseError)
         env.assertContains('No such parameter `vec`', str(err[0]))
     else:
-        env.expect('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]').raiseError().contains('No such parameter `vec`')
+        env.expect('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]').error().contains('No such parameter `vec`')
 
     # # Test Attribute names must begin with alphanumeric?
     # env.expect('FT.SEARCH', 'idx', '@g:[$3 $_4 $p_5 $_]', 'NOCONTENT',
-    #            'PARAMS', '8', '3', '10', '_4', '20', 'p_5', '30', '_', 'km').raiseError()
+    #            'PARAMS', '8', '3', '10', '_4', '20', 'p_5', '30', '_', 'km').error()
 
 
 def test_attr(env):
@@ -139,7 +139,7 @@ def test_attr(env):
     env.assertEqual(conn.execute_command('HSET', 'key4', 'name_ph', 'Lucy', 'name', 'Lucy'), 2)
 
     # Error: field does not support phonetics
-    env.expect('FT.SEARCH', 'idx', '@name:($name) => { $slop:$slop; $phonetic:$ph}', 'NOCONTENT', 'PARAMS', '6', 'name', 'jon', 'slop', '0', 'ph', 'true').raiseError()
+    env.expect('FT.SEARCH', 'idx', '@name:($name) => { $slop:$slop; $phonetic:$ph}', 'NOCONTENT', 'PARAMS', '6', 'name', 'jon', 'slop', '0', 'ph', 'true').error()
 
     # With phonetic
     res1 = env.execute_command('FT.SEARCH', 'idx', '(@name_ph:(jon) => { $weight: 1; $phonetic:true}) | (@name_ph:(jon) => { $weight: 2; $phonetic:false})', 'NOCONTENT')

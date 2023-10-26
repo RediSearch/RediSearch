@@ -274,7 +274,7 @@ def testDelete(env):
 
     for i in range(100):
         # the doc hash should exist now
-        r.expect('ft.get', 'idx', 'doc%d' % i).notRaiseError()
+        r.expect('ft.get', 'idx', 'doc%d' % i).noError()
         # Delete the actual docs only half of the time
         env.assertEqual(1, r.execute_command(
            'ft.del', 'idx', 'doc%d' % i, 'DD' if i % 2 == 0 else ''))
@@ -290,7 +290,7 @@ def testDelete(env):
         if i % 2 == 0:
             env.assertFalse(r.exists('doc%d' % i))
         else:
-            r.expect('ft.get', 'idx', 'doc%d' % i).notRaiseError()
+            r.expect('ft.get', 'idx', 'doc%d' % i).noError()
         res = r.execute_command('ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, 100)
         env.assertNotIn('doc%d' % i, res)
         env.assertEqual(res[0], 100 - i - 1)
@@ -2286,8 +2286,8 @@ def testAlias(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc1', 'schema', 't1', 'text')
     env.cmd('ft.create', 'idx2', 'ON', 'HASH', 'PREFIX', 1, 'doc2', 'schema', 't1', 'text')
 
-    env.expect('ft.aliasAdd', 'myIndex').raiseError()
-    env.expect('ft.aliasupdate', 'fake_alias', 'imaginary_alias', 'Too_many_args').raiseError()
+    env.expect('ft.aliasAdd', 'myIndex').error()
+    env.expect('ft.aliasupdate', 'fake_alias', 'imaginary_alias', 'Too_many_args').error()
     env.cmd('ft.aliasAdd', 'myIndex', 'idx')
     env.cmd('ft.add', 'myIndex', 'doc1', 1.0, 'fields', 't1', 'hello')
     r = env.cmd('ft.search', 'idx', 'hello')
@@ -2296,8 +2296,8 @@ def testAlias(env):
     env.assertEqual(r, r2)
 
     # try to add the same alias again; should be an error
-    env.expect('ft.aliasAdd', 'myIndex', 'idx2').raiseError()
-    env.expect('ft.aliasAdd', 'alias2', 'idx').notRaiseError()
+    env.expect('ft.aliasAdd', 'myIndex', 'idx2').error()
+    env.expect('ft.aliasAdd', 'alias2', 'idx').noError()
     # now delete the index
     env.cmd('ft.drop', 'myIndex')
     # RS2 does not delete doc on ft.drop
@@ -2313,11 +2313,11 @@ def testAlias(env):
 
     # check that aliasing one alias to another returns an error. This will
     # end up being confusing
-    env.expect('ft.aliasAdd', 'alias3', 'myIndex').raiseError()
+    env.expect('ft.aliasAdd', 'alias3', 'myIndex').error()
 
     # check that deleting the alias works as expected
-    env.expect('ft.aliasDel', 'myIndex').notRaiseError()
-    env.expect('ft.search', 'myIndex', 'foo').raiseError()
+    env.expect('ft.aliasDel', 'myIndex').noError()
+    env.expect('ft.search', 'myIndex', 'foo').error()
 
     # create a new index and see if we can use the old name
     env.cmd('ft.create', 'idx3', 'ON', 'HASH', 'PREFIX', 1, 'doc3', 'schema', 't1', 'text')
@@ -2347,18 +2347,18 @@ def testAlias(env):
 
     r = env.cmd('ft.del', 'idx2', 'doc2')
     env.assertEqual(1, r)
-    env.expect('ft.aliasdel').raiseError()
-    env.expect('ft.aliasdel', 'myIndex', 'yourIndex').raiseError()
-    env.expect('ft.aliasdel', 'non_existing_alias').raiseError()
+    env.expect('ft.aliasdel').error()
+    env.expect('ft.aliasdel', 'myIndex', 'yourIndex').error()
+    env.expect('ft.aliasdel', 'non_existing_alias').error()
 
 
 def testNoCreate(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f1', 'text')
-    env.expect('ft.add', 'idx', 'schema', 'f1').raiseError()
-    env.expect('ft.add', 'idx', 'doc1', 1, 'nocreate', 'fields', 'f1', 'hello').raiseError()
-    env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'nocreate', 'fields', 'f1', 'hello').raiseError()
-    env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'fields', 'f1', 'hello').notRaiseError()
-    env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'nocreate', 'fields', 'f1', 'world').notRaiseError()
+    env.expect('ft.add', 'idx', 'schema', 'f1').error()
+    env.expect('ft.add', 'idx', 'doc1', 1, 'nocreate', 'fields', 'f1', 'hello').error()
+    env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'nocreate', 'fields', 'f1', 'hello').error()
+    env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'fields', 'f1', 'hello').noError()
+    env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'nocreate', 'fields', 'f1', 'world').noError()
 
 def testSpellCheck(env):
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'report', 'TEXT')

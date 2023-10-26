@@ -6,7 +6,7 @@ def testDictAdd(env):
     env.expect('ft.dictadd', 'dict', 'term1', 'term2', 'term4').equal(1)
 
 def testDictAddWrongArity(env):
-    env.expect('ft.dictadd', 'dict').raiseError()
+    env.expect('ft.dictadd', 'dict').error()
 
 def testDictDelete(env):
     env.expect('ft.dictadd', 'dict', 'term1', 'term2', 'term3').equal(3)
@@ -22,7 +22,7 @@ def testDictDeleteOnFlush(env):
     env.expect('ft.dictdump', 'dict').equal(['term4', 'term5', 'term6'])
 
 def testDictDeleteWrongArity(env):
-    env.expect('ft.dictdel', 'dict').raiseError()
+    env.expect('ft.dictdel', 'dict').error()
 
 def testDictDeleteOnNoneExistingKey(env):
     env.expect('ft.dictdel', 'dict', 'term1').equal(0)
@@ -32,10 +32,10 @@ def testDictDump(env):
     env.expect('ft.dictdump', 'dict').equal(['term1', 'term2', 'term3'])
 
 def testDictDumpWrongArity(env):
-    env.expect('ft.dictdump').raiseError()
+    env.expect('ft.dictdump').error()
 
 def testDictDumpOnNoneExistingKey(env):
-    env.expect('ft.dictdump', 'dict').raiseError()
+    env.expect('ft.dictdump', 'dict').error()
 
 def testBasicSpellCheck(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
@@ -113,7 +113,7 @@ def testSpellCheckExcludeDict(env):
     env.expect('ft.spellcheck', 'idx', 'name', 'TERMS', 'exclude', 'dict').equal([])
 
 def testSpellCheckNoneExistingIndex(env):
-    env.expect('ft.spellcheck', 'idx', 'name', 'TERMS', 'EXCLUDE', 'dict').raiseError()
+    env.expect('ft.spellcheck', 'idx', 'name', 'TERMS', 'EXCLUDE', 'dict').error()
 
 def testSpellCheckWrongArity(env):
     env.cmd('ft.dictadd', 'dict', 'name')
@@ -123,8 +123,8 @@ def testSpellCheckWrongArity(env):
         r.execute_command('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
         r.execute_command('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
     waitForIndex(env, 'idx')
-    env.expect('ft.spellcheck', 'idx').raiseError()
-    env.expect('ft.spellcheck', 'idx').raiseError()
+    env.expect('ft.spellcheck', 'idx').error()
+    env.expect('ft.spellcheck', 'idx').error()
 
 def testSpellCheckBadFormat(env):
     env.cmd('ft.dictadd', 'dict', 'name')
@@ -134,13 +134,13 @@ def testSpellCheckBadFormat(env):
         r.execute_command('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
         r.execute_command('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
     waitForIndex(env, 'idx')
-    env.expect('ft.spellcheck', 'idx', 'name', 'TERMS').raiseError()
-    env.expect('ft.spellcheck', 'idx', 'name', 'TERMS', 'INCLUDE').raiseError()
-    env.expect('ft.spellcheck', 'idx', 'name', 'TERMS', 'EXCLUDE').raiseError()
-    env.expect('ft.spellcheck', 'idx', 'name', 'DISTANCE').raiseError()
-    env.expect('ft.spellcheck', 'idx', 'name', 'DISTANCE', 0).raiseError()
-    env.expect('ft.spellcheck', 'idx', 'name', 'DISTANCE', -1).raiseError()
-    env.expect('ft.spellcheck', 'idx', 'name', 'DISTANCE', 5).raiseError()
+    env.expect('ft.spellcheck', 'idx', 'name', 'TERMS').error()
+    env.expect('ft.spellcheck', 'idx', 'name', 'TERMS', 'INCLUDE').error()
+    env.expect('ft.spellcheck', 'idx', 'name', 'TERMS', 'EXCLUDE').error()
+    env.expect('ft.spellcheck', 'idx', 'name', 'DISTANCE').error()
+    env.expect('ft.spellcheck', 'idx', 'name', 'DISTANCE', 0).error()
+    env.expect('ft.spellcheck', 'idx', 'name', 'DISTANCE', -1).error()
+    env.expect('ft.spellcheck', 'idx', 'name', 'DISTANCE', 5).error()
 
 def testSpellCheckNoneExistingDicts(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH',
@@ -150,8 +150,8 @@ def testSpellCheckNoneExistingDicts(env):
         r.execute_command('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
         r.execute_command('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
     waitForIndex(env, 'idx')
-    env.expect('ft.spellcheck', 'idx', 'name', 'TERMS', 'INCLUDE', 'dict').raiseError()
-    env.expect('ft.spellcheck', 'idx', 'name', 'TERMS', 'EXCLUDE', 'dict').raiseError()
+    env.expect('ft.spellcheck', 'idx', 'name', 'TERMS', 'INCLUDE', 'dict').error()
+    env.expect('ft.spellcheck', 'idx', 'name', 'TERMS', 'EXCLUDE', 'dict').error()
 
 def testSpellCheckResultsOrder(env):
     env.cmd('ft.dictadd', 'dict', 'name')

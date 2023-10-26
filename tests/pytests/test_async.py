@@ -87,7 +87,7 @@ def test_eval_node_errors_async():
 
     # Test various scenarios where evaluating the AST should raise an error,
     # and validate that it was caught from the BG thread
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 200 100]', 'NOCONTENT').raiseError()\
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 200 100]', 'NOCONTENT').error()\
         .contains(f"{async_err_prefix}Invalid GeoFilter unit")
     env.expect('ft.search', 'idx', '@foo:*ell*', 'NOCONTENT').error() \
         .contains(f'{async_err_prefix}Contains query on fields without WITHSUFFIXTRIE support')
