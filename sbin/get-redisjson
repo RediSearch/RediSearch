@@ -84,7 +84,7 @@ else
 		fi
 	elif [[ $dist == mariner ]]; then
 		OSS=1
-		if [[ -z $REPO_PATH ]]; then
+		if [[ $BRANCH == master ]]; then
 			# Mariner2 is created using github actions,
 			# for master branch the artifacts are uploaded to staging
 			STAGING=1
