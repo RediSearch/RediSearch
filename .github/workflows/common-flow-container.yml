@@ -94,25 +94,27 @@ jobs:
       - name: Unit tests (standalone)
         id: test1
         if: ${{ inputs.standalone }}
-        continue-on-error: ${{ steps.continue-on-error.outputs.decision }}
+        continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
         run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (standalone)
         id: test2
         if: ${{ inputs.standalone }}
-        continue-on-error: ${{ steps.continue-on-error.outputs.decision }}
+        continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
         run: make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
       - name: Unit tests (coordinator)
         id: test3
         if: ${{ inputs.coordinator }}
-        continue-on-error: ${{ steps.continue-on-error.outputs.decision }}
+        continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
         run: make COORD=1 unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (coordinator)
         id: test4
         if: ${{ inputs.coordinator }}
-        continue-on-error: ${{ steps.continue-on-error.outputs.decision }}
+        continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
         run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
 
       - name: Upload Artifacts
+        # skip if all tests passed
+        if: failure()
         uses: actions/upload-artifact@v3
         with:
           name: Test Logs
@@ -134,6 +136,4 @@ jobs:
       - name: Fail flow if sanitizer failed
         if: ${{ inputs.san }}
         run: |
-          if [[ -n "$(ls tests/pytests/logs/*.log.* 2>/dev/null)" ]]; then
-            exit 1
-          fi
+          [[ -n "$(ls tests/pytests/logs/*.log.* 2>/dev/null)" ]] && exit 1
