@@ -21,7 +21,7 @@ is full-text index name. You must first create the index using `FT.CREATE`.
 <details open>
 <summary><code>DD</code></summary>
 
-drop operation that, if set, deletes the actual document hashes.
+drop index operation that, if set, deletes the actual document keys. `FT.DROPINDEX index DD` is an asynchronous operation.
 
 By default, FT.DROPINDEX does not delete the documents associated with the index. Adding the `DD` option deletes the documents as well. 
 If an index creation is still running (`FT.CREATE` is running asynchronously), only the document hashes that have already been indexed are deleted. 
