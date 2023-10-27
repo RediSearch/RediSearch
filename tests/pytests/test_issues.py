@@ -892,6 +892,7 @@ def test_mod5778_add_new_shard_to_cluster(env):
     os.remove('nodes.conf')
 
 
+@skip(cluster=True)
 def test_mod5910(env):
     con = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC').equal('OK')
