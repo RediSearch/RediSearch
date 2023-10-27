@@ -143,6 +143,7 @@ void QAST_Destroy(QueryAST *q);
 
 QueryNode *RSQuery_ParseRaw_v1(QueryParseCtx *);
 QueryNode *RSQuery_ParseRaw_v2(QueryParseCtx *);
+QueryNode *RSQuery_ParseRaw_v3(QueryParseCtx *);
 
 #ifdef __cplusplus
 }
