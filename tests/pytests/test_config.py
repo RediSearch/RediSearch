@@ -53,6 +53,7 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES').res[0][0] == '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
     assert env.expect('ft.config', 'get', '_FREE_RESOURCE_ON_THREAD').res[0][0] == '_FREE_RESOURCE_ON_THREAD'
     assert env.expect('ft.config', 'get', 'BG_INDEX_SLEEP_GAP').res[0][0] == 'BG_INDEX_SLEEP_GAP'
+    assert env.expect('ft.config', 'get', '_PRIORITIZE_INTERSECT_UNION_CHILDREN').res[0][0] == '_PRIORITIZE_INTERSECT_UNION_CHILDREN'
 
 '''
 
@@ -130,6 +131,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['_NUMERIC_RANGES_PARENTS'][0], '0')
     env.assertEqual(res_dict['FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'][0], 'true')
     env.assertEqual(res_dict['_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'][0], 'true')
+    env.assertEqual(res_dict['_PRIORITIZE_INTERSECT_UNION_CHILDREN'][0], 'false')
     env.assertEqual(res_dict['_FREE_RESOURCE_ON_THREAD'][0], 'true')
     env.assertEqual(res_dict['BG_INDEX_SLEEP_GAP'][0], '100')
 
@@ -212,6 +214,7 @@ def testInitConfig(env):
     test_arg_str('_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'true', 'true')
     test_arg_str('_FREE_RESOURCE_ON_THREAD', 'false', 'false')
     test_arg_str('_FREE_RESOURCE_ON_THREAD', 'true', 'true')
+    test_arg_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true', 'true')
 
 def testImmutable(env):
     env.skipOnCluster()
