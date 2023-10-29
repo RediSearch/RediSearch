@@ -401,10 +401,10 @@ MRCommandGenerator SearchCluster_MultiplexCommand(SearchCluster *c, MRCommand *c
 
   SCCommandMuxIterator *mux = rm_malloc(sizeof(SCCommandMuxIterator));
   *mux = (SCCommandMuxIterator){
-      .cluster = c, .cmd = cmd, .keyOffset = MRCommand_GetShardingKey(cmd), .offset = 0};
+      .cluster = c, .cmd = cmd, .keyOffset = MRCommand_GetShardingKey(cmd),
+      .offset = 0, .keyAlias = NULL};
   if (MRCommand_GetFlags(cmd) & MRCommand_Aliased) {
     if (mux->keyOffset > 0 && mux->keyOffset < cmd->num) {
-      size_t oldlen = strlen(cmd->strs[mux->keyOffset]);
       size_t newlen = 0;
       const char *target = lookupAlias(cmd->strs[mux->keyOffset], &newlen);
       if (strcmp(cmd->strs[mux->keyOffset], target) != 0) {
