@@ -36,14 +36,14 @@ fi
 if [[ -z $BINROOT ]]; then
 	export BINROOT=$ROOT/bin/$($READIES/bin/platform -t)
 fi
-TARGET_DIR=$BINROOT/RedisJSON
+
+BRANCH=${BRANCH:-master}
+TARGET_DIR=$BINROOT/RedisJSON/$BRANCH
 echo Building into $TARGET_DIR ...
 
 if [[ $FORCE == 1 ]]; then
 	runn rm -rf $TARGET_DIR
 fi
-
-BRANCH=${BRANCH:-master}
 
 $OP cd $ROOT/deps
 if [[ ! -d RedisJSON ]]; then
