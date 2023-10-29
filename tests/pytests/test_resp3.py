@@ -143,6 +143,7 @@ def test_search_timeout():
     if should_skip(env):
         env.skip()
     env.skipOnCluster()
+    conn = getConnectionByEnv(env)
 
     with env.getClusterConnectionIfNeeded() as r:
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
@@ -169,9 +170,11 @@ def test_search_timeout():
     # (coverage) Later failure than the above tests - in pipeline execution
     # phase. For this, we need more documents in the index, such that we will
     # fail for sure
-    num_range_2 = 30000
+    num_range_2 = 40000
+    p = conn.pipeline(transaction=False)
     for i in range(num_range, num_range_2):
-      env.cmd('HSET', f'doc{i}', 't', f'{i}', 'geo', f"{i/10000},{i/1000}")
+      p.execute_command('HSET', f'doc{i}', 't', f'{i}', 'geo', f"{i/10000},{i/1000}")
+    p.execute()
 
     conn = getConnectionByEnv(env)
     err = conn.execute_command('ft.search', 'myIdx', '*')['error'][0]
