@@ -73,7 +73,7 @@ jobs:
       - name: Build Redis
         if: inputs.get-redis
         working-directory: redis
-        run: ${{ env.MODE }} make install
+        run: ${{ env.MODE }} make install BUILD_TLS=yes
 
       - name: Decide if to continue after failure
         id: continue-on-error
