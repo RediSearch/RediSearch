@@ -56,6 +56,7 @@ make pytest        # run python tests (tests/pytests)
   SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
   ONLY_STABLE=1      # skip unstable tests
   TEST_PARALLEL=n    # test parallalization
+  REDIS_VER=7    	 # redis version to run against
 
 make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
@@ -268,9 +269,17 @@ PLATFORM_TRI:=$(shell $(READIES)/bin/platform -t)
 REJSON_BINDIR=$(ROOT)/bin/$(PLATFORM_TRI)/RedisJSON
 
 ifneq ($(REJSON),0)
+export REJSON_BRANCH=
+
+ifeq ($(REDIS_VER), 6)
+REJSON_BRANCH=2.4
+endif
+ifeq ($(REDIS_VER), 6.2)
+REJSON_BRANCH=2.4
+endif
 
 ifneq ($(SAN),)
-REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
+REJSON_SO=$(BINROOT)/RedisJSON/$(REJSON_BRANCH)/rejson.so
 REJSON_PATH=$(REJSON_SO)
 
 $(REJSON_SO):

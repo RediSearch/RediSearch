@@ -195,7 +195,7 @@ setup_clang_sanitizer() {
 				echo Building RedisJSON ...
 				# BINROOT=$BINROOT/RedisJSON $ROOT/sbin/build-redisjson
 				export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)
-				$ROOT/sbin/build-redisjson
+				BRANCH=$(REJSON_BRANCH) $ROOT/sbin/build-redisjson
 				REJSON_MODULE=$(cat $MODULE_FILE)
 				RLTEST_REJSON_ARGS="--module $REJSON_MODULE --module-args '$REJSON_MODARGS'"
 				XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_MODARGS"
@@ -309,6 +309,9 @@ setup_redisjson() {
 			RLTEST_REJSON_ARGS="--module $REJSON_PATH"
 			XREDIS_REJSON_ARGS="loadmodule $REJSON_PATH"
 		else
+		  if [[ ${SAN_REDIS_VER} -lt "7" ]]; then
+		    REJSON_BRANCH=2.4
+		  fi
 			FORCE_GET=
 			[[ $REJSON == get ]] && FORCE_GET=1
 			export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)
