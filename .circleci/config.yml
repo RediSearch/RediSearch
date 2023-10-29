@@ -190,6 +190,7 @@ commands:
         type: string
         default: ""
       redis_version:
+        type: string
         default: "6"
     steps:
       - when:
