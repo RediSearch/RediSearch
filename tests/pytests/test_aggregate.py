@@ -996,13 +996,11 @@ def aggregate_test(protocol=2):
     if VALGRIND:
         # You don't want to run this under valgrind, it will take forever
         raise unittest.SkipTest("Skipping timeout test under valgrind")
+    elif protocol not in [2, 3]:
+        # Unsupported protocol
+        raise unittest.SkipTest("Unsupported protocol")
 
-    if protocol == 2:
-        env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
-    elif protocol == 3:
-        env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL', protocol=3)
-    else:
-        env.skip()
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL', protocol=protocol)
 
     populate_db(env)
 

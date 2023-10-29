@@ -122,12 +122,13 @@ def test_error_propagation_from_shards(env):
     #   2. The scorer requested in the command.
     #   3. Parameters evaluation
 
-def test_timeout(env):
+def test_timeout():
     """Tests that timeouts are handled properly by the coordinator.
     We check that the coordinator returns a timeout error when the timeout is
     reached in the shards or in the coordinator itself.
     """
 
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
     SkipOnNonCluster(env)
     conn = getConnectionByEnv(env)
 
@@ -139,11 +140,7 @@ def test_timeout(env):
     for i in range(n_docs):
         conn.execute_command('HSET', i ,'t1', str(i))
 
-    # Set the timeout policy to fail upon experiencing a timeout
-    env.expect('_FT.CONFIG', 'SET', 'ON_TIMEOUT', 'FAIL').ok()
-
     # No client cursor
-    # res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', 'title', 'TIMEOUT', 1)
     res = env.execute_command('FT.AGGREGATE', 'idx', '*',
                 'LOAD', '2', '@t1', '@__key',
                 'APPLY', '@t1 ^ @t1', 'AS', 't1exp',

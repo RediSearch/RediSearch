@@ -75,14 +75,26 @@ static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
 static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
+  // If the root command of this reply is a DEL command, we don't want to
+  // propagate it up the chain to the client
+  if (cmd->rootCommand == C_DEL) {
+    if (MRReply_Type(rep) == MR_REPLY_ERROR) {
+      RedisModule_Log(NULL, "warning", "Error returned for CURSOR.DEL command from shard");
+    }
+    // Discard the response, and return REDIS_OK
+    MRReply_Free(rep);
+    MRIteratorCallback_Done(ctx, 1);
+    return REDIS_OK;
+  }
+
   // Check if an error returned from the shard
-  if(MRReply_Type(rep) == MR_REPLY_ERROR && !(cmd->rootCommand == C_DEL)) {
+  if (MRReply_Type(rep) == MR_REPLY_ERROR) {
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
     return REDIS_ERR;
   }
 
-  bool bail_out = MRReply_Type(rep) != MR_REPLY_ARRAY || cmd->rootCommand == C_DEL;
+  bool bail_out = MRReply_Type(rep) != MR_REPLY_ARRAY;
 
   if (!bail_out) {
     size_t len = MRReply_Length(rep);
@@ -100,16 +112,9 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   }
 
   if (bail_out) {
-    if (cmd->rootCommand == C_DEL && MRReply_Type(rep) == MR_REPLY_ERROR) {
-      // Unsuccessful DEL command
-      RedisModule_Log(NULL, "warning", "Error returned for CURSOR.DEL command from coordinator to shard");
-    } else if (cmd->rootCommand == C_READ) {
-      RedisModule_Log(NULL, "warning", "An unexpected reply was received from a shard");
-    }
-
+    RedisModule_Log(NULL, "warning", "An unexpected reply was received from a shard");
     MRReply_Free(rep);
     MRIteratorCallback_Done(ctx, 1);
-
     return REDIS_ERR;
   }
 
