@@ -4,14 +4,17 @@ name: Build on Linux Platforms
 
 # Keep aligned with the options below
 env:
-  ALL_IMAGES: "['ubuntu:jammy',
-                'ubuntu:focal',
-                'ubuntu:bionic',
-                'centos:7',
-                'rockylinux:8',
-                'rockylinux:9',
-                'debian:bullseye',
-                'amazonlinux:2']"
+  ALL_X86_IMAGES: "['ubuntu:jammy',
+                    'ubuntu:focal',
+                    'ubuntu:bionic',
+                    'centos:7',
+                    'rockylinux:8',
+                    'rockylinux:9',
+                    'debian:bullseye',
+                    'amazonlinux:2']"
+  ALL_ARM_IMAGES: "['ubuntu:jammy',
+                    'ubuntu:focal',
+                    'ubuntu:bionic']"
 
 on:
   workflow_call:
@@ -66,8 +69,10 @@ jobs:
   get-required-envs:
     runs-on: ubuntu-latest
     outputs:
-      platforms: ${{ steps.get_platforms.outputs.platforms }}
-      include: ${{ steps.get_platforms.outputs.include }}
+      platforms_arm: ${{ steps.get_platforms.outputs.arm-platforms }}
+      platforms_x86: ${{ steps.get_platforms.outputs.x86-platforms }}
+      include_arm: ${{ steps.get_platforms.outputs.arm-include }}
+      include_x86: ${{ steps.get_platforms.outputs.x86-include }}
     steps:
       - name: Get platform
         id: get_platforms
@@ -75,26 +80,49 @@ jobs:
         run: |
           import os
 
-          platforms = '${{ inputs.platform }}'
-          include = []
+          requested_platform = '${{ inputs.platform }}'
+          requested_arch = '${{ inputs.architecture }}'
 
-          if platforms == 'all':
-            platforms = ${{ env.ALL_IMAGES }}
+          # Get the platforms to build on (set `x86-platforms` and `arm-platforms`)
+          if requested_platform == 'all':
+            x86-platforms = ${{ fromJson(env.ALL_X86_IMAGES) }} if requested_arch == 'all' or requested_arch == 'x86_64' else []
+            arm-platforms = ${{ fromJson(env.ALL_ARM_IMAGES) }} if requested_arch == 'all' or requested_arch == 'arm64'  else []
           else:
-            platforms = [platforms]
+            if requested_arch == 'all' or requested_arch == 'x86_64':
+              x86-platforms = [requested_platform] if requested_platform in ${{ fromJson(env.ALL_X86_IMAGES) }} else []
+            if requested_arch == 'all' or requested_arch == 'arm64':
+              arm-platforms = [requested_platform] if requested_platform in ${{ fromJson(env.ALL_ARM_IMAGES) }} else []
+
+          # Generate warnings/errors if requested combination is not supported
+          if requested_platform is not 'all':
+            if (requested_arch == 'x86_64' and requested_platform not in x86-platforms) or \
+               (requested_arch == 'arm64'  and requested_platform not in arm-platforms):
+              print(f"::error title='Unsupported Combination'::Requested platform {requested_platform} is not supported on {requested_arch}")
+              exit(1)
+            if requested_arch == 'all':
+              if requested_platform not in x86-platforms + arm-platforms:
+                print(f"::error title='Unsupported Combination'::Requested platform {requested_platform} is not supported on any architecture")
+                exit(1)
+              elif requested_platform not in arm-platforms or requested_platform not in x86-platforms:
+                unsupported_arch = 'arm64' if requested_platform not in arm-platforms else 'x86_64'
+                print(f"::warning title='Unsupported Combination'::Requested platform {requested_platform} is not supported on {unsupported_arch}. Skipping {unsupported_arch}")
 
           # Special cases:
+          arm-include = []
+          x86-include = []
 
           # amazonlinux:2 needs pre-checkout dependencies
-          if platforms.count('amazonlinux:2') > 0:
-            include.append({
+          if x86-platforms.count('amazonlinux:2') > 0:
+            x86-include.append({
               'OS': 'amazonlinux:2',
               'pre-deps': "yum install -y tar gzip"})
 
           # Serialize the platforms to a string
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
-            print(f'platforms={platforms}', file=fh)
-            print(f'include={include}', file=fh)
+            print(f'arm-platforms={arm-platforms}', file=fh)
+            print(f'x86-platforms={x86-platforms}', file=fh)
+            print(f'arm-include={arm-include}', file=fh)
+            print(f'x86-include={x86-include}', file=fh)
 
 
   linux-matrix-x86_64:
@@ -102,8 +130,8 @@ jobs:
     needs: get-required-envs
     strategy:
       matrix:
-        OS: ${{ fromJson(needs.get-required-envs.outputs.platforms) }}
-        include: ${{ fromJson(needs.get-required-envs.outputs.include) }}
+        OS: ${{ fromJson(needs.get-required-envs.outputs.platforms_x86) }}
+        include: ${{ fromJson(needs.get-required-envs.outputs.include_x86) }}
       fail-fast: false
     uses: ./.github/workflows/common-flow-container.yml
     secrets: inherit
@@ -119,8 +147,8 @@ jobs:
     needs: get-required-envs
     strategy:
       matrix:
-        OS: ${{ fromJson(needs.get-required-envs.outputs.platforms) }}
-        include: ${{ fromJson(needs.get-required-envs.outputs.include) }}
+        OS: ${{ fromJson(needs.get-required-envs.outputs.platforms_arm) }}
+        include: ${{ fromJson(needs.get-required-envs.outputs.include_arm) }}
       fail-fast: false
     uses: ./.github/workflows/flow-self-hosted-arm.yml
     secrets: inherit
