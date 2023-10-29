@@ -269,7 +269,7 @@ PLATFORM_TRI:=$(shell $(READIES)/bin/platform -t)
 REJSON_BINDIR=$(ROOT)/bin/$(PLATFORM_TRI)/RedisJSON
 
 ifneq ($(REJSON),0)
-export REJSON_BRANCH=
+export REJSON_BRANCH=master
 
 ifeq ($(REDIS_VER), 6)
 REJSON_BRANCH=2.4
@@ -283,7 +283,7 @@ REJSON_SO=$(BINROOT)/RedisJSON/$(REJSON_BRANCH)/rejson.so
 REJSON_PATH=$(REJSON_SO)
 
 $(REJSON_SO):
-	$(SHOW)BINROOT=$(BINROOT) SAN=$(SAN) ./sbin/build-redisjson
+	$(SHOW)BINROOT=$(BINROOT) SAN=$(SAN) BRANCH=$(REJSON_BRANCH) ./sbin/build-redisjson
 else
 REJSON_SO=
 endif
