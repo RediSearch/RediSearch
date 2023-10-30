@@ -319,9 +319,9 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
 }
 
 QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const char *predicate, size_t len, QueryToken *wkt) {
-  
+
   QueryNode *ret = NULL;
-  
+
   enum QueryType query_type;
   if (!strncasecmp(predicate, "WITHIN", len)) {
     query_type = WITHIN;
@@ -875,11 +875,11 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
     return NULL;
   }
-  return NewGeoRangeIterator(q->sctx, node->gn.gf, q->config);
+  return NewGeoRangeIterator(q->sctx, node->gn.gf, q->conc, q->config);
 }
 
 static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
-  
+
   const FieldSpec *fs =
       IndexSpec_GetField(q->sctx->spec, node->gmn.geomq->attr, strlen(node->gmn.geomq->attr));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
