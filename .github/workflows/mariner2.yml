@@ -38,7 +38,7 @@ jobs:
           path: redis
       - name: Build Redis
         working-directory: redis
-        run: make install
+        run: make install BUILD_TLS=yes
       - name: Build Conan library
         run: |
           make conan SHOW=1
