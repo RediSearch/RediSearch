@@ -54,18 +54,18 @@ def testBasicContains(env):
     conn.execute_command('HSET', 'doc1', 'title', 'hello world', 'body', 'this is a test')
 
     # prefix
-    res = env.execute_command('ft.search', 'idx', 'worl*')
+    res = env.cmd('ft.search', 'idx', 'worl*')
     env.assertEqual(res[0:2], [1, 'doc1'])
     env.assertEqual(set(res[2]), set(['title', 'hello world', 'body', 'this is a test']))
 
     # suffix
-    res = env.execute_command('ft.search', 'idx', '*orld')
+    res = env.cmd('ft.search', 'idx', '*orld')
     env.assertEqual(res[0:2], [1, 'doc1'])
     env.assertEqual(set(res[2]), set(['title', 'hello world', 'body', 'this is a test']))
     env.expect('ft.search', 'idx', '*orl').equal([0])
 
     # contains
-    res = env.execute_command('ft.search', 'idx', '*orl*')
+    res = env.cmd('ft.search', 'idx', '*orl*')
     env.assertEqual(res[0:2], [1, 'doc1'])
     env.assertEqual(set(res[2]), set(['title', 'hello world', 'body', 'this is a test']))
 
@@ -221,7 +221,7 @@ def testEscape(env):
   all_docs = [5, 'doc1', ['t', '1foo1'], 'doc2', ['t', '\\*foo2'], 'doc3', ['t', '3\\*foo3'],
                  'doc4', ['t', '4foo\\*'], 'doc5', ['t', '5foo\\*5']]
   # contains
-  res = env.execute_command('ft.search', 'idx', '*foo*')
+  res = env.cmd('ft.search', 'idx', '*foo*')
   env.assertEqual(toSortedFlatList(res), toSortedFlatList(all_docs))
 
   # prefix only
@@ -247,33 +247,33 @@ def test_misc1(env):
   conn.execute_command('HSET', 'doc6', 't', 'floorless')
 
   # prefix
-  res = env.execute_command('ft.search', 'idx', 'worl*')
+  res = env.cmd('ft.search', 'idx', 'worl*')
   env.assertEqual(res[0:2], [1, 'doc1'])
   env.assertEqual(set(res[2]), set(['world', 't']))
 
   # contains
-  res = env.execute_command('ft.search', 'idx', '*orld*')
+  res = env.cmd('ft.search', 'idx', '*orld*')
   env.assertEqual(res, [1, 'doc1', ['t', 'world']])
 
-  res = env.execute_command('ft.search', 'idx', '*orl*')
+  res = env.cmd('ft.search', 'idx', '*orl*')
   actual_res = [5, 'doc1', ['t', 'world'], 'doc3', ['t', 'doctorless'],
                 'doc4', ['t', 'anteriorly'], 'doc5', ['t', 'colorlessness'], 'doc6', ['t', 'floorless']]
   env.assertEqual(toSortedFlatList(res), toSortedFlatList(actual_res))
 
-  res = env.execute_command('ft.search', 'idx', '*or*')
+  res = env.cmd('ft.search', 'idx', '*or*')
   actual_res = [6, 'doc1', ['t', 'world'], 'doc2', ['t', 'keyword'], 'doc3', ['t', 'doctorless'],
                 'doc4', ['t', 'anteriorly'], 'doc5', ['t', 'colorlessness'], 'doc6', ['t', 'floorless']]
   env.assertEqual(toSortedFlatList(res), toSortedFlatList(actual_res))
 
   # suffix
-  res = env.execute_command('ft.search', 'idx', '*orld')
+  res = env.cmd('ft.search', 'idx', '*orld')
   env.assertEqual(res, [1, 'doc1', ['t', 'world']])
 
-  res = env.execute_command('ft.search', 'idx', '*ess')
+  res = env.cmd('ft.search', 'idx', '*ess')
   actual_res = [3, 'doc3', ['t', 'doctorless'], 'doc5', ['t', 'colorlessness'], 'doc6', ['t', 'floorless']]
   env.assertEqual(toSortedFlatList(res), toSortedFlatList(actual_res))
 
-  res = env.execute_command('ft.search', 'idx', '*less')
+  res = env.cmd('ft.search', 'idx', '*less')
   actual_res = [2, 'doc3', ['t', 'doctorless'], 'doc6', ['t', 'floorless']]
   env.assertEqual(toSortedFlatList(res), toSortedFlatList(actual_res))
 

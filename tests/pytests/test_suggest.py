@@ -5,12 +5,11 @@ from includes import *
 from common import *
 
 def testSuggestions(env):
-    r = env
     skipOnCrdtEnv(env)
-    r.expect('ft.SUGADD', 'ac', 'hello world', 1).equal(1)
-    r.expect('ft.SUGADD', 'ac', 'hello world', 1, 'INCR').equal(1)
+    env.expect('ft.SUGADD', 'ac', 'hello world', 1).equal(1)
+    env.expect('ft.SUGADD', 'ac', 'hello world', 1, 'INCR').equal(1)
 
-    res = r.execute_command('FT.SUGGET', 'ac', 'hello')
+    res = env.cmd('FT.SUGGET', 'ac', 'hello')
     env.assertEqual(1, len(res))
     env.assertEqual('hello world', res[0])
 
@@ -18,33 +17,33 @@ def testSuggestions(env):
              'yellow world', 'wazzup', 'herp', 'derp']
     sz = 2
     for term in terms:
-        r.expect('ft.SUGADD', 'ac', term, sz - 1).equal(sz)
+        env.expect('ft.SUGADD', 'ac', term, sz - 1).equal(sz)
         sz += 1
 
-    for _ in r.retry_with_rdb_reload():
-        r.expect('ft.SUGLEN', 'ac').equal(7)
+    for _ in env.reloadingIterator():
+        env.expect('ft.SUGLEN', 'ac').equal(7)
 
         # search not fuzzy
-        r.expect('ft.SUGGET', 'ac', 'hello').equal(['hello world', 'hello werld'])
+        env.expect('ft.SUGGET', 'ac', 'hello').equal(['hello world', 'hello werld'])
 
-        # print  r.execute_command('ft.SUGGET', 'ac', 'hello', 'FUZZY', 'MAX', '1', 'WITHSCORES')
+        # print  env.cmd('ft.SUGGET', 'ac', 'hello', 'FUZZY', 'MAX', '1', 'WITHSCORES')
         # search fuzzy - shuold yield more results
-        r.expect('ft.SUGGET', 'ac', 'hello', 'FUZZY')\
+        env.expect('ft.SUGGET', 'ac', 'hello', 'FUZZY')\
          .equal(['hello world', 'hello werld', 'yellow world', 'hallo world'])
 
         # search fuzzy with limit of 1
-        r.expect('ft.SUGGET', 'ac', 'hello', 'FUZZY', 'MAX', '1').equal(['hello world'])
+        env.expect('ft.SUGGET', 'ac', 'hello', 'FUZZY', 'MAX', '1').equal(['hello world'])
 
         # scores should return on WITHSCORES
-        res = r.execute_command('ft.SUGGET', 'ac', 'hello', 'WITHSCORES')
+        res = env.cmd('ft.SUGGET', 'ac', 'hello', 'WITHSCORES')
         env.assertEqual(4, len(res))
         env.assertTrue(float(res[1]) > 0)
         env.assertTrue(float(res[3]) > 0)
 
-    r.expect('ft.SUGDEL', 'ac', 'hello world').equal(1)
-    r.expect('ft.SUGDEL', 'ac', 'world').equal(0)
+    env.expect('ft.SUGDEL', 'ac', 'hello world').equal(1)
+    env.expect('ft.SUGDEL', 'ac', 'world').equal(0)
 
-    r.expect('ft.SUGGET', 'ac', 'hello').equal(['hello werld'])
+    env.expect('ft.SUGGET', 'ac', 'hello').equal(['hello werld'])
 
 def testSuggestErrors(env):
     skipOnCrdtEnv(env)
@@ -63,23 +62,22 @@ def testSuggestErrors(env):
 
 def testSuggestPayload(env):
     skipOnCrdtEnv(env)
-    r = env
-    env.assertEqual(1, r.execute_command(
+    env.assertEqual(1, env.cmd(
         'ft.SUGADD', 'ac', 'hello world', 1, 'PAYLOAD', 'foo'))
-    env.assertEqual(2, r.execute_command(
+    env.assertEqual(2, env.cmd(
         'ft.SUGADD', 'ac', 'hello werld', 1, 'PAYLOAD', 'bar'))
-    env.assertEqual(3, r.execute_command(
+    env.assertEqual(3, env.cmd(
         'ft.SUGADD', 'ac', 'hello nopayload', 1, 'PAYLOAD', ''))
-    env.assertEqual(4, r.execute_command(
+    env.assertEqual(4, env.cmd(
         'ft.SUGADD', 'ac', 'hello nopayload2', 1))
 
-    res = r.execute_command('FT.SUGGET', 'ac', 'hello', 'WITHPAYLOADS')
-    env.assertListEqual(['hello world', 'foo', 'hello werld', 'bar', 'hello nopayload', None, 'hello nopayload2', None],
+    res = env.cmd('FT.SUGGET', 'ac', 'hello', 'WITHPAYLOADS')
+    env.assertEqual(['hello world', 'foo', 'hello werld', 'bar', 'hello nopayload', None, 'hello nopayload2', None],
                          res)
-    res = r.execute_command('FT.SUGGET', 'ac', 'hello')
-    env.assertListEqual(['hello world',  'hello werld', 'hello nopayload', 'hello nopayload2'],
+    res = env.cmd('FT.SUGGET', 'ac', 'hello')
+    env.assertEqual(['hello world',  'hello werld', 'hello nopayload', 'hello nopayload2'],
                          res)
-    res = r.execute_command(
+    res = env.cmd(
         'FT.SUGGET', 'ac', 'hello', 'WITHPAYLOADS', 'WITHSCORES')
     # we don't compare the scores beause they may change
     env.assertEqual(12, len(res))
@@ -117,7 +115,7 @@ def testSuggestMax2(env):
     for i in range(1,7):
         res = env.cmd('FT.SUGGET', 'sug', 'test ', 'MAX', i)
         for item in res:
-            env.assertIn(item, expected_res[0:i])
+            env.assertContains(item, expected_res[0:i])
 
 def testIssue_490(env):
     skipOnCrdtEnv(env)

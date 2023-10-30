@@ -143,7 +143,7 @@ def testDeleteEntireBlock(env):
     for i in range(100):
         # gc is random so we need to do it long enough times for it to work
         forceInvokeGC(env, 'idx')
-    for _ in env.reloading_iterator():
+    for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         res = env.cmd('FT.SEARCH', 'idx', '@test:checking @test2:checking250')
         env.assertEqual(res[0:2],[1, 'doc250'])

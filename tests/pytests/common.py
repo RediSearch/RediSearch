@@ -60,7 +60,7 @@ def getConnectionByEnv(env):
 def waitForIndex(env, idx):
     waitForRdbSaveToFinish(env)
     while True:
-        res = env.execute_command('ft.info', idx)
+        res = env.cmd('ft.info', idx)
         try:
             if int(res[res.index('indexing') + 1]) == 0:
                 break
@@ -80,7 +80,7 @@ def waitForNoCleanup(env, idx, max_wait=30):
     retry_wait = 0.1
     max_wait = max(max_wait, retry_wait)
     while max_wait >= 0:
-        res = env.execute_command('ft.info', idx)
+        res = env.cmd('ft.info', idx)
         if int(res[res.index('cleaning') + 1]) == 0:
             break
         time.sleep(retry_wait)
@@ -163,7 +163,7 @@ module_ver = None
 def module_version_at_least(env, ver):
     global module_ver
     if module_ver is None:
-        v = env.execute_command('MODULE LIST')[0][3]
+        v = env.cmd('MODULE LIST')[0][3]
         module_ver = numver_to_version(v)
     if not isinstance(ver, version.Version):
         ver = version.parse(ver)
@@ -176,7 +176,7 @@ server_ver = None
 def server_version_at_least(env, ver):
     global server_ver
     if server_ver is None:
-        v = env.execute_command('INFO')['redis_version']
+        v = env.cmd('INFO')['redis_version']
         server_ver = version.parse(v)
     if not isinstance(ver, version.Version):
         ver = version.parse(ver)
@@ -242,7 +242,7 @@ def waitForRdbSaveToFinish(env):
 
 
 def countKeys(env, pattern='*'):
-    if not env.is_cluster():
+    if not env.isCluster():
         return len(env.keys(pattern))
     keys = 0
     for shard in range(0, env.shardsCount):
@@ -251,7 +251,7 @@ def countKeys(env, pattern='*'):
     return keys
 
 def collectKeys(env, pattern='*'):
-    if not env.is_cluster():
+    if not env.isCluster():
         return sorted(env.keys(pattern))
     keys = []
     for shard in range(0, env.shardsCount):

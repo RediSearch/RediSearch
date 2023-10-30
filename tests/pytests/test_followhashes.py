@@ -76,8 +76,8 @@ def testPrefix2(env):
     conn.execute_command('hset', 'that:foo', 'name', 'foo')
 
     res = env.cmd('ft.search', 'things', 'foo')
-    env.assertIn('that:foo', res)
-    env.assertIn('this:foo', res)
+    env.assertContains('that:foo', res)
+    env.assertContains('this:foo', res)
 
 @skip(asan=True)
 def testManyPrefixes(env):
@@ -86,7 +86,7 @@ def testManyPrefixes(env):
     conn = getConnectionByEnv(env)
     start_time = time.time()
     for i in range(10000):
-        env.execute_command('ft.create', i, 'ON', 'HASH',
+        env.cmd('ft.create', i, 'ON', 'HASH',
                             'PREFIX', '1', i,
                             'SCHEMA', 'name', 'text')
     env.debugPrint(str(time.time() - start_time), force=TEST_DEBUG)
@@ -262,7 +262,7 @@ def testPayload(env):
                 'SCHEMA', 'name', 'text').ok()
     conn.execute_command('hset', 'thing:foo', 'name', 'foo', 'payload', 'stuff')
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         waitForIndex(env, 'things')
         res = env.cmd('ft.search', 'things', 'foo')
         env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, 'thing:foo', ['name', 'foo']]))
@@ -278,7 +278,7 @@ def testBinaryPayload(env):
                 'SCHEMA', 'name', 'text').ok()
     conn.execute_command('hset', 'thing:foo', 'name', 'foo', 'payload', b'\x00\xAB\x20')
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         waitForIndex(env, 'things')
         res = env.cmd('ft.search', 'things', 'foo')
         env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, 'thing:foo', ['name', 'foo']]))
@@ -296,29 +296,28 @@ def testDuplicateFields(env):
 
 def testReplace(env):
     conn = getConnectionByEnv(env)
-    r = env
 
-    r.expect('ft.create idx schema f text').ok()
+    env.expect('ft.create idx schema f text').ok()
 
     res = conn.execute_command('HSET', 'doc1', 'f', 'hello world')
     env.assertEqual(res, 1)
     res = conn.execute_command('HSET', 'doc2', 'f', 'hello world')
     env.assertEqual(res, 1)
-    res = r.execute_command('ft.search', 'idx', 'hello world')
-    r.assertEqual(2, res[0])
+    res = env.cmd('ft.search', 'idx', 'hello world')
+    env.assertEqual(2, res[0])
 
     # now replace doc1 with a different content
     res = conn.execute_command('HSET', 'doc1', 'f', 'goodbye universe')
     env.assertEqual(res, 0)
 
-    for _ in r.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         waitForRdbSaveToFinish(env)
         waitForIndex(env, 'idx')
         # make sure the query for hello world does not return the replaced document
-        r.expect('ft.search', 'idx', 'hello world', 'nocontent').equal([1, 'doc2'])
+        env.expect('ft.search', 'idx', 'hello world', 'nocontent').equal([1, 'doc2'])
 
         # search for the doc's new content
-        r.expect('ft.search', 'idx', 'goodbye universe', 'nocontent').equal([1, 'doc1'])
+        env.expect('ft.search', 'idx', 'goodbye universe', 'nocontent').equal([1, 'doc1'])
 
 def testSortable(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
@@ -341,7 +340,7 @@ def testLanguageDefaultAndField(env):
     env.cmd('FT.CREATE', 'idxTest2', 'LANGUAGE', 'hindi', 'SCHEMA', 'body', 'TEXT')
     conn.execute_command('HSET', 'doc1', 'lang', 'hindi', 'body', u'अँगरेजी अँगरेजों अँगरेज़')
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         waitForIndex(env, 'idxTest1')
         waitForIndex(env, 'idxTest2')
         #test for language field
@@ -360,7 +359,7 @@ def testScoreDecimal(env):
     res = conn.execute_command('HSET', 'doc1', 'title', 'hello', 'score', '0.25')
     env.assertEqual(res, 2)
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         waitForIndex(env, 'idx1')
         waitForIndex(env, 'idx2')
         res = env.cmd('ft.search', 'idx1', 'hello', 'withscores', 'nocontent')
@@ -495,13 +494,13 @@ def testPartial(env):
     env.expect('FT.DEBUG docidtoid idx doc5').equal(8)
     env.expect('HINCRBYFLOAT doc5 testtest 5.5').equal('5.5')
     env.expect('FT.DEBUG docidtoid idx doc5').equal(8)
-    res = env.execute_command('HINCRBYFLOAT doc5 test 6.6')
+    res = env.cmd('HINCRBYFLOAT doc5 test 6.6')
     env.assertEqual(float(res), 12.1)
     env.expect('FT.DEBUG docidtoid idx doc5').equal(9)
-    res = env.execute_command('HINCRBYFLOAT doc5 test 5')
+    res = env.cmd('HINCRBYFLOAT doc5 test 5')
     env.assertEqual(float(res), 17.1)
     env.expect('FT.DEBUG docidtoid idx doc5').equal(10)
-    res = env.execute_command('FT.SEARCH idx *')
+    res = env.cmd('FT.SEARCH idx *')
     res[8][1] = float(res[8][1])
     res[10][1] = float(res[10][1])
     env.assertEqual(res, [5, 'doc1', ['test', 'bar', 'testtest', 'foo'],

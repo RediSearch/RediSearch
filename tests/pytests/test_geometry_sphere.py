@@ -12,7 +12,7 @@ def array_of_key_value_to_map(res):
 def assert_index_num_docs(env, idx, attr, num_docs):
   if not env.isCluster():
     res = env.cmd('FT.DEBUG', 'DUMP_GEOMIDX', idx, attr)
-    res = env.execute_command('FT.DEBUG', 'DUMP_GEOMIDX', idx, attr)
+    res = env.cmd('FT.DEBUG', 'DUMP_GEOMIDX', idx, attr)
     res = array_of_key_value_to_map(res)
     env.assertEqual(res['num_docs'], num_docs)
 
@@ -24,10 +24,10 @@ def testSanitySearchHashWithin(env):
   conn.execute_command('HSET', 'large', 'geom', 'POLYGON((34.9001 29.7001, 34.9001 29.7200, 34.9200 29.7200, 34.9200 29.7001, 34.9001 29.7001))')
   expected = ['geom', 'POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))']
   env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'DIALECT', 3).equal([1, 'small', expected])
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9002 29.7002, 34.9002 29.7050, 34.9050 29.7050, 34.9050 29.7002, 34.9002 29.7002))', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9002 29.7002, 34.9002 29.7050, 34.9050 29.7050, 34.9050 29.7002, 34.9002 29.7002))', 'DIALECT', 3)
   env.assertEqual(res[0], 2)
   
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
 def testSanitySearchPointWithin(env):
@@ -45,16 +45,16 @@ def testSanitySearchPointWithin(env):
   expected = [2, 'point', ['geom', point], 'small', ['geom', small]]
   env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'DIALECT', 3).equal(expected)
 
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9002 29.7002, 34.9002 29.7050, 34.9050 29.7050, 34.9050 29.7002, 34.9002 29.7002))', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9002 29.7002, 34.9002 29.7050, 34.9050 29.7050, 34.9050 29.7002, 34.9002 29.7002))', 'DIALECT', 3)
   env.assertEqual(res[0], 2)
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POINT(34.9050 29.7050)', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POINT(34.9050 29.7050)', 'DIALECT', 3)
   env.assertEqual(res[0], 2)
   
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [3, 'large', 'point', 'small'])
 
   conn.execute_command('HSET', 'point', 'geom', 'POINT(34.9255, 29.7255)')
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
 def testSanitySearchJsonWithin(env):
@@ -67,7 +67,7 @@ def testSanitySearchJsonWithin(env):
   env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'DIALECT', 3).equal([1, 'small', expected])
   
   env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'RETURN', 1, 'geom', 'DIALECT', 3).equal([1, 'small', ['geom', json.dumps([json.loads(expected[1])[0]['geom']])]])
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
 
@@ -163,7 +163,7 @@ def testSimpleUpdate(env):
   assert_index_num_docs(env, 'idx', 'geom', 3)
   assert_index_num_docs(env, 'idx', 'geom2', 1)
   # Search after update
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'DIALECT', 3)
   env.assertEqual(sortResultByKeyName(res), sortResultByKeyName([2, 'k1', expected1, 'k2', expected2]))
 
   if not SANITIZER:
@@ -191,7 +191,7 @@ def testSimpleUpdate(env):
   # Search within
   env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'DIALECT', 3).equal([0])
   # Search contains
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9005 29.7005, 34.9005 29.7150, 34.9150 29.7150, 34.9150 29.7005, 34.9005 29.7005))', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9005 29.7005, 34.9005 29.7150, 34.9150 29.7150, 34.9150 29.7005, 34.9005 29.7005))', 'DIALECT', 3)
   env.assertEqual(sortResultByKeyName(res), sortResultByKeyName([1, 'k3', expected3]))
 
   # Delete field
@@ -222,11 +222,11 @@ def testFieldUpdate(env):
   assert_index_num_docs(env, 'idx', 'geom2', 1)
 
   # Search contains on geom field
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom1:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9005 29.7005, 34.9005 29.7150, 34.9150 29.7150, 34.9150 29.7005, 34.9005 29.7005))', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom1:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9005 29.7005, 34.9005 29.7150, 34.9150 29.7150, 34.9150 29.7005, 34.9005 29.7005))', 'DIALECT', 3)
   env.assertEqual(sortResultByKeyName(res), sortResultByKeyName([1, 'k1', [*field1, *field2]]))
 
   # Search within on geom2 field
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom2:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7170, 34.9170 29.7170, 34.9170 29.7000, 34.9000 29.7000))', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom2:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7170, 34.9170 29.7170, 34.9170 29.7000, 34.9000 29.7000))', 'DIALECT', 3)
   env.assertEqual(sortResultByKeyName(res), sortResultByKeyName([1, 'k1', [*field1, *field2]]))
 
   # Update - make geom2 smaller
@@ -234,18 +234,18 @@ def testFieldUpdate(env):
   conn.execute_command('HSET', 'k1', *field2)
 
   # Search contains on geom field
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom1:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9005 29.7005, 34.9005 29.7150, 34.9150 29.7150, 34.9150 29.7005, 34.9005 29.7005))', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom1:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9005 29.7005, 34.9005 29.7150, 34.9150 29.7150, 34.9150 29.7005, 34.9005 29.7005))', 'DIALECT', 3)
   env.assertEqual(sortResultByKeyName(res), sortResultByKeyName([1, 'k1', [*field1, *field2]]))
 
   # Search within on geom2 field
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom2:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7170, 34.9170 29.7170, 34.9170 29.7000, 34.9000 29.7000))', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom2:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7170, 34.9170 29.7170, 34.9170 29.7000, 34.9000 29.7000))', 'DIALECT', 3)
   env.assertEqual(sortResultByKeyName(res), sortResultByKeyName([1, 'k1', [*field1, *field2]]))
 
   # Update - make geom2 larger
   field2 = ['geom2', 'POLYGON((34.9001 29.7001, 34.9001 29.7180, 34.9180 29.7180, 34.9180 29.7001, 34.9001 29.7001))']
   conn.execute_command('HSET', 'k1', *field2)
   # Search contains on geom field
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom1:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9005 29.7005, 34.9005 29.7150, 34.9150 29.7150, 34.9150 29.7005, 34.9005 29.7005))', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom1:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9005 29.7005, 34.9005 29.7150, 34.9150 29.7150, 34.9150 29.7005, 34.9005 29.7005))', 'DIALECT', 3)
   env.assertEqual(sortResultByKeyName(res), sortResultByKeyName([1, 'k1', [*field1, *field2]]))
   # Search within on geom2 field
   env.expect('FT.SEARCH', 'idx', '@geom2:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9001 29.7001, 34.9001 29.7170, 34.9170 29.7170, 34.9170 29.7001, 34.9001 29.7001))', 'DIALECT', 3).equal([0])

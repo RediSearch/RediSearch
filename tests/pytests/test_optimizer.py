@@ -418,7 +418,7 @@ def testSearch(env):
     limits = [[0, 5], [0, 30], [0, 150], [5, 5], [20, 30], [100, 10], [500, 1]]
     ranges = [[-5, 105], [0, 3], [30, 60], [-10, 5], [95, 110], [200, 300], [42, 42]]
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         for i in range(len(limits)):
             params[1] = limits[i][0]
             params[2] = limits[i][1]
@@ -483,7 +483,7 @@ def testAggregate(env):
     ranges = [[-5, 105], [0, 3], [30, 60], [-10, 5], [95, 110], [200, 300], [42, 42]]
     params = ['limit', 0 , 0, 'LOAD', 4, '@__key', '@n', '@t', '@tag']
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         for i in range(len(limits)):
             params[1] = limits[i][0]
             params[2] = limits[i][1]
@@ -553,7 +553,7 @@ def testCoordinator(env):
     ranges = [[-5, 105], [0, 3], [30, 60], [-10, 5], [95, 110], [200, 300], [42, 42]]
     params = ['limit', 0 , 0]
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         for i in range(len(limits)):
             params[1] = limits[i][0]
             params[2] = limits[i][1]
@@ -585,7 +585,7 @@ def testCoordinator(env):
     # update parameters for ft.aggregate
     params = ['limit', 0 , 0, 'LOAD', 4, '@__key', '@n', '@t', '@tag']
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         for i in range(len(limits)):
             params[1] = limits[i][0]
             params[2] = limits[i][1]

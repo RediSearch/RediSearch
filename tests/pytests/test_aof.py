@@ -26,7 +26,7 @@ def aofTestCommon(env, reloadfn):
 
 def testAof():
     env = Env(useAof=True)
-    aofTestCommon(env, lambda: env.restart_and_reload())
+    aofTestCommon(env, lambda: env.restartAndReload())
 
 
 def testRawAof():
@@ -42,7 +42,7 @@ def testRewriteAofSortables():
             'schema', 'field1', 'TEXT', 'SORTABLE', 'num1', 'NUMERIC', 'SORTABLE')
     env.cmd('FT.ADD', 'idx', 'doc', 1.0,
             'FIELDS', 'field1', 'Hello World')
-    env.restart_and_reload()
+    env.restartAndReload()
     env.broadcast('SAVE')
 
     # Load some documents
@@ -53,7 +53,7 @@ def testRewriteAofSortables():
     for sspec in [('field1', 'asc'), ('num1', 'desc')]:
         cmd = ['FT.SEARCH', 'idx', 'txt', 'SORTBY', sspec[0], sspec[1]]
         res = env.cmd(*cmd)
-        env.restart_and_reload()
+        env.restartAndReload()
         res2 = env.cmd(*cmd)
         env.assertEqual(res, res2)
 
@@ -68,7 +68,7 @@ def testAofRewriteSortkeys():
     res_exp = env.cmd('FT.SEARCH', 'idx', '@bar:{1}', 'SORTBY', 'foo', 'ASC',
                       'RETURN', '1', 'foo', 'WITHSORTKEYS')
 
-    env.restart_and_reload()
+    env.restartAndReload()
     waitForIndex(env, 'idx')
     res_got = env.cmd('FT.SEARCH', 'idx', '@bar:{1}', 'SORTBY', 'foo', 'ASC',
                       'RETURN', '1', 'foo', 'WITHSORTKEYS')
@@ -85,7 +85,7 @@ def testAofRewriteTags():
     env.cmd('FT.ADD', 'idx', '2', '1', 'fields', 'foo', 'B', 'bar', '1')
 
     info_a = to_dict(env.cmd('FT.INFO', 'idx'))
-    env.restart_and_reload()
+    env.restartAndReload()
     info_b = to_dict(env.cmd('FT.INFO', 'idx'))
     env.assertEqual(info_a['attributes'], info_b['attributes'])
 
