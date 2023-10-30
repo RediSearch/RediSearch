@@ -26,6 +26,6 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: ./deps/readies/bin/getredis --with-github-token
     - name: Build and test
-      run: make coverage QUICK=1 SHOW=1
+      run: make coverage QUICK=1
     - name: Upload coverage
-      run: make upload-cov SHOW=1
+      run: make upload-cov
