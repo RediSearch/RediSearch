@@ -20,12 +20,12 @@ jobs:
         submodules: recursive
         set-safe-directory: "'*'"
     - name: Setup
-      run: |
-        ./sbin/setup
-        export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-        ./deps/readies/bin/getredis --with-github-token
+      run: ./sbin/setup
+    - name: Get Redis
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: ./deps/readies/bin/getredis --with-github-token
     - name: Build and test
-      timeout-minutes: 60
       run: make coverage QUICK=1 SHOW=1
     - name: Upload coverage
       run: make upload-cov SHOW=1
