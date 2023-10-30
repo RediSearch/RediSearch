@@ -83,7 +83,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     }
     // Discard the response, and return REDIS_OK
     MRReply_Free(rep);
-    MRIteratorCallback_Done(ctx, 1);
+    MRIteratorCallback_Done(ctx, MRReply_Type(rep) == MR_REPLY_ERROR);
     return REDIS_OK;
   }
 
