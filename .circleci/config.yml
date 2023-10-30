@@ -307,7 +307,7 @@ commands:
             VERSION=0.14.8 ./deps/readies/bin/getterraform
       - run:
           name: Prepare ReJSON Module
-          command: MODULE_FILE=bin/REJSON_PATH ./sbin/get-redisjson
+          command: MODULE_FILE=bin/REJSON_PATH BRANCH=v2.6.7 ./sbin/get-redisjson
       - run:
           name: Run CI benchmarks on aws for envs << parameters.allowed_envs >>
           timeout: 60m
@@ -736,14 +736,14 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           command: |
             make SAN=<<parameters.san-type>> build SHOW=1
-            make SAN=<<parameters.san-type>> test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.test_params>>
+            REJSON_BRANCH=2.6.7 make SAN=<<parameters.san-type>> test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.test_params>>
           no_output_timeout: 30m
       - run:
           name: Build & test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
           command: |
             make SAN=<<parameters.san-type>> COORD=oss build SHOW=1
-            make SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.test_params>>
+            REJSON_BRANCH=2.6.7 make SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.test_params>>
           no_output_timeout: 30m
       - run:
           name: Check tests results
@@ -944,11 +944,13 @@ workflows:
       - build-linux-arm-ubuntu:
           <<: *never
       - build-platforms:
-          <<: *on-integ-and-version-tags
+          #<<: *on-integ-and-version-tags
+          <<: *always
           context: common
           matrix:
             parameters:
-              platform: [jammy, focal, bionic, centos7, rocky8, bullseye, amzn2] # xenial
+              #platform: [jammy, focal, bionic, centos7, rocky8, bullseye, amzn2] # xenial
+              platform: [xenial, focal]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -1113,17 +1115,19 @@ workflows:
           <<: *always
 
   nightly:
-    triggers:
-      - schedule:
-          cron: "20 17 * * 0,3"
-          <<: *on-integ-branch-cron
+    # triggers:
+    #   - schedule:
+    #       cron: "20 17 * * 0,3"
+    #       <<: *on-integ-branch-cron
     jobs:
       - build-linux-debian:
+          <<: *always
           name: build-with-redis-<<matrix.redis_version>>
           test_params: ""
           matrix:
             parameters:
-              redis_version: ["6.0", "6.2", "7.0", "7.2-rc1", "unstable"]
+              #redis_version: ["6.0", "6.2", "7.0", "7.2-rc1", "unstable"]
+              redis_version: ["6.2"]
       - sanitize:
           name: nightly-sanitize-<< matrix.san-type >>
           test_params: ""

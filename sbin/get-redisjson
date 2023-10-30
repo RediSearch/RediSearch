@@ -97,14 +97,14 @@ if [[ $OSS == 1 ]]; then
 else
 	STEM=rejson
 fi
-MOD_S3_URL="https://redismodules.s3.amazonaws.com/${STEM}/snapshots"
+MOD_S3_URL=$"https://redismodules.s3.amazonaws.com/${STEM}"
 MOD_RAMP="${STEM}.${platform}.${BRANCH}.zip"
 
 if [[ $OSS == 1 && -z $REPO_PATH ]]; then
 	# fallback to old storage model
 	if ! wget -q --spider $WORK_DIR $MOD_S3_URL/$MOD_RAMP; then
 		STEM=rejson
-		MOD_S3_URL="http://redismodules.s3.amazonaws.com/${STEM}/snapshots"
+		MOD_S3_URL="http://redismodules.s3.amazonaws.com/${STEM}"
 		MOD_RAMP="${STEM}.${platform}.$BRANCH.zip"
 	fi
 fi
