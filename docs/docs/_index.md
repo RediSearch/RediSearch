@@ -16,7 +16,7 @@ highlighted: true
 The enhanced Redis experience with Redis Stack provides querying capabilities, secondary indexing, full-text search, vector similarity search, and more. To use these features, you first declare indexes on your Redis data, and then you use the query language to retrieve the data your application requires. All future data will also be indexed automatically.
 
 ## Quick links
-  - [Quick start guide](/docs/interact/search-and-query/quickstart/)
+  - [Quick start guide](/docs/get-started/document-database)
   - [Source code](https://github.com/RediSearch/RediSearch)
   - [Latest release](https://github.com/RediSearch/RediSearch/releases)
   - [Docker image](https://hub.docker.com/r/redis/redis-stack-server/)

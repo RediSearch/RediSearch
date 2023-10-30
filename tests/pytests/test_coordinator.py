@@ -26,7 +26,7 @@ def test_required_fields(env):
     # Testing coordinator<-> shard `_REQUIRED_FIELDS` protocol
     env.skipOnCluster()
     env.expect('ft.create', 'idx', 'schema', 't', 'text').ok()
-    env.execute_command('HSET', '0', 't', 'hello')
+    env.cmd('HSET', '0', 't', 'hello')
     env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS').error()
     env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS', '2', 't').error()
     env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS', '1', 't').equal([1, '0', '$hello', ['t', 'hello']])
@@ -36,7 +36,7 @@ def test_required_fields(env):
 
 
 def check_info_commandstats(env, cmd):
-    res = env.execute_command('INFO', 'COMMANDSTATS')
+    res = env.cmd('INFO', 'COMMANDSTATS')
     env.assertGreater(res['cmdstat_' + cmd]['usec'], res['cmdstat__' + cmd]['usec'])
 
 def testCommandStatsOnRedis(env):
@@ -99,7 +99,7 @@ def test_error_propagation_from_shards(env):
     else:
         err = env.cmd('FT.AGGREGATE', 'idx', '*')[1]
 
-    env.assertEquals(type(err[0]), ResponseError)
+    env.assertEqual(type(err[0]), ResponseError)
     env.assertContains('idx: no such index', str(err[0]))
     # The same for `FT.SEARCH`.
     env.expect('FT.SEARCH', 'idx', '*').error().contains('idx: no such index')
@@ -112,7 +112,7 @@ def test_error_propagation_from_shards(env):
     else:
         err = env.cmd('FT.AGGREGATE', 'idx', '**')[1]
 
-    env.assertEquals(type(err[0]), ResponseError)
+    env.assertEqual(type(err[0]), ResponseError)
     env.assertContains('Syntax error', str(err[0]))
     # The same for `FT.SEARCH`.
     env.expect('FT.SEARCH', 'idx', '**').error().contains('Syntax error')
