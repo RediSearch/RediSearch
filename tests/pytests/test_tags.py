@@ -7,14 +7,13 @@ def search(env, r, *args):
     return r.execute_command('ft.search', *args)
 
 def testTagIndex(env):
-    r = env
     env.expect('ft.create', 'idx', 'ON', 'HASH','schema', 'title', 'text', 'tags', 'tag').ok()
     N = 10
     for n in range(N):
         env.expect('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
                                        'title', 'hello world term%d' % n, 'tags', 'foo bar,xxx,tag %d' % n).ok()
-    for _ in r.reloadingIterator():
-        waitForIndex(r, 'idx')
+    for _ in env.reloadingIterator():
+        waitForIndex(env, 'idx')
         res = env.cmd('ft.search', 'idx', 'hello world')
         env.assertEqual(10, res[0])
 
@@ -51,22 +50,20 @@ def testTagIndex(env):
             env.assertEqual('doc%d' % n, res[1])
 
 def testSeparator(env):
-    r = env
     env.expect(
         'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'tags', 'tag', 'separator', ':').ok()
 
     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                    'title', 'hello world', 'tags', 'x:hello world: fooz bar:foo,bar:BOO FAR').ok()
-    for _ in r.reloadingIterator():
-        waitForIndex(r, 'idx')
+    for _ in env.reloadingIterator():
+        waitForIndex(env, 'idx')
         for q in ('@tags:{hello world}', '@tags:{fooz bar}', '@tags:{foo\\,bar}', '@tags:{boo\\ far}', '@tags:{x}'):
             res = env.cmd('ft.search', 'idx', q)
             env.assertEqual(1, res[0])
 
 def testTagPrefix(env):
     env.skipOnCluster()
-    r = env
     env.expect(
         'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'tags', 'tag', 'separator', ',').ok()
@@ -76,50 +73,47 @@ def testTagPrefix(env):
     env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tags')    \
         .equal([['hell', [1]], ['hello world', [1]], ['hello-world', [1]], ['jell', [1]]])
 
-    for _ in r.reloadingIterator():
-        waitForIndex(r, 'idx')
+    for _ in env.reloadingIterator():
+        waitForIndex(env, 'idx')
         for q in ('@tags:{hello world}', '@tags:{hel*}', '@tags:{hello\\-*}', '@tags:{he*}'):
             res = env.cmd('ft.search', 'idx', q)
             env.assertEqual(res[0], 1)
 
 def testTagFieldCase(env):
-    r = env
     env.expect(
         'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'TAgs', 'tag').ok()
 
     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                    'title', 'hello world', 'TAgs', 'HELLO WORLD,FOO BAR').ok()
-    for _ in r.reloadingIterator():
-        waitForIndex(r, 'idx')
-        env.assertEqual([0], r.execute_command(
+    for _ in env.reloadingIterator():
+        waitForIndex(env, 'idx')
+        env.assertEqual([0], env.cmd(
             'FT.SEARCH', 'idx', '@tags:{HELLO WORLD}'))
-        env.assertEqual([1, 'doc1'], r.execute_command(
+        env.assertEqual([1, 'doc1'], env.cmd(
             'FT.SEARCH', 'idx', '@TAgs:{HELLO WORLD}', 'NOCONTENT'))
-        env.assertEqual([1, 'doc1'], r.execute_command(
+        env.assertEqual([1, 'doc1'], env.cmd(
             'FT.SEARCH', 'idx', '@TAgs:{foo bar}', 'NOCONTENT'))
-        env.assertEqual([0], r.execute_command(
+        env.assertEqual([0], env.cmd(
             'FT.SEARCH', 'idx', '@TAGS:{foo bar}', 'NOCONTENT'))
 
 def testInvalidSyntax(env):
-    r = env
     # invalid syntax
     with env.assertResponseError():
-        r.execute_command(
+        env.cmd(
             'ft.create', 'idx', 'ON', 'HASH',
             'schema', 'title', 'text', 'tags', 'tag', 'separator')
     with env.assertResponseError():
-        r.execute_command(
+        env.cmd(
             'ft.create', 'idx', 'ON', 'HASH',
             'schema', 'title', 'text', 'tags', 'tag', 'separator', "foo")
     with env.assertResponseError():
-        r.execute_command(
+        env.cmd(
             'ft.create', 'idx', 'ON', 'HASH',
             'schema', 'title', 'text', 'tags', 'tag', 'separator', "")
 
 def testTagVals(env):
-    r = env
-    r.execute_command(
+    env.cmd(
         'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'tags', 'tag', 'othertags', 'tag')
 
@@ -133,14 +127,14 @@ def testTagVals(env):
 
         env.expect('ft.add', 'idx', f'doc{n}', 1.0, 'fields',
                    'tags', ','.join(tags), 'othertags', f'baz {int(n // 2)}').ok()
-    for _ in r.reloadingIterator():
-        waitForIndex(r, 'idx')
-        res = r.execute_command('ft.tagvals', 'idx', 'tags')
+    for _ in env.reloadingIterator():
+        waitForIndex(env, 'idx')
+        res = env.cmd('ft.tagvals', 'idx', 'tags')
         env.assertEqual(N * 2 + 1, len(res))
 
         env.assertEqual(alltags, set(res))
 
-        res = r.execute_command('ft.tagvals', 'idx', 'othertags')
+        res = env.cmd('ft.tagvals', 'idx', 'othertags')
         env.assertEqual(N / 2, len(res))
 
         env.expect('ft.tagvals', 'idx').error()

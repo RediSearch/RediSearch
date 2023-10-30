@@ -296,29 +296,28 @@ def testDuplicateFields(env):
 
 def testReplace(env):
     conn = getConnectionByEnv(env)
-    r = env
 
-    r.expect('ft.create idx schema f text').ok()
+    env.expect('ft.create idx schema f text').ok()
 
     res = conn.execute_command('HSET', 'doc1', 'f', 'hello world')
     env.assertEqual(res, 1)
     res = conn.execute_command('HSET', 'doc2', 'f', 'hello world')
     env.assertEqual(res, 1)
-    res = r.execute_command('ft.search', 'idx', 'hello world')
-    r.assertEqual(2, res[0])
+    res = env.cmd('ft.search', 'idx', 'hello world')
+    env.assertEqual(2, res[0])
 
     # now replace doc1 with a different content
     res = conn.execute_command('HSET', 'doc1', 'f', 'goodbye universe')
     env.assertEqual(res, 0)
 
-    for _ in r.reloadingIterator():
+    for _ in env.reloadingIterator():
         waitForRdbSaveToFinish(env)
         waitForIndex(env, 'idx')
         # make sure the query for hello world does not return the replaced document
-        r.expect('ft.search', 'idx', 'hello world', 'nocontent').equal([1, 'doc2'])
+        env.expect('ft.search', 'idx', 'hello world', 'nocontent').equal([1, 'doc2'])
 
         # search for the doc's new content
-        r.expect('ft.search', 'idx', 'goodbye universe', 'nocontent').equal([1, 'doc1'])
+        env.expect('ft.search', 'idx', 'goodbye universe', 'nocontent').equal([1, 'doc1'])
 
 def testSortable(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',

@@ -4,13 +4,12 @@ import os
 
 
 def testBasicFuzzy(env):
-    r = env
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                     'title', 'hello world',
                                     'body', 'this is a test').ok()
 
-    res = r.execute_command('ft.search', 'idx', '%word%')
+    res = env.cmd('ft.search', 'idx', '%word%')
     env.assertEqual(res[0:2], [1, 'doc1'])
     env.assertEqual(set(res[2]), set(['title', 'hello world', 'body', 'this is a test']))
 
@@ -48,7 +47,6 @@ def testStopwords(env):
     env.assertEqual([1, 'ta', ['t1', 'ta']], r)
 
 def testFuzzyMultipleResults(env):
-    r = env
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                     'title', 'hello world',
@@ -63,13 +61,12 @@ def testFuzzyMultipleResults(env):
                                     'title', 'hello wakld',
                                     'body', 'this is a test').ok()
 
-    res = r.execute_command('ft.search', 'idx', '%word%')
+    res = env.cmd('ft.search', 'idx', '%word%')
     env.assertEqual(res[0], 3)
     for i in range(1,6,2):
         env.assertContains(res[i], ['doc1', 'doc2', 'doc3'])
 
 def testFuzzySyntaxError(env):
-    r = env
     unallowChars = ('*', '$', '~', '&', '@', '!')
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
@@ -77,7 +74,7 @@ def testFuzzySyntaxError(env):
     for ch in unallowChars:
         error = None
         try:
-            r.execute_command('ft.search', 'idx', '%%wor%sd%%' % ch)
+            env.cmd('ft.search', 'idx', '%%wor%sd%%' % ch)
         except Exception as e:
             error = str(e)
         env.assertTrue('Syntax error' in error)
