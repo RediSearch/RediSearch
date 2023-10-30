@@ -161,7 +161,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
 
   // Coordinator only - handle required fields for coordinator request
   if (options & QEXEC_F_REQUIRED_FIELDS) {
-    
+
     // Sortkey is the first key to reply on the required fields, if we already replied it, continue to the next one.
     size_t currentField = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
     size_t requiredFieldsCount = array_len(req->requiredFields);
@@ -685,7 +685,6 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // ctx is always assigned after ApplyContext
   if (rc != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
-    goto done;
   }
 
 done:
@@ -1075,6 +1074,5 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 void Cursor_FreeExecState(void *p) {
-  AREQ *r = p;
-  AREQ_Free(p);
+  AREQ_Free((AREQ *)p);
 }

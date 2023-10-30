@@ -70,12 +70,8 @@ commands:
           name: Setup automation
           command: |
             git submodule update --init deps/readies
-            if [[ $(uname -s) == Darwin ]]; then
-              VERBOSE=1 PIP=0 FORCE=1 FIX=1 VENV=0 ./deps/readies/bin/getpy3
-              VERBOSE=1 FORCE=1 VENV=$HOME/.venv ./deps/readies/bin/getpyenv
-            else
-              ./deps/readies/bin/getpy3
-            fi
+            if [[ $(uname -s) == Darwin ]]; then rm -f /usr/local/bin/python3; fi
+            VERBOSE=1 ./deps/readies/bin/getpy3
       - run:
           name: Setup automation (part 2)
           shell: /bin/bash -l -eo pipefail
@@ -209,7 +205,7 @@ commands:
         default: ""
     steps:
       - when:
-          condition: 
+          condition:
             or:
               - equal : [ << parameters.run_step >>, ""]
               - equal : [ << parameters.run_step >>, "search"]
@@ -224,7 +220,7 @@ commands:
                   fi
                   make test TEST_PARALLEL=16 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
       - when:
-          condition: 
+          condition:
             or:
               - equal : [ << parameters.run_step >>, ""]
               - equal : [ << parameters.run_step >>, "coordinator"]
@@ -235,49 +231,6 @@ commands:
                 no_output_timeout: 30m
                 command: make test COORD=oss TEST_PARALLEL=16 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
       - save-tests-logs
-
-  build-platforms-steps:
-    parameters:
-      platform:
-        type: string
-      redis_version:
-        type: string
-        default: "7"
-      getredis_params:
-        type: string
-        default: ""
-    steps:
-      - early-returns
-      - setup-executor
-      - checkout-all
-      - setup-automation
-      - run:
-          name: Install Redis
-          shell: /bin/bash -l -eo pipefail
-          command: ./deps/readies/bin/getredis -v '<<parameters.redis_version>>' --force <<parameters.getredis_params>>
-      - run:
-          name: Build for platform
-          shell: /bin/bash -l -eo pipefail
-          command: |
-            ROOT="$PWD"
-            cd build/docker
-            export REDISEARCH_MT_BUILD=0
-            make build verify OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
-            cd $ROOT
-            if [[ -e bin/artifacts/tests/tests-pytests-logs*.tgz ]]; then
-                mkdir -p tests/pytests/logs
-                tar -xzf bin/artifacts/tests/tests-pytests-logs*.tgz
-            fi
-          no_output_timeout: 60m
-      - save-tests-logs
-      - early-return-for-forked-pull-requests
-      - run:
-          name: Upload artifacts to S3
-          shell: /bin/bash -l -eo pipefail
-          command: |
-            if [[ -n $CIRCLE_BRANCH ]]; then
-                make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1
-            fi
 
   vm-build-platforms-steps:
     parameters:
@@ -322,6 +275,7 @@ commands:
             if [[ -n $CIRCLE_BRANCH ]]; then
                 make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1
             fi
+      - persist-artifacts
 
   benchmark-steps:
     parameters:
@@ -594,7 +548,7 @@ jobs:
                 make upload-artifacts SHOW=1
             fi
       - persist-artifacts
-  
+
   build-macos-m1-coordinator:
     macos:
       xcode: 14.2.0
@@ -1380,7 +1334,7 @@ workflows:
           context: common
           # upload: "no"
           test_params: ""
-  
+
   nightly-twice-a-week-by-param:
     when:
       << pipeline.parameters.run_nightly_twice_a_week_flow_label >>

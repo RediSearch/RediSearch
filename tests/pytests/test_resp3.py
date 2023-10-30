@@ -2,6 +2,8 @@ from common import *
 import operator
 from math import nan
 import json
+from redis import ResponseError
+from test_coordinator import test_error_propagation_from_shards
 
 def order_dict(d):
     ''' Sorts a dictionary recursively by keys '''
@@ -14,10 +16,10 @@ def order_dict(d):
             result[k] = v
     return result
 
-def redis_version(con, is_cluster=False):
+def redis_version(con, isCluster=False):
     res = con.execute_command('INFO')
     ver = ""
-    if is_cluster:
+    if isCluster:
         try:
             ver = list(res.values())[0]['redis_version']
         except:
@@ -261,7 +263,7 @@ def test_aggregate():
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
       r.execute_command('HSET', 'doc3', 'f5', '4')
 
-    env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
+    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     waitForIndex(env, 'idx1')
 
@@ -280,7 +282,7 @@ def test_aggregate():
     }
     env.assertEqual(res, exp)
 
-    res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "FORMAT", "STRING")
+    res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "FORMAT", "STRING")
     exp = {
       'attributes': [],
       'error': [],
@@ -307,7 +309,7 @@ def test_aggregate():
         {'extra_attributes': {}, 'values': []}
       ]
     }
-    res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "SORTBY", 2, "@f2", "DESC", "FORMAT", "STRING")
+    res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "SORTBY", 2, "@f2", "DESC", "FORMAT", "STRING")
     env.assertEqual(res, exp)
 
 def test_cursor():
@@ -386,7 +388,7 @@ def test_info():
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
       r.execute_command('HSET', 'doc3', 'f5', '4')
 
-    env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
+    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     waitForIndex(env, 'idx1')
 
@@ -434,23 +436,23 @@ def test_config():
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
       r.execute_command('HSET', 'doc3', 'f5', '4')
 
-    env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
+    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT")
-    env.execute_command('FT.create', 'idx2', "PREFIX", 1, "doc",
+    env.cmd('FT.create', 'idx2', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
 
     if env.isCluster():
         return
 
-    res = env.execute_command("FT.CONFIG", "SET", "TIMEOUT", 501)
+    res = env.cmd("FT.CONFIG", "SET", "TIMEOUT", 501)
 
-    res = env.execute_command("FT.CONFIG", "GET", "*")
+    res = env.cmd("FT.CONFIG", "GET", "*")
     env.assertEqual(res['TIMEOUT'], '501')
 
-    res = env.execute_command("FT.CONFIG", "GET", "TIMEOUT")
+    res = env.cmd("FT.CONFIG", "GET", "TIMEOUT")
     env.assertEqual(res, {'TIMEOUT': '501'})
 
-    res = env.execute_command("FT.CONFIG", "HELP", "TIMEOUT")
+    res = env.cmd("FT.CONFIG", "HELP", "TIMEOUT")
     env.assertEqual(res, {'TIMEOUT': {'Description': 'Query (search) timeout', 'Value': '501'}})
 
 def test_dictdump():
@@ -532,7 +534,7 @@ def test_tagvals():
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
 
-    env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
+    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TAG", "f2", "TAG", "f5", "TAG")
     waitForIndex(env, 'idx1')
 
@@ -647,7 +649,7 @@ def test_profile_child_itrerators_array():
       r.execute_command('hset', '2', 't', 'world')
 
     # test UNION
-    res = env.execute_command('ft.profile', 'idx', 'search', 'query', 'hello|world', 'nocontent')
+    res = env.cmd('ft.profile', 'idx', 'search', 'query', 'hello|world', 'nocontent')
     exp = {
       'error': [],
       'attributes': [],
@@ -683,7 +685,7 @@ def test_profile_child_itrerators_array():
         env.assertEqual(res, exp)
 
     # test INTERSECT
-    res = env.execute_command('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
+    res = env.cmd('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
     exp = {
       'error': [],
       'attributes': [],
@@ -732,11 +734,9 @@ def testExpandErrorsResp3():
   if not env.isCluster():
     env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
   else:
-    # TODO: Expect an error once MOD-5211 is done
-    env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').equal(
-       {'attributes': [], 'error': [], 'total_results': 0, 'format': 'EXPAND', 'results': []}
-    )
-
+    err = env.cmd('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND')['error']
+    env.assertEqual(type(err[0]), ResponseError)
+    env.assertContains('EXPAND format is only supported with JSON', str(err[0]))
 
 def testExpandErrorsResp2():
   env = Env(protocol=2)
@@ -746,8 +746,9 @@ def testExpandErrorsResp2():
   if not env.isCluster():
     env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').error()
   else:
-    # TODO: Expect an error once MOD-5211 is done
-    env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').equal([0])
+    err = env.cmd('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND')[1]
+    env.assertEqual(type(err[0]), ResponseError)
+    env.assertContains('EXPAND format is only supported with RESP3', str(err[0]))
 
 
   # On HASH
@@ -757,9 +758,9 @@ def testExpandErrorsResp2():
   if not env.isCluster():
     env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
   else:
-    # TODO: Expect an error once MOD-5211 is done
-    env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').equal([0])
-
+    err = env.cmd('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND')[1]
+    env.assertEqual(type(err[0]), ResponseError)
+    env.assertContains('EXPAND format is only supported with RESP3', str(err[0]))
 
 def testExpandJson():
   ''' Test returning values for JSON in expanded format (raw RESP3 instead of stringified JSON) '''
@@ -1372,8 +1373,12 @@ def test_vecsim_1():
              ]
            }
     exp2 = [3, 'docvecsimidx0z0', 'docvecsimidx0z1', 'docvecsimidx0z2', 'docvecsimidx0z3']
-    res = env.execute_command("FT.SEARCH", "vecsimidx0", "(*)=>[KNN 4 @vector_FLAT $BLOB]", "NOCONTENT", "SORTBY",
+    res = env.cmd("FT.SEARCH", "vecsimidx0", "(*)=>[KNN 4 @vector_FLAT $BLOB]", "NOCONTENT", "SORTBY",
                "__vector_FLAT_score", "ASC", "DIALECT", "2", "LIMIT", "0", "4",
                "params", "2", "BLOB", "\x00\x00\x00\x00\x00\x00\x00\x00")
     env.assertEqual(dict_diff(res, exp3 if env.protocol == 3 else exp2, show=True,
                     exclude_regex_paths=["\['sortkey'\]"]), {})
+
+def test_error_propagation_from_shards_resp3():
+    env = Env(protocol=3)
+    test_error_propagation_from_shards(env)

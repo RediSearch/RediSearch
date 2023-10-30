@@ -60,7 +60,7 @@ def getConnectionByEnv(env):
 def waitForIndex(env, idx):
     waitForRdbSaveToFinish(env)
     while True:
-        res = env.execute_command('ft.info', idx)
+        res = env.cmd('ft.info', idx)
         try:
             if int(res[res.index('indexing') + 1]) == 0:
                 break
@@ -80,7 +80,7 @@ def waitForNoCleanup(env, idx, max_wait=30):
     retry_wait = 0.1
     max_wait = max(max_wait, retry_wait)
     while max_wait >= 0:
-        res = env.execute_command('ft.info', idx)
+        res = env.cmd('ft.info', idx)
         if int(res[res.index('cleaning') + 1]) == 0:
             break
         time.sleep(retry_wait)
@@ -163,7 +163,7 @@ module_ver = None
 def module_version_at_least(env, ver):
     global module_ver
     if module_ver is None:
-        v = env.execute_command('MODULE LIST')[0][3]
+        v = env.cmd('MODULE LIST')[0][3]
         module_ver = numver_to_version(v)
     if not isinstance(ver, version.Version):
         ver = version.parse(ver)
@@ -176,7 +176,7 @@ server_ver = None
 def server_version_at_least(env, ver):
     global server_ver
     if server_ver is None:
-        v = env.execute_command('INFO')['redis_version']
+        v = env.cmd('INFO')['redis_version']
         server_ver = version.parse(v)
     if not isinstance(ver, version.Version):
         ver = version.parse(ver)
@@ -242,7 +242,7 @@ def waitForRdbSaveToFinish(env):
 
 
 def countKeys(env, pattern='*'):
-    if not env.is_cluster():
+    if not env.isCluster():
         return len(env.keys(pattern))
     keys = 0
     for shard in range(0, env.shardsCount):
@@ -251,7 +251,7 @@ def countKeys(env, pattern='*'):
     return keys
 
 def collectKeys(env, pattern='*'):
-    if not env.is_cluster():
+    if not env.isCluster():
         return sorted(env.keys(pattern))
     keys = []
     for shard in range(0, env.shardsCount):
@@ -267,10 +267,14 @@ def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(ftDebugCmdName(env), "VECSIM_INFO", index_name, vector_field))
 
 
-def forceInvokeGC(env, idx = 'idx'):
+def forceInvokeGC(env, idx = 'idx', timeout = None):
     waitForRdbSaveToFinish(env)
-    env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx)
-
+    if timeout is not None:
+        if timeout == 0:
+            env.debugPrint("forceInvokeGC: note timeout is infinite, consider using a big timeout instead.", force=True)
+        env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx, timeout)
+    else:
+        env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx)
 def no_msan(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
@@ -299,6 +303,8 @@ def skip(cluster=False, macos=False, asan=False, msan=False, noWorkers=False):
             @wraps(f)
             def wrapper(*args, **kwargs):
                 if not (cluster or macos or asan or msan or noWorkers):
+                    raise SkipTest()
+                if cluster and COORD != '0':
                     raise SkipTest()
                 if macos and OS == 'macos':
                     raise SkipTest()
@@ -487,3 +493,10 @@ def dict_diff(res, exp, show=False, ignore_order=True, significant_digits=7,
     if dd != {} and show:
         pp(dd)
     return dd
+
+def number_to_ordinal(n: int) -> str:
+    if 11 <= (n % 100) <= 13:
+        suffix = 'th'
+    else:
+        suffix = ['th', 'st', 'nd', 'rd', 'th'][min(n % 10, 4)]
+    return str(n) + suffix
