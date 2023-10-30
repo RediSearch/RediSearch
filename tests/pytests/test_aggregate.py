@@ -10,7 +10,7 @@ GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.jso
 
 
 def add_values(env, number_of_iterations=1):
-    env.execute_command('FT.CREATE', 'games', 'ON', 'HASH',
+    env.cmd('FT.CREATE', 'games', 'ON', 'HASH',
                         'SCHEMA', 'title', 'TEXT', 'SORTABLE',
                         'brand', 'TEXT', 'NOSTEM', 'SORTABLE',
                         'description', 'TEXT', 'price', 'NUMERIC',
@@ -27,7 +27,7 @@ def add_values(env, number_of_iterations=1):
             cmd = ['FT.ADD', 'games', id, 1, 'FIELDS', ] + \
                 [str(x) if x is not None else '' for x in itertools.chain(
                     *obj.items())]
-            env.execute_command(*cmd)
+            env.cmd(*cmd)
         fp.close()
 
 
@@ -86,7 +86,7 @@ class TestAggregate():
 
         for row in res[1:]:
             row = to_dict(row)
-            self.env.assertIn('avg_price', row)
+            self.env.assertContains('avg_price', row)
 
         # Test aliasing
         cmd = ['FT.AGGREGATE', 'games', 'sony', 'GROUPBY', '1', '@brand',
@@ -190,7 +190,7 @@ class TestAggregate():
 
                'LIMIT', '0', '1']
         res = self.env.cmd(*cmd)
-        self.env.assertListEqual([1, ['dt', '1517417144', 'timefmt', '2018-01-31T16:45:44Z', 'day', '1517356800', 'hour', '1517414400',
+        self.env.assertEqual([1, ['dt', '1517417144', 'timefmt', '2018-01-31T16:45:44Z', 'day', '1517356800', 'hour', '1517414400',
                                        'minute', '1517417100', 'month', '1514764800', 'dayofweek', '3', 'dayofmonth', '31', 'dayofyear', '30', 'year', '2018']], res)
 
     def testStringFormat(self):
@@ -326,7 +326,7 @@ class TestAggregate():
                            'SORTBY', 2, '@price', 'desc',
                            'LIMIT', '0', '2')
 
-        self.env.assertListEqual([292, ['brand', '', 'price', '44780.69'], [
+        self.env.assertEqual([292, ['brand', '', 'price', '44780.69'], [
                                  'brand', 'mad catz', 'price', '3973.48']], res)
 
         res = self.env.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
@@ -334,7 +334,7 @@ class TestAggregate():
                            'SORTBY', 2, '@price', 'asc',
                            'LIMIT', '0', '2')
 
-        self.env.assertListEqual([292, ['brand', 'myiico', 'price', '0.23'], [
+        self.env.assertEqual([292, ['brand', 'myiico', 'price', '0.23'], [
                                  'brand', 'crystal dynamics', 'price', '0.25']], res)
 
         # Test MAX with limit higher than it
@@ -342,7 +342,7 @@ class TestAggregate():
                            'REDUCE', 'sum', 1, '@price', 'as', 'price',
                            'SORTBY', 2, '@price', 'asc', 'MAX', 2)
 
-        self.env.assertListEqual([292, ['brand', 'myiico', 'price', '0.23'], [
+        self.env.assertEqual([292, ['brand', 'myiico', 'price', '0.23'], [
                                  'brand', 'crystal dynamics', 'price', '0.25']], res)
 
         # Test Sorting by multiple properties
@@ -351,7 +351,7 @@ class TestAggregate():
                            'APPLY', '(@price % 10)', 'AS', 'price',
                            'SORTBY', 4, '@price', 'asc', '@brand', 'desc', 'MAX', 10,
                            )
-        self.env.assertListEqual([292, ['brand', 'zps', 'price', '0'], ['brand', 'zalman', 'price', '0'], ['brand', 'yoozoo', 'price', '0'], ['brand', 'white label', 'price', '0'], ['brand', 'stinky', 'price', '0'], [
+        self.env.assertEqual([292, ['brand', 'zps', 'price', '0'], ['brand', 'zalman', 'price', '0'], ['brand', 'yoozoo', 'price', '0'], ['brand', 'white label', 'price', '0'], ['brand', 'stinky', 'price', '0'], [
                                  'brand', 'polaroid', 'price', '0'], ['brand', 'plantronics', 'price', '0'], ['brand', 'ozone', 'price', '0'], ['brand', 'oooo', 'price', '0'], ['brand', 'neon', 'price', '0']], res)
 
         # Test Sorting by multiple properties with missing values
@@ -360,7 +360,7 @@ class TestAggregate():
                            )
             # We should get a tie for all the results on the nonexist property, and therefore sort by the second property and get the top 10
             # docs with the lowest price
-        self.env.assertListEqual([2265, ['price', '0'], ['price', '0'], ['price', '0'], ['price', '0'], ['price', '0'],
+        self.env.assertEqual([2265, ['price', '0'], ['price', '0'], ['price', '0'], ['price', '0'], ['price', '0'],
                                         ['price', '0'], ['price', '0'], ['price', '0'], ['price', '0'], ['price', '0']], res)
 
             # make sure we get results sorted by the second property and not by doc ID (which is the default fallback)
@@ -382,13 +382,13 @@ class TestAggregate():
                            'LOAD', 1, '@title',
                            'SORTBY', 2, '@price', 'desc',
                            'LIMIT', '0', '2')
-        self.env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
+        self.env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
 
         res = self.env.cmd('ft.aggregate', 'games', '*',
                            'SORTBY', 2, '@price', 'desc',
                            'LOAD', 1, '@title',
                            'LIMIT', '0', '2')
-        self.env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
+        self.env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
 
         # test with non-sortable filed
         expected_res = [2265, ['description', 'world of warcraft:the burning crusade-expansion set'],
@@ -397,13 +397,13 @@ class TestAggregate():
                            'SORTBY', 2, '@description', 'desc',
                            'LOAD', 1, '@description',
                            'LIMIT', '0', '2')
-        self.env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
+        self.env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
 
         res = self.env.cmd('ft.aggregate', 'games', '*',
                            'LOAD', 1, '@description',
                            'SORTBY', 2, '@description', 'desc',
                            'LIMIT', '0', '2')
-        self.env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
+        self.env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
 
     def testExpressions(self):
         pass
@@ -421,7 +421,7 @@ class TestAggregate():
                 ['brand', 'speedlink', 'price', '9']]
         # exp = [2265, ['brand', 'Xbox', 'price', '9'], ['brand', 'Turtle Beach', 'price', '9'], [
                             #  'brand', 'Trust', 'price', '9'], ['brand', 'SteelSeries', 'price', '9'], ['brand', 'Speedlink', 'price', '9']]
-        self.env.assertListEqual(exp[1], res[1])
+        self.env.assertEqual(exp[1], res[1])
 
     def testLoad(self):
         res = self.env.cmd('ft.aggregate', 'games', '*',
@@ -467,7 +467,7 @@ class TestAggregate():
         # print "Got {} results".format(len(res))
         # return
         # pprint.pprint(res)
-        self.env.assertListEqual([1, ['strs', ['hello world', 'foo', 'bar'],
+        self.env.assertEqual([1, ['strs', ['hello world', 'foo', 'bar'],
                                        'strs2', ['hello', 'world', 'foo,,,bar'],
                                        'strs3', ['hello world,  foo,,,bar,'],
                                        'strs4', ['hello world', 'foo', 'bar'],
@@ -499,7 +499,7 @@ class TestAggregate():
                     arr[x] = arr[x].lower()
         mklower(expected)
         mklower(res)
-        self.env.assertListEqual(expected, res)
+        self.env.assertEqual(expected, res)
 
     def testLoadAfterGroupBy(self):
         with self.env.assertResponseError():
@@ -568,7 +568,7 @@ class TestAggregate():
     def testCountError(self):
         # With 0 values
         conn = getConnectionByEnv(self.env)
-        res = self.env.execute_command('ft.aggregate', 'games', '*',
+        res = self.env.cmd('ft.aggregate', 'games', '*',
                                        'GROUPBY', '2', '@brand', '@price',
                                        'REDUCE', 'COUNT', 0)
         self.env.assertEqual(len(res), 1245)
@@ -590,26 +590,26 @@ class TestAggregate():
         conn = getConnectionByEnv(self.env)
 
         # With MIN_INF % -1
-        res = self.env.execute_command('ft.aggregate', 'games', '*',
+        res = self.env.cmd('ft.aggregate', 'games', '*',
                                        'APPLY', '-9223372036854775808 % -1')
         self.env.assertEqual(res[1][1], '0')
 
         # With Integers
-        res = self.env.execute_command('ft.aggregate', 'games', '*',
+        res = self.env.cmd('ft.aggregate', 'games', '*',
                                        'APPLY', '439974354 % 5')
         self.env.assertEqual(res[1][1], '4')
 
         # With Negative
-        res = self.env.execute_command('ft.aggregate', 'games', '*',
+        res = self.env.cmd('ft.aggregate', 'games', '*',
                                        'APPLY', '-54775808 % -5')
         self.env.assertEqual(res[1][1], '-3')
 
-        res = self.env.execute_command('ft.aggregate', 'games', '*',
+        res = self.env.cmd('ft.aggregate', 'games', '*',
                                        'APPLY', '-14275897 % 5')
         self.env.assertEqual(res[1][1], '-2')
 
         # With Floats
-        res = self.env.execute_command('ft.aggregate', 'games', '*',
+        res = self.env.cmd('ft.aggregate', 'games', '*',
                                        'APPLY', '547758.3 % 5.1')
         self.env.assertEqual(res[1][1], '3')
 
@@ -673,11 +673,11 @@ def testAggregateGroupByOnEmptyField(env):
                    ['check', 'test1', 'count', '1'],
                    ['check', 'test2', 'count', '1']]
     for var in expected:
-        env.assertIn(var, res)
+        env.assertContains(var, res)
 
 def testMultiSortBy(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'sb_idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
+    env.cmd('FT.CREATE', 'sb_idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
     conn.execute_command('hset', 'doc1', 't1', 'a', 't2', 'a')
     conn.execute_command('hset', 'doc2', 't1', 'a', 't2', 'b')
     conn.execute_command('hset', 'doc3', 't1', 'a', 't2', 'c')
@@ -733,7 +733,7 @@ def testGroupbyNoReduce(env):
 
 def testStartsWith(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
+    env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
     conn.execute_command('hset', 'doc1', 't', 'aa')
     conn.execute_command('hset', 'doc2', 't', 'aaa')
     conn.execute_command('hset', 'doc3', 't', 'ab')
@@ -745,7 +745,7 @@ def testStartsWith(env):
 
 def testContains(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
+    env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
     conn.execute_command('hset', 'doc1', 't', 'aa')
     conn.execute_command('hset', 'doc2', 't', 'bba')
     conn.execute_command('hset', 'doc3', 't', 'aba')
@@ -789,7 +789,7 @@ def testContains(env):
 
 def testStrLen(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
+    env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
     conn.execute_command('hset', 'doc1', 't', 'aa')
     conn.execute_command('hset', 'doc2', 't', 'aaa')
     conn.execute_command('hset', 'doc3', 't', '')
@@ -802,7 +802,7 @@ def testStrLen(env):
 
 def testLoadAll(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')
     conn.execute_command('HSET', 'doc1', 't', 'hello', 'n', 42, 'notIndexed', 'ccc')
     conn.execute_command('HSET', 'doc2', 't', 'world', 'n', 3.141, 'notIndexed', 'bbb')
     conn.execute_command('HSET', 'doc3', 't', 'hello world', 'n', 17.8, 'notIndexed', 'aaa')
@@ -825,7 +825,7 @@ def testLoadAll(env):
 def testLimitIssue(env):
     #ticket 66895
     conn = getConnectionByEnv(env)
-    env.execute_command('ft.create', 'idx', 'SCHEMA', 'PrimaryKey', 'TEXT', 'SORTABLE',
+    env.cmd('ft.create', 'idx', 'SCHEMA', 'PrimaryKey', 'TEXT', 'SORTABLE',
                         'CreatedDateTimeUTC', 'NUMERIC', 'SORTABLE')
     conn.execute_command('HSET', 'doc1', 'PrimaryKey', '9::362330', 'CreatedDateTimeUTC', '637387878524969984')
     conn.execute_command('HSET', 'doc2', 'PrimaryKey', '9::362329', 'CreatedDateTimeUTC', '637387875859270016')
@@ -846,25 +846,25 @@ def testLimitIssue(env):
           ['PrimaryKey', '9::362308', 'CreatedDateTimeUTC', '637242253551670016'],
           ['PrimaryKey', '9::362306', 'CreatedDateTimeUTC', '637166988081200000']]
 
-    actual_res = env.execute_command('FT.AGGREGATE', 'idx', '*',
+    actual_res = env.cmd('FT.AGGREGATE', 'idx', '*',
                                      'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
                                      'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '0', '8')
     env.assertEqual(actual_res, _res)
 
     res = [_res[0]] + _res[1:3]
-    actual_res = env.execute_command('FT.AGGREGATE', 'idx', '*',
+    actual_res = env.cmd('FT.AGGREGATE', 'idx', '*',
                                      'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
                                      'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '0', '2')
     env.assertEqual(actual_res, res)
 
     res = [_res[0]] + _res[2:4]
-    actual_res = env.execute_command('FT.AGGREGATE', 'idx', '*',
+    actual_res = env.cmd('FT.AGGREGATE', 'idx', '*',
                                      'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
                                      'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '1', '2')
     env.assertEqual(actual_res, res)
 
     res = [_res[0]] + _res[3:5]
-    actual_res = env.execute_command('FT.AGGREGATE', 'idx', '*',
+    actual_res = env.cmd('FT.AGGREGATE', 'idx', '*',
                                      'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
                                      'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '2', '2')
     env.assertEqual(actual_res, res)
@@ -874,7 +874,7 @@ def testMaxAggResults(env):
         env.skip()
     env = Env(moduleArgs="MAXAGGREGATERESULTS 100")
     conn = getConnectionByEnv(env)
-    env.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
     env.expect('ft.aggregate', 'idx', '*', 'LIMIT', '0', '10000').error()   \
        .contains('LIMIT exceeds maximum of 100')
 
@@ -885,7 +885,7 @@ def testMaxAggInf(env):
 
 def testLoadPosition(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('ft.create', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
+    env.cmd('ft.create', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
     conn.execute_command('hset', 'doc1', 't1', 'hello', 't2', 'world')
 
     # LOAD then SORTBY
@@ -910,7 +910,7 @@ def testLoadPosition(env):
 
 def testAggregateGroup0Field(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'num', 'NUMERIC', 'SORTABLE')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'num', 'NUMERIC', 'SORTABLE')
     for i in range(101):
         conn.execute_command('HSET', 'doc%s' % i, 't', 'text', 'num', i)
 
@@ -926,7 +926,7 @@ def testAggregateGroup0Field(env):
 
 
     conn.execute_command('FLUSHALL')
-    env.execute_command('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'num', 'NUMERIC', 'SORTABLE')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'num', 'NUMERIC', 'SORTABLE')
 
     values = [880000.0, 685000.0, 590000.0, 1200000.0, 1170000.0, 1145000.0,
               3950000.0, 620000.0, 758000.0, 4850000.0, 800000.0, 340000.0,
