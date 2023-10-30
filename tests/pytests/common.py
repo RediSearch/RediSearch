@@ -231,7 +231,7 @@ def collectKeys(env, pattern='*'):
 def ftDebugCmdName(env):
     return '_ft.debug' if env.isCluster() else 'ft.debug'
 
-def forceInvokeGC(env, idx, timeout = None):
+def forceInvokeGC(env, idx = 'idx', timeout = None):
     waitForRdbSaveToFinish(env)
     if timeout is not None:
         if timeout == 0:
