@@ -64,6 +64,8 @@ on:
         description: 'Whether to run standalone tests'
         type: boolean
         default: true
+      redis-ref:
+        type: string
 
 jobs:
   get-required-envs:
@@ -136,6 +138,7 @@ jobs:
     uses: ./.github/workflows/common-flow-container.yml
     secrets: inherit
     with:
+      get-redis: ${{ inputs.redis-ref }}
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
       coordinator: ${{ inputs.coordinator }}
@@ -153,6 +156,7 @@ jobs:
     uses: ./.github/workflows/flow-self-hosted-arm.yml
     secrets: inherit
     with:
+      get-redis: ${{ inputs.redis-ref }}
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
       coordinator: ${{ inputs.coordinator }}

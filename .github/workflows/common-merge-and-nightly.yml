@@ -26,19 +26,19 @@ jobs:
           import os
           # All configurations (by default runs both standalone and coordinator)
           configurations = [
-            # 'concurrent_write',
-            # 'max_unsorted',
-            # 'union_iterator_heap',
-            # 'raw_docid',
-            # 'dialect_2',
-            # 'global_password',
-            # 'safemode',
+            'concurrent_write',
+            'max_unsorted',
+            'union_iterator_heap',
+            'raw_docid',
+            'dialect_2',
+            'global_password',
+            'safemode',
             'tls',
           ]
           # Spacial configurations
           includes = [
-            # {'test-config': 'global_password', 'standalone': 'false'},
-            # {'test-config': 'safemode',        'standalone': 'false'},
+            {'test-config': 'global_password', 'standalone': 'false'},
+            {'test-config': 'safemode',        'standalone': 'false'},
             {'test-config': 'tls',             'standalone': 'false'},
           ]
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
@@ -59,6 +59,7 @@ jobs:
   #   with:
   #     platform: all
   #     architecture: all
+  #     get-redis: ${{ inputs.redis-ref }}
   #     test-config: CONFIG=${{ matrix.test-config }}
   #     standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
   #     coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
@@ -87,6 +88,7 @@ jobs:
     uses: ./.github/workflows/common-flow-container.yml
     secrets: inherit
     with:
+      get-redis: ${{ inputs.redis-ref }}
       container: ${{ matrix.platform }}
       test-config: CONFIG=${{ matrix.test-config }}
       standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
@@ -104,6 +106,7 @@ jobs:
     uses: ./.github/workflows/common-flow-container.yml
     secrets: inherit
     with:
+      get-redis: ${{ inputs.redis-ref }}
       container: amazonlinux:2
       pre-steps-script: yum install -y tar gzip
       test-config: CONFIG=${{ matrix.test-config }}
@@ -127,6 +130,7 @@ jobs:
     uses: ./.github/workflows/flow-self-hosted-arm.yml
     secrets: inherit
     with:
+      get-redis: ${{ inputs.redis-ref }}
       container: ${{ matrix.platform }}
       test-config: CONFIG=${{ matrix.test-config }}
       standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
@@ -148,6 +152,7 @@ jobs:
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
+      redis-ref: ${{ inputs.redis-ref }}
       test-config: CONFIG=${{ matrix.test-config }}
       standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
       coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent

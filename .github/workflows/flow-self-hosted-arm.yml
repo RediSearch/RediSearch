@@ -19,6 +19,8 @@ on:
       standalone:
         type: boolean
         default: true
+      get-redis:
+        type: string
 
 env:
   AWS_IMAGE_ID: ami-0d8e10b4bd5d65c57  # Ubuntu 22.04 region AMI for ARM with Docker installed
@@ -60,6 +62,7 @@ jobs:
       standalone: ${{ inputs.standalone }}
       test-config: ${{ inputs.test-config }}
       pre-steps-script: ${{ inputs.pre-steps-script }}
+      get-redis: ${{ inputs.get-redis }}
 
   stop-runner:
     name: Stop self-hosted EC2 runner
