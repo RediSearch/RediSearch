@@ -50,7 +50,7 @@ It will return each document of the underlying iterators, exactly once */
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int quickExit,
                                 double weight, QueryNodeType type, const char *qstr, IteratorsConfig *config);
 
-void UI_Foreach(IndexIterator *it, void (*callback)(IndexReader *it, void *privdata), void *privdata);
+void UI_Foreach(IndexIterator *it, void (*callback)(IndexReader *it));
 
 /* Create a new intersect iterator over the given list of child iterators. If maxSlop is not a
  * negative number, we will allow at most maxSlop intervening positions between the terms. If
@@ -95,7 +95,7 @@ void Profile_AddIters(IndexIterator **root);
 
 typedef struct {
     IteratorsConfig *iteratorsConfig;
-    int printProfileClock;    
+    int printProfileClock;
 } PrintProfileConfig;
 
 // Print profile of iterators
