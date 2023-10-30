@@ -31,7 +31,7 @@ typedef struct {
   int targetSlot;
 
   /* 0 (undetermined), 2, or 3 */
-  unsigned short protocol;
+  unsigned char protocol;
 
  /* Whether the user asked for a cursor */
   bool forCursor;
