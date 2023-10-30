@@ -184,9 +184,7 @@ setup_clang_sanitizer() {
 	
 	# --no-output-catch --exit-on-failure --check-exitcode
 	RLTEST_SAN_ARGS="--sanitizer $SAN"
-  if [[ ${SAN_REDIS_VER} -eq "6.2" ]]; then
-    REJSON_BRANCH=2.4
-  fi
+
 	if [[ -n $REJSON && $REJSON != 0 ]]; then
 		if [[ -z $REJSON_PATH ]]; then
 			if [[ -z $BINROOT ]]; then
@@ -310,9 +308,6 @@ setup_redisjson() {
 			RLTEST_REJSON_ARGS="--module $REJSON_PATH"
 			XREDIS_REJSON_ARGS="loadmodule $REJSON_PATH"
 		else
-		  if [[ ${SAN_REDIS_VER} -eq "6.2" ]]; then
-		    REJSON_BRANCH=2.4
-		  fi
 			FORCE_GET=
 			[[ $REJSON == get ]] && FORCE_GET=1
 			export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)

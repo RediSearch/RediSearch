@@ -51,6 +51,7 @@ if [[ ! -d RedisJSON ]]; then
 fi
 
 $OP cd RedisJSON
+runn git fetch
 runn git checkout $BRANCH
 runn git pull --quiet --recurse-submodules
 if is_command python3; then

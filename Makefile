@@ -279,7 +279,7 @@ REJSON_BRANCH=2.4
 endif
 
 ifneq ($(SAN),)
-REJSON_BRANCH=2.4
+REJSON_BRANCH=fix_proc_macro2_build
 REJSON_SO=$(BINROOT)/RedisJSON/$(REJSON_BRANCH)/rejson.so
 REJSON_PATH=$(REJSON_SO)
 
