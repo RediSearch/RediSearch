@@ -136,9 +136,4 @@ jobs:
       - name: Fail flow if sanitizer failed
         if: ${{ inputs.san }}
         run: |
-          if [[ -n "$(ls tests/pytests/logs/*.log.* 2>/dev/null)" ]]; then
-            echo "Sanitizer failed. See artifacts for logs:"
-            ls tests/pytests/logs/*.log.*
-            echo "End of sanitizer logs. Exiting with error."
-            exit 1
-          fi
+          [[ -n $(ls tests/pytests/logs/*.log.* 2>/dev/null) ]] && exit 1 || exit 0
