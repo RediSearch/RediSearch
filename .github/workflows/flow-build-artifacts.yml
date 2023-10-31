@@ -42,23 +42,22 @@ jobs:
       - name: Setup (readies)
         run: ./sbin/setup
 
-      # Build
-      - name: Build standalone RediSearch
-        run: make build
-      - name: Build RediSearch Lite
-        run: make build LITE=1
-      - name: Build RediSearch with OSS Coordinator
-        run: make build COORD=oss
-      - name: Build RediSearch with Enterprise Coordinator
-        run: make build COORD=rlec
-
-      # Pack
-      - name: Pack OSS RediSearch
-        run: make pack
-      - name: Pack RediSearch Lite
-        run: make pack LITE=1
-      - name: Pack Enterprise RediSearch
-        run: make pack COORD=rlec
+      # Build & Pack
+      - name: Build and Pack RediSearch OSS
+        env:
+          REDISEARCH_MT_BUILD: 0
+          COORD: oss
+        run: make build pack
+      - name: Build and Pack RediSearch Lite
+        env:
+          REDISEARCH_MT_BUILD: 1
+          LITE: 1
+        run: make build pack
+      - name: Build and Pack RediSearch Enterprise
+        env:
+          REDISEARCH_MT_BUILD: 1
+          COORD: rlec
+        run: make build pack
 
       # Upload
       - name: Configure AWS Credentials
