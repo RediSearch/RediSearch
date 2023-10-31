@@ -1055,7 +1055,7 @@ workflows:
           test_params: ""
           matrix:
             parameters:
-              redis_version: ["6.2", "7.0", "7.2-rc1"]
+              redis_version: ["6.2.6", "7.0", "7.2-rc1"]
       - sanitize:
           name: full-sanitize-<< matrix.san-type >>
           <<: *never
@@ -1130,7 +1130,7 @@ workflows:
           matrix:
             parameters:
               #redis_version: ["6.0", "6.2", "7.0", "7.2-rc1", "unstable"]
-              redis_version: ["6.2"]
+              redis_version: ["6.2.6"]
       - sanitize:
           name: nightly-sanitize-<< matrix.san-type >>
           test_params: ""
