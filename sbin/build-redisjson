@@ -55,7 +55,7 @@ BRANCH_NAME=$BRANCH
 [[ $BRANCH_NAME != master ]] && BRANCH_NAME=v$BRANCH
 runn git checkout $BRANCH_NAME
 runn git fetch
-runn git pull --quiet --recurse-submodules
+runn git pull --recurse-submodules origin $BRANCH_NAME
 if is_command python3; then
 	runn python3 -m pip install virtualenv
 	runn python3 -m virtualenv venv

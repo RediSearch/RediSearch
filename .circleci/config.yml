@@ -188,12 +188,12 @@ commands:
           name: Test (Search)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: make test TEST_PARALLEL=16 REJSON_BRANCH=2.6.7 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>> REDIS_VER=<<parameters.redis_version>>
+          command: make test TEST_PARALLEL=16 REJSON_BRANCH=2.4.7 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>> REDIS_VER=<<parameters.redis_version>>
       - run:
           name: Test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: make test COORD=oss TEST_PARALLEL=16 REJSON_BRANCH=2.6.7 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>> REDIS_VER=<<parameters.redis_version>>
+          command: make test COORD=oss TEST_PARALLEL=16 REJSON_BRANCH=2.4.7 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>> REDIS_VER=<<parameters.redis_version>>
       - save-tests-logs
 
   build-platforms-steps:
@@ -211,7 +211,7 @@ commands:
           command: |
             ROOT="$PWD"
             cd build/docker
-            make build OSNICK=<<parameters.platform>> REJSON_BRANCH=2.6.7 VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
+            make build OSNICK=<<parameters.platform>> REJSON_BRANCH=2.4.7 VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
             cd $ROOT
             mkdir -p tests/pytests/logs
             tar -xzf bin/artifacts/tests/tests-pytests-logs*.tgz
@@ -310,7 +310,7 @@ commands:
             VERSION=0.14.8 ./deps/readies/bin/getterraform
       - run:
           name: Prepare ReJSON Module
-          command: MODULE_FILE=bin/REJSON_PATH BRANCH=v2.6.7 ./sbin/get-redisjson
+          command: MODULE_FILE=bin/REJSON_PATH BRANCH=v2.4.7 ./sbin/get-redisjson
       - run:
           name: Run CI benchmarks on aws for envs << parameters.allowed_envs >>
           timeout: 60m
@@ -739,14 +739,14 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           command: |
             make SAN=<<parameters.san-type>> build SHOW=1
-            make REJSON_BRANCH=2.6.7 SAN=<<parameters.san-type>> test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.test_params>>
+            make REJSON_BRANCH=2.4.7 SAN=<<parameters.san-type>> test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.test_params>>
           no_output_timeout: 30m
       - run:
           name: Build & test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
           command: |
             make SAN=<<parameters.san-type>> COORD=oss build SHOW=1
-            make REJSON_BRANCH=2.6.7 SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.test_params>>
+            make REJSON_BRANCH=2.4.7 SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.test_params>>
           no_output_timeout: 30m
       - run:
           name: Check tests results
