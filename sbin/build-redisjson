@@ -51,7 +51,9 @@ if [[ ! -d RedisJSON ]]; then
 fi
 
 $OP cd RedisJSON
-runn git checkout $BRANCH
+BRANCH_NAME=$BRANCH
+[[ $BRANCH_NAME != master ]] && $BRANCH_NAME=v$BRANCH
+runn git checkout $BRANCH_NAME
 runn git fetch
 runn git pull --quiet --recurse-submodules
 if is_command python3; then

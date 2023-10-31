@@ -739,14 +739,14 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           command: |
             make SAN=<<parameters.san-type>> build SHOW=1
-            REJSON_BRANCH=2.6.7 make SAN=<<parameters.san-type>> test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.test_params>>
+            make REJSON_BRANCH=2.6.7 SAN=<<parameters.san-type>> test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.test_params>>
           no_output_timeout: 30m
       - run:
           name: Build & test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
           command: |
             make SAN=<<parameters.san-type>> COORD=oss build SHOW=1
-            REJSON_BRANCH=2.6.7 make SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.test_params>>
+            make REJSON_BRANCH=2.6.7 SAN=<<parameters.san-type>> COORD=oss test TEST_PARALLEL=16 SHOW=1 NOFAIL=1 CLEAR_LOGS=0 <<parameters.test_params>>
           no_output_timeout: 30m
       - run:
           name: Check tests results
