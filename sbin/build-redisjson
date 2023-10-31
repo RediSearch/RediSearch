@@ -52,7 +52,7 @@ fi
 
 $OP cd RedisJSON
 BRANCH_NAME=$BRANCH
-[[ $BRANCH_NAME != master ]] && $BRANCH_NAME=v$BRANCH
+[[ $BRANCH_NAME != master ]] && BRANCH_NAME=v$BRANCH
 runn git checkout $BRANCH_NAME
 runn git fetch
 runn git pull --quiet --recurse-submodules
