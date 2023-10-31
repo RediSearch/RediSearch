@@ -211,7 +211,7 @@ commands:
           command: |
             ROOT="$PWD"
             cd build/docker
-            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
+            make build OSNICK=<<parameters.platform>> REJSON_BRANCH=2.6.7 VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH TEST=1 OFFICIAL=1 SHOW=1 VERBOSE=1
             cd $ROOT
             mkdir -p tests/pytests/logs
             tar -xzf bin/artifacts/tests/tests-pytests-logs*.tgz
