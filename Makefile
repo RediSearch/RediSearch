@@ -56,7 +56,7 @@ make pytest        # run python tests (tests/pytests)
   SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
   ONLY_STABLE=1      # skip unstable tests
   TEST_PARALLEL=n    # test parallalization
-  REDIS_VER=7    	 # redis version to run against
+  REDIS_VER=6    	 # redis version to run against
 
 make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
