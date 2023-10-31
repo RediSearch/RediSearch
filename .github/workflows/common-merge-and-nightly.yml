@@ -135,7 +135,6 @@ jobs:
       test-config: CONFIG=${{ matrix.test-config }}
       standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
       coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
-      pre-steps-script: ${{ matrix.pre-steps }}
 
   ### End of Linux Flows - Ugly workaround for the lack of workflow call depth of >= 5 ###
 
