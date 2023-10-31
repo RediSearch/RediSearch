@@ -1191,8 +1191,10 @@ workflows:
           <<: *always
 
   nightly:
-    when:
-      << pipeline.parameters.run_default_flow >>
+    triggers:
+      - schedule:
+          cron: "20 17 * * 0,3"
+          <<: *on-integ-branch-cron
     jobs:
       - build-linux-debian:
           name: build-with-redis-<<matrix.redis_version>>
