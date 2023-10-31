@@ -11,7 +11,7 @@ on:
 
 jobs:
   pr-validation:
-    uses: ./.github/workflows/common-flow-host.yml
+    uses: ./.github/workflows/common-flow-tests.yml
     with:
       env: ubuntu-latest
       test-config: QUICK=1

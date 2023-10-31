@@ -53,7 +53,7 @@ jobs:
 
   run:
     needs: start-runner # required to start the main job when the runner is ready
-    uses: ./.github/workflows/common-flow-container.yml
+    uses: ./.github/workflows/common-flow-tests.yml
     secrets: inherit
     with:
       env: ${{ needs.start-runner.outputs.label }}
