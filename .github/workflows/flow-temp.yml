@@ -5,5 +5,14 @@ on:
     branches-ignore: ['*'] # ignore all branches
 
 jobs:
-  macos:
-    uses: ./.github/workflows/flow-macos.yml
+  test-container:
+    secrets: inherit
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    with:
+      container: ubuntu:20.04
+
+  test-macos:
+    secrets: inherit
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    with:
+      env: macos-11

@@ -7,7 +7,6 @@ on:
         default: "ubuntu-latest"
         type: string
       container:
-        required: true
         type: string
       pre-steps-script:
         type: string
