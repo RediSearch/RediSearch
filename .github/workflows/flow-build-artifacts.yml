@@ -28,10 +28,10 @@ jobs:
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script
         run: ${{ inputs.pre-steps-script }}
-      - name: Get Mode
+      - name: Get Installation Mode
         id: mode
         run: |
-          [[ -n "${{ inputs.container }}" ]] && echo "mode=''" >> $GITHUB_OUTPUT || echo "mode=sudo" >> $GITHUB_OUTPUT
+          [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
       - name: Deps checkout
         uses: actions/checkout@v3
         with:
