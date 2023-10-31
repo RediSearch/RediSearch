@@ -12,10 +12,6 @@ on:
         type: string
         description: 'Script to run before any other steps (extremely basic dependency needs only)'
 
-env:
-  SHOW: 1
-  VERBOSE: 1
-
 jobs:
   build:
     runs-on: ${{ inputs.env }}
