@@ -16,7 +16,7 @@ on:
 jobs:
   build:
     runs-on: ${{ inputs.env }}
-    container: ${{ inputs.container }}
+    container: ${{ inputs.container || null }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -25,6 +25,10 @@ jobs:
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script
         run: ${{ inputs.pre-steps-script }}
+      - name: Get Mode
+        id: mode
+        run: |
+          [[ -n "${{ inputs.container }}" ]] && echo "mode=''" >> $GITHUB_OUTPUT || echo "mode=sudo" >> $GITHUB_OUTPUT
       - name: Deps checkout
         uses: actions/checkout@v3
         with:
@@ -33,7 +37,7 @@ jobs:
             set-safe-directory: .. # In preparation for the next full checkout
       - name: Setup
         working-directory: setup/.install
-        run: ./install_script.sh
+        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
       - name: Full checkout
         uses: actions/checkout@v3
         with:
@@ -66,5 +70,5 @@ jobs:
           aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
-      - name: Upload Artifacts
-        run: make upload-artifacts STAGING=1 VERBOSE=1
+      # - name: Upload Artifacts
+      #   run: make upload-artifacts STAGING=1 VERBOSE=1
