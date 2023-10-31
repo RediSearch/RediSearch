@@ -271,6 +271,9 @@ REJSON_BINDIR=$(ROOT)/bin/$(PLATFORM_TRI)/RedisJSON
 ifneq ($(REJSON),0)
 export REJSON_BRANCH=master
 
+ifeq ($(REDIS_VER),)  # default is 6
+REJSON_BRANCH=2.4
+endif
 ifeq ($(REDIS_VER), 6)
 REJSON_BRANCH=2.4
 endif
