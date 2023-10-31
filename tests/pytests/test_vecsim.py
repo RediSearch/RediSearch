@@ -335,7 +335,7 @@ def test_create():
         expected_HNSW = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024 if MT_BUILD else 0, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'HNSW', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'EPSILON', '0.01', 'NUMBER_OF_MARKED_DELETED', 0], 'TIERED_HNSW_SWAP_JOBS_THRESHOLD', 1024]
         expected_FLAT = ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024]
 
-        for _ in env.retry_with_rdb_reload():
+        for _ in env.reloadingIterator():
             info = [['identifier', 'v_HNSW', 'attribute', 'v_HNSW', 'type', 'VECTOR']]
             assertInfoField(env, 'idx1', 'attributes', info)
             info_data_HNSW = conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx1", "v_HNSW")
@@ -552,7 +552,7 @@ def test_with_fields():
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
     load_vectors_with_texts_into_redis(conn, 'v', dimension, qty)
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         query_data = np.float32(np.random.random((1, dimension)))
         res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN 100 @v $vec_param AS score]',
@@ -1054,7 +1054,7 @@ def test_single_entry():
     vector = np.random.rand(1, dimension).astype(np.float32)
     conn.execute_command('HSET', 0, 'v', vector.tobytes())
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]',
                 'SORTBY', '__v_score',
@@ -1094,7 +1094,7 @@ def test_hybrid_query_adhoc_bf_mode():
                         '20', ['__v_score', '819200', 't', 'other'],
                         '10', ['__v_score', '1036800', 't', 'other']]
 
-        for _ in env.retry_with_rdb_reload():
+        for _ in env.reloadingIterator():
             waitForIndex(env, 'idx')
             execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't',
                                  hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res)
@@ -1778,7 +1778,7 @@ def test_index_multi_value_json():
             expected_res_range.append([score_field_name, '0'])
         expected_res_range.insert(0, int(len(expected_res_range)/2))
 
-        for _ in env.retry_with_rdb_reload():
+        for _ in env.reloadingIterator():
             waitForIndex(env, 'idx')
             info = index_info(env, 'idx')
             env.assertEqual(info['num_docs'], info_type(n))
