@@ -135,7 +135,7 @@ jobs:
         OS: ${{ fromJson(needs.get-required-envs.outputs.platforms_x86) }}
         include: ${{ fromJson(needs.get-required-envs.outputs.include_x86) }}
       fail-fast: false
-    uses: ./.github/workflows/common-flow-container.yml
+    uses: ./.github/workflows/common-flow-tests.yml
     secrets: inherit
     with:
       get-redis: ${{ inputs.redis-ref }}

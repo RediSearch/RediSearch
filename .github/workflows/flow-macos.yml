@@ -24,7 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: [macos-11] #, macos-13-xlarge] # macos-13-xlarge has M1 chip
-    uses: ./.github/workflows/common-flow-host.yml
+    uses: ./.github/workflows/common-flow-tests.yml
     with:
       env: ${{ matrix.arch }}
       test-config: ${{ inputs.test-config }}

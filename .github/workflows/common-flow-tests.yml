@@ -1,4 +1,4 @@
-name: default (common) flow for host runner
+name: default (common) flow for container runs
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
@@ -6,7 +6,9 @@ on:
   workflow_call:
     inputs:
       env:
-        required: true
+        default: "ubuntu-latest"
+        type: string
+      container:
         type: string
       san:
         type: string
@@ -28,13 +30,12 @@ on:
         description: 'Script to run before any other steps (extremely basic dependency needs only)'
 
 env:
-  MODE: "sudo"
   REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
 
 jobs:
   common-flow:
     runs-on: ${{ inputs.env }}
-# From this point on, this file should be identical to the other common flow.
+    container: ${{ inputs.container || null }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -42,6 +43,10 @@ jobs:
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script
         run: ${{ inputs.pre-steps-script }}
+      - name: Get Installation Mode
+        id: mode
+        run: |
+          [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=''" >> $GITHUB_OUTPUT
       - name: Deps checkout
         uses: actions/checkout@v3
         with:
@@ -50,7 +55,7 @@ jobs:
             set-safe-directory: .. # In preparation for the next full checkout
       - name: Setup
         working-directory: setup/.install
-        run: ./install_script.sh ${{ env.MODE }}
+        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
       - name: Full checkout
         uses: actions/checkout@v3
         with:
@@ -69,7 +74,7 @@ jobs:
       - name: Build Redis
         if: inputs.get-redis
         working-directory: redis
-        run: ${{ env.MODE }} make install BUILD_TLS=yes
+        run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes
 
       - name: Decide if to continue after failure
         id: continue-on-error
