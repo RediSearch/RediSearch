@@ -186,16 +186,15 @@ setup_clang_sanitizer() {
 				eprint "BINROOT is not set - cannot build RedisJSON"
 				exit 1
 			fi
-			if [[ ! -f $BINROOT/RedisJSON/rejson.so ]]; then
+			if [[ ! -f $BINROOT/RedisJSON/$(REJSON_BRANCH)/rejson.so ]]; then
 				echo Building RedisJSON ...
-				# BINROOT=$BINROOT/RedisJSON $ROOT/sbin/build-redisjson
 				export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)
-				$ROOT/sbin/build-redisjson
+				BRANCH=$(REJSON_BRANCH) $ROOT/sbin/build-redisjson
 				REJSON_MODULE=$(cat $MODULE_FILE)
 				RLTEST_REJSON_ARGS="--module $REJSON_MODULE --module-args '$REJSON_MODARGS'"
 				XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_MODARGS"
 			fi
-			export REJSON_PATH=$BINROOT/RedisJSON/rejson.so
+			export REJSON_PATH=$BINROOT/RedisJSON/$(REJSON_BRANCH)/rejson.so
 		elif [[ ! -f $REJSON_PATH ]]; then
 			eprint "REJSON_PATH is set to '$REJSON_PATH' but does not exist"
 			exit 1

@@ -109,7 +109,7 @@ if [[ $OSS == 1 && -z $REPO_PATH ]]; then
 	fi
 fi
 
-DEST_DIR="$ROOT/bin/$($READIES/bin/platform -t)/RedisJSON"
+DEST_DIR="$ROOT/bin/$($READIES/bin/platform -t)/RedisJSON/${BRANCH}"
 
 if [[ -n $MODULE_FILE ]]; then
 	echo "${DEST_DIR}/rejson.so" > $MODULE_FILE

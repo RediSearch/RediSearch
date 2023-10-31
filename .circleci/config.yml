@@ -180,17 +180,20 @@ commands:
       test_params:
         type: string
         default: ""
+      redis_version:
+        type: string
+        default: "6"
     steps:
       - run:
           name: Test (Search)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: make test TEST_PARALLEL=16 REJSON_BRANCH=2.6.7 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
+          command: make test TEST_PARALLEL=16 REJSON_BRANCH=2.6.7 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>> REDIS_VER=<<parameters.redis_version>>
       - run:
           name: Test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: make test COORD=oss TEST_PARALLEL=16 REJSON_BRANCH=2.6.7 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>>
+          command: make test COORD=oss TEST_PARALLEL=16 REJSON_BRANCH=2.6.7 CLEAR_LOGS=0 SHOW=1 <<parameters.test_params>> REDIS_VER=<<parameters.redis_version>>
       - save-tests-logs
 
   build-platforms-steps:
