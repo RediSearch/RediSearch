@@ -295,7 +295,7 @@ int synonymUpdateFanOutReducer(struct MRCtx *mc, int count, MRReply **replies) {
   MR_Map(mrctx, synonymAllOKReducer, cg, false);
   cg.Free(cg.ctx);
 
-  // we need to call request complete here manualy since we did not unblocked the client
+  // we need to call request complete here manually since we did not unblock the client
   MR_requestCompleted();
   return REDISMODULE_OK;
 }
@@ -775,7 +775,7 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
   if (!res->id) {
     return res;
   }
-  // parse socre
+  // parse score
   if (explainScores) {
     MRReply *scoreReply = MRReply_ArrayElement(arr, j + scoreOffset);
     if (MRReply_Type(scoreReply) != MR_REPLY_ARRAY) {
@@ -1163,10 +1163,7 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
   if (arr == NULL) {
     return;
   }
-  if (MRReply_Type(arr) == MR_REPLY_ERROR) {
-    rCtx->lastError = arr;
-    return;
-  }
+  // Fix condition to look at first element if array, 'error' element if map
 
   bool resp3 = MRReply_Type(arr) == MR_REPLY_MAP;
   if (!resp3 && (MRReply_Type(arr) != MR_REPLY_ARRAY || MRReply_Length(arr) == 0)) {
@@ -1178,6 +1175,8 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
 
   if (resp3) // RESP3
   {
+    // TODO: Add a check for an error, and set rCtx->lastError
+
     MRReply *total_results = MRReply_MapElement(arr, "total_results");
     if (!total_results) {
       rCtx->errorOccured = true;
@@ -1200,6 +1199,8 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
   }
   else // RESP2
   {
+    // TODO: Add a check for an error, and set rCtx->lastError
+
     // first element is always the total count
     rCtx->totalReplies += MRReply_Integer(MRReply_ArrayElement(arr, 0));
     size_t len = MRReply_Length(arr);
@@ -1497,6 +1498,17 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     goto cleanup;
   }
 
+  /* TODO
+  1. Check if one of the replies contains an error (first element of array, 'error' element of map)
+  2. If true, and the timeout policy if FAIL --> Reply with the error.
+  3. Otherwise (true or false)
+
+  OR
+
+  Do this in `processSearchReply` or the postProcess method (add a new one).
+  The current main suspect is `processSearchReply`!
+  */
+
   if (MRReply_Type(*replies) == MR_REPLY_ERROR) {
     res = MR_ReplyWithMRReply(reply, *replies);
     goto cleanup;
@@ -1563,7 +1575,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   if (!profile) {
     RedisModule_Reply_Map(reply);
-      sendSearchResults(reply, &rCtx);
+    sendSearchResults(reply, &rCtx);
     RedisModule_Reply_MapEnd(reply);
   } else {
     postProccessTime = clock();
