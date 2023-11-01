@@ -71,10 +71,10 @@ jobs:
   get-required-envs:
     runs-on: ubuntu-latest
     outputs:
-      platforms_arm: ${{ steps.get_platforms.outputs.arm-platforms }}
-      platforms_x86: ${{ steps.get_platforms.outputs.x86-platforms }}
-      include_arm: ${{ steps.get_platforms.outputs.arm-include }}
-      include_x86: ${{ steps.get_platforms.outputs.x86-include }}
+      platforms_arm: ${{ steps.get_platforms.outputs.arm_platforms }}
+      platforms_x86: ${{ steps.get_platforms.outputs.x86_platforms }}
+      include_arm: ${{ steps.get_platforms.outputs.arm_include }}
+      include_x86: ${{ steps.get_platforms.outputs.x86_include }}
     steps:
       - name: Get platform
         id: get_platforms
@@ -82,49 +82,53 @@ jobs:
         run: |
           import os
 
+          x86_platforms = []
+          arm_platforms = []
           requested_platform = '${{ inputs.platform }}'
           requested_arch = '${{ inputs.architecture }}'
+          def needs_arch(arch):
+            return requested_arch in ['all', arch]
 
-          # Get the platforms to build on (set `x86-platforms` and `arm-platforms`)
+          # Get the platforms to build on (set `x86_platforms` and `arm_platforms`)
           if requested_platform == 'all':
-            x86-platforms = ${{ fromJson(env.ALL_X86_IMAGES) }} if requested_arch == 'all' or requested_arch == 'x86_64'  else []
-            arm-platforms = ${{ fromJson(env.ALL_ARM_IMAGES) }} if requested_arch == 'all' or requested_arch == 'aarch64' else []
+            x86_platforms = ${{ fromJson(env.ALL_X86_IMAGES) }} if needs_arch('x86_64')  else []
+            arm_platforms = ${{ fromJson(env.ALL_ARM_IMAGES) }} if needs_arch('aarch64') else []
           else:
-            if requested_arch == 'all' or requested_arch == 'x86_64':
-              x86-platforms = [requested_platform] if requested_platform in ${{ fromJson(env.ALL_X86_IMAGES) }} else []
-            if requested_arch == 'all' or requested_arch == 'aarch64':
-              arm-platforms = [requested_platform] if requested_platform in ${{ fromJson(env.ALL_ARM_IMAGES) }} else []
+            if requested_platform in ${{ fromJson(env.ALL_X86_IMAGES) }} and needs_arch('x86_64'):
+              x86_platforms = [requested_platform]
+            if requested_platform in ${{ fromJson(env.ALL_ARM_IMAGES) }} and needs_arch('aarch64'):
+              arm_platforms = [requested_platform]
 
           # Generate warnings/errors if requested combination is not supported
           if requested_platform is not 'all':
-            if (requested_arch == 'x86_64'  and requested_platform not in x86-platforms) or \
-               (requested_arch == 'aarch64' and requested_platform not in arm-platforms):
+            if (requested_arch == 'x86_64'  and requested_platform not in x86_platforms) or \
+               (requested_arch == 'aarch64' and requested_platform not in arm_platforms):
               print(f"::error title='Unsupported Combination'::Requested platform {requested_platform} is not supported on {requested_arch}")
               exit(1)
             if requested_arch == 'all':
-              if requested_platform not in x86-platforms + arm-platforms:
+              if requested_platform not in x86_platforms + arm_platforms:
                 print(f"::error title='Unsupported Combination'::Requested platform {requested_platform} is not supported on any architecture")
                 exit(1)
-              elif requested_platform not in arm-platforms or requested_platform not in x86-platforms:
-                unsupported_arch = 'aarch64' if requested_platform not in arm-platforms else 'x86_64'
+              elif requested_platform not in arm_platforms or requested_platform not in x86_platforms:
+                unsupported_arch = 'aarch64' if requested_platform not in arm_platforms else 'x86_64'
                 print(f"::warning title='Unsupported Combination'::Requested platform {requested_platform} is not supported on {unsupported_arch}. Skipping {unsupported_arch}")
 
           # Special cases:
-          arm-include = []
-          x86-include = []
+          arm_include = []
+          x86_include = []
 
           # amazonlinux:2 needs pre-checkout dependencies
-          if x86-platforms.count('amazonlinux:2') > 0:
-            x86-include.append({
+          if x86_platforms.count('amazonlinux:2') > 0:
+            x86_include.append({
               'OS': 'amazonlinux:2',
               'pre-deps': "yum install -y tar gzip"})
 
           # Serialize the platforms to a string
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
-            print(f'arm-platforms={arm-platforms}', file=fh)
-            print(f'x86-platforms={x86-platforms}', file=fh)
-            print(f'arm-include={arm-include}', file=fh)
-            print(f'x86-include={x86-include}', file=fh)
+            print(f'arm_platforms={arm_platforms}', file=fh)
+            print(f'x86_platforms={x86_platforms}', file=fh)
+            print(f'arm_include={arm_include}', file=fh)
+            print(f'x86_include={x86_include}', file=fh)
 
 
   linux-matrix-x86_64:
