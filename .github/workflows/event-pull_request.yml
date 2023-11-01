@@ -4,7 +4,7 @@ name: Pull Request Flow
 
 on:
   pull_request:
-    branches-ignore: [guyav-gha_refactor_builds] # TODO: remove
+    branches-ignore: [guyav-gha_refactor*] # TODO: remove
     paths-ignore:
       - "README.md"
       - "docs/**"
