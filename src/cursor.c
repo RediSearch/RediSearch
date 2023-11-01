@@ -13,8 +13,6 @@
 CursorList RSCursors;
 CursorList RSCursorsCoord;
 
-#define get_g_Cursors(is_coord) ((is_coord) ? &RSCursorsCoord : &RSCursors)
-
 static uint64_t curTimeNs() {
   struct timespec tv;
   clock_gettime(CLOCK_MONOTONIC, &tv);
