@@ -64,7 +64,7 @@ static RSDocumentMetadata *DocTable_GetOwn(const DocTable *t, t_docId docId) {
   DMDChain *dmdChain = &t->buckets[bucketIndex];
   DLLIST2_FOREACH(it, &dmdChain->lroot) {
     RSDocumentMetadata *dmd = DLLIST2_ITEM(it, RSDocumentMetadata, llnode);
-    
+
     if (dmd->id == docId) {
       if (dmd->flags & Document_Deleted) {
         return NULL;
@@ -97,8 +97,8 @@ int DocTable_Exists(const DocTable *t, t_docId docId) {
   }
   DLLIST2_FOREACH(it, &chain->lroot) {
     const RSDocumentMetadata *md = DLLIST2_ITEM(it, RSDocumentMetadata, llnode);
-    if (md->id == docId && !(md->flags & Document_Deleted)) {
-      return 1;
+    if (md->id == docId) {
+      return !(md->flags & Document_Deleted);
     }
   }
   return 0;

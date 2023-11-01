@@ -82,15 +82,22 @@ MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
       size_t hostlen, idlen;
       const char *host =
           RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(nd, 0), &hostlen);
-      long long port = RedisModule_CallReplyInteger(RedisModule_CallReplyArrayElement(nd, 1));
       const char *id =
           RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(nd, 2), &idlen);
+
+      const char *id_str = rm_strndup(id, idlen);
+
+      // We need to get the port using the `RedisModule_GetClusterNodeInfo` API because on 7.2
+      // invoking `cluster slot` from RM_Call will always return the none tls port.
+      // For for information refer to: https://github.com/redis/redis/pull/12233
+      int port = 0;
+      RedisModule_GetClusterNodeInfo(ctx, id_str, NULL, NULL, &port, NULL);
 
       MRClusterNode node = {
           .endpoint =
               (MREndpoint){
                   .host = rm_strndup(host, hostlen), .port = port, .auth = (clusterConfig.globalPass ? rm_strdup(clusterConfig.globalPass) : NULL) , .unixSock = NULL},
-          .id = rm_strndup(id, idlen),
+          .id = id_str,
           .flags = MRNode_Coordinator,
       };
       // the first node in every shard is the master

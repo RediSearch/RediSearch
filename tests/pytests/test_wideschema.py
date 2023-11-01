@@ -4,7 +4,6 @@ from common import waitForIndex, arch_int_bits
 
 
 def testWideSchema(env):
-    r = env
     schema = []
     FIELDS = arch_int_bits()
     for i in range(FIELDS):
@@ -16,14 +15,14 @@ def testWideSchema(env):
         for i in range(FIELDS):
             fields.extend(('field_%d' % i, 'hello token_%d' % i))
         env.expect('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields', *fields).ok()
-    for _ in env.reloading_iterator():
-        waitForIndex(r, 'idx')
+    for _ in env.reloadingIterator():
+        waitForIndex(env, 'idx')
         for i in range(FIELDS):
 
             res = env.cmd('ft.search', 'idx', '@field_%d:token_%d' % (i, i), 'NOCONTENT')
             env.assertEqual(res[0], N)
 
-            res = r.execute_command(
+            res = env.cmd(
                 'ft.explain', 'idx', '@field_%d:token_%d' % (i, i), 'VERBATIM').strip()
             env.assertEqual('@field_%d:token_%d' % (i, i), res)
 

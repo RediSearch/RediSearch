@@ -47,25 +47,24 @@ VecSimIndex *OpenVectorIndex(IndexSpec *sp, RedisModuleString *keyName) {
   return openVectorKeysDict(sp, keyName, 1);
 }
 
-IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List results,
-                                                          bool yields_metric) {
-  size_t res_num = VecSimQueryResult_Len(results);
+IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, bool yields_metric) {
+  size_t res_num = VecSimQueryReply_Len(reply);
   if (res_num == 0) {
-    VecSimQueryResult_Free(results);
+    VecSimQueryReply_Free(reply);
     return NULL;
   }
   t_docId *docIdsList = array_new(t_docId, res_num);
   double *metricList = array_new(double, res_num);
 
   // Collect the results' id and distance and set it in the arrays.
-  VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(results);
-  while (VecSimQueryResult_IteratorHasNext(iter)) {
-    VecSimQueryResult *res = VecSimQueryResult_IteratorNext(iter);
+  VecSimQueryReply_Iterator *iter = VecSimQueryReply_GetIterator(reply);
+  while (VecSimQueryReply_IteratorHasNext(iter)) {
+    VecSimQueryResult *res = VecSimQueryReply_IteratorNext(iter);
     docIdsList = array_append(docIdsList, VecSimQueryResult_GetId(res));
     metricList = array_append(metricList, VecSimQueryResult_GetScore(res));
   }
-  VecSimQueryResult_IteratorFree(iter);
-  VecSimQueryResult_Free(results);
+  VecSimQueryReply_IteratorFree(iter);
+  VecSimQueryReply_Free(reply);
 
   // Move ownership on the arrays to the MetricIterator.
   return NewMetricIterator(docIdsList, metricList, VECTOR_DISTANCE, yields_metric);
@@ -133,11 +132,11 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
         return NULL;
       }
       qParams.timeoutCtx = &(TimeoutCtx){ .timeout = q->sctx->timeout, .counter = 0 };
-      VecSimQueryResult_List results =
+      VecSimQueryReply *results =
           VecSimIndex_RangeQuery(vecsim, vq->range.vector, vq->range.radius,
                                  &qParams, vq->range.order);
-      if (results.code == VecSim_QueryResult_TimedOut) {
-        VecSimQueryResult_Free(results);
+      if (VecSimQueryReply_GetCode(results) == VecSim_QueryReply_TimedOut) {
+        VecSimQueryReply_Free(results);
         QueryError_SetError(q->status, QUERY_TIMEDOUT, NULL);
         return NULL;
       }

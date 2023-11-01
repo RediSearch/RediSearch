@@ -229,10 +229,10 @@ def testRange(env):
         for i in range(doc_num, doc -1, -1):
             expected.append('doc:{}'.format(i))
         res = conn.execute_command('FT.SEARCH', 'idx:all', '@val:[-inf -{}]'.format(max_val), 'NOCONTENT')
-        env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected), message = '[-inf -{}]'.format(max_val))
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected), message = '[-inf -{}]'.format(max_val))
 
         res = conn.execute_command('FT.SEARCH', 'idx:all', '@val:[{} +inf]'.format(max_val), 'NOCONTENT')
-        env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected), message = '[{} +inf]'.format(max_val))
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected), message = '[{} +inf]'.format(max_val))
 
 def testDebugDump(env):
     """ Test FT.DEBUG DUMP_INVIDX and NUMIDX_SUMMARY with multi numeric values """
@@ -246,7 +246,8 @@ def testDebugDump(env):
 
     env.expect('FT.DEBUG', 'DUMP_NUMIDX' ,'idx:top', 'val').equal([[1, 2]])
     env.expect('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx:top', 'val').equal(['numRanges', 1, 'numEntries', 6,
-                                                                      'lastDocId', 2, 'revisionId', 0])
+                                                                      'lastDocId', 2, 'revisionId', 0,
+                                                                      'emptyLeaves', 0, 'RootMaxDepth', 0])
 
 def testInvertedIndexMultipleBlocks(env):
     """ Test internal addition of new inverted index blocks (beyond INDEX_BLOCK_SIZE entries)"""
@@ -274,7 +275,7 @@ def testInvertedIndexMultipleBlocks(env):
                                                                                  'arr2': [doc]}))
     expected_ids = range(1, doc_num + 1)
     res = conn.execute_command('FT.DEBUG', 'DUMP_NUMIDX' ,'idx', 'arr')
-    env.assertListEqual(set(toSortedFlatList(res)), set(expected_ids), message='DUMP_NUMIDX')
+    env.assertEqual(set(toSortedFlatList(res)), set(expected_ids), message='DUMP_NUMIDX')
 
     res = to_dict(conn.execute_command('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'arr'))
     env.assertEqual(res['numEntries'], doc_num * 2)
@@ -285,7 +286,7 @@ def testInvertedIndexMultipleBlocks(env):
     #   FT.SEARCH idx '@arr:[191 200]' NOCONTENT LIMIT 0 20
     res = conn.execute_command('FT.SEARCH', 'idx', '@arr:[{} {}]'.format(doc_num - overlap + 1, doc_num), 'NOCONTENT', 'LIMIT', '0', overlap * 2)
     expected_docs = ['doc:{}'.format(i) for i in chain(range(1, overlap + 1), range(doc_num - overlap + 1, doc_num + 1))]
-    env.assertListEqual(toSortedFlatList(res[1:]),toSortedFlatList(expected_docs), message='FT.SEARCH')
+    env.assertEqual(toSortedFlatList(res[1:]),toSortedFlatList(expected_docs), message='FT.SEARCH')
 
 
 def checkInfoAndGC(env, idx, doc_num, create, delete):
@@ -578,7 +579,7 @@ def testConsecutiveValues(env):
     env.expect('FT.SEARCH', 'idx', '@val:[-5000 -4999]', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
     env.expect('FT.SEARCH', 'idx', '@val:[5 6]', 'NOCONTENT').equal([3, 'doc:5005', 'doc:5006', 'doc:5007'])
     env.expect('FT.SEARCH', 'idx', '@val:[4999 5000]', 'NOCONTENT').equal([2, 'doc:9999', 'doc:10000'])
-    summary1 = env.execute_command('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'val')
+    summary1 = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'val')
 
     # Add values from 5000 to -5000
     # Add to the left, rebalance to the right
@@ -592,7 +593,7 @@ def testConsecutiveValues(env):
     env.expect('FT.SEARCH', 'idx', '@val:[4999 5000]', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
     env.expect('FT.SEARCH', 'idx', '@val:[-6 -5]', 'NOCONTENT').equal([3, 'doc:5005', 'doc:5006', 'doc:5007'])
     env.expect('FT.SEARCH', 'idx', '@val:[-5000 -4999]', 'NOCONTENT').equal([2, 'doc:9999', 'doc:10000'])
-    summary2 = env.execute_command('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'val')
+    summary2 = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'val')
 
     env.assertEqual(summary1, summary2)
 
@@ -609,12 +610,11 @@ def testDebugRangeTree(env):
     conn.execute_command('JSON.SET', 'doc:2', '$', json.dumps({'val': [1, 2, 3]}))
     conn.execute_command('JSON.SET', 'doc:3', '$', json.dumps({'val': [3, 4, 5]}))
 
-    env.expect('FT.DEBUG', 'DUMP_NUMIDXTREE', 'idx', 'val').equal( ['numRanges', 1, 'numEntries', 9, 'lastDocId', 3, 'revisionId', 0, 'uniqueId', 0,
-        'root', ['value', 0, 'maxDepth', 0,
-            'range', ['minVal', 1, 'maxVal', 5, 'unique_sum', 0, 'invertedIndexSize', 11, 'card', 0, 'cardCheck', 1, 'splitCard', 16,
-                'entries', ['numDocs', 3, 'lastId', 3, 'size', 1, 'values',
-                    ['value', 1, 'docId', 1, 'value', 2, 'docId', 1, 'value', 3, 'docId', 1, 'value', 1, 'docId', 2, 'value', 2, 'docId', 2, 'value', 3, 'docId', 2, 'value', 3, 'docId', 3, 'value', 4, 'docId', 3, 'value', 5, 'docId', 3]]],
-            'left', [], 'right', []]])
+    env.expect('FT.DEBUG', 'DUMP_NUMIDXTREE', 'idx', 'val').equal(['numRanges', 1, 'numEntries', 9, 'lastDocId', 3, 'revisionId', 0, 'uniqueId', 0, 'emptyLeaves', 0,
+        'root', ['range', ['minVal', str(1), 'maxVal', str(5), 'unique_sum', str(0), 'invertedIndexSize [bytes]', str(11), 'card', 0, 'cardCheck', 1, 'splitCard', 16,
+                'entries', ['numDocs', 3, 'numEntries', 9, 'lastId', 3, 'size', 1, 'blocks_efficiency (numEntries/size)', str(9), 'values',
+                    ['value', str(1), 'docId', 1, 'value', str(2), 'docId', 1, 'value', str(3), 'docId', 1, 'value', str(1), 'docId', 2, 'value', str(2), 'docId', 2, 'value', str(3), 'docId', 2, 'value', str(3), 'docId', 3, 'value', str(4), 'docId', 3, 'value', str(5), 'docId', 3]]]],
+            'Tree stats:', ['Average memory efficiency (numEntries/size)/numRanges', str(9)]])
 
 def checkUpdateNumRecords(env, is_json):
     """ Helper function for testing update of `num_records` """

@@ -46,7 +46,7 @@ def testSearchUpdatedContent(env):
     env.assertEqual(json.loads(res), json.loads(plain_val_1_raw))
 
     # Index creation
-    env.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA',
+    env.cmd('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA',
                         '$.t', 'AS', 'labelT', 'TEXT', '$.n', 'AS', 'labelN', 'NUMERIC')
     waitForIndex(env, 'idx1')
 
@@ -84,11 +84,11 @@ def testSearchUpdatedContent(env):
     env.assertEqual(res, expected)
 
     # TODO: Why does the following result look like that? (1 count and 2 arrays of result pairs)
-    res = env.execute_command('ft.aggregate', 'idx1', '*', 'LOAD', '1', 'labelT')
+    res = env.cmd('ft.aggregate', 'idx1', '*', 'LOAD', '1', 'labelT')
     env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, ['labelT', 'rex'], ['labelT', 'riceratops']]))
     env.expect('ft.aggregate', 'idx1', 're*', 'LOAD', '1', 'labelT').equal([1, ['labelT', 'rex']])
 
-    res = env.execute_command('ft.aggregate', 'idx1', '*', 'LOAD', '1', 'labelT')
+    res = env.cmd('ft.aggregate', 'idx1', '*', 'LOAD', '1', 'labelT')
 
     # Update an existing text value
     plain_text_val_3_raw = '"hescelosaurus"'
@@ -163,7 +163,7 @@ def testReturnAllTypes(env):
     # they can be returned together with other fields which are indexed)
 
     env.expect('JSON.SET', 'doc:1', '$', doc1_content).ok()
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.string', 'AS', 'string', 'TEXT')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.string', 'AS', 'string', 'TEXT')
 
     # TODO: Make sure TAG can be used as a label in "FT.SEARCH idx "*" RETURN $.t As Tag"
     pass
@@ -177,8 +177,8 @@ def testOldJsonPathSyntax(env):
 @no_msan
 def testNoContent(env):
     # Test NOCONTENT
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
-    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
+    env.cmd('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([0])
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:1'])
 
@@ -193,14 +193,14 @@ def testDocNoFullSchema(env):
 @no_msan
 def testReturnRoot(env):
     # Test NOCONTENT
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
-    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"foo"}')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
+    env.cmd('JSON.SET', 'doc:1', '$', r'{"t":"foo"}')
     env.expect('ft.search', 'idx', 'foo', 'RETURN', '1', '$').equal([1, 'doc:1', ['$', '{"t":"foo"}']])
 
 @no_msan
 def testNonEnglish(env):
     # Test json in non-English languages
-    env.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TEXT', '$.n', 'AS',
+    env.cmd('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TEXT', '$.n', 'AS',
                         'labelN', 'NUMERIC')
     japanese_value_1 = 'ドラゴン'
     japanese_doc_value_raw = r'{"t":"' + japanese_value_1 + r'","n":5}'
@@ -227,8 +227,8 @@ def testNonEnglish(env):
 def testSet(env):
     # JSON.SET (either set the entire key or a sub-value)
     # Can also do multiple changes/side-effects, such as converting an object to a scalar
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
-    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"ReJSON"}')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
+    env.cmd('JSON.SET', 'doc:1', '$', r'{"t":"ReJSON"}')
 
     res = [1, 'doc:1', ['$', '{"t":"ReJSON"}']]
     env.expect('ft.search', 'idx', 'rejson').equal(res)
@@ -239,26 +239,26 @@ def testSet(env):
 @no_msan
 def testMSet(env):
     # JSON.MSET (either set the entire keys or a sub-value of the keys)
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.details.a', 'AS', 'a', 'NUMERIC')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.details.a', 'AS', 'a', 'NUMERIC')
 
-    env.execute_command('JSON.MSET', 'doc:1', '$', r'{"t":"ReJSON", "details":{"a":1}}')
+    env.cmd('JSON.MSET', 'doc:1', '$', r'{"t":"ReJSON", "details":{"a":1}}')
     res = [1, 'doc:1', ['$', '{"t":"ReJSON","details":{"a":1}}']]
     env.expect('ft.search', 'idx', 'ReJSON').equal(res)
 
-    env.execute_command('JSON.MSET', 'doc:1', '$.details.a', r'8', 'doc:1', '$.t', r'"newReJSON"')
+    env.cmd('JSON.MSET', 'doc:1', '$.details.a', r'8', 'doc:1', '$.t', r'"newReJSON"')
     res = [1, 'doc:1', ['$', '{"t":"newReJSON","details":{"a":8}}']]
     env.expect('ft.search', 'idx', '@a:[7 9]').equal(res)
 
 @no_msan
 def testMerge(env):
     # JSON.MERGE 
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.details.a', 'AS', 'a', 'NUMERIC')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.details.a', 'AS', 'a', 'NUMERIC')
 
-    env.execute_command('JSON.MERGE', 'doc:1', '$', r'{"t":"ReJSON","details":{"a":1}}')
+    env.cmd('JSON.MERGE', 'doc:1', '$', r'{"t":"ReJSON","details":{"a":1}}')
     res = [1, 'doc:1', ['$', '{"t":"ReJSON","details":{"a":1}}']]
     env.expect('ft.search', 'idx', 'ReJSON').equal(res)
 
-    env.execute_command('JSON.MERGE', 'doc:1', '$', r'{"t":"newReJSON","details":{"a":8,"b":3}}')
+    env.cmd('JSON.MERGE', 'doc:1', '$', r'{"t":"newReJSON","details":{"a":8,"b":3}}')
     res = [1, 'doc:1', ['$', '{"t":"newReJSON","details":{"a":8,"b":3}}']]
     env.expect('ft.search', 'idx', '@a:[7 9]').equal(res)
 
@@ -267,7 +267,7 @@ def testDel(env):
     conn = getConnectionByEnv(env)
 
     # JSON.DEL and JSON.FORGET
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
     conn.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"ReJSON"}')
     conn.execute_command('JSON.SET', 'doc:2', '$', r'{"t":"RediSearch"}')
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
@@ -292,12 +292,12 @@ def testToggle(env):
 def testStrappend(env):
     # JSON.STRAPPEND
 
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
-    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"Redis"}')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
+    env.cmd('JSON.SET', 'doc:1', '$', r'{"t":"Redis"}')
     env.expect('json.get', 'doc:1', '$').equal('[{"t":"Redis"}]')
     env.expect('ft.search', 'idx', '*').equal([1, 'doc:1', ['$', '{"t":"Redis"}']])
     env.expect('ft.search', 'idx', 'Redis').equal([1, 'doc:1', ['$', '{"t":"Redis"}']])
-    env.execute_command('JSON.STRAPPEND', 'doc:1', '.t', '"Labs"')
+    env.cmd('JSON.STRAPPEND', 'doc:1', '.t', '"Labs"')
     env.expect('json.get', 'doc:1', '$').equal('[{"t":"RedisLabs"}]')
     env.expect('ft.search', 'idx', '*').equal([1, 'doc:1', ['$', '{"t":"RedisLabs"}']])
     env.expect('ft.search', 'idx', 'RedisLabs').equal([1, 'doc:1', ['$', '{"t":"RedisLabs"}']])
@@ -306,7 +306,7 @@ def testStrappend(env):
 @no_msan
 def testArrayCommands(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON',
                         'SCHEMA', '$.tag[*]', 'AS', 'tag', 'TAG')
 
     env.assertOk(conn.execute_command('JSON.SET', 'doc:1', '$', '{"tag":["foo"]}'))
@@ -433,7 +433,7 @@ def testRootValues(env):
 
 @no_msan
 def testAsTag(env):
-    res = env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
+    res = env.cmd('FT.CREATE', 'idx', 'ON', 'JSON',
                               'SCHEMA', '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', ',')
 
     env.expect('JSON.SET', 'doc:1', '$', '{"tag":"foo,bar,baz"}').ok()
@@ -453,7 +453,7 @@ def testMultiValueTag(env):
     conn = getConnectionByEnv(env)
 
     # Index with Tag for array with multi-values
-    res = env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
+    res = env.cmd('FT.CREATE', 'idx', 'ON', 'JSON',
                               'SCHEMA', '$.tag[*]', 'AS', 'tag', 'TAG', 'SEPARATOR', ',')
 
     # multivalue without a separator
@@ -485,7 +485,7 @@ def testMultiValueTag(env):
 @no_msan
 def testMultiValueTag_Recursive_Decent(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON',
                         'SCHEMA', '$..name', 'AS', 'name', 'TAG')
     conn.execute_command('JSON.SET', 'doc:1', '$', '{"name":"foo", "in" : {"name":"bar"}}')
 
@@ -496,7 +496,7 @@ def testMultiValueTag_Recursive_Decent(env):
 @no_msan
 def testMultiValueErrors(env):
     # Multi-value is unsupported with the following
-    env.execute_command('FT.CREATE', 'idxvector', 'ON', 'JSON',
+    env.cmd('FT.CREATE', 'idxvector', 'ON', 'JSON',
                         'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '3','DISTANCE_METRIC', 'L2')
 
     env.expect('JSON.SET', 'doc:1', '$', '{"text":["foo, bar","baz"],                       \
@@ -513,7 +513,7 @@ def testMultiValueErrors(env):
 
 @no_msan
 def add_values(env, number_of_iterations=1):
-    res = env.execute_command('FT.CREATE', 'games', 'ON', 'JSON',
+    res = env.cmd('FT.CREATE', 'games', 'ON', 'JSON',
                               'SCHEMA', '$.title', 'TEXT', 'SORTABLE',
                               '$.brand', 'TEXT', 'NOSTEM', 'SORTABLE',
                               )  # ,'$.description', 'AS', 'description', 'TEXT', 'price', 'NUMERIC',
@@ -614,12 +614,12 @@ def testDemo(env):
 def testIndexSeparation(env):
     # Test results from different indexes do not mix (either JSON with JSON and JSON with HASH)
     env.expect('HSET', 'hash:1', 't', 'telmatosaurus', 'n', '9', 'f', '9.72').equal(3)
-    env.execute_command('FT.CREATE', 'idxHash', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'f', 'NUMERIC')
+    env.cmd('FT.CREATE', 'idxHash', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'f', 'NUMERIC')
     waitForIndex(env, 'idxHash')
-    env.execute_command('FT.CREATE', 'idxJson', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
+    env.cmd('FT.CREATE', 'idxJson', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
     waitForIndex(env, 'idxJson')
-    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","t2":"telmatosaurus","n":9072,"flt":97.2}')
-    env.execute_command('FT.CREATE', 'idxJson2', 'ON', 'JSON', 'SCHEMA', '$.t2', 'TEXT', '$.flt', 'NUMERIC')
+    env.cmd('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","t2":"telmatosaurus","n":9072,"flt":97.2}')
+    env.cmd('FT.CREATE', 'idxJson2', 'ON', 'JSON', 'SCHEMA', '$.t2', 'TEXT', '$.flt', 'NUMERIC')
     waitForIndex(env, 'idxJson2')
 
     # FIXME: Probably a bug where HASH key is found when searching a JSON index
@@ -633,9 +633,9 @@ def testIndexSeparation(env):
 @no_msan
 def testMapProjectionAsToSchemaAs(env):
     # Test that label defined in the schema can be used in the search query
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TEXT', '$.flt', 'AS',
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TEXT', '$.flt', 'AS',
                         'labelFlt', 'NUMERIC')
-    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
+    env.cmd('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
 
     env.expect('FT.SEARCH', 'idx', '*', 'RETURN', '1', 'labelT').equal(
         [1, 'doc:1', ['labelT', 'riceratops']])  # use $.t value
@@ -643,8 +643,8 @@ def testMapProjectionAsToSchemaAs(env):
 @no_msan
 def testAsProjection(env):
     # Test RETURN and LOAD with label/alias from schema
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
-    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072","flt":97.2, "sub":{"t":"rex"}}')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
+    env.cmd('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072","flt":97.2, "sub":{"t":"rex"}}')
 
     # Test RETURN with label from schema
     env.expect('FT.SEARCH', 'idx', '*', 'RETURN', '3', '$.t', 'AS', 'txt').equal([1, 'doc:1', ['txt', 'riceratops']])
@@ -675,7 +675,7 @@ def testAsProjectionRedefinedLabel(env):
     # (different values for fields F1 and F2 were retrieved with the same label Label1)
 
     # FIXME: Handle Numeric - In the following line, change '$.n' to: 'AS', 'labelN', 'NUMERIC'
-    env.execute_command('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA',
+    env.cmd('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA',
                         '$.t', 'AS', 'labelT', 'TEXT', '$.n', 'AS', 'labelN', 'TEXT')
     conn.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072"}')
 
@@ -709,7 +709,7 @@ def testAsProjectionRedefinedLabel(env):
 @skip(msan=True)
 def testNumeric(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.n', 'AS', 'n', 'NUMERIC', "$.f", 'AS', 'f', 'NUMERIC')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.n', 'AS', 'n', 'NUMERIC', "$.f", 'AS', 'f', 'NUMERIC')
     conn.execute_command('JSON.SET', 'doc:1', '$', r'{"n":9, "f":9.72}')
     env.expect('FT.SEARCH', 'idx', '*', 'RETURN', '3', '$.n', 'AS', 'int').equal([1, 'doc:1', ['int', '9']])
     env.expect('FT.SEARCH', 'idx', '@n:[0 10]', 'RETURN', '3', '$.n', 'AS', 'int').equal([1, 'doc:1', ['int', '9']])
@@ -721,20 +721,20 @@ def testNumeric(env):
 @skip()
 def testLanguage(env):
     # TODO: Check stemming? e.g., trad is stem of traduzioni and tradurre ?
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'LANGUAGE_FIELD', '$.lang', 'SCHEMA', '$.t', 'TEXT')
-    env.execute_command('FT.CREATE', 'idx2', 'ON', 'JSON', 'LANGUAGE', 'Italian', 'SCHEMA', '$.domanda', 'TEXT')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'LANGUAGE_FIELD', '$.lang', 'SCHEMA', '$.t', 'TEXT')
+    env.cmd('FT.CREATE', 'idx2', 'ON', 'JSON', 'LANGUAGE', 'Italian', 'SCHEMA', '$.domanda', 'TEXT')
 
-    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"traduzioni", "lang":"Italian"}')
+    env.cmd('JSON.SET', 'doc:1', '$', r'{"t":"traduzioni", "lang":"Italian"}')
     env.expect('ft.search', 'idx', 'tradu*', 'RETURN', '1', '$.t' ).equal([1, 'doc:1', ['$.t', '"traduzioni"']])
 
-    env.execute_command('JSON.SET', 'doc:2', '$', r'{"domanda":"perché"}')
+    env.cmd('JSON.SET', 'doc:2', '$', r'{"domanda":"perché"}')
     env.expect('ft.search', 'idx2', 'per*', 'RETURN', '1', '$.domanda' ).equal([1, 'doc:2', ['$.domanda', '"perch\xc3\xa9"']])
 
 @skip(msan=True)
 def testDifferentType(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'hidx', 'ON', 'HASH', 'SCHEMA', '$.t', 'TEXT')
-    env.execute_command('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
+    env.cmd('FT.CREATE', 'hidx', 'ON', 'HASH', 'SCHEMA', '$.t', 'TEXT')
+    env.cmd('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
     conn.execute_command('HSET', 'doc:1', '$.t', 'hello world')
     conn.execute_command('JSON.SET', 'doc:2', '$', r'{"t":"hello world"}')
     env.expect('FT.SEARCH', 'hidx', '*', 'NOCONTENT').equal([1, 'doc:1'])
@@ -859,15 +859,15 @@ def testImplicitUNF(env):
 @no_msan
 def testNotExistField(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT')
+    env.cmd('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT')
     conn.execute_command('JSON.SET', 'doc1', '$', '{"t":"foo"}')
     env.expect('FT.SEARCH', 'idx1', '*', 'RETURN', 1, 'name').equal([1, 'doc1', []])
 
 @no_msan
 def testScoreField(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'permits1', 'ON', 'JSON', 'PREFIX', '1', 'tst:', 'SCORE_FIELD', '$._score', 'SCHEMA', '$._score', 'AS', '_score', 'NUMERIC', '$.description', 'AS', 'description', 'TEXT')
-    env.execute_command('FT.CREATE', 'permits2', 'ON', 'JSON', 'PREFIX', '1', 'tst:', 'SCORE_FIELD', '$._score', 'SCHEMA', '$.description', 'AS', 'description', 'TEXT')
+    env.cmd('FT.CREATE', 'permits1', 'ON', 'JSON', 'PREFIX', '1', 'tst:', 'SCORE_FIELD', '$._score', 'SCHEMA', '$._score', 'AS', '_score', 'NUMERIC', '$.description', 'AS', 'description', 'TEXT')
+    env.cmd('FT.CREATE', 'permits2', 'ON', 'JSON', 'PREFIX', '1', 'tst:', 'SCORE_FIELD', '$._score', 'SCHEMA', '$.description', 'AS', 'description', 'TEXT')
     env.assertOk(conn.execute_command('JSON.SET', 'tst:permit1', '$', r'{"_score":0.8, "description":"Fix the facade"}'))
     env.assertOk(conn.execute_command('JSON.SET', 'tst:permit2', '$', r'{"_score":0.7, "description":"Fix the facade"}'))
     env.assertOk(conn.execute_command('JSON.SET', 'tst:permit3', '$', r'{"_score":0.9, "description":"Fix the facade"}'))
@@ -884,7 +884,7 @@ def testScoreField(env):
 def testMOD1853(env):
     # test numeric with 0 value
     conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.sid', 'AS', 'sid', 'NUMERIC')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.sid', 'AS', 'sid', 'NUMERIC')
     env.assertOk(conn.execute_command('JSON.SET', 'json1', '$', r'{"sid":0}'))
     env.assertOk(conn.execute_command('JSON.SET', 'json2', '$', r'{"sid":1}'))
     res = [2, 'json1', ['sid', '0', '$', '{"sid":0}'], 'json2', ['sid', '1', '$', '{"sid":1}']]
@@ -899,22 +899,22 @@ def testTagArrayLowerCase(env):
     env.assertOk(conn.execute_command('JSON.SET', 'json2', '$', r'{"attributes":[{"name":"Brand2","value":"Ext,vivo"}]}'))
     res =  [1, 'json1', ['$', '{"attributes":[{"name":"Brand1","value":"Vivo"}]}']]
 
-    env.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG')
+    env.cmd('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG')
     waitForIndex(env, 'idx1')
     env.expect('FT.SEARCH', 'idx1', '@attrs:{Vivo}').equal(res)
     env.expect('FT.SEARCH', 'idx1', '@attrs:{vivo}').equal(res)
 
-    env.execute_command('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG', 'SEPARATOR', ',', '$.attributes[*].name', 'AS', 'name', 'TAG')
+    env.cmd('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG', 'SEPARATOR', ',', '$.attributes[*].name', 'AS', 'name', 'TAG')
     waitForIndex(env, 'idx2')
     env.expect('FT.SEARCH', 'idx2', '@attrs:{Vivo}', 'SORTBY', 'name', 'NOCONTENT').equal([2, 'json1', 'json2'])
     env.expect('FT.SEARCH', 'idx2', '@attrs:{vivo}', 'SORTBY', 'name', 'NOCONTENT').equal([2, 'json1', 'json2'])
 
-    env.execute_command('FT.CREATE', 'idx3', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG', 'CASESENSITIVE')
+    env.cmd('FT.CREATE', 'idx3', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG', 'CASESENSITIVE')
     waitForIndex(env, 'idx3')
     env.expect('FT.SEARCH', 'idx3', '@attrs:{Vivo}').equal(res)
     env.expect('FT.SEARCH', 'idx3', '@attrs:{vivo}').equal([0])
 
-    env.execute_command('FT.CREATE', 'idx4', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG', 'SEPARATOR', ',', 'CASESENSITIVE')
+    env.cmd('FT.CREATE', 'idx4', 'ON', 'JSON', 'SCHEMA', '$.attributes[*].value', 'AS', 'attrs', 'TAG', 'SEPARATOR', ',', 'CASESENSITIVE')
     waitForIndex(env, 'idx4')
     env.expect('FT.SEARCH', 'idx4', '@attrs:{Vivo}', 'NOCONTENT').equal([1, 'json1'])
     env.expect('FT.SEARCH', 'idx4', '@attrs:{vivo}', 'NOCONTENT').equal([1, 'json2'])
@@ -926,10 +926,10 @@ def check_index_with_null(env, idx):
                     'doc4', ['sort', '4', '$', '{"sort":4,"num":0.8,"txt":"hello","tag":"world","geo":null,"vec":[0,1]}'],
                     'doc5', ['sort', '5', '$', '{"sort":5,"num":0.8,"txt":"hello","tag":"world","geo":"1.23,4.56","vec":null}']]
 
-    res = env.execute_command('FT.SEARCH', idx, '*', 'SORTBY', "sort")
+    res = env.cmd('FT.SEARCH', idx, '*', 'SORTBY', "sort")
     env.assertEqual(res, expected, message = '{} * sort'.format(idx))
 
-    res = env.execute_command('FT.SEARCH', idx, '@sort:[1 5]', 'SORTBY', "sort")
+    res = env.cmd('FT.SEARCH', idx, '@sort:[1 5]', 'SORTBY', "sort")
     env.assertEqual(res, expected, message = '{} [1 5] sort'.format(idx))
 
     info_res = index_info(env, idx)
@@ -1084,36 +1084,74 @@ def testVector_delete(env):
 def testRedisCommands(env):
     env.skipOnCluster()
 
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
-    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
+    env.cmd('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:1'])
 
     # Test Redis COPY
     if server_version_at_least(env, "6.2.0"):
-        env.execute_command('COPY', 'doc:1', 'doc:2')
-        env.execute_command('COPY', 'doc:2', 'dos:3')
+        env.cmd('COPY', 'doc:1', 'doc:2')
+        env.cmd('COPY', 'doc:2', 'dos:3')
     else:
-        env.execute_command('JSON.SET', 'doc:2', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
-        env.execute_command('JSON.SET', 'dos:3', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
+        env.cmd('JSON.SET', 'doc:2', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
+        env.cmd('JSON.SET', 'dos:3', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
 
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
 
 
     # Test Redis DEL
-    env.execute_command('DEL', 'doc:1')
+    env.cmd('DEL', 'doc:1')
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:2'])
 
     # Test Redis RENAME
-    env.execute_command('RENAME', 'dos:3', 'doc:3')
+    env.cmd('RENAME', 'dos:3', 'doc:3')
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([2, 'doc:2', 'doc:3'])
 
     # Test Redis UNLINK
-    env.execute_command('UNLINK', 'doc:3')
+    env.cmd('UNLINK', 'doc:3')
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:2'])
 
     # Test Redis EXPIRE
     if UNSTABLE:
-        env.execute_command('PEXPIRE', 'doc:2', 1)
+        env.cmd('PEXPIRE', 'doc:2', 1)
         time.sleep(0.1)
         env.expect('JSON.GET', 'doc:1', '$').equal(None)
         env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([0])
+
+def testUpperLower():
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 3')
+    conn = getConnectionByEnv(env)
+
+    # create index
+    env.assertOk(conn.execute_command('FT.CREATE' ,'groupIdx' ,'ON', 'JSON', 'PREFIX', 1, 'group:', 'SCHEMA', '$.tags.*', 'AS', 'tags', 'TAG'))
+    waitForIndex(env, 'groupIdx')
+
+    # validate the `upper` case
+    env.assertOk(conn.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["tag1"]}'))
+    env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'upper(@tags)', 'AS', 'upp').equal([1, ['tags', '["tag1"]', 'upp', 'TAG1']])
+
+    # validate the `lower` case
+    env.assertOk(conn.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["TAG1"]}'))
+    env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'lower(@tags)', 'AS', 'low').equal([1, ['tags', '["TAG1"]', 'low', 'tag1']])
+
+    # expect the same result for multi-value case
+
+    # validate the `upper` case
+    env.assertOk(conn.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["tag1", "tag2"]}'))
+    env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'upper(@tags)', 'AS', 'upp').equal([1, ['tags', '["tag1","tag2"]', 'upp', 'TAG1']])
+
+    # validate the `lower` case
+    env.assertOk(conn.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["TAG1", "TAG2"]}'))
+    env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'lower(@tags)', 'AS', 'low').equal([1, ['tags', '["TAG1","TAG2"]', 'low', 'tag1']])
+
+no_msan
+def test_mod5608(env):
+    with env.getClusterConnectionIfNeeded() as r:
+        for i in range(10000):
+            r.execute_command("HSET", 'd%d' % i, 'id', 'id%d' % i, 'num', i)
+
+        env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'd', 'SCHEMA', 'id', 'TAG', 'num', 'NUMERIC').equal('OK')
+        waitForIndex(env, 'idx')
+        res = env.cmd('FT.AGGREGATE', 'idx', "*", 'LOAD', 1, 'num', 'WITHCURSOR', 'MAXIDLE', 1, 'COUNT', 300)
+        cursor_id = res[1]
