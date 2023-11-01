@@ -1042,19 +1042,16 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   if (arr == NULL) {
     return;
   }
+  // TODO: Refactor this to an assertion - we never enter (not covered).
   if (MRReply_Type(arr) == MR_REPLY_ERROR) {
     rCtx->lastError = arr;
     return;
   }
 
-  bool resp3;
-  if (MRReply_Type(arr) == MR_REPLY_MAP) {
-    resp3 = true;
-  } else if (MRReply_Type(arr) != MR_REPLY_ARRAY || MRReply_Length(arr) == 0) {
+  bool resp3 = MRReply_Type(arr) == MR_REPLY_MAP;
+  if (!resp3 && (MRReply_Type(arr) != MR_REPLY_ARRAY || MRReply_Length(arr) == 0)) {
     // Empty reply??
     return;
-  } else {
-    resp3 = false;
   }
 
   searchRequestCtx *req = rCtx->searchCtx;
@@ -1062,6 +1059,15 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   specialCaseCtx* reduceSpecialCaseCtxSortBy = rCtx->reduceSpecialCaseCtxSortby;
   searchResult *res;
   if (resp3) {
+    MRReply *err = MRReply_MapElement(arr, "error");
+    RS_LOG_ASSERT(err && MRReply_Type(err) == MR_REPLY_ARRAY, "invalid error record");
+    if (MRReply_Length(err) > 0) {
+      rCtx->errorOccured = true;
+      rCtx->lastError = MRReply_ArrayElement(err, 0);
+      // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
+      return;
+    }
+
     MRReply *results = MRReply_MapElement(arr, "results");
     RS_LOG_ASSERT(results && MRReply_Type(results) == MR_REPLY_ARRAY, "invalid results record");
     size_t len = MRReply_Length(results);
@@ -1091,6 +1097,15 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
 
   } else {
     size_t len = MRReply_Length(arr);
+
+    // Check for errors
+    if (MRReply_Type(MRReply_ArrayElement(arr, 0)) == MR_REPLY_ERROR) {
+      rCtx->errorOccured = true;
+      rCtx->lastError = MRReply_ArrayElement(arr, 0);
+      // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
+      return;
+    }
+
     int step = rCtx->offsets.step;
     int scoreOffset = reduceSpecialCaseCtxKnn->knn.offset;
     for (int j = 1; j < len; j += step) {
@@ -1123,7 +1138,7 @@ error:
   rCtx->cachedResult = res;
 }
 
-static void processSerchReplyResult(searchResult *res, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
+static void processSearchReplyResult(searchResult *res, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
   if (!res || !res->id) {
     RedisModule_Log(ctx, "warning", "got an unexpected argument when parsing redisearch results");
     rCtx->errorOccured = true;
@@ -1175,7 +1190,14 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
 
   if (resp3) // RESP3
   {
-    // TODO: Add a check for an error, and set rCtx->lastError
+    MRReply *err = MRReply_MapElement(arr, "error");
+    RS_LOG_ASSERT(err && MRReply_Type(err) == MR_REPLY_ARRAY, "invalid error record");
+    if (MRReply_Length(err) > 0) {
+      rCtx->errorOccured = true;
+      rCtx->lastError = MRReply_ArrayElement(err, 0);
+      // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
+      return;
+    }
 
     MRReply *total_results = MRReply_MapElement(arr, "total_results");
     if (!total_results) {
@@ -1193,17 +1215,25 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
     bool needScore = rCtx->offsets.score > 0;
     for (int i = 0; i < len; ++i) {
       searchResult *res = newResult_resp3(rCtx->cachedResult, results, i, &rCtx->offsets, rCtx->searchCtx->withExplainScores, rCtx->reduceSpecialCaseCtxSortby);
-      processSerchReplyResult(res, rCtx, ctx);
+      processSearchReplyResult(res, rCtx, ctx);
     }
     processResultFormat(&rCtx->searchCtx->format, arr);
   }
   else // RESP2
   {
     // TODO: Add a check for an error, and set rCtx->lastError
-
-    // first element is always the total count
-    rCtx->totalReplies += MRReply_Integer(MRReply_ArrayElement(arr, 0));
     size_t len = MRReply_Length(arr);
+
+    // Check for errors
+    if (MRReply_Type(MRReply_ArrayElement(arr, 0)) == MR_REPLY_ERROR) {
+      rCtx->errorOccured = true;
+      rCtx->lastError = MRReply_ArrayElement(arr, 0);
+      // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
+      return;
+    }
+
+    // first element is the total count
+    rCtx->totalReplies += MRReply_Integer(MRReply_ArrayElement(arr, 0));
 
     int step = rCtx->offsets.step;
     // fprintf(stderr, "Step %d, scoreOffset %d, fieldsOffset %d, sortKeyOffset %d\n", step,
@@ -1217,7 +1247,7 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
         break;
       }
       searchResult *res = newResult_resp2(rCtx->cachedResult, arr, j, &rCtx->offsets , rCtx->searchCtx->withExplainScores);
-      processSerchReplyResult(res, rCtx, ctx);
+      processSearchReplyResult(res, rCtx, ctx);
     }
   }
 }
@@ -1308,46 +1338,46 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
-      for (int i = 0; i < qlen && i < num; ++i) {
-        RedisModule_Reply_Map(reply); // >> result
-          searchResult *res = results[i];
+    for (int i = 0; i < qlen && i < num; ++i) {
+      RedisModule_Reply_Map(reply); // >> result
+        searchResult *res = results[i];
 
-          RedisModule_ReplyKV_StringBuffer(reply, "id", res->id, res->idLen);
+        RedisModule_ReplyKV_StringBuffer(reply, "id", res->id, res->idLen);
 
-          if (req->withScores) {
-            RedisModule_Reply_SimpleString(reply, "score");
+        if (req->withScores) {
+          RedisModule_Reply_SimpleString(reply, "score");
 
-            if (req->withExplainScores) {
-              RedisModule_Reply_Array(reply);
-                RedisModule_Reply_Double(reply, res->score);
-                MR_ReplyWithMRReply(reply, res->explainScores);
-              RedisModule_Reply_ArrayEnd(reply);
-            } else {
+          if (req->withExplainScores) {
+            RedisModule_Reply_Array(reply);
               RedisModule_Reply_Double(reply, res->score);
-            }
+              MR_ReplyWithMRReply(reply, res->explainScores);
+            RedisModule_Reply_ArrayEnd(reply);
+          } else {
+            RedisModule_Reply_Double(reply, res->score);
           }
+        }
 
-          if (req->withPayload) {
-            RedisModule_Reply_SimpleString(reply, "payload");
-            MR_ReplyWithMRReply(reply, res->payload);
-          }
+        if (req->withPayload) {
+          RedisModule_Reply_SimpleString(reply, "payload");
+          MR_ReplyWithMRReply(reply, res->payload);
+        }
 
-          if (req->withSortingKeys && req->withSortby) {
-            RedisModule_Reply_SimpleString(reply, "sortkey");
-            if (res->sortKey) {
-              RedisModule_Reply_StringBuffer(reply, res->sortKey, res->sortKeyLen);
-            } else {
-              RedisModule_Reply_Null(reply);
-            }
+        if (req->withSortingKeys && req->withSortby) {
+          RedisModule_Reply_SimpleString(reply, "sortkey");
+          if (res->sortKey) {
+            RedisModule_Reply_StringBuffer(reply, res->sortKey, res->sortKeyLen);
+          } else {
+            RedisModule_Reply_Null(reply);
           }
-          if (!req->noContent) {
-            RedisModule_ReplyKV_MRReply(reply, "extra_attributes", res->fields); // >> extra_attributes
-          }
+        }
+        if (!req->noContent) {
+          RedisModule_ReplyKV_MRReply(reply, "extra_attributes", res->fields); // >> extra_attributes
+        }
 
-          RedisModule_Reply_SimpleString(reply, "values");
-          RedisModule_Reply_EmptyArray(reply);
-        RedisModule_Reply_MapEnd(reply); // >>result
-      }
+        RedisModule_Reply_SimpleString(reply, "values");
+        RedisModule_Reply_EmptyArray(reply);
+      RedisModule_Reply_MapEnd(reply); // >>result
+    }
 
     RedisModule_Reply_ArrayEnd(reply); // >results
   }
@@ -1497,17 +1527,6 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     res = RedisModule_Reply_Error(reply, "Could not send query to cluster");
     goto cleanup;
   }
-
-  /* TODO
-  1. Check if one of the replies contains an error (first element of array, 'error' element of map)
-  2. If true, and the timeout policy if FAIL --> Reply with the error.
-  3. Otherwise (true or false)
-
-  OR
-
-  Do this in `processSearchReply` or the postProcess method (add a new one).
-  The current main suspect is `processSearchReply`!
-  */
 
   if (MRReply_Type(*replies) == MR_REPLY_ERROR) {
     res = MR_ReplyWithMRReply(reply, *replies);
