@@ -121,3 +121,38 @@ def test_error_propagation_from_shards(env):
     #   1. The language requested in the command.
     #   2. The scorer requested in the command.
     #   3. Parameters evaluation
+
+def test_timeout():
+    """Tests that timeouts are handled properly by the coordinator.
+    We check that the coordinator returns a timeout error when the timeout is
+    reached in the shards or in the coordinator itself.
+    """
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+    SkipOnNonCluster(env)
+    conn = getConnectionByEnv(env)
+
+    # Create the index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+
+    # Populate the database with 1500 * nshards documents
+    n_docs = int(1500 * env.shardsCount)
+    for i in range(n_docs):
+        conn.execute_command('HSET', i ,'t1', str(i))
+
+    # No client cursor
+    res = env.execute_command('FT.AGGREGATE', 'idx', '*',
+                'LOAD', '2', '@t1', '@__key',
+                'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
+                'groupby', '2', '@t1', '@t1exp',
+                        'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
+                'TIMEOUT', '1',)
+    # TODO: Add this once the response will be fixed to be and error instead of a string
+    # env.assertEquals(type(res[0]), ResponseError)
+    env.assertContains('Timeout limit was reached', str(res[0]))
+
+    # Client cursor mid execution
+    # If the cursor id is 0, this means there was a timeout throughout execution
+    # caught by the coordinator
+    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', '2500', 'TIMEOUT', 1)
+    env.assertEquals(cursor, 0)

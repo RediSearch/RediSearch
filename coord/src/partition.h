@@ -9,7 +9,7 @@
 
 #include <stdlib.h>
 
-/* A partitioner takes command keys and tags them according to a ssharding function matching the
+/* A partitioner takes command keys and tags them according to a sharding function matching the
  * cluster's sharding function.
  * Using a partitioner we can paste sharding tags onto redis arguments to make sure they reach
  * specific shards in the cluster, thus reducing the number of shards in the cluster to well bellow
