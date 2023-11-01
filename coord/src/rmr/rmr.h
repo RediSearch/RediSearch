@@ -73,9 +73,10 @@ extern void *MRITERATOR_DONE;
 
 #ifndef RMR_C__
 typedef struct MRIteratorCallbackCtx MRIteratorCallbackCtx;
+typedef struct MRIteratorCtx MRIteratorCtx;
 typedef struct MRIterator MRIterator;
 
-typedef int (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd);
+typedef int (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
 // Trigger all the commands in the iterator to be sent.
 // Returns true if there may be more replies to come, false if we are done.
@@ -85,13 +86,25 @@ MRReply *MRIterator_Next(MRIterator *it);
 
 MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb, void *privdata);
 
+MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
+
+MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx);
+
 int MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep);
+
+bool MRIteratorCallback_GetTimedOut(MRIteratorCtx *ctx);
+
+void MRIteratorCallback_SetTimedOut(MRIteratorCtx *ctx);
+
+void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx);
 
 int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error);
 
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx);
 
 int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx, MRCommand *cmd);
+
+MRIteratorCtx *MRIterator_GetCtx(MRIterator *it);
 
 void MRIterator_Free(MRIterator *it);
 
