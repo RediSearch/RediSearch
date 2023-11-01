@@ -1,0 +1,15 @@
+name: Merge a pull request
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  merge_group:
+    types: [checks_requested]
+
+jobs:
+  pr-validation:
+    uses: ./.github/workflows/common-merge-and-nightly.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ vars.DEFAULT_REDIS_REF }}
+      json-ref: ${{ vars.DEFAULT_REDISJSON_REF }}

@@ -8,8 +8,10 @@ on:
       container:
         required: true
         type: string
+      pre-steps-script:
+        type: string
       test-config:
-        description: 'Test configuration environment variable (e.g. "CONFIG=concurrent_write" or "QUICK=1")'
+        description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         type: string
       coordinator:
         type: boolean
@@ -17,6 +19,8 @@ on:
       standalone:
         type: boolean
         default: true
+      get-redis:
+        type: string
 
 env:
   AWS_IMAGE_ID: ami-0d8e10b4bd5d65c57  # Ubuntu 22.04 region AMI for ARM with Docker installed
@@ -33,31 +37,32 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.CI_CTO_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.CI_CTO_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.CI_CTO_AWS_REGION }}
       - name: Start EC2 runner
         id: start-ec2-runner
         uses: machulav/ec2-github-runner@v2
         with:
           mode: start
-          github-token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
+          github-token: ${{ secrets.CI_GH_P_TOKEN }}
           ec2-image-id: ${{ env.AWS_IMAGE_ID }}
           ec2-instance-type: ${{ env.AWS_INSTANCE_TYPE }}
-          subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID }}
-          security-group-id: ${{ secrets.AWS_EC2_SG_ID }}
+          subnet-id: ${{ secrets.CI_CTO_AWS_EC2_SUBNET_ID }}
+          security-group-id: ${{ secrets.CI_CTO_AWS_EC2_SG_ID }}
 
   run:
     needs: start-runner # required to start the main job when the runner is ready
-    uses: ./.github/workflows/common-flow-container.yml
+    uses: ./.github/workflows/common-flow-tests.yml
     secrets: inherit
     with:
       env: ${{ needs.start-runner.outputs.label }}
-      get-redis: true
       container: ${{ inputs.container }}
       coordinator: ${{ inputs.coordinator }}
       standalone: ${{ inputs.standalone }}
       test-config: ${{ inputs.test-config }}
+      pre-steps-script: ${{ inputs.pre-steps-script }}
+      get-redis: ${{ inputs.get-redis }}
 
   stop-runner:
     name: Stop self-hosted EC2 runner
@@ -70,13 +75,13 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.CI_CTO_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.CI_CTO_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.CI_CTO_AWS_REGION }}
       - name: Stop EC2 runner
         uses: machulav/ec2-github-runner@v2
         with:
           mode: stop
-          github-token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
+          github-token: ${{ secrets.CI_GH_P_TOKEN }}
           label: ${{ needs.start-runner.outputs.label }}
           ec2-instance-id: ${{ needs.start-runner.outputs.ec2-instance-id }}

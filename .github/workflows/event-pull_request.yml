@@ -10,11 +10,10 @@ on:
       - "licenses/**"
 
 jobs:
-  quick-test:
-    uses: ./.github/workflows/common-flow-host.yml
+  pr-validation:
+    uses: ./.github/workflows/common-flow-tests.yml
     with:
       env: ubuntu-latest
-      get-redis: true
       test-config: QUICK=1
     secrets: inherit
 
