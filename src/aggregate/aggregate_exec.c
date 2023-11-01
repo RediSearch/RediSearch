@@ -618,13 +618,16 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     QOptimizer_Iterators(req, req->optimizer);
   }
 
-  //TimedOut_WithStatus(&req->timeoutTime, status);
+  rc = TimedOut(&req->timeoutTime);
+  if (status && rc == TIMED_OUT) {
+    RedisModule_Reply _reply = RedisModule_NewReply(sctx->redisCtx), *reply = &_reply;
+    RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_TIMEDOUT));
+    return REDISMODULE_ERR;
+  }
 
   if (QueryError_HasError(status)) {
     return REDISMODULE_ERR;
   }
-
-  TimedOut_WithStatus(&req->timeoutTime, status);
 
   if (IsProfile(req)) {
     // Add a Profile iterators before every iterator in the tree
