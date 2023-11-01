@@ -4,13 +4,17 @@ name: Build on Linux Platforms
 
 # Keep aligned with the options below
 env:
-  ALL_IMAGES: "['ubuntu:jammy',
-                'ubuntu:bionic',
-                'centos:7',
-                'rockylinux:8',
-                'rockylinux:9',
-                'debian:bullseye',
-                'amazonlinux:2']"
+  ALL_X86_IMAGES: "['ubuntu:jammy',
+                    'ubuntu:focal',
+                    'ubuntu:bionic',
+                    'centos:7',
+                    'rockylinux:8',
+                    'rockylinux:9',
+                    'debian:bullseye',
+                    'amazonlinux:2']"
+  ALL_ARM_IMAGES: "['ubuntu:jammy',
+                    'ubuntu:focal',
+                    'ubuntu:bionic']"
 
 on:
   workflow_call:
@@ -20,7 +24,7 @@ on:
       architecture:
         type: string
       test-config:
-        description: 'Test configuration environment variable (e.g. "CONFIG=concurrent_write" or "QUICK=1")'
+        description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         type: string
       coordinator:
         type: boolean
@@ -35,6 +39,7 @@ on:
         options:
           - all
           - ubuntu:jammy
+          - ubuntu:focal
           - ubuntu:bionic
           - centos:7
           - rockylinux:8
@@ -48,7 +53,7 @@ on:
         options:
           - all
           - x86_64
-          - arm64
+          - aarch64
         description: 'Architecture to build on. Use "all" to build on all'
         default: all
       coordinator:
@@ -59,49 +64,105 @@ on:
         description: 'Whether to run standalone tests'
         type: boolean
         default: true
+      redis-ref:
+        type: string
 
 jobs:
   get-required-envs:
     runs-on: ubuntu-latest
     outputs:
-      platform: ${{ steps.get_platforms.outputs.platform }}
+      platforms_arm: ${{ steps.get_platforms.outputs.arm_platforms }}
+      platforms_x86: ${{ steps.get_platforms.outputs.x86_platforms }}
+      include_arm: ${{ steps.get_platforms.outputs.arm_include }}
+      include_x86: ${{ steps.get_platforms.outputs.x86_include }}
     steps:
       - name: Get platform
         id: get_platforms
+        shell: python
         run: |
-          if [ "${{ inputs.platform }}" == "all" ]; then
-            echo "platform=${{ env.ALL_IMAGES }}" >> $GITHUB_OUTPUT
-          else
-            echo "platform=['${{ inputs.platform }}']" >> $GITHUB_OUTPUT
-          fi
+          import os
+
+          x86_platforms = []
+          arm_platforms = []
+          requested_platform = '${{ inputs.platform }}'
+          requested_arch = '${{ inputs.architecture }}'
+          def needs_arch(arch):
+            return requested_arch in ['all', arch]
+
+          # Get the platforms to build on (set `x86_platforms` and `arm_platforms`)
+          if requested_platform == 'all':
+            x86_platforms = ${{ fromJson(env.ALL_X86_IMAGES) }} if needs_arch('x86_64')  else []
+            arm_platforms = ${{ fromJson(env.ALL_ARM_IMAGES) }} if needs_arch('aarch64') else []
+          else:
+            if requested_platform in ${{ fromJson(env.ALL_X86_IMAGES) }} and needs_arch('x86_64'):
+              x86_platforms = [requested_platform]
+            if requested_platform in ${{ fromJson(env.ALL_ARM_IMAGES) }} and needs_arch('aarch64'):
+              arm_platforms = [requested_platform]
+
+          # Generate warnings/errors if requested combination is not supported
+          if requested_platform is not 'all':
+            if (requested_arch == 'x86_64'  and requested_platform not in x86_platforms) or \
+               (requested_arch == 'aarch64' and requested_platform not in arm_platforms):
+              print(f"::error title='Unsupported Combination'::Requested platform {requested_platform} is not supported on {requested_arch}")
+              exit(1)
+            if requested_arch == 'all':
+              if requested_platform not in x86_platforms + arm_platforms:
+                print(f"::error title='Unsupported Combination'::Requested platform {requested_platform} is not supported on any architecture")
+                exit(1)
+              elif requested_platform not in arm_platforms or requested_platform not in x86_platforms:
+                unsupported_arch = 'aarch64' if requested_platform not in arm_platforms else 'x86_64'
+                print(f"::warning title='Unsupported Combination'::Requested platform {requested_platform} is not supported on {unsupported_arch}. Skipping {unsupported_arch}")
+
+          # Special cases:
+          arm_include = []
+          x86_include = []
+
+          # amazonlinux:2 needs pre-checkout dependencies
+          if x86_platforms.count('amazonlinux:2') > 0:
+            x86_include.append({
+              'OS': 'amazonlinux:2',
+              'pre-deps': "yum install -y tar gzip"})
+
+          # Serialize the platforms to a string
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+            print(f'arm_platforms={arm_platforms}', file=fh)
+            print(f'x86_platforms={x86_platforms}', file=fh)
+            print(f'arm_include={arm_include}', file=fh)
+            print(f'x86_include={x86_include}', file=fh)
+
 
   linux-matrix-x86_64:
     if: github.event.inputs.architecture == 'all' || github.event.inputs.architecture == 'x86_64'
     needs: get-required-envs
     strategy:
       matrix:
-        OS: ${{ fromJson(needs.get-required-envs.outputs.platform) }}
+        OS: ${{ fromJson(needs.get-required-envs.outputs.platforms_x86) }}
+        include: ${{ fromJson(needs.get-required-envs.outputs.include_x86) }}
       fail-fast: false
-    uses: ./.github/workflows/common-flow-container.yml
+    uses: ./.github/workflows/common-flow-tests.yml
     secrets: inherit
     with:
-      get-redis: true
+      get-redis: ${{ inputs.redis-ref }}
       container: ${{ matrix.OS }}
+      pre-steps-script: ${{ matrix.pre-deps }}
       coordinator: ${{ inputs.coordinator }}
       standalone: ${{ inputs.standalone }}
       test-config: ${{ inputs.test-config }}
 
-  linux-matrix-arm64:
-    if: github.event.inputs.architecture == 'all' || github.event.inputs.architecture == 'arm64'
+  linux-matrix-aarch64:
+    if: github.event.inputs.architecture == 'all' || github.event.inputs.architecture == 'aarch64'
     needs: get-required-envs
     strategy:
       matrix:
-        OS: ${{ fromJson(needs.get-required-envs.outputs.platform) }}
+        OS: ${{ fromJson(needs.get-required-envs.outputs.platforms_arm) }}
+        include: ${{ fromJson(needs.get-required-envs.outputs.include_arm) }}
       fail-fast: false
     uses: ./.github/workflows/flow-self-hosted-arm.yml
     secrets: inherit
     with:
+      get-redis: ${{ inputs.redis-ref }}
       container: ${{ matrix.OS }}
+      pre-steps-script: ${{ matrix.pre-deps }}
       coordinator: ${{ inputs.coordinator }}
       standalone: ${{ inputs.standalone }}
       test-config: ${{ inputs.test-config }}

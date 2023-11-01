@@ -11,9 +11,10 @@ on:
 
 jobs:
   clang-sanitizer:
-    uses: ./.github/workflows/common-flow-container.yml
+    uses: ./.github/workflows/common-flow-tests.yml
     with:
       container: redisfab/clang:16-x64-bullseye
       test-config: ${{ inputs.flow-config }}
+      get-redis: ''
       san: addr
     secrets: inherit
