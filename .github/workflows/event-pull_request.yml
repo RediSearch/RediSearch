@@ -28,7 +28,7 @@ jobs:
       flow-config: QUICK=1
 
   pr-validation:
-    needs: [quick-tests, coverage, sanitize]
+    needs: [basic-test, coverage, sanitize]
     runs-on: ubuntu-latest
     steps:
       - run: echo "PR Validation Passed"
