@@ -11,6 +11,7 @@ SBIN=$ROOT/sbin
 export PYTHONWARNINGS=ignore
 
 cd $ROOT
+git config --add safe.directory $ROOT
 
 #----------------------------------------------------------------------------------------------
 
@@ -36,7 +37,7 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		RAMP_VARIANT=name   RAMP variant (e.g. ramp-{name}.yml)
 
 		ARTDIR=dir          Directory in which packages are created (default: bin/artifacts)
-		
+
 		RAMP_YAML=path      RAMP configuration file path
 		RAMP_ARGS=args      Extra arguments to RAMP
 
@@ -128,7 +129,7 @@ pack_ramp() {
 		local packdir=snapshots
 		local s3base=snapshots/
 	fi
-	
+
 	local fq_package=$stem.${verspec}.zip
 	local fq_package_debug=$stem_debug.${verspec}.zip
 
@@ -147,7 +148,7 @@ pack_ramp() {
 
 		xtx_vars+=" -e NAME_$dep -e PATH_$dep -e SHA256_$dep"
 	done
-	
+
 	if [[ -n $RAMP_YAML ]]; then
 		RAMP_YAML="$(realpath $RAMP_YAML)"
 	elif [[ -z $RAMP_VARIANT ]]; then
@@ -166,7 +167,7 @@ pack_ramp() {
 	fi
 
 	runn rm -f /tmp/ramp.fname $packfile
-	
+
 	# ROOT is required so ramp will detect the right git commit
 	cd $ROOT
 	runn @ <<-EOF
@@ -224,9 +225,9 @@ pack_ramp() {
 
 pack_deps() {
 	local dep="$1"
-	
+
 	cd $ROOT
-	
+
 	local stem=${PACKAGE_NAME}.${dep}.${PLATFORM}
 	local verspec=${SEMVER}${VARIANT}
 	local fq_package=$stem.${verspec}.tgz
@@ -234,7 +235,7 @@ pack_deps() {
 	local depdir=$(cat $ARTDIR/$dep.dir)
 	local tar_path=$ARTDIR/$fq_package
 	local dep_prefix_dir=$(cat $ARTDIR/$dep.prefix)
-	
+
 	rm -f $tar_path
 	if [[ $NOP != 1 ]]; then
 		{ cd $depdir ;\
@@ -364,10 +365,10 @@ fi
 cd $ROOT
 
 if [[ $RAMP == 1 ]]; then
-	if ! command -v redis-server > /dev/null; then
-		eprint "Cannot find redis-server. Aborting."
-		exit 1
-	fi
+	# if ! command -v redis-server > /dev/null; then
+	# 	eprint "Cannot find redis-server. Aborting."
+	# 	exit 1
+	# fi
 
 	echo "# Building RAMP $RAMP_VARIANT files ..."
 
@@ -377,7 +378,7 @@ if [[ $RAMP == 1 ]]; then
 
 	[[ $RELEASE == 1 ]] && SNAPSHOT=0 pack_ramp
 	[[ $SNAPSHOT == 1 ]] && pack_ramp
-	
+
 	echo "# Done."
 fi
 
