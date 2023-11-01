@@ -210,6 +210,10 @@ void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
   sctx->flags = RS_CTX_UNSET;
 }
 
+void SearchCtx_UpdateTimeout(RedisSearchCtx *sctx, struct timespec timeoutTime) {
+  sctx->timeout = timeoutTime;
+}
+
 void SearchCtx_CleanUp(RedisSearchCtx * sctx) {
   if (sctx->key_) {
     RedisModule_CloseKey(sctx->key_);

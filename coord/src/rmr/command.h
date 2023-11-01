@@ -13,6 +13,8 @@
 #include <assert.h>
 #include <stdbool.h>
 
+typedef enum { C_READ = 0, C_DEL = 1 } MRRootCommand;
+
 /* A redis command is represented with all its arguments and its flags as MRCommand */
 typedef struct {
   /* The command args starting from the command itself */
@@ -29,13 +31,16 @@ typedef struct {
   int targetSlot;
 
   /* 0 (undetermined), 2, or 3 */
-  unsigned short protocol;
+  unsigned char protocol;
 
  /* Whether the user asked for a cursor */
   bool forCursor;
 
   /* Whether the command chain is depleted - don't resend */
   bool depleted;
+
+  // Root command for current response
+  MRRootCommand rootCommand;
 
   sds cmd;
 } MRCommand;
