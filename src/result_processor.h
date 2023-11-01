@@ -89,8 +89,6 @@ typedef struct {
   // Object which contains the error
   QueryError *err;
 
-  struct timespec startTime;
-
   RSTimeoutPolicy timeoutPolicy;
 } QueryIterator, QueryProcessingCtx;
 
@@ -251,8 +249,6 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
  *
  *******************************************************************************************************************/
 ResultProcessor *RPCounter_New();
-
-void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout);
 
 double RPProfile_GetDurationMSec(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
