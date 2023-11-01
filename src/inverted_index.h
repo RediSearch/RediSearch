@@ -167,7 +167,11 @@ typedef struct IndexReader {
   uint32_t gcMarker;
 } IndexReader;
 
-void IndexReader_OnReopen(void *privdata);
+// On Reopen callback for term index
+void TermReader_OnReopen(void *privdata);
+
+// On Reopen callback for common use
+void IndexReader_OnReopen(IndexReader *ir);
 
 /* An index encoder is a callback that writes records to the index. It accepts a pre-calculated
  * delta for encoding */
@@ -230,6 +234,8 @@ int IR_Next(void *ctx);
  */
 int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 
+void IR_Rewind(void *ctx);
+
 RSIndexResult *IR_Current(void *ctx);
 
 /* The number of docs in an inverted index entry */
@@ -245,6 +251,12 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
 
 static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
   return logb(1.0F + totalDocs / (termDocs ? termDocs : (double)1));
+}
+
+// IDF computation for BM25 standard scoring algorithm (which is slightly different from the regular
+// IDF computation).
+static inline double CalculateIDF_BM25(size_t totalDocs, size_t termDocs) {
+  return log(1.0F + (totalDocs - termDocs + 0.5F) / (termDocs + 0.5F));
 }
 
 #ifdef _DEBUG

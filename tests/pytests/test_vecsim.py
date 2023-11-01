@@ -5,6 +5,7 @@ from RLTest import Env
 from common import *
 from includes import *
 from random import randrange
+from redis import ResponseError
 
 
 '''************* Helper methods for vecsim tests ************'''
@@ -334,7 +335,7 @@ def test_create():
         expected_HNSW = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024 if MT_BUILD else 0, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'HNSW', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'EPSILON', '0.01', 'NUMBER_OF_MARKED_DELETED', 0], 'TIERED_HNSW_SWAP_JOBS_THRESHOLD', 1024]
         expected_FLAT = ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024]
 
-        for _ in env.retry_with_rdb_reload():
+        for _ in env.reloadingIterator():
             info = [['identifier', 'v_HNSW', 'attribute', 'v_HNSW', 'type', 'VECTOR']]
             assertInfoField(env, 'idx1', 'attributes', info)
             info_data_HNSW = conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx1", "v_HNSW")
@@ -551,7 +552,7 @@ def test_with_fields():
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
     load_vectors_with_texts_into_redis(conn, 'v', dimension, qty)
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         query_data = np.float32(np.random.random((1, dimension)))
         res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN 100 @v $vec_param AS score]',
@@ -1000,15 +1001,15 @@ def test_hybrid_query_non_vector_score():
     # use TFIDF.DOCNORM scorer
     expected_res_3 = [10,
                       '100', '3', ['__v_score', '0', 't', 'other'],
-                      '91', '0.33333333333333331', ['__v_score', '10368', 't', 'text value'],
-                      '92', '0.33333333333333331', ['__v_score', '8192', 't', 'text value'],
-                      '93', '0.33333333333333331', ['__v_score', '6272', 't', 'text value'],
-                      '94', '0.33333333333333331', ['__v_score', '4608', 't', 'text value'],
-                      '95', '0.33333333333333331', ['__v_score', '3200', 't', 'text value'],
-                      '96', '0.33333333333333331', ['__v_score', '2048', 't', 'text value'],
-                      '97', '0.33333333333333331', ['__v_score', '1152', 't', 'text value'],
-                      '98', '0.33333333333333331', ['__v_score', '512', 't', 'text value'],
-                      '99', '0.33333333333333331', ['__v_score', '128', 't', 'text value']]
+                      '91', '0.5', ['__v_score', '10368', 't', 'text value'],
+                      '92', '0.5', ['__v_score', '8192', 't', 'text value'],
+                      '93', '0.5', ['__v_score', '6272', 't', 'text value'],
+                      '94', '0.5', ['__v_score', '4608', 't', 'text value'],
+                      '95', '0.5', ['__v_score', '3200', 't', 'text value'],
+                      '96', '0.5', ['__v_score', '2048', 't', 'text value'],
+                      '97', '0.5', ['__v_score', '1152', 't', 'text value'],
+                      '98', '0.5', ['__v_score', '512', 't', 'text value'],
+                      '99', '0.5', ['__v_score', '128', 't', 'text value']]
     res = env.cmd('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'TFIDF.DOCNORM', 'WITHSCORES',
                'PARAMS', 2, 'vec_param', query_data.tobytes(),
                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10)
@@ -1017,22 +1018,29 @@ def test_hybrid_query_non_vector_score():
     # Those scorers are scoring per shard.
     if not env.isCluster():
         # use BM25 scorer
-        expected_res_4 = [10, '100', '0.72815531789441912', ['__v_score', '0', 't', 'other'], '91', '0.24271843929813972', ['__v_score', '10368', 't', 'text value'], '92', '0.24271843929813972', ['__v_score', '8192', 't', 'text value'], '93', '0.24271843929813972', ['__v_score', '6272', 't', 'text value'], '94', '0.24271843929813972', ['__v_score', '4608', 't', 'text value'], '95', '0.24271843929813972', ['__v_score', '3200', 't', 'text value'], '96', '0.24271843929813972', ['__v_score', '2048', 't', 'text value'], '97', '0.24271843929813972', ['__v_score', '1152', 't', 'text value'], '98', '0.24271843929813972', ['__v_score', '512', 't', 'text value'], '99', '0.24271843929813972', ['__v_score', '128', 't', 'text value']]
+        expected_res_4 = [10, '100', '1.0489510218434552', ['__v_score', '0', 't', 'other'], '91', '0.34965034061448513', ['__v_score', '10368', 't', 'text value'], '92', '0.34965034061448513', ['__v_score', '8192', 't', 'text value'], '93', '0.34965034061448513', ['__v_score', '6272', 't', 'text value'], '94', '0.34965034061448513', ['__v_score', '4608', 't', 'text value'], '95', '0.34965034061448513', ['__v_score', '3200', 't', 'text value'], '96', '0.34965034061448513', ['__v_score', '2048', 't', 'text value'], '97', '0.34965034061448513', ['__v_score', '1152', 't', 'text value'], '98', '0.34965034061448513', ['__v_score', '512', 't', 'text value'], '99', '0.34965034061448513', ['__v_score', '128', 't', 'text value']]
         res = env.cmd('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'BM25', 'WITHSCORES',
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10)
         compare_lists(env, res, expected_res_4, delta=0.01)
 
+        # use BM25STD scorer
+        expected_res_5 = [10, '100', '2.6410360891609486', ['__v_score', '0', 't', 'other'], '91', '0.005028044957743152', ['__v_score', '10368', 't', 'text value'], '92', '0.005028044957743152', ['__v_score', '8192', 't', 'text value'], '93', '0.005028044957743152', ['__v_score', '6272', 't', 'text value'], '94', '0.005028044957743152', ['__v_score', '4608', 't', 'text value'], '95', '0.005028044957743152', ['__v_score', '3200', 't', 'text value'], '96', '0.005028044957743152', ['__v_score', '2048', 't', 'text value'], '97', '0.005028044957743152', ['__v_score', '1152', 't', 'text value'], '98', '0.005028044957743152', ['__v_score', '512', 't', 'text value'], '99', '0.005028044957743152', ['__v_score', '128', 't', 'text value']]
+        res = env.cmd('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'BM25STD', 'WITHSCORES',
+                  'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                  'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10)
+        compare_lists(env, res, expected_res_5, delta=0.01)
+
         # use DISMAX scorer
-        expected_res_5 = [10, '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value'], '100', '1', ['__v_score', '0', 't', 'other']]
+        expected_res_6 = [10, '91', '1', ['__v_score', '10368', 't', 'text value'], '92', '1', ['__v_score', '8192', 't', 'text value'], '93', '1', ['__v_score', '6272', 't', 'text value'], '94', '1', ['__v_score', '4608', 't', 'text value'], '95', '1', ['__v_score', '3200', 't', 'text value'], '96', '1', ['__v_score', '2048', 't', 'text value'], '97', '1', ['__v_score', '1152', 't', 'text value'], '98', '1', ['__v_score', '512', 't', 'text value'], '99', '1', ['__v_score', '128', 't', 'text value'], '100', '1', ['__v_score', '0', 't', 'other']]
         env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'DISMAX', 'WITHSCORES',
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_5)
+                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10).equal(expected_res_6)
 
         # use DOCSCORE scorer
         env.expect('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'DOCSCORE', 'WITHSCORES',
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
-                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_5)
+                'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_6)
 
 
 def test_single_entry():
@@ -1046,7 +1054,7 @@ def test_single_entry():
     vector = np.random.rand(1, dimension).astype(np.float32)
     conn.execute_command('HSET', 0, 'v', vector.tobytes())
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]',
                 'SORTBY', '__v_score',
@@ -1086,7 +1094,7 @@ def test_hybrid_query_adhoc_bf_mode():
                         '20', ['__v_score', '819200', 't', 'other'],
                         '10', ['__v_score', '1036800', 't', 'other']]
 
-        for _ in env.retry_with_rdb_reload():
+        for _ in env.reloadingIterator():
             waitForIndex(env, 'idx')
             execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't',
                                  hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res)
@@ -1646,7 +1654,7 @@ def test_timeout_reached():
         env.skip()
     conn = getConnectionByEnv(env)
     nshards = env.shardsCount
-    timeout_expected = 0 if env.isCluster() else 'Timeout limit was reached'
+    timeout_expected = '0' if env.isCluster() else 'Timeout limit was reached'
 
     vecsim_algorithms_and_sizes = [('FLAT', 80000 * nshards), ('HNSW', 10000 * nshards)]
     hybrid_modes = ['BATCHES', 'ADHOC_BF']
@@ -1671,7 +1679,7 @@ def test_timeout_reached():
                 res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
                                            'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
                                            'TIMEOUT', 1)
-                env.assertEqual(res[0], timeout_expected)
+                env.assertEqual(str(res[0]), timeout_expected)
             except Exception as error:
                 env.assertContains('Timeout limit was reached', str(error))
 
@@ -1697,7 +1705,7 @@ def test_timeout_reached():
                     res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
                                                'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
                                                'TIMEOUT', 1)
-                    env.assertEqual(res[0], timeout_expected)
+                    env.assertEqual(str(res[0]), timeout_expected)
                 except Exception as error:
                     env.assertContains('Timeout limit was reached', str(error))
 
@@ -1770,9 +1778,9 @@ def test_index_multi_value_json():
             expected_res_range.append([score_field_name, '0'])
         expected_res_range.insert(0, int(len(expected_res_range)/2))
 
-        for _ in env.retry_with_rdb_reload():
+        for _ in env.reloadingIterator():
             waitForIndex(env, 'idx')
-            info = conn.ft('idx').info()
+            info = index_info(env, 'idx')
             env.assertEqual(info['num_docs'], info_type(n))
             env.assertEqual(info['num_records'], info_type(n * per_doc * len(info['attributes'])))
             env.assertEqual(info['hash_indexing_failures'], info_type(0))
@@ -1809,12 +1817,12 @@ def test_bad_index_multi_value_json():
     # By default, we assume that a static path leads to a single value, so we can't index an array of vectors as multi-value
     conn.json().set(46, '.', {'vecs': [[0.46] * dim] * per_doc})
     failures += 1
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
 
     # We also don't support an array of length 1 that wraps an array for single value
     conn.json().set(46, '.', {'vecs': [[0.46] * dim]})
     failures += 1
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
 
     conn.flushall()
     failures = 0
@@ -1824,30 +1832,30 @@ def test_bad_index_multi_value_json():
     # dynamic path returns a non array type
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), 'not a vector']})
     failures += 1
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
 
     # we should NOT fail if some of the vectors are NULLs
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), None, (np.ones(dim) * 2).tolist()]})
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
-    env.assertEqual(conn.ft('idx').info()['num_records'], info_type(2))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['num_records'], info_type(2))
 
     # ...or if the path returns NULL
     conn.json().set(46, '.', {'vecs': None})
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
 
     # some of the vectors are not of the right dimension
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), np.ones(dim + 46).tolist()]})
     failures += 1
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), []]})
     failures += 1
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
 
     # some of the elements in some of vectors are not numerics
     vec = [42] * dim
     vec[-1] = 'not a number'
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), vec]})
     failures += 1
-    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
 
 
 def test_range_query_basic():

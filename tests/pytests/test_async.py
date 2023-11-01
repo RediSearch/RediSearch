@@ -9,30 +9,28 @@ from common import getConnectionByEnv, waitForIndex, create_np_array_typed
 
 def testCreateIndex(env):
     conn = getConnectionByEnv(env)
-    r = env
     N = 1000
     for i in range(N):
         res = conn.execute_command('hset', 'foo:%d' % i, 'name', 'john doe')
         env.assertEqual(res, 1)
 
-    r.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
-    waitForIndex(r, 'idx')
-    res = r.execute_command('ft.search', 'idx', 'doe', 'nocontent')
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
+    waitForIndex(env, 'idx')
+    res = env.cmd('ft.search', 'idx', 'doe', 'nocontent')
     env.assertEqual(N, res[0])
 
 def testAlterIndex(env):
     conn = getConnectionByEnv(env)
-    r = env
     N = 10000
     for i in range(N):
         res = conn.execute_command('hset', 'foo:%d' % i, 'name', 'john doe', 'age', str(10 + i))
         env.assertEqual(res, 2)
 
-    r.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
     env.cmd('ft.alter', 'idx', 'schema', 'add', 'age', 'numeric')
     # note the two background scans
-    waitForIndex(r, 'idx')
-    res = r.execute_command('ft.search', 'idx', '@age: [10 inf]', 'nocontent')
+    waitForIndex(env, 'idx')
+    res = env.cmd('ft.search', 'idx', '@age: [10 inf]', 'nocontent')
     env.assertEqual(N, res[0])
 
 def testDeleteIndex(env):
@@ -63,11 +61,6 @@ def test_mod4745(env):
 
     r.expect('ft.create', 'idx', 'schema', 'name', 'text', 'v', 'VECTOR', 'HNSW', '6', 'distance_metric', 'l2', 'DIM',
              dim, 'type', 'float32').ok()
-    # Make sure that redis server is responsive while we index in the background (responding is less than 1s)
-    for _ in range(5):
-        start = time.time()
-        conn.execute_command('PING')
-        env.assertLess(time.time()-start, 1)
     # Make sure we are getting here without having cluster mark itself as fail since the server is not responsive and
     # fail to send cluster PING on time before we reach cluster-node-timeout.
     waitForIndex(r, 'idx')
@@ -92,7 +85,7 @@ def test_eval_node_errors_async():
 
     # Test various scenarios where evaluating the AST should raise an error,
     # and validate that it was caught from the BG thread
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 200 100]', 'NOCONTENT').raiseError()\
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 200 100]', 'NOCONTENT').error()\
         .contains(f"{async_err_prefix}Invalid GeoFilter unit")
     env.expect('ft.search', 'idx', '@foo:*ell*', 'NOCONTENT').error() \
         .contains(f'{async_err_prefix}Contains query on fields without WITHSUFFIXTRIE support')

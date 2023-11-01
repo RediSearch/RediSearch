@@ -8,6 +8,8 @@
 #define _THPOOL_
 #include <stddef.h>
 
+#define DEFAULT_PRIVILEGED_THREADS_NUM 1
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -22,16 +24,19 @@ typedef enum {
   THPOOL_PRIORITY_LOW,
 } thpool_priority;
 
+// A callback to call redis log.
+typedef void (*LogFunc)(const char *, const char *, ...);
+
 /**
  * @brief  Create a new threadpool (without initializing the threads)
  *
  * @param num_threads number of threads to be created in the threadpool
+ * @param num_privileged_threads number of threads that run only high priority tasks as long as
+ * there are such tasks waiting (num_privileged_threads <= num_threads).
+ * @param log callback to be called for printing debug messages to the log
  * @return Newly allocated threadpool, or NULL if creation failed.
  */
-redisearch_threadpool redisearch_thpool_create(size_t num_threads);
-
-// A callback to call redis log.
-typedef void (*LogFunc)(const char *, const char *);
+redisearch_threadpool redisearch_thpool_create(size_t num_threads, size_t num_privileged_threads, LogFunc log);
 
 /**
  * @brief  Initialize an existing threadpool
@@ -43,14 +48,13 @@ typedef void (*LogFunc)(const char *, const char *);
  *
  *    ..
  *    threadpool thpool;                       //First we declare a threadpool
- *    thpool = thpool_create(4);               //Next we create it with 4 threads
- *    thpool_init(&thpool, logCB);             //Then we initialize the threads
+ *    thpool = thpool_create(4, 1, logCB);     //Next we create it with 4 threads (1 privileged)
+ *    thpool_init(&thpool);                  //Then we initialize the threads
  *    ..
  *
  * @param threadpool    threadpool to initialize
- * @param threadpool    callback to be called for printing debug messages to the log
  */
-void redisearch_thpool_init(redisearch_threadpool, LogFunc logCB);
+void redisearch_thpool_init(redisearch_threadpool);
 
 /**
  * @brief Add work to the job queue
@@ -165,7 +169,7 @@ typedef void (*yieldFunc)(void *);
  * @example
  *
  *    ..
- *    threadpool thpool = thpool_create(4);
+ *    threadpool thpool = thpool_create(4, 1);
  *    thpool_init(&thpool);
  *    ..
  *    // Add a bunch of work
