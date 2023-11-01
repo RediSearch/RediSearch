@@ -301,7 +301,7 @@ def testCursorOnCoordinator(env):
                     return next_command() # recursively retry
 
             # Generate the cursor and read all the results
-            res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 100)
+            res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 100, 'TIMEOUT', 5000)
             add_results(res)
             while cursor:
                 res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
@@ -330,7 +330,7 @@ def testCursorOnCoordinator(env):
                     env.assertTrue(cmd.startswith(exp), message=f'expected `{exp}` but got `{cmd}`')
                     found = True
                     break
-            env.assertTrue(found, message=f'`_FT.CURSOR READ` was not observed within {i} commands')
+            env.assertTrue(found, message=f'`_FT.CURSOR READ` was not observed within 11 commands')
             env.debugPrint(f'Found `_FT.CURSOR READ` in the {number_to_ordinal(i)} try')
 
             env.assertEqual(len(result_set), n_docs)
