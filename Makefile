@@ -24,7 +24,7 @@ make build          # compile and link
   FORCE=1             # Force CMake rerun (default)
   CMAKE_ARGS=...      # extra arguments to CMake
   VG=1                # build for Valgrind
-  SAN=type            # build with LLVM sanitizer (type=address|memory|leak|thread) 
+  SAN=type            # build with LLVM sanitizer (type=address|memory|leak|thread)
   SLOW=1              # do not parallelize build (for diagnostics)
   GCC=1               # build with GCC (default unless Sanitizer)
   CLANG=1             # build with CLang
@@ -53,10 +53,11 @@ make pytest        # run python tests (tests/pytests)
   GDB=1              # RLTest interactive debugging
   VG=1               # use Valgrind
   VG_LEAKS=0         # do not search leaks with Valgrind
-  SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
+  SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread)
   ONLY_STABLE=1      # skip unstable tests
   TEST_PARALLEL=n    # test parallalization
   REDIS_VER=6    	 # redis version to run against
+  LOG_LEVEL=<level>  # server log level (default: debug)
 
 make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
@@ -223,7 +224,7 @@ ifeq ($(OS),macos)
 _CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix)
 endif
 
-_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) 
+_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST)
 
 #----------------------------------------------------------------------------------------------
 
@@ -386,7 +387,7 @@ endif
 
 run:
 ifeq ($(WITH_RLTEST),1)
-	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) FORCE='' RLTEST= ENV_ONLY=1 \
+	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) FORCE='' RLTEST= ENV_ONLY=1 LOG_LEVEL=$(LOG_LEVEL) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 else
 ifeq ($(GDB),1)
@@ -439,7 +440,7 @@ pytest: $(REJSON_SO)
 ifneq ($(REJSON_PATH),)
 	@echo Testing with $(REJSON_PATH)
 endif
-	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
+	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) LOG_LEVEL=$(LOG_LEVEL) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
@@ -518,7 +519,7 @@ upload-artifacts:
 #----------------------------------------------------------------------------------------------
 
 ifeq ($(REMOTE),1)
-BENCHMARK_ARGS=run-remote 
+BENCHMARK_ARGS=run-remote
 else
 BENCHMARK_ARGS=run-local
 endif
