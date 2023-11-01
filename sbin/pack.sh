@@ -365,10 +365,10 @@ fi
 cd $ROOT
 
 if [[ $RAMP == 1 ]]; then
-	# if ! command -v redis-server > /dev/null; then
-	# 	eprint "Cannot find redis-server. Aborting."
-	# 	exit 1
-	# fi
+	if ! command -v redis-server > /dev/null; then
+		eprint "Cannot find redis-server. Aborting."
+		exit 1
+	fi
 
 	echo "# Building RAMP $RAMP_VARIANT files ..."
 

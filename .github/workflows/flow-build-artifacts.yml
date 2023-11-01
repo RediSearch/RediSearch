@@ -44,6 +44,17 @@ jobs:
       - name: Setup (readies)
         run: ./sbin/setup
 
+      # Get Redis
+      - name: Get Redis
+        uses: actions/checkout@v3
+        with:
+          repository: redis/redis
+          ref: ${{ vars.DEFAULT_REDIS_REF }}
+          path: redis
+      - name: Build Redis
+        working-directory: redis
+        run: ${{ steps.mode.outputs.mode }} make install
+
       # Build & Pack
       - name: Build and Pack RediSearch OSS
         env:
