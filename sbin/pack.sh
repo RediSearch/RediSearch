@@ -11,7 +11,7 @@ SBIN=$ROOT/sbin
 export PYTHONWARNINGS=ignore
 
 cd $ROOT
-git config --add safe.directory $ROOT
+git config --global --add safe.directory $ROOT
 
 #----------------------------------------------------------------------------------------------
 
