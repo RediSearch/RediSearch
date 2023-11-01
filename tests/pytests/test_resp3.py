@@ -143,6 +143,7 @@ def test_search_timeout():
     if should_skip(env):
         env.skip()
     env.skipOnCluster()
+    conn = getConnectionByEnv(env)
 
     with env.getClusterConnectionIfNeeded() as r:
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
@@ -162,9 +163,23 @@ def test_search_timeout():
 
     env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0'). \
-      contains('Timeout limit was reached')
+      error().contains('Timeout limit was reached')
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1).\
       error().contains('Timeout limit was reached')
+
+    # (coverage) Later failure than the above tests - in pipeline execution
+    # phase. For this, we need more documents in the index, such that we will
+    # fail for sure
+    num_range_2 = 40000
+    p = conn.pipeline(transaction=False)
+    for i in range(num_range, num_range_2):
+      p.execute_command('HSET', f'doc{i}', 't', f'{i}', 'geo', f"{i/10000},{i/1000}")
+    p.execute()
+
+    conn = getConnectionByEnv(env)
+    err = conn.execute_command('ft.search', 'myIdx', '*')['error'][0]
+    env.assertEquals(type(err), ResponseError)
+    env.assertContains('Timeout limit was reached', str(err))
 
 @skip(cluster=True)
 def test_profile(env):
