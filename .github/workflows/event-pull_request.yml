@@ -10,7 +10,7 @@ on:
       - "licenses/**"
 
 jobs:
-  pr-validation:
+  basic-test:
     uses: ./.github/workflows/common-flow-tests.yml
     with:
       env: ubuntu-latest
@@ -26,3 +26,9 @@ jobs:
     secrets: inherit
     with:
       flow-config: QUICK=1
+
+  pr-validation:
+    needs: [quick-tests, coverage, sanitize]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "PR Validation Passed"
