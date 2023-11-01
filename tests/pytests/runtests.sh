@@ -71,6 +71,7 @@ help() {
 		RLTEST=path|'view'    Take RLTest from repo path or from local view
 		RLTEST_DEBUG=1        Show debugging printouts from tests
 		RLTEST_ARGS=args      Extra RLTest args
+		LOG_LEVEL=<level>     Set log level (default: debug)
 
 		PARALLEL=1            Runs tests in parallel
 		SLOW=1                Do not test in parallel
@@ -152,10 +153,9 @@ setup_rltest() {
 	fi
 
 	RLTEST_ARGS+=" --enable-debug-command"
-	if [[ $LOG == 1 ]]; then
-		# Dont spam the console with debug verbosity
-		RLTEST_ARGS+=" --log-level debug"
-	fi
+
+	LOG_LEVEL=${LOG_LEVEL:-debug}
+	RLTEST_ARGS+=" --log-level ${LOG_LEVEL,,}"
 
 	if [[ $RLTEST_VERBOSE == 1 ]]; then
 		RLTEST_ARGS+=" -v"
