@@ -618,7 +618,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     QOptimizer_Iterators(req, req->optimizer);
   }
 
-  TimedOut_WithStatus(&req->timeoutTime, status);
+  //TimedOut_WithStatus(&req->timeoutTime, status);
 
   if (QueryError_HasError(status)) {
     return REDISMODULE_ERR;
