@@ -60,6 +60,8 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
   return sctx;
 }
 
+void SearchCtx_UpdateTimeout(RedisSearchCtx *sctx, struct timespec timeoutTime);
+
 void SearchCtx_CleanUp(RedisSearchCtx * sctx);
 
 void SearchCtx_Free(RedisSearchCtx *sctx);

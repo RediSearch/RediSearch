@@ -3,8 +3,7 @@ from common import *
 import bz2
 import json
 import unittest
-
-
+from redis import ResponseError
 
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
 
@@ -978,11 +977,8 @@ def testResultCounter(env):
     env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([4])
     #env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([0])
 
-def test_aggregate_timeout():
-    if VALGRIND:
-        # You don't want to run this under valgrind, it will take forever
-        raise unittest.SkipTest("Skipping timeout test under valgrind")
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+def populate_db(env):
+    """Creates an index and populates the database"""
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
     nshards = env.shardsCount
@@ -995,16 +991,37 @@ def test_aggregate_timeout():
             pipeline = conn.pipeline(transaction=False)
     pipeline.execute()
 
-    # On coordinator, we currently get a single empty result on timeout,
-    # because all the shards timed out but the coordinator doesn't report it.
-    env.expect('FT.AGGREGATE', 'idx', '*',
-               'LOAD', '2', '@t1', '@__key',
-               'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
-               'groupby', '2', '@t1', '@t1exp',
-                    'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
-               'TIMEOUT', '1',
-        ).equal( ['Timeout limit was reached'] if not env.isCluster() else [1, ['t1', None, 't1exp', None, 'keys', []]])
+def aggregate_test(protocol=2):
+    if VALGRIND:
+        # You don't want to run this under valgrind, it will take forever
+        raise unittest.SkipTest("Skipping timeout test under valgrind")
+    elif protocol not in [2, 3]:
+        # Unsupported protocol
+        raise unittest.SkipTest("Unsupported protocol")
 
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL', protocol=protocol)
+
+    populate_db(env)
+
+    res = env.execute_command('FT.AGGREGATE', 'idx', '*',
+                'LOAD', '2', '@t1', '@__key',
+                'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
+                'groupby', '2', '@t1', '@t1exp',
+                        'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
+                'TIMEOUT', '1',)
+
+    if protocol == 2:
+        env.assertEqual(type(res[0]), ResponseError)
+        env.assertEqual(str(res[0]), 'Timeout limit was reached')
+    else:
+        env.assertEqual(type(res['error'][0]), ResponseError)
+        env.assertEqual(str(res['error'][0]), 'Timeout limit was reached')
+
+def test_aggregate_timeout_resp2():
+    aggregate_test(protocol=2)
+
+def test_aggregate_timeout_resp3():
+    aggregate_test(protocol=3)
 
 def testGroupProperties(env):
     conn = getConnectionByEnv(env)
