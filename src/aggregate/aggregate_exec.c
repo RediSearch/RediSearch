@@ -344,12 +344,12 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
 
     RedisModule_ReplyKV_Array(reply, "error"); // >errors
-      if (rc == RS_RESULT_TIMEDOUT) {
-        RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_TIMEDOUT));
-      } else if (rc == RS_RESULT_ERROR) {
-        RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
-        QueryError_ClearError(req->qiter.err);
-      }
+    if (rc == RS_RESULT_TIMEDOUT) {
+      RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_TIMEDOUT));
+    } else if (rc == RS_RESULT_ERROR) {
+      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
+      QueryError_ClearError(req->qiter.err);
+    }
     RedisModule_Reply_ArrayEnd(reply); // >errors
 
     if (rc == RS_RESULT_TIMEDOUT) {
@@ -892,7 +892,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   // update timeout for current cursor read
   if (req->qiter.rootProc->type != RP_NETWORK) {
     updateTimeout(&req->timeoutTime, req->reqConfig.queryTimeoutMS);
-    updateRPIndexTimeout(req->qiter.rootProc, req->timeoutTime);
+    SearchCtx_UpdateTimeout(req->sctx, req->timeoutTime);
   }
   if (!num) {
     num = req->cursorChunkSize;
