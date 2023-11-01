@@ -11,6 +11,9 @@
 #include "redismodule.h"
 
 #include <assert.h>
+#include <stdbool.h>
+
+typedef enum { C_READ = 0, C_DEL = 1 } MRRootCommand;
 
 /* A redis command is represented with all its arguments and its flags as MRCommand */
 typedef struct {
@@ -27,16 +30,26 @@ typedef struct {
   /* if not -1, this value indicate to which slot the command should be sent */
   int targetSlot;
 
-  sds cmd;
+  /* 0 (undetermined), 2, or 3 */
+  unsigned char protocol;
 
-  int protocol; // 0 (undetermined), 2, or 3
+ /* Whether the user asked for a cursor */
+  bool forCursor;
+
+  /* Whether the command chain is depleted - don't resend */
+  bool depleted;
+
+  // Root command for current response
+  MRRootCommand rootCommand;
+
+  sds cmd;
 } MRCommand;
 
-/* Free the command and all its strings. Doesn't free the actual commmand struct, as it is usually
+/* Free the command and all its strings. Doesn't free the actual command struct, as it is usually
  * allocated on the stack */
 void MRCommand_Free(MRCommand *cmd);
 
-/* Createa a new command from an argv list of strings */
+/* Create a new command from an argv list of strings */
 MRCommand MR_NewCommandArgv(int argc, const char **argv);
 /* Variadic creation of a command from a list of strings */
 MRCommand MR_NewCommand(int argc, ...);
@@ -61,7 +74,7 @@ typedef struct {
   /* The number of commands in this generator. We must know it in advance */
   size_t (*Len)(void *ctx);
 
-  /* Next callback - should yield 0 if we are at the end, 1 if not, and put the next valud in cmd */
+  /* Next callback - should yield 0 if we are at the end, 1 if not, and put the next value in cmd */
   int (*Next)(void *ctx, MRCommand *cmd);
 
   /* Free callback - used to free the private context */
@@ -78,7 +91,7 @@ void MRCommand_Append(MRCommand *cmd, const char *s, size_t len);
 void MRCommand_AppendRstr(MRCommand *cmd, RedisModuleString *rmstr);
 
 /** Set the prefix of the command (i.e {prefix}.{command}) to a given prefix. If the command has a
- * module style prefx it gets replaced with the new prefix. If it doesn't, we prepend the prefix to
+ * module style prefix it gets replaced with the new prefix. If it doesn't, we prepend the prefix to
  * the command. */
 void MRCommand_SetPrefix(MRCommand *cmd, const char *newPrefix);
 void MRCommand_ReplaceArg(MRCommand *cmd, int index, const char *newArg, size_t len);

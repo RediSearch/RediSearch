@@ -116,7 +116,7 @@ def testInfoModulesAfterReload(env):
                                           'geo', 'GEO', 'SORTABLE', 'NOINDEX',
                                           'body', 'TAG', 'NOINDEX').ok()
 
-  for _ in env.retry_with_rdb_reload():
+  for _ in env.reloadingIterator():
     info = info_modules_to_dict(conn)
     env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
 

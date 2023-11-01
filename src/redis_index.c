@@ -210,6 +210,10 @@ void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
   sctx->flags = RS_CTX_UNSET;
 }
 
+void SearchCtx_UpdateTimeout(RedisSearchCtx *sctx, struct timespec timeoutTime) {
+  sctx->timeout = timeoutTime;
+}
+
 void SearchCtx_CleanUp(RedisSearchCtx * sctx) {
   if (sctx->key_) {
     RedisModule_CloseKey(sctx->key_);
@@ -325,7 +329,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
 
   IndexReader *ret = NewTermIndexReader(idx, ctx->spec, fieldMask, term, weight);
   if (csx) {
-    ConcurrentSearch_AddKey(csx, IndexReader_OnReopen, ret, NULL);
+    ConcurrentSearch_AddKey(csx, TermReader_OnReopen, ret, NULL);
   }
   RedisModule_FreeString(ctx->redisCtx, termKey);
   return ret;
