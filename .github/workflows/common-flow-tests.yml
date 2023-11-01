@@ -9,17 +9,14 @@ on:
         default: "ubuntu-latest"
         type: string
       container:
-        required: true
         type: string
-      container_options:
-        type: string
-        default: --cpus 2
       san:
         type: string
       get-redis:
-        type: boolean
+        type: string
+        default: ${{ vars.DEFAULT_REDIS_REF }}
       test-config:
-        description: 'Test configuration environment variable (e.g. "CONFIG=concurrent_write" or "QUICK=1")'
+        description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
         type: string
       coordinator:
@@ -28,49 +25,55 @@ on:
       standalone:
         type: boolean
         default: true
+      pre-steps-script:
+        type: string
+        description: 'Script to run before any other steps (extremely basic dependency needs only)'
 
 env:
-  MODE: "" # user mode
   REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
 
 jobs:
   common-flow:
     runs-on: ${{ inputs.env }}
-    container:
-      image: ${{ inputs.container }}
-      options: ${{ inputs.container_options }}
-# From this point on, this file should be identical to the other common flow.
+    container: ${{ inputs.container || null }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - name: Deps checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-      - run: |
-          git config --global --add safe.directory '*'
-          git submodule update --init --recursive
-      - name: Setup
-        run: ./sbin/setup
-      # TODO: use this instead
-      # - name: Deps checkout
-      # uses: actions/checkout@v4
-      # with:
-      #     sparse-checkout: .install
-      # - name: Setup
-      #   run: |
-      #     ${{env.MODE}} ./.install/install_script.sh
-      # - name: Full checkout
-      #   uses: actions/checkout@v4
-      #   with:
-      #     submodules: recursive
-      #     set-safe-directory: "'*'"
-      - name: Get Redis
-        if: ${{ inputs.get-redis }}
+      - name: Pre-steps Dependencies
+        if: inputs.pre-steps-script
+        run: ${{ inputs.pre-steps-script }}
+      - name: Get Installation Mode
+        id: mode
         run: |
-          export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-          ./deps/readies/bin/getredis --with-github-token
+          [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
+      - name: Deps checkout
+        uses: actions/checkout@v3
+        with:
+            sparse-checkout: .install
+            path: setup
+      - name: Setup
+        working-directory: setup/.install
+        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Full checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Setup (readies)
+        run: ./sbin/setup
+
+      - name: Get Redis
+        if: inputs.get-redis
+        uses: actions/checkout@v3
+        with:
+          repository: redis/redis
+          ref: ${{ inputs.get-redis }}
+          path: redis
+      - name: Build Redis
+        if: inputs.get-redis
+        working-directory: redis
+        run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes
 
       - name: Decide if to continue after failure
         id: continue-on-error
@@ -91,25 +94,27 @@ jobs:
       - name: Unit tests (standalone)
         id: test1
         if: ${{ inputs.standalone }}
-        continue-on-error: ${{ steps.continue-on-error.outputs.decision }}
+        continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
         run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (standalone)
         id: test2
         if: ${{ inputs.standalone }}
-        continue-on-error: ${{ steps.continue-on-error.outputs.decision }}
+        continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
         run: make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
       - name: Unit tests (coordinator)
         id: test3
         if: ${{ inputs.coordinator }}
-        continue-on-error: ${{ steps.continue-on-error.outputs.decision }}
+        continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
         run: make COORD=1 unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (coordinator)
         id: test4
         if: ${{ inputs.coordinator }}
-        continue-on-error: ${{ steps.continue-on-error.outputs.decision }}
+        continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
         run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
 
       - name: Upload Artifacts
+        # skip if all tests passed
+        if: failure()
         uses: actions/upload-artifact@v3
         with:
           name: Test Logs
@@ -131,6 +136,4 @@ jobs:
       - name: Fail flow if sanitizer failed
         if: ${{ inputs.san }}
         run: |
-          if [[ -n "$(ls tests/pytests/logs/*.log.* 2>/dev/null)" ]]; then
-            exit 1
-          fi
+          [[ -z $(ls tests/pytests/logs/*.log.* 2>/dev/null) ]] # Set exit code to 0 if no sanitizer logs were found, otherwise 1

@@ -1,4 +1,4 @@
-name: Common Flow for Nightly and PRs
+name: Common Flow for Nightly and PRs' Merge Queue
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
@@ -13,59 +13,148 @@ on:
         type: string
 
 jobs:
-  run-tests-on-linux:
-    strategy:
-      matrix:
-        standalone:  [true] # Set a default value
-        coordinator: [true] # Set a default value
-        test-config: # configurations for both standalone and coordinator
-          - concurrent_write
-          - max_unsorted
-          - union_iterator_heap
-          - raw_docid
-          - dialect_2
-        include: # spacial configurations
-          - test-config: global_password
-            standalone:  false
-          - test-config: safemode
-            standalone:  false
-          - test-config: tls
-            standalone:  false
+  print-configurations:
+    runs-on: ubuntu-latest
+    outputs:
+      test-configurations: ${{ steps.print-configurations.outputs.configurations }}
+      include-configurations: ${{ steps.print-configurations.outputs.includes }}
+    steps:
+      - name: Print Configurations
+        id: print-configurations
+        shell: python
+        run: |
+          import os
+          # All configurations (by default runs both standalone and coordinator)
+          configurations = [
+            'concurrent_write',
+            'max_unsorted',
+            'union_iterator_heap',
+            'raw_docid',
+            'dialect_2',
+            'global_password',
+            'safemode',
+            'tls',
+          ]
+          # Spacial configurations
+          includes = [
+            {'test-config': 'global_password', 'standalone': 'false'},
+            {'test-config': 'safemode',        'standalone': 'false'},
+            {'test-config': 'tls',             'standalone': 'false'},
+          ]
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+            print(f'configurations={configurations}', file=fh)
+            print(f'includes={includes}', file=fh)
 
-    uses: ./.github/workflows/flow-linux-platforms.yml
+  # test-linux:
+  #   needs: print-configurations
+  #   strategy:
+  #     matrix:
+  #       test-config: # configurations for both standalone and coordinator
+  #         ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
+  #       include: # spacial configurations
+  #         ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
+
+  #   uses: ./.github/workflows/flow-linux-platforms.yml
+  #   secrets: inherit
+  #   with:
+  #     platform: all
+  #     architecture: all
+  #     get-redis: ${{ inputs.redis-ref }}
+  #     test-config: CONFIG=${{ matrix.test-config }}
+  #     standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
+  #     coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
+
+  # TODO: Remove following jobs until the end mark and use the one above, once
+  #       github actions supports workflow call depth of >= 5 (currently it's 4).
+  #       In the meantime, we have to re-write the `flow-linux-platforms.yml` flow here
+  #       and maintain the list of platforms from the `flow-linux-platforms.yml` file here as well (twice).
+  test-linux-x86_64:
+    needs: print-configurations
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [
+          'ubuntu:jammy',
+          'ubuntu:focal',
+          'ubuntu:bionic',
+          'centos:7',
+          'rockylinux:8',
+          'rockylinux:9',
+          'debian:bullseye']
+        # configurations for both standalone and coordinator
+        test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
+        # spacial configurations
+        include: ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
+    uses: ./.github/workflows/common-flow-tests.yml
     secrets: inherit
     with:
-      platform: all
-      architecture: all
+      get-redis: ${{ inputs.redis-ref }}
+      container: ${{ matrix.platform }}
       test-config: CONFIG=${{ matrix.test-config }}
-      standalone: ${{ matrix.standalone }}
-      coordinator: ${{ matrix.coordinator }}
+      standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
+      coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
 
-  run-tests-on-macos:
+  test-linux-x86_64-amazonlinux2:
+    needs: print-configurations
     strategy:
+      fail-fast: false
       matrix:
-        standalone:  [true] # Set a default value
-        coordinator: [true] # Set a default value
-        test-config: # configurations for both standalone and coordinator
-          - concurrent_write
-          - max_unsorted
-          - union_iterator_heap
-          - raw_docid
-          - dialect_2
-        include: # spacial configurations
-          - test-config: global_password
-            standalone:  false
-          - test-config: safemode
-            standalone:  false
-          - test-config: tls
-            standalone:  false
+        # configurations for both standalone and coordinator
+        test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
+        # spacial configurations
+        include: ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
+    uses: ./.github/workflows/common-flow-tests.yml
+    secrets: inherit
+    with:
+      get-redis: ${{ inputs.redis-ref }}
+      container: amazonlinux:2
+      pre-steps-script: yum install -y tar gzip
+      test-config: CONFIG=${{ matrix.test-config }}
+      standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
+      coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
+
+  test-linux-arm64:
+    needs: print-configurations
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [
+          'ubuntu:jammy',
+          'ubuntu:focal',
+          'ubuntu:bionic']
+        # configurations for both standalone and coordinator
+        test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
+        # spacial configurations
+        include: ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
+
+    uses: ./.github/workflows/flow-self-hosted-arm.yml
+    secrets: inherit
+    with:
+      get-redis: ${{ inputs.redis-ref }}
+      container: ${{ matrix.platform }}
+      test-config: CONFIG=${{ matrix.test-config }}
+      standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
+      coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
+
+  ### End of Linux Flows - Ugly workaround for the lack of workflow call depth of >= 5 ###
+
+  test-macos:
+    needs: print-configurations
+    strategy:
+      fail-fast: false
+      matrix:
+        # configurations for both standalone and coordinator
+        test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
+        # spacial configurations
+        include: ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
 
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
+      redis-ref: ${{ inputs.redis-ref }}
       test-config: CONFIG=${{ matrix.test-config }}
-      standalone: ${{ matrix.standalone }}
-      coordinator: ${{ matrix.coordinator }}
+      standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
+      coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
 
   coverage:
     uses: ./.github/workflows/flow-coverage.yml
