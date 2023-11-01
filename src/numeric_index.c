@@ -855,31 +855,6 @@ void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter) {
   rm_free(iter);
 }
 
-
-void IndexReader_Reopen(IndexReader *ir, void *privdata) {
-  NumericUnionCtx *nu = privdata;
-  // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
-  if (ir->gcMarker == ir->idx->gcMarker) {
-    // no GC - we just go to the same offset we were at
-    size_t offset = ir->br.pos;
-    ir->br = NewBufferReader(&ir->idx->blocks[ir->currentBlock].buf);
-    ir->br.pos = offset;
-  } else {
-    // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
-    // anymore. This means that we need to seek to last docId we were at
-
-    // reset the state of the reader
-    t_docId lastId = ir->lastId;
-    ir->currentBlock = 0;
-    ir->br = NewBufferReader(&ir->idx->blocks[ir->currentBlock].buf);
-    ir->lastId = ir->idx->blocks[ir->currentBlock].firstId;
-
-    // seek to the previous last id
-    RSIndexResult *dummy = NULL;
-    IR_SkipTo(ir, lastId, &dummy);
-  }
-}
-
 /* A callback called after a concurrent context regains execution context. When this happen we need
  * to make sure the key hasn't been deleted or its structure changed, which will render the
  * underlying iterators invalid */
@@ -899,8 +874,12 @@ void NumericRangeIterator_OnReopen(void *privdata) {
   }
 
   if (it->type == READ_ITERATOR) {
-    IndexReader_Reopen(it->ctx, nu);
+    IndexReader_OnReopen(it->ctx);
   } else if (it->type == UNION_ITERATOR) {
-    UI_Foreach(it, IndexReader_Reopen, nu);
+    UI_Foreach(it, IndexReader_OnReopen);
+  } else {
+    RS_LOG_ASSERT_FMT(0,
+      "Unexpected iterator type %d. Expected `READ_ITERATOR` (%d) or `UNION_ITERATOR` (%d)",
+      it->type, READ_ITERATOR, UNION_ITERATOR);
   }
 }
