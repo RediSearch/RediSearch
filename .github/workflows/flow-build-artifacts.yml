@@ -49,15 +49,17 @@ jobs:
       - name: Build and Pack RediSearch OSS
         env:
           REDISEARCH_MT_BUILD: 0
-        run: make build COORD=oss && make pack
+        run: make build pack
       - name: Build and Pack RediSearch Lite
         env:
           REDISEARCH_MT_BUILD: 1
-        run: make build pack LITE=1
+          LITE: 1
+        run: make build pack
       - name: Build and Pack RediSearch Enterprise
         env:
           REDISEARCH_MT_BUILD: 1
-        run: make build pack COORD=rlec
+          COORD: rlec
+        run: make build pack
 
       # Upload
       - name: Configure AWS Credentials
