@@ -622,6 +622,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   if (status && rc == TIMED_OUT) {
     RedisModule_Reply _reply = RedisModule_NewReply(sctx->redisCtx), *reply = &_reply;
     RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_TIMEDOUT));
+    RedisModule_EndReply(reply);
     return REDISMODULE_ERR;
   }
 
