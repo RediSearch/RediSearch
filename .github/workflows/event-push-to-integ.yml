@@ -11,5 +11,5 @@ on:
 
 jobs:
   benchmark:
-    uses: ./.github/workflows/trigger-benchmark.yml
+    uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
