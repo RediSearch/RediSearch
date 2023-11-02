@@ -181,9 +181,10 @@ def test_search_timeout():
     p.execute()
 
     conn = getConnectionByEnv(env)
-    err = conn.execute_command('ft.search', 'myIdx', '*')['error'][0]
-    env.assertEquals(type(err), ResponseError)
-    env.assertContains('Timeout limit was reached', str(err))
+    res = conn.execute_command('ft.search', 'myIdx', '*')
+    env.assertEqual(len(res['error']), 1)
+    env.assertEquals(type(res['error'][0]), ResponseError)
+    env.assertContains('Timeout limit was reached', str(res['error'][0]))
 
 @skip(cluster=True)
 def test_profile(env):

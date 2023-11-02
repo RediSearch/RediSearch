@@ -141,14 +141,13 @@ def test_timeout():
         conn.execute_command('HSET', i ,'t1', str(i))
 
     # No client cursor
-    res = env.execute_command('FT.AGGREGATE', 'idx', '*',
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
                 'LOAD', '2', '@t1', '@__key',
                 'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
                 'groupby', '2', '@t1', '@t1exp',
                         'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
                 'TIMEOUT', '1',)
-    # TODO: Add this once the response will be fixed to be and error instead of a string
-    # env.assertEquals(type(res[0]), ResponseError)
+    env.assertEquals(type(res[0]), ResponseError)
     env.assertContains('Timeout limit was reached', str(res[0]))
 
     # Client cursor mid execution

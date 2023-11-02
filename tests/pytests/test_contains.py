@@ -2,6 +2,7 @@ from includes import *
 from common import *
 import csv
 from RLTest import Env
+from redis import ResponseError
 
 def testWITHSUFFIXTRIEParamText(env):
     conn = getConnectionByEnv(env)
@@ -128,16 +129,21 @@ def testSanity(env):
     # test timeout
     env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 'RETURN').ok()
-    env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
-    env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
+    res = conn.execute_command('ft.search', index_list[0], 'foo*', 'LIMIT', 0, 0)
+    env.assertEqual(type(res[0]), ResponseError)
+    env.assertContains('Timeout limit was reached', str(res[0]))
+
+    res = conn.execute_command('ft.search', index_list[1], 'foo*', 'LIMIT', 0, 0)
+    env.assertEqual(type(res[0]), ResponseError)
+    env.assertContains('Timeout limit was reached', str(res[0]))
 
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
-    env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
-    env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
+    res = conn.execute_command('ft.search', index_list[0], 'foo*', 'LIMIT', 0, 0)
+    env.assertEqual(type(res[0]), ResponseError)
+    env.assertContains('Timeout limit was reached', str(res[0]))
+    res = conn.execute_command('ft.search', index_list[1], 'foo*', 'LIMIT', 0, 0)
+    env.assertEqual(type(res[0]), ResponseError)
+    env.assertContains('Timeout limit was reached', str(res[0]))
 
 def testSanityTags(env):
     env.skipOnCluster()
@@ -198,16 +204,20 @@ def testSanityTags(env):
     # test timeout
     env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 'RETURN').ok()
-    env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
-    env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
+    res = conn.execute_command('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0, 0)
+    env.assertEqual(type(res[0]), ResponseError)
+    env.assertContains('Timeout limit was reached', str(res[0]))
+    res = conn.execute_command('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0, 0)
+    env.assertEqual(type(res[0]), ResponseError)
+    env.assertContains('Timeout limit was reached', str(res[0]))
 
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
-    env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
-    env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
+    res = conn.execute_command('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0, 0)
+    env.assertEqual(type(res[0]), ResponseError)
+    env.assertContains('Timeout limit was reached', str(res[0]))
+    res = conn.execute_command('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0, 0)
+    env.assertEqual(type(res[0]), ResponseError)
+    env.assertContains('Timeout limit was reached', str(res[0]))
 
 def testEscape(env):
   # this test check that `\*` is escaped correctly on contains queries
@@ -350,8 +360,9 @@ def testContainsMixedWithSuffix(env):
   conn.execute_command('HSET', 'doc1', 't1', 'hello', 't2', 'hello')
 
   env.expect('ft.search', 'idx', '@t1:*ell*', 'NOCONTENT').equal([1, 'doc1'])
-  env.expect('ft.search', 'idx', '@t2:*ell*', 'NOCONTENT').error()  \
-    .contains('Contains query on fields without WITHSUFFIXTRIE support')
+  res = conn.execute_command('ft.search', 'idx', '@t2:*ell*', 'NOCONTENT')
+  env.assertEqual(type(res[0]), ResponseError)
+  env.assertContains('Contains query on fields without WITHSUFFIXTRIE support', str(res[0]))  
 
 def test_params(env):
   env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
