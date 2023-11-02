@@ -1,0 +1,164 @@
+name: Run RediSearch Benchmarks
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  workflow_dispatch:
+    inputs:
+      extended:
+        type: boolean
+        description: 'Run extended benchmarks'
+        default: false
+  workflow_call:
+    inputs:
+      extended:
+        type: boolean
+        default: false
+
+jobs:
+  benchmark-search-oss-standalone:
+    strategy:
+      matrix:
+        member_id: [1, 2, 3]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      benchmark_glob: "search*.yml"
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+
+  benchmark-vecsim-oss-standalone:
+    strategy:
+      matrix:
+        member_id: [1, 2]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      benchmark_glob: "vecsim*.yml"
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+
+  benchmark-search-oss-cluster-02-primaries:
+    strategy:
+      matrix:
+        member_id: [1, 2]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      cluster_env: 1
+      benchmark_glob: "search*.yml"
+      module_path: bin/linux-x64-release/coord-oss/module-oss.so
+      allowed_envs: oss-cluster
+      allowed_setups: oss-cluster-02-primaries
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+
+  benchmark-search-oss-cluster-04-primaries:
+    strategy:
+      matrix:
+        member_id: [1, 2]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      cluster_env: 1
+      benchmark_glob: "search*.yml"
+      module_path: bin/linux-x64-release/coord-oss/module-oss.so
+      allowed_envs: oss-cluster
+      allowed_setups: oss-cluster-04-primaries
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+
+  benchmark-search-oss-cluster-08-primaries:
+    strategy:
+      matrix:
+        member_id: [1, 2, 3]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      cluster_env: 1
+      benchmark_glob: "search*.yml"
+      module_path: bin/linux-x64-release/coord-oss/module-oss.so
+      allowed_envs: oss-cluster
+      allowed_setups: oss-cluster-08-primaries
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+
+  benchmark-search-oss-cluster-16-primaries:
+    strategy:
+      matrix:
+        member_id: [1, 2, 3]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      cluster_env: 1
+      benchmark_glob: "search*.yml"
+      module_path: bin/linux-x64-release/coord-oss/module-oss.so
+      allowed_envs: oss-cluster
+      allowed_setups: oss-cluster-16-primaries
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+
+
+  benchmark-search-oss-cluster-20-primaries:
+    if: inputs.extended
+    strategy:
+      matrix:
+        member_id: [1]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      cluster_env: 1
+      benchmark_glob: "search*.yml"
+      module_path: bin/linux-x64-release/coord-oss/module-oss.so
+      allowed_envs: oss-cluster
+      allowed_setups: oss-cluster-20-primaries
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+
+
+  benchmark-search-oss-cluster-24-primaries:
+    if: inputs.extended
+    strategy:
+      matrix:
+        member_id: [1]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      cluster_env: 1
+      benchmark_glob: "search*.yml"
+      module_path: bin/linux-x64-release/coord-oss/module-oss.so
+      allowed_envs: oss-cluster
+      allowed_setups: oss-cluster-24-primaries
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+
+  benchmark-search-oss-standalone-profiler:
+    strategy:
+      matrix:
+        member_id: [1, 2, 3]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      profile_env: 1
+      # TODO: change to "github-actions.profilers" when ready on grafana
+      triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
+      module_path: bin/linux-x64-release-profile/search/redisearch.so
+      benchmark_glob: "search*.yml"
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+
+
+  benchmark-vecsim-oss-standalone-profiler:
+    strategy:
+      matrix:
+        member_id: [1, 2]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      profile_env: 1
+      # TODO: change to "github-actions.profilers" when ready on grafana
+      triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
+      module_path: bin/linux-x64-release-profile/search/redisearch.so
+      benchmark_glob: "vecsim*.yml"
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}

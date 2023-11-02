@@ -1,0 +1,28 @@
+name: Benchmark
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  pull_request:
+   types: [opened, labeled, unlabeled, synchronize]
+
+jobs:
+  haslabel:
+    name: analyse labels
+    runs-on: ubuntu-latest
+    outputs:
+      benchmark: ${{ steps.haslabel.outputs.labeled-run-benchmark }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check if labeled with run-benchmark
+        id: haslabel
+        uses: DanielTamkin/HasLabel@v1.0.4
+        with:
+          contains: 'run-benchmark'
+
+  perf-ci:
+    name: Trigger
+    needs: haslabel
+    if: needs.haslabel.outputs.benchmark
+    uses: ./.github/workflows/benchmark-runner.yml
+    secrets: inherit
