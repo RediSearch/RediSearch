@@ -3,7 +3,8 @@ from common import *
 import bz2
 import json
 import unittest
-from redis import ResponseError
+
+
 
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
 
@@ -1011,11 +1012,9 @@ def aggregate_test(protocol=2):
                 'TIMEOUT', '1',)
 
     if protocol == 2:
-        env.assertEqual(type(res[0]), ResponseError)
-        env.assertEqual(str(res[0]), 'Timeout limit was reached')
+        env.assertEqual(res, ['Timeout limit was reached'])
     else:
-        env.assertEqual(type(res['error'][0]), ResponseError)
-        env.assertEqual(str(res['error'][0]), 'Timeout limit was reached')
+        env.assertEqual(res['error'], ['Timeout limit was reached'])
 
 def test_aggregate_timeout_resp2():
     aggregate_test(protocol=2)
