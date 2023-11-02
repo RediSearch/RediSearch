@@ -84,8 +84,8 @@ jobs:
 
           requested_platform = '${{ inputs.platform }}'
           requested_arch = '${{ inputs.architecture }}'
-          all_x86_images = eval(${{ env.ALL_X86_IMAGES }})
-          all_arm_images = eval(${{ env.ALL_ARM_IMAGES }})
+          all_x86_images = ${{ env.ALL_X86_IMAGES }}
+          all_arm_images = ${{ env.ALL_ARM_IMAGES }}
 
           x86_platforms = []
           arm_platforms = []
