@@ -1242,9 +1242,9 @@ def test_fail_on_v1_dialect():
                         'DIM', dim, 'DISTANCE_METRIC', 'COSINE')
     conn.execute_command("HSET", "i", "v", one_vector.tobytes())
     for query in ["*=>[KNN 10 @v $BLOB]", "@v:[VECTOR_RANGE 10 $BLOB"]:
-        res = env.expect("FT.SEARCH", "idx", query, "PARAMS", 2, "BLOB", one_vector.tobytes())
-        res.error().contains("Syntax error")
-
+        res = conn.execute_command("FT.SEARCH", "idx", query, "PARAMS", 2, "BLOB", one_vector.tobytes())
+        env.assertEqual(type(res[0]), ResponseError)
+        env.assertContains("Syntax error", str(res[0]))
 
 def test_hybrid_query_with_global_filters():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')

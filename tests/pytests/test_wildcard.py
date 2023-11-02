@@ -2,6 +2,7 @@ from includes import *
 from common import *
 from RLTest import Env
 import time
+from redis import ResponseError
 
 def testSanity(env):
   dotestSanity(env, 2)
@@ -71,14 +72,16 @@ def dotestSanity(env, dialect):
   # test timeout
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
   env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'RETURN').ok()
-  env.expect('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0).error() \
-    .contains('Timeout limit was reached')
+  res = conn.execute_command('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0)
+  env.assertEqual(type(res[0]), ResponseError)
+  env.assertContains('Timeout limit was reached', str(res[0]))
   #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
   #  .contains('Timeout limit was reached')
 
   env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'FAIL').ok()
-  env.expect('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0).error() \
-    .contains('Timeout limit was reached')
+  res = conn.execute_command('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0)
+  env.assertEqual(type(res[0]), ResponseError)
+  env.assertContains('Timeout limit was reached', str(res[0]))
   #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
   #  .contains('Timeout limit was reached')
 
