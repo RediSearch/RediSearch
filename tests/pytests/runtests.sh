@@ -33,7 +33,7 @@ help() {
 		COORD=1|oss|rlec      Test Coordinator
 		SHARDS=n              Number of OSS coordinator shards (default: 3)
 		QUICK=1|~1|0          Perform only common test variant (~1: all but common)
-		CONFIG=cfg            Perform one of: concurrent_write, max_unsorted, 
+		CONFIG=cfg            Perform one of: concurrent_write, max_unsorted,
 		                        union_iterator_heap, raw_docid, dialect_2,
 		                        (coordinator:) global_password, safemode, tls
 
@@ -64,13 +64,14 @@ help() {
 		COV=1                 Run with coverage analysis
 		VG=1                  Run with Valgrind
 		VG_LEAKS=0            Do not detect leaks
-		SAN=type              Use LLVM sanitizer (type=address|memory|leak|thread) 
+		SAN=type              Use LLVM sanitizer (type=address|memory|leak|thread)
 		BB=1                  Enable Python debugger (break using BB() in tests)
 		GDB=1                 Enable interactive gdb debugging (in single-test mode)
 
 		RLTEST=path|'view'    Take RLTest from repo path or from local view
 		RLTEST_DEBUG=1        Show debugging printouts from tests
 		RLTEST_ARGS=args      Extra RLTest args
+		LOG_LEVEL=<level>     Set log level (default: debug)
 
 		PARALLEL=1            Runs tests in parallel
 		SLOW=1                Do not test in parallel
@@ -94,7 +95,7 @@ help() {
 	END
 }
 
-#---------------------------------------------------------------------------------------------- 
+#----------------------------------------------------------------------------------------------
 
 traps() {
 	local func="$1"
@@ -127,7 +128,7 @@ stop() {
 
 traps 'stop' SIGINT
 
-#---------------------------------------------------------------------------------------------- 
+#----------------------------------------------------------------------------------------------
 
 setup_rltest() {
 	if [[ $RLTEST == view ]]; then
@@ -152,6 +153,9 @@ setup_rltest() {
 	fi
 	
 	RLTEST_ARGS+=" --enable-debug-command --enable-protected-configs"
+
+	LOG_LEVEL=${LOG_LEVEL:-debug}
+	RLTEST_ARGS+=" --log-level ${LOG_LEVEL,,}"
 
 	if [[ $RLTEST_VERBOSE == 1 ]]; then
 		RLTEST_ARGS+=" -v"
@@ -181,7 +185,7 @@ setup_clang_sanitizer() {
 	# for RLTest
 	export SANITIZER="$SAN"
 	export SHORT_READ_BYTES_DELTA=512
-	
+
 	# --no-output-catch --exit-on-failure --check-exitcode
 	RLTEST_SAN_ARGS="--sanitizer $SAN"
 
@@ -466,7 +470,7 @@ run_tests() {
 	fi
 
 	[[ $RLEC == 1 ]] && export RLEC_CLUSTER=1
-	
+
 	local E=0
 	if [[ $NOP != 1 ]]; then
 		{ $OP python3 -m RLTest @$rltest_config; (( E |= $? )); } || true
@@ -717,7 +721,7 @@ if [[ -z $COORD ]]; then
 
 elif [[ $COORD == oss ]]; then
 	oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
-	
+
 	# Increase timeout (to 5 min) for tests with coordinator to avoid cluster fail when it take more time for
 	# passing PINGs between shards
   oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 300000"
@@ -745,7 +749,7 @@ elif [[ $COORD == oss ]]; then
 			--tls-cert-file $ROOT/bin/tls/redis.crt \
 			--tls-key-file $ROOT/bin/tls/redis.key \
 			--tls-ca-cert-file $ROOT/bin/tls/ca.crt"
-			
+
 		redis_ver=$($REDIS_SERVER --version | cut -d= -f2 | cut -d" " -f1)
 		redis_major=$(echo "$redis_ver" | cut -d. -f1)
 		redis_minor=$(echo "$redis_ver" | cut -d. -f2)
@@ -757,7 +761,7 @@ elif [[ $COORD == oss ]]; then
 		fi
 
 		PASSPHRASE=$PASSPHRASE $ROOT/sbin/gen-test-certs
-		
+
 		if [[ -z $CONFIG || $CONFIG == tls ]]; then
 			{ (RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} ${tls_args}" \
 			   run_tests "OSS cluster tests TLS"); (( E |= $? )); } || true
