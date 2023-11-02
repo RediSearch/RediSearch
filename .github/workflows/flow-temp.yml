@@ -1,0 +1,14 @@
+name: temporary testing
+
+on: [push]
+
+jobs:
+  test:
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      platform: all
+      architecture: aarch64
+      test-config: CONFIG=
+      standalone:  true
+      coordinator: true
