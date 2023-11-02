@@ -8,8 +8,10 @@ on:
 
 jobs:
   run-benchmarks:
-    uses: ./.github/workflows/trigger-benchmark.yml
+    uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
+    with:
+      extended: true
 
   deploy-milestone-artifacts:
     runs-on: ubuntu-latest
