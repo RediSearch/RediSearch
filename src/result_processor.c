@@ -155,7 +155,7 @@ static void rpidxFree(ResultProcessor *iter) {
   rm_free(iter);
 }
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *root, struct timespec timeout) {
+ResultProcessor *RPIndexIterator_New(IndexIterator *root) {
   RPIndexIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iiter = root;
   ret->base.Next = rpidxNext;

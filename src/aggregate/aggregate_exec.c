@@ -446,9 +446,9 @@ done_3:
     } else if (rc == RS_RESULT_ERROR) {
       RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
       RedisModule_Reply_Array(reply);
-        // QueryError_ReplyAndClear(reply->ctx, req->qiter.err);
-        RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
-        QueryError_ClearError(req->qiter.err);
+      // QueryError_ReplyAndClear(reply->ctx, req->qiter.err);
+      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
+      QueryError_ClearError(req->qiter.err);
       RedisModule_Reply_ArrayEnd(reply);
       nelem++;
     } else {
@@ -499,10 +499,10 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   if (reply->resp3 || IsProfile(req)) {
     RedisModule_Reply_Map(reply);
   }
-    sendChunk(req, reply, -1);
-    if (IsProfile(req)) {
-      Profile_Print(reply, req);
-    }
+  sendChunk(req, reply, -1);
+  if (IsProfile(req)) {
+    Profile_Print(reply, req);
+  }
   if (reply->resp3 || IsProfile(req)) {
     RedisModule_Reply_MapEnd(reply);
   }
@@ -608,7 +608,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   // value and some of the execution begins in `QAST_Iterate`.
   // Setting the timeout context should be done in the same thread that executes the query.
   updateTimeout(&req->timeoutTime, req->reqConfig.queryTimeoutMS);
-  sctx->timeout = req->timeoutTime;
+  SearchCtx_UpdateTimeout(req->sctx, req->timeoutTime);
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
@@ -792,7 +792,41 @@ error:
   if (r) {
     AREQ_Free(r);
   }
-  return QueryError_ReplyAndClear(ctx, &status);
+
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  bool has_map = RedisModule_HasMap(reply);
+    if (reply->resp3) {     // resp3
+      RedisModule_Reply_Map(reply);
+
+      RedisModule_ReplyKV_Array(reply, "attributes");
+      RedisModule_Reply_ArrayEnd(reply);
+
+      RedisModule_ReplyKV_Array(reply, "error"); // >errors
+      RedisModule_Reply_Error(reply, QueryError_GetError(&status));
+      QueryError_ClearError(&status);
+      RedisModule_Reply_ArrayEnd(reply); // >errors
+
+      RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
+
+      if (r->reqflags & QEXEC_FORMAT_EXPAND) {
+        RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
+      } else {
+        RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
+      }
+
+      RedisModule_ReplyKV_Array(reply, "results"); // >results
+      RedisModule_Reply_ArrayEnd(reply); // >results
+
+      RedisModule_Reply_MapEnd(reply);
+    } else {    // resp2
+      RedisModule_Reply_Array(reply);
+      RedisModule_Reply_Error(reply, QueryError_GetError(&status));
+      QueryError_ClearError(&status);
+      RedisModule_Reply_ArrayEnd(reply);
+    }
+  RedisModule_EndReply(reply);
+
+  // return QueryError_ReplyAndClear(ctx, &status);
 }
 
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

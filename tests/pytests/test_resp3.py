@@ -162,10 +162,14 @@ def test_search_timeout():
         env.cmd('HSET', f'doc{i}', 't', f'aa{i}', 'geo', f"{i/10000},{i/1000}")
 
     env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0'). \
-      error().contains('Timeout limit was reached')
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1).\
-      error().contains('Timeout limit was reached')
+    res = conn.execute_command('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0')
+    env.assertEqual(len(res['error']), 1)
+    env.assertEqual(type(res['error'][0]), ResponseError)
+    env.assertContains('Timeout limit was reached', str(res['error'][0]))
+    res = conn.execute_command('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1)
+    env.assertEqual(len(res['error']), 1)
+    env.assertEqual(type(res['error'][0]), ResponseError)
+    env.assertContains('Timeout limit was reached', str(res['error'][0]))
 
     # (coverage) Later failure than the above tests - in pipeline execution
     # phase. For this, we need more documents in the index, such that we will
