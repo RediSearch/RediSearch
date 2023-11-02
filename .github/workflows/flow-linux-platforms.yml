@@ -103,7 +103,7 @@ jobs:
               arm_platforms = [requested_platform]
 
           # Generate warnings/errors if requested combination is not supported
-          if requested_platform is not 'all':
+          if requested_platform != 'all':
             if (requested_arch == 'x86_64'  and requested_platform not in x86_platforms) or \
                (requested_arch == 'aarch64' and requested_platform not in arm_platforms):
               print(f"::error title='Unsupported Combination'::Requested platform {requested_platform} is not supported on {requested_arch}")
