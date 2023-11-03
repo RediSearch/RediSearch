@@ -25,7 +25,8 @@ jobs:
         run: |
           import os
           # All configurations (by default runs both standalone and coordinator)
-          configurations = [''] # Temporary run all configurations serially
+          configurations = [''] # Run all configurations serially
+          # TODO: use matrix to run configurations in parallel once we have enough runners
           # configurations = [
           #   'concurrent_write',
           #   'max_unsorted',
