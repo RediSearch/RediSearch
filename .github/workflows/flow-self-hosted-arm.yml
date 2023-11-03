@@ -62,7 +62,7 @@ jobs:
       standalone: ${{ inputs.standalone }}
       test-config: ${{ inputs.test-config }}
       pre-steps-script: ${{ inputs.pre-steps-script }}
-      get-redis: ${{ inputs.get-redis }}
+      get-redis: ${{ inputs.get-redis || vars.DEFAULT_REDIS_REF }}
 
   stop-runner:
     name: Stop self-hosted EC2 runner

@@ -145,7 +145,7 @@ jobs:
     uses: ./.github/workflows/common-flow-tests.yml
     secrets: inherit
     with:
-      get-redis: ${{ inputs.redis-ref }}
+      get-redis: ${{ inputs.redis-ref || vars.DEFAULT_REDIS_REF }}
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
       coordinator: ${{ inputs.coordinator }}
@@ -163,7 +163,7 @@ jobs:
     uses: ./.github/workflows/flow-self-hosted-arm.yml
     secrets: inherit
     with:
-      get-redis: ${{ inputs.redis-ref }}
+      get-redis: ${{ inputs.redis-ref || vars.DEFAULT_REDIS_REF }}
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
       coordinator: ${{ inputs.coordinator }}
