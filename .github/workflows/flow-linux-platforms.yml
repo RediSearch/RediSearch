@@ -21,8 +21,10 @@ on:
     inputs:
       platform:
         type: string
+        default: all
       architecture:
         type: string
+        default: all
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         type: string

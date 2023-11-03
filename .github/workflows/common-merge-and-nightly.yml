@@ -59,8 +59,6 @@ jobs:
   #   uses: ./.github/workflows/flow-linux-platforms.yml
   #   secrets: inherit
   #   with:
-  #     platform: all
-  #     architecture: all
   #     get-redis: ${{ inputs.redis-ref }}
   #     test-config: CONFIG=${{ matrix.test-config }}
   #     standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
