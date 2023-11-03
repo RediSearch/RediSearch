@@ -151,7 +151,7 @@ setup_rltest() {
 			echo "PYTHONPATH=$PYTHONPATH"
 		fi
 	fi
-	
+
 	RLTEST_ARGS+=" --enable-debug-command --enable-protected-configs"
 
 	LOG_LEVEL=${LOG_LEVEL:-debug}

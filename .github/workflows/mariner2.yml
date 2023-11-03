@@ -44,21 +44,15 @@ jobs:
       - name: Build RedisSearch
         run: |
           make build SHOW=1
-      - name: Build VARIANT=mt-oss
+      - name: Build COORD=rlec
         run: |
-          make build VARIANT=mt-oss SHOW=1
-      - name: Build COORD=oss
+          make build COORD=rlec SHOW=1
+      - name: Test RediSearch
         run: |
-          make build COORD=oss SHOW=1
-      - name: Test REDISEARCH_MT_BUILD=0
+          make test PLATFORM_MODE=1
+      - name: Test COORD=rlec
         run: |
-          make test REDISEARCH_MT_BUILD=0 PLATFORM_MODE=1
-      - name: Test VARIANT=mt-oss
-        run: |
-          make test VARIANT=mt-oss PLATFORM_MODE=1
-      - name: Test COORD=oss
-        run: |
-          make test COORD=oss PLATFORM_MODE=1
+          make test COORD=rlec PLATFORM_MODE=1
       - name: Pack module
         run: |
           make pack BRANCH=${{ github.ref_name }}
