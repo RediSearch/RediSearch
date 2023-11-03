@@ -21,6 +21,7 @@ on:
         default: true
       get-redis:
         type: string
+        default: ${{ vars.DEFAULT_REDIS_REF }}
 
 env:
   AWS_IMAGE_ID: ami-0d8e10b4bd5d65c57  # Ubuntu 22.04 region AMI for ARM with Docker installed
@@ -62,7 +63,7 @@ jobs:
       standalone: ${{ inputs.standalone }}
       test-config: ${{ inputs.test-config }}
       pre-steps-script: ${{ inputs.pre-steps-script }}
-      get-redis: ${{ inputs.get-redis || vars.DEFAULT_REDIS_REF }}
+      get-redis: ${{ inputs.get-redis }}
 
   stop-runner:
     name: Stop self-hosted EC2 runner

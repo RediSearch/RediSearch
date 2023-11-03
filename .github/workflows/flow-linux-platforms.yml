@@ -32,6 +32,9 @@ on:
       standalone:
         type: boolean
         default: true
+      redis-ref:
+        type: string
+        default: ${{ vars.DEFAULT_REDIS_REF }}
   workflow_dispatch:
     inputs:
       platform:
