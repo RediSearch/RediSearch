@@ -60,9 +60,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: TEMP TEST
-        run: ulimit -all
-
       - name: Setup (readies)
         run: ./sbin/setup
 
