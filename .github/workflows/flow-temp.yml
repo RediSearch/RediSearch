@@ -12,3 +12,22 @@ jobs:
       test-config: CONFIG=
       standalone:  true
       coordinator: true
+
+  test-illegal:
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      platform: rockylinux:8
+      architecture: aarch64
+      test-config: CONFIG=
+      standalone:  true
+      coordinator: true
+
+  test-warning:
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      platform: rockylinux:8
+      architecture: all
+      standalone:  false
+      coordinator: false
