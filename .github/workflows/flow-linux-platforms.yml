@@ -104,17 +104,18 @@ jobs:
 
           # Generate warnings/errors if requested combination is not supported
           if requested_platform != 'all':
+            title = 'Unsupported Combination'
             if (requested_arch == 'x86_64'  and requested_platform not in x86_platforms) or \
                (requested_arch == 'aarch64' and requested_platform not in arm_platforms):
-              print(f"::error title='Unsupported Combination'::Requested platform {requested_platform} is not supported on {requested_arch}")
+              print(f"::error title={title}::Requested platform {requested_platform} is not supported on {requested_arch}")
               exit(1)
             if requested_arch == 'all':
               if requested_platform not in x86_platforms + arm_platforms:
-                print(f"::error title='Unsupported Combination'::Requested platform {requested_platform} is not supported on any architecture")
+                print(f"::error title={title}::Requested platform {requested_platform} is not supported on any architecture")
                 exit(1)
               elif requested_platform not in arm_platforms or requested_platform not in x86_platforms:
                 unsupported_arch = 'aarch64' if requested_platform not in arm_platforms else 'x86_64'
-                print(f"::warning title='Unsupported Combination'::Requested platform {requested_platform} is not supported on {unsupported_arch}. Skipping {unsupported_arch}")
+                print(f"::warning title={title}::Requested platform {requested_platform} is not supported on {unsupported_arch}. Skipping {unsupported_arch}")
 
           # Special cases:
           arm_include = []
