@@ -752,7 +752,7 @@ static int cmpIter(IndexIterator **it1, IndexIterator **it2) {
 
   /*
    * on INTERSECT iterator, we divide the estimate by the number of children
-   * since we skip as soon as a number does not in all iterators */
+   * since we skip as soon as a number is not in all iterators */
   if (it_1_type == INTERSECT_ITERATOR) {
     factor1 = 1 / MAX(1, ((IntersectIterator *)*it1)->num);
   } else if (it_1_type == UNION_ITERATOR && RSGlobalConfig.prioritizeIntersectUnionChildren) {
