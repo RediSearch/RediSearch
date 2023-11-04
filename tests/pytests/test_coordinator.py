@@ -26,7 +26,7 @@ def test_required_fields(env):
     # Testing coordinator<-> shard `_REQUIRED_FIELDS` protocol
     env.skipOnCluster()
     env.expect('ft.create', 'idx', 'schema', 't', 'text').ok()
-    env.execute_command('HSET', '0', 't', 'hello')
+    env.cmd('HSET', '0', 't', 'hello')
     env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS').error()
     env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS', '2', 't').error()
     env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS', '1', 't').equal([1, '0', '$hello', ['t', 'hello']])
@@ -36,7 +36,7 @@ def test_required_fields(env):
 
 
 def check_info_commandstats(env, cmd):
-    res = env.execute_command('INFO', 'COMMANDSTATS')
+    res = env.cmd('INFO', 'COMMANDSTATS')
     env.assertGreater(res['cmdstat_' + cmd]['usec'], res['cmdstat__' + cmd]['usec'])
 
 def testCommandStatsOnRedis(env):
@@ -99,7 +99,7 @@ def test_error_propagation_from_shards(env):
     else:
         err = env.cmd('FT.AGGREGATE', 'idx', '*')[1]
 
-    env.assertEquals(type(err[0]), ResponseError)
+    env.assertEqual(type(err[0]), ResponseError)
     env.assertContains('idx: no such index', str(err[0]))
     # The same for `FT.SEARCH`.
     env.expect('FT.SEARCH', 'idx', '*').error().contains('idx: no such index')
@@ -112,7 +112,7 @@ def test_error_propagation_from_shards(env):
     else:
         err = env.cmd('FT.AGGREGATE', 'idx', '**')[1]
 
-    env.assertEquals(type(err[0]), ResponseError)
+    env.assertEqual(type(err[0]), ResponseError)
     env.assertContains('Syntax error', str(err[0]))
     # The same for `FT.SEARCH`.
     env.expect('FT.SEARCH', 'idx', '**').error().contains('Syntax error')
@@ -121,3 +121,38 @@ def test_error_propagation_from_shards(env):
     #   1. The language requested in the command.
     #   2. The scorer requested in the command.
     #   3. Parameters evaluation
+
+def test_timeout():
+    """Tests that timeouts are handled properly by the coordinator.
+    We check that the coordinator returns a timeout error when the timeout is
+    reached in the shards or in the coordinator itself.
+    """
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+    SkipOnNonCluster(env)
+    conn = getConnectionByEnv(env)
+
+    # Create the index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+
+    # Populate the database with 1500 * nshards documents
+    n_docs = int(1500 * env.shardsCount)
+    for i in range(n_docs):
+        conn.execute_command('HSET', i ,'t1', str(i))
+
+    # No client cursor
+    res = env.execute_command('FT.AGGREGATE', 'idx', '*',
+                'LOAD', '2', '@t1', '@__key',
+                'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
+                'groupby', '2', '@t1', '@t1exp',
+                        'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
+                'TIMEOUT', '1',)
+    # TODO: Add this once the response will be fixed to be and error instead of a string
+    # env.assertEquals(type(res[0]), ResponseError)
+    env.assertContains('Timeout limit was reached', str(res[0]))
+
+    # Client cursor mid execution
+    # If the cursor id is 0, this means there was a timeout throughout execution
+    # caught by the coordinator
+    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', '2500', 'TIMEOUT', 1)
+    env.assertEquals(cursor, 0)

@@ -167,7 +167,11 @@ typedef struct IndexReader {
   uint32_t gcMarker;
 } IndexReader;
 
-void IndexReader_OnReopen(void *privdata);
+// On Reopen callback for term index
+void TermReader_OnReopen(void *privdata);
+
+// On Reopen callback for common use
+void IndexReader_OnReopen(IndexReader *ir);
 
 /* An index encoder is a callback that writes records to the index. It accepts a pre-calculated
  * delta for encoding */
@@ -229,6 +233,8 @@ int IR_Next(void *ctx);
  *  - INDEXREAD_EOF if the ID is out of the upper range
  */
 int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
+
+void IR_Rewind(void *ctx);
 
 RSIndexResult *IR_Current(void *ctx);
 

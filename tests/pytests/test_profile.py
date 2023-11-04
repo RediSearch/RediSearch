@@ -90,7 +90,7 @@ def testProfileSearch(env):
   if server_version_less_than(env, '6.2.0'):
     return
 
-  actual_res = env.execute_command('ft.profile', 'idx', 'search', 'query',  'hello(hello(hello(hello(hello(hello)))))', 'nocontent')
+  actual_res = env.cmd('ft.profile', 'idx', 'search', 'query',  'hello(hello(hello(hello(hello(hello)))))', 'nocontent')
   expected_res = ['Iterators profile', ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
                                         ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
                                          ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',

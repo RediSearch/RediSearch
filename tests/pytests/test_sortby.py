@@ -100,7 +100,7 @@ def testSortby(env):
               ['42', '42'], ['-inf', '+inf'], ['-inf', '100'], ['990', 'inf']]
     params = ['limit', 0 , 0]
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         for i in range(len(limits)):
             params[1] = limits[i][0]
             params[2] = limits[i][1]
@@ -132,7 +132,7 @@ def testSortby(env):
     # update parameters for ft.aggregate
     params = ['limit', 0 , 0, 'LOAD', 4, '@__key', '@n', '@t', '@tag']
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         for i in range(len(limits)):
             params[1] = limits[i][0]
             params[2] = limits[i][1]

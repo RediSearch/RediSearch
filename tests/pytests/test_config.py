@@ -109,7 +109,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXAGGREGATERESULTS'][0], 'unlimited')
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
-    env.assertIn(res_dict['TIMEOUT'][0], ['500', '0'])
+    env.assertContains(res_dict['TIMEOUT'][0], ['500', '0'])
     env.assertEqual(res_dict['INDEX_THREADS'][0], '8')
     env.assertEqual(res_dict['SEARCH_THREADS'][0], '20')
     if MT_BUILD:

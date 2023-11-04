@@ -506,15 +506,16 @@ int MR_UpdateTopology(MRClusterTopology *newTopo) {
 
 struct MRIteratorCallbackCtx;
 
-typedef int (*MRIteratorCallback)(struct MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd);
+typedef int (*MRIteratorCallback)(struct MRIteratorCallbackCtx *ctx, MRReply *rep);
 
 typedef struct MRIteratorCtx {
   MRCluster *cluster;
   MRChannel *chan;
   void *privdata;
   MRIteratorCallback cb;
-  int pending;   // Number of shards with more results (not depleted)
-  int inProcess; // Number of currently running commands on shards
+  int pending;    // Number of shards with more results (not depleted)
+  int inProcess;  // Number of currently running commands on shards
+  int timedOut;   // whether the coordinator experienced a timeout
 } MRIteratorCtx;
 
 typedef struct MRIteratorCallbackCtx {
@@ -538,7 +539,7 @@ static void mrIteratorRedisCB(redisAsyncContext *c, void *r, void *privdata) {
     // ctx->numErrored++;
     // TODO: report error
   } else {
-    ctx->ic->cb(ctx, r, &ctx->cmd);
+    ctx->ic->cb(ctx, r);
   }
 }
 
@@ -558,6 +559,20 @@ static int MRIteratorCallback_GetNumInProcess(MRIterator *it) {
   return __atomic_load_n(&it->ctx.inProcess, __ATOMIC_ACQUIRE);
 }
 
+bool MRIteratorCallback_GetTimedOut(MRIteratorCtx *ctx) {
+  return __atomic_load_n(&ctx->timedOut, __ATOMIC_ACQUIRE);
+}
+
+void MRIteratorCallback_SetTimedOut(MRIteratorCtx *ctx) {
+  // Atomically set the timedOut field of the ctx
+  __atomic_store_n(&ctx->timedOut, 1, __ATOMIC_RELAXED);
+}
+
+void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx) {
+  // Set the `timedOut` field to 0
+  __atomic_store_n(&ctx->timedOut, 0, __ATOMIC_RELAXED);
+}
+
 void *MRITERATOR_DONE = "MRITERATOR_DONE";
 
 int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
@@ -573,6 +588,14 @@ int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
   // fprintf(stderr, "Done iterator, error? %d pending %d\n", error, ctx->ic->pending);
 
   return 1;
+}
+
+MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx) {
+  return &ctx->cmd;
+}
+
+MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx) {
+  return ctx->ic;
 }
 
 int MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
@@ -642,13 +665,13 @@ MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb, void *privd
               .privdata = privdata,
               .cb = cb,
               .pending = 0,
+              .timedOut = 0,
           },
       .cbxs = rm_calloc(len, sizeof(MRIteratorCallbackCtx)),
       .len = len,
-
   };
-  for (size_t i = 0; i < len; i++) {
 
+  for (size_t i = 0; i < len; i++) {
     ret->cbxs[i].ic = &ret->ctx;
     if (!cg.Next(cg.ctx, &(ret->cbxs[i].cmd))) {
       ret->len = i;
@@ -666,6 +689,10 @@ MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb, void *privd
 
   RQ_Push(rq_g, iterStartCb, ret);
   return ret;
+}
+
+MRIteratorCtx *MRIterator_GetCtx(MRIterator *it) {
+  return &it->ctx;
 }
 
 MRReply *MRIterator_Next(MRIterator *it) {

@@ -49,7 +49,7 @@ def test_1502(env):
 
 def test_1601(env):
   conn = getConnectionByEnv(env)
-  env.execute_command('FT.CREATE', 'idx:movie', 'SCHEMA', 'title', 'TEXT')
+  env.cmd('FT.CREATE', 'idx:movie', 'SCHEMA', 'title', 'TEXT')
   conn.execute_command('HSET', 'movie:1', 'title', 'Star Wars: Episode I - The Phantom Menace')
   conn.execute_command('HSET', 'movie:2', 'title', 'Star Wars: Episodes II - Attack of the Clones')
   conn.execute_command('HSET', 'movie:3', 'title', 'Star Wars: Episode III - Revenge of the Sith')
@@ -58,7 +58,7 @@ def test_1601(env):
 
 def testMultiSortby(env):
   conn = getConnectionByEnv(env)
-  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE', 't2', 'TEXT', 'SORTABLE', 't3', 'TEXT', 'SORTABLE')
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE', 't2', 'TEXT', 'SORTABLE', 't3', 'TEXT', 'SORTABLE')
   conn.execute_command('hset', '1', 't1', 'foo', 't2', 'bar', 't3', 'baz')
   conn.execute_command('hset', '2', 't1', 'bar', 't2', 'foo', 't3', 'baz')
   sortby_t1 = [2, '2', '1']
@@ -75,7 +75,7 @@ def testMultiSortby(env):
 
 def test_1667(env):
   conn = getConnectionByEnv(env)
-  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT')
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT')
   env.expect('ft.search idx @tag:{a}').equal([0])
   env.expect('ft.search idx @tag:{b}').equal([0])
 
@@ -125,7 +125,7 @@ def test_MOD_865(env):
 def test_issue1826(env):
   # Stopword query is case sensitive.
   conn = getConnectionByEnv(env)
-  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
   conn.execute_command('HSET', 'doc', 't', 'boy with glasses')
 
   env.expect('FT.SEARCH', 'idx', 'boy with glasses').equal([1, 'doc', ['t', 'boy with glasses']])
@@ -134,7 +134,7 @@ def test_issue1826(env):
 def test_issue1834(env):
   # Stopword query is case sensitive.
   conn = getConnectionByEnv(env)
-  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
   conn.execute_command('HSET', 'doc', 't', 'hell hello')
 
   env.expect('FT.SEARCH', 'idx', 'hell|hello', 'HIGHLIGHT').equal([1, 'doc', ['t', '<b>hell</b> <b>hello</b>']])
@@ -144,7 +144,7 @@ def test_issue1880(env):
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
-  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
   conn.execute_command('HSET', 'doc1', 't', 'hello world')
   conn.execute_command('HSET', 'doc2', 't', 'hello')
 
@@ -168,13 +168,13 @@ def test_issue1880(env):
 
 def test_issue1932(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
     env.expect('FT.AGGREGATE', 'idx', '*', 'LIMIT', '100000000000000000', '100000000000', 'SORTBY', '1', '@t').error() \
       .contains('OFFSET exceeds maximum of 1000000')
 
 def test_issue1988(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     env.expect('FT.SEARCH', 'idx', 'foo').equal([1, 'doc1', ['t', 'foo']])
     env.expect('FT.SEARCH', 'idx', 'foo', 'WITHSCORES').equal([1, 'doc1', '1', ['t', 'foo']])
@@ -187,7 +187,7 @@ def testIssue2104(env):
   conn = getConnectionByEnv(env)
 
   # hash
-  env.execute_command('FT.CREATE', 'hash_idx', 'SCHEMA', 'name', 'TEXT', 'SORTABLE', 'subj1', 'NUMERIC', 'SORTABLE')
+  env.cmd('FT.CREATE', 'hash_idx', 'SCHEMA', 'name', 'TEXT', 'SORTABLE', 'subj1', 'NUMERIC', 'SORTABLE')
   conn.execute_command('hset', 'data1','name', 'abc', 'subj1', '20')
   # load a single field
   env.expect('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '1', '@subj1') \
@@ -206,9 +206,9 @@ def testIssue2104(env):
   env.assertEqual(toSortedFlatList([1, ['a', '20', 'subj1', '20', 'avg', '20']]), toSortedFlatList(res))
 
   # json
-  env.execute_command('FT.CREATE', 'json_idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT', 'SORTABLE',
+  env.cmd('FT.CREATE', 'json_idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT', 'SORTABLE',
                                                                         '$.subj1', 'AS', 'subj2', 'NUMERIC', 'SORTABLE')
-  env.execute_command('JSON.SET', 'doc:1', '$', r'{"name":"Redis", "subj1":3.14}')
+  env.cmd('JSON.SET', 'doc:1', '$', r'{"name":"Redis", "subj1":3.14}')
   env.expect('json.get', 'doc:1', '$').equal('[{"name":"Redis","subj1":3.14}]')
   # load a single field
   env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '1', '@subj2') \
@@ -234,7 +234,7 @@ def testIssue2104(env):
 def test_MOD1266(env):
   # Test parsing failure
   conn = getConnectionByEnv(env)
-  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n1', 'NUMERIC', 'SORTABLE', 'n2', 'NUMERIC', 'SORTABLE')
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n1', 'NUMERIC', 'SORTABLE', 'n2', 'NUMERIC', 'SORTABLE')
   conn.execute_command('HSET', 'doc1', 'n1', '1', 'n2', '1')
   conn.execute_command('HSET', 'doc2', 'n1', '2', 'n2', '2')
   conn.execute_command('HSET', 'doc2', 'n1', 'foo', 'n2', '-999')
@@ -246,7 +246,7 @@ def test_MOD1266(env):
   assertInfoField(env, 'idx', 'num_docs', '2')
 
   # Test fetching failure. An object cannot be indexed
-  env.execute_command('FT.CREATE', 'jsonidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
+  env.cmd('FT.CREATE', 'jsonidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
   conn.execute_command('JSON.SET', '1', '$', r'{"t":"Redis"}')
   env.expect('FT.SEARCH', 'jsonidx', '*').equal([1, '1', ['$', '{"t":"Redis"}']])
   env.expect('FT.SEARCH', 'jsonidx', 'redis').equal([1, '1', ['$', '{"t":"Redis"}']])
@@ -256,7 +256,7 @@ def test_MOD1266(env):
 def testMemAllocated(env):
   conn = getConnectionByEnv(env)
   # sanity
-  env.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT')
+  env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT')
   assertInfoField(env, 'idx1', 'key_table_size_mb', '0')
   conn.execute_command('HSET', 'doc1', 't', 'foo bar baz')
   assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05', delta=0.01)
@@ -273,7 +273,7 @@ def testMemAllocated(env):
   assertInfoField(env, 'idx1', 'key_table_size_mb', '0')
 
   # mass
-  env.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT')
+  env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT')
   for i in range(1000):
     conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
   assertInfoField(env, 'idx2', 'key_table_size_mb', '0.027684211730957031', delta=0.01)
@@ -285,7 +285,7 @@ def testMemAllocated(env):
 def testUNF(env):
   conn = getConnectionByEnv(env)
 
-  env.execute_command('FT.CREATE', 'idx', 'SCHEMA',
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA',
                        'txt', 'TEXT', 'SORTABLE',
                        'txt_unf', 'TEXT', 'SORTABLE', 'UNF',
                        'tag', 'TAG', 'SORTABLE',
@@ -314,7 +314,7 @@ def testUNF(env):
 def test_MOD_1517(env):
   conn = getConnectionByEnv(env)
 
-  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'field1', 'TAG', 'SORTABLE',
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'field1', 'TAG', 'SORTABLE',
                                                     'field2', 'TAG', 'SORTABLE')
   # both fields exist
   conn.execute_command('HSET', 'doc1', 'field1', 'val1', 'field2', 'val2', 'amount1', '1', 'amount2', '1')
@@ -340,7 +340,7 @@ def test_MOD_1517(env):
 def test_MOD1544(env):
   # Test parsing failure
   conn = getConnectionByEnv(env)
-  env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT')
+  env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT')
   conn.execute_command('JSON.SET', '1', '.', '{"name": "John Smith"}')
   res = [1, '1', ['name', '<b>John</b> Smith']]
   env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name', 'HIGHLIGHT').equal(res)
@@ -359,7 +359,7 @@ def test_MOD_1808(env):
 def test_2370(env):
   # Test limit offset great than number of results
   conn = getConnectionByEnv(env)
-  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
   conn.execute_command('HSET', 'doc1', 't1', 'foo', 't2', 'bar')
   conn.execute_command('HSET', 'doc2', 't1', 'baz')
 
@@ -378,7 +378,7 @@ def test_SkipFieldWithNoMatch(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
-  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
   conn.execute_command('HSET', 'doc1', 't1', 'foo', 't2', 'bar')
 
   excepted_res = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
@@ -397,7 +397,7 @@ def test_SkipFieldWithNoMatch(env):
   env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1] )
 
   # Check with NOFIELDS flag
-  env.execute_command('FT.CREATE', 'idx_nomask', 'NOFIELDS', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
+  env.cmd('FT.CREATE', 'idx_nomask', 'NOFIELDS', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
   waitForIndex(env, 'idx_nomask')
 
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:foo')
@@ -415,7 +415,7 @@ def test_update_num_terms(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
 
-  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
   conn.execute_command('HSET', 'doc1', 't', 'foo')
   conn.execute_command('HSET', 'doc1', 't', 'bar')
   assertInfoField(env, 'idx', 'num_terms', '2')
@@ -533,7 +533,7 @@ def test_MOD_3540(env):
 def test_sortby_Noexist(env):
   conn = getConnectionByEnv(env)
 
-  env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
   conn.execute_command('HSET', 'doc1', 't', '1')
   conn.execute_command('HSET', 'doc2', 'somethingelse', '2')
   conn.execute_command('HSET', 'doc3', 't', '3')
@@ -661,11 +661,11 @@ def testDeleteIndexes(env):
   # test cleaning of all specs from a prefix
   conn = getConnectionByEnv(env)
   for i in range(10):
-    env.execute_command('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')
-    env.execute_command('FT.DROPINDEX', i)
+    env.cmd('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')
+    env.cmd('FT.DROPINDEX', i)
 
   # create an additional index
-  env.execute_command('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')
+  env.cmd('FT.CREATE', i, 'PREFIX', '1', i / 2, 'SCHEMA', 't', 'TEXT')
 
 def test_mod_4207(env):
   conn = getConnectionByEnv(env)
@@ -705,7 +705,7 @@ def test_mod_4255(env):
 
 
   # Test cursor after data structure that has changed due to insert
-  res = env.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
   cursor = res[1]
   for i in range(3, 1001, 1):
       conn.execute_command('HSET', f'doc{i}', 'test', str(i))
@@ -714,7 +714,7 @@ def test_mod_4255(env):
   env.assertNotEqual(cursor ,0)
 
   # Test cursor after data structure that has changed due to insert
-  res = env.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
   env.assertEqual(res[0] ,[1, ['test', '1']])
   cursor = res[1]
   env.assertNotEqual(cursor ,0)
@@ -770,7 +770,7 @@ def test_mod5062(env):
 
   # verify using counter instead of sorter
   search_profile = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello')
-  env.assertEquals('Counter', search_profile[1][4][3][1])
+  env.assertEqual('Counter', search_profile[1][4][3][1])
 
   # verify no crash
   env.expect('FT.AGGREGATE', 'idx', 'hello').noError()
@@ -778,7 +778,7 @@ def test_mod5062(env):
 
   # verify using counter instead of sorter, even with explicit sort
   aggregate_profile = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'hello', 'SORTBY', '1', '@t')
-  env.assertEquals('Counter', aggregate_profile[1][4][2][1])
+  env.assertEqual('Counter', aggregate_profile[1][4][2][1])
 
 def test_mod5252(env):
   # Create an index and add a document
