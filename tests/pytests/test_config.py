@@ -215,6 +215,7 @@ def testInitConfig(env):
     test_arg_str('_FREE_RESOURCE_ON_THREAD', 'false', 'false')
     test_arg_str('_FREE_RESOURCE_ON_THREAD', 'true', 'true')
     test_arg_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true', 'true')
+    test_arg_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'false', 'false')
 
 def testImmutable(env):
     env.skipOnCluster()
