@@ -1044,6 +1044,7 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   }
   // TODO: Refactor this to an assertion - we never enter (not covered).
   if (MRReply_Type(arr) == MR_REPLY_ERROR) {
+    rCtx->errorOccured = true;
     rCtx->lastError = arr;
     return;
   }
@@ -1062,9 +1063,9 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
     MRReply *err = MRReply_MapElement(arr, "error");
     RS_LOG_ASSERT(err && MRReply_Type(err) == MR_REPLY_ARRAY, "invalid error record");
     if (MRReply_Length(err) > 0) {
-      rCtx->errorOccured = true;
-      rCtx->lastError = MRReply_ArrayElement(err, 0);
       // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
+      rCtx->errorOccured = true;
+      rCtx->lastError = err;
       return;
     }
 
@@ -1583,6 +1584,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   // If we didn't get any results and we got an error - return it.
   // If some shards returned results and some errors - we prefer to show the results we got an not
   // return an error. This might change in the future
+  // TODO: Condition this on the `on_timeout` policy as well (RETURN -> as is, FAIL -> return error)
   if ((rCtx.totalReplies == 0 && rCtx.lastError != NULL) || rCtx.errorOccured) {
     if (rCtx.lastError) {
       MR_ReplyWithMRReply(reply, rCtx.lastError);
