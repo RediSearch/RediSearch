@@ -1044,7 +1044,7 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   }
   // TODO: Refactor this to an assertion - we never enter (not covered).
   if (MRReply_Type(arr) == MR_REPLY_ERROR) {
-    rCtx->errorOccured = true;
+    // rCtx->errorOccured = true;   // Need this?
     rCtx->lastError = arr;
     return;
   }
@@ -1065,7 +1065,7 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
     if (MRReply_Length(err) > 0) {
       // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
       rCtx->errorOccured = true;
-      rCtx->lastError = err;
+      rCtx->lastError = MRReply_ArrayElement(err, 0);
       return;
     }
 
@@ -1587,7 +1587,33 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   // TODO: Condition this on the `on_timeout` policy as well (RETURN -> as is, FAIL -> return error)
   if ((rCtx.totalReplies == 0 && rCtx.lastError != NULL) || rCtx.errorOccured) {
     if (rCtx.lastError) {
+      if (reply->resp3) {     // resp3
+        RedisModule_Reply_Map(reply);
+
+        RedisModule_ReplyKV_Array(reply, "attributes");
+        RedisModule_Reply_ArrayEnd(reply);
+
+        RedisModule_ReplyKV_Array(reply, "error"); // >errors
+        MR_ReplyWithMRReply(reply, rCtx.lastError);
+        RedisModule_Reply_ArrayEnd(reply); // >errors
+
+        RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
+
+      if (rCtx.searchCtx->format & QEXEC_FORMAT_EXPAND) {
+        RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
+      } else {
+        RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
+      }
+
+      RedisModule_ReplyKV_Array(reply, "results"); // >results
+      RedisModule_Reply_ArrayEnd(reply); // >results
+
+      RedisModule_Reply_MapEnd(reply);
+    } else {    // resp2
+      RedisModule_Reply_Array(reply);
       MR_ReplyWithMRReply(reply, rCtx.lastError);
+      RedisModule_Reply_ArrayEnd(reply);
+    }
     } else {
       RedisModule_Reply_Error(reply, "could not parse redisearch results");
     }
