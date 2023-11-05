@@ -139,29 +139,16 @@ def test_search():
     env.expect('FT.search', 'idx1', "*").equal(exp)
 
 def test_search_timeout():
-    env = Env(protocol=3)
+    num_range = 1000
+    env = Env(protocol=3, moduleArgs=f'DEFAULT_DIALECT 2 MAXPREFIXEXPANSIONS {num_range} TIMEOUT 1 ON_TIMEOUT FAIL')
     if should_skip(env):
         env.skip()
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
-    with env.getClusterConnectionIfNeeded() as r:
-      r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
-      r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
-
-    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
-            "SCHEMA", "f1", "TEXT", "f2", "TEXT")
-    waitForIndex(env, 'idx1')
-
-    # test with timeout
-    num_range = 1000
-    env.cmd('ft.config', 'set', 'timeout', '1')
-    env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
     for i in range(num_range):
-        env.cmd('HSET', f'doc{i}', 't', f'aa{i}', 'geo', f"{i/10000},{i/1000}")
+        conn.execute_command('HSET', f'doc{i}', 't', f'aa{i}', 'geo', f"{i/10000},{i/1000}")
 
-    env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0'). \
       error().contains('Timeout limit was reached')
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1).\
@@ -176,10 +163,10 @@ def test_search_timeout():
       p.execute_command('HSET', f'doc{i}', 't', f'{i}', 'geo', f"{i/10000},{i/1000}")
     p.execute()
 
-    conn = getConnectionByEnv(env)
-    err = conn.execute_command('ft.search', 'myIdx', '*')['error'][0]
-    env.assertEquals(type(err), ResponseError)
-    env.assertContains('Timeout limit was reached', str(err))
+    err = conn.execute_command('ft.search', 'myIdx', '*')['error']
+    env.assertEqual(len(err), 1)
+    env.assertEquals(type(err[0]), ResponseError)
+    env.assertContains('Timeout limit was reached', str(err[0]))
 
 @skip(cluster=True)
 def test_profile(env):
