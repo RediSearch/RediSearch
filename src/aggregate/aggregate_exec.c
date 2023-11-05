@@ -825,8 +825,6 @@ error:
       RedisModule_Reply_ArrayEnd(reply);
     }
   RedisModule_EndReply(reply);
-
-  // return QueryError_ReplyAndClear(ctx, &status);
 }
 
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
