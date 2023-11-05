@@ -128,15 +128,16 @@ def test_timeout():
     reached in the shards or in the coordinator itself.
     """
 
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL TIMEOUT 1')
     SkipOnNonCluster(env)
     conn = getConnectionByEnv(env)
 
     # Create the index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
 
-    # Populate the database with 1500 * nshards documents
-    n_docs = int(1500 * env.shardsCount)
+    # Populate the database with 15000 * nshards documents
+    # Many documents reduce flakiness, no way around this today
+    n_docs = int(15000 * env.shardsCount)
     for i in range(n_docs):
         conn.execute_command('HSET', i ,'t1', str(i))
 
@@ -145,8 +146,7 @@ def test_timeout():
                 'LOAD', '2', '@t1', '@__key',
                 'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
                 'groupby', '2', '@t1', '@t1exp',
-                        'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
-                'TIMEOUT', '1',)
+                        'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys')
     # TODO: Add this once the response will be fixed to be and error instead of a string
     # env.assertEquals(type(res[0]), ResponseError)
     env.assertContains('Timeout limit was reached', str(res[0]))
@@ -154,5 +154,10 @@ def test_timeout():
     # Client cursor mid execution
     # If the cursor id is 0, this means there was a timeout throughout execution
     # caught by the coordinator
-    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', '2500', 'TIMEOUT', 1)
-    env.assertEquals(cursor, 0)
+    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', '2500')
+    env.assertEqual(cursor, 0)
+
+    # FT.SEARCH
+    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(int(1500 * env.shardsCount)))
+    env.assertEqual(type(res[0]), ResponseError)
+    env.assertContains('Timeout limit was reached', str(res[0]))

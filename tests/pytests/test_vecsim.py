@@ -1654,7 +1654,7 @@ def test_timeout_reached():
         env.skip()
     conn = getConnectionByEnv(env)
     nshards = env.shardsCount
-    timeout_expected = '0' if env.isCluster() else 'Timeout limit was reached'
+    timeout_expected = 'Timeout limit was reached'
 
     vecsim_algorithms_and_sizes = [('FLAT', 80000 * nshards), ('HNSW', 10000 * nshards)]
     hybrid_modes = ['BATCHES', 'ADHOC_BF']
