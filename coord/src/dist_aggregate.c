@@ -82,8 +82,8 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       RedisModule_Log(NULL, "warning", "Error returned for CURSOR.DEL command from shard");
     }
     // Discard the response, and return REDIS_OK
-    MRReply_Free(rep);
     MRIteratorCallback_Done(ctx, MRReply_Type(rep) == MR_REPLY_ERROR);
+    MRReply_Free(rep);
     return REDIS_OK;
   }
 
