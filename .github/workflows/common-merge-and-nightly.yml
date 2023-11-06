@@ -25,21 +25,23 @@ jobs:
         run: |
           import os
           # All configurations (by default runs both standalone and coordinator)
-          configurations = [
-            'concurrent_write',
-            'max_unsorted',
-            'union_iterator_heap',
-            'raw_docid',
-            'dialect_2',
-            'global_password',
-            'safemode',
-            'tls',
-          ]
+          configurations = [''] # Run all configurations serially
+          # TODO: use matrix to run configurations in parallel once we have enough runners
+          # configurations = [
+          #   'concurrent_write',
+          #   'max_unsorted',
+          #   'union_iterator_heap',
+          #   'raw_docid',
+          #   'dialect_2',
+          #   'global_password',
+          #   'safemode',
+          #   'tls',
+          # ]
           # Spacial configurations
           includes = [
-            {'test-config': 'global_password', 'standalone': 'false'},
-            {'test-config': 'safemode',        'standalone': 'false'},
-            {'test-config': 'tls',             'standalone': 'false'},
+          #   {'test-config': 'global_password', 'standalone': 'false'},
+          #   {'test-config': 'safemode',        'standalone': 'false'},
+          #   {'test-config': 'tls',             'standalone': 'false'},
           ]
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
             print(f'configurations={configurations}', file=fh)
@@ -57,8 +59,6 @@ jobs:
   #   uses: ./.github/workflows/flow-linux-platforms.yml
   #   secrets: inherit
   #   with:
-  #     platform: all
-  #     architecture: all
   #     get-redis: ${{ inputs.redis-ref }}
   #     test-config: CONFIG=${{ matrix.test-config }}
   #     standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
