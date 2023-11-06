@@ -709,7 +709,7 @@ void MRIterator_WaitDone(MRIterator *it, bool mayBeIdle) {
     }
     // If we have no pending shards, we are done.
     if (!it->ctx.pending) return;
-    // If we have pending (not depleted) shards, trigger `_FT.CURSOR DEL` on them
+    // If we have pending (not depleted) shards, trigger `FT.CURSOR DEL` on them
     it->ctx.inProcess = it->ctx.pending;
     // Change the root command to DEL for each pending shard
     for (size_t i = 0; i < it->len; i++) {
@@ -735,7 +735,7 @@ void MRIterator_Free(MRIterator *it) {
   }
   MRReply *reply;
   while ((reply = MRChannel_UnsafeForcePop(it->ctx.chan))) {
-      MRReply_Free(reply);
+    MRReply_Free(reply);
   }
   MRChannel_Free(it->ctx.chan);
   rm_free(it->cbxs);
