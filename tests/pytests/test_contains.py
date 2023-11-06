@@ -130,20 +130,16 @@ def testSanity(env):
     env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 'RETURN').ok()
     res = conn.execute_command('ft.search', index_list[0], 'foo*', 'LIMIT', 0, 0)
-    env.assertEqual(type(res[0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(res[0]))
+    assertResp2Error(env, res, 'Timeout limit was reached')
 
     res = conn.execute_command('ft.search', index_list[1], 'foo*', 'LIMIT', 0, 0)
-    env.assertEqual(type(res[0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(res[0]))
+    assertResp2Error(env, res, 'Timeout limit was reached')
 
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
     res = conn.execute_command('ft.search', index_list[0], 'foo*', 'LIMIT', 0, 0)
-    env.assertEqual(type(res[0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(res[0]))
+    assertResp2Error(env, res, 'Timeout limit was reached')
     res = conn.execute_command('ft.search', index_list[1], 'foo*', 'LIMIT', 0, 0)
-    env.assertEqual(type(res[0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(res[0]))
+    assertResp2Error(env, res, 'Timeout limit was reached')
 
 def testSanityTags(env):
     env.skipOnCluster()
@@ -205,19 +201,15 @@ def testSanityTags(env):
     env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 'RETURN').ok()
     res = conn.execute_command('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0, 0)
-    env.assertEqual(type(res[0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(res[0]))
+    assertResp2Error(env, res, 'Timeout limit was reached')
     res = conn.execute_command('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0, 0)
-    env.assertEqual(type(res[0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(res[0]))
+    assertResp2Error(env, res, 'Timeout limit was reached')
 
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
     res = conn.execute_command('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0, 0)
-    env.assertEqual(type(res[0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(res[0]))
+    assertResp2Error(env, res, 'Timeout limit was reached')
     res = conn.execute_command('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0, 0)
-    env.assertEqual(type(res[0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(res[0]))
+    assertResp2Error(env, res, 'Timeout limit was reached')
 
 def testEscape(env):
   # this test check that `\*` is escaped correctly on contains queries

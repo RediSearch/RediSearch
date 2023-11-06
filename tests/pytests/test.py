@@ -2162,6 +2162,7 @@ def testTimeout(env):
     if VALGRIND:
         env.skip()
 
+    conn = getConnectionByEnv(env)
     num_range = 1000
     env.cmd('ft.config', 'set', 'timeout', '1')
     env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
@@ -2173,19 +2174,22 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0').noEqual([num_range])
 
     env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0'). \
-       error().contains('Timeout limit was reached')
+    res = conn.execute_command('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0')
+    assertResp2Error(env, res, 'Timeout limit was reached')
 
     # test `TIMEOUT` param in query
     res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 10000)
     env.assertEqual(res[0], num_range)
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1)    \
-        .error().contains('Timeout limit was reached')
+    res = conn.execute_command('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1)
+    assertResp2Error(env, res, 'Timeout limit was reached')
 
     # test erroneous params
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout').error()
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', -1).error()
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
+    res = conn.execute_command('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout')
+    assertResp2Error(env, res, 'Need argument for TIMEOUT')
+    res = conn.execute_command('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', -1)
+    assertResp2Error(env, res, 'TIMEOUT requires a non negative integer')
+    res = conn.execute_command('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR')
+    assertResp2Error(env, res, 'TIMEOUT requires a non negative integer')
 
     # check no time w/o sorter/grouper
     res = env.cmd('FT.AGGREGATE', 'myIdx', '*',
@@ -2198,22 +2202,22 @@ def testTimeout(env):
     env.assertLess(len(res[1:]), num_range)
 
     # test grouper
-    env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
+    res = conn.execute_command('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
                'LOAD', 1, 't',
                'GROUPBY', 1, '@t',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
-               'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
-       .error().contains('Timeout limit was reached')
+               'APPLY', 'contains(@t, "a1")', 'AS', 'contain3')
+    assertResp2Error(env, res, 'Timeout limit was reached')
 
     # test sorter
-    env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
+    res = conn.execute_command('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
                'LOAD', 1, 't',
                'SORTBY', 1, '@t',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
-               'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
-       .error().contains('Timeout limit was reached')
+               'APPLY', 'contains(@t, "a1")', 'AS', 'contain3')
+    assertResp2Error(env, res, 'Timeout limit was reached')
 
     # test cursor
     res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 500)

@@ -139,6 +139,7 @@ def test_search():
     env.expect('FT.search', 'idx1', "*").equal(exp)
 
 def test_search_timeout():
+    # TODO: Remove skip on coord if possible
     env = Env(protocol=3)
     if should_skip(env):
         env.skip()
@@ -163,13 +164,9 @@ def test_search_timeout():
 
     env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
     res = conn.execute_command('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0')
-    env.assertEqual(len(res['error']), 1)
-    env.assertEqual(type(res['error'][0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(res['error'][0]))
+    assertResp3Error(env, res, 'Timeout limit was reached')
     res = conn.execute_command('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1)
-    env.assertEqual(len(res['error']), 1)
-    env.assertEqual(type(res['error'][0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(res['error'][0]))
+    assertResp3Error(env, res, 'Timeout limit was reached')
 
     # (coverage) Later failure than the above tests - in pipeline execution
     # phase. For this, we need more documents in the index, such that we will
@@ -182,9 +179,7 @@ def test_search_timeout():
 
     conn = getConnectionByEnv(env)
     res = conn.execute_command('ft.search', 'myIdx', '*')
-    env.assertEqual(len(res['error']), 1)
-    env.assertEquals(type(res['error'][0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(res['error'][0]))
+    assertResp3Error(env, res, 'Timeout limit was reached')
 
 @skip(cluster=True)
 def test_profile(env):

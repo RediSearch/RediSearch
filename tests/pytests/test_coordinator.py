@@ -147,8 +147,7 @@ def test_timeout():
                 'groupby', '2', '@t1', '@t1exp',
                         'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
                 'TIMEOUT', '1',)
-    env.assertEquals(type(res[0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(res[0]))
+    assertResp2Error(env, res, 'Timeout limit was reached')
 
     # Client cursor mid execution
     # If the cursor id is 0, this means there was a timeout throughout execution

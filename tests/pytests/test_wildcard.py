@@ -73,15 +73,13 @@ def dotestSanity(env, dialect):
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
   env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'RETURN').ok()
   res = conn.execute_command('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0)
-  env.assertEqual(type(res[0]), ResponseError)
-  env.assertContains('Timeout limit was reached', str(res[0]))
+  assertResp2Error(env, res, 'Timeout limit was reached')
   #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
   #  .contains('Timeout limit was reached')
 
   env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'FAIL').ok()
   res = conn.execute_command('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0)
-  env.assertEqual(type(res[0]), ResponseError)
-  env.assertContains('Timeout limit was reached', str(res[0]))
+  assertResp2Error(env, res, 'Timeout limit was reached')
   #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
   #  .contains('Timeout limit was reached')
 
@@ -159,16 +157,16 @@ def dotestSanityTag(env, dialect):
   # test timeout
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
   env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'RETURN').ok()
-  env.expect('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
-    .contains('Timeout limit was reached')
-  env.expect('ft.search', index_list[1], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
-    .contains('Timeout limit was reached')
+  res = conn.execute_command('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0)
+  assertResp2Error(env, res, 'Timeout limit was reached')
+  res = conn.execute_command('ft.search', index_list[1], "@t:{w'foo*'}", 'LIMIT', 0 , 0)
+  assertResp2Error(env, res, 'Timeout limit was reached')
 
   env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'FAIL').ok()
-  env.expect('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
-    .contains('Timeout limit was reached')
-  env.expect('ft.search', index_list[1], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
-    .contains('Timeout limit was reached')
+  res = conn.execute_command('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0)
+  assertResp2Error(env, res, 'Timeout limit was reached')
+  env.expect('ft.search', index_list[1], "@t:{w'foo*'}", 'LIMIT', 0 , 0)
+  assertResp2Error(env, res, 'Timeout limit was reached')
 
 def testBenchmark(env):
   env.skip()
