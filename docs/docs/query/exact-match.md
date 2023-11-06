@@ -1,13 +1,15 @@
 ---
-title: "Exact match"
+title: "Exact match queries"
 linkTitle: "Exact match"
-description: Simple exact match queries
+description: Perform simple exact match queries
 weight: 1
 ---
 
 An exact match query allows you to select all documents where a field matches a specific value. 
 
-You can use exact match queries on several field types. The query syntax varies depending on the type. The examples in this article use a schema with the following fields:
+You can use exact match queries on several field types. The query syntax varies depending on the type. 
+
+The examples in this article use a schema with the following fields:
 
 | Field name | Field type |
 | ---------- | ---------- |
@@ -56,6 +58,7 @@ FT.SEARCH index "@field:{tag}"
 The curly brackets are mandatory for tag queries. You can read why in the [combined queries article](TODO).
 {{% /alert  %}}
 
+
 This short example shows you how to query for new bicycles:
 
 ```
@@ -64,7 +67,7 @@ FT.SEARCH idx:bicycle "@condition:{new}"
 
 ## Full-text field
 
-A detailed explanation of full-text queries is available in the [full-text queries documentation](TODO). You can also query for an exact match of words within a text:
+A detailed explanation of full-text queries is available in the [full-text queries documentation](/docs/interact/search-and-query/query/full-text). You can also query for an exact match of words within a text:
 
 ```
 FT.SEARCH index "@field:\"text\""
@@ -73,7 +76,6 @@ FT.SEARCH index "@field:\"text\""
 {{% alert title="Important" color="warning" %}}
 The text must be wrapped by escaped double quotes for an exact match query.
 {{% /alert  %}}
-
 
 Here is an example for finding all bicycles that have a description containing the exact text 'rough terrain':
 

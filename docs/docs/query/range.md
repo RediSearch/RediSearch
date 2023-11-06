@@ -1,7 +1,7 @@
 ---
-title: "Range"
+title: "Range queries"
 linkTitle: "Range"
-description: Numeric range queries
+description: Perform numeric range queries
 weight: 2
 ---
 
