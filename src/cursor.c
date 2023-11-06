@@ -350,6 +350,7 @@ void CursorList_Empty(CursorList *cl) {
 
 void CursorList_Expire(CursorList *cl) {
   CursorList_Lock(cl);
+  // Not calling `CursorList_IncrCounter` as we don't want to trigger GC
 
   uint64_t now = curTimeNs(); // Taking `now` as a signature
   Cursor *cursor;
