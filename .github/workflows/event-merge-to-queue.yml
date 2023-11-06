@@ -7,9 +7,15 @@ on:
     types: [checks_requested]
 
 jobs:
-  pr-validation:
+  verify:
     uses: ./.github/workflows/common-merge-and-nightly.yml
     secrets: inherit
     with:
       redis-ref: ${{ vars.DEFAULT_REDIS_REF }}
       json-ref: ${{ vars.DEFAULT_REDISJSON_REF }}
+
+  pr-validation:
+    needs: [verify]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "PR Validation Passed"

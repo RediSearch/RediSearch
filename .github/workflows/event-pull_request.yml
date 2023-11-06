@@ -1,4 +1,4 @@
-name: Pull Request Default Flow
+name: Pull Request Flow
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
@@ -9,8 +9,12 @@ on:
       - "docs/**"
       - "licenses/**"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  pr-validation:
+  basic-test:
     uses: ./.github/workflows/common-flow-tests.yml
     with:
       env: ubuntu-latest
@@ -26,3 +30,9 @@ jobs:
     secrets: inherit
     with:
       flow-config: QUICK=1
+
+  pr-validation:
+    needs: [basic-test, coverage, sanitize]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "PR Validation Passed"
