@@ -2710,47 +2710,47 @@ def testAggregateSortByMaxNumberOfFields(env):
                ).equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
-    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '9', *['@test%d' % (i + 1) for i in range(9)]).error()
+    assertResp2ErrorCmd(env, ('ft.aggregate', 'idx', '*', 'SORTBY', '9', *['@test%d' % (i + 1) for i in range(9)]))
     args = ['@test%d' % (i + 1) for i in range(8)] + ['bad']
-    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '9', *args).error()
+    assertResp2ErrorCmd(env, ('ft.aggregate', 'idx', '*', 'SORTBY', '9', *args))
     args = ['@test%d' % (i + 1) for i in range(8)] + ['ASC', 'MAX', 'bad']
-    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '9', *args).error()
+    assertResp2ErrorCmd(env, ('ft.aggregate', 'idx', '*', 'SORTBY', '9', *args))
     args = ['@test%d' % (i + 1) for i in range(8)] + ['ASC', 'MAX']
-    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '9', *args).error()
+    assertResp2ErrorCmd(env, ('ft.aggregate', 'idx', '*', 'SORTBY', '9', *args))
 
 def testNumericFilterError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
-    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', 'bad', '2').error()
-    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', '0', 'bad').error()
-    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', '0').error()
-    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', 'bad').error()
-    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', '0', '2', 'FILTER', 'test', '0', 'bla').error()
+    assertResp2ErrorCmd(env, ('ft.search', 'idx', '*', 'FILTER', 'test', 'bad', '2'))
+    assertResp2ErrorCmd(env, ('ft.search', 'idx', '*', 'FILTER', 'test', '0', 'bad'))
+    assertResp2ErrorCmd(env, ('ft.search', 'idx', '*', 'FILTER', 'test', '0'))
+    assertResp2ErrorCmd(env, ('ft.search', 'idx', '*', 'FILTER', 'test', 'bad'))
+    assertResp2ErrorCmd(env, ('ft.search', 'idx', '*', 'FILTER', 'test', '0', '2', 'FILTER', 'test', '0', 'bla'))
 
 def testGeoFilterError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
-    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1').error()
-    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', 'bad' , '2', '3', 'km').error()
-    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , 'bad', '3', 'km').error()
-    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , '2', 'bad', 'km').error()
-    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , '2', '3', 'bad').error()
+    assertResp2ErrorCmd(env, ('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1'))
+    assertResp2ErrorCmd(env, ('ft.search', 'idx', '*', 'GEOFILTER', 'test', 'bad' , '2', '3', 'km'))
+    assertResp2ErrorCmd(env, ('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , 'bad', '3', 'km'))
+    assertResp2ErrorCmd(env, ('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , '2', 'bad', 'km'))
+    assertResp2ErrorCmd(env, ('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , '2', '3', 'bad'))
 
 def testReducerError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
-    env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', 'bad').error()
-    env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'as').error()
+    assertResp2ErrorCmd(env, ('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', 'bad'))
+    assertResp2ErrorCmd(env, ('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'as'))
 
 def testGroupbyError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
-    env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE').error()
+    assertResp2ErrorCmd(env, ('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE'))
     if not env.isCluster(): # todo: remove once fix on coordinator
-        env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test1').error()
-    env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'bad', '0').error()
+        assertResp2ErrorCmd(env, ('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test1'))
+    assertResp2ErrorCmd(env, ('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'bad', '0'))
     if not env.isCluster(): # todo: remove once fix on coordinator
-        env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'SUM', '1', '@test1').error()
+        assertResp2ErrorCmd(env, ('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'SUM', '1', '@test1'))
 
 def testGroupbyWithSort(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
@@ -2763,36 +2763,38 @@ def testGroupbyWithSort(env):
 def testApplyError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
-    env.expect('ft.aggregate', 'idx', '*', 'APPLY', 'split(@test)', 'as').error()
+    assertResp2ErrorCmd(env, ('ft.aggregate', 'idx', '*', 'APPLY', 'split(@test)', 'as'))
 
 def testLoadError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD').error()
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', 'bad').error()
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', 'bad', 'test').error()
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '2', 'test').error()
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '2', '@test').error()
+    assertResp2ErrorCmd(env, ('ft.aggregate', 'idx', '*', 'LOAD'))
+    assertResp2ErrorCmd(env, ('ft.aggregate', 'idx', '*', 'LOAD', 'bad'))
+    assertResp2ErrorCmd(env, ('ft.aggregate', 'idx', '*', 'LOAD', 'bad', 'test'))
+    assertResp2ErrorCmd(env, ('ft.aggregate', 'idx', '*', 'LOAD', '2', 'test'))
+    assertResp2ErrorCmd(env, ('ft.aggregate', 'idx', '*', 'LOAD', '2', '@test'))
 
 def testMissingArgsError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
-    env.expect('ft.aggregate', 'idx').error()
+    assertResp2ErrorCmd(env, ('ft.aggregate', 'idx'))
 
 def testUnexistsScorer(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
-    env.expect('ft.search', 'idx', '*', 'SCORER', 'bad').error()
+    assertResp2ErrorCmd(env, ('ft.search', 'idx', '*', 'SCORER', 'bad'))
 
 def testHighlightWithUnknowsProperty(env):
+    conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
-    env.expect('ft.aggregate', 'idx', '*', 'HIGHLIGHT', 'FIELDS', '1', 'test1').error()
+    assertResp2ErrorCmd(env, ('ft.aggregate', 'idx', '*', 'HIGHLIGHT', 'FIELDS', '1', 'test1'))
 
 def testHighlightOnAggregate(env):
+    conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
-    env.expect('ft.aggregate', 'idx', '*', 'HIGHLIGHT', 'FIELDS', '1', 'test').error().contains("HIGHLIGHT is not supported on FT.AGGREGATE")
+    assertResp2ErrorCmd(env, ('ft.aggregate', 'idx', '*', 'HIGHLIGHT', 'FIELDS', '1', 'test'))
 
 def testBadFilterExpression(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')

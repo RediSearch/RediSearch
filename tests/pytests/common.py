@@ -511,9 +511,32 @@ def assertResp2Error(env, res, msg=None):
     if msg is not None:
         env.assertContains(msg, str(err))
 
+def assertResp2ErrorCmd(env, cmd, msg=None):
+    """Asserts that the response is an error. In Resp2, we return the results of
+    a command in an array, therefore we check the first component of the response array"""
+    conn = getConnectionByEnv(env)
+    res = conn.execute_command(*cmd)
+    env.assertEqual(len(res), 1)
+    err = res[0]
+    env.assertEqual(type(err), ResponseError)
+    if msg is not None:
+        env.assertContains(msg, str(err))
+
 def assertResp3Error(env, res, msg=None):
     """Asserts that the response is an error. In Resp3, we return the results of
     a command in a map, therefore we check the corresponding component of the response map"""
+    err = res['error']
+    env.assertEqual(len(err), 1)
+    err = err[0]
+    env.assertEqual(type(err), ResponseError)
+    if msg is not None:
+        env.assertContains(msg, str(err))
+
+def assertResp3ErrorCmd(env, cmd, msg=None):
+    """Asserts that the response is an error. In Resp3, we return the results of
+    a command in a map, therefore we check the corresponding component of the response map"""
+    conn = getConnectionByEnv(env)
+    res = conn.execute_command(*cmd)
     err = res['error']
     env.assertEqual(len(err), 1)
     err = err[0]
