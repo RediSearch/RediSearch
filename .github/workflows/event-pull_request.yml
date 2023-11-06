@@ -9,6 +9,10 @@ on:
       - "docs/**"
       - "licenses/**"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   basic-test:
     uses: ./.github/workflows/common-flow-tests.yml
