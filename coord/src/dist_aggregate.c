@@ -440,7 +440,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
-  MRIterator *it = MR_Iterate(nc->cg, netCursorCallback, NULL);
+  MRIterator *it = MR_Iterate(nc->cg, netCursorCallback);
   if (!it) {
     return RS_RESULT_ERROR;
   }
@@ -456,7 +456,7 @@ static void rpnetFree(ResultProcessor *rp) {
   // the iterator might not be done - some producers might still be sending data, let's wait for
   // them...
   if (nc->it) {
-    MRIterator_WaitDone(nc->it, nc->areq->reqflags & QEXEC_F_IS_CURSOR);
+    MRIterator_WaitDone(nc->it, nc->cmd.forCursor);
   }
 
   nc->cg.Free(nc->cg.ctx);
@@ -470,9 +470,7 @@ static void rpnetFree(ResultProcessor *rp) {
     rm_free(nc->shardsProfile);
   }
 
-  if (nc->current.root) {
-    MRReply_Free(nc->current.root);
-  }
+  MRReply_Free(nc->current.root);
 
   if (nc->it) MRIterator_Free(nc->it);
   rm_free(rp);
