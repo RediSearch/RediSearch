@@ -25,7 +25,7 @@ on:
 
 env:
   AWS_IMAGE_ID: ami-0d8e10b4bd5d65c57  # Ubuntu 22.04 region AMI for ARM with Docker installed
-  AWS_INSTANCE_TYPE: t4g.2xlarge
+  AWS_INSTANCE_TYPE: t4g.medium
 
 jobs:
   start-runner:
