@@ -20,6 +20,7 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     needs: [success, skipped]
-    if: failure()
+    if: always()
     steps:
-      - run: echo "verify" && exit 1
+      - if: failure()
+        run: exit 1
