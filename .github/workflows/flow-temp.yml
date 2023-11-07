@@ -7,10 +7,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo "success"
-  # failure:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - run: echo "failure" && exit 1
+  failure:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "failure" && exit 1
   skipped:
     runs-on: ubuntu-latest
     if: false
@@ -19,7 +19,7 @@ jobs:
 
   verify:
     runs-on: ubuntu-latest
-    needs: [success, skipped]
+    needs: [success, skipped, failure]
     if: always()
     steps:
       - if: failure()
