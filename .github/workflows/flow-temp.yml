@@ -2,27 +2,8 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['*'] # ignore all branches
+    # branches-ignore: ['*'] # ignore all branches
 
 jobs:
-  success:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "success"
-  failure:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "failure" && exit 1
-  skipped:
-    runs-on: ubuntu-latest
-    if: false
-    steps:
-      - run: echo "skipped"
-
-  verify:
-    runs-on: ubuntu-latest
-    needs: [success, skipped, failure]
-    if: ${{ !cancelled() }}
-    steps:
-      - if:  contains(needs.*.result, 'failure')
-        run: exit 1
+  macos:
+    uses: ./.github/workflows/flow-macos.yml
