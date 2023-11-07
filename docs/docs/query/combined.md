@@ -30,7 +30,7 @@ The examples in this article use the following schema:
 
 ## AND
 
-The binary operator ` ` (space) is used for intersect the results of two or more expressions.
+The binary operator ` ` (space) is used to intersect the results of two or more expressions.
 
 ```
 FT.SEARCH index "(expr1) (expr2)"
