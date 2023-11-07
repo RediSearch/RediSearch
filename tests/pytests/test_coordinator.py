@@ -158,6 +158,6 @@ def test_timeout():
     env.assertEqual(cursor, 0)
 
     # FT.SEARCH
-    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(int(1500 * env.shardsCount)))
+    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(int(15000 * env.shardsCount)))
     env.assertEqual(type(res[0]), ResponseError)
     env.assertContains('Timeout limit was reached', str(res[0]))

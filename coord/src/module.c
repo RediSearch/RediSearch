@@ -1063,7 +1063,8 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
     MRReply *err = MRReply_MapElement(arr, "error");
     RS_LOG_ASSERT(err && MRReply_Type(err) == MR_REPLY_ARRAY, "invalid error record");
     if (MRReply_Length(err) > 0) {
-      // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
+      // TODO: Probably only in later PR - Report only the error if the timeout
+      // policy is FAIL. Otherwise - return the results as well.
       rCtx->errorOccured = true;
       rCtx->lastError = MRReply_ArrayElement(err, 0);
       return;
