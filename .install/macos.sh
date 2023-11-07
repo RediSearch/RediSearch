@@ -10,5 +10,3 @@ echo "export PATH=$GNUBIN:$PATH" >> ~/.zshrc
 
 brew install openssl
 source install_cmake.sh
-
-pip3 install --upgrade pip setuptools # Temp
