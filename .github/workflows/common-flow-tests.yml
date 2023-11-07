@@ -28,9 +28,6 @@ on:
       pre-steps-script:
         type: string
         description: 'Script to run before any other steps (extremely basic dependency needs only)'
-      readies: # TODO: remove
-        type: boolean
-        default: true
 
 env:
   REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
@@ -64,15 +61,7 @@ jobs:
           submodules: recursive
 
       - name: Setup (readies)
-        if: inputs.readies
         run: ./sbin/setup
-      - name: Setup (Python)
-        if: ${{!inputs.readies}}
-        working-directory: tests/pytests
-        run: |
-          pip install --upgrade pip
-          pip install RLTest conan scipy
-          pip install -r requirements.txt
 
       - name: Get Redis
         if: inputs.get-redis

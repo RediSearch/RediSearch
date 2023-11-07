@@ -31,5 +31,4 @@ jobs:
       coordinator: ${{ inputs.coordinator }}
       standalone:  ${{ inputs.standalone }}
       get-redis: ${{ inputs.redis-ref || vars.DEFAULT_REDIS_REF }}
-      readies: false
     secrets: inherit
