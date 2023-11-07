@@ -21,7 +21,7 @@ int MRChannel_Push(MRChannel *chan, void *ptr);
  * Return MRCHANNEL_CLOSED if the channel is closed*/
 void *MRChannel_Pop(MRChannel *chan);
 
-void *MRChannel_ForcePop(MRChannel *chan);
+// void *MRChannel_ForcePop(MRChannel *chan);
 
 // Same as MRChannel_ForcePop, but does not lock the channel. This is unsafe, and should only be used
 // when the caller is sure that the channel is not being used by other threads
