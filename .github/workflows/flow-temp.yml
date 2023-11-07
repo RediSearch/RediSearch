@@ -3,8 +3,23 @@ name: temporary testing
 on: [push]
 
 jobs:
-  test:
-    uses: ./.github/workflows/flow-linux-platforms.yml
-    secrets: inherit
-    with:
-      architecture: aarch64
+  success:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "success"
+  failure:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "failure" && exit 1
+  skipped:
+    runs-on: ubuntu-latest
+    if: false
+    steps:
+      - run: echo "skipped"
+
+  verify:
+    runs-on: ubuntu-latest
+    needs: [success, failure, skipped]
+    if: failure()
+    steps:
+      - run: echo "verify" && exit 1
