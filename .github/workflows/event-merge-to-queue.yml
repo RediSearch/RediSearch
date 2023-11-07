@@ -6,6 +6,8 @@ on:
   merge_group:
     types: [checks_requested]
 
+# TODO: use some action like dorny/paths-filter@v2 to skip validation if only docs were changed
+
 jobs:
   verify:
     uses: ./.github/workflows/common-merge-and-nightly.yml
@@ -17,5 +19,7 @@ jobs:
   pr-validation:
     needs: [verify]
     runs-on: ubuntu-latest
+    if: ${{ !cancelled() }}
     steps:
-      - run: echo "PR Validation Passed"
+      - if: contains(needs.*.result, 'failure')
+        run: exit 1
