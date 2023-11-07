@@ -163,7 +163,7 @@ def test_search_timeout():
       p.execute_command('HSET', f'doc{i}', 't', f'{i}', 'geo', f"{i/10000},{i/1000}")
     p.execute()
 
-    err = conn.execute_command('ft.search', 'myIdx', '*')['error']
+    err = conn.execute_command('ft.search', 'myIdx', '*', 'limit', '0', str(num_range_2))['error']
     env.assertEqual(len(err), 1)
     env.assertEquals(type(err[0]), ResponseError)
     env.assertContains('Timeout limit was reached', str(err[0]))
