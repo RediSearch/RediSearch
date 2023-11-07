@@ -1,10 +1,9 @@
 name: temporary testing
 
-on: [push]
+on:
+  push:
+    branches-ignore: ['*'] # ignore all branches
 
 jobs:
-  test:
-    uses: ./.github/workflows/flow-linux-platforms.yml
-    secrets: inherit
-    with:
-      architecture: aarch64
+  macos:
+    uses: ./.github/workflows/flow-macos.yml
