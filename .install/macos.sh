@@ -4,7 +4,9 @@ brew update
 brew install make openssl python3
 source install_cmake.sh
 
-GNUBINS=$(find -L /usr/local/opt -type d -name gnubin | tr ' ' ':')
+HOMEBREW_PREFIX=$(brew --prefix)
+GNUBINS=
+for d in ${HOMEBREW_PREFIX}/opt/*/libexec/gnubin; do GNUBINS=$d:$GNUBINS; done
 echo "path:"
 echo $PATH
 echo "gnubins:"
