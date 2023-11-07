@@ -5,10 +5,7 @@ name: Documentation CI Approval
 on:
   pull_request:
     paths-ignore:
-      # - "*"
-      - "!README.md"
-      - "!docs/**"
-      - "!licenses/**"
+      - "**" # TODO: use some action like dorny/paths-filter@v2 to skip validation if only docs were changed
 
 jobs:
   pr-validation:
