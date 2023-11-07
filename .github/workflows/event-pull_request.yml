@@ -4,6 +4,7 @@ name: Pull Request Flow
 
 on:
   pull_request:
+    branches-ignore: [feature-github-actions] # TODO: remove
     paths-ignore:
       - "README.md"
       - "docs/**"
