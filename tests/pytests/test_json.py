@@ -251,7 +251,7 @@ def testMSet(env):
 
 @no_msan
 def testMerge(env):
-    # JSON.MERGE 
+    # JSON.MERGE
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.details.a', 'AS', 'a', 'NUMERIC')
 
     env.cmd('JSON.MERGE', 'doc:1', '$', r'{"t":"ReJSON","details":{"a":1}}')
@@ -1153,5 +1153,8 @@ def test_mod5608(env):
 
         env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'd', 'SCHEMA', 'id', 'TAG', 'num', 'NUMERIC').equal('OK')
         waitForIndex(env, 'idx')
-        res = env.cmd('FT.AGGREGATE', 'idx', "*", 'LOAD', 1, 'num', 'WITHCURSOR', 'MAXIDLE', 1, 'COUNT', 300)
-        cursor_id = res[1]
+        _, cursor = env.cmd('FT.AGGREGATE', 'idx', "*", 'LOAD', 1, 'num', 'WITHCURSOR', 'MAXIDLE', 1, 'COUNT', 300)
+
+        if SANITIZER or CODE_COVERAGE:
+            # Avoid sanitizer and coverage deadlock on shutdown (not a problem in production)
+            env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)

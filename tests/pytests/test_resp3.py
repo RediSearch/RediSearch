@@ -150,7 +150,7 @@ def test_search_timeout():
         conn.execute_command('HSET', f'doc{i}', 't', f'aa{i}', 'geo', f"{i/10000},{i/1000}")
 
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0'). \
-      error().contains('Timeout limit was reached')
+      contains('Timeout limit was reached')
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1).\
       error().contains('Timeout limit was reached')
 

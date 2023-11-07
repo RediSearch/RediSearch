@@ -5,7 +5,6 @@ from RLTest import Env
 from common import *
 from includes import *
 from random import randrange
-from redis import ResponseError
 
 
 '''************* Helper methods for vecsim tests ************'''
@@ -1679,7 +1678,7 @@ def test_timeout_reached():
                 res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
                                            'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
                                            'TIMEOUT', 1)
-                env.assertEqual(str(res[0]), timeout_expected)
+                env.assertEqual(res[0], timeout_expected)
             except Exception as error:
                 env.assertContains('Timeout limit was reached', str(error))
 
@@ -1705,7 +1704,7 @@ def test_timeout_reached():
                     res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
                                                'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
                                                'TIMEOUT', 1)
-                    env.assertEqual(str(res[0]), timeout_expected)
+                    env.assertEqual(res[0], timeout_expected)
                 except Exception as error:
                     env.assertContains('Timeout limit was reached', str(error))
 
