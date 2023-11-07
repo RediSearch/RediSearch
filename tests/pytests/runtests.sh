@@ -155,7 +155,7 @@ setup_rltest() {
 	RLTEST_ARGS+=" --enable-debug-command"
 
 	LOG_LEVEL=${LOG_LEVEL:-debug}
-	RLTEST_ARGS+=" --log-level ${LOG_LEVEL,,}"
+	RLTEST_ARGS+=" --log-level $LOG_LEVEL"
 
 	if [[ $RLTEST_VERBOSE == 1 ]]; then
 		RLTEST_ARGS+=" -v"
