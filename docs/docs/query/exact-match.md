@@ -46,7 +46,11 @@ FT.SEARCH idx:bicycle "*" FILTER price 270 270
 
 ## Tag field
 
-A tag is a short sequence of text, for example, "new" and "Los Angeles". If you need to query for short texts only, then a tag query is more efficient than a full-text query. The [tag vs. text article](TODO) explains why this is the case. 
+A tag is a short sequence of text, for example, "new" and "Los Angeles". 
+
+{{% alert title="Important" color="warning" %}}
+If you need to query for short texts only, then you should use a tag query instead of a full-text query. A text field causes that each term is mapped to many document ids by using an index structure called an inverted index behind the scenes. Such inverted index structure works best for full-text searches. If you use a tag instead, it is implemented as one tag index structure per field and shard. Tag fields are more space-efficient for storing index entries and often lead to a lower query complexity if you execute an exact match query.
+{{% /alert  %}}
 
 You can construct a tag query for a single tag in the following way:
 
@@ -67,14 +71,16 @@ FT.SEARCH idx:bicycle "@condition:{new}"
 
 ## Full-text field
 
-A detailed explanation of full-text queries is available in the [full-text queries documentation](/docs/interact/search-and-query/query/full-text). You can also query for an exact match of words within a text:
+A detailed explanation of full-text queries is available in the [full-text queries documentation](/docs/interact/search-and-query/query/full-text). You can also query for an exact match of a phrase within a text:
 
 ```
-FT.SEARCH index "@field:\"text\""
+FT.SEARCH index "@field:\"phrase\""
 ```
 
 {{% alert title="Important" color="warning" %}}
-The text must be wrapped by escaped double quotes for an exact match query.
+The phrase must be wrapped by escaped double quotes for an exact match query.
+
+You can't use a phrase that starts with a [stop word](/docs/interact/search-and-query/advanced-concepts/stopwords).
 {{% /alert  %}}
 
 Here is an example for finding all bicycles that have a description containing the exact text 'rough terrain':
