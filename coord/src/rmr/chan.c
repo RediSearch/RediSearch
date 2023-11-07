@@ -124,12 +124,12 @@ void *MRChannel_UnsafeForcePop(MRChannel *chan) {
   return ret;
 }
 
-void *MRChannel_ForcePop(MRChannel *chan) {
-  pthread_mutex_lock(&chan->lock);
-  void *ret = MRChannel_UnsafeForcePop(chan);
-  pthread_mutex_unlock(&chan->lock);
-  return ret;
-}
+// void *MRChannel_ForcePop(MRChannel *chan) {
+//   pthread_mutex_lock(&chan->lock);
+//   void *ret = MRChannel_UnsafeForcePop(chan);
+//   pthread_mutex_unlock(&chan->lock);
+//   return ret;
+// }
 
 // todo wait is not actually used anywhere...
 void *MRChannel_Pop(MRChannel *chan) {
