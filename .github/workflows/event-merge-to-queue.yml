@@ -19,7 +19,7 @@ jobs:
   pr-validation:
     needs: [verify]
     runs-on: ubuntu-latest
-    if: always()
+    if: !cancelled()
     steps:
       - if: contains(needs.*.result, 'failure')
         run: exit 1
