@@ -22,6 +22,5 @@ jobs:
     needs: [success, skipped, failure]
     if: always()
     steps:
-      - if: needs.*.result != 'failure'
-        run: exit 0
-      - run: exit 1
+      - if: contains(needs.*.result, 'failure')
+        run: exit 1
