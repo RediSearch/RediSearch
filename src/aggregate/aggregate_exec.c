@@ -802,8 +802,18 @@ error:
       RedisModule_Reply_ArrayEnd(reply);
 
       RedisModule_ReplyKV_Array(reply, "error"); // >errors
-      RedisModule_Reply_Error(reply, QueryError_GetError(&status));
-      QueryError_ClearError(&status);
+      if (status.code == QUERY_TIMEDOUT) {
+        // Add !IsProfile() condition as we have in sendChunk?
+        if (r->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+          RedisModule_Reply_Error(reply, QueryError_GetError(&status));
+          QueryError_ClearError(&status);
+        } else {
+          RedisModule_Reply_LongLong(reply, 0);
+        }
+      } else if (status.code != QUERY_OK) {
+        RedisModule_Reply_Error(reply, QueryError_GetError(&status));
+        QueryError_ClearError(&status);
+      }
       RedisModule_Reply_ArrayEnd(reply); // >errors
 
       RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
