@@ -59,11 +59,9 @@ static void Cursor_RemoveFromIdle(Cursor *cur) {
   cur->pos = -1;
 }
 
-#define get_g_CursorsList(is_coord) ((is_coord) ? &g_CursorsListCoord : &g_CursorsList)
-
 /* Assumed to be called under the cursors global lock or upon server shut down. */
 static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
-  CursorList *cl = get_g_CursorsList(cur->is_coord);
+  CursorList *cl = getCursorList(cur->is_coord);
   /* Decrement the used count */
   RS_LOG_ASSERT(khi != kh_end(cl->lookup), "Iterator shouldn't be at end of cursor list");
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) != kh_end(cl->lookup),
@@ -231,7 +229,7 @@ done:
 }
 
 int Cursor_Pause(Cursor *cur) {
-  CursorList *cl = get_g_CursorsList(cur->is_coord);
+  CursorList *cl = getCursorList(cur->is_coord);
 
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
@@ -292,7 +290,7 @@ int Cursors_Purge(CursorList *cl, uint64_t cid) {
 }
 
 int Cursor_Free(Cursor *cur) {
-  return Cursors_Purge(get_g_CursorsList(cur->is_coord), cur->id);
+  return Cursors_Purge(getCursorList(cur->is_coord), cur->id);
 }
 
 void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModule_Reply *reply) {
@@ -346,4 +344,19 @@ void CursorList_Empty(CursorList *cl) {
   bool is_coord = cl->is_coord;
   CursorList_Destroy(cl);
   CursorList_Init(cl, is_coord);
+}
+
+void CursorList_Expire(CursorList *cl) {
+  CursorList_Lock(cl);
+  // Not calling `CursorList_IncrCounter` as we don't want to trigger GC
+
+  uint64_t now = curTimeNs(); // Taking `now` as a signature
+  Cursor *cursor;
+  kh_foreach_value(cl->lookup, cursor, cursor->nextTimeoutNs = MIN(cursor->nextTimeoutNs, now));
+
+  if (now < cl->nextIdleTimeoutNs || cl->nextIdleTimeoutNs == 0) {
+    cl->nextIdleTimeoutNs = now;
+  }
+
+  CursorList_Unlock(cl);
 }
