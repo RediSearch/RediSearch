@@ -8,7 +8,7 @@ brew install make
 echo "export PATH=$GNUBIN:$PATH" >> ~/.bashrc
 echo "export PATH=$GNUBIN:$PATH" >> ~/.zshrc
 
-brew openssl python3
+brew install openssl python3
 source install_cmake.sh
 
 pip install --upgrade pip setuptools # Temp
