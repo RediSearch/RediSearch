@@ -203,6 +203,13 @@ def testCursorOnCoordinator(env):
                 env.assertNotContains(cur_res, result_set)
                 result_set.add(cur_res)
 
+        _, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 100, 'TIMEOUT', 5000)
+        env.execute_command('FT.CURSOR', 'DEL', 'idx', cursor)
+        # We expect that deleting the cursor will trigger the shards to delete their cursors as well.
+        # Since none of the cursors is expected to be expired, we don't expect `FT.CURSOR GC` to return a positive number.
+        # `FT.CURSOR GC` will return -1 if there are no cursors to delete, and 0 if the cursor list was empty.
+        env.expect('FT.CURSOR', 'GC', '42', '42').equal(0)
+
         with conn.monitor() as monitor:
             # Some periodic cluster commands are sent to the shards and also break the monitor.
             # This function skips them and returns the actual next command we want to observe.
