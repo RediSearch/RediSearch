@@ -170,6 +170,11 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
+/**
+ * This function allocates a new SearchResult, copies the data from `src` to it,
+ * and returns it.
+*/
+SearchResult *SearchResult_Copy(SearchResult *r);
 
 /**
  * This function resets the search result, so that it may be reused again.

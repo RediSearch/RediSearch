@@ -30,6 +30,12 @@ void QITR_Cleanup(QueryIterator *qitr) {
   }
 }
 
+SearchResult *SearchResult_Copy(SearchResult *r) {
+  SearchResult *ret = rm_malloc(sizeof(*ret));
+  *ret = *r;
+  return ret;
+}
+
 void SearchResult_Clear(SearchResult *r) {
   // This won't affect anything if the result is null
   r->score = 0;

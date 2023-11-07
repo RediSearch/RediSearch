@@ -377,27 +377,98 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisModule_ReplyKV_Array(reply, "results"); // >results
     nelem = 0;
 
-    if (rc == RS_RESULT_OK && rp->parent->resultLimit && !(req->reqflags & QEXEC_F_NOROWS)) {
-      serializeResult(req, reply, &r, &cv);
-      nelem++;
-    }
 
-    SearchResult_Clear(&r);
-    if (rc != RS_RESULT_OK || !rp->parent->resultLimit) {
+
+
+
+
+
+
+    if (rc != RS_RESULT_OK || !rp->parent->resultLimit || (req->reqflags & QEXEC_F_NOROWS)) {
       goto done_3;
     }
 
-    while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
-      if (!(req->reqflags & QEXEC_F_NOROWS)) {
+    if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+      // Aggregate results prior to responding to client (on the heap for large-scale
+      // scenarios)
+      SearchResult **results = array_new(SearchResult *, 10);
+      array_append(results, SearchResult_Copy(&r));
+
+      while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+        // Consider adding 1-100 places to the array each realloc (to save reallocs).
+        array_append(results, SearchResult_Copy(&r));
+        // TODO: Remember to CLEAR (free) the results!
+
+        // clean the search result
+        r = (SearchResult){0};
+      }
+
+      // Populate response with results only if no timeouts were encountered
+      if (rc != RS_RESULT_TIMEDOUT) {
+        for (size_t i = 0; i < array_len(results); i++) {
+          // TODO: Make sure the order of results isn't flipped
+          SearchResult *res = array_pop(results);
+          serializeResult(req, reply, res, &cv);
+          nelem++;
+          SearchResult_Clear(res);
+        }
+      }
+      else {
+        // free the results
+        for (size_t i = 0; i < array_len(results); i++) {
+          SearchResult *res = array_pop(results);
+          SearchResult_Clear(res);
+        }
+        r = (SearchResult){0};
+      }
+
+      // !!TODO!!: Move the `error` section to after `done_3`, so that the errors
+      // caught here will be reported. Currently, no results are reported, but no errors as well.
+    } else {
+      // Send the results received from the pipeline as they come (no need to aggregate)
+      if (rc == RS_RESULT_OK && rp->parent->resultLimit) {
         serializeResult(req, reply, &r, &cv);
         nelem++;
+        SearchResult_Clear(&r);
+
+        while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+          serializeResult(req, reply, &r, &cv);
+          nelem++;
+          SearchResult_Clear(&r);
+        }
       }
-      // Serialize it as a search result
-      SearchResult_Clear(&r);
     }
 
+
+
+
+
+
+
+    // if (rc == RS_RESULT_OK && rp->parent->resultLimit && !(req->reqflags & QEXEC_F_NOROWS)) {
+    //   serializeResult(req, reply, &r, &cv);
+    //   nelem++;
+    // }
+
+    // SearchResult_Clear(&r);
+    // if (rc != RS_RESULT_OK || !rp->parent->resultLimit) {
+    //   goto done_3;
+    // }
+
+    // while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+    //   if (!(req->reqflags & QEXEC_F_NOROWS)) {
+    //     serializeResult(req, reply, &r, &cv);
+    //     nelem++;
+    //   }
+    //   // Serialize it as a search result
+    //   SearchResult_Clear(&r);
+    // }
+
 done_3:
-    SearchResult_Destroy(&r);
+    // TODO: Make sure there is no double-free or bad operation here
+    // if () {
+    //   SearchResult_Destroy(&r);
+    // }
     if (rc != RS_RESULT_OK) {
       req->stateflags |= QEXEC_S_ITERDONE;
     }
@@ -405,6 +476,16 @@ done_3:
     // Reset the total results length:
     req->qiter.totalResults = 0;
     RedisModule_Reply_ArrayEnd(reply); // >results
+
+    // TODO: Add the `errors` part to here, so that all errors will be cought.
+    // RedisModule_ReplyKV_Array(reply, "error"); // >errors
+    // if (rc == RS_RESULT_TIMEDOUT) {
+    //   RedisModule_Reply_SimpleString(reply, "Timeout limit was reached");
+    // } else if (rc == RS_RESULT_ERROR) {
+    //   RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
+    //   QueryError_ClearError(req->qiter.err);
+    // }
+    // RedisModule_Reply_ArrayEnd(reply); // >errors
   }
   //-------------------------------------------------------------------------------------------
   else // ! has_map (RESP2 variant)
@@ -456,22 +537,76 @@ done_3:
     }
     nelem++;
 
-    if (rc == RS_RESULT_OK && rp->parent->resultLimit && !(req->reqflags & QEXEC_F_NOROWS)) {
-      nelem += serializeResult(req, reply, &r, &cv);
-    }
+    if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+      // Aggregate results prior to responding to client (on the heap for large-scale
+      // scenarios)
+      SearchResult **results = array_new(SearchResult *, 10);
+      array_append(results, SearchResult_Copy(&r));
 
-    SearchResult_Clear(&r);
-    if (rc != RS_RESULT_OK || !rp->parent->resultLimit) {
-      goto done_2;
-    }
+      while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+        // Consider adding 1-100 places to the array each realloc (to save reallocs).
+        array_append(results, SearchResult_Copy(&r));
+        // TODO: Remember to CLEAR (free) the results!
 
-    while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
-      if (!(req->reqflags & QEXEC_F_NOROWS)) {
-        nelem += serializeResult(req, reply, &r, &cv);
+        // clean the search result
+        r = (SearchResult){0};
       }
-      // Serialize it as a search result
-      SearchResult_Clear(&r);
+
+      // Populate response with results only if no timeouts were encountered
+      if (rc != RS_RESULT_TIMEDOUT) {
+        for (size_t i = 0; i < array_len(results); i++) {
+          // TODO: Make sure the order of results isn't flipped
+          SearchResult *res = array_pop(results);
+          serializeResult(req, reply, res, &cv);
+          nelem++;
+          SearchResult_Clear(res);
+        }
+      }
+      else {
+        // free the results
+        for (size_t i = 0; i < array_len(results); i++) {
+          SearchResult *res = array_pop(results);
+          SearchResult_Clear(res);
+        }
+        r = (SearchResult){0};
+
+        // Reply with a timeout error
+        RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+      }
+
+      // !!TODO!!: Move the `error` section to after `done_3`, so that the errors
+      // caught here will be reported. Currently, no results are reported, but no errors as well.
+    } else {
+      // Send the results received from the pipeline as they come (no need to aggregate)
+      if (rc == RS_RESULT_OK && rp->parent->resultLimit) {
+        serializeResult(req, reply, &r, &cv);
+        nelem++;
+        SearchResult_Clear(&r);
+
+        while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+          serializeResult(req, reply, &r, &cv);
+          nelem++;
+          SearchResult_Clear(&r);
+        }
+      }
     }
+
+    // if (rc == RS_RESULT_OK && rp->parent->resultLimit && !(req->reqflags & QEXEC_F_NOROWS)) {
+    //   nelem += serializeResult(req, reply, &r, &cv);
+    // }
+
+    // SearchResult_Clear(&r);
+    // if (rc != RS_RESULT_OK || !rp->parent->resultLimit) {
+    //   goto done_2;
+    // }
+
+    // while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+    //   if (!(req->reqflags & QEXEC_F_NOROWS)) {
+    //     nelem += serializeResult(req, reply, &r, &cv);
+    //   }
+    //   // Serialize it as a search result
+    //   SearchResult_Clear(&r);
+    // }
 
   done_2:
     SearchResult_Destroy(&r);
