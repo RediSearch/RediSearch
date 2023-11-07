@@ -12,7 +12,7 @@ jobs:
   failure:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "failure" #&& exit 1
+      - run: echo "failure" && exit 1
   skipped:
     runs-on: ubuntu-latest
     if: false
