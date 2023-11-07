@@ -4,7 +4,6 @@ name: Pull Request Flow
 
 on:
   pull_request:
-    branches-ignore: [feature-github-actions] # TODO: remove
     paths-ignore:
       - "README.md"
       - "docs/**"
@@ -35,5 +34,7 @@ jobs:
   pr-validation:
     needs: [basic-test, coverage, sanitize]
     runs-on: ubuntu-latest
+    if: always()
     steps:
-      - run: echo "PR Validation Passed"
+      - if: contains(needs.*.result, 'failure')
+        run: exit 1

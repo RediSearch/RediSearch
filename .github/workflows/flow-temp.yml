@@ -1,6 +1,8 @@
 name: temporary testing
 
-on: [push]
+on:
+  push:
+    branches-ignore: ['*'] # ignore all branches
 
 jobs:
   success:

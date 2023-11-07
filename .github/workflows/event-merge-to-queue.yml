@@ -17,5 +17,7 @@ jobs:
   pr-validation:
     needs: [verify]
     runs-on: ubuntu-latest
+    if: always()
     steps:
-      - run: echo "PR Validation Passed"
+      - if: contains(needs.*.result, 'failure')
+        run: exit 1
