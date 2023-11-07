@@ -63,4 +63,4 @@ FT.SEARCH idx:bicycle "@price:[-inf 2000] SORTBY price LIMIT 0 5"
 
 ## Non-numeric range queries
 
-You can learn more about non-numeric range queries, such as [geo-spatial](TODO) or [vector similarity search](TODO) queries, in their dedicated documentation articles.
+You can learn more about non-numeric range queries, such as [geo-spatial](/docs/interact/search-and-query/query/geo-spatial) or [vector similarity search](/docs/interact/search-and-query/query/vector-similarity) queries, in their dedicated documentation articles.
