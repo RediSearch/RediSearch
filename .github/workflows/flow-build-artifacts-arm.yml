@@ -12,6 +12,8 @@ on:
       pre-steps-script:
         type: string
         description: 'Script to run before any other steps (extremely basic dependency needs only)'
+      ref:
+        type: string
 
 env:
   AWS_IMAGE_ID: ami-0d8e10b4bd5d65c57  # Ubuntu 22.04 region AMI for ARM with Docker installed
@@ -50,6 +52,7 @@ jobs:
       env: ${{ needs.start-runner.outputs.label }}
       container: ${{ inputs.container }}
       pre-steps-script: ${{ inputs.pre-steps-script }}
+      ref: ${{ inputs.ref }}
 
   stop-runner:
     name: Stop self-hosted EC2 runner
