@@ -445,7 +445,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   SET_DIALECT(RSGlobalConfig.used_dialects, r->dialectVersion);
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
-    int rc = AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status);
+    int rc = AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status, false);
     if (rc != REDISMODULE_OK) {
       goto error;
     }
@@ -534,8 +534,10 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
 
-int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, QueryError *err) {
-  Cursor *cursor = Cursors_Reserve(&RSCursors, lookupName, r->cursorMaxIdle, err);
+#define getCursorList(coord) ((coord) ? &RSCursorsCoord : &RSCursors)
+
+int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, QueryError *err, bool coord) {
+  Cursor *cursor = Cursors_Reserve(getCursorList(coord), lookupName, r->cursorMaxIdle, err);
   if (cursor == NULL) {
     return REDISMODULE_ERR;
   }
@@ -609,7 +611,7 @@ delcursor:
  * FT.CURSOR GC {index}
  */
 static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
-  Cursor *cursor = Cursors_TakeForExecution(&RSCursors, cid);
+  Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
   if (cursor == NULL) {
     RedisModule_ReplyWithError(ctx, "Cursor not found");
     return;
@@ -652,7 +654,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     cursorRead(ctx, cid, count);
 
   } else if (cmdc == 'D') {
-    int rc = Cursors_Purge(&RSCursors, cid);
+    int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
     if (rc != REDISMODULE_OK) {
       RedisModule_ReplyWithError(ctx, "Cursor does not exist");
     } else {
@@ -661,6 +663,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   } else if (cmdc == 'G') {
     int rc = Cursors_CollectIdle(&RSCursors);
+    rc += Cursors_CollectIdle(&RSCursorsCoord);
     RedisModule_ReplyWithLongLong(ctx, rc);
   } else {
     RedisModule_ReplyWithError(ctx, "Unknown subcommand");

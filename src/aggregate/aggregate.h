@@ -253,13 +253,14 @@ void AREQ_Free(AREQ *req);
  * @param outctx the context used for replies (only used in current command)
  * @param lookupName the name of the index used for the cursor reservation
  * @param status if this function errors, this contains the message
+ * @param coord if true, this is a coordinator cursor
  * @return REDISMODULE_OK or REDISMODULE_ERR
  *
  * If this function returns REDISMODULE_OK then the cursor might have been
  * freed. If it returns REDISMODULE_ERR, then the cursor is still valid
  * and must be freed manually.
  */
-int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, QueryError *status);
+int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, QueryError *status, bool coord);
 
 int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 

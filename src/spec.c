@@ -293,6 +293,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
 
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
+  CursorList_AddSpec(&RSCursorsCoord, sp->name, RSCURSORS_DEFAULT_CAPACITY);
 
   // Create the indexer
   sp->indexer = NewIndexer(sp);
@@ -1262,6 +1263,7 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
     // and is being freed now during an error.
     Cursors_PurgeWithName(&RSCursors, spec->name);
     CursorList_RemoveSpec(&RSCursors, spec->name);
+    CursorList_RemoveSpec(&RSCursorsCoord, spec->name);
   }
   // Free stopwords list (might use global pointer to default list)
   if (spec->stopwords) {
@@ -1329,7 +1331,8 @@ void Indexes_Free(dict *d) {
   SchemaPrefixes_Free(ScemaPrefixes_g);
   SchemaPrefixes_Create();
   // cursor list is iterating through the list as well and consuming a lot of CPU
-  CursorList_Empty(&RSCursors);
+  CursorList_Empty(&RSCursors, false);
+  CursorList_Empty(&RSCursorsCoord, true);
 
   arrayof(IndexSpec *) specs = array_new(IndexSpec *, dictSize(d));
   dictIterator *iter = dictGetIterator(d);
@@ -2052,7 +2055,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
     GCContext_RenderStatsForInfo(sp->gc, ctx);
 
   // Cursor stat
-  Cursors_RenderStatsForInfo(&RSCursors, sp->name, ctx);
+  Cursors_RenderStatsForInfo(&RSCursors, &RSCursorsCoord, sp->name, ctx);
 
   // Stop words
   if (sp->flags & Index_HasCustomStopwords)
@@ -2210,6 +2213,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
   RedisModuleString *specKey = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
+  CursorList_AddSpec(&RSCursorsCoord, sp->name, RSCURSORS_DEFAULT_CAPACITY);
   RedisModule_FreeString(ctx, specKey);
 
   if (sp->flags & Index_HasSmap) {
@@ -2358,6 +2362,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   // start the gc and add the spec to the cursor list
   IndexSpec_StartGC(RSDummyContext, sp, GC_DEFAULT_HZ);
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
+  CursorList_AddSpec(&RSCursorsCoord, sp->name, RSCURSORS_DEFAULT_CAPACITY);
 
   dictAdd(legacySpecDict, sp->name, sp);
   return sp;

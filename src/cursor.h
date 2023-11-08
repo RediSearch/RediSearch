@@ -45,6 +45,9 @@ typedef struct Cursor {
 
   /** Position within idle list */
   int pos;
+
+  /** Is it an internal coordinator cursor or a user cursor*/
+  bool is_coord;
 } Cursor;
 
 KHASH_MAP_INIT_INT64(cursors, Cursor *);
@@ -81,11 +84,19 @@ typedef struct CursorList {
    * This is used as a hint to avoid excessive sweeps.
    */
   uint64_t nextIdleTimeoutNs;
+
+  /** Is it an internal coordinator cursor or a user cursor */
+  bool is_coord;
 } CursorList;
 
 // This resides in the background as a global. We could in theory make this
 // part of the spec structure
 extern CursorList RSCursors;
+extern CursorList RSCursorsCoord;
+
+static inline CursorList *GetGlobalCursor(uint64_t cid) {
+  return cid % 2 == 1 ? &RSCursorsCoord : &RSCursors;
+}
 
 /**
  * Threading/Concurrency behavior
@@ -115,7 +126,7 @@ extern CursorList RSCursors;
 /**
  * Initialize the cursor list
  */
-void CursorList_Init(CursorList *cl);
+void CursorList_Init(CursorList *cl, bool is_coord);
 
 /**
  * Clear the cursor list
@@ -125,7 +136,7 @@ void CursorList_Destroy(CursorList *cl);
 /**
  * Empty the cursor list
  */
-void CursorList_Empty(CursorList *cl);
+void CursorList_Empty(CursorList *cl, bool coord);
 
 #define RSCURSORS_DEFAULT_CAPACITY 128
 #define RSCURSORS_SWEEP_INTERVAL 500                /* GC Every 500 requests */
@@ -177,10 +188,10 @@ int Cursors_CollectIdle(CursorList *cl);
 /** Remove all cursors with the given lookup name */
 void Cursors_PurgeWithName(CursorList *cl, const char *lookupName);
 
-void Cursors_RenderStats(CursorList *cl, const char *key, RedisModuleCtx *ctx);
+void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, const char *key, RedisModuleCtx *ctx);
 
 #ifdef FTINFO_FOR_INFO_MODULES
-void Cursors_RenderStatsForInfo(CursorList *cl, const char *name, RedisModuleInfoCtx *ctx);
+void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const char *name, RedisModuleInfoCtx *ctx);
 #endif
 
 void Cursor_FreeExecState(void *);
