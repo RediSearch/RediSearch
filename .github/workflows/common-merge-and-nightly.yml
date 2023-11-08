@@ -85,7 +85,7 @@ jobs:
         test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
         # spacial configurations
         include: ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
-    uses: ./.github/workflows/common-flow-tests.yml
+    uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
       get-redis: ${{ inputs.redis-ref }}
@@ -103,7 +103,7 @@ jobs:
         test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
         # spacial configurations
         include: ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
-    uses: ./.github/workflows/common-flow-tests.yml
+    uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
       get-redis: ${{ inputs.redis-ref }}
@@ -127,7 +127,7 @@ jobs:
         # spacial configurations
         include: ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
 
-    uses: ./.github/workflows/flow-self-hosted-arm.yml
+    uses: ./.github/workflows/flow-self-hosted-arm-test.yml
     secrets: inherit
     with:
       get-redis: ${{ inputs.redis-ref }}

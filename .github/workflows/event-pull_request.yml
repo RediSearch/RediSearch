@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   basic-test:
-    uses: ./.github/workflows/common-flow-tests.yml
+    uses: ./.github/workflows/task-test.yml
     with:
       env: ubuntu-latest
       test-config: QUICK=1

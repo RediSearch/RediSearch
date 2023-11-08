@@ -147,7 +147,7 @@ jobs:
         OS: ${{ fromJson(needs.get-required-envs.outputs.platforms_x86) }}
         include: ${{ fromJson(needs.get-required-envs.outputs.include_x86) }}
       fail-fast: false
-    uses: ./.github/workflows/common-flow-tests.yml
+    uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
       get-redis: ${{ inputs.redis-ref || vars.DEFAULT_REDIS_REF }}
@@ -165,7 +165,7 @@ jobs:
         OS: ${{ fromJson(needs.get-required-envs.outputs.platforms_arm) }}
         include: ${{ fromJson(needs.get-required-envs.outputs.include_arm) }}
       fail-fast: false
-    uses: ./.github/workflows/flow-self-hosted-arm.yml
+    uses: ./.github/workflows/flow-self-hosted-arm-test.yml
     secrets: inherit
     with:
       get-redis: ${{ inputs.redis-ref || vars.DEFAULT_REDIS_REF }}

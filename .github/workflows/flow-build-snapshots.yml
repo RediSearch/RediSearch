@@ -1,0 +1,54 @@
+name: Trigger Build and Upload Artifacts for Environments
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        type: choice
+        options:
+          - all
+          - ubuntu:jammy
+          - ubuntu:focal
+          - ubuntu:bionic
+          - centos:7
+          - rockylinux:8
+          - rockylinux:9
+          - debian:bullseye
+          - amazonlinux:2
+          - macos
+        description: 'Platform to build on. Use "all" to build on all'
+        default: all
+      architecture:
+        type: choice
+        options:
+          - all
+          - x86_64
+          - aarch64
+        description: 'Architecture to build on. Use "all" to build on all'
+        default: all
+      reference:
+        type: string
+        description: 'Optional: Reference (branch, tag, SHA) to build against'
+  workflow_call:
+    inputs:
+      platform:
+        type: string
+        default: all
+      architecture:
+        type: string
+        default: all
+      reference:
+        type: string
+
+jobs:
+  decide-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+  decide-macos:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3

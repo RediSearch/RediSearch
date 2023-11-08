@@ -1,4 +1,5 @@
-name: self-hosted ARM flow (container)
+
+name: Build and Upload Artifacts on AWS ARM Runner
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
@@ -10,18 +11,9 @@ on:
         type: string
       pre-steps-script:
         type: string
-      test-config:
-        description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
+        description: 'Script to run before any other steps (extremely basic dependency needs only)'
+      ref:
         type: string
-      coordinator:
-        type: boolean
-        default: true
-      standalone:
-        type: boolean
-        default: true
-      get-redis:
-        type: string
-        default: ${{ vars.DEFAULT_REDIS_REF }}
 
 env:
   AWS_IMAGE_ID: ami-0d8e10b4bd5d65c57  # Ubuntu 22.04 region AMI for ARM with Docker installed
@@ -54,16 +46,13 @@ jobs:
 
   run:
     needs: start-runner # required to start the main job when the runner is ready
-    uses: ./.github/workflows/common-flow-tests.yml
     secrets: inherit
+    uses: ./.github/workflows/task-build-artifacts.yml
     with:
       env: ${{ needs.start-runner.outputs.label }}
       container: ${{ inputs.container }}
-      coordinator: ${{ inputs.coordinator }}
-      standalone: ${{ inputs.standalone }}
-      test-config: ${{ inputs.test-config }}
       pre-steps-script: ${{ inputs.pre-steps-script }}
-      get-redis: ${{ inputs.get-redis }}
+      ref: ${{ inputs.ref }}
 
   stop-runner:
     name: Stop self-hosted EC2 runner
