@@ -20,6 +20,6 @@ The following articles provide an overview of how to query data with the [FT.SEA
 * [Geo-spatial queries](/docs/interact/search-and-query/query/geo-spatial)
 * [Vector similarity search](/docs/interact/search-and-query/query/vector-similarity)
 
-You can find further details about aggregation queries in the following article:
+You can find further details about aggregation queries with [FT.AGGREGATE](/commands/ft.aggregate/) in the following article:
 
 * [Aggregation queries](/docs/interact/search-and-query/query/aggegation)
