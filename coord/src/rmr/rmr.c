@@ -628,7 +628,6 @@ void MRIterator_WaitDone(MRIterator *it, bool mayBeIdle) {
       MRCommand *cmd = &it->cbxs[i].cmd;
       if (!cmd->depleted) {
         // assert(!strcmp(cmd->strs[1], "READ"));
-        cmd->rootCommand = C_DEL;
         strcpy(cmd->strs[1], "DEL");
         cmd->lens[1] = 3;
       }
