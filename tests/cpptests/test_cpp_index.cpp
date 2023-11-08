@@ -142,7 +142,8 @@ class IndexFlagsTest : public testing::TestWithParam<int> {};
 
 TEST_P(IndexFlagsTest, testRWFlags) {
   IndexFlags indexFlags = (IndexFlags)GetParam();
-  InvertedIndex *idx = NewInvertedIndex(indexFlags, 1);
+  size_t size;
+  InvertedIndex *idx = NewInvertedIndex(indexFlags, 1, &size);
 
   IndexEncoder enc = InvertedIndex_GetEncoder(indexFlags);
   IndexEncoder docIdEnc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
@@ -438,8 +439,8 @@ TEST_F(IndexTest, DISABLED_testOptional) {
 }
 
 TEST_F(IndexTest, testNumericInverted) {
-
-  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1);
+  size_t size;
+  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1, &size);
 
   for (int i = 0; i < 75; i++) {
     size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1));
@@ -468,7 +469,8 @@ TEST_F(IndexTest, testNumericInverted) {
 }
 
 TEST_F(IndexTest, testNumericVaried) {
-  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1);
+  size_t size;
+  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1, &size);
 
   static const double nums[] = {0,          0.13,          0.001,     -0.1,     1.0,
                                 5.0,        4.323,         65535,     65535.53, 32768.432,
@@ -538,7 +540,8 @@ static const encodingInfo infos[] = {
 
 void testNumericEncodingHelper(bool isMulti) {
   static const size_t numInfos = sizeof(infos) / sizeof(infos[0]);
-  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1);
+  size_t size;
+  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1, &size);
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
@@ -1300,7 +1303,8 @@ TEST_F(IndexTest, testIndexFlags) {
   VVW_Truncate(h.vw);
 
   uint32_t flags = INDEX_DEFAULT_FLAGS;
-  InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), 1);
+  size_t size;
+  InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), 1, &size);
   IndexEncoder enc = InvertedIndex_GetEncoder(w->flags);
   ASSERT_TRUE(w->flags == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
@@ -1309,7 +1313,7 @@ TEST_F(IndexTest, testIndexFlags) {
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
-  w = NewInvertedIndex(IndexFlags(flags), 1);
+  w = NewInvertedIndex(IndexFlags(flags), 1, &size);
   ASSERT_TRUE(!(w->flags & Index_StoreTermOffsets));
   enc = InvertedIndex_GetEncoder(w->flags);
   size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
@@ -1318,7 +1322,7 @@ TEST_F(IndexTest, testIndexFlags) {
   InvertedIndex_Free(w);
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
-  w = NewInvertedIndex(IndexFlags(flags), 1);
+  w = NewInvertedIndex(IndexFlags(flags), 1, &size);
   ASSERT_TRUE((w->flags & Index_WideSchema));
   enc = InvertedIndex_GetEncoder(w->flags);
   h.fieldMask = 0xffffffffffff;
@@ -1326,7 +1330,7 @@ TEST_F(IndexTest, testIndexFlags) {
   InvertedIndex_Free(w);
 
   flags |= Index_WideSchema;
-  w = NewInvertedIndex(IndexFlags(flags), 1);
+  w = NewInvertedIndex(IndexFlags(flags), 1, &size);
   ASSERT_TRUE((w->flags & Index_WideSchema));
   enc = InvertedIndex_GetEncoder(w->flags);
   h.fieldMask = 0xffffffffffff;
@@ -1335,7 +1339,7 @@ TEST_F(IndexTest, testIndexFlags) {
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
-  w = NewInvertedIndex(IndexFlags(flags), 1);
+  w = NewInvertedIndex(IndexFlags(flags), 1, &size);
   ASSERT_TRUE(!(w->flags & Index_StoreTermOffsets));
   ASSERT_TRUE(!(w->flags & Index_StoreFieldFlags));
   enc = InvertedIndex_GetEncoder(w->flags);
@@ -1344,7 +1348,7 @@ TEST_F(IndexTest, testIndexFlags) {
   InvertedIndex_Free(w);
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
-  w = NewInvertedIndex(IndexFlags(flags), 1);
+  w = NewInvertedIndex(IndexFlags(flags), 1, &size);
   ASSERT_TRUE((w->flags & Index_WideSchema));
   ASSERT_TRUE((w->flags & Index_StoreFieldFlags));
   enc = InvertedIndex_GetEncoder(w->flags);
@@ -1520,7 +1524,8 @@ TEST_F(IndexTest, testVarintFieldMask) {
 }
 
 TEST_F(IndexTest, testDeltaSplits) {
-  InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1);
+  size_t size;
+  InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &size);
   ForwardIndexEntry ent = {0};
   ent.docId = 1;
   ent.fieldMask = RS_FIELDMASK_ALL;

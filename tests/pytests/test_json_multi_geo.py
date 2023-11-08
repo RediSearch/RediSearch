@@ -108,10 +108,10 @@ def ft_info_to_dict(env, idx):
     res = env.execute_command('ft.info', idx)
     return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
 
-def check_empty(env, idx, values_count):
+def check_empty(env, idx, mem_usage):
     d = ft_info_to_dict(env, idx)
     env.assertEqual(float(d['num_records']), 0)
-    env.assertGreaterEqual(float(values_count)*6.0e-6, float(d['inverted_sz_mb']))
+    env.assertGreaterEqual(mem_usage, float(d['inverted_sz_mb']))
 
 def testBasic(env):
     """ Test multi GEO values (an array of GEO values or multiple GEO values) """
@@ -138,10 +138,10 @@ def testBasic(env):
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
 
     # check stats after insert
-    checkInfo(env, 'idx1', 1, 0.00020503997802734375)
-    checkInfo(env, 'idx2', 1, 2.384185791015625e-05)
-    checkInfo(env, 'idx3', 1, 4.38690185546875e-05)
-    checkInfo(env, 'idx4', 1, 6.771087646484375e-05)
+    checkInfo(env, 'idx1', 1, 0.00028133392333984375)
+    checkInfo(env, 'idx2', 1, 6.198883056640625e-05)
+    checkInfo(env, 'idx3', 1, 8.20159912109375e-05)
+    checkInfo(env, 'idx4', 1, 0.00014400482177734375)
 
     # Geo range and Not
     env.expect('FT.SEARCH', 'idx1', '@loc:[1.2 1.1 40 km]', 'NOCONTENT').equal([1, 'doc:1'])
@@ -169,7 +169,7 @@ def testBasic(env):
     env.assertEqual(int(info['num_docs']), 0)
 
     # There are 4 indexes and at most 2 nested geo locations
-    check_empty(env, 'idx1', 2*4)
+    check_empty(env, 'idx1', 40.0e-6)
 
 
 def testMultiNonGeo(env):

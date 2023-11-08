@@ -82,10 +82,19 @@ typedef struct {
   void *arg;
 } IndexRepairParams;
 
+static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
+  int useFieldMask = flags & Index_StoreFieldFlags;
+  int useNumEntries = flags & Index_StoreNumeric;
+  RedisModule_Assert(!(useFieldMask && useNumEntries));
+  // Avoid some of the allocation if not needed
+  return (useFieldMask || useNumEntries) ? sizeof(InvertedIndex) :
+                                                  sizeof(InvertedIndex) - sizeof(t_fieldMask);
+}
+
 /* Create a new inverted index object, with the given flag. If initBlock is 1, we create the first
  * block */
-InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock);
-IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId);
+InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *sz);
+IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *sz);
 void indexBlock_Free(IndexBlock *blk);
 void InvertedIndex_Free(void *idx);
 

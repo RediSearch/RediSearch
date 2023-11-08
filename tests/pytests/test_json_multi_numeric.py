@@ -292,10 +292,10 @@ def ft_info_to_dict(env, idx):
     res = env.execute_command('ft.info', idx)
     return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
 
-def check_empty(env, idx, values_count):
+def check_empty(env, idx, mem_usage):
     d = ft_info_to_dict(env, idx)
     env.assertEqual(float(d['num_records']), 0)
-    env.assertGreaterEqual(float(values_count)*6.0e-6, float(d['inverted_sz_mb']))
+    env.assertGreaterEqual(mem_usage, float(d['inverted_sz_mb']))
 
 def checkInfoAndGC(env, idx, doc_num, create, delete):
     """ Helper function for testInfoAndGC """
@@ -323,7 +323,7 @@ def checkInfoAndGC(env, idx, doc_num, create, delete):
     info = index_info(env, idx)
     env.assertEqual(int(info['num_docs']), 0)
     env.assertLessEqual(int(info['total_inverted_index_blocks']), 1) # 1 block might be left
-    check_empty(env, idx, doc_num)
+    check_empty(env, idx, 40.0e-06)
 
 def printSeed(env):
     # Print the random seed for reproducibility
