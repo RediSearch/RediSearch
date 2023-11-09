@@ -127,9 +127,10 @@ jobs:
         # spacial configurations
         include: ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
 
-    uses: ./.github/workflows/flow-self-hosted-arm-test.yml
+    uses: ./.github/workflows/flow-self-hosted-arm.yml
     secrets: inherit
     with:
+      test: true
       get-redis: ${{ inputs.redis-ref }}
       container: ${{ matrix.platform }}
       test-config: CONFIG=${{ matrix.test-config }}
