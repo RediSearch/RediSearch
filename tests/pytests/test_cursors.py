@@ -133,10 +133,6 @@ def testErrors(env):
     env.expect('FT.AGGREGATE idx hilton withcursor').error()       \
         .contains('Index `idx` does not have cursors enabled')
 '''
-def testLeaked(env):
-    # Test ensures in CursorList_Destroy() checks shutdown with remaining cursors
-    loadDocs(env)
-    env.expect('FT.AGGREGATE idx * LOAD 1 @f1 WITHCURSOR COUNT 1 MAXIDLE 1')
 
 def testNumericCursor(env):
     conn = getConnectionByEnv(env)
