@@ -5,10 +5,10 @@ on:
     # branches-ignore: ['*'] # ignore all branches
 
 jobs:
-  print:
-    runs-on: ubuntu-latest
-    steps:
-      - name: print github context
-        env:
-          GITHUB_CONTEXT: ${{ toJson(github) }}
-        run: echo "$GITHUB_CONTEXT"
+  test-ref:
+    secrets: inherit
+    uses: ./.github/workflows/flow-build-snapshots.yml
+    with:
+      reference: '2.8'
+      architecture: 'x86_64'
+      platform: 'ubuntu:jammy'
