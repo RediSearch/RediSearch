@@ -227,7 +227,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
-  MRIterator *it = MR_Iterate(nc->cg, netCursorCallback, NULL);
+  MRIterator *it = MR_Iterate(nc->cg, netCursorCallback);
   if (!it) {
     return RS_RESULT_ERROR;
   }
@@ -256,9 +256,7 @@ static void rpnetFree(ResultProcessor *rp) {
     rm_free(nc->shardsProfile);
   }
 
-  if (nc->current.root) {
-    MRReply_Free(nc->current.root);
-  }
+  MRReply_Free(nc->current.root);
 
   if (nc->it) MRIterator_Free(nc->it);
   rm_free(rp);

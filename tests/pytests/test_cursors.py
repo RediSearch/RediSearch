@@ -133,10 +133,6 @@ def testErrors(env):
     env.expect('FT.AGGREGATE idx hilton withcursor').error()       \
         .contains('Index `idx` does not have cursors enabled')
 '''
-def testLeaked(env):
-    # Test ensures in CursorList_Destroy() checks shutdown with remaining cursors
-    loadDocs(env)
-    env.expect('FT.AGGREGATE idx * LOAD 1 @f1 WITHCURSOR COUNT 1 MAXIDLE 1')
 
 def testNumericCursor(env):
     conn = getConnectionByEnv(env)
@@ -202,6 +198,13 @@ def testCursorOnCoordinator(env):
             for cur_res in [int(r[1]) for r in res[1:]]:
                 env.assertNotContains(cur_res, result_set)
                 result_set.add(cur_res)
+
+        _, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 100, 'TIMEOUT', 5000)
+        env.execute_command('FT.CURSOR', 'DEL', 'idx', cursor)
+        # We expect that deleting the cursor will trigger the shards to delete their cursors as well.
+        # Since none of the cursors is expected to be expired, we don't expect `FT.CURSOR GC` to return a positive number.
+        # `FT.CURSOR GC` will return -1 if there are no cursors to delete, and 0 if the cursor list was empty.
+        env.expect('FT.CURSOR', 'GC', '42', '42').equal(0)
 
         with conn.monitor() as monitor:
             # Some periodic cluster commands are sent to the shards and also break the monitor.
