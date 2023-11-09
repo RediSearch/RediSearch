@@ -159,5 +159,6 @@ def test_timeout():
 
     # FT.SEARCH
     res = conn.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(int(15000 * env.shardsCount)))
-    env.assertEqual(type(res[0]), ResponseError)
+    # TODO: Add this when MOD-5965 is merged
+    # env.assertEqual(type(res[0]), ResponseError)
     env.assertContains('Timeout limit was reached', str(res[0]))
