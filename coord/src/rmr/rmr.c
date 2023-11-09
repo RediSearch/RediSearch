@@ -458,7 +458,6 @@ typedef int (*MRIteratorCallback)(struct MRIteratorCallbackCtx *ctx, MRReply *re
 typedef struct MRIteratorCtx {
   MRCluster *cluster;
   MRChannel *chan;
-  void *privdata;
   MRIteratorCallback cb;
   int pending;   // Number of shards with more results (not depleted)
   int inProcess; // Number of currently running commands on shards
@@ -497,7 +496,8 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx, MRCommand *cmd)
 
 // Use after modifying `pending` (or any other variable of the iterator) to make sure it's visible to other threads
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
-  __atomic_fetch_sub(&ctx->ic->inProcess, 1, __ATOMIC_RELEASE);
+  unsigned inProcess =  __atomic_sub_fetch(&ctx->ic->inProcess, 1, __ATOMIC_RELEASE);
+  if (!inProcess) RQ_Done(rq_g);
 }
 
 // Use before obtaining `pending` (or any other variable of the iterator) to make sure it's synchronized with other threads
@@ -512,8 +512,6 @@ int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
   MRIteratorCallback_ProcessDone(ctx);
   if (pending <= 0) {
     // fprintf(stderr, "FINISHED iterator, error? %d pending %d\n", error, ctx->ic->pending);
-    RQ_Done(rq_g);
-
     MRChannel_Close(ctx->ic->chan);
     return 0;
   }
@@ -577,7 +575,7 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   return channelSize > 0;
 }
 
-MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb, void *privdata) {
+MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb) {
 
   MRIterator *ret = rm_malloc(sizeof(*ret));
   size_t len = cg.Len(cg.ctx);
@@ -586,7 +584,6 @@ MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb, void *privd
           {
               .cluster = cluster_g,
               .chan = MR_NewChannel(0),
-              .privdata = privdata,
               .cb = cb,
               .pending = 0,
           },
@@ -631,19 +628,34 @@ void MRIterator_WaitDone(MRIterator *it, bool mayBeIdle) {
     while (MRIteratorCallback_GetNumInProcess(it)) {
       usleep(1000);
     }
-  } else {
-    // Wait until all the commands are done (it->ctx.pending == 0)
-    MRChannel_WaitClose(it->ctx.chan);
+    // If we have no pending shards, we are done.
+    if (!it->ctx.pending) return;
+    // If we have pending (not depleted) shards, trigger `FT.CURSOR DEL` on them
+    it->ctx.inProcess = it->ctx.pending;
+    // Change the root command to DEL for each pending shard
+    for (size_t i = 0; i < it->len; i++) {
+      MRCommand *cmd = &it->cbxs[i].cmd;
+      if (!cmd->depleted) {
+        // assert(!strcmp(cmd->strs[1], "READ"));
+        strcpy(cmd->strs[1], "DEL");
+        cmd->lens[1] = 3;
+      }
+    }
+    // Send the DEL commands, and wait for them to be done
+    RQ_Push(rq_g, iterManualNextCb, it);
   }
+  // Wait until all the commands are done (it->ctx.pending == 0)
+  MRChannel_WaitClose(it->ctx.chan);
 }
+
+// Assumes no other thread is using the iterator, the channel, or any of the commands and contexts
 void MRIterator_Free(MRIterator *it) {
-  if (!it) return;
   for (size_t i = 0; i < it->len; i++) {
     MRCommand_Free(&it->cbxs[i].cmd);
   }
   MRReply *reply;
-  while((reply = MRChannel_ForcePop(it->ctx.chan))){
-      MRReply_Free(reply);
+  while ((reply = MRChannel_UnsafeForcePop(it->ctx.chan))) {
+    MRReply_Free(reply);
   }
   MRChannel_Free(it->ctx.chan);
   rm_free(it->cbxs);
