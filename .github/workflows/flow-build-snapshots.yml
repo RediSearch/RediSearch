@@ -88,8 +88,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        OS: ${{ fromJson(needs.decide-linux.outputs.platforms_x86) }}
-        include: ${{ fromJson(needs.decide-linux.outputs.include_x86) }}
+        OS: ${{ fromJson(needs.decide-linux.outputs.platforms_arm) }}
+        include: ${{ fromJson(needs.decide-linux.outputs.include_arm) }}
     uses: ./.github/workflows/flow-self-hosted-arm.yml
     secrets: inherit
     with:
