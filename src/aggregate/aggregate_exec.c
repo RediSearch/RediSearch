@@ -343,40 +343,35 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       rc = rp->Next(rp, &r);
     }
 
+    RedisModule_Reply_Array(reply);
+
     // Reply with a timeout or regular error, if needed (policy dependent)
     if (ShouldReplyWithTimeoutError(rc, req)) {
         // For now, embed this error inside an array - may be changed shortly
-        RedisModule_Reply_Array(reply);
         ReplyWithTimeoutError(reply);
-        // TODO: Replace the string with the error (MOD-5965)
-        // RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
-        RedisModule_Reply_ArrayEnd(reply);
         goto done_2;
+    } else if (rc == RS_RESULT_TIMEDOUT) {
+      // Set rc to OK such that we will respond with the partial results
+      rc = RS_RESULT_OK;
+      RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
     } else if (rc == RS_RESULT_ERROR) {
       // TODO: PLEASE, remove the irrelevant `totalResults` from the response - always 0, and not coherent with timeout error response format!
+      // TODO: Remove the double embedding of the error
 
-      // TODO: Probably we need to embed this in another array. This is stupid,
-      // but seems that it's what happens today.
       RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
       RedisModule_Reply_Array(reply);
       RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
       QueryError_ClearError(req->qiter.err);
       RedisModule_Reply_ArrayEnd(reply);
       goto done_2;
+    } else {
+      RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
     }
-    // Q: Left out a whole block that has to do with `resultsLen` and `nelem` - Make sure we don't need it.
 
     // Once we get here, we want to return the results we got from the pipeline (with no error)
-
-    // Total results
-    RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
-
-    if (req->reqflags & QEXEC_F_NOROWS) {
+    if (req->reqflags & QEXEC_F_NOROWS || rc != RS_RESULT_OK) {
       goto done_2;
     }
-
-    // <results>
-    RedisModule_Reply_Array(reply);
 
     // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
     if (results != NULL) {
@@ -390,24 +385,20 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       goto done_2;
     }
 
-    if (rc == RS_RESULT_OK && rp->parent->resultLimit) {
+    if (rp->parent->resultLimit) {
       serializeResult(req, reply, &r, &cv);
-    }
-
-    SearchResult_Clear(&r);
-    if (rc != RS_RESULT_OK || !rp->parent->resultLimit) {
+    } else {
+      SearchResult_Clear(&r);
       goto done_2;
     }
 
     while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
       serializeResult(req, reply, &r, &cv);
       SearchResult_Clear(&r);
-      // goto done_2;
     }
 
 done_2:
-    // </results>
-    RedisModule_Reply_ArrayEnd(reply);
+    RedisModule_Reply_ArrayEnd(reply);    // </results>
 
     SearchResult_Destroy(&r);
 
@@ -501,6 +492,9 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       }
 
       SearchResult_Clear(&r);
+      if (rc != RS_RESULT_OK || !rp->parent->resultLimit) {
+        goto done_3;
+      }
 
       while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
         serializeResult(req, reply, &r, &cv);
