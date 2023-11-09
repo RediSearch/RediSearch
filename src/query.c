@@ -838,7 +838,7 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
     return NULL;
   }
-  return NewGeoRangeIterator(q->sctx, node->gn.gf);
+  return NewGeoRangeIterator(q->sctx, node->gn.gf, q->conc);
 }
 
 static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
