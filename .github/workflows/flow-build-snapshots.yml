@@ -42,13 +42,68 @@ on:
 
 jobs:
   decide-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+    if: ${{ inputs.platform != 'macos' }}
+    uses: ./.github/workflows/task-get-linux-configurations.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
 
   decide-macos:
     runs-on: ubuntu-latest
+    if: ${{ contains(fromJson('["macos", "all"]'), inputs.platform) }}
+    outputs:
+      platforms: ${{ steps.decide.outputs.platforms }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - id: decide
+        shell: python
+        run: |
+          import os
+          platforms = []
+
+          if ${{ inputs.architecture }} in ['all', 'x86_64']:
+            platforms.append('macos-11')
+          if ${{ inputs.architecture }} in ['all', 'aarch64']:
+            platforms.append('macos-13-xlarge')
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            print(f'platforms={platforms}', file=f)
+
+  build-linux-x86:
+    needs: decide-linux
+    if: ${{ contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        OS: ${{ fromJson(needs.decide-linux.outputs.platforms_x86) }}
+        include: ${{ fromJson(needs.decide-linux.outputs.include_x86) }}
+    uses: ./.github/workflows/task-build-artifacts.yml
+    with:
+      container: ${{ matrix.OS }}
+      pre-steps-script: ${{ matrix.pre-deps }}
+      ref: ${{ inputs.reference }}
+
+  build-linux-arm:
+    needs: decide-linux
+    if: ${{ contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        OS: ${{ fromJson(needs.decide-linux.outputs.platforms_x86) }}
+        include: ${{ fromJson(needs.decide-linux.outputs.include_x86) }}
+    uses: ./.github/workflows/flow-self-hosted-arm.yml
+    with:
+      build: true
+      container: ${{ matrix.OS }}
+      pre-steps-script: ${{ matrix.pre-deps }}
+      ref: ${{ inputs.reference }}
+
+  build-macos:
+    needs: decide-macos
+    if: ${{ contains(fromJson('["macos", "all"]'), inputs.platform) }}
+    strategy:
+      matrix:
+        OS: ${{ needs.decide-macos.outputs.platforms }}
+    uses: ./.github/workflows/task-build-artifacts.yml
+    with:
+      env: ${{ matrix.OS }}
+      ref: ${{ inputs.reference }}
