@@ -2,17 +2,21 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['*'] # ignore all branches
+    # branches-ignore: ['*'] # ignore all branches
 
 jobs:
-  test-container:
+  test-default:
     secrets: inherit
-    uses: ./.github/workflows/flow-build-artifacts.yml
-    with:
-      container: ubuntu:20.04
+    uses: ./.github/workflows/flow-build-snapshots.yml
 
   test-macos:
     secrets: inherit
-    uses: ./.github/workflows/flow-build-artifacts.yml
+    uses: ./.github/workflows/flow-build-snapshots.yml
     with:
-      env: macos-11
+      platform: macos
+
+  test-arm:
+    secrets: inherit
+    uses: ./.github/workflows/flow-build-snapshots.yml
+    with:
+      architecture: aarch64
