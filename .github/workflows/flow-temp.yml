@@ -6,9 +6,10 @@ on:
 
 jobs:
   test-ref:
-    secrets: inherit
-    uses: ./.github/workflows/flow-build-snapshots.yml
-    with:
-      reference: '2.8'
-      architecture: 'x86_64'
-      platform: 'ubuntu:jammy'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ${{ github.ref }}
+      - uses: actions/checkout@v2
+        with:
+          ref: 2.8
+      - run: echo ${{ github.ref }}
