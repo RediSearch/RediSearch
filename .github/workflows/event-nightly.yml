@@ -14,14 +14,12 @@ jobs:
       redis-ref: unstable
       json-ref: master
 
-  deploy-master-snapshot:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Dummy check for changes on master
-        id: check
-        run: |
-          echo "Dummy check for changes on branch master"
-          echo "has_changes=true" >> $GITHUB_OUTPUT
-      - name: Dummy deploy
-        if: steps.check.outputs.has_changes == 'true'
-        run: echo "Dummy milestone deploy for branch master (callable workflow with parameters)"
+  deploy-snapshot:
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: [ "master", "2.6", "2.8", "2.10" ]
+    secrets: inherit
+    uses: ./.github/workflows/flow-build-snapshots.yml
+    with:
+      reference: ${{ matrix.branch }}
