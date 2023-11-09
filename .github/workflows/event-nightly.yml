@@ -25,7 +25,7 @@ jobs:
           - branch: "2.6"
             redis-ref: '6.2.4'
     secrets: inherit
-    uses: ./.github/workflows/flow-build-snapshots.yml
+    uses: ./.github/workflows/flow-build-artifacts.yml
     with:
       reference: ${{ matrix.branch }}
       redis-reference: ${{ matrix.redis-ref }}
