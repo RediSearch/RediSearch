@@ -332,15 +332,16 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     ResultProcessor *rp = req->qiter.endProc;
     SearchResult **results = NULL;
 
-    // Set the chunk size limit for the query
-    rp->parent->resultLimit = limit;
-
     if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       // Aggregate all results before populating the response
       results = AggregateResults(rp, &rc);
     } else {
       // Send the results received from the pipeline as they come (no need to aggregate)
       rc = rp->Next(rp, &r);
+    }
+
+    if (IsOptimized(req)) {
+      QOptimizer_UpdateTotalResults(req);
     }
 
     RedisModule_Reply_Array(reply);
@@ -423,9 +424,6 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     ResultProcessor *rp = req->qiter.endProc;
     SearchResult **results = NULL;
 
-    // Set the chunk size limit for the query
-    rp->parent->resultLimit = limit;
-
     // <attributes>
     RedisModule_ReplyKV_Array(reply, "attributes");
     RedisModule_Reply_ArrayEnd(reply);
@@ -436,6 +434,10 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     } else {
       // Send the results received from the pipeline as they come (no need to aggregate)
       rc = rp->Next(rp, &r);
+    }
+
+    if (IsOptimized(req)) {
+      QOptimizer_UpdateTotalResults(req);
     }
 
     // TODO: Move this to after the results section, so that we can report the
@@ -530,9 +532,8 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     .lastAstp = AGPLN_GetArrangeStep(&req->ap)
   };
 
-  if (IsOptimized(req)) {
-    QOptimizer_UpdateTotalResults(req);
-  }
+  // Set the chunk size limit for the query
+    req->qiter.resultLimit = limit;
 
   if (has_map) {
     sendChunk_Resp3(req, reply, limit, cv);
