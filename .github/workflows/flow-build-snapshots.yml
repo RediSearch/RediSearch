@@ -60,9 +60,9 @@ jobs:
           import os
           platforms = []
 
-          if ${{ inputs.architecture }} in ['all', 'x86_64']:
+          if '${{ inputs.architecture }}' in ['all', 'x86_64']:
             platforms.append('macos-11')
-          if ${{ inputs.architecture }} in ['all', 'aarch64']:
+          if '${{ inputs.architecture }}' in ['all', 'aarch64']:
             platforms.append('macos-13-xlarge')
 
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
@@ -91,6 +91,7 @@ jobs:
         OS: ${{ fromJson(needs.decide-linux.outputs.platforms_x86) }}
         include: ${{ fromJson(needs.decide-linux.outputs.include_x86) }}
     uses: ./.github/workflows/flow-self-hosted-arm.yml
+    secrets: inherit
     with:
       build: true
       container: ${{ matrix.OS }}
