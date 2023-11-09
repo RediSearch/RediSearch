@@ -127,3 +127,41 @@ def testGeoDistanceFile(env):
               'APPLY', 'geodistance(@location,-0.15036,51.50566)', 'AS', 'distance',
               'GROUPBY', '1', '@distance',
               'SORTBY', 2, '@distance', 'ASC').equal(res)
+
+# causes server crash before MOD-5646 fix
+@skip(cluster=True)
+def testGeoOnReopen(env):
+  env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+  env.expect('FT.CONFIG', 'SET', 'FORK_GC_RUN_INTERVAL', 1000).ok()
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'location', 'GEO').ok()
+  conn = getConnectionByEnv(env)
+
+  n = 2000
+
+  def loadDocs(num = len(hotels), offset = 0):
+    for i in range(num):
+      (hotel_name, lat, long) = hotels[(i + offset) % len(hotels)]
+      conn.execute_command('HSET', i + offset, 'name', hotel_name, 'location', f'{long},{lat}')
+
+  loadDocs(n)
+  forceInvokeGC(env) # to ensure the timer is set
+  loadDocs(n // 2) # overwriting half of the docs
+
+  ids = set()
+  def checkResults(res):
+    for id in [int(r[1]) for r in res[1:]]:
+      env.assertNotContains(id, ids)
+      ids.add(id)
+
+  res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '@location:[-0.15036 51.50566 10000 km]',
+                                     'LOAD', 1, '@__key',
+                                     'WITHCURSOR', 'COUNT', 100)
+  checkResults(res)
+
+  forceInvokeGC(env) # trigger the GC to clean all the overwritten docs
+
+  while cursor != 0:
+    res, cursor = conn.execute_command('FT.CURSOR', 'READ', 'idx', cursor)
+    checkResults(res)
+
+  env.assertEqual(len(ids), n)
