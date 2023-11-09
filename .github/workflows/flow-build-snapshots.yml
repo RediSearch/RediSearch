@@ -77,6 +77,7 @@ jobs:
         OS: ${{ fromJson(needs.decide-linux.outputs.platforms_x86) }}
         include: ${{ fromJson(needs.decide-linux.outputs.include_x86) }}
     uses: ./.github/workflows/task-build-artifacts.yml
+    secrets: inherit
     with:
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
@@ -104,6 +105,7 @@ jobs:
       matrix:
         OS: ${{ fromJson(needs.decide-macos.outputs.platforms) }}
     uses: ./.github/workflows/task-build-artifacts.yml
+    secrets: inherit
     with:
       env: ${{ matrix.OS }}
       ref: ${{ inputs.reference }}
