@@ -1100,8 +1100,10 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   } else {
     size_t len = MRReply_Length(arr);
 
+    // TODO: Remove len check once we regularize all error reports to be errors! (MOD-5965)
     // Check for errors
-    if (MRReply_Type(MRReply_ArrayElement(arr, 0)) == MR_REPLY_ERROR) {
+    if (MRReply_Type(MRReply_ArrayElement(arr, 0)) == MR_REPLY_ERROR
+        || len == 1) {
       rCtx->errorOccured = true;
       rCtx->lastError = MRReply_ArrayElement(arr, 0);
       // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
@@ -1226,8 +1228,10 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
     // TODO: Add a check for an error, and set rCtx->lastError
     size_t len = MRReply_Length(arr);
 
+    // TODO: Remove len check once we regularize all error reports to be errors! (MOD-5965)
     // Check for errors
-    if (MRReply_Type(MRReply_ArrayElement(arr, 0)) == MR_REPLY_ERROR) {
+    if (MRReply_Type(MRReply_ArrayElement(arr, 0)) == MR_REPLY_ERROR
+        || len == 1) {
       rCtx->errorOccured = true;
       rCtx->lastError = MRReply_ArrayElement(arr, 0);
       // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
