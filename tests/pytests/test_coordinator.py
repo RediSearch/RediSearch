@@ -135,9 +135,8 @@ def test_timeout():
     # Create the index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
 
-    # Populate the database with 15000 * nshards documents
-    # Many documents reduce flakiness, no way around this today
-    n_docs = int(15000 * env.shardsCount)
+    # Populate the database with many documents (more docs --> less flakiness)
+    n_docs = 20000 * env.shardsCount
     for i in range(n_docs):
         conn.execute_command('HSET', i ,'t1', str(i))
 
@@ -154,11 +153,11 @@ def test_timeout():
     # Client cursor mid execution
     # If the cursor id is 0, this means there was a timeout throughout execution
     # caught by the coordinator
-    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', '2500')
+    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', n_docs)
     env.assertEqual(cursor, 0)
 
     # FT.SEARCH
-    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(int(15000 * env.shardsCount)))
+    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', n_docs)
     # TODO: Add this when MOD-5965 is merged
     # env.assertEqual(type(res[0]), ResponseError)
     env.assertContains('Timeout limit was reached', str(res[0]))

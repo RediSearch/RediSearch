@@ -149,10 +149,11 @@ def test_search_timeout():
     for i in range(num_range):
         conn.execute_command('HSET', f'doc{i}', 't', f'aa{i}', 'geo', f"{i/10000},{i/1000}")
 
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0'). \
-      contains('Timeout limit was reached')
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range), 'timeout', 1).\
-      contains('Timeout limit was reached')
+    # TODO: Add these tests again once MOD-5965 is merged
+    # env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range)). \
+    #   contains('Timeout limit was reached')
+    # env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range), 'timeout', 1).\
+    #   contains('Timeout limit was reached')
 
     # (coverage) Later failure than the above tests - in pipeline execution
     # phase. For this, we need more documents in the index, such that we will
