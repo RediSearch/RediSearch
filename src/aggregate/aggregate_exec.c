@@ -448,7 +448,7 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     }
 
     // TODO: Move this to after the results section, so that we can report the
-    // error even if we respond with results.
+    // error even if we respond with results (`ON_TIMEOUT RETURN`).
     // <error>
     RedisModule_ReplyKV_Array(reply, "error"); // >errors
     if (rc == RS_RESULT_TIMEDOUT) {
@@ -459,9 +459,15 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     }
     RedisModule_Reply_ArrayEnd(reply); // >errors
 
+    // TODO: Move this to after the results section, so that we can report the
+    // correct number of returned results.
     // <total_results>
     if (ShouldReplyWithTimeoutError(rc, req)) {
       RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
+    } else if (rc == RS_RESULT_TIMEDOUT) {
+      // Set rc to OK such that we will respond with the partial results
+      rc = RS_RESULT_OK;
+      RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
     } else {
       RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
     }
@@ -476,22 +482,36 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     // <results>
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
-    if (ShouldReplyWithTimeoutError(rc, req)) {
-      RedisModule_Reply_ArrayEnd(reply); // >results
+    if (req->reqflags & QEXEC_F_NOROWS || rc != RS_RESULT_OK) {
+      goto done_3;
+    }
+
+    if (results != NULL) {
+      // populate the reply with an array containing the serialized results
+      for (uint i = 0; i < array_len(results); i++) {
+        SearchResult *curr = array_pop(results);
+        serializeResult(req, reply, curr, &cv);
+        SearchResult_Clear(curr);
+      }
+      array_free(results);
+      // goto done_3;
     } else {
-      if (results != NULL) {
-        // populate the reply with an array containing the serialized results
-        for (uint i = 0; i < array_len(results); i++) {
-          SearchResult *curr = array_pop(results);
-          serializeResult(req, reply, curr, &cv);
-          SearchResult_Clear(curr);
-        }
-        array_free(results);
-        // goto done_3;
+      if (rp->parent->resultLimit) {
+        serializeResult(req, reply, &r, &cv);
+      }
+
+      SearchResult_Clear(&r);
+
+      while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+        serializeResult(req, reply, &r, &cv);
+        // Serialize it as a search result
+        SearchResult_Clear(&r);
       }
     }
 
 done_3:
+    RedisModule_Reply_ArrayEnd(reply); // >results
+
     SearchResult_Destroy(&r);
     if (rc != RS_RESULT_OK) {
       req->stateflags |= QEXEC_S_ITERDONE;
