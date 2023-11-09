@@ -151,8 +151,8 @@ def test_search_timeout():
 
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0'). \
       contains('Timeout limit was reached')
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1).\
-      error().contains('Timeout limit was reached')
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range), 'timeout', 1).\
+      contains('Timeout limit was reached')
 
     # (coverage) Later failure than the above tests - in pipeline execution
     # phase. For this, we need more documents in the index, such that we will
