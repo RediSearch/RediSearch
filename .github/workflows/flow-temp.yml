@@ -8,8 +8,8 @@ jobs:
   test-ref:
     runs-on: ubuntu-latest
     steps:
-      - run: echo ${{ github.ref }}
+      - run: echo $(git rev-parse --abbrev-ref HEAD)
       - uses: actions/checkout@v3
         with:
           ref: 2.8
-      - run: echo ${{ github.ref }}
+      - run: echo $(git rev-parse --abbrev-ref HEAD)
