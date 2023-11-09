@@ -62,8 +62,8 @@ jobs:
 
           if '${{ inputs.architecture }}' in ['all', 'x86_64']:
             platforms.append('macos-11')
-          if '${{ inputs.architecture }}' in ['all', 'aarch64']:
-            platforms.append('macos-13-xlarge')
+          # if '${{ inputs.architecture }}' in ['all', 'aarch64']:
+          #   platforms.append('macos-13-xlarge')
 
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
             print(f'platforms={platforms}', file=f)
@@ -102,7 +102,7 @@ jobs:
     needs: decide-macos
     strategy:
       matrix:
-        OS: ${{ needs.decide-macos.outputs.platforms }}
+        OS: ${{ fromJson(needs.decide-macos.outputs.platforms) }}
     uses: ./.github/workflows/task-build-artifacts.yml
     with:
       env: ${{ matrix.OS }}
