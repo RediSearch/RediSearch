@@ -29,6 +29,9 @@ on:
       reference:
         type: string
         description: 'Optional: Reference (branch, tag, SHA) to build against'
+      redis-reference:
+        type: string
+        description: 'Optional: Redis reference (branch, tag, SHA) to build against'
   workflow_call:
     inputs:
       platform:
@@ -38,6 +41,8 @@ on:
         type: string
         default: all
       reference:
+        type: string
+      redis-reference:
         type: string
 
 jobs:
@@ -82,6 +87,7 @@ jobs:
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
       ref: ${{ inputs.reference }}
+      redis-ref: ${{ inputs.redis-reference || null }}
 
   build-linux-arm:
     needs: decide-linux
@@ -98,6 +104,7 @@ jobs:
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
       ref: ${{ inputs.reference }}
+      get-redis: ${{ inputs.redis-reference || null }}
 
   build-macos:
     needs: decide-macos
@@ -109,3 +116,4 @@ jobs:
     with:
       env: ${{ matrix.OS }}
       ref: ${{ inputs.reference }}
+      redis-ref: ${{ inputs.redis-reference || null }}

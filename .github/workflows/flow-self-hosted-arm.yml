@@ -10,6 +10,9 @@ on:
         type: string
       pre-steps-script:
         type: string
+      get-redis:
+        type: string
+        default: ${{ vars.DEFAULT_REDIS_REF }}
       test:
         type: boolean
         description: Run test flow
@@ -31,9 +34,6 @@ on:
       standalone:
         type: boolean
         default: true
-      get-redis:
-        type: string
-        default: ${{ vars.DEFAULT_REDIS_REF }}
 
 env:
   AWS_IMAGE_ID: ami-0d8e10b4bd5d65c57  # Ubuntu 22.04 region AMI for ARM with Docker installed
@@ -88,6 +88,7 @@ jobs:
       container: ${{ inputs.container }}
       pre-steps-script: ${{ inputs.pre-steps-script }}
       ref: ${{ inputs.ref }}
+      redis-ref: ${{ inputs.get-redis }}
 
   stop-runner:
     name: Stop self-hosted EC2 runner

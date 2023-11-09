@@ -19,7 +19,13 @@ jobs:
       fail-fast: false
       matrix:
         branch: [ "master", "2.6", "2.8", "2.10" ]
+        include:
+          - branch: "master"
+            redis-ref: unstable
+          - branch: "2.6"
+            redis-ref: '6.2.4'
     secrets: inherit
     uses: ./.github/workflows/flow-build-snapshots.yml
     with:
       reference: ${{ matrix.branch }}
+      redis-reference: ${{ matrix.redis-ref }}
