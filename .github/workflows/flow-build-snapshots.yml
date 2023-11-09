@@ -99,7 +99,6 @@ jobs:
 
   build-macos:
     needs: decide-macos
-    if: ${{ contains(fromJson('["macos", "all"]'), inputs.platform) }}
     strategy:
       matrix:
         OS: ${{ needs.decide-macos.outputs.platforms }}
