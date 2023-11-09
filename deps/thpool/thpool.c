@@ -188,7 +188,7 @@ void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p) {
   /* Wait for threads to initialize */
   while (thpool_p->num_threads_alive != thpool_p->total_threads_count) {
   }
-  LOG_IF_EXISTS("verbose", "Thread pool of size %sz created successfully",
+  LOG_IF_EXISTS("verbose", "Thread pool of size %zu created successfully",
                 thpool_p->total_threads_count)
 }
 
