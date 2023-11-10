@@ -47,7 +47,7 @@ on:
 
 jobs:
   setup:
-    name: Sets SHA and Validates the `reference` Input
+    # Sets SHA and Validates the `reference` Input
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}

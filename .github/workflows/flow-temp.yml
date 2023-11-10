@@ -11,23 +11,23 @@ jobs:
   #     architecture: x86_64
   #     platform: ubuntu:jammy
 
-  test-branch-ref:
-    uses: ./.github/workflows/flow-build-artifacts.yml
-    with:
-      architecture: x86_64
-      platform: ubuntu:jammy
+  # test-branch-ref:
+  #   uses: ./.github/workflows/flow-build-artifacts.yml
+  #   with:
+  #     architecture: x86_64
+  #     platform: ubuntu:jammy
 
-      reference: master
+  #     reference: master
 
-  test-tag-ref:
-    uses: ./.github/workflows/flow-build-artifacts.yml
-    with:
-      architecture: x86_64
-      platform: ubuntu:jammy
+  # test-tag-ref:
+  #   uses: ./.github/workflows/flow-build-artifacts.yml
+  #   with:
+  #     architecture: x86_64
+  #     platform: ubuntu:jammy
 
-      reference: v2.8.8
+  #     reference: v2.8.8
 
-  test-sha-ref:
+  test-short-sha-ref:
     uses: ./.github/workflows/flow-build-artifacts.yml
     with:
       architecture: x86_64
@@ -35,17 +35,18 @@ jobs:
 
       reference: 921bf8019c
 
-  test-bad-ref:
+  test-long-sha-ref:
     uses: ./.github/workflows/flow-build-artifacts.yml
     with:
       architecture: x86_64
       platform: ubuntu:jammy
 
-      reference: bad-ref
+      reference: 921bf8019c2e8d94648fa38593d0141c1064261e
 
-  test-checkout:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: ${{ github.sha }}
+  # test-bad-ref:
+  #   uses: ./.github/workflows/flow-build-artifacts.yml
+  #   with:
+  #     architecture: x86_64
+  #     platform: ubuntu:jammy
+
+  #     reference: bad-ref
