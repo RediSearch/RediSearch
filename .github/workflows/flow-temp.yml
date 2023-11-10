@@ -5,11 +5,11 @@ on:
     # branches-ignore: ['*'] # ignore all branches
 
 jobs:
-  test-no-ref:
-    uses: ./.github/workflows/flow-build-artifacts.yml
-    with:
-      architecture: x86_64
-      platform: ubuntu:jammy
+  # test-no-ref:
+  #   uses: ./.github/workflows/flow-build-artifacts.yml
+  #   with:
+  #     architecture: x86_64
+  #     platform: ubuntu:jammy
 
   test-branch-ref:
     uses: ./.github/workflows/flow-build-artifacts.yml
@@ -33,7 +33,7 @@ jobs:
       architecture: x86_64
       platform: ubuntu:jammy
 
-      reference: fe882256f
+      reference: 921bf8019c
 
   test-bad-ref:
     uses: ./.github/workflows/flow-build-artifacts.yml
@@ -42,3 +42,10 @@ jobs:
       platform: ubuntu:jammy
 
       reference: bad-ref
+
+  test-checkout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.sha }}
