@@ -2,14 +2,43 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['*'] # ignore all branches
+    # branches-ignore: ['*'] # ignore all branches
 
 jobs:
-  test-ref:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo $(git rev-parse --abbrev-ref HEAD)
-      - uses: actions/checkout@v3
-        with:
-          ref: 2.8
-      - run: echo $(git rev-parse --abbrev-ref HEAD)
+  test-no-ref:
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    with:
+      architecture: x86_64
+      platform: ubuntu:jammy
+
+  test-branch-ref:
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    with:
+      architecture: x86_64
+      platform: ubuntu:jammy
+
+      reference: master
+
+  test-tag-ref:
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    with:
+      architecture: x86_64
+      platform: ubuntu:jammy
+
+      reference: v2.8.8
+
+  test-sha-ref:
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    with:
+      architecture: x86_64
+      platform: ubuntu:jammy
+
+      reference: fe882256f
+
+  test-bad-ref:
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    with:
+      architecture: x86_64
+      platform: ubuntu:jammy
+
+      reference: bad-ref
