@@ -23,6 +23,10 @@ on:
       # Build inputs
       ref:
         type: string
+        description: 'Ref to checkout (defaults to the ref of the triggering event)'
+      sha:
+        type: string
+        description: 'Optional: SHA to checkout. If not provided, `ref` will be used'
 
       # Test inputs
       test-config:
@@ -88,6 +92,7 @@ jobs:
       container: ${{ inputs.container }}
       pre-steps-script: ${{ inputs.pre-steps-script }}
       ref: ${{ inputs.ref }}
+      sha: ${{ inputs.sha }}
       redis-ref: ${{ inputs.get-redis }}
 
   stop-runner:

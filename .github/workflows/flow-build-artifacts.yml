@@ -28,7 +28,7 @@ on:
         default: all
       reference:
         type: string
-        description: 'Optional: Reference (branch, tag, SHA) to build against'
+        description: 'Optional: Reference (branch, tag, SHA) to build against. Defaults to the base branch'
       redis-reference:
         type: string
         description: 'Optional: Redis reference (branch, tag, SHA) to build against'
@@ -46,6 +46,19 @@ on:
         type: string
 
 jobs:
+  setup:
+    name: Sets SHA and Validates the `reference` Input
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.set-sha.outputs.sha }}
+    steps:
+      - name: Validate reference
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ inputs.reference || null }}
+      - id: set-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
   decide-linux:
     if: ${{ inputs.platform != 'macos' }}
     uses: ./.github/workflows/task-get-linux-configurations.yml
@@ -74,7 +87,7 @@ jobs:
             print(f'platforms={platforms}', file=f)
 
   build-linux-x86:
-    needs: decide-linux
+    needs: [decide-linux, setup]
     if: ${{ contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
     strategy:
       fail-fast: false
@@ -87,10 +100,11 @@ jobs:
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
       ref: ${{ inputs.reference }}
+      sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ inputs.redis-reference || null }}
 
   build-linux-arm:
-    needs: decide-linux
+    needs: [decide-linux, setup]
     if: ${{ contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
     strategy:
       fail-fast: false
@@ -104,10 +118,11 @@ jobs:
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
       ref: ${{ inputs.reference }}
+      sha: ${{ needs.setup.outputs.sha }}
       get-redis: ${{ inputs.redis-reference || null }}
 
   build-macos:
-    needs: decide-macos
+    needs: [decide-macos, setup]
     strategy:
       matrix:
         OS: ${{ fromJson(needs.decide-macos.outputs.platforms) }}
@@ -116,4 +131,5 @@ jobs:
     with:
       env: ${{ matrix.OS }}
       ref: ${{ inputs.reference }}
+      sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ inputs.redis-reference || null }}
