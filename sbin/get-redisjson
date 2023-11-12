@@ -55,6 +55,7 @@ else
 
 	[[ $os == linux ]] && os=Linux
 	[[ $arch == x64 ]] && arch=x86_64
+	[[ $arch == arm64v8 ]] && arch=aarch64
 
 	if [[ $dist == ubuntu ]]; then
 		if [[ $nick == jammy ]]; then
