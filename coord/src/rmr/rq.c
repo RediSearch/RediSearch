@@ -13,7 +13,8 @@
 
 struct queueItem {
   void *privdata;
-  void (*cb)(void *);
+  MRQueueCallback cb;
+  MRQueueCleanUpCallback free_cb;
   struct queueItem *next;
 };
 
@@ -27,12 +28,13 @@ typedef struct MRWorkQueue {
   uv_async_t async;
 } MRWorkQueue;
 
-void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
+void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata, MRQueueCleanUpCallback free_cb) {
   uv_mutex_lock(&q->lock);
   struct queueItem *item = rm_malloc(sizeof(*item));
   item->cb = cb;
   item->privdata = privdata;
   item->next = NULL;
+  item->free_cb = free_cb;
   // append the request to the tail of the list
   if (q->tail) {
     // make it the next of the current tail
@@ -105,9 +107,21 @@ MRWorkQueue *RQ_New(int maxPending) {
   return q;
 }
 
-void RQ_Free(MRWorkQueue *q) {
+void RQ_Free(MRWorkQueue *q, RedisModuleCtx *ctx) {
   struct queueItem *req = NULL;
+  size_t pending_req = 0;
   while (NULL != (req = rqPop(q))) {
+    if (req->free_cb) {
+      req->free_cb(req->privdata);
+    } else {
+      ++pending_req;
+    }
+    if (pending_req) {
+      RedisModule_Log(ctx, "warning",
+                      "RQ_Free(): Note there were %zu pending requests without a free_cb in the rmr "
+                      "queue during shutdown.",
+                      pending_req);
+    }
     rm_free(req);
   }
 
