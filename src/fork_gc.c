@@ -1033,7 +1033,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
       hasLock = 0;
     }
   }
-  
+
   return status;
 }
 
@@ -1070,7 +1070,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
     }
-    
+
     if (FGC_recvInvIdx(gc, &idxbufs, &info) != REDISMODULE_OK) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
@@ -1211,6 +1211,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   TimeSampler_Start(&ts);
   int rc = pipe(gc->pipefd);  // create the pipe
   if (rc == -1) {
+    RedisModule_Log(ctx, "warning", "Couldn't create pipe - got errno %d, aborting fork GC", errno);
     return 1;
   }
 
@@ -1236,6 +1237,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   cpid = FGC_fork(gc, ctx);  // duplicate the current process
 
   if (cpid == -1) {
+    RedisModule_Log(ctx, "warning", "fork failed - got errno %d, aborting fork GC", errno);
     gc->retryInterval.tv_sec = RSGlobalConfig.forkGcRetryInterval;
 
     if (gc->type == FGC_TYPE_NOKEYSPACE) {
@@ -1323,7 +1325,8 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     } else {
       pid_t id = wait4(cpid, NULL, 0, NULL);
       if (id == -1) {
-        printf("an error acquire when waiting for fork to terminate, pid:%d", cpid);
+        RedisModule_Log(ctx, "warning", "an error occurred when waiting for fork GC to terminate,"
+                        " pid:%d", cpid);
       }
     }
   }
