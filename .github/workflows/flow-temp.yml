@@ -42,7 +42,7 @@ jobs:
           next_version: ${{ steps.verify.outputs.major }}.${{ steps.verify.outputs.minor }}.${{ steps.verify.outputs.next_patch }}
         run: |
           git config --global user.name "${{ github.triggering_actor }}"
-          git config --global user.email "${{ github.event.sender.email }}"
+          git config --global user.email "${{ github.event.sender.id }}+${{ github.event.sender.login }}@users.noreply.github.com"
           git checkout -b bump-version-${{ env.next_version }}
           git add src/version.h
           git commit -m "Bump version from $cur_version to $next_version"
