@@ -61,6 +61,6 @@ jobs:
                 body: `This PR was automatically created by the release workflow of ${{ env.REF_NAME }}.`,
                 head: `bump-version-${{ env.next_version }}`,
                 base: `${{ env.target_commitish }}`,
-                requested_reviewers: ['@${{ github.actor }}'],
+                requested_reviewers: ['${{ github.actor }}'],
               });
               console.log(pr);
