@@ -2015,7 +2015,7 @@ void setHiredisAllocators(){
 }
 
 
-void Coordinator_CleanupModule(void) {
+static void Coordinator_CleanupModule(void) {
   MR_Destroy();
   GlobalSearchCluser_Release();
 }
@@ -2025,7 +2025,7 @@ void Coordinator_ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
   RediSearch_CleanupModule();
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing Coordinator resources on shutdown");
-  Coordinator_CleanupModule();
+  Coordinator_CleanupModule(ctx);
   RedisModule_Log(ctx, "notice", "%s", "End releasing Coordinator resources");
 }
 
