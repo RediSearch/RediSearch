@@ -2158,7 +2158,6 @@ def testIssue446(env):
     env.assertEqual([2], rv)
 
 def testTimeout(env):
-    # TODO: Check if the skip can be removed.
     env.skipOnCluster()
     if VALGRIND:
         env.skip()
@@ -2176,9 +2175,6 @@ def testTimeout(env):
     env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0') \
        .contains('Timeout limit was reached')
-
-    # TODO: Add a test with a less complex query, such that it will timeout later on
-    # in the pipeline execution (rather than in parsing time).
 
     # test `TIMEOUT` param in query
     res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 10000)

@@ -158,7 +158,7 @@ def test_search_timeout():
     # (coverage) Later failure than the above tests - in pipeline execution
     # phase. For this, we need more documents in the index, such that we will
     # fail for sure
-    num_range_2 = 15000 * env.shardsCount
+    num_range_2 = 25000 * env.shardsCount
     p = conn.pipeline(transaction=False)
     for i in range(num_range, num_range_2):
       p.execute_command('HSET', f'doc{i}', 't', f'{i}', 'geo', f"{i/10000},{i/1000}")

@@ -136,7 +136,7 @@ def test_timeout():
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
 
     # Populate the database with many documents (more docs --> less flakiness)
-    n_docs = 20000 * env.shardsCount
+    n_docs = 25000 * env.shardsCount
     for i in range(n_docs):
         conn.execute_command('HSET', i ,'t1', str(i))
 

@@ -1042,9 +1042,8 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   if (arr == NULL) {
     return;
   }
-  // TODO: Refactor this to an assertion - we never enter (not covered).
   if (MRReply_Type(arr) == MR_REPLY_ERROR) {
-    // rCtx->errorOccured = true;   // Need this?
+    rCtx->errorOccured = true;
     rCtx->lastError = arr;
     return;
   }
@@ -1184,7 +1183,10 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
   if (arr == NULL) {
     return;
   }
-  // Fix condition to look at first element if array, 'error' element if map
+  if (MRReply_Type(arr) == MR_REPLY_ERROR) {
+    rCtx->lastError = arr;
+    return;
+  }
 
   bool resp3 = MRReply_Type(arr) == MR_REPLY_MAP;
   if (!resp3 && (MRReply_Type(arr) != MR_REPLY_ARRAY || MRReply_Length(arr) == 0)) {
@@ -1227,10 +1229,9 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
   }
   else // RESP2
   {
-    // TODO: Add a check for an error, and set rCtx->lastError
     size_t len = MRReply_Length(arr);
 
-    // TODO: Remove len check once we regularize all error reports to be errors! (MOD-5965)
+    // TODO: Check only error once we regularize all error reports! (MOD-5965)
     // Check for errors
     int type = MRReply_Type(MRReply_ArrayElement(arr, 0));
     if (type == MR_REPLY_ERROR
@@ -1593,7 +1594,6 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   // If we didn't get any results and we got an error - return it.
   // If some shards returned results and some errors - we prefer to show the results we got an not
   // return an error. This might change in the future
-  // TODO: Condition this on the `on_timeout` policy as well (RETURN -> as is, FAIL -> return error)
   if ((rCtx.totalReplies == 0 && rCtx.lastError != NULL) || rCtx.errorOccured) {
     if (rCtx.lastError) {
       if (reply->resp3) {     // resp3
