@@ -377,7 +377,8 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
     if (results != NULL) {
       // populate the reply with an array containing the serialized results
-      for (uint i = 0; i < array_len(results); i++) {
+      int len = array_len(results);
+      for (uint i = 0; i < len; i++) {
         SearchResult *curr = array_pop(results);
         serializeResult(req, reply, curr, &cv);
         SearchResult_Clear(curr);
@@ -481,7 +482,8 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     if (results != NULL) {
       // populate the reply with an array containing the serialized results
-      for (uint i = 0; i < array_len(results); i++) {
+      int len = array_len(results);
+      for (uint i = 0; i < len; i++) {
         SearchResult *curr = array_pop(results);
         serializeResult(req, reply, curr, &cv);
         SearchResult_Clear(curr);

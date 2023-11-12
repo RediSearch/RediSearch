@@ -2187,6 +2187,7 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', -1).error()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
 
+    # TODO: Modify this test, as now it will receive a timeout error, so the check is bad
     # check no time w/o sorter/grouper
     res = env.cmd('FT.AGGREGATE', 'myIdx', '*',
                 'LOAD', 1, 'geo',
@@ -2224,7 +2225,7 @@ def testTimeout(env):
     while cursor != 0:
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'myIdx', str(cursor))
         l += (len(r) - 1)
-    env.assertEqual(l, 1000)
+    env.assertEqual(l, num_range)
 
     # restore old configuration
     env.cmd('ft.config', 'set', 'timeout', '500')
