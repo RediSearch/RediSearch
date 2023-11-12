@@ -145,7 +145,7 @@ def test_timeout():
                 'LOAD', '2', '@t1', '@__key',
                 'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
                 'groupby', '2', '@t1', '@t1exp',
-                        'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys')
+                'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys', 'timeout', '1')
     # TODO: Add this once the response will be fixed to be and error instead of a string
     # env.assertEquals(type(res[0]), ResponseError)
     env.assertContains('Timeout limit was reached', str(res[0]))
@@ -153,11 +153,13 @@ def test_timeout():
     # Client cursor mid execution
     # If the cursor id is 0, this means there was a timeout throughout execution
     # caught by the coordinator
-    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', n_docs)
+    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*',
+                                       'WITHCURSOR', 'COUNT', n_docs, 'timeout', '1')
     env.assertEqual(cursor, 0)
 
     # FT.SEARCH
-    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', n_docs)
+    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', n_docs,
+                               'timeout', '1')
     # TODO: Add this when MOD-5965 is merged
     # env.assertEqual(type(res[0]), ResponseError)
     env.assertContains('Timeout limit was reached', str(res[0]))
