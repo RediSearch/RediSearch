@@ -63,10 +63,10 @@ jobs:
                 head: `bump-version-${{ env.next_version }}`,
                 base: `${{ env.target_commitish }}`,
               });
-              await github.rest.pulls.requestReviewers({
+              const { data: pr_with_reviewer } = await github.rest.pulls.requestReviewers({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 pull_number: pr.number,
                 reviewers: ['${{ github.actor }}'],
               });
-              console.log(pr);
+              console.log(pr_with_reviewer);
