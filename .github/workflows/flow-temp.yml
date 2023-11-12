@@ -21,32 +21,30 @@ jobs:
         shell: python
         run: |
           with open("src/version.h", "r") as fp:
-            major, minor, patch = [int(l.rsplit(maxsplit=1)[-1]) for l in fp if "#define REDISEARCH_VERSION_" in l]
+            major, minor, patch = [int(l.rsplit(maxsplit=1)[-1]) for l in fp if l.startswith("#define REDISEARCH_VERSION_")]
           tag = '${{ env.REF }}'
           if tag != f"refs/tags/v{major}.{minor}.{patch}":
             raise Exception(f"Tag {tag} does not match version {major}.{minor}.{patch}")
 
           import os
           with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
-            print(f"major={major}", file=fp)
-            print(f"minor={minor}", file=fp)
-            print(f"patch={patch}", file=fp)
+            print(f"cur_version={major}.{minor}.{patch}", file=fp)
+            print(f"next_version={major}.{minor}.{patch+1}", file=fp)
             print(f"next_patch={patch+1}", file=fp)
 
       - name: Update version for next patch
-        run: awk '/^#define REDISEARCH_VERSION_PATCH [0-9]+$/ {sub(/[0-9]+$/, $NF+1)} 1' src/version.h > temp && mv temp src/version.h
+        env:
+          LINE: '#define REDISEARCH_VERSION_PATCH'
+        run: sed -i "s/^${{ env.LINE }} [0-9]\+$/${{ env.LINE }} ${{ steps.verify.outputs.next_patch }}/" src/version.h
 
       - name: Commit and push
-        env:
-          cur_version: ${{ steps.verify.outputs.major }}.${{ steps.verify.outputs.minor }}.${{ steps.verify.outputs.patch }}
-          next_version: ${{ steps.verify.outputs.major }}.${{ steps.verify.outputs.minor }}.${{ steps.verify.outputs.next_patch }}
         run: |
           git config --global user.name "${{ github.triggering_actor }}"
           git config --global user.email "${{ github.event.sender.id }}+${{ github.event.sender.login }}@users.noreply.github.com"
-          git checkout -b bump-version-${{ env.next_version }}
+          git checkout -b bump-version-${{ steps.verify.outputs.next_version }}
           git add src/version.h
           git commit -m "Bump version from $cur_version to $next_version"
-          git push origin bump-version-${{ env.next_version }}
+          git push origin bump-version-${{ steps.verify.outputs.next_version }}
 
       - name: Create Pull Request
         uses: actions/github-script@v6
