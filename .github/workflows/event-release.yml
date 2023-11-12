@@ -56,3 +56,31 @@ jobs:
                 head: `bump-version-${{ env.next_version }}`,
                 base: context.event.release.target_commitish,
               });
+
+  set-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+      - name: Set Version Artifacts
+        env:
+          ENT_DIR: s3://redismodules/redisearch
+          OSS_DIR: s3://redismodules/redisearch-oss
+          VERSION: ${{ github.ref_name }}
+          VER_BRANCH: ${{ github.event.release.target_commitish }}
+        run: |
+          for DIR in {$ENT_DIR,$OSS_DIR}; do
+            ARTIFACTS=$(aws s3 ls $DIR/snapshots/redisearch | grep '.${{ env.VER_BRANCH }}.zip$' | awk '{print $NF}')
+            echo "Handling artifacts:"
+            echo "$ARTIFACTS"
+            echo "----------------- END -----------------"
+            for ARTIFACT in $ARTIFACTS; do
+              echo -n "Setting $DIR/snapshots/$ARTIFACT to $DIR/${ARTIFACT/.${{ env.VER_BRANCH }}.zip/.${{ env.VERSION }}.zip} ... "
+              aws s3 cp $DIR/snapshots/$ARTIFACT $DIR/${ARTIFACT/.${{ env.VER_BRANCH }}.zip/.${{ env.VERSION }}.zip}
+              echo "Done"
+            done
+          done
