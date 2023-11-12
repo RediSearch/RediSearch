@@ -12,6 +12,9 @@ env:
 jobs:
   update-version:
     runs-on: ubuntu-latest
+    outputs:
+      cur_version: ${{ steps.verify.outputs.cur_version }}
+      next_version: ${{ steps.verify.outputs.next_version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,31 +40,60 @@ jobs:
           LINE: '#define REDISEARCH_VERSION_PATCH'
         run: sed -i "s/^${{ env.LINE }} [0-9]\+$/${{ env.LINE }} ${{ steps.verify.outputs.next_patch }}/" src/version.h
 
-      - name: Commit and push
-        run: |
-          git config --global user.name "${{ github.triggering_actor }}"
-          git config --global user.email "${{ github.event.sender.id }}+${{ github.event.sender.login }}@users.noreply.github.com"
-          git checkout -b bump-version-${{ steps.verify.outputs.next_version }}
-          git add src/version.h
-          git commit -m "Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}"
-          git push origin bump-version-${{ steps.verify.outputs.next_version }}
+      # - name: Commit and push
+      #   run: |
+      #     git config --global user.name "${{ github.triggering_actor }}"
+      #     git config --global user.email "${{ github.event.sender.id }}+${{ github.event.sender.login }}@users.noreply.github.com"
+      #     git checkout -b bump-version-${{ steps.verify.outputs.next_version }}
+      #     git add src/version.h
+      #     git commit -m "Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}"
+      #     git push origin bump-version-${{ steps.verify.outputs.next_version }}
 
-      - name: Create Pull Request
-        uses: actions/github-script@v6
+      # - name: Create Pull Request
+      #   uses: actions/github-script@v6
+      #   with:
+      #     script: |
+      #         const { data: pr } = await github.rest.pulls.create({
+      #           owner: context.repo.owner,
+      #           repo: context.repo.repo,
+      #           title: `Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}`,
+      #           body: `This PR was automatically created by the release workflow of ${{ env.REF_NAME }}.`,
+      #           head: `bump-version-${{ steps.verify.outputs.next_version }}`,
+      #           base: `${{ env.target_commitish }}`,
+      #         });
+      #         const { data: pr_with_reviewer } = await github.rest.pulls.requestReviewers({
+      #           owner: context.repo.owner,
+      #           repo: context.repo.repo,
+      #           pull_number: pr.number,
+      #           reviewers: ['${{ github.actor }}'],
+      #         });
+      #         console.log(pr_with_reviewer);
+
+  set-artifacts:
+    needs: update-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v3
         with:
-          script: |
-              const { data: pr } = await github.rest.pulls.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: `Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}`,
-                body: `This PR was automatically created by the release workflow of ${{ env.REF_NAME }}.`,
-                head: `bump-version-${{ steps.verify.outputs.next_version }}`,
-                base: `${{ env.target_commitish }}`,
-              });
-              const { data: pr_with_reviewer } = await github.rest.pulls.requestReviewers({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: pr.number,
-                reviewers: ['${{ github.actor }}'],
-              });
-              console.log(pr_with_reviewer);
+          aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+      - name: Set Version Artifacts
+        env:
+          ENT_DIR: s3://redismodules/redisearch
+          OSS_DIR: s3://redismodules/redisearch-oss
+          VERSION: ${{ needs.update-version.outputs.next_version }}
+          VER_BRANCH: ${{ env.target_commitish }}
+        run: |
+          for DIR in {$ENT_DIR,$OSS_DIR}; do
+            ARTIFACTS=$(aws s3 ls $DIR/snapshots/redisearch | grep '.${{ env.VER_BRANCH }}.zip$' | awk '{print $NF}')
+            echo "Handling artifacts:"
+            echo "$ARTIFACTS"
+            echo "----------------- END -----------------"
+            for ARTIFACT in $ARTIFACTS; do
+              echo -n "Setting $DIR/snapshots/$ARTIFACT to $DIR/${ARTIFACT/.${{ env.VER_BRANCH }}.zip/.${{ env.VERSION }}.zip} ... "
+              # aws s3 cp $DIR/snapshots/$ARTIFACT $DIR/${ARTIFACT/.${{ env.VER_BRANCH }}.zip/.${{ env.VERSION }}.zip}
+              echo "Done"
+            done
+          done
