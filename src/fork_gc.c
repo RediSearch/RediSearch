@@ -1156,6 +1156,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   TimeSampler_Start(&ts);
   int rc = pipe(gc->pipefd);  // create the pipe
   if (rc == -1) {
+    RedisModule_Log(ctx, "warning", "Couldn't create pipe - got errno %d, aborting fork GC", errno);
     return 1;
   }
 
@@ -1167,6 +1168,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   cpid = FGC_fork(gc, ctx);  // duplicate the current process
 
   if (cpid == -1) {
+    RedisModule_Log(ctx, "warning", "fork failed - got errno %d, aborting fork GC", errno);
     gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRetryInterval;
 
     RedisModule_ThreadSafeContextUnlock(ctx);
@@ -1233,7 +1235,8 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     } else {
       pid_t id = wait4(cpid, NULL, 0, NULL);
       if (id == -1) {
-        printf("an error acquire when waiting for fork to terminate, pid:%d", cpid);
+        RedisModule_Log(ctx, "warning", "an error occurred when waiting for fork GC to terminate,"
+                        " pid:%d", cpid);
       }
     }
 #ifdef MT_BUILD
