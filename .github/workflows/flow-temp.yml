@@ -41,7 +41,6 @@ jobs:
           cur_version: ${{ steps.verify.outputs.major }}.${{ steps.verify.outputs.minor }}.${{ steps.verify.outputs.patch }}
           next_version: ${{ steps.verify.outputs.major }}.${{ steps.verify.outputs.minor }}.${{ steps.verify.outputs.next_patch }}
         run: |
-          # git config --global user.email "${{ github.triggering_actor }}@users.noreply.github.com"
           git config --global user.name "${{ github.triggering_actor }}"
           git checkout -b bump-version-${{ env.next_version }}
           git add src/version.h
@@ -61,5 +60,5 @@ jobs:
                 title: `Bump version from ${{ env.cur_version }} to ${{ env.next_version }}`,
                 body: `This PR was automatically created by the release workflow of ${{ env.REF_NAME }}.`,
                 head: `bump-version-${{ env.next_version }}`,
-                base: ${{ env.target_commitish }},
+                base: `${{ env.target_commitish }}`,
               });
