@@ -62,3 +62,9 @@ jobs:
                 head: `bump-version-${{ env.next_version }}`,
                 base: `${{ env.target_commitish }}`,
               });
+              await github.rest.pulls.createReviewRequest({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                reviewers: ['${{ github.triggering_actor }}']
+              });
