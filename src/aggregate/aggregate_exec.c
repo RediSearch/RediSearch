@@ -387,7 +387,7 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       goto done_2;
     }
 
-    if (rp->parent->resultLimit) {
+    if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
       serializeResult(req, reply, &r, &cv);
     } else {
       SearchResult_Clear(&r);
@@ -491,7 +491,7 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       array_free(results);
       // goto done_3;
     } else {
-      if (rp->parent->resultLimit) {
+      if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
         serializeResult(req, reply, &r, &cv);
       }
 
