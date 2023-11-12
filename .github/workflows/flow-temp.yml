@@ -54,7 +54,7 @@ jobs:
           next_version: ${{ steps.verify.outputs.major }}.${{ steps.verify.outputs.minor }}.${{ steps.verify.outputs.next_patch }}
         with:
           script: |
-              const { data: pr } = await github.pulls.create({
+              const { data: pr } = await github.rest.pulls.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 title: `Bump version from ${{ env.cur_version }} to ${{ env.next_version }}`,
