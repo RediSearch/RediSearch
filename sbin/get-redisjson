@@ -84,9 +84,9 @@ else
 	elif [[ $os == macos ]]; then
     # as we don't build on macOS for every platform, we converge to a least common denominator
     if [[ $arch == x86_64 ]]; then
-    	OSNICK=catalina  # to be aligned with the rest of the modules in redis stack
+    	nick=catalina  # to be aligned with the rest of the modules in redis stack
     else
-    	[[ $OSNICK == ventura ]] && OSNICK=monterey
+    	[[ $nick == ventura ]] && nick=monterey
     fi
 		OSS=1
 	elif [[ -n $OSNICK ]]; then
@@ -97,6 +97,8 @@ else
 	fi
 	platform="${os}-${nick}-${arch}"
 fi
+
+echo "platform is $platform"
 
 if [[ $OSS == 1 ]]; then
 	STEM=rejson-oss
