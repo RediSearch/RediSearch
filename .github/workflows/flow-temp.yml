@@ -43,22 +43,19 @@ jobs:
           git config --global user.email "${{ github.event.sender.id }}+${{ github.event.sender.login }}@users.noreply.github.com"
           git checkout -b bump-version-${{ steps.verify.outputs.next_version }}
           git add src/version.h
-          git commit -m "Bump version from $cur_version to $next_version"
+          git commit -m "Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}"
           git push origin bump-version-${{ steps.verify.outputs.next_version }}
 
       - name: Create Pull Request
         uses: actions/github-script@v6
-        env:
-          cur_version: ${{ steps.verify.outputs.major }}.${{ steps.verify.outputs.minor }}.${{ steps.verify.outputs.patch }}
-          next_version: ${{ steps.verify.outputs.major }}.${{ steps.verify.outputs.minor }}.${{ steps.verify.outputs.next_patch }}
         with:
           script: |
               const { data: pr } = await github.rest.pulls.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                title: `Bump version from ${{ env.cur_version }} to ${{ env.next_version }}`,
+                title: `Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}`,
                 body: `This PR was automatically created by the release workflow of ${{ env.REF_NAME }}.`,
-                head: `bump-version-${{ env.next_version }}`,
+                head: `bump-version-${{ steps.verify.outputs.next_version }}`,
                 base: `${{ env.target_commitish }}`,
               });
               const { data: pr_with_reviewer } = await github.rest.pulls.requestReviewers({
