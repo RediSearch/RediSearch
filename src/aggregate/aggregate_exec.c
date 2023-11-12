@@ -370,7 +370,7 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     }
 
     // Once we get here, we want to return the results we got from the pipeline (with no error)
-    if (req->reqflags & QEXEC_F_NOROWS || rc != RS_RESULT_OK) {
+    if (req->reqflags & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
       goto done_2;
     }
 
@@ -378,7 +378,7 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     if (results != NULL) {
       // populate the reply with an array containing the serialized results
       int len = array_len(results);
-      for (uint i = 0; i < len; i++) {
+      for (uint32_t i = 0; i < len; i++) {
         SearchResult *curr = array_pop(results);
         serializeResult(req, reply, curr, &cv);
         SearchResult_Clear(curr);
@@ -476,14 +476,14 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     // <results>
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
-    if (req->reqflags & QEXEC_F_NOROWS || rc != RS_RESULT_OK) {
+    if (req->reqflags & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
       goto done_3;
     }
 
     if (results != NULL) {
       // populate the reply with an array containing the serialized results
       int len = array_len(results);
-      for (uint i = 0; i < len; i++) {
+      for (uint32_t i = 0; i < len; i++) {
         SearchResult *curr = array_pop(results);
         serializeResult(req, reply, curr, &cv);
         SearchResult_Clear(curr);
