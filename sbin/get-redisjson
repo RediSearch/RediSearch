@@ -98,8 +98,6 @@ else
 	platform="${os}-${nick}-${arch}"
 fi
 
-echo "platform is $platform"
-
 if [[ $OSS == 1 ]]; then
 	STEM=rejson-oss
 else
