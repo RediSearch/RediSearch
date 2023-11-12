@@ -45,12 +45,17 @@ on:
       redis-reference:
         type: string
 
+env:
+  SHA_CACHE_NAME: ${{ inputs.reference || github.ref_name }}-${{ github.event_name }}-last-sha
+
 jobs:
   setup:
     # Sets SHA and Validates the `reference` Input
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
+      skip: ${{ steps.on-dispatch.outputs.skip || steps.skip.outputs.decision || 'false' }}
+      store: ${{ steps.on-dispatch.outputs.store || 'true' }}
     steps:
       - name: Validate reference
         uses: actions/checkout@v3
@@ -59,6 +64,44 @@ jobs:
           ref: ${{ inputs.reference || null }}
       - id: set-sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - id: on-dispatch
+        # Don't skip and don't record if the workflow was manually triggered
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "skip=false" >> $GITHUB_OUTPUT
+          echo "store=false" >> $GITHUB_OUTPUT
+
+      - uses: actions/cache/restore@v3
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        id: restore
+        with:
+          path: ${{ env.SHA_CACHE_NAME }}
+          key: ${{ env.SHA_CACHE_NAME }}
+
+      - id: skip
+        if: ${{ github.event_name != 'workflow_dispatch' && steps.restore.outputs.cache-hit }}
+        run: |
+          LAST_SHA=$(cat ${{ steps.restore.outputs.cache-matched-key }})
+          CURRENT_SHA=${{ steps.set-sha.outputs.sha }}
+          echo "current sha: $CURRENT_SHA"
+          echo "last sha: $LAST_SHA"
+          if [ "$LAST_SHA" == "$CURRENT_SHA" ]; then
+            echo "decision=true" >> $GITHUB_OUTPUT
+          fi
+
+  cache-sha:
+    # Caches the SHA of the last successful build
+    runs-on: ubuntu-latest
+    needs: [setup, build-linux-x86, build-linux-arm, build-macos]
+    if: ${{ !cancelled() && needs.setup.outputs.store == 'true' && needs.setup.outputs.skip == 'false' }}
+    steps:
+      - if: ${{ !contains(needs.*.result, 'failure') }}
+        run: echo "${{ needs.setup.outputs.sha }}" > ${{ env.SHA_CACHE_NAME }}
+      - uses: actions/cache/save@v3
+        with:
+          path: ${{ env.SHA_CACHE_NAME }}
+          key: ${{ env.SHA_CACHE_NAME }}
 
   decide-linux:
     if: ${{ inputs.platform != 'macos' }}
