@@ -66,6 +66,6 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 pull_number: pr.number,
-                reviewers: ['${{ github.actor }}'],
+                reviewers: ['@${{ github.actor }}'],
               });
               console.log(pr);
