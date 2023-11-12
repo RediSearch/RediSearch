@@ -398,7 +398,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
 done_3:
     SearchResult_Destroy(&r);
-    if (rc != RS_RESULT_OK) {
+    if ((rc != RS_RESULT_OK && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) || rc == RS_RESULT_EOF) {
       req->stateflags |= QEXEC_S_ITERDONE;
     }
 
@@ -475,7 +475,7 @@ done_3:
 
   done_2:
     SearchResult_Destroy(&r);
-    if (rc != RS_RESULT_OK) {
+    if ((rc != RS_RESULT_OK && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) || rc == RS_RESULT_EOF) {
       req->stateflags |= QEXEC_S_ITERDONE;
     }
 
