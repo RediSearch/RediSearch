@@ -4,95 +4,25 @@ on:
   push:
     branches-ignore: ['*'] # ignore all branches
 
-env:
-  REF: refs/tags/v2.8.9
-  REF_NAME: v2.8.9
-  target_commitish: 2.8
-
 jobs:
-  update-version:
-    runs-on: ubuntu-latest
-    outputs:
-      cur_version: ${{ steps.verify.outputs.cur_version }}
-      next_version: ${{ steps.verify.outputs.next_version }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.REF_NAME }}
-      - name: Verify Tag and Version
-        id: verify
-        shell: python
-        run: |
-          with open("src/version.h", "r") as fp:
-            major, minor, patch = [int(l.rsplit(maxsplit=1)[-1]) for l in fp if l.startswith("#define REDISEARCH_VERSION_")]
-          tag = '${{ env.REF }}'
-          if tag != f"refs/tags/v{major}.{minor}.{patch}":
-            raise Exception(f"Tag {tag} does not match version {major}.{minor}.{patch}")
+  test-caching:
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    secrets: inherit
 
-          import os
-          with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
-            print(f"cur_version={major}.{minor}.{patch}", file=fp)
-            print(f"next_version={major}.{minor}.{patch+1}", file=fp)
-            print(f"next_patch={patch+1}", file=fp)
+  test-caching-with-reference:
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    secrets: inherit
+    with:
+      reference: ce0e14b38a57a33f3b202e7eaad96eac8b666292
 
-      - name: Update version for next patch
-        env:
-          LINE: '#define REDISEARCH_VERSION_PATCH'
-        run: sed -i "s/^${{ env.LINE }} [0-9]\+$/${{ env.LINE }} ${{ steps.verify.outputs.next_patch }}/" src/version.h
+  phase-2-test-caching:
+    needs: test-caching
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    secrets: inherit
 
-      # - name: Commit and push
-      #   run: |
-      #     git config --global user.name "${{ github.triggering_actor }}"
-      #     git config --global user.email "${{ github.event.sender.id }}+${{ github.event.sender.login }}@users.noreply.github.com"
-      #     git checkout -b bump-version-${{ steps.verify.outputs.next_version }}
-      #     git add src/version.h
-      #     git commit -m "Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}"
-      #     git push origin bump-version-${{ steps.verify.outputs.next_version }}
-
-      # - name: Create Pull Request
-      #   uses: actions/github-script@v6
-      #   with:
-      #     script: |
-      #         const { data: pr } = await github.rest.pulls.create({
-      #           owner: context.repo.owner,
-      #           repo: context.repo.repo,
-      #           title: `Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}`,
-      #           body: `This PR was automatically created by the release workflow of ${{ env.REF_NAME }}.`,
-      #           head: `bump-version-${{ steps.verify.outputs.next_version }}`,
-      #           base: `${{ env.target_commitish }}`,
-      #         });
-      #         const { data: pr_with_reviewer } = await github.rest.pulls.requestReviewers({
-      #           owner: context.repo.owner,
-      #           repo: context.repo.repo,
-      #           pull_number: pr.number,
-      #           reviewers: ['${{ github.actor }}'],
-      #         });
-      #         console.log(pr_with_reviewer);
-
-  set-artifacts:
-    needs: update-version
-    runs-on: ubuntu-latest
-    steps:
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v3
-        with:
-          aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
-      - name: Set Version Artifacts
-        env:
-          ENT_DIR: s3://redismodules/redisearch
-          OSS_DIR: s3://redismodules/redisearch-oss
-          VERSION: ${{ needs.update-version.outputs.next_version }}
-          VER_BRANCH: ${{ env.target_commitish }}
-        run: |
-          for DIR in {$ENT_DIR,$OSS_DIR}; do
-            ARTIFACTS=$(aws s3 ls $DIR/snapshots/redisearch | grep ".$VER_BRANCH.zip$" | awk '{print $NF}')
-            echo "Handling artifacts:"
-            echo "$ARTIFACTS"
-            echo "----------------- END -----------------"
-            for ARTIFACT in $ARTIFACTS; do
-              echo -n "Setting $DIR/snapshots/$ARTIFACT to $DIR/${ARTIFACT/.$VER_BRANCH.zip/.$VERSION.zip} ... "
-              echo "Done"
-            done
-          done
+  phase-2-test-caching-with-reference:
+    needs: test-caching-with-reference
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    secrets: inherit
+    with:
+      reference: ${{ github.sha }}
