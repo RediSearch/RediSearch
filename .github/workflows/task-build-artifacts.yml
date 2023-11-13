@@ -74,17 +74,17 @@ jobs:
       - name: Build and Pack RediSearch OSS
         env:
           REDISEARCH_MT_BUILD: 0
-        run: make build pack
+        run: echo '::group::Build' && make build && echo '::endgroup::' && make pack VERBOSE=1
       - name: Build and Pack RediSearch Lite
         env:
           REDISEARCH_MT_BUILD: 1
           LITE: 1
-        run: make build pack
+        run: echo '::group::Build' && make build && echo '::endgroup::' && make pack VERBOSE=1
       - name: Build and Pack RediSearch Enterprise
         env:
           REDISEARCH_MT_BUILD: 1
           COORD: rlec
-        run: make build pack
+        run: echo '::group::Build' && make build && echo '::endgroup::' && make pack VERBOSE=1
 
       # Upload
       - name: Configure AWS Credentials
