@@ -107,7 +107,7 @@ MRWorkQueue *RQ_New(int maxPending) {
   return q;
 }
 
-void RQ_Free(MRWorkQueue *q, RedisModuleCtx *ctx) {
+void RQ_Free(MRWorkQueue *q) {
   struct queueItem *req = NULL;
   size_t pending_req = 0;
   while (NULL != (req = rqPop(q))) {
@@ -120,7 +120,7 @@ void RQ_Free(MRWorkQueue *q, RedisModuleCtx *ctx) {
   }
 
   if (pending_req) {
-    RedisModule_Log(ctx, "warning",
+    RedisModule_Log(NULL, "warning",
                     "RQ_Free(): Note there were %zu pending requests without a free_cb in the rmr "
                     "queue during shutdown.",
                     pending_req);
