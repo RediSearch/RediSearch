@@ -80,7 +80,7 @@ jobs:
           VER_BRANCH: ${{ github.event.release.target_commitish }}
         run: |
           for DIR in {$ENT_DIR,$OSS_DIR}; do
-            ARTIFACTS=$(aws s3 ls $DIR/snapshots/redisearch | grep '.$VER_BRANCH.zip$' | awk '{print $NF}')
+            ARTIFACTS=$(aws s3 ls $DIR/snapshots/redisearch | grep ".$VER_BRANCH.zip$" | awk '{print $NF}')
             echo "Handling artifacts:"
             echo "$ARTIFACTS"
             echo "----------------- END -----------------"
