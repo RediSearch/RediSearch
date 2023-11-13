@@ -8,17 +8,25 @@ jobs:
   test-caching:
     uses: ./.github/workflows/flow-build-artifacts.yml
     secrets: inherit
+    with:
+      platform: ubuntu:jammy
+      architecture: x86_64
 
   test-caching-with-reference:
     uses: ./.github/workflows/flow-build-artifacts.yml
     secrets: inherit
     with:
       reference: ce0e14b38a57a33f3b202e7eaad96eac8b666292
+      platform: ubuntu:jammy
+      architecture: x86_64
 
   phase-2-test-caching:
     needs: test-caching
     uses: ./.github/workflows/flow-build-artifacts.yml
     secrets: inherit
+    with:
+      platform: ubuntu:jammy
+      architecture: x86_64
 
   phase-2-test-caching-with-reference:
     needs: test-caching-with-reference
@@ -26,3 +34,5 @@ jobs:
     secrets: inherit
     with:
       reference: ${{ github.sha }}
+      platform: ubuntu:jammy
+      architecture: x86_64
