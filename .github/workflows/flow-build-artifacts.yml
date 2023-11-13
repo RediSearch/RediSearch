@@ -84,7 +84,7 @@ jobs:
           LAST_SHA=$(cat ${{ steps.restore.outputs.cache-matched-key }})
           CURRENT_SHA=${{ steps.set-sha.outputs.sha }}
           echo "current sha: $CURRENT_SHA"
-          echo "last sha: $LAST_SHA"
+          echo "   last sha: $LAST_SHA"
           if [ "$LAST_SHA" == "$CURRENT_SHA" ]; then
             echo "decision=true" >> $GITHUB_OUTPUT
           fi
