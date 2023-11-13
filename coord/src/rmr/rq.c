@@ -116,13 +116,14 @@ void RQ_Free(MRWorkQueue *q, RedisModuleCtx *ctx) {
     } else {
       ++pending_req;
     }
-    if (pending_req) {
-      RedisModule_Log(ctx, "warning",
-                      "RQ_Free(): Note there were %zu pending requests without a free_cb in the rmr "
-                      "queue during shutdown.",
-                      pending_req);
-    }
     rm_free(req);
+  }
+
+  if (pending_req) {
+    RedisModule_Log(ctx, "warning",
+                    "RQ_Free(): Note there were %zu pending requests without a free_cb in the rmr "
+                    "queue during shutdown.",
+                    pending_req);
   }
 
   uv_close((uv_handle_t *)&q->async, NULL);
