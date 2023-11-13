@@ -96,7 +96,16 @@ jobs:
     if: ${{ !cancelled() && needs.setup.outputs.store == 'true' && needs.setup.outputs.skip == 'false' }}
     steps:
       - if: ${{ !contains(needs.*.result, 'failure') }}
-        run: echo "${{ needs.setup.outputs.sha }}" > ${{ env.SHA_CACHE_NAME }}
+        id: update-sha
+        run: |
+          echo "${{ needs.setup.outputs.sha }}" > ${{ env.SHA_CACHE_NAME }}
+          echo "updated=true" >> $GITHUB_OUTPUT
+      - name: Clear cache
+        if: ${{ fromJson(steps.update-sha.outputs.updated) }}
+        continue-on-error: true # Don't fail if the cache doesn't exist
+        run: |
+          gh extension install actions/gh-actions-cache
+          gh actions-cache delete ${{ env.SHA_CACHE_NAME }} --confirm
       - uses: actions/cache/save@v3
         with:
           path: ${{ env.SHA_CACHE_NAME }}
