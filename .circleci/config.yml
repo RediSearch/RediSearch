@@ -894,11 +894,7 @@ jobs:
           command: |
             mkdir -p bin
             ln -s ~/workspace/artifacts bin/artifacts
-            if [[ -n $CIRCLE_TAG && "<<parameters.staging-lab>>" != 1 ]]; then
-                make upload-release SHOW=1
-            else
-                make upload-release SHOW=1 STAGING=1
-            fi
+            make upload-release SHOW=1
 
   release-qa-tests:
     docker:
