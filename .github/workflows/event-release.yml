@@ -39,7 +39,7 @@ jobs:
           git config --global user.email "${{ github.event.sender.id }}+${{ github.event.sender.login }}@users.noreply.github.com"
           git checkout -b bump-version-${{ steps.verify.outputs.next_version }}
           git add src/version.h
-          git commit -m "Bump version from $cur_version to $next_version"
+          git commit -m "Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}"
           git push origin bump-version-${{ steps.verify.outputs.next_version }}
 
       - name: Create Pull Request
@@ -80,13 +80,13 @@ jobs:
           VER_BRANCH: ${{ github.event.release.target_commitish }}
         run: |
           for DIR in {$ENT_DIR,$OSS_DIR}; do
-            ARTIFACTS=$(aws s3 ls $DIR/snapshots/redisearch | grep '.${{ env.VER_BRANCH }}.zip$' | awk '{print $NF}')
+            ARTIFACTS=$(aws s3 ls $DIR/snapshots/redisearch | grep '.$VER_BRANCH.zip$' | awk '{print $NF}')
             echo "Handling artifacts:"
             echo "$ARTIFACTS"
             echo "----------------- END -----------------"
             for ARTIFACT in $ARTIFACTS; do
-              echo -n "Setting $DIR/snapshots/$ARTIFACT to $DIR/${ARTIFACT/.${{ env.VER_BRANCH }}.zip/.${{ env.VERSION }}.zip} ... "
-              aws s3 cp $DIR/snapshots/$ARTIFACT $DIR/${ARTIFACT/.${{ env.VER_BRANCH }}.zip/.${{ env.VERSION }}.zip}
+              echo -n "Setting $DIR/snapshots/$ARTIFACT to $DIR/${ARTIFACT/.$VER_BRANCH.zip/.$VERSION.zip} ... "
+              aws s3 cp $DIR/snapshots/$ARTIFACT $DIR/${ARTIFACT/.$VER_BRANCH.zip/.$VERSION.zip}
               echo "Done"
             done
           done
