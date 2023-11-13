@@ -894,7 +894,11 @@ jobs:
           command: |
             mkdir -p bin
             ln -s ~/workspace/artifacts bin/artifacts
-            make upload-release SHOW=1
+            if [[ -n $CIRCLE_TAG && "<<parameters.staging-lab>>" != 1 ]]; then
+                make upload-release SHOW=1
+            else
+                make upload-release SHOW=1 STAGING=1
+            fi
 
   release-qa-tests:
     docker:
@@ -1006,11 +1010,11 @@ workflows:
       - build-linux-arm-ubuntu:
           <<: *never
       - build-platforms:
-          <<: *always
+          <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
-              platform: [xenial]
+              platform: [jammy, focal, bionic, xenial, centos7, rocky8, bullseye, amzn2]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -1105,14 +1109,14 @@ workflows:
       - upload-artifacts:
           name: upload-release-artifacts
           context: common
-          <<: *always
+          <<: *on-version-tags
           requires:
             - build-platforms
-#            - build-arm-platforms
-#            - build-macos-x64-search
-#            - build-macos-x64-coordinator
-#            - build-macos-m1-search
-#            - build-macos-m1-coordinator
+            - build-arm-platforms
+            - build-macos-x64-search
+            - build-macos-x64-coordinator
+            - build-macos-m1-search
+            - build-macos-m1-coordinator
       - release-qa-tests:
           context: common
           <<: *on-version-tags
