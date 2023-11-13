@@ -321,7 +321,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
     rc = rp->Next(rp, &r);
     long resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
-    if (rc == RS_RESULT_TIMEDOUT && !(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
+    if (rc == RS_RESULT_TIMEDOUT && !IsProfile(req) &&
         req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       resultsLen = 0;
     } else if (rc == RS_RESULT_ERROR) {
@@ -353,7 +353,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisModule_Reply_ArrayEnd(reply); // >errors
 
     if (rc == RS_RESULT_TIMEDOUT) {
-      if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
+      if (!IsProfile(req) &&
           req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
         RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
       } else {
@@ -411,7 +411,7 @@ done_3:
   {
     rc = rp->Next(rp, &r);
     long resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
-    if (rc == RS_RESULT_TIMEDOUT && !(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
+    if (rc == RS_RESULT_TIMEDOUT && !IsProfile(req) &&
         req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       resultsLen = 1;
     } else if (rc == RS_RESULT_ERROR) {
@@ -436,8 +436,7 @@ done_3:
     }
 
     if (rc == RS_RESULT_TIMEDOUT) {
-      if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
-         req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+      if (!IsProfile(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
         RedisModule_Reply_SimpleString(reply, "Timeout limit was reached");
       } else {
         rc = RS_RESULT_OK;
