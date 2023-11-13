@@ -32,6 +32,10 @@ jobs:
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
+    env:
+      VERBOSE: 1 # For logging
+      RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
+      BUILD: echo '::group::Build' && make build VERBOSE= && echo '::endgroup::' # Build command
     steps:
       # Setup
       - name: Pre-steps Dependencies
@@ -74,17 +78,17 @@ jobs:
       - name: Build and Pack RediSearch OSS
         env:
           REDISEARCH_MT_BUILD: 0
-        run: echo '::group::Build' && make build && echo '::endgroup::' && make pack VERBOSE=1
+        run: ${{ env.BUILD }} && make pack
       - name: Build and Pack RediSearch Lite
         env:
           REDISEARCH_MT_BUILD: 1
           LITE: 1
-        run: echo '::group::Build' && make build && echo '::endgroup::' && make pack VERBOSE=1
+        run: ${{ env.BUILD }} && make pack
       - name: Build and Pack RediSearch Enterprise
         env:
           REDISEARCH_MT_BUILD: 1
           COORD: rlec
-        run: echo '::group::Build' && make build && echo '::endgroup::' && make pack VERBOSE=1
+        run: ${{ env.BUILD }} && make pack
 
       # Upload
       - name: Configure AWS Credentials
@@ -94,4 +98,4 @@ jobs:
           aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
       - name: Upload Artifacts
-        run: make upload-artifacts VERBOSE=1 NOP=1 # TODO: remove NOP=1 when ready
+        run: make upload-artifacts NOP=1 # TODO: remove NOP=1 when ready
