@@ -1010,11 +1010,11 @@ workflows:
       - build-linux-arm-ubuntu:
           <<: *never
       - build-platforms:
-          <<: *on-integ-and-version-tags
+          <<: *always
           context: common
           matrix:
             parameters:
-              platform: [jammy, focal, bionic, centos7, rocky8, bullseye, amzn2]
+              platform: [xenial]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -1109,14 +1109,14 @@ workflows:
       - upload-artifacts:
           name: upload-release-artifacts
           context: common
-          <<: *on-version-tags
+          <<: *always
           requires:
             - build-platforms
-            - build-arm-platforms
-            - build-macos-x64-search
-            - build-macos-x64-coordinator
-            - build-macos-m1-search
-            - build-macos-m1-coordinator
+#            - build-arm-platforms
+#            - build-macos-x64-search
+#            - build-macos-x64-coordinator
+#            - build-macos-m1-search
+#            - build-macos-m1-coordinator
       - release-qa-tests:
           context: common
           <<: *on-version-tags
