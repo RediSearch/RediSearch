@@ -280,10 +280,9 @@ void MR_Init(MRCluster *cl, long long timeoutMS) {
   }
   printf("Thread created\n");
 }
-
-void MR_Destroy(RedisModuleCtx *ctx) {
+void MR_Destroy() {
   if (rq_g) {
-    RQ_Free(rq_g, ctx);
+    RQ_Free(rq_g);
     rq_g = NULL;
   }
   if (cluster_g) {

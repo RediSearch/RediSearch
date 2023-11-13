@@ -17,7 +17,7 @@ typedef struct MRWorkQueue MRWorkQueue;
 
 MRWorkQueue *RQ_New(int maxPending);
 
-void RQ_Free(MRWorkQueue *q, RedisModuleCtx *ctx);
+void RQ_Free(MRWorkQueue *q);
 
 void RQ_Done(MRWorkQueue *q);
 
