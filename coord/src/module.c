@@ -1065,7 +1065,7 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
       // TODO: Probably only in later PR - Report only the error if the timeout
       // policy is FAIL. Otherwise - return the results as well.
       rCtx->errorOccured = true;
-      rCtx->lastError = MRReply_ArrayElement(err, 0);
+      rCtx->lastError = arr;
       return;
     }
 
@@ -1106,7 +1106,7 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
         || (len == 1 && type == MR_REPLY_STATUS
             && strcmp(MRReply_String(MRReply_ArrayElement(arr, 0), NULL), "Timeout limit was reached") == 0)) {
       rCtx->errorOccured = true;
-      rCtx->lastError = MRReply_ArrayElement(arr, 0);
+      rCtx->lastError = arr;
       // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
       return;
     }
@@ -1202,7 +1202,7 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
     RS_LOG_ASSERT(err && MRReply_Type(err) == MR_REPLY_ARRAY, "invalid error record");
     if (MRReply_Length(err) > 0) {
       rCtx->errorOccured = true;
-      rCtx->lastError = MRReply_ArrayElement(err, 0);
+      rCtx->lastError = arr;
       // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
       return;
     }
@@ -1238,7 +1238,7 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
         || (len == 1 && type == MR_REPLY_STATUS
             && strcmp(MRReply_String(MRReply_ArrayElement(arr, 0), NULL), "Timeout limit was reached") == 0)) {
       rCtx->errorOccured = true;
-      rCtx->lastError = MRReply_ArrayElement(arr, 0);
+      rCtx->lastError = arr;
       // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
       return;
     }
@@ -1334,7 +1334,8 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_Reply_SimpleString(reply, "error"); // >errors
     if (rCtx->lastError) {
-      MR_ReplyWithMRReply(reply, rCtx->lastError);
+      MRReply *err = MRReply_MapElement(rCtx->lastError, "error");
+      MR_ReplyWithMRReply(reply, err);
     } else {
       RedisModule_Reply_EmptyArray(reply);
     }
@@ -1594,35 +1595,9 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   // If we didn't get any results and we got an error - return it.
   // If some shards returned results and some errors - we prefer to show the results we got an not
   // return an error. This might change in the future
-  if ((rCtx.totalReplies == 0 && rCtx.lastError != NULL) || rCtx.errorOccured) {
+  if (rCtx.totalReplies == 0 && (rCtx.lastError != NULL || rCtx.errorOccured)) {
     if (rCtx.lastError) {
-      if (reply->resp3) {     // resp3
-        RedisModule_Reply_Map(reply);
-
-        RedisModule_ReplyKV_Array(reply, "attributes");
-        RedisModule_Reply_ArrayEnd(reply);
-
-        RedisModule_ReplyKV_Array(reply, "error"); // >errors
-        MR_ReplyWithMRReply(reply, rCtx.lastError);
-        RedisModule_Reply_ArrayEnd(reply); // >errors
-
-        RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
-
-      if (rCtx.searchCtx->format & QEXEC_FORMAT_EXPAND) {
-        RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
-      } else {
-        RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
-      }
-
-      RedisModule_ReplyKV_Array(reply, "results"); // >results
-      RedisModule_Reply_ArrayEnd(reply); // >results
-
-      RedisModule_Reply_MapEnd(reply);
-    } else {    // resp2
-      RedisModule_Reply_Array(reply);
       MR_ReplyWithMRReply(reply, rCtx.lastError);
-      RedisModule_Reply_ArrayEnd(reply);
-    }
     } else {
       RedisModule_Reply_Error(reply, "could not parse redisearch results");
     }
