@@ -11,7 +11,6 @@ SBIN=$ROOT/sbin
 export PYTHONWARNINGS=ignore
 
 cd $ROOT
-git config --global --add safe.directory $ROOT
 
 #----------------------------------------------------------------------------------------------
 
@@ -274,18 +273,6 @@ pack_deps() {
 
 #----------------------------------------------------------------------------------------------
 
-prepare_symbols_dep() {
-	if [[ ! -f $MODULE.debug ]]; then return 0; fi
-	echo "# Preparing debug symbols dependencies ..."
-	dirname "$(realpath "$MODULE")" > "$ARTDIR/debug.dir"
-	echo "$(basename "$(realpath "$MODULE")").debug" > "$ARTDIR/debug.files"
-	echo "" > $ARTDIR/debug.prefix
-	pack_deps debug
-	echo "# Done."
-}
-
-#----------------------------------------------------------------------------------------------
-
 NUMVER="$(NUMERIC=1 $SBIN/getver)"
 SEMVER="$($SBIN/getver)"
 
@@ -298,7 +285,16 @@ fi
 
 #----------------------------------------------------------------------------------------------
 
+git_config_add_ifnx() {
+	local key="$1"
+	local val="$2"
+	if [[ -z $(git config --global --get $key $val) ]]; then
+		git config --global --add $key $val
+	fi
+}
+
 if [[ -z $BRANCH ]]; then
+	git_config_add_ifnx safe.directory $ROOT
 	BRANCH=$(git rev-parse --abbrev-ref HEAD)
 	# this happens of detached HEAD
 	if [[ $BRANCH == HEAD ]]; then
@@ -307,6 +303,7 @@ if [[ -z $BRANCH ]]; then
 fi
 BRANCH=${BRANCH//[^A-Za-z0-9._-]/_}
 if [[ $WITH_GITSHA == 1 ]]; then
+	git_config_add_ifnx safe.directory $ROOT
 	GIT_COMMIT=$(git rev-parse --short HEAD)
 	BRANCH="${BRANCH}-${GIT_COMMIT}"
 fi
@@ -341,15 +338,13 @@ fi
 
 mkdir -p $ARTDIR
 
-if [[ $DEPS == 1 ]]; then
+if [[ $DEPS == 1 && -n $DEP_NAMES ]]; then
 	# set up `debug` dep
 	dirname "$(realpath "$MODULE")" > "$ARTDIR/debug.dir"
 	echo "$(basename "$(realpath "$MODULE")").debug" > "$ARTDIR/debug.files"
 	echo "" > $ARTDIR/debug.prefix
 
 	echo "# Building dependencies ..."
-
-	[[ $SYM == 1 ]] && prepare_symbols_dep
 
 	for dep in $DEP_NAMES; do
 		if [[ $OS != macos ]]; then
