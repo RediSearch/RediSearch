@@ -9,7 +9,6 @@ def testSanity(env):
   dotestSanity(env, 3)
 
 def dotestSanity(env, dialect):
-  # TODO: Check if the skip can be removed.
   env.skipOnCluster()
   env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
   env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', dialect).ok()
@@ -89,7 +88,6 @@ def testSanityTag(env):
   dotestSanityTag(env, 3)
 
 def dotestSanityTag(env, dialect):
-  # TODO: Check if the skip can be removed.
   env.skipOnCluster()
   env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
   env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', dialect).ok()
