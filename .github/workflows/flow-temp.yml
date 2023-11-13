@@ -16,7 +16,7 @@ jobs:
     uses: ./.github/workflows/flow-build-artifacts.yml
     secrets: inherit
     with:
-      reference: ce0e14b38a57a33f3b202e7eaad96eac8b666292
+      reference: b96698c689e7eabd54a96cbee887024e0bf89f7d
       platform: ubuntu:jammy
       architecture: x86_64
 
