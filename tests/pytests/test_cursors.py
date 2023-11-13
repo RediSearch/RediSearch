@@ -348,3 +348,27 @@ def testCursorOnCoordinator(env):
 def testCursorOnCoordinatorBG():
     env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
     testCursorOnCoordinator(env)
+
+def test_timeoutError():
+    """Tests that the cursor returns a timeout error (accompanied by a `0`
+    cursor-id) in case of a timeout, when the timeout policy is
+    `ON_TIMEOUT FAIL`"""
+
+    env = Env(moduleArgs='ON_TIMEOUT FAIL')
+    conn = getConnectionByEnv(env)
+
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Populate the index
+    num_docs = 1500 * env.shardsCount
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}', 't', str(i))
+
+    # Create a cursor with a small timeout and a large count (so it will time
+    # out during pipeline execution)
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t', 'GROUPBY', '1', '@t', 'WITHCURSOR', 'COUNT', str(num_docs), 'TIMEOUT', '1')
+    # TODO: Add this line once MOD-5965 is merged
+    # env.assertEqual(type(res[0]), ResponseError)
+    env.assertEqual(str(res[0]), 'Timeout limit was reached')
+    env.assertEqual(cursor, 0)
