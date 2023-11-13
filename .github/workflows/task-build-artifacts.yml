@@ -35,7 +35,7 @@ jobs:
     env:
       VERBOSE: 1 # For logging
       RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
-      BUILD: echo '::group::Build' && make build VERBOSE= && echo '::endgroup::' # Build command
+      BUILD_CMD: echo '::group::Build' && make build VERBOSE= && echo '::endgroup::' # Build command
     steps:
       # Setup
       - name: Pre-steps Dependencies
@@ -78,17 +78,17 @@ jobs:
       - name: Build and Pack RediSearch OSS
         env:
           REDISEARCH_MT_BUILD: 0
-        run: ${{ env.BUILD }} && make pack
+        run: ${{ env.BUILD_CMD }} && make pack
       - name: Build and Pack RediSearch Lite
         env:
           REDISEARCH_MT_BUILD: 1
           LITE: 1
-        run: ${{ env.BUILD }} && make pack
+        run: ${{ env.BUILD_CMD }} && make pack
       - name: Build and Pack RediSearch Enterprise
         env:
           REDISEARCH_MT_BUILD: 1
           COORD: rlec
-        run: ${{ env.BUILD }} && make pack
+        run: ${{ env.BUILD_CMD }} && make pack
 
       # Upload
       - name: Configure AWS Credentials
