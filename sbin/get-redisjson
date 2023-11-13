@@ -55,6 +55,7 @@ else
 
 	[[ $os == linux ]] && os=Linux
 	[[ $arch == x64 ]] && arch=x86_64
+	[[ $arch == arm64v8 ]] && arch=aarch64
 
 	if [[ $dist == ubuntu ]]; then
 		if [[ $nick == jammy ]]; then
@@ -90,12 +91,12 @@ else
 			STAGING=1
 		fi
 	elif [[ $os == macos ]]; then
-		# as we don't build on macOS for every platform, we converge to a least common denominator
-		if [[ $arch == x86_64 ]]; then
-			[[ $nick == bigsur || $nick == ventura ]] && nick=catalina
-		else
-			[[ $nick == ventura ]] && nick=monterey
-		fi
+    # as we don't build on macOS for every platform, we converge to a least common denominator
+    if [[ $arch == x86_64 ]]; then
+    	nick=catalina  # to be aligned with the rest of the modules in redis stack
+    else
+    	[[ $nick == ventura ]] && nick=monterey
+    fi
 		OSS=1
 	elif [[ -n $OSNICK ]]; then
 		nick=$OSNICK
@@ -129,7 +130,7 @@ if [[ $OSS == 1 && -z $REPO_PATH ]]; then
 	fi
 fi
 
-DEST_DIR="$ROOT/bin/$($READIES/bin/platform -t)/RedisJSON"
+DEST_DIR="$ROOT/bin/$($READIES/bin/platform -t)/RedisJSON/${BRANCH}"
 
 if [[ -n $MODULE_FILE ]]; then
 	echo "${DEST_DIR}/rejson.so" > $MODULE_FILE
