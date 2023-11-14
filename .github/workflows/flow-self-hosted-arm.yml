@@ -10,6 +10,25 @@ on:
         type: string
       pre-steps-script:
         type: string
+      get-redis:
+        type: string
+        default: ${{ vars.DEFAULT_REDIS_REF }}
+      test:
+        type: boolean
+        description: Run test flow
+      build:
+        description: Run build flow
+        type: boolean
+
+      # Build inputs
+      ref:
+        type: string
+        description: 'Ref to checkout (defaults to the ref of the triggering event)'
+      sha:
+        type: string
+        description: 'Optional: SHA to checkout. If not provided, `ref` will be used'
+
+      # Test inputs
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         type: string
@@ -19,9 +38,6 @@ on:
       standalone:
         type: boolean
         default: true
-      get-redis:
-        type: string
-        default: ${{ vars.DEFAULT_REDIS_REF }}
 
 env:
   AWS_IMAGE_ID: ami-0d8e10b4bd5d65c57  # Ubuntu 22.04 region AMI for ARM with Docker installed
@@ -52,24 +68,39 @@ jobs:
           subnet-id: ${{ secrets.CI_CTO_AWS_EC2_SUBNET_ID }}
           security-group-id: ${{ secrets.CI_CTO_AWS_EC2_SG_ID }}
 
-  run:
+  test:
+    if: inputs.test
     needs: start-runner # required to start the main job when the runner is ready
-    uses: ./.github/workflows/common-flow-tests.yml
+    uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
       env: ${{ needs.start-runner.outputs.label }}
       container: ${{ inputs.container }}
+      pre-steps-script: ${{ inputs.pre-steps-script }}
       coordinator: ${{ inputs.coordinator }}
       standalone: ${{ inputs.standalone }}
       test-config: ${{ inputs.test-config }}
-      pre-steps-script: ${{ inputs.pre-steps-script }}
       get-redis: ${{ inputs.get-redis }}
+
+  build:
+    if: inputs.build
+    needs: start-runner # required to start the main job when the runner is ready
+    secrets: inherit
+    uses: ./.github/workflows/task-build-artifacts.yml
+    with:
+      env: ${{ needs.start-runner.outputs.label }}
+      container: ${{ inputs.container }}
+      pre-steps-script: ${{ inputs.pre-steps-script }}
+      ref: ${{ inputs.ref }}
+      sha: ${{ inputs.sha }}
+      redis-ref: ${{ inputs.get-redis }}
 
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:
       - start-runner # required to get output from the start-runner job
-      - run # required to wait when the main job is done
+      - test  # required to wait when the main job is done
+      - build # required to wait when the main job is done
     runs-on: ubuntu-latest
     if: ${{ always() }} # required to stop the runner even if the error happened in the previous jobs
     steps:
