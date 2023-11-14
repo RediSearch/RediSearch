@@ -2,7 +2,7 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['*'] # ignore all branches
+    # branches-ignore: ['*'] # ignore all branches
 
 env:
   TAG: v2.8.9
@@ -33,6 +33,30 @@ jobs:
             print(f"cur_version={major}.{minor}.{patch}", file=fp)
             print(f"next_version={major}.{minor}.{patch+1}", file=fp)
 
+      - name: Update version for next patch
+        env:
+          LINE: '#define REDISEARCH_VERSION_PATCH'
+        # find the line with the patch version and replace it with the next patch version
+        run: sed -i "s/^${{ env.LINE }} [0-9]\+$/${{ env.LINE }} ${{ steps.verify.outputs.next_patch }}/" src/version.h
+
+      - name: Commit and push
+        run: |
+          git config --global user.name "${{ github.triggering_actor }}"
+          git config --global user.email "${{ github.event.sender.id }}+${{ github.event.sender.login }}@users.noreply.github.com"
+          git checkout -b bump-version-${{ steps.verify.outputs.next_version }}
+          git add src/version.h
+          git commit -m "Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}"
+          git push origin bump-version-${{ steps.verify.outputs.next_version }}
+
+      - name: Create Pull Request
+        run: |
+          gh pr create \
+            --title    "Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}" \
+            --body     "This PR was automatically created by the release workflow of ${{ env.TAG }}." \
+            --head     "bump-version-${{ steps.verify.outputs.next_version }}" \
+            --base     "${{ env.VER }}" \
+            --reviewer "${{ github.actor }}"
+
   set-artifacts:
     needs: update-version
     runs-on: ubuntu-latest
@@ -52,12 +76,11 @@ jobs:
           ARCHS: (x86_64|aarch64|arm64v8) # List of expected architectures - update as needed
         run: |
           for DIR in {$ENT_DIR,$OSS_DIR}; do
-            ARTIFACTS=$(aws s3 ls $DIR/snapshots/redisearch | grep -E "$ARCHS.$VER_BRANCH.zip$" | awk '{print $NF}')
+            ARTIFACTS=$(aws s3 ls $DIR/snapshots/redisearch | grep -E "$ARCHS\.$VER_BRANCH\.zip$" | awk '{print $NF}')
             echo "Handling artifacts:"
             echo "$ARTIFACTS"
             echo "----------------- END -----------------"
             for ARTIFACT in $ARTIFACTS; do
-              echo -n "Setting $DIR/snapshots/$ARTIFACT to $DIR/${ARTIFACT/.$VER_BRANCH.zip/.$VERSION.zip} ... "
-              echo "Done"
+              echo "Setting $DIR/snapshots/$ARTIFACT to $DIR/${ARTIFACT/.$VER_BRANCH.zip/.$VERSION.zip}"
             done
           done
