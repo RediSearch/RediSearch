@@ -2,7 +2,7 @@
 title: "Combined queries"
 linkTitle: "Combined"
 description: Combine query expressions
-weight: 10
+weight: 9
 ---
 
 A combined query is a combination of several query types, such as:
@@ -11,7 +11,7 @@ A combined query is a combination of several query types, such as:
 * [Range](/docs/interact/search-and-query/query/range)
 * [Full-text](/docs/interact/search-and-query/query/full-text)
 * [Geo-spatial](/docs/interact/search-and-query/query/geo-spatial)
-* [Vector similarity](/docs/interact/search-and-query/query/vector-similarity)
+* [Vector search](/docs/interact/search-and-query/query/vector-search)
 
 You can use logical query operators to combine query expressions for numeric, tag, and text fields. For vector fields, you can combine a KNN query with a pre-filter.
 
@@ -136,4 +136,4 @@ Here is an example:
 FT.SEARCH idx:bikes_vss "(@price:[500 1000] @condition:{new})=>[KNN 3 @vector $query_vector]" PARAMS 2 "query_vector" "Z\xf8\x15:\xf23\xa1\xbfZ\x1dI>\r\xca9..." DIALECT 2
 ```
 
-The [vector similarity search article](/docs/interact/search-and-query/query/vector-similarity) provides further details about vector queries in general.
+The [vector search article](/docs/interact/search-and-query/query/vector-search) provides further details about vector queries in general.

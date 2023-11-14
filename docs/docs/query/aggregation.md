@@ -2,7 +2,7 @@
 title: "Aggregation queries"
 linkTitle: "Aggregations"
 description: Group and aggregate query results
-weight: 9
+weight: 10
 ---
 
 An aggregation query allows you to perform the following actions:
@@ -36,7 +36,7 @@ Here is a more detailed explanation of the query syntax:
 3. **Mapping function**: This mapping function operates on the field values. A specific field is referenced via `@field_name` within the function expression. The result is returned as `result_field`.
 
 
-Here is an example that calculates a discounted price for new bicycles:
+The following example shows you how to calculate a discounted price for new bicycles:
 
 ```
 FT.AGGREGATE idx:bicycle "@condition:{new}" LOAD 2 "__key" "price" APPLY "@price - (@price * 0.1)" AS "discounted"

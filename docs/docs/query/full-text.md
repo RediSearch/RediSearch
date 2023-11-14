@@ -32,7 +32,7 @@ Instead of searching across all text fields, you might want to limit the search 
 FT.SEARCH index "@field: word"
 ```
 
-Words that occur very often, such as articles, aren't indexed and will not return a search result. You can find further details in the [stop words article](/docs/interact/search-and-query/advanced-concepts/stopwords).
+Words that occur very often in natural language, such as `the` or `a` for the English language, aren't indexed and will not return a search result. You can find further details in the [stop words article](/docs/interact/search-and-query/advanced-concepts/stopwords).
 
 The following example searches for all bicycles that have the word 'kids' in the description:
 
@@ -61,7 +61,7 @@ FT.SEARCH index "@field: prefix*"
 The prefix needs to be at least two characters long.
 {{% /alert  %}}
 
-Here is an example that shows you how to search for bikes with a brand that starts with 'ka':
+Here is an example that shows you how to search for bicycles with a brand that starts with 'ka':
 
 ```
 FT.SEARCH idx:bicycle "@model: ka*"

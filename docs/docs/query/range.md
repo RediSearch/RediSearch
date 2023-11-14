@@ -37,6 +37,12 @@ You can find further details about using the `LIMIT` and `SORTBY` in the [`FT.SE
 
 ## Examples
 
+The examples in this section use a schema with the following fields:
+
+| Field name | Field type |
+| ---------- | ---------- |
+| price | NUMERIC |
+
 The following query finds bicycles within a price range greater or equal to 500 USD and smaller or equal to 1000 USD (`500 <= price <= 1000`):
 
 ```
@@ -63,4 +69,4 @@ FT.SEARCH idx:bicycle "@price:[-inf 2000] SORTBY price LIMIT 0 5"
 
 ## Non-numeric range queries
 
-You can learn more about non-numeric range queries, such as [geo-spatial](/docs/interact/search-and-query/query/geo-spatial) or [vector similarity search](/docs/interact/search-and-query/query/vector-similarity) queries, in their dedicated documentation articles.
+You can learn more about non-numeric range queries, such as [geo-spatial](/docs/interact/search-and-query/query/geo-spatial) or [vector search](/docs/interact/search-and-query/query/vector-search) queries, in their dedicated documentation articles.

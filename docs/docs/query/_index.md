@@ -1,6 +1,6 @@
 ---
 title: "Query data"
-linkTitle: "Query data"
+linkTitle: "Query"
 description: Understand how to query, search, and aggregate Redis data
 hideListLinks: True
 weight: 5
@@ -14,7 +14,7 @@ Redis Stack distinguishes between the [FT.SEARCH](/commands/ft.search/) and [FT.
 
 Here is a short SQL comparison using the [bicycle dataset](./data/bicycles.txt):
 
-|Query type| SQL | Redis Stack |
+|Type| SQL | Redis Stack |
 |----------| --- | ----------- |
 | Selection | `SELECT * FROM bicycles WHERE price >= 1000` | `FT.SEARCH idx:bicycle "@price:[1000 +inf]"` |
 | Simple projection | `SELECT id, price FROM bicycles` | `FT.SEARCH idx:bicycle "*" RETURN 2 __key, price` |
@@ -27,7 +27,7 @@ The following articles provide an overview of how to query data with the [FT.SEA
 * [Range queries](/docs/interact/search-and-query/query/range)
 * [Full-text search ](/docs/interact/search-and-query/query/full-text)
 * [Geo-spatial queries](/docs/interact/search-and-query/query/geo-spatial)
-* [Vector similarity search](/docs/interact/search-and-query/query/vector-similarity)
+* [Vector search](/docs/interact/search-and-query/query/vector-search)
 * [Combined queries](/docs/interact/search-and-query/query/combined)
 
 You can find further details about aggregation queries with [FT.AGGREGATE](/commands/ft.aggregate/) in the following article:

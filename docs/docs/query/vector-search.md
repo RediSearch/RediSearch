@@ -1,13 +1,15 @@
 ---
-title: "Vector similarity search"
-linkTitle: "Vector similarity"
-description: Query for similar data based on vector embeddings
+title: "Vector search"
+linkTitle: "Vector search"
+description: Query for data based on vector embeddings
 weight: 5
+aliases:
+  - /docs/interact/search-and-query/query/vector-similarity/
 ---
 
-This article gives you a good overview of how to perform vector similarity queries with Redis Stack. It's recommended to read more about Redis as a vector database in the [Redis as a vector database quick start guide](/docs/get-started/vector-database/). You can find more detailed information about all the parameters in [vector reference documentation](/docs/interact/search-and-query/advanced-concepts/vectors/).
+This article gives you a good overview of how to perform vector search queries with Redis Stack. It's recommended to read more about Redis as a vector database in the [Redis as a vector database quick start guide](/docs/get-started/vector-database/). You can find more detailed information about all the parameters in [vector reference documentation](/docs/interact/search-and-query/advanced-concepts/vectors/).
 
-A vector similarity query on a vector field allows you to find all vectors in a vector space that are close to a given vector. You can either query for the k-nearest neighbors or vectors within a given radius.
+A vector search query on a vector field allows you to find all vectors in a vector space that are close to a given vector. You can either query for the k-nearest neighbors or vectors within a given radius.
 
 The examples in this article use a schema with the following fields:
 
@@ -27,13 +29,13 @@ FT.SEARCH index "(*)=>[KNN num_neighbours @field $vector]" PARAMS 2 vector "bina
 
 Here is a more detailed explanation of this query:
 
-1. **Pre-filter**: The first expression within the round brackets is a filter. It allows you to decide which vectors should be taken into account before the similarity search is performed. The expression `(*)` means that all vectors are considered.
-2. **Next step**: The `=>` arrow indicates that the pre-filtering happens before the vector-similarity search.
+1. **Pre-filter**: The first expression within the round brackets is a filter. It allows you to decide which vectors should be taken into account before the vector search is performed. The expression `(*)` means that all vectors are considered.
+2. **Next step**: The `=>` arrow indicates that the pre-filtering happens before the vector search.
 3. **KNN query**: The expression `[KNN num_neighbours @field $vector]` is a parameterized query expression. A parameter name is indicated by the `$` prefix within the query string.
 4. **Vector binary data**: You need to use the `PARAMS` argument to substitute `$vector` with the binary representation of the vector. The value `2` indicates that `PARAMS` is followed by two arguments, the parameter name `vector` and the parameter value.
-5. **Dialect**: Vector similarity search has been available since version two of the query dialect.
+5. **Dialect**: The vector search feature has been available since version two of the query dialect.
 
-You can read more about the `PARAMS` argument in the [`FT.SEARCH` command reference](/commands/ft.search/).
+You can read more about the `PARAMS` argument in the [FT.SEARCH command reference](/commands/ft.search/).
 
 The following example shows you how to query for the three bikes based on the description embeddings and by using the field alias `vector`. The result is returned in ascending order based on the distance. You can see that the query only returns the fields `__vector_score` and `description`. The field `__vector_score` is out of the box present. Because you can have multiple vector fields in your schema, the vector score field name depends on the name of the vector field. If you change the field name `@vector` to `@foo`, the score field name changes to `__foo_score`.
 
@@ -75,7 +77,7 @@ Here is a more detailed explanation of this query:
 2. **Additional step**: The `=>` arrow means that the range query is followed by evaluating additional parameters.
 3. **Range query parameters**: Parameters such as `$YIELD_DISTANCE_AS`, whereby a full set of parameters can be found in the [vectors reference documentation](/docs/interact/search-and-query/advanced-concepts/vectors/).
 4. **Vector binary data**: You need to use `PARAMS` to pass the binary representation of the vector over.
-5. **Dialect**: Vector similarity search has been available since version two of the query dialect.
+5. **Dialect**: Vector search has been available since version two of the query dialect.
 
 
 {{% alert title="Note" color="warning" %}}
