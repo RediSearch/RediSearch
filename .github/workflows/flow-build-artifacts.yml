@@ -101,6 +101,8 @@ jobs:
           echo "${{ needs.setup.outputs.sha }}" > ${{ env.SHA_CACHE_NAME }}
           echo "updated=true" >> $GITHUB_OUTPUT
       - name: Clear cache
+        # `actions/cache/save` can't overwrite an existing cache, so we need to delete it first
+        # enspired by https://github.com/actions/cache/issues/342 conversation
         if: ${{ fromJson(steps.update-sha.outputs.updated) }}
         continue-on-error: true # Don't fail if the cache doesn't exist
         env:
@@ -181,7 +183,7 @@ jobs:
     if: ${{ contains(fromJson('["macos", "all"]'), inputs.platform) && !fromJson(needs.setup.outputs.skip) }}
     strategy:
       matrix:
-        OS: ${{ fromJson(needs.decide-macos.outputs.platforms)}}
+        OS: ${{ fromJson(needs.decide-macos.outputs.platforms) }}
     uses: ./.github/workflows/task-build-artifacts.yml
     secrets: inherit
     with:

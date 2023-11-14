@@ -78,9 +78,10 @@ jobs:
           OSS_DIR: s3://redismodules/redisearch-oss
           VERSION: ${{ needs.update-version.outputs.next_version }}
           VER_BRANCH: ${{ github.event.release.target_commitish }}
+          ARCHS: (x86_64|aarch64|arm64v8) # List of expected architectures - update as needed
         run: |
           for DIR in {$ENT_DIR,$OSS_DIR}; do
-            ARTIFACTS=$(aws s3 ls $DIR/snapshots/redisearch | grep ".$VER_BRANCH.zip$" | awk '{print $NF}')
+            ARTIFACTS=$(aws s3 ls $DIR/snapshots/redisearch | grep -E "$ARCHS.$VER_BRANCH.zip$" | awk '{print $NF}')
             echo "Handling artifacts:"
             echo "$ARTIFACTS"
             echo "----------------- END -----------------"
