@@ -1,6 +1,6 @@
 ---
 title: "Vector search"
-linkTitle: "Vector search"
+linkTitle: "Vector"
 description: Query for data based on vector embeddings
 weight: 5
 aliases:
