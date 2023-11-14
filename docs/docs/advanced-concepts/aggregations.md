@@ -9,8 +9,6 @@ aliases:
   - /docs/interact/search-and-query/search/aggregations/
 ---
 
-# Aggregations
-
 Aggregations are a way to process the results of a search query. Aggregation allows you to group, sort, and transform your result data, and to extract analytic insights from it. Much like aggregation queries in other databases and search engines, they can be used to create analytics reports, or perform [faceted search](https://en.wikipedia.org/wiki/Faceted_search) style queries.
 
 For example, indexing a web-server's logs, you can create a report for unique users by hour, country, or any other breakdown. Or you can create different reports for errors, warnings, etc.
