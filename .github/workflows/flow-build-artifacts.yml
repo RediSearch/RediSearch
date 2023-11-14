@@ -46,6 +46,8 @@ on:
         type: string
 
 env:
+  # This will be used as a file name to store the SHA of the last successful build, and as a cache key for this file.
+  # key-name ($SHA_CACHE_NAME) -> path to file (name $SHA_CACHE_NAME) -> content (SHA)
   SHA_CACHE_NAME: ${{ inputs.reference || github.ref_name }}-${{ github.event_name }}-last-sha
 
 jobs:
@@ -82,7 +84,7 @@ jobs:
       - id: skip
         if: ${{ github.event_name != 'workflow_dispatch' && steps.restore.outputs.cache-hit }}
         run: |
-          LAST_SHA=$(cat ${{ steps.restore.outputs.cache-matched-key }})
+          LAST_SHA=$(cat ${{ env.SHA_CACHE_NAME }})
           CURRENT_SHA=${{ steps.set-sha.outputs.sha }}
           echo "current sha: $CURRENT_SHA"
           echo "   last sha: $LAST_SHA"
