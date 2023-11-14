@@ -894,10 +894,9 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 
   // update timeout for current cursor read
-  if (req->qiter.rootProc->type != RP_NETWORK) {
-    updateTimeout(&req->timeoutTime, req->reqConfig.queryTimeoutMS);
-    SearchCtx_UpdateTimeout(req->sctx, req->timeoutTime);
-  }
+  updateTimeout(&req->timeoutTime, req->reqConfig.queryTimeoutMS);
+  SearchCtx_UpdateTimeout(req->sctx, req->timeoutTime);
+
   if (!num) {
     num = req->cursorChunkSize;
     if (!num) {
