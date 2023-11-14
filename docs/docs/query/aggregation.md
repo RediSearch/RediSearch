@@ -1,6 +1,6 @@
 ---
 title: "Aggregation queries"
-linkTitle: "Aggregations"
+linkTitle: "Aggregation"
 description: Group and aggregate query results
 weight: 10
 ---
