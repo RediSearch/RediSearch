@@ -2015,7 +2015,7 @@ void setHiredisAllocators(){
 }
 
 
-void Coordinator_CleanupModule(void) {
+static void Coordinator_CleanupModule(void) {
   MR_Destroy();
   GlobalSearchCluser_Release();
 }
