@@ -1,11 +1,12 @@
 ---
 title: "Aggregations"
 linkTitle: "Aggregations"
-weight: 3
-description: Details of FT.AGGREGATE, grouping, projections, and functions
+weight: 1
+description: Groupings, projections, and aggregation functions
 aliases:
   - /docs/stack/search/reference/aggregations/
   - /redisearch/reference/aggregations
+  - /docs/interact/search-and-query/search/aggregations/
 ---
 
 # Aggregations

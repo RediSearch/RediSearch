@@ -46,10 +46,10 @@ FT.SEARCH idx:bicycle "*" FILTER price 270 270
 
 ## Tag field
 
-A tag is a short sequence of text, for example, "new" and "Los Angeles". 
+A tag is a short sequence of text, for example, "new" or "Los Angeles". 
 
 {{% alert title="Important" color="warning" %}}
-If you need to query for short texts only, then you should use a tag query instead of a full-text query. A text field causes that each term is mapped to many document ids by using an index structure called an inverted index behind the scenes. Such inverted index structure works best for full-text searches. If you use a tag instead, it is implemented as one tag index structure per field and shard. Tag fields are more space-efficient for storing index entries and often lead to a lower query complexity if you execute an exact match query.
+If you need to query for short texts only, use a tag query instead of a full-text query. A text field causes that each term is mapped to many document id-s. Therefore, an index structure called an 'inverted index'  is used behind the scenes. Such an inverted index structure works best for full-text searches. If you use a tag field, it is implemented as one tag index structure per tag field and shard. Compared to text fields, tag fields are more space-efficient for storing index entries and often lead to a lower query complexity if you execute exact match queries.
 {{% /alert  %}}
 
 You can construct a tag query for a single tag in the following way:
@@ -59,7 +59,7 @@ FT.SEARCH index "@field:{tag}"
 ```
 
 {{% alert title="Note" color="warning" %}}
-The curly brackets are mandatory for tag queries. You can read why in the [combined queries article](TODO).
+The curly brackets are mandatory for tag queries.
 {{% /alert  %}}
 
 
@@ -88,7 +88,3 @@ Here is an example for finding all bicycles that have a description containing t
 ```
 FT.SEARCH idx:bicycle "@description:\"rough terrain\""
 ```
-
-
-
-
