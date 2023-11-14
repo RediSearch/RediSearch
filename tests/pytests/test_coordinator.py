@@ -136,7 +136,7 @@ def test_timeout():
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
 
     # Populate the database with 1500 * nshards documents
-    n_docs = int(1500 * env.shardsCount)
+    n_docs = 1500 * env.shardsCount
     for i in range(n_docs):
         conn.execute_command('HSET', i ,'t1', str(i))
 
@@ -154,5 +154,5 @@ def test_timeout():
     # Client cursor mid execution
     # If the cursor id is 0, this means there was a timeout throughout execution
     # caught by the coordinator
-    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', '2500', 'TIMEOUT', 1)
+    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', str(n_docs), 'TIMEOUT', 1)
     env.assertEquals(cursor, 0)

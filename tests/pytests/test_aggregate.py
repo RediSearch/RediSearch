@@ -990,7 +990,7 @@ def populate_db(env):
     num_docs = 10000 * nshards
     pipeline = conn.pipeline(transaction=False)
     for i, t1 in enumerate(np.random.randint(1, 1024, num_docs)):
-        pipeline.hset (i, 't1', str(t1))
+        pipeline.hset(i, 't1', str(t1))
         if i % 1000 == 0:
             pipeline.execute()
             pipeline = conn.pipeline(transaction=False)
