@@ -359,17 +359,16 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
     env.expect('FT.CREATE idx SCHEMA t text').ok()
 
     # Populate the index
-    num_docs = 3000 * env.shardsCount
+    num_docs = 1500 * env.shardsCount
     for i in range(num_docs):
         conn.execute_command('HSET', f'doc{i}' ,'t', i)
 
     # Create a cursor with a small `timeout`` and large `count``, and read from
     # it until depleted
-    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '10000', 'TIMEOUT', '3')
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '10000', 'TIMEOUT', '1')
     n_recieved = len(res) - 1
     while cursor:
-        res, cursor = conn.execute_command('FT.CURSOR', 'READ', 'idx', cursor)
+        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
         n_recieved += len(res) - 1
-        print('got here, cursor is', cursor)
 
     env.assertEqual(n_recieved, num_docs)
