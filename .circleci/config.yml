@@ -515,8 +515,8 @@ jobs:
       - run:
           name: Upload artifacts to S3
           command: |
-            if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
-                make upload-artifacts SHOW=1
+            if [[ "<<parameters.upload>>" == "yes" ]]; then
+                make upload-release SHOW=1
             fi
       - persist-artifacts
 
@@ -894,11 +894,7 @@ jobs:
           command: |
             mkdir -p bin
             ln -s ~/workspace/artifacts bin/artifacts
-            if [[ -n $CIRCLE_TAG && "<<parameters.staging-lab>>" != 1 ]]; then
-                make upload-release SHOW=1
-            else
-                make upload-release SHOW=1 STAGING=1
-            fi
+            make upload-release SHOW=1
 
   release-qa-tests:
     docker:
@@ -1016,7 +1012,7 @@ workflows:
             parameters:
               platform: [jammy, focal, bionic, xenial, centos7, rocky8, bullseye, amzn2]
       - build-arm-platforms:
-          <<: *on-integ-and-version-tags
+          <<: *always
           context: common
           matrix:
             parameters:
@@ -1031,9 +1027,9 @@ workflows:
           context: common
       - build-macos-m1-search:
           context: common
-          <<: *on-version-tags
+          <<: *always
           # Avoid persist conflict with build-macos-m1-coordinator
-          upload: "no"
+          upload: "yes"
       - build-macos-m1-coordinator:
           context: common
           <<: *on-version-tags
@@ -1109,14 +1105,10 @@ workflows:
       - upload-artifacts:
           name: upload-release-artifacts
           context: common
-          <<: *on-version-tags
+          <<: *always
           requires:
-            - build-platforms
             - build-arm-platforms
-            - build-macos-x64-search
-            - build-macos-x64-coordinator
             - build-macos-m1-search
-            - build-macos-m1-coordinator
       - release-qa-tests:
           context: common
           <<: *on-version-tags
