@@ -86,8 +86,6 @@ jobs:
             echo "$ARTIFACTS"
             echo "----------------- END -----------------"
             for ARTIFACT in $ARTIFACTS; do
-              echo -n "Setting $DIR/snapshots/$ARTIFACT to $DIR/${ARTIFACT/.$VER_BRANCH.zip/.$VERSION.zip} ... "
-              aws s3 cp $DIR/snapshots/$ARTIFACT $DIR/${ARTIFACT/.$VER_BRANCH.zip/.$VERSION.zip}
-              echo "Done"
+              aws s3 cp $DIR/snapshots/$ARTIFACT $DIR/${ARTIFACT/.$VER_BRANCH.zip/.$VERSION.zip} --acl public-read --no-progress
             done
           done
