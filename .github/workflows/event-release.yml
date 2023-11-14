@@ -82,7 +82,7 @@ jobs:
         run: |
           for DIR in {$ENT_DIR,$OSS_DIR}; do
             ARTIFACTS=$(aws s3 ls $DIR/snapshots/redisearch | grep -E "$ARCHS.$VER_BRANCH.zip$" | awk '{print $NF}')
-            echo "Handling artifacts:"
+            echo "--------- Handling artifacts: ---------"
             echo "$ARTIFACTS"
             echo "----------------- END -----------------"
             for ARTIFACT in $ARTIFACTS; do
