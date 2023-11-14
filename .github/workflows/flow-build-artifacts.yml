@@ -55,6 +55,7 @@ jobs:
       - name: Validate reference
         uses: actions/checkout@v3
         with:
+          # Use the input reference if provided, otherwise pass `null` to use the default behavior of the action
           ref: ${{ inputs.reference || null }}
       - id: set-sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
