@@ -309,6 +309,17 @@ SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
   return results;
 }
 
+// Free's the results array and all the results inside it
+void clearResults(SearchResult **results) {
+  if (results) {
+    for (size_t i = 0; i < array_len(results); i++) {
+      SearchResult_Clear(results[i]);
+      rm_free(results[i]);
+    }
+    array_free(results);
+  }
+}
+
 bool ShouldReplyWithTimeoutError(int rc, AREQ *req) {
   // TODO: Remove cursor condition (MOD-5992)
   return rc == RS_RESULT_TIMEDOUT
@@ -350,7 +361,6 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     if (ShouldReplyWithTimeoutError(rc, req)) {
         // For now, embed this error inside an array - may be changed shortly
         ReplyWithTimeoutError(reply);
-        goto done_2;
     } else if (rc == RS_RESULT_TIMEDOUT) {
       // Set rc to OK such that we will respond with the partial results
       rc = RS_RESULT_OK;
@@ -364,7 +374,6 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
       QueryError_ClearError(req->qiter.err);
       RedisModule_Reply_ArrayEnd(reply);
-      goto done_2;
     } else {
       RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
     }
@@ -382,15 +391,17 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
         SearchResult *curr = array_pop(results);
         serializeResult(req, reply, curr, &cv);
         SearchResult_Clear(curr);
+        rm_free(curr);
       }
       array_free(results);
+      results = NULL;
       goto done_2;
     }
 
     if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
       serializeResult(req, reply, &r, &cv);
-    } else {
       SearchResult_Clear(&r);
+    } else {
       goto done_2;
     }
 
@@ -403,6 +414,7 @@ done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
     SearchResult_Destroy(&r);
+    clearResults(results);
 
     // Reset the total results length:
     req->qiter.totalResults = 0;
@@ -487,9 +499,10 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
         SearchResult *curr = array_pop(results);
         serializeResult(req, reply, curr, &cv);
         SearchResult_Clear(curr);
+        rm_free(curr);
       }
       array_free(results);
-      // goto done_3;
+      results = NULL;
     } else {
       if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
         serializeResult(req, reply, &r, &cv);
@@ -511,6 +524,8 @@ done_3:
     RedisModule_Reply_ArrayEnd(reply); // >results
 
     SearchResult_Destroy(&r);
+    clearResults(results);
+
     if (rc != RS_RESULT_OK) {
       req->stateflags |= QEXEC_S_ITERDONE;
     }

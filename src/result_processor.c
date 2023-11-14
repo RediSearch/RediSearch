@@ -30,6 +30,8 @@ void QITR_Cleanup(QueryIterator *qitr) {
   }
 }
 
+// Allocates a new SearchResult, and populates it with `r`'s data (takes
+// ownership as well)
 SearchResult *SearchResult_Copy(SearchResult *r) {
   SearchResult *ret = rm_malloc(sizeof(*ret));
   *ret = *r;
