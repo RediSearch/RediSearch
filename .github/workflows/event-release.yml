@@ -47,12 +47,13 @@ jobs:
       - name: Create Pull Request
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh pr create
-              --title    "Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}"
-              --body     "This PR was automatically created by the release workflow of ${{ github.ref_name }}."
-              --head     "bump-version-${{ steps.verify.outputs.next_version }}"
-              --base     "${{ github.event.release.target_commitish }}"
-              --reviewer "${{ github.actor }}"
+        run: |
+          gh pr create \
+            --title    "Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}" \
+            --body     "This PR was automatically created by the release workflow of ${{ github.ref_name }}." \
+            --head     "bump-version-${{ steps.verify.outputs.next_version }}" \
+            --base     "${{ github.event.release.target_commitish }}" \
+            --reviewer "${{ github.actor }}"
 
       # - name: Create Pull Request
       #   uses: actions/github-script@v6

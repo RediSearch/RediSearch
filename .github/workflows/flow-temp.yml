@@ -32,6 +32,7 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
             print(f"cur_version={major}.{minor}.{patch}", file=fp)
             print(f"next_version={major}.{minor}.{patch+1}", file=fp)
+            print(f"next_patch={patch+1}", file=fp)
 
       - name: Update version for next patch
         env:
