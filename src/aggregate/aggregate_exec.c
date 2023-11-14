@@ -346,6 +346,10 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       // Aggregate all results before populating the response
       results = AggregateResults(rp, &rc);
+      // Check timeout after aggregation
+      if (TimedOut(&rp->parent->sctx->timeout) == TIMED_OUT) {
+        rc = RS_RESULT_TIMEDOUT;
+      }
     } else {
       // Send the results received from the pipeline as they come (no need to aggregate)
       rc = rp->Next(rp, &r);
@@ -444,6 +448,10 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       // Aggregate all results before populating the response
       results = AggregateResults(rp, &rc);
+      // Check timeout after aggregation
+      if (TimedOut(&rp->parent->sctx->timeout) == TIMED_OUT) {
+        rc = RS_RESULT_TIMEDOUT;
+      }
     } else {
       // Send the results received from the pipeline as they come (no need to aggregate)
       rc = rp->Next(rp, &r);
@@ -684,7 +692,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     QOptimizer_Iterators(req, req->optimizer);
   }
 
-  TimedOut_WithStatus(&req->timeoutTime, status);
+  TimedOut_WithStatus(&sctx->timeout, status);
 
   if (QueryError_HasError(status)) {
     return REDISMODULE_ERR;
