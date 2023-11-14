@@ -398,8 +398,10 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
 done_3:
     SearchResult_Destroy(&r);
-    if ((rc != RS_RESULT_OK && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) || rc == RS_RESULT_EOF) {
-      req->stateflags |= QEXEC_S_ITERDONE;
+
+    if ((rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail)
+      || rc == RS_RESULT_EOF || rc == RS_RESULT_ERROR) {
+        req->stateflags |= QEXEC_S_ITERDONE;
     }
 
     // Reset the total results length:
@@ -475,8 +477,10 @@ done_3:
 
   done_2:
     SearchResult_Destroy(&r);
-    if ((rc != RS_RESULT_OK && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) || rc == RS_RESULT_EOF) {
-      req->stateflags |= QEXEC_S_ITERDONE;
+
+    if ((rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail)
+      || rc == RS_RESULT_EOF || rc == RS_RESULT_ERROR) {
+        req->stateflags |= QEXEC_S_ITERDONE;
     }
 
     RedisModule_Reply_ArrayEnd(reply); // results
