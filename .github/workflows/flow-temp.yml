@@ -24,7 +24,7 @@ jobs:
         run: |
           with open("src/version.h", "r") as fp:
             major, minor, patch = [int(l.rsplit(maxsplit=1)[-1]) for l in fp if l.startswith("#define REDISEARCH_VERSION_")]
-          tag = '${{ env.TAG }}'
+          tag = 'refs/tags/${{ env.TAG }}'
           if tag != f"refs/tags/v{major}.{minor}.{patch}":
             raise Exception(f"Tag {tag} does not match version {major}.{minor}.{patch}")
 
