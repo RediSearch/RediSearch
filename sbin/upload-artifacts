@@ -94,14 +94,14 @@ s3_upload_file() {
 	local file="$1"
 	local s3_dir="$2"
 	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
-	
+
 	$OP aws s3 cp $file $s3_dir --acl public-read --no-progress
 }
 
 s3_ls() {
 	local s3_dir="$1"
 	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
-	
+
 	$OP aws s3 ls $s3_dir
 }
 
@@ -120,7 +120,7 @@ s3_upload() {
 		done
 	fi
 	[[ $VERBOSE == 1 ]] && s3_ls $upload_dir
-	
+
 	return 0
 }
 

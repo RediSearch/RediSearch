@@ -40,10 +40,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - run: |
-          git init
-          git config --global --add safe.directory '*'
-          git submodule update --init --recursive
+        with:
+          submodules: recursive
       - name: Setup
         run: ./sbin/setup
       - name: Get Redis
