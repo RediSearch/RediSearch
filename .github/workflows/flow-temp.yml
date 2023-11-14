@@ -2,7 +2,7 @@ name: temporary testing
 
 on:
   push:
-    # branches-ignore: ['*'] # ignore all branches
+    branches-ignore: ['*'] # ignore all branches
 
 env:
   TAG: v2.8.9
