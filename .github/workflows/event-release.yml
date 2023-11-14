@@ -6,6 +6,7 @@ on:
 
 jobs:
   update-version:
+    # Verify that the tag matches the version in src/version.h, and generate a PR to bump the version for the next patch
     runs-on: ubuntu-latest
     outputs:
       cur_version: ${{ steps.verify.outputs.cur_version }}
@@ -31,6 +32,7 @@ jobs:
       - name: Update version for next patch
         env:
           LINE: '#define REDISEARCH_VERSION_PATCH'
+        # find the line with the patch version and replace it with the next patch version
         run: sed -i "s/^${{ env.LINE }} [0-9]\+$/${{ env.LINE }} ${{ steps.verify.outputs.next_patch }}/" src/version.h
 
       - name: Commit and push
@@ -43,24 +45,32 @@ jobs:
           git push origin bump-version-${{ steps.verify.outputs.next_version }}
 
       - name: Create Pull Request
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const { data: pr } = await github.rest.pulls.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}`,
-              body: `This PR was automatically created by the release workflow of ${{ github.ref_name }}.`,
-              head: `bump-version-${{ steps.verify.outputs.next_version }}`,
-              base: `${{ github.event.release.target_commitish }}`,
-            });
-            const { data: pr_with_reviewer } = await github.rest.pulls.requestReviewers({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: pr.number,
-              reviewers: ['${{ github.actor }}'],
-            });
-            console.log(pr_with_reviewer);
+        run: gh pr create
+              --title    "Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}"
+              --body     "This PR was automatically created by the release workflow of ${{ github.ref_name }}."
+              --head     "bump-version-${{ steps.verify.outputs.next_version }}"
+              --base     "${{ github.event.release.target_commitish }}"
+              --reviewer "${{ github.actor }}"
+
+      # - name: Create Pull Request
+      #   uses: actions/github-script@v6
+      #   with:
+      #     script: |
+      #       const { data: pr } = await github.rest.pulls.create({
+      #         owner: context.repo.owner,
+      #         repo: context.repo.repo,
+      #         title: `Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}`,
+      #         body: `This PR was automatically created by the release workflow of ${{ github.ref_name }}.`,
+      #         head: `bump-version-${{ steps.verify.outputs.next_version }}`,
+      #         base: `${{ github.event.release.target_commitish }}`,
+      #       });
+      #       const { data: pr_with_reviewer } = await github.rest.pulls.requestReviewers({
+      #         owner: context.repo.owner,
+      #         repo: context.repo.repo,
+      #         pull_number: pr.number,
+      #         reviewers: ['${{ github.actor }}'],
+      #       });
+      #       console.log(pr_with_reviewer);
 
   set-artifacts:
     needs: update-version
@@ -81,7 +91,7 @@ jobs:
           ARCHS: (x86_64|aarch64|arm64v8) # List of expected architectures - update as needed
         run: |
           for DIR in {$ENT_DIR,$OSS_DIR}; do
-            ARTIFACTS=$(aws s3 ls $DIR/snapshots/redisearch | grep -E "$ARCHS.$VER_BRANCH.zip$" | awk '{print $NF}')
+            ARTIFACTS=$(aws s3 ls $DIR/snapshots/redisearch | grep -E "$ARCHS\.$VER_BRANCH\.zip$" | awk '{print $NF}')
             echo "--------- Handling artifacts: ---------"
             echo "$ARTIFACTS"
             echo "----------------- END -----------------"
