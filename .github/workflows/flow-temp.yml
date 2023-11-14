@@ -5,5 +5,51 @@ on:
     branches-ignore: ['*'] # ignore all branches
 
 jobs:
-  macos:
-    uses: ./.github/workflows/flow-macos.yml
+  test-no-ref:
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    secrets: inherit
+    with:
+      architecture: x86_64
+      platform: ubuntu:jammy
+
+  test-branch-ref:
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    secrets: inherit
+    with:
+      architecture: x86_64
+      platform: ubuntu:jammy
+
+      reference: guyav-gha_refactor_builds
+
+  # test-tag-ref:
+  #   uses: ./.github/workflows/flow-build-artifacts.yml
+  #   with:
+  #     architecture: x86_64
+  #     platform: ubuntu:jammy
+
+  #     reference: v2.8.8
+
+  # test-short-sha-ref:
+  #   uses: ./.github/workflows/flow-build-artifacts.yml
+  #   with:
+  #     architecture: x86_64
+  #     platform: ubuntu:jammy
+
+  #     reference: 921bf8019c
+
+  test-long-sha-ref:
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    secrets: inherit
+    with:
+      architecture: x86_64
+      platform: ubuntu:jammy
+
+      reference: 921bf8019c2e8d94648fa38593d0141c1064261e
+
+  # test-bad-ref:
+  #   uses: ./.github/workflows/flow-build-artifacts.yml
+  #   with:
+  #     architecture: x86_64
+  #     platform: ubuntu:jammy
+
+  #     reference: bad-ref
