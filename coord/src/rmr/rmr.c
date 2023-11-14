@@ -445,7 +445,6 @@ int MR_UpdateTopology(MRClusterTopology *newTopo) {
   struct MRRequestCtx *rc = rm_calloc(1, sizeof(*rc));
   rc->ctx = newTopo;
   rc->cb = uvUpdateTopologyRequest;
-  rc->protocol = 0;
   /* This request is called periodically and might be still in the queue
   during a shut down event. see RQ_Push comment*/
   RQ_Push(rq_g, requestCb, rc, freeUpdateTopologyRequest);
