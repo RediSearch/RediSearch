@@ -75,7 +75,7 @@ The output of this query is:
 The previous example did not yet group the data. You can group and aggregate data based on one or many criteria in the following way:
 
 ```
-FT.AGGREGATE index "query_expr" ...  GROUPBY n "field_1" .. "field_n" RECUCE AGG_FUNC m "@field_param_1" .. "@field_param_m" AS "aggregated_result_field"
+FT.AGGREGATE index "query_expr" ...  GROUPBY n "field_1" .. "field_n" REDUCE AGG_FUNC m "@field_param_1" .. "@field_param_m" AS "aggregated_result_field"
 ```
 
 Here is an explanation of the additional constructs:
