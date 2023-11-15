@@ -13,6 +13,10 @@ jobs:
       next_version: ${{ steps.verify.outputs.next_version }}
     steps:
       - uses: actions/checkout@v4
+      - name: TEMP print context
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }}
+        run: echo "$GITHUB_CONTEXT"
       - name: Verify Tag and Version
         id: verify
         shell: python
