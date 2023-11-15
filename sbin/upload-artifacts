@@ -72,9 +72,16 @@ else
 	S3_URL=s3://redismodules
 fi
 
-if [[ -z $AWS_ACCESS_KEY_ID || -z $AWS_SECRET_ACCESS_KEY ]]; then
-	eprint "No credentials for S3 upload."
-	exit 1
+if [[ $FORCE != 1 ]]; then
+	if [[ -z $GITHUB_ACTIONS ]]; then
+		eprint "Cannot upload outside of GitHub Actions. Override with FORCE=1."
+		exit 1
+	fi
+
+	if [[ -z $AWS_ACCESS_KEY_ID || -z $AWS_SECRET_ACCESS_KEY ]]; then
+		eprint "No credentials for S3 upload."
+		exit 1
+	fi
 fi
 
 cd $ROOT/bin
