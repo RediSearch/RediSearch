@@ -2,4 +2,4 @@ packaging >= 20.8
 gevent
 deepdiff
 conan
-RLTest @ git+https://github.com/RedisLabsModules/RLTest.git # TEMPORARY
+RLTest >= 0.7.2
