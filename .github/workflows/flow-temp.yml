@@ -4,52 +4,58 @@ on:
   push:
     branches-ignore: ['*'] # ignore all branches
 
+env:
+  TAG: v2.8.9
+  VER: 2.8
+
 jobs:
-  test-no-ref:
-    uses: ./.github/workflows/flow-build-artifacts.yml
-    secrets: inherit
-    with:
-      architecture: x86_64
-      platform: ubuntu:jammy
+  update-version:
+    runs-on: ubuntu-latest
+    outputs:
+      cur_version: ${{ steps.verify.outputs.cur_version }}
+      next_version: ${{ steps.verify.outputs.next_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Verify Tag and Version
+        id: verify
+        shell: python
+        run: |
+          with open("src/version.h", "r") as fp:
+            major, minor, patch = [int(l.rsplit(maxsplit=1)[-1]) for l in fp if l.startswith("#define REDISEARCH_VERSION_")]
+          tag = 'refs/tags/${{ env.TAG }}'
+          if tag != f"refs/tags/v{major}.{minor}.{patch}":
+            raise Exception(f"Tag {tag} does not match version {major}.{minor}.{patch}")
+          import os
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
+            print(f"cur_version={major}.{minor}.{patch}", file=fp)
+            print(f"next_version={major}.{minor}.{patch+1}", file=fp)
 
-  test-branch-ref:
-    uses: ./.github/workflows/flow-build-artifacts.yml
-    secrets: inherit
-    with:
-      architecture: x86_64
-      platform: ubuntu:jammy
-
-      reference: guyav-gha_refactor_builds
-
-  # test-tag-ref:
-  #   uses: ./.github/workflows/flow-build-artifacts.yml
-  #   with:
-  #     architecture: x86_64
-  #     platform: ubuntu:jammy
-
-  #     reference: v2.8.8
-
-  # test-short-sha-ref:
-  #   uses: ./.github/workflows/flow-build-artifacts.yml
-  #   with:
-  #     architecture: x86_64
-  #     platform: ubuntu:jammy
-
-  #     reference: 921bf8019c
-
-  test-long-sha-ref:
-    uses: ./.github/workflows/flow-build-artifacts.yml
-    secrets: inherit
-    with:
-      architecture: x86_64
-      platform: ubuntu:jammy
-
-      reference: 921bf8019c2e8d94648fa38593d0141c1064261e
-
-  # test-bad-ref:
-  #   uses: ./.github/workflows/flow-build-artifacts.yml
-  #   with:
-  #     architecture: x86_64
-  #     platform: ubuntu:jammy
-
-  #     reference: bad-ref
+  set-artifacts:
+    needs: update-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+      - name: Set Version Artifacts
+        env:
+          ENT_DIR: s3://redismodules/redisearch
+          OSS_DIR: s3://redismodules/redisearch-oss
+          VERSION: ${{ needs.update-version.outputs.next_version }}
+          VER_BRANCH: ${{ env.VER }}
+          ARCHS: (x86_64|aarch64|arm64v8) # List of expected architectures - update as needed
+        run: |
+          for DIR in {$ENT_DIR,$OSS_DIR}; do
+            ARTIFACTS=$(aws s3 ls $DIR/snapshots/redisearch | grep -E "$ARCHS\.$VER_BRANCH\.zip$" | awk '{print $NF}')
+            echo "Handling artifacts:"
+            echo "$ARTIFACTS"
+            echo "----------------- END -----------------"
+            for ARTIFACT in $ARTIFACTS; do
+              echo "Setting $DIR/snapshots/$ARTIFACT to $DIR/${ARTIFACT/%.$VER_BRANCH.zip/.$VERSION.zip}"
+            done
+          done

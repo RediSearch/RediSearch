@@ -45,12 +45,19 @@ on:
       redis-reference:
         type: string
 
+env:
+  # This will be used as a file name to store the SHA of the last successful build, and as a cache key for this file.
+  # key-name ($SHA_CACHE_NAME) -> path to file (name $SHA_CACHE_NAME) -> content (SHA)
+  SHA_CACHE_NAME: ${{ inputs.reference || github.ref_name }}-${{ github.event_name }}-last-sha
+
 jobs:
   setup:
     # Sets SHA and Validates the `reference` Input
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
+      skip: ${{ steps.on-dispatch.outputs.skip || steps.skip.outputs.decision || 'false' }}
+      store: ${{ steps.on-dispatch.outputs.store || 'true' }}
     steps:
       - name: Validate reference
         uses: actions/checkout@v3
@@ -59,6 +66,58 @@ jobs:
           ref: ${{ inputs.reference || null }}
       - id: set-sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - id: on-dispatch
+        # Don't skip and don't record if the workflow was manually triggered
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "skip=false" >> $GITHUB_OUTPUT
+          echo "store=false" >> $GITHUB_OUTPUT
+
+      - uses: actions/cache/restore@v3
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        id: restore
+        with:
+          path: ${{ env.SHA_CACHE_NAME }}
+          key: ${{ env.SHA_CACHE_NAME }}
+
+      - id: skip
+        if: ${{ github.event_name != 'workflow_dispatch' && steps.restore.outputs.cache-hit }}
+        run: |
+          LAST_SHA=$(cat ${{ env.SHA_CACHE_NAME }})
+          CURRENT_SHA=${{ steps.set-sha.outputs.sha }}
+          echo "current sha: $CURRENT_SHA"
+          echo "   last sha: $LAST_SHA"
+          if [ "$LAST_SHA" == "$CURRENT_SHA" ]; then
+            echo "decision=true" >> $GITHUB_OUTPUT
+          fi
+
+  cache-sha:
+    # Caches the SHA of the last successful build
+    runs-on: ubuntu-latest
+    needs: [setup, build-linux-x86, build-linux-arm, build-macos]
+    if: ${{ !cancelled() && needs.setup.outputs.store == 'true' && needs.setup.outputs.skip == 'false' }}
+    steps:
+      - if: ${{ !contains(needs.*.result, 'failure') }}
+        id: update-sha
+        run: |
+          echo "${{ needs.setup.outputs.sha }}" > ${{ env.SHA_CACHE_NAME }}
+          echo "updated=true" >> $GITHUB_OUTPUT
+      - name: Clear cache
+        # `actions/cache/save` can't overwrite an existing cache, so we need to delete it first
+        # enspired by https://github.com/actions/cache/issues/342 conversation
+        if: ${{ fromJson(steps.update-sha.outputs.updated) }}
+        continue-on-error: true # Don't fail if the cache doesn't exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh extension install actions/gh-actions-cache
+          gh actions-cache delete ${{ env.SHA_CACHE_NAME }} --confirm -R ${{ github.repository }}
+      - uses: actions/cache/save@v3
+        if: ${{ fromJson(steps.update-sha.outputs.updated) }}
+        with:
+          path: ${{ env.SHA_CACHE_NAME }}
+          key: ${{ env.SHA_CACHE_NAME }}
 
   decide-linux:
     if: ${{ inputs.platform != 'macos' }}
@@ -89,7 +148,7 @@ jobs:
 
   build-linux-x86:
     needs: [decide-linux, setup]
-    if: ${{ contains(fromJson('["x86_64", "all"]'), inputs.architecture) }}
+    if: ${{ contains(fromJson('["x86_64", "all"]'), inputs.architecture) && !fromJson(needs.setup.outputs.skip) }}
     strategy:
       fail-fast: false
       matrix:
@@ -106,7 +165,7 @@ jobs:
 
   build-linux-arm:
     needs: [decide-linux, setup]
-    if: ${{ contains(fromJson('["aarch64", "all"]'), inputs.architecture) }}
+    if: ${{ contains(fromJson('["aarch64", "all"]'), inputs.architecture) && !fromJson(needs.setup.outputs.skip) }}
     strategy:
       fail-fast: false
       matrix:
@@ -124,6 +183,7 @@ jobs:
 
   build-macos:
     needs: [decide-macos, setup]
+    if: ${{ contains(fromJson('["macos", "all"]'), inputs.platform) && !fromJson(needs.setup.outputs.skip) }}
     strategy:
       matrix:
         OS: ${{ fromJson(needs.decide-macos.outputs.platforms) }}
