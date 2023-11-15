@@ -69,7 +69,7 @@ jobs:
         env:
           ENT_DIR: s3://redismodules/redisearch
           OSS_DIR: s3://redismodules/redisearch-oss
-          VERSION: ${{ needs.update-version.outputs.next_version }}
+          VERSION: ${{ needs.update-version.outputs.cur_version }}
           VER_BRANCH: ${{ github.event.release.target_commitish }}
           ARCHS: (x86_64|aarch64|arm64v8) # List of expected architectures - update as needed
         run: |
