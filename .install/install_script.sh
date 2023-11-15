@@ -17,3 +17,5 @@ fi
 echo $OS
 
 source ${OS}.sh $MODE
+
+git config --global --add safe.directory '*'
