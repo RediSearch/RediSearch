@@ -6,7 +6,7 @@ hideListLinks: True
 weight: 5
 ---
 
-Redis Stack distinguishes between the [FT.SEARCH](/commands/ft.search/) and [FT.AGGREGATE](/commands/ft.aggregate/) query commands. You should use [FT.SEARCH](/commands/ft.search/) if you want to perform selections and projections only. If you also need to apply mapping functions, group or aggregate data, use the [FT.AGGREGATE](/commands/ft.aggregate/) command. 
+Redis Stack distinguishes between the [FT.SEARCH](/commands/ft.search/) and [FT.AGGREGATE](/commands/ft.aggregate/) query commands. You should use [FT.SEARCH](/commands/ft.search/) if you want to perform selections and projections only. If you also need to apply mapping functions, group, or aggregate data, use the [FT.AGGREGATE](/commands/ft.aggregate/) command. 
 
 * **Selection**: A selection allows you to return all documents that fulfill specific criteria.
 * **Projection**: Projections are used to return specific fields of the result set. You can also map/project to calculated field values.
@@ -26,10 +26,10 @@ The following articles provide an overview of how to query data with the [FT.SEA
 * [Exact match queries](/docs/interact/search-and-query/query/exact-match)
 * [Range queries](/docs/interact/search-and-query/query/range)
 * [Full-text search ](/docs/interact/search-and-query/query/full-text)
-* [Geo-spatial queries](/docs/interact/search-and-query/query/geo-spatial)
+* [Geospatial queries](/docs/interact/search-and-query/query/geo-spatial)
 * [Vector search](/docs/interact/search-and-query/query/vector-search)
 * [Combined queries](/docs/interact/search-and-query/query/combined)
 
 You can find further details about aggregation queries with [FT.AGGREGATE](/commands/ft.aggregate/) in the following article:
 
-* [Aggregation queries](/docs/interact/search-and-query/query/aggegation)
+* [Aggregation queries](/docs/interact/search-and-query/query/aggregation)

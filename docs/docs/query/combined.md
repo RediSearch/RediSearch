@@ -10,23 +10,23 @@ A combined query is a combination of several query types, such as:
 * [Exact match](/docs/interact/search-and-query/query/exact-match)
 * [Range](/docs/interact/search-and-query/query/range)
 * [Full-text](/docs/interact/search-and-query/query/full-text)
-* [Geo-spatial](/docs/interact/search-and-query/query/geo-spatial)
+* [Geospatial](/docs/interact/search-and-query/query/geo-spatial)
 * [Vector search](/docs/interact/search-and-query/query/vector-search)
 
 You can use logical query operators to combine query expressions for numeric, tag, and text fields. For vector fields, you can combine a KNN query with a pre-filter.
 
 {{% alert title="Note" color="warning" %}}
-The operators are interpreted slightly differently, depending on the query dialect used. This article uses the second version of the query dialect and tries to straighten the examples with the help of additional brackets (`(...)`). Further details can be found in the [query syntax documentation](/docs/interact/search-and-query/advanced-concepts/query_syntax/). 
+The operators are interpreted slightly differently depending on the query dialect used. The default dialect is `DIALECT 1`; see [this article](/docs/interact/search-and-query/basic-constructs/configuration-parameters/#default_dialect) for information on how to change the dialect version. This article uses the second version of the query dialect, `DIALECT 2`, and uses additional brackets (`(...)`) to help clarify the examples. Further details can be found in the [query syntax documentation](/docs/interact/search-and-query/advanced-concepts/query_syntax/). 
 {{% /alert  %}}
 
 The examples in this article use the following schema:
 
-| Field name  | Field type |
-| ----------- | ---------- |
-| description | TEXT       |
-| condition   | TAG        |
-| price       | NUMERIC    |
-| vector      | VECTOR     |
+| Field name    | Field type   |
+| -----------   | ----------   |
+| `description` | `TEXT`       |
+| `condition`   | `TAG`        |
+| `price`       | `NUMERIC`    |
+| `vector`      | `VECTOR`     |
 
 ## AND
 
@@ -42,13 +42,13 @@ If you want to perform an intersection based on multiple values within a specifi
 FT.SEARCH index "@text_field:( value1 value2 ... )"
 ```
 
-The following example shows you a query that finds bicycles in a price range from 500 USD to 1000 USD:
+The following example shows you a query that finds bicycles in new condition and in a price range from 500 USD to 1000 USD:
 
 ```
 FT.SEARCH idx:bicycle "@price:[500 1000] @condition:{new}"
 ```
 
-You might also be interested in bicycles for kids. The query below shows you how to combine a full-text search with the criteria of the previous query:
+You might also be interested in bicycles for kids. The query below shows you how to combine a full-text search with the criteria from the previous query:
 
 ```
 FT.SEARCH idx:bicycle "kids (@price:[500 1000] @condition:{used})"
@@ -56,19 +56,18 @@ FT.SEARCH idx:bicycle "kids (@price:[500 1000] @condition:{used})"
 
 ## OR
 
-You can use the binary operator `|` (vertical slash) to perform a union.
+You can use the binary operator `|` (vertical bar) to perform a union.
 
 ```
 FT.SEARCH index "(expr1) | (expr2)"
 ```
 
 {{% alert title="Note" color="warning" %}}
-The logical `AND` takes precedence over `OR` when using dialect version two. The expression `expr1 expr2 | expr3 expr4` means `(expr1 expr2) | (expr3 expr4)`. Version one of the query dialect behaves differently. It is advised to use round brackets in query strings to ensure that the order is clear.
+The logical `AND` takes precedence over `OR` when using dialect version two. The expression `expr1 expr2 | expr3 expr4` means `(expr1 expr2) | (expr3 expr4)`. Version one of the query dialect behaves differently. Using parentheses in query strings is advised to ensure the order is clear.
  {{% /alert  %}}
 
 
 If you want to perform the union based on multiple values within a single tag or text field, then you should use the following simplified notion:
-
 
 ```
 FT.SEARCH index "@text_field:( value1 | value2 | ... )"
@@ -95,7 +94,6 @@ If you want to extend the search to new bicycles, then the below example shows y
 ```
 FT.SEARCH idx:bicycle "@description:(kids | small) @condition:{new | used}"
 ```
-
 
 ## NOT
 
