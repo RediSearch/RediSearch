@@ -357,7 +357,7 @@ int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd, bool block
   rc->numCmds = 1;
   rc->cmds[0] = cmd;
   rc->cb = uvFanoutRequest;
-  RQ_Push(rq_g, requestCb, rc);
+  RQ_Push(rq_g, requestCb, rc, NULL);
   return REDIS_OK;
 }
 
@@ -386,7 +386,7 @@ int MR_Map(struct MRCtx *ctx, MRReduceFunc reducer, MRCommandGenerator cmds, boo
   }
 
   rc->cb = uvMapRequest;
-  RQ_Push(rq_g, requestCb, rc);
+  RQ_Push(rq_g, requestCb, rc, NULL);
 
   return REDIS_OK;
 }
@@ -406,7 +406,7 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
   RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, ctx->redisCtx);
 
   rc->cb = uvMapRequest;
-  RQ_Push(rq_g, requestCb, rc);
+  RQ_Push(rq_g, requestCb, rc, NULL);
   return REDIS_OK;
 }
 
@@ -427,6 +427,13 @@ static void uvUpdateTopologyRequest(struct MRRequestCtx *mc) {
   rm_free(mc);
 }
 
+static void freeUpdateTopologyRequest(void *p) {
+  struct MRRequestCtx *rc = p;
+  /* free topology */
+  MRClusterTopology_Free(rc->ctx);
+  rm_free(rc);
+}
+
 /* Set a new topology for the cluster */
 int MR_UpdateTopology(MRClusterTopology *newTopo) {
   if (cluster_g == NULL) {
@@ -438,7 +445,9 @@ int MR_UpdateTopology(MRClusterTopology *newTopo) {
   struct MRRequestCtx *rc = rm_calloc(1, sizeof(*rc));
   rc->ctx = newTopo;
   rc->cb = uvUpdateTopologyRequest;
-  RQ_Push(rq_g, requestCb, rc);
+  /* This request is called periodically and might be still in the queue
+  during a shut down event. see RQ_Push comment*/
+  RQ_Push(rq_g, requestCb, rc, freeUpdateTopologyRequest);
   return REDIS_OK;
 }
 
@@ -558,7 +567,7 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   if (it->ctx.pending) {
     // We have more commands to send
     it->ctx.inProcess = it->ctx.pending;
-    RQ_Push(rq_g, iterManualNextCb, it);
+    RQ_Push(rq_g, iterManualNextCb, it, NULL);
     return true; // We may have more replies (and we surely will)
   }
   // We have no pending commands and no more than channelThreshold replies to process.
@@ -599,7 +608,7 @@ MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb) {
   ret->ctx.pending = ret->len;
   ret->ctx.inProcess = ret->len; // Initially all commands are in process
 
-  RQ_Push(rq_g, iterStartCb, ret);
+  RQ_Push(rq_g, iterStartCb, ret, NULL);
   return ret;
 }
 
