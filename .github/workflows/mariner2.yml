@@ -45,15 +45,15 @@ jobs:
       - name: Build RedisSearch
         run: |
           make build SHOW=1
-      - name: Build COORD=rlec
+      - name: Build COORD=1
         run: |
-          make build COORD=rlec SHOW=1
+          make build COORD=1 SHOW=1
       - name: Test RediSearch
         run: |
           make test PLATFORM_MODE=1
-      - name: Test COORD=rlec
+      - name: Test COORD=1
         run: |
-          make test COORD=rlec PLATFORM_MODE=1
+          make test COORD=1 PLATFORM_MODE=1
       - name: Pack module
         run: |
           make pack BRANCH=${{ github.ref_name }}
