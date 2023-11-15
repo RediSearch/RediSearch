@@ -13,19 +13,18 @@ jobs:
       next_version: ${{ steps.verify.outputs.next_version }}
     steps:
       - uses: actions/checkout@v4
-      - name: TEMP print context
-        env:
-          GITHUB_CONTEXT: ${{ toJson(github) }}
-        run: echo "$GITHUB_CONTEXT"
       - name: Verify Tag and Version
         id: verify
+        env:
+          # Not used, but useful for debugging in case of failure. See https://github.com/actions/runner/issues/2788
+          GH_CONTEXT: ${{ toJson(github) }}
         shell: python
         run: |
           with open("src/version.h", "r") as fp:
             major, minor, patch = [int(l.rsplit(maxsplit=1)[-1]) for l in fp if l.startswith("#define REDISEARCH_VERSION_")]
-          tag = '${{ github.ref }}'
-          if tag != f"refs/tags/v{major}.{minor}.{patch}":
-            raise Exception(f"Tag {tag} does not match version {major}.{minor}.{patch}")
+          tag = '${{ github.event.release.tag_name }}'
+          if tag != f"v{major}.{minor}.{patch}":
+            raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
 
           import os
           with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
@@ -54,7 +53,7 @@ jobs:
         run: |
           gh pr create \
             --title    "Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}" \
-            --body     "This PR was automatically created by the release workflow of ${{ github.ref_name }}." \
+            --body     "This PR was automatically created by the release workflow of ${{ github.event.release.tag_name }}." \
             --head     "bump-version-${{ steps.verify.outputs.next_version }}" \
             --base     "${{ github.event.release.target_commitish }}" \
             --reviewer "${{ github.actor }}"
