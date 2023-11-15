@@ -642,7 +642,7 @@ void MRIterator_WaitDone(MRIterator *it, bool mayBeIdle) {
       }
     }
     // Send the DEL commands, and wait for them to be done
-    RQ_Push(rq_g, iterManualNextCb, it);
+    RQ_Push(rq_g, iterManualNextCb, it, NULL);
   }
   // Wait until all the commands are done (it->ctx.pending == 0)
   MRChannel_WaitClose(it->ctx.chan);
