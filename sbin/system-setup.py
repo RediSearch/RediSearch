@@ -89,6 +89,7 @@ class RediSearchSetup(paella.Setup):
     def common_last(self):
         self.run(f"{self.python} {READIES}/bin/getcmake --usr", sudo=self.os != 'macos')
         self.run(f"{self.python} {READIES}/bin/getrmpytools --reinstall --modern")
+        self.pip_install("git+https://github.com/RedisLabsModules/RLTest.git --force-reinstall")
         if self.dist != "arch":
             self.install("lcov")
         else:
