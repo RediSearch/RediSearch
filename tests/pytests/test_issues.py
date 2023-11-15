@@ -861,7 +861,9 @@ def test_mod5778_add_new_shard_to_cluster(env):
         expected[2].append([])  # another field was added to the response in redis >= 7 (empty in this case)
     res = env.cmd('CLUSTER SLOTS')
     env.assertEqual(len(res), len(env.envRunner.shards) + 1)
-    env.assertEqual(res[0], expected)
+    # Get the item in the list that corresponds to the shard that contains slot 0.
+    shard_with_slot_0 = [res[i] for i in range(len(res)) if res[i][0] == 0][0]
+    env.assertEqual(shard_with_slot_0, expected)
 
     expected = {'primary': ('127.0.0.1', new_instance_port), 'replicas': []}  # the expected reply from cluster_slots()
     res = new_instance_conn.cluster_slots(cluster.ClusterNode('127.0.0.1', new_instance_port))
