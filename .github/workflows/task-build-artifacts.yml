@@ -98,4 +98,4 @@ jobs:
           aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
       - name: Upload Artifacts
-        run: make upload-artifacts NOP=1 # TODO: remove NOP=1 when ready
+        run: make upload-artifacts
