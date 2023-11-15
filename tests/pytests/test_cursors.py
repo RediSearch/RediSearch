@@ -363,7 +363,7 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
     for i in range(num_docs):
         conn.execute_command('HSET', f'doc{i}' ,'t', i)
 
-    # Create a cursor with a small `timeout`` and large `count``, and read from
+    # Create a cursor with a small `timeout` and large `count`, and read from
     # it until depleted
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '10000', 'TIMEOUT', '1')
     n_recieved = len(res) - 1
