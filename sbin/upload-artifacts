@@ -109,7 +109,9 @@ s3_ls() {
 	local s3_dir="$1"
 	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
 
+	[[ -n $GITHUB_ACTIONS ]] && echo "::group::S3 ls $s3_dir"
 	$OP aws s3 ls $s3_dir
+	[[ -n $GITHUB_ACTIONS ]] && echo "::endgroup::"
 }
 
 s3_upload() {
