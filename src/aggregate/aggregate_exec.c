@@ -423,8 +423,6 @@ done_2:
     // Reset the total results length:
     req->qiter.totalResults = 0;
 
-    // If an error or EOF were encountered, mark the iterator as done so that
-    // the cursor id will not be returned to the client
     if (rc != RS_RESULT_OK &&
       !(rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return)) {
         req->stateflags |= QEXEC_S_ITERDONE;
