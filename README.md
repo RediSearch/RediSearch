@@ -171,7 +171,7 @@ If you have a more detailed question, drop us a line on the [RediSearch Discussi
 
 ## Cluster support
 
-RediSearch has a distributed cluster version that scales to billions of documents across hundreds of servers. At the moment, distributed RediSearch is available as part of [Redis Enterprise Cloud](https://redis.com/redis-enterprise-cloud/overview/) and [Redis Enterprise Software](https://redis.com/redis-enterprise-software/overview/).
+RediSearch has a distributed cluster version that scales to billions of documents across hundreds of servers. At the moment, distributed RediSearch is available as part of [Redis Cloud](https://redis.com/redis-enterprise-cloud/overview/) and [Redis Enterprise Software](https://redis.com/redis-enterprise-software/overview/).
 
 See [RediSearch on Redis Enterprise](https://redis.com/modules/redisearch/) for more information.
 
