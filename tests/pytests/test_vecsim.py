@@ -5,7 +5,7 @@ from RLTest import Env
 from common import *
 from includes import *
 from random import randrange
-
+from redis import ResponseError
 
 '''************* Helper methods for vecsim tests ************'''
 EPSILON = 1e-8
@@ -1653,7 +1653,7 @@ def test_timeout_reached():
         env.skip()
     conn = getConnectionByEnv(env)
     nshards = env.shardsCount
-    timeout_expected = 0 if env.isCluster() else 'Timeout limit was reached'
+    timeout_expected = 'Timeout limit was reached'
 
     vecsim_algorithms_and_sizes = [('FLAT', 80000 * nshards), ('HNSW', 10000 * nshards)]
     hybrid_modes = ['BATCHES', 'ADHOC_BF']
@@ -1674,11 +1674,13 @@ def test_timeout_reached():
                                        'TIMEOUT', 0)
             env.assertEqual(res[0], n_vec)
             # run query with 1 millisecond timeout. should fail.
-            try: # TODO: rewrite when cluster behavior is consistent on timeout
+            try:
                 res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
                                            'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
                                            'TIMEOUT', 1)
-                env.assertEqual(res[0], timeout_expected)
+                # TODO: Add when MOD-5965 is merged
+                # env.assertEqual(type(res[0]), ResponseError)
+                env.assertEqual(str(res[0]), timeout_expected)
             except Exception as error:
                 env.assertContains('Timeout limit was reached', str(error))
 
@@ -1700,11 +1702,13 @@ def test_timeout_reached():
                                            'TIMEOUT', 0)
                 env.assertEqual(res[0], n_vec)
 
-                try: # TODO: rewrite when cluster behavior is consistent on timeout
+                try:
                     res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                               'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
-                                               'TIMEOUT', 1)
-                    env.assertEqual(res[0], timeout_expected)
+                                                'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
+                                                'TIMEOUT', 1)
+                    # TODO: Add when MOD-5965 is merged
+                    # env.assertEqual(type(res[0]), ResponseError)
+                    env.assertEqual(str(res[0]), timeout_expected)
                 except Exception as error:
                     env.assertContains('Timeout limit was reached', str(error))
 

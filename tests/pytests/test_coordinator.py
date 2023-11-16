@@ -128,15 +128,15 @@ def test_timeout():
     reached in the shards or in the coordinator itself.
     """
 
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL TIMEOUT 1')
     SkipOnNonCluster(env)
     conn = getConnectionByEnv(env)
 
     # Create the index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
 
-    # Populate the database with 1500 * nshards documents
-    n_docs = 1500 * env.shardsCount
+    # Populate the database with many documents (more docs --> less flakiness)
+    n_docs = 25000 * env.shardsCount
     for i in range(n_docs):
         conn.execute_command('HSET', i ,'t1', str(i))
 
@@ -145,8 +145,7 @@ def test_timeout():
                 'LOAD', '2', '@t1', '@__key',
                 'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
                 'groupby', '2', '@t1', '@t1exp',
-                        'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
-                'TIMEOUT', '1',)
+                'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys', 'timeout', '1')
     # TODO: Add this once the response will be fixed to be and error instead of a string
     # env.assertEquals(type(res[0]), ResponseError)
     env.assertContains('Timeout limit was reached', str(res[0]))
@@ -154,3 +153,10 @@ def test_timeout():
     # Client cursor mid execution
     res, _ = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', str(n_docs), 'TIMEOUT', 1)
     env.assertEqual(res, [0])
+
+    # FT.SEARCH
+    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', n_docs,
+                               'timeout', '1')
+    # TODO: Add this when MOD-5965 is merged
+    # env.assertEqual(type(res[0]), ResponseError)
+    env.assertContains('Timeout limit was reached', str(res[0]))

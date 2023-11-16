@@ -425,9 +425,9 @@ done_2:
 
     // If an error or EOF were encountered, mark the iterator as done so that
     // the cursor id will not be returned to the client
-    // TODO: Add dependency on the timeout policy (MOD-5966)
-    if (rc != RS_RESULT_OK) {
-      req->stateflags |= QEXEC_S_ITERDONE;
+    if (rc != RS_RESULT_OK &&
+      !(rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return)) {
+        req->stateflags |= QEXEC_S_ITERDONE;
     }
 }
 
@@ -534,8 +534,9 @@ done_3:
     SearchResult_Destroy(&r);
     clearResults(results);
 
-    if (rc != RS_RESULT_OK) {
-      req->stateflags |= QEXEC_S_ITERDONE;
+    if (rc != RS_RESULT_OK &&
+      !(rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return)) {
+        req->stateflags |= QEXEC_S_ITERDONE;
     }
 
     // Reset the total results length:
@@ -964,10 +965,9 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 
   // update timeout for current cursor read
-  if (req->qiter.rootProc->type != RP_NETWORK) {
-    updateTimeout(&req->timeoutTime, req->reqConfig.queryTimeoutMS);
-    SearchCtx_UpdateTimeout(req->sctx, req->timeoutTime);
-  }
+  updateTimeout(&req->timeoutTime, req->reqConfig.queryTimeoutMS);
+  SearchCtx_UpdateTimeout(req->sctx, req->timeoutTime);
+
   if (!num) {
     num = req->cursorChunkSize;
     if (!num) {
