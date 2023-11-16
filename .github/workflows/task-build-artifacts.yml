@@ -60,14 +60,14 @@ jobs:
           submodules: recursive
           ref: ${{ env.REF }}
 
+      - name: Setup (readies)
+        run: ./sbin/setup
+
       - name: Set 'GIT_*' Environment Variables
         run: |
           echo "GIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
           echo "GIT_SHA_SHORT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
           echo "GIT_BRANCH=$BRANCH" >> $GITHUB_ENV
-
-      - name: Setup (readies)
-        run: ./sbin/setup
 
       # Get Redis
       - name: Get Redis
