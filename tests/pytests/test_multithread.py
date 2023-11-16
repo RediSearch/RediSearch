@@ -58,16 +58,19 @@ def testMultipleBlocksBuffer():
     CreateAndSearchSortBy(docs_count = 2500)
 
 
-def test_invalid_mt_config_combinations():
+def test_invalid_mt_config_combinations(env):
     if not MT_BUILD:
         raise SkipTest('MT_BUILD is not set')
+    module_path =  env.envRunner.modulePath[0]  # extract search module path from RLTest default env
     for mode in ['MT_MODE_FULL', 'MT_MODE_ONLY_ON_OPERATIONS']:
-        env = Env(module=None)
+        env = Env(module=[])  # create a new env without any module
+        env.assertEqual(env.cmd('MODULE', 'LIST'), [], message=mode)
         try:
-            env.cmd('MODULE', 'LOAD', env.envRunner.modulePath[0], 'WORKER_THREADS', '0', 'MT_MODE', mode)
-            env.assertFalse(True)   # We shouldn't get here
+            env.cmd('MODULE', 'LOAD', module_path, 'WORKER_THREADS', '0', 'MT_MODE', mode)
+            env.assertFalse(True, message=mode)   # we shouldn't get here
         except Exception as e:
-            env.assertEqual(type(e), redis.exceptions.ModuleError)
+            # Expect to see a failure in loading the module due to the invalid configuration combination.
+            env.assertEqual(type(e), redis.exceptions.ModuleError, message=mode)
             env.assertContains("Error loading the extension.", str(e))
 
 
