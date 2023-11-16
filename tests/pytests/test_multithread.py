@@ -3,6 +3,7 @@ import time
 import unittest
 from cmath import inf
 from email import message
+import redis.exceptions
 from includes import *
 from common import *
 from RLTest import Env
@@ -57,31 +58,17 @@ def testMultipleBlocksBuffer():
     CreateAndSearchSortBy(docs_count = 2500)
 
 
-@skip(asan=True)
-def test_invalid_MT_MODE_FULL_config():
-    try:
-        env = initEnv(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_FULL')
-        prefix = '_' if env.isCluster() else ''
-        env.cmd(f"{prefix}ft.config", "get", "WORKER_THREADS")
-        env.assertFalse(True)   # We shouldn't get here
-    except Exception:
-        # Create dummy env to collect exit gracefully.
-        env = Env()
-        pass
-
-
-@skip(asan=True)
-def test_invalid_MT_MODE_ONLY_ON_OPERATIONS_config():
-    # Invalid 0 worker threads with MT_MODE_ONLY_ON_OPERATIONS.
-    try:
-        env = initEnv(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_ONLY_ON_OPERATIONS')
-        prefix = '_' if env.isCluster() else ''
-        env.cmd(f"{prefix}ft.config", "get", "WORKER_THREADS")
-        env.assertFalse(True)   # We shouldn't get here
-    except Exception:
-        # Create dummy env to collect exit gracefully.
-        env = Env()
-        pass
+def test_invalid_mt_config_combinations():
+    if not MT_BUILD:
+        raise SkipTest('MT_BUILD is not set')
+    for mode in ['MT_MODE_FULL', 'MT_MODE_ONLY_ON_OPERATIONS']:
+        env = Env(module=None)
+        try:
+            env.cmd('MODULE', 'LOAD', env.envRunner.modulePath[0], 'WORKER_THREADS', '0', 'MT_MODE', mode)
+            env.assertFalse(True)   # We shouldn't get here
+        except Exception as e:
+            env.assertEqual(type(e), redis.exceptions.ModuleError)
+            env.assertContains("Error loading the extension.", str(e))
 
 
 def test_reload_index_while_indexing():
