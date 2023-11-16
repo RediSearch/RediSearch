@@ -35,7 +35,8 @@ jobs:
     env:
       VERBOSE: 1 # For logging
       RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
-      BUILD_CMD: echo '::group::Build' && make build VERBOSE= && echo '::endgroup::' # Build command
+      # Build command
+      BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
     steps:
       # Setup
       - name: Pre-steps Dependencies
@@ -62,13 +63,6 @@ jobs:
 
       - name: Setup (readies)
         run: ./sbin/setup
-
-      - name: Set 'GIT_*' Environment Variables
-        run: |
-          echo "GIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
-          echo "GIT_SHA_SHORT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          echo "GIT_BRANCH=$BRANCH" >> $GITHUB_ENV
-          echo "GIT_VERSPEC=$BRANCH-$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
       # Get Redis
       - name: Get Redis
