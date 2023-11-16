@@ -152,7 +152,7 @@ setup_rltest() {
 		fi
 	fi
 
-	RLTEST_ARGS+=" --enable-debug-command"
+	RLTEST_ARGS+=" --enable-debug-command --enable-protected-configs"
 
 	LOG_LEVEL=${LOG_LEVEL:-debug}
 	RLTEST_ARGS+=" --log-level $LOG_LEVEL"
