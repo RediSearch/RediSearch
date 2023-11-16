@@ -348,3 +348,27 @@ def testCursorOnCoordinator(env):
 def testCursorOnCoordinatorBG():
     env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
     testCursorOnCoordinator(env)
+
+def testCursorDepletionNonStrictTimeoutPolicy(env):
+    """Tests that the cursor id is returned in case the timeout policy is
+    non-strict (i.e., the default `RETURN`), even when a timeout is experienced"""
+
+    conn = getConnectionByEnv(env)
+
+    # Create the index
+    env.expect('FT.CREATE idx SCHEMA t text').ok()
+
+    # Populate the index
+    num_docs = 1500 * env.shardsCount
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}' ,'t', i)
+
+    # Create a cursor with a small `timeout` and large `count`, and read from
+    # it until depleted
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '10000', 'TIMEOUT', '1')
+    n_recieved = len(res) - 1
+    while cursor:
+        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        n_recieved += len(res) - 1
+
+    env.assertEqual(n_recieved, num_docs)
