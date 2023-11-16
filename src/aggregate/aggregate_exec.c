@@ -306,6 +306,11 @@ SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
     // clean the search result
     r = (SearchResult){0};
   }
+
+  if (rc != RS_RESULT_OK) {
+    SearchResult_Destroy(&r);
+  }
+
   return results;
 }
 
