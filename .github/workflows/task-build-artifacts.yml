@@ -65,6 +65,7 @@ jobs:
 
       - name: Set 'GIT_*' Environment Variables
         run: |
+          make clean # Dummy call to initialize makefile, before overriding variables
           echo "GIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
           echo "GIT_SHA_SHORT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
           echo "GIT_BRANCH=$BRANCH" >> $GITHUB_ENV
