@@ -21,7 +21,6 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		RELEASE=1     Upload release artifacts
 		STAGING=1     Upload into staging area
 
-		FORCE=1       Allow uploading outside of CI
 		NOP=1         No operation
 		VERBOSE=1     Show artifacts details
 		HELP=1        Show help
@@ -73,16 +72,9 @@ else
 	S3_URL=s3://redismodules
 fi
 
-if [[ $FORCE != 1 ]]; then
-	if [[ -z $CIRCLECI ]]; then
-		eprint "Cannot upload outside of CircleCI. Override with FORCE=1."
-		exit 1
-	fi
-
-	if [[ -z $AWS_ACCESS_KEY_ID || -z $AWS_SECRET_ACCESS_KEY ]]; then
-		eprint "No credentials for S3 upload."
-		exit 1
-	fi
+if [[ -z $AWS_ACCESS_KEY_ID || -z $AWS_SECRET_ACCESS_KEY ]]; then
+	eprint "No credentials for S3 upload."
+	exit 1
 fi
 
 cd $ROOT/bin
