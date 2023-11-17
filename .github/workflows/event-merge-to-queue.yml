@@ -10,7 +10,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# TODO: use some action like dorny/paths-filter@v2 to skip validation if only docs were changed
 # TODO: Use RedisJSON's `${{ vars.DEFAULT_REDISJSON_REF }}` branch when testing on nightly
 
 jobs:
@@ -49,7 +48,8 @@ jobs:
             print(f'includes={includes}', file=fh)
 
   test-linux:
-    needs: print-configurations
+    needs: [print-configurations, docs-only]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
     strategy:
       matrix:
         test-config: # configurations for both standalone and coordinator
@@ -66,7 +66,8 @@ jobs:
       coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
 
   test-macos:
-    needs: print-configurations
+    needs: [print-configurations, docs-only]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
     strategy:
       fail-fast: false
       matrix:
@@ -89,14 +90,21 @@ jobs:
       coordinator: ${{ matrix.coordinator != 'false' && !matrix.dividor }}
 
   coverage:
+    needs: docs-only
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-coverage.yml
     secrets: inherit
 
   sanitize:
+    needs: docs-only
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-sanitizer.yml
     secrets: inherit
     with:
       flow-config: '' # full sanitization
+
+  docs-only: # Check whether the PR is only modifying docs
+    uses: ./.github/workflows/task-check-docs.yml
 
   pr-validation:
     needs: [test-linux, test-macos, coverage, sanitize]

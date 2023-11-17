@@ -4,10 +4,6 @@ name: Pull Request Flow
 
 on:
   pull_request:
-    paths-ignore:
-      - "README.md"
-      - "docs/**"
-      - "licenses/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -15,6 +11,8 @@ concurrency:
 
 jobs:
   basic-test:
+    needs: docs-only
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/task-test.yml
     with:
       env: ubuntu-latest
@@ -22,14 +20,21 @@ jobs:
     secrets: inherit
 
   coverage:
+    needs: docs-only
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-coverage.yml
     secrets: inherit
 
   sanitize:
+    needs: docs-only
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-sanitizer.yml
     secrets: inherit
     with:
       flow-config: QUICK=1
+
+  docs-only: # Check whether the PR is only modifying docs
+    uses: ./.github/workflows/task-check-docs.yml
 
   pr-validation:
     needs: [basic-test, coverage, sanitize]
