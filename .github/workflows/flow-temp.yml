@@ -38,7 +38,7 @@ jobs:
 
   run-not-bool:
     needs: doc-check
-    if: !needs.doc-check.outputs.only-docs-changed
+    if: ${{ !needs.doc-check.outputs.only-docs-changed }}
     runs-on: ubuntu-latest
     steps:
       - run: |
