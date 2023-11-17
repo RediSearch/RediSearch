@@ -41,9 +41,9 @@ The examples in this section use a schema with the following fields:
 
 | Field name | Field type |
 | ---------- | ---------- |
-| price | NUMERIC |
+| `price` | `NUMERIC` |
 
-The following query finds bicycles within a price range greater or equal to 500 USD and smaller or equal to 1000 USD (`500 <= price <= 1000`):
+The following query finds bicycles within a price range greater than or equal to 500 USD and smaller than or equal to 1000 USD (`500 <= price <= 1000`):
 
 ```
 FT.SEARCH idx:bicycle "@price:[500 1000]"
@@ -61,7 +61,7 @@ For bicycles with a price greater than 1000 USD (`price > 1000`), you can use:
 FT.SEARCH idx:bicycle "@price:[(1000 +inf]"
 ```
 
-The example below returns bicycles with a price lower or equal to 2000 USD (`price <= 2000`) by returning the five cheapest bikes:
+The example below returns bicycles with a price lower than or equal to 2000 USD (`price <= 2000`) by returning the five cheapest bikes:
 
 ```
 FT.SEARCH idx:bicycle "@price:[-inf 2000] SORTBY price LIMIT 0 5"
@@ -69,4 +69,4 @@ FT.SEARCH idx:bicycle "@price:[-inf 2000] SORTBY price LIMIT 0 5"
 
 ## Non-numeric range queries
 
-You can learn more about non-numeric range queries, such as [geo-spatial](/docs/interact/search-and-query/query/geo-spatial) or [vector search](/docs/interact/search-and-query/query/vector-search) queries, in their dedicated documentation articles.
+You can learn more about non-numeric range queries, such as [geospatial](/docs/interact/search-and-query/query/geo-spatial) or [vector search](/docs/interact/search-and-query/query/vector-search) queries, in their dedicated articles.

@@ -9,16 +9,15 @@ Redis Stack's geospatial feature allows you to query for data associated with ge
 
 The examples in this article use the following schema:
 
-| Field name     | Field type |
-| -------------- | ---------- |
-| store_location | GEO        |
-| pickup_zone    | GEOSHAPE   |
+| Field name       | Field type   |
+| --------------   | ----------   |
+| `store_location` | `GEO`        |
+| `pickup_zone`    | `GEOSHAPE`   |
 
 
 {{% alert title="Note" color="warning" %}}
 Redis Stack version 7.2.0 or higher is required to use the `GEOSHAPE` field type.
 {{% /alert  %}}
-
 
 ## Radius
 
@@ -30,7 +29,7 @@ FT.SEARCH index "@geo_field:[lon lat radius unit]"
 
 Allowed units are `m`, `km`, `mi`, and `ft`.
 
-The following query finds you all bicycle stores within a radius of 20 miles around London:
+The following query finds all bicycle stores within a radius of 20 miles around London:
 
 ```
 FT.SEARCH idx:bicycle "@store_location:[-0.1778 51.5524 20 mi]"
@@ -38,7 +37,7 @@ FT.SEARCH idx:bicycle "@store_location:[-0.1778 51.5524 20 mi]"
 
 ## Shape
 
-Right now, the only supported shapes are points and polygons, whereby you can query for polygons or points that either contain or are within a given geometric shape.
+The only supported shapes are points and polygons. You can query for polygons or points that either contain or are within a given geometric shape.
 
 ```
 FT.SEARCH index "@geo_shape_field:[{WITHIN|CONTAINS} $shape] PARAMS 2 shape "shape_as_wkt" DIALECT 3
@@ -46,9 +45,9 @@ FT.SEARCH index "@geo_shape_field:[{WITHIN|CONTAINS} $shape] PARAMS 2 shape "sha
 
 Here is a more detailed explanation of this query:
 
-1. **Field name**: You need to replace `geo_shape_field` with the `GEOSHAPE` field's name on which you want to query.
-2. **Spatial operator**: Spatial operators define the relationship between the shapes in the database and the shape you are searching for. You can either use `WITHIN` or `CONTAINS`. `WITHIN` finds any shape in the database that is inside the given shape. `CONTAINS` queries for any shape that surrounds the given shape.
-3. **Parameter**: The query refers to a parameter named `shape`. You can use any parameter name here. You need to use the `PARAMS` clause to set the parameter value. The value follows the [well-known text representation of a geometry](https://en.wikipedia.org/wiki/Well-known_text_representation_of_geometry). Supported types are `POINT(x y)` and `POLYGON((x1 y1, x2 y2, ...))`.
+1. **Field name**: you need to replace `geo_shape_field` with the `GEOSHAPE` field's name on which you want to query.
+2. **Spatial operator**: spatial operators define the relationship between the shapes in the database and the shape you are searching for. You can either use `WITHIN` or `CONTAINS`. `WITHIN` finds any shape in the database that is inside the given shape. `CONTAINS` queries for any shape that surrounds the given shape.
+3. **Parameter**: the query refers to a parameter named `shape`. You can use any parameter name here. You need to use the `PARAMS` clause to set the parameter value. The value follows the [well-known text representation of a geometry](https://en.wikipedia.org/wiki/Well-known_text_representation_of_geometry). Supported types are `POINT(x y)` and `POLYGON((x1 y1, x2 y2, ...))`.
 4. **Dialect**: Shape-based queries have been available since version three of the query dialect.
 
 The following example query verifies if a bicycle is within a pickup zone:

@@ -14,7 +14,7 @@ Redis Stack offers an enhanced Redis experience via the following search and que
 
 - A rich query language
 - Incremental indexing on JSON and hash documents
-- Vector similarity search
+- Vector search
 - Full-text search
 - Geospatial queries
 - Aggregations
@@ -30,9 +30,9 @@ The search and query features of Redis Stack allow you to use Redis as a:
 
 Here are the next steps to get you started:
 
-1. Follow our [quick start guide](/docs/get-started/document-database/) to get some first hands-on experience.
+1. Follow our [quick start guide](/docs/get-started/document-database/) to get some initial hands-on experience.
 2. Learn how to [create an index](/docs/interact/search-and-query/indexing/).
-3. Know how to [query your data](/docs/interact/search-and-query/query/).
+3. Learn how to [query your data](/docs/interact/search-and-query/query/).
 
 ## License and source code
 

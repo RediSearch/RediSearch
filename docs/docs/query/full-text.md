@@ -13,9 +13,9 @@ The examples in this article use a schema with the following fields:
 
 | Field name | Field type |
 | ---------- | ---------- |
-| brand      | TEXT       |
-| model      | TEXT       |
-| description| TEXT       |
+| `brand`      | `TEXT`       |
+| `model`      | `TEXT`       |
+| `description`| `TEXT`       |
 
 
 ## Single word
@@ -89,9 +89,7 @@ FT.SEARCH idx:bicycle "@brand:*bikes"
 
 ## Fuzzy search
 
-A fuzzy search allows you to find documents with words that match your search term approximately.
-
-You can wrap a word by using the `%` operator, whereby the operator can occur up to three times, and it controls the maximum allowed distance. 
+A fuzzy search allows you to find documents with words that approximately match your search term. To perform a fuzzy search, you wrap search terms with pairs of `%` characters. A single pair represents a (Levenshtein) distance of one, two pairs represent a distance of two, and three pairs, the maximum distance, represents a distance of three.
 
 Here is the command that searches across all text fields with a distance of one:
 
@@ -99,7 +97,7 @@ Here is the command that searches across all text fields with a distance of one:
 FT.SEARCH index "%word%"
 ```
 
-The following example finds all documents that contain a word that has a distance of one to the wrongly spelled word 'optamized'. You can see that this matches the word 'optimized'.
+The following example finds all documents that contain a word that has a distance of one to the incorrectly spelled word 'optamized'. You can see that this matches the word 'optimized'.
 
 ```
 FT.SEARCH idx:bicycle "%optamized%"
