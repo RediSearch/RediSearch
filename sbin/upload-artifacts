@@ -73,7 +73,8 @@ else
 fi
 
 if [[ $FORCE != 1 ]]; then
-	if [[ -z $GITHUB_ACTIONS ]]; then
+	# TODO: remove circle
+	if [[ -z $GITHUB_ACTIONS && -z $CIRCLECI ]]; then
 		eprint "Cannot upload outside of GitHub Actions. Override with FORCE=1."
 		exit 1
 	fi
