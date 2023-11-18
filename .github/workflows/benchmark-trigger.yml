@@ -7,18 +7,8 @@ on:
    types: [opened, reopened, synchronize, labeled] # Default ([opened, reopened, synchronize]) + labeled
 
 jobs:
-  # perf-ci:
-  #   name: Trigger
-  #   if: ${{ contains(github.event.pull_request.labels, 'action:run-benchmark') }}
-  #   uses: ./.github/workflows/benchmark-runner.yml
-  #   secrets: inherit
-
-  temp:
-    runs-on: ubuntu-latest
-    steps:
-      - env:
-          LABELS: ${{ toJson(github.event.pull_request.labels) }}
-          NAMES: ${{ toJson(github.event.pull_request.labels.*.name) }}
-        run: echo ^^^
-      - if: ${{ contains(github.event.pull_request.labels.*.name, 'run-benchmark') }}
-        run: echo Success
+  perf-ci:
+    name: Trigger
+    if: ${{ contains(github.event.pull_request.labels.*.name, 'action:run-benchmark') }}
+    uses: ./.github/workflows/benchmark-runner.yml
+    secrets: inherit
