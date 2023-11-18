@@ -17,5 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - env:
-          PR_CONTEXT: ${{ toJson(github.event.pull_request.labels) }}
+          LABELS: ${{ toJson(github.event.pull_request.labels) }}
+          NAMES: ${{ toJson(github.event.pull_request.labels.*.name) }}
         run: echo ^^^
+      - if: ${{ contains(github.event.pull_request.labels.*.name, 'run-benchmarks') }}
+        run: echo Success
