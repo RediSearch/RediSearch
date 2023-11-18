@@ -9,7 +9,7 @@ on:
 jobs:
   # perf-ci:
   #   name: Trigger
-  #   if: ${{ contains(github.event.pull_request.labels, 'run-benchmarks') }}
+  #   if: ${{ contains(github.event.pull_request.labels, 'action:run-benchmark') }}
   #   uses: ./.github/workflows/benchmark-runner.yml
   #   secrets: inherit
 
@@ -20,5 +20,5 @@ jobs:
           LABELS: ${{ toJson(github.event.pull_request.labels) }}
           NAMES: ${{ toJson(github.event.pull_request.labels.*.name) }}
         run: echo ^^^
-      - if: ${{ contains(github.event.pull_request.labels.*.name, 'run-benchmarks') }}
+      - if: ${{ contains(github.event.pull_request.labels.*.name, 'run-benchmark') }}
         run: echo Success
