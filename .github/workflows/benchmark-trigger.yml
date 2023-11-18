@@ -17,5 +17,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - env:
-          PR_CONTEXT: ${{ toJson(github.event.pull_request) }}
-        run: echo $PR_CONTEXT
+          PR_CONTEXT: ${{ toJson(github.event.pull_request.labels) }}
+        run: echo ^^^
