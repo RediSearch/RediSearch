@@ -13,4 +13,4 @@ jobs:
         env:
           GH_CONTEXT: ${{ toJson(github) }}
           NAME: ${{ github.event_name }}
-        run: exit 0
+        run:  exit 0
