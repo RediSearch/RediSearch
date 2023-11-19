@@ -1,13 +1,16 @@
 name: temporary testing
 
 on:
-  push:
-    branches-ignore: ['*'] # ignore all branches. Comment this line to run your workflow below on every push.
+  pull_request_target:
+  # push:
+    # branches-ignore: ['*'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  test-deploy-snapshot:
-    secrets: inherit
-    uses: ./.github/workflows/flow-build-artifacts.yml
-    with:
-      platform: ubuntu:jammy
-      architecture: x86_64
+  print-context:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print GitHub context
+        env:
+          GH_CONTEXT: ${{ toJson(github) }}
+          NAME: ${{ github.event_name }}
+        run: exit 0
