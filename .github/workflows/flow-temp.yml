@@ -1,9 +1,8 @@
 name: temporary testing
 
 on:
-  pull_request_target:
-  # push:
-    # branches-ignore: ['*'] # ignore all branches. Comment this line to run your workflow below on every push.
+  push:
+    branches-ignore: ['*'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
   print-context:

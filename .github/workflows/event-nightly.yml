@@ -18,7 +18,7 @@ jobs:
           - branch: "master"
             redis-ref: unstable
           - branch: "2.6"
-            redis-ref: '6.2.4'
+            redis-ref: '6.2.14'
     secrets: inherit
     uses: ./.github/workflows/flow-build-artifacts.yml
     with:
