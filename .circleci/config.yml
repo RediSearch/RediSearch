@@ -159,7 +159,7 @@ commands:
           name: Prepare Conan dependencies
           shell: /bin/bash -l -eo pipefail
           command: |
-            make conan <<parameters.build_params>> SHOW=1 NPROC=16
+            make conan <<parameters.build_params>> SHOW=1 NPROC=16 VARIANT=.circle
       - run:
           name: Build (Search)
           shell: /bin/bash -l -eo pipefail
@@ -167,20 +167,20 @@ commands:
             if [[ "<<parameters.mt_build>>" == "yes" ]]; then
                 export REDISEARCH_MT_BUILD=0
             fi
-            make build <<parameters.build_params>> SHOW=1 NPROC=16
+            make build <<parameters.build_params>> SHOW=1 NPROC=16 VARIANT=.circle
       - run:
           name: Build (Search Lite)
           shell: /bin/bash -l -eo pipefail
           command: |
-            make build LITE=1 <<parameters.build_params>> SHOW=1 NPROC=16
+            make build LITE=1 <<parameters.build_params>> SHOW=1 NPROC=16 VARIANT=.circle
       - run:
           name: Build (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
-          command: make build COORD=oss <<parameters.build_params>> SHOW=1 NPROC=16
+          command: make build COORD=oss <<parameters.build_params>> SHOW=1 NPROC=16 VARIANT=.circle
       - run:
           name: Build (RLEC Coordinator)
           shell: /bin/bash -l -eo pipefail
-          command: make build COORD=rlec <<parameters.build_params>> SHOW=1 NPROC=16
+          command: make build COORD=rlec <<parameters.build_params>> SHOW=1 NPROC=16 VARIANT=.circle
       - when:
           condition: << parameters.run_pack >>
           steps:
