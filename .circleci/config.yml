@@ -159,7 +159,7 @@ commands:
           name: Prepare Conan dependencies
           shell: /bin/bash -l -eo pipefail
           command: |
-            make conan <<parameters.build_params>> SHOW=1 NPROC=16 VARIANT=.circle
+            make conan <<parameters.build_params>> SHOW=1 NPROC=16
       - run:
           name: Build (Search)
           shell: /bin/bash -l -eo pipefail
@@ -167,20 +167,20 @@ commands:
             if [[ "<<parameters.mt_build>>" == "yes" ]]; then
                 export REDISEARCH_MT_BUILD=0
             fi
-            make build <<parameters.build_params>> SHOW=1 NPROC=16 VARIANT=.circle
+            make build <<parameters.build_params>> SHOW=1 NPROC=16
       - run:
           name: Build (Search Lite)
           shell: /bin/bash -l -eo pipefail
           command: |
-            make build LITE=1 <<parameters.build_params>> SHOW=1 NPROC=16 VARIANT=.circle
+            make build LITE=1 <<parameters.build_params>> SHOW=1 NPROC=16
       - run:
           name: Build (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
-          command: make build COORD=oss <<parameters.build_params>> SHOW=1 NPROC=16 VARIANT=.circle
+          command: make build COORD=oss <<parameters.build_params>> SHOW=1 NPROC=16
       - run:
           name: Build (RLEC Coordinator)
           shell: /bin/bash -l -eo pipefail
-          command: make build COORD=rlec <<parameters.build_params>> SHOW=1 NPROC=16 VARIANT=.circle
+          command: make build COORD=rlec <<parameters.build_params>> SHOW=1 NPROC=16
       - when:
           condition: << parameters.run_pack >>
           steps:
@@ -188,9 +188,9 @@ commands:
                 name: Pack
                 shell: /bin/bash -l -eo pipefail
                 command: |
-                  make pack VARIANT=.circle SHOW=1
-                  make pack VARIANT=.circle COORD=rlec SHOW=1
-                  make pack VARIANT=.circle LITE=1 SHOW=1
+                  make pack SHOW=1
+                  make pack COORD=rlec SHOW=1
+                  make pack LITE=1 SHOW=1
 
   test-steps:
     parameters:
@@ -273,7 +273,7 @@ commands:
           name: Upload artifacts to S3
           command: |
             if [[ -n $CIRCLE_BRANCH ]]; then
-                make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1
+                make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1 STAGING=1
             fi
       - persist-artifacts
 
@@ -284,7 +284,7 @@ commands:
         default: $CIRCLE_USERNAME
       module_path:
         type: string
-        default: bin/linux-x64-release-.circle/search/redisearch.so
+        default: bin/linux-x64-release/search/redisearch.so
       profile_env:
         type: string
         default: "0"
@@ -470,7 +470,7 @@ jobs:
           name: Upload artifacts to S3
           command: |
             if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
-                make upload-artifacts SHOW=1
+                make upload-artifacts SHOW=1 STAGING=1
             fi
       - persist-artifacts
 
@@ -509,7 +509,7 @@ jobs:
           name: Upload artifacts to S3
           command: |
             if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
-                make upload-artifacts SHOW=1
+                make upload-artifacts SHOW=1 STAGING=1
             fi
       - persist-artifacts
 
@@ -545,7 +545,7 @@ jobs:
           name: Upload artifacts to S3
           command: |
             if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
-                make upload-artifacts SHOW=1
+                make upload-artifacts SHOW=1 STAGING=1
             fi
       - persist-artifacts
 
@@ -581,7 +581,7 @@ jobs:
           name: Upload artifacts to S3
           command: |
             if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
-                make upload-artifacts SHOW=1
+                make upload-artifacts SHOW=1 STAGING=1
             fi
       - persist-artifacts
 
@@ -647,7 +647,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-02-primaries
           benchmark_runner_group_member_id: "1"
@@ -661,7 +661,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-02-primaries
           benchmark_runner_group_member_id: "2"
@@ -675,7 +675,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-04-primaries
           benchmark_runner_group_member_id: "1"
@@ -689,7 +689,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-04-primaries
           benchmark_runner_group_member_id: "2"
@@ -703,7 +703,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-08-primaries
           benchmark_runner_group_member_id: "1"
@@ -717,7 +717,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-08-primaries
           benchmark_runner_group_member_id: "2"
@@ -731,7 +731,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-08-primaries
           benchmark_runner_group_member_id: "3"
@@ -745,7 +745,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-16-primaries
           benchmark_runner_group_member_id: "1"
@@ -759,7 +759,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-16-primaries
           benchmark_runner_group_member_id: "2"
@@ -773,7 +773,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-16-primaries
           benchmark_runner_group_member_id: "3"
@@ -787,7 +787,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-20-primaries
           benchmark_runner_group_member_id: "1"
@@ -801,7 +801,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-24-primaries
           benchmark_runner_group_member_id: "1"
@@ -817,7 +817,7 @@ jobs:
       - benchmark-steps:
           profile_env: "1"
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-          module_path: bin/linux-x64-release-profile-.circle/search/redisearch.so
+          module_path: bin/linux-x64-release-profile/search/redisearch.so
           benchmark_glob: "search*.yml"
           benchmark_runner_group_member_id: "1"
           benchmark_runner_group_total: "3"
@@ -832,7 +832,7 @@ jobs:
       - benchmark-steps:
           profile_env: "1"
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-          module_path: bin/linux-x64-release-profile-.circle/search/redisearch.so
+          module_path: bin/linux-x64-release-profile/search/redisearch.so
           benchmark_glob: "search*.yml"
           benchmark_runner_group_member_id: "2"
           benchmark_runner_group_total: "3"
@@ -847,7 +847,7 @@ jobs:
       - benchmark-steps:
           profile_env: "1"
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-          module_path: bin/linux-x64-release-profile-.circle/search/redisearch.so
+          module_path: bin/linux-x64-release-profile/search/redisearch.so
           benchmark_glob: "search*.yml"
           benchmark_runner_group_member_id: "3"
           benchmark_runner_group_total: "3"
@@ -862,7 +862,7 @@ jobs:
       - benchmark-steps:
           profile_env: "1"
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-          module_path: bin/linux-x64-release-profile-.circle/search/redisearch.so
+          module_path: bin/linux-x64-release-profile/search/redisearch.so
           benchmark_glob: "vecsim*.yml"
           benchmark_runner_group_member_id: "1"
           benchmark_runner_group_total: "2"
@@ -877,7 +877,7 @@ jobs:
       - benchmark-steps:
           profile_env: "1"
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-          module_path: bin/linux-x64-release-profile-.circle/search/redisearch.so
+          module_path: bin/linux-x64-release-profile/search/redisearch.so
           benchmark_glob: "vecsim*.yml"
           benchmark_runner_group_member_id: "2"
           benchmark_runner_group_total: "2"
@@ -965,7 +965,7 @@ jobs:
     parameters:
       staging-lab:
         type: string
-        default: "0"
+        default: "1" # While we have github actions, we don't need to upload artifacts to the same place
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
