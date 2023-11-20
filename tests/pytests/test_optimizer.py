@@ -69,8 +69,9 @@ def compare_optimized_to_not(env, query, params, msg=None):
 
 def testOptimizer(env):
     env.skipOnCluster()
-    env.cmd('ft.config', 'set', 'timeout', '0')
+    env.cmd('FT.CONFIG', 'SET', 'TIMEOUT', '0')
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+    env.cmd('FT.CONFIG', 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true')
     repeat = 20000
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT', 'tag', 'TAG')
@@ -321,7 +322,6 @@ def testOptimizer(env):
     result = env.cmd('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 1500, *params)
     env.assertEqual(result[0], 1200)
 
-    #input('stop')
 
 def testWOLimit(env):
     env.skipOnCluster()
