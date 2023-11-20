@@ -447,10 +447,6 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     ResultProcessor *rp = req->qiter.endProc;
     SearchResult **results = NULL;
 
-    // <attributes>
-    RedisModule_ReplyKV_Array(reply, "attributes");
-    RedisModule_Reply_ArrayEnd(reply);
-
     if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       // Aggregate all results before populating the response
       results = AggregateResults(rp, &rc);
@@ -466,6 +462,10 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     if (IsOptimized(req)) {
       QOptimizer_UpdateTotalResults(req);
     }
+
+    // <attributes>
+    RedisModule_ReplyKV_Array(reply, "attributes");
+    RedisModule_Reply_ArrayEnd(reply);
 
     // TODO: Move this to after the results section, so that we can report the
     // error even if we respond with results (`ON_TIMEOUT RETURN`).
