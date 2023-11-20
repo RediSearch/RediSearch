@@ -1,0 +1,14 @@
+name: Push to Version, Feature or Master Branch
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  push:
+    branches:
+      - master
+      - '[0-9]+.[0-9]+'
+
+jobs:
+  benchmark:
+    uses: ./.github/workflows/benchmark-runner.yml
+    secrets: inherit

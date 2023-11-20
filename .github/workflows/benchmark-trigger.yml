@@ -1,0 +1,14 @@
+name: Benchmark
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  pull_request:
+   types: [opened, reopened, synchronize, labeled] # Default ([opened, reopened, synchronize]) + labeled
+
+jobs:
+  perf-ci:
+    name: Trigger
+    if: ${{ contains(github.event.pull_request.labels.*.name, 'action:run-benchmark') }}
+    uses: ./.github/workflows/benchmark-runner.yml
+    secrets: inherit

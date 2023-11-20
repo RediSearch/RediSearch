@@ -1,0 +1,15 @@
+name: temporary testing
+
+on:
+  push:
+    branches-ignore: ['*'] # ignore all branches. Comment this line to run your workflow below on every push.
+
+jobs:
+  print-context:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print GitHub context
+        env:
+          GH_CONTEXT: ${{ toJson(github) }}
+          NAME: ${{ github.event_name }}
+        run: exit 0
