@@ -6,6 +6,10 @@ on:
   merge_group:
     types: [checks_requested]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 # TODO: use some action like dorny/paths-filter@v2 to skip validation if only docs were changed
 # TODO: Use RedisJSON's `${{ vars.DEFAULT_REDISJSON_REF }}` branch when testing on nightly
 
