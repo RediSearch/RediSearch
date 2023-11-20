@@ -708,20 +708,19 @@ static int cmpIter(IndexIterator **it1, IndexIterator **it2) {
   enum iteratorType it_1_type = (*it1)->type;
   enum iteratorType it_2_type = (*it2)->type;
 
-  /* on UNION iterator, we multiply the estimate by the number of children
-   * since we iterate each read over all children.
+  /*
    * on INTERSECT iterator, we divide the estimate by the number of children
-   * since we skip as soon as a number does not in all iterators */
-  if (it_1_type == UNION_ITERATOR) {
+   * since we skip as soon as a number is not in all iterators */
+  if (it_1_type == INTERSECT_ITERATOR) {
+    factor1 = 1 / MAX(1, ((IntersectIterator *)*it1)->num);
+  } else if (it_1_type == UNION_ITERATOR && RSGlobalConfig.prioritizeIntersectUnionChildren) {
     factor1 = ((UnionIterator *)*it1)->num;
-  } else if (it_1_type == INTERSECT_ITERATOR) {
-    factor1 = 1 / MAX(1, ((UnionIterator *)*it1)->num);
   }
-  if (it_2_type == UNION_ITERATOR) {
+  if (it_2_type == INTERSECT_ITERATOR) {
+    factor2 = 1 / MAX(1, ((IntersectIterator *)*it2)->num);
+  } else if (it_2_type == UNION_ITERATOR && RSGlobalConfig.prioritizeIntersectUnionChildren) {
     factor2 = ((UnionIterator *)*it2)->num;
-  } else if (it_2_type == INTERSECT_ITERATOR) {
-    factor2 = 1 / MAX(1, ((UnionIterator *)*it2)->num);
-  }
+}
 
   return (int)((*it1)->NumEstimated((*it1)->ctx) * factor1 - (*it2)->NumEstimated((*it2)->ctx) * factor2);
 }
