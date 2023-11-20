@@ -267,7 +267,7 @@ commands:
           name: Upload artifacts to S3
           command: |
             if [[ -n $CIRCLE_BRANCH ]]; then
-                make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1
+                make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1 STAGING=1
             fi
       - persist-artifacts
 
@@ -464,7 +464,7 @@ jobs:
           name: Upload artifacts to S3
           command: |
             if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
-                make upload-artifacts SHOW=1
+                make upload-artifacts SHOW=1 STAGING=1
             fi
       - persist-artifacts
 
@@ -503,7 +503,7 @@ jobs:
           name: Upload artifacts to S3
           command: |
             if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
-                make upload-artifacts SHOW=1
+                make upload-artifacts SHOW=1 STAGING=1
             fi
       - persist-artifacts
 
@@ -539,7 +539,7 @@ jobs:
           name: Upload artifacts to S3
           command: |
             if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
-                make upload-artifacts SHOW=1
+                make upload-artifacts SHOW=1 STAGING=1
             fi
       - persist-artifacts
 
@@ -575,7 +575,7 @@ jobs:
           name: Upload artifacts to S3
           command: |
             if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
-                make upload-artifacts SHOW=1
+                make upload-artifacts SHOW=1 STAGING=1
             fi
       - persist-artifacts
 
@@ -1005,7 +1005,7 @@ jobs:
     parameters:
       staging-lab:
         type: string
-        default: "0"
+        default: "1" # While we have github actions, we don't need to upload artifacts to the same place
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
