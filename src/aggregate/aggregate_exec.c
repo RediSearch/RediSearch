@@ -315,10 +315,10 @@ SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
 }
 
 // Free's the results array and all the results inside it
-void clearResults(SearchResult **results) {
+void destroyResults(SearchResult **results) {
   if (results) {
     for (size_t i = 0; i < array_len(results); i++) {
-      SearchResult_Clear(results[i]);
+      SearchResult_Destroy(results[i]);
       rm_free(results[i]);
     }
     array_free(results);
@@ -399,7 +399,7 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       for (uint32_t i = 0; i < len; i++) {
         SearchResult *curr = array_pop(results);
         serializeResult(req, reply, curr, &cv);
-        SearchResult_Clear(curr);
+        SearchResult_Destroy(curr);
         rm_free(curr);
       }
       array_free(results);
@@ -422,8 +422,11 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
-    SearchResult_Destroy(&r);
-    clearResults(results);
+    if (results) {
+      destroyResults(results);
+    } else {
+      SearchResult_Destroy(&r);
+    }
 
     // Reset the total results length:
     req->qiter.totalResults = 0;
@@ -509,7 +512,7 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       for (uint32_t i = 0; i < len; i++) {
         SearchResult *curr = array_pop(results);
         serializeResult(req, reply, curr, &cv);
-        SearchResult_Clear(curr);
+        SearchResult_Destroy(curr);
         rm_free(curr);
       }
       array_free(results);
@@ -534,8 +537,11 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 done_3:
     RedisModule_Reply_ArrayEnd(reply); // >results
 
-    SearchResult_Destroy(&r);
-    clearResults(results);
+    if (results) {
+      destroyResults(results);
+    } else {
+      SearchResult_Destroy(&r);
+    }
 
     if (rc != RS_RESULT_OK &&
       !(rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return)) {
