@@ -284,7 +284,7 @@ commands:
         default: $CIRCLE_USERNAME
       module_path:
         type: string
-        default: bin/linux-x64-release/search/redisearch.so
+        default: bin/linux-x64-release-.circle/search/redisearch.so
       profile_env:
         type: string
         default: "0"
@@ -647,7 +647,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-02-primaries
           benchmark_runner_group_member_id: "1"
@@ -661,7 +661,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-02-primaries
           benchmark_runner_group_member_id: "2"
@@ -675,7 +675,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-04-primaries
           benchmark_runner_group_member_id: "1"
@@ -689,7 +689,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-04-primaries
           benchmark_runner_group_member_id: "2"
@@ -703,7 +703,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-08-primaries
           benchmark_runner_group_member_id: "1"
@@ -717,7 +717,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-08-primaries
           benchmark_runner_group_member_id: "2"
@@ -731,7 +731,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-08-primaries
           benchmark_runner_group_member_id: "3"
@@ -745,7 +745,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-16-primaries
           benchmark_runner_group_member_id: "1"
@@ -759,7 +759,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-16-primaries
           benchmark_runner_group_member_id: "2"
@@ -773,7 +773,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-16-primaries
           benchmark_runner_group_member_id: "3"
@@ -787,7 +787,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-20-primaries
           benchmark_runner_group_member_id: "1"
@@ -801,7 +801,7 @@ jobs:
           run_pack: false
       - benchmark-steps:
           benchmark_glob: "search*.yml"
-          module_path: bin/linux-x64-release/coord-oss/module-oss.so
+          module_path: bin/linux-x64-release-.circle/coord-oss/module-oss.so
           allowed_envs: oss-cluster
           allowed_setups: oss-cluster-24-primaries
           benchmark_runner_group_member_id: "1"
@@ -817,7 +817,7 @@ jobs:
       - benchmark-steps:
           profile_env: "1"
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-          module_path: bin/linux-x64-release-profile/search/redisearch.so
+          module_path: bin/linux-x64-release-profile-.circle/search/redisearch.so
           benchmark_glob: "search*.yml"
           benchmark_runner_group_member_id: "1"
           benchmark_runner_group_total: "3"
@@ -832,7 +832,7 @@ jobs:
       - benchmark-steps:
           profile_env: "1"
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-          module_path: bin/linux-x64-release-profile/search/redisearch.so
+          module_path: bin/linux-x64-release-profile-.circle/search/redisearch.so
           benchmark_glob: "search*.yml"
           benchmark_runner_group_member_id: "2"
           benchmark_runner_group_total: "3"
@@ -847,7 +847,7 @@ jobs:
       - benchmark-steps:
           profile_env: "1"
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-          module_path: bin/linux-x64-release-profile/search/redisearch.so
+          module_path: bin/linux-x64-release-profile-.circle/search/redisearch.so
           benchmark_glob: "search*.yml"
           benchmark_runner_group_member_id: "3"
           benchmark_runner_group_total: "3"
@@ -862,7 +862,7 @@ jobs:
       - benchmark-steps:
           profile_env: "1"
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-          module_path: bin/linux-x64-release-profile/search/redisearch.so
+          module_path: bin/linux-x64-release-profile-.circle/search/redisearch.so
           benchmark_glob: "vecsim*.yml"
           benchmark_runner_group_member_id: "1"
           benchmark_runner_group_total: "2"
@@ -877,7 +877,7 @@ jobs:
       - benchmark-steps:
           profile_env: "1"
           triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-          module_path: bin/linux-x64-release-profile/search/redisearch.so
+          module_path: bin/linux-x64-release-profile-.circle/search/redisearch.so
           benchmark_glob: "vecsim*.yml"
           benchmark_runner_group_member_id: "2"
           benchmark_runner_group_total: "2"
