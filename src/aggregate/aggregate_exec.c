@@ -373,6 +373,10 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (QueryError_HasError(rp->parent->err)) {
+      // TODO: Add a condition here, checking whether the error is a timeout.
+      // If so, we should reply with a timeout error only if we are in the strict
+      // policy, as we do below.
+
       RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
       QueryError_ClearError(req->qiter.err);
       goto done_2;
@@ -414,24 +418,21 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // Once we get here, we want to return the results we got from the pipeline (with no error)
     if (req->reqflags & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
-      RedisModule_Reply_ArrayEnd(reply);    // </results>
-      goto done_2;
+      goto done_close_2;
     }
 
     // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
     if (results != NULL) {
       populateReplyWithResults(reply, results, req, &cv);
       results = NULL;
-      RedisModule_Reply_ArrayEnd(reply);    // </results>
-      goto done_2;
+      goto done_close_2;
     }
 
     if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
       serializeResult(req, reply, &r, &cv);
       SearchResult_Clear(&r);
     } else {
-      RedisModule_Reply_ArrayEnd(reply);    // </results>
-      goto done_2;
+      goto done_close_2;
     }
 
     while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
@@ -439,6 +440,7 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       SearchResult_Clear(&r);
     }
 
+done_close_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
 done_2:
@@ -488,6 +490,8 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       goto done_3;
     }
 
+    RedisModule_Reply_Map(reply);
+
     if (IsOptimized(req)) {
       QOptimizer_UpdateTotalResults(req);
     }
@@ -536,8 +540,7 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
     if (req->reqflags & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
-      RedisModule_Reply_ArrayEnd(reply); // >results
-      goto done_3;
+      goto done_close_3;
     }
 
     if (results != NULL) {
@@ -550,8 +553,7 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
       SearchResult_Clear(&r);
       if (rc != RS_RESULT_OK || !rp->parent->resultLimit) {
-        RedisModule_Reply_ArrayEnd(reply); // >results
-        goto done_3;
+        goto done_close_3;
       }
 
       while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
@@ -559,9 +561,11 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
         // Serialize it as a search result
         SearchResult_Clear(&r);
       }
-
-      RedisModule_Reply_ArrayEnd(reply); // >results
     }
+
+done_close_3:
+    RedisModule_Reply_ArrayEnd(reply); // >results
+    RedisModule_Reply_MapEnd(reply);
 
 done_3:
     if (results) {
@@ -607,14 +611,14 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
-  if (reply->resp3 || IsProfile(req)) {
+  if (IsProfile(req)) {
     RedisModule_Reply_Map(reply);
   }
-    sendChunk(req, reply, -1);
-    if (IsProfile(req)) {
-      Profile_Print(reply, req);
-    }
-  if (reply->resp3 || IsProfile(req)) {
+  sendChunk(req, reply, -1);
+  if (IsProfile(req)) {
+    Profile_Print(reply, req);
+  }
+  if (IsProfile(req)) {
     RedisModule_Reply_MapEnd(reply);
   }
   RedisModule_EndReply(reply);
