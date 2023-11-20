@@ -56,8 +56,6 @@ on:
         description: 'Whether to run standalone tests'
         type: boolean
         default: true
-      redis-ref:
-        type: string
 
 jobs:
   get-required-envs:
