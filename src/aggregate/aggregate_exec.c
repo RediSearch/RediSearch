@@ -556,8 +556,6 @@ done_3:
  * Sends a chunk of <n> rows, optionally also sending the preamble
  */
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
-  bool has_map = RedisModule_HasMap(reply);
-
   if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !(req->reqflags & QEXEC_F_IS_SEARCH)) {
     limit = req->maxAggregateResults;
   }
@@ -569,6 +567,8 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
   // Set the chunk size limit for the query
     req->qiter.resultLimit = limit;
+
+  bool has_map = RedisModule_HasMap(reply);
 
   if (has_map) {
     sendChunk_Resp3(req, reply, limit, cv);
