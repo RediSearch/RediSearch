@@ -334,8 +334,7 @@ bool ShouldReplyWithTimeoutError(int rc, AREQ *req) {
 }
 
 void ReplyWithTimeoutError(RedisModule_Reply *reply) {
-  // TODO: Change to an error (MOD-5965)
-  RedisModule_Reply_SimpleString(reply, "Timeout limit was reached");
+  RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
 }
 
 void populateReplyWithResults(RedisModule_Reply *reply,SearchResult **results,AREQ *req,cachedVars *cv) {
