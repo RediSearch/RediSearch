@@ -47,6 +47,9 @@ jobs:
             print(f'configurations={configurations}', file=fh)
             print(f'includes={includes}', file=fh)
 
+  docs-only: # Check whether the PR is only modifying docs
+    uses: ./.github/workflows/task-check-docs.yml
+
   test-linux:
     needs: [print-configurations, docs-only]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
@@ -102,9 +105,6 @@ jobs:
     secrets: inherit
     with:
       flow-config: '' # full sanitization
-
-  docs-only: # Check whether the PR is only modifying docs
-    uses: ./.github/workflows/task-check-docs.yml
 
   pr-validation:
     needs: [test-linux, test-macos, coverage, sanitize]

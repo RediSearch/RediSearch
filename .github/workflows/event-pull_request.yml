@@ -10,6 +10,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  docs-only: # Check whether the PR is only modifying docs
+    uses: ./.github/workflows/task-check-docs.yml
+
   basic-test:
     needs: docs-only
     if: needs.docs-only.outputs.only-docs-changed == 'false'
@@ -32,9 +35,6 @@ jobs:
     secrets: inherit
     with:
       flow-config: QUICK=1
-
-  docs-only: # Check whether the PR is only modifying docs
-    uses: ./.github/workflows/task-check-docs.yml
 
   pr-validation:
     needs: [basic-test, coverage, sanitize]
