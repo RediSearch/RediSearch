@@ -372,11 +372,25 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       rc = rp->Next(rp, &r);
     }
 
+    // If an error occurred, or a timeout in strict mode - return a simple error
+    if (QueryError_HasError(rp->parent->err)) {
+      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
+      QueryError_ClearError(req->qiter.err);
+      goto done_2;
+    } else if (rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+      ReplyWithTimeoutError(reply);
+      goto done_2;
+    }
+
     if (IsOptimized(req)) {
       QOptimizer_UpdateTotalResults(req);
     }
 
     RedisModule_Reply_Array(reply);
+
+    // ********TODO******
+    // Change the below section. For instance, there's no chance we run into the
+    // first condition, since we know that !(rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail).
 
     // Reply with a timeout or regular error, if needed (policy dependent)
     if (ShouldReplyWithTimeoutError(rc, req)) {
@@ -401,6 +415,7 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // Once we get here, we want to return the results we got from the pipeline (with no error)
     if (req->reqflags & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
+      RedisModule_Reply_ArrayEnd(reply);    // </results>
       goto done_2;
     }
 
@@ -408,6 +423,7 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     if (results != NULL) {
       populateReplyWithResults(reply, results, req, &cv);
       results = NULL;
+      RedisModule_Reply_ArrayEnd(reply);    // </results>
       goto done_2;
     }
 
@@ -415,6 +431,7 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       serializeResult(req, reply, &r, &cv);
       SearchResult_Clear(&r);
     } else {
+      RedisModule_Reply_ArrayEnd(reply);    // </results>
       goto done_2;
     }
 
@@ -423,9 +440,9 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       SearchResult_Clear(&r);
     }
 
-done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
+done_2:
     if (results) {
       destroyResults(results);
     } else {
@@ -463,6 +480,15 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       rc = rp->Next(rp, &r);
     }
 
+    if (QueryError_HasError(rp->parent->err)) {
+      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
+      QueryError_ClearError(req->qiter.err);
+      goto done_3;
+    } else if (rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+      ReplyWithTimeoutError(reply);
+      goto done_3;
+    }
+
     if (IsOptimized(req)) {
       QOptimizer_UpdateTotalResults(req);
     }
@@ -482,6 +508,10 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       QueryError_ClearError(req->qiter.err);
     }
     RedisModule_Reply_ArrayEnd(reply); // >errors
+
+    // ********TODO******
+    // Change the below section. For instance, there's no chance we run into the
+    // first condition, since we know that !(rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail).
 
     // TODO: Move this to after the results section, so that we can report the
     // correct number of returned results.
@@ -507,6 +537,7 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
     if (req->reqflags & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
+      RedisModule_Reply_ArrayEnd(reply); // >results
       goto done_3;
     }
 
@@ -520,6 +551,7 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
       SearchResult_Clear(&r);
       if (rc != RS_RESULT_OK || !rp->parent->resultLimit) {
+        RedisModule_Reply_ArrayEnd(reply); // >results
         goto done_3;
       }
 
@@ -528,11 +560,11 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
         // Serialize it as a search result
         SearchResult_Clear(&r);
       }
+
+      RedisModule_Reply_ArrayEnd(reply); // >results
     }
 
 done_3:
-    RedisModule_Reply_ArrayEnd(reply); // >results
-
     if (results) {
       destroyResults(results);
     } else {
