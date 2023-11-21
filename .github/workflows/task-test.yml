@@ -36,6 +36,8 @@ jobs:
   common-flow:
     runs-on: ${{ inputs.env }}
     container: ${{ inputs.container || null }}
+    # Nothing to do if both are `false`, skip
+    if: ${{ inputs.standalone || inputs.coordinator }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}

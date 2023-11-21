@@ -18,6 +18,4 @@ echo $OS
 
 source ${OS}.sh $MODE
 
-# needed so readies can generate git_sha etc. in the makefile for the build (see readies/mk/git.defs)
-# TODO: remove this and generate variables in a better way
 git config --global --add safe.directory '*'

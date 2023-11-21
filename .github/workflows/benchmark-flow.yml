@@ -44,6 +44,8 @@ jobs:
           submodules: recursive
       - name: Setup
         run: ./sbin/setup
+      - name: Git Config
+        run: git config --global --add safe.directory '*'
       - name: Get Redis
         uses: actions/checkout@v4
         with:
