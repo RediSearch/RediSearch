@@ -178,6 +178,9 @@ typedef struct AREQ {
   size_t maxSearchResults;
   size_t maxAggregateResults;
 
+  // Cursor id, if this is a cursor
+  uint64_t cursor_id;
+
 } AREQ;
 
 /**

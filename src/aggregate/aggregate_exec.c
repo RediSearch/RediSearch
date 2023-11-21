@@ -349,6 +349,82 @@ void populateReplyWithResults(RedisModule_Reply *reply,SearchResult **results,AR
       array_free(results);
 }
 
+// // Shared operations that need to be done upon opening a response (resp2/3)
+// void init_response(int *rc, ResultProcessor *rp, AREQ *req,
+//   RedisModule_Reply *reply, SearchResult **results, SearchResult *r) {
+//     if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+//       // Aggregate all results before populating the response
+//       results = AggregateResults(rp, rc);
+//       // Check timeout after aggregation
+//       if (TimedOut(&rp->parent->sctx->timeout) == TIMED_OUT) {
+//         rc = RS_RESULT_TIMEDOUT;
+//       }
+//     } else {
+//       // Send the results received from the pipeline as they come (no need to aggregate)
+//       rc = rp->Next(rp, &r);
+//     }
+
+//     // If an error occurred, or a timeout in strict mode - return a simple error
+//     if (QueryError_HasError(rp->parent->err)) {
+//       if (rp->parent->err->code != QUERY_ETIMEDOUT
+//           || (rp->parent->err->code == QUERY_ETIMEDOUT
+//               && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
+//               && !IsProfile(req)
+//               && !(req->reqflags & QEXEC_F_IS_CURSOR))) {
+//                 RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
+//                 QueryError_ClearError(req->qiter.err);
+//                 return;
+//       }
+//     } else if (ShouldReplyWithTimeoutError(rc, req)) {
+//     // } else if (rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+//       ReplyWithTimeoutError(reply);
+//       return;
+//     }
+
+//     if (IsOptimized(req)) {
+//       QOptimizer_UpdateTotalResults(req);
+//     }
+
+//     if (req->reqflags & QEXEC_F_IS_CURSOR) {
+//       RedisModule_Reply_Array(reply);
+//       RedisModule_Reply_Map(reply);
+//     }
+
+//     // Upon `FT.PROFILE` commands, embed the response inside another map
+//     if (IsProfile(req)) {
+//       RedisModule_Reply_Map(reply);
+//     }
+// }
+
+// // Shared operations that need to be done upon closing a response (resp2/3)
+// void finalizeResponse(int rc, AREQ *req, RedisModule_Reply *reply,
+//   SearchResult **results, SearchResult *r) {
+//     bool cursor_done = (rc != RS_RESULT_OK
+//                       && !(rc == RS_RESULT_TIMEDOUT
+//                             && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
+
+//     // Handle `FT.PROFILE` extra response
+//     if (IsProfile(req)) {
+//       if (!(req->reqflags & QEXEC_F_IS_CURSOR) || cursor_done) {
+//         Profile_Print(reply, req);
+//         RedisModule_Reply_MapEnd(reply);
+//       }
+//     }
+
+//     if (req->reqflags & QEXEC_F_IS_CURSOR) {
+//       RedisModule_Reply_ArrayEnd(reply);
+//       // TODO: Add the cursor id to the AREQ, and add the below line
+//       // RedisModule_Reply_LongLong(reply, cursor_done ? 0 : cursor->id);
+//       RedisModule_Reply_MapEnd(reply);
+//     }
+
+//     // TODO: Make sure this is ok when the timeout policy is strict (i.e., `FAIL`)
+//     SearchResult_Destroy(r);
+
+//     // Reset the total results length:
+//     req->qiter.totalResults = 0;
+// }
+
 /**
  * Sends a chunk of <n> rows in the resp2 format
 */
@@ -373,20 +449,33 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (QueryError_HasError(rp->parent->err)) {
-      // TODO: Add a condition here, checking whether the error is a timeout.
-      // If so, we should reply with a timeout error only if we are in the strict
-      // policy, as we do below.
-
-      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
-      QueryError_ClearError(req->qiter.err);
-      goto done_2;
-    } else if (rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+      if (rp->parent->err->code != QUERY_ETIMEDOUT
+          || (rp->parent->err->code == QUERY_ETIMEDOUT
+            && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
+            && !IsProfile(req)
+            && !(req->reqflags & QEXEC_F_IS_CURSOR))) {
+              RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
+              QueryError_ClearError(req->qiter.err);
+              return;
+      }
+    } else if (ShouldReplyWithTimeoutError(rc, req)) {
+    // } else if (rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       ReplyWithTimeoutError(reply);
-      goto done_2;
+      return;
     }
 
     if (IsOptimized(req)) {
       QOptimizer_UpdateTotalResults(req);
+    }
+
+    if (req->reqflags & QEXEC_F_IS_CURSOR) {
+      RedisModule_Reply_Array(reply);
+    }
+
+    // TODO: Why the discrepancy between cursor and non-cursor?
+    // Upon `FT.PROFILE` commands, embed the response inside another map
+    if (IsProfile(req) && !(req->reqflags & QEXEC_F_IS_CURSOR)) {
+      RedisModule_Reply_Map(reply);
     }
 
     RedisModule_Reply_Array(reply);
@@ -418,21 +507,21 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // Once we get here, we want to return the results we got from the pipeline (with no error)
     if (req->reqflags & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
-      goto done_close_2;
+      goto done_2;
     }
 
     // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
     if (results != NULL) {
       populateReplyWithResults(reply, results, req, &cv);
       results = NULL;
-      goto done_close_2;
+      goto done_2;
     }
 
     if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
       serializeResult(req, reply, &r, &cv);
       SearchResult_Clear(&r);
     } else {
-      goto done_close_2;
+      goto done_2;
     }
 
     while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
@@ -440,23 +529,37 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       SearchResult_Clear(&r);
     }
 
-done_close_2:
+done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
-done_2:
-    if (results) {
-      destroyResults(results);
-    } else {
-      SearchResult_Destroy(&r);
+    bool cursor_done = (rc != RS_RESULT_OK
+                        && !(rc == RS_RESULT_TIMEDOUT
+                             && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
+
+    if (req->reqflags & QEXEC_F_IS_CURSOR) {
+      if (cursor_done) {
+        RedisModule_Reply_LongLong(reply, 0);
+        if (IsProfile(req)) {
+          Profile_Print(reply, req);
+        }
+      } else {
+        RedisModule_Reply_LongLong(reply, req->cursor_id);
+        if (IsProfile(req)) {
+          // If the cursor is still alive, don't print profile info to save bandwidth
+          RedisModule_Reply_Null(reply);
+        }
+      }
+      RedisModule_Reply_ArrayEnd(reply);
+    } else if (IsProfile(req)) {
+      Profile_Print(reply, req);
+      RedisModule_Reply_MapEnd(reply);
     }
+
+    // TODO: Make sure this is ok when the timeout policy is strict (i.e., `FAIL`)
+    SearchResult_Destroy(&r);
 
     // Reset the total results length:
     req->qiter.totalResults = 0;
-
-    if (rc != RS_RESULT_OK &&
-      !(rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return)) {
-        req->stateflags |= QEXEC_S_ITERDONE;
-    }
 }
 
 /**
@@ -482,12 +585,22 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     }
 
     if (QueryError_HasError(rp->parent->err)) {
-      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
-      QueryError_ClearError(req->qiter.err);
-      goto done_3;
+      if (rp->parent->err->code != QUERY_ETIMEDOUT
+          || (rp->parent->err->code == QUERY_ETIMEDOUT
+            && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
+            && !IsProfile(req)
+            && !(req->reqflags & QEXEC_F_IS_CURSOR))) {
+              RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
+              QueryError_ClearError(req->qiter.err);
+              goto done_3;
+      }
     } else if (rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       ReplyWithTimeoutError(reply);
-      goto done_3;
+      return;
+    }
+
+    if (req->reqflags & QEXEC_F_IS_CURSOR) {
+      RedisModule_Reply_Array(reply);
     }
 
     RedisModule_Reply_Map(reply);
@@ -540,7 +653,7 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
     if (req->reqflags & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
-      goto done_close_3;
+      goto done_3;
     }
 
     if (results != NULL) {
@@ -553,7 +666,7 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
       SearchResult_Clear(&r);
       if (rc != RS_RESULT_OK || !rp->parent->resultLimit) {
-        goto done_close_3;
+        goto done_3;
       }
 
       while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
@@ -563,16 +676,28 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       }
     }
 
-done_close_3:
+done_3:
     RedisModule_Reply_ArrayEnd(reply); // >results
+
+    bool cursor_done = (rc != RS_RESULT_OK
+                        && !(rc == RS_RESULT_TIMEDOUT
+                             && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
+
+    if (IsProfile(req)) {
+      if (!(req->reqflags & QEXEC_F_IS_CURSOR) || cursor_done) {
+        Profile_Print(reply, req);
+      }
+    }
+
     RedisModule_Reply_MapEnd(reply);
 
-done_3:
-    if (results) {
-      destroyResults(results);
-    } else {
-      SearchResult_Destroy(&r);
+    if (req->reqflags & QEXEC_F_IS_CURSOR) {
+      RedisModule_Reply_LongLong(reply, cursor_done ? 0 : req->cursor_id);
+      RedisModule_Reply_ArrayEnd(reply);
     }
+
+    // TODO: Make sure this is ok when the timeout policy is strict.
+    SearchResult_Destroy(&r);
 
     if (rc != RS_RESULT_OK &&
       !(rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return)) {
@@ -599,9 +724,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   // Set the chunk size limit for the query
     req->qiter.resultLimit = limit;
 
-  bool has_map = RedisModule_HasMap(reply);
-
-  if (has_map) {
+  if (reply->resp3) {
     sendChunk_Resp3(req, reply, limit, cv);
   } else {
     sendChunk_Resp2(req, reply, limit, cv);
@@ -610,17 +733,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
-  if (IsProfile(req)) {
-    RedisModule_Reply_Map(reply);
-  }
   sendChunk(req, reply, -1);
-  if (IsProfile(req)) {
-    Profile_Print(reply, req);
-  }
-  if (IsProfile(req)) {
-    RedisModule_Reply_MapEnd(reply);
-  }
   RedisModule_EndReply(reply);
   AREQ_Free(req);
 }
@@ -990,6 +1103,7 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
     return REDISMODULE_ERR;
   }
   cursor->execState = r;
+  r->cursor_id = cursor->id;
   runCursor(reply, cursor, 0);
   return REDISMODULE_OK;
 }
@@ -1016,47 +1130,21 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
   req->cursorChunkSize = num;
 
-  if (has_map) // RESP3
-  {
-    RedisModule_Reply_Array(reply);
-    RedisModule_Reply_Map(reply);
-    sendChunk(req, reply, num);
-    RedisSearchCtx_UnlockSpec(req->sctx); // Verify that we release the spec lock
-    bool cursor_done = !!(req->stateflags & QEXEC_S_ITERDONE);
+  sendChunk(req, reply, num);
+  RedisSearchCtx_UnlockSpec(req->sctx); // Verify that we release the spec lock
 
-    // If the cursor is still alive, don't print profile info to save bandwidth
-    if (IsProfile(req) && cursor_done) {
-      Profile_Print(reply, req);
-    }
-    RedisModule_Reply_MapEnd(reply);
-
-    RedisModule_Reply_LongLong(reply, cursor_done ? 0 : cursor->id);
-    RedisModule_Reply_ArrayEnd(reply);
-  }
-  else // RESP2
-  {
-    // return array of [results, cursorID]. (the typical result reply is in the first reply)
-    // for profile, we return array of [results, cursorID, profile]
-    RedisModule_Reply_Array(reply);
-    sendChunk(req, reply, num);
-    RedisSearchCtx_UnlockSpec(req->sctx); // Verify that we release the spec lock
-    bool cursor_done = !!(req->stateflags & QEXEC_S_ITERDONE);
-
-    if (cursor_done) {
-      // Write the count!
-      RedisModule_Reply_LongLong(reply, 0);
-      if (IsProfile(req)) {
-        Profile_Print(reply, req);
-      }
-    } else {
-      RedisModule_Reply_LongLong(reply, cursor->id);
-      if (IsProfile(req)) {
-        // If the cursor is still alive, don't print profile info to save bandwidth
-        RedisModule_Reply_Null(reply);
-      }
-    }
-    RedisModule_Reply_ArrayEnd(reply);
-  }
+  // if (has_map) // RESP3
+  // {
+  //   sendChunk(req, reply, num);
+  //   RedisSearchCtx_UnlockSpec(req->sctx); // Verify that we release the spec lock
+  // }
+  // else // RESP2
+  // {
+  //   // return array of [results, cursorID]. (the typical result reply is in the first reply)
+  //   // for profile, we return array of [results, cursorID, profile]
+  //   sendChunk(req, reply, num);
+  //   RedisSearchCtx_UnlockSpec(req->sctx); // Verify that we release the spec lock
+  // }
 
   if (req->stateflags & QEXEC_S_ITERDONE) {
     AREQ_Free(req);
