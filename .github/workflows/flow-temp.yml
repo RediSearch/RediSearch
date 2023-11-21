@@ -2,14 +2,19 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['*'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['*'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
   print-context:
     runs-on: ubuntu-latest
+    container: ubuntu:jammy
     steps:
-      - name: Print GitHub context
-        env:
-          GH_CONTEXT: ${{ toJson(github) }}
-          NAME: ${{ github.event_name }}
-        run: exit 0
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - run: git config --global --get safe.directory
+        continue-on-error: true
+      - run: git config --system --get safe.directory
+        continue-on-error: true
+      - run: git config --local  --get safe.directory
+        continue-on-error: true
