@@ -5,41 +5,22 @@ on:
     branches-ignore: ['*'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  doc-check:
-    uses: ./.github/workflows/task-check-docs.yml
+  get-latest:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
 
-  run:
-    needs: doc-check
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo ${{ needs.doc-check.outputs.only-docs-changed }}
+  get-latest-6:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: 6 # Get latest version with major version 6
 
-  run-if:
-    needs: doc-check
-    if: needs.doc-check.outputs.only-docs-changed == 'true'
+  print:
     runs-on: ubuntu-latest
+    needs: [get-latest, get-latest-6]
     steps:
-      - run: echo "only docs changed"
-
-  run-if-not:
-    needs: doc-check
-    if: needs.doc-check.outputs.only-docs-changed != 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          echo "docs not changed: ${{ needs.doc-check.outputs.only-docs-changed }}"
-
-  run-bool:
-    needs: doc-check
-    if: needs.doc-check.outputs.only-docs-changed
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "only docs changed"
-
-  run-not-bool:
-    needs: doc-check
-    if: ${{ !needs.doc-check.outputs.only-docs-changed }}
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          echo "docs not changed: ${{ needs.doc-check.outputs.only-docs-changed }}"
+      - name: Print latest tag
+        run: echo "Latest tag is ${{ needs.get-latest.outputs.tag }}"
+      - name: Print latest tag with major version 6
+        run: echo "Latest tag with major version 6 is ${{ needs.get-latest-6.outputs.tag }}"
