@@ -10,8 +10,6 @@ jobs:
     container: ubuntu:jammy
     steps:
       - uses: actions/checkout@v3
-        with:
-          submodules: recursive
       - run: git config --global --get safe.directory
         continue-on-error: true
       - run: git config --system --get safe.directory
