@@ -4,6 +4,15 @@ name: Build on macOS
 
 on:
   workflow_dispatch:
+    inputs:
+      coordinator:
+        description: 'Run coordinator tests'
+        type: boolean
+        default: true
+      standalone:
+        description: 'Run standalone tests'
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       test-config:
