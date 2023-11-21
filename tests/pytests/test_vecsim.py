@@ -1678,8 +1678,7 @@ def test_timeout_reached():
                 res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
                                            'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
                                            'TIMEOUT', 1)
-                # TODO: Add when MOD-5965 is merged
-                # env.assertEqual(type(res[0]), ResponseError)
+                # TODO: Shouldn't get here - validate and remove.
                 env.assertEqual(str(res[0]), timeout_expected)
             except Exception as error:
                 env.assertContains('Timeout limit was reached', str(error))
@@ -1708,6 +1707,7 @@ def test_timeout_reached():
                                                 'TIMEOUT', 1)
                     # TODO: Add when MOD-5965 is merged
                     # env.assertEqual(type(res[0]), ResponseError)
+                    # TODO: Shouldn't get here - validate and remove.
                     env.assertEqual(str(res[0]), timeout_expected)
                 except Exception as error:
                     env.assertContains('Timeout limit was reached', str(error))

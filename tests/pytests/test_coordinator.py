@@ -94,27 +94,13 @@ def test_error_propagation_from_shards(env):
     SkipOnNonCluster(env)
 
     # indexing an index that doesn't exist (today revealed only in the shards)
-    if env.protocol == 3:
-        err = env.cmd('FT.AGGREGATE', 'idx', '*')['error']
-    else:
-        err = env.cmd('FT.AGGREGATE', 'idx', '*')[1]
-
-    env.assertEqual(type(err[0]), ResponseError)
-    env.assertContains('idx: no such index', str(err[0]))
-    # The same for `FT.SEARCH`.
+    env.expect('FT.AGGREGATE', 'idx', '*').error().contains('idx: no such index')
     env.expect('FT.SEARCH', 'idx', '*').error().contains('idx: no such index')
 
     # Bad query
     # create the index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    if env.protocol == 3:
-        err = env.cmd('FT.AGGREGATE', 'idx', '**')['error']
-    else:
-        err = env.cmd('FT.AGGREGATE', 'idx', '**')[1]
-
-    env.assertEqual(type(err[0]), ResponseError)
-    env.assertContains('Syntax error', str(err[0]))
-    # The same for `FT.SEARCH`.
+    env.expect('FT.AGGREGATE', 'idx', '**').error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '**').error().contains('Syntax error')
 
     # Other stuff that are being checked only on the shards (FYI):
