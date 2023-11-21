@@ -5,12 +5,33 @@ on:
     # branches-ignore: ['*'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  print-context:
+  test-container:
     runs-on: ubuntu-latest
     container: ubuntu:jammy
     steps:
       - run: apt update && apt install -y git
       - uses: actions/checkout@v4
+      - run: git config --global --get safe.directory
+        continue-on-error: true
+      - run: git config --system --get safe.directory
+        continue-on-error: true
+      - run: git config --local  --get safe.directory
+        continue-on-error: true
+      - run: echo $HOME && ls -la $HOME
+      - run: find / -name .gitconfig
       - run: git config --global --add safe.directory .
+      - run: git config --global --get safe.directory
+
+  test-host:
+    runs-on: ubuntu-latest
+    steps:
+      - run: sudo apt update && sudo apt install -y git
+      - uses: actions/checkout@v4
+      - run: git config --global --get safe.directory
+        continue-on-error: true
+      - run: git config --system --get safe.directory
+        continue-on-error: true
+      - run: git config --local  --get safe.directory
+        continue-on-error: true
       - run: echo $HOME && ls -la $HOME
       - run: find / -name .gitconfig
