@@ -9,7 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     container: ubuntu:jammy
     steps:
-      - uses: actions/checkout@v3
+      - run: sudo apt update && sudo apt install -y git
+      - uses: actions/checkout@v4
       - run: git config --global --get safe.directory
         continue-on-error: true
       - run: git config --system --get safe.directory
