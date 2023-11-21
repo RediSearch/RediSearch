@@ -7,9 +7,10 @@ on:
 jobs:
   print-context:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        OS: [macos-11]
+        standalone: [true, true]
     steps:
-      - name: Print GitHub context
-        env:
-          GH_CONTEXT: ${{ toJson(github) }}
-          NAME: ${{ github.event_name }}
-        run: exit 0
+      - run: |
+          echo "I'm ${{ matrix.OS }} standing alone: ${{ matrix.standalone }}"
