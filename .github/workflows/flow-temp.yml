@@ -17,3 +17,5 @@ jobs:
         continue-on-error: true
       - run: git config --local  --get safe.directory
         continue-on-error: true
+      - run: echo $HOME && ls -la $HOME
+      - run: find / -name .gitconfig
