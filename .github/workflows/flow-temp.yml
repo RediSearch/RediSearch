@@ -2,14 +2,15 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['*'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['*'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
   print-context:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        OS: [macos-11]
+        standalone: [true, true]
     steps:
-      - name: Print GitHub context
-        env:
-          GH_CONTEXT: ${{ toJson(github) }}
-          NAME: ${{ github.event_name }}
-        run: exit 0
+      - run: |
+          echo "I'm ${{ matrix.OS }} standing alone: ${{ matrix.standalone }}"
