@@ -47,19 +47,16 @@ jobs:
             print(f'configurations={configurations}', file=fh)
             print(f'includes={includes}', file=fh)
 
-  setup:
-    runs-on: ubuntu-latest
-    outputs:
-      redis-latest: ${{ steps.redis-latest.outputs.tag }}
-    steps:
-      - id: redis-latest
-        run: echo "tag=$(curl -s https://api.github.com/repos/redis/redis/releases/latest | jq -r '.tag_name' )" >> $GITHUB_OUTPUT
+  get-latest-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
 
   docs-only: # Check whether the PR is only modifying docs
     uses: ./.github/workflows/task-check-docs.yml
 
   test-linux:
-    needs: [print-configurations, docs-only, setup]
+    needs: [print-configurations, docs-only, get-latest-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     strategy:
       matrix:
@@ -71,13 +68,13 @@ jobs:
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
-      redis-ref: ${{ needs.setup.outputs.redis-latest }}
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: CONFIG=${{ matrix.test-config }}
       standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
       coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
 
   test-macos:
-    needs: [print-configurations, docs-only, setup]
+    needs: [print-configurations, docs-only, get-latest-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     strategy:
       fail-fast: false
@@ -91,7 +88,7 @@ jobs:
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
-      redis-ref: ${{ needs.setup.outputs.redis-latest }}
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: CONFIG=${{ matrix.test-config }}
       # Set the default value to `true` if value is absent
       # Using the dividor, only one of the two will be true, and we split the run into two jobs.
