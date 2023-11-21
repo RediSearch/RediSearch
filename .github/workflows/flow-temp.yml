@@ -11,11 +11,6 @@ jobs:
     steps:
       - run: apt update && apt install -y git
       - uses: actions/checkout@v4
-      - run: git config --global --get safe.directory
-        continue-on-error: true
-      - run: git config --system --get safe.directory
-        continue-on-error: true
-      - run: git config --local  --get safe.directory
-        continue-on-error: true
+      - run: git config --global --add safe.directory .
       - run: echo $HOME && ls -la $HOME
       - run: find / -name .gitconfig
