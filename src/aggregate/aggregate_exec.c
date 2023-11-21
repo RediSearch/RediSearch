@@ -592,7 +592,7 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
             && !(req->reqflags & QEXEC_F_IS_CURSOR))) {
               RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
               QueryError_ClearError(req->qiter.err);
-              goto done_3;
+              return;
       }
     } else if (rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       ReplyWithTimeoutError(reply);

@@ -164,7 +164,6 @@ def testProfileCursor(env):
 
 
 def testProfileErrors(env):
-  conn = getConnectionByEnv(env)
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
   # missing args
   env.expect('ft.profile', 'idx').error().contains('wrong number of arguments')

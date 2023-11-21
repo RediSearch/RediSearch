@@ -726,15 +726,9 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
       goto err;
     }
   } else {
-    if (reply->resp3 || IsProfile(r)) {
-      RedisModule_Reply_Map(reply);
-    }
     sendChunk(r, reply, -1);
     if (IsProfile(r)) {
       printAggProfile(reply, r);
-    }
-    if (reply->resp3 || IsProfile(r)) {
-      RedisModule_Reply_MapEnd(reply);
     }
     AREQ_Free(r);
   }
