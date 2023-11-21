@@ -70,6 +70,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        dividor: [true, false]
         # configurations for both standalone and coordinator
         test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
         # spacial configurations
@@ -80,8 +81,12 @@ jobs:
     with:
       redis-ref: ${{ vars.DEFAULT_REDIS_REF }}
       test-config: CONFIG=${{ matrix.test-config }}
-      standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
-      coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
+      # Set the default value to `true` if value is absent
+      # Using the dividor, only one of the two will be true, and we split the run into two jobs.
+      # If the configuration was ment to only one of the modes, we will get for example: (true, false), (false, false)
+      # and if both modes are false, the job will be skipped (see task-test.yml)
+      standalone:  ${{ matrix.standalone  != 'false' &&  matrix.dividor }}
+      coordinator: ${{ matrix.coordinator != 'false' && !matrix.dividor }}
 
   coverage:
     uses: ./.github/workflows/flow-coverage.yml
