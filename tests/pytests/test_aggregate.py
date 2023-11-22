@@ -959,10 +959,10 @@ def testAggregateGroup0Field(env):
                   'REDUCE', 'QUANTILE', '2', 'num', '0.5', 'AS', 'q50')
     env.assertEqual(res, [1, ['q50', '758000']])
 
+@skip()
 def testResultCounter(env):
     # Issue 436
     # https://github.com/RediSearch/RediSearch/issues/436
-    env.skip()
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
     conn.execute_command('HSET', 'doc1', 't1', 'hello')

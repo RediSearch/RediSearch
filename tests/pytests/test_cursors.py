@@ -98,10 +98,8 @@ def testMultipleIndexes(env):
     env.assertEqual(['f1', 'hello'], last1)
     env.assertEqual(['f1', 'goodbye'], last2)
 
+@skip(cluster=True)
 def testCapacities(env):
-    if env.isCluster():
-        env.skip()
-
     loadDocs(env, idx='idx1')
     loadDocs(env, idx='idx2')
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10]

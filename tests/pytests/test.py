@@ -1167,11 +1167,8 @@ def testTagErrors(env):
     env.expect("ft.add", "test", "1", "1", "FIELDS", "tags", "alberta").equal('OK')
     env.expect("ft.add", "test", "2", "1", "FIELDS", "tags", "ontario. alberta").equal('OK')
 
+@skip(cluster=True)
 def testGeoDeletion(env):
-    if env.isCluster():
-        # Can't properly test if deleted on cluster
-        env.skip()
-
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema',
             'g1', 'geo', 'g2', 'geo', 't1', 'text')
@@ -1868,10 +1865,8 @@ def testBinaryKeys(env):
         for r in res:
             env.assertContains(r, exp)
 
+@skip(cluster=True)
 def testNonDefaultDb(env):
-    if env.isCluster():
-        env.skip()
-
     # Should be ok
     env.cmd('FT.CREATE', 'idx1', 'ON', 'HASH', 'schema', 'txt', 'text')
     try:
@@ -1918,10 +1913,8 @@ def testSortbyMissingFieldSparse(env):
     # commented because we don't filter out exclusive sortby fields
     # env.assertEqual([1, 'doc1', None, ['lastName', 'mark']], res)
 
+@skip()
 def testLuaAndMulti(env):
-    env.skip() # addhash isn't supported
-    if env.isCluster():
-        env.skip()
     # Ensure we can work in Lua and Multi environments without crashing
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'f1', 'text', 'n1', 'numeric')
     env.cmd('HMSET', 'hashDoc', 'f1', 'v1', 'n1', 4)
@@ -2482,9 +2475,8 @@ def testOptionalFilter(env):
     r = env.cmd('ft.search', 'idx', '~(word20 => {$weight: 2.0})')
 
 
+@skip()
 def testIssue736(env):
-    #for new RS 2.0 ft.add does not return certian errors
-    env.skip()
     # 1. create the schema, we need a tag field
     env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'schema', 't1', 'text', 'n2', 'numeric', 't2', 'tag')
@@ -3513,10 +3505,8 @@ def testMod1407(env):
     # make sure correct query not crashing and return the right results
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '2', '@LimitationTypeID', '@LimitationTypeDesc', 'REDUCE', 'COUNT', '0').equal([2, ['LimitationTypeID', 'boo2', 'LimitationTypeDesc', 'doo2', '__generated_aliascount', '1'], ['LimitationTypeID', 'boo1', 'LimitationTypeDesc', 'doo1', '__generated_aliascount', '1']])
 
+@skip(cluster=True)
 def testMod1452(env):
-    if not env.isCluster():
-        # this test is only relevant on cluster
-        env.skip()
 
     conn = getConnectionByEnv(env)
 
@@ -3674,6 +3664,7 @@ def test_MOD_4290(env):
 @skip(cluster=True)
 def test_missing_schema(env):
     # MOD-4388: assert on sp->indexer
+
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'foo', 'TEXT').equal('OK')

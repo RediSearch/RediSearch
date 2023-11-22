@@ -1,10 +1,8 @@
 from common import *
 
-
+@skip(cluster=True)
 def testExpireIndex(env):
     # temporary indexes
-    if env.isCluster():
-        env.skip()
     env.cmd('ft.create', 'idx', 'TEMPORARY', '4', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
     ttl = env.cmd('ft.debug', 'TTL', 'idx')
     env.assertTrue(ttl > 2)

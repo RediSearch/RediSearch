@@ -299,7 +299,6 @@ def unstable(f):
 
 def skip(cluster=False, macos=False, asan=False, msan=False, noWorkers=False):
     def decorate(f):
-        @wraps(f)
         def wrapper():
             if not (cluster or macos or asan or msan or noWorkers):
                 raise SkipTest()
