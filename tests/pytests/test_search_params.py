@@ -447,7 +447,6 @@ def test_fuzzy(env):
             title = y with the value of field x
             '''
 
-@skip(cluster=True)
 def aliasing(env, is_sortable, is_sortable_unf):
     conn = getConnectionByEnv(env)
 
@@ -529,13 +528,16 @@ def aliasing(env, is_sortable, is_sortable_unf):
                                         'numval_name','AS', 'x')
     env.assertEqual(res2, res)
 
+@skip(cluster=True)
 def test_aliasing_sortables(env):
     aliasing(env, is_sortable = True, is_sortable_unf = False)
 
+@skip(cluster=True)
 def test_aliasing_NOTsortables(env):
 
     aliasing(env, is_sortable = False, is_sortable_unf = False)
 
+@skip(cluster=True)
 def test_aliasing_sortables_UNF(env):
     aliasing(env, is_sortable = True, is_sortable_unf = True)
 

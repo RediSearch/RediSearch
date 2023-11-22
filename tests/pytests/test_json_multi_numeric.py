@@ -612,7 +612,6 @@ def testDebugRangeTree(env):
                     ['value', str(1), 'docId', 1, 'value', str(2), 'docId', 1, 'value', str(3), 'docId', 1, 'value', str(1), 'docId', 2, 'value', str(2), 'docId', 2, 'value', str(3), 'docId', 2, 'value', str(3), 'docId', 3, 'value', str(4), 'docId', 3, 'value', str(5), 'docId', 3]]]],
             'Tree stats:', ['Average memory efficiency (numEntries/size)/numRanges', str(9)]])
 
-@skip(cluster=True)
 def checkUpdateNumRecords(env, is_json):
     """ Helper function for testing update of `num_records` """
     if env.env == 'existing-env':
@@ -684,10 +683,12 @@ def checkUpdateNumRecords(env, is_json):
     info = index_info(env, 'idx')
     env.assertEqual(info['num_records'], '0')
 
+@skip(cluster=True)
 def testUpdateNumRecordsJson(env):
     """ Test update of `num_records` when using JSON """
     checkUpdateNumRecords(env, True)
 
+@skip(cluster=True)
 def testUpdateNumRecordsHash(env):
     """ Test update of `num_records` when using Hashes """
     checkUpdateNumRecords(env, False)

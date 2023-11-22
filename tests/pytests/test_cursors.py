@@ -224,8 +224,7 @@ def testIndexDropWhileIdleBG():
     env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
     testIndexDropWhileIdle(env)
 
-@skip(cluster=True)
-def testExceedCursorCapacity(env):
+def exceedCursorCapacity(env):
     env.expect('FT.CREATE idx SCHEMA t numeric').ok()
     env.cmd('HSET', 'doc1' ,'t', 1)
 
@@ -238,10 +237,14 @@ def testExceedCursorCapacity(env):
     # Trying to create another cursor should fail
     env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1).error().contains('Too many cursors allocated for index')
 
-@skip(noWorkers=True)
+@skip(cluster=True)
+def testExceedCursorCapacity(env):
+    exceedCursorCapacity(env)
+
+@skip(cluster=True, noWorkers=True)
 def testExceedCursorCapacityBG():
     env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
-    testExceedCursorCapacity(env)
+    exceedCursorCapacity(env)
 
 # TODO: improve the test and add a case of timeout:
 # 1. Coordinator's cursor times out before the shard's cursor
