@@ -349,15 +349,29 @@ void populateReplyWithResults(RedisModule_Reply *reply,SearchResult **results,AR
       array_free(results);
 }
 
+long calc_results_len(AREQ *req, size_t limit) {
+  long resultsLen;
+  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
+  size_t reqLimit = arng && arng->isLimited? arng->limit : DEFAULT_LIMIT;
+  size_t reqOffset = arng && arng->isLimited? arng->offset : 0;
+  size_t resultFactor = getResultsFactor(req);
+
+  size_t expected_res = reqLimit + reqOffset <= req->maxSearchResults ? req->qiter.totalResults : MIN(req->maxSearchResults, req->qiter.totalResults);
+  size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
+
+  return 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
+}
+
 /**
  * Sends a chunk of <n> rows in the resp2 format
 */
 static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = {0};
-    int rc = RS_RESULT_EOF;
+    int rc = RS_RESULT_OK;
     ResultProcessor *rp = req->qiter.endProc;
     SearchResult **results = NULL;
+    long nelem = 0, resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
 
     if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       // Aggregate all results before populating the response
@@ -369,6 +383,16 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     } else {
       // Send the results received from the pipeline as they come (no need to aggregate)
       rc = rp->Next(rp, &r);
+    }
+
+    // Set `resultsLen` to be the expected number of results in the response.
+    if (ShouldReplyWithTimeoutError(rc, req)) {
+      resultsLen = 1;
+    } else if (rc == RS_RESULT_ERROR) {
+      resultsLen = 2;
+    } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
+               req->optimizer->type != Q_OPT_NO_SORTER) {
+      resultsLen = calc_results_len(req, limit);
     }
 
     if (IsOptimized(req)) {
@@ -394,9 +418,11 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
       QueryError_ClearError(req->qiter.err);
       RedisModule_Reply_ArrayEnd(reply);
+      nelem++;
     } else {
       RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
     }
+    nelem++;
 
     // Once we get here, we want to return the results we got from the pipeline (with no error)
     if (req->reqflags & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
@@ -406,6 +432,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
     if (results != NULL) {
       populateReplyWithResults(reply, results, req, &cv);
+      nelem += array_len(results);
       results = NULL;
       goto done_2;
     }
@@ -438,6 +465,11 @@ done_2:
       !(rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return)) {
         req->stateflags |= QEXEC_S_ITERDONE;
     }
+
+    if (resultsLen != REDISMODULE_POSTPONED_ARRAY_LEN && rc == RS_RESULT_OK && resultsLen != nelem) {
+      RedisModule_Log(RSDummyContext, "warning", "Failed to predict the number of replied results. Prediction=%ld, actual_number=%ld.", resultsLen, nelem);
+      RS_LOG_ASSERT(0, "Precalculated number of replies must be equal to actual number");
+    }
 }
 
 /**
@@ -446,7 +478,7 @@ done_2:
 static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = {0};
-    int rc = RS_RESULT_EOF;
+    int rc = RS_RESULT_OK;
     ResultProcessor *rp = req->qiter.endProc;
     SearchResult **results = NULL;
 
