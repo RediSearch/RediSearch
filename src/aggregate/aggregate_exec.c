@@ -398,8 +398,10 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
 done_3:
     SearchResult_Destroy(&r);
-    if (rc != RS_RESULT_OK) {
-      req->stateflags |= QEXEC_S_ITERDONE;
+
+    if (rc != RS_RESULT_OK &&
+      !(rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return)) {
+        req->stateflags |= QEXEC_S_ITERDONE;
     }
 
     // Reset the total results length:
@@ -475,8 +477,10 @@ done_3:
 
   done_2:
     SearchResult_Destroy(&r);
-    if (rc != RS_RESULT_OK) {
-      req->stateflags |= QEXEC_S_ITERDONE;
+
+    if ((rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail)
+      || rc == RS_RESULT_EOF || rc == RS_RESULT_ERROR) {
+        req->stateflags |= QEXEC_S_ITERDONE;
     }
 
     RedisModule_Reply_ArrayEnd(reply); // results
@@ -890,10 +894,9 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 
   // update timeout for current cursor read
-  if (req->qiter.rootProc->type != RP_NETWORK) {
-    updateTimeout(&req->timeoutTime, req->reqConfig.queryTimeoutMS);
-    SearchCtx_UpdateTimeout(req->sctx, req->timeoutTime);
-  }
+  updateTimeout(&req->timeoutTime, req->reqConfig.queryTimeoutMS);
+  SearchCtx_UpdateTimeout(req->sctx, req->timeoutTime);
+
   if (!num) {
     num = req->cursorChunkSize;
     if (!num) {
