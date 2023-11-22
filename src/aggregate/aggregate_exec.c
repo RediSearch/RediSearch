@@ -538,6 +538,7 @@ done_2:
 
     if (req->reqflags & QEXEC_F_IS_CURSOR) {
       if (cursor_done) {
+        req->stateflags |= QEXEC_S_ITERDONE;
         RedisModule_Reply_LongLong(reply, 0);
         if (IsProfile(req)) {
           Profile_Print(reply, req);
@@ -692,7 +693,12 @@ done_3:
     RedisModule_Reply_MapEnd(reply);
 
     if (req->reqflags & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_LongLong(reply, cursor_done ? 0 : req->cursor_id);
+      if (cursor_done) {
+        RedisModule_Reply_LongLong(reply, 0);
+        req->stateflags |= QEXEC_S_ITERDONE;
+      } else {
+        RedisModule_Reply_LongLong(reply, req->cursor_id);
+      }
       RedisModule_Reply_ArrayEnd(reply);
     }
 

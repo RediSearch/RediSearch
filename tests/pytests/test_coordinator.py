@@ -127,14 +127,11 @@ def test_timeout():
         conn.execute_command('HSET', i ,'t1', str(i))
 
     # No client cursor
-    res = env.execute_command('FT.AGGREGATE', 'idx', '*',
-                'LOAD', '2', '@t1', '@__key',
-                'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
-                'groupby', '2', '@t1', '@t1exp',
-                'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys', 'timeout', '1')
-    # TODO: Add this once the response will be fixed to be and error instead of a string
-    # env.assertEquals(type(res[0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(res[0]))
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '2', '@t1', '@__key', 'APPLY',
+        '@t1 ^ @t1', 'AS', 't1exp', 'groupby', '2', '@t1', '@t1exp', 'REDUCE',
+        'tolist', '1', '@__key', 'AS', 'keys', 'timeout', '1'
+    ).error().contains('Timeout limit was reached')
 
     # Client cursor mid execution
     res, _ = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1',
@@ -143,8 +140,6 @@ def test_timeout():
     env.assertEqual(res, [0])
 
     # FT.SEARCH
-    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', n_docs,
-                               'timeout', '1')
-    # TODO: Add this when MOD-5965 is merged
-    # env.assertEqual(type(res[0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(res[0]))
+    env.expect(
+        'FT.SEARCH', 'idx', '*', 'LIMIT', '0', n_docs, 'timeout', '1'
+    ).error().contains('Timeout limit was reached')
