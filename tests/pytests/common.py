@@ -312,7 +312,7 @@ def skip(cluster=False, macos=False, asan=False, msan=False, noWorkers=False):
                 raise SkipTest()
             if noWorkers and not MT_BUILD:
                 raise SkipTest()
-            if len(inspect.signature(f).parameters) == 0:
+            if len(inspect.signature(f).parameters) > 0:
                 env = Env()
                 return f(env)
             else:
