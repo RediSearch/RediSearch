@@ -301,22 +301,16 @@ def skip(cluster=False, macos=False, asan=False, msan=False, noWorkers=False):
     def decorate(f):
         def wrapper():
             if not (cluster or macos or asan or msan or noWorkers):
-                print('skip1')
                 raise SkipTest()
             if cluster and COORD != '0':
-                print('skip2')
                 raise SkipTest()
             if macos and OS == 'macos':
-                print('skip3')
                 raise SkipTest()
             if asan and SANITIZER == 'address':
-                print('skip4')
                 raise SkipTest()
             if msan and SANITIZER == 'memory':
-                print('skip5')
                 raise SkipTest()
             if noWorkers and not MT_BUILD:
-                print('skip6')
                 raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:
                 env = Env()
