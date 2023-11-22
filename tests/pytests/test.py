@@ -2226,10 +2226,6 @@ def testTimeout(env):
         l += (len(r) - 1)
     env.assertEqual(l, 1000)
 
-    # restore old configuration
-    env.cmd('ft.config', 'set', 'timeout', '500')
-    env.cmd('ft.config', 'set', 'maxprefixexpansions', 200)
-
 def testTimeoutOnSorter(env):
     env.skipOnCluster()
     conn = getConnectionByEnv(env)

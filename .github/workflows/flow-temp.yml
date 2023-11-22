@@ -1,0 +1,45 @@
+name: temporary testing
+
+on:
+  push:
+    branches-ignore: ['*'] # ignore all branches. Comment this line to run your workflow below on every push.
+
+jobs:
+  doc-check:
+    uses: ./.github/workflows/task-check-docs.yml
+
+  run:
+    needs: doc-check
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ${{ needs.doc-check.outputs.only-docs-changed }}
+
+  run-if:
+    needs: doc-check
+    if: needs.doc-check.outputs.only-docs-changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "only docs changed"
+
+  run-if-not:
+    needs: doc-check
+    if: needs.doc-check.outputs.only-docs-changed != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "docs not changed: ${{ needs.doc-check.outputs.only-docs-changed }}"
+
+  run-bool:
+    needs: doc-check
+    if: needs.doc-check.outputs.only-docs-changed
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "only docs changed"
+
+  run-not-bool:
+    needs: doc-check
+    if: ${{ !needs.doc-check.outputs.only-docs-changed }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "docs not changed: ${{ needs.doc-check.outputs.only-docs-changed }}"
