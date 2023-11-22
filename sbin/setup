@@ -29,6 +29,7 @@ fi
 # Notice that we can not install them both at the same time because they conflict with
 # each other. When we remove this 'setup' file from the build steps we should perform
 # this installation on '.install/amazon_linux_2.sh' (see comment on that file).
+OS_TYPE=$(uname -s)
 if [[ $OS_TYPE = 'Darwin' ]]
 then
     OS='macos'
