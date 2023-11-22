@@ -84,6 +84,10 @@ class RTree {
       -> query_results;
   [[nodiscard]] auto within(doc_type const& query_doc, geom_type const& query_geom) const
       -> query_results;
+  [[nodiscard]] auto disjoint(doc_type const& query_doc, geom_type const& query_geom) const
+      -> query_results;
+  [[nodiscard]] auto intersects(doc_type const& query_doc, geom_type const& query_geom) const
+      -> query_results;
   [[nodiscard]] auto generate_predicate(doc_type const& query_doc, QueryType query_type,
                                         geom_type const& query_geom) const -> query_results;
 };
