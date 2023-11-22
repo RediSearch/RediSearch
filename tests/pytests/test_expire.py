@@ -82,6 +82,7 @@ def testExpireDocsSortable(env):
                # but it is marked as deleted and we reply with None.
                expected_results)
 
+@skip(cluster=True)
 def expireDocs(env, isSortable, expected_results):
     '''
     This test creates an index and two documents
@@ -93,7 +94,6 @@ def expireDocs(env, isSortable, expected_results):
 
     When isSortable is True the index is created with `SORTABLE` arg
     '''
-    env.skipOnCluster()
     conn = env.getConnection()
 
     # i = 0 -> without sortby, i = 1 -> with sortby

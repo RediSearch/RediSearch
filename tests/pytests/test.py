@@ -1518,8 +1518,8 @@ def testPayload(env):
         for i in range(1, 30, 3):
             env.assertEqual(res[i + 1], 'payload %s' % res[i])
 
+@skip(cluster=True)
 def testGarbageCollector(env):
-    env.skipOnCluster()
     if env.moduleArgs is not None and 'GC_POLICY FORK' in env.moduleArgs:
         # this test is not relevent for fork gc cause its not cleaning the last block
         env.skip()
@@ -2157,8 +2157,8 @@ def testIssue446(env):
     rv = env.cmd('ft.search', 'myIdx', 'hello', 'limit', '0', '0')
     env.assertEqual([2], rv)
 
+@skip(cluster=True)
 def testTimeout(env):
-    env.skipOnCluster()
     if VALGRIND:
         env.skip()
 
@@ -2226,8 +2226,8 @@ def testTimeout(env):
         l += (len(r) - 1)
     env.assertEqual(l, 1000)
 
+@skip(cluster=True)
 def testTimeoutOnSorter(env):
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     env.cmd('ft.config', 'set', 'timeout', '1')
     pl = conn.pipeline()
@@ -2436,9 +2436,8 @@ def testIssue621(env):
 # 127.0.0.1:6379> ft.add foo "ft:foo/two" 1 FIELDS bar "four five six"
 # Could not connect to Redis at 127.0.0.1:6379: Connection refused
 
-@unstable
+@skip(cluster=True)
 def testPrefixDeletedExpansions(env):
-    env.skipOnCluster()
 
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'txt1', 'text', 'tag1', 'tag')
     # get the number of maximum expansions
@@ -2798,15 +2797,15 @@ def testWithSortKeysOnNoneSortableValue(env):
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.search', 'idx', '*', 'WITHSORTKEYS', 'SORTBY', 'test').equal([1, 'doc1', '$foo', ['test', 'foo']])
 
+@skip(cluster=True)
 def testWithWithRawIds(env):
-    env.skipOnCluster() # todo: remove once fix on coordinator
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     waitForIndex(env, 'idx')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.search', 'idx', '*', 'WITHRAWIDS').equal([1, 'doc1', 1, ['test', 'foo']])
 
+@skip(cluster=True)
 def testUnkownIndex(env):
-    env.skipOnCluster() # todo: remove once fix on coordinator
     env.expect('ft.aggregate').error()
     env.expect('ft.aggregate', 'idx', '*').error()
     env.expect('ft.aggregate', 'idx', '*', 'WITHCURSOR').error()
@@ -3025,8 +3024,8 @@ def testIssue1074(env):
     rv = env.cmd('ft.search', 'idx', '*', 'sortby', 'n1')
     env.assertEqual([1, 'doc1', ['n1', '1581011976800', 't1', 'hello']], rv)
 
+@skip(cluster=True)
 def testIssue1085(env):
-    env.skipOnCluster()
     env.cmd('FT.CREATE issue1085 ON HASH SCHEMA foo TEXT SORTABLE bar NUMERIC SORTABLE')
     for i in range(1, 10):
         env.cmd('FT.ADD issue1085 document_%d 1 REPLACE FIELDS foo foo%d bar %d' % (i, i, i))
@@ -3069,8 +3068,8 @@ def testHindiStemmer(env):
     res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
     env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', res1['body'])
 
+@skip(cluster=True)
 def testMOD507(env):
-    env.skipOnCluster()
     env.expect('ft.create idx ON HASH SCHEMA t1 TEXT').ok()
 
     for i in range(50):
@@ -3084,8 +3083,8 @@ def testMOD507(env):
     # from redisearch 2.0, docs are removed from index when `DEL` is called
     env.assertEqual(len(res), 1)
 
+@skip(cluster=True)
 def testUnseportedSortableTypeErrorOnTags(env):
-    env.skipOnCluster()
     env.expect('FT.CREATE idx ON HASH SCHEMA f1 TEXT SORTABLE f2 NUMERIC SORTABLE NOINDEX f3 TAG SORTABLE NOINDEX f4 TEXT SORTABLE NOINDEX').ok()
     env.expect('FT.ADD idx doc1 1.0 FIELDS f1 foo1 f2 1 f3 foo1 f4 foo1').ok()
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL FIELDS f2 2 f3 foo2 f4 foo2').ok()
@@ -3125,8 +3124,8 @@ def testIssue1169(env):
 
     env.expect('FT.AGGREGATE idx foo GROUPBY 1 @txt1 REDUCE FIRST_VALUE 1 @txt2 as test').equal([1, ['txt1', 'foo', 'test', None]])
 
+@skip(cluster=True)
 def testIssue1184(env):
-    env.skipOnCluster()
 
     field_types = ['TEXT', 'NUMERIC', 'TAG']
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
@@ -3187,10 +3186,10 @@ def testIssue1208(env):
     env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n<42e3 FIELDS n 100').ok()
     # print env.cmd('FT.SEARCH', 'idx', '@n:[-inf inf]')
 
+@skip(cluster=True)
 def testFieldsCaseSensetive(env):
     # this test will not pass on coordinator coorently as if one shard return empty results coordinator
     # will not reflect the errors
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC f TEXT t TAG g GEO')
 
@@ -3251,10 +3250,10 @@ def testFieldsCaseSensetive(env):
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'sortby', '1', '@n').equal([2, ['n', '1'], ['n', '1.1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'sortby', '1', '@N').error().contains('not loaded')
 
+@skip(cluster=True)
 def testSortedFieldsCaseSensetive(env):
     # this test will not pass on coordinator coorently as if one shard return empty results coordinator
     # will not reflect the errors
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE f TEXT SORTABLE t TAG SORTABLE g GEO SORTABLE')
 
@@ -3374,10 +3373,9 @@ def testRED47209(env):
         res = [1, 'doc1', None, ['t', 'foo']]
     env.expect('FT.SEARCH idx foo WITHSORTKEYS LIMIT 0 1').equal(res)
 
+@skip(cluster=True)
 def testInvertedIndexWasEntirelyDeletedDuringCursor():
     env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 1')
-
-    env.skipOnCluster()
 
     env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
     env.expect('HSET doc1 t foo').equal(1)
@@ -3564,8 +3562,8 @@ def test_empty_field_name(env):
     conn.execute_command('hset', 'doc1', '', 'foo')
     env.expect('FT.SEARCH', 'idx', 'foo').equal([1, 'doc1', ['', 'foo']])
 
+@skip(cluster=True)
 def test_free_resources_on_thread(env):
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     pl = conn.pipeline()
     results = []
@@ -3655,8 +3653,8 @@ def test_mod_4200(env):
         env.expect('ft.add', 'idx', 'doc%i' % i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.search', 'idx', '((~foo) foo) | ((~foo) foo)', 'LIMIT', '0', '0').equal([1001])
 
+@skip(cluster=True)
 def test_RED_86036(env):
-    env.skipOnCluster()
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
     for i in range(1000):
         env.cmd('hset', 'doc%d' % i, 't', 'foo')
@@ -3673,9 +3671,9 @@ def test_MOD_4290(env):
     env.cmd('FT.PROFILE', 'idx', 'aggregate', 'query', '*', 'LIMIT', '0', '1')
     env.expect('ping').equal(True) # make sure environment is still up */
 
+@skip(cluster=True)
 def test_missing_schema(env):
     # MOD-4388: assert on sp->indexer
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'foo', 'TEXT').equal('OK')

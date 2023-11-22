@@ -60,10 +60,9 @@ def testCursorsBG():
     testCursors(env)
 
 
-@skip(noWorkers=True)
+@skip(cluster=True, noWorkers=True)
 def testCursorsBGEdgeCasesSanity():
     env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
-    env.skipOnCluster()
     count = 100
     loadDocs(env, count=count)
     # Add an extra field to every other document
@@ -137,10 +136,10 @@ def testCapacities(env):
     c = env.cmd( * q1)
     env.cmd('FT.CURSOR', 'DEL', 'idx1', c[-1])
 
+@skip(cluster=True)
 def testTimeout(env):
     # currently this test is only valid on one shard because coordinator creates more cursor which are not clean
     # with the same timeout
-    env.skipOnCluster()
     loadDocs(env, idx='idx1')
     # Maximum idle of 1ms
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10, 'MAXIDLE', 1]
@@ -227,9 +226,8 @@ def testIndexDropWhileIdleBG():
     env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
     testIndexDropWhileIdle(env)
 
+@skip(cluster=True)
 def testExceedCursorCapacity(env):
-    env.skipOnCluster()
-
     env.expect('FT.CREATE idx SCHEMA t numeric').ok()
     env.cmd('HSET', 'doc1' ,'t', 1)
 

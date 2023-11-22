@@ -447,8 +447,8 @@ def test_fuzzy(env):
             title = y with the value of field x
             '''
 
+@skip(cluster=True)
 def aliasing(env, is_sortable, is_sortable_unf):
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     sortable_param = ['SORTABLE', 'UNF'] if is_sortable_unf else (['SORTABLE'] if is_sortable else [])

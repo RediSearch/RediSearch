@@ -313,10 +313,9 @@ def test_update_with_bad_value():
     env.expect('FT.SEARCH', 'idx2', '*').equal(res)
     env.expect('FT.SEARCH', 'idx2', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', 'vec').equal(res)
 
-
+@skip(cluster=True)
 def test_create():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     # A value to use as a dummy value for memory fields in the info command (and any other irrelevant fields)
@@ -357,10 +356,9 @@ def test_create():
         conn.execute_command('FT.DROP', 'idx1')
         conn.execute_command('FT.DROP', 'idx2')
 
-
+@skip(cluster=True)
 def test_create_multiple_vector_fields():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    env.skipOnCluster()
     dim = 2
     conn = getConnectionByEnv(env)
     # Create index with 2 vector fields, where the first is a prefix of the second.
@@ -1501,10 +1499,9 @@ def test_redis_memory_limits():
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
-
+@skip(cluster=True)
 def test_default_block_size_and_initial_capacity():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     dim = 1024
@@ -1564,11 +1561,10 @@ def test_default_block_size_and_initial_capacity():
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
-
+@skip(cluster=True)
 def test_redisearch_memory_limit():
     # test block size with VSS_MAX_RESIZE_MB configure
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     used_memory = int(conn.execute_command('info', 'memory')['used_memory'])
@@ -1606,10 +1602,9 @@ def test_redisearch_memory_limit():
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
-
+@skip(cluster=True)
 def test_rdb_memory_limit():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     used_memory = int(conn.execute_command('info', 'memory')['used_memory'])

@@ -234,10 +234,9 @@ def testRange(env):
         res = conn.execute_command('FT.SEARCH', 'idx:all', '@val:[{} +inf]'.format(max_val), 'NOCONTENT')
         env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected), message = '[{} +inf]'.format(max_val))
 
+@skip(cluster=True)
 def testDebugDump(env):
     """ Test FT.DEBUG DUMP_INVIDX and NUMIDX_SUMMARY with multi numeric values """
-
-    env.skipOnCluster()
 
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx:top', 'ON', 'JSON', 'SCHEMA', '$[*]', 'AS', 'val', 'NUMERIC').ok()
@@ -249,10 +248,9 @@ def testDebugDump(env):
                                                                       'lastDocId', 2, 'revisionId', 0,
                                                                       'emptyLeaves', 0, 'RootMaxDepth', 0])
 
+@skip(cluster=True)
 def testInvertedIndexMultipleBlocks(env):
     """ Test internal addition of new inverted index blocks (beyond INDEX_BLOCK_SIZE entries)"""
-
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.arr', 'AS', 'arr', 'NUMERIC', '$.arr2', 'AS', 'arr2', 'NUMERIC').ok()
     overlap = 10
@@ -323,9 +321,9 @@ def printSeed(env):
     env.assertNotEqual(seed, None, message='random seed ' + seed)
     random.seed(seed)
 
+@skip(cluster=True)
 def testInfoAndGC(env):
     """ Test cleanup of numeric ranges """
-    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
     conn = getConnectionByEnv(env)
@@ -557,10 +555,9 @@ def testInfoStatsAndSearchAsSingle(env):
         res_multi = list(map(lambda v: v.replace(':multi:', '::') if isinstance(v, str) else v, res_multi))
         env.assertEqual(res_single, res_multi, message = '[{} {}]'.format(val_from, val_to))
 
+@skip(cluster=True)
 def testConsecutiveValues(env):
     """ Test with many consecutive values which should cause range tree to do rebalancing (also for code coverage) """
-
-    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
 
@@ -597,10 +594,9 @@ def testConsecutiveValues(env):
 
     env.assertEqual(summary1, summary2)
 
+@skip(cluster=True)
 def testDebugRangeTree(env):
     """ Test debug of range tree """
-
-    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
     conn = getConnectionByEnv(env)
@@ -616,10 +612,9 @@ def testDebugRangeTree(env):
                     ['value', str(1), 'docId', 1, 'value', str(2), 'docId', 1, 'value', str(3), 'docId', 1, 'value', str(1), 'docId', 2, 'value', str(2), 'docId', 2, 'value', str(3), 'docId', 2, 'value', str(3), 'docId', 3, 'value', str(4), 'docId', 3, 'value', str(5), 'docId', 3]]]],
             'Tree stats:', ['Average memory efficiency (numEntries/size)/numRanges', str(9)]])
 
+@skip(cluster=True)
 def checkUpdateNumRecords(env, is_json):
     """ Helper function for testing update of `num_records` """
-
-    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
     conn = getConnectionByEnv(env)
