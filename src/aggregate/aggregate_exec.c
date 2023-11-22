@@ -297,10 +297,9 @@ static size_t getResultsFactor(AREQ *req) {
  * it. rc is populated with the latest return code from the pipeline.
 */
 SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
-  SearchResult **results = array_new(SearchResult *, 10);
+  SearchResult **results = array_new(SearchResult *, 8);
   SearchResult r = {0};
   while (rp->parent->resultLimit-- && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
-    // Consider adding 1-100 places to the array each realloc (to save reallocs).
     array_append(results, SearchResult_Copy(&r));
 
     // clean the search result
@@ -353,7 +352,7 @@ void populateReplyWithResults(RedisModule_Reply *reply,SearchResult **results,AR
 /**
  * Sends a chunk of <n> rows in the resp2 format
 */
-void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
+static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = {0};
     int rc = RS_RESULT_EOF;
@@ -364,7 +363,7 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       // Aggregate all results before populating the response
       results = AggregateResults(rp, &rc);
       // Check timeout after aggregation
-      if (TimedOut(&rp->parent->sctx->timeout) == TIMED_OUT) {
+      if (TimedOut(&RP_SCTX(rp)->timeout) == TIMED_OUT) {
         rc = RS_RESULT_TIMEDOUT;
       }
     } else {
@@ -444,7 +443,7 @@ done_2:
 /**
  * Sends a chunk of <n> rows in the resp3 format
 */
-void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
+static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = {0};
     int rc = RS_RESULT_EOF;
@@ -455,7 +454,7 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       // Aggregate all results before populating the response
       results = AggregateResults(rp, &rc);
       // Check timeout after aggregation
-      if (TimedOut(&rp->parent->sctx->timeout) == TIMED_OUT) {
+      if (TimedOut(&RP_SCTX(rp)->timeout) == TIMED_OUT) {
         rc = RS_RESULT_TIMEDOUT;
       }
     } else {
