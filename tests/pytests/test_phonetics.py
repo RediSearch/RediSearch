@@ -64,7 +64,7 @@ def testPoneticWithAggregation(env):
     else:
         raise unittest.SkipTest("FIXME: Aggregation error propagation broken on cluster mode")
 
-@skip()
+@skip(cluster=True)
 def testPoneticWithSchemaAlter(env):
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH',
                          'schema', 'text', 'TEXT', 'PHONETIC', 'dm:en', 'SORTABLE', 'text1', 'TEXT', 'SORTABLE'))

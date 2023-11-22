@@ -1913,27 +1913,6 @@ def testSortbyMissingFieldSparse(env):
     # commented because we don't filter out exclusive sortby fields
     # env.assertEqual([1, 'doc1', None, ['lastName', 'mark']], res)
 
-@skip()
-def testLuaAndMulti(env):
-    # Ensure we can work in Lua and Multi environments without crashing
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'f1', 'text', 'n1', 'numeric')
-    env.cmd('HMSET', 'hashDoc', 'f1', 'v1', 'n1', 4)
-    env.cmd('HMSET', 'hashDoc2', 'f1', 'v1', 'n1', 5)
-
-    r = env.getConnection()
-
-    r.eval("return redis.call('ft.add', 'idx', 'doc1', 1.0, 'fields', 'f1', 'bar')", "0")
-    r.eval("return redis.call('ft.addhash', 'idx', 'hashDoc', 1.0)", 0)
-
-    # Try in a pipeline:
-    with r.pipeline(transaction=True) as pl:
-        pl.execute_command('ft.add', 'idx', 'doc2',
-                           1.0, 'fields', 'f1', 'v3')
-        pl.execute_command('ft.add', 'idx', 'doc3',
-                           1.0, 'fields', 'f1', 'v4')
-        pl.execute_command('ft.addhash', 'idx', 'hashdoc2', 1.0)
-    pl.execute()
-
 def testLanguageField(env):
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'language', 'TEXT')
     env.cmd('FT.ADD', 'idx', 'doc1', 1.0,
@@ -2474,22 +2453,6 @@ def testOptionalFilter(env):
 
     r = env.cmd('ft.search', 'idx', '~(word20 => {$weight: 2.0})')
 
-
-@skip()
-def testIssue736(env):
-    # 1. create the schema, we need a tag field
-    env.cmd('ft.create', 'idx', 'ON', 'HASH',
-            'schema', 't1', 'text', 'n2', 'numeric', 't2', 'tag')
-    # 2. create a single document to initialize at least one RSAddDocumentCtx
-    env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello', 't2', 'foo, bar')
-    # 3. create a second document with many filler fields to force a realloc:
-    extra_fields = []
-    for x in range(20):
-        extra_fields += ['nidx_fld{}'.format(x), 'val{}'.format(x)]
-    extra_fields += ['n2', 'not-a-number', 't2', 'random, junk']
-    with env.assertResponseError():
-        env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', *extra_fields)
-
 def testCriteriaTesterDeactivated():
     env = Env(moduleArgs='_MAX_RESULTS_TO_UNSORTED_MODE 1')
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'text')
@@ -2796,6 +2759,8 @@ def testWithWithRawIds(env):
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.search', 'idx', '*', 'WITHRAWIDS').equal([1, 'doc1', 1, ['test', 'foo']])
 
+# todo: unskip once fix on coordinator
+#       the coordinator do not return erro on unexisting index.
 @skip(cluster=True)
 def testUnkownIndex(env):
     env.expect('ft.aggregate').error()
@@ -3505,8 +3470,10 @@ def testMod1407(env):
     # make sure correct query not crashing and return the right results
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '2', '@LimitationTypeID', '@LimitationTypeDesc', 'REDUCE', 'COUNT', '0').equal([2, ['LimitationTypeID', 'boo2', 'LimitationTypeDesc', 'doo2', '__generated_aliascount', '1'], ['LimitationTypeID', 'boo1', 'LimitationTypeDesc', 'doo1', '__generated_aliascount', '1']])
 
-@skip(cluster=True)
 def testMod1452(env):
+    if not env.isCluster():
+        # this test is only relevant on cluster
+        env.skip()
 
     conn = getConnectionByEnv(env)
 
