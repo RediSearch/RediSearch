@@ -8,16 +8,16 @@ $MODE tdnf install -q -y build-essential git wget ca-certificates tar unzip rsyn
 
 source install_cmake.sh $MODE
 
-# pip install -q --upgrade setuptools
-# pip install -q --upgrade pip
-# pip install -q -r tests/pytests/requirements.txt
-# pip install -q -r tests/pytests/requirements.linux.txt
+pip install -q --upgrade setuptools
+pip install -q --upgrade pip
+pip install -q -r ../tests/pytests/requirements.txt
+pip install -q -r ../tests/pytests/requirements.linux.txt
 
 # These packages are needed to build the package
-# pip install -q addict toml jinja2 ramp-packer # TODO: move to requirements.txt
+pip install -q addict toml jinja2 ramp-packer # TODO: move to requirements.txt
 
 # List installed packages
-# pip list
+pip list
 
 # Install aws-cli for uploading artifacts to s3
 curdir="$PWD"

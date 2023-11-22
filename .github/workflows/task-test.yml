@@ -52,8 +52,14 @@ jobs:
       - name: Deps checkout
         uses: actions/checkout@v3
         with:
-            sparse-checkout: .install
-            path: setup
+          path: setup
+          sparse-checkout: |
+            .install
+            tests/pytests/requirements.*
+      - name: Print directory
+        run: ls -la
+      - name: Print directory
+        run: ls -la setup/tests/pytests
       - name: Setup
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
@@ -63,6 +69,7 @@ jobs:
           submodules: recursive
 
       - name: Setup (readies)
+        if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0'
         run: ./sbin/setup
 
       - name: Get Redis
