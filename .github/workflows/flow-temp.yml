@@ -11,3 +11,10 @@ jobs:
     with:
       platform: mariner:2
       architecture: x86_64
+
+  test-mariner-artifact:
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    secrets: inherit
+    with:
+      platform: mariner:2
+      architecture: x86_64
