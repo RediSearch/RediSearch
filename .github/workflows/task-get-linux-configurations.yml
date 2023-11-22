@@ -100,6 +100,12 @@ jobs:
               'OS': 'amazonlinux:2',
               'pre-deps': "yum install -y tar gzip"})
 
+          # mariner:2 needs pre-checkout dependencies
+          if x86_platforms.count('mcr.microsoft.com/cbl-mariner/base/core:2.0') > 0:
+            x86_include.append({
+              'OS': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
+              'pre-deps': "tdnf install -y tar gzip"})
+
           # Serialize the platforms to a string
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
             print(f'arm_platforms={arm_platforms}', file=fh)
