@@ -104,7 +104,7 @@ jobs:
           if x86_platforms.count('mcr.microsoft.com/cbl-mariner/base/core:2.0') > 0:
             x86_include.append({
               'OS': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
-              'pre-deps': "tdnf install -y tar gzip"})
+              'pre-deps': "tdnf install -y --noplugins --skipsignature tar gzip"})
 
           # Serialize the platforms to a string
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
