@@ -10,6 +10,7 @@ source install_cmake.sh $MODE
 
 pip install -q --upgrade setuptools
 pip install -q --upgrade pip
+# TODO: move to requirements.* to .install folder?
 pip install -q -r ../tests/pytests/requirements.txt
 pip install -q -r ../tests/pytests/requirements.linux.txt
 

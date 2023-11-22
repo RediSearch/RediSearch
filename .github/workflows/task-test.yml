@@ -57,10 +57,6 @@ jobs:
           sparse-checkout: |
             .install
             tests/pytests/requirements.*
-      - name: Print directory
-        run: ls -la
-      - name: Print directory
-        run: ls -la setup/tests/pytests
       - name: Setup
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
