@@ -439,11 +439,11 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
       nelem += serializeResult(req, reply, &r, &cv);
-      SearchResult_Clear(&r);
     } else {
       goto done_2;
     }
 
+    SearchResult_Clear(&r);
     while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
       nelem += serializeResult(req, reply, &r, &cv);
       SearchResult_Clear(&r);
