@@ -333,11 +333,6 @@ int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
 DocumentIndexer *NewIndexer(IndexSpec *spec) {
   DocumentIndexer *indexer = rm_calloc(1, sizeof(*indexer));
 
-  BlkAlloc_Init(&indexer->alloc);
-  static const KHTableProcs procs = {
-      .Alloc = mergedAlloc, .Compare = mergedCompare, .Hash = mergedHash};
-  KHTable_Init(&indexer->mergeHt, &procs, &indexer->alloc, 4096);
-
   indexer->redisCtx = RedisModule_GetThreadSafeContext(NULL);
   indexer->specId = spec->uniqueId;
   indexer->specKeyName =
@@ -350,9 +345,6 @@ DocumentIndexer *NewIndexer(IndexSpec *spec) {
 void Indexer_Free(DocumentIndexer *indexer) {
   rm_free(indexer->concCtx.openKeys);
   RedisModule_FreeString(indexer->redisCtx, indexer->specKeyName);
-  KHTable_Clear(&indexer->mergeHt);
-  KHTable_Free(&indexer->mergeHt);
-  BlkAlloc_FreeAll(&indexer->alloc, NULL, 0, 0);
   RedisModule_FreeThreadSafeContext(indexer->redisCtx);
   rm_free(indexer);
 }

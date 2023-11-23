@@ -8,8 +8,6 @@
 #define INDEXER_H
 
 #include "document.h"
-#include "util/khtable.h"
-#include "util/block_alloc.h"
 #include "concurrent_ctx.h"
 #include "util/arr.h"
 #include "geometry_index.h"
@@ -50,9 +48,6 @@ typedef struct DocumentIndexer {
   RedisModuleCtx *redisCtx;        // Context for keeping the spec key
   RedisModuleString *specKeyName;  // Cached, used for opening/closing the spec key.
   uint64_t specId;                 // Unique spec ID. Used to verify we haven't been replaced
-  int isDbSelected;
-  KHTable mergeHt;               // Hashtable and block allocator for merging
-  BlkAlloc alloc;
 } DocumentIndexer;
 
 void Indexer_Free(DocumentIndexer *indexer);
