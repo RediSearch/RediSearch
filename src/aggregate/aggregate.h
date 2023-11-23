@@ -94,9 +94,6 @@ typedef enum {
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
 // Get the index search context from the result processor
 #define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
-// Get the index spec from the result processor - this should be used only if the spec
-// can be accessed safely.
-#define RP_SPEC(rpctx) (RP_SCTX(rpctx)->spec)
 
 #ifdef MT_BUILD
 // Indicates whether a query should run in the background. This

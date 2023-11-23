@@ -71,6 +71,10 @@ void SearchResult_Destroy(SearchResult *r) {
  * downstream.
  *******************************************************************************************************************/
 
+// Get the index spec from the result processor - this should be used only if the spec
+// can be accessed safely.
+#define RP_SPEC(rpctx) (RP_SCTX(rpctx)->spec)
+
 static int UnlockSpec_and_ReturnRPResult(ResultProcessor *base, int result_status) {
   RedisSearchCtx_UnlockSpec(RP_SCTX(base));
   return result_status;

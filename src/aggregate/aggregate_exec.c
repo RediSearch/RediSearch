@@ -296,7 +296,7 @@ static size_t getResultsFactor(AREQ *req) {
  * Aggregates all the results from the pipeline into a single array, and returns
  * it. rc is populated with the latest return code from the pipeline.
 */
-SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
+static SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
   SearchResult **results = array_new(SearchResult *, 8);
   SearchResult r = {0};
   while (rp->parent->resultLimit-- && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
@@ -314,7 +314,7 @@ SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
 }
 
 // Free's the results array and all the results inside it
-void destroyResults(SearchResult **results) {
+static void destroyResults(SearchResult **results) {
   if (results) {
     for (size_t i = 0; i < array_len(results); i++) {
       SearchResult_Destroy(results[i]);
@@ -324,7 +324,7 @@ void destroyResults(SearchResult **results) {
   }
 }
 
-bool ShouldReplyWithTimeoutError(int rc, AREQ *req) {
+static bool ShouldReplyWithTimeoutError(int rc, AREQ *req) {
   // TODO: Remove cursor condition (MOD-5992)
   return rc == RS_RESULT_TIMEDOUT
          && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
@@ -332,7 +332,7 @@ bool ShouldReplyWithTimeoutError(int rc, AREQ *req) {
          && !IsProfile(req);
 }
 
-void ReplyWithTimeoutError(RedisModule_Reply *reply) {
+static void ReplyWithTimeoutError(RedisModule_Reply *reply) {
   // TODO: Change to an error (MOD-5965)
   RedisModule_Reply_SimpleString(reply, "Timeout limit was reached");
 }
@@ -369,7 +369,7 @@ long calc_results_len(AREQ *req, size_t limit) {
 static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = {0};
-    int rc = RS_RESULT_OK;
+    int rc = RS_RESULT_EOF;
     ResultProcessor *rp = req->qiter.endProc;
     SearchResult **results = NULL;
     long nelem = 0, resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
@@ -478,7 +478,7 @@ done_2:
 static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = {0};
-    int rc = RS_RESULT_OK;
+    int rc = RS_RESULT_EOF;
     ResultProcessor *rp = req->qiter.endProc;
     SearchResult **results = NULL;
 
