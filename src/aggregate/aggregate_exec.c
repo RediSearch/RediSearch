@@ -337,16 +337,17 @@ void ReplyWithTimeoutError(RedisModule_Reply *reply) {
   RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
 }
 
-void populateReplyWithResults(RedisModule_Reply *reply,SearchResult **results,AREQ *req,cachedVars *cv) {
+static int populateReplyWithResults(RedisModule_Reply *reply,SearchResult **results,AREQ *req,cachedVars *cv) {
   // populate the reply with an array containing the serialized results
-      int len = array_len(results);
-      for (uint32_t i = 0; i < len; i++) {
-        SearchResult *curr = array_pop(results);
-        serializeResult(req, reply, curr, cv);
-        SearchResult_Destroy(curr);
-        rm_free(curr);
-      }
-      array_free(results);
+  int len = array_len(results);
+  for (uint32_t i = 0; i < len; i++) {
+    SearchResult *curr = array_pop(results);
+    serializeResult(req, reply, curr, cv);
+    SearchResult_Destroy(curr);
+    rm_free(curr);
+  }
+  array_free(results);
+  return len;
 }
 
 // // Shared operations that need to be done upon opening a response (resp2/3)
@@ -456,12 +457,11 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
             && !(req->reqflags & QEXEC_F_IS_CURSOR))) {
               RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
               QueryError_ClearError(req->qiter.err);
-              return;
+              goto done_2_free;
       }
     } else if (ShouldReplyWithTimeoutError(rc, req)) {
-    // } else if (rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       ReplyWithTimeoutError(reply);
-      return;
+      goto done_2_free;
     }
 
     if (IsOptimized(req)) {
@@ -556,8 +556,12 @@ done_2:
       RedisModule_Reply_MapEnd(reply);
     }
 
-    // TODO: Make sure this is ok when the timeout policy is strict (i.e., `FAIL`)
-    SearchResult_Destroy(&r);
+done_2_free:
+    if (results) {
+      destroyResults(results);
+    } else {
+      SearchResult_Destroy(&r);
+    }
 
     // Reset the total results length:
     req->qiter.totalResults = 0;
