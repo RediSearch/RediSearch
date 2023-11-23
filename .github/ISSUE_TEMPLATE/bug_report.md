@@ -3,7 +3,6 @@ name: Bug report
 about: Create a report to help us improve
 title: "[BUG]"
 labels: bug
-assignees: oshadmi
 
 ---
 
@@ -23,7 +22,7 @@ If applicable, add screenshots to help explain your problem.
 
 **Environment (please complete the following information):**
  - OS: [e.g. ubuntu 20.04]
- - CPU model 
+ - CPU model
  - Version/branch [e.g. 1.2.2]
 
 
