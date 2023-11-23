@@ -337,16 +337,17 @@ void ReplyWithTimeoutError(RedisModule_Reply *reply) {
   RedisModule_Reply_SimpleString(reply, "Timeout limit was reached");
 }
 
-void populateReplyWithResults(RedisModule_Reply *reply,SearchResult **results,AREQ *req,cachedVars *cv) {
+static uint32_t populateReplyWithResults(RedisModule_Reply *reply,SearchResult **results,AREQ *req,cachedVars *cv) {
   // populate the reply with an array containing the serialized results
-      int len = array_len(results);
-      for (uint32_t i = 0; i < len; i++) {
-        SearchResult *curr = array_pop(results);
-        serializeResult(req, reply, curr, cv);
-        SearchResult_Destroy(curr);
-        rm_free(curr);
-      }
-      array_free(results);
+  int len = array_len(results);
+  for (uint32_t i = 0; i < len; i++) {
+    SearchResult *curr = array_pop(results);
+    serializeResult(req, reply, curr, cv);
+    SearchResult_Destroy(curr);
+    rm_free(curr);
+  }
+  array_free(results);
+  return len;
 }
 
 long calc_results_len(AREQ *req, size_t limit) {
@@ -431,8 +432,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
     if (results != NULL) {
-      populateReplyWithResults(reply, results, req, &cv);
-      nelem += array_len(results);
+      nelem += populateReplyWithResults(reply, results, req, &cv);
       results = NULL;
       goto done_2;
     }
