@@ -449,6 +449,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     ResultProcessor *rp = req->qiter.endProc;
     SearchResult **results = NULL;
     long nelem = 0, resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
+    bool cursor_done = false;
 
     if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       // Aggregate all results before populating the response
@@ -481,11 +482,13 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
             && !(req->reqflags & QEXEC_F_IS_CURSOR))) {
               RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
               QueryError_ClearError(req->qiter.err);
-              goto done_2_free;
+              cursor_done = true;
+              goto done_2_err;
       }
     } else if (ShouldReplyWithTimeoutError(rc, req)) {
       ReplyWithTimeoutError(reply);
-      goto done_2_free;
+      cursor_done = true;
+      goto done_2_err;
     }
 
     if (IsOptimized(req)) {
@@ -558,13 +561,12 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
-    bool cursor_done = (rc != RS_RESULT_OK
+    cursor_done = (rc != RS_RESULT_OK
                         && !(rc == RS_RESULT_TIMEDOUT
                              && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
     if (req->reqflags & QEXEC_F_IS_CURSOR) {
       if (cursor_done) {
-        req->stateflags |= QEXEC_S_ITERDONE;
         RedisModule_Reply_LongLong(reply, 0);
         if (IsProfile(req)) {
           Profile_Print(reply, req);
@@ -582,11 +584,15 @@ done_2:
       RedisModule_Reply_MapEnd(reply);
     }
 
-done_2_free:
+done_2_err:
     if (results) {
       destroyResults(results);
     } else {
       SearchResult_Destroy(&r);
+    }
+
+    if (cursor_done) {
+      req->stateflags |= QEXEC_S_ITERDONE;
     }
 
     // Reset the total results length:
@@ -607,6 +613,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     int rc = RS_RESULT_EOF;
     ResultProcessor *rp = req->qiter.endProc;
     SearchResult **results = NULL;
+    bool cursor_done = false;
 
     if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       // Aggregate all results before populating the response
@@ -628,11 +635,13 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
             && !(req->reqflags & QEXEC_F_IS_CURSOR))) {
               RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
               QueryError_ClearError(req->qiter.err);
-              return;
+              cursor_done = true;
+              goto done_3_err;
       }
     } else if (rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       ReplyWithTimeoutError(reply);
-      return;
+      cursor_done = true;
+      goto done_3_err;
     }
 
     if (req->reqflags & QEXEC_F_IS_CURSOR) {
@@ -715,7 +724,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 done_3:
     RedisModule_Reply_ArrayEnd(reply); // >results
 
-    bool cursor_done = (rc != RS_RESULT_OK
+    cursor_done = (rc != RS_RESULT_OK
                         && !(rc == RS_RESULT_TIMEDOUT
                              && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
@@ -730,19 +739,21 @@ done_3:
     if (req->reqflags & QEXEC_F_IS_CURSOR) {
       if (cursor_done) {
         RedisModule_Reply_LongLong(reply, 0);
-        req->stateflags |= QEXEC_S_ITERDONE;
       } else {
         RedisModule_Reply_LongLong(reply, req->cursor_id);
       }
       RedisModule_Reply_ArrayEnd(reply);
     }
 
-    // TODO: Make sure this is ok when the timeout policy is strict.
-    SearchResult_Destroy(&r);
+done_3_err:
+    if (results) {
+      destroyResults(results);
+    } else {
+      SearchResult_Destroy(&r);
+    }
 
-    if (rc != RS_RESULT_OK &&
-      !(rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return)) {
-        req->stateflags |= QEXEC_S_ITERDONE;
+    if (cursor_done) {
+      req->stateflags |= QEXEC_S_ITERDONE;
     }
 
     // Reset the total results length:
