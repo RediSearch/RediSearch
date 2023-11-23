@@ -340,12 +340,11 @@ static int populateReplyWithResults(RedisModule_Reply *reply,
   SearchResult **results, AREQ *req, cachedVars *cv) {
     // populate the reply with an array containing the serialized results
     int len = array_len(results);
-    for (uint32_t i = 0; i < len; i++) {
-      SearchResult *curr = array_pop(results);
-      serializeResult(req, reply, curr, cv);
-      SearchResult_Destroy(curr);
-      rm_free(curr);
-    }
+    array_foreach(results, res, {
+      serializeResult(req, reply, res, cv);
+      SearchResult_Destroy(res);
+      rm_free(res);
+    });
     array_free(results);
     return len;
 }
