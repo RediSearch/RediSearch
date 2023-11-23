@@ -296,11 +296,10 @@ static size_t getResultsFactor(AREQ *req) {
  * Aggregates all the results from the pipeline into a single array, and returns
  * it. rc is populated with the latest return code from the pipeline.
 */
-SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
-  SearchResult **results = array_new(SearchResult *, 10);
+static SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
+  SearchResult **results = array_new(SearchResult *, 8);
   SearchResult r = {0};
   while (rp->parent->resultLimit-- && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
-    // Consider adding 1-100 places to the array each realloc (to save reallocs).
     array_append(results, SearchResult_Copy(&r));
 
     // clean the search result
@@ -315,7 +314,7 @@ SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
 }
 
 // Free's the results array and all the results inside it
-void destroyResults(SearchResult **results) {
+static void destroyResults(SearchResult **results) {
   if (results) {
     for (size_t i = 0; i < array_len(results); i++) {
       SearchResult_Destroy(results[i]);
@@ -325,7 +324,7 @@ void destroyResults(SearchResult **results) {
   }
 }
 
-bool ShouldReplyWithTimeoutError(int rc, AREQ *req) {
+static bool ShouldReplyWithTimeoutError(int rc, AREQ *req) {
   // TODO: Remove cursor condition (MOD-5992)
   return rc == RS_RESULT_TIMEDOUT
          && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
@@ -333,21 +332,35 @@ bool ShouldReplyWithTimeoutError(int rc, AREQ *req) {
          && !IsProfile(req);
 }
 
-void ReplyWithTimeoutError(RedisModule_Reply *reply) {
+static void ReplyWithTimeoutError(RedisModule_Reply *reply) {
   RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
 }
 
-static int populateReplyWithResults(RedisModule_Reply *reply,SearchResult **results,AREQ *req,cachedVars *cv) {
-  // populate the reply with an array containing the serialized results
-  int len = array_len(results);
-  for (uint32_t i = 0; i < len; i++) {
-    SearchResult *curr = array_pop(results);
-    serializeResult(req, reply, curr, cv);
-    SearchResult_Destroy(curr);
-    rm_free(curr);
-  }
-  array_free(results);
-  return len;
+static int populateReplyWithResults(RedisModule_Reply *reply,
+  SearchResult **results, AREQ *req, cachedVars *cv) {
+    // populate the reply with an array containing the serialized results
+    int len = array_len(results);
+    for (uint32_t i = 0; i < len; i++) {
+      SearchResult *curr = array_pop(results);
+      serializeResult(req, reply, curr, cv);
+      SearchResult_Destroy(curr);
+      rm_free(curr);
+    }
+    array_free(results);
+    return len;
+}
+
+long calc_results_len(AREQ *req, size_t limit) {
+  long resultsLen;
+  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
+  size_t reqLimit = arng && arng->isLimited? arng->limit : DEFAULT_LIMIT;
+  size_t reqOffset = arng && arng->isLimited? arng->offset : 0;
+  size_t resultFactor = getResultsFactor(req);
+
+  size_t expected_res = reqLimit + reqOffset <= req->maxSearchResults ? req->qiter.totalResults : MIN(req->maxSearchResults, req->qiter.totalResults);
+  size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
+
+  return 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
 }
 
 // // Shared operations that need to be done upon opening a response (resp2/3)
@@ -429,23 +442,34 @@ static int populateReplyWithResults(RedisModule_Reply *reply,SearchResult **resu
 /**
  * Sends a chunk of <n> rows in the resp2 format
 */
-void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
+static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = {0};
     int rc = RS_RESULT_EOF;
     ResultProcessor *rp = req->qiter.endProc;
     SearchResult **results = NULL;
+    long nelem = 0, resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
 
     if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       // Aggregate all results before populating the response
       results = AggregateResults(rp, &rc);
       // Check timeout after aggregation
-      if (TimedOut(&rp->parent->sctx->timeout) == TIMED_OUT) {
+      if (TimedOut(&RP_SCTX(rp)->timeout) == TIMED_OUT) {
         rc = RS_RESULT_TIMEDOUT;
       }
     } else {
       // Send the results received from the pipeline as they come (no need to aggregate)
       rc = rp->Next(rp, &r);
+    }
+
+    // Set `resultsLen` to be the expected number of results in the response.
+    if (ShouldReplyWithTimeoutError(rc, req)) {
+      resultsLen = 1;
+    } else if (rc == RS_RESULT_ERROR) {
+      resultsLen = 2;
+    } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
+               req->optimizer->type != Q_OPT_NO_SORTER) {
+      resultsLen = calc_results_len(req, limit);
     }
 
     // If an error occurred, or a timeout in strict mode - return a simple error
@@ -501,9 +525,11 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
       QueryError_ClearError(req->qiter.err);
       RedisModule_Reply_ArrayEnd(reply);
+      nelem++;
     } else {
       RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
     }
+    nelem++;
 
     // Once we get here, we want to return the results we got from the pipeline (with no error)
     if (req->reqflags & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
@@ -512,20 +538,20 @@ void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
     if (results != NULL) {
-      populateReplyWithResults(reply, results, req, &cv);
+      nelem += populateReplyWithResults(reply, results, req, &cv);
       results = NULL;
       goto done_2;
     }
 
     if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
-      serializeResult(req, reply, &r, &cv);
+      nelem += serializeResult(req, reply, &r, &cv);
       SearchResult_Clear(&r);
     } else {
       goto done_2;
     }
 
     while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
-      serializeResult(req, reply, &r, &cv);
+      nelem += serializeResult(req, reply, &r, &cv);
       SearchResult_Clear(&r);
     }
 
@@ -565,12 +591,17 @@ done_2_free:
 
     // Reset the total results length:
     req->qiter.totalResults = 0;
+
+    if (resultsLen != REDISMODULE_POSTPONED_ARRAY_LEN && rc == RS_RESULT_OK && resultsLen != nelem) {
+      RedisModule_Log(RSDummyContext, "warning", "Failed to predict the number of replied results. Prediction=%ld, actual_number=%ld.", resultsLen, nelem);
+      RS_LOG_ASSERT(0, "Precalculated number of replies must be equal to actual number");
+    }
 }
 
 /**
  * Sends a chunk of <n> rows in the resp3 format
 */
-void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
+static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = {0};
     int rc = RS_RESULT_EOF;
@@ -581,7 +612,7 @@ void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       // Aggregate all results before populating the response
       results = AggregateResults(rp, &rc);
       // Check timeout after aggregation
-      if (TimedOut(&rp->parent->sctx->timeout) == TIMED_OUT) {
+      if (TimedOut(&RP_SCTX(rp)->timeout) == TIMED_OUT) {
         rc = RS_RESULT_TIMEDOUT;
       }
     } else {

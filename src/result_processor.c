@@ -71,8 +71,6 @@ void SearchResult_Destroy(SearchResult *r) {
  * downstream.
  *******************************************************************************************************************/
 
-// Get the index search context from the result processor
-#define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 // Get the index spec from the result processor - this should be used only if the spec
 // can be accessed safely.
 #define RP_SPEC(rpctx) (RP_SCTX(rpctx)->spec)
