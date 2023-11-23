@@ -929,6 +929,10 @@ const char *RPTypeToString(ResultProcessorType type) {
   return RPTypeLookup[type];
 }
 
+ResultProcessorType RPGetType(ResultProcessor *rp) {
+  return rp->type;
+}
+
 void RP_DumpChain(const ResultProcessor *rp) {
   for (; rp; rp = rp->upstream) {
     printf("RP(%s) @%p\n", RPTypeToString(rp->type), rp);

@@ -568,7 +568,7 @@ done_2:
       if (cursor_done) {
         RedisModule_Reply_LongLong(reply, 0);
         if (IsProfile(req)) {
-          Profile_Print(reply, req);
+          (RPGetType(rp->parent->rootProc) != RP_NETWORK) ? Profile_Print(reply, req) : printAggProfile(reply, req);
         }
       } else {
         RedisModule_Reply_LongLong(reply, req->cursor_id);
@@ -579,7 +579,7 @@ done_2:
       }
       RedisModule_Reply_ArrayEnd(reply);
     } else if (IsProfile(req)) {
-      Profile_Print(reply, req);
+      (RPGetType(rp->parent->rootProc) != RP_NETWORK) ? Profile_Print(reply, req) : printAggProfile(reply, req);
       RedisModule_Reply_MapEnd(reply);
     }
 
@@ -729,7 +729,7 @@ done_3:
 
     if (IsProfile(req)) {
       if (!(req->reqflags & QEXEC_F_IS_CURSOR) || cursor_done) {
-        Profile_Print(reply, req);
+        (RPGetType(rp->parent->rootProc) != RP_NETWORK) ? Profile_Print(reply, req) : printAggProfile(reply, req);
       }
     }
 

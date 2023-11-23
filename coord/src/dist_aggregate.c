@@ -727,9 +727,6 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     }
   } else {
     sendChunk(r, reply, -1);
-    if (IsProfile(r)) {
-      printAggProfile(reply, r);
-    }
     AREQ_Free(r);
   }
   SpecialCaseCtx_Free(knnCtx);

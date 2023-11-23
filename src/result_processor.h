@@ -263,6 +263,9 @@ void Profile_AddRPs(QueryIterator *qiter);
 // Return string for RPType
 const char *RPTypeToString(ResultProcessorType type);
 
+// Returns the type of a result processor
+ResultProcessorType RPGetType(ResultProcessor *rp);
+
 #ifdef __cplusplus
 }
 #endif
