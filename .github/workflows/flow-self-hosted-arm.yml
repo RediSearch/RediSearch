@@ -12,7 +12,6 @@ on:
         type: string
       get-redis:
         type: string
-        default: ${{ vars.DEFAULT_REDIS_REF }}
       test:
         type: boolean
         description: Run test flow
