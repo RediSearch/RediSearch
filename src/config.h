@@ -85,12 +85,10 @@ typedef enum {
 
 
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
- * and is initialized with user config options during module statrtup */
+ * and is initialized with user config options during module startup */
 typedef struct {
   // Version of Redis server
   int serverVersion;
-  // Use concurrent search (default: 1, disable with SAFEMODE)
-  int concurrentMode;
   // If not null, this points at a .so file of an extension we try to load (default: NULL)
   const char *extLoad;
   // Path to friso.ini for chinese dictionary file
@@ -110,9 +108,7 @@ typedef struct {
   size_t maxDocTableSize;
   size_t maxSearchResults;
   size_t maxAggregateResults;
-  size_t searchPoolSize;
-  size_t indexPoolSize;
-  int poolSizeNoAuto;  // Don't auto-detect pool size
+  size_t coordinatorPoolSize; // number of threads in the coordinator thread pool
 
 #ifdef MT_BUILD
   size_t numWorkerThreads;
@@ -222,9 +218,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 
 #define DEFAULT_DOC_TABLE_SIZE 1000000
 #define MAX_DOC_TABLE_SIZE 100000000
-#define CONCURRENT_SEARCH_POOL_DEFAULT_SIZE 20
-#define CONCURRENT_INDEX_POOL_DEFAULT_SIZE 8
-#define CONCURRENT_INDEX_MAX_POOL_SIZE 200  // Maximum number of threads to create
+#define COORDINATOR_POOL_DEFAULT_SIZE 20
 #define GC_SCANSIZE 100
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
@@ -238,56 +232,54 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 
-#ifdef MT_BUILD  
-#define MT_BUILD_CONFIG .numWorkerThreads = 0,                                                                     \
-    .mt_mode = MT_MODE_OFF,                                                                                                     \
-    .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                            \
+#ifdef MT_BUILD
+#define MT_BUILD_CONFIG \
+    .numWorkerThreads = 0,                                                                                            \
+    .mt_mode = MT_MODE_OFF,                                                                                           \
+    .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               \
     .privilegedThreadsNum = DEFAULT_PRIVILEGED_THREADS_NUM,
-#else 
+#else
 #define MT_BUILD_CONFIG
-#endif 
+#endif
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                                                           \
-    .concurrentMode = 0,                                                                                              \
     .extLoad = NULL,                                                                                                  \
-    .gcConfigParams.enableGC = 1,                                                                                                    \
-    .iteratorsConfigParams.minTermPrefix = 2,                                                                                               \
-    .iteratorsConfigParams.maxPrefixExpansions = 200,                                                                                       \
-    .requestConfigParams.queryTimeoutMS = 500,                                                                                            \
-    .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                                                                            \
+    .gcConfigParams.enableGC = 1,                                                                                     \
+    .iteratorsConfigParams.minTermPrefix = 2,                                                                         \
+    .iteratorsConfigParams.maxPrefixExpansions = 200,                                                                 \
+    .requestConfigParams.queryTimeoutMS = 500,                                                                        \
+    .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                                                        \
     .cursorReadSize = 1000,                                                                                           \
     .cursorMaxIdle = 300000,                                                                                          \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                                                        \
-    .searchPoolSize = CONCURRENT_SEARCH_POOL_DEFAULT_SIZE,                                                            \
-    .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE,                                                              \
-    .poolSizeNoAuto = 0,   \
-    MT_BUILD_CONFIG                                                                                                 \
-    .gcConfigParams.gcScanSize = GC_SCANSIZE,                                                                                        \
+    .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                                                             \
+     MT_BUILD_CONFIG                                                                                                  \
+    .gcConfigParams.gcScanSize = GC_SCANSIZE,                                                                         \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                                                              \
-    .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                                        \
-    .gcConfigParams.forkGc.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,                                                             \
-    .gcConfigParams.forkGc.forkGcSleepBeforeExit = 0,                                                                                       \
-    .iteratorsConfigParams.maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE,                                                 \
-    .gcConfigParams.forkGc.forkGcRetryInterval = 5,                                                                                         \
-    .gcConfigParams.forkGc.forkGcCleanThreshold = 100,                                                                                      \
+    .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                         \
+    .gcConfigParams.forkGc.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,                                       \
+    .gcConfigParams.forkGc.forkGcSleepBeforeExit = 0,                                                                 \
+    .iteratorsConfigParams.maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE,                           \
+    .gcConfigParams.forkGc.forkGcRetryInterval = 5,                                                                   \
+    .gcConfigParams.forkGc.forkGcCleanThreshold = 100,                                                                \
     .noMemPool = 0,                                                                                                   \
     .filterCommands = 0,                                                                                              \
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX,                                                                   \
     .maxAggregateResults = -1,                                                                                        \
-    .iteratorsConfigParams.minUnionIterHeap = 20,                                                                                           \
+    .iteratorsConfigParams.minUnionIterHeap = 20,                                                                     \
     .numericCompress = false,                                                                                         \
     .numericTreeMaxDepthRange = 0,                                                                                    \
-    .requestConfigParams.printProfileClock = 1,                                                                                           \
+    .requestConfigParams.printProfileClock = 1,                                                                       \
     .invertedIndexRawDocidEncoding = false,                                                                           \
-    .gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = true,                                                                             \
+    .gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = true,                                                       \
     .freeResourcesThread = true,                                                                                      \
-    .requestConfigParams.dialectVersion = 1,                                                                                       \
+    .requestConfigParams.dialectVersion = 1,                                                                          \
     .vssMaxResize = 0,                                                                                                \
     .multiTextOffsetDelta = 100,                                                                                      \
     .used_dialects = 0,                                                                                               \
     .numBGIndexingIterationsBeforeSleep = 100,                                                                        \
-    .prioritizeIntersectUnionChildren = false                                                                           \
+    .prioritizeIntersectUnionChildren = false                                                                         \
   }
 
 #define REDIS_ARRAY_LIMIT 7
