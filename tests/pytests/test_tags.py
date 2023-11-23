@@ -64,8 +64,8 @@ def testSeparator(env):
             res = env.cmd('ft.search', 'idx', q)
             env.assertEqual(1, res[0])
 
+@skip(cluster=True)
 def testTagPrefix(env):
-    env.skipOnCluster()
     r = env
     env.expect(
         'ft.create', 'idx', 'ON', 'HASH',
@@ -249,8 +249,8 @@ def testTagCaseSensitive(env):
     env.expect('FT.SEARCH', 'idx4', '@t:{f\\ o}')         \
         .equal([1, 'doc3', ['t', 'f o']])
 
+@skip(cluster=True)
 def testTagGCClearEmpty(env):
-    env.skipOnCluster()
 
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
@@ -279,8 +279,8 @@ def testTagGCClearEmpty(env):
     env.expect('FT.SEARCH', 'idx', '@t:{foo}')  \
         .equal([2, 'doc4', ['t', 'foo'], 'doc5', ['t', 'foo']])
 
+@skip(cluster=True)
 def testTagGCClearEmptyWithCursor(env):
-    env.skipOnCluster()
 
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
@@ -306,8 +306,8 @@ def testTagGCClearEmptyWithCursor(env):
     env.assertEqual(res, [0])
     env.assertEqual(cursor, 0)
 
+@skip(cluster=True)
 def testTagGCClearEmptyWithCursorAndMoreData(env):
-    env.skipOnCluster()
 
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
@@ -342,9 +342,8 @@ def testTagGCClearEmptyWithCursorAndMoreData(env):
     res = conn.execute_command('FT.AGGREGATE', 'idx', '@t:{foo}')
     env.assertEqual(res, [1, [], []])
 
-@unstable
+@skip(cluster=True)
 def testEmptyTagLeak(env):
-    env.skipOnCluster()
 
     cycles = 1
     tags = 30

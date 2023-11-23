@@ -1,6 +1,6 @@
 import os.path
 from includes import *
-from common import waitForIndex,toSortedFlatList
+from common import waitForIndex,toSortedFlatList, skip
 
 
 GENTEXT = os.path.dirname(os.path.abspath(__file__)) + '/../ctests/genesis.txt'
@@ -110,8 +110,8 @@ def testSummarizationDisabled(env):
         res = env.cmd('FT.SEARCH', 'idx2', 'hello',
                        'SUMMARIZE', 'FIELDS', 1, 'body')
 
+@skip()
 def testSummarizationNoSave(env):
-    env.skip()
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'body', 'TEXT')
     waitForIndex(env, 'idx')
     env.cmd('FT.ADD', 'idx', 'doc', 1.0, 'NOSAVE',

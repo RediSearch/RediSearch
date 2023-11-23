@@ -72,9 +72,8 @@ def testMultipleIndexes(env):
     env.assertEqual(['f1', 'hello'], last1)
     env.assertEqual(['f1', 'goodbye'], last2)
 
+@skip(cluster=True)
 def testCapacities(env):
-    env.skipOnCluster()
-
     loadDocs(env, idx='idx1')
     loadDocs(env, idx='idx2')
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10]
@@ -109,10 +108,10 @@ def testCapacities(env):
     c = env.cmd( * q1)
     env.cmd('FT.CURSOR', 'DEL', 'idx1', c[-1])
 
+@skip(cluster=True)
 def testTimeout(env):
     # currently this test is only valid on one shard because coordinator creates more cursor which are not clean
     # with the same timeout
-    env.skipOnCluster()
     loadDocs(env, idx='idx1')
     # Maximum idle of 1ms
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10, 'MAXIDLE', 1]
