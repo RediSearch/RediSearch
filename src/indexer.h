@@ -46,7 +46,6 @@ typedef struct FieldIndexerData {
 } FieldIndexerData;
 
 typedef struct DocumentIndexer {
-  size_t size;                     // number of items in the queue
   ConcurrentSearchCtx concCtx;     // GIL locking. This is repopulated with the relevant key data
   RedisModuleCtx *redisCtx;        // Context for keeping the spec key
   RedisModuleString *specKeyName;  // Cached, used for opening/closing the spec key.
