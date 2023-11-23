@@ -57,7 +57,10 @@ def testSimpleBuffer():
 def testMultipleBlocksBuffer():
     CreateAndSearchSortBy(docs_count = 2500)
 
-
+# Skipping for cluster as we only test for loading the module to the shard.
+# Sanitizer is not tested due to a bug in redis - onFLush callback is called even though module loading
+# failed, causing access to an invalid memory that was freed (module context).
+@skip(cluster=True, asan=True)
 def test_invalid_mt_config_combinations(env):
     if not MT_BUILD:
         raise SkipTest('MT_BUILD is not set')
