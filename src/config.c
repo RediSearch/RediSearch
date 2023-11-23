@@ -83,16 +83,20 @@ CONFIG_SETTER(setSafemode) {
   return REDISMODULE_OK;
 }
 
-// dummy getter for safemode. Assuming that `maxDocTableSize` is never 0, we always return "true"
-CONFIG_BOOLEAN_GETTER(getSafemode, maxDocTableSize, 0)
+// dummy getter for safemode. Always return "true"
+CONFIG_GETTER(getSafemode) {
+  return sdsnew("true");
+}
 
 CONFIG_SETTER(setConcurentWriteMode) {
   RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING, "CONCURRENT_WRITE_MODE option is deprecated, and has no effect");
   return REDISMODULE_OK;
 }
 
-// dummy getter for CONCURRENT_WRITE_MODE. Assuming that `maxDocTableSize` is never 0, we always return "false"
-CONFIG_BOOLEAN_GETTER(getConcurentWriteMode, maxDocTableSize, 1)
+// dummy getter for CONCURRENT_WRITE_MODE. Always return "false"
+CONFIG_GETTER(getConcurentWriteMode) {
+  return sdsnew("false");
+}
 
 // NOGC
 CONFIG_SETTER(setNoGc) {

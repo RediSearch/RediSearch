@@ -259,10 +259,7 @@ struct DocumentIndexer;
 typedef struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;  // Next context in the queue
   Document *doc;                   // Document which is being indexed
-  union {
-    RedisModuleBlockedClient *bc;  // Client
-    RedisSearchCtx *sctx;
-  } client;
+  RedisSearchCtx *sctx;
 
   IndexSpec *spec;
   char *specName;

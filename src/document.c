@@ -177,7 +177,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   QueryError_ClearError(&aCtx->status);
   aCtx->totalTokens = 0;
   aCtx->docFlags = 0;
-  aCtx->client.bc = NULL;
+  aCtx->sctx = NULL;
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
   aCtx->indexer = sp->indexer;
@@ -244,7 +244,7 @@ typedef struct DocumentAddCtx {
 } DocumentAddCtx;
 
 void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
-  doReplyFinish(aCtx, aCtx->client.sctx->redisCtx);
+  doReplyFinish(aCtx, aCtx->sctx->redisCtx);
 }
 
 // How many bytes in a document to warrant it being tokenized in a separate thread
@@ -317,7 +317,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   // We actually modify (!) the strings in the document, so we always require
   // ownership
   Document_MakeStringsOwner(aCtx->doc);
-  aCtx->client.sctx = sctx;
+  aCtx->sctx = sctx;
   Document_AddToIndexes(aCtx, sctx);
 }
 

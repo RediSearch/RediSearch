@@ -52,7 +52,6 @@ typedef struct DocumentIndexer {
   RedisModuleString *specKeyName;  // Cached, used for opening/closing the spec key.
   uint64_t specId;                 // Unique spec ID. Used to verify we haven't been replaced
   int isDbSelected;
-  struct DocumentIndexer *next;  // Next structure in the indexer list
   KHTable mergeHt;               // Hashtable and block allocator for merging
   BlkAlloc alloc;
 } DocumentIndexer;

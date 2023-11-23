@@ -384,7 +384,7 @@ static void reopenCb(void *arg) {}
 static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   RSAddDocumentCtx *parentMap[MAX_BULK_DOCS];
   RSAddDocumentCtx *firstZeroId = aCtx;
-  RedisSearchCtx ctx = *aCtx->client.sctx;
+  RedisSearchCtx ctx = *aCtx->sctx;
 
   if (ACTX_IS_INDEXED(aCtx) || aCtx->stateFlags & (ACTX_F_ERRORED)) {
     // Document is complete or errored. No need for further processing.
@@ -482,7 +482,6 @@ DocumentIndexer *NewIndexer(IndexSpec *spec) {
       .Alloc = mergedAlloc, .Compare = mergedCompare, .Hash = mergedHash};
   KHTable_Init(&indexer->mergeHt, &procs, &indexer->alloc, 4096);
 
-  indexer->next = NULL;
   indexer->redisCtx = RedisModule_GetThreadSafeContext(NULL);
   indexer->specId = spec->uniqueId;
   indexer->specKeyName =
