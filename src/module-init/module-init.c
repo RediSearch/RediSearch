@@ -70,27 +70,11 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
 }
 
 static int initAsModule(RedisModuleCtx *ctx) {
-  // Check that redis supports thread safe context. RC3 or below doesn't
-  if (RedisModule_GetThreadSafeContext == NULL) {
-    RedisModule_Log(ctx, "warning",
-                    "***** FATAL: Incompatible version of redis 4.0 detected. *****\n"
-                    "\t\t\t\tPlease use Redis 4.0.0 or later from https://redis.io/download\n"
-                    "\t\t\t\tRedis will exit now!");
-    return REDISMODULE_ERR;
-  }
-
   if (RediSearch_ExportCapi(ctx) != REDISMODULE_OK) {
     RedisModule_Log(ctx, "warning", "Could not initialize low level api");
   } else {
     RedisModule_Log(ctx, "notice", "Low level api version %d initialized successfully",
                     REDISEARCH_CAPI_VERSION);
-  }
-
-  if (RedisModule_GetContextFlags == NULL && RSGlobalConfig.concurrentMode) {
-    RedisModule_Log(ctx, "warning",
-                    "GetContextFlags unsupported (need Redis >= 4.0.6). Commands executed in "
-                    "MULTI or LUA will "
-                    "malfunction unless 'safe' functions are used or SAFEMODE is enabled.");
   }
 
   if (!validateAofSettings(ctx)) {
@@ -103,8 +87,6 @@ static int initAsModule(RedisModuleCtx *ctx) {
 }
 
 static int initAsLibrary(RedisModuleCtx *ctx) {
-  // Disable concurrent mode:
-  RSGlobalConfig.concurrentMode = 0;
   RSGlobalConfig.iteratorsConfigParams.minTermPrefix = 0;
   RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions = LONG_MAX;
   return REDISMODULE_OK;
@@ -184,11 +166,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   RS_Initialized = 1;
 
   if (!RSDummyContext) {
-    if (RedisModule_GetDetachedThreadSafeContext) {
-      RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
-    } else {
-      RSDummyContext = RedisModule_GetThreadSafeContext(NULL);
-    }
+    RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
   }
 
   if (mode == REDISEARCH_INIT_MODULE && initAsModule(ctx) != REDISMODULE_OK) {
@@ -205,10 +183,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   Extensions_Init();
 
   Indexes_Init(ctx);
-
-  if (RSGlobalConfig.concurrentMode) {
-    ConcurrentSearch_ThreadPoolStart();
-  }
 
   GC_ThreadPoolStart();
 

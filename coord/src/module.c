@@ -245,16 +245,9 @@ int synonymUpdateFanOutReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
 
-  if (count != 1) {
+  if (count != 1 || (MRReply_Type(replies[0]) != MR_REPLY_INTEGER && MRReply_Type(replies[0]) != MR_REPLY_DOUBLE)) {
     RedisModule_Assert(bc);
-    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
-    RedisModule_UnblockClient(bc, mc);
-    return REDISMODULE_OK;
-  }
-
-  if (MRReply_Type(replies[0]) != MR_REPLY_INTEGER && MRReply_Type(replies[0]) != MR_REPLY_DOUBLE) {
-    RedisModule_Assert(bc);
-    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mc);
     return REDISMODULE_OK;
   }
@@ -1625,7 +1618,7 @@ cleanup:
   }
 
   searchRequestCtx_Free(req);
-  RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
+  RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, mc);
   RedisModule_FreeThreadSafeContext(ctx);
   MR_requestCompleted();
@@ -2037,7 +2030,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol, RedisMo
     RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
     RedisModule_ReplyWithError(clientCtx, QueryError_GetError(&status));
     QueryError_ClearError(&status);
-    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, NULL);
     RedisModule_FreeThreadSafeContext(clientCtx);
     return REDISMODULE_OK;
@@ -2120,7 +2113,7 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   sCmdCtx->argc = argc;
   sCmdCtx->bc = bc;
   sCmdCtx->protocol = is_resp3(ctx) ? 3 : 2;
-  RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, bc);
+  RedisModule_BlockedClientMeasureTimeStart(bc);
   ConcurrentSearch_ThreadPoolRun(DistSearchCommandHandler, sCmdCtx, DIST_AGG_THREADPOOL);
 
   return REDISMODULE_OK;
@@ -2481,11 +2474,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   uv_replace_allocator(rm_malloc, rm_realloc, rm_calloc, rm_free);
 
   if (!RSDummyContext) {
-    if (RedisModule_GetDetachedThreadSafeContext) {
-      RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
-    } else {
-      RSDummyContext = RedisModule_GetThreadSafeContext(NULL);
-    }
+    RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
   }
 
   getRedisVersion();
@@ -2509,7 +2498,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // Init the aggregation thread pool
-  DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(RSGlobalConfig.searchPoolSize);
+  DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(RSGlobalConfig.coordinatorPoolSize);
 
   Initialize_CoordKeyspaceNotifications(ctx);
 

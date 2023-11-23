@@ -235,10 +235,6 @@ def testCompressionConfig(env):
 def testRangeParentsConfig(env):
 	elements = 1000
 
-	concurrent = env.cmd('ft.config', 'get', 'CONCURRENT_WRITE_MODE')
-	if str(concurrent[0][1]) == 'true':
-		env.skip()
-
 	result = [['numRanges', 4], ['numRanges', 6]]
 	for test in range(2):
 		# check number of ranges

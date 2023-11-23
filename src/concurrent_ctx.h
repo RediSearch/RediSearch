@@ -110,15 +110,11 @@ static inline void ConcurrentSearch_SetKey(ConcurrentSearchCtx *ctx, RedisModule
   ctx->openKeys[0].privdata = privdata;
 }
 
-/** Start the concurrent search thread pool. Should be called when initializing the module */
-void ConcurrentSearch_ThreadPoolStart();
+/* Destroys all thread pools created with `ConcurrentSearch_CreatePool` */
 void ConcurrentSearch_ThreadPoolDestroy(void);
 
 /* Create a new thread pool, and return its identifying id */
 int ConcurrentSearch_CreatePool(int numThreads);
-
-extern int CONCURRENT_POOL_INDEX;
-extern int CONCURRENT_POOL_SEARCH;
 
 /* Run a function on the concurrent thread pool */
 void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type);
@@ -189,22 +185,5 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentC
     }                                                        \
     conctx__didSwitch;                                       \
   })
-
-// Check if the current request can be executed in a threadb
-static inline int CheckConcurrentSupport(RedisModuleCtx *ctx) {
-  // See if this client should be concurrent
-  if (!RSGlobalConfig.concurrentMode) {
-    return 0;
-  }
-
-  // Redis cannot use blocked contexts in lua and/or multi commands. Concurrent
-  // search relies on blocking a client. In such cases, force non-concurrent
-  // search mode.
-  if (RedisModule_GetContextFlags && (RedisModule_GetContextFlags(ctx) &
-                                      (REDISMODULE_CTX_FLAGS_LUA | REDISMODULE_CTX_FLAGS_MULTI))) {
-    return 0;
-  }
-  return 1;
-}
 
 #endif
