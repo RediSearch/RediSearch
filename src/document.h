@@ -248,10 +248,6 @@ struct FieldIndexerData;
 // The content has sortable fields
 #define ACTX_F_SORTABLES 0x10
 
-// Don't block/unblock the client when indexing. This is the case when the
-// operation is being done from within the context of AOF
-#define ACTX_F_NOBLOCK 0x20
-
 // Document is entirely empty (no sortables, indexables)
 #define ACTX_F_EMPTY 0x40
 
@@ -308,8 +304,6 @@ typedef struct RSAddDocumentCtx {
   DocumentAddCompleted donecb;
   void *donecbData;
 } RSAddDocumentCtx;
-
-#define AddDocumentCtx_IsBlockable(aCtx) (!((aCtx)->stateFlags & ACTX_F_NOBLOCK))
 
 /**
  * Creates a new context used for adding documents. Once created, call

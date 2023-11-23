@@ -19,7 +19,6 @@
 extern RedisModuleCtx *RSDummyContext;
 
 #include <unistd.h>
-static void Indexer_FreeInternal(DocumentIndexer *indexer);
 
 static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder encoder,
                             ForwardIndexEntry *entry) {
@@ -151,7 +150,6 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
                               KHTable *ht, RSAddDocumentCtx **parentMap) {
 
   IndexEncoder encoder = InvertedIndex_GetEncoder(ctx->spec->flags);
-  const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
 
   // This is used as a cache layer, so that we don't need to derefernce the
   // RSAddDocumentCtx each time.
@@ -201,11 +199,6 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
       if (idxKey) {
         RedisModule_CloseKey(idxKey);
       }
-
-      if (isBlocked && CONCURRENT_CTX_TICK(&indexer->concCtx) && ctx->spec == NULL) {
-        QueryError_SetError(&aCtx->status, QUERY_ENOINDEX, NULL);
-        return -1;
-      }
     }
   }
   return 0;
@@ -224,7 +217,6 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
   IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->specFlags);
-  const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
 
   while (entry != NULL) {
     RedisModuleKey *idxKey = NULL;
@@ -253,10 +245,6 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
     }
 
     entry = ForwardIndexIterator_Next(&it);
-    if (isBlocked && CONCURRENT_CTX_TICK(&indexer->concCtx) && spec == NULL) {
-      QueryError_SetError(&aCtx->status, QUERY_ENOINDEX, NULL);
-      return;
-    }
   }
 }
 
@@ -319,7 +307,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     }
 
     RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
-    RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec, 
+    RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec,
                                             cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
     if (!md) {
       cur->stateFlags |= ACTX_F_ERRORED;
@@ -396,7 +384,7 @@ static void reopenCb(void *arg) {}
 static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   RSAddDocumentCtx *parentMap[MAX_BULK_DOCS];
   RSAddDocumentCtx *firstZeroId = aCtx;
-  RedisSearchCtx ctx = {NULL};
+  RedisSearchCtx ctx = *aCtx->client.sctx;
 
   if (ACTX_IS_INDEXED(aCtx) || aCtx->stateFlags & (ACTX_F_ERRORED)) {
     // Document is complete or errored. No need for further processing.
@@ -413,26 +401,6 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
       // likely that subsequent entries do indeed have IDs.
       firstZeroId = NULL;
     }
-  }
-
-  const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
-
-  if (isBlocked) {
-    // Force a context at this point:
-    if (!indexer->isDbSelected) {
-      RedisModuleCtx *thCtx = RedisModule_GetThreadSafeContext(aCtx->client.bc);
-      RedisModule_SelectDb(indexer->redisCtx, RedisModule_GetSelectedDb(thCtx));
-      RedisModule_FreeThreadSafeContext(thCtx);
-      indexer->isDbSelected = 1;
-    }
-
-    ctx.redisCtx = indexer->redisCtx;
-    ctx.specId = indexer->specId;
-    ConcurrentSearch_SetKey(&indexer->concCtx, indexer->specKeyName, &ctx);
-    ConcurrentSearchCtx_ResetClock(&indexer->concCtx);
-    ConcurrentSearchCtx_Lock(&indexer->concCtx);
-  } else {
-    ctx = *aCtx->client.sctx;
   }
 
   if (!ctx.spec) {
@@ -474,68 +442,15 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   }
 
 cleanup:
-  if (isBlocked) {
-    ConcurrentSearchCtx_Unlock(&indexer->concCtx);
-  }
   if (useTermHt) {
     BlkAlloc_Clear(&indexer->alloc, NULL, NULL, 0);
     KHTable_Clear(&indexer->mergeHt);
   }
 }
 
-#define SHOULD_STOP(idxer) ((idxer)->options & INDEXER_STOPPED)
-
-static void *Indexer_Run(void *p) {
-  DocumentIndexer *indexer = p;
-
-  pthread_mutex_lock(&indexer->lock);
-  while (!SHOULD_STOP(indexer)) {
-    while (indexer->head == NULL && !SHOULD_STOP(indexer)) {
-      pthread_cond_wait(&indexer->cond, &indexer->lock);
-    }
-
-    RSAddDocumentCtx *cur = indexer->head;
-    if (cur == NULL) {
-      RS_LOG_ASSERT(SHOULD_STOP(indexer), "indexer was stopped");
-      pthread_mutex_unlock(&indexer->lock);
-      break;
-    }
-
-    indexer->size--;
-
-    if ((indexer->head = cur->next) == NULL) {
-      indexer->tail = NULL;
-    }
-    pthread_mutex_unlock(&indexer->lock);
-    Indexer_Process(indexer, cur);
-    AddDocumentCtx_Finish(cur);
-    pthread_mutex_lock(&indexer->lock);
-  }
-
-  Indexer_FreeInternal(indexer);
-  return NULL;
-}
-
 int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
-  if (!AddDocumentCtx_IsBlockable(aCtx)) {
-    Indexer_Process(indexer, aCtx);
-    AddDocumentCtx_Finish(aCtx);
-    return 0;
-  }
-
-  pthread_mutex_lock(&indexer->lock);
-
-  if (indexer->tail) {
-    indexer->tail->next = aCtx;
-    indexer->tail = aCtx;
-  } else {
-    indexer->head = indexer->tail = aCtx;
-  }
-
-  pthread_cond_signal(&indexer->cond);
-  pthread_mutex_unlock(&indexer->lock);
-
-  indexer->size++;
+  Indexer_Process(indexer, aCtx);
+  AddDocumentCtx_Finish(aCtx);
   return 0;
 }
 
@@ -561,23 +476,11 @@ int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
 // todo: remove the withIndexThread var once we switch to threadpool
 DocumentIndexer *NewIndexer(IndexSpec *spec) {
   DocumentIndexer *indexer = rm_calloc(1, sizeof(*indexer));
-  indexer->refcount = 1;
-  if ((spec->flags & Index_Temporary) || RSGlobalConfig.concurrentMode == 0) {
-    indexer->options |= INDEXER_THREADLESS;
-  }
-  indexer->head = indexer->tail = NULL;
 
   BlkAlloc_Init(&indexer->alloc);
   static const KHTableProcs procs = {
       .Alloc = mergedAlloc, .Compare = mergedCompare, .Hash = mergedHash};
   KHTable_Init(&indexer->mergeHt, &procs, &indexer->alloc, 4096);
-
-  if (!(indexer->options & INDEXER_THREADLESS)) {
-    pthread_cond_init(&indexer->cond, NULL);
-    pthread_mutex_init(&indexer->lock, NULL);
-    pthread_create(&indexer->thr, NULL, Indexer_Run, indexer);
-    pthread_detach(indexer->thr);
-  }
 
   indexer->next = NULL;
   indexer->redisCtx = RedisModule_GetThreadSafeContext(NULL);
@@ -589,11 +492,7 @@ DocumentIndexer *NewIndexer(IndexSpec *spec) {
   return indexer;
 }
 
-static void Indexer_FreeInternal(DocumentIndexer *indexer) {
-  if (!(indexer->options & INDEXER_THREADLESS)) {
-    pthread_cond_destroy(&indexer->cond);
-    pthread_mutex_destroy(&indexer->lock);
-  }
+void Indexer_Free(DocumentIndexer *indexer) {
   rm_free(indexer->concCtx.openKeys);
   RedisModule_FreeString(indexer->redisCtx, indexer->specKeyName);
   KHTable_Clear(&indexer->mergeHt);
@@ -601,27 +500,4 @@ static void Indexer_FreeInternal(DocumentIndexer *indexer) {
   BlkAlloc_FreeAll(&indexer->alloc, NULL, 0, 0);
   RedisModule_FreeThreadSafeContext(indexer->redisCtx);
   rm_free(indexer);
-}
-
-size_t Indexer_Decref(DocumentIndexer *indexer) {
-  size_t ret = __sync_sub_and_fetch(&indexer->refcount, 1);
-  if (!ret) {
-    pthread_mutex_lock(&indexer->lock);
-    indexer->options |= INDEXER_STOPPED;
-    pthread_cond_signal(&indexer->cond);
-    pthread_mutex_unlock(&indexer->lock);
-  }
-  return ret;
-}
-
-size_t Indexer_Incref(DocumentIndexer *indexer) {
-  return ++indexer->refcount;
-}
-
-void Indexer_Free(DocumentIndexer *indexer) {
-  if (indexer->options & INDEXER_THREADLESS) {
-    Indexer_FreeInternal(indexer);
-  } else {
-    Indexer_Decref(indexer);
-  }
 }

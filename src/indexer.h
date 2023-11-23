@@ -46,10 +46,6 @@ typedef struct FieldIndexerData {
 } FieldIndexerData;
 
 typedef struct DocumentIndexer {
-  RSAddDocumentCtx *head;          // first item in the queue
-  RSAddDocumentCtx *tail;          // last item in the queue
-  pthread_mutex_t lock;            // lock - only used when adding or removing items from the queue
-  pthread_cond_t cond;             // condition - used to wait on items added to the queue
   size_t size;                     // number of items in the queue
   ConcurrentSearchCtx concCtx;     // GIL locking. This is repopulated with the relevant key data
   RedisModuleCtx *redisCtx;        // Context for keeping the spec key
@@ -59,19 +55,7 @@ typedef struct DocumentIndexer {
   struct DocumentIndexer *next;  // Next structure in the indexer list
   KHTable mergeHt;               // Hashtable and block allocator for merging
   BlkAlloc alloc;
-  int options;
-  pthread_t thr;
-  size_t refcount;
 } DocumentIndexer;
-
-#define INDEXER_THREADLESS 0x01
-
-// Set when the indexer is about to be deleted
-#define INDEXER_STOPPED 0x02
-
-size_t Indexer_Decref(DocumentIndexer *indexer);
-
-size_t Indexer_Incref(DocumentIndexer *indexer);
 
 void Indexer_Free(DocumentIndexer *indexer);
 DocumentIndexer *NewIndexer(IndexSpec *spec);
