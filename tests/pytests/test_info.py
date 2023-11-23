@@ -1,4 +1,4 @@
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, forceInvokeGC
+from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, forceInvokeGC, skip
 from RLTest import Env
 from time import sleep
 
@@ -8,8 +8,8 @@ def ft_info_to_dict(env, idx):
   return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
 
 # The output for this test can be used for recreating documentation for `FT.INFO`
+@skip()
 def testInfo(env):
-  env.skip()
   count = 345678
   conn = env.getConnection()
   pl = conn.pipeline()

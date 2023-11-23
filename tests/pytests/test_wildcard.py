@@ -3,13 +3,13 @@ from common import *
 from RLTest import Env
 import time
 
+@skip(cluster=True)
 def testSanity(env):
   dotestSanity(env, 2)
   env.cmd('FLUSHALL')
   dotestSanity(env, 3)
 
 def dotestSanity(env, dialect):
-  env.skipOnCluster()
   env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
   env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', dialect).ok()
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 100000).ok()
@@ -82,13 +82,13 @@ def dotestSanity(env, dialect):
   #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
   #  .contains('Timeout limit was reached')
 
+@skip(cluster=True)
 def testSanityTag(env):
   dotestSanityTag(env, 2)
   env.cmd('FLUSHALL')
   dotestSanityTag(env, 3)
 
 def dotestSanityTag(env, dialect):
-  env.skipOnCluster()
   env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
   env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', dialect).ok()
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 100000).ok()
@@ -167,9 +167,8 @@ def dotestSanityTag(env, dialect):
   env.expect('ft.search', index_list[1], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
 
+@skip()
 def testBenchmark(env):
-  env.skip()
-  env.skipOnCluster()
   env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
   env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', 2).ok()
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 100000).ok()
@@ -221,8 +220,8 @@ def testBenchmark(env):
     start_time = time.time()
     print('----*oo234----')
 
+@skip(cluster=True)
 def testEscape(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
   env.expect('FT.CONFIG', 'SET', 'MINPREFIX', 1).ok()
@@ -319,8 +318,8 @@ def testEscape(env):
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'*o\\\'w*'")
   env.assertEqual(res[1][3][1][3], "WILDCARD - *o'w*")
 
+@skip(cluster=True)
 def testLowerUpperCase(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
   env.expect('FT.CONFIG', 'SET', 'MINPREFIX', 1).ok()

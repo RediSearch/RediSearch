@@ -1,6 +1,6 @@
 import unittest
 from includes import *
-from common import getConnectionByEnv, toSortedFlatList, waitForIndex
+from common import getConnectionByEnv, toSortedFlatList, waitForIndex, skip
 
 
 def testBasicPoneticCase(env):
@@ -64,9 +64,8 @@ def testPoneticWithAggregation(env):
     else:
         raise unittest.SkipTest("FIXME: Aggregation error propagation broken on cluster mode")
 
+@skip(cluster=True)
 def testPoneticWithSchemaAlter(env):
-    #remove support 2.0
-    env.skip()
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH',
                          'schema', 'text', 'TEXT', 'PHONETIC', 'dm:en', 'SORTABLE', 'text1', 'TEXT', 'SORTABLE'))
     env.assertOk(env.cmd('ft.alter', 'idx', 'SCHEMA', 'ADD', 'text2', 'TEXT', 'PHONETIC', 'dm:en'))

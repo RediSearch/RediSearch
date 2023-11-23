@@ -1,10 +1,8 @@
 from common import *
 
-
+@skip(cluster=True)
 def testExpireIndex(env):
     # temporary indexes
-    if env.isCluster():
-        env.skip()
     env.cmd('ft.create', 'idx', 'TEMPORARY', '4', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
     ttl = env.cmd('ft.debug', 'TTL', 'idx')
     env.assertTrue(ttl > 2)
@@ -44,7 +42,7 @@ res_doc1_is_partial_last = [2, 'doc2', ['t', 'foo'], 'doc1', ['t', 'bar']]
 
 res_score_and_explanation = ['1', ['Final TFIDF : words TFIDF 1.00 * document score 1.00 / norm 1 / slop 1',
                                     ['(TFIDF 1.00 = Weight 1.00 * Frequency 1)']]]
-
+@skip(cluster=True)
 def testExpireDocs(env):
     empty_with_scores_and_explain_last = res_doc1_is_empty_last.copy()
     for offset, i in enumerate(range(2, len(res_doc1_is_partial), 2)):
@@ -59,7 +57,7 @@ def testExpireDocs(env):
     expireDocs(env, False, # Without SORTABLE - since the fields are not SORTABLE, we need to load the results from Redis Keyspace
                 expected_results)
 
-
+@skip(cluster=True)
 def testExpireDocsSortable(env):
     '''
     Same as test `testExpireDocs` only with SORTABLE
@@ -93,7 +91,6 @@ def expireDocs(env, isSortable, expected_results):
 
     When isSortable is True the index is created with `SORTABLE` arg
     '''
-    env.skipOnCluster()
     conn = env.getConnection()
 
     # i = 0 -> without sortby, i = 1 -> with sortby
