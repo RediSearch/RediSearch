@@ -19,7 +19,6 @@ on:
         description: 'Optional: SHA to checkout. If not provided, `ref` will be used'
       redis-ref:
         type: string
-        default: ${{ vars.DEFAULT_REDIS_REF }}
 
 env:
   REF: ${{ inputs.sha || inputs.ref || github.sha }}  # Define fallbacks for ref to checkout
