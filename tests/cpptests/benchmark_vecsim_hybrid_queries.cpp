@@ -180,9 +180,9 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
 }
 
 void SetUp() {
-    const char *arguments[] = {"SAFEMODE", "NOGC"};
+    const char *arguments[] = {"NOGC"};
     // No arguments..
-    RMCK_Bootstrap(my_OnLoad, arguments, 2);
+    RMCK_Bootstrap(my_OnLoad, arguments, 1);
 }
 
 void TearDown() {

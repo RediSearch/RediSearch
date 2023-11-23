@@ -28,19 +28,16 @@ jobs:
           configurations = [''] # Run all configurations serially
           # TODO: use matrix to run configurations in parallel once we have enough runners
           # configurations = [
-          #   'concurrent_write',
           #   'max_unsorted',
           #   'union_iterator_heap',
           #   'raw_docid',
           #   'dialect_2',
           #   'global_password',
-          #   'safemode',
           #   'tls',
           # ]
           # Spacial configurations
           includes = [
           #   {'test-config': 'global_password', 'standalone': 'false'},
-          #   {'test-config': 'safemode',        'standalone': 'false'},
           #   {'test-config': 'tls',             'standalone': 'false'},
           ]
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:

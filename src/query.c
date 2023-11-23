@@ -1581,12 +1581,6 @@ int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, QueryError *status
   return REDISMODULE_OK;
 }
 
-/* Set the concurrent mode of the query. By default it's on, setting here to 0 will turn it off,
- * resulting in the query not performing context switches */
-// void Query_SetConcurrentMode(QueryPlan *q, int concurrent) {
-//   q->concurrentMode = concurrent;
-// }
-
 static sds doPad(sds s, int len) {
   if (!len) return s;
 

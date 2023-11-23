@@ -37,12 +37,10 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
 }
 
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
- * and is initialized with user config options during module statrtup */
+ * and is initialized with user config options during module startup */
 typedef struct {
   // Version of Redis server
   int serverVersion;
-  // Use concurrent search (default: 1, disable with SAFEMODE)
-  int concurrentMode;
   // If not null, this points at a .so file of an extension we try to load (default: NULL)
   const char *extLoad;
   // Path to friso.ini for chinese dictionary file
@@ -72,9 +70,7 @@ typedef struct {
   size_t maxDocTableSize;
   size_t maxSearchResults;
   size_t maxAggregateResults;
-  size_t searchPoolSize;
-  size_t indexPoolSize;
-  int poolSizeNoAuto;  // Don't auto-detect pool size
+  size_t coordinatorPoolSize; // number of threads in the coordinator thread pool
 
   size_t gcScanSize;
 
@@ -187,9 +183,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 
 #define DEFAULT_DOC_TABLE_SIZE 1000000
 #define MAX_DOC_TABLE_SIZE 100000000
-#define CONCURRENT_SEARCH_POOL_DEFAULT_SIZE 20
-#define CONCURRENT_INDEX_POOL_DEFAULT_SIZE 8
-#define CONCURRENT_INDEX_MAX_POOL_SIZE 200  // Maximum number of threads to create
+#define COORDINATOR_POOL_DEFAULT_SIZE 20
 #define GC_SCANSIZE 100
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
@@ -205,11 +199,10 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
   {                                                                                               \
-    .concurrentMode = 0, .extLoad = NULL, .enableGC = 1, .minTermPrefix = 2,                      \
+    .extLoad = NULL, .enableGC = 1, .minTermPrefix = 2,                                           \
     .maxPrefixExpansions = 200, .queryTimeoutMS = 500, .timeoutPolicy = TimeoutPolicy_Return,     \
     .cursorReadSize = 1000, .cursorMaxIdle = 300000, .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,   \
-    .searchPoolSize = CONCURRENT_SEARCH_POOL_DEFAULT_SIZE,                                        \
-    .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE, .poolSizeNoAuto = 0,                     \
+    .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                                         \
     .gcScanSize = GC_SCANSIZE, .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,               \
     .gcPolicy = GCPolicy_Fork, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,              \
     .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
