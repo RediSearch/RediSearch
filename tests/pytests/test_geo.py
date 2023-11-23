@@ -33,8 +33,8 @@ def testGeoLong(env):
   env.expect('FT.SEARCH', 'idx', '*').equal([1, 'geo', ['g', '1.2345678901234567890,4.5678901234567890']])
   env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 2 km]').equal([1, 'geo', ['g', '1.2345678901234567890,4.5678901234567890']])
 
+@skip(cluster=True)
 def testGeoDistanceSimple(env):
-  env.skipOnCluster()
   env.expect('ft.create', 'idx', 'schema', 'name', 'text', 'location', 'geo', 'hq', 'geo').ok()
   env.expect('HSET', 'geo1', 'location', '1.22,4.56', 'hq', '1.25,4.5').equal(2)
   env.expect('HSET', 'geo2', 'location', '1.24,4.56', 'hq', '1.25,4.5').equal(2)
