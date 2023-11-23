@@ -20,8 +20,8 @@ def test_1304(env):
   env.expect('FT.EXPLAIN idx -20*').equal('PREFIX{-20*}\n')
   env.expect('FT.EXPLAIN idx -\\20*').equal('NOT{\n  PREFIX{20*}\n}\n')
 
+@skip(cluster=True)
 def test_1414(env):
-  env.skipOnCluster()
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
   env.cmd('hset', 'doc', 'foo', 'hello', 'bar', 'world')
   env.expect('ft.search', 'idx', '*', 'limit', '0', '1234567').error().contains('LIMIT exceeds maximum of 1000000')
@@ -139,9 +139,9 @@ def test_issue1834(env):
 
   env.expect('FT.SEARCH', 'idx', 'hell|hello', 'HIGHLIGHT').equal([1, 'doc', ['t', '<b>hell</b> <b>hello</b>']])
 
+@skip(cluster=True)
 def test_issue1880(env):
   # order of iterator in intersect is optimized by function
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
@@ -373,8 +373,8 @@ def test_MOD1907(env):
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA').error().contains('Fields arguments are missing')
   env.expect('FT.CREATE', 'idx', 'STOPWORDS', 0, 'SCHEMA').error().contains('Fields arguments are missing')
 
+@skip(cluster=True)
 def test_SkipFieldWithNoMatch(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
@@ -410,8 +410,8 @@ def test_SkipFieldWithNoMatch(env):
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'bar')
   env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
 
+@skip(cluster=True)
 def test_update_num_terms(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
 
@@ -422,9 +422,9 @@ def test_update_num_terms(env):
   forceInvokeGC(env, 'idx')
   assertInfoField(env, 'idx', 'num_terms', '1')
 
+@skip(cluster=True)
 def testOverMaxResults():
   env = Env(moduleArgs='MAXSEARCHRESULTS 20')
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
   commands = [
@@ -477,7 +477,6 @@ def testOverMaxResults():
 
 
 def test_MOD_3372(env):
-  #env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
@@ -680,8 +679,8 @@ def test_mod_4207(env):
   env.expect('FT.SEARCH', 'idx1', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:4'])
   env.expect('FT.SEARCH', 'idx2', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:3'])
 
+@skip(cluster=True)
 def test_mod_4255(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -754,8 +753,8 @@ def test_mod4296_badexpr(env):
   env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1%0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
   env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1/0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
 
+@skip(cluster=True)
 def test_mod5062(env):
-  env.skipOnCluster()
   env.expect('FT.CONFIG', 'SET', 'MAXSEARCHRESULTS', '0').ok()
   env.expect('FT.CONFIG', 'SET', 'MAXAGGREGATERESULTS', '0').ok()
   n = 100
