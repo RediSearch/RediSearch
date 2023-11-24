@@ -1,4 +1,4 @@
-name: Push to Version, Feature or Master Branch
+name: Push to Master or Version Branch
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
