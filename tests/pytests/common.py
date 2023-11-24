@@ -19,6 +19,7 @@ import numpy as np
 from scipy import spatial
 from pprint import pprint as pp
 import inspect
+from unittest import SkipTest
 
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
@@ -284,8 +285,6 @@ def skip(cluster=False, macos=False, asan=False, msan=False, noWorkers=False):
             if asan and SANITIZER == 'address':
                 raise SkipTest()
             if msan and SANITIZER == 'memory':
-                raise SkipTest()
-            if noWorkers and not MT_BUILD:
                 raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:
                 env = Env()

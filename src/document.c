@@ -761,16 +761,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
       PreprocessorFunc pp = preprocessorMap[ii];
       if (pp(aCtx, sctx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
-        if (!AddDocumentCtx_IsBlockable(aCtx)) {
-          ++aCtx->spec->stats.indexingFailures;
-        } else {
-          RedisModule_ThreadSafeContextLock(RSDummyContext);
-          IndexSpec *spec = IndexSpec_Load(RSDummyContext, aCtx->specName, 0);
-          if (spec && aCtx->specId == spec->uniqueId) {
-            ++spec->stats.indexingFailures;
-          }
-          RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-        }
+        ++aCtx->spec->stats.indexingFailures;
         ourRv = REDISMODULE_ERR;
         goto cleanup;
       }
