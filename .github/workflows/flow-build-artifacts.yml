@@ -15,6 +15,7 @@ on:
           - rockylinux:9
           - debian:bullseye
           - amazonlinux:2
+          - mariner:2
           - macos
         description: 'Platform to build on. Use "all" to build on all'
         default: all
