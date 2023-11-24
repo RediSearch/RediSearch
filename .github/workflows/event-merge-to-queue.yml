@@ -48,6 +48,7 @@ jobs:
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
       repo: redis/redis
+      prefix: 6 # Only tags starting with 6.x.x will be considered. 2.6 doesn't support Redis >= 7.0.0
 
   docs-only: # Check whether the PR is only modifying docs
     uses: ./.github/workflows/task-check-docs.yml

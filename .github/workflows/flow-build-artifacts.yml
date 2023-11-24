@@ -96,7 +96,9 @@ jobs:
 
       - id: get-redis
         if: ${{ !inputs.redis-reference }}
-        run: echo "tag=$(curl -s https://api.github.com/repos/redis/redis/releases/latest | jq -r '.tag_name')" >> $GITHUB_OUTPUT
+        run: echo "tag=$(curl -s https://api.github.com/repos/redis/redis/releases |
+             jq -r jq -r '.[].tag_name | select(startswith("6")' |
+             sort -V | tail -1)" >> $GITHUB_OUTPUT
 
   cache-sha:
     # Caches the SHA of the last successful build
