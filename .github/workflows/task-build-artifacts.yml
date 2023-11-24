@@ -19,7 +19,6 @@ on:
         description: 'Optional: SHA to checkout. If not provided, `ref` will be used'
       redis-ref:
         type: string
-        default: ${{ vars.DEFAULT_REDIS_REF }}
 
 env:
   REF: ${{ inputs.sha || inputs.ref || github.sha }}  # Define fallbacks for ref to checkout
@@ -49,9 +48,12 @@ jobs:
       - name: Deps checkout
         uses: actions/checkout@v3
         with:
-          sparse-checkout: .install
           path: setup
           ref: ${{ env.REF }}
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .install
+            tests/pytests/requirements.*
       - name: Setup
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
@@ -62,6 +64,7 @@ jobs:
           ref: ${{ env.REF }}
 
       - name: Setup (readies)
+        if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0'
         run: ./sbin/setup
 
       # Get Redis

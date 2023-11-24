@@ -113,9 +113,9 @@ def check_empty(env, idx, mem_usage):
     env.assertEqual(float(d['num_records']), 0)
     env.assertGreaterEqual(mem_usage, float(d['inverted_sz_mb']))
 
+@skip(cluster=True)
 def testBasic(env):
     """ Test multi GEO values (an array of GEO values or multiple GEO values) """
-    env.skipOnCluster()
 
     conn = getConnectionByEnv(env)
 
@@ -227,11 +227,9 @@ def testMultiNonGeoNested(env):
     env.expect('FT.SEARCH', 'idx1', '@attr:[29.72 34.96 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx2', '@attr:[29.72 34.96 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
 
-
+@skip(cluster=True)
 def testDebugDump(env):
     """ Test FT.DEBUG DUMP_INVIDX and NUMIDX_SUMMARY with multi GEO values """
-
-    env.skipOnCluster()
 
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx:top', 'ON', 'JSON', 'SCHEMA', '$[*]', 'AS', 'val', 'GEO').ok()

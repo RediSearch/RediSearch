@@ -105,8 +105,8 @@ def runTestWithSeed(env, s=None):
             forceInvokeGC(env, 'idx')
     check_empty(env, idx, 40.0e-06)
 
+@skip(cluster=True)
 def testRandom(env):
-    env.skipOnCluster()
 
     if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
         env.skip()
@@ -115,9 +115,8 @@ def testRandom(env):
 
     runTestWithSeed(env)
 
-@unstable
+@skip(cluster=True)
 def testMemoryAfterDrop_numeric(env):
-    env.skipOnCluster()
 
     if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
         env.skip()
@@ -153,9 +152,8 @@ def testMemoryAfterDrop_numeric(env):
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i, 40.0e-06)
 
-@unstable
+@skip(cluster=True)
 def testMemoryAfterDrop_geo(env):
-    env.skipOnCluster()
 
     if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
         env.skip()
@@ -191,9 +189,8 @@ def testMemoryAfterDrop_geo(env):
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i, 40.0e-06)
 
-@unstable
+@skip(cluster=True)
 def testMemoryAfterDrop_text(env):
-    env.skipOnCluster()
 
     if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
         env.skip()
@@ -229,9 +226,8 @@ def testMemoryAfterDrop_text(env):
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i, 0)
 
-@unstable
+@skip(cluster=True)
 def testMemoryAfterDrop_tag(env):
-    env.skipOnCluster()
 
     if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
         env.skip()
@@ -267,9 +263,8 @@ def testMemoryAfterDrop_tag(env):
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i, 0)
 
-@unstable
+@skip(cluster=True)
 def testMemoryAfterDrop(env):
-    env.skipOnCluster()
 
     if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
         env.skip()
@@ -305,8 +300,8 @@ def testMemoryAfterDrop(env):
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i, 2.0*(40.0e-06)) # 40 for the geo and 40 for the numeric
 
+@skip(cluster=True)
 def testIssue1497_tag(env):
-    env.skipOnCluster()
 
     if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
         env.skip()
@@ -345,8 +340,8 @@ def testIssue1497_tag(env):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     check_empty(env, 'idx', 0)
 
+@skip(cluster=True)
 def testIssue1497_text(env):
-    env.skipOnCluster()
 
     if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
         env.skip()
@@ -385,8 +380,8 @@ def testIssue1497_text(env):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     check_empty(env, 'idx', 0)
 
+@skip(cluster=True)
 def testIssue1497_geo(env):
-    env.skipOnCluster()
 
     if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
         env.skip()
@@ -425,8 +420,8 @@ def testIssue1497_geo(env):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     check_empty(env, 'idx', 40.0e-06)
 
+@skip(cluster=True)
 def testIssue1497_numeric(env):
-    env.skipOnCluster()
 
     if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
         env.skip()
@@ -465,8 +460,8 @@ def testIssue1497_numeric(env):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     check_empty(env, 'idx', 40.0e-06)
 
+@skip(cluster=True)
 def testIssue1497(env):
-    env.skipOnCluster()
 
     if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
         env.skip()
@@ -551,8 +546,8 @@ def testDocTableInfo(env):
     env.assertEqual(int(d['doc_table_size_mb']), 0)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
 
+@skip(cluster=True)
 def testInfoIndexingTime(env):
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     # Add indexing time with HSET

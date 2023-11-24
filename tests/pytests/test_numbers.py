@@ -9,10 +9,10 @@ import math
 
 
 # MOD-5815 TEST
+@skip(cluster=True)
 def testUniqueSum(env):
 
     # coordinator doesn't support FT.CONFIG FORK_GC_CLEAN_THRESHOLD
-    env.skipOnCluster()
 
     hashes_number = 100
 
@@ -74,8 +74,8 @@ where unique_sum is the sum of the cardinality values(100 + 10 = 110).
 The split value should be = (100 + 10) / 2 = 55
 All the 19 first docs go right, the new doc goes left.
 '''
+@skip(cluster=True)
 def testSplit(env):
-    env.skipOnCluster()
 
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
@@ -134,9 +134,8 @@ def testSplit(env):
     root_left = to_dict(to_dict(numeric_index_tree['left'])['range'])
     checkRange(root_left, value2, 10, "left leaf")
 
-
+@skip(cluster=True)
 def testOverrides(env):
-    env.skipOnCluster()
 
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
@@ -193,8 +192,8 @@ def testCompression(env):
 		value = accuracy * i
 		env.expect('ft.search', 'idx', ('@n:[%s %s]' % (value, value))).equal([1, str(i), ['n', str(value)]])
 
+@skip(cluster=True)
 def testSanity(env):
-	env.skipOnCluster()
 	skipOnExistingEnv(env)
 	repeat = 100000
 	conn = getConnectionByEnv(env)
@@ -205,8 +204,8 @@ def testSanity(env):
 	env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'n') \
 				.equal(['numRanges', 15, 'numEntries', 100000, 'lastDocId', 100000, 'revisionId', 14, 'emptyLeaves', 0, 'RootMaxDepth', 5])
 
+@skip(cluster=True)
 def testCompressionConfig(env):
-	env.skipOnCluster()
 	env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
 
 	# w/o compression. exact number match.
@@ -232,13 +231,9 @@ def testCompressionConfig(env):
 		num = str(1 + i / 100.0)
 		env.expect('ft.search', 'idx', '@n:[%s %s]' % (num, num)).equal([0])
 
+@skip(cluster=True)
 def testRangeParentsConfig(env):
-	env.skipOnCluster()
 	elements = 1000
-
-	concurrent = env.cmd('ft.config', 'get', 'CONCURRENT_WRITE_MODE')
-	if str(concurrent[0][1]) == 'true':
-		env.skip()
 
 	result = [['numRanges', 4], ['numRanges', 6]]
 	for test in range(2):
@@ -256,9 +251,9 @@ def testRangeParentsConfig(env):
 	# reset back
 	env.expect('ft.config', 'set', '_NUMERIC_RANGES_PARENTS', '0').equal('OK')
 
+@skip(cluster=True)
 def testEmptyNumericLeakIncrease(env):
     # test numeric field which updates with increasing value
-    env.skipOnCluster()
 
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
@@ -284,12 +279,11 @@ def testEmptyNumericLeakIncrease(env):
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
     env.assertEqual(res[0], docs)
 
+@skip(cluster=True)
 def testEmptyNumericLeakCenter(env):
     # keep documents 0 to 99 and rewrite docs 100 to 199
     # the value increases and reach `repeat * docs`
     # check that no empty node are left
-
-    env.skipOnCluster()
 
 	# Make sure GC is not triggerred sporadically (only manually)
     env.expect('FT.CONFIG', 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
@@ -319,9 +313,9 @@ def testEmptyNumericLeakCenter(env):
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
     env.assertEqual(res[0], docs / 100 + 100)
 
+@skip(cluster=True)
 def testCardinalityCrash(env):
     # this test reproduces crash where cardinality array was cleared on the GC
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     count = 100
 
