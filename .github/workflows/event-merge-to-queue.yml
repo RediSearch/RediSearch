@@ -7,7 +7,7 @@ on:
     types: [checks_requested]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.merge_group.base_ref }}
   cancel-in-progress: true
 
 # TODO: Use RedisJSON's `${{ vars.DEFAULT_REDISJSON_REF }}` branch when testing on nightly
@@ -111,10 +111,12 @@ jobs:
   print:
     runs-on: ubuntu-latest
     steps:
-      - run: echo ${{ toJson(github) }}
+      - run: echo '${{ toJson(github) }}'
         name: Print GitHub context
-      - run: echo ${{ toJson(github.event.merge_group) || 'null' }}
-        name: Print merge group
+      - run: sleep 100
+        name: Sleep
+      - run: exit 1
+        name: Fail
 
   pr-validation:
     needs: [print]
