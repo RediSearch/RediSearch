@@ -1,0 +1,87 @@
+name: Release a Version
+
+on:
+  release:
+    types: [released]
+
+jobs:
+  update-version:
+    # Verify that the tag matches the version in src/version.h, and generate a PR to bump the version for the next patch
+    runs-on: ubuntu-latest
+    outputs:
+      cur_version: ${{ steps.verify.outputs.cur_version }}
+      next_version: ${{ steps.verify.outputs.next_version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Tag and Version
+        id: verify
+        env:
+          # Not used, but useful for debugging in case of failure. See https://github.com/actions/runner/issues/2788
+          GH_CONTEXT: ${{ toJson(github) }}
+        shell: python
+        run: |
+          with open("src/version.h", "r") as fp:
+            major, minor, patch = [int(l.rsplit(maxsplit=1)[-1]) for l in fp if l.startswith("#define REDISEARCH_VERSION_")]
+          tag = '${{ github.event.release.tag_name }}'
+          if tag != f"v{major}.{minor}.{patch}":
+            raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
+
+          import os
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
+            print(f"cur_version={major}.{minor}.{patch}", file=fp)
+            print(f"next_version={major}.{minor}.{patch+1}", file=fp)
+            print(f"next_patch={patch+1}", file=fp)
+
+      - name: Update version for next patch
+        env:
+          LINE: '#define REDISEARCH_VERSION_PATCH'
+        # find the line with the patch version and replace it with the next patch version
+        run: sed -i "s/^${{ env.LINE }} [0-9]\+$/${{ env.LINE }} ${{ steps.verify.outputs.next_patch }}/" src/version.h
+
+      - name: Commit and push
+        run: |
+          git config --global user.name "${{ github.triggering_actor }}"
+          git config --global user.email "${{ github.event.sender.id }}+${{ github.event.sender.login }}@users.noreply.github.com"
+          git checkout -b bump-version-${{ steps.verify.outputs.next_version }}
+          git add src/version.h
+          git commit -m "Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}"
+          git push origin bump-version-${{ steps.verify.outputs.next_version }}
+
+      - name: Create Pull Request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr create \
+            --title    "Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}" \
+            --body     "This PR was automatically created by the release workflow of ${{ github.event.release.tag_name }}." \
+            --head     "bump-version-${{ steps.verify.outputs.next_version }}" \
+            --base     "${{ github.event.release.target_commitish }}" \
+            --reviewer "${{ github.actor }}"
+
+  set-artifacts:
+    needs: update-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+      - name: Set Version Artifacts
+        env:
+          ENT_DIR: s3://redismodules/redisearch
+          OSS_DIR: s3://redismodules/redisearch-oss
+          VERSION: ${{ needs.update-version.outputs.cur_version }}
+          VER_BRANCH: ${{ github.event.release.target_commitish }}
+          ARCHS: (x86_64|aarch64|arm64v8) # List of expected architectures - update as needed
+        run: |
+          for DIR in {$ENT_DIR,$OSS_DIR}; do
+            ARTIFACTS=$(aws s3 ls $DIR/snapshots/redisearch | grep -E "$ARCHS\.$VER_BRANCH\.zip$" | awk '{print $NF}')
+            echo "--------- Handling artifacts: ---------"
+            echo "$ARTIFACTS"
+            echo "----------------- END -----------------"
+            for ARTIFACT in $ARTIFACTS; do
+              aws s3 cp $DIR/snapshots/$ARTIFACT $DIR/${ARTIFACT/%.$VER_BRANCH.zip/.$VERSION.zip} --acl public-read --no-progress
+            done
+          done

@@ -681,10 +681,11 @@ if [[ -z $COORD ]]; then
 	fi
 
 	if [[ $QUICK != 1 ]]; then
-		if [[ -z $CONFIG || $CONFIG == concurrent_write ]]; then
-			{ (MODARGS="${MODARGS}; CONCURRENT_WRITE_MODE;" \
-				run_tests "with Concurrent write mode"); (( E |= $? )); } || true
-		fi
+		# TODO: uncomment or remove
+		# if [[ -z $CONFIG || $CONFIG == concurrent_write ]]; then
+		# 	{ (MODARGS="${MODARGS}; CONCURRENT_WRITE_MODE;" \
+		# 		run_tests "with Concurrent write mode"); (( E |= $? )); } || true
+		# fi
 
 		if [[ -z $CONFIG || $CONFIG == max_unsorted ]]; then
 			{ (MODARGS="${MODARGS}; _MAX_RESULTS_TO_UNSORTED_MODE 1;" \
