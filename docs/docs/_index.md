@@ -39,9 +39,9 @@ Redis Stack supports the following search and query features:
 * Exact phrase search and slop-based search
 * [Stemming](/docs/interact/search-and-query/advanced-concepts/stemming/)-based query expansion for [many languages](/docs/interact/search-and-query/advanced-concepts/stemming//#supported-languages) using [Snowball](http://snowballstem.org/)
 * Support for custom functions for query expansion and scoring (see [Extensions](/docs/interact/search-and-query/administration/extensions/))
-* [Numeric filters](/docs/interact/search-and-query/query/#numeric-filters-in-query) and ranges
-* [Geo-filtering](/docs/interact/search-and-query/query/#geo-filters-in-query) using Redis [geo commands](/commands/?group=geo)
-* [Vector similarity search](/docs/interact/search-and-query/query/#vector-similarity-search-in-query) for semantic search using exact and approximate algorithms
+* [Numeric filters](/docs/interact/search-and-query/query/#numeric-filters) and ranges
+* [Geo-filtering](/docs/interact/search-and-query/query/#geo-filters) using Redis [geo commands](/commands/?group=geo)
+* [Vector similarity search](/docs/interact/search-and-query/query/#vector-similarity-search) for semantic search using exact and approximate algorithms
 * Unicode support (UTF-8 input required)
 * Retrieval of full document contents or only their IDs
 * Document deletion and updating with index garbage collection
