@@ -1,4 +1,5 @@
-[![Dockerhub](https://img.shields.io/docker/pulls/redis/redis-stack-server?label=redis-stack-server)](https://hub.docker.com/r/redis/redis-stack-server/)[![Codecov](https://codecov.io/gh/RediSearch/RediSearch/branch/master/graph/badge.svg)](https://codecov.io/gh/RediSearch/RediSearch)
+[![Dockerhub](https://img.shields.io/docker/pulls/redis/redis-stack-server?label=redis-stack-server)](https://hub.docker.com/r/redis/redis-stack-server/)
+[![Codecov](https://codecov.io/gh/RediSearch/RediSearch/branch/master/graph/badge.svg)](https://codecov.io/gh/RediSearch/RediSearch)
 [![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redis.com/c/modules/redisearch/)
 [![Discord](https://img.shields.io/discord/697882427875393627)](https://discord.gg/xTbqgTB)
 
