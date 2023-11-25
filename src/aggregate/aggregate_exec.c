@@ -28,6 +28,7 @@ typedef struct {
 } blockedClientReqCtx;
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
+void printAggProfile(RedisModule_Reply *reply, AREQ *req);
 
 /**
  * Get the sorting key of the result. This will be the sorting key of the last
