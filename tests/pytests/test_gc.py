@@ -3,10 +3,8 @@ from common import *
 import platform
 from time import sleep
 
-
+@skip(cluster=True)
 def testBasicGC(env):
-    if env.isCluster():
-        env.skip()
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH',
                          'schema', 'title', 'text', 'id', 'numeric', 't', 'tag'))
@@ -30,9 +28,8 @@ def testBasicGC(env):
     env.assertEqual(env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id'), [[int(i) for i in range(2, 102)]])
     env.assertEqual(env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [int(i) for i in range(2, 102)]]])
 
+@skip(cluster=True)
 def testBasicGCWithEmptyInvIdx(env):
-    if env.isCluster():
-        env.skip()
     if env.moduleArgs is not None and 'GC_POLICY LEGACY' in env.moduleArgs:
         # this test is not relevent for legacy gc cause its not squeshing inverted index
         env.skip()
@@ -51,9 +48,8 @@ def testBasicGCWithEmptyInvIdx(env):
     # check that the gc collected the deleted docs
     env.expect('ft.debug', 'DUMP_INVIDX', 'idx', 'world').error().contains('Can not find the inverted index')
 
+@skip(cluster=True)
 def testNumericGCIntensive(env):
-    if env.isCluster():
-        env.skip()
     NumberOfDocs = 1000
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'id', 'numeric'))
@@ -74,9 +70,8 @@ def testNumericGCIntensive(env):
             # if r2 is greater then 900 its on the last block and fork GC does not clean the last block
             env.assertTrue(r2 % 2 == 0 or r2 > 900)
 
+@skip(cluster=True)
 def testGeoGCIntensive(env):
-    if env.isCluster():
-        env.skip()
     NumberOfDocs = 1000
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'g', 'geo'))
@@ -97,9 +92,8 @@ def testGeoGCIntensive(env):
             # if r2 is greater then 900 its on the last block and fork GC does not clean the last block
             env.assertTrue(r2 % 2 == 0 or r2 > 900)
 
+@skip(cluster=True)
 def testTagGC(env):
-    if env.isCluster():
-        env.skip()
     NumberOfDocs = 101
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't', 'tag'))
@@ -121,9 +115,8 @@ def testTagGC(env):
             # if r2 is greater then 100 its on the last block and fork GC does not clean the last block
             env.assertTrue(r2 % 2 == 0 or r2 > 100)
 
+@skip(cluster=True)
 def testDeleteEntireBlock(env):
-    if env.isCluster():
-        env.skip()
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'test', 'TEXT', 'SORTABLE', 'test2', 'TEXT', 'SORTABLE', ).ok()
@@ -149,12 +142,11 @@ def testDeleteEntireBlock(env):
         env.assertEqual(res[0:2],[1, 'doc250'])
         env.assertEqual(set(res[2]), set(['test', 'checking', 'test2', 'checking250']))
 
+@skip(cluster=True)
 def testGCIntegrationWithRedisFork(env):
     if env.env == 'existing-env':
         env.skip()
     if env.env == 'enterprise':
-        env.skip()
-    if env.isCluster():
         env.skip()
     if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
         env.skip()
@@ -169,8 +161,9 @@ def testGCIntegrationWithRedisFork(env):
     env.expect('bgsave').true()
     env.cmd('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '0')
 
+@skip(cluster=True)
 def testGCThreshold(env):
-    if env.env == 'existing-env' or env.isCluster():
+    if env.env == 'existing-env':
         env.skip()
 
     env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 1000')
@@ -230,8 +223,9 @@ def testGCThreshold(env):
 
     env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo1').error().contains('Can not find the inverted index')
 
+@skip(cluster=True)
 def testGCShutDownOnExit(env):
-    if env.env == 'existing-env' or env.env == 'enterprise' or env.isCluster() or platform.system() == 'Darwin':
+    if env.env == 'existing-env' or env.env == 'enterprise' or platform.system() == 'Darwin':
         env.skip()
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env = Env(moduleArgs='GC_POLICY FORK FORKGC_SLEEP_BEFORE_EXIT 20')
@@ -247,8 +241,9 @@ def testGCShutDownOnExit(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     waitForIndex(env, 'idx')
 
+@skip(cluster=True)
 def testGFreeEmpryTerms(env):
-    if env.env == 'existing-env' or env.env == 'enterprise' or env.isCluster():
+    if env.env == 'existing-env' or env.env == 'enterprise':
         env.skip()
 
     env = Env(moduleArgs='GC_POLICY FORK')
@@ -264,9 +259,9 @@ def testGFreeEmpryTerms(env):
     forceInvokeGC(env, 'idx')
     env.expect('FT.DEBUG', 'DUMP_TERMS', 'idx').equal([])
 
+@skip(cluster=True)
 def testAutoMemory_MOD_3951():    
     env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     # create index with filter

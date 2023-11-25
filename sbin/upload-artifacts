@@ -21,7 +21,6 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		RELEASE=1     Upload release artifacts
 		STAGING=1     Upload into staging area
 
-		FORCE=1       Allow uploading outside of CI
 		NOP=1         No operation
 		VERBOSE=1     Show artifacts details
 		HELP=1        Show help
@@ -74,8 +73,9 @@ else
 fi
 
 if [[ $FORCE != 1 ]]; then
-	if [[ -z $CIRCLECI ]]; then
-		eprint "Cannot upload outside of CircleCI. Override with FORCE=1."
+	# TODO: remove circle
+	if [[ -z $GITHUB_ACTIONS && -z $CIRCLECI ]]; then
+		eprint "Cannot upload outside of GitHub Actions. Override with FORCE=1."
 		exit 1
 	fi
 
@@ -102,15 +102,17 @@ s3_upload_file() {
 	local file="$1"
 	local s3_dir="$2"
 	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
-	
+
 	$OP aws s3 cp $file $s3_dir --acl public-read --no-progress
 }
 
 s3_ls() {
 	local s3_dir="$1"
 	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
-	
+
+	[[ -n $GITHUB_ACTIONS ]] && echo "::group::S3 ls $s3_dir"
 	$OP aws s3 ls $s3_dir
+	[[ -n $GITHUB_ACTIONS ]] && echo "::endgroup::"
 }
 
 s3_upload() {
@@ -128,7 +130,7 @@ s3_upload() {
 		done
 	fi
 	[[ $VERBOSE == 1 ]] && s3_ls $upload_dir
-	
+
 	return 0
 }
 

@@ -79,18 +79,24 @@ CONFIG_GETTER(getExtLoad) {
 
 // SAFEMODE
 CONFIG_SETTER(setSafemode) {
-  config->concurrentMode = 0;
+  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING, "SAFEMODE option is deprecated, and has no effect");
   return REDISMODULE_OK;
 }
 
-CONFIG_BOOLEAN_GETTER(getSafemode, concurrentMode, 1)
+// dummy getter for safemode. Always return "true"
+CONFIG_GETTER(getSafemode) {
+  return sdsnew("true");
+}
 
 CONFIG_SETTER(setConcurentWriteMode) {
-  config->concurrentMode = 1;
+  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING, "CONCURRENT_WRITE_MODE option is deprecated, and has no effect");
   return REDISMODULE_OK;
 }
 
-CONFIG_BOOLEAN_GETTER(getConcurentWriteMode, concurrentMode, 0)
+// dummy getter for CONCURRENT_WRITE_MODE. Always return "false"
+CONFIG_GETTER(getConcurentWriteMode) {
+  return sdsnew("false");
+}
 
 // NOGC
 CONFIG_SETTER(setNoGc) {
@@ -210,28 +216,24 @@ CONFIG_GETTER(getTimeout) {
 
 // INDEX_THREADS
 CONFIG_SETTER(setIndexThreads) {
-  int acrc = AC_GetSize(ac, &config->indexPoolSize, AC_F_GE1);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  config->poolSizeNoAuto = 1;
+  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING, "INDEX_THREADS option is deprecated, and has no effect");
   return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getIndexthreads) {
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->indexPoolSize);
+  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING, "INDEX_THREADS option is deprecated, and has no effect");
+  return sdsnew("0");
 }
 
-// INDEX_THREADS
+// SEARCH_THREADS
 CONFIG_SETTER(setSearchThreads) {
-  int acrc = AC_GetSize(ac, &config->searchPoolSize, AC_F_GE1);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  config->poolSizeNoAuto = 1;
-  return REDISMODULE_OK;
+  int acrc = AC_GetSize(ac, &config->coordinatorPoolSize, AC_F_GE1);
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getSearchThreads) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->searchPoolSize);
+  return sdscatprintf(ss, "%lu", config->coordinatorPoolSize);
 }
 
 #ifdef MT_BUILD
@@ -606,6 +608,10 @@ CONFIG_GETTER(getBGIndexSleepGap) {
   return sdscatprintf(ss, "%u", config->numBGIndexingIterationsBeforeSleep);
 }
 
+// _PRIORITIZE_INTERSECT_UNION_CHILDREN
+CONFIG_BOOLEAN_SETTER(set_PrioritizeIntersectUnionChildren, prioritizeIntersectUnionChildren)
+CONFIG_BOOLEAN_GETTER(get_PrioritizeIntersectUnionChildren, prioritizeIntersectUnionChildren, 0)
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -628,12 +634,6 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     RSGlobalConfig.serverVersion = RedisModule_GetServerVersion();
   }
 
-  if (getenv("RS_MIN_THREADS")) {
-    printf("Setting thread pool sizes to 1\n");
-    RSGlobalConfig.searchPoolSize = 1;
-    RSGlobalConfig.indexPoolSize = 1;
-    RSGlobalConfig.poolSizeNoAuto = 1;
-  }
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv, argc);
   while (!AC_IsAtEnd(&ac)) {
@@ -668,13 +668,12 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getExtLoad,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "SAFEMODE",
-         .helpText =
-             "Perform all operations in main thread (deprecated, use CONCURRENT_WRITE_MODE)",
+         .helpText = "This option is deprecated and has no effect",
          .setValue = setSafemode,
          .getValue = getSafemode,
          .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
         {.name = "CONCURRENT_WRITE_MODE",
-         .helpText = "Use multi threads for write operations.",
+         .helpText = "This option is deprecated and has no effect",
          .setValue = setConcurentWriteMode,
          .getValue = getConcurentWriteMode,
          .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
@@ -718,14 +717,12 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setTimeout,
          .getValue = getTimeout},
         {.name = "INDEX_THREADS",
-         .helpText = "Create at most this number of background indexing threads (will not "
-                     "necessarily parallelize indexing)",
+         .helpText = "This option is deprecated and has no effect",
          .setValue = setIndexThreads,
          .getValue = getIndexthreads,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "SEARCH_THREADS",
-         .helpText = "Create at most this number of search threads (not, will not "
-                     "necessarily parallelize search)",
+         .helpText = "Sets the number of search threads in the coordinator thread pool",
          .setValue = setSearchThreads,
          .getValue = getSearchThreads,
          .flags = RSCONFIGVAR_F_IMMUTABLE,
@@ -880,6 +877,16 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setBGIndexSleepGap,
          .getValue = getBGIndexSleepGap,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "_PRIORITIZE_INTERSECT_UNION_CHILDREN",
+         .helpText = "Intersection iterator orders the children iterators by their relative estimated"
+                     " number of results in ascending order, so that if we see first iterators with"
+                     " a lower count of results we will skip a larger number of results, which"
+                     " translates into faster iteration. If this flag is set, we use this"
+                     " optimization in a way where union iterators are being factorize by the number"
+                     " of their own children, so that we sort by the number of children times the "
+                     "overall estimated number of results instead.",
+         .setValue = set_PrioritizeIntersectUnionChildren,
+         .getValue = get_PrioritizeIntersectUnionChildren},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -893,7 +900,6 @@ void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
 sds RSConfig_GetInfoString(const RSConfig *config) {
   sds ss = sdsempty();
 
-  ss = sdscatprintf(ss, "concurrent writes: %s, ", config->concurrentMode ? "ON" : "OFF");
   ss = sdscatprintf(ss, "gc: %s, ", config->gcConfigParams.enableGC ? "ON" : "OFF");
   ss = sdscatprintf(ss, "prefix min length: %lld, ", config->iteratorsConfigParams.minTermPrefix);
   ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->iteratorsConfigParams.maxPrefixExpansions);
@@ -907,8 +913,6 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
            ?  // value for MaxSearchResults
            sdscatprintf(ss, "unlimited, ")
            : sdscatprintf(ss, " %lu, ", config->maxSearchResults);
-  ss = sdscatprintf(ss, "search pool size: %lu, ", config->searchPoolSize);
-  ss = sdscatprintf(ss, "index pool size: %lu, ", config->indexPoolSize);
 
   if (config->extLoad) {
     ss = sdscatprintf(ss, "ext load: %s, ", config->extLoad);
@@ -999,7 +1003,6 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
 void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddSection(ctx, "runtime_configurations");
 
-  RedisModule_InfoAddFieldCString(ctx, "concurrent_mode", RSGlobalConfig.concurrentMode ? "ON" : "OFF");
   if (RSGlobalConfig.extLoad != NULL) {
     RedisModule_InfoAddFieldCString(ctx, "extension_load", (char*)RSGlobalConfig.extLoad);
   }
@@ -1017,8 +1020,6 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldLongLong(ctx, "max_doc_table_size", RSGlobalConfig.maxDocTableSize);
   RedisModule_InfoAddFieldLongLong(ctx, "max_search_results", RSGlobalConfig.maxSearchResults);
   RedisModule_InfoAddFieldLongLong(ctx, "max_aggregate_results", RSGlobalConfig.maxAggregateResults);
-  RedisModule_InfoAddFieldLongLong(ctx, "search_pool_size", RSGlobalConfig.searchPoolSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "index_pool_size", RSGlobalConfig.indexPoolSize);
   RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcConfigParams.gcScanSize);
   RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length", RSGlobalConfig.minPhoneticTermLen);
 }

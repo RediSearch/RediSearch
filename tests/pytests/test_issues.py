@@ -20,8 +20,8 @@ def test_1304(env):
   env.expect('FT.EXPLAIN idx -20*').equal('PREFIX{-20*}\n')
   env.expect('FT.EXPLAIN idx -\\20*').equal('NOT{\n  PREFIX{20*}\n}\n')
 
+@skip(cluster=True)
 def test_1414(env):
-  env.skipOnCluster()
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
   env.cmd('hset', 'doc', 'foo', 'hello', 'bar', 'world')
   env.expect('ft.search', 'idx', '*', 'limit', '0', '1234567').error().contains('LIMIT exceeds maximum of 1000000')
@@ -139,9 +139,9 @@ def test_issue1834(env):
 
   env.expect('FT.SEARCH', 'idx', 'hell|hello', 'HIGHLIGHT').equal([1, 'doc', ['t', '<b>hell</b> <b>hello</b>']])
 
+@skip(cluster=True)
 def test_issue1880(env):
   # order of iterator in intersect is optimized by function
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
@@ -373,8 +373,8 @@ def test_MOD1907(env):
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA').error().contains('Fields arguments are missing')
   env.expect('FT.CREATE', 'idx', 'STOPWORDS', 0, 'SCHEMA').error().contains('Fields arguments are missing')
 
+@skip(cluster=True)
 def test_SkipFieldWithNoMatch(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
@@ -410,8 +410,8 @@ def test_SkipFieldWithNoMatch(env):
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'bar')
   env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
 
+@skip(cluster=True)
 def test_update_num_terms(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
 
@@ -422,9 +422,9 @@ def test_update_num_terms(env):
   forceInvokeGC(env, 'idx')
   assertInfoField(env, 'idx', 'num_terms', '1')
 
+@skip(cluster=True)
 def testOverMaxResults():
   env = Env(moduleArgs='MAXSEARCHRESULTS 20')
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
   commands = [
@@ -477,7 +477,6 @@ def testOverMaxResults():
 
 
 def test_MOD_3372(env):
-  #env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
@@ -680,8 +679,8 @@ def test_mod_4207(env):
   env.expect('FT.SEARCH', 'idx1', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:4'])
   env.expect('FT.SEARCH', 'idx2', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:3'])
 
+@skip(cluster=True)
 def test_mod_4255(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -754,8 +753,8 @@ def test_mod4296_badexpr(env):
   env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1%0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
   env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1/0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
 
+@skip(cluster=True)
 def test_mod5062(env):
-  env.skipOnCluster()
   env.expect('FT.CONFIG', 'SET', 'MAXSEARCHRESULTS', '0').ok()
   env.expect('FT.CONFIG', 'SET', 'MAXAGGREGATERESULTS', '0').ok()
   n = 100
@@ -878,7 +877,9 @@ def test_mod5778_add_new_shard_to_cluster(env):
     expected = [0, 0, ["127.0.0.1", new_instance_port, str(new_shard_id), []]]  # the first slot is in the new shard
     res = env.cmd('CLUSTER SLOTS')
     env.assertEqual(len(res), len(env.envRunner.shards) + 1)
-    env.assertEqual(res[0], expected)
+    # Get the item in the list that corresponds to the shard that contains slot 0.
+    shard_with_slot_0 = [r for r in res if r[0] == 0][0]
+    env.assertEqual(shard_with_slot_0, expected)
 
     expected = {'primary': ('127.0.0.1', new_instance_port), 'replicas': []}  # the expected reply from cluster_slots()
     res = new_instance_conn.cluster_slots(cluster.ClusterNode('127.0.0.1', new_instance_port))
@@ -888,3 +889,35 @@ def test_mod5778_add_new_shard_to_cluster(env):
     # cleanup
     new_instance.kill()
     os.remove('nodes.conf')
+
+
+@skip(cluster=True)
+def test_mod5910(env):
+    con = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC').equal('OK')
+    env.assertEqual(2, con.execute_command('HSET', 'doc1{tag}', 't', 'one', 'n', '1'))
+    env.assertEqual(2, con.execute_command('HSET', 'doc2{tag}', 't', 'two', 'n', '2'))
+    env.assertEqual(2, con.execute_command('HSET', 'doc3{tag}', 't', 'three', 'n', '3'))
+
+    # In this test, we run the following query twice. The query consists of an intersection between two sub-queries,
+    # where the number of expected results from the first sub-query (@n:[1 3]) is 3, while the number of expected
+    # results from the second subquery (@t:one | @t:two) is 2. Intersection iterator is sorting its children, so that
+    # children with lower number of expected results come first, to reduce the number of overall "skip_to" done by the
+    # iterator.
+    # Hence, we expect that the numeric iterator would come *after* the union iterator.
+    res = env.execute_command('FT.PROFILE', 'idx', 'search', 'query', '(@n:[1 3] (@t:one | @t:two))')
+    iterators_profile = res[1][3]
+    env.assertEqual(iterators_profile[1][1], 'INTERSECT')
+    env.assertEqual(iterators_profile[1][7][1], 'UNION')
+    env.assertEqual(iterators_profile[1][8][1], 'NUMERIC')
+
+    # When _PRIORITIZE_INTERSECT_UNION_CHILDREN config is set, the number of expected results from the union iterator
+    # child is factored by its own number of children. Hence, the weighted expected number of results for the second
+    # sub-query evaluated in this case to 2*2=4 under this config, so now we expect that the numeric iterator would come
+    # *before* the union iterator.
+    env.assertEqual('OK', con.execute_command('FT.CONFIG', 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true'))
+    res = con.execute_command('FT.PROFILE', 'idx', 'search', 'query', '(@n:[1 3] (@t:one | @t:two))')
+    iterators_profile = res[1][3]
+    env.assertEqual(iterators_profile[1][1], 'INTERSECT')
+    env.assertEqual(iterators_profile[1][7][1], 'NUMERIC')
+    env.assertEqual(iterators_profile[1][8][1], 'UNION')

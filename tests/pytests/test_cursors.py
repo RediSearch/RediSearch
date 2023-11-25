@@ -60,10 +60,9 @@ def testCursorsBG():
     testCursors(env)
 
 
-@skip(noWorkers=True)
+@skip(cluster=True, noWorkers=True)
 def testCursorsBGEdgeCasesSanity():
     env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
-    env.skipOnCluster()
     count = 100
     loadDocs(env, count=count)
     # Add an extra field to every other document
@@ -99,10 +98,8 @@ def testMultipleIndexes(env):
     env.assertEqual(['f1', 'hello'], last1)
     env.assertEqual(['f1', 'goodbye'], last2)
 
+@skip(cluster=True)
 def testCapacities(env):
-    if env.isCluster():
-        env.skip()
-
     loadDocs(env, idx='idx1')
     loadDocs(env, idx='idx2')
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10]
@@ -137,10 +134,10 @@ def testCapacities(env):
     c = env.cmd( * q1)
     env.cmd('FT.CURSOR', 'DEL', 'idx1', c[-1])
 
+@skip(cluster=True)
 def testTimeout(env):
     # currently this test is only valid on one shard because coordinator creates more cursor which are not clean
     # with the same timeout
-    env.skipOnCluster()
     loadDocs(env, idx='idx1')
     # Maximum idle of 1ms
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10, 'MAXIDLE', 1]
@@ -227,9 +224,7 @@ def testIndexDropWhileIdleBG():
     env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
     testIndexDropWhileIdle(env)
 
-def testExceedCursorCapacity(env):
-    env.skipOnCluster()
-
+def exceedCursorCapacity(env):
     env.expect('FT.CREATE idx SCHEMA t numeric').ok()
     env.cmd('HSET', 'doc1' ,'t', 1)
 
@@ -242,10 +237,14 @@ def testExceedCursorCapacity(env):
     # Trying to create another cursor should fail
     env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1).error().contains('Too many cursors allocated for index')
 
-@skip(noWorkers=True)
+@skip(cluster=True)
+def testExceedCursorCapacity(env):
+    exceedCursorCapacity(env)
+
+@skip(cluster=True, noWorkers=True)
 def testExceedCursorCapacityBG():
     env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
-    testExceedCursorCapacity(env)
+    exceedCursorCapacity(env)
 
 # TODO: improve the test and add a case of timeout:
 # 1. Coordinator's cursor times out before the shard's cursor
@@ -372,3 +371,27 @@ def test_timeoutError():
     # env.assertEqual(type(res[0]), ResponseError)
     env.assertEqual(str(res[0]), 'Timeout limit was reached')
     env.assertEqual(cursor, 0)
+
+def testCursorDepletionNonStrictTimeoutPolicy(env):
+    """Tests that the cursor id is returned in case the timeout policy is
+    non-strict (i.e., the default `RETURN`), even when a timeout is experienced"""
+
+    conn = getConnectionByEnv(env)
+
+    # Create the index
+    env.expect('FT.CREATE idx SCHEMA t text').ok()
+
+    # Populate the index
+    num_docs = 1500 * env.shardsCount
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}' ,'t', i)
+
+    # Create a cursor with a small `timeout` and large `count`, and read from
+    # it until depleted
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '10000', 'TIMEOUT', '1')
+    n_recieved = len(res) - 1
+    while cursor:
+        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        n_recieved += len(res) - 1
+
+    env.assertEqual(n_recieved, num_docs)
