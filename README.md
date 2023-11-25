@@ -1,4 +1,5 @@
-[![Release](https://img.shields.io/github/v/release/redisearch/redisearch.svg?sort=semver)](https://github.com/RediSearch/RediSearch/releases)
+[![Release](https://img.shields.io/github/v/release/RediSearch/RediSearch?sort=semver&label=latest%20release
+)](https://github.com/RediSearch/RediSearch/releases)
 [![Dockerhub](https://img.shields.io/docker/pulls/redis/redis-stack-server?label=redis-stack-server)](https://hub.docker.com/r/redis/redis-stack-server/)
 [![Codecov](https://codecov.io/gh/RediSearch/RediSearch/branch/master/graph/badge.svg)](https://codecov.io/gh/RediSearch/RediSearch)
 
