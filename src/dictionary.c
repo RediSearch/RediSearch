@@ -140,14 +140,16 @@ int DictAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 void Dictionary_Clear() {
-  dictIterator *iter = dictGetIterator(spellCheckDicts);
-  dictEntry *entry;
-  while ((entry = dictNext(iter))) {
-    Trie *val = dictGetVal(entry);
-    TrieType_Free(val);
+  if (spellCheckDicts) {
+    dictIterator *iter = dictGetIterator(spellCheckDicts);
+    dictEntry *entry;
+    while ((entry = dictNext(iter))) {
+      Trie *val = dictGetVal(entry);
+      TrieType_Free(val);
+    }
+    dictReleaseIterator(iter);
+    dictEmpty(spellCheckDicts, NULL);
   }
-  dictReleaseIterator(iter);
-  dictEmpty(spellCheckDicts, NULL);
 }
 
 void Dictionary_Free() {
