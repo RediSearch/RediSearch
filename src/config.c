@@ -79,24 +79,18 @@ CONFIG_GETTER(getExtLoad) {
 
 // SAFEMODE
 CONFIG_SETTER(setSafemode) {
-  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING, "SAFEMODE option is deprecated, and has no effect");
+  config->concurrentMode = 0;
   return REDISMODULE_OK;
 }
 
-// dummy getter for safemode. Always return "true"
-CONFIG_GETTER(getSafemode) {
-  return sdsnew("true");
-}
+CONFIG_BOOLEAN_GETTER(getSafemode, concurrentMode, 1)
 
 CONFIG_SETTER(setConcurentWriteMode) {
-  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING, "CONCURRENT_WRITE_MODE option is deprecated, and has no effect");
+  config->concurrentMode = 1;
   return REDISMODULE_OK;
 }
 
-// dummy getter for CONCURRENT_WRITE_MODE. Always return "false"
-CONFIG_GETTER(getConcurentWriteMode) {
-  return sdsnew("false");
-}
+CONFIG_BOOLEAN_GETTER(getConcurentWriteMode, concurrentMode, 0)
 
 // NOGC
 CONFIG_SETTER(setNoGc) {
@@ -216,24 +210,28 @@ CONFIG_GETTER(getTimeout) {
 
 // INDEX_THREADS
 CONFIG_SETTER(setIndexThreads) {
-  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING, "INDEX_THREADS option is deprecated, and has no effect");
+  int acrc = AC_GetSize(ac, &config->indexPoolSize, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  config->poolSizeNoAuto = 1;
   return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getIndexthreads) {
-  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING, "INDEX_THREADS option is deprecated, and has no effect");
-  return sdsnew("0");
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->indexPoolSize);
 }
 
-// SEARCH_THREADS
+// INDEX_THREADS
 CONFIG_SETTER(setSearchThreads) {
-  int acrc = AC_GetSize(ac, &config->coordinatorPoolSize, AC_F_GE1);
-  RETURN_STATUS(acrc);
+  int acrc = AC_GetSize(ac, &config->searchPoolSize, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  config->poolSizeNoAuto = 1;
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getSearchThreads) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->coordinatorPoolSize);
+  return sdscatprintf(ss, "%lu", config->searchPoolSize);
 }
 
 #ifdef MT_BUILD
@@ -634,6 +632,12 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     RSGlobalConfig.serverVersion = RedisModule_GetServerVersion();
   }
 
+  if (getenv("RS_MIN_THREADS")) {
+    printf("Setting thread pool sizes to 1\n");
+    RSGlobalConfig.searchPoolSize = 1;
+    RSGlobalConfig.indexPoolSize = 1;
+    RSGlobalConfig.poolSizeNoAuto = 1;
+  }
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv, argc);
   while (!AC_IsAtEnd(&ac)) {
@@ -668,12 +672,13 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getExtLoad,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "SAFEMODE",
-         .helpText = "This option is deprecated and has no effect",
+         .helpText =
+             "Perform all operations in main thread (deprecated, use CONCURRENT_WRITE_MODE)",
          .setValue = setSafemode,
          .getValue = getSafemode,
          .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
         {.name = "CONCURRENT_WRITE_MODE",
-         .helpText = "This option is deprecated and has no effect",
+         .helpText = "Use multi threads for write operations.",
          .setValue = setConcurentWriteMode,
          .getValue = getConcurentWriteMode,
          .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
@@ -717,12 +722,14 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setTimeout,
          .getValue = getTimeout},
         {.name = "INDEX_THREADS",
-         .helpText = "This option is deprecated and has no effect",
+         .helpText = "Create at most this number of background indexing threads (will not "
+                     "necessarily parallelize indexing)",
          .setValue = setIndexThreads,
          .getValue = getIndexthreads,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "SEARCH_THREADS",
-         .helpText = "Sets the number of search threads in the coordinator thread pool",
+         .helpText = "Create at most this number of search threads (not, will not "
+                     "necessarily parallelize search)",
          .setValue = setSearchThreads,
          .getValue = getSearchThreads,
          .flags = RSCONFIGVAR_F_IMMUTABLE,
@@ -900,6 +907,7 @@ void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
 sds RSConfig_GetInfoString(const RSConfig *config) {
   sds ss = sdsempty();
 
+  ss = sdscatprintf(ss, "concurrent writes: %s, ", config->concurrentMode ? "ON" : "OFF");
   ss = sdscatprintf(ss, "gc: %s, ", config->gcConfigParams.enableGC ? "ON" : "OFF");
   ss = sdscatprintf(ss, "prefix min length: %lld, ", config->iteratorsConfigParams.minTermPrefix);
   ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->iteratorsConfigParams.maxPrefixExpansions);
@@ -913,6 +921,8 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
            ?  // value for MaxSearchResults
            sdscatprintf(ss, "unlimited, ")
            : sdscatprintf(ss, " %lu, ", config->maxSearchResults);
+  ss = sdscatprintf(ss, "search pool size: %lu, ", config->searchPoolSize);
+  ss = sdscatprintf(ss, "index pool size: %lu, ", config->indexPoolSize);
 
   if (config->extLoad) {
     ss = sdscatprintf(ss, "ext load: %s, ", config->extLoad);
@@ -1003,6 +1013,7 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
 void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddSection(ctx, "runtime_configurations");
 
+  RedisModule_InfoAddFieldCString(ctx, "concurrent_mode", RSGlobalConfig.concurrentMode ? "ON" : "OFF");
   if (RSGlobalConfig.extLoad != NULL) {
     RedisModule_InfoAddFieldCString(ctx, "extension_load", (char*)RSGlobalConfig.extLoad);
   }
@@ -1020,6 +1031,8 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldLongLong(ctx, "max_doc_table_size", RSGlobalConfig.maxDocTableSize);
   RedisModule_InfoAddFieldLongLong(ctx, "max_search_results", RSGlobalConfig.maxSearchResults);
   RedisModule_InfoAddFieldLongLong(ctx, "max_aggregate_results", RSGlobalConfig.maxAggregateResults);
+  RedisModule_InfoAddFieldLongLong(ctx, "search_pool_size", RSGlobalConfig.searchPoolSize);
+  RedisModule_InfoAddFieldLongLong(ctx, "index_pool_size", RSGlobalConfig.indexPoolSize);
   RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcConfigParams.gcScanSize);
   RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length", RSGlobalConfig.minPhoneticTermLen);
 }
