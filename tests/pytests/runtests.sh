@@ -681,12 +681,6 @@ if [[ -z $COORD ]]; then
 	fi
 
 	if [[ $QUICK != 1 ]]; then
-		# TODO: uncomment or remove
-		# if [[ -z $CONFIG || $CONFIG == concurrent_write ]]; then
-		# 	{ (MODARGS="${MODARGS}; CONCURRENT_WRITE_MODE;" \
-		# 		run_tests "with Concurrent write mode"); (( E |= $? )); } || true
-		# fi
-
 		if [[ -z $CONFIG || $CONFIG == max_unsorted ]]; then
 			{ (MODARGS="${MODARGS}; _MAX_RESULTS_TO_UNSORTED_MODE 1;" \
 				run_tests "MAX_RESULTS_TO_UNSORTED_MODE=1"); (( E |= $? )); } || true
@@ -730,11 +724,6 @@ elif [[ $COORD == oss ]]; then
 				   RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} --oss_password password" \
 				   run_tests "OSS cluster tests with password"); (( E |= $? )); } || true
 			fi
-		fi
-
-		if [[ -z $CONFIG || $CONFIG == safemode ]]; then
-			{ (MODARGS="${MODARGS} PARTITIONS AUTO SAFEMODE" RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args}" \
-			   run_tests "OSS cluster tests (safe mode)"); (( E |= $? )); } || true
 		fi
 
 		tls_args="--tls \
