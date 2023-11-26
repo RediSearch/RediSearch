@@ -187,6 +187,7 @@ void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p) {
   }
   /* Wait for threads to initialize */
   while (thpool_p->num_threads_alive != thpool_p->total_threads_count) {
+    usleep(1); // avoid busy loop, wait for a very small amount of time.
   }
   LOG_IF_EXISTS("verbose", "Thread pool of size %zu created successfully",
                 thpool_p->total_threads_count)
@@ -311,7 +312,7 @@ void redisearch_thpool_terminate_threads(redisearch_thpool_t* thpool_p) {
   /* Poll all threads and wait for them to finish */
   bsem_post_all(thpool_p->jobqueue.has_jobs);
   while (thpool_p->num_threads_alive) {
-    sleep(1);
+    usleep(1);
   }
 }
 
