@@ -1,5 +1,7 @@
 name: Release Drafter
 
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
 on:
   push:
     # branches to consider in the event; optional, defaults to all
@@ -17,4 +19,3 @@ jobs:
            config-name: release-drafter-config.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
