@@ -80,14 +80,6 @@ class RTree {
 
   template <typename Predicate, typename Filter>
   [[nodiscard]] auto apply_predicate(Predicate&& p, Filter&& f) const -> query_results;
-  [[nodiscard]] auto contains(doc_type const& query_doc, geom_type const& query_geom) const
-      -> query_results;
-  [[nodiscard]] auto within(doc_type const& query_doc, geom_type const& query_geom) const
-      -> query_results;
-  [[nodiscard]] auto disjoint(doc_type const& query_doc, geom_type const& query_geom) const
-      -> query_results;
-  [[nodiscard]] auto intersects(doc_type const& query_doc, geom_type const& query_geom) const
-      -> query_results;
   [[nodiscard]] auto generate_predicate(doc_type const& query_doc, QueryType query_type,
                                         geom_type const& query_geom) const -> query_results;
 };

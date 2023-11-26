@@ -116,15 +116,14 @@ constexpr auto filter_results = [](auto&& geom1, auto&& geom2) -> bool {
                   !std::is_same_v<point_type, std::decay_t<decltype(geom1)>>) {
       return false;
     } else {
-      return !bg::within(geom1, geom2);
+      return !bg::within(geom1, geom2); // within(g1, g2) == contains(g2, g1)
     }
-  } else if constexpr (QUERY == QueryType::DISJOINT) {
-    return !bg::disjoint(geom1, geom2);
   } else if constexpr (QUERY == QueryType::INTERSECTS) {
-    return bg::disjoint(geom1, geom2); // !intersects == disjoint
+    return bg::disjoint(geom1, geom2);  // !intersects == disjoint
   } else {
     // impossible to reach. always false.
-    static_assert(sizeof(cs) == 0);
+    static_assert(sizeof(cs) == 0); // compiler bug: static_assert(false) will always fail compilation even if in an unreachable code path.
+                                    // until it is fixed, we must use a dependent false that is not evaluated until the code path is.
   }
 };
 }  // anonymous namespace
@@ -243,53 +242,35 @@ auto RTree<cs>::apply_predicate(Predicate&& p, Filter&& f) const -> query_result
 }
 
 template <typename cs>
-auto RTree<cs>::contains(doc_type const& query_doc, geom_type const& query_geom) const
-    -> query_results {
-  return apply_predicate(bgi::contains(get_rect<cs>(query_doc)), [&](auto const& doc) -> bool {
-    auto geom = lookup(doc);
-    return geom.has_value() && std::visit(filter_results<cs, QueryType::WITHIN>, query_geom, *geom);
-  });
-}
-
-template <typename cs>
-auto RTree<cs>::within(doc_type const& query_doc, geom_type const& query_geom) const
-    -> query_results {
-  return apply_predicate(bgi::within(get_rect<cs>(query_doc)), [&](auto const& doc) -> bool {
-    auto geom = lookup(doc);
-    return geom.has_value() && std::visit(filter_results<cs, QueryType::WITHIN>, *geom, query_geom);
-  });
-}
-
-template <typename cs>
-auto RTree<cs>::disjoint(doc_type const& query_doc, geom_type const& query_geom) const
-    -> query_results {
-  return apply_predicate(bgi::disjoint(get_rect<cs>(query_doc)), [&](auto const& doc) -> bool {
-    auto geom = lookup(doc);
-    return geom.has_value() && std::visit(filter_results<cs, QueryType::DISJOINT>, *geom, query_geom);
-  });
-}
-template <typename cs>
-auto RTree<cs>::intersects(doc_type const& query_doc, geom_type const& query_geom) const
-    -> query_results {
-  return apply_predicate(bgi::intersects(get_rect<cs>(query_doc)), [&](auto const& doc) -> bool {
-    auto geom = lookup(doc);
-    return geom.has_value() && std::visit(filter_results<cs, QueryType::INTERSECTS>, *geom, query_geom);
-  });
-}
-
-
-template <typename cs>
 auto RTree<cs>::generate_predicate(doc_type const& query_doc, QueryType query_type,
                                    geom_type const& query_geom) const -> query_results {
+  auto query_mbr = get_rect<cs>(query_doc);
   switch (query_type) {
     case QueryType::CONTAINS:
-      return contains(query_doc, query_geom);
+      return apply_predicate(bgi::contains(query_mbr), [&](auto const& doc) -> bool {
+        auto geom = lookup(doc);
+        return geom.has_value() &&
+               std::visit(filter_results<cs, QueryType::WITHIN>, query_geom, *geom);
+      });
     case QueryType::WITHIN:
-      return within(query_doc, query_geom);
+      return apply_predicate(bgi::within(query_mbr), [&](auto const& doc) -> bool {
+        auto geom = lookup(doc);
+        return geom.has_value() &&
+               std::visit(filter_results<cs, QueryType::WITHIN>, *geom, query_geom);
+      });
     case QueryType::DISJOINT:
-      return disjoint(query_doc, query_geom);
+      return apply_predicate(bgi::disjoint(query_mbr), [&](auto const& doc) -> bool {
+        auto geom = lookup(doc);
+        return geom.has_value() &&
+               std::visit(std::not_fn(filter_results<cs, QueryType::INTERSECTS>), *geom,
+                          query_geom);
+      });
     case QueryType::INTERSECTS:
-      return intersects(query_doc, query_geom);
+      return apply_predicate(bgi::intersects(query_mbr), [&](auto const& doc) -> bool {
+        auto geom = lookup(doc);
+        return geom.has_value() &&
+               std::visit(filter_results<cs, QueryType::INTERSECTS>, *geom, query_geom);
+      });
     default:
       throw std::runtime_error{"unknown query"};
   }
