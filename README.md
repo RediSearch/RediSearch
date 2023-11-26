@@ -11,7 +11,9 @@
 # RediSearch
 ## Querying, secondary indexing, and full-text search for Redis
 
+<picture>
 <img src="https://redis.io/docs/interact/search-and-query/img/logo.svg" alt="logo" width="300"/>
+</picture>
 
 ## Overview
 
