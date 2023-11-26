@@ -33,9 +33,9 @@ help() {
 		COORD=1|oss|rlec      Test Coordinator
 		SHARDS=n              Number of OSS coordinator shards (default: 3)
 		QUICK=1|~1|0          Perform only common test variant (~1: all but common)
-		CONFIG=cfg            Perform one of: max_unsorted,
+		CONFIG=cfg            Perform one of: concurrent_write, max_unsorted,
 		                        union_iterator_heap, raw_docid, dialect_2,
-		                        (coordinator:) global_password, tls
+		                        (coordinator:) global_password, safemode, tls
 
 		TEST=name             Run specific test (e.g. test.py:test_name)
 		TESTFILE=file         Run tests listed in `file`
@@ -681,6 +681,11 @@ if [[ -z $COORD ]]; then
 	fi
 
 	if [[ $QUICK != 1 ]]; then
+		# TODO: uncomment or remove
+		# if [[ -z $CONFIG || $CONFIG == concurrent_write ]]; then
+		# 	{ (MODARGS="${MODARGS}; CONCURRENT_WRITE_MODE;" \
+		# 		run_tests "with Concurrent write mode"); (( E |= $? )); } || true
+		# fi
 
 		if [[ -z $CONFIG || $CONFIG == max_unsorted ]]; then
 			{ (MODARGS="${MODARGS}; _MAX_RESULTS_TO_UNSORTED_MODE 1;" \
@@ -725,6 +730,11 @@ elif [[ $COORD == oss ]]; then
 				   RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} --oss_password password" \
 				   run_tests "OSS cluster tests with password"); (( E |= $? )); } || true
 			fi
+		fi
+
+		if [[ -z $CONFIG || $CONFIG == safemode ]]; then
+			{ (MODARGS="${MODARGS} PARTITIONS AUTO SAFEMODE" RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args}" \
+			   run_tests "OSS cluster tests (safe mode)"); (( E |= $? )); } || true
 		fi
 
 		tls_args="--tls \

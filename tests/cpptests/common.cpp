@@ -23,9 +23,9 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 class MyEnvironment : public ::testing::Environment {
   virtual void SetUp() {
-    const char *arguments[] = {"NOGC"};
+    const char *arguments[] = {"SAFEMODE", "NOGC"};
     // No arguments..
-    RMCK_Bootstrap(my_OnLoad, arguments, 1);
+    RMCK_Bootstrap(my_OnLoad, arguments, 2);
   }
 
   virtual void TearDown() {

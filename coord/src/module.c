@@ -216,7 +216,13 @@ int synonymAllOKReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
 int synonymUpdateFanOutReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
-  if (count != 1 || MRReply_Type(replies[0]) != MR_REPLY_INTEGER) {
+  if (count != 1) {
+    RedisModuleBlockedClient *bc = (RedisModuleBlockedClient *)ctx;
+    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
+    RedisModule_UnblockClient(bc, mc);
+    return REDISMODULE_OK;
+  }
+  if (MRReply_Type(replies[0]) != MR_REPLY_INTEGER) {
     RedisModuleBlockedClient *bc = (RedisModuleBlockedClient *)ctx;
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
     RedisModule_UnblockClient(bc, mc);
@@ -2073,7 +2079,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // Init the aggregation thread pool
-  DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(RSGlobalConfig.coordinatorPoolSize);
+  DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(RSGlobalConfig.searchPoolSize);
 
   Initialize_CoordKeyspaceNotifications(ctx);
 

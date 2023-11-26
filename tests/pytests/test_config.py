@@ -103,8 +103,8 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
     env.assertIn(res_dict['TIMEOUT'][0], ['500', '0'])
-    env.assertEqual(res_dict['INDEX_THREADS'][0], '0')   # Deprecated, Always 0
-    env.assertEqual(res_dict['SEARCH_THREADS'][0], '20') # Used by coordinator only
+    env.assertEqual(res_dict['INDEX_THREADS'][0], '8')
+    env.assertEqual(res_dict['SEARCH_THREADS'][0], '20')
     env.assertEqual(res_dict['FRISOINI'][0], None)
     env.assertEqual(res_dict['ON_TIMEOUT'][0], 'return')
     env.assertEqual(res_dict['GCSCANSIZE'][0], '100')
@@ -145,6 +145,7 @@ def testInitConfig(env):
     test_arg_num('FORKGC_SLEEP_BEFORE_EXIT', 5)
     test_arg_num('MAXEXPANSIONS', 5)
     test_arg_num('MAXPREFIXEXPANSIONS', 5)
+    test_arg_num('INDEX_THREADS', 3)
     test_arg_num('SEARCH_THREADS', 3)
     test_arg_num('GCSCANSIZE', 3)
     test_arg_num('MIN_PHONETIC_TERM_LEN', 3)
@@ -165,8 +166,8 @@ def testInitConfig(env):
         env.stop()
 
     test_arg_true_false('NOGC', 'true')
-    test_arg_true_false('SAFEMODE', 'true') # Deprecated, Always true
-    test_arg_true_false('CONCURRENT_WRITE_MODE', 'false') # Deprecated, Always false
+    test_arg_true_false('SAFEMODE', 'true')
+    test_arg_true_false('CONCURRENT_WRITE_MODE', 'true')
     test_arg_true_false('NO_MEM_POOLS', 'true')
     test_arg_true_false('FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'true')
 

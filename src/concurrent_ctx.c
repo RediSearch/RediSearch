@@ -12,13 +12,34 @@
 
 static arrayof(redisearch_threadpool) threadpools_g = NULL;
 
+int CONCURRENT_POOL_INDEX = -1;
+int CONCURRENT_POOL_SEARCH = -1;
+
 int ConcurrentSearch_CreatePool(int numThreads) {
   if (!threadpools_g) {
-    threadpools_g = array_new(redisearch_threadpool, 1); // Only used by the coordinator, so 1 is enough
+    threadpools_g = array_new(redisearch_threadpool, 4);
   }
   int poolId = array_len(threadpools_g);
   threadpools_g = array_append(threadpools_g, redisearch_thpool_init(numThreads));
   return poolId;
+}
+
+/** Start the concurrent search thread pool. Should be called when initializing the module */
+void ConcurrentSearch_ThreadPoolStart() {
+
+  if (CONCURRENT_POOL_SEARCH == -1) {
+    CONCURRENT_POOL_SEARCH = ConcurrentSearch_CreatePool(RSGlobalConfig.searchPoolSize);
+    long numProcs = 0;
+
+    if (!RSGlobalConfig.poolSizeNoAuto) {
+      numProcs = sysconf(_SC_NPROCESSORS_ONLN);
+    }
+
+    if (numProcs < 1) {
+      numProcs = RSGlobalConfig.indexPoolSize;
+    }
+    CONCURRENT_POOL_INDEX = ConcurrentSearch_CreatePool(numProcs);
+  }
 }
 
 /** Stop all the concurrent threads */
