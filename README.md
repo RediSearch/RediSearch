@@ -10,9 +10,8 @@
 
 # RediSearch
 ## Querying, secondary indexing, and full-text search for Redis
-
 <picture>
-<img src="https://redis.io/docs/interact/search-and-query/img/logo.svg" alt="logo" width="300"/>
+<img src="https://redis.io/docs/interact/search-and-query/img/logo.svg" title="RediSearch's Logo" width="300">
 </picture>
 
 ## Overview
