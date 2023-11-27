@@ -39,5 +39,5 @@ jobs:
       test-config: ${{ inputs.test-config }}
       coordinator: ${{ inputs.coordinator }}
       standalone:  ${{ inputs.standalone }}
-      get-redis:   ${{ inputs.redis-ref || '7.2.3' }}
+      get-redis:   ${{ inputs.redis-ref }}
     secrets: inherit
