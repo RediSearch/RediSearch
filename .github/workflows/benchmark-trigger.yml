@@ -9,6 +9,20 @@ on:
 jobs:
   perf-ci:
     name: Trigger
-    if: ${{ contains(github.event.pull_request.labels.*.name, 'action:run-benchmark') }}
+    if: >
+      (
+        github.event.action == 'labeled' &&
+        github.event.label.name == 'action:run-benchmark'
+      ) || (
+        github.event_name == 'pull_request' &&
+        contains(github.event.pull_request.labels.*.name, 'action:run-benchmark')
+      )
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
+
+  perf-ci-2:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Hello world"
+        env:
+          CTX: ${{ toJson(github) }}
