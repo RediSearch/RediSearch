@@ -300,40 +300,24 @@ def unstable(f):
 
 def skip(cluster=False, macos=False, asan=False, msan=False, noWorkers=False):
     def decorate(f):
-        if len(inspect.signature(f).parameters) == 0:
-            @wraps(f)
-            def wrapper(*args, **kwargs):
-                if not (cluster or macos or asan or msan or noWorkers):
-                    raise SkipTest()
-                if cluster and COORD != '0':
-                    raise SkipTest()
-                if macos and OS == 'macos':
-                    raise SkipTest()
-                if asan and SANITIZER == 'address':
-                    raise SkipTest()
-                if msan and SANITIZER == 'memory':
-                    raise SkipTest()
-                if noWorkers and not MT_BUILD:
-                    raise SkipTest()
-
-                return f(*args, **kwargs)
-        else:
-            @wraps(f)
-            def wrapper(x, *args, **kwargs):
-                env = x if isinstance(x, Env) else x.env
-                if not (cluster or macos or asan or msan or noWorkers):
-                    env.skip()
-                if cluster and env.isCluster():
-                    env.skip()
-                if macos and OS == 'macos':
-                    env.skip()
-                if asan and SANITIZER == 'address':
-                    env.skip()
-                if msan and SANITIZER == 'memory':
-                    env.skip()
-                if noWorkers and not MT_BUILD:
-                    env.skip()
-                return f(x, *args, **kwargs)
+        def wrapper():
+            if not (cluster or macos or asan or msan or noWorkers):
+                raise SkipTest()
+            if cluster and COORD in ['oss', 'rlec', '1']:
+                raise SkipTest()
+            if macos and OS == 'macos':
+                raise SkipTest()
+            if asan and SANITIZER == 'address':
+                raise SkipTest()
+            if msan and SANITIZER == 'memory':
+                raise SkipTest()
+            if noWorkers and not MT_BUILD:
+                raise SkipTest()
+            if len(inspect.signature(f).parameters) > 0:
+                env = Env()
+                return f(env)
+            else:
+                return f()
         return wrapper
     return decorate
 
