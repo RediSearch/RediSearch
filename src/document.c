@@ -664,7 +664,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     case FLD_VAR_T_NUM:
       RS_LOG_ASSERT(0, "Oops");
   }
-  
+
   const char *str = NULL;
   fdata->isMulti = 0;
   if (str_count == 1) {
@@ -805,7 +805,16 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
       PreprocessorFunc pp = preprocessorMap[ii];
       if (pp(aCtx, sctx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
-        ++aCtx->spec->stats.indexingFailures;
+        if (!AddDocumentCtx_IsBlockable(aCtx)) {
+          ++aCtx->spec->stats.indexingFailures;
+        } else {
+          RedisModule_ThreadSafeContextLock(RSDummyContext);
+          IndexSpec *spec = IndexSpec_Load(RSDummyContext, aCtx->specName, 0);
+          if (spec && aCtx->specId == spec->uniqueId) {
+            ++spec->stats.indexingFailures;
+          }
+          RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+        }
         ourRv = REDISMODULE_ERR;
         goto cleanup;
       }
