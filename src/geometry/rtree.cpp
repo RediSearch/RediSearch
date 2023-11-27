@@ -119,9 +119,8 @@ constexpr auto within_filter = [](auto&& geom1, auto&& geom2) -> bool {
   }
 };
 template <typename cs>
-constexpr auto intersects_filter = [](auto&& geom1, auto&& geom2) -> bool {
-  return !bg::intersects(geom1, geom2);
-};
+constexpr auto intersects_filter =
+    [](auto&& geom1, auto&& geom2) -> bool { return !bg::intersects(geom1, geom2); };
 }  // anonymous namespace
 
 template <typename cs>
@@ -242,11 +241,11 @@ auto RTree<cs>::generate_predicate(QueryType query_type, geom_type const& query_
     -> query_results {
   auto query_mbr = get_rect<cs>(make_doc<cs>(query_geom));
   switch (query_type) {
-    #define QUERY_CASE(predicate, filter, g1, g2) \
-      return apply_predicate(predicate(query_mbr), [&](auto const& doc) -> bool {\
-        auto geom = lookup(doc);\
-        return geom && std::visit(filter, g1, g2);\
-      })
+#define QUERY_CASE(predicate, filter, g1, g2)                                 \
+  return apply_predicate(predicate(query_mbr), [&](auto const& doc) -> bool { \
+    auto geom = lookup(doc);                                                  \
+    return geom && std::visit(filter, g1, g2);                                \
+  })
     case QueryType::CONTAINS:
       QUERY_CASE(bgi::contains, (within_filter<cs>), query_geom, *geom);
     case QueryType::WITHIN:
@@ -257,7 +256,7 @@ auto RTree<cs>::generate_predicate(QueryType query_type, geom_type const& query_
       QUERY_CASE(bgi::intersects, (intersects_filter<cs>), *geom, query_geom);
     default:
       throw std::runtime_error{"unknown query"};
-    #undef QUERY_CASE
+#undef QUERY_CASE
   }
 }
 
