@@ -108,23 +108,19 @@ constexpr auto geometry_reporter = [](auto&& geom) -> std::size_t {
   }
 };
 
-template <typename cs, QueryType QUERY>
-constexpr auto filter_results = [](auto&& geom1, auto&& geom2) -> bool {
+template <typename cs>
+constexpr auto within_filter = [](auto&& geom1, auto&& geom2) -> bool {
   using point_type = typename RTree<cs>::point_type;
-  if constexpr (QUERY == QueryType::WITHIN) {
-    if constexpr (std::is_same_v<point_type, std::decay_t<decltype(geom2)>> &&
-                  !std::is_same_v<point_type, std::decay_t<decltype(geom1)>>) {
-      return false;
-    } else {
-      return !bg::within(geom1, geom2); // within(g1, g2) == contains(g2, g1)
-    }
-  } else if constexpr (QUERY == QueryType::INTERSECTS) {
-    return bg::disjoint(geom1, geom2);  // !intersects == disjoint
+  if constexpr (std::is_same_v<point_type, std::decay_t<decltype(geom2)>> &&
+                !std::is_same_v<point_type, std::decay_t<decltype(geom1)>>) {
+    return false;
   } else {
-    // impossible to reach. always false.
-    static_assert(sizeof(cs) == 0); // compiler bug: static_assert(false) will always fail compilation even if in an unreachable code path.
-                                    // until it is fixed, we must use a dependent false that is not evaluated until the code path is.
+    return !bg::within(geom1, geom2);
   }
+};
+template <typename cs>
+constexpr auto intersects_filter = [](auto&& geom1, auto&& geom2) -> bool {
+  return !bg::intersects(geom1, geom2);
 };
 }  // anonymous namespace
 
@@ -242,37 +238,26 @@ auto RTree<cs>::apply_predicate(Predicate&& p, Filter&& f) const -> query_result
 }
 
 template <typename cs>
-auto RTree<cs>::generate_predicate(doc_type const& query_doc, QueryType query_type,
-                                   geom_type const& query_geom) const -> query_results {
-  auto query_mbr = get_rect<cs>(query_doc);
+auto RTree<cs>::generate_predicate(QueryType query_type, geom_type const& query_geom) const
+    -> query_results {
+  auto query_mbr = get_rect<cs>(make_doc<cs>(query_geom));
   switch (query_type) {
+    #define QUERY_CASE(predicate, filter, g1, g2) \
+      return apply_predicate(predicate(query_mbr), [&](auto const& doc) -> bool {\
+        auto geom = lookup(doc);\
+        return geom && std::visit(filter, g1, g2);\
+      })
     case QueryType::CONTAINS:
-      return apply_predicate(bgi::contains(query_mbr), [&](auto const& doc) -> bool {
-        auto geom = lookup(doc);
-        return geom.has_value() &&
-               std::visit(filter_results<cs, QueryType::WITHIN>, query_geom, *geom);
-      });
+      QUERY_CASE(bgi::contains, (within_filter<cs>), query_geom, *geom);
     case QueryType::WITHIN:
-      return apply_predicate(bgi::within(query_mbr), [&](auto const& doc) -> bool {
-        auto geom = lookup(doc);
-        return geom.has_value() &&
-               std::visit(filter_results<cs, QueryType::WITHIN>, *geom, query_geom);
-      });
+      QUERY_CASE(bgi::within, (within_filter<cs>), *geom, query_geom);
     case QueryType::DISJOINT:
-      return apply_predicate(bgi::disjoint(query_mbr), [&](auto const& doc) -> bool {
-        auto geom = lookup(doc);
-        return geom.has_value() &&
-               std::visit(std::not_fn(filter_results<cs, QueryType::INTERSECTS>), *geom,
-                          query_geom);
-      });
+      QUERY_CASE(bgi::disjoint, (std::not_fn(intersects_filter<cs>)), *geom, query_geom);
     case QueryType::INTERSECTS:
-      return apply_predicate(bgi::intersects(query_mbr), [&](auto const& doc) -> bool {
-        auto geom = lookup(doc);
-        return geom.has_value() &&
-               std::visit(filter_results<cs, QueryType::INTERSECTS>, *geom, query_geom);
-      });
+      QUERY_CASE(bgi::intersects, (intersects_filter<cs>), *geom, query_geom);
     default:
       throw std::runtime_error{"unknown query"};
+    #undef QUERY_CASE
   }
 }
 
@@ -281,8 +266,7 @@ auto RTree<cs>::query(std::string_view wkt, QueryType query_type, RedisModuleStr
     -> IndexIterator* {
   try {
     auto query_geom = from_wkt<cs>(wkt);
-    return generate_query_iterator<cs>(
-        generate_predicate(make_doc<cs>(query_geom), query_type, query_geom), allocated_);
+    return generate_query_iterator<cs>(generate_predicate(query_type, query_geom), allocated_);
   } catch (const std::exception& e) {
     if (err_msg) {
       *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
