@@ -1079,19 +1079,6 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   sendChunk(req, reply, num);
   RedisSearchCtx_UnlockSpec(req->sctx); // Verify that we release the spec lock
 
-  // if (has_map) // RESP3
-  // {
-  //   sendChunk(req, reply, num);
-  //   RedisSearchCtx_UnlockSpec(req->sctx); // Verify that we release the spec lock
-  // }
-  // else // RESP2
-  // {
-  //   // return array of [results, cursorID]. (the typical result reply is in the first reply)
-  //   // for profile, we return array of [results, cursorID, profile]
-  //   sendChunk(req, reply, num);
-  //   RedisSearchCtx_UnlockSpec(req->sctx); // Verify that we release the spec lock
-  // }
-
   if (req->stateflags & QEXEC_S_ITERDONE) {
     AREQ_Free(req);
     cursor->execState = NULL;
