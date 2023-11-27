@@ -229,11 +229,11 @@ std::size_t RTree<cs>::report() const noexcept {
 
 template <typename cs>
 template <typename Predicate, typename Filter>
-auto RTree<cs>::apply_predicate(geom_type const& query_geom, Predicate const& predicate,
-                                Filter const& filter) const -> query_results {
+auto RTree<cs>::apply_predicate(Predicate const& predicate, Filter const& filter) const
+    -> query_results {
   return {rtree_.qbegin(predicate && bgi::satisfies([&](auto const& doc) -> bool {
                           auto geom = lookup(doc);
-                          return geom && filter(*geom, query_geom);
+                          return geom && filter(*geom);
                         })),
           rtree_.qend(), Allocator::TrackingAllocator<doc_type>{allocated_}};
 }
@@ -244,25 +244,21 @@ auto RTree<cs>::generate_predicate(QueryType query_type, geom_type const& query_
   auto query_mbr = get_rect<cs>(make_doc<cs>(query_geom));
   switch (query_type) {
     case QueryType::CONTAINS:  // contains(g1, g2) == within(g2, g1)
-      return apply_predicate(query_geom, bgi::contains(query_mbr),
-                             [&](auto const& g1, auto const& g2) -> bool {
-                               return std::visit(within_filter<cs>, g2, g1);
-                             });
+      return apply_predicate(bgi::contains(query_mbr), [&](auto const& geom) -> bool {
+        return std::visit(within_filter<cs>, query_geom, geom);
+      });
     case QueryType::WITHIN:
-      return apply_predicate(query_geom, bgi::within(query_mbr),
-                             [&](auto const& g1, auto const& g2) -> bool {
-                               return std::visit(within_filter<cs>, g1, g2);
-                             });
+      return apply_predicate(bgi::within(query_mbr), [&](auto const& geom) -> bool {
+        return std::visit(within_filter<cs>, geom, query_geom);
+      });
     case QueryType::DISJOINT:  // disjoint(g1, g2) == !intersects(g1, g2)
-      return apply_predicate(query_geom, bgi::disjoint(query_mbr),
-                             [&](auto const& g1, auto const& g2) -> bool {
-                               return std::visit(std::not_fn(intersects_filter<cs>), g1, g2);
-                             });
+      return apply_predicate(bgi::disjoint(query_mbr), [&](auto const& geom) -> bool {
+        return std::visit(std::not_fn(intersects_filter<cs>), geom, query_geom);
+      });
     case QueryType::INTERSECTS:
-      return apply_predicate(query_geom, bgi::intersects(query_mbr),
-                             [&](auto const& g1, auto const& g2) -> bool {
-                               return std::visit(intersects_filter<cs>, g1, g2);
-                             });
+      return apply_predicate(bgi::intersects(query_mbr), [&](auto const& geom) -> bool {
+        return std::visit(intersects_filter<cs>, geom, query_geom);
+      });
     default:
       throw std::runtime_error{"unknown query"};
   }
