@@ -14,7 +14,7 @@ jobs:
         github.event.action == 'labeled' &&
         github.event.label.name == 'action:run-benchmark'
       ) || (
-        github.event_name == 'pull_request' &&
+        contains(toJson('[opened, reopened, synchronize]'), github.event.action) &&
         contains(github.event.pull_request.labels.*.name, 'action:run-benchmark')
       )
     uses: ./.github/workflows/benchmark-runner.yml
