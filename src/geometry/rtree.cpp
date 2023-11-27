@@ -246,11 +246,11 @@ auto RTree<cs>::generate_predicate(QueryType query_type, geom_type const& query_
     auto geom = lookup(doc);                                                  \
     return geom && std::visit(filter, g1, g2);                                \
   })
-    case QueryType::CONTAINS:
+    case QueryType::CONTAINS:  // contains(g1, g2) == within(g2, g1)
       QUERY_CASE(bgi::contains, (within_filter<cs>), query_geom, *geom);
     case QueryType::WITHIN:
       QUERY_CASE(bgi::within, (within_filter<cs>), *geom, query_geom);
-    case QueryType::DISJOINT:
+    case QueryType::DISJOINT:  // disjoint(g1, g2) == !intersects(g1, g2)
       QUERY_CASE(bgi::disjoint, (std::not_fn(intersects_filter<cs>)), *geom, query_geom);
     case QueryType::INTERSECTS:
       QUERY_CASE(bgi::intersects, (intersects_filter<cs>), *geom, query_geom);
