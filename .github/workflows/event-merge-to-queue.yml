@@ -23,7 +23,7 @@ jobs:
       - run: exit 1
 
   pr-validation:
-    needs: [test-linux, test-macos, coverage, sanitize]
+    needs: [stall]
     runs-on: ubuntu-latest
     if: ${{ !cancelled() }}
     steps:
