@@ -15,4 +15,4 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ !cancelled() }}
     steps:
-        run: exit 0
+      - run: exit 0
