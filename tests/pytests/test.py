@@ -2320,6 +2320,10 @@ def testAlias(env):
     env.expect('ft.aliasdel', 'myIndex', 'yourIndex').raiseError()
     env.expect('ft.aliasdel', 'non_existing_alias').raiseError()
 
+    # Test index alias with the same length as the original (MOD 5945)
+    env.expect('FT.ALIASADD', 'temp', 'idx3').ok()
+    r = env.cmd('ft.search', 'temp', 'foo')
+    env.assertEqual([1, 'doc3', ['t1', 'foo']], r)
 
 def testNoCreate(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f1', 'text')
