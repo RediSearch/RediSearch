@@ -6,6 +6,10 @@ on:
   pull_request:
    types: [opened, reopened, synchronize, labeled] # Default ([opened, reopened, synchronize]) + labeled
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number }}
+  cancel-in-progress: true # TODO: reconsider, currently we use the free tier and have 20 concurrent jobs limit
+
 jobs:
   perf-ci:
     name: Trigger
@@ -14,20 +18,8 @@ jobs:
         github.event.action == 'labeled' &&
         github.event.label.name == 'action:run-benchmark'
       ) || (
-        contains(fromJson('[opened, reopened, synchronize]'), github.event.action) &&
+        contains(fromJson('["opened", "reopened", "synchronize"]'), github.event.action) &&
         contains(github.event.pull_request.labels.*.name, 'action:run-benchmark')
       )
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
-
-  test1:
-    runs-on: ubuntu-latest
-    if: contains(fromJson('[opened, reopened, synchronize]'), github.event.action)
-    steps:
-      - run: echo "test1"
-
-  test2:
-    runs-on: ubuntu-latest
-    if: contains(fromJson('["opened", "reopened", "synchronize"]'), github.event.action)
-    steps:
-      - run: echo "test2"
