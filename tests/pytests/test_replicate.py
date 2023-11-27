@@ -59,6 +59,7 @@ def initEnv():
 
   return env
 
+@skip(cluster=True)
 def testDelReplicate():
   env = initEnv()
   master = env.getConnection()
@@ -94,6 +95,7 @@ def testDelReplicate():
     env.assertEqual(None,
       slave.execute_command('ft.get', 'idx', 'doc%d' % i))
 
+@skip(cluster=True)
 def testDropReplicate():
   env = initEnv()
   master = env.getConnection()
@@ -146,6 +148,7 @@ def testDropReplicate():
   env.assertEqual(master_set.difference(slave_set), set([]))
   env.assertEqual(slave_set.difference(master_set), set([]))
 
+@skip(cluster=True)
 def testDropTempReplicate():
   env = initEnv()
   master = env.getConnection()
@@ -184,6 +187,7 @@ def testDropTempReplicate():
   env.assertEqual(master.execute_command('KEYS', '*'), [])
   env.assertEqual(slave.execute_command('KEYS', '*'), [])
 
+@skip(cluster=True)
 def testDropWith__FORCEKEEPDOCS():
   env = initEnv()
   master = env.getConnection()
@@ -213,6 +217,7 @@ def testDropWith__FORCEKEEPDOCS():
     env.assertEqual(master.execute_command('KEYS', '*'), ['doc1'])
     env.assertEqual(slave.execute_command('KEYS', '*'), ['doc1'])
 
+@skip(cluster=True)
 def testExpireDocs():
   expireDocs(False,
              # Without sortby - both docs exist but doc1 fail to load field since it was expired lazily
@@ -220,6 +225,7 @@ def testExpireDocs():
              # With sortby - since there is no SORTABLE, we loaded doc1 at sortby and found out it was deleted
              [1, 'doc2', ['t', 'foo']])
 
+@skip(cluster=True)
 def testExpireDocsSortable():
   '''
   Same as test `testExpireDocs` only with SORTABLE
@@ -254,13 +260,13 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
     master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', *sortable_arg)
     master.execute_command('HSET', 'doc1', 't', 'bar')
     master.execute_command('HSET', 'doc2', 't', 'foo')
-    
+
     # Both docs exist.
     # Enforce propagation to slave
     # (WAIT is propagating WRITE commands but FT.CREATE is not a WRITE command)
     res = master.execute_command('WAIT', '1', '10000')
     env.assertEqual(res, 1)
-    
+
     res = master.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
     env.assertEqual(res, [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']])
 
