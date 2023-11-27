@@ -115,12 +115,12 @@ constexpr auto within_filter = [](auto&& geom1, auto&& geom2) -> bool {
                 !std::is_same_v<point_type, std::decay_t<decltype(geom1)>>) {
     return false;
   } else {
-    return !bg::within(geom1, geom2);
+    return bg::within(geom1, geom2);
   }
 };
 template <typename cs>
 constexpr auto intersects_filter =
-    [](auto&& geom1, auto&& geom2) -> bool { return !bg::intersects(geom1, geom2); };
+    [](auto&& geom1, auto&& geom2) -> bool { return bg::intersects(geom1, geom2); };
 }  // anonymous namespace
 
 template <typename cs>
