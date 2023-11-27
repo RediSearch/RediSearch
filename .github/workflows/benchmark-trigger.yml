@@ -14,15 +14,20 @@ jobs:
         github.event.action == 'labeled' &&
         github.event.label.name == 'action:run-benchmark'
       ) || (
-        contains(toJson('[opened, reopened, synchronize]'), github.event.action) &&
+        contains(fromJson('[opened, reopened, synchronize]'), github.event.action) &&
         contains(github.event.pull_request.labels.*.name, 'action:run-benchmark')
       )
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
 
-  perf-ci-2:
+  test1:
     runs-on: ubuntu-latest
+    if: contains(fromJson('[opened, reopened, synchronize]'), github.event.action)
     steps:
-      - run: echo "Hello world"
-        env:
-          CTX: ${{ toJson(github) }}
+      - run: echo "test1"
+
+  test2:
+    runs-on: ubuntu-latest
+    if: contains(fromJson('["opened", "reopened", "synchronize"]'), github.event.action)
+    steps:
+      - run: echo "test2"
