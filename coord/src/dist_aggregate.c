@@ -664,6 +664,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (profileArgs == -1) goto err;
   int rc = AREQ_Compile(r, argv + 2 + profileArgs, argc - 2 - profileArgs, &status);
   if (rc != REDISMODULE_OK) goto err;
+  r->profile = printAggProfile;
 
   unsigned int dialect = r->reqConfig.dialectVersion;
   if(dialect >= 2) {
