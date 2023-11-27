@@ -2187,6 +2187,17 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', -1).error()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
 
+    # check no time w/o sorter/grouper
+    env.expect(
+        'FT.AGGREGATE', 'myIdx', '*',
+        'LOAD', 1, 'geo',
+        'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance1',
+        'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance2',
+        'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance3',
+        'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance4',
+        'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance5'
+    ).error().contains('Timeout limit was reached')
+
     # test grouper
     env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
                'LOAD', 1, 't',
@@ -2832,6 +2843,11 @@ def testSubStrErrors(env):
     env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test",3,-2)', 'as', 'a')
     env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test",3,1000)', 'as', 'a')
     env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test",-1,2)', 'as', 'a')
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test")', 'as', 'a').error().contains("Invalid arguments for function 'substr'")
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr(1)', 'as', 'a').error().contains("Invalid arguments for function 'substr'")
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "test")', 'as', 'a').error().contains("Invalid arguments for function 'substr'")
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "test", "test")', 'as', 'a').error().contains("Invalid type (3) for argument 1 in function 'substr'")
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "-1", "-1")', 'as', 'a').error().contains("Invalid type (3) for argument 1 in function 'substr'")
     env.assertTrue(env.isUp())
 
 def testToUpperLower(env):

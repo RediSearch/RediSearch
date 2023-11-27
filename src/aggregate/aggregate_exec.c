@@ -414,16 +414,6 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     startPipeline(req, rp, &results, &r, &rc);
 
-    // Set `resultsLen` to be the expected number of results in the response.
-    if (ShouldReplyWithTimeoutError(rc, req)) {
-      resultsLen = 1;
-    } else if (rc == RS_RESULT_ERROR) {
-      resultsLen = 2;
-    } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
-               req->optimizer->type != Q_OPT_NO_SORTER) {
-      resultsLen = calc_results_len(req, limit);
-    }
-
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (ShouldReplyWithError(rp, req)) {
       RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
@@ -434,6 +424,16 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       ReplyWithTimeoutError(reply);
       cursor_done = true;
       goto done_2_err;
+    }
+
+    // Set `resultsLen` to be the expected number of results in the response.
+    if (ShouldReplyWithTimeoutError(rc, req)) {
+      resultsLen = 1;
+    } else if (rc == RS_RESULT_ERROR) {
+      resultsLen = 2;
+    } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
+               req->optimizer->type != Q_OPT_NO_SORTER) {
+      resultsLen = calc_results_len(req, limit);
     }
 
     if (IsOptimized(req)) {
@@ -482,8 +482,8 @@ done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
     cursor_done = (rc != RS_RESULT_OK
-                        && !(rc == RS_RESULT_TIMEDOUT
-                             && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
+                   && !(rc == RS_RESULT_TIMEDOUT
+                        && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
     if (req->reqflags & QEXEC_F_IS_CURSOR) {
       if (cursor_done) {
@@ -614,8 +614,8 @@ done_3:
     RedisModule_Reply_ArrayEnd(reply); // >results
 
     cursor_done = (rc != RS_RESULT_OK
-                        && !(rc == RS_RESULT_TIMEDOUT
-                             && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
+                   && !(rc == RS_RESULT_TIMEDOUT
+                        && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
     if (IsProfile(req)) {
       if (!(req->reqflags & QEXEC_F_IS_CURSOR) || cursor_done) {
