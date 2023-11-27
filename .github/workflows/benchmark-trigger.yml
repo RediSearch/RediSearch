@@ -7,7 +7,8 @@ on:
    types: [opened, reopened, synchronize, labeled] # Default ([opened, reopened, synchronize]) + labeled
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.number }}
+  # Group by flow, PR number, and a trigger condition (so other labels don't cancel an in-progress job)
+  group: ${{ github.workflow }}-${{ github.event.number }}-${{ github.event.action != 'labeled' || github.event.label.name == 'action:run-benchmark' }}
   cancel-in-progress: true # TODO: reconsider, currently we use the free tier and have 20 concurrent jobs limit
 
 jobs:
