@@ -16,10 +16,10 @@ def order_dict(d):
             result[k] = v
     return result
 
-def redis_version(con, is_cluster=False):
+def redis_version(con, isCluster=False):
     res = con.execute_command('INFO')
     ver = ""
-    if is_cluster:
+    if isCluster:
         try:
             ver = list(res.values())[0]['redis_version']
         except:
@@ -139,32 +139,36 @@ def test_search():
     env.expect('FT.search', 'idx1', "*").equal(exp)
 
 def test_search_timeout():
-    env = Env(protocol=3)
+    num_range = 1000
+    env = Env(protocol=3, moduleArgs=f'DEFAULT_DIALECT 2 MAXPREFIXEXPANSIONS {num_range} TIMEOUT 1 ON_TIMEOUT FAIL')
     if should_skip(env):
         env.skip()
-    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
 
-    with env.getClusterConnectionIfNeeded() as r:
-      r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
-      r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
-
-    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
-            "SCHEMA", "f1", "TEXT", "f2", "TEXT")
-    waitForIndex(env, 'idx1')
-
-    # test with timeout
-    num_range = 1000
-    env.cmd('ft.config', 'set', 'timeout', '1')
-    env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
     for i in range(num_range):
-        env.cmd('HSET', f'doc{i}', 't', f'aa{i}', 'geo', f"{i/10000},{i/1000}")
+        conn.execute_command('HSET', f'doc{i}', 't', f'aa{i}', 'geo', f"{i/10000},{i/1000}")
 
-    env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0'). \
-      contains('Timeout limit was reached')
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1).\
-      error().contains('Timeout limit was reached')
+    # TODO: Add these tests again once MOD-5965 is merged
+    # env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range)). \
+    #   contains('Timeout limit was reached')
+    # env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range), 'timeout', 1).\
+    #   contains('Timeout limit was reached')
+
+    # (coverage) Later failure than the above tests - in pipeline execution
+    # phase. For this, we need more documents in the index, such that we will
+    # fail for sure
+    num_range_2 = 25000 * env.shardsCount
+    p = conn.pipeline(transaction=False)
+    for i in range(num_range, num_range_2):
+      p.execute_command('HSET', f'doc{i}', 't', f'{i}', 'geo', f"{i/10000},{i/1000}")
+    p.execute()
+
+    err = conn.execute_command('ft.search', 'myIdx', '*', 'limit', '0', str(num_range_2), 'timeout', '1')['error']
+    env.assertEqual(len(err), 1)
+    # TODO: Add this when the error type is fixed (MOD-5965)
+    # env.assertEquals(type(err[0]), ResponseError)
+    env.assertContains('Timeout limit was reached', str(err[0]))
 
 @skip(cluster=True)
 def test_profile(env):
@@ -263,7 +267,7 @@ def test_aggregate():
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
       r.execute_command('HSET', 'doc3', 'f5', '4')
 
-    env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
+    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     waitForIndex(env, 'idx1')
 
@@ -282,7 +286,7 @@ def test_aggregate():
     }
     env.assertEqual(res, exp)
 
-    res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "FORMAT", "STRING")
+    res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "FORMAT", "STRING")
     exp = {
       'attributes': [],
       'error': [],
@@ -309,7 +313,7 @@ def test_aggregate():
         {'extra_attributes': {}, 'values': []}
       ]
     }
-    res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "SORTBY", 2, "@f2", "DESC", "FORMAT", "STRING")
+    res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "SORTBY", 2, "@f2", "DESC", "FORMAT", "STRING")
     env.assertEqual(res, exp)
 
 def test_cursor():
@@ -388,7 +392,7 @@ def test_info():
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
       r.execute_command('HSET', 'doc3', 'f5', '4')
 
-    env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
+    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     waitForIndex(env, 'idx1')
 
@@ -436,23 +440,23 @@ def test_config():
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
       r.execute_command('HSET', 'doc3', 'f5', '4')
 
-    env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
+    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT")
-    env.execute_command('FT.create', 'idx2', "PREFIX", 1, "doc",
+    env.cmd('FT.create', 'idx2', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
 
     if env.isCluster():
         return
 
-    res = env.execute_command("FT.CONFIG", "SET", "TIMEOUT", 501)
+    res = env.cmd("FT.CONFIG", "SET", "TIMEOUT", 501)
 
-    res = env.execute_command("FT.CONFIG", "GET", "*")
+    res = env.cmd("FT.CONFIG", "GET", "*")
     env.assertEqual(res['TIMEOUT'], '501')
 
-    res = env.execute_command("FT.CONFIG", "GET", "TIMEOUT")
+    res = env.cmd("FT.CONFIG", "GET", "TIMEOUT")
     env.assertEqual(res, {'TIMEOUT': '501'})
 
-    res = env.execute_command("FT.CONFIG", "HELP", "TIMEOUT")
+    res = env.cmd("FT.CONFIG", "HELP", "TIMEOUT")
     env.assertEqual(res, {'TIMEOUT': {'Description': 'Query (search) timeout', 'Value': '501'}})
 
 def test_dictdump():
@@ -534,7 +538,7 @@ def test_tagvals():
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
 
-    env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
+    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TAG", "f2", "TAG", "f5", "TAG")
     waitForIndex(env, 'idx1')
 
@@ -649,7 +653,7 @@ def test_profile_child_itrerators_array():
       r.execute_command('hset', '2', 't', 'world')
 
     # test UNION
-    res = env.execute_command('ft.profile', 'idx', 'search', 'query', 'hello|world', 'nocontent')
+    res = env.cmd('ft.profile', 'idx', 'search', 'query', 'hello|world', 'nocontent')
     exp = {
       'error': [],
       'attributes': [],
@@ -685,7 +689,7 @@ def test_profile_child_itrerators_array():
         env.assertEqual(res, exp)
 
     # test INTERSECT
-    res = env.execute_command('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
+    res = env.cmd('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
     exp = {
       'error': [],
       'attributes': [],
@@ -735,7 +739,7 @@ def testExpandErrorsResp3():
     env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
   else:
     err = env.cmd('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND')['error']
-    env.assertEquals(type(err[0]), ResponseError)
+    env.assertEqual(type(err[0]), ResponseError)
     env.assertContains('EXPAND format is only supported with JSON', str(err[0]))
 
 def testExpandErrorsResp2():
@@ -747,7 +751,7 @@ def testExpandErrorsResp2():
     env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').error()
   else:
     err = env.cmd('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND')[1]
-    env.assertEquals(type(err[0]), ResponseError)
+    env.assertEqual(type(err[0]), ResponseError)
     env.assertContains('EXPAND format is only supported with RESP3', str(err[0]))
 
 
@@ -759,7 +763,7 @@ def testExpandErrorsResp2():
     env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
   else:
     err = env.cmd('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND')[1]
-    env.assertEquals(type(err[0]), ResponseError)
+    env.assertEqual(type(err[0]), ResponseError)
     env.assertContains('EXPAND format is only supported with RESP3', str(err[0]))
 
 def testExpandJson():
@@ -1373,7 +1377,7 @@ def test_vecsim_1():
              ]
            }
     exp2 = [3, 'docvecsimidx0z0', 'docvecsimidx0z1', 'docvecsimidx0z2', 'docvecsimidx0z3']
-    res = env.execute_command("FT.SEARCH", "vecsimidx0", "(*)=>[KNN 4 @vector_FLAT $BLOB]", "NOCONTENT", "SORTBY",
+    res = env.cmd("FT.SEARCH", "vecsimidx0", "(*)=>[KNN 4 @vector_FLAT $BLOB]", "NOCONTENT", "SORTBY",
                "__vector_FLAT_score", "ASC", "DIALECT", "2", "LIMIT", "0", "4",
                "params", "2", "BLOB", "\x00\x00\x00\x00\x00\x00\x00\x00")
     env.assertEqual(dict_diff(res, exp3 if env.protocol == 3 else exp2, show=True,

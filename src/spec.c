@@ -1453,9 +1453,13 @@ void Indexes_Free(dict *d) {
   SchemaPrefixes_Free(ScemaPrefixes_g);
   SchemaPrefixes_Create();
 
+  // Mark all Coordinator cursors as expired.
+  // We cannot free them from the main thread (as we are now) because they might attempt to
+  // delete their related cursors at the shards and wait for the response, and we will get
+  // into a deadlock with the shard we are in.
+  CursorList_Expire(&g_CursorsListCoord);
   // cursor list is iterating through the list as well and consuming a lot of CPU
   CursorList_Empty(&g_CursorsList);
-  CursorList_Empty(&g_CursorsListCoord);
 
   arrayof(StrongRef) specs = array_new(StrongRef, dictSize(d));
   dictIterator *iter = dictGetIterator(d);
@@ -2788,7 +2792,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   QueryError status = {0};
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
-  aCtx->stateFlags |= ACTX_F_NOBLOCK | ACTX_F_NOFREEDOC;
+  aCtx->stateFlags |= ACTX_F_NOFREEDOC;
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
 
   Document_Free(&doc);

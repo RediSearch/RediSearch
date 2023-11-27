@@ -67,10 +67,11 @@ def compare_optimized_to_not(env, query, params, msg=None):
         print_profile(env, query, params, optimize=False)
         print_profile(env, query, params, optimize=True)
 
+@skip(cluster=True)
 def testOptimizer(env):
-    env.skipOnCluster()
-    env.cmd('ft.config', 'set', 'timeout', '0')
+    env.cmd('FT.CONFIG', 'SET', 'TIMEOUT', '0')
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+    env.cmd('FT.CONFIG', 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true')
     repeat = 20000
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT', 'tag', 'TAG')
@@ -321,10 +322,8 @@ def testOptimizer(env):
     result = env.cmd('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 1500, *params)
     env.assertEqual(result[0], 1200)
 
-    #input('stop')
-
+@skip(cluster=True)
 def testWOLimit(env):
-    env.skipOnCluster()
     env.cmd('ft.config', 'set', 'timeout', '0')
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     repeat = 100
@@ -402,8 +401,8 @@ def testWOLimit(env):
     # stop after enough results were collected
     env.expect('ft.search', 'idx', '*', *params).equal([1] + res10)
 
+@skip(cluster=True)
 def testSearch(env):
-    env.skipOnCluster()
     repeat = 1000
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT', 'tag', 'TAG')
@@ -418,7 +417,7 @@ def testSearch(env):
     limits = [[0, 5], [0, 30], [0, 150], [5, 5], [20, 30], [100, 10], [500, 1]]
     ranges = [[-5, 105], [0, 3], [30, 60], [-10, 5], [95, 110], [200, 300], [42, 42]]
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         for i in range(len(limits)):
             params[1] = limits[i][0]
             params[2] = limits[i][1]
@@ -468,8 +467,8 @@ def testSearch(env):
             compare_optimized_to_not(env, ['ft.search', 'idx', '*'], params, 'case 12')
         #input('stop')
 
+@skip(cluster=True)
 def testAggregate(env):
-    env.skipOnCluster()
     repeat = 1000
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 't', 'TEXT', 'SORTABLE', 'tag', 'TAG', 'SORTABLE')
@@ -483,7 +482,7 @@ def testAggregate(env):
     ranges = [[-5, 105], [0, 3], [30, 60], [-10, 5], [95, 110], [200, 300], [42, 42]]
     params = ['limit', 0 , 0, 'LOAD', 4, '@__key', '@n', '@t', '@tag']
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         for i in range(len(limits)):
             params[1] = limits[i][0]
             params[2] = limits[i][1]
@@ -534,10 +533,8 @@ def testAggregate(env):
             compare_optimized_to_not(env, ['ft.aggregate', 'idx', '*'], params, 'case 12')
         #input('stop')
 
-@skip()  # TODO: solve flakiness
+@skip()  # TODO: solve flakiness (MOD-5257)
 def testCoordinator(env):
-    env.skip() # TODO: Fix flaky test (MOD-5257)
-
     # separate test which only has queries with sortby since otherwise the coordinator has random results
     repeat = 10000
     conn = getConnectionByEnv(env)
@@ -553,7 +550,7 @@ def testCoordinator(env):
     ranges = [[-5, 105], [0, 3], [30, 60], [-10, 5], [95, 110], [200, 300], [42, 42]]
     params = ['limit', 0 , 0]
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         for i in range(len(limits)):
             params[1] = limits[i][0]
             params[2] = limits[i][1]
@@ -585,7 +582,7 @@ def testCoordinator(env):
     # update parameters for ft.aggregate
     params = ['limit', 0 , 0, 'LOAD', 4, '@__key', '@n', '@t', '@tag']
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         for i in range(len(limits)):
             params[1] = limits[i][0]
             params[2] = limits[i][1]

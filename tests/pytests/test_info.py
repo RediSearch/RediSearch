@@ -1,15 +1,15 @@
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, forceInvokeGC
+from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, forceInvokeGC, skip
 from RLTest import Env
 from time import sleep
 
 
 def ft_info_to_dict(env, idx):
-  res = env.execute_command('ft.info', idx)
+  res = env.cmd('ft.info', idx)
   return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
 
 # The output for this test can be used for recreating documentation for `FT.INFO`
+@skip()
 def testInfo(env):
-  env.skip()
   count = 345678
   conn = env.getConnection()
   pl = conn.pipeline()
@@ -55,11 +55,11 @@ def testInfo(env):
 
 def test_numeric_info(env):
 
-  env.execute_command('ft.create', 'idx1', 'SCHEMA', 'n', 'numeric')
-  env.execute_command('ft.create', 'idx2', 'SCHEMA', 'n', 'numeric', 'SORTABLE')
-  env.execute_command('ft.create', 'idx3', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'UNF')
-  env.execute_command('ft.create', 'idx4', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'NOINDEX')
-  env.execute_command('ft.create', 'idx5', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'UNF', 'NOINDEX')
+  env.cmd('ft.create', 'idx1', 'SCHEMA', 'n', 'numeric')
+  env.cmd('ft.create', 'idx2', 'SCHEMA', 'n', 'numeric', 'SORTABLE')
+  env.cmd('ft.create', 'idx3', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'UNF')
+  env.cmd('ft.create', 'idx4', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'NOINDEX')
+  env.cmd('ft.create', 'idx5', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'UNF', 'NOINDEX')
 
   res1 = ft_info_to_dict(env, 'idx1')['attributes']
   res2 = ft_info_to_dict(env, 'idx2')['attributes']
