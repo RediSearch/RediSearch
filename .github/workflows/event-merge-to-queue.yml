@@ -7,7 +7,9 @@ on:
     types: [checks_requested]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.merge_group.base_ref }}
+  # This group identify the PR by the tree ID of the head commit.
+  # TODO: Replace with PR number of branch name once GH adds it to the event context
+  group: ${{ github.workflow }}-${{ github.event.merge_group.head_commit.tree_id }}
   cancel-in-progress: true
 
 # TODO: Use RedisJSON's `${{ vars.DEFAULT_REDISJSON_REF }}` branch when testing on nightly
