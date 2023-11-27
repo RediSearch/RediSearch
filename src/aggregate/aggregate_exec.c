@@ -429,31 +429,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     RedisModule_Reply_Array(reply);
 
-    // ********TODO******
-    // Change the below section. For instance, there's no chance we run into the
-    // first condition, since we know that !(rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail).
-
-    // Reply with a timeout or regular error, if needed (policy dependent)
-    if (ShouldReplyWithTimeoutError(rc, req)) {
-        // For now, embed this error inside an array - may be changed shortly
-        ReplyWithTimeoutError(reply);
-    } else if (rc == RS_RESULT_TIMEDOUT) {
-      // Set rc to OK such that we will respond with the partial results
-      rc = RS_RESULT_OK;
-      RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
-    } else if (rc == RS_RESULT_ERROR) {
-      // TODO: PLEASE, remove the irrelevant `totalResults` from the response - always 0, and not coherent with timeout error response format!
-      // TODO: Remove the double embedding of the error
-
-      RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
-      RedisModule_Reply_Array(reply);
-      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
-      QueryError_ClearError(req->qiter.err);
-      RedisModule_Reply_ArrayEnd(reply);
-      nelem++;
-    } else {
-      RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
-    }
+    RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
     nelem++;
 
     // Once we get here, we want to return the results we got from the pipeline (with no error)
@@ -560,7 +536,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
               cursor_done = true;
               goto done_3_err;
       }
-    } else if (rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+    } else if (ShouldReplyWithTimeoutError(rc, req)) {
       ReplyWithTimeoutError(reply);
       cursor_done = true;
       goto done_3_err;
@@ -591,10 +567,6 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       QueryError_ClearError(req->qiter.err);
     }
     RedisModule_Reply_ArrayEnd(reply); // >errors
-
-    // ********TODO******
-    // Change the below section. For instance, there's no chance we run into the
-    // first condition, since we know that !(rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail).
 
     // TODO: Move this to after the results section, so that we can report the
     // correct number of returned results.
