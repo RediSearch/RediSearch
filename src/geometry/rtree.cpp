@@ -229,11 +229,9 @@ std::size_t RTree<cs>::report() const noexcept {
 
 template <typename cs>
 template <typename Predicate, typename Filter>
-auto RTree<cs>::apply_predicate(Predicate&& p, Filter&& f) const -> query_results {
-  auto results = query_results{rtree_.qbegin(std::forward<Predicate>(p)), rtree_.qend(),
-                               Allocator::TrackingAllocator<doc_type>{allocated_}};
-  std::erase_if(results, std::forward<Filter>(f));
-  return results;
+auto RTree<cs>::apply_predicate(Predicate const& p, Filter const& f) const -> query_results {
+  return query_results{rtree_.qbegin(p && bgi::satisfies(f)), rtree_.qend(),
+                       Allocator::TrackingAllocator<doc_type>{allocated_}};
 }
 
 template <typename cs>
