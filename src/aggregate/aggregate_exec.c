@@ -294,7 +294,7 @@ static size_t getResultsFactor(AREQ *req) {
 
 /**
  * Aggregates all the results from the pipeline into a single array, and returns
- * it. rc is populated with the latest return code from the pipeline.
+ * it. rc is populated with the latest return code.
 */
 static SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
   SearchResult **results = array_new(SearchResult *, 8);
