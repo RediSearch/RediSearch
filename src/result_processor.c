@@ -30,6 +30,14 @@ void QITR_Cleanup(QueryIterator *qitr) {
   }
 }
 
+// Allocates a new SearchResult, and populates it with `r`'s data (takes
+// ownership as well)
+SearchResult *SearchResult_Copy(SearchResult *r) {
+  SearchResult *ret = rm_malloc(sizeof(*ret));
+  *ret = *r;
+  return ret;
+}
+
 void SearchResult_Clear(SearchResult *r) {
   // This won't affect anything if the result is null
   r->score = 0;
@@ -63,8 +71,6 @@ void SearchResult_Destroy(SearchResult *r) {
  * downstream.
  *******************************************************************************************************************/
 
-// Get the index search context from the result processor
-#define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 // Get the index spec from the result processor - this should be used only if the spec
 // can be accessed safely.
 #define RP_SPEC(rpctx) (RP_SCTX(rpctx)->spec)
@@ -155,7 +161,7 @@ static void rpidxFree(ResultProcessor *iter) {
   rm_free(iter);
 }
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *root, struct timespec timeout) {
+ResultProcessor *RPIndexIterator_New(IndexIterator *root) {
   RPIndexIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iiter = root;
   ret->base.Next = rpidxNext;
