@@ -137,7 +137,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                  &qParams, vq->range.order);
       if (VecSimQueryReply_GetCode(results) == VecSim_QueryReply_TimedOut) {
         VecSimQueryReply_Free(results);
-        QueryError_SetError(q->status, QUERY_TIMEDOUT, NULL);
+        QueryError_SetError(q->status, QUERY_ETIMEDOUT, NULL);
         return NULL;
       }
       bool yields_metric = vq->scoreField != NULL;

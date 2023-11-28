@@ -990,7 +990,7 @@ def populate_db(env):
     num_docs = 10000 * nshards
     pipeline = conn.pipeline(transaction=False)
     for i, t1 in enumerate(np.random.randint(1, 1024, num_docs)):
-        pipeline.hset (i, 't1', str(t1))
+        pipeline.hset(i, 't1', str(t1))
         if i % 1000 == 0:
             pipeline.execute()
             pipeline = conn.pipeline(transaction=False)
@@ -1005,15 +1005,27 @@ def aggregate_test(protocol=2):
         raise unittest.SkipTest("Unsupported protocol")
 
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL', protocol=protocol)
+    conn = getConnectionByEnv(env)
 
     populate_db(env)
 
-    res = env.execute_command('FT.AGGREGATE', 'idx', '*',
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
                 'LOAD', '2', '@t1', '@__key',
                 'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
                 'groupby', '2', '@t1', '@t1exp',
                         'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
                 'TIMEOUT', '1',)
+
+    if protocol == 2:
+        env.assertEqual(res, ['Timeout limit was reached'])
+    else:
+        env.assertEqual(res['error'], ['Timeout limit was reached'])
+
+    # Tests MOD-5948 - An `FT.AGGREGATE` command with no depleting result-processors
+    # should return a timeout (rather than results)
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
+    )
 
     if protocol == 2:
         env.assertEqual(res, ['Timeout limit was reached'])
