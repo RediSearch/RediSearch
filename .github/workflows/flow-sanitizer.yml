@@ -15,6 +15,6 @@ jobs:
     with:
       container: redisfab/clang:16-x64-bullseye
       test-config: ${{ inputs.flow-config }}
-      get-redis: ''
+      get-redis: 'skip getting redis'
       san: addr
     secrets: inherit

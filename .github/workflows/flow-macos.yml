@@ -13,6 +13,12 @@ on:
         description: 'Run standalone tests'
         type: boolean
         default: true
+      test-config:
+        description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
+        type: string
+      redis-ref:
+        description: 'Redis Reference to use (tag, branch, or commit). Defaults to "unstable"'
+        type: string
   workflow_call:
     inputs:
       test-config:
