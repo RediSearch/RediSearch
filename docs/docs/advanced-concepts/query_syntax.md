@@ -233,7 +233,7 @@ GEOSHAPE does not support JSON multi-value or SORTABLE options.
 
 For more examples, see the `FT.CREATE` and `FT.SEARCH` command pages.
 
-## Vector similarity search
+## Vector search
 
 You can add vector similarity queries directly into the query language by:
 
