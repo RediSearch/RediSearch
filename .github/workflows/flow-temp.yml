@@ -14,3 +14,4 @@ on:
 jobs:
   test-assign:
     uses: ./.github/workflows/task-take-shift.yml
+    secrets: inherit
