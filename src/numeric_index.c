@@ -46,7 +46,7 @@ void NumericRangeNode_Dump(NumericRangeNode *n, int indent) {
   PRINT_INDENT(indent);
   printf("NumericRangeNode {\n");
   ++indent;
-  
+
   PRINT_INDENT(indent);
   printf("value %f, maxDepath %i\n", n->value, n->maxDepth);
 
@@ -98,7 +98,7 @@ static inline int NumericRange_Contained(NumericRange *n, double min, double max
 static inline int NumericRange_Contains(NumericRange *n, double min, double max) {
   if (!n) return 0;
   int rc = (n->minVal <= min && n->maxVal > max);
-  
+
   return rc;
 }
 
@@ -106,7 +106,7 @@ static inline int NumericRange_Contains(NumericRange *n, double min, double max)
 int NumericRange_Overlaps(NumericRange *n, double min, double max) {
   if (!n) return 0;
   int rc = (min >= n->minVal && min <= n->maxVal) || (max >= n->minVal && max <= n->maxVal);
-  
+
   return rc;
 }
 
@@ -115,7 +115,7 @@ static inline void checkCardinality(NumericRange *n, double value) {
   if (--n->cardCheck != 0) {
     return;
   }
-  n->cardCheck = NR_CARD_CHECK; 
+  n->cardCheck = NR_CARD_CHECK;
 
   // check if value exists and increase appearance
   uint32_t arrlen = array_len(n->values);
@@ -152,7 +152,7 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
 
   double split = (n->unique_sum) / (double)n->card;
 
-  *lp = NewLeafNode(n->entries->numDocs / 2 + 1, 
+  *lp = NewLeafNode(n->entries->numDocs / 2 + 1,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
   *rp = NewLeafNode(n->entries->numDocs / 2 + 1,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
@@ -273,8 +273,8 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
   rv.sz = (uint32_t)NumericRange_Add(n->range, docId, value, 1);
   ++rv.numRecords;
   int card = n->range->card;
-  
-  if (card * NR_CARD_CHECK >= n->range->splitCard || 
+
+  if (card * NR_CARD_CHECK >= n->range->splitCard ||
       (n->range->entries->numEntries > NR_MAXRANGE_SIZE && card > 1)) {
 
     // split this node but don't delete its range
@@ -294,7 +294,7 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
 /* Recursively add a node's children to the range. */
 void __recursiveAddRange(Vector *v, NumericRangeNode *n, const NumericFilter *nf, size_t *total) {
   if (!n || (nf->limit && (*total >= nf->offset + nf->limit))) return;
-  double min = nf->min; 
+  double min = nf->min;
   double max = nf->max;
   if (n->range) {
     // if the range is completely contained in the search, we can just add it and not inspect any
@@ -408,8 +408,16 @@ NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value,
   }
   t->lastDocId = docId;
 
-  NRN_AddRv rv = NumericRangeNode_Add(t->root, docId, value);
-  // rc != 0 means the tree nodes have changed, and concurrent iteration is not allowed now
+  NumericRangeNode* root = t->root;
+
+  NRN_AddRv rv = NumericRangeNode_Add(root, docId, value);
+
+  // Since we never rebalance the root, we don't update its max depth.
+  if (!NumericRangeNode_IsLeaf(root)) {
+    root->maxDepth = MAX(root->right->maxDepth, root->left->maxDepth) + 1;
+  }
+
+  // rv != 0 means the tree nodes have changed, and concurrent iteration is not allowed now
   // we increment the revision id of the tree, so currently running query iterators on it
   // will abort the next time they get execution context
   if (rv.changed) {
@@ -847,31 +855,6 @@ void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter) {
   rm_free(iter);
 }
 
-
-void IndexReader_Reopen(IndexReader *ir, void *privdata) {
-  NumericUnionCtx *nu = privdata;
-  // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
-  if (ir->gcMarker == ir->idx->gcMarker) {
-    // no GC - we just go to the same offset we were at
-    size_t offset = ir->br.pos;
-    ir->br = NewBufferReader(&ir->idx->blocks[ir->currentBlock].buf);
-    ir->br.pos = offset;
-  } else {
-    // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
-    // anymore. This means that we need to seek to last docId we were at
-
-    // reset the state of the reader
-    t_docId lastId = ir->lastId;
-    ir->currentBlock = 0;
-    ir->br = NewBufferReader(&ir->idx->blocks[ir->currentBlock].buf);
-    ir->lastId = ir->idx->blocks[ir->currentBlock].firstId;
-
-    // seek to the previous last id
-    RSIndexResult *dummy = NULL;
-    IR_SkipTo(ir, lastId, &dummy);
-  }
-}
-
 /* A callback called after a concurrent context regains execution context. When this happen we need
  * to make sure the key hasn't been deleted or its structure changed, which will render the
  * underlying iterators invalid */
@@ -891,8 +874,12 @@ void NumericRangeIterator_OnReopen(void *privdata) {
   }
 
   if (it->type == READ_ITERATOR) {
-    IndexReader_Reopen(it->ctx, nu);
+    IndexReader_OnReopen(it->ctx);
   } else if (it->type == UNION_ITERATOR) {
-    UI_Foreach(it, IndexReader_Reopen, nu);
+    UI_Foreach(it, IndexReader_OnReopen);
+  } else {
+    RS_LOG_ASSERT_FMT(0,
+      "Unexpected iterator type %d. Expected `READ_ITERATOR` (%d) or `UNION_ITERATOR` (%d)",
+      it->type, READ_ITERATOR, UNION_ITERATOR);
   }
 }

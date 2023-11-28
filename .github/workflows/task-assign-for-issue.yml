@@ -1,0 +1,14 @@
+name: Assigne the One in Shift for a New Issue
+
+on:
+  issues:
+    types: [opened, reopened]
+
+jobs:
+  Assign:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Assign
+        run: gh issue edit ${{ github.event.issue.number }} --add-assignee ${{ vars.ISSUES_SHIFT_ASSIGNEE }} -R ${{ github.repository }}

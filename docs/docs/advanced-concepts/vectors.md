@@ -190,7 +190,7 @@ There are two types of vector queries: *KNN* and *range*:
 ### KNN search
 The syntax for vector similarity KNN queries is `*=>[<vector_similarity_query>]` for running the query on an entire vector field, or `<primary_filter_query>=>[<vector_similarity_query>]` for running similarity query on the result of the primary filter query. 
 
-As of version 2.4, you can use vector similarity *once* in the query, and over the entire query filter.
+As of version 2.4, you can use `vector_similarity_query` only per query and over the entire query filter.
 
 **Invalid example** 
 
@@ -239,31 +239,35 @@ The syntax for range query is `@<vector_field>: [VECTOR_RANGE (<radius> | $<radi
 
 * **Range query params**: range query clause can be followed by a query attributes section as following: `@<vector_field>: [VECTOR_RANGE (<radius> | $<radius_attribute>) $<blob_attribute>]=>{$<param>: (<value> | $<value_attribute>); ... }`, where the relevant params in that case are `$yield_distance_as` and `$epsilon`. Note that there is **no default distance field name** in range queries.
 
-## Hybrid queries
+## Support for hybrid queries
 
-Vector similarity KNN queries of the form `<primary_filter_query>=>[<vector_similarity_query>]` are considered *hybrid queries*. Redis Stack has an internal mechanism for optimizing the computation of such queries. Two modes in which hybrid queries are executed are: 
+The definition of hybrid query combine different conditions and predicates with scoring methods from multiple fields in a overall compound score. These queries are executed against an index that encompasses both searchable field content and generated embeddings. With a single query, you can employ document selection and diverse scoring choices, consolidating the resulting scores using a chosen function to influence the relevance and importance of the results for a given use case.
+
+Currently, Redis don't support Hybrid Queries with mulitple scoring options. Redis approach combines pre-filtering documents against an index containing searchable fields (`TEXT`, `TAG`, `NUMERIC`, `GEO`, `GEOSHAPE`, `VECTOR`) and generated embeddings, finding similarity between them according with chosen algorithm (for example, KNN).
+
+Pre-filter with a Vector Similarity KNN query syntax have a form of  `<primary_filter_query>=>[<vector_similarity_query>]`. The first part defines the document selection and filterying, and the second it's represented by a Query Modifiers Attributes that define with similarity should be applied, in this case KNN. Redis Stack has an internal mechanism for optimizing the computation of such queries. Two modes in which pre-filter queries are executed are:
 
 1. Batches mode - In this mode, a batch of the high-scoring documents from the vector index are retrieved. These documents are returned ONLY if `<primary_filter_query>` is satisfied. In other words, the document contains a similar vector and meets the filter criteria. The procedure terminates when `k` documents that pass the `<primary_filter_query>` are returned or after every vector in the index was obtained and processed.
-    
-The *batch size* is determined by a heuristics that is based on `k`, and the ratio between the expected number of documents in the index that pass the `<primary_filter_query>` and the vector index size. 
-The goal of the heuristics is to minimize the total number of batches required to get the `k` results, while preserving a small batch size as possible. 
+
+The *batch size* is determined by a heuristics that is based on `k`, and the ratio between the expected number of documents in the index that pass the `<primary_filter_query>` and the vector index size.
+The goal of the heuristics is to minimize the total number of batches required to get the `k` results, while preserving a small batch size as possible.
 Note that the batch size may change *dynamically* in each iteration, based on the number of results that passed the filter in previous batches.
 
-2. Ad-hoc brute-force mode - In general, this approach is preferable when the number of documents that pass the `<primary_filter_query>` part of the query is relatively small. 
-Here, the score of *every* vector which corresponds to a document that passes the filter is computed, and the top `k` results are selected and returned. 
-Note that the results of the KNN query will *always be accurate* in this mode, even if the underline vector index algorithm is an approximate one.
+2. Ad-hoc brute-force mode - In general, this approach is preferable when the number of documents that pass the `<primary_filter_query>` part of the query is relatively small.
+   Here, the score of *every* vector which corresponds to a document that passes the filter is computed, and the top `k` results are selected and returned.
+   Note that the results of the KNN query will *always be accurate* in this mode, even if the underline vector index algorithm is an approximate one.
 
-The specific execution mode of a hybrid query is determined by a heuristics that aims to minimize the query runtime, and is based on several factors that derive from the query and the index. 
-Moreover, the execution mode may change from *batches* to *ad-hoc BF* during the run, based on estimations of some relevant factors, that are being updated from one batch to another.  
+The specific execution mode of a pre-filtered query is determined by a heuristics that aims to minimize the query runtime, and is based on several factors that derive from the query and the index.
+
+Moreover, the execution mode may change from *batches* to *ad-hoc BF* during the run, based on estimations of some relevant factors, that are being updated from one batch to another.
 
 ## Runtime attributes
 
-### Hybrid query attributes
+### Pre-filter query attributes (Hybrid approach)
 
-These optional attributes allow overriding the default auto-selected policy in which a hybrid query is executed:
+These optional attributes allow overriding the default auto-selected policy in which a pre-filter query is executed:
 
-* `HYBRID_POLICY` - The policy to run the hybrid query in. Possible values are `BATCHES` and `ADHOC_BF` (not case sensitive). Note that the batch size will be auto selected dynamically in `BATCHES` mode, unless the `BATCH_SIZE` attribute is given.
-
+* `HYBRID_POLICY` - The policy to run the pre-filter query (hybrid approach) in. Possible values are `BATCHES` and `ADHOC_BF` (not case sensitive). Note that the batch size will be auto selected dynamically in `BATCHES` mode, unless the `BATCH_SIZE` attribute is given.
 * `BATCH_SIZE` - A fixed batch size to use in every iteration, when the `BATCHES` policy is auto-selected or requested.
 
 ### Algorithm-specific attributes
@@ -314,24 +318,34 @@ Use query attributes syntax to specify optional parameters and the distance fiel
 FT.SEARCH idx "*=>[KNN 10 @vec $BLOB]=>{$EF_RUNTIME: $EF; $YIELD_DISTANCE_AS: my_scores}" PARAMS 4 EF 150 BLOB "\x12\xa9\xf5\x6c" SORTBY my_scores DIALECT 2
 ```
 
-### Hybrid KNN queries
+### Pre-filter KNN queries (hybrid approach)
+
 Among documents that have `'Dune'` in their `title` field and their `num` value is in the range `[2020, 2022]`, return the top 10 for which the vector stored in the `vec` field is the closest to the vector represented by the following 4-bytes blob:
+
 ```
 FT.SEARCH idx "(@title:Dune @num:[2020 2022])=>[KNN $K @vec $BLOB AS my_scores]" PARAMS 4 BLOB "\x12\xa9\xf5\x6c" K 10 SORTBY my_scores DIALECT 2
 ```
-Use a different filter for the hybrid query: this time, return the top 10 results from the documents that contain a `'shirt'` tag  in the `type` field and optionally a `'blue'` tag in their `color` field. Here, the results are sorted by the full-text scorer.
+
+Use a different filter for the hybrid approach: this time, return the top 10 results from the documents that contain a `'shirt'` tag  in the `type` field and optionally a `'blue'` tag in their `color` field. Here, the results are sorted by the full-text scorer.
+
 ```
 FT.SEARCH idx "(@type:{shirt} ~@color:{blue})=>[KNN $K @vec $BLOB]" PARAMS 4 BLOB "\x12\xa9\xf5\x6c" K 10 DIALECT 2
 ```
-And, here's a hybrid query in which the hybrid policy is set explicitly to "ad-hoc brute force" (rather than auto-selected):
+
+And, here's a pre-filter with KNN query in which the hybrid policy is set explicitly to "ad-hoc brute force" (rather than auto-selected):
+
 ```
 FT.SEARCH idx "(@type:{shirt})=>[KNN $K @vec $BLOB HYBRID_POLICY ADHOC_BF]" PARAMS 4 BLOB "\x12\xa9\xf5\x6c" K 10 SORTBY __vec_scores DIALECT 2
 ```
-And, now, here's a hybrid query in which the hybrid policy is set explicitly to "batches", and the batch size is set explicitly to be 50 using a query parameter:
+
+And, now, here's a pre-filter with KNN query in which the hybrid policy is set explicitly to "batches", and the batch size is set explicitly to be 50 using a query parameter:
+
 ```
 FT.SEARCH idx "(@type:{shirt})=>[KNN $K @vec $BLOB HYBRID_POLICY BATCHES BATCH_SIZE $B_SIZE]" PARAMS 6 BLOB "\x12\xa9\xf5\x6c" K 10 B_SIZE 50 DIALECT 2
 ```
+
 Run the same query as above and use the query attributes syntax to specify optional parameters:
+
 ```
 FT.SEARCH idx "(@type:{shirt})=>[KNN 10 @vec $BLOB]=>{$HYBRID_POLICY: BATCHES; $BATCH_SIZE: 50}" PARAMS 2 BLOB "\x12\xa9\xf5\x6c" DIALECT 2
 ```

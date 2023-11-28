@@ -42,13 +42,13 @@ def testMultiTagBool(env):
     waitForIndex(env, 'idx_single')
 
     # FIXME:
-    # res = env.execute_command('FT.SEARCH', 'idx_multi', '@bar:{true}', 'NOCONTENT')
-    # env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:1']))
-    # res = env.execute_command('FT.SEARCH', 'idx_multi', '@bar:{false}', 'NOCONTENT')
-    # env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:3', 'doc:1']))
+    # res = env.cmd('FT.SEARCH', 'idx_multi', '@bar:{true}', 'NOCONTENT')
+    # env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:1']))
+    # res = env.cmd('FT.SEARCH', 'idx_multi', '@bar:{false}', 'NOCONTENT')
+    # env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:3', 'doc:1']))
 
-    res = env.execute_command('FT.SEARCH', 'idx_single', '@bar:{true}', 'NOCONTENT')
-    env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:1']))
+    res = env.cmd('FT.SEARCH', 'idx_single', '@bar:{true}', 'NOCONTENT')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:1']))
     env.expect('FT.SEARCH', 'idx_single', '@bar:{false}', 'NOCONTENT').equal([1, 'doc:3'])
 
 def testMultiTag(env):
@@ -61,11 +61,11 @@ def testMultiTag(env):
     conn.execute_command('JSON.SET', 'doc:4', '$', json.dumps(json.loads(doc4_content)['category']))
 
     # Index multi flat values
-    env.execute_command('FT.CREATE', 'idx_category_flat', 'ON', 'JSON', 'SCHEMA', '$.[*]', 'AS', 'category', 'TAG')
+    env.cmd('FT.CREATE', 'idx_category_flat', 'ON', 'JSON', 'SCHEMA', '$.[*]', 'AS', 'category', 'TAG')
     # Index an array
-    env.execute_command('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$', 'AS', 'category', 'TAG')
+    env.cmd('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$', 'AS', 'category', 'TAG')
     # Index both multi flat values and an array
-    env.execute_command('FT.CREATE', 'idx_category_arr_author_flat', 'ON', 'JSON', 'SCHEMA',
+    env.cmd('FT.CREATE', 'idx_category_arr_author_flat', 'ON', 'JSON', 'SCHEMA',
         '$.[*]', 'AS', 'author', 'TAG', # testing root path, so reuse the single top-level value
         '$', 'AS', 'category', 'TAG')
 
@@ -85,14 +85,14 @@ def testMultiTagNested(env):
     conn.execute_command('JSON.SET', 'doc:4', '$', doc4_content)
 
     # Index multi flat values
-    env.execute_command('FT.CREATE', 'idx_category_flat', 'ON', 'JSON', 'SCHEMA', '$.category[*]', 'AS', 'category', 'TAG')
-    env.execute_command('FT.CREATE', 'idx_author_flat', 'ON', 'JSON', 'SCHEMA', '$.books[*].authors[*]', 'AS', 'author', 'TAG')
+    env.cmd('FT.CREATE', 'idx_category_flat', 'ON', 'JSON', 'SCHEMA', '$.category[*]', 'AS', 'category', 'TAG')
+    env.cmd('FT.CREATE', 'idx_author_flat', 'ON', 'JSON', 'SCHEMA', '$.books[*].authors[*]', 'AS', 'author', 'TAG')
     # Index an array
-    env.execute_command('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TAG')
+    env.cmd('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TAG')
     # Index an array of arrays
-    env.execute_command('FT.CREATE', 'idx_author_arr', 'ON', 'JSON', 'SCHEMA', '$.books[*].authors', 'AS', 'author', 'TAG')
+    env.cmd('FT.CREATE', 'idx_author_arr', 'ON', 'JSON', 'SCHEMA', '$.books[*].authors', 'AS', 'author', 'TAG')
     # Index both multi flat values and an array
-    env.execute_command('FT.CREATE', 'idx_category_arr_author_flat', 'ON', 'JSON', 'SCHEMA',
+    env.cmd('FT.CREATE', 'idx_category_arr_author_flat', 'ON', 'JSON', 'SCHEMA',
         '$.books[*].authors[*]', 'AS', 'author', 'TAG',
         '$.category', 'AS', 'category', 'TAG')
 
@@ -105,16 +105,16 @@ def testMultiTagNested(env):
     searchMultiTagCategory(env)
     searchMultiTagAuthor(env)
 
-    env.execute_command('FT.CREATE', 'idx_book', 'ON', 'JSON', 'SCHEMA',
+    env.cmd('FT.CREATE', 'idx_book', 'ON', 'JSON', 'SCHEMA',
         '$.category', 'AS', 'category', 'TAG',
         '$.books[*].authors[*]', 'AS', 'author', 'TAG',
         '$.books[*].name', 'AS', 'name', 'TAG')
     waitForIndex(env, 'idx_book')
-    res = env.execute_command('FT.SEARCH', 'idx_book',
+    res = env.cmd('FT.SEARCH', 'idx_book',
         '(@name:{design*} -@category:{cloud}) | '
         '(@name:{Kubernetes*} @category:{cloud})',
         'NOCONTENT')
-    env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:3', 'doc:1']), message='idx_book')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:3', 'doc:1']), message='idx_book')
 
 def searchMultiTagCategory(env):
     """ helper function for searching multi-value attributes """
@@ -125,11 +125,11 @@ def searchMultiTagCategory(env):
         env.debugPrint(idx, force=TEST_DEBUG)
 
         # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)
-        res = env.execute_command('FT.SEARCH', idx, '@category:{database}', 'NOCONTENT')
-        env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:1', 'doc:2']), message="A " + idx)
+        res = env.cmd('FT.SEARCH', idx, '@category:{database}', 'NOCONTENT')
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:1', 'doc:2']), message="A " + idx)
 
-        res = env.execute_command('FT.SEARCH', idx, '@category:{performance}', 'NOCONTENT')
-        env.assertListEqual(toSortedFlatList(res), toSortedFlatList([1, 'doc:3']), message="B " + idx)
+        res = env.cmd('FT.SEARCH', idx, '@category:{performance}', 'NOCONTENT')
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, 'doc:3']), message="B " + idx)
 
         env.expect('FT.SEARCH', idx, '@category:{high\ performance}', 'NOCONTENT').equal([1, 'doc:2'])
         env.expect('FT.SEARCH', idx, '@category:{cloud}', 'NOCONTENT').equal([1, 'doc:3'])
@@ -144,12 +144,12 @@ def searchMultiTagAuthor(env):
         env.expect('FT.SEARCH', idx, '@author:{Donald\ Knuth}', 'NOCONTENT').equal([1, 'doc:1'])
 
         # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)
-        res = env.execute_command('FT.SEARCH', idx, '@author:{Brendan*}', 'NOCONTENT')
-        env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:3']))
+        res = env.cmd('FT.SEARCH', idx, '@author:{Brendan*}', 'NOCONTENT')
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:3']))
 
-        res = env.execute_command('FT.SEARCH', idx, '@author:{Redis*}', 'NOCONTENT')
+        res = env.cmd('FT.SEARCH', idx, '@author:{Redis*}', 'NOCONTENT')
         # Notice doc:4 is not in result (path `$.books[*].authors[*]` does not match a scalar string in `authors`)
-        env.assertListEqual(toSortedFlatList(res), toSortedFlatList([3, 'doc:1', 'doc:2', 'doc:3']))
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([3, 'doc:1', 'doc:2', 'doc:3']))
 
     env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:{programming}', 'NOCONTENT').equal([1, 'doc:1'])
 
@@ -171,7 +171,7 @@ def testMultiNonText(env):
     for (i,v) in enumerate(non_text_dict.values()):
         doc = 'doc:{}:'.format(i+1)
         idx = 'idx{}'.format(i+1)
-        env.execute_command('FT.CREATE', idx, 'ON', 'JSON', 'PREFIX', '1', doc, 'SCHEMA', '$', 'AS', 'root', 'TAG')
+        env.cmd('FT.CREATE', idx, 'ON', 'JSON', 'PREFIX', '1', doc, 'SCHEMA', '$', 'AS', 'root', 'TAG')
         waitForIndex(env, idx)
         conn.execute_command('JSON.SET', doc, '$', json.dumps(v))
         res_failures = 0 if i+1 <= 5 else 1
@@ -195,7 +195,7 @@ def testMultiNonTextNested(env):
     # Create indices, e.g.,
     #   FT.CREATE idx1 ON JSON SCHEMA $.attr1 AS attr TEXT
     for (i,v) in enumerate(non_text_dict.values()):
-        env.execute_command('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'TAG')
+        env.cmd('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'TAG')
     conn.execute_command('JSON.SET', 'doc:1', '$', doc_non_text_content)
 
     # First 5 indices are OK (nulls are skipped)
