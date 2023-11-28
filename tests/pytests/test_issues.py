@@ -968,3 +968,16 @@ def test_mod_6557(env: Env):
   ).ok()
   # Verify that `FT.SEARCH` queries are not hanging and return an error
   env.expect('FT.SEARCH', 'idx', '*').error().contains('Could not send query to cluster')
+
+def test_mod6186(env):
+  env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
+  env.expect('FT.EXPLAIN idx abc*').equal('PREFIX{abc*}\n')
+  env.expect('FT.EXPLAIN idx *abc').equal('SUFFIX{*abc}\n')
+  env.expect('FT.EXPLAIN idx *abc*').equal('INFIX{*abc*}\n')
+
+  if not env.isCluster():
+    # FT.EXPLAINCLI is not supported by the coordinator
+    env.expect('FT.EXPLAINCLI idx abc*').equal(['PREFIX{abc*}', ''])
+    env.expect('FT.EXPLAINCLI idx *abc').equal(['SUFFIX{*abc}', ''])
+    env.expect('FT.EXPLAINCLI idx *abc*').equal(['INFIX{*abc*}', ''])
+
