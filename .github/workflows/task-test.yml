@@ -69,14 +69,14 @@ jobs:
         run: ./sbin/setup
 
       - name: Get Redis
-        if: inputs.get-redis
+        if: inputs.get-redis != 'skip getting redis'
         uses: actions/checkout@v3
         with:
           repository: redis/redis
           ref: ${{ inputs.get-redis }}
           path: redis
       - name: Build Redis
-        if: inputs.get-redis
+        if: inputs.get-redis != 'skip getting redis'
         working-directory: redis
         run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes
 
