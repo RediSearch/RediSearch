@@ -6,8 +6,8 @@ from common import *
 from time import sleep
 from RLTest import Env
 
+@skip(cluster=True)
 def testProfileSearch(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
@@ -104,8 +104,8 @@ def testProfileSearch(env):
                                         ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
+@skip(cluster=True)
 def testProfileSearchLimited(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
@@ -121,8 +121,8 @@ def testProfileSearchLimited(env):
                   ['Type', 'UNION', 'Query type', 'PREFIX - hel', 'Counter', 3, 'Child iterators', 'The number of iterators in the union is 4']]]
   env.assertEqual(actual_res[1][3], expected_res)
 
+@skip(cluster=True)
 def testProfileAggregate(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
@@ -174,8 +174,8 @@ def testProfileErrors(env):
   if not env.isCluster():
     env.expect('ft.profile', 'idx', 'SEARCH', 'FIND', '*').error().contains('The QUERY keyword is expected')
 
+@skip(cluster=True)
 def testProfileNumeric(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
@@ -195,8 +195,8 @@ def testProfileNumeric(env):
 
   env.assertEqual(actual_res[1][3], expected_res)
 
+@skip(cluster=True)
 def testProfileTag(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
@@ -209,8 +209,8 @@ def testProfileTag(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@t:{foo}', 'nocontent')
   env.assertEqual(actual_res[1][3], ['Iterators profile', ['Type', 'TAG', 'Term', 'foo', 'Counter', 2, 'Size', 2]])
 
+@skip(cluster=True)
 def testProfileVector(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
   env.cmd('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', '2')
@@ -323,9 +323,8 @@ def testProfileVector(env):
   env.assertEqual(actual_res[1][3], expected_iterators_res)
   env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES_TO_ADHOC_BF')
 
-
+@skip(cluster=True)
 def testResultProcessorCounter(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
@@ -340,8 +339,8 @@ def testResultProcessorCounter(env):
             ['Type', 'Counter', 'Counter', 1]]
   env.assertEqual(actual_res[1][4], res)
 
+@skip(cluster=True)
 def testProfileMaxPrefixExpansion(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 2)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
@@ -356,8 +355,8 @@ def testProfileMaxPrefixExpansion(env):
 
   env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 200)
 
+@skip(cluster=True)
 def testNotIterator(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 2)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')

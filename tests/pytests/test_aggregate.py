@@ -882,8 +882,8 @@ def testMaxAggResults(env):
     env.expect('ft.aggregate', 'idx', '*', 'LIMIT', '0', '10000').error()   \
        .contains('LIMIT exceeds maximum of 100')
 
+@skip(cluster=True)
 def testMaxAggInf(env):
-    env.skipOnCluster()
     env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
     env.expect('ft.config', 'get', 'MAXAGGREGATERESULTS').equal([['MAXAGGREGATERESULTS', 'unlimited']])
 
@@ -959,10 +959,10 @@ def testAggregateGroup0Field(env):
                   'REDUCE', 'QUANTILE', '2', 'num', '0.5', 'AS', 'q50')
     env.assertEqual(res, [1, ['q50', '758000']])
 
+@skip()
 def testResultCounter(env):
     # Issue 436
     # https://github.com/RediSearch/RediSearch/issues/436
-    env.skip()
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
     conn.execute_command('HSET', 'doc1', 't1', 'hello')
@@ -1005,6 +1005,7 @@ def aggregate_test(protocol=2):
         raise unittest.SkipTest("Unsupported protocol")
 
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL', protocol=protocol)
+    conn = getConnectionByEnv(env)
 
     populate_db(env)
 

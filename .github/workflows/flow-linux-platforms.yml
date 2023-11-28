@@ -23,7 +23,6 @@ on:
         default: true
       redis-ref:
         type: string
-        default: ${{ vars.DEFAULT_REDIS_REF }}
   workflow_dispatch:
     inputs:
       platform:
@@ -38,6 +37,7 @@ on:
           - rockylinux:9
           - debian:bullseye
           - amazonlinux:2
+          - mariner:2
         description: 'Platform to build on. Use "all" to build on all'
         default: all
       architecture:
@@ -56,6 +56,12 @@ on:
         description: 'Whether to run standalone tests'
         type: boolean
         default: true
+      test-config:
+        description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
+        type: string
+      redis-ref:
+        description: 'Redis version to use (e.g. "7.2.3", "unstable"). Defaults to "unstable"'
+        type: string
 
 jobs:
   get-required-envs:
@@ -75,7 +81,7 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
-      get-redis: ${{ inputs.redis-ref || vars.DEFAULT_REDIS_REF }}
+      get-redis: ${{ inputs.redis-ref }}
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
       coordinator: ${{ inputs.coordinator }}
@@ -94,7 +100,7 @@ jobs:
     secrets: inherit
     with:
       test: true
-      get-redis: ${{ inputs.redis-ref || vars.DEFAULT_REDIS_REF }}
+      get-redis: ${{ inputs.redis-ref }}
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
       coordinator: ${{ inputs.coordinator }}

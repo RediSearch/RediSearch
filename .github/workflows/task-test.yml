@@ -14,7 +14,6 @@ on:
         type: string
       get-redis:
         type: string
-        default: ${{ vars.DEFAULT_REDIS_REF }}
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
@@ -52,8 +51,11 @@ jobs:
       - name: Deps checkout
         uses: actions/checkout@v3
         with:
-            sparse-checkout: .install
-            path: setup
+          path: setup
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .install
+            tests/pytests/requirements.*
       - name: Setup
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
@@ -63,17 +65,18 @@ jobs:
           submodules: recursive
 
       - name: Setup (readies)
+        if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0'
         run: ./sbin/setup
 
       - name: Get Redis
-        if: inputs.get-redis
+        if: inputs.get-redis != 'skip getting redis'
         uses: actions/checkout@v3
         with:
           repository: redis/redis
           ref: ${{ inputs.get-redis }}
           path: redis
       - name: Build Redis
-        if: inputs.get-redis
+        if: inputs.get-redis != 'skip getting redis'
         working-directory: redis
         run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes
 
