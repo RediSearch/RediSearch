@@ -1701,7 +1701,13 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       return s;
 
     case QN_PREFIX:
-      s = sdscatprintf(s, "PREFIX{%s*", (char *)qs->pfx.tok.str);
+      if(qs->pfx.prefix && qs->pfx.suffix) {
+        s = sdscatprintf(s, "INFIX{*%s*", (char *)qs->pfx.tok.str);
+      } else if (qs->pfx.suffix) {
+        s = sdscatprintf(s, "SUFFIX{*%s", (char *)qs->pfx.tok.str);
+      } else {
+        s = sdscatprintf(s, "PREFIX{%s*", (char *)qs->pfx.tok.str);
+      }
       break;
 
     case QN_LEXRANGE:

@@ -921,3 +921,16 @@ def test_mod5910(env):
     env.assertEqual(iterators_profile[1][1], 'INTERSECT')
     env.assertEqual(iterators_profile[1][7][1], 'NUMERIC')
     env.assertEqual(iterators_profile[1][8][1], 'UNION')
+
+def test_mod6186(env):
+  env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
+  env.expect('FT.EXPLAIN idx abc*').equal('PREFIX{abc*}\n')
+  env.expect('FT.EXPLAIN idx *abc').equal('SUFFIX{*abc}\n')
+  env.expect('FT.EXPLAIN idx *abc*').equal('INFIX{*abc*}\n')
+
+  if not env.isCluster():
+    # FT.EXPLAINCLI is not supported by the coordinator
+    env.expect('FT.EXPLAINCLI idx abc*').equal(['PREFIX{abc*}', ''])
+    env.expect('FT.EXPLAINCLI idx *abc').equal(['SUFFIX{*abc}', ''])
+    env.expect('FT.EXPLAINCLI idx *abc*').equal(['INFIX{*abc*}', ''])
+
