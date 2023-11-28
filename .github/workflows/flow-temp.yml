@@ -18,10 +18,4 @@ jobs:
     with:
       platform: ubuntu:xenial
       architecture: x86_64
-
-  test-mariner-artifact:
-    uses: ./.github/workflows/flow-build-artifacts.yml
-    secrets: inherit
-    with:
-      platform: ubuntu:xenial
-      architecture: x86_64
+      redis-ref: '6.2.14'
