@@ -9,13 +9,20 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  test-mariner:
+  test-rocky-9:
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
-      platform: ubuntu:xenial
+      platform: rockylinux:9
       architecture: x86_64
       redis-ref: '6.2.14'
+
+  build-rocky-9:
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    secrets: inherit
+    with:
+      platform: rockylinux:9
+      architecture: x86_64
