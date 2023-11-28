@@ -1,0 +1,11 @@
+name: Take the Shift
+
+on: workflow_dispatch
+
+jobs:
+  take:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - run: gh variable set ISSUES_SHIFT_ASSIGNEE -R ${{ github.repository }} -b ${{ github.actor }}
