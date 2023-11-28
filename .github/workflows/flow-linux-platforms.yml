@@ -56,6 +56,12 @@ on:
         description: 'Whether to run standalone tests'
         type: boolean
         default: true
+      test-config:
+        description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
+        type: string
+      redis-ref:
+        description: 'Redis version to use (e.g. "7.2.3", "unstable"). Defaults to "unstable"'
+        type: string
 
 jobs:
   get-required-envs:
