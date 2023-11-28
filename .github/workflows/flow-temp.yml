@@ -9,9 +9,19 @@ name: temporary testing
 
 on:
   push:
-    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  test-assign:
-    uses: ./.github/workflows/task-take-shift.yml
+  test-mariner:
+    uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
+    with:
+      platform: mariner:2
+      architecture: x86_64
+
+  test-mariner-artifact:
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    secrets: inherit
+    with:
+      platform: mariner:2
+      architecture: x86_64
