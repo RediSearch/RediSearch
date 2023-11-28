@@ -40,7 +40,7 @@ The fastest way to get up and running with RediSearch is by using the [Redis Sta
 
 ## Trying RediSearch
 
-To dtry RediSearch, either use the RediSearch Docker image, or [create a free Redis Cloud Essentials account](https://redis.com/try-free/?utm_source=redisio&utm_medium=referral&utm_campaign=2023-09-try_free&utm_content=cu-redis_cloud_users) to get a RediSearch instance in the cloud.
+To try RediSearch, either use the RediSearch Docker image or [create a free Redis Cloud Essentials account](https://redis.com/try-free/?utm_source=redisio&utm_medium=referral&utm_campaign=2023-09-try_free&utm_content=cu-redis_cloud_users) to get a RediSearch instance in the cloud.
 
 ### Docker image
 
@@ -152,11 +152,11 @@ If you have a more detailed question, drop us a line on the [RediSearch Discussi
 
 ## RediSearch features
 
-* Full-Text indexing of multiple fields in Redis hashes
+* Full-text indexing of multiple fields in Redis hashes
 * Incremental indexing without performance loss
 * Document ranking (using [tf-idf](https://en.wikipedia.org/wiki/Tf%E2%80%93idf), with optional user-provided weights)
 * Field weighting
-* Complex boolean queries with AND, OR, and NOT operators
+* Complex Boolean queries with AND, OR, and NOT operators
 * Prefix matching, fuzzy matching, and exact-phrase queries
 * Support for [double-metaphone phonetic matching](https://redis.io/docs/interact/search-and-query/advanced-concepts/phonetic_matching/)
 * Auto-complete suggestions (with fuzzy prefix suggestions)
