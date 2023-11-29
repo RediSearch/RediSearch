@@ -46,8 +46,10 @@ OS=$($READIES/bin/platform --os)
 [[ $OSNICK == jammy ]]   && OSNICK=ubuntu22.04
 [[ $OSNICK == centos7 ]] && OSNICK=rhel7
 [[ $OSNICK == centos8 ]] && OSNICK=rhel8
+[[ $OSNICK == centos9 ]] && OSNICK=rhel9
 [[ $OSNICK == ol8 ]]     && OSNICK=rhel8
 [[ $OSNICK == rocky8 ]]  && OSNICK=rhel8
+[[ $OSNICK == rocky9 ]]  && OSNICK=rhel9
 
 if [[ $OS == macos ]]; then
 	# as we don't build on macOS for every platform, we converge to a least common denominator
@@ -72,8 +74,9 @@ else
 fi
 
 if [[ $FORCE != 1 ]]; then
-	if [[ -z $CIRCLECI ]]; then
-		eprint "Cannot upload outside of CircleCI. Override with FORCE=1."
+	# TODO: remove circle
+	if [[ -z $GITHUB_ACTIONS && -z $CIRCLECI ]]; then
+		eprint "Cannot upload outside of GitHub Actions. Override with FORCE=1."
 		exit 1
 	fi
 
@@ -100,15 +103,17 @@ s3_upload_file() {
 	local file="$1"
 	local s3_dir="$2"
 	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
-	
+
 	$OP aws s3 cp $file $s3_dir --acl public-read --no-progress
 }
 
 s3_ls() {
 	local s3_dir="$1"
 	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
-	
+
+	[[ -n $GITHUB_ACTIONS ]] && echo "::group::S3 ls $s3_dir"
 	$OP aws s3 ls $s3_dir
+	[[ -n $GITHUB_ACTIONS ]] && echo "::endgroup::"
 }
 
 s3_upload() {
@@ -126,7 +131,7 @@ s3_upload() {
 		done
 	fi
 	[[ $VERBOSE == 1 ]] && s3_ls $upload_dir
-	
+
 	return 0
 }
 

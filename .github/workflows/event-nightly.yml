@@ -1,0 +1,48 @@
+name: Nightly Flow
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  schedule: # Will only run on the default branch (master)
+    - cron: "20 20 * * *"
+
+# TODO: Use RedisJSON's `master` branch when testing on nightly
+
+jobs:
+  deploy-snapshot:
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: [ "master", "2.6", "2.8", "2.10" ]
+        include:
+          - branch: "2.6"
+            redis-ref: '6.2.14' # 2.6 doesn't support Redis 7
+    secrets: inherit
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    with:
+      reference: ${{ matrix.branch }}
+      redis-reference: ${{ matrix.redis-ref }}
+
+  test-linux:
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      redis-ref: unstable
+      test-config: QUICK=1
+
+  test-macos:
+    uses: ./.github/workflows/flow-macos.yml
+    secrets: inherit
+    with:
+      redis-ref: unstable
+      test-config: QUICK=1
+
+  coverage:
+    uses: ./.github/workflows/flow-coverage.yml
+    secrets: inherit
+
+  sanitize:
+    uses: ./.github/workflows/flow-sanitizer.yml
+    secrets: inherit
+    with:
+      flow-config: QUICK=1

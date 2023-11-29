@@ -1,10 +1,8 @@
 from common import *
 
-
+@skip(cluster=True)
 def testExpireIndex(env):
     # temporary indexes
-    if env.isCluster():
-        env.skip()
     env.cmd('ft.create', 'idx', 'TEMPORARY', '4', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
     ttl = env.cmd('ft.debug', 'TTL', 'idx')
     env.assertTrue(ttl > 2)
@@ -37,8 +35,8 @@ def testExpireIndex(env):
     except Exception as e:
         env.assertEqual(str(e), 'Unknown index name')
 
+@skip(cluster=True)
 def testExpireDocs(env):
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
 

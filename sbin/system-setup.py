@@ -39,12 +39,22 @@ class RediSearchSetup(paella.Setup):
                 self.install("libffi-dev")
 
     def redhat_compat(self):
-        self.install("redhat-lsb-core")
+        if self.dist == "centos" and self.os_version[0] < 9:
+            self.install("redhat-lsb-core")
+
         self.install("which")
-        self.run(f"{READIES}/bin/getepel", sudo=True)
+        self.run(f"{READIES}/bin/getepel")
         self.install("libatomic")
 
-        self.run(f"{READIES}/bin/getgcc --modern")
+        if self.dist == "centos" and self.os_version[0] == 7:
+            self.run(f"{READIES}/bin/getgcc --modern --update-libstdc++")
+        elif self.dist == "centos" and self.os_version[0] == 9:
+            # avoid gcc 12 for the time being
+            self.run(f"{READIES}/bin/getgcc")
+        else:
+            self.run(f"{READIES}/bin/getgcc --modern")
+        self.install("libstdc++-static")
+
         self.install("libtool m4 automake openssl-devel")
         self.install("python3-devel")
 
@@ -72,7 +82,7 @@ class RediSearchSetup(paella.Setup):
 
     def common_last(self):
         self.run(f"{self.python} {READIES}/bin/getcmake --usr", sudo=self.os != 'macos')
-        self.run(f"{self.python} {READIES}/bin/getrmpytools --reinstall --modern --redispy-version pypi:5.0.0b4")
+        self.run(f"{self.python} {READIES}/bin/getrmpytools --reinstall --modern")
         if self.dist != "arch":
             self.install("lcov")
         else:

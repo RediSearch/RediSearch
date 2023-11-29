@@ -13,6 +13,7 @@ except:
     pass
 
 UNSTABLE = os.getenv('UNSTABLE', '0') == '1'
+COORD = os.getenv('COORD', '0')
 SANITIZER = os.getenv('SANITIZER', '')
 VALGRIND = os.getenv('VALGRIND', '0') == '1'
 CODE_COVERAGE = os.getenv('CODE_COVERAGE', '0') == '1'

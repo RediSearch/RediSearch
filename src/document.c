@@ -664,7 +664,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     case FLD_VAR_T_NUM:
       RS_LOG_ASSERT(0, "Oops");
   }
-  
+
   const char *str = NULL;
   fdata->isMulti = 0;
   if (str_count == 1) {
