@@ -56,7 +56,7 @@ jobs:
         working-directory: redis
         run: make install
       - name: Build RediSearch
-        run: make conan build
+        run: make build
             COORD=${{ inputs.cluster_env }}
             PROFILE=${{ inputs.profile_env }}
             REDISEARCH_MT_BUILD=0
