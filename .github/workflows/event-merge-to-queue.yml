@@ -15,87 +15,69 @@ concurrency:
 # TODO: Use RedisJSON's `${{ vars.DEFAULT_REDISJSON_REF }}` branch when testing on nightly
 
 jobs:
-  print-configurations:
-    runs-on: ubuntu-latest
-    outputs:
-      test-configurations: ${{ steps.print-configurations.outputs.configurations }}
-      include-configurations: ${{ steps.print-configurations.outputs.includes }}
-    steps:
-      - name: Print Configurations
-        id: print-configurations
-        shell: python
-        run: |
-          import os
-          # All configurations (by default runs both standalone and coordinator)
-          configurations = [''] # Run all configurations serially
-          # TODO: use matrix to run configurations in parallel once we have enough runners
-          # configurations = [
-          #   'max_unsorted',
-          #   'union_iterator_heap',
-          #   'raw_docid',
-          #   'dialect_2',
-          #   'global_password',
-          #   'tls',
-          # ]
-          # Spacial configurations
-          includes = [
-          #   {'test-config': 'global_password', 'standalone': 'false'},
-          #   {'test-config': 'tls',             'standalone': 'false'},
-          ]
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
-            print(f'configurations={configurations}', file=fh)
-            print(f'includes={includes}', file=fh)
-
+  # Get all the tags from the redis repo
   get-latest-redis-tag:
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
       repo: redis/redis
-      prefix: 6 # Only tags starting with 6.x.x will be considered.
+  get-latest-7-0-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: 7.0
+  get-latest-6-2-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: 6.2
+  get-latest-6-0-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: 6.0
 
   docs-only: # Check whether the PR is only modifying docs
     uses: ./.github/workflows/task-check-docs.yml
 
-  test-linux:
-    needs: [print-configurations, docs-only, get-latest-redis-tag]
+  test-linux-x86_64:
+    needs: [docs-only, get-latest-redis-tag, get-latest-7-0-redis-tag, get-latest-6-2-redis-tag, get-latest-6-0-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     strategy:
       matrix:
-        test-config: # configurations for both standalone and coordinator
-          ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
-        include: # spacial configurations
-          ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
+        redis-ref:
+          - ${{ needs.get-latest-redis-tag.outputs.tag }}
+          - ${{ needs.get-latest-7-0-redis-tag.outputs.tag }}
+          - ${{ needs.get-latest-6-2-redis-tag.outputs.tag }}
+          - ${{ needs.get-latest-6-0-redis-tag.outputs.tag }}
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ matrix.redis-ref }}
+      architecture: x86_64
 
+  test-linux-aarch64:
+    needs: [docs-only, get-latest-redis-tag]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      test-config: CONFIG=${{ matrix.test-config }}
-      standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
-      coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
+      test-config: QUICK=1
+      architecture: aarch64
 
   test-macos:
-    needs: [print-configurations, docs-only, get-latest-redis-tag]
+    needs: [docs-only, get-latest-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     strategy:
-      fail-fast: false
       matrix:
-        dividor: [true, false]
-        # configurations for both standalone and coordinator
-        test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
-        # spacial configurations
-        include: ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
-
+        mode: [standalone, coordinator]
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      test-config: CONFIG=${{ matrix.test-config }}
-      # Set the default value to `true` if value is absent
-      # Using the dividor, only one of the two will be true, and we split the run into two jobs.
-      # If the configuration was ment to only one of the modes, we will get for example: (true, false), (false, false)
-      # and if both modes are false, the job will be skipped (see task-test.yml)
-      standalone:  ${{ matrix.standalone  != 'false' &&  matrix.dividor }}
-      coordinator: ${{ matrix.coordinator != 'false' && !matrix.dividor }}
+      test-config: QUICK=1
+      standalone:  ${{ matrix.mode == 'standalone'  }}
+      coordinator: ${{ matrix.mode == 'coordinator' }}
 
   coverage:
     needs: docs-only
@@ -112,7 +94,7 @@ jobs:
       flow-config: '' # full sanitization
 
   pr-validation:
-    needs: [test-linux, test-macos, coverage, sanitize]
+    needs: [test-linux-x86_64, test-linux-aarch64, test-macos, coverage, sanitize]
     runs-on: ubuntu-latest
     if: ${{ !cancelled() }}
     steps:
