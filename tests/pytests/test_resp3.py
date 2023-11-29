@@ -164,11 +164,9 @@ def test_search_timeout():
       p.execute_command('HSET', f'doc{i}', 't', f'{i}', 'geo', f"{i/10000},{i/1000}")
     p.execute()
 
-    err = conn.execute_command('ft.search', 'myIdx', '*', 'limit', '0', str(num_range_2), 'timeout', '1')['error']
-    env.assertEqual(len(err), 1)
-    # TODO: Add this when the error type is fixed (MOD-5965)
-    # env.assertEquals(type(err[0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(err[0]))
+    env.expect(
+      'FT.SEARCH', 'myIdx', '*', 'LIMIT', '0', str(num_range_2), 'TIMEOUT', '1'
+    ).error().contains('Timeout limit was reached')
 
 @skip(cluster=True)
 def test_profile(env):
@@ -735,36 +733,26 @@ def testExpandErrorsResp3():
   env.cmd('ft.create', 'idx2', 'on', 'hash', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric')
   env.expect('FT.SEARCH', 'idx2', '*', 'FORMAT', 'EXPAND').error().contains('EXPAND format is only supported with JSON')
   
-  if not env.isCluster():
-    env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
-  else:
-    err = env.cmd('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND')['error']
-    env.assertEqual(type(err[0]), ResponseError)
-    env.assertContains('EXPAND format is only supported with JSON', str(err[0]))
+  env.expect(
+    'FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND'
+  ).error().contains('EXPAND format is only supported with JSON')
 
 def testExpandErrorsResp2():
   env = Env(protocol=2)
   env.cmd('ft.create', 'idx', 'on', 'json', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric')
   env.expect('FT.SEARCH', 'idx', '*', 'FORMAT', 'EXPAND').error().contains('EXPAND format is only supported with RESP3')
   
-  if not env.isCluster():
-    env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').error()
-  else:
-    err = env.cmd('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND')[1]
-    env.assertEqual(type(err[0]), ResponseError)
-    env.assertContains('EXPAND format is only supported with RESP3', str(err[0]))
-
+  env.expect(
+    'FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND'
+  ).error().contains('EXPAND format is only supported with RESP3')
 
   # On HASH
   env.cmd('ft.create', 'idx2', 'on', 'hash', 'SCHEMA', 'num', 'numeric', 'str', 'text')
   env.expect('FT.SEARCH', 'idx2', '*', 'FORMAT', 'EXPAND').error().contains('EXPAND format is only supported with RESP3')
   
-  if not env.isCluster():
-    env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
-  else:
-    err = env.cmd('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND')[1]
-    env.assertEqual(type(err[0]), ResponseError)
-    env.assertContains('EXPAND format is only supported with RESP3', str(err[0]))
+  env.expect(
+    'FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND'
+  ).error().contains('EXPAND format is only supported with RESP3')
 
 def testExpandJson():
   ''' Test returning values for JSON in expanded format (raw RESP3 instead of stringified JSON) '''
