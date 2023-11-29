@@ -13,10 +13,10 @@ on:
           - ubuntu:xenial
           - centos:7
           - rockylinux:8
-          - rockylinux:9
+          # - rockylinux:9
           - debian:bullseye
           - amazonlinux:2
-          - mariner:2
+          # - mariner:2
           - macos
         description: 'Platform to build on. Use "all" to build on all'
         default: all
