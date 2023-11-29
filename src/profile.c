@@ -99,7 +99,7 @@ static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int 
   return _recursiveProfilePrint(reply, rp, printProfileClock);
 }
 
-int Profile_Print(RedisModule_Reply *reply, AREQ *req) {
+void Profile_Print(RedisModule_Reply *reply, AREQ *req) {
   bool has_map = RedisModule_HasMap(reply);
 
   //-------------------------------------------------------------------------------------------
@@ -195,7 +195,4 @@ int Profile_Print(RedisModule_Reply *reply, AREQ *req) {
 
     RedisModule_Reply_ArrayEnd(reply);
   }
-  //-------------------------------------------------------------------------------------------
-
-  return REDISMODULE_OK;
 }
