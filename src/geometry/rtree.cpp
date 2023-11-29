@@ -16,7 +16,7 @@ namespace GeoShape {
 
 namespace {
 template <typename cs, typename rect_type = RTree<cs>::rect_type>
-constexpr auto make_mbr = [](auto&& geom) -> rect_type {
+constexpr auto make_mbr = [](auto const& geom) -> rect_type {
   using point_type = typename RTree<cs>::point_type;
   if constexpr (std::is_same_v<point_type, std::decay_t<decltype(geom)>>) {
     constexpr auto EPSILON = 1e-10;
@@ -52,7 +52,7 @@ auto to_string(T const& t) -> string {
 }
 template <typename cs, typename geom_type = RTree<cs>::geom_type>
 auto geometry_to_string(geom_type const& geom) -> string {
-  return std::visit([](auto&& geom) -> string { return to_string(bg::wkt(geom)); }, geom);
+  return std::visit([](auto const& geom) -> string { return to_string(bg::wkt(geom)); }, geom);
 }
 template <typename cs, typename doc_type = RTree<cs>::doc_type>
 auto doc_to_string(doc_type const& doc) -> string {
@@ -72,7 +72,7 @@ auto from_wkt(std::string_view wkt) -> geom_type {
     throw std::runtime_error{"unknown geometry type"};
   }
   std::visit(
-      [](auto&& geom) -> void {
+      [](auto& geom) -> void {
         if (bg::is_empty(geom)) {
           throw std::runtime_error{"attempting to create empty geometry"};
         }
@@ -88,13 +88,13 @@ auto from_wkt(std::string_view wkt) -> geom_type {
 template <typename cs, typename query_results = RTree<cs>::query_results>
 auto generate_query_iterator(query_results&& results, std::size_t& alloc) -> IndexIterator* {
   auto geometry_query_iterator = new (alloc) QueryIterator{
-      results | std::views::transform([](auto&& doc) -> t_docId { return get_id<cs>(doc); }),
+      results | std::views::transform([](auto const& doc) -> t_docId { return get_id<cs>(doc); }),
       alloc};
   return geometry_query_iterator->base();
 }
 
 template <typename cs>
-constexpr auto geometry_reporter = [](auto&& geom) -> std::size_t {
+constexpr auto geometry_reporter = [](auto const& geom) -> std::size_t {
   using point_type = typename RTree<cs>::point_type;
   if constexpr (std::is_same_v<point_type, std::decay_t<decltype(geom)>>) {
     return 0ul;
@@ -102,14 +102,14 @@ constexpr auto geometry_reporter = [](auto&& geom) -> std::size_t {
     auto const& inners = geom.inners();
     auto outer_size = geom.outer().get_allocator().report();
     return std::accumulate(inners.begin(), inners.end(), outer_size,
-                           [](std::size_t acc, auto&& hole) -> std::size_t {
+                           [](std::size_t acc, auto const& hole) -> std::size_t {
                              return acc + hole.get_allocator().report();
                            });
   }
 };
 
 template <typename cs>
-constexpr auto within_filter = [](auto&& geom1, auto&& geom2) -> bool {
+constexpr auto within_filter = [](auto const& geom1, auto const& geom2) -> bool {
   using point_type = typename RTree<cs>::point_type;
   if constexpr (std::is_same_v<point_type, std::decay_t<decltype(geom2)>> &&
                 !std::is_same_v<point_type, std::decay_t<decltype(geom1)>>) {
@@ -120,7 +120,7 @@ constexpr auto within_filter = [](auto&& geom1, auto&& geom2) -> bool {
 };
 template <typename cs>
 constexpr auto intersects_filter =
-    [](auto&& geom1, auto&& geom2) -> bool { return bg::intersects(geom1, geom2); };
+    [](auto const& geom1, auto const& geom2) -> bool { return bg::intersects(geom1, geom2); };
 }  // anonymous namespace
 
 template <typename cs>

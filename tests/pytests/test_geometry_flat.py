@@ -77,7 +77,24 @@ def testSanitySearchJsonCombined(env):
   conn.execute_command('JSON.SET', 'p1', '$', '{"geom": "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))", "name": "Homer"}')
   conn.execute_command('JSON.SET', 'p2', '$', '{"geom": "POLYGON((1 1, 1 100, 90 90, 100 1, 1 1))", "name": "Bart"}')
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))', 'NOCONTENT', 'DIALECT', 2).equal([1, 'p1'])
+
+
+def testSanitySearchHashIntersectsDisjoint(env):
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT').ok()
   
+  wide = 'POLYGON((1 1, 1 200, 100 200, 100 1, 1 1))'
+  tall = 'POLYGON((1 1, 1 100, 200 100, 200 1, 1 1))'
+  conn.execute_command('HSET', 'wide', 'geom', wide)
+  conn.execute_command('HSET', 'tall', 'geom', tall)
+  query = 'POLYGON((0 101, 0 150, 150 150, 150 101, 0 101))'
+  env.expect('FT.SEARCH', 'idx', '@geom:[intersects $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal([1, 'wide', ['geom', wide]])
+  env.expect('FT.SEARCH', 'idx', '@geom:[disjoint $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal([1, 'tall', ['geom', tall]])
+  
+  query = 'POLYGON((101 101, 101 150, 150 150, 150 101, 101 101))'
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[disjoint $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [2, 'tall', 'wide'])
+
 
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
 @skip(asan=True)
