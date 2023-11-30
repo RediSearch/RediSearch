@@ -153,6 +153,7 @@ struct redisearch_thpool_t* redisearch_thpool_init(int num_threads) {
 
   /* Wait for threads to initialize */
   while (thpool_p->num_threads_alive != num_threads) {
+    usleep(1); // avoid busy loop, wait for a very small amount of time.
   }
 
   return thpool_p;
@@ -211,7 +212,7 @@ void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
   /* Poll remaining threads */
   while (thpool_p->num_threads_alive) {
     bsem_post_all(thpool_p->jobqueue.has_jobs);
-    sleep(1);
+    usleep(1);
   }
 
   /* Job queue cleanup */
