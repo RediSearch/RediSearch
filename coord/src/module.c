@@ -1059,16 +1059,6 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   specialCaseCtx* reduceSpecialCaseCtxSortBy = rCtx->reduceSpecialCaseCtxSortby;
   searchResult *res;
   if (resp3) {
-    MRReply *err = MRReply_MapElement(arr, "error");
-    RS_LOG_ASSERT(err && MRReply_Type(err) == MR_REPLY_ARRAY, "invalid error record");
-    if (MRReply_Length(err) > 0) {
-      // TODO: Probably only in later PR - Report only the error if the timeout
-      // policy is FAIL. Otherwise - return the results as well.
-      rCtx->errorOccured = true;
-      rCtx->lastError = arr;
-      return;
-    }
-
     MRReply *results = MRReply_MapElement(arr, "results");
     RS_LOG_ASSERT(results && MRReply_Type(results) == MR_REPLY_ARRAY, "invalid results record");
     size_t len = MRReply_Length(results);
@@ -1098,18 +1088,6 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
 
   } else {
     size_t len = MRReply_Length(arr);
-
-    // TODO: Remove len check once we regularize all error reports to be errors! (MOD-5965)
-    // Check for errors
-    int type = MRReply_Type(MRReply_ArrayElement(arr, 0));
-    if (type == MR_REPLY_ERROR
-        || (len == 1 && type == MR_REPLY_STATUS
-            && strcmp(MRReply_String(MRReply_ArrayElement(arr, 0), NULL), "Timeout limit was reached") == 0)) {
-      rCtx->errorOccured = true;
-      rCtx->lastError = arr;
-      // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
-      return;
-    }
 
     int step = rCtx->offsets.step;
     int scoreOffset = reduceSpecialCaseCtxKnn->knn.offset;
@@ -1198,14 +1176,8 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
 
   if (resp3) // RESP3
   {
-    MRReply *err = MRReply_MapElement(arr, "error");
-    RS_LOG_ASSERT(err && MRReply_Type(err) == MR_REPLY_ARRAY, "invalid error record");
-    if (MRReply_Length(err) > 0) {
-      rCtx->errorOccured = true;
-      rCtx->lastError = arr;
-      // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
-      return;
-    }
+    // TODO: If we want to propagate the error key-value of the resp3 response (and we do)
+    // we should do it here.
 
     MRReply *total_results = MRReply_MapElement(arr, "total_results");
     if (!total_results) {
@@ -1230,18 +1202,6 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
   else // RESP2
   {
     size_t len = MRReply_Length(arr);
-
-    // TODO: Check only error once we regularize all error reports! (MOD-5965)
-    // Check for errors
-    int type = MRReply_Type(MRReply_ArrayElement(arr, 0));
-    if (type == MR_REPLY_ERROR
-        || (len == 1 && type == MR_REPLY_STATUS
-            && strcmp(MRReply_String(MRReply_ArrayElement(arr, 0), NULL), "Timeout limit was reached") == 0)) {
-      rCtx->errorOccured = true;
-      rCtx->lastError = arr;
-      // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
-      return;
-    }
 
     // first element is the total count
     rCtx->totalReplies += MRReply_Integer(MRReply_ArrayElement(arr, 0));
@@ -1592,16 +1552,26 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     rm_free(rCtx.cachedResult);
   }
 
-  // If we didn't get any results and we got an error - return it.
-  // If some shards returned results and some errors - we prefer to show the results we got an not
-  // return an error. This might change in the future
-  if (rCtx.totalReplies == 0 && (rCtx.lastError != NULL || rCtx.errorOccured)) {
-    if (rCtx.lastError) {
-      MR_ReplyWithMRReply(reply, rCtx.lastError);
-    } else {
+  // If we got a timeout and we are on strict behavior - return an error
+  // Otherwise, we return the aggregated results
+  if (rCtx.lastError || rCtx.errorOccured) {
+    if (!rCtx.lastError) {
       RedisModule_Reply_Error(reply, "could not parse redisearch results");
+      goto cleanup;
+    } else {
+      // Get the type of the error
+      int type = MRReply_Type(rCtx.lastError);
+      RS_LOG_ASSERT(type == MR_REPLY_ERROR, "Unexpected error type");
+
+      // TODO: Replace second condition with a var instead of hard-coded string
+      char *errStr = MRReply_String(rCtx.lastError, NULL);
+      if (!errStr
+          || strcmp(errStr, "Timeout limit was reached")
+          || RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
+            MR_ReplyWithMRReply(reply, rCtx.lastError);
+            goto cleanup;
+      }
     }
-    goto cleanup;
   }
 
   if (!profile) {
