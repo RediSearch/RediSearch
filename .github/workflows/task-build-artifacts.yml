@@ -26,6 +26,7 @@ env:
 
 jobs:
   build:
+    name: Build ${{ inputs.container || inputs.env }}
     runs-on: ${{ inputs.env }}
     container: ${{ inputs.container || null }}
     defaults:
