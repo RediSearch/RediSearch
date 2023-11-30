@@ -376,9 +376,14 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
     // If an error was returned, propagate it
     if(MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
-      QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC,
-        MRReply_String(nc->current.root, NULL));
-      return RS_RESULT_ERROR;
+      char *strErr = MRReply_String(nc->current.root, NULL);
+      if (!strErr
+          || strcmp(strErr, "Timeout limit was reached")
+          || nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+        QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC,
+                            MRReply_String(nc->current.root, NULL));
+        return RS_RESULT_ERROR;
+      }
     }
 
     root = nc->current.root;
