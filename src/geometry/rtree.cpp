@@ -19,9 +19,11 @@ template <typename cs, typename rect_type = RTree<cs>::rect_type>
 constexpr auto make_mbr = [](auto const& geom) -> rect_type {
   using point_type = typename RTree<cs>::point_type;
   if constexpr (std::is_same_v<point_type, std::decay_t<decltype(geom)>>) {
-    constexpr auto EPSILON = 1e-10;
-    auto p1 = point_type{bg::get<0>(geom) - EPSILON, bg::get<1>(geom) - EPSILON};
-    auto p2 = point_type{bg::get<0>(geom) + EPSILON, bg::get<1>(geom) + EPSILON};
+    constexpr auto INF = std::numeric_limits<long double>::infinity();
+    const auto x = bg::get<0>(geom);
+    const auto y = bg::get<1>(geom);
+    const auto p1 = point_type{std::nexttoward(x, -INF), std::nexttoward(y, -INF)};
+    const auto p2 = point_type{std::nexttoward(x, +INF), std::nexttoward(y, +INF)};
     return rect_type{p1, p2};
   } else {
     return bg::return_envelope<rect_type>(geom);
