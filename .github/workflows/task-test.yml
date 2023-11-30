@@ -33,6 +33,7 @@ env:
 
 jobs:
   common-flow:
+    name: Test ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
     runs-on: ${{ inputs.env }}
     container: ${{ inputs.container || null }}
     # Nothing to do if both are `false`, skip
