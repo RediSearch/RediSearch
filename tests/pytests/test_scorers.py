@@ -1,6 +1,6 @@
 import math
 from includes import *
-from common import getConnectionByEnv, waitForIndex, server_version_at_least
+from common import getConnectionByEnv, waitForIndex, server_version_at_least, skip
 
 
 def testHammingScorer(env):

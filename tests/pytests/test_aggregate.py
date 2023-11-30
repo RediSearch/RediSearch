@@ -5,7 +5,7 @@ import os
 from RLTest import Env
 import unittest
 from includes import *
-from common import getConnectionByEnv, toSortedFlatList
+from common import getConnectionByEnv, toSortedFlatList, skip
 import numpy as np
 
 def to_dict(res):
