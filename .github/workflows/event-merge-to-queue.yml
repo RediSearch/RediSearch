@@ -25,17 +25,17 @@ jobs:
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
       repo: redis/redis
-      prefix: 7.0
+      prefix: '7.0'
   get-latest-6-2-redis-tag:
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
       repo: redis/redis
-      prefix: 6.2
+      prefix: '6.2'
   get-latest-6-0-redis-tag:
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
       repo: redis/redis
-      prefix: 6.0
+      prefix: '6.0'
 
   docs-only: # Check whether the PR is only modifying docs
     uses: ./.github/workflows/task-check-docs.yml
