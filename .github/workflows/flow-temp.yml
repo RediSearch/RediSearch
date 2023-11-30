@@ -12,19 +12,9 @@ on:
     branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  test:
-    strategy:
-      matrix:
-        ver: ['6', '7', '7.0']
-    uses: ./.github/workflows/task-get-latest-tag.yml
+  test-mariner:
+    uses: ./.github/workflows/flow-linux-platforms.yml
     with:
-      prefix: ${{ matrix.ver }}
-      repo: redis/redis
+      platform: mariner:2
+      architecture: x86_64
 
-  print:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - name: print
-        run: |
-          echo "latest tag: ${{ needs.test.outputs.tag }}"
