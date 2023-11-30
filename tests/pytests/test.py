@@ -3766,3 +3766,52 @@ def test_internal_commands(env):
         fail_eval_call(r, env, ['SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1', 'SHARD', '1', 'SLOTRANGE', '0', '16383', 'ADDR', 'password@127.0.0.1:22000', 'MASTER'])
         fail_eval_call(r, env, ['SEARCH.CLUSTERREFRESH'])
         fail_eval_call(r, env, ['SEARCH.CLUSTERINFO'])
+
+def test_timeout_non_strict_policy(env):
+    """Tests that we get the wanted behavior for the non-strict timeout policy.
+    `ON_TIMEOUT RETURN` - return partial results.
+    """
+
+    conn = getConnectionByEnv(env)
+
+    # Create an index, and populate it
+    n = 20000
+    populate_db(env, n)
+
+    # Query the index with a small timeout, and verify that we get partial results
+    num_docs = n * env.shardsCount
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+        )
+    print(len(res), num_docs, env.shardsCount)
+    env.assertTrue(len(res) < num_docs * 2 and len(res) > 0)
+
+    # Same for `FT.AGGREGATE`
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
+        )
+    print(len(res), num_docs, env.shardsCount)
+    env.assertTrue(len(res) < num_docs + 1 and len(res) > 0)
+
+def test_timeout_strict_policy():
+    """Tests that we get the wanted behavior for the strict timeout policy.
+    `ON_TIMEOUT FAIL` - return an error upon experiencing a timeout, without the
+    partial results.
+    """
+
+    env = Env(moduleArgs='ON_TIMEOUT FAIL')
+
+    # Create an index, and populate it
+    n = 20000
+    populate_db(env, n)
+
+    # Query the index with a small timeout, and verify that we get an error
+    num_docs = n * env.shardsCount
+    env.expect(
+        'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+        ).error().contains('Timeout limit was reached')
+
+    # Same for `FT.AGGREGATE`
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
+        ).error().contains('Timeout limit was reached')
