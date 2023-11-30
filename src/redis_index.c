@@ -248,7 +248,7 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *
   }
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = InvertedIndex_Free;
-  size_t sz;
+  size_t sz = 0;
   kdv->p = NewInvertedIndex(ctx->spec->flags, 1, &sz);
   ctx->spec->stats.invertedSize += sz;
   dictAdd(ctx->spec->keysDict, termKey, kdv);
@@ -279,7 +279,7 @@ InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, 
         if (outIsNew) {
           *outIsNew = true;
         }
-        size_t size;
+        size_t size = 0;
         idx = NewInvertedIndex(ctx->spec->flags, 1, &size);
         RedisModule_ModuleTypeSetValue(k, InvertedIndexType, idx);
         ctx->spec->stats.invertedSize += size;

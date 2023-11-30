@@ -53,7 +53,7 @@ int Suffix_IterateWildcard(SuffixCtx *sufCtx);
 /***********************************************************/
 /*****************        TrieMap       ********************/
 /***********************************************************/
-void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len);
+size_t addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len);
 void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len);
 
 void suffixTrieMap_freeCallback(void *payload);

@@ -44,9 +44,11 @@ TrieMapNode *__trieMapNode_resizeChildren(TrieMapNode *n, int offset) {
  * starting from offset up until len. numChildren is the initial number of
  * allocated child nodes */
 TrieMapNode *__newTrieMapNode(char *str, tm_len_t offset, tm_len_t len, tm_len_t numChildren,
-                              void *value, int terminal) {
+                              void *value, int terminal, size_t *sz) {
   tm_len_t nlen = len - offset;
-  TrieMapNode *n = rm_malloc(__trieMapNode_Sizeof(numChildren, nlen));
+  size_t nodeSize = __trieMapNode_Sizeof(numChildren, nlen);
+  TrieMapNode *n = rm_malloc(nodeSize);
+  (*sz) += nodeSize;
   n->len = nlen;
   n->numChildren = numChildren;
   n->value = value;
@@ -58,34 +60,24 @@ TrieMapNode *__newTrieMapNode(char *str, tm_len_t offset, tm_len_t len, tm_len_t
 }
 
 TrieMap *NewTrieMap() {
+  size_t nodeSize = 0;
   TrieMap *tm = rm_malloc(sizeof(TrieMap));
   tm->size = 0;
   tm->cardinality = 0;
-  tm->root = __newTrieMapNode((char *)"", 0, 0, 0, NULL, 0);
+  tm->root = __newTrieMapNode((char *)"", 0, 0, 0, NULL, 0, &nodeSize);
+  tm->memsize = sizeof(TrieMap) + nodeSize;
   return tm;
 }
 
-TrieMapNode *__trieMapNode_AddChild(TrieMapNode *n, char *str, tm_len_t offset, tm_len_t len,
-                                    void *value) {
-  // make room for another child
-  n = __trieMapNode_resizeChildren(n, 1);
-
-  // a newly added child must be a terminal node
-  TrieMapNode *child = __newTrieMapNode(str, offset, len, 0, value, 1);
-  *__trieMapNode_childKey(n, n->numChildren - 1) = str[offset];
-
-  __trieMapNode_children(n)[n->numChildren - 1] = child;
-  __trieNode_sortChildren(n);
-  return n;
-}
-
 TrieMapNode *__trieMapNode_AddChildIdx(TrieMapNode *n, char *str, tm_len_t offset, tm_len_t len,
-                                    void *value, int idx) {
+                                    void *value, int idx, size_t *sz) {
   // make room for another child
   n = __trieMapNode_resizeChildren(n, 1);
 
   // a newly added child must be a terminal node
-  TrieMapNode *child = __newTrieMapNode(str, offset, len, 0, value, 1);
+  size_t nodeSize = 0;
+  TrieMapNode *child = __newTrieMapNode(str, offset, len, 0, value, 1, &nodeSize);
+  (*sz) += nodeSize;
 
   if (n->numChildren > 1) {
     memmove(__trieMapNode_childKey(n, idx + 1), __trieMapNode_childKey(n, idx), n->numChildren - idx - 1);
@@ -96,10 +88,12 @@ TrieMapNode *__trieMapNode_AddChildIdx(TrieMapNode *n, char *str, tm_len_t offse
   return n;
 }
 
-TrieMapNode *__trieMapNode_Split(TrieMapNode *n, tm_len_t offset) {
+TrieMapNode *__trieMapNode_Split(TrieMapNode *n, tm_len_t offset, size_t *sz) {
   // Copy the current node's data and children to a new child node
+  size_t nodeSize = 0;
   TrieMapNode *newChild = __newTrieMapNode(n->str, offset, n->len, n->numChildren, n->value,
-                                           __trieMapNode_isTerminal(n));
+                                           __trieMapNode_isTerminal(n), &nodeSize);
+  (*sz) += nodeSize;
   newChild->flags = n->flags;
 
   TrieMapNode **children = __trieMapNode_children(n);
@@ -120,7 +114,8 @@ TrieMapNode *__trieMapNode_Split(TrieMapNode *n, tm_len_t offset) {
   return n;
 }
 
-int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb) {
+int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value,
+                    TrieMapReplaceFunc cb, size_t *memSize) {
   TrieMapNode *n = *np;
   int rv = 0;
 
@@ -136,7 +131,7 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
     // 1. a child representing the new string from the diverted offset onwards
     // 2. a child representing the old node's suffix from the diverted offset
     // and the old children
-    n = __trieMapNode_Split(n, offset);
+    n = __trieMapNode_Split(n, offset, memSize);
     rv++;
 
     // the new string matches the split node exactly!
@@ -148,7 +143,7 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
     } else {
       // a node after a split has a single child
       int idx = str[offset] > *__trieMapNode_childKey(n, 0) ? 1 : 0;
-      n = __trieMapNode_AddChildIdx(n, str, offset, len, value, idx);
+      n = __trieMapNode_AddChildIdx(n, str, offset, len, value, idx, memSize);
       rv++;
     }
     *np = n;
@@ -186,20 +181,22 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
   if (ptr != NULL) {
     const size_t char_offset = ptr - childKeys;
     TrieMapNode *child = __trieMapNode_children(n)[char_offset];
-    rv = TrieMapNode_Add(&child, str + offset, len - offset, value, cb);
+    rv = TrieMapNode_Add(&child, str + offset, len - offset, value, cb, memSize);
     __trieMapNode_children(n)[char_offset] = child;
     return rv;
   }
   
   ptr = childKeys; 
   while(ptr < childKeys + n->numChildren && *ptr < c) {++ptr;}
-  *np = __trieMapNode_AddChildIdx(n, str, offset, len, value, ptr - childKeys);
+  *np = __trieMapNode_AddChildIdx(n, str, offset, len, value, ptr - childKeys, memSize);
   return ++rv;
 }
 
 int TrieMap_Add(TrieMap *t, char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb) {
-  int rc = TrieMapNode_Add(&t->root, str, len, value, cb);
+  size_t sz = 0;
+  int rc = TrieMapNode_Add(&t->root, str, len, value, cb, &sz);
   t->size += rc;
+  t->memsize += sz;
   int added = rc ? 1 : 0;
   t->cardinality += added;
   return added;
@@ -385,8 +382,9 @@ TrieMapNode *__trieMapNode_MergeWithSingleChild(TrieMapNode *n) {
   char nstr[n->len + ch->len + 1];
   memcpy(nstr, n->str, sizeof(char) * n->len);
   memcpy(&nstr[n->len], ch->str, sizeof(char) * ch->len);
+  size_t nodeSize = 0;
   TrieMapNode *merged = __newTrieMapNode(nstr, 0, n->len + ch->len, ch->numChildren, ch->value,
-                                         __trieMapNode_isTerminal(ch));
+                                         __trieMapNode_isTerminal(ch), &nodeSize);
 
   merged->numChildren = ch->numChildren;
   merged->flags = ch->flags;
@@ -517,10 +515,11 @@ int TrieMap_Delete(TrieMap *t, const char *str, tm_len_t len, freeCB func) {
 }
 
 size_t TrieMap_MemUsage(TrieMap *t) {
-  return t->size * (sizeof(TrieMapNode) +    // size of struct
-                    sizeof(TrieMapNode *) +  // size of ptr to struct in parent node
-                    1 +                      // char key to children in parent node
-                    sizeof(char *));         // == 8, string size rounded up to 8 bits due to padding
+  return t->memsize;
+  // return t->size * (sizeof(TrieMapNode) +    // size of struct
+  //                   sizeof(TrieMapNode *) +  // size of ptr to struct in parent node
+  //                   1 +                      // char key to children in parent node
+  //                   sizeof(char *));         // == 8, string size rounded up to 8 bits due to padding
 }
 
 void TrieMapNode_Free(TrieMapNode *n, freeCB func) {

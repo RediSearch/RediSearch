@@ -132,16 +132,18 @@ struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
   if (iv == TRIEMAP_NOTFOUND) {
     if (create) {
-      size_t size;
+      size_t size = 0;
       iv = NewInvertedIndex(Index_DocIdsOnly, 1, &size);
+      size_t initialTrieMapMemSize = idx->values->memsize;
       TrieMap_Add(idx->values, (char *)value, len, iv, NULL);
-      (*sz) += size;
+      size_t newTrieMapMemSize = idx->values->memsize;
+      (*sz) += size + (newTrieMapMemSize - initialTrieMapMemSize); 
     }
   }
   return iv;
 }
 
-/* Ecode a single docId into a specific tag value */
+/* Encode a single docId into a specific tag value */
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
   size_t sz = 0;
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
@@ -159,7 +161,7 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
     if (tok && *tok != '\0') {
       ret += tagIndex_Put(idx, tok, strlen(tok), docId);
       if (idx->suffix) { // add to suffix triemap if exist
-        addSuffixTrieMap(idx->suffix, tok, strlen(tok));
+        ret += addSuffixTrieMap(idx->suffix, tok, strlen(tok));
       }
     }
   }

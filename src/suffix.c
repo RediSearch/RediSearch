@@ -362,12 +362,13 @@ void suffixTrie_freeCallback(void *payload) {
 /***********************************************************/
 
 
-void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
+size_t addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
+  size_t sz = 0;
   suffixData *data = TrieMap_Find(trie, (char *)str, len);
 
   // if we found a node and term exists, we already have the term in the suffix
   if (data != TRIEMAP_NOTFOUND && data->term) {
-    return;
+    return 0;
   }
 
   char *copyStr = rm_strndup(str, len);
@@ -375,7 +376,11 @@ void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
     data = rm_calloc(1, sizeof(*data));
     data->term = copyStr;
     data->array = array_ensure_append_1(data->array, copyStr);
+    sz = sizeof(*data);
+    size_t initialTrieMapMemSize = trie->memsize;
     TrieMap_Add(trie, copyStr, len, data, NULL);
+    size_t newTrieMapMemSize = trie->memsize;
+    sz += newTrieMapMemSize - initialTrieMapMemSize;
   } else {    // node exists as suffix for other term
     RS_LOG_ASSERT(!data->term, "can't reach here");
     data->term = copyStr;
@@ -390,11 +395,16 @@ void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
     if (data == TRIEMAP_NOTFOUND) {
       data = rm_calloc(1, sizeof(*data));
       data->array = array_ensure_append_1(data->array, copyStr);
+      sz = sizeof(*data);
+      size_t initialTrieMapMemSize = trie->memsize;
       TrieMap_Add(trie, copyStr + j, len - j, data, NULL);
+      size_t newTrieMapMemSize = trie->memsize;
+      sz += newTrieMapMemSize - initialTrieMapMemSize;
     } else {
       data->array = array_ensure_append_1(data->array, copyStr);
     }
   }
+  return sz;
 }
 
 void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
