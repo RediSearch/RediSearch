@@ -15,7 +15,7 @@ jobs:
   test:
     strategy:
       matrix:
-        platform: ['rockylinux:8', 'rockylinux:9']
+        platform: [rockylinux:8, rockylinux:9]
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
@@ -25,7 +25,7 @@ jobs:
   test-rocky-artifact:
     strategy:
       matrix:
-        platform: ['rockylinux:8', 'rockylinux:9']
+        platform: [rockylinux:8, rockylinux:9]
     uses: ./.github/workflows/flow-build-artifacts.yml
     secrets: inherit
     with:
