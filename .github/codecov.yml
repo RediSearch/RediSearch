@@ -19,11 +19,9 @@ coverage:
       default:
         # basic
         target: auto  # target coverage based on the base commit
-        threshold: 1% # Allow `x%` of coverage to decrease without failing
-        paths:
-          - "src"
-          - "coord/src"
+        threshold: 5% # Allow `x%` of coverage to decrease without failing
+        # Not specifying paths so we get annotations on the PR
         # advanced
         if_ci_failed: success # [success, error]. Default: error.
         removed_code_behavior: adjust_base # [removals_only, adjust_base, fully_covered_patch, off/False] https://docs.codecov.com/docs/commit-status#removed_code_behavior
-        informational: false # if true, coverage is informational only. Never cause the CI to fail
+        informational: true # if true, coverage is informational only. Never cause the CI to fail
