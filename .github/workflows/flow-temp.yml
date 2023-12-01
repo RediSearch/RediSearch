@@ -9,25 +9,19 @@ name: temporary testing
 
 on:
   push:
-    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  test-rocky:
-    strategy:
-      matrix:
-        platform: [rockylinux:8, rockylinux:9]
+  test-mariner:
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
-      platform: ${{ matrix.platform }}
+      platform: mariner:2
       architecture: x86_64
 
-  test-rocky-artifact:
-    strategy:
-      matrix:
-        platform: [rockylinux:8, rockylinux:9]
+  test-mariner-artifact:
     uses: ./.github/workflows/flow-build-artifacts.yml
     secrets: inherit
     with:
-      platform: ${{ matrix.platform }}
+      platform: mariner:2
       architecture: x86_64
