@@ -1,5 +1,8 @@
-# codecov:
-#   strict_yaml_branch: master # Tell Codecov to only look at the master branch version of the codecov.yml file
+codecov:
+  # strict_yaml_branch: master # Tell Codecov to only look at the master branch version of the codecov.yml file
+  require_ci_to_pass: false # Enabling Codecov to report status even if the CI fails
+  notify:
+    wait_for_ci: false # Enabling Codecov to report coverage even if the CI fails
 coverage:
   status:
     project: # Configurations for the project coverage status
@@ -11,7 +14,6 @@ coverage:
           - "src"
           - "coord/src"
         # advanced
-        if_ci_failed: success # [success, error]. Default: error.
         removed_code_behavior: adjust_base # [removals_only, adjust_base, fully_covered_patch, off/False] https://docs.codecov.com/docs/commit-status#removed_code_behavior
         informational: false # if true, coverage is informational only. Never cause the CI to fail
 
@@ -22,6 +24,5 @@ coverage:
         threshold: 5% # Allow `x%` of coverage to decrease without failing
         # Not specifying paths so we get annotations on the PR
         # advanced
-        if_ci_failed: success # [success, error]. Default: error.
         removed_code_behavior: adjust_base # [removals_only, adjust_base, fully_covered_patch, off/False] https://docs.codecov.com/docs/commit-status#removed_code_behavior
         informational: true # if true, coverage is informational only. Never cause the CI to fail
