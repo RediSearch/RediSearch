@@ -1,8 +1,7 @@
 codecov:
-  # strict_yaml_branch: master # Tell Codecov to only look at the master branch version of the codecov.yml file
   require_ci_to_pass: false # Enabling Codecov to report status even if the CI fails
   notify:
-    wait_for_ci: false # Enabling Codecov to report coverage even if the CI fails
+    wait_for_ci: false # Enabling Codecov to report coverage even if the CI has not completed
 coverage:
   status:
     project: # Configurations for the project coverage status
@@ -15,7 +14,6 @@ coverage:
           - "coord/src"
         # advanced
         removed_code_behavior: adjust_base # [removals_only, adjust_base, fully_covered_patch, off/False] https://docs.codecov.com/docs/commit-status#removed_code_behavior
-        informational: false # if true, coverage is informational only. Never cause the CI to fail
 
     patch: # Configurations for the pull request coverage status
       default:
@@ -25,4 +23,3 @@ coverage:
         # Not specifying paths so we get annotations on the PR
         # advanced
         removed_code_behavior: adjust_base # [removals_only, adjust_base, fully_covered_patch, off/False] https://docs.codecov.com/docs/commit-status#removed_code_behavior
-        informational: true # if true, coverage is informational only. Never cause the CI to fail
