@@ -87,6 +87,12 @@ def testSanitySearchHashIntersectsDisjoint(env):
   tall = 'POLYGON((1 1, 1 100, 200 100, 200 1, 1 1))'
   conn.execute_command('HSET', 'wide', 'geom', wide)
   conn.execute_command('HSET', 'tall', 'geom', tall)
+
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[intersects $poly]', 'PARAMS', 2, 'poly', wide, 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [2, 'tall', 'wide'])
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[disjoint $poly]', 'PARAMS', 2, 'poly', wide, 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [0])
+
   query = 'POLYGON((0 101, 0 150, 150 150, 150 101, 0 101))'
   env.expect('FT.SEARCH', 'idx', '@geom:[intersects $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal([1, 'wide', ['geom', wide]])
   env.expect('FT.SEARCH', 'idx', '@geom:[disjoint $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal([1, 'tall', ['geom', tall]])
