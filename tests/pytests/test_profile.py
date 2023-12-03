@@ -196,6 +196,60 @@ def testProfileNumeric(env):
   env.assertEqual(actual_res[1][3], expected_res)
 
 @skip(cluster=True)
+def testProfileNegativeNumeric():
+  env = Env(protocol=3)
+  conn = getConnectionByEnv(env)
+  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  #docs = 1_000
+  docs =100
+  # values_ranges[i] = (min_val , range description)
+  values_ranges = [{"min_val": - docs , "title":"only negatives"},
+                   {"min_val": - docs / 2 , "title":"from negative to positive"},
+                   {"min_val": docs , "title":"only positives"},]
+
+  for values_range in values_ranges:
+    env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
+    title = values_range['title']
+    # Add values
+    min_val = values_range['min_val']
+    for i in range(docs):
+      val =  min_val + i
+     # val = -1 -i
+      conn.execute_command('hset', i, 'n',val)
+
+    actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@n:[-inf +inf]', 'nocontent')
+    #actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@n:[-100 10]', 'nocontent')
+    Iterators_profile = actual_res['profile']['Iterators profile'][0]
+    child_iter_list = Iterators_profile['Child iterators']
+
+    def extract_child_range(child: dict):
+      iter_term = child['Term']
+      res_range = iter_term.split(" - ")
+      range_dict = {"min":float(res_range[0]), "max": float(res_range[1])}
+      env.assertEqual(range_dict['max'], range_dict['min'] + child['Size'] - 1, message=f"{title}: range_max should equal range_min + (range_size - 1)")
+      return range_dict
+
+    # The first child iterator should contain the min val
+    range_dict = extract_child_range(child_iter_list[0])
+    actual_min_val = range_dict['min']
+    env.assertEqual(float(actual_min_val), min_val, message=f"{title}: The first child iterator should contain the tree min val")
+    range_last = range_dict['max']
+
+    for child in child_iter_list[1::]:
+      range_dict = extract_child_range(child)
+      # The first value of this range should be bigger from the previous's last value by 1.
+      env.assertEqual(range_dict['min'], range_last + 1.0,
+                      message=f"{title}: The min value of this range should bigger from the previous's last value ({range_last}) by 1")
+      range_last = range_dict['max']
+
+    # The last child should contain the max val
+    max_val = min_val + docs - 1
+    env.assertEqual(max_val, range_last, message=f"{title}: The max value of the last child should equal the max val of the tree")
+    env.cmd('flushall')
+
+
+@skip(cluster=True)
 def testProfileTag(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
