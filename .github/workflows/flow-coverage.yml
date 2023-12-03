@@ -31,4 +31,4 @@ jobs:
       uses: codecov/codecov-action@v3
       with:
         file: bin/linux-x64-debug-cov/cov.info
-        # fail_ci_if_error: true
+        fail_ci_if_error: true # Fail on upload errors
