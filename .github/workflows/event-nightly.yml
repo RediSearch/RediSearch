@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        branch: [ "master", "2.6", "2.8", "2.10" ]
+        branch: [ "master", "2.6", "2.8" ]
         include:
           - branch: "2.6"
             redis-ref: '6.2.14' # 2.6 doesn't support Redis 7
