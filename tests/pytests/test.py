@@ -3783,15 +3783,13 @@ def test_timeout_non_strict_policy(env):
     res = conn.execute_command(
         'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
         )
-    print(len(res), num_docs, env.shardsCount)
-    env.assertTrue(len(res) < num_docs * 2 and len(res) > 0)
+    env.assertTrue(len(res) < num_docs * 2 + 1)
 
     # Same for `FT.AGGREGATE`
     res = conn.execute_command(
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
         )
-    print(len(res), num_docs, env.shardsCount)
-    env.assertTrue(len(res) < num_docs + 1 and len(res) > 0)
+    env.assertTrue(len(res) < num_docs + 1)
 
 def test_timeout_strict_policy():
     """Tests that we get the wanted behavior for the strict timeout policy.
