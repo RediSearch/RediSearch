@@ -13,10 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        branch: [ "master", "2.6", "2.8", "2.10" ]
-        include:
-          - branch: "2.6"
-            redis-ref: '6.2.14' # 2.6 doesn't support Redis 7
+        branch: [ "master", "2.6", "2.8" ]
     secrets: inherit
     uses: ./.github/workflows/flow-build-artifacts.yml
     with:
