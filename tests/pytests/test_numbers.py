@@ -343,6 +343,8 @@ The bug was fixed in PR#3892.
 More details in:
 https://redislabs.atlassian.net/wiki/spaces/DX/pages/4054876404/BUG+numeric+index+suddenly+return+0+or+partial+results
 '''
+
+@skip(cluster=True) # coordinator doesn't suppory ft.config
 def testNegativeValues(env):
 
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
