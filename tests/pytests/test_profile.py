@@ -214,7 +214,6 @@ def testProfileNegativeNumeric():
     min_val = values_range['min_val']
     for i in range(docs):
       val =  min_val + i
-     # val = -1 -i
       conn.execute_command('hset', i, 'n',val)
 
     actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@n:[-inf +inf]', 'nocontent')
