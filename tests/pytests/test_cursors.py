@@ -169,7 +169,7 @@ def testCursorOnCoordinator(env):
 
     # Verify that empty reply from some shard doesn't break the cursor
     conn.execute_command('HSET', 0 ,'n', 0)
-    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)
+    res, cursor = env.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)
     env.assertEqual(res, [1, ['n', '0']])
     env.expect(f'FT.CURSOR READ idx {cursor}').equal([[0], 0]) # empty reply from shard - 0 results and depleted cursor
 
@@ -198,14 +198,14 @@ def testCursorOnCoordinator(env):
                 env.assertNotContains(cur_res, result_set)
                 result_set.add(cur_res)
 
-        _, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 100, 'TIMEOUT', 5000)
+        _, cursor = env.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 100, 'TIMEOUT', 5000)
         env.execute_command('FT.CURSOR', 'DEL', 'idx', cursor)
         # We expect that deleting the cursor will trigger the shards to delete their cursors as well.
         # Since none of the cursors is expected to be expired, we don't expect `FT.CURSOR GC` to return a positive number.
         # `FT.CURSOR GC` will return -1 if there are no cursors to delete, and 0 if the cursor list was empty.
         env.expect('FT.CURSOR', 'GC', '42', '42').equal(0)
 
-        with conn.monitor() as monitor:
+        with env.getConnection().monitor() as monitor:
             # Some periodic cluster commands are sent to the shards and also break the monitor.
             # This function skips them and returns the actual next command we want to observe.
             def next_command():
@@ -219,7 +219,7 @@ def testCursorOnCoordinator(env):
                     return next_command() # recursively retry
 
             # Generate the cursor and read all the results
-            res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 100)
+            res, cursor = env.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 100)
             add_results(res)
             while cursor:
                 res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
@@ -256,5 +256,5 @@ def testCursorOnCoordinator(env):
                 env.assertContains(i, result_set)
 
     # Test cursor deletion before reply arrives
-    _, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'SORTBY', '1', '@n', 'MAX', '10000', 'WITHCURSOR')
+    _, cursor = env.execute_command('FT.AGGREGATE', 'idx', '*', 'SORTBY', '1', '@n', 'MAX', '10000', 'WITHCURSOR')
     env.cmd('FT.CURSOR', 'DECIMATE', '"the cursor before getting the result"', cursor)
