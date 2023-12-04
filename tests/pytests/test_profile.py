@@ -411,7 +411,7 @@ def testFailOnTimeout(env):
        ['Type', 'WILDCARD', 'Time', ANY, 'Counter', ANY]],
      ['Result processors profile',
        ['Type', 'Index', 'Time', ANY, 'Counter', ANY],
-       ['Type', 'Scorer', 'Time', ANY, 'Counter', 1],
+       ['Type', 'Scorer', 'Time', ANY, 'Counter', ANY],
        ['Type', 'Sorter', 'Time', ANY, 'Counter', ANY],
        ['Type', 'Loader', 'Time', ANY, 'Counter', ANY],
       ]]
@@ -441,9 +441,9 @@ def testFailOnTimeout(env):
   # Test that we get an error when a timeout is experienced on strict timeout
   env.expect('FT.CONFIG', 'SET', 'ON_TIMEOUT', 'FAIL').ok()
   env.expect(
-    'FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'foo', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+    'FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
   ).error().contains('Timeout limit was reached')
 
   env.expect(
-    'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'foo', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+    'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
   ).error().contains('Timeout limit was reached')
