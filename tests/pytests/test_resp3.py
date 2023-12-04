@@ -52,7 +52,7 @@ def test_search():
     waitForIndex(env, 'idx1')
 
     exp = {
-      'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING',
+      'attributes': [], 'warning': [], 'total_results': 2, 'format': 'STRING',
       'results': [
         {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
         {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
@@ -61,7 +61,7 @@ def test_search():
 
     # test withscores
     exp = {
-      'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING',
+      'attributes': [], 'warning': [], 'total_results': 2, 'format': 'STRING',
       'results': [
         { 'id': 'doc2',
           'score': [
@@ -99,7 +99,7 @@ def test_search():
 
     # test with sortby
     exp = {
-      'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING',
+      'attributes': [], 'warning': [], 'total_results': 2, 'format': 'STRING',
       'results': [
         { 'id': 'doc1',
           'score': 0.5,
@@ -121,14 +121,14 @@ def test_search():
                "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC", "FORMAT", "STRING").equal(exp)
 
     # test with limit 0 0
-    exp = {'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING', 'results': []}
+    exp = {'attributes': [], 'warning': [], 'total_results': 2, 'format': 'STRING', 'results': []}
     env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "WITHPAYLOADS",
                "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC", "LIMIT", 0, 0, "FORMAT", "STRING").equal(exp)
 
     # test without RETURN
     exp = {
       'attributes': [],
-      'error': [],
+      'warning': [],
       'total_results': 2,
       'format': 'STRING',
       'results': [
@@ -184,7 +184,7 @@ def test_profile(env):
 
     # test with profile
     exp = {
-      'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING',
+      'attributes': [], 'warning': [], 'total_results': 2, 'format': 'STRING',
       'results': [
         {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
         {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
@@ -224,7 +224,7 @@ def test_coord_profile():
     # test with profile
     exp = {
         'attributes': [],
-        'error': [],
+        'warning': [],
         'total_results': 2,
         'format': 'STRING',
         'results': [
@@ -273,7 +273,7 @@ def test_aggregate():
     res['results'].sort(key=lambda x: "" if x['extra_attributes'].get('f2') == None else x['extra_attributes'].get('f2'))
     exp = {
       'attributes': [],
-      'error': [],
+      'warning': [],
       'total_results': ANY,
       'format': 'STRING',
       'results': [
@@ -287,7 +287,7 @@ def test_aggregate():
     res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "FORMAT", "STRING")
     exp = {
       'attributes': [],
-      'error': [],
+      'warning': [],
       'total_results': ANY,
       'format': 'STRING',
       'results': [
@@ -302,7 +302,7 @@ def test_aggregate():
     # test with sortby
     exp = {
       'attributes': [],
-      'error': [],
+      'warning': [],
       'total_results': ANY,
       'format': 'STRING',
       'results': [
@@ -330,7 +330,7 @@ def test_cursor():
 
     exp = {
       'attributes': [],
-      'error': [],
+      'warning': [],
       'total_results': 3,
       'format': 'STRING',
       'results': [
@@ -341,7 +341,7 @@ def test_cursor():
     env.assertEqual(res, exp)
 
     exp = {
-      'attributes': [], 'error': [], 'total_results': 0, 'format': 'STRING',
+      'attributes': [], 'warning': [], 'total_results': 0, 'format': 'STRING',
       'results': [
           {'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []}
         ]}
@@ -349,12 +349,12 @@ def test_cursor():
     env.assertEqual(res, exp)
 
     exp = {
-      'attributes': [], 'error': [], 'total_results': 0, 'format': 'STRING',
+      'attributes': [], 'warning': [], 'total_results': 0, 'format': 'STRING',
       'results': [{'extra_attributes': {}, 'values': []}]}
     res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
     env.assertEqual(res, exp)
 
-    exp = {'attributes': [], 'error': [], 'total_results': 0, 'format': 'STRING', 'results': []}
+    exp = {'attributes': [], 'warning': [], 'total_results': 0, 'format': 'STRING', 'results': []}
     res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
     env.assertEqual(res, exp)
     env.assertEqual(cursor, 0)
@@ -363,7 +363,7 @@ def test_cursor():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     waitForIndex(env, 'idx2')
 
-    exp = {'attributes': [], 'error': [], 'total_results': 0, 'format': 'STRING', 'results': []}
+    exp = {'attributes': [], 'warning': [], 'total_results': 0, 'format': 'STRING', 'results': []}
     res, cursor = env.cmd('FT.aggregate', 'idx2', '*', 'LOAD', 3, 'f1', 'f2', 'f3',
                           'SORTBY', 2, '@f2', 'DESC', 'WITHCURSOR', 'COUNT', 1)
     env.assertEqual(res, exp)
@@ -601,7 +601,7 @@ def test_profile_crash_mod5323():
 
     res = env.cmd("FT.PROFILE", "idx", "SEARCH", "LIMITED", "QUERY", "%hell% hel*", "NOCONTENT")
     exp = {
-      'error': [],
+      'warning': [],
       'attributes': [],
       'profile': {
         'Iterators profile': [
@@ -653,7 +653,7 @@ def test_profile_child_itrerators_array():
     # test UNION
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'hello|world', 'nocontent')
     exp = {
-      'error': [],
+      'warning': [],
       'attributes': [],
       'profile': {
         'Iterators profile': [
@@ -689,7 +689,7 @@ def test_profile_child_itrerators_array():
     # test INTERSECT
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
     exp = {
-      'error': [],
+      'warning': [],
       'attributes': [],
       'profile': {
         'Iterators profile': [
@@ -803,7 +803,7 @@ def testExpandJson():
 
   exp_string = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'STRING',
     'results': [
@@ -813,7 +813,7 @@ def testExpandJson():
   }
   exp_expand = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'EXPAND',
     'results': [
@@ -855,7 +855,7 @@ def testExpandJson():
 
   exp_string = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'STRING',
     'results': [
@@ -866,7 +866,7 @@ def testExpandJson():
 
   exp_string_default_dialect = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'STRING',
     'results': [
@@ -877,7 +877,7 @@ def testExpandJson():
 
   exp_expand_default_dialect = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'EXPAND',
     'results': [
@@ -888,7 +888,7 @@ def testExpandJson():
 
   exp_expand = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'EXPAND',
     'results': [
@@ -955,7 +955,7 @@ def testExpandHash():
 
   exp_string = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'STRING',
     'results': [
@@ -989,7 +989,7 @@ def testExpandHash():
   #
   exp_string = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'STRING',
     'results': [
@@ -1038,7 +1038,7 @@ def testExpandJsonVector():
 
   exp_string = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': 2,
     'format': 'STRING',
     'results': [
@@ -1049,7 +1049,7 @@ def testExpandJsonVector():
 
   exp_expand = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': 2,
     'format': 'EXPAND',
     'results': [
@@ -1074,7 +1074,7 @@ def testExpandJsonVector():
 
   exp_string = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': 2,
     'format': 'STRING',
     'results': [
@@ -1085,7 +1085,7 @@ def testExpandJsonVector():
   
   exp_expand = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': 2,
     'format': 'EXPAND',
     'results': [
@@ -1110,7 +1110,7 @@ def testExpandJsonVector():
 
   exp_string = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': 2,
     'format': 'STRING',
     'results': [
@@ -1121,7 +1121,7 @@ def testExpandJsonVector():
   
   exp_expand = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': 2,
     'format': 'EXPAND',
     'results': [
@@ -1147,7 +1147,7 @@ def testExpandJsonVector():
   #
   exp_string = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': 2,
     'format': 'STRING',
     'results': [
@@ -1157,7 +1157,7 @@ def testExpandJsonVector():
   }
   exp_expand = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': 2,
     'format': 'EXPAND',
     'results': [
@@ -1183,7 +1183,7 @@ def testExpandJsonVector():
   #
   exp_string = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'STRING',
     'results': [
@@ -1194,7 +1194,7 @@ def testExpandJsonVector():
 
   exp_expand = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'EXPAND',
     'results': [
@@ -1342,7 +1342,7 @@ def test_vecsim_1():
         r.execute_command("HSET", "docvecsimidx0z2", "vector_FLAT", np.array([2.0, 2.0], dtype=np.float32).tobytes())
         r.execute_command("HSET", "docvecsimidx0z3", "vector_FLAT", np.array([3.0, 3.0], dtype=np.float32).tobytes())
     exp3 = { 'attributes': [],
-             'error': [],
+             'warning': [],
              'total_results': 4,
              'format': 'STRING',
              'results': [
@@ -1397,6 +1397,6 @@ def test_error_with_partial_results():
   env.assertGreater(len(res['results']), 0)
 
   # Assert that we got a warning
-  env.assertEqual(len(res['error']), 1)
-  env.assertEqual(type(res['error'][0]), ResponseError)
-  env.assertEqual(str(res['error'][0]), 'Timeout limit was reached')
+  env.assertEqual(len(res['warning']), 1)
+  env.assertEqual(type(res['warning'][0]), ResponseError)
+  env.assertEqual(str(res['warning'][0]), 'Timeout limit was reached')

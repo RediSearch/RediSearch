@@ -602,7 +602,7 @@ done_3:
     RedisModule_Reply_ArrayEnd(reply); // >results
 
     // <error>
-    RedisModule_ReplyKV_Array(reply, "error"); // >errors
+    RedisModule_ReplyKV_Array(reply, "warning"); // >errors
     if (rc == RS_RESULT_TIMEDOUT) {
       ReplyWithTimeoutError(reply);
     } else if (rc == RS_RESULT_ERROR) {
