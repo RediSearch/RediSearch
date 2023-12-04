@@ -373,8 +373,7 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
     env.assertEqual(n_recieved, num_docs)
 
 def test_timeoutError():
-    """Tests that the cursor returns a timeout error (accompanied by a `0`
-    cursor-id) in case of a timeout, when the timeout policy is
+    """Tests that the cursor returns a timeout error in case of a timeout, when the timeout policy is
     `ON_TIMEOUT FAIL`"""
 
     env = Env(moduleArgs='ON_TIMEOUT FAIL')
