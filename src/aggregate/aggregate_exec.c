@@ -602,14 +602,14 @@ done_3:
     RedisModule_Reply_ArrayEnd(reply); // >results
 
     // <error>
-    RedisModule_ReplyKV_Array(reply, "warning"); // >errors
+    RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
     if (rc == RS_RESULT_TIMEDOUT) {
       ReplyWithTimeoutError(reply);
     } else if (rc == RS_RESULT_ERROR) {
       RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
       QueryError_ClearError(req->qiter.err);
     }
-    RedisModule_Reply_ArrayEnd(reply); // >errors
+    RedisModule_Reply_ArrayEnd(reply); // >warnings
 
     cursor_done = (rc != RS_RESULT_OK
                    && !(rc == RS_RESULT_TIMEDOUT
