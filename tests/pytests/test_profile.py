@@ -381,3 +381,69 @@ def testNotIterator(env):
             'Loader', 'Counter', 1]]]]
 
   env.expect('ft.profile', 'idx', 'search', 'query', 'foo -@t:baz').equal(res)
+
+@skip(cluster=True)
+def testFailOnTimeout(env):
+  """
+  Tests the behavior of `FT.PROFILE` when a timeout occurs.
+  We expect to get an error when the timeout policy is strict (i.e., `FAIL`),
+  and the partial results when the policy is non-strict (i.e., `RETURN`)
+  """
+
+  conn = getConnectionByEnv(env)
+
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+  # Populate the index
+  num_docs = 10000
+  for i in range(num_docs):
+      conn.execute_command('HSET', f'doc{i}', 't', str(i))
+
+  # Test that we get a regular profile results with partial results when a
+  # timeout is experienced on non-strict timeout policy.
+  expected_res_search = [
+    ANY,
+    [['Total profile time', ANY],
+     ['Parsing time', ANY],
+     ['Pipeline creation time', ANY],
+     ['Iterators profile',
+       ['Type', 'WILDCARD', 'Time', ANY, 'Counter', ANY]],
+     ['Result processors profile',
+       ['Type', 'Index', 'Time', ANY, 'Counter', ANY],
+       ['Type', 'Scorer', 'Time', ANY, 'Counter', 1],
+       ['Type', 'Sorter', 'Time', ANY, 'Counter', ANY],
+       ['Type', 'Loader', 'Time', ANY, 'Counter', ANY],
+      ]]
+  ]
+
+  expected_res_aggregate = [
+    ANY,
+    [['Total profile time', ANY],
+     ['Parsing time', ANY],
+     ['Pipeline creation time', ANY],
+     ['Iterators profile',
+       ['Type', 'WILDCARD', 'Time', ANY, 'Counter', ANY]],
+     ['Result processors profile',
+       ['Type', 'Index', 'Time', ANY, 'Counter', ANY],
+       ['Type', 'Pager/Limiter', 'Time', ANY, 'Counter', ANY]
+      ]]
+  ]
+
+  env.expect(
+    'FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+  ).equal(expected_res_search)
+
+  env.expect(
+    'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+  ).equal(expected_res_aggregate)
+
+  # Test that we get an error when a timeout is experienced on strict timeout
+  env.expect('FT.CONFIG', 'SET', 'ON_TIMEOUT', 'FAIL').ok()
+  env.expect(
+    'FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'foo', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+  ).error().contains('Timeout limit was reached')
+
+  env.expect(
+    'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'foo', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+  ).error().contains('Timeout limit was reached')
