@@ -201,8 +201,7 @@ def testProfileNegativeNumeric():
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
-  #docs = 1_000
-  docs =100
+  docs = 1_000
   # values_ranges[i] = (min_val , range description)
   values_ranges = [{"min_val": - docs , "title":"only negatives"},
                    {"min_val": - docs / 2 , "title":"from negative to positive"},
@@ -219,7 +218,6 @@ def testProfileNegativeNumeric():
       conn.execute_command('hset', i, 'n',val)
 
     actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@n:[-inf +inf]', 'nocontent')
-    #actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@n:[-100 10]', 'nocontent')
     Iterators_profile = actual_res['profile']['Iterators profile'][0]
     child_iter_list = Iterators_profile['Child iterators']
 
