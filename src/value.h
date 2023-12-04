@@ -11,6 +11,7 @@
 #include "rmalloc.h"
 #include "query_error.h"
 #include "reply.h"
+#include "rejson_api.h"
 
 #include "util/fnv.h"
 
@@ -47,8 +48,8 @@ typedef enum {
   RSValue_OwnRstring = 7,
   // Reference to another value
   RSValue_Reference = 8,
-  // Duo value
-  RSValue_Duo = 9,
+  // JSON iterator value
+  RSValue_JSON = 9,
   // Map value
   RSValue_Map = 10,
 
@@ -63,6 +64,14 @@ typedef enum {
   // Volatile strings are strings that need to be copied when retained
   RSString_Volatile = 0x04,
 } RSStringType;
+
+// Placeholder for a JSON value and its expanded formats
+typedef struct {
+  JSONResultsIterator iter;   // JSON iterator
+  struct RSValue *first;      // first value (to be removed once we support multi-value in pipeline)
+  struct RSValue *serialized; // serialized JSON string
+  struct RSValue *expanded;   // expanded JSON value
+} RS_JSONValue;
 
 #define RSVALUE_STATIC \
   { .allocated = 0 }
@@ -103,19 +112,7 @@ typedef struct RSValue {
       uint32_t len;           // number of pairs (not number of array elements)
     } mapval;
 
-    struct {
-      /**
-       * Duo value
-       *
-       * Allows keeping a value, together with an additional value.
-       *
-       * For example, keeping a value and, in addition, a different value for serialization, such as a JSON String representation.
-       */
-
-      // An array of 2 RSValue *'s
-      // The first entry is the value, the second entry is the additional value
-      struct RSValue **vals;
-    } duoval;
+    RS_JSONValue *jsonval;
 
     // redis string value
     struct RedisModuleString *rstrval;
@@ -137,9 +134,11 @@ typedef struct RSValue {
 } RSValue;
 #pragma pack()
 
-#define RS_DUOVAL_VAL(v) ((v).duoval.vals[0])
-#define RS_DUOVAL_OTHERVAL(v) ((v).duoval.vals[1])
-#define RS_DUOVAL_OTHER2VAL(v) ((v).duoval.vals[2])
+#define RS_JSONVAL_ITER(v) ((v).jsonval->iter)
+#define RS_JSONVAL_FIRST(v) ((v).jsonval->first)
+#define RS_JSONVAL_SERIALIZED(v) ((v).jsonval->serialized)
+#define RS_JSONVAL_EXPANDED(v) ((v).jsonval->expanded)
+
 #define APIVERSION_RETURN_MULTI_CMP_FIRST 3
 
 #define RSVALUE_MAP_KEYPOS(pos) ((pos) * 2)
@@ -346,8 +345,8 @@ static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
     case RSValue_Undef:
       return 0;
 
-    case RSValue_Duo:
-      return RSValue_Hash(RS_DUOVAL_VAL(*v), hval);
+    case RSValue_JSON:
+      return RSValue_Hash(RS_JSONVAL_FIRST(*v), hval);
   }
 
   return 0;
@@ -409,8 +408,8 @@ RSValue *RS_StringArray(char **strs, uint32_t sz);
 /* Initialize all strings in the array with a given string type */
 RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st);
 
-/* Wrap a pair of RSValue into an RSValue Duo */
-RSValue *RS_DuoVal(RSValue *val, RSValue *otherval, RSValue *other2val);
+// JSON value
+RSValue *RS_NewJSONVal(JSONResultsIterator iter, RedisModuleCtx *ctx);
 
 /* Compare 2 values for sorting */
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);
@@ -456,7 +455,7 @@ typedef enum {
 } SendReplyFlags;
 
 /* Based on the value type, serialize the value into redis client response */
-int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags);
+int RSValue_SendReply(RedisModule_Reply *reply, RSValue *v, SendReplyFlags flags);
 
 void RSValue_Print(const RSValue *v);
 

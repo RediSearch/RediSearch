@@ -408,8 +408,20 @@ static inline const RLookupKey *RLookup_FindKeyWith(const RLookup *l, uint32_t f
 int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *sp, const char *keyptr);
 
 
+/**
+ * Convert a JSON iterator to an RSValue.
+ */
 int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
 
+/**
+ * Convert a JSON value to an RSValue.
+ */
+RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json);
+
+/**
+ * Convert a JSON iterator to an RSValue, expanding all the values.
+ */
+RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter);
 
 /**
  * Search an index field by its name in the lookup table spec cache.
