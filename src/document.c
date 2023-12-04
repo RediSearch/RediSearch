@@ -765,6 +765,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
     }
     if (FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
       tidx->suffix = NewTrieMap();
+      ctx->spec->stats.invertedSize += tidx->suffix->memsize;
     }
   }
 
