@@ -1500,11 +1500,6 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     goto cleanup;
   }
 
-  if (MRReply_Type(*replies) == MR_REPLY_ERROR) {
-    res = MR_ReplyWithMRReply(reply, *replies);
-    goto cleanup;
-  }
-
   rCtx.searchCtx = req;
 
   // Get reply offsets
