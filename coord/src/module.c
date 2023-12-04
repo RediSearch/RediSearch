@@ -1043,8 +1043,6 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
     return;
   }
   if (MRReply_Type(arr) == MR_REPLY_ERROR) {
-    rCtx->errorOccured = true;
-    rCtx->lastError = arr;
     return;
   }
 
@@ -1162,7 +1160,6 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
     return;
   }
   if (MRReply_Type(arr) == MR_REPLY_ERROR) {
-    rCtx->lastError = arr;
     return;
   }
 
@@ -1484,6 +1481,17 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
   return REDISMODULE_OK;
 }
 
+static bool should_return_error(MRReply *reply) {
+  // TODO: Replace second condition with a var instead of hard-coded string
+  char *errStr = MRReply_String(reply, NULL);
+  if (!errStr
+      || strcmp(errStr, "Timeout limit was reached")
+      || RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
+        return true;
+  }
+  return false;
+}
+
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   clock_t postProccessTime;
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
@@ -1498,6 +1506,20 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   if (count == 0 || req->limit < 0) {
     res = RedisModule_Reply_Error(reply, "Could not send query to cluster");
     goto cleanup;
+  }
+
+  // Traverse the replies, check for early bail-out which we want for all errors
+  // but timeout+non-strict timeout policy.
+  for (int i = 0; i < count; i++) {
+    MRReply *curr_rep = replies[i];
+    if (MRReply_Type(curr_rep) == MR_REPLY_ERROR) {
+      rCtx.errorOccured = true;
+      rCtx.lastError = curr_rep;
+      if (should_return_error(curr_rep)) {
+        res = MR_ReplyWithMRReply(reply, curr_rep);
+        goto cleanup;
+      }
+    }
   }
 
   rCtx.searchCtx = req;
@@ -1547,26 +1569,9 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     rm_free(rCtx.cachedResult);
   }
 
-  // If we got a timeout and we are on strict behavior - return an error
-  // Otherwise, we return the aggregated results
-  if (rCtx.lastError || rCtx.errorOccured) {
-    if (!rCtx.lastError) {
-      RedisModule_Reply_Error(reply, "could not parse redisearch results");
-      goto cleanup;
-    } else {
-      // Get the type of the error
-      int type = MRReply_Type(rCtx.lastError);
-      RS_LOG_ASSERT(type == MR_REPLY_ERROR, "Unexpected error type");
-
-      // TODO: Replace second condition with a var instead of hard-coded string
-      char *errStr = MRReply_String(rCtx.lastError, NULL);
-      if (!errStr
-          || strcmp(errStr, "Timeout limit was reached")
-          || RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
-            MR_ReplyWithMRReply(reply, rCtx.lastError);
-            goto cleanup;
-      }
-    }
+  if (rCtx.errorOccured && !rCtx.lastError) {
+    RedisModule_Reply_Error(reply, "could not parse redisearch results");
+    goto cleanup;
   }
 
   if (!profile) {
