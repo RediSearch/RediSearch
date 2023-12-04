@@ -552,18 +552,6 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     RedisModule_Reply_ArrayEnd(reply);
 
     // TODO: Move this to after the results section, so that we can report the
-    // error even if we respond with results (`ON_TIMEOUT RETURN`).
-    // <error>
-    RedisModule_ReplyKV_Array(reply, "error"); // >errors
-    if (rc == RS_RESULT_TIMEDOUT) {
-      ReplyWithTimeoutError(reply);
-    } else if (rc == RS_RESULT_ERROR) {
-      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
-      QueryError_ClearError(req->qiter.err);
-    }
-    RedisModule_Reply_ArrayEnd(reply); // >errors
-
-    // TODO: Move this to after the results section, so that we can report the
     // correct number of returned results.
     // <total_results>
     if (ShouldReplyWithTimeoutError(rc, req)) {
@@ -612,6 +600,16 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
 done_3:
     RedisModule_Reply_ArrayEnd(reply); // >results
+
+    // <error>
+    RedisModule_ReplyKV_Array(reply, "error"); // >errors
+    if (rc == RS_RESULT_TIMEDOUT) {
+      ReplyWithTimeoutError(reply);
+    } else if (rc == RS_RESULT_ERROR) {
+      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
+      QueryError_ClearError(req->qiter.err);
+    }
+    RedisModule_Reply_ArrayEnd(reply); // >errors
 
     cursor_done = (rc != RS_RESULT_OK
                    && !(rc == RS_RESULT_TIMEDOUT

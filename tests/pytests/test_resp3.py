@@ -1374,3 +1374,29 @@ def test_vecsim_1():
 def test_error_propagation_from_shards_resp3():
     env = Env(protocol=3)
     test_error_propagation_from_shards(env)
+
+@skip(cluster=True)
+def test_error_with_partial_results():
+  """Test that we get 'warnings' with partial results on non-strict timeout
+  policy"""
+
+  env = Env(protocol=3)
+  conn = getConnectionByEnv(env)
+
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+  # Populate the index
+  num_docs = 10000
+  for i in range(num_docs):
+      conn.execute_command('HSET', f'doc{i}', 't', str(i))
+
+  res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'TIMEOUT', '1')
+
+  # Assert that we got results
+  env.assertGreater(len(res['results']), 0)
+
+  # Assert that we got a warning
+  env.assertEqual(len(res['error']), 1)
+  env.assertEqual(type(res['error'][0]), ResponseError)
+  env.assertEqual(str(res['error'][0]), 'Timeout limit was reached')
