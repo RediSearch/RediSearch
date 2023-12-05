@@ -297,20 +297,23 @@ def unstable(f):
         return f(env, *args, **kwargs)
     return wrapper
 
-def skip(cluster=False, macos=False, asan=False, msan=False, noWorkers=False):
+def skip(cluster=None, macos=None, asan=None, msan=None, noWorkers=None):
     def decorate(f):
         def wrapper():
-            if not (cluster or macos or asan or msan or noWorkers):
+            if cluster is not None and cluster == (COORD in ['oss', 'rlec', '1']):
+                print('cluster')
                 raise SkipTest()
-            if cluster and COORD in ['oss', 'rlec', '1']:
+            if macos is not None and macos == (OS == 'macos'):
+                print('macos')
                 raise SkipTest()
-            if macos and OS == 'macos':
+            if asan is not None and asan == (SANITIZER == 'address'):
+                print('address')
                 raise SkipTest()
-            if asan and SANITIZER == 'address':
+            if msan is not None and msan == (SANITIZER == 'memory'):
+                print('memory')
                 raise SkipTest()
-            if msan and SANITIZER == 'memory':
-                raise SkipTest()
-            if noWorkers and not MT_BUILD:
+            if noWorkers is not None and noWorkers == (not MT_BUILD):
+                print('MT_BUILD')
                 raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:
                 env = Env()
