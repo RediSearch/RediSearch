@@ -19,60 +19,60 @@ def testProfileSearch(env):
 
   # test WILDCARD
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*', 'nocontent')
-  env.assertEqual(actual_res[1][3], ['Iterators profile', ['Type', 'WILDCARD', 'Counter', 2]])
+  env.assertEqual(actual_res[1][4], ['Iterators profile', ['Type', 'WILDCARD', 'Counter', 2]])
 
   # test EMPTY
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'redis', 'nocontent')
-  env.assertEqual(actual_res[1][3], ['Iterators profile', ['Type', 'EMPTY', 'Counter', 0]])
+  env.assertEqual(actual_res[1][4], ['Iterators profile', ['Type', 'EMPTY', 'Counter', 0]])
 
   # test single term
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello', 'nocontent')
-  env.assertEqual(actual_res[1][3], ['Iterators profile', ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]])
+  env.assertEqual(actual_res[1][4], ['Iterators profile', ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]])
 
   # test UNION
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello|world', 'nocontent')
   expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'UNION', 'Counter', 2, 'Child iterators',
                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
                     ['Type', 'TEXT', 'Term', 'world', 'Counter', 1, 'Size', 1]]]
-  env.assertEqual(actual_res[1][3], expected_res)
+  env.assertEqual(actual_res[1][4], expected_res)
 
   # test INTERSECT
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
   expected_res = ['Iterators profile', ['Type', 'INTERSECT', 'Counter', 0, 'Child iterators',
                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
                     ['Type', 'TEXT', 'Term', 'world', 'Counter', 1, 'Size', 1]]]
-  env.assertEqual(actual_res[1][3], expected_res)
+  env.assertEqual(actual_res[1][4], expected_res)
 
   # test NOT
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '-hello', 'nocontent')
   expected_res = ['Iterators profile', ['Type', 'NOT', 'Counter', 1, 'Child iterator',
                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
-  env.assertEqual(actual_res[1][3], expected_res)
+  env.assertEqual(actual_res[1][4], expected_res)
 
   # test OPTIONAL
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '~hello', 'nocontent')
   expected_res = ['Iterators profile', ['Type', 'OPTIONAL', 'Counter', 2, 'Child iterator',
                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
-  env.assertEqual(actual_res[1][3], expected_res)
+  env.assertEqual(actual_res[1][4], expected_res)
 
   # test PREFIX
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hel*', 'nocontent')
   expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'PREFIX - hel', 'Counter', 1, 'Child iterators',
                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
-  env.assertEqual(actual_res[1][3], expected_res)
+  env.assertEqual(actual_res[1][4], expected_res)
 
   # test FUZZY
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '%%hel%%', 'nocontent')
   expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'FUZZY - hel', 'Counter', 1, 'Child iterators',
                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
-  env.assertEqual(actual_res[1][3], expected_res)
+  env.assertEqual(actual_res[1][4], expected_res)
 
   # test ID LIST iter with INKEYS
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello', 'inkeys', 1, '1')
   expected_res = ['Iterators profile', ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
                     ['Type', 'ID-LIST', 'Counter', 1],
                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
-  env.assertEqual(actual_res[1][3], expected_res)
+  env.assertEqual(actual_res[1][4], expected_res)
 
   # test no crash on reaching deep reply array
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello(hello(hello(hello(hello))))', 'nocontent')
@@ -85,7 +85,7 @@ def testProfileSearch(env):
                                           ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]],
                                          ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]],
                                         ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
-  env.assertEqual(actual_res[1][3], expected_res)
+  env.assertEqual(actual_res[1][4], expected_res)
 
   if server_version_less_than(env, '6.2.0'):
     return
@@ -102,7 +102,7 @@ def testProfileSearch(env):
                                           ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]],
                                          ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]],
                                         ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
-  env.assertEqual(actual_res[1][3], expected_res)
+  env.assertEqual(actual_res[1][4], expected_res)
 
 @skip(cluster=True)
 def testProfileSearchLimited(env):
@@ -119,7 +119,7 @@ def testProfileSearchLimited(env):
   expected_res = ['Iterators profile', ['Type', 'INTERSECT', 'Counter', 3, 'Child iterators',
                   ['Type', 'UNION', 'Query type', 'FUZZY - hell', 'Counter', 3, 'Child iterators', 'The number of iterators in the union is 3'],
                   ['Type', 'UNION', 'Query type', 'PREFIX - hel', 'Counter', 3, 'Child iterators', 'The number of iterators in the union is 4']]]
-  env.assertEqual(actual_res[1][3], expected_res)
+  env.assertEqual(actual_res[1][4], expected_res)
 
 @skip(cluster=True)
 def testProfileAggregate(env):
@@ -137,7 +137,7 @@ def testProfileAggregate(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'aggregate', 'query', 'hello',
                                     'groupby', 1, '@t',
                                     'REDUCE', 'count', '0', 'as', 'sum')
-  env.assertEqual(actual_res[1][4], expected_res)
+  env.assertEqual(actual_res[1][5], expected_res)
 
   expected_res = ['Result processors profile',
                   ['Type', 'Index', 'Counter', 2],
@@ -146,7 +146,7 @@ def testProfileAggregate(env):
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
                 'load', 1, 't',
                 'apply', 'startswith(@t, "hel")', 'as', 'prefix')
-  env.assertEqual(actual_res[1][4], expected_res)
+  env.assertEqual(actual_res[1][5], expected_res)
 
   expected_res = ['Result processors profile',
                   ['Type', 'Index', 'Counter', 2],
@@ -154,7 +154,7 @@ def testProfileAggregate(env):
                   ['Type', 'Sorter', 'Counter', 2],
                   ['Type', 'Loader', 'Counter', 2]]
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*', 'sortby', 2, '@t', 'asc', 'limit', 0, 10, 'LOAD', 2, '@__key', '@t')
-  env.assertEqual(actual_res[1][4], expected_res)
+  env.assertEqual(actual_res[1][5], expected_res)
 
 def testProfileCursor(env):
   conn = getConnectionByEnv(env)
@@ -193,7 +193,7 @@ def testProfileNumeric(env):
                     ['Type', 'NUMERIC', 'Term', '46.8 - 48.5', 'Counter', 180, 'Size', 180],
                     ['Type', 'NUMERIC', 'Term', '48.6 - 50', 'Counter', 150, 'Size', 150]]]
 
-  env.assertEqual(actual_res[1][3], expected_res)
+  env.assertEqual(actual_res[1][4], expected_res)
 
 @skip(cluster=True)
 def testProfileTag(env):
@@ -207,7 +207,7 @@ def testProfileTag(env):
 
   # tag profile
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@t:{foo}', 'nocontent')
-  env.assertEqual(actual_res[1][3], ['Iterators profile', ['Type', 'TAG', 'Term', 'foo', 'Counter', 2, 'Size', 2]])
+  env.assertEqual(actual_res[1][4], ['Iterators profile', ['Type', 'TAG', 'Term', 'foo', 'Counter', 2, 'Size', 2]])
 
 @skip(cluster=True)
 def testProfileVector(env):
@@ -227,8 +227,8 @@ def testProfileVector(env):
   expected_iterators_res = ['Iterators profile', ['Type', 'VECTOR', 'Counter', 3]]
   expected_vecsim_rp_res = ['Type', 'Metrics Applier', 'Counter', 3]
   env.assertEqual(actual_res[0], [3, '4', '2', '1'])
-  env.assertEqual(actual_res[1][3], expected_iterators_res)
-  env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
+  env.assertEqual(actual_res[1][4], expected_iterators_res)
+  env.assertEqual(actual_res[1][5][2], expected_vecsim_rp_res)
   env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'STANDARD_KNN')
 
   # Range query - uses metric iterator. Radius is set so that the closest 2 vectors will be inthe range
@@ -237,8 +237,8 @@ def testProfileVector(env):
   expected_iterators_res = ['Iterators profile', ['Type', 'METRIC - VECTOR DISTANCE', 'Counter', 2]]
   expected_vecsim_rp_res = ['Type', 'Metrics Applier', 'Counter', 2]
   env.assertEqual(actual_res[0], [2, '4', '2'])
-  env.assertEqual(actual_res[1][3], expected_iterators_res)
-  env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
+  env.assertEqual(actual_res[1][4], expected_iterators_res)
+  env.assertEqual(actual_res[1][5][2], expected_vecsim_rp_res)
   env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'RANGE_QUERY')
 
 # Test with hybrid query variations
@@ -251,8 +251,8 @@ def testProfileVector(env):
                                                  ['Type', 'TEXT', 'Term', 'hello', 'Counter', 2, 'Size', 5]]]]
   expected_vecsim_rp_res = ['Type', 'Metrics Applier', 'Counter', 2]
   env.assertEqual(actual_res[0], [2, '4', '5'])
-  env.assertEqual(actual_res[1][3], expected_iterators_res)
-  env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
+  env.assertEqual(actual_res[1][4], expected_iterators_res)
+  env.assertEqual(actual_res[1][5][2], expected_vecsim_rp_res)
   env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_ADHOC_BF')
 
   for i in range(6, 10001):
@@ -268,8 +268,8 @@ def testProfileVector(env):
                                                  ['Type', 'TEXT', 'Term', 'world', 'Counter', 8, 'Size', 9997],
                                                  ['Type', 'TEXT', 'Term', 'hello', 'Counter', 8, 'Size', 10000]]]]
   expected_vecsim_rp_res = ['Type', 'Metrics Applier', 'Counter', 3]
-  env.assertEqual(actual_res[1][3], expected_iterators_res)
-  env.assertEqual(actual_res[1][4][2], expected_vecsim_rp_res)
+  env.assertEqual(actual_res[1][4], expected_iterators_res)
+  env.assertEqual(actual_res[1][5][2], expected_vecsim_rp_res)
   env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES')
 
   # Add another 10K vectors with a different tag.
@@ -284,7 +284,7 @@ def testProfileVector(env):
                                                    ['Type', 'TEXT', 'Term', 'other', 'Counter', 3, 'Size', 10000]]]]
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '(@t:hello other)=>[KNN 3 @v $vec]',
                                       'SORTBY', '__v_score', 'PARAMS', '2', 'vec', '????????', 'nocontent')
-  env.assertEqual(actual_res[1][3], expected_iterators_res)
+  env.assertEqual(actual_res[1][4], expected_iterators_res)
   env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES_TO_ADHOC_BF')
 
   # Ask explicitly to run in batches mode, without asking for a certain batch size.
@@ -296,7 +296,7 @@ def testProfileVector(env):
                                                    ['Type', 'INTERSECT', 'Counter', 12, 'Child iterators',
                                                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 25, 'Size', 10000],
                                                     ['Type', 'TEXT', 'Term', 'other', 'Counter', 13, 'Size', 10000]]]]
-  env.assertEqual(actual_res[1][3], expected_iterators_res)
+  env.assertEqual(actual_res[1][4], expected_iterators_res)
   env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES')
 
   # Ask explicitly to run in batches mode, with batch size of 100.
@@ -307,7 +307,7 @@ def testProfileVector(env):
                                                   ['Type', 'INTERSECT', 'Counter', 199, 'Child iterators',
                                                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 399, 'Size', 10000],
                                                    ['Type', 'TEXT', 'Term', 'other', 'Counter', 200, 'Size', 10000]]]]
-  env.assertEqual(actual_res[1][3], expected_iterators_res)
+  env.assertEqual(actual_res[1][4], expected_iterators_res)
   env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES')
 
   # Asking only for a batch size without asking for batches policy. While batchs mode is on, the bacth size will be as
@@ -320,7 +320,7 @@ def testProfileVector(env):
                                                   ['Type', 'INTERSECT', 'Counter', 2, 'Child iterators',
                                                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 5, 'Size', 10000],
                                                    ['Type', 'TEXT', 'Term', 'other', 'Counter', 3, 'Size', 10000]]]]
-  env.assertEqual(actual_res[1][3], expected_iterators_res)
+  env.assertEqual(actual_res[1][4], expected_iterators_res)
   env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES_TO_ADHOC_BF')
 
 @skip(cluster=True)
@@ -337,7 +337,7 @@ def testResultProcessorCounter(env):
   res =  ['Result processors profile',
             ['Type', 'Index', 'Counter', 2],
             ['Type', 'Counter', 'Counter', 1]]
-  env.assertEqual(actual_res[1][4], res)
+  env.assertEqual(actual_res[1][5], res)
 
 @skip(cluster=True)
 def testProfileMaxPrefixExpansion(env):
@@ -351,7 +351,7 @@ def testProfileMaxPrefixExpansion(env):
   conn.execute_command('hset', '3', 't', 'foo3')
 
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'foo*', 'limit', '0', '0')
-  env.assertEqual(actual_res[1][3][1][6:8], ['Warning', 'Max prefix expansion reached'])
+  env.assertEqual(actual_res[1][4][1][6:8], ['Warning', 'Max prefix expansion reached'])
 
   env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 200)
 
@@ -369,6 +369,7 @@ def testNotIterator(env):
          [['Total profile time'],
           ['Parsing time'],
           ['Pipeline creation time'],
+          ['Timed out', 'False'],
           ['Iterators profile',
             ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
               ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1],
@@ -407,6 +408,7 @@ def testFailOnTimeout(env):
     [['Total profile time', ANY],
      ['Parsing time', ANY],
      ['Pipeline creation time', ANY],
+     ['Timed out', 'True'],
      ['Iterators profile',
        ['Type', 'WILDCARD', 'Time', ANY, 'Counter', ANY]],
      ['Result processors profile',
@@ -422,6 +424,7 @@ def testFailOnTimeout(env):
     [['Total profile time', ANY],
      ['Parsing time', ANY],
      ['Pipeline creation time', ANY],
+     ['Timed out', 'True'],
      ['Iterators profile',
        ['Type', 'WILDCARD', 'Time', ANY, 'Counter', ANY]],
      ['Result processors profile',

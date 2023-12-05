@@ -194,6 +194,7 @@ def test_profile(env):
         'Total profile time': ANY,
         'Parsing time': ANY,
         'Pipeline creation time': ANY,
+        'Timed out': 'False',
         'Iterators profile': [
           {'Type': 'WILDCARD', 'Time': ANY, 'Counter': 2}
         ],
@@ -233,19 +234,19 @@ def test_coord_profile():
           {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
         ],
         'shards':
-        {'Shard #1': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY,
+        {'Shard #1': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Timed out': False,
                       'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY}],
                       'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},
                                                     {'Type': 'Scorer', 'Time': ANY, 'Counter': ANY},
                                                     {'Type': 'Sorter', 'Time': ANY, 'Counter': ANY},
                                                     {'Type': 'Loader', 'Time': ANY, 'Counter': ANY}]},
-        'Shard #2': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY,
+        'Shard #2': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Timed out': False,
                      'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY}],
                      'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},
                                                    {'Type': 'Scorer', 'Time': ANY, 'Counter': ANY},
                                                    {'Type': 'Sorter', 'Time': ANY, 'Counter': ANY},
                                                    {'Type': 'Loader', 'Time': ANY, 'Counter': ANY}]},
-        'Shard #3': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY,
+        'Shard #3': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Timed out': False,
                      'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY}],
                      'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},
                                                    {'Type': 'Scorer', 'Time': ANY, 'Counter': ANY},
@@ -627,6 +628,7 @@ def test_profile_crash_mod5323():
         ],
         'Parsing time': ANY,
         'Pipeline creation time': ANY,
+        'Timed out': 'False',
         'Result processors profile': [
           { 'Counter': 3, 'Time': ANY, 'Type': 'Index' },
           { 'Counter': 3, 'Time': ANY, 'Type': 'Scorer' },
@@ -670,6 +672,7 @@ def test_profile_child_itrerators_array():
         ],
         'Parsing time': ANY,
         'Pipeline creation time': ANY,
+        'Timed out': 'False',
         'Result processors profile': [
           {'Counter': 2, 'Time': ANY, 'Type': 'Index'},
           {'Counter': 2, 'Time': ANY, 'Type': 'Scorer'},
@@ -705,6 +708,7 @@ def test_profile_child_itrerators_array():
         ],
         'Parsing time': 0.0,
         'Pipeline creation time': 0.0,
+        'Timed out': 'False',
         'Result processors profile': [
           { 'Counter': 0, 'Time': 0.0, 'Type': 'Index'},
           { 'Counter': 0, 'Time': 0.0, 'Type': 'Scorer'},
