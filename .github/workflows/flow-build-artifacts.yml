@@ -84,7 +84,7 @@ jobs:
           key: ${{ env.SHA_CACHE_NAME }}
 
       - id: skip
-        if: ${{ github.event_name != 'workflow_dispatch' && steps.restore.outputs.cache-hit }}
+        if: ${{ steps.restore.outputs.cache-hit == 'true' }}
         run: |
           LAST_SHA=$(cat ${{ env.SHA_CACHE_NAME }})
           CURRENT_SHA=${{ steps.set-sha.outputs.sha }}
