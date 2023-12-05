@@ -332,6 +332,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   if (rows) {
       bool resp3 = MRReply_Type(rows) == MR_REPLY_MAP;
+      bool has_warning = false;
       size_t len;
       if (resp3) {
         MRReply *results = MRReply_MapElement(rows, "results");
@@ -348,9 +349,21 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
         if (cursorId == 0 && nc->shardsProfile) {
           nc->shardsProfile[nc->shardsProfileIdx++] = root;
         } else {
+          // Check for a warning (resp3 only)
+          if (resp3 && MRReply_Length(MRReply_MapElement(rows, "warning")) > 0) {
+            MRReply *warning = MRReply_ArrayElement(MRReply_MapElement(rows, "warning"), 0);
+            QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC,
+              MRReply_String(warning, NULL));
+            has_warning = true;
+          }
+
           MRReply_Free(root);
         }
         nc->current.root = nc->current.rows = root = rows = NULL;
+
+        if (has_warning) {
+          return RS_RESULT_ERROR;
+        }
       }
   }
 
@@ -375,7 +388,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     }
 
     // If an error was returned, propagate it
-    if(MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
+    if (MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
       QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC,
         MRReply_String(nc->current.root, NULL));
       return RS_RESULT_ERROR;

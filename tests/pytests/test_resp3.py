@@ -1375,7 +1375,6 @@ def test_error_propagation_from_shards_resp3():
     env = Env(protocol=3)
     test_error_propagation_from_shards(env)
 
-@skip(cluster=True)
 def test_error_with_partial_results():
   """Test that we get 'warnings' with partial results on non-strict timeout
   policy"""
@@ -1387,11 +1386,14 @@ def test_error_with_partial_results():
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
   # Populate the index
-  num_docs = 10000
+  num_docs = 10000 * env.shardsCount
   for i in range(num_docs):
       conn.execute_command('HSET', f'doc{i}', 't', str(i))
 
-  res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'TIMEOUT', '1')
+  # `FT.AGGREGATE`
+  res = conn.execute_command(
+    'FT.AGGREGATE', 'idx', '*', 'TIMEOUT', '1'
+  )
 
   # Assert that we got results
   env.assertGreater(len(res['results']), 0)
@@ -1400,3 +1402,13 @@ def test_error_with_partial_results():
   env.assertEqual(len(res['warning']), 1)
   env.assertEqual(type(res['warning'][0]), ResponseError)
   env.assertEqual(str(res['warning'][0]), 'Timeout limit was reached')
+
+  # TODO: Add once the MOD-6184 is merged (index iterator returning TIMEOUT instead of OK)
+  # `FT.SEARCH`
+  # res = conn.execute_command(
+  #   'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+  # )
+
+  # env.assertEqual(len(res['warning']), 1)
+  # env.assertEqual(type(res['warning'][0]), ResponseError)
+  # env.assertEqual(str(res['warning'][0]), 'Timeout limit was reached')
