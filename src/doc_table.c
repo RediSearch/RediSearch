@@ -33,11 +33,13 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
       .size = 1,
       .cap = cap,
       .maxDocId = 0,
-      .memsize = sizeof(DocTable),
+      .memsize = 0,
       .sortablesSize = 0,
       .maxSize = max_size,
       .dim = NewDocIdMap(),
   };
+  size_t newTrieMapMemSize = ret.dim.tm->memsize;
+  ret.memsize += newTrieMapMemSize;
   ret.buckets = rm_calloc(cap, sizeof(*ret.buckets));
   ret.memsize += (cap * sizeof(*ret.buckets));
   return ret;
