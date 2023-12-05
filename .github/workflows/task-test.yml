@@ -69,6 +69,20 @@ jobs:
         if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0'
         run: ./sbin/setup
 
+      - name: Restore Boost
+        id: restore-boost
+        uses: actions/cache@v3
+        with:
+          path: |
+            /usr/lib/cmake/boost_*
+            /usr/include/boost
+            /usr/lib/libboost_*
+          key: boost-${{ vars.BOOST_VERSION }}-${{ inputs.container || inputs.env }}-${{ runner.arch }}
+
+      - name: Get Boost (if needed)
+        if: steps.restore-boost.outputs.cache-hit != 'true'
+        run: ./.install/install_boost.sh ${{ vars.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
+
       - name: Get Redis
         if: inputs.get-redis != 'skip getting redis'
         uses: actions/checkout@v3
