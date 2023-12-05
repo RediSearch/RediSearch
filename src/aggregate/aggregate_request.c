@@ -843,6 +843,7 @@ AREQ *AREQ_New(void) {
   req->maxSearchResults = RSGlobalConfig.maxSearchResults;
   req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
   req->optimizer = QOptimizer_New();
+  req->profile = Profile_Print;
   return req;
 }
 
@@ -1284,7 +1285,7 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
 
   RLookup_Init(first, cache);
 
-  ResultProcessor *rp = RPIndexIterator_New(req->rootiter, req->timeoutTime);
+  ResultProcessor *rp = RPIndexIterator_New(req->rootiter);
   ResultProcessor *rpUpstream = NULL;
   req->qiter.rootProc = req->qiter.endProc = rp;
   PUSH_RP();

@@ -189,6 +189,10 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   CleanPool_ThreadPoolStart();
   DO_LOG("notice", "Initialized thread pools!");
 
+  // Init cursors mechanism
+  CursorList_Init(&g_CursorsList, false);
+  CursorList_Init(&g_CursorsListCoord, true);
+
 #ifdef MT_BUILD
   // Init threadpool.
   // Threadpool size can only be set on load.
@@ -220,10 +224,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     // we have to make sure that we tell the vecsim library to add and delete in place (can't use submit at all)
     VecSim_SetWriteMode(VecSim_WriteInPlace);
   }
-
-  // Init cursors mechanism
-  CursorList_Init(&g_CursorsList, false);
-  CursorList_Init(&g_CursorsListCoord, true);
 
   IndexAlias_InitGlobal();
 

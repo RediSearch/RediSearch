@@ -1,5 +1,7 @@
 name: Assigne the One in Shift for a New Issue
 
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
 on:
   issues:
     types: [opened, reopened]
