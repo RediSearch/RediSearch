@@ -73,7 +73,7 @@ char* getConfigValue(RedisModuleCtx *ctx, const char* confName){
 int checkTLS(char** client_key, char** client_cert, char** ca_cert, char** key_pass){
   int ret = 1;
   RedisModuleCtx *ctx = RSDummyContext;
-  RedisModule_ThreadSafeContextLock(ctx);
+//  RedisModule_ThreadSafeContextLock(ctx);
   char* clusterTls = NULL;
   char* tlsPort = NULL;
 
@@ -111,7 +111,7 @@ done:
   if (tlsPort) {
     rm_free(tlsPort);
   }
-  RedisModule_ThreadSafeContextUnlock(ctx);
+//  RedisModule_ThreadSafeContextUnlock(ctx);
   return ret;
 }
 

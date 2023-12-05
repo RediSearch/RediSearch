@@ -1519,9 +1519,9 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   clock_t postProccessTime;
-  // RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
-  // RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
-  RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
+   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
+   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+//  RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
   searchRequestCtx *req = MRCtx_GetPrivData(mc);
   searchReducerCtx rCtx = {NULL};
   int profile = req->profileArgs > 0;
@@ -1619,9 +1619,9 @@ cleanup:
   }
 
   searchRequestCtx_Free(req);
-  // RedisModule_BlockedClientMeasureTimeEnd(bc);
-  // RedisModule_UnblockClient(bc, mc);
-  // RedisModule_FreeThreadSafeContext(ctx);
+  RedisModule_BlockedClientMeasureTimeEnd(bc);
+  RedisModule_UnblockClient(bc, mc);
+  RedisModule_FreeThreadSafeContext(ctx);
   MR_requestCompleted();
   MRCtx_Free(mc);
   return res;
@@ -2063,7 +2063,8 @@ int FlatSearchCommandHandler(RedisModuleCtx *ctx, int protocol, RedisModuleStrin
     sendRequiredFields(req, &cmd);
   }
 
-  struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, req);
+  RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  struct MRCtx *mrctx = MR_CreateCtx(0, bc, req);
   MRCtx_SetProtocol(mrctx, protocol);
 
   // we prefer the next level to be local - we will only approach nodes on our own shard
@@ -2073,7 +2074,7 @@ int FlatSearchCommandHandler(RedisModuleCtx *ctx, int protocol, RedisModuleStrin
   // MRCtx_SetReduceFunction(mrctx, searchResultReducer_background);
   MRCtx_SetReduceFunction(mrctx, searchResultReducer);
 
-  // MR_Fanout(mrctx, NULL, cmd, false);
+//   MR_Fanout(mrctx, NULL, cmd, false);
   MR_FanoutNow(mrctx, &cmd);
   return REDISMODULE_OK;
 }

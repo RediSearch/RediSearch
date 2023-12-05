@@ -422,6 +422,9 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
 }
 
 void MR_FanoutNow(MRCtx *mrctx, MRCommand *cmd) {
+    mrctx->cmds = rm_calloc(1, sizeof(MRCommand));
+    mrctx->numCmds = 1;
+    mrctx->cmds[0] = *cmd;
   mrctx->numExpected =
         MRCluster_FanoutCommand(cluster_g, mrctx->strategy, cmd, fanoutCallback, mrctx);
 }

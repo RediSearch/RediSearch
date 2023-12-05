@@ -3734,3 +3734,10 @@ def test_internal_commands(env):
         fail_eval_call(r, env, ['SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1', 'SHARD', '1', 'SLOTRANGE', '0', '16383', 'ADDR', 'password@127.0.0.1:22000', 'MASTER'])
         fail_eval_call(r, env, ['SEARCH.CLUSTERREFRESH'])
         fail_eval_call(r, env, ['SEARCH.CLUSTERINFO'])
+
+def test_coord_performance(env):
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TEXT')
+    with env.getClusterConnectionIfNeeded() as r:
+        for i in range(1000000):
+            r.execute_command('hset', 'doc%i' % i, 'foo', 'bar%i' % i)
+    input('stopped')
