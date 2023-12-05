@@ -29,22 +29,7 @@ fi
 # Notice that we can not install them both at the same time because they conflict with
 # each other. When we remove this 'setup' file from the build steps we should perform
 # this installation on '.install/amazon_linux_2.sh' (see comment on that file).
-OS_TYPE=$(uname -s)
-if [[ $OS_TYPE = 'Darwin' ]]
-then
-    OS='macos'
-else
-    VERSION=$(grep '^VERSION_ID=' /etc/os-release | sed 's/"//g')
-    VERSION=${VERSION#"VERSION_ID="}
-    OS_NAME=$(grep '^NAME=' /etc/os-release | sed 's/"//g')
-    OS_NAME=${OS_NAME#"NAME="}
-    [[ $OS_NAME == 'Rocky Linux' ]] && VERSION=${VERSION%.*} # remove minor version for Rocky Linux
-    OS=${OS_NAME,,}_${VERSION}
-    OS=$(echo $OS | sed 's/[/ ]/_/g') # replace spaces and slashes with underscores
-fi
-echo $OS
-
-if [[ $OS = 'amazon_linux_2' ]]
+if [[ $($ROOT/.install/normalize_name.sh) = 'amazon_linux_2' ]]
 then
 	yum remove -y openssl-devel
 	yum install -y openssl11 openssl11-devel
