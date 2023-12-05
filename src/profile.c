@@ -99,14 +99,14 @@ static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int 
   return _recursiveProfilePrint(reply, rp, printProfileClock);
 }
 
-void Profile_Print(RedisModule_Reply *reply, AREQ *req) {
+void Profile_Print(RedisModule_Reply *reply, AREQ *req, bool timedout) {
   bool has_map = RedisModule_HasMap(reply);
+  req->totalTime += hires_clock_since_msec(&req->initClock);
 
   //-------------------------------------------------------------------------------------------
   if (has_map) { // RESP3 variant
     hires_clock_t now;
 
-    req->totalTime += hires_clock_since_msec(&req->initClock);
     RedisModule_ReplyKV_Map(reply, "profile"); // profile
 
       int profile_verbose = req->reqConfig.printProfileClock;
@@ -121,6 +121,13 @@ void Profile_Print(RedisModule_Reply *reply, AREQ *req) {
       // Print iterators creation time
         if (profile_verbose)
           RedisModule_ReplyKV_Double(reply, "Pipeline creation time", (double)req->pipelineBuildTime);
+
+      // Print whether the command timed out
+      if (timedout) {
+        RedisModule_ReplyKV_SimpleString(reply, "Timed out", "True");
+      } else {
+        RedisModule_ReplyKV_SimpleString(reply, "Timed out", "False");
+      }
 
       // print into array with a recursive function over result processors
 
@@ -147,7 +154,6 @@ void Profile_Print(RedisModule_Reply *reply, AREQ *req) {
   else // ! has_map (RESP2 variant)
   {
     hires_clock_t now;
-    req->totalTime += hires_clock_since_msec(&req->initClock);
     RedisModule_Reply_Array(reply);
 
     int profile_verbose = req->reqConfig.printProfileClock;
@@ -170,6 +176,16 @@ void Profile_Print(RedisModule_Reply *reply, AREQ *req) {
     RedisModule_Reply_SimpleString(reply, "Pipeline creation time");
     if (profile_verbose)
       RedisModule_Reply_Double(reply, (double)req->pipelineBuildTime);
+    RedisModule_Reply_ArrayEnd(reply);
+
+    // Print whether the command timed out
+    RedisModule_Reply_Array(reply);
+    RedisModule_Reply_SimpleString(reply, "Timed out");
+    if (timedout) {
+      RedisModule_Reply_SimpleString(reply, "True");
+    } else {
+      RedisModule_Reply_SimpleString(reply, "False");
+    }
     RedisModule_Reply_ArrayEnd(reply);
 
     // print into array with a recursive function over result processors

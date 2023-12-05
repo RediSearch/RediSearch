@@ -447,3 +447,40 @@ def testFailOnTimeout(env):
   env.expect(
     'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
   ).error().contains('Timeout limit was reached')
+
+def TimedoutValueTest(env):
+  """Tests that the `Timedout` value of the profile response is correct"""
+
+  conn = getConnectionByEnv(env)
+
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+  # Populate the index
+  num_docs = 10000
+  for i in range(num_docs):
+      env.cmd('HSET', f'doc{i}', 't', str(i))
+
+  # Simple `SEARCH` command
+  res = conn.execute_command(
+    'FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+  )
+
+  if env.protocol == 2:
+    env.assertEqual(res[1][3][1], 'True')
+  else:
+    env.assertEqual(res['profile']['Timed out'], 'True')
+
+  # Simple `AGGREGATE` command
+  res = conn.execute_command(
+    'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT', '1'
+  )
+
+  if env.protocol == 2:
+    env.assertEqual(res[1][3][1], 'True')
+  else:
+    env.assertEqual(res['profile']['Timed out'], 'True')
+
+@skip(cluster=True)
+def testTimedOutValue(env):
+  TimedoutValueTest(env)
