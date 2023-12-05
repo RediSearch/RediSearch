@@ -7,6 +7,7 @@
 #include "conn.h"
 #include "reply.h"
 #include "hiredis/adapters/libuv.h"
+#include "hiredis/adapters/redismoduleapi.h"
 #include "search_cluster.h"
 
 #include <uv.h>
@@ -523,6 +524,7 @@ static MRConn *MR_NewConn(MREndpoint *ep) {
   return conn;
 }
 
+extern RedisModuleCtx *RSDummyContext;
 /* Connect to a cluster node. Return REDIS_OK if either connected, or if  */
 static int MRConn_Connect(MRConn *conn) {
   assert(!conn->conn);
@@ -543,7 +545,9 @@ static int MRConn_Connect(MRConn *conn) {
   conn->conn->data = conn;
   conn->state = MRConn_Connecting;
 
-  redisLibuvAttach(conn->conn, uv_default_loop());
+  RedisModuleCtx *module_ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
+  redisModuleAttach(conn->conn, module_ctx);
+  // redisLibuvAttach(conn->conn, uv_default_loop());
   redisAsyncSetConnectCallback(conn->conn, MRConn_ConnectCallback);
   redisAsyncSetDisconnectCallback(conn->conn, MRConn_DisconnectCallback);
 

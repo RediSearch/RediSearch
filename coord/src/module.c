@@ -1519,8 +1519,9 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   clock_t postProccessTime;
-  RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+  // RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
+  // RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+  RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
   searchRequestCtx *req = MRCtx_GetPrivData(mc);
   searchReducerCtx rCtx = {NULL};
   int profile = req->profileArgs > 0;
@@ -1618,9 +1619,9 @@ cleanup:
   }
 
   searchRequestCtx_Free(req);
-  RedisModule_BlockedClientMeasureTimeEnd(bc);
-  RedisModule_UnblockClient(bc, mc);
-  RedisModule_FreeThreadSafeContext(ctx);
+  // RedisModule_BlockedClientMeasureTimeEnd(bc);
+  // RedisModule_UnblockClient(bc, mc);
+  // RedisModule_FreeThreadSafeContext(ctx);
   MR_requestCompleted();
   MRCtx_Free(mc);
   return res;
@@ -2022,18 +2023,15 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
   }
 }
 
-int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol, RedisModuleString **argv, int argc) {
+// int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol, RedisModuleString **argv, int argc) {
+int FlatSearchCommandHandler(RedisModuleCtx *ctx, int protocol, RedisModuleString **argv, int argc) {
   QueryError status = {0};
   searchRequestCtx *req = rscParseRequest(argv, argc, &status);
 
   if (!req) {
-    RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
-    RedisModule_ReplyWithError(clientCtx, QueryError_GetError(&status));
+    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
     QueryError_ClearError(&status);
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, NULL);
-    RedisModule_FreeThreadSafeContext(clientCtx);
-    return REDISMODULE_OK;
+    return REDISMODULE_ERR;
   }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
@@ -2065,15 +2063,18 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol, RedisMo
     sendRequiredFields(req, &cmd);
   }
 
-  struct MRCtx *mrctx = MR_CreateCtx(0, bc, req);
+  struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, req);
   MRCtx_SetProtocol(mrctx, protocol);
 
   // we prefer the next level to be local - we will only approach nodes on our own shard
   // we also ask only masters to serve the request, to avoid duplications by random
   MR_SetCoordinationStrategy(mrctx, MRCluster_FlatCoordination | MRCluster_MastersOnly);
 
-  MRCtx_SetReduceFunction(mrctx, searchResultReducer_background);
-  MR_Fanout(mrctx, NULL, cmd, false);
+  // MRCtx_SetReduceFunction(mrctx, searchResultReducer_background);
+  MRCtx_SetReduceFunction(mrctx, searchResultReducer);
+
+  // MR_Fanout(mrctx, NULL, cmd, false);
+  MR_FanoutNow(mrctx, &cmd);
   return REDISMODULE_OK;
 }
 
@@ -2086,7 +2087,7 @@ typedef struct SearchCmdCtx {
 
 static void DistSearchCommandHandler(void* pd) {
   SearchCmdCtx* sCmdCtx = pd;
-  FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc);
+  // FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
   }
@@ -2096,26 +2097,25 @@ static void DistSearchCommandHandler(void* pd) {
 
 static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
-  bool resp3 = is_resp3(ctx);
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
-  RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-  SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
-  sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
-  for (size_t i = 0 ; i < argc ; ++i) {
-    // We need to copy the argv because it will be freed in the callback (from another thread).
-    sCmdCtx->argv[i] = RedisModule_CreateStringFromString(ctx, argv[i]);
-  }
-  sCmdCtx->argc = argc;
-  sCmdCtx->bc = bc;
-  sCmdCtx->protocol = is_resp3(ctx) ? 3 : 2;
-  RedisModule_BlockedClientMeasureTimeStart(bc);
-  ConcurrentSearch_ThreadPoolRun(DistSearchCommandHandler, sCmdCtx, DIST_AGG_THREADPOOL);
-
+  // RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  // SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
+  // sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
+  // for (size_t i = 0 ; i < argc ; ++i) {
+  //   // We need to copy the argv because it will be freed in the callback (from another thread).
+  //   sCmdCtx->argv[i] = RedisModule_CreateStringFromString(ctx, argv[i]);
+  // }
+  // sCmdCtx->argc = argc;
+  // sCmdCtx->bc = bc;
+  // sCmdCtx->protocol = is_resp3(ctx) ? 3 : 2;
+  // RedisModule_BlockedClientMeasureTimeStart(bc);
+  // ConcurrentSearch_ThreadPoolRun(DistSearchCommandHandler, sCmdCtx, DIST_AGG_THREADPOOL);
+  FlatSearchCommandHandler(ctx, is_resp3(ctx) ? 3 : 2, argv, argc);
   return REDISMODULE_OK;
 }
 

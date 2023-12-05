@@ -421,6 +421,11 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
   return REDIS_OK;
 }
 
+void MR_FanoutNow(MRCtx *mrctx, MRCommand *cmd) {
+  mrctx->numExpected =
+        MRCluster_FanoutCommand(cluster_g, mrctx->strategy, cmd, fanoutCallback, mrctx);
+}
+
 int MR_Map(struct MRCtx *ctx, MRReduceFunc reducer, MRCommandGenerator cmds, bool block) {
   struct MRRequestCtx *rc = rm_malloc(sizeof(struct MRRequestCtx));
   rc->ctx = ctx;

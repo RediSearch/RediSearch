@@ -22,6 +22,7 @@ typedef int (*MRReduceFunc)(struct MRCtx *ctx, int count, MRReply **replies);
 /* Fanout map - send the same command to all the shards, sending the collective
  * reply to the reducer callback */
 int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd, bool block);
+void MR_FanoutNow(struct MRCtx *mrctx, MRCommand *cmd);
 
 int MR_Map(struct MRCtx *ctx, MRReduceFunc reducer, MRCommandGenerator cmds, bool block);
 
