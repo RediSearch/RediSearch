@@ -397,6 +397,8 @@ typedef struct{
   postProcessReplyCB postProcess;
   specialCaseCtx* reduceSpecialCaseCtxKnn;
   specialCaseCtx* reduceSpecialCaseCtxSortby;
+
+  MRReply *warning;
 } searchReducerCtx;
 
 typedef struct {
@@ -1052,14 +1054,11 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   specialCaseCtx* reduceSpecialCaseCtxSortBy = rCtx->reduceSpecialCaseCtxSortby;
   searchResult *res;
   if (resp3) {
-    MRReply *err = MRReply_MapElement(arr, "error");
-    RS_LOG_ASSERT(err && MRReply_Type(err) == MR_REPLY_ARRAY, "invalid error record");
-    if (MRReply_Length(err) > 0) {
-      // TODO: Probably only in later PR - Report only the error if the timeout
-      // policy is FAIL. Otherwise - return the results as well.
-      rCtx->errorOccured = true;
-      rCtx->lastError = arr;
-      return;
+    // Check for a warning
+    MRReply *warning = MRReply_MapElement(arr, "warning");
+    RS_LOG_ASSERT(warning && MRReply_Type(warning) == MR_REPLY_ARRAY, "invalid error record");
+    if (!rCtx->warning && (warning) > 0) {
+      rCtx->warning = warning;
     }
 
     MRReply *results = MRReply_MapElement(arr, "results");
@@ -1191,13 +1190,11 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
 
   if (resp3) // RESP3
   {
-    MRReply *err = MRReply_MapElement(arr, "error");
-    RS_LOG_ASSERT(err && MRReply_Type(err) == MR_REPLY_ARRAY, "invalid error record");
-    if (MRReply_Length(err) > 0) {
-      rCtx->errorOccured = true;
-      rCtx->lastError = arr;
-      // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
-      return;
+    // Check for a warning
+    MRReply *warning = MRReply_MapElement(arr, "warning");
+    RS_LOG_ASSERT(warning && MRReply_Type(warning) == MR_REPLY_ARRAY, "invalid error record");
+    if (!rCtx->warning && (warning) > 0) {
+      rCtx->warning = warning;
     }
 
     MRReply *total_results = MRReply_MapElement(arr, "total_results");
@@ -1325,10 +1322,9 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
       RedisModule_Reply_EmptyArray(reply);
     }
 
-    RedisModule_Reply_SimpleString(reply, "error"); // >errors
-    if (rCtx->lastError) {
-      MRReply *err = MRReply_MapElement(rCtx->lastError, "error");
-      MR_ReplyWithMRReply(reply, err);
+    RedisModule_Reply_SimpleString(reply, "warning"); // >warning
+    if (rCtx->warning) {
+      MR_ReplyWithMRReply(reply, rCtx->warning);
     } else {
       RedisModule_Reply_EmptyArray(reply);
     }
