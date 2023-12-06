@@ -107,6 +107,12 @@ MRWorkQueue *RQ_New(int maxPending) {
   return q;
 }
 
+static void RQ_FreeInternal(uv_handle_t *handle) {
+  MRWorkQueue *q = handle->data;
+  uv_mutex_destroy(&q->lock);
+  rm_free(q);
+}
+
 void RQ_Free(MRWorkQueue *q) {
   struct queueItem *req = NULL;
   size_t pending_req = 0;
@@ -117,6 +123,7 @@ void RQ_Free(MRWorkQueue *q) {
       ++pending_req;
     }
     rm_free(req);
+    RQ_Done(q); // Decrement the internal pending counter
   }
 
   if (pending_req) {
@@ -126,8 +133,5 @@ void RQ_Free(MRWorkQueue *q) {
                     pending_req);
   }
 
-  uv_close((uv_handle_t *)&q->async, NULL);
-  uv_mutex_destroy(&q->lock);
-
-  rm_free(q);
+  uv_close((uv_handle_t *)&q->async, RQ_FreeInternal);
 }
