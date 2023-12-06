@@ -369,7 +369,7 @@ def testNotIterator(env):
          [['Total profile time'],
           ['Parsing time'],
           ['Pipeline creation time'],
-          ['Timed out', 'False'],
+          ['Warning'],
           ['Iterators profile',
             ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
               ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1],
@@ -387,8 +387,7 @@ def testNotIterator(env):
 def testFailOnTimeout(env):
   """
   Tests the behavior of `FT.PROFILE` when a timeout occurs.
-  We expect to get an error when the timeout policy is strict (i.e., `FAIL`),
-  and the partial results when the policy is non-strict (i.e., `RETURN`)
+  We expect the same behavior for both strict and non-strict timeout policies.
   """
 
   conn = getConnectionByEnv(env)
@@ -408,7 +407,7 @@ def testFailOnTimeout(env):
     [['Total profile time', ANY],
      ['Parsing time', ANY],
      ['Pipeline creation time', ANY],
-     ['Timed out', 'True'],
+     ['Warning', 'Timeout limit was reached'],
      ['Iterators profile',
        ['Type', 'WILDCARD', 'Time', ANY, 'Counter', ANY]],
      ['Result processors profile',
@@ -424,7 +423,7 @@ def testFailOnTimeout(env):
     [['Total profile time', ANY],
      ['Parsing time', ANY],
      ['Pipeline creation time', ANY],
-     ['Timed out', 'True'],
+     ['Warning', 'Timeout limit was reached'],
      ['Iterators profile',
        ['Type', 'WILDCARD', 'Time', ANY, 'Counter', ANY]],
      ['Result processors profile',
@@ -445,11 +444,11 @@ def testFailOnTimeout(env):
   env.expect('FT.CONFIG', 'SET', 'ON_TIMEOUT', 'FAIL').ok()
   env.expect(
     'FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
-  ).error().contains('Timeout limit was reached')
+  ).equal(expected_res_search)
 
   env.expect(
     'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
-  ).error().contains('Timeout limit was reached')
+  ).equal(expected_res_aggregate)
 
 def TimedoutValueTest(env):
   """Tests that the `Timedout` value of the profile response is correct"""
@@ -470,9 +469,9 @@ def TimedoutValueTest(env):
   )
 
   if env.protocol == 2:
-    env.assertEqual(res[1][3][1], 'True')
+    env.assertEqual(res[1][3][1], 'Timeout limit was reached')
   else:
-    env.assertEqual(res['profile']['Timed out'], 'True')
+    env.assertEqual(res['profile']['Warning'], 'Timeout limit was reached')
 
   # Simple `AGGREGATE` command
   res = conn.execute_command(
@@ -480,9 +479,9 @@ def TimedoutValueTest(env):
   )
 
   if env.protocol == 2:
-    env.assertEqual(res[1][3][1], 'True')
+    env.assertEqual(res[1][3][1], 'Timeout limit was reached')
   else:
-    env.assertEqual(res['profile']['Timed out'], 'True')
+    env.assertEqual(res['profile']['Warning'], 'Timeout limit was reached')
 
 @skip(cluster=True)
 def testTimedOutValue(env):
