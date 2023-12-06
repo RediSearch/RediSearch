@@ -12,8 +12,9 @@ env:
 
                     'debian:bullseye',
                     'amazonlinux:2',
+                    'mcr.microsoft.com/cbl-mariner/base/core:2.0'
                     ]"
-                    # TODO: Add back 'rockylinux:9', 'mcr.microsoft.com/cbl-mariner/base/core:2.0' when RedisJSON 2.4 supports them
+                    # TODO: Add back 'rockylinux:9' when RedisJSON 2.4 supports it
   ALL_ARM_IMAGES: "['ubuntu:jammy',
                     'ubuntu:focal',
                     'ubuntu:bionic']"
