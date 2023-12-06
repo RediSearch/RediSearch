@@ -354,6 +354,9 @@ typedef struct {
     size_t nkeys;
     uint64_t ascendMap;
   } fieldcmp;
+
+  // Whether a timeout was received (and "silenced")
+  bool timedOut;
 } RPSorter;
 
 /* Yield - pops the current top result from the heap */
@@ -369,7 +372,7 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
     RLookupRow_Cleanup(&oldrow);
     return RS_RESULT_OK;
   }
-  return RS_RESULT_EOF;
+  return self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
 }
 
 static void rpsortFree(ResultProcessor *rp) {
@@ -392,8 +395,11 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
 
   // if our upstream has finished - just change the state to not accumulating, and yield
-  if (rc == RS_RESULT_EOF || (rc == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
-    // Transition state:
+  if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+    self->timedOut = true;
+    rp->Next = rpsortNext_Yield;
+    return rpsortNext_Yield(rp, r);
+  } else if (rc == RS_RESULT_EOF) {
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
   } else if (rc != RS_RESULT_OK) {

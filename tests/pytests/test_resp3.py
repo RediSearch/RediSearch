@@ -1403,7 +1403,6 @@ def test_error_with_partial_results():
   env.assertEqual(type(res['warning'][0]), ResponseError)
   env.assertEqual(str(res['warning'][0]), 'Timeout limit was reached')
 
-  # TODO: Add once the MOD-6184 is merged (index iterator returning TIMEOUT instead of OK)
   # `FT.SEARCH`
   res = conn.execute_command(
     'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
