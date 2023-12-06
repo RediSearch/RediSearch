@@ -514,6 +514,6 @@ def TimedOutWarningtestCoord(env):
 
   # Add a test for `FT.AGGREGATE` once the profile response for it is stable.
 
-@skip(cluster=False)
 def testTimedOutWarningCoord(env):
+  SkipOnNonCluster(env)
   TimedOutWarningtestCoord(env)
