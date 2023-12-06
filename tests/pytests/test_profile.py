@@ -383,8 +383,7 @@ def testNotIterator(env):
 
   env.expect('ft.profile', 'idx', 'search', 'query', 'foo -@t:baz').equal(res)
 
-@skip(cluster=True)
-def testFailOnTimeout(env):
+def FailOnTimeoutTest(env):
   """
   Tests the behavior of `FT.PROFILE` when a timeout occurs.
   We expect the same behavior for both strict and non-strict timeout policies.
@@ -440,17 +439,15 @@ def testFailOnTimeout(env):
     'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
   ).equal(expected_res_aggregate)
 
-  # Test that we get an error when a timeout is experienced on strict timeout
-  env.expect('FT.CONFIG', 'SET', 'ON_TIMEOUT', 'FAIL').ok()
-  env.expect(
-    'FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
-  ).equal(expected_res_search)
+@skip(cluster=True)
+def testFailOnTimeout_nonStrict(env):
+  FailOnTimeoutTest(env)
 
-  env.expect(
-    'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
-  ).equal(expected_res_aggregate)
+@skip(cluster=True)
+def testFailOnTimeout_strict():
+  FailOnTimeoutTest(Env(moduleArgs="ON_TIMEOUT FAIL"))
 
-def TimedoutValueTest(env):
+def TimedoutTest(env):
   """Tests that the `Timedout` value of the profile response is correct"""
 
   conn = getConnectionByEnv(env)
@@ -483,6 +480,40 @@ def TimedoutValueTest(env):
   else:
     env.assertEqual(res['profile']['Warning'], 'Timeout limit was reached')
 
-@skip(cluster=True)
-def testTimedOutValue(env):
-  TimedoutValueTest(env)
+def TimedOutWarningtestCoord(env):
+  """Tests the `FT.PROFILE` response for the cluster build (coordinator)"""
+
+  conn = getConnectionByEnv(env)
+
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+  # Populate the index
+  num_docs = 20000 * env.shardsCount
+  for i in range(num_docs):
+      conn.execute_command('HSET', f'doc{i}', 't', str(i))
+
+  # Simple `SEARCH` command
+  res = env.cmd(
+    'FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+  )
+
+  # Test that a timeout warning is returned for all shards
+  if env.protocol == 2:
+    profile = res[-1]
+    for i in range(env.shardsCount):
+      shard_profile_idx = i * 7
+      warning = profile[shard_profile_idx + 4]
+      env.assertEqual(len(warning), 2)
+      env.assertEqual(warning[1], 'Timeout limit was reached')
+  else:
+    profile = res['shards']
+    for i in range(1, env.shardsCount + 1):
+      shard_profile = profile[f'Shard #{i}']
+      env.assertEquals(shard_profile['Warning'], 'Timeout limit was reached')
+
+  # Add a test for `FT.AGGREGATE` once the profile response for it is stable.
+
+@skip(cluster=False)
+def testTimedOutWarningCoord(env):
+  TimedOutWarningtestCoord(env)

@@ -4,7 +4,7 @@ from math import nan
 import json
 from redis import ResponseError
 from test_coordinator import test_error_propagation_from_shards
-from test_profile import TimedoutValueTest
+from test_profile import TimedoutTest, TimedOutWarningtestCoord
 
 def order_dict(d):
     ''' Sorts a dictionary recursively by keys '''
@@ -1383,4 +1383,8 @@ def test_error_propagation_from_shards_resp3():
 @skip(cluster=True)
 def testTimedOutValue_resp3():
   env = Env(protocol=3)
-  TimedoutValueTest(env)
+  TimedoutTest(env)
+
+def testTimedOutWarningCoord_resp3():
+   env = Env(protocol=3)
+   TimedOutWarningtestCoord(env)
