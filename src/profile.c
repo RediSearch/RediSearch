@@ -181,7 +181,6 @@ void Profile_Print(RedisModule_Reply *reply, AREQ *req, bool timedout) {
     // Print whether a warning was raised throughout command execution
     RedisModule_Reply_Array(reply);
     RedisModule_Reply_SimpleString(reply, "Warning");
-    // TODO: Add an `errors` array and `warnings` array
     if (timedout) {
       RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
     }
