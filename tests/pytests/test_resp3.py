@@ -1386,5 +1386,6 @@ def testTimedOutValue_resp3():
   TimedoutTest(env)
 
 def testTimedOutWarningCoord_resp3():
+   SkipOnNonCluster(env)
    env = Env(protocol=3)
    TimedOutWarningtestCoord(env)
