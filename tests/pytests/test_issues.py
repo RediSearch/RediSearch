@@ -808,7 +808,7 @@ def test_mod5791(env):
     env.assertEqual(2, con.execute_command('HSET', 'doc1', 't', 'Hello world', 'v', 'abcdefgh'))
     env.assertEqual(2, con.execute_command('HSET', 'doc2', 't', 'Hello world', 'v', 'abcdefgi'))
 
-    # The RSIndexResult object should be contructed as following:
+    # The RSIndexResult object should be contracted as following:
     # UNION:
     #   INTERSECTION:
     #       metric
@@ -824,6 +824,15 @@ def test_mod5791(env):
 
 @skip(asan=True)
 def test_mod5778_add_new_shard_to_cluster(env):
+  mod5778_add_new_shard_to_cluster(env)
+
+@skip(asan=True)
+def test_mod5778_add_new_shard_to_cluster_TLS():
+  cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
+  env = Env(useTLS=True, tlsCertFile=cert_file, tlsKeyFile=key_file, tlsCaCertFile=ca_cert_file, tlsPassphrase=passphrase)
+  mod5778_add_new_shard_to_cluster(env)
+
+def mod5778_add_new_shard_to_cluster(env):
     SkipOnNonCluster(env)
     env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards))
 

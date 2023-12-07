@@ -3839,24 +3839,11 @@ def test_with_password():
     common_with_auth(env)
 
 def test_with_tls():
-    root = os.environ.get('ROOT', None)
-    if root is None:
-        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # go up 3 levels from test.py
-
-    cert_file =     os.path.join(root, 'bin', 'tls', 'redis.crt')
-    key_file =      os.path.join(root, 'bin', 'tls', 'redis.key')
-    ca_cert_file =  os.path.join(root, 'bin', 'tls', 'ca.crt')
-
-    if server_version_at_least('6.2'):
-        with open(os.path.join(root, 'bin', 'tls', '.passphrase'), 'r') as f:
-            passpharse = f.read()
-    else:
-        passpharse = None
-
+    cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
     env = Env(useTLS=True,
               tlsCertFile=cert_file,
               tlsKeyFile=key_file,
               tlsCaCertFile=ca_cert_file,
-              tlsPassphrase=passpharse)
+              tlsPassphrase=passphrase)
 
     common_with_auth(env)
