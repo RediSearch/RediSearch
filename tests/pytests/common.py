@@ -175,7 +175,7 @@ def module_version_less_than(env, ver):
     return not module_version_at_least(env, ver)
 
 server_ver = None
-def server_version_at_least(env, ver):
+def server_version_at_least(env: Env, ver):
     global server_ver
     if server_ver is None:
         v = env.execute_command('INFO')['redis_version']
@@ -184,8 +184,22 @@ def server_version_at_least(env, ver):
         ver = version.parse(ver)
     return server_ver >= ver
 
-def server_version_less_than(env, ver):
+def server_version_less_than(env: Env, ver):
     return not server_version_at_least(env, ver)
+
+def server_version_at_least(ver):
+    global server_ver
+    if server_ver is None:
+        import subprocess
+        # Expecting something like "Redis server v=7.2.3 sha=******** malloc=jemalloc-5.3.0 bits=64 build=***************"
+        v = subprocess.run([Defaults.binary, '--version'], stdout=subprocess.PIPE).stdout.decode().split()[2].split('=')[1]
+        server_ver = version.parse(v)
+    if not isinstance(ver, version.Version):
+        ver = version.parse(ver)
+    return server_ver >= ver
+
+def server_version_less_than(ver):
+    return not server_version_at_least(ver)
 
 def index_info(env, idx):
     res = env.cmd('FT.INFO', idx)
