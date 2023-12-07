@@ -355,7 +355,7 @@ typedef struct {
     uint64_t ascendMap;
   } fieldcmp;
 
-  // Whether a timeout was received (and "silenced")
+  // Whether a timeout warning needs to be propagated down the downstream
   bool timedOut;
 } RPSorter;
 
@@ -395,11 +395,11 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
 
   // if our upstream has finished - just change the state to not accumulating, and yield
-  if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
-    self->timedOut = true;
+  if (rc == RS_RESULT_EOF) {
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
-  } else if (rc == RS_RESULT_EOF) {
+  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+    self->timedOut = true;
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
   } else if (rc != RS_RESULT_OK) {
