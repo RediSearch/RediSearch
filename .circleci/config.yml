@@ -437,7 +437,7 @@ jobs:
 
   build-macos-x64-search:
     macos:
-      xcode: 13.4.1
+      xcode: 14.3.1
     resource_class: macos.x86.medium.gen2
     parameters:
       test_params:
@@ -476,7 +476,7 @@ jobs:
 
   build-macos-x64-coordinator:
     macos:
-      xcode: 13.4.1
+      xcode: 14.3.1
     resource_class: macos.x86.medium.gen2
     parameters:
       test_params:
@@ -515,7 +515,7 @@ jobs:
 
   build-macos-m1-search:
     macos:
-      xcode: 14.2.0
+      xcode: 14.3.1
     resource_class: macos.m1.large.gen1
     parameters:
       test_params:
@@ -551,7 +551,7 @@ jobs:
 
   build-macos-m1-coordinator:
     macos:
-      xcode: 14.2.0
+      xcode: 14.3.1
     resource_class: macos.m1.large.gen1
     parameters:
       test_params:
