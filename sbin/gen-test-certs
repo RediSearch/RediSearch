@@ -6,6 +6,8 @@ ROOT=$(cd $HERE/.. && pwd)
 READIES=$ROOT/deps/readies
 . $READIES/shibumi/defs
 
+PHRASE=MySecretPassPhrase42
+
 OP=
 [[ $NOP == 1 ]] && OP=echo
 
@@ -24,8 +26,9 @@ runn "openssl req \
 PASSOUT=""
 PASSIN=""
 if [[ $PASSPHRASE != 0 ]]; then
-	PASSOUT="-aes256 -passout pass:foobar"
-	PASSIN="-passin pass:foobar"
+	PASSOUT="-aes256 -passout pass:$PHRASE"
+	PASSIN="-passin pass:$PHRASE"
+    echo -n $PHRASE > .passphrase
 fi
 
 runn openssl genrsa $PASSOUT -out redis.key 2048
