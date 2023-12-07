@@ -371,3 +371,24 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
         n_recieved += len(res) - 1
 
     env.assertEqual(n_recieved, num_docs)
+
+def testCursorDepletionStrictTimeoutPolicy():
+    """Tests that the cursor returns a timeout error in case of a timeout, when
+    the timeout policy is `ON_TIMEOUT FAIL`"""
+
+    env = Env(moduleArgs='ON_TIMEOUT FAIL')
+    conn = getConnectionByEnv(env)
+
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Populate the index
+    num_docs = 10000 * env.shardsCount
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}', 't', str(i))
+
+    # Create a cursor with a small timeout and a large count (so it will time
+    # out during pipeline execution)
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t', 'GROUPBY', '1', '@t', 'WITHCURSOR', 'COUNT', str(num_docs), 'TIMEOUT', '1'
+    ).error().contains('Timeout limit was reached')
