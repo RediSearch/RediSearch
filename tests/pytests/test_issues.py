@@ -882,8 +882,12 @@ def test_mod5778_add_new_shard_to_cluster(env):
     env.assertEqual(shard_with_slot_0, expected)
 
     expected = {'primary': ('127.0.0.1', new_instance_port), 'replicas': []}  # the expected reply from cluster_slots()
-    res = new_instance_conn.cluster_slots(cluster.ClusterNode('127.0.0.1', new_instance_port))
-    env.assertEqual(len(res), len(env.envRunner.shards) + 1)
+    with TimeLimit(10, 'waiting for new shard to acknowledge the topology change'):
+        # Wait until the new instance node is updated that the slot had moved
+        while True:
+            res = new_instance_conn.cluster_slots(cluster.ClusterNode('127.0.0.1', new_instance_port))
+            if len(res) == len(env.envRunner.shards) + 1:
+                break
     env.assertEqual(res[(0, 0)], expected)
 
     # cleanup
