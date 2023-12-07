@@ -1381,7 +1381,7 @@ def test_error_propagation_from_shards_resp3():
     test_error_propagation_from_shards(env)
 
 @skip(cluster=True)
-def testTimedOutValue_resp3():
+def testTimedOutWarning_resp3():
   env = Env(protocol=3)
   TimedoutTest_resp3(env)
 
