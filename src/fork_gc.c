@@ -726,6 +726,11 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
     // the first valid block we want to keep.
 
     memmove(idx->blocks, idx->blocks + idxData->numDelBlocks, sizeof(*idx->blocks) * idx->size);
+
+    if (idx->size == 0) {
+      InvertedIndex_AddBlock(idx, 0, NULL);
+      info->nbytesAdded += INDEX_BLOCK_INITIAL_CAP;
+    }
   }
 
   // TODO : can we skip if we have newBlocklist?
