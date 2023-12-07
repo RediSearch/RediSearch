@@ -519,3 +519,20 @@ def populate_db(env, n=10000):
             pipeline.execute()
             pipeline = conn.pipeline(transaction=False)
     pipeline.execute()
+
+def get_TLS_args():
+    root = os.environ.get('ROOT', None)
+    if root is None:
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # go up 3 levels from common.py
+
+    cert_file =     os.path.join(root, 'bin', 'tls', 'redis.crt')
+    key_file =      os.path.join(root, 'bin', 'tls', 'redis.key')
+    ca_cert_file =  os.path.join(root, 'bin', 'tls', 'ca.crt')
+
+    if server_version_at_least('6.2'):
+        with open(os.path.join(root, 'bin', 'tls', '.passphrase'), 'r') as f:
+            passphrase = f.read()
+    else:
+        passphrase = None
+
+    return cert_file, key_file, ca_cert_file, passphrase
