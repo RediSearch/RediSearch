@@ -668,6 +668,19 @@ if [[ $ENV_ONLY == 1 ]]; then
 	exit 0
 fi
 
+#------------------------------------------------------------------------------------ Setup TLS
+
+redis_ver=$($REDIS_SERVER --version | cut -d= -f2 | cut -d" " -f1)
+redis_major=$(echo "$redis_ver" | cut -d. -f1)
+redis_minor=$(echo "$redis_ver" | cut -d. -f2)
+if [[ $redis_major == 7 || $redis_major == 6 && $redis_minor == 2 ]]; then
+	PASSPHRASE=1
+else
+	PASSPHRASE=0
+fi
+
+PASSPHRASE=$PASSPHRASE $ROOT/sbin/gen-test-certs
+
 #-------------------------------------------------------------------------------- Running tests
 
 if [[ $CLEAR_LOGS != 0 ]]; then
@@ -720,36 +733,10 @@ elif [[ $COORD == oss ]]; then
 
 	# Increase timeout (to 5 min) for tests with coordinator to avoid cluster fail when it take more time for
 	# passing PINGs between shards
-  oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 300000"
+  	oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 300000"
 
-	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
-		{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
-		   run_tests "OSS cluster tests"); (( E |= $? )); } || true
-	fi
-
-	if [[ $QUICK != 1 ]]; then
-		tls_args="--tls \
-			--tls-cert-file $ROOT/bin/tls/redis.crt \
-			--tls-key-file $ROOT/bin/tls/redis.key \
-			--tls-ca-cert-file $ROOT/bin/tls/ca.crt"
-
-		redis_ver=$($REDIS_SERVER --version | cut -d= -f2 | cut -d" " -f1)
-		redis_major=$(echo "$redis_ver" | cut -d. -f1)
-		redis_minor=$(echo "$redis_ver" | cut -d. -f2)
-		if [[ $redis_major == 7 || $redis_major == 6 && $redis_minor == 2 ]]; then
-			PASSPHRASE=1
-			tls_args+=" --tls-passphrase foobar"
-		else
-			PASSPHRASE=0
-		fi
-
-		PASSPHRASE=$PASSPHRASE $ROOT/sbin/gen-test-certs
-
-		if [[ -z $CONFIG || $CONFIG == tls ]]; then
-			{ (RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} ${tls_args}" \
-			   run_tests "OSS cluster tests TLS"); (( E |= $? )); } || true
-		fi
-	fi # QUICK
+	{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
+	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
 
 elif [[ $COORD == rlec ]]; then
 	dhost=$(echo "$DOCKER_HOST" | awk -F[/:] '{print $4}')
