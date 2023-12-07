@@ -332,7 +332,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   if (rows) {
       bool resp3 = MRReply_Type(rows) == MR_REPLY_MAP;
-      bool has_warning = false;
+      bool timed_out = false;
       size_t len;
       if (resp3) {
         MRReply *results = MRReply_MapElement(rows, "results");
@@ -350,19 +350,24 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
           nc->shardsProfile[nc->shardsProfileIdx++] = root;
         } else {
           // Check for a warning (resp3 only)
-          if (resp3 && MRReply_Length(MRReply_MapElement(rows, "warning")) > 0) {
-            MRReply *warning = MRReply_ArrayElement(MRReply_MapElement(rows, "warning"), 0);
-            QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC,
-              MRReply_String(warning, NULL));
-            has_warning = true;
+          MRReply *warning = MRReply_MapElement(rows, "warning");
+          if (resp3 && MRReply_Length(warning) > 0) {
+            warning = MRReply_ArrayElement(warning, 0);
+            // Set an error to be later picked up and sent as a warning
+            // Note: Once we support more than only the timeout warning - extend this
+            // behavior to return `RS_RESULT_NONFATAL_ERROR` for which we return
+            // a warning only (instead of a simple error).
+            if (!strcmp(MRReply_String(warning, NULL), QueryError_Strerror(QUERY_ETIMEDOUT))) {
+              timed_out = true;
+            }
           }
 
           MRReply_Free(root);
         }
         nc->current.root = nc->current.rows = root = rows = NULL;
 
-        if (has_warning) {
-          return RS_RESULT_ERROR;
+        if (timed_out) {
+          return RS_RESULT_TIMEDOUT;
         }
       }
   }

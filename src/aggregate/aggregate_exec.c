@@ -604,9 +604,10 @@ done_3:
     // <error>
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
     if (rc == RS_RESULT_TIMEDOUT) {
-      ReplyWithTimeoutError(reply);
+      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
     } else if (rc == RS_RESULT_ERROR) {
-      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
+      // Non-fatal error
+      RedisModule_Reply_SimpleString(reply, QueryError_GetError(req->qiter.err));
       QueryError_ClearError(req->qiter.err);
     }
     RedisModule_Reply_ArrayEnd(reply); // >warnings
