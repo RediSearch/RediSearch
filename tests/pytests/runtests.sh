@@ -33,9 +33,7 @@ help() {
 		COORD=1|oss|rlec      Test Coordinator
 		SHARDS=n              Number of OSS coordinator shards (default: 3)
 		QUICK=1|~1|0          Perform only common test variant (~1: all but common)
-		CONFIG=cfg            Perform one of: concurrent_write, max_unsorted,
-		                        union_iterator_heap, raw_docid, dialect_2,
-		                        (coordinator:) tls
+		CONFIG=cfg            Perform one of: max_unsorted, union_iterator_heap, raw_docid, dialect_2,
 
 		TEST=name             Run specific test (e.g. test.py:test_name)
 		TESTFILE=file         Run tests listed in `file`
