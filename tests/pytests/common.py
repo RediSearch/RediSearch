@@ -186,7 +186,7 @@ def server_version_at_least(env: Env, ver):
 def server_version_less_than(env: Env, ver):
     return not server_version_at_least(env, ver)
 
-def server_version_at_least(ver):
+def server_version_is_at_least(ver):
     global server_ver
     if server_ver is None:
         import subprocess
@@ -197,8 +197,8 @@ def server_version_at_least(ver):
         ver = version.parse(ver)
     return server_ver >= ver
 
-def server_version_less_than(ver):
-    return not server_version_at_least(ver)
+def server_version_is_less_than(ver):
+    return not server_version_is_at_least(ver)
 
 def index_info(env, idx):
     res = env.cmd('FT.INFO', idx)
@@ -529,7 +529,7 @@ def get_TLS_args():
     key_file =      os.path.join(root, 'bin', 'tls', 'redis.key')
     ca_cert_file =  os.path.join(root, 'bin', 'tls', 'ca.crt')
 
-    if server_version_at_least('6.2'):
+    if server_version_is_at_least('6.2'):
         with open(os.path.join(root, 'bin', 'tls', '.passphrase'), 'r') as f:
             passphrase = f.read()
     else:
