@@ -445,6 +445,8 @@ def testFailOnTimeout_nonStrict(env):
 
 @skip(cluster=True)
 def testFailOnTimeout_strict():
+  # The profile output is the same for strict timeout policy, i.e., the timeout
+  # error becomes a warning for the `FT.PROFILE` command.
   TimeoutWarningInProfile(Env(moduleArgs="ON_TIMEOUT FAIL"))
 
 def TimedoutTest_resp3(env):
