@@ -101,7 +101,6 @@ MRWorkQueue *RQ_New(size_t cap, int maxPending) {
   q->pending = 0;
   q->maxPending = maxPending;
   uv_mutex_init(&q->lock);
-  // TODO: Add close cb
   uv_async_init(uv_default_loop(), &q->async, rqAsyncCb);
   q->async.data = q;
   return q;
@@ -123,7 +122,6 @@ void RQ_Free(MRWorkQueue *q) {
       ++pending_req;
     }
     rm_free(req);
-    q->pending--;
     q->sz--;
   }
 
@@ -136,5 +134,8 @@ void RQ_Free(MRWorkQueue *q) {
 
   uv_mutex_unlock(&q->lock);
   uv_mutex_destroy(&q->lock);
+  // From the libuv docs [https://docs.libuv.org/en/v1.x/handle.html#c.uv_close]:
+  // "close_cb will be called asynchronously after this call. This MUST be called on each handle before memory is released.
+  //  Moreover, the memory can only be released in close_cb or after it has returned."
   uv_close((uv_handle_t *)&q->async, RQ_FreeInternal);
 }
