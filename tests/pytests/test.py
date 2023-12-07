@@ -3767,22 +3767,6 @@ def test_internal_commands(env):
         fail_eval_call(r, env, ['SEARCH.CLUSTERREFRESH'])
         fail_eval_call(r, env, ['SEARCH.CLUSTERINFO'])
 
-def test_with_password():
-    mypass = '42MySecretPassword$'
-    args = f'OSS_GLOBAL_PASSWORD {mypass}' if COORD in ['1', 'oss'] else None
-    env = Env(moduleArgs=args, password=mypass)
-    conn = getConnectionByEnv(env)
-    n_docs = 100
-
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
-    for i in range(n_docs):
-        conn.execute_command('HSET', f'doc{i}', 'n', i)
-
-    expected_res = [n_docs]
-    for i in range(10):
-        expected_res.extend([f'doc{i}', ['n', str(i)]])
-    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'n').equal(expected_res)
-
 def test_timeout_non_strict_policy(env):
     """Tests that we get the wanted behavior for the non-strict timeout policy.
     `ON_TIMEOUT RETURN` - return partial results.
@@ -3829,3 +3813,50 @@ def test_timeout_strict_policy():
     env.expect(
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
         ).error().contains('Timeout limit was reached')
+
+
+def common_with_auth(env: Env):
+    conn = getConnectionByEnv(env)
+    n_docs = 100
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    for i in range(n_docs):
+        conn.execute_command('HSET', f'doc{i}', 'n', i)
+
+    if env.isCluster():
+        # Mimic periodic cluster refresh
+        env.expect('SEARCH.CLUSTERREFRESH').ok()
+
+    expected_res = [n_docs]
+    for i in range(10):
+        expected_res.extend([f'doc{i}', ['n', str(i)]])
+    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'n').equal(expected_res)
+
+def test_with_password():
+    mypass = '42MySecretPassword$'
+    args = f'OSS_GLOBAL_PASSWORD {mypass}' if COORD in ['1', 'oss'] else None
+    env = Env(moduleArgs=args, password=mypass)
+    common_with_auth(env)
+
+def test_with_tls():
+    root = os.environ.get('ROOT', None)
+    if root is None:
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # go up 3 levels from test.py
+
+    cert_file =     os.path.join(root, 'bin', 'tls', 'redis.crt')
+    key_file =      os.path.join(root, 'bin', 'tls', 'redis.key')
+    ca_cert_file =  os.path.join(root, 'bin', 'tls', 'ca.crt')
+
+    if server_version_at_least('6.2'):
+        with open(os.path.join(root, 'bin', 'tls', '.passphrase'), 'r') as f:
+            passpharse = f.read()
+    else:
+        passpharse = None
+
+    env = Env(useTLS=True,
+              tlsCertFile=cert_file,
+              tlsKeyFile=key_file,
+              tlsCaCertFile=ca_cert_file,
+              tlsPassphrase=passpharse)
+
+    common_with_auth(env)
