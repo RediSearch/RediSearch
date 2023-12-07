@@ -329,15 +329,13 @@ static bool ShouldReplyWithError(ResultProcessor *rp, AREQ *req) {
       && (rp->parent->err->code != QUERY_ETIMEDOUT
           || (rp->parent->err->code == QUERY_ETIMEDOUT
               && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
-              && !IsProfile(req)
-              && !(req->reqflags & QEXEC_F_IS_CURSOR)));
+              && !IsProfile(req)));
 }
 
 static bool ShouldReplyWithTimeoutError(int rc, AREQ *req) {
   // TODO: Remove cursor condition (MOD-5992)
   return rc == RS_RESULT_TIMEDOUT
          && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
-         && !(req->reqflags & QEXEC_F_IS_CURSOR)
          && !IsProfile(req);
 }
 
