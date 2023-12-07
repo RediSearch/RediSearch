@@ -383,7 +383,7 @@ def testNotIterator(env):
 
   env.expect('ft.profile', 'idx', 'search', 'query', 'foo -@t:baz').equal(res)
 
-def FailOnTimeoutTest(env):
+def TimeoutWarningInProfile(env):
   """
   Tests the behavior of `FT.PROFILE` when a timeout occurs.
   We expect the same behavior for both strict and non-strict timeout policies.
@@ -441,13 +441,13 @@ def FailOnTimeoutTest(env):
 
 @skip(cluster=True)
 def testFailOnTimeout_nonStrict(env):
-  FailOnTimeoutTest(env)
+  TimeoutWarningInProfile(env)
 
 @skip(cluster=True)
 def testFailOnTimeout_strict():
-  FailOnTimeoutTest(Env(moduleArgs="ON_TIMEOUT FAIL"))
+  TimeoutWarningInProfile(Env(moduleArgs="ON_TIMEOUT FAIL"))
 
-def TimedoutTest(env):
+def TimedoutTest_resp3(env):
   """Tests that the `Timedout` value of the profile response is correct"""
 
   conn = getConnectionByEnv(env)
@@ -465,20 +465,14 @@ def TimedoutTest(env):
     'FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
   )
 
-  if env.protocol == 2:
-    env.assertEqual(res[1][3][1], 'Timeout limit was reached')
-  else:
-    env.assertEqual(res['profile']['Warning'], 'Timeout limit was reached')
+  env.assertEqual(res['profile']['Warning'], 'Timeout limit was reached')
 
   # Simple `AGGREGATE` command
   res = conn.execute_command(
     'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT', '1'
   )
 
-  if env.protocol == 2:
-    env.assertEqual(res[1][3][1], 'Timeout limit was reached')
-  else:
-    env.assertEqual(res['profile']['Warning'], 'Timeout limit was reached')
+  env.assertEqual(res['profile']['Warning'], 'Timeout limit was reached')
 
 def TimedOutWarningtestCoord(env):
   """Tests the `FT.PROFILE` response for the cluster build (coordinator)"""
