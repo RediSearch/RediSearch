@@ -1400,8 +1400,7 @@ def test_error_with_partial_results():
 
   # Assert that we got a warning
   env.assertEqual(len(res['warning']), 1)
-  env.assertEqual(type(res['warning'][0]), ResponseError)
-  env.assertEqual(str(res['warning'][0]), 'Timeout limit was reached')
+  env.assertEqual(res['warning'][0], 'Timeout limit was reached')
 
   # `FT.SEARCH`
   res = conn.execute_command(
@@ -1409,5 +1408,4 @@ def test_error_with_partial_results():
   )
 
   env.assertEqual(len(res['warning']), 1)
-  env.assertEqual(type(res['warning'][0]), ResponseError)
-  env.assertEqual(str(res['warning'][0]), 'Timeout limit was reached')
+  env.assertEqual(res['warning'][0], 'Timeout limit was reached')
