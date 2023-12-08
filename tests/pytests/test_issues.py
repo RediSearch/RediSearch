@@ -808,7 +808,7 @@ def test_mod5791(env):
     env.assertEqual(2, con.execute_command('HSET', 'doc1', 't', 'Hello world', 'v', 'abcdefgh'))
     env.assertEqual(2, con.execute_command('HSET', 'doc2', 't', 'Hello world', 'v', 'abcdefgi'))
 
-    # The RSIndexResult object should be contracted as following:
+    # The RSIndexResult object should be constructed as following:
     # UNION:
     #   INTERSECTION:
     #       metric
