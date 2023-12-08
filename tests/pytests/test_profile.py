@@ -197,8 +197,7 @@ def testProfileNumeric(env):
   env.assertEqual(actual_res[1][3], expected_res)
 
 @skip(cluster=True)
-def testProfileNegativeNumeric():
-  env = Env(protocol=3)
+def testProfileNegativeNumeric(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
@@ -218,10 +217,11 @@ def testProfileNegativeNumeric():
       conn.execute_command('hset', i, 'n',val)
 
     actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@n:[-inf +inf]', 'nocontent')
-    Iterators_profile = actual_res['profile']['Iterators profile'][0]
-    child_iter_list = Iterators_profile['Child iterators']
+    # get ['profile']['Iterators profile']['Child iterators'] list
+    child_iter_list = actual_res[1][3][1][7::]
 
-    def extract_child_range(child: dict):
+    def extract_child_range(child_data: list):
+      child = to_dict(child_data)
       iter_term = child['Term']
       res_range = iter_term.split(" - ")
       range_dict = {"min":float(res_range[0]), "max": float(res_range[1])}
