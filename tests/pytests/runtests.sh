@@ -666,19 +666,6 @@ if [[ $ENV_ONLY == 1 ]]; then
 	exit 0
 fi
 
-#------------------------------------------------------------------------------------ Setup TLS
-
-redis_ver=$($REDIS_SERVER --version | cut -d= -f2 | cut -d" " -f1)
-redis_major=$(echo "$redis_ver" | cut -d. -f1)
-redis_minor=$(echo "$redis_ver" | cut -d. -f2)
-if [[ $redis_major == 7 || $redis_major == 6 && $redis_minor == 2 ]]; then
-	PASSPHRASE=1
-else
-	PASSPHRASE=0
-fi
-
-PASSPHRASE=$PASSPHRASE $ROOT/sbin/gen-test-certs
-
 #-------------------------------------------------------------------------------- Running tests
 
 if [[ $CLEAR_LOGS != 0 ]]; then
