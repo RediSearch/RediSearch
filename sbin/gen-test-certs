@@ -21,8 +21,8 @@ openssl req \
 PASSOUT=""
 PASSIN=""
 if [[ $WITH_PASSPHRASE == 1 ]]; then
-	PASSOUT="-aes256 -passout pass:$PHRASE"
-	PASSIN="-passin pass:$PHRASE"
+    PASSOUT="-aes256 -passout pass:$PHRASE"
+    PASSIN="-passin pass:$PHRASE"
     echo -n $PHRASE > .passphrase
 fi
 
