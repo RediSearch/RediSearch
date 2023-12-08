@@ -525,14 +525,27 @@ def get_TLS_args():
     if root is None:
         root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # go up 3 levels from common.py
 
-    cert_file =     os.path.join(root, 'bin', 'tls', 'redis.crt')
-    key_file =      os.path.join(root, 'bin', 'tls', 'redis.key')
-    ca_cert_file =  os.path.join(root, 'bin', 'tls', 'ca.crt')
+    cert_file       = os.path.join(root, 'bin', 'tls', 'redis.crt')
+    key_file        = os.path.join(root, 'bin', 'tls', 'redis.key')
+    ca_cert_file    = os.path.join(root, 'bin', 'tls', 'ca.crt')
+    passphrase_file = os.path.join(root, 'bin', 'tls', '.passphrase')
 
-    if server_version_is_at_least('6.2'):
-        with open(os.path.join(root, 'bin', 'tls', '.passphrase'), 'r') as f:
-            passphrase = f.read()
-    else:
-        passphrase = None
+    with_pass = server_version_is_at_least('6.2')
+
+    # If any of the files are missing, generate them
+    def exists(path):
+        return os.path.exists(path) and os.path.isfile(path)
+    if not exists(cert_file)    or \
+       not exists(key_file)     or \
+       not exists(ca_cert_file) or \
+       (with_pass and not exists(passphrase_file)):
+        import subprocess
+        subprocess.run([os.path.join(root, 'sbin', 'gen-test-certs'), str(1 if with_pass else 0)])
+
+    def get_passphrase():
+        with open(passphrase_file, 'r') as f:
+            return f.read()
+
+    passphrase = get_passphrase() if with_pass else None
 
     return cert_file, key_file, ca_cert_file, passphrase
