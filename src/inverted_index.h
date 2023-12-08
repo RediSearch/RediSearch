@@ -94,6 +94,10 @@ static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
 /* Create a new inverted index object, with the given flag. If initBlock is 1, we create the first
  * block */
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *sz);
+/* Add a new block to the index with a given document id as the initial id
+  * Returns the new block
+  * *sz must be not NULL, because the new size of the index is added to it
+*/
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *sz);
 void indexBlock_Free(IndexBlock *blk);
 void InvertedIndex_Free(void *idx);

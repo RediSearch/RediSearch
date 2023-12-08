@@ -25,7 +25,6 @@
 #include "rmutil/rm_assert.h"
 #include "suffix.h"
 #include "resp3.h"
-#include "util/minmax.h"
 
 #ifdef __linux__
 #include <sys/prctl.h>
@@ -48,9 +47,10 @@ typedef enum {
 } FGCError;
 
 // Assumes the spec is locked.
-static void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx, size_t recordsRemoved, size_t bytesCollected) {
+static void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
+            size_t recordsRemoved, size_t bytesCollected, size_t bytesAdded) {
   sctx->spec->stats.numRecords -= recordsRemoved;
-  sctx->spec->stats.invertedSize -= bytesCollected;
+  sctx->spec->stats.invertedSize -= bytesCollected + bytesAdded;
   gc->stats.totalCollected += bytesCollected;
 }
 
@@ -728,8 +728,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
     memmove(idx->blocks, idx->blocks + idxData->numDelBlocks, sizeof(*idx->blocks) * idx->size);
 
     if (idx->size == 0) {
-      InvertedIndex_AddBlock(idx, 0, NULL);
-      info->nbytesAdded += INDEX_BLOCK_INITIAL_CAP;
+      InvertedIndex_AddBlock(idx, 0, &info->nbytesAdded);
     }
   }
 
@@ -803,7 +802,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     }
   }
 
-  FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected);
+  FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded);
 
 cleanup:
 
@@ -907,7 +906,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   FGC_applyInvertedIndex(gc, idxbufs, info, currNode->range->entries);
   currNode->range->entries->numEntries -= info->nentriesCollected;
   currNode->range->invertedIndexSize -= info->nbytesCollected;
-  FGC_updateStats(gc, sctx, info->nentriesCollected, info->nbytesCollected);
+  FGC_updateStats(gc, sctx, info->nentriesCollected, info->nbytesCollected, info->nbytesAdded);
 
   // TODO: fix for NUMERIC similar to TAG fix PR#2269
   // if (currNode->range->entries->numDocs == 0) {
@@ -998,7 +997,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
       rt->numRanges += rv.numRanges;
       rt->emptyLeaves = 0;
-      FGC_updateStats(gc, &sctx, 0, -rv.sz);
+      FGC_updateStats(gc, &sctx, 0, -rv.sz, 0);
     }
     RedisSearchCtx_UnlockSpec(&sctx);
     StrongRef_Release(spec_ref);
@@ -1063,7 +1062,8 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
       goto loop_cleanup;
     }
 
-    InvertedIndex *idx = TagIndex_OpenIndex(tagIdx, tagVal, tagValLen, 0, NULL);
+    size_t dummy_size = 0;
+    InvertedIndex *idx = TagIndex_OpenIndex(tagIdx, tagVal, tagValLen, 0, &dummy_size);
     if (idx == TRIEMAP_NOTFOUND || idx != value) {
       status = FGC_PARENT_ERROR;
       goto loop_cleanup;
@@ -1081,7 +1081,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
       }
     }
 
-    FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected);
+    FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded);
 
   loop_cleanup:
     if (idxKey) {

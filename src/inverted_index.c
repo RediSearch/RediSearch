@@ -41,16 +41,11 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *
   TotalIIBlocks++;
   idx->size++;
   idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
-  if(sz) {
-    (*sz) += sizeof(IndexBlock);
-  }
   IndexBlock *last = idx->blocks + (idx->size - 1);
   memset(last, 0, sizeof(*last));  // for msan
   last->firstId = last->lastId = firstId;
   Buffer_Init(&INDEX_LAST_BLOCK(idx).buf, INDEX_BLOCK_INITIAL_CAP);
-  if(sz) {
-    (*sz) += INDEX_BLOCK_INITIAL_CAP;
-  }
+  (*sz) += sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
   return &INDEX_LAST_BLOCK(idx);
 }
 
@@ -59,7 +54,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *sz) {
   int useNumEntries = flags & Index_StoreNumeric;
   RedisModule_Assert(!(useFieldMask && useNumEntries));
   size_t size = sizeof_InvertedIndex(flags);
-  *sz = size; 
+  *sz += size;
   InvertedIndex *idx = rm_malloc(size);
   idx->blocks = NULL;
   idx->size = 0;
@@ -533,9 +528,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   // see if we need to grow the current block
   if (blk->numEntries >= blockSize && !same_doc) {
     // If same doc can span more than a single block - need to adjust IndexReader_SkipToBlock
-    auxSz = 0;
-    blk = InvertedIndex_AddBlock(idx, docId, &auxSz);
-    sz += auxSz;
+    blk = InvertedIndex_AddBlock(idx, docId, &sz);
   } else if (blk->numEntries == 0) {
     blk->firstId = blk->lastId = docId;
   }
@@ -550,9 +543,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   //
   // For numeric encoder the maximal delta is practically not a limit (see structs `EncodingHeader` and `NumEncodingCommon`)
   if (delta > UINT32_MAX && encoder != encodeNumeric) {
-    auxSz = 0;
-    blk = InvertedIndex_AddBlock(idx, docId, &auxSz);
-    sz += auxSz;
+    blk = InvertedIndex_AddBlock(idx, docId, &sz);
     delta = 0;
   }
 

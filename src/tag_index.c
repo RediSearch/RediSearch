@@ -128,7 +128,8 @@ int TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data
   return ret;
 }
 
-struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_t len, int create, size_t *sz) {
+struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value,
+                                          size_t len, int create, size_t *sz) {
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
   if (iv == TRIEMAP_NOTFOUND) {
     if (create) {

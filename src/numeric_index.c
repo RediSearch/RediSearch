@@ -180,7 +180,7 @@ NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard) {
 
   n->maxDepth = 0;
   n->range = rm_malloc(sizeof(NumericRange));
-  size_t sz;
+  size_t sz = 0;
 
   *n->range = (NumericRange){
       .minVal = __DBL_MAX__,

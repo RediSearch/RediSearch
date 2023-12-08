@@ -23,7 +23,7 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
 
-  size_t sz;
+  size_t sz = 0;
   InvertedIndex *idx = NewInvertedIndex(RedisModule_LoadUnsigned(rdb), 0, &sz);
 
   // If the data was encoded with a version that did not include the store numeric / store freqs
