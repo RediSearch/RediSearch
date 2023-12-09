@@ -3641,7 +3641,7 @@ def test_RED_86036(env):
     for i in range(1000):
         env.cmd('hset', 'doc%d' % i, 't', 'foo')
     res = env.cmd('FT.PROFILE', 'idx', 'search', 'query', '*', 'INKEYS', '2', 'doc0', 'doc999')
-    res = res[1][3][1][7] # get the list iterator profile
+    res = res[1][4][1][7] # get the list iterator profile
     env.assertEqual(res[1], 'ID-LIST')
     env.assertLess(res[5], 3)
 
