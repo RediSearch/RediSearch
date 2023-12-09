@@ -3734,3 +3734,66 @@ def test_internal_commands(env):
         fail_eval_call(r, env, ['SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1', 'SHARD', '1', 'SLOTRANGE', '0', '16383', 'ADDR', 'password@127.0.0.1:22000', 'MASTER'])
         fail_eval_call(r, env, ['SEARCH.CLUSTERREFRESH'])
         fail_eval_call(r, env, ['SEARCH.CLUSTERINFO'])
+
+def test_with_password():
+    mypass = '42MySecretPassword$'
+    args = f'OSS_GLOBAL_PASSWORD {mypass}' if COORD in ['1', 'oss'] else None
+    env = Env(moduleArgs=args, password=mypass)
+    conn = getConnectionByEnv(env)
+    n_docs = 100
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    for i in range(n_docs):
+        conn.execute_command('HSET', f'doc{i}', 'n', i)
+
+    expected_res = [n_docs]
+    for i in range(10):
+        expected_res.extend([f'doc{i}', ['n', str(i)]])
+    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'n').equal(expected_res)
+
+def test_timeout_non_strict_policy(env):
+    """Tests that we get the wanted behavior for the non-strict timeout policy.
+    `ON_TIMEOUT RETURN` - return partial results.
+    """
+
+    conn = getConnectionByEnv(env)
+
+    # Create an index, and populate it
+    n = 20000
+    populate_db(env, n)
+
+    # Query the index with a small timeout, and verify that we get partial results
+    num_docs = n * env.shardsCount
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+        )
+    env.assertTrue(len(res) < num_docs * 2 + 1)
+
+    # Same for `FT.AGGREGATE`
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
+        )
+    env.assertTrue(len(res) < num_docs + 1)
+
+def test_timeout_strict_policy():
+    """Tests that we get the wanted behavior for the strict timeout policy.
+    `ON_TIMEOUT FAIL` - return an error upon experiencing a timeout, without the
+    partial results.
+    """
+
+    env = Env(moduleArgs='ON_TIMEOUT FAIL')
+
+    # Create an index, and populate it
+    n = 20000
+    populate_db(env, n)
+
+    # Query the index with a small timeout, and verify that we get an error
+    num_docs = n * env.shardsCount
+    env.expect(
+        'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+        ).error().contains('Timeout limit was reached')
+
+    # Same for `FT.AGGREGATE`
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
+        ).error().contains('Timeout limit was reached')

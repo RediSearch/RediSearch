@@ -34,8 +34,9 @@ class TimeLimit(object):
     return within the specified amount of time.
     """
 
-    def __init__(self, timeout):
+    def __init__(self, timeout, message='operation timeout exceeded'):
         self.timeout = timeout
+        self.message = message
 
     def __enter__(self):
         signal.signal(signal.SIGALRM, self.handler)
@@ -46,7 +47,7 @@ class TimeLimit(object):
         signal.signal(signal.SIGALRM, signal.SIG_DFL)
 
     def handler(self, signum, frame):
-        raise Exception('timeout')
+        raise Exception(f'Timeout: {self.message}')
 
 
 def getConnectionByEnv(env):
@@ -484,3 +485,23 @@ def number_to_ordinal(n: int) -> str:
     else:
         suffix = ['th', 'st', 'nd', 'rd', 'th'][min(n % 10, 4)]
     return str(n) + suffix
+
+def populate_db(env, n=10000):
+    """Creates a simple index called `idx`, and populates the database with
+    `n * n_shards` matching documents.
+
+    Parameters:
+        n (int): Number of documents to create per shard
+    Returns:
+        None
+    """
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
+    num_docs = n * env.shardsCount
+    pipeline = conn.pipeline(transaction=False)
+    for i, t1 in enumerate(np.random.randint(1, 1024, num_docs)):
+        pipeline.hset(i, 't1', str(t1))
+        if i % 1000 == 0:
+            pipeline.execute()
+            pipeline = conn.pipeline(transaction=False)
+    pipeline.execute()
