@@ -37,7 +37,7 @@ static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *id
                                           RSIndexResult *record);
 
 /* Add a new block to the index with a given document id as the initial id */
-IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *sz) {
+IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize) {
   TotalIIBlocks++;
   idx->size++;
   idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
@@ -45,17 +45,17 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *
   memset(last, 0, sizeof(*last));  // for msan
   last->firstId = last->lastId = firstId;
   Buffer_Init(&INDEX_LAST_BLOCK(idx).buf, INDEX_BLOCK_INITIAL_CAP);
-  (*sz) += sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
+  (*memsize) += sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
   return &INDEX_LAST_BLOCK(idx);
 }
 
-InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *sz) {
+InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize) {
   int useFieldMask = flags & Index_StoreFieldFlags;
   int useNumEntries = flags & Index_StoreNumeric;
   RedisModule_Assert(!(useFieldMask && useNumEntries));
   size_t size = sizeof_InvertedIndex(flags);
-  *sz += size;
   InvertedIndex *idx = rm_malloc(size);
+  *memsize += size;
   idx->blocks = NULL;
   idx->size = 0;
   idx->lastId = 0;
@@ -68,7 +68,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *sz) {
     idx->numEntries = 0;
   }
   if (initBlock) {
-    InvertedIndex_AddBlock(idx, 0, sz);
+    InvertedIndex_AddBlock(idx, 0, memsize);
   }
   return idx;
 }
@@ -504,7 +504,6 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
 size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
                                        RSIndexResult *entry) {
   size_t sz = 0;
-  size_t auxSz;
   int same_doc = 0;
   if (idx->lastId && idx->lastId == docId) {
     if (encoder != encodeNumeric) {

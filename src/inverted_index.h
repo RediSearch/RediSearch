@@ -33,8 +33,8 @@ typedef struct {
 } IndexBlock;
 
 typedef struct InvertedIndex {
-  IndexBlock *blocks;
-  uint32_t size;
+  IndexBlock *blocks; // array containing the inverted index blocks
+  uint32_t size;      // number of blocks
   IndexFlags flags;
   t_docId lastId;
   uint32_t numDocs;
@@ -96,9 +96,9 @@ static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *sz);
 /* Add a new block to the index with a given document id as the initial id
   * Returns the new block
-  * *sz must be not NULL, because the new size of the index is added to it
+  * in/out *memsize must be not NULL, because the size (bytes) of the new block is added to it
 */
-IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *sz);
+IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize);
 void indexBlock_Free(IndexBlock *blk);
 void InvertedIndex_Free(void *idx);
 

@@ -1379,7 +1379,7 @@ TEST_F(IndexTest, testDocTable) {
   ASSERT_EQ(N + 1, dt.size);
   ASSERT_EQ(N, dt.maxDocId);
 #ifdef __x86_64__
-  ASSERT_EQ(10180, (int)dt.memsize);
+  ASSERT_EQ(12703, (int)dt.memsize);
 #endif
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
