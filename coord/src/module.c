@@ -1056,7 +1056,7 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   if (resp3) {
     // Check for a warning
     MRReply *warning = MRReply_MapElement(arr, "warning");
-    RS_LOG_ASSERT(warning && MRReply_Type(warning) == MR_REPLY_ARRAY, "invalid error record");
+    RS_LOG_ASSERT(warning && MRReply_Type(warning) == MR_REPLY_ARRAY, "invalid warning record");
     if (!rCtx->warning && MRReply_Length(warning) > 0) {
       rCtx->warning = warning;
     }
@@ -1192,7 +1192,7 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
   {
     // Check for a warning
     MRReply *warning = MRReply_MapElement(arr, "warning");
-    RS_LOG_ASSERT(warning && MRReply_Type(warning) == MR_REPLY_ARRAY, "invalid error record");
+    RS_LOG_ASSERT(warning && MRReply_Type(warning) == MR_REPLY_ARRAY, "invalid warning record");
     if (!rCtx->warning && MRReply_Length(warning) > 0) {
       rCtx->warning = warning;
     }
