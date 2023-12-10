@@ -16,6 +16,7 @@
 #include "gc.h"
 #include "module.h"
 #include "suffix.h"
+#include "util/workers.h"
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
@@ -979,6 +980,24 @@ DEBUG_COMMAND(VecsimInfo) {
   return REDISMODULE_OK;
 }
 
+/**
+ * FT.DEBUG WORKER_THREADS_SWITCH [PAUSE / RESUME]
+ */
+DEBUG_COMMAND(WorkerThreadsSwitch) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[0], NULL);
+  if (!strcasecmp(op, "pause")) {
+    workersThreadPool_pause();
+  } else if (!strcasecmp(op, "resume")) {
+    workersThreadPool_resume();
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'WORKER_THREADS_SWITCH' subcommand");
+  }
+  return RedisModule_ReplyWithCString(ctx, "OK");
+}
+
 typedef struct DebugCommandType {
   char *name;
   int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -1004,6 +1023,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GIT_SHA", GitSha},
                                {"TTL", ttl},
                                {"VECSIM_INFO", VecsimInfo},
+                               {"WORKER_THREADS_SWITCH", WorkerThreadsSwitch},
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

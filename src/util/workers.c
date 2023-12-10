@@ -127,4 +127,16 @@ void workersThreadPool_SetTerminationWhenEmpty() {
   }
 }
 
+/********************************************* for debugging **********************************/
+
+int workersThreadPool_pause() {
+  if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0) {return -1;}
+  workersThreadPool_Terminate();
+}
+
+int workersThreadPool_resume() {
+  if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0) {return -1;}
+  workersThreadPool_InitPool();
+}
+
 #endif // MT_BUILD

@@ -77,8 +77,6 @@ def test_invalid_mt_config_combinations(env):
 
 
 def test_reload_index_while_indexing():
-    if CODE_COVERAGE:
-        raise unittest.SkipTest()
 
     env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
     n_shards = env.shardsCount
