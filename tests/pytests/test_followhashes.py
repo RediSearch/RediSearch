@@ -101,9 +101,6 @@ def testFlushallManyPrefixes(env):
     env.assertEqual(dump_trie['prefixes_count'], 0)
     env.assertEqual(dump_trie['prefixes_trie_nodes'], 0)
 
-
-
-
 def testFilter2(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'stuff', 'ON', 'HASH',
