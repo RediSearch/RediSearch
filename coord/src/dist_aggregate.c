@@ -335,7 +335,6 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   if (rows) {
       bool resp3 = MRReply_Type(rows) == MR_REPLY_MAP;
-      bool timed_out = false;
       size_t len;
       if (resp3) {
         MRReply *results = MRReply_MapElement(rows, "results");
@@ -347,6 +346,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
       if (nc->curIdx == len) {
         long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
+        bool timed_out = false;
 
         // in profile mode, save shard's profile info to be returned later
         if (cursorId == 0 && nc->shardsProfile) {
