@@ -79,20 +79,31 @@ def testPrefix2(env):
     env.assertContains('that:foo', res)
     env.assertContains('this:foo', res)
 
-@skip(asan=True)
-def testManyPrefixes(env):
-    # this test checks that releasing all indexes is faster
-    # it went down from 10 to less than 1 second for 10,000 indexes
+def testDeleteManyPrefixes(env):
     conn = getConnectionByEnv(env)
-    start_time = time.time()
-    for i in range(10000):
+
+    # This test purpose it to validate the cleanup of the spec:prefixes dictionary upon
+    # server 'flushall'
+    num_indices = 100
+    for i in range(num_indices):
         env.cmd('ft.create', i, 'ON', 'HASH',
                             'PREFIX', '1', i,
                             'SCHEMA', 'name', 'text')
-    env.debugPrint(str(time.time() - start_time), force=TEST_DEBUG)
-    start_time = time.time()
     conn.execute_command('FLUSHALL')
-    env.assertLess(time.time() - start_time, 6)
+    # re-create the indixes with a new prefix
+    for i in range(num_indices):
+        env.cmd('ft.create', i, 'ON', 'HASH',
+                            'PREFIX', '1', f"doc:{i}",
+                            'SCHEMA', 'name', 'text')
+
+    # create documents with same prefix from the deleted indices
+    for i in range(num_indices):
+        conn.execute_command('hset', i, 'name', 'foo')
+
+    # Verify the new indices size is 0
+    for i in range(num_indices):
+        num_docs = index_info(env, i)['num_docs']
+        env.assertEqual(int(num_docs), 0)
 
 def testFilter2(env):
     conn = getConnectionByEnv(env)
