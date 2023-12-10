@@ -272,6 +272,20 @@ end:
   return REDISMODULE_OK;
 }
 
+// TODO: Elaborate prefixes dictionary information
+// FT.DEBUG DUMP_PREFIX_TRIE
+DEBUG_COMMAND(DumpPrefixTrie) {
+
+  TrieMap *prefixes_map = ScemaPrefixes_g;
+
+  START_POSTPONED_LEN_ARRAY(prefixesMapDump);
+  REPLY_WITH_LONG_LONG("prefixes_count", prefixes_map->cardinality, ARRAY_LEN_VAR(prefixesMapDump));
+  REPLY_WITH_LONG_LONG("prefixes_trie_nodes", prefixes_map->size, ARRAY_LEN_VAR(prefixesMapDump));
+  END_POSTPONED_LEN_ARRAY(prefixesMapDump);
+
+  return REDISMODULE_OK;
+}
+
 InvertedIndexStats InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *idx) {
   InvertedIndexStats indexStats = {.blocks_efficiency = InvertedIndexGetEfficiency(idx)};
   START_POSTPONED_LEN_ARRAY(invertedIndexDump);
@@ -954,6 +968,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
                                {"DUMP_TAGIDX", DumpTagIndex},
                                {"INFO_TAGIDX", InfoTagIndex},
+                               {"DUMP_PREFIX_TRIE", DumpPrefixTrie},
                                {"IDTODOCID", IdToDocId},
                                {"DOCIDTOID", DocIdToId},
                                {"DOCINFO", DocInfo},

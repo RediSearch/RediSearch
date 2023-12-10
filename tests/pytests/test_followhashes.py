@@ -79,7 +79,7 @@ def testPrefix2(env):
     env.assertIn('that:foo', res)
     env.assertIn('this:foo', res)
 
-def testDeleteManyPrefixes(env):
+def testFlushallManyPrefixes(env):
     conn = getConnectionByEnv(env)
 
     # This test purpose it to validate the cleanup of the spec:prefixes dictionary upon
@@ -89,21 +89,20 @@ def testDeleteManyPrefixes(env):
         env.cmd('ft.create', i, 'ON', 'HASH',
                             'PREFIX', '1', i,
                             'SCHEMA', 'name', 'text')
+
+    # Sanity check
+    dump_trie = to_dict(conn.execute_command(f"ft.debug DUMP_PREFIX_TRIE"))
+    env.assertEqual(dump_trie['prefixes_count'], num_indices)
+
     conn.execute_command('FLUSHALL')
-    # re-create the indixes with a new prefix
-    for i in range(num_indices):
-        env.cmd('ft.create', i, 'ON', 'HASH',
-                            'PREFIX', '1', f"doc:{i}",
-                            'SCHEMA', 'name', 'text')
 
-    # create documents with same prefix from the deleted indices
-    for i in range(num_indices):
-        conn.execute_command('hset', i, 'name', 'foo')
+    # Verify the global prefixes trie is empty
+    dump_trie = to_dict(conn.execute_command(f"ft.debug DUMP_PREFIX_TRIE"))
+    env.assertEqual(dump_trie['prefixes_count'], 0)
+    env.assertEqual(dump_trie['prefixes_trie_nodes'], 0)
 
-    # Verify the new indices size is 0
-    for i in range(num_indices):
-        num_docs = index_info(env, i)['num_docs']
-        env.assertEqual(int(num_docs), 0)
+
+
 
 def testFilter2(env):
     conn = getConnectionByEnv(env)
