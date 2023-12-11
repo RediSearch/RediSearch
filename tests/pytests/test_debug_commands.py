@@ -32,8 +32,8 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
         for cmd in help_list:
-            if cmd == 'GIT_SHA':
-                # 'GIT_SHA' do not return err_msg
+            if cmd in ['GIT_SHA', 'DUMP_PREFIX_TRIE']:
+                # 'GIT_SHA' and 'DUMP_PREFIX_TRIE' do not return err_msg
                  continue
             self.env.expect('FT.DEBUG', cmd).raiseError().contains(err_msg)
 
