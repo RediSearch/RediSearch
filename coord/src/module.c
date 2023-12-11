@@ -1389,7 +1389,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
  * This function is used to print profiles received from the shards.
  * It is used by both SEARCH and AGGREGATE.
  */
-void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, int isSearch) {
+void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
   for (int i = 0; i < count; ++i) {
     char *shard_i;
     rm_asprintf(&shard_i, "Shard #%d", i + 1);
@@ -1451,7 +1451,7 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
     if (has_map) {
       PrintShardProfile_resp3(reply, count, replies, true);
 	} else {
-      PrintShardProfile_resp2(reply, count, replies, 1);
+      PrintShardProfile_resp2(reply, count, replies, true);
     }
 
     // print coordinator stats

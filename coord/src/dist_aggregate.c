@@ -602,7 +602,7 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, SearchCluster *sc,
   }
 }
 
-void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, int isSearch);
+void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch);
 void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch);
 
 void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout) {
@@ -617,7 +617,7 @@ void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout) {
   if (reply->resp3) {
     PrintShardProfile_resp3(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile, false);
   } else {
-    PrintShardProfile_resp2(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile, 0);
+    PrintShardProfile_resp2(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile, false);
   }
 
   RedisModule_Reply_MapEnd(reply); // Shards
