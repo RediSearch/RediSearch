@@ -1428,15 +1428,22 @@ void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **repl
   }
 }
 
-void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies) {
+void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
   for (int i = 0; i < count; ++i) {
     char *shard_i;
     rm_asprintf(&shard_i, "Shard #%d", i + 1);
     RedisModule_Reply_SimpleString(reply, shard_i);
     rm_free(shard_i);
 
-    MRReply *results = MRReply_ArrayElement(replies[i], 0);
-    MRReply *profile = MRReply_MapElement(results, "profile");
+    MRReply *profile;
+    if (!isSearch) {
+      // On aggregate commands, take the results from the response (second component is the cursor-id)
+      MRReply *results = MRReply_ArrayElement(replies[i], 0);
+      profile = MRReply_MapElement(results, "profile");
+    } else {
+      profile = MRReply_MapElement(replies[i], "profile");
+    }
+
     if (profile) {
       MR_ReplyWithMRReply(reply, profile);
     } else {
@@ -1461,7 +1468,7 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
     }
 
     if (has_map) {
-      PrintShardProfile_resp3(reply, count, replies);
+      PrintShardProfile_resp3(reply, count, replies, true);
 	} else {
       PrintShardProfile_resp2(reply, count, replies, 1);
     }
