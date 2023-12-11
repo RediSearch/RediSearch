@@ -349,7 +349,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
         // in profile mode, save shard's profile info to be returned later
         if (cursorId == 0 && nc->shardsProfile) {
-          nc->shardsProfile[nc->shardsProfileIdx++] = rows;
+          nc->shardsProfile[nc->shardsProfileIdx++] = root;
         } else {
           MRReply_Free(root);
         }
