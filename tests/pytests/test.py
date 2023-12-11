@@ -3722,3 +3722,19 @@ def test_cluster_set(env):
                'MASTER'
             ).equal('OK')
     verify_address('::1')
+
+def test_with_password():
+    mypass = '42MySecretPassword$'
+    args = f'OSS_GLOBAL_PASSWORD {mypass}' if COORD in ['1', 'oss'] else None
+    env = Env(moduleArgs=args, password=mypass)
+    conn = getConnectionByEnv(env)
+    n_docs = 100
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    for i in range(n_docs):
+        conn.execute_command('HSET', f'doc{i}', 'n', i)
+
+    expected_res = [n_docs]
+    for i in range(10):
+        expected_res.extend([f'doc{i}', ['n', str(i)]])
+    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'n').equal(expected_res)
