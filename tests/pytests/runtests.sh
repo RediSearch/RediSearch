@@ -72,6 +72,7 @@ help() {
 		RLTEST_DEBUG=1        Show debugging printouts from tests
 		RLTEST_ARGS=args      Extra RLTest args
 		LOG_LEVEL=<level>     Set log level (default: debug)
+		TEST_TIMEOUT=n        Set RLTest test timeout in seconds (default: 300)
 
 		PARALLEL=1            Runs tests in parallel
 		SLOW=1                Do not test in parallel
@@ -156,6 +157,9 @@ setup_rltest() {
 
 	LOG_LEVEL=${LOG_LEVEL:-debug}
 	RLTEST_ARGS+=" --log-level $LOG_LEVEL"
+
+	TEST_TIMEOUT=${TEST_TIMEOUT:-300}
+	RLTEST_ARGS+=" --test-timeout $TEST_TIMEOUT"
 
 	if [[ $RLTEST_VERBOSE == 1 ]]; then
 		RLTEST_ARGS+=" -v"
@@ -666,9 +670,7 @@ fi
 
 E=0
 
-if [[ $COV == 1 || -n $SAN || $VG == 1 ]]; then
-	MODARGS="${MODARGS}; timeout 0;"
-fi
+MODARGS="${MODARGS}; TIMEOUT 0;" # disable query timeout by default
 
 if [[ $GC == 0 ]]; then
 	MODARGS="${MODARGS}; NOGC;"
