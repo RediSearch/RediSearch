@@ -1435,7 +1435,8 @@ void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **repl
     RedisModule_Reply_SimpleString(reply, shard_i);
     rm_free(shard_i);
 
-    MRReply *profile = MRReply_MapElement(replies[i], "profile");
+    MRReply *results = MRReply_ArrayElement(replies[i], 0);
+    MRReply *profile = MRReply_MapElement(results, "profile");
     if (profile) {
       MR_ReplyWithMRReply(reply, profile);
     } else {
