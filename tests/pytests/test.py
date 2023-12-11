@@ -3717,6 +3717,38 @@ def test_cluster_set(env):
             ).equal('OK')
     verify_address('::1')
 
+
+@skip(cluster=False)
+def test_cluster_set_server_memory_tracking(env):
+    # if not env.isCluster():
+    #     # this test is only relevant on cluster
+    #     env.skip()
+
+    def get_memory(env):
+        res = env.cmd('INFO', "MEMORY")
+        return res['used_memory']
+    
+    conn = getConnectionByEnv(env)
+    mem = get_memory(env)
+    for i in range(10):
+        conn.execute_command('SEARCH.CLUSTERSET',
+               'MYID',
+               '1',
+               'RANGES',
+               '1',
+               'SHARD',
+               '1',
+               'SLOTRANGE',
+               '0',
+               '16383',
+               'ADDR',
+               'password@127.0.0.1:22000',
+               'MASTER'
+            )
+        mem2 = get_memory(env)
+        env.assertLessEqual(mem, mem2)
+
+
 def test_internal_commands(env):
     ''' Test that internal cluster commands cannot run from a script '''
     if not env.isCluster():
