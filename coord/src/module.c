@@ -397,6 +397,8 @@ typedef struct{
   postProcessReplyCB postProcess;
   specialCaseCtx* reduceSpecialCaseCtxKnn;
   specialCaseCtx* reduceSpecialCaseCtxSortby;
+
+  MRReply *warning;
 } searchReducerCtx;
 
 typedef struct {
@@ -1050,6 +1052,13 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   specialCaseCtx* reduceSpecialCaseCtxSortBy = rCtx->reduceSpecialCaseCtxSortby;
   searchResult *res;
   if (resp3) {
+    // Check for a warning
+    MRReply *warning = MRReply_MapElement(arr, "warning");
+    RS_LOG_ASSERT(warning && MRReply_Type(warning) == MR_REPLY_ARRAY, "invalid warning record");
+    if (!rCtx->warning && MRReply_Length(warning) > 0) {
+      rCtx->warning = warning;
+    }
+
     MRReply *results = MRReply_MapElement(arr, "results");
     RS_LOG_ASSERT(results && MRReply_Type(results) == MR_REPLY_ARRAY, "invalid results record");
     size_t len = MRReply_Length(results);
@@ -1166,8 +1175,12 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
 
   if (resp3) // RESP3
   {
-    // TODO: If we want to propagate the error key-value of the resp3 response (and we do)
-    // we should do it here.
+    // Check for a warning
+    MRReply *warning = MRReply_MapElement(arr, "warning");
+    RS_LOG_ASSERT(warning && MRReply_Type(warning) == MR_REPLY_ARRAY, "invalid warning record");
+    if (!rCtx->warning && MRReply_Length(warning) > 0) {
+      rCtx->warning = warning;
+    }
 
     MRReply *total_results = MRReply_MapElement(arr, "total_results");
     if (!total_results) {
@@ -1282,10 +1295,9 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
       RedisModule_Reply_EmptyArray(reply);
     }
 
-    RedisModule_Reply_SimpleString(reply, "error"); // >errors
-    if (rCtx->lastError) {
-      MRReply *err = MRReply_MapElement(rCtx->lastError, "error");
-      MR_ReplyWithMRReply(reply, err);
+    RedisModule_Reply_SimpleString(reply, "warning"); // >warning
+    if (rCtx->warning) {
+      MR_ReplyWithMRReply(reply, rCtx->warning);
     } else {
       RedisModule_Reply_EmptyArray(reply);
     }

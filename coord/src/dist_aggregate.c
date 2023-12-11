@@ -346,14 +346,32 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
       if (nc->curIdx == len) {
         long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
+        bool timed_out = false;
 
         // in profile mode, save shard's profile info to be returned later
         if (cursorId == 0 && nc->shardsProfile) {
           nc->shardsProfile[nc->shardsProfileIdx++] = root;
         } else {
+          // Check for a warning (resp3 only)
+          MRReply *warning = MRReply_MapElement(rows, "warning");
+          if (resp3 && MRReply_Length(warning) > 0) {
+            warning = MRReply_ArrayElement(warning, 0);
+            // Set an error to be later picked up and sent as a warning
+            // Note: Once we support more than only the timeout warning - extend this
+            // behavior to return `RS_RESULT_NONFATAL_ERROR` for which we return
+            // a warning only (instead of a simple error).
+            if (!strcmp(MRReply_String(warning, NULL), QueryError_Strerror(QUERY_ETIMEDOUT))) {
+              timed_out = true;
+            }
+          }
+
           MRReply_Free(root);
         }
         nc->current.root = nc->current.rows = root = rows = NULL;
+
+        if (timed_out) {
+          return RS_RESULT_TIMEDOUT;
+        }
       }
   }
 
