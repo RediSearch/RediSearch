@@ -36,7 +36,7 @@ jobs:
       VERBOSE: 1 # For logging
       RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
       # Build command
-      BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
+      BUILD_CMD: echo '::group::Build' && make build VERBOSE=1 GIT_BRANCH=$BRANCH && echo '::endgroup::'
     steps:
       # Setup
       - name: Pre-steps Dependencies
