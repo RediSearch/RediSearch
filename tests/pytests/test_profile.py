@@ -572,7 +572,7 @@ def TimedOutWarningtestCoord(env):
     env.assertEqual(warning_arr[1], "Timeout limit was reached")
   else:
     coord_profile = res['Coordinator']
-    warning = coord_profile['Result processors profile']['profile']['warning']
+    warning = coord_profile['Result processors profile']['profile']['Warning']
     env.assertEqual(warning, 'Timeout limit was reached')
 
 def testTimedOutWarningCoord(env):
