@@ -3671,9 +3671,9 @@ def test_mod_4200(env):
 def test_RED_86036(env):
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
     for i in range(1000):
-        env.execute_command('hset', 'doc%d' % i, 't', 'foo')
-    res = env.execute_command('FT.PROFILE', 'idx', 'search', 'query', '*', 'INKEYS', '2', 'doc0', 'doc999')
-    res = res[1][3][1][7] # get the list iterator profile
+        env.cmd('hset', 'doc%d' % i, 't', 'foo')
+    res = env.cmd('FT.PROFILE', 'idx', 'search', 'query', '*', 'INKEYS', '2', 'doc0', 'doc999')
+    res = res[1][4][1][7] # get the list iterator profile
     env.assertEqual(res[1], 'ID-LIST')
     env.assertLess(res[5], 3)
 
