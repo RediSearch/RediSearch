@@ -3759,7 +3759,7 @@ def test_timeout_non_strict_policy(env):
     conn = getConnectionByEnv(env)
 
     # Create an index, and populate it
-    n = 20000
+    n = 25000
     populate_db(env, n)
 
     # Query the index with a small timeout, and verify that we get partial results
@@ -3784,7 +3784,7 @@ def test_timeout_strict_policy():
     env = Env(moduleArgs='ON_TIMEOUT FAIL')
 
     # Create an index, and populate it
-    n = 20000
+    n = 25000
     populate_db(env, n)
 
     # Query the index with a small timeout, and verify that we get an error
