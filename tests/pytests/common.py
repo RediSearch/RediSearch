@@ -540,7 +540,7 @@ def get_TLS_args():
        not exists(ca_cert_file) or \
        (with_pass and not exists(passphrase_file)):
         import subprocess
-        subprocess.run([os.path.join(root, 'sbin', 'gen-test-certs'), str(1 if with_pass else 0)])
+        subprocess.run([os.path.join(root, 'sbin', 'gen-test-certs'), str(1 if with_pass else 0)]).check_returncode()
 
     def get_passphrase():
         with open(passphrase_file, 'r') as f:
