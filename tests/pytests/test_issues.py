@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import subprocess
-from redis import Redis, RedisCluster, cluster
+from redis import Redis, RedisCluster, cluster, exceptions
 
 from common import *
 from RLTest import Env
@@ -826,6 +826,7 @@ def test_mod5791(env):
 def test_mod5778_add_new_shard_to_cluster(env):
   mod5778_add_new_shard_to_cluster(env)
 
+
 @skip(asan=True)
 def test_mod5778_add_new_shard_to_cluster_TLS():
   cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
@@ -834,7 +835,9 @@ def test_mod5778_add_new_shard_to_cluster_TLS():
 
 def mod5778_add_new_shard_to_cluster(env: Env):
     SkipOnNonCluster(env)
-    env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards))
+    server_version_is_less_than('7.0.0')  # cluster shards command is not supported for redis < 7
+    conn = getConnectionByEnv(env)
+    env.assertEqual(len(conn.cluster_nodes()), len(env.envRunner.shards))
     wait_time = 20
     iteration_wait_time = 0.05
 
@@ -845,7 +848,6 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     cmd_args += ['--loadmodule', env.envRunner.modulePath[0]]
     if env.envRunner.password:
         cmd_args += ['--requirepass', env.envRunner.password]
-
     if env.envRunner.isTLS():
         cmd_args += ['--port', str(0), '--tls-port', str(new_instance_port), '--tls-cluster', 'yes']
         cmd_args += ['--tls-cert-file', env.envRunner.shards[0].getTLSCertFile()]
@@ -855,11 +857,29 @@ def mod5778_add_new_shard_to_cluster(env: Env):
             cmd_args += ['--tls-key-file-pass', env.envRunner.tlsPassphrase]
     else:
         cmd_args += ['--port', str(new_instance_port)]
-
     new_instance = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
     # Connect the new instance to the cluster (making sure the new instance didn't crash)
-    env.expect('CLUSTER', 'MEET', '127.0.0.1', new_instance_port).ok()
+    env.assertTrue(conn.cluster_meet('127.0.0.1', new_instance_port))
+    def wait_for_expected(command, expected, message='waiting for expected result'):
+        with TimeLimit(wait_time, message=message):
+            while expected != command():
+                time.sleep(iteration_wait_time)
+
+    # Return the shard details based on the port to which it listens.
+    def get_node_by_port(shard_conn, port):
+        # cluster nodes response is for example:
+        # {'127.0.0.1:6381':
+        #   {'node_id': 'df328f12ac68e61df53b87458b769bf61a885470', ... , 'slots': [['5462', '10923']], ... },
+        #  '127.0.0.1:6379': {'node_id': '088aad6d26e1913867283d74b1a86d47e7e651b8', ... }
+        # }
+        return [v for k, v in shard_conn.cluster_nodes().items() if int(k.split(":")[1]) == port][0]
+
+    # Validate that the new shard has been recognized by the cluster and has no slots.
+    wait_for_expected(lambda: len(conn.cluster_nodes()), len(env.envRunner.shards) + 1,
+                      'waiting for cluster shards to update')
+    env.assertEqual(get_node_by_port(conn, new_instance_port)['slots'], [])
+
     kwargs = {'host': '127.0.0.1', 'port': new_instance_port, 'decode_responses': True, 'password': env.envRunner.password}
     if env.envRunner.isTLS():
       kwargs.update({'ssl': True,
@@ -868,44 +888,35 @@ def mod5778_add_new_shard_to_cluster(env: Env):
                      'ssl_cert_reqs': None,
                      'ssl_ca_certs': env.envRunner.shards[0].getTLSCACertFile(),
                      'ssl_password': env.envRunner.tlsPassphrase})
+
     with TimeLimit(wait_time, 'waiting for new shard to acknowledge the topology change'):
-      while True:
-        time.sleep(iteration_wait_time)
-        try:
-          new_instance_conn = RedisCluster(**kwargs)
-          break
-        except:
-          pass
+        while True:
+            time.sleep(iteration_wait_time)
+            try:
+                new_instance_conn = RedisCluster(**kwargs)
+                break
+            except exceptions.RedisClusterException and IndexError:
+                pass
+    new_instance_conn = RedisCluster(**kwargs)
     env.assertTrue(new_instance_conn.ping()) # make sure the new instance is alive
 
-    def waitForExpected(command, expected, message='waiting for expected result'):
-      with TimeLimit(wait_time, message=message):
-        while expected != command():
-          time.sleep(iteration_wait_time)
+    # Move a slot (number 0) from the shard in which it resides to the new shard.
+    node_with_slot_0_port = None
+    for k, v in conn.cluster_nodes().items():
+        if len(v['slots']) > 0 and v['slots'][0][0] == '0':
+            node_with_slot_0_port = int(k.split(":")[1])
+            break
 
-    # Validate that the new shard has been recognized by the cluster.
-    waitForExpected(lambda: len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards)+1, 'waiting for cluster shards to update')
-    # Currently, the new shard is not assign on any slots.
-    waitForExpected(lambda: len(env.cmd('CLUSTER SLOTS')), len(env.envRunner.shards), 'validating cluster slots did not change')
-
-    # Move a slot (number 0) from the first shard to the new shard.
+    env.assertIsNotNone(node_with_slot_0_port)
     new_shard_id = new_instance_conn.cluster_myid(cluster.ClusterNode('127.0.0.1', new_instance_port))
-    env.cmd(f'CLUSTER SETSLOT 0 NODE {new_shard_id}')
+    conn.cluster_setslot(cluster.ClusterNode('127.0.0.1', node_with_slot_0_port), new_shard_id, 0, 'NODE')
     new_instance_conn.cluster_setslot(cluster.ClusterNode('127.0.0.1', new_instance_port), new_shard_id, 0, 'NODE')
 
     # Validate the updated state in old and new shards.
-    waitForExpected(lambda: len(env.cmd('CLUSTER SLOTS')), len(env.envRunner.shards) + 1, 'waiting for cluster slots to update')
-    res = env.cmd('CLUSTER SLOTS') # get the updated cluster slots. It should contain the new shard.
-    # Get the item in the list that corresponds to the shard that contains slot 0.
-    shard_with_slot_0 = [r for r in res if r[0] == 0][0]
-    expected = [0, 0, ["127.0.0.1", new_instance_port, str(new_shard_id), []]]  # the first slot is in the new shard
-    env.assertEqual(shard_with_slot_0, expected)
-
-    expected = {'primary': ('127.0.0.1', new_instance_port), 'replicas': []}  # the expected reply from cluster_slots()
-    waitForExpected(lambda: len(new_instance_conn.cluster_slots(cluster.ClusterNode('127.0.0.1', new_instance_port))),
-                    len(env.envRunner.shards) + 1, 'waiting for new shard to acknowledge the topology change')
-    res = new_instance_conn.cluster_slots(cluster.ClusterNode('127.0.0.1', new_instance_port))
-    env.assertEqual(res[(0, 0)], expected)
+    wait_for_expected(lambda: get_node_by_port(conn, new_instance_port)['slots'], [['0']],
+                      'waiting for cluster slots to update')
+    wait_for_expected(lambda: get_node_by_port(new_instance_conn, new_instance_port)['slots'], [['0']],
+                      'waiting for cluster slots to update')
 
     # cleanup
     new_instance.kill()
