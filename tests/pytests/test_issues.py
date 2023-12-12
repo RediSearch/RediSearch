@@ -823,19 +823,22 @@ def test_mod5791(env):
 
 
 @skip(asan=True)
-def test_mod5778_add_new_shard_to_cluster(env):
-  mod5778_add_new_shard_to_cluster(env)
+def test_mod5778_add_new_shard_to_cluster():
+    if server_version_is_less_than('7.0.0'):  # cluster shards command is not supported for redis < 7
+        return
+    mod5778_add_new_shard_to_cluster(Env())
 
 
 @skip(asan=True)
 def test_mod5778_add_new_shard_to_cluster_TLS():
-  cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
-  env = Env(useTLS=True, tlsCertFile=cert_file, tlsKeyFile=key_file, tlsCaCertFile=ca_cert_file, tlsPassphrase=passphrase)
-  mod5778_add_new_shard_to_cluster(env)
+    if server_version_is_less_than('7.0.0'):  # cluster shards command is not supported for redis < 7
+        return
+    cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
+    env = Env(useTLS=True, tlsCertFile=cert_file, tlsKeyFile=key_file, tlsCaCertFile=ca_cert_file, tlsPassphrase=passphrase)
+    mod5778_add_new_shard_to_cluster(env)
 
 def mod5778_add_new_shard_to_cluster(env: Env):
     SkipOnNonCluster(env)
-    server_version_is_less_than('7.0.0')  # cluster shards command is not supported for redis < 7
     conn = getConnectionByEnv(env)
     env.assertEqual(len(conn.cluster_nodes()), len(env.envRunner.shards))
     wait_time = 20
