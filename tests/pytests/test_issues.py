@@ -822,23 +822,20 @@ def test_mod5791(env):
     env.assertEqual(res[:2], [1, 'doc1'])
 
 
-@skip(asan=True)
-def test_mod5778_add_new_shard_to_cluster():
-    if server_version_is_less_than('7.0.0'):  # cluster shards command is not supported for redis < 7
-        return
-    mod5778_add_new_shard_to_cluster(Env())
+@skip(asan=True, cluster=False, redis_less_than="7")
+def test_mod5778_add_new_shard_to_cluster(env):
+    # cluster shards command is not supported for redis < 7
+    mod5778_add_new_shard_to_cluster(env)
 
 
-@skip(asan=True)
+@skip(asan=True, cluster=False, redis_less_than="7")
 def test_mod5778_add_new_shard_to_cluster_TLS():
-    if server_version_is_less_than('7.0.0'):  # cluster shards command is not supported for redis < 7
-        return
+    # cluster shards command is not supported for redis < 7
     cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
     env = Env(useTLS=True, tlsCertFile=cert_file, tlsKeyFile=key_file, tlsCaCertFile=ca_cert_file, tlsPassphrase=passphrase)
     mod5778_add_new_shard_to_cluster(env)
 
 def mod5778_add_new_shard_to_cluster(env: Env):
-    SkipOnNonCluster(env)
     conn = getConnectionByEnv(env)
     env.assertEqual(len(conn.cluster_nodes()), len(env.envRunner.shards))
     wait_time = 20
@@ -864,6 +861,7 @@ def mod5778_add_new_shard_to_cluster(env: Env):
 
     # Connect the new instance to the cluster (making sure the new instance didn't crash)
     env.assertTrue(conn.cluster_meet('127.0.0.1', new_instance_port))
+
     def wait_for_expected(command, expected, message='waiting for expected result'):
         with TimeLimit(wait_time, message=message):
             while expected != command():
@@ -900,7 +898,6 @@ def mod5778_add_new_shard_to_cluster(env: Env):
                 break
             except exceptions.RedisClusterException and IndexError:
                 pass  # these two exceptions indicate that the new shard still waking up
-    new_instance_conn = RedisCluster(**kwargs)
     env.assertTrue(new_instance_conn.ping()) # make sure the new instance is alive
 
     # Move a slot (number 0) from the shard in which it resides to the new shard.
