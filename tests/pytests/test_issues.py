@@ -835,6 +835,8 @@ def test_mod5778_add_new_shard_to_cluster_TLS():
 def mod5778_add_new_shard_to_cluster(env: Env):
     SkipOnNonCluster(env)
     env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards))
+    wait_time = 20
+    iteration_wait_time = 0.05
 
     # Create a new redis instance with redisearch loaded.
     # TODO: add appropriate APIs to RLTest to avoid this abstraction breaking.
@@ -866,9 +868,9 @@ def mod5778_add_new_shard_to_cluster(env: Env):
                      'ssl_cert_reqs': None,
                      'ssl_ca_certs': env.envRunner.shards[0].getTLSCACertFile(),
                      'ssl_password': env.envRunner.tlsPassphrase})
-    with TimeLimit(10, 'waiting for new shard to acknowledge the topology change'):
+    with TimeLimit(wait_time, 'waiting for new shard to acknowledge the topology change'):
       while True:
-        time.sleep(0.05)
+        time.sleep(iteration_wait_time)
         try:
           new_instance_conn = RedisCluster(**kwargs)
           break
@@ -877,16 +879,14 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     env.assertTrue(new_instance_conn.ping()) # make sure the new instance is alive
 
     def waitForExpected(command, expected, message='waiting for expected result'):
-      with TimeLimit(10, message=message):
-        while True:
-          res = command()
-          if res == expected:
-            break
-          time.sleep(0.05)
+      with TimeLimit(wait_time, message=message):
+        while expected != command():
+          time.sleep(iteration_wait_time)
+
     # Validate that the new shard has been recognized by the cluster.
     waitForExpected(lambda: len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards)+1, 'waiting for cluster shards to update')
     # Currently, the new shard is not assign on any slots.
-    waitForExpected(lambda: len(env.cmd('CLUSTER SLOTS')), len(env.envRunner.shards), 'waiting for cluster slots to update')
+    waitForExpected(lambda: len(env.cmd('CLUSTER SLOTS')), len(env.envRunner.shards), 'validating cluster slots did not change')
 
     # Move a slot (number 0) from the first shard to the new shard.
     new_shard_id = new_instance_conn.cluster_myid(cluster.ClusterNode('127.0.0.1', new_instance_port))
