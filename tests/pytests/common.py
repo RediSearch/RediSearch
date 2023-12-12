@@ -318,13 +318,8 @@ def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, red
         def wrapper():
             if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal):
                 raise SkipTest()
-            if cluster is not None:
-                if cluster == True  and COORD     in ['oss', 'rlec', '1']:
-                    raise SkipTest()
-                if cluster == False and COORD not in ['oss', 'rlec', '1']:
-                    raise SkipTest()
-                if cluster == COORD:
-                    raise SkipTest()
+            if cluster == COORD:
+                raise SkipTest()
             if macos and OS == 'macos':
                 raise SkipTest()
             if asan and SANITIZER == 'address':
