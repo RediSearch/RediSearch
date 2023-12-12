@@ -899,7 +899,7 @@ def mod5778_add_new_shard_to_cluster(env: Env):
                 new_instance_conn = RedisCluster(**kwargs)
                 break
             except exceptions.RedisClusterException and IndexError:
-                pass
+                pass  # these two exceptions indicate that the new shard still waking up
     new_instance_conn = RedisCluster(**kwargs)
     env.assertTrue(new_instance_conn.ping()) # make sure the new instance is alive
 
