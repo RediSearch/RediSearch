@@ -2016,8 +2016,9 @@ void setHiredisAllocators(){
 
 
 static void Coordinator_CleanupModule(void) {
-  MR_Destroy();
-  GlobalSearchCluser_Release();
+  StopRedisTopologyUpdater(); // stop the topology updater loop, so we won't send any more update requests
+  MR_Destroy(); // destroy MR cluster and queue
+  GlobalSearchCluster_Release();
 }
 
 void Coordinator_ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
