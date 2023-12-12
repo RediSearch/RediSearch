@@ -313,13 +313,18 @@ def unstable(f):
         return f(env, *args, **kwargs)
     return wrapper
 
-def skip(cluster=False, macos=False, asan=False, msan=False, noWorkers=False):
+def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None):
     def decorate(f):
         def wrapper():
-            if not (cluster or macos or asan or msan or noWorkers):
+            if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal):
                 raise SkipTest()
-            if cluster and COORD in ['oss', 'rlec', '1']:
-                raise SkipTest()
+            if cluster is not None:
+                if cluster == True  and COORD     in ['oss', 'rlec', '1']:
+                    raise SkipTest()
+                if cluster == False and COORD not in ['oss', 'rlec', '1']:
+                    raise SkipTest()
+                if cluster == COORD:
+                    raise SkipTest()
             if macos and OS == 'macos':
                 raise SkipTest()
             if asan and SANITIZER == 'address':
@@ -327,6 +332,10 @@ def skip(cluster=False, macos=False, asan=False, msan=False, noWorkers=False):
             if msan and SANITIZER == 'memory':
                 raise SkipTest()
             if noWorkers and not MT_BUILD:
+                raise SkipTest()
+            if redis_less_than and server_version_is_less_than(redis_less_than):
+                raise SkipTest()
+            if redis_greater_equal and server_version_is_at_least(redis_greater_equal):
                 raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:
                 env = Env()
