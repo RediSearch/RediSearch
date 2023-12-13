@@ -16,5 +16,5 @@ jobs:
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
-      coordinator: false
+      coordinator: true
       test-config: QUICK=1
