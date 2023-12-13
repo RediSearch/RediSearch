@@ -79,20 +79,26 @@ def testPrefix2(env):
     env.assertContains('that:foo', res)
     env.assertContains('this:foo', res)
 
-@skip(asan=True)
-def testManyPrefixes(env):
-    # this test checks that releasing all indexes is faster
-    # it went down from 10 to less than 1 second for 10,000 indexes
+def testFlushallManyPrefixes(env):
     conn = getConnectionByEnv(env)
-    start_time = time.time()
-    for i in range(10000):
+
+    # This test purpose it to validate the cleanup of the spec:prefixes dictionary upon
+    # server 'flushall'
+    num_indices = 100
+    for i in range(num_indices):
         env.cmd('ft.create', i, 'ON', 'HASH',
                             'PREFIX', '1', i,
                             'SCHEMA', 'name', 'text')
-    env.debugPrint(str(time.time() - start_time), force=TEST_DEBUG)
-    start_time = time.time()
+
+    # Sanity check
+    dump_trie = to_dict(env.cmd(ftDebugCmdName(env), "DUMP_PREFIX_TRIE"))
+    env.assertEqual(dump_trie['prefixes_count'], num_indices)
+
     conn.execute_command('FLUSHALL')
-    env.assertLess(time.time() - start_time, 6)
+    # Verify the global prefixes trie is empty
+    dump_trie = to_dict(env.cmd(ftDebugCmdName(env), "DUMP_PREFIX_TRIE"))
+    env.assertEqual(dump_trie['prefixes_count'], 0)
+    env.assertEqual(dump_trie['prefixes_trie_nodes'], 0)
 
 def testFilter2(env):
     conn = getConnectionByEnv(env)
