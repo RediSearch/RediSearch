@@ -10,3 +10,6 @@ echo "export PATH=$GNUBIN:$PATH" >> ~/.zshrc
 
 brew install openssl
 source install_cmake.sh
+
+pip install -q -r ../tests/pytests/requirements.txt
+pip install -q -r ../tests/pytests/requirements.macos.txt
