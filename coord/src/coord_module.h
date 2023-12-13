@@ -39,6 +39,8 @@ typedef struct {
   long long offset;
   long long limit;
   long long requestedResultsCount;
+  long long initTime;
+  long long timeout;
   int withScores;
   int withExplainScores;
   int withPayload;

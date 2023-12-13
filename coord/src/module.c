@@ -583,6 +583,8 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
 
   searchRequestCtx *req = rm_malloc(sizeof *req);
 
+  req->initTime = clock();
+
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
     return NULL;
@@ -679,6 +681,20 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
       return NULL;
     }
   }
+
+  // Get timeout parameter, if set in the command
+  argIndex = RMUtil_ArgIndex("TIMEOUT", argv, argc);
+  if (argIndex > -1) {
+    argIndex++;
+    ArgsCursor ac;
+    ArgsCursor_InitRString(&ac, argv+argIndex, argc-argIndex);
+    if (parseTimeout(&req->timeout, &ac, status)) {
+      searchRequestCtx_Free(req);
+      return NULL;
+    }
+  }
+  // TEMP - REMOVE
+  RedisModule_Log(NULL, "warning", "Got the following timeout param: %lld", req->timeout);
 
   return req;
 }
@@ -1572,6 +1588,13 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   if (rCtx.cachedResult) {
     rm_free(rCtx.cachedResult);
+  }
+
+  // If we timed out on strict timeout policy, return a timeout error
+  if (((clock() - req->initTime) > req->timeout)
+      && RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
+    RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+    goto cleanup;
   }
 
   if (rCtx.errorOccured && !rCtx.lastError) {
