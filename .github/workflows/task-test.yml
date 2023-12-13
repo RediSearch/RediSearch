@@ -42,10 +42,6 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script
         run: ${{ inputs.pre-steps-script }}
@@ -61,6 +57,10 @@ jobs:
           sparse-checkout: |
             .install
             tests/pytests/requirements.*
+      - name: Install Python
+        uses: actions/setup-python@v3
+        with:
+            python-version: '3.10'
       - name: Setup
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
@@ -69,9 +69,9 @@ jobs:
         with:
           submodules: recursive
 
-      # - name: Setup (readies)
-      #   if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0'
-      #   run: ./sbin/setup
+      - name: Setup (readies)
+        if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0' || inputs.env == 'macos-12'
+        run: ./sbin/setup
 
       - name: Get Redis
         if: inputs.get-redis != 'skip getting redis'
