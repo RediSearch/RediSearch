@@ -58,6 +58,7 @@ static RedisModuleTimerID scheduleNext(GCTask *task) {
   return RedisModule_CreateTimer(RSDummyContext, period, timerCallback, task);
 }
 
+static void destroyCallback(void* data);
 static void threadCallback(void* data) {
   GCTask* task = data;
   GCContext* gc = task->gc;
@@ -77,6 +78,9 @@ static void threadCallback(void* data) {
   }
 
   if (!ret) {
+    // The index was freed. There is no need to reschedule the task.
+    // We need to free the task and the GC.
+    destroyCallback(gc);
     rm_free (task);
     goto end;
   }
@@ -137,8 +141,10 @@ void GCContext_Stop(GCContext* gc) {
     // free gc
     destroyCallback(gc);
   } else {
-    // GC is running, we add a task to the thread pool to free it
-    redisearch_thpool_add_work(gcThreadpool_g, destroyCallback, gc, THPOOL_PRIORITY_HIGH);
+    // GC is running, or is about to run.
+    // We can't free it now, but it will free itself when it discovers that the index was freed.
+    // On the worst case, it just finishes the current run and will schedule another run soon.
+    // In this case the GC will be freed on the next run, in `forkGcRunIntervalSec` seconds.
   }
 }
 
