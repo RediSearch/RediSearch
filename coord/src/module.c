@@ -583,7 +583,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
 
   searchRequestCtx *req = rm_malloc(sizeof *req);
 
-  req->initTime = clock();
+  req->initClock = clock();
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
@@ -1592,7 +1592,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   // If we timed out on strict timeout policy, return a timeout error
   // RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - totalTime) / CLOCKS_PER_MILLISEC);
-  if ((((clock() - req->initTime) / CLOCKS_PER_MILLISEC) > req->timeout)
+  if ((((clock() - req->initClock) / CLOCKS_PER_MILLISEC) > req->timeout)
       && RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
     RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
     goto cleanup;
