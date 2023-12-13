@@ -1,7 +1,7 @@
 #!/bin/bash
 export HOMEBREW_NO_AUTO_UPDATE=1
 GNUBIN=$(brew --prefix)/opt/make/libexec/gnubin
-LLVM=$(brew --prefix llvm@16)/bin/clang
+LLVM=/usr/local/opt/llvm@16/bin
 
 
 brew update
@@ -9,7 +9,7 @@ brew install make
 brew install llvm@16
 
 echo "export PATH=$LLVM:$GNUBIN:$PATH" >> ~/.bashrc
-echo "export PATH=$LLVM:$GNUBIN:$PATH" >> ~/.bash_profile
+#echo "export PATH=$LLVM:$GNUBIN:$PATH" >> ~/.bash_profile
 echo "export PATH=$LLVM:$GNUBIN:$PATH" >> ~/.zshrc
 
 brew install openssl
