@@ -4,7 +4,8 @@ name: Pull Request Flow
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review] # Defaults + ready_for_review
+    #types: [opened, synchronize, reopened, ready_for_review] # Defaults + ready_for_review
+    types: [reopened] # Defaults + ready_for_review
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

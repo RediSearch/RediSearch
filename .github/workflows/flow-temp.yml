@@ -9,19 +9,12 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+   # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  test-mariner:
-    uses: ./.github/workflows/flow-linux-platforms.yml
+  test-macos:
+    uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
-      platform: mariner:2
-      architecture: x86_64
-
-  test-mariner-artifact:
-    uses: ./.github/workflows/flow-build-artifacts.yml
-    secrets: inherit
-    with:
-      platform: mariner:2
-      architecture: x86_64
+      coordinator: false
+      test-config: QUICK=1

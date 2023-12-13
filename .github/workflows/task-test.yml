@@ -65,9 +65,9 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup (readies)
-        if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0'
-        run: ./sbin/setup
+      # - name: Setup (readies)
+      #   if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0'
+      #   run: ./sbin/setup
 
       - name: Get Redis
         if: inputs.get-redis != 'skip getting redis'
