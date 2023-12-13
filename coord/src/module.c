@@ -693,8 +693,6 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
       return NULL;
     }
   }
-  // TEMP - REMOVE
-  RedisModule_Log(NULL, "warning", "Got the following timeout param: %lld", req->timeout);
 
   return req;
 }
@@ -1591,8 +1589,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   // If we timed out on strict timeout policy, return a timeout error
-  // RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - totalTime) / CLOCKS_PER_MILLISEC);
-  if ((((clock() - req->initClock) / CLOCKS_PER_MILLISEC) > req->timeout)
+  if ((((double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC) > req->timeout)
       && RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
     RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
     goto cleanup;
