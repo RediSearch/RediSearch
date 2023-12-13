@@ -1591,7 +1591,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   // If we timed out on strict timeout policy, return a timeout error
-  if (((clock() - req->initTime) > req->timeout)
+  // RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - totalTime) / CLOCKS_PER_MILLISEC);
+  if ((((clock() - req->initTime) / CLOCKS_PER_MILLISEC) > req->timeout)
       && RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
     RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
     goto cleanup;
