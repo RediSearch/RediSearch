@@ -70,7 +70,7 @@ jobs:
           submodules: recursive
 
       - name: Setup (readies)
-        if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0' || inputs.env == 'macos-12'
+        if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0' || inputs.env != 'macos-12'
         run: ./sbin/setup
 
       - name: Get Redis
