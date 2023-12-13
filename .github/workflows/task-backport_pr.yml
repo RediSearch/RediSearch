@@ -35,3 +35,4 @@ jobs:
         with:
           pull_title: '[${target_branch}] ${pull_title}'
           merge_commits: 'skip'
+          github_token: ${{ secrets.CI_GH_P_TOKEN }}
