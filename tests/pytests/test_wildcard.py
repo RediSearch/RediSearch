@@ -4,9 +4,11 @@ from RLTest import Env
 import time
 
 @skip(cluster=True)
-def testSanity(env):
+def testSanity_dialect_2(env):
   dotestSanity(env, 2)
-  env.cmd('FLUSHALL')
+
+@skip(cluster=True)
+def testSanity_dialect_3(env):
   dotestSanity(env, 3)
 
 def dotestSanity(env, dialect):
@@ -22,7 +24,7 @@ def dotestSanity(env, dialect):
 
   conn = getConnectionByEnv(env)
 
-  start = time.time()
+  # start = time.time()
   pl = conn.pipeline()
   for i in range(item_qty):
     pl.execute_command('HSET', 'doc%d' % i, 't', 'foo%d' % i)
@@ -51,10 +53,10 @@ def dotestSanity(env, dialect):
     # 23xx & x23x & xx23 - 2323
     env.expect('ft.search', index, '*23*', 'LIMIT', 0 , 0).equal([1196])
     # 234x & x234
-    start = time.time()
+    # start = time.time()
     env.expect('ft.search', index, '*234*', 'LIMIT', 0 , 0).equal([80])
     # print(time.time() - start)
-    start = time.time()
+    # start = time.time()
     env.expect('ft.search', index, '*o23*', 'LIMIT', 0 , 0).equal([444])
     # print(time.time() - start)
     env.expect('ft.search', index, '*oo23*', 'LIMIT', 0 , 0).equal([333])
@@ -83,9 +85,11 @@ def dotestSanity(env, dialect):
   #  .contains('Timeout limit was reached')
 
 @skip(cluster=True)
-def testSanityTag(env):
+def testSanityTag_dialect_2(env):
   dotestSanityTag(env, 2)
-  env.cmd('FLUSHALL')
+
+@skip(cluster=True)
+def testSanityTag_dialect_3(env):
   dotestSanityTag(env, 3)
 
 def dotestSanityTag(env, dialect):
@@ -119,7 +123,7 @@ def dotestSanityTag(env, dialect):
 
     # contains
     env.expect('ft.search', index, "@t:{w'*oo*'}", 'LIMIT', 0 , 0).equal([40000])
-    # 55xx & x55x & xx55 - 555x - x555 
+    # 55xx & x55x & xx55 - 555x - x555
     env.expect('ft.search', index, "@t:{w'*55*'}", 'LIMIT', 0 , 0).equal([1120])
     # 555x & x555 - 5555
     env.expect('ft.search', index, "@t:{w'*555*'}", 'LIMIT', 0 , 0).equal([76])
