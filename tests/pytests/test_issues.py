@@ -876,3 +876,35 @@ def test_mod5778_add_new_shard_to_cluster(env):
     # cleanup
     new_instance.kill()
     os.remove('nodes.conf')
+
+
+@skip(cluster=True)
+def test_mod5910(env):
+    con = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC').equal('OK')
+    env.assertEqual(2, con.execute_command('HSET', 'doc1{tag}', 't', 'one', 'n', '1'))
+    env.assertEqual(2, con.execute_command('HSET', 'doc2{tag}', 't', 'two', 'n', '2'))
+    env.assertEqual(2, con.execute_command('HSET', 'doc3{tag}', 't', 'three', 'n', '3'))
+
+    # In this test, we run the following query twice. The query consists of an intersection between two sub-queries,
+    # where the number of expected results from the first sub-query (@n:[1 3]) is 3, while the number of expected
+    # results from the second subquery (@t:one | @t:two) is 2. Intersection iterator is sorting its children, so that
+    # children with lower number of expected results come first, to reduce the number of overall "skip_to" done by the
+    # iterator.
+    # Hence, we expect that the numeric iterator would come *after* the union iterator.
+    res = env.execute_command('FT.PROFILE', 'idx', 'search', 'query', '(@n:[1 3] (@t:one | @t:two))')
+    iterators_profile = res[1][3]
+    env.assertEqual(iterators_profile[1][1], 'INTERSECT')
+    env.assertEqual(iterators_profile[1][7][1], 'UNION')
+    env.assertEqual(iterators_profile[1][8][1], 'NUMERIC')
+
+    # When _PRIORITIZE_INTERSECT_UNION_CHILDREN config is set, the number of expected results from the union iterator
+    # child is factored by its own number of children. Hence, the weighted expected number of results for the second
+    # sub-query evaluated in this case to 2*2=4 under this config, so now we expect that the numeric iterator would come
+    # *before* the union iterator.
+    env.assertEqual('OK', con.execute_command('FT.CONFIG', 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true'))
+    res = con.execute_command('FT.PROFILE', 'idx', 'search', 'query', '(@n:[1 3] (@t:one | @t:two))')
+    iterators_profile = res[1][3]
+    env.assertEqual(iterators_profile[1][1], 'INTERSECT')
+    env.assertEqual(iterators_profile[1][7][1], 'NUMERIC')
+    env.assertEqual(iterators_profile[1][8][1], 'UNION')
