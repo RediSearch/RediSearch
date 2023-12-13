@@ -42,12 +42,12 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - name: Pre-steps Dependencies
-        if: inputs.pre-steps-script
-        uses: actions/checkout@v4
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+      - name: Pre-steps Dependencies
+        if: inputs.pre-steps-script
         run: ${{ inputs.pre-steps-script }}
       - name: Get Installation Mode
         id: mode
