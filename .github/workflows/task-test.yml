@@ -42,6 +42,10 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
+      - name: check system
+        if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0' && inputs.env != 'macos-12'
+        run: echo "System is ${{ inputs.container || inputs.env }}"
+
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script
         run: ${{ inputs.pre-steps-script }}
@@ -70,7 +74,7 @@ jobs:
           submodules: recursive
 
       - name: Setup (readies)
-        if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0' || inputs.env != 'macos-12'
+        if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0' && inputs.env != 'macos-12'
         run: ./sbin/setup
 
       - name: Get Redis
