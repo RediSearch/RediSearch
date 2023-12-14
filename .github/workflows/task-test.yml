@@ -66,7 +66,7 @@ jobs:
         if: inputs.env == 'macos-12'
         uses: KyleMayes/install-llvm-action@v1
         with:
-          version: 16
+          version: "16"
       - name: Setup
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
