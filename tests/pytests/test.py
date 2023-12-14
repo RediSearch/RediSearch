@@ -3729,7 +3729,9 @@ def test_cluster_set_server_memory_tracking(env):
         res = env.cmd('INFO', "MEMORY")
         return res['used_memory']
 
-    for i in range(1_000):
+    initial = get_memory(env)
+    print(f"initial memory used: {initial}")
+    for i in range(10_000):
         env.cmd('SEARCH.CLUSTERSET',
                'MYID',
                '1',
@@ -3746,12 +3748,13 @@ def test_cluster_set_server_memory_tracking(env):
             )
         mem = get_memory(env)
         env.assertLessEqual(mem, 1024*1024*10)
-        print(f"{i}, {mem}")
-        command = "ps -eo rss,comm | grep redis-server"
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, shell=True)
-        out, err = process.communicate()
-
-        print(out.decode('utf-8'))
+        if (i % 100 == 0):
+            print(f"{i}, {mem}")
+            command = "ps -eo rss,comm | grep redis-server"
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, shell=True)
+            out, err = process.communicate()
+            print(out.decode('utf-8'))
+    print("delta = {}".format(get_memory(env) - initial))
 
 
 
