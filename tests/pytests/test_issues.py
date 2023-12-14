@@ -801,6 +801,18 @@ def test_mod5252(env):
   env.assertEqual(res, [1, ['key_name', 'doc']])
 
 
+@skip(cluster=True)
+def test_mod_6276(env): # Also MOD-5807
+  # Setting the gc parameters to ensure quick gc invocation
+  env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+  env.expect('FT.CONFIG', 'SET', 'FORK_GC_RUN_INTERVAL', '1').ok()
+  # Create an index and add a document + garbage
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('HSET', 'doc', 't', 'Hello').equal(1)
+  env.expect('HSET', 'doc', 't', 'Hello').equal(0)
+  # Hold the GIL, wait for the gc to run b
+  env.expect('FT.DEBUG', 'GC_WAIT_AND_DROP', 'idx').ok()
+
 def test_mod5791(env):
     con = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DISTANCE_METRIC', 'L2',
