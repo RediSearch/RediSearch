@@ -5,6 +5,7 @@ import redis
 from hotels import hotels
 import random
 import time
+import subprocess
 
 
 # this tests is not longer relevant
@@ -3716,6 +3717,43 @@ def test_cluster_set(env):
                'MASTER'
             ).equal('OK')
     verify_address('::1')
+
+
+# @skip(cluster=False)
+def test_cluster_set_server_memory_tracking(env):
+    if not env.isCluster():
+        # this test is only relevant on cluster
+        env.skip()
+
+    def get_memory(env):
+        res = env.cmd('INFO', "MEMORY")
+        return res['used_memory']
+
+    for i in range(1_000):
+        env.cmd('SEARCH.CLUSTERSET',
+               'MYID',
+               '1',
+               'RANGES',
+               '1',
+               'SHARD',
+               '1',
+               'SLOTRANGE',
+               '0',
+               '16383',
+               'ADDR',
+               'password@127.0.0.1:22000',
+               'MASTER'
+            )
+        mem = get_memory(env)
+        env.assertLessEqual(mem, 1024*1024*10)
+        print(f"{i}, {mem}")
+        command = "ps -eo rss,comm | grep redis-server"
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, shell=True)
+        out, err = process.communicate()
+
+        print(out.decode('utf-8'))
+
+
 
 def test_internal_commands(env):
     ''' Test that internal cluster commands cannot run from a script '''
