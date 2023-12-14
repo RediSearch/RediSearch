@@ -65,6 +65,13 @@ def dotestSanity(env, dialect):
     env.expect('ft.search', index, r"@t:(w'*')", 'LIMIT', 0 , 0).equal([4*item_qty])
 
   # test timeout
+  for i in range(item_qty, item_qty * 5):
+      pl.execute_command('HSET', 'doc%d' % i, 't', 'foo%d' % i)
+      pl.execute_command('HSET', 'doc%d' % (i + item_qty), 't', 'fooo%d' % i)
+      pl.execute_command('HSET', 'doc%d' % (i + item_qty * 2), 't', 'foooo%d' % i)
+      pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
+      pl.execute()
+
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
   env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'RETURN').ok()
   env.expect('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0).error() \
@@ -146,6 +153,13 @@ def dotestSanityTag(env, dialect):
     env.expect('ft.search', index, r"@t:{w'*'}", 'LIMIT', 0 , 0).equal([4*item_qty])
 
   # test timeout
+  for i in range(item_qty, item_qty * 5):
+      pl.execute_command('HSET', 'doc%d' % i, 't', 'foo%d' % i)
+      pl.execute_command('HSET', 'doc%d' % (i + item_qty), 't', 'fooo%d' % i)
+      pl.execute_command('HSET', 'doc%d' % (i + item_qty * 2), 't', 'foooo%d' % i)
+      pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
+      pl.execute()
+
   env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
   env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'RETURN').ok()
   env.expect('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
