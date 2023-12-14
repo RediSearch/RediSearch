@@ -62,9 +62,7 @@ jobs:
             python-version: '3.10'
       - name: Setup
         working-directory: setup/.install
-        run: |
-          ./install_script.sh ${{ steps.mode.outputs.mode }}
-          pip install -r build_package_requirments.txt
+        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
       - name: Full checkout
         uses: actions/checkout@v3
         with:

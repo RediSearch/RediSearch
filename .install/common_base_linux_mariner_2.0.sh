@@ -15,7 +15,8 @@ pip install -q -r ../tests/pytests/requirements.txt
 pip install -q -r ../tests/pytests/requirements.linux.txt
 
 # These packages are needed to build the package
-#pip install -q -r build_package_requirments.txt
+# TODO: move to upload artifacts flow
+pip install -q -r build_package_requirments.txt
 
 # List installed packages
 pip list
