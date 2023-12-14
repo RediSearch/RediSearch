@@ -80,6 +80,7 @@ static void threadCallback(void* data) {
   if (!ret) {
     // The index was freed. There is no need to reschedule the task.
     // We need to free the task and the GC.
+    RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "GC: Self-Terminating. Index was freed.");
     destroyCallback(gc);
     rm_free (task);
     goto end;
