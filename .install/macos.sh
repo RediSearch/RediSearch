@@ -1,7 +1,11 @@
 #!/bin/bash
 export HOMEBREW_NO_AUTO_UPDATE=1
-GNUBIN=$(brew --prefix)/opt/make/libexec/gnubin
-LLVM=/usr/local/opt/llvm@16/bin
+BREW_PREFIX=$(brew --prefix)
+GNUBIN=$BREW_PREFIX/opt/make/libexec/gnubin
+LLVM=$BREW_PREFIX/opt/llvm@16/bin
+
+echo "LLVM path: $LLVM"
+echo "GNUBIN path: $GNUBIN"
 
 brew update
 brew install make
