@@ -4,9 +4,6 @@ BREW_PREFIX=$(brew --prefix)
 GNUBIN=$BREW_PREFIX/opt/make/libexec/gnubin
 LLVM=$BREW_PREFIX/opt/llvm@16/bin
 
-echo "LLVM path: $LLVM"
-echo "GNUBIN path: $GNUBIN"
-
 brew update
 brew install make
 brew install llvm@16
