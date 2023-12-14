@@ -4,6 +4,8 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
+#include <unistd.h>
+
 #include "debug_commads.h"
 #include "inverted_index.h"
 #include "index.h"
@@ -665,6 +667,27 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   return REDISMODULE_OK;
 }
 
+DEBUG_COMMAND(GCWaitForInvokeAndDrop) {
+  if (argc < 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+  // wait for the timer to be called
+  uint64_t remaining;
+  if (RedisModule_GetTimerInfo(RSDummyContext, sp->gc->timerID, &remaining, NULL) == REDISMODULE_OK) {
+    usleep(1000 * remaining);
+  }
+  // Nullify the pointer so we won't try to free it in the next step.
+  // It should free itself when the timer is called and it discovers that the index was deleted.
+  sp->gc = NULL;
+  IndexSpec_RemoveFromGlobals(ref);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 DEBUG_COMMAND(GCCleanNumeric) {
 
   if (argc != 2) {
@@ -1016,6 +1039,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"GC_CLEAN_NUMERIC", GCCleanNumeric},
+                               {"GC_WAIT_AND_DROP", GCWaitForInvokeAndDrop}, // Wait for the GC to be invoked by the timer and drop the index
                                {"GIT_SHA", GitSha},
                                {"TTL", ttl},
                                {"VECSIM_INFO", VecsimInfo},
