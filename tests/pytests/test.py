@@ -3793,6 +3793,3 @@ def test_timeout_strict_policy():
     env.expect(
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
         ).error().contains('Timeout limit was reached')
-
-def test_timeoutParsingFail(env):
-    """Tests that we fail on non-valid commands, regarding the timeout parameter"""
