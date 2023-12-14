@@ -50,7 +50,7 @@ typedef enum {
 static void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
             size_t recordsRemoved, size_t bytesCollected, size_t bytesAdded) {
   sctx->spec->stats.numRecords -= recordsRemoved;
-  sctx->spec->stats.invertedSize -= bytesCollected + bytesAdded;
+  sctx->spec->stats.invertedSize += bytesAdded - bytesCollected;
   gc->stats.totalCollected += bytesCollected;
 }
 
