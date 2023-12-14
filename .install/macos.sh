@@ -7,16 +7,6 @@ COREUTILS=$BREW_PREFIX/opt/coreutils/libexec/gnubin
 
 brew update
 brew install coreutils
-echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.bashrc
-echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.zshrc
-
-source ~/.bashrc
-source ~/.zshrc
-# test du
-echo "test du:"
-echo du -ah --apparent-size .
-echo ":ud tset"
-
 brew install make
 brew install llvm@16
 
@@ -37,6 +27,3 @@ pip install -q -r build_package_requirments.txt
 
 # List installed packages
 pip list
-
-# test du
-du -ah --apparent-size .
