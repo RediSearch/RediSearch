@@ -5,7 +5,7 @@ import redis
 from hotels import hotels
 import random
 import time
-
+import unittest
 
 # this tests is not longer relevant
 # def testAdd(env):
@@ -2129,22 +2129,18 @@ def testIssue446(env):
     rv = env.cmd('ft.search', 'myIdx', 'hello', 'limit', '0', '0')
     env.assertEqual([2], rv)
 
-@skip(cluster=True)
-def testTimeout(env):
+# @skip(cluster=True)
+def testTimeout():
     if VALGRIND:
-        env.skip()
+        raise unittest.SkipTest()
 
     num_range = 1000
-    env.cmd('ft.config', 'set', 'timeout', '1')
-    env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
+    env = Env(moduleArgs=f'MAXPREFIXEXPANSIONS {num_range} TIMEOUT 1 ON_TIMEOUT FAIL')
 
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
     for i in range(num_range):
         env.expect('HSET', 'doc%d'%i, 't', 'aa' + str(i), 'geo', str(i/10000) + ',' + str(i/1000))
 
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0').noEqual([num_range])
-
-    env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0') \
        .contains('Timeout limit was reached')
 
@@ -3797,3 +3793,6 @@ def test_timeout_strict_policy():
     env.expect(
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
         ).error().contains('Timeout limit was reached')
+
+def test_timeoutParsingFail(env):
+    """Tests that we fail on non-valid commands, regarding the timeout parameter"""

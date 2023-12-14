@@ -198,7 +198,7 @@ int parseTimeout(long long *timeout, ArgsCursor *ac, QueryError *status) {
 
   if (AC_GetLongLong(ac, timeout, AC_F_GE0) != AC_OK) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
-      "DIALECT requires a non negative integer.");
+      "Timeout requires a non negative integer.");
     return REDISMODULE_ERR;
   }
 
