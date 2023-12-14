@@ -18,10 +18,3 @@ jobs:
     with:
       coordinator: true
       test-config: QUICK=1
-
-  test-mariner:
-    uses: ./.github/workflows/flow-linux-platforms.yml
-    secrets: inherit
-    with:
-      platform: mariner:2
-      architecture: x86_64
