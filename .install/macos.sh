@@ -13,7 +13,10 @@ echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.zshrc
 source ~/.bashrc
 source ~/.zshrc
 # test du
-du -ah --apparent-size .
+echo "test du:"
+echo du -ah --apparent-size .
+echo ":ud tset"
+
 brew install make
 brew install llvm@16
 
