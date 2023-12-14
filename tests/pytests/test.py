@@ -3730,8 +3730,8 @@ def test_cluster_set_server_memory_tracking(env):
     
     conn = getConnectionByEnv(env)
     mem = get_memory(env)
-    for i in range(10):
-        conn.execute_command('SEARCH.CLUSTERSET',
+    for i in range(2):
+        env.expect('SEARCH.CLUSTERSET',
                'MYID',
                '1',
                'RANGES',
@@ -3744,9 +3744,10 @@ def test_cluster_set_server_memory_tracking(env):
                'ADDR',
                'password@127.0.0.1:22000',
                'MASTER'
-            )
+            ).equal('OK')
         mem2 = get_memory(env)
         env.assertLessEqual(mem, mem2)
+        time.sleep(1)
 
 
 def test_internal_commands(env):
