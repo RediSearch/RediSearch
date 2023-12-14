@@ -10,8 +10,8 @@ brew install make
 brew install llvm@16
 brew install coreutils
 
-echo "export PATH=$LLVM:$GNUBIN:$PATH" >> ~/.bashrc
-echo "export PATH=$LLVM:$GNUBIN:$PATH" >> ~/.zshrc
+echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.bashrc
+echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.zshrc
 
 brew install openssl
 source install_cmake.sh
@@ -25,3 +25,6 @@ pip install -q -r build_package_requirments.txt
 
 # List installed packages
 pip list
+
+# test du
+du -ah --apparent-size .
