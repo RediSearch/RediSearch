@@ -692,6 +692,8 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
       searchRequestCtx_Free(req);
       return NULL;
     }
+  } else {
+    req->timeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
   }
 
   return req;
@@ -1589,7 +1591,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   // If we timed out on strict timeout policy, return a timeout error
-  if ((((double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC) > req->timeout)
+  if (req->timeout != 0
+      && (((double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC) > req->timeout)
       && RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
     RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
     goto cleanup;
