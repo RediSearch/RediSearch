@@ -64,7 +64,7 @@ jobs:
         working-directory: setup/.install
         run: |
           ./install_script.sh ${{ steps.mode.outputs.mode }}
-          pip install -r build_packages_requirements.txt
+          pip install -r build_package_requirments.txt
       - name: Full checkout
         uses: actions/checkout@v3
         with:
