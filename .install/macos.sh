@@ -6,12 +6,21 @@ LLVM=$BREW_PREFIX/opt/llvm@16/bin
 COREUTILS=$BREW_PREFIX/opt/coreutils/libexec/gnubin
 
 brew update
+brew install coreutils
+echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.bashrc
+echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.zshrc
+
+source ~/.bashrc
+source ~/.zshrc
+# test du
+du -ah --apparent-size .
 brew install make
 brew install llvm@16
-brew install coreutils
 
 echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.bashrc
 echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.zshrc
+source ~/.bashrc
+source ~/.zshrc
 
 brew install openssl
 source install_cmake.sh
