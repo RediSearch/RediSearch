@@ -1,4 +1,5 @@
 name: Backport merged pull request
+
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
 on:
@@ -40,7 +41,7 @@ jobs:
       - name: Trigger CI
         env:
           GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
-        # Draft and then undraft the pull requests to trigger the CI
+        # Draft and then undraft the pull requests to trigger CI
         run: |
           for pr in ${{ steps.backport.outputs.successful_prs }}; do
             gh pr ready $pr --undo
