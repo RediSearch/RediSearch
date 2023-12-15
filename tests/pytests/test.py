@@ -3815,16 +3815,54 @@ def test_with_tls():
 
     common_with_auth(env)
 
-def test_timeoutParsingFail(env):
-    """Tests that we fail on non-valid commands, regarding the timeout parameter
-    for the `FT.SEARCH` path of the coordinator"""
+def test_timeoutCoordSearch_NonStrict(env):
+    """Tests edge-cases for the `TIMEOUT` parameter for the coordinator's
+    `FT.SEARCH` path"""
+
+    if VALGRIND:
+        unittest.SkipTest()
 
     SkipOnNonCluster(env)
 
     # Create and populate an index
-    populate_db(env, 1000)
+    n_docs = 50000
+    populate_db(env, n_docs)
 
     # test erroneous params
-    env.expect('ft.search', 'idx', 'aa*|aa*|aa*|aa* aa*', 'timeout').error()
-    env.expect('ft.search', 'idx', 'aa*|aa*|aa*|aa* aa*', 'timeout', -1).error()
-    env.expect('ft.search', 'idx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
+    env.expect('ft.search', 'idx', '* aa*', 'timeout').error()
+    env.expect('ft.search', 'idx', '* aa*', 'timeout', -1).error()
+    env.expect('ft.search', 'idx', '* aa*', 'timeout', 'STR').error()
+
+    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '0')
+    env.assertEqual(res[0], n_docs)
+
+    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '1')
+    env.assertLessEqual(res[0], n_docs)
+
+def test_timeoutCoordSearch_Strict():
+    """Tests edge-cases for the `TIMEOUT` parameter for the coordinator's
+    `FT.SEARCH` path, when the timeout policy is strict"""
+
+    if VALGRIND:
+        unittest.SkipTest()
+
+    env = Env(moduleArgs='ON_TIMEOUT FAIL')
+
+    SkipOnNonCluster(env)
+
+    # Create and populate an index
+    n_docs = 50000
+    populate_db(env, n_docs)
+
+    # test erroneous params
+    env.expect('ft.search', 'idx', '* aa*', 'timeout').error()
+    env.expect('ft.search', 'idx', '* aa*', 'timeout', -1).error()
+    env.expect('ft.search', 'idx', '* aa*', 'timeout', 'STR').error()
+
+    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '0')
+    env.assertEqual(res[0], n_docs)
+
+    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '100000')
+    env.assertEqual(res[0], n_docs)
+
+    env.expect('ft.search', 'idx', '*', 'TIMEOUT', '1').error().contains('Timeout limit was reached')
