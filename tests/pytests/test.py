@@ -2129,7 +2129,6 @@ def testIssue446(env):
     rv = env.cmd('ft.search', 'myIdx', 'hello', 'limit', '0', '0')
     env.assertEqual([2], rv)
 
-# @skip(cluster=True)
 def testTimeout():
     if VALGRIND:
         raise unittest.SkipTest()
