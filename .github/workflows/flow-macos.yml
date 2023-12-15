@@ -34,7 +34,6 @@ on:
         type: string
 
 jobs:
-
   build-macos:
     strategy:
       fail-fast: false
