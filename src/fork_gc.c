@@ -219,10 +219,13 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
       continue;
     }
 
+    uint64_t curr_bytesCollected = params->bytesBeforFix - params->bytesAfterFix;
+
     if (blk->numEntries == 0) {
       // this block should be removed
       MSG_DeletedBlock *delmsg = array_ensure_tail(&deleted, MSG_DeletedBlock);
       *delmsg = (MSG_DeletedBlock){.ptr = bufptr, .oldix = i};
+      curr_bytesCollected += sizeof(IndexBlock);
     } else {
       blocklist = array_append(blocklist, *blk);
       MSG_RepairedBlock *fixmsg = array_ensure_tail(&fixed, MSG_RepairedBlock);
@@ -231,7 +234,6 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
       fixmsg->blk = *blk; // TODO: consider sending the blocklist even if there weren't any deleted blocks instead of this redundant copy.
       ixmsg.nblocksRepaired++;
     }
-    uint64_t curr_bytesCollected = params->bytesBeforFix - params->bytesAfterFix;
     ixmsg.nbytesCollected += curr_bytesCollected;
     ixmsg.ndocsCollected += nrepaired;
     ixmsg.nentriesCollected += params->entriesCollected;

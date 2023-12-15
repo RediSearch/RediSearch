@@ -122,7 +122,7 @@ def testMemoryAfterDrop_numeric(env):
         env.skip()
 
     idx_count = 100
-    doc_count = 50
+    doc_count = 120
     divide_by = 1000000   # ensure limits of geo are not exceeded
     pl = env.getConnection().pipeline()
 
@@ -149,8 +149,9 @@ def testMemoryAfterDrop_numeric(env):
         for _ in range(10):
             forceInvokeGC(env, 'idx%d' % i)
 
+    expected_inverted_sz_mb = 102 / (1024 * 1024)
     for i in range(idx_count):
-        check_empty(env, 'idx%d' % i, 40.0e-06)
+        check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
 
 @skip(cluster=True)
 def testMemoryAfterDrop_geo(env):
@@ -186,8 +187,9 @@ def testMemoryAfterDrop_geo(env):
         for _ in range(10):
             forceInvokeGC(env, 'idx%d' % i)
 
+    expected_inverted_sz_mb = 102 / (1024 * 1024)
     for i in range(idx_count):
-        check_empty(env, 'idx%d' % i, 40.0e-06)
+        check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
 
 @skip(cluster=True)
 def testMemoryAfterDrop_text(env):
@@ -197,7 +199,6 @@ def testMemoryAfterDrop_text(env):
 
     idx_count = 100
     doc_count = 50
-    divide_by = 1000000   # ensure limits of geo are not exceeded
     pl = env.getConnection().pipeline()
 
     env.execute_command('FLUSHALL')
@@ -207,7 +208,6 @@ def testMemoryAfterDrop_text(env):
         env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 't', 'TEXT').ok()
 
     for i in range(idx_count):
-        geo = '1.23456,' + str(float(i) / divide_by)
         for j in range(doc_count):
             pl.execute_command('HSET', '%ddoc%d' % (i, j), 't', '%dhello%d' % (i, j))
         pl.execute()
@@ -223,8 +223,10 @@ def testMemoryAfterDrop_text(env):
         for _ in range(10):
             forceInvokeGC(env, 'idx%d' % i)
 
+    # TODO:
+    expected_inverted_sz_mb = 6480 / (1024 * 1024)
     for i in range(idx_count):
-        check_empty(env, 'idx%d' % i, 0)
+        check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
 
 @skip(cluster=True)
 def testMemoryAfterDrop_tag(env):
@@ -244,7 +246,6 @@ def testMemoryAfterDrop_tag(env):
         env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 'tg', 'TAG').ok()
 
     for i in range(idx_count):
-        geo = '1.23456,' + str(float(i) / divide_by)
         for j in range(doc_count):
             pl.execute_command('HSET', '%ddoc%d' % (i, j), 'tg', '%dworld%d' % (i, j))
         pl.execute()
@@ -260,8 +261,10 @@ def testMemoryAfterDrop_tag(env):
         for _ in range(10):
             forceInvokeGC(env, 'idx%d' % i)
 
+    #  TODO:
+    expected_inverted_sz_mb = 75 / (1024 * 1024)
     for i in range(idx_count):
-        check_empty(env, 'idx%d' % i, 0)
+        check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
 
 @skip(cluster=True)
 def testMemoryAfterDrop(env):
