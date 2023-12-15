@@ -40,7 +40,7 @@ jobs:
       - name: Trigger CI
         env:
           GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
-        # Draft and then undraft the pull requests to trigger CI
+        # Draft and then undraft the pull requests to trigger the CI
         run: |
           for pr in ${{ steps.backport.outputs.successful_prs }}; do
             gh pr ready $pr --undo
