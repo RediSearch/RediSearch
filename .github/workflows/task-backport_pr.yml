@@ -1,4 +1,5 @@
 name: Backport merged pull request
+
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
 on:
