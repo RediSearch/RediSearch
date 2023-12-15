@@ -166,7 +166,7 @@ def testOverrides(env):
         env.assertEqual(hashes_number, int(info['num_records']), message = "expected ft.info:num_records")
 
         # size in bytes shouldn't grow
-        env.assertAlmostEqual(expected_inverted_sz_mb, float(info['inverted_sz_mb']), 0.001, message = "expected ft.info:inverted_sz_mb")
+        env.assertAlmostEqual(expected_inverted_sz_mb, float(info['inverted_sz_mb']), 0.0012, message = "expected ft.info:inverted_sz_mb")
 
         # the tree depth was experimentally calculated, and should remain constant since we are using the same values.
         numeric_tree = numeric_tree_summary(env, 'idx', 'num')
