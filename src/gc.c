@@ -122,31 +122,13 @@ void GCContext_Start(GCContext* gc) {
   }
 }
 
-void GCContext_Stop(GCContext* gc) {
-  if (RS_IsMock) {
-    // for fork gc debug
-    RedisModule_FreeThreadSafeContext(((ForkGC *)gc->gcCtx)->ctx);
-    array_free(((ForkGC *)gc->gcCtx)->tieredIndexes);
-    WeakRef_Release(((ForkGC *)gc->gcCtx)->index);
-    free(gc->gcCtx);
-    free(gc);
-    return;
-  }
-
-  GCTask *data = NULL;
-  if (RedisModule_StopTimer(RSDummyContext, gc->timerID, (void**)&data) == REDISMODULE_OK) {
-    // GC is not running, we can free it immediately
-    assert(data->gc == gc);
-    rm_free(data);  // release task memory
-
-    // free gc
-    destroyCallback(gc);
-  } else {
-    // GC is running, or is about to run.
-    // We can't free it now, but it will free itself when it discovers that the index was freed.
-    // On the worst case, it just finishes the current run and will schedule another run soon.
-    // In this case the GC will be freed on the next run, in `forkGcRunIntervalSec` seconds.
-  }
+void GCContext_StopMock(GCContext* gc) {
+  // for fork gc debug
+  RedisModule_FreeThreadSafeContext(((ForkGC *)gc->gcCtx)->ctx);
+  array_free(((ForkGC *)gc->gcCtx)->tieredIndexes);
+  WeakRef_Release(((ForkGC *)gc->gcCtx)->index);
+  free(gc->gcCtx);
+  free(gc);
 }
 
 void GCContext_RenderStats(GCContext* gc, RedisModule_Reply* reply) {

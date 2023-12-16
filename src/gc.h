@@ -44,7 +44,7 @@ typedef struct GCTask {
 
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy);
 void GCContext_Start(GCContext* gc);
-void GCContext_Stop(GCContext* gc);
+void GCContext_StopMock(GCContext* gc);
 void GCContext_RenderStats(GCContext* gc, RedisModule_Reply* ctx);
 #ifdef FTINFO_FOR_INFO_MODULES
 void GCContext_RenderStatsForInfo(GCContext* gc, RedisModuleInfoCtx* ctx);

@@ -1349,20 +1349,21 @@ void IndexSpec_Free(IndexSpec *spec) {
   // next time it will try to acquire the spec.
 
   // For temporary index
-  if (spec->isTimerSet) {
-    WeakRef old_timer_ref;
-    if (RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_ref) == REDISMODULE_OK) {
-      WeakRef_Release(old_timer_ref);
-    }
-    spec->isTimerSet = false;
-  }
+  // This function might be called from any thread, and we cannot deal with timers without the GIL.
+  // At this point we should have already stopped the timer.
+  assert(!spec->isTimerSet);
   // Stop and destroy indexer
   if (spec->indexer) {
     Indexer_Free(spec->indexer);
   }
   // Stop and destroy garbage collector
-  if (spec->gc) {
-    GCContext_Stop(spec->gc);
+  // We can't free it now, because it eighter runs at the moment or has a timer set which we can't
+  // deal with without the GIL.
+  // It will free itself when it discovers that the index was freed.
+  // On the worst case, it just finishes the current run and will schedule another run soon.
+  // In this case the GC will be freed on the next run, in `forkGcRunIntervalSec` seconds.
+  if (RS_IsMock && spec->gc) {
+    GCContext_StopMock(spec->gc);
   }
 
   // Free stopwords list (might use global pointer to default list)
@@ -1404,6 +1405,18 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
   }
 
   SchemaPrefixes_RemoveSpec(spec_ref);
+
+  // For temporary index
+  // We are dropping the index from the mainthread, but the freeing process might happen later from
+  // another thread. We cannot deal with timers from other threads, so we need to stop the timer
+  // now. We don't need it anymore anyway.
+  if (spec->isTimerSet) {
+    WeakRef old_timer_ref;
+    if (RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_ref) == REDISMODULE_OK) {
+      WeakRef_Release(old_timer_ref);
+    }
+    spec->isTimerSet = false;
+  }
 
   // Mark there are pending index drops.
   // if ref count is > 1, the actual cleanup will be done only when StrongRefs are released.
