@@ -16,12 +16,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        branch: ["2.6"]
+        branch: ["meiravg_update_rmutil"]
         include:
-          - branch: "2.6"
+          - branch: "meiravg_update_rmutil"
             redis-ref: '6.2.14' # 2.6 doesn't support Redis 7
     secrets: inherit
     uses: ./.github/workflows/flow-build-artifacts.yml
     with:
       reference: ${{ matrix.branch }}
       redis-reference: ${{ matrix.redis-ref }}
+      platform: macos
