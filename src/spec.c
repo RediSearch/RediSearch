@@ -225,43 +225,10 @@ int isRdbLoading(RedisModuleCtx *ctx) {
 
 //---------------------------------------------------------------------------------------------
 
-// called on master shard for temporary indexes and deletes all documents by defaults
-static void IndexSpec_FreeTask(char *specName) {
-#ifdef _DEBUG
-  RedisModule_Log(NULL, "notice", "Freeing index %s in background", specName);
-#endif
-  RedisModule_ThreadSafeContextLock(RSDummyContext);
-
-  // pass FT.DROPINDEX with "DD" flag to slef.
-  RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, RS_DROP_INDEX_CMD, "cc!", specName, "DD");
-  if (rep) {
-    RedisModule_FreeCallReply(rep);
-  }
-
-  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-
-  rm_free(specName);
-}
-
 void IndexSpec_LegacyFree(void *spec) {
   // free legacy index do nothing, it will be called only
   // when the index key will be deleted and we keep the legacy
   // index pointer in the legacySpecDict so we will free it when needed
-}
-
-static void IndexSpec_TimedOut_Free(IndexSpec *spec) {
-  if (RS_IsMock) {
-    IndexSpec_Free(spec);
-    return;
-  }
-  if (spec->isTimerSet) {
-    WeakRef old_timer_ref;
-    if (RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_ref) == REDISMODULE_OK) {
-      WeakRef_Release(old_timer_ref);
-    }
-    spec->isTimerSet = false;
-  }
-  redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeTask, rm_strdup(spec->name), THPOOL_PRIORITY_HIGH);
 }
 
 static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
@@ -277,19 +244,22 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
     // the spec was already deleted, nothing to do here
     return;
   }
-#ifdef _DEBUG
-  RedisModule_Log(NULL, "notice", "Freeing index %s by timer", sp->name);
-#endif
+  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "Freeing index %s by timer", sp->name);
 
   sp->isTimerSet = false;
-  // This function will perform an index drop, and we will still have to return our references
-  IndexSpec_TimedOut_Free(sp);
+  if (RS_IsMock) {
+    IndexSpec_Free(sp);
+  } else {
+    // called on master shard for temporary indexes and deletes all documents by defaults
+    // pass FT.DROPINDEX with "DD" flag to self.
+    RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, RS_DROP_INDEX_CMD, "cc!", sp->name, "DD");
+    if (rep) {
+      RedisModule_FreeCallReply(rep);
+    }
+  }
 
+  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "Freeing index %s by timer: done", sp->name);
   StrongRef_Release(spec_ref);
-
-#ifdef _DEBUG
-  RedisModule_Log(NULL, "notice", "Freeing index by timer: done");
-#endif
 }
 
 // Assuming the GIL is held.
@@ -1518,12 +1488,6 @@ StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options)
   IndexSpec_IncreasCounter(sp);
 
   if (!RS_IsMock && (sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
-    if (sp->isTimerSet) {
-      WeakRef old_timer_ref;
-      if (RedisModule_StopTimer(RSDummyContext, sp->timerId, (void **)&old_timer_ref) == REDISMODULE_OK) {
-        WeakRef_Release(old_timer_ref);
-      }
-    }
     IndexSpec_SetTimeoutTimer(sp, StrongRef_Demote(spec_ref));
   }
 
