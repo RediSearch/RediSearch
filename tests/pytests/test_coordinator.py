@@ -134,10 +134,10 @@ def test_timeout():
     ).error().contains('Timeout limit was reached')
 
     # Client cursor mid execution
-    env.expect(
-        'FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', n_docs,
-        'timeout', '1'
-    ).error().contains('Timeout limit was reached')
+    res, _ = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1',
+                                  'GROUPBY', '1', '@t1', 'WITHCURSOR', 'COUNT',
+                                  str(n_docs), 'TIMEOUT', 1)
+    env.assertEqual(res, [0])
 
     # FT.SEARCH
     env.expect(
