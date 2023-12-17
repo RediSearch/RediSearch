@@ -12,16 +12,22 @@ on:
     branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  test-mariner:
-    uses: ./.github/workflows/flow-linux-platforms.yml
-    secrets: inherit
+  get-latest:
+    uses: ./.github/workflows/task-get-latest-tag.yml
     with:
-      platform: mariner:2
-      architecture: x86_64
+      repo: redis/redis
 
-  test-mariner-artifact:
-    uses: ./.github/workflows/flow-build-artifacts.yml
-    secrets: inherit
+  get-latest-6:
+    uses: ./.github/workflows/task-get-latest-tag.yml
     with:
-      platform: mariner:2
-      architecture: x86_64
+      repo: redis/redis
+      prefix: 6 # Get latest version with major version 6
+
+  print:
+    runs-on: ubuntu-latest
+    needs: [get-latest, get-latest-6]
+    steps:
+      - name: Print latest tag
+        run: echo "Latest tag is ${{ needs.get-latest.outputs.tag }}"
+      - name: Print latest tag with major version 6
+        run: echo "Latest tag with major version 6 is ${{ needs.get-latest-6.outputs.tag }}"

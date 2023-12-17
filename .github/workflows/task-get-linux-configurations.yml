@@ -10,8 +10,7 @@ env:
                     'rockylinux:8',
                     'rockylinux:9',
                     'debian:bullseye',
-                    'amazonlinux:2',
-                    'mcr.microsoft.com/cbl-mariner/base/core:2.0']"
+                    'amazonlinux:2']"
   ALL_ARM_IMAGES: "['ubuntu:jammy',
                     'ubuntu:focal',
                     'ubuntu:bionic']"
@@ -60,11 +59,6 @@ jobs:
           def needs_arch(arch):
             return requested_arch in ['all', arch]
 
-          naming = {'mariner:2': 'mcr.microsoft.com/cbl-mariner/base/core:2.0'}
-
-          # Normalize the platform name
-          requested_platform = naming.get(requested_platform, requested_platform)
-
           # Get the platforms to build on (set `x86_platforms` and `arm_platforms`)
           if requested_platform == 'all':
             x86_platforms = all_x86_images if needs_arch('x86_64')  else []
@@ -99,12 +93,6 @@ jobs:
             x86_include.append({
               'OS': 'amazonlinux:2',
               'pre-deps': "yum install -y tar gzip"})
-
-          # mariner:2 needs pre-checkout dependencies
-          if x86_platforms.count('mcr.microsoft.com/cbl-mariner/base/core:2.0') > 0:
-            x86_include.append({
-              'OS': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
-              'pre-deps': "tdnf install -y --noplugins --skipsignature tar gzip"})
 
           # Serialize the platforms to a string
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
