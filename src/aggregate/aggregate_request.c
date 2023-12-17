@@ -1284,7 +1284,7 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
 
   RLookup_Init(first, cache);
 
-  ResultProcessor *rp = RPIndexIterator_New(req->rootiter);
+  ResultProcessor *rp = RPIndexIterator_New(req->rootiter, req->timeoutTime);
   ResultProcessor *rpUpstream = NULL;
   req->qiter.rootProc = req->qiter.endProc = rp;
   PUSH_RP();

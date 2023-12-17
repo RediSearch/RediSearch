@@ -170,11 +170,6 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
-/**
- * This function allocates a new SearchResult, copies the data from `src` to it,
- * and returns it.
-*/
-SearchResult *SearchResult_Copy(SearchResult *r);
 
 /**
  * This function resets the search result, so that it may be reused again.
@@ -188,7 +183,7 @@ void SearchResult_Clear(SearchResult *r);
  */
 void SearchResult_Destroy(SearchResult *r);
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *itr);
+ResultProcessor *RPIndexIterator_New(IndexIterator *itr, struct timespec timeoutTime);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs);

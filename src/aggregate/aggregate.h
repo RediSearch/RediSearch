@@ -92,8 +92,6 @@ typedef enum {
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
-// Get the index search context from the result processor
-#define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 
 #ifdef MT_BUILD
 // Indicates whether a query should run in the background. This
