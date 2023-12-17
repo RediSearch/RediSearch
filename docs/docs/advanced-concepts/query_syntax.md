@@ -158,7 +158,7 @@ Finally, there's new `FT.SEARCH` syntax that allows you to query for polygons th
 
 Here's an example using two stacked polygons that represent a box contained within a house.
 
-![two stacked polygons](/docs/interact/search-and-query/img/polygons.png)
+![two stacked polygons](../img/polygons.png)
 
 First, create an index using a `FLAT` `GEOSHAPE`, representing a 2D X Y coordinate system.
 
