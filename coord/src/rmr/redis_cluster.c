@@ -144,8 +144,3 @@ int InitRedisTopologyUpdater() {
       RMUtil_NewPeriodicTimer(updateTopoCB, NULL, NULL, (struct timespec){.tv_sec = 1});
   return REDIS_OK;
 }
-
-// For testing purposes
-int StopRedisTopologyUpdater() {
-  return RMUtilTimer_Terminate(updateTopoTimer);
-}
