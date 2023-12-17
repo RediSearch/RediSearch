@@ -2129,28 +2129,28 @@ def testIssue446(env):
     rv = env.cmd('ft.search', 'myIdx', 'hello', 'limit', '0', '0')
     env.assertEqual([2], rv)
 
-@skip(cluster=True)
-def testTimeout(env):
+def testTimeout():
     if VALGRIND:
-        env.skip()
+        unittest.skipTest()
 
-    num_range = 1000
-    env.cmd('ft.config', 'set', 'timeout', '1')
-    env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
+    num_range = 10000
+    env = Env(moduleArgs=f'ON_TIMEOUT FAIL TIMEOUT 1 MAXPREFIXEXPANSIONS {num_range}')
 
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
     for i in range(num_range):
         env.expect('HSET', 'doc%d'%i, 't', 'aa' + str(i), 'geo', str(i/10000) + ',' + str(i/1000))
 
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0').noEqual([num_range])
-
-    env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0') \
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0', 'TIMEOUT', '1') \
        .contains('Timeout limit was reached')
 
     # test `TIMEOUT` param in query
     res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 10000)
     env.assertEqual(res[0], num_range)
+
+    # Check that the `0` timeout argument works properlly.
+    res = env.cmd('ft.search', 'myIdx', '*', 'TIMEOUT', '0')
+    env.assertEqual(res[0], num_range)
+
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1)    \
         .error().contains('Timeout limit was reached')
 
@@ -2159,7 +2159,10 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', -1).error()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
 
-    # TODO: Modify this test, as now it will receive a timeout error, so the check is bad
+    env.expect('ft.aggregate', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout').error()
+    env.expect('ft.aggregate', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', -1).error()
+    env.expect('ft.aggregate', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
+
     # check no time w/o sorter/grouper
     env.expect(
         'FT.AGGREGATE', 'myIdx', '*',
@@ -2168,7 +2171,8 @@ def testTimeout(env):
         'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance2',
         'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance3',
         'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance4',
-        'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance5'
+        'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance5',
+        'TIMEOUT', '1'
     ).error().contains('Timeout limit was reached')
 
     # test grouper
@@ -2177,7 +2181,8 @@ def testTimeout(env):
                'GROUPBY', 1, '@t',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
-               'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
+               'APPLY', 'contains(@t, "a1")', 'AS', 'contain3',
+               'TIMEOUT', '1') \
        .contains('Timeout limit was reached')
 
     # test sorter
@@ -2186,7 +2191,8 @@ def testTimeout(env):
                'SORTBY', 1, '@t',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
-               'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
+               'APPLY', 'contains(@t, "a1")', 'AS', 'contain3',
+               'TIMEOUT', '1') \
        .contains('Timeout limit was reached')
 
     # test cursor
@@ -3814,59 +3820,3 @@ def test_with_tls():
               tlsPassphrase=passphrase)
 
     common_with_auth(env)
-
-@skip(asan=True)
-def test_timeoutCoordSearch_NonStrict(env):
-    """Tests edge-cases for the `TIMEOUT` parameter for the coordinator's
-    `FT.SEARCH` path"""
-
-    if VALGRIND:
-        unittest.SkipTest()
-
-    SkipOnNonCluster(env)
-
-    # Create and populate an index
-    n_docs_pershard = 50000
-    n_docs = n_docs_pershard * env.shardsCount
-    populate_db(env, n_docs_pershard)
-
-    # test erroneous params
-    env.expect('ft.search', 'idx', '* aa*', 'timeout').error()
-    env.expect('ft.search', 'idx', '* aa*', 'timeout', -1).error()
-    env.expect('ft.search', 'idx', '* aa*', 'timeout', 'STR').error()
-
-    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '0')
-    env.assertEqual(res[0], n_docs)
-
-    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '1')
-    env.assertLessEqual(res[0], n_docs)
-
-@skip(asan=True)
-def test_timeoutCoordSearch_Strict():
-    """Tests edge-cases for the `TIMEOUT` parameter for the coordinator's
-    `FT.SEARCH` path, when the timeout policy is strict"""
-
-    if VALGRIND:
-        unittest.SkipTest()
-
-    env = Env(moduleArgs='ON_TIMEOUT FAIL')
-
-    SkipOnNonCluster(env)
-
-    # Create and populate an index
-    n_docs_pershard = 50000
-    n_docs = n_docs_pershard * env.shardsCount
-    populate_db(env, n_docs_pershard)
-
-    # test erroneous params
-    env.expect('ft.search', 'idx', '* aa*', 'timeout').error()
-    env.expect('ft.search', 'idx', '* aa*', 'timeout', -1).error()
-    env.expect('ft.search', 'idx', '* aa*', 'timeout', 'STR').error()
-
-    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '0')
-    env.assertEqual(res[0], n_docs)
-
-    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '100000')
-    env.assertEqual(res[0], n_docs)
-
-    env.expect('ft.search', 'idx', '*', 'TIMEOUT', '1').error().contains('Timeout limit was reached')
