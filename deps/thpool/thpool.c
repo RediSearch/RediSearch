@@ -11,6 +11,7 @@
 
 //#define _POSIX_C_SOURCE 200809L
 #include <unistd.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
@@ -33,6 +34,8 @@
 #endif
 
 #define LOG_IF_EXISTS(level, str, ...) if (thpool_p->log) {thpool_p->log(level, str, ##__VA_ARGS__);}
+
+static volatile int threads_on_hold;
 
 /* ========================== STRUCTURES ============================ */
 
@@ -92,6 +95,7 @@ typedef struct redisearch_thpool_t {
 
 static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id);
 static void* thread_do(struct thread* thread_p);
+static void thread_hold(int sig_id);
 static void thread_destroy(struct thread* thread_p);
 
 static int jobqueue_init(jobqueue* jobqueue_p);
@@ -118,6 +122,8 @@ static void bsem_wait(struct bsem* bsem_p);
 
 /* Create thread pool */
 struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t num_privileged_threads, LogFunc log) {
+  threads_on_hold = 0;
+
   /* Make new thread pool */
   redisearch_thpool_t* thpool_p;
   thpool_p = (struct redisearch_thpool_t*)rm_malloc(sizeof(struct redisearch_thpool_t));
@@ -337,6 +343,24 @@ void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
   rm_free(thpool_p);
 }
 
+/* Pause all threads in threadpool */
+void redisearch_thpool_pause(redisearch_thpool_t* thpool_p) {
+  size_t n;
+  for (n = 0; n < thpool_p->num_threads_alive; n++) {
+    pthread_kill(thpool_p->threads[n]->pthread, SIGUSR2);
+  }
+}
+
+/* Resume all threads in threadpool */
+void redisearch_thpool_resume(redisearch_thpool_t* thpool_p) {
+  // resuming a single threadpool hasn't been
+  // implemented yet, meanwhile this supresses
+  // the warnings
+  (void)thpool_p;
+
+  threads_on_hold = 0;
+}
+
 size_t redisearch_thpool_num_threads_working(redisearch_thpool_t* thpool_p) {
   pthread_mutex_lock(&thpool_p->thcount_lock);
   int res = thpool_p->num_threads_working;
@@ -360,6 +384,15 @@ static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, 
   pthread_create(&(*thread_p)->pthread, NULL, (void*)thread_do, (*thread_p));
   pthread_detach((*thread_p)->pthread);
   return 0;
+}
+
+/* Sets the calling thread on hold */
+static void thread_hold(int sig_id) {
+  (void)sig_id;
+  threads_on_hold = 1;
+  while (threads_on_hold) {
+    sleep(1);
+  }
 }
 
 /* What each thread is doing
@@ -388,6 +421,15 @@ static void* thread_do(struct thread* thread_p) {
   /* Assure all threads have been created before starting serving */
   redisearch_thpool_t* thpool_p = thread_p->thpool_p;
   LOG_IF_EXISTS("verbose", "Creating background thread-%d", thread_p->id)
+
+  /* Register signal handler */
+  struct sigaction act;
+  sigemptyset(&act.sa_mask);
+  act.sa_flags = 0;
+  act.sa_handler = thread_hold;
+  if (sigaction(SIGUSR2, &act, NULL) == -1) {
+    LOG_IF_EXISTS("warning", "thread_do(): cannot handle SIGUSR1")
+  }
 
   /* Mark thread as alive (initialized) */
   pthread_mutex_lock(&thpool_p->thcount_lock);
