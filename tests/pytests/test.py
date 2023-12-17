@@ -3642,7 +3642,7 @@ def test_RED_86036(env):
     for i in range(1000):
         env.cmd('hset', 'doc%d' % i, 't', 'foo')
     res = env.cmd('FT.PROFILE', 'idx', 'search', 'query', '*', 'INKEYS', '2', 'doc0', 'doc999')
-    res = res[1][3][1][7] # get the list iterator profile
+    res = res[1][4][1][7] # get the list iterator profile
     env.assertEqual(res[1], 'ID-LIST')
     env.assertLess(res[5], 3)
 
@@ -3776,10 +3776,55 @@ def test_internal_commands(env):
         fail_eval_call(r, env, ['SEARCH.CLUSTERREFRESH'])
         fail_eval_call(r, env, ['SEARCH.CLUSTERINFO'])
 
-def test_with_password():
-    mypass = '42MySecretPassword$'
-    args = f'OSS_GLOBAL_PASSWORD {mypass}' if COORD in ['1', 'oss'] else None
-    env = Env(moduleArgs=args, password=mypass)
+def test_timeout_non_strict_policy(env):
+    """Tests that we get the wanted behavior for the non-strict timeout policy.
+    `ON_TIMEOUT RETURN` - return partial results.
+    """
+
+    conn = getConnectionByEnv(env)
+
+    # Create an index, and populate it
+    n = 25000
+    populate_db(env, n)
+
+    # Query the index with a small timeout, and verify that we get partial results
+    num_docs = n * env.shardsCount
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+        )
+    env.assertTrue(len(res) < num_docs * 2 + 1)
+
+    # Same for `FT.AGGREGATE`
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
+        )
+    env.assertTrue(len(res) < num_docs + 1)
+
+def test_timeout_strict_policy():
+    """Tests that we get the wanted behavior for the strict timeout policy.
+    `ON_TIMEOUT FAIL` - return an error upon experiencing a timeout, without the
+    partial results.
+    """
+
+    env = Env(moduleArgs='ON_TIMEOUT FAIL')
+
+    # Create an index, and populate it
+    n = 25000
+    populate_db(env, n)
+
+    # Query the index with a small timeout, and verify that we get an error
+    num_docs = n * env.shardsCount
+    env.expect(
+        'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+        ).error().contains('Timeout limit was reached')
+
+    # Same for `FT.AGGREGATE`
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
+        ).error().contains('Timeout limit was reached')
+
+
+def common_with_auth(env: Env):
     conn = getConnectionByEnv(env)
     n_docs = 100
 
@@ -3787,7 +3832,27 @@ def test_with_password():
     for i in range(n_docs):
         conn.execute_command('HSET', f'doc{i}', 'n', i)
 
+    if env.isCluster():
+        # Mimic periodic cluster refresh
+        env.expect('SEARCH.CLUSTERREFRESH').ok()
+
     expected_res = [n_docs]
     for i in range(10):
         expected_res.extend([f'doc{i}', ['n', str(i)]])
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'n').equal(expected_res)
+
+def test_with_password():
+    mypass = '42MySecretPassword$'
+    args = f'OSS_GLOBAL_PASSWORD {mypass}' if COORD else None
+    env = Env(moduleArgs=args, password=mypass)
+    common_with_auth(env)
+
+def test_with_tls():
+    cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
+    env = Env(useTLS=True,
+              tlsCertFile=cert_file,
+              tlsKeyFile=key_file,
+              tlsCaCertFile=ca_cert_file,
+              tlsPassphrase=passphrase)
+
+    common_with_auth(env)
