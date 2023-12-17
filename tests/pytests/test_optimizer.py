@@ -67,8 +67,8 @@ def compare_optimized_to_not(env, query, params, msg=None):
         print_profile(env, query, params, optimize=False)
         print_profile(env, query, params, optimize=True)
 
-@skip(cluster=True)
 def testOptimizer(env):
+    env.skipOnCluster()
     env.cmd('FT.CONFIG', 'SET', 'TIMEOUT', '0')
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     env.cmd('FT.CONFIG', 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true')
@@ -322,8 +322,9 @@ def testOptimizer(env):
     result = env.cmd('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 1500, *params)
     env.assertEqual(result[0], 1200)
 
-@skip(cluster=True)
+
 def testWOLimit(env):
+    env.skipOnCluster()
     env.cmd('ft.config', 'set', 'timeout', '0')
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     repeat = 100
@@ -401,8 +402,8 @@ def testWOLimit(env):
     # stop after enough results were collected
     env.expect('ft.search', 'idx', '*', *params).equal([1] + res10)
 
-@skip(cluster=True)
 def testSearch(env):
+    env.skipOnCluster()
     repeat = 1000
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT', 'tag', 'TAG')
@@ -467,8 +468,8 @@ def testSearch(env):
             compare_optimized_to_not(env, ['ft.search', 'idx', '*'], params, 'case 12')
         #input('stop')
 
-@skip(cluster=True)
 def testAggregate(env):
+    env.skipOnCluster()
     repeat = 1000
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 't', 'TEXT', 'SORTABLE', 'tag', 'TAG', 'SORTABLE')
@@ -533,8 +534,10 @@ def testAggregate(env):
             compare_optimized_to_not(env, ['ft.aggregate', 'idx', '*'], params, 'case 12')
         #input('stop')
 
-@skip()  # TODO: solve flakiness (MOD-5257)
+@skip()  # TODO: solve flakiness
 def testCoordinator(env):
+    env.skip() # TODO: Fix flaky test (MOD-5257)
+
     # separate test which only has queries with sortby since otherwise the coordinator has random results
     repeat = 10000
     conn = getConnectionByEnv(env)

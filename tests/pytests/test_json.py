@@ -1080,8 +1080,10 @@ def testVector_delete(env):
         env.expect(*q).equal([1, 'j2'])
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
-@skip(cluster=True, msan=True)
+@no_msan
 def testRedisCommands(env):
+    env.skipOnCluster()
+
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
     env.cmd('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:1'])

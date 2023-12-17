@@ -61,7 +61,6 @@ def initEnv(skip=True):
 
   return env
 
-@skip(cluster=True)
 def testDelReplicate():
   env = initEnv()
   master = env.getConnection()
@@ -97,7 +96,6 @@ def testDelReplicate():
     env.assertEqual(None,
       slave.execute_command('ft.get', 'idx', 'doc%d' % i))
 
-@skip(cluster=True)
 def testDropReplicate():
   env = initEnv()
   master = env.getConnection()
@@ -150,7 +148,6 @@ def testDropReplicate():
   env.assertEqual(master_set.difference(slave_set), set([]))
   env.assertEqual(slave_set.difference(master_set), set([]))
 
-@skip(cluster=True)
 def testDropTempReplicate():
   env = initEnv()
   master = env.getConnection()
@@ -189,7 +186,6 @@ def testDropTempReplicate():
   env.assertEqual(master.execute_command('KEYS', '*'), [])
   env.assertEqual(slave.execute_command('KEYS', '*'), [])
 
-@skip(cluster=True)
 def testDropWith__FORCEKEEPDOCS():
   env = initEnv()
   master = env.getConnection()
@@ -219,7 +215,6 @@ def testDropWith__FORCEKEEPDOCS():
     env.assertEqual(master.execute_command('KEYS', '*'), ['doc1'])
     env.assertEqual(slave.execute_command('KEYS', '*'), ['doc1'])
 
-@skip(cluster=True)
 def testExpireDocs():
     expireDocs(False,  # Without SORTABLE -
               # Without sortby -
@@ -231,7 +226,7 @@ def testExpireDocs():
               # lowest possible score upon sorting, so doc1 is returned last.
               [2, 'doc2', ['t', 'foo'], 'doc1', []])
 
-@skip(cluster=True)
+
 def testExpireDocsSortable():
     '''
     Same as test `testExpireDocs` only with SORTABLE

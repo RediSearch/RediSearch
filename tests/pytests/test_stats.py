@@ -105,8 +105,8 @@ def runTestWithSeed(env, s=None):
             forceInvokeGC(env, 'idx')
     check_empty(env, idx)
 
-@skip(cluster=True)
 def testRandom(env):
+    env.skipOnCluster()
 
     if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
         env.skip()
@@ -115,8 +115,9 @@ def testRandom(env):
 
     runTestWithSeed(env)
 
-@skip(cluster=True)
+@unstable
 def testMemoryAfterDrop(env):
+    env.skipOnCluster()
 
     if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
         env.skip()
@@ -152,8 +153,8 @@ def testMemoryAfterDrop(env):
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i)
 
-@skip(cluster=True)
 def testIssue1497(env):
+    env.skipOnCluster()
 
     if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
         env.skip()
@@ -240,8 +241,8 @@ def testDocTableInfo(env):
     env.assertEqual(int(d['doc_table_size_mb']), 0)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
 
-@skip(cluster=True)
 def testInfoIndexingTime(env):
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     # Add indexing time with HSET

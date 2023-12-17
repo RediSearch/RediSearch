@@ -22,9 +22,9 @@ def testInfo(env):
     env.assertGreater(float(idx_info['key_table_size_mb']), 0)
     env.assertGreater(float(idx_info['vector_index_sz_mb']), 0)
 
-@skip(cluster=True)
 def test_required_fields(env):
     # Testing coordinator<-> shard `_REQUIRED_FIELDS` protocol
+    env.skipOnCluster()
     env.expect('ft.create', 'idx', 'schema', 't', 'text').ok()
     env.cmd('HSET', '0', 't', 'hello')
     env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS').error()

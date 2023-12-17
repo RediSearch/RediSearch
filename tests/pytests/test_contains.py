@@ -69,8 +69,8 @@ def testBasicContains(env):
     env.assertEqual(res[0:2], [1, 'doc1'])
     env.assertEqual(set(res[2]), set(['title', 'hello world', 'body', 'this is a test']))
 
-@skip(cluster=True)
 def testSanity(env):
+    env.skipOnCluster()
     env.expect('ft.config', 'set', 'MINPREFIX', 1).ok()
     env.expect('ft.config', 'set', 'TIMEOUT', 100000).ok()
     env.expect('ft.config', 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
@@ -139,8 +139,8 @@ def testSanity(env):
     env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0, 0).error() \
       .contains('Timeout limit was reached')
 
-@skip(cluster=True)
 def testSanityTags(env):
+    env.skipOnCluster()
     env.expect('ft.config', 'set', 'MINPREFIX', 1).ok()
     env.expect('ft.config', 'set', 'TIMEOUT', 100000).ok()
     env.expect('ft.config', 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
@@ -277,8 +277,8 @@ def test_misc1(env):
   actual_res = [2, 'doc3', ['t', 'doctorless'], 'doc6', ['t', 'floorless']]
   env.assertEqual(toSortedFlatList(res), toSortedFlatList(actual_res))
 
-@skip(cluster=True)
 def testContainsGC(env):
+  env.skipOnCluster()
   env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
 
   conn = getConnectionByEnv(env)
@@ -300,8 +300,8 @@ def testContainsGC(env):
 
   env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx').equal(['ld', 'orld', 'rld', 'world'])
 
-@skip(cluster=True)
 def testContainsGCTag(env):
+  env.skipOnCluster()
   env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
 
   conn = getConnectionByEnv(env)
@@ -323,8 +323,9 @@ def testContainsGCTag(env):
 
   env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 't').equal(['ld', 'orld', 'rld', 'world'])
 
-@skip(cluster=True)
 def testContainsDebugCommand(env):
+  env.skipOnCluster()
+
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT', 'WITHSUFFIXTRIE')
   env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'field').error()  \
@@ -340,8 +341,8 @@ def testContainsDebugCommand(env):
   env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx', 'tag_no', 'tag_yes').error(). \
     contains('wrong number of arguments')
 
-@skip(cluster=True)
 def testContainsMixedWithSuffix(env):
+  env.skipOnCluster()
 
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'WITHSUFFIXTRIE', 't2', 'TEXT')
@@ -364,9 +365,11 @@ def test_params(env):
   env.expect('ft.search', 'idx', '*$contains*', 'PARAMS', 2, 'contains', 'orl').equal([1, 'doc1', ['t', 'world']])
   env.expect('ft.search', 'idx', '*$suffix', 'PARAMS', 2, 'suffix', 'rld').equal([1, 'doc1', ['t', 'world']])
 
-@skip(cluster=True)
+
 def test_issue_3124(env):
   # test prefix query on field with suffix trie
+  env.skipOnCluster()
+  index_list = ['idx_txt', 'idx_txt_suffix', 'idx_tag', 'idx_tag_suffix']
   env.cmd('ft.create', 'idx_txt', 'SCHEMA', 't', 'TEXT')
   env.cmd('ft.create', 'idx_txt_suffix', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE')
   env.cmd('ft.create', 'idx_tag', 'SCHEMA', 't', 'TAG')

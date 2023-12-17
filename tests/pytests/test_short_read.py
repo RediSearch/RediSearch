@@ -513,7 +513,7 @@ class Debug:
 
         env.debugPrint(name + ': %d out of %d \n%s' % (self.dbg_ndx, total_len, self.dbg_str))
 
-@skip(cluster=True, msan=True)
+@no_msan
 def testShortReadSearch(env):
     if not server_version_at_least(env, "6.2.0"):
         env.skip()
@@ -521,6 +521,7 @@ def testShortReadSearch(env):
     if CODE_COVERAGE or SANITIZER:
         env.skip()  # FIXME: enable coverage test
 
+    env.skipOnCluster()
     if env.env.endswith('existing-env') and CI:
         env.skip()
 
