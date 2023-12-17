@@ -8,22 +8,19 @@ name: temporary testing
 # Make sure the `branches-ignore` line is not commented out when you merge your PR.
 
 on:
-  push:
+  workflow_call:
+    inputs:
+      cmd:
+        type: string
     #branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
   jobim:
-    uses: ./.github/workflows/flow-temp-2.yml
-    strategy:
-      matrix:
-        cmd: ["sleep 60", "exit 1"]
-    with:
-      cmd: ${{ matrix.cmd }}
-  pr-validation:
-    needs: [jobim]
     runs-on: ubuntu-latest
-    if: ${{ !cancelled() }}
     steps:
-      - run: echo ${{ toJson(needs.*.result) }}
-      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
-        run: exit 1
+      - run: echo "jobim!!!"
+  fail:
+    needs: jobim
+    runs-on: ubuntu-latest
+    steps:
+      - run: ${{ inputs.cmd }}
