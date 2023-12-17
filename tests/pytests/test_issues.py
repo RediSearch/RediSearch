@@ -868,8 +868,7 @@ def test_mod5778_add_new_shard_to_cluster(env):
     # Currently, the new shard is not assign on any slots.
     env.assertEqual(len(env.cmd('CLUSTER SLOTS')), len(env.envRunner.shards))
 
-    # Move a slot (number 0) from the shard in which it resides to the new shard.
-
+    # Move a slot (number 0) from the first shard to the new shard.
     new_shard_id = new_instance_conn.cluster_myid(cluster.ClusterNode('127.0.0.1', new_instance_port))
     env.cmd(f'CLUSTER SETSLOT 0 NODE {new_shard_id}')
     new_instance_conn.cluster_setslot(cluster.ClusterNode('127.0.0.1', new_instance_port), new_shard_id, 0, 'NODE')
