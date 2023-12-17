@@ -119,7 +119,7 @@ def dotestSanityTag(env, dialect):
 
     # contains
     env.expect('ft.search', index, "@t:{w'*oo*'}", 'LIMIT', 0 , 0).equal([40000])
-    # 55xx & x55x & xx55 - 555x - x555
+    # 55xx & x55x & xx55 - 555x - x555 
     env.expect('ft.search', index, "@t:{w'*55*'}", 'LIMIT', 0 , 0).equal([1120])
     # 555x & x555 - 5555
     env.expect('ft.search', index, "@t:{w'*555*'}", 'LIMIT', 0 , 0).equal([76])
