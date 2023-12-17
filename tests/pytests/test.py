@@ -3136,8 +3136,10 @@ def testIssue1184(env):
 
         res = env.cmd('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-        env.assertEqual(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], '0')
+
+        # When inverted index is empty we expect the size to be 102 bytes
+        env.assertGreaterEqual(102 / ( 1024 * 1024 ), float(d['inverted_sz_mb']))
+        env.assertEqual(int(d['num_records']), 0)
 
         env.cmd('FT.DROP idx')
         env.cmd('DEL doc0')
