@@ -321,10 +321,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // root (array) has similar structure for RESP2/3:
   // [0] array of results (rows) described right below
   // [1] cursor (int)
-  // Or
-  // Simple error
 
-  // If root isn't a simple error:
   // rows:
   // RESP2: [ num_results, [ field, value, ... ], ... ]
   // RESP3: { ..., "results": [ { field: value, ... }, ... ], ... }
@@ -379,13 +376,9 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
     // If an error was returned, propagate it
     if(MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
-      char *strErr = MRReply_String(nc->current.root, NULL);
-      if (!strErr
-          || strcmp(strErr, "Timeout limit was reached")
-          || nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-        QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC, strErr);
-        return RS_RESULT_ERROR;
-      }
+      QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC,
+        MRReply_String(nc->current.root, NULL));
+      return RS_RESULT_ERROR;
     }
 
     root = nc->current.root;
