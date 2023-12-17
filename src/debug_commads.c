@@ -676,16 +676,21 @@ DEBUG_COMMAND(GCWaitForInvokeAndDrop) {
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
-  // wait for the timer to be called
+  GCTask *task = NULL;
   uint64_t remaining;
-  if (RedisModule_GetTimerInfo(RSDummyContext, sp->gc->timerID, &remaining, NULL) == REDISMODULE_OK) {
-    usleep(1000 * remaining);
+  while (RedisModule_GetTimerInfo(RSDummyContext, sp->gc->timerID, &remaining, (void**)&task) != REDISMODULE_OK) {
+    // The GC is running, give it a chance to finish and schedule itself again.
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    usleep(1000);
+    RedisModule_ThreadSafeContextLock(ctx);
   }
-  // Nullify the pointer so we won't try to free it in the next step.
-  // It should free itself when the timer is called and it discovers that the index was deleted.
-  sp->gc = NULL;
+  // Drop the index
   IndexSpec_RemoveFromGlobals(ref);
-  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  // Block the client until the GC is done.
+  // Wait for extra 1 second to give the GC a chance to free itself.
+  // Since the index is already dropped, the GC will free itself quickly and unblock the client.
+  task->bClient = RedisModule_BlockClient(ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, remaining + 1000);
+  return REDISMODULE_OK;
 }
 
 DEBUG_COMMAND(GCCleanNumeric) {
@@ -1039,7 +1044,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"GC_CLEAN_NUMERIC", GCCleanNumeric},
-                               {"GC_WAIT_AND_DROP", GCWaitForInvokeAndDrop}, // Wait for the GC to be invoked by the timer and drop the index
+                               {"GC_DROP_AND_WAIT", GCWaitForInvokeAndDrop}, // Wait for the GC to be invoked by the timer and drop the index
                                {"GIT_SHA", GitSha},
                                {"TTL", ttl},
                                {"VECSIM_INFO", VecsimInfo},

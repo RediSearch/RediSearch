@@ -81,6 +81,9 @@ static void threadCallback(void* data) {
     // We need to free the task and the GC.
     RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "GC: Self-Terminating. Index was freed.");
     gc->callbacks.onTerm(gc->gcCtx);
+    if (bc) { // A debug command is waiting for the GC to finish
+      RedisModule_UnblockClient(bc, NULL);
+    }
     rm_free(task);
     rm_free(gc);
     goto end;
