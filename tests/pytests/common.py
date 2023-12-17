@@ -34,9 +34,8 @@ class TimeLimit(object):
     return within the specified amount of time.
     """
 
-    def __init__(self, timeout, message='operation timeout exceeded'):
+    def __init__(self, timeout):
         self.timeout = timeout
-        self.message = message
 
     def __enter__(self):
         signal.signal(signal.SIGALRM, self.handler)
@@ -47,7 +46,7 @@ class TimeLimit(object):
         signal.signal(signal.SIGALRM, signal.SIG_DFL)
 
     def handler(self, signum, frame):
-        raise Exception(f'Timeout: {self.message}')
+        raise Exception('timeout')
 
 
 def getConnectionByEnv(env):
