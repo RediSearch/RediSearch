@@ -23,6 +23,7 @@ on:
         default: true
       redis-ref:
         type: string
+        default: ${{ vars.DEFAULT_REDIS_REF }}
   workflow_dispatch:
     inputs:
       platform:
@@ -74,7 +75,7 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
-      get-redis: ${{ inputs.redis-ref }}
+      get-redis: ${{ inputs.redis-ref || vars.DEFAULT_REDIS_REF }}
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
       coordinator: ${{ inputs.coordinator }}
@@ -93,7 +94,7 @@ jobs:
     secrets: inherit
     with:
       test: true
-      get-redis: ${{ inputs.redis-ref }}
+      get-redis: ${{ inputs.redis-ref || vars.DEFAULT_REDIS_REF }}
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
       coordinator: ${{ inputs.coordinator }}

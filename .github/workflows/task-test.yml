@@ -14,6 +14,7 @@ on:
         type: string
       get-redis:
         type: string
+        default: ${{ vars.DEFAULT_REDIS_REF }}
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true

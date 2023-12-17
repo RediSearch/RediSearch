@@ -1,33 +1,45 @@
 name: temporary testing
 
-# This file is useful for triggering actions when you implement them.
-# When the `branches-ignore` line is commented out, this workflow will run on every push.
-# It is better to use this file for testing your new flows than creating a new one, to avoid cluttering the repo
-# action tab with unused workflows.
-# Don't worry about conflicts with other PRs - there is no "right" content of this file.
-# Make sure the `branches-ignore` line is not commented out when you merge your PR.
-
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    branches-ignore: ['*'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  get-latest:
-    uses: ./.github/workflows/task-get-latest-tag.yml
-    with:
-      repo: redis/redis
+  doc-check:
+    uses: ./.github/workflows/task-check-docs.yml
 
-  get-latest-6:
-    uses: ./.github/workflows/task-get-latest-tag.yml
-    with:
-      repo: redis/redis
-      prefix: 6 # Get latest version with major version 6
-
-  print:
+  run:
+    needs: doc-check
     runs-on: ubuntu-latest
-    needs: [get-latest, get-latest-6]
     steps:
-      - name: Print latest tag
-        run: echo "Latest tag is ${{ needs.get-latest.outputs.tag }}"
-      - name: Print latest tag with major version 6
-        run: echo "Latest tag with major version 6 is ${{ needs.get-latest-6.outputs.tag }}"
+      - run: echo ${{ needs.doc-check.outputs.only-docs-changed }}
+
+  run-if:
+    needs: doc-check
+    if: needs.doc-check.outputs.only-docs-changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "only docs changed"
+
+  run-if-not:
+    needs: doc-check
+    if: needs.doc-check.outputs.only-docs-changed != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "docs not changed: ${{ needs.doc-check.outputs.only-docs-changed }}"
+
+  run-bool:
+    needs: doc-check
+    if: needs.doc-check.outputs.only-docs-changed
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "only docs changed"
+
+  run-not-bool:
+    needs: doc-check
+    if: ${{ !needs.doc-check.outputs.only-docs-changed }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "docs not changed: ${{ needs.doc-check.outputs.only-docs-changed }}"

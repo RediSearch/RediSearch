@@ -31,7 +31,7 @@ on:
         description: 'Optional: Reference (branch, tag, SHA) to build against. Defaults to the base branch'
       redis-reference:
         type: string
-        description: 'Optional: Redis reference (branch, tag, SHA) to build against. Defaults to the latest release'
+        description: 'Optional: Redis reference (branch, tag, SHA) to build against'
   workflow_call:
     inputs:
       platform:
@@ -58,13 +58,12 @@ jobs:
       sha: ${{ steps.set-sha.outputs.sha }}
       skip: ${{ steps.on-dispatch.outputs.skip || steps.skip.outputs.decision || 'false' }}
       store: ${{ steps.on-dispatch.outputs.store || 'true' }}
-      redis-ref: ${{ steps.get-redis.outputs.tag || inputs.redis-reference }}
     steps:
       - name: Validate reference
         uses: actions/checkout@v3
         with:
-          # Use the input reference if provided, otherwise use the default behavior of the action
-          ref: ${{ inputs.reference }}
+          # Use the input reference if provided, otherwise pass `null` to use the default behavior of the action
+          ref: ${{ inputs.reference || null }}
       - id: set-sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
@@ -92,10 +91,6 @@ jobs:
           if [ "$LAST_SHA" == "$CURRENT_SHA" ]; then
             echo "decision=true" >> $GITHUB_OUTPUT
           fi
-
-      - id: get-redis
-        if: ${{ !inputs.redis-reference }}
-        run: echo "tag=$(curl -s https://api.github.com/repos/redis/redis/releases/latest | jq -r '.tag_name')" >> $GITHUB_OUTPUT
 
   cache-sha:
     # Caches the SHA of the last successful build
@@ -166,7 +161,7 @@ jobs:
       pre-steps-script: ${{ matrix.pre-deps }}
       ref: ${{ inputs.reference }}
       sha: ${{ needs.setup.outputs.sha }}
-      redis-ref: ${{ needs.setup.outputs.redis-ref }}
+      redis-ref: ${{ inputs.redis-reference || null }}
 
   build-linux-arm:
     needs: [decide-linux, setup]
@@ -184,7 +179,7 @@ jobs:
       pre-steps-script: ${{ matrix.pre-deps }}
       ref: ${{ inputs.reference }}
       sha: ${{ needs.setup.outputs.sha }}
-      get-redis: ${{ needs.setup.outputs.redis-ref }}
+      get-redis: ${{ inputs.redis-reference || null }}
 
   build-macos:
     needs: [decide-macos, setup]
@@ -198,4 +193,4 @@ jobs:
       env: ${{ matrix.OS }}
       ref: ${{ inputs.reference }}
       sha: ${{ needs.setup.outputs.sha }}
-      redis-ref: ${{ needs.setup.outputs.redis-ref }}
+      redis-ref: ${{ inputs.redis-reference || null }}
