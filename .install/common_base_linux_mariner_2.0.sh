@@ -15,8 +15,7 @@ pip install -q -r ../tests/pytests/requirements.txt
 pip install -q -r ../tests/pytests/requirements.linux.txt
 
 # These packages are needed to build the package
-# TODO: move to upload artifacts flow
-pip install -q -r build_package_requirments.txt
+pip install -q addict toml jinja2 ramp-packer # TODO: move to requirements.txt
 
 # List installed packages
 pip list

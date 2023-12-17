@@ -12,9 +12,16 @@ on:
     branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  test-macos:
-    uses: ./.github/workflows/flow-macos.yml
+  test-mariner:
+    uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
-      coordinator: true
-      test-config: QUICK=1
+      platform: mariner:2
+      architecture: x86_64
+
+  test-mariner-artifact:
+    uses: ./.github/workflows/flow-build-artifacts.yml
+    secrets: inherit
+    with:
+      platform: mariner:2
+      architecture: x86_64
