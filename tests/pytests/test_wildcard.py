@@ -292,31 +292,31 @@ def testEscape(env):
   env.expect('FT.SEARCH', 'idx', "w'$wcq'", 'PARAMS', '2', 'wcq', "*o\\\\w*").equal([1, 'doc8', ['t', "hello\\\\world"]]) # *o\w*
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'he?lo'")
-  env.assertEqual(res[1][4][1][3], "WILDCARD - he?lo")
+  env.assertEqual(res[1][3][1][3], "WILDCARD - he?lo")
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'h*?*o'")
-  env.assertEqual(res[1][4][1][3], "WILDCARD - h*?*o")
+  env.assertEqual(res[1][3][1][3], "WILDCARD - h*?*o")
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'h\\*?*o'")
-  env.assertEqual(res[1][4][1][3], "WILDCARD - h*?*o")
+  env.assertEqual(res[1][3][1][3], "WILDCARD - h*?*o")
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'\\h*?*o'")
-  env.assertEqual(res[1][4][1][3], "WILDCARD - h*?*o")
+  env.assertEqual(res[1][3][1][3], "WILDCARD - h*?*o")
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'\\'h*?*o'")
-  env.assertEqual(res[1][4][1][3], "WILDCARD - 'h*?*o")
+  env.assertEqual(res[1][3][1][3], "WILDCARD - 'h*?*o")
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'\\\\h*?*o'")
-  env.assertEqual(res[1][4][1][3], "WILDCARD - \h*?*o")
+  env.assertEqual(res[1][3][1][3], "WILDCARD - \h*?*o")
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'*o\\\\w*'")
-  env.assertEqual(res[1][4][1][3], "WILDCARD - *o\\w*")
+  env.assertEqual(res[1][3][1][3], "WILDCARD - *o\\w*")
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'*o\\'w*'")
-  env.assertEqual(res[1][4][1][3], "WILDCARD - *o'w*")
+  env.assertEqual(res[1][3][1][3], "WILDCARD - *o'w*")
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', "w'*o\\\'w*'")
-  env.assertEqual(res[1][4][1][3], "WILDCARD - *o'w*")
+  env.assertEqual(res[1][3][1][3], "WILDCARD - *o'w*")
 
 @skip(cluster=True)
 def testLowerUpperCase(env):

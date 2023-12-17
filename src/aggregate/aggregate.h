@@ -101,7 +101,7 @@ typedef enum {
 #define RunInThread() (RSGlobalConfig.mt_mode == MT_MODE_FULL)
 #endif
 
-typedef void (*profiler_func)(RedisModule_Reply *reply, struct AREQ *req, bool has_timedout);
+typedef void (*profiler_func)(RedisModule_Reply *reply, struct AREQ *req);
 
 typedef enum {
   /* Received EOF from iterator */
@@ -169,7 +169,7 @@ typedef struct AREQ {
 
   /** Profile variables */
   hires_clock_t initClock;  // Time of start. Reset for each cursor call
-  double totalTime;          // Total time. Used to accumulate cursors times
+  double totalTime;          // Total time. Used to accimulate cursors times
   double parseTime;          // Time for parsing the query
   double pipelineBuildTime;  // Time for creating the pipeline
 
