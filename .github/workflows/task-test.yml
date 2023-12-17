@@ -14,7 +14,6 @@ on:
         type: string
       get-redis:
         type: string
-        default: ${{ vars.DEFAULT_REDIS_REF }}
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
@@ -34,6 +33,7 @@ env:
 
 jobs:
   common-flow:
+    name: Test ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
     runs-on: ${{ inputs.env }}
     container: ${{ inputs.container || null }}
     # Nothing to do if both are `false`, skip
@@ -52,8 +52,16 @@ jobs:
       - name: Deps checkout
         uses: actions/checkout@v3
         with:
-            sparse-checkout: .install
-            path: setup
+          path: setup
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .install
+            tests/pytests/requirements.*
+      - name: Install Python
+        if: inputs.env == 'macos-12'
+        uses: actions/setup-python@v3
+        with:
+            python-version: '3.10'
       - name: Setup
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
@@ -63,17 +71,18 @@ jobs:
           submodules: recursive
 
       - name: Setup (readies)
+        if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0' && inputs.env != 'macos-12'
         run: ./sbin/setup
 
       - name: Get Redis
-        if: inputs.get-redis
+        if: inputs.get-redis != 'skip getting redis'
         uses: actions/checkout@v3
         with:
           repository: redis/redis
           ref: ${{ inputs.get-redis }}
           path: redis
       - name: Build Redis
-        if: inputs.get-redis
+        if: inputs.get-redis != 'skip getting redis'
         working-directory: redis
         run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes
 

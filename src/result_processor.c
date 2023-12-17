@@ -30,6 +30,14 @@ void QITR_Cleanup(QueryIterator *qitr) {
   }
 }
 
+// Allocates a new SearchResult, and populates it with `r`'s data (takes
+// ownership as well)
+SearchResult *SearchResult_Copy(SearchResult *r) {
+  SearchResult *ret = rm_malloc(sizeof(*ret));
+  *ret = *r;
+  return ret;
+}
+
 void SearchResult_Clear(SearchResult *r) {
   // This won't affect anything if the result is null
   r->score = 0;
@@ -63,8 +71,6 @@ void SearchResult_Destroy(SearchResult *r) {
  * downstream.
  *******************************************************************************************************************/
 
-// Get the index search context from the result processor
-#define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 // Get the index spec from the result processor - this should be used only if the spec
 // can be accessed safely.
 #define RP_SPEC(rpctx) (RP_SCTX(rpctx)->spec)
@@ -155,7 +161,7 @@ static void rpidxFree(ResultProcessor *iter) {
   rm_free(iter);
 }
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *root, struct timespec timeout) {
+ResultProcessor *RPIndexIterator_New(IndexIterator *root) {
   RPIndexIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iiter = root;
   ret->base.Next = rpidxNext;
@@ -348,6 +354,9 @@ typedef struct {
     size_t nkeys;
     uint64_t ascendMap;
   } fieldcmp;
+
+  // Whether a timeout warning needs to be propagated down the downstream
+  bool timedOut;
 } RPSorter;
 
 /* Yield - pops the current top result from the heap */
@@ -363,7 +372,7 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
     RLookupRow_Cleanup(&oldrow);
     return RS_RESULT_OK;
   }
-  return RS_RESULT_EOF;
+  return self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
 }
 
 static void rpsortFree(ResultProcessor *rp) {
@@ -386,8 +395,11 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
 
   // if our upstream has finished - just change the state to not accumulating, and yield
-  if (rc == RS_RESULT_EOF || (rc == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
-    // Transition state:
+  if (rc == RS_RESULT_EOF) {
+    rp->Next = rpsortNext_Yield;
+    return rpsortNext_Yield(rp, r);
+  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+    self->timedOut = true;
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
   } else if (rc != RS_RESULT_OK) {

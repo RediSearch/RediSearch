@@ -4,10 +4,7 @@ import bz2
 import json
 import unittest
 
-
-
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
-
 
 def add_values(env, number_of_iterations=1):
     env.cmd('FT.CREATE', 'games', 'ON', 'HASH',
@@ -882,8 +879,8 @@ def testMaxAggResults(env):
     env.expect('ft.aggregate', 'idx', '*', 'LIMIT', '0', '10000').error()   \
        .contains('LIMIT exceeds maximum of 100')
 
+@skip(cluster=True)
 def testMaxAggInf(env):
-    env.skipOnCluster()
     env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
     env.expect('ft.config', 'get', 'MAXAGGREGATERESULTS').equal([['MAXAGGREGATERESULTS', 'unlimited']])
 
@@ -959,10 +956,10 @@ def testAggregateGroup0Field(env):
                   'REDUCE', 'QUANTILE', '2', 'num', '0.5', 'AS', 'q50')
     env.assertEqual(res, [1, ['q50', '758000']])
 
+@skip()
 def testResultCounter(env):
     # Issue 436
     # https://github.com/RediSearch/RediSearch/issues/436
-    env.skip()
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
     conn.execute_command('HSET', 'doc1', 't1', 'hello')
@@ -982,20 +979,6 @@ def testResultCounter(env):
     env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([4])
     #env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([0])
 
-def populate_db(env):
-    """Creates an index and populates the database"""
-    conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
-    nshards = env.shardsCount
-    num_docs = 10000 * nshards
-    pipeline = conn.pipeline(transaction=False)
-    for i, t1 in enumerate(np.random.randint(1, 1024, num_docs)):
-        pipeline.hset (i, 't1', str(t1))
-        if i % 1000 == 0:
-            pipeline.execute()
-            pipeline = conn.pipeline(transaction=False)
-    pipeline.execute()
-
 def aggregate_test(protocol=2):
     if VALGRIND:
         # You don't want to run this under valgrind, it will take forever
@@ -1008,17 +991,17 @@ def aggregate_test(protocol=2):
 
     populate_db(env)
 
-    res = env.execute_command('FT.AGGREGATE', 'idx', '*',
-                'LOAD', '2', '@t1', '@__key',
-                'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
-                'groupby', '2', '@t1', '@t1exp',
-                        'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
-                'TIMEOUT', '1',)
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '2', '@t1', '@__key', 'APPLY',
+        '@t1 ^ @t1', 'AS', 't1exp', 'groupby', '2', '@t1', '@t1exp', 'REDUCE',
+        'tolist', '1', '@__key', 'AS', 'keys', 'TIMEOUT', '1'
+    ).error().contains('Timeout limit was reached')
 
-    if protocol == 2:
-        env.assertEqual(res, ['Timeout limit was reached'])
-    else:
-        env.assertEqual(res['error'], ['Timeout limit was reached'])
+    # Tests MOD-5948 - An `FT.AGGREGATE` command with no depleting result-processors
+    # should return a timeout (rather than results)
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
+    ).error().contains('Timeout limit was reached')
 
 def test_aggregate_timeout_resp2():
     aggregate_test(protocol=2)

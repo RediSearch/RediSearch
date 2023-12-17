@@ -245,16 +245,9 @@ int synonymUpdateFanOutReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
 
-  if (count != 1) {
+  if (count != 1 || (MRReply_Type(replies[0]) != MR_REPLY_INTEGER && MRReply_Type(replies[0]) != MR_REPLY_DOUBLE)) {
     RedisModule_Assert(bc);
-    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
-    RedisModule_UnblockClient(bc, mc);
-    return REDISMODULE_OK;
-  }
-
-  if (MRReply_Type(replies[0]) != MR_REPLY_INTEGER && MRReply_Type(replies[0]) != MR_REPLY_DOUBLE) {
-    RedisModule_Assert(bc);
-    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mc);
     return REDISMODULE_OK;
   }
@@ -404,6 +397,8 @@ typedef struct{
   postProcessReplyCB postProcess;
   specialCaseCtx* reduceSpecialCaseCtxKnn;
   specialCaseCtx* reduceSpecialCaseCtxSortby;
+
+  MRReply *warning;
 } searchReducerCtx;
 
 typedef struct {
@@ -1043,8 +1038,6 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
     return;
   }
   if (MRReply_Type(arr) == MR_REPLY_ERROR) {
-    rCtx->errorOccured = true;
-    rCtx->lastError = arr;
     return;
   }
 
@@ -1059,14 +1052,11 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   specialCaseCtx* reduceSpecialCaseCtxSortBy = rCtx->reduceSpecialCaseCtxSortby;
   searchResult *res;
   if (resp3) {
-    MRReply *err = MRReply_MapElement(arr, "error");
-    RS_LOG_ASSERT(err && MRReply_Type(err) == MR_REPLY_ARRAY, "invalid error record");
-    if (MRReply_Length(err) > 0) {
-      // TODO: Probably only in later PR - Report only the error if the timeout
-      // policy is FAIL. Otherwise - return the results as well.
-      rCtx->errorOccured = true;
-      rCtx->lastError = arr;
-      return;
+    // Check for a warning
+    MRReply *warning = MRReply_MapElement(arr, "warning");
+    RS_LOG_ASSERT(warning && MRReply_Type(warning) == MR_REPLY_ARRAY, "invalid warning record");
+    if (!rCtx->warning && MRReply_Length(warning) > 0) {
+      rCtx->warning = warning;
     }
 
     MRReply *results = MRReply_MapElement(arr, "results");
@@ -1098,18 +1088,6 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
 
   } else {
     size_t len = MRReply_Length(arr);
-
-    // TODO: Remove len check once we regularize all error reports to be errors! (MOD-5965)
-    // Check for errors
-    int type = MRReply_Type(MRReply_ArrayElement(arr, 0));
-    if (type == MR_REPLY_ERROR
-        || (len == 1 && type == MR_REPLY_STATUS
-            && strcmp(MRReply_String(MRReply_ArrayElement(arr, 0), NULL), "Timeout limit was reached") == 0)) {
-      rCtx->errorOccured = true;
-      rCtx->lastError = arr;
-      // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
-      return;
-    }
 
     int step = rCtx->offsets.step;
     int scoreOffset = reduceSpecialCaseCtxKnn->knn.offset;
@@ -1184,7 +1162,6 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
     return;
   }
   if (MRReply_Type(arr) == MR_REPLY_ERROR) {
-    rCtx->lastError = arr;
     return;
   }
 
@@ -1198,13 +1175,11 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
 
   if (resp3) // RESP3
   {
-    MRReply *err = MRReply_MapElement(arr, "error");
-    RS_LOG_ASSERT(err && MRReply_Type(err) == MR_REPLY_ARRAY, "invalid error record");
-    if (MRReply_Length(err) > 0) {
-      rCtx->errorOccured = true;
-      rCtx->lastError = arr;
-      // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
-      return;
+    // Check for a warning
+    MRReply *warning = MRReply_MapElement(arr, "warning");
+    RS_LOG_ASSERT(warning && MRReply_Type(warning) == MR_REPLY_ARRAY, "invalid warning record");
+    if (!rCtx->warning && MRReply_Length(warning) > 0) {
+      rCtx->warning = warning;
     }
 
     MRReply *total_results = MRReply_MapElement(arr, "total_results");
@@ -1230,18 +1205,6 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
   else // RESP2
   {
     size_t len = MRReply_Length(arr);
-
-    // TODO: Check only error once we regularize all error reports! (MOD-5965)
-    // Check for errors
-    int type = MRReply_Type(MRReply_ArrayElement(arr, 0));
-    if (type == MR_REPLY_ERROR
-        || (len == 1 && type == MR_REPLY_STATUS
-            && strcmp(MRReply_String(MRReply_ArrayElement(arr, 0), NULL), "Timeout limit was reached") == 0)) {
-      rCtx->errorOccured = true;
-      rCtx->lastError = arr;
-      // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
-      return;
-    }
 
     // first element is the total count
     rCtx->totalReplies += MRReply_Integer(MRReply_ArrayElement(arr, 0));
@@ -1332,10 +1295,9 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
       RedisModule_Reply_EmptyArray(reply);
     }
 
-    RedisModule_Reply_SimpleString(reply, "error"); // >errors
-    if (rCtx->lastError) {
-      MRReply *err = MRReply_MapElement(rCtx->lastError, "error");
-      MR_ReplyWithMRReply(reply, err);
+    RedisModule_Reply_SimpleString(reply, "warning"); // >warning
+    if (rCtx->warning) {
+      MR_ReplyWithMRReply(reply, rCtx->warning);
     } else {
       RedisModule_Reply_EmptyArray(reply);
     }
@@ -1524,6 +1486,17 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
   return REDISMODULE_OK;
 }
 
+static bool should_return_error(MRReply *reply) {
+  // TODO: Replace second condition with a var instead of hard-coded string
+  char *errStr = MRReply_String(reply, NULL);
+  if (!errStr
+      || strcmp(errStr, "Timeout limit was reached")
+      || RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
+        return true;
+  }
+  return false;
+}
+
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   clock_t postProccessTime;
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
@@ -1540,9 +1513,18 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     goto cleanup;
   }
 
-  if (MRReply_Type(*replies) == MR_REPLY_ERROR) {
-    res = MR_ReplyWithMRReply(reply, *replies);
-    goto cleanup;
+  // Traverse the replies, check for early bail-out which we want for all errors
+  // but timeout+non-strict timeout policy.
+  for (int i = 0; i < count; i++) {
+    MRReply *curr_rep = replies[i];
+    if (MRReply_Type(curr_rep) == MR_REPLY_ERROR) {
+      rCtx.errorOccured = true;
+      rCtx.lastError = curr_rep;
+      if (should_return_error(curr_rep)) {
+        res = MR_ReplyWithMRReply(reply, curr_rep);
+        goto cleanup;
+      }
+    }
   }
 
   rCtx.searchCtx = req;
@@ -1592,15 +1574,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     rm_free(rCtx.cachedResult);
   }
 
-  // If we didn't get any results and we got an error - return it.
-  // If some shards returned results and some errors - we prefer to show the results we got an not
-  // return an error. This might change in the future
-  if (rCtx.totalReplies == 0 && (rCtx.lastError != NULL || rCtx.errorOccured)) {
-    if (rCtx.lastError) {
-      MR_ReplyWithMRReply(reply, rCtx.lastError);
-    } else {
-      RedisModule_Reply_Error(reply, "could not parse redisearch results");
-    }
+  if (rCtx.errorOccured && !rCtx.lastError) {
+    RedisModule_Reply_Error(reply, "could not parse redisearch results");
     goto cleanup;
   }
 
@@ -1625,7 +1600,7 @@ cleanup:
   }
 
   searchRequestCtx_Free(req);
-  RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
+  RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, mc);
   RedisModule_FreeThreadSafeContext(ctx);
   MR_requestCompleted();
@@ -2037,7 +2012,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol, RedisMo
     RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
     RedisModule_ReplyWithError(clientCtx, QueryError_GetError(&status));
     QueryError_ClearError(&status);
-    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, NULL);
     RedisModule_FreeThreadSafeContext(clientCtx);
     return REDISMODULE_OK;
@@ -2120,7 +2095,7 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   sCmdCtx->argc = argc;
   sCmdCtx->bc = bc;
   sCmdCtx->protocol = is_resp3(ctx) ? 3 : 2;
-  RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, bc);
+  RedisModule_BlockedClientMeasureTimeStart(bc);
   ConcurrentSearch_ThreadPoolRun(DistSearchCommandHandler, sCmdCtx, DIST_AGG_THREADPOOL);
 
   return REDISMODULE_OK;
@@ -2446,7 +2421,8 @@ void setHiredisAllocators(){
 
 
 static void Coordinator_CleanupModule(void) {
-  MR_Destroy();
+  StopRedisTopologyUpdater(); // stop the topology updater loop, so we won't send any more update requests
+  MR_Destroy(); // destroy MR cluster and queue
   GlobalSearchCluster_Release();
 }
 
@@ -2481,11 +2457,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   uv_replace_allocator(rm_malloc, rm_realloc, rm_calloc, rm_free);
 
   if (!RSDummyContext) {
-    if (RedisModule_GetDetachedThreadSafeContext) {
-      RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
-    } else {
-      RSDummyContext = RedisModule_GetThreadSafeContext(NULL);
-    }
+    RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
   }
 
   getRedisVersion();
@@ -2509,7 +2481,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // Init the aggregation thread pool
-  DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(RSGlobalConfig.searchPoolSize);
+  DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(RSGlobalConfig.coordinatorPoolSize);
 
   Initialize_CoordKeyspaceNotifications(ctx);
 

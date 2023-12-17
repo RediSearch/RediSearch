@@ -19,7 +19,6 @@ on:
         description: 'Optional: SHA to checkout. If not provided, `ref` will be used'
       redis-ref:
         type: string
-        default: ${{ vars.DEFAULT_REDIS_REF }}
 
 env:
   REF: ${{ inputs.sha || inputs.ref || github.sha }}  # Define fallbacks for ref to checkout
@@ -27,6 +26,7 @@ env:
 
 jobs:
   build:
+    name: Build ${{ inputs.container || inputs.env }}
     runs-on: ${{ inputs.env }}
     container: ${{ inputs.container || null }}
     defaults:
@@ -49,9 +49,17 @@ jobs:
       - name: Deps checkout
         uses: actions/checkout@v3
         with:
-          sparse-checkout: .install
           path: setup
           ref: ${{ env.REF }}
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .install
+            tests/pytests/requirements.*
+      - name: Install Python
+        if: inputs.env == 'macos-12'
+        uses: actions/setup-python@v3
+        with:
+            python-version: '3.10'
       - name: Setup
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
@@ -62,6 +70,7 @@ jobs:
           ref: ${{ env.REF }}
 
       - name: Setup (readies)
+        if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0' && inputs.env != 'macos-12'
         run: ./sbin/setup
 
       # Get Redis

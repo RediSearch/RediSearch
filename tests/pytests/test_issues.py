@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import subprocess
-from redis import Redis, RedisCluster, cluster
+from redis import Redis, RedisCluster, cluster, exceptions
 
 from common import *
 from RLTest import Env
@@ -20,8 +20,8 @@ def test_1304(env):
   env.expect('FT.EXPLAIN idx -20*').equal('PREFIX{-20*}\n')
   env.expect('FT.EXPLAIN idx -\\20*').equal('NOT{\n  PREFIX{20*}\n}\n')
 
+@skip(cluster=True)
 def test_1414(env):
-  env.skipOnCluster()
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
   env.cmd('hset', 'doc', 'foo', 'hello', 'bar', 'world')
   env.expect('ft.search', 'idx', '*', 'limit', '0', '1234567').error().contains('LIMIT exceeds maximum of 1000000')
@@ -139,9 +139,9 @@ def test_issue1834(env):
 
   env.expect('FT.SEARCH', 'idx', 'hell|hello', 'HIGHLIGHT').equal([1, 'doc', ['t', '<b>hell</b> <b>hello</b>']])
 
+@skip(cluster=True)
 def test_issue1880(env):
   # order of iterator in intersect is optimized by function
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
@@ -154,8 +154,8 @@ def test_issue1880(env):
   res1 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello world')
   res2 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'world hello')
   # both queries return `world` iterator before `hello`
-  env.assertEqual(res1[1][3][1], excepted_res)
-  env.assertEqual(res2[1][3][1], excepted_res)
+  env.assertEqual(res1[1][4][1], excepted_res)
+  env.assertEqual(res2[1][4][1], excepted_res)
 
   # test with a term which does not exist
   excepted_res = ['Type', 'INTERSECT', 'Counter', 0, 'Child iterators',
@@ -164,7 +164,7 @@ def test_issue1880(env):
                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0, 'Size', 2]]
   res3 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello new world')
 
-  env.assertEqual(res3[1][3][1], excepted_res)
+  env.assertEqual(res3[1][4][1], excepted_res)
 
 def test_issue1932(env):
     conn = getConnectionByEnv(env)
@@ -373,8 +373,8 @@ def test_MOD1907(env):
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA').error().contains('Fields arguments are missing')
   env.expect('FT.CREATE', 'idx', 'STOPWORDS', 0, 'SCHEMA').error().contains('Fields arguments are missing')
 
+@skip(cluster=True)
 def test_SkipFieldWithNoMatch(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
@@ -387,31 +387,31 @@ def test_SkipFieldWithNoMatch(env):
 
 
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:foo')
-  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'foo')
-  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
   # bar exists in `t2` only
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:bar')
-  env.assertEqual(res[1][3][1], ['Type', 'EMPTY', 'Counter', 0])
+  env.assertEqual(res[1][4][1], ['Type', 'EMPTY', 'Counter', 0])
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'bar')
-  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1] )
+  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1] )
 
   # Check with NOFIELDS flag
   env.cmd('FT.CREATE', 'idx_nomask', 'NOFIELDS', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
   waitForIndex(env, 'idx_nomask')
 
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:foo')
-  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'foo')
-  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
 
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:bar')
-  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'bar')
-  env.assertEqual(res[1][3][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
 
+@skip(cluster=True)
 def test_update_num_terms(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
 
@@ -422,9 +422,9 @@ def test_update_num_terms(env):
   forceInvokeGC(env, 'idx')
   assertInfoField(env, 'idx', 'num_terms', '1')
 
+@skip(cluster=True)
 def testOverMaxResults():
   env = Env(moduleArgs='MAXSEARCHRESULTS 20')
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
   commands = [
@@ -477,7 +477,6 @@ def testOverMaxResults():
 
 
 def test_MOD_3372(env):
-  #env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
@@ -680,8 +679,8 @@ def test_mod_4207(env):
   env.expect('FT.SEARCH', 'idx1', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:4'])
   env.expect('FT.SEARCH', 'idx2', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:3'])
 
+@skip(cluster=True)
 def test_mod_4255(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
 
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -754,8 +753,8 @@ def test_mod4296_badexpr(env):
   env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1%0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
   env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1/0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
 
+@skip(cluster=True)
 def test_mod5062(env):
-  env.skipOnCluster()
   env.expect('FT.CONFIG', 'SET', 'MAXSEARCHRESULTS', '0').ok()
   env.expect('FT.CONFIG', 'SET', 'MAXAGGREGATERESULTS', '0').ok()
   n = 100
@@ -770,7 +769,7 @@ def test_mod5062(env):
 
   # verify using counter instead of sorter
   search_profile = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello')
-  env.assertEqual('Counter', search_profile[1][4][3][1])
+  env.assertEqual('Counter', search_profile[1][5][3][1])
 
   # verify no crash
   env.expect('FT.AGGREGATE', 'idx', 'hello').noError()
@@ -778,7 +777,7 @@ def test_mod5062(env):
 
   # verify using counter instead of sorter, even with explicit sort
   aggregate_profile = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'hello', 'SORTBY', '1', '@t')
-  env.assertEqual('Counter', aggregate_profile[1][4][2][1])
+  env.assertEqual('Counter', aggregate_profile[1][5][2][1])
 
 def test_mod5252(env):
   # Create an index and add a document
@@ -809,7 +808,7 @@ def test_mod5791(env):
     env.assertEqual(2, con.execute_command('HSET', 'doc1', 't', 'Hello world', 'v', 'abcdefgh'))
     env.assertEqual(2, con.execute_command('HSET', 'doc2', 't', 'Hello world', 'v', 'abcdefgi'))
 
-    # The RSIndexResult object should be contructed as following:
+    # The RSIndexResult object should be constructed as following:
     # UNION:
     #   INTERSECTION:
     #       metric
@@ -823,19 +822,32 @@ def test_mod5791(env):
     env.assertEqual(res[:2], [1, 'doc1'])
 
 
-@skip(asan=True)
+@skip(asan=True, cluster=False, redis_less_than="7")
 def test_mod5778_add_new_shard_to_cluster(env):
-    SkipOnNonCluster(env)
-    env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards))
+    # cluster shards command is not supported for redis < 7
+    mod5778_add_new_shard_to_cluster(env)
+
+
+@skip(asan=True, cluster=False, redis_less_than="7")
+def test_mod5778_add_new_shard_to_cluster_TLS():
+    # cluster shards command is not supported for redis < 7
+    cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
+    env = Env(useTLS=True, tlsCertFile=cert_file, tlsKeyFile=key_file, tlsCaCertFile=ca_cert_file, tlsPassphrase=passphrase)
+    mod5778_add_new_shard_to_cluster(env)
+
+def mod5778_add_new_shard_to_cluster(env: Env):
+    conn = getConnectionByEnv(env)
+    env.assertEqual(len(conn.cluster_nodes()), len(env.envRunner.shards))
+    wait_time = 20
+    iteration_wait_time = 0.05
 
     # Create a new redis instance with redisearch loaded.
     # TODO: add appropriate APIs to RLTest to avoid this abstraction breaking.
     new_instance_port = env.envRunner.shards[-1].port + 2  # use a fresh port
-    cmd_args = ['redis-server', '--cluster-enabled', 'yes']
+    cmd_args = [Defaults.binary, '--cluster-enabled', 'yes']
     cmd_args += ['--loadmodule', env.envRunner.modulePath[0]]
     if env.envRunner.password:
         cmd_args += ['--requirepass', env.envRunner.password]
-
     if env.envRunner.isTLS():
         cmd_args += ['--port', str(0), '--tls-port', str(new_instance_port), '--tls-cluster', 'yes']
         cmd_args += ['--tls-cert-file', env.envRunner.shards[0].getTLSCertFile()]
@@ -845,47 +857,66 @@ def test_mod5778_add_new_shard_to_cluster(env):
             cmd_args += ['--tls-key-file-pass', env.envRunner.tlsPassphrase]
     else:
         cmd_args += ['--port', str(new_instance_port)]
-
     new_instance = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
     # Connect the new instance to the cluster (making sure the new instance didn't crash)
-    env.cmd('CLUSTER', 'MEET', '127.0.0.1', new_instance_port)
-    time.sleep(5)
-    if env.envRunner.isTLS():
-        new_instance_conn = RedisCluster(host='127.0.0.1', port=new_instance_port, decode_responses=True,
-                                         ssl=True,
-                                         ssl_keyfile=env.envRunner.shards[0].getTLSKeyFile(),
-                                         ssl_certfile=env.envRunner.shards[0].getTLSCertFile(),
-                                         ssl_cert_reqs=None,
-                                         ssl_ca_certs=env.envRunner.shards[0].getTLSCACertFile(),
-                                         ssl_password=env.envRunner.tlsPassphrase,
-                                         password=env.envRunner.password)
-    else:
-        new_instance_conn = RedisCluster(host='127.0.0.1', port=new_instance_port, decode_responses=True,
-                                         password=env.envRunner.password)
-    env.assertEqual(new_instance_conn.ping(), True)
-    # Validate that the new shard has been recognized by the cluster.
-    env.assertEqual(len(env.cmd('CLUSTER SHARDS')), len(env.envRunner.shards)+1)
-    # Currently, the new shard is not assign on any slots.
-    env.assertEqual(len(env.cmd('CLUSTER SLOTS')), len(env.envRunner.shards))
+    env.assertTrue(conn.cluster_meet('127.0.0.1', new_instance_port))
 
-    # Move a slot (number 0) from the first shard to the new shard.
+    def wait_for_expected(command, expected, message='waiting for expected result'):
+        with TimeLimit(wait_time, message=message):
+            while expected != command():
+                time.sleep(iteration_wait_time)
+
+    # Return the shard details based on the port to which it listens.
+    def get_node_by_port(shard_conn, port):
+        # cluster nodes response is for example:
+        # {'127.0.0.1:6381':
+        #   {'node_id': 'df328f12ac68e61df53b87458b769bf61a885470', ... , 'slots': [['5462', '10923']], ... },
+        #  '127.0.0.1:6379': {'node_id': '088aad6d26e1913867283d74b1a86d47e7e651b8', ... }
+        # }
+        return [v for k, v in shard_conn.cluster_nodes().items() if int(k.split(":")[1]) == port][0]
+
+    # Validate that the new shard has been recognized by the cluster and has no slots.
+    wait_for_expected(lambda: len(conn.cluster_nodes()), len(env.envRunner.shards) + 1,
+                      'waiting for cluster shards to update')
+    env.assertEqual(get_node_by_port(conn, new_instance_port)['slots'], [])
+
+    kwargs = {'host': '127.0.0.1', 'port': new_instance_port, 'decode_responses': True, 'password': env.envRunner.password}
+    if env.envRunner.isTLS():
+      kwargs.update({'ssl': True,
+                     'ssl_keyfile': env.envRunner.shards[0].getTLSKeyFile(),
+                     'ssl_certfile': env.envRunner.shards[0].getTLSCertFile(),
+                     'ssl_cert_reqs': None,
+                     'ssl_ca_certs': env.envRunner.shards[0].getTLSCACertFile(),
+                     'ssl_password': env.envRunner.tlsPassphrase})
+
+    with TimeLimit(wait_time, 'waiting for new shard to acknowledge the topology change'):
+        while True:
+            time.sleep(iteration_wait_time)
+            try:
+                new_instance_conn = RedisCluster(**kwargs)
+                break
+            except (exceptions.RedisClusterException, IndexError):
+                pass  # these two exceptions indicate that the new shard still waking up
+    env.assertTrue(new_instance_conn.ping()) # make sure the new instance is alive
+
+    # Move a slot (number 0) from the shard in which it resides to the new shard.
+    node_with_slot_0_port = None
+    for k, v in conn.cluster_nodes().items():
+        if len(v['slots']) > 0 and v['slots'][0][0] == '0':
+            node_with_slot_0_port = int(k.split(":")[1])
+            break
+
+    env.assertIsNotNone(node_with_slot_0_port)
     new_shard_id = new_instance_conn.cluster_myid(cluster.ClusterNode('127.0.0.1', new_instance_port))
-    env.cmd(f'CLUSTER SETSLOT 0 NODE {new_shard_id}')
+    conn.cluster_setslot(cluster.ClusterNode('127.0.0.1', node_with_slot_0_port), new_shard_id, 0, 'NODE')
     new_instance_conn.cluster_setslot(cluster.ClusterNode('127.0.0.1', new_instance_port), new_shard_id, 0, 'NODE')
 
     # Validate the updated state in old and new shards.
-    expected = [0, 0, ["127.0.0.1", new_instance_port, str(new_shard_id), []]]  # the first slot is in the new shard
-    res = env.cmd('CLUSTER SLOTS')
-    env.assertEqual(len(res), len(env.envRunner.shards) + 1)
-    # Get the item in the list that corresponds to the shard that contains slot 0.
-    shard_with_slot_0 = [r for r in res if r[0] == 0][0]
-    env.assertEqual(shard_with_slot_0, expected)
-
-    expected = {'primary': ('127.0.0.1', new_instance_port), 'replicas': []}  # the expected reply from cluster_slots()
-    res = new_instance_conn.cluster_slots(cluster.ClusterNode('127.0.0.1', new_instance_port))
-    env.assertEqual(len(res), len(env.envRunner.shards) + 1)
-    env.assertEqual(res[(0, 0)], expected)
+    wait_for_expected(lambda: get_node_by_port(conn, new_instance_port)['slots'], [['0']],
+                      'waiting for cluster slots to update')
+    wait_for_expected(lambda: get_node_by_port(new_instance_conn, new_instance_port)['slots'], [['0']],
+                      'waiting for cluster slots to update')
 
     # cleanup
     new_instance.kill()
@@ -907,7 +938,7 @@ def test_mod5910(env):
     # iterator.
     # Hence, we expect that the numeric iterator would come *after* the union iterator.
     res = env.execute_command('FT.PROFILE', 'idx', 'search', 'query', '(@n:[1 3] (@t:one | @t:two))')
-    iterators_profile = res[1][3]
+    iterators_profile = res[1][4]
     env.assertEqual(iterators_profile[1][1], 'INTERSECT')
     env.assertEqual(iterators_profile[1][7][1], 'UNION')
     env.assertEqual(iterators_profile[1][8][1], 'NUMERIC')
@@ -918,7 +949,7 @@ def test_mod5910(env):
     # *before* the union iterator.
     env.assertEqual('OK', con.execute_command('FT.CONFIG', 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true'))
     res = con.execute_command('FT.PROFILE', 'idx', 'search', 'query', '(@n:[1 3] (@t:one | @t:two))')
-    iterators_profile = res[1][3]
+    iterators_profile = res[1][4]
     env.assertEqual(iterators_profile[1][1], 'INTERSECT')
     env.assertEqual(iterators_profile[1][7][1], 'NUMERIC')
     env.assertEqual(iterators_profile[1][8][1], 'UNION')

@@ -114,12 +114,7 @@ def test_param_errors(env):
 
     env.expect('FT.AGGREGATE', 'idx', '@pron:(jon) => [KNN $k @v $vec]', 'PARAMS', '2', 'ph').error().contains('Bad arguments for PARAMS: Expected an argument, but none provided')
     env.expect('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]', 'PARAMS', '1', 'ph').error().contains('Parameters must be specified in PARAM VALUE pairs')
-    if env.isCluster():
-        err = env.cmd('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]')[1]
-        env.assertEqual(type(err[0]), ResponseError)
-        env.assertContains('No such parameter `vec`', str(err[0]))
-    else:
-        env.expect('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]').error().contains('No such parameter `vec`')
+    env.expect('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]').error().contains('No such parameter `vec`')
 
     # # Test Attribute names must begin with alphanumeric?
     # env.expect('FT.SEARCH', 'idx', '@g:[$3 $_4 $p_5 $_]', 'NOCONTENT',
@@ -448,7 +443,6 @@ def test_fuzzy(env):
             '''
 
 def aliasing(env, is_sortable, is_sortable_unf):
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     sortable_param = ['SORTABLE', 'UNF'] if is_sortable_unf else (['SORTABLE'] if is_sortable else [])
@@ -529,13 +523,16 @@ def aliasing(env, is_sortable, is_sortable_unf):
                                         'numval_name','AS', 'x')
     env.assertEqual(res2, res)
 
+@skip(cluster=True)
 def test_aliasing_sortables(env):
     aliasing(env, is_sortable = True, is_sortable_unf = False)
 
+@skip(cluster=True)
 def test_aliasing_NOTsortables(env):
 
     aliasing(env, is_sortable = False, is_sortable_unf = False)
 
+@skip(cluster=True)
 def test_aliasing_sortables_UNF(env):
     aliasing(env, is_sortable = True, is_sortable_unf = True)
 

@@ -22,9 +22,9 @@ def testInfo(env):
     env.assertGreater(float(idx_info['key_table_size_mb']), 0)
     env.assertGreater(float(idx_info['vector_index_sz_mb']), 0)
 
+@skip(cluster=True)
 def test_required_fields(env):
     # Testing coordinator<-> shard `_REQUIRED_FIELDS` protocol
-    env.skipOnCluster()
     env.expect('ft.create', 'idx', 'schema', 't', 'text').ok()
     env.cmd('HSET', '0', 't', 'hello')
     env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS').error()
@@ -94,27 +94,13 @@ def test_error_propagation_from_shards(env):
     SkipOnNonCluster(env)
 
     # indexing an index that doesn't exist (today revealed only in the shards)
-    if env.protocol == 3:
-        err = env.cmd('FT.AGGREGATE', 'idx', '*')['error']
-    else:
-        err = env.cmd('FT.AGGREGATE', 'idx', '*')[1]
-
-    env.assertEqual(type(err[0]), ResponseError)
-    env.assertContains('idx: no such index', str(err[0]))
-    # The same for `FT.SEARCH`.
+    env.expect('FT.AGGREGATE', 'idx', '*').error().contains('idx: no such index')
     env.expect('FT.SEARCH', 'idx', '*').error().contains('idx: no such index')
 
     # Bad query
     # create the index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    if env.protocol == 3:
-        err = env.cmd('FT.AGGREGATE', 'idx', '**')['error']
-    else:
-        err = env.cmd('FT.AGGREGATE', 'idx', '**')[1]
-
-    env.assertEqual(type(err[0]), ResponseError)
-    env.assertContains('Syntax error', str(err[0]))
-    # The same for `FT.SEARCH`.
+    env.expect('FT.AGGREGATE', 'idx', '**').error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '**').error().contains('Syntax error')
 
     # Other stuff that are being checked only on the shards (FYI):
@@ -141,25 +127,19 @@ def test_timeout():
         conn.execute_command('HSET', i ,'t1', str(i))
 
     # No client cursor
-    res = env.execute_command('FT.AGGREGATE', 'idx', '*',
-                'LOAD', '2', '@t1', '@__key',
-                'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
-                'groupby', '2', '@t1', '@t1exp',
-                'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys', 'timeout', '1')
-    # TODO: Add this once the response will be fixed to be and error instead of a string
-    # env.assertEquals(type(res[0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(res[0]))
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '2', '@t1', '@__key', 'APPLY',
+        '@t1 ^ @t1', 'AS', 't1exp', 'groupby', '2', '@t1', '@t1exp', 'REDUCE',
+        'tolist', '1', '@__key', 'AS', 'keys', 'timeout', '1'
+    ).error().contains('Timeout limit was reached')
 
     # Client cursor mid execution
-    # If the cursor id is 0, this means there was a timeout throughout execution
-    # caught by the coordinator
-    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*',
-                                       'WITHCURSOR', 'COUNT', n_docs, 'timeout', '1')
-    env.assertEqual(cursor, 0)
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', n_docs,
+        'timeout', '1'
+    ).error().contains('Timeout limit was reached')
 
     # FT.SEARCH
-    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', n_docs,
-                               'timeout', '1')
-    # TODO: Add this when MOD-5965 is merged
-    # env.assertEqual(type(res[0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(res[0]))
+    env.expect(
+        'FT.SEARCH', 'idx', '*', 'LIMIT', '0', n_docs, 'timeout', '1'
+    ).error().contains('Timeout limit was reached')

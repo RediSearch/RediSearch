@@ -79,20 +79,26 @@ def testPrefix2(env):
     env.assertContains('that:foo', res)
     env.assertContains('this:foo', res)
 
-@skip(asan=True)
-def testManyPrefixes(env):
-    # this test checks that releasing all indexes is faster
-    # it went down from 10 to less than 1 second for 10,000 indexes
+def testFlushallManyPrefixes(env):
     conn = getConnectionByEnv(env)
-    start_time = time.time()
-    for i in range(10000):
+
+    # This test purpose it to validate the cleanup of the spec:prefixes dictionary upon
+    # server 'flushall'
+    num_indices = 100
+    for i in range(num_indices):
         env.cmd('ft.create', i, 'ON', 'HASH',
                             'PREFIX', '1', i,
                             'SCHEMA', 'name', 'text')
-    env.debugPrint(str(time.time() - start_time), force=TEST_DEBUG)
-    start_time = time.time()
+
+    # Sanity check
+    dump_trie = to_dict(env.cmd(ftDebugCmdName(env), "DUMP_PREFIX_TRIE"))
+    env.assertEqual(dump_trie['prefixes_count'], num_indices)
+
     conn.execute_command('FLUSHALL')
-    env.assertLess(time.time() - start_time, 6)
+    # Verify the global prefixes trie is empty
+    dump_trie = to_dict(env.cmd(ftDebugCmdName(env), "DUMP_PREFIX_TRIE"))
+    env.assertEqual(dump_trie['prefixes_count'], 0)
+    env.assertEqual(dump_trie['prefixes_trie_nodes'], 0)
 
 def testFilter2(env):
     conn = getConnectionByEnv(env)
@@ -171,8 +177,8 @@ def testSet(env):
     env.expect('set', 'thing:bar', "bye bye")
     env.expect('ft.search', 'things', 'foo').equal([0])
 
+@skip(cluster=True)
 def testRename(env):
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     env.cmd('ft.create things PREFIX 1 thing: SCHEMA name text')
     env.expect('ft.search things foo').equal([0])
@@ -191,16 +197,16 @@ def testRename(env):
     env.cmd('SET foo bar')
     env.cmd('RENAME foo fubu')
 
+@skip(cluster=True)
 def testRenameChangePrefix(env):
-    env.skipOnCluster()
     env.cmd('ft.create idx1 PREFIX 1 1: SCHEMA name text')
     env.cmd('ft.create idx2 PREFIX 1 2: SCHEMA name text')
 
     env.cmd('SET 1:1 bar')
     env.expect('RENAME 1:1 2:1').ok()
 
+@skip(cluster=True)
 def testCopy(env):
-    env.skipOnCluster()
     if not server_version_at_least(env, "6.2.0"):
         env.skip()
     conn = getConnectionByEnv(env)
@@ -397,8 +403,8 @@ def testMultiFilters2(env):
     res = env.cmd('ft.search test *')
     env.assertEqual(toSortedFlatList(res), toSortedFlatList(res1))
 
+@skip(cluster=True)
 def testInfo(env):
-    env.skipOnCluster()
 
     env.expect('FT.CREATE', 'test', 'ON', 'HASH',
                'PREFIX', '2', 'student:', 'pupil:',
@@ -444,10 +450,10 @@ def testCreateDropCreate(env):
     env.expect('ft.search', 'things', 'foo') \
        .equal([1, 'thing:bar', ['name', 'foo']])
 
+@skip(cluster=True)
 def testPartial(env):
     if env.env == 'existing-env':
         env.skip()
-    env.skipOnCluster()
     env = Env(moduleArgs='PARTIAL_INDEXED_DOCS 1')
 
     # HSET
@@ -509,10 +515,10 @@ def testPartial(env):
                              'doc4', ['test', 11, 'testtest', '5'],
                              'doc5', ['test', 17.1, 'testtest', '5.5']])
 
+@skip(cluster=True)
 def testHDel(env):
     if env.env == 'existing-env':
         env.skip()
-    env.skipOnCluster()
     env = Env(moduleArgs='PARTIAL_INDEXED_DOCS 1')
 
     env.expect('FT.CREATE idx SCHEMA test1 TEXT test2 TEXT').equal('OK')
@@ -527,10 +533,10 @@ def testHDel(env):
     env.expect('HDEL doc1 test2').equal(1)
     env.expect('FT.SEARCH idx bar').equal([0])
 
+@skip(cluster=True)
 def testRestore(env):
     if env.env == 'existing-env':
         env.skip()
-    env.skipOnCluster()
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
     env.expect('HSET doc1 test foo').equal(1)
     env.expect('FT.SEARCH idx foo').equal([1, 'doc1', ['test', 'foo']])
@@ -540,8 +546,8 @@ def testRestore(env):
     env.expect('RESTORE', 'doc1', 0, dump)
     env.expect('FT.SEARCH idx foo').equal([1, 'doc1', ['test', 'foo']])
 
+@skip(cluster=True)
 def testEvicted(env):
-    env.skipOnCluster()
     skipOnCrdtEnv(env)
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
@@ -595,9 +601,9 @@ def testWrongFieldType(env):
     res_actual = {res_actual[i]: res_actual[i + 1] for i in range(0, len(res_actual), 2)}
     env.assertEqual(str(res_actual['hash_indexing_failures']), '1')
 
+@skip(cluster=True)
 def testDocIndexedInTwoIndexes():
     env = Env(moduleArgs='MAXDOCTABLESIZE 50')
-    env.skipOnCluster()
     env.expect('FT.CREATE idx1 SCHEMA t TEXT').ok()
     env.expect('FT.CREATE idx2 SCHEMA t TEXT').ok()
 

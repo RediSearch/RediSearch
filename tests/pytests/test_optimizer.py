@@ -67,8 +67,8 @@ def compare_optimized_to_not(env, query, params, msg=None):
         print_profile(env, query, params, optimize=False)
         print_profile(env, query, params, optimize=True)
 
+@skip(cluster=True)
 def testOptimizer(env):
-    env.skipOnCluster()
     env.cmd('FT.CONFIG', 'SET', 'TIMEOUT', '0')
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     env.cmd('FT.CONFIG', 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true')
@@ -103,7 +103,7 @@ def testOptimizer(env):
                     ['Type', 'Sorter', 'Counter', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo @n:[10 15]', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '10', '110', '210', '310', '410', '510', '610', '710', '810', '910'])
-    env.assertEqual(res[1][3:], profiler)
+    env.assertEqual(res[1][4:], profiler)
 
     ### (2) range and filter w/o sort ###
     env.expect('ft.search', 'idx', 'foo @n:[10 20]', 'limit', 0 , 2, *params).equal([2, '10', '12'])
@@ -123,7 +123,7 @@ def testOptimizer(env):
                     ['Type', 'Sorter', 'Counter', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo @n:[10 20]', *params)
     env.assertEqual(res[0], [10, '10', '12', '14', '16', '18', '20', '110', '112', '114', '116'])
-    env.assertEqual(res[1][3:], profiler)
+    env.assertEqual(res[1][4:], profiler)
 
     ### (3) TAG and range with sort ###
     # Search only minimal number of ranges
@@ -143,7 +143,7 @@ def testOptimizer(env):
                     ['Type', 'Sorter', 'Counter', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '10', '110', '210', '310', '410', '510', '610', '710', '810', '910'])
-    env.assertEqual(res[1][3:], profiler)
+    env.assertEqual(res[1][4:], profiler)
 
     ### (4) TAG and range w/o sort ###
     # stop after enough results were collected
@@ -163,7 +163,7 @@ def testOptimizer(env):
                     ['Type', 'Pager/Limiter', 'Counter', 9]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo} @n:[10 15]', *params)
     env.assertEqual(res[0][1:], ['10', '12', '14', '110', '112', '114', '210', '212', '214', '310'])
-    env.assertEqual(res[1][3:], profiler)
+    env.assertEqual(res[1][4:], profiler)
 
     ### (5) numeric range with sort ###
     # Search only minimal number of ranges
@@ -184,7 +184,7 @@ def testOptimizer(env):
                     ['Type', 'Sorter', 'Counter', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@n:[10 15]', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '10', '11', '110', '111', '210', '211', '310', '311', '410', '411'])
-    env.assertEqual(res[1][3:], profiler)
+    env.assertEqual(res[1][4:], profiler)
 
     ### (6) only range ###
     # stop after enough results were collected
@@ -202,7 +202,7 @@ def testOptimizer(env):
                     ['Type', 'Pager/Limiter', 'Counter', 9]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@n:[10 15]', *params)
     env.assertEqual(res[0], [1, '10', '11', '12', '13', '14', '15', '110', '111', '112', '113'])
-    env.assertEqual(res[1][3:], profiler)
+    env.assertEqual(res[1][4:], profiler)
 
     ### (7) filter with sort ###
     # Search only minimal number of ranges
@@ -222,7 +222,7 @@ def testOptimizer(env):
                     ['Type', 'Sorter', 'Counter', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '0', '100', '200', '300', '400', '500', '600', '700', '800', '900'])
-    env.assertEqual(res[1][3:], profiler)
+    env.assertEqual(res[1][4:], profiler)
 
     result = env.cmd('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'limit', 0 , 1500, *params)
     env.assertEqual(result[0], 1500)
@@ -242,7 +242,7 @@ def testOptimizer(env):
                     ['Type', 'Sorter', 'Counter', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo', *params)
     env.assertEqual(res[0], [10, '0', '2', '4', '6', '8', '10', '12', '14', '16', '18'])
-    env.assertEqual(res[1][3:], profiler)
+    env.assertEqual(res[1][4:], profiler)
 
     ### (9) no sort, no score, with sortby ###
     # Search only minimal number of ranges
@@ -262,7 +262,7 @@ def testOptimizer(env):
                     ['Type', 'Sorter', 'Counter', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo}', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '0', '100', '200', '300', '400', '500', '600', '700', '800', '900'])
-    env.assertEqual(res[1][3:], profiler)
+    env.assertEqual(res[1][4:], profiler)
 
     ### (10) no sort, no score, no sortby ###
     # stop after enough results were collected
@@ -278,7 +278,7 @@ def testOptimizer(env):
                     ['Type', 'Pager/Limiter', 'Counter', 9]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo}', *params)
     env.assertEqual(res[0][1:], ['0', '2', '4', '6', '8', '10', '12', '14', '16', '18'])
-    env.assertEqual(res[1][3:], profiler)
+    env.assertEqual(res[1][4:], profiler)
 
     ### (11) wildcard with sort ###
     # Search only minimal number of ranges
@@ -298,7 +298,7 @@ def testOptimizer(env):
                         ['Type', 'Sorter', 'Counter', 10]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '*', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '0', '1', '100', '101', '200', '201', '300', '301', '400', '401'])
-    env.assertEqual(res[1][3:], profiler)
+    env.assertEqual(res[1][4:], profiler)
 
     ### (12) wildcard w/o sort ###
     # stop after enough results were collected
@@ -314,7 +314,7 @@ def testOptimizer(env):
                     ['Type', 'Pager/Limiter', 'Counter', 9]]]
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '*', *params)
     env.assertEqual(res[0][1:], ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
-    env.assertEqual(res[1][3:], profiler)
+    env.assertEqual(res[1][4:], profiler)
 
     result = env.cmd('ft.search', 'idx', '@tag:{foo}', 'SORTBY', 'n', 'limit', 0 , 1500, *params)
     env.assertEqual(result[0], 1500)
@@ -322,9 +322,8 @@ def testOptimizer(env):
     result = env.cmd('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 1500, *params)
     env.assertEqual(result[0], 1200)
 
-
+@skip(cluster=True)
 def testWOLimit(env):
-    env.skipOnCluster()
     env.cmd('ft.config', 'set', 'timeout', '0')
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     repeat = 100
@@ -402,8 +401,8 @@ def testWOLimit(env):
     # stop after enough results were collected
     env.expect('ft.search', 'idx', '*', *params).equal([1] + res10)
 
+@skip(cluster=True)
 def testSearch(env):
-    env.skipOnCluster()
     repeat = 1000
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT', 'tag', 'TAG')
@@ -468,8 +467,8 @@ def testSearch(env):
             compare_optimized_to_not(env, ['ft.search', 'idx', '*'], params, 'case 12')
         #input('stop')
 
+@skip(cluster=True)
 def testAggregate(env):
-    env.skipOnCluster()
     repeat = 1000
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 't', 'TEXT', 'SORTABLE', 'tag', 'TAG', 'SORTABLE')
@@ -534,10 +533,8 @@ def testAggregate(env):
             compare_optimized_to_not(env, ['ft.aggregate', 'idx', '*'], params, 'case 12')
         #input('stop')
 
-@skip()  # TODO: solve flakiness
+@skip()  # TODO: solve flakiness (MOD-5257)
 def testCoordinator(env):
-    env.skip() # TODO: Fix flaky test (MOD-5257)
-
     # separate test which only has queries with sortby since otherwise the coordinator has random results
     repeat = 10000
     conn = getConnectionByEnv(env)

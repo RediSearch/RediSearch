@@ -1,4 +1,4 @@
-name: Push to Version, Feature or Master Branch
+name: Push to Master or Version Branch
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
@@ -7,6 +7,12 @@ on:
     branches:
       - master
       - '[0-9]+.[0-9]+'
+    paths: # Only run on changes to these paths (code, deps, and benchmarks related changes)
+      - 'src/**'
+      - 'coord/**'
+      - 'deps/**'
+      - 'tests/benchmarks/**'
+      - '.github/workflows/benchmark-*.yml'
 
 jobs:
   benchmark:
