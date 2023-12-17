@@ -24,6 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ !cancelled() }}
     steps:
-      - run: echo ${{ needs.jobim.result }}
+      - run: echo ${{ toJson(needs.*.result) }}
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: exit 1
