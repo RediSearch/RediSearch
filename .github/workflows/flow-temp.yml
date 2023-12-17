@@ -9,12 +9,21 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    #branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  test-macos:
-    uses: ./.github/workflows/flow-macos.yml
-    secrets: inherit
-    with:
-      coordinator: true
-      test-config: QUICK=1
+  jobim:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        cmd: ["sleep 60", "exit 1"]
+    steps:
+      - run: ${{ matrix.cmd }}
+  pr-validation:
+    needs: [jobim]
+    runs-on: ubuntu-latest
+    if: ${{ !cancelled() }}
+    steps:
+      - run: echo ${{ needs.jobim.result }}
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
