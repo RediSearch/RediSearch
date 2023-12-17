@@ -104,7 +104,7 @@ void InvertedIndex_Digest(RedisModuleDigest *digest, void *value) {
 
 unsigned long InvertedIndex_MemUsage(const void *value) {
   const InvertedIndex *idx = value;
-  unsigned long ret = sizeof(InvertedIndex);
+  unsigned long ret = sizeof_InvertedIndex(idx->flags);
   for (size_t i = 0; i < idx->size; i++) {
     ret += sizeof(IndexBlock);
     ret += IndexBlock_DataLen(&idx->blocks[i]);
