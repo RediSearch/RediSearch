@@ -399,7 +399,7 @@ OK
 OK
 ```
 
-Now you can search for the two headphones that are most similar to the image embedding by using vector search KNN query. (Note that the vector queries are supported as of dialect 2.) For example:
+Now you can search for the two headphones that are most similar to the image embedding by using vector similarity search KNN query. (Note that the vector queries are supported as of dialect 2.) For example:
 
 ```sql
 127.0.0.1:6379> FT.SEARCH itemIdx5 '*=>[KNN 2 @embedding $blob AS dist]' SORTBY dist PARAMS 2 blob \x01\x01\x01\x01 DIALECT 2
@@ -433,7 +433,7 @@ OK
 Unlike the case with the NUMERIC type, setting a static path such as `$.embedding` in the schema for the VECTOR type does not allow you to index multiple vectors stored under that field. Hence, if you set `$.embedding` as the path to the index schema, specifying an array of vectors in the `embedding` field in your JSON will cause an indexing failure.
 {{% /alert %}}
 
-Now you can search for the two headphones that are most similar to an image embedding by using vector search KNN query. (Note that the vector queries are supported as of dialect 2.) The distance between a document to the query vector is defined as the minimum distance between the query vector to a vector that matches the JSONPath specified in the schema. For example:
+Now you can search for the two headphones that are most similar to an image embedding by using vector similarity search KNN query. (Note that the vector queries are supported as of dialect 2.) The distance between a document to the query vector is defined as the minimum distance between the query vector to a vector that matches the JSONPath specified in the schema. For example:
 
 ```sql
 127.0.0.1:6379> FT.SEARCH itemIdx5 '*=>[KNN 2 @embeddings $blob AS dist]' SORTBY dist PARAMS 2 blob \x01\x01\x01\x01 DIALECT 2

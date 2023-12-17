@@ -54,7 +54,7 @@ after the SCHEMA keyword, declares which fields to index:
 
  - `GEO` - Allows radius range queries against the value (point) in this attribute. The value of the attribute must be a string containing a longitude (first) and latitude separated by a comma.
 
- - `VECTOR` - Allows vector queries against the value in this attribute. For more information, see [Vector Fields](/docs/interact/search-and-query/search/vectors/).
+ - `VECTOR` - Allows vector similarity queries against the value in this attribute. For more information, see [Vector Fields](/docs/interact/search-and-query/search/vectors/).
 
  - `GEOSHAPE`- Allows polygon queries against the value in this attribute. The value of the attribute must follow a [WKT notation](https://en.wikipedia.org/wiki/Well-known_text_representation_of_geometry) list of 2D points representing the polygon edges `POLYGON((x1 y1, x2 y2, ...)` separated by a comma. A `GEOSHAPE` field type can be followed by one of the following coordinate systems:
    - `SPHERICAL` for Geographic longitude and latitude coordinates

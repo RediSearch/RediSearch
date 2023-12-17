@@ -76,7 +76,7 @@ Here is a more detailed explanation of this query:
 2. **Additional step**: the `=>` arrow means that the range query is followed by evaluating additional parameters.
 3. **Range query parameters**: parameters such as `$YIELD_DISTANCE_AS` can be found in the [vectors reference documentation](/docs/interact/search-and-query/advanced-concepts/vectors/).
 4. **Vector binary data**: you need to use `PARAMS` to pass the binary representation of the vector.
-5. **Dialect**: vector search has been available since version two of the query dialect.
+5. **Dialect**: vector similarity search has been available since version two of the query dialect.
 
 
 {{% alert title="Note" color="warning" %}}
