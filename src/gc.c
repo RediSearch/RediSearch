@@ -58,7 +58,6 @@ static RedisModuleTimerID scheduleNext(GCTask *task) {
   return RedisModule_CreateTimer(RSDummyContext, period, timerCallback, task);
 }
 
-static void destroyCallback(void* data);
 static void threadCallback(void* data) {
   GCTask* task = data;
   GCContext* gc = task->gc;
@@ -81,8 +80,9 @@ static void threadCallback(void* data) {
     // The index was freed. There is no need to reschedule the task.
     // We need to free the task and the GC.
     RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "GC: Self-Terminating. Index was freed.");
-    destroyCallback(gc);
-    rm_free (task);
+    gc->callbacks.onTerm(gc->gcCtx);
+    rm_free(task);
+    rm_free(gc);
     goto end;
   }
 
@@ -92,13 +92,6 @@ static void threadCallback(void* data) {
 
 end:
   RedisModule_FreeThreadSafeContext(ctx);
-}
-
-static void destroyCallback(void* data) {
-  GCContext* gc = data;
-
-  gc->callbacks.onTerm(gc->gcCtx);
-  rm_free(gc);
 }
 
 static void timerCallback(RedisModuleCtx* ctx, void* data) {
