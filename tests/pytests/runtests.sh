@@ -35,7 +35,7 @@ help() {
 		QUICK=1|~1|0          Perform only common test variant (~1: all but common)
 		CONFIG=cfg            Perform one of: max_unsorted,
 		                        union_iterator_heap, raw_docid, dialect_2,
-		                        (coordinator:) tls
+		                        (coordinator:) global_password, tls
 
 		TEST=name             Run specific test (e.g. test.py:test_name)
 		TESTFILE=file         Run tests listed in `file`
@@ -728,6 +728,14 @@ elif [[ $COORD == oss ]]; then
 	fi
 
 	if [[ $QUICK != 1 ]]; then
+		if [[ -z $CONFIG || $CONFIG == global_password ]]; then
+			if [[ $SAN != address || $FORCE_SAN == 1 ]]; then
+				{ (MODARGS="${MODARGS} PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
+				   RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} --oss_password password" \
+				   run_tests "OSS cluster tests with password"); (( E |= $? )); } || true
+			fi
+		fi
+
 		tls_args="--tls \
 			--tls-cert-file $ROOT/bin/tls/redis.crt \
 			--tls-key-file $ROOT/bin/tls/redis.key \
