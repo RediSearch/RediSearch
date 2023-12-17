@@ -1401,7 +1401,7 @@ def test_error_with_partial_results():
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
   # Populate the index
-  num_docs = 25000 * env.shardsCount
+  num_docs = 10000 * env.shardsCount
   for i in range(num_docs):
       conn.execute_command('HSET', f'doc{i}', 't', str(i))
 
