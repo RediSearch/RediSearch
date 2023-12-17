@@ -1033,6 +1033,10 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
   IndexSpecCache_Decref(sp->spcache);
   sp->spcache = IndexSpec_BuildSpecCache(sp);
 
+  for (size_t ii = prevNumFields; ii < sp->numFields; ++ii) {
+    FieldsGlobalStats_UpdateStats(sp->fields + ii, 1);
+  }
+
   return 1;
 
 reset:
@@ -1149,10 +1153,6 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
 
   if (spec->rule->filter_exp) {
     SchemaRule_FilterFields(spec);
-  }
-
-  for (int i = 0; i < spec->numFields; i++) {
-    FieldsGlobalStats_UpdateStats(spec->fields + i, 1);
   }
 
   return spec_ref;
@@ -1371,12 +1371,6 @@ void IndexSpec_Free(IndexSpec *spec) {
     StopWordList_Unref(spec->stopwords);
     spec->stopwords = NULL;
   }
-  // Reset fields stats
-  if (spec->fields != NULL) {
-    for (size_t i = 0; i < spec->numFields; i++) {
-      FieldsGlobalStats_UpdateStats(spec->fields + i, -1);
-    }
-  }
   // Free unlinked index spec on a second thread
   if (RSGlobalConfig.freeResourcesThread == false) {
     IndexSpec_FreeUnlinkedData(spec);
@@ -1416,6 +1410,11 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
       WeakRef_Release(old_timer_ref);
     }
     spec->isTimerSet = false;
+  }
+
+  // Remove spec's fields from global statistics
+  for (size_t i = 0; i < spec->numFields; i++) {
+    FieldsGlobalStats_UpdateStats(spec->fields + i, -1);
   }
 
   // Mark there are pending index drops.
