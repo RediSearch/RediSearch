@@ -7,8 +7,10 @@
 #ifndef RMUTIL_CMDPARSE_
 #define RMUTIL_CMDPARSE_
 
+#include "redismodule.h"
+
 #include <stdlib.h>
-#include <redismodule.h>
+
 #define CMDPARSE_OK 0
 #define CMDPARSE_ERR 1
 

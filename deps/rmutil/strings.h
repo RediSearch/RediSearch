@@ -7,7 +7,7 @@
 #ifndef __RMUTIL_STRINGS_H__
 #define __RMUTIL_STRINGS_H__
 
-#include <redismodule.h>
+#include "redismodule.h"
 
 /*
 * Create a new RedisModuleString object from a printf-style format and arguments.

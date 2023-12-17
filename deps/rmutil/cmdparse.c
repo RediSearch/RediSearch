@@ -4,6 +4,9 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
+#include "cmdparse.h"
+#include "alloc.h"
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -12,8 +15,6 @@
 #include <ctype.h>
 #include <math.h>
 #include <stdarg.h>
-
-#include "cmdparse.h"
 
 #define __ignore__(X) \
     do { \
@@ -109,7 +110,7 @@ static CmdArg *NewCmdArray(size_t cap) {
   CmdArg *ret = NewCmdArg(CmdArg_Array);
   ret->a.cap = cap;
   ret->a.len = 0;
-  ret->a.args = calloc(cap, sizeof(CmdArg *));
+  ret->a.args = rm_calloc(cap, sizeof(CmdArg *));
 
   return ret;
 }
@@ -117,7 +118,7 @@ static CmdArg *NewCmdArray(size_t cap) {
 static CmdArg *NewCmdObject(size_t cap) {
   CmdArg *ret = NewCmdArg(CmdArg_Object);
   ret->obj = (CmdObject){
-      .entries = calloc(cap, sizeof(CmdKeyValue)),
+      .entries = rm_calloc(cap, sizeof(CmdKeyValue)),
       .cap = cap,
       .len = 0,
   };
@@ -188,7 +189,7 @@ static int CmdArray_Append(CmdArray *arr, CmdArg *val) {
 }
 
 static CmdSchemaElement *newSchemaElement(CmdSchemaElementType type) {
-  CmdSchemaElement *ret = calloc(1, sizeof(*ret));
+  CmdSchemaElement *ret = rm_calloc(1, sizeof(*ret));
   ret->type = type;
   ret->validator = NULL;
   ret->validatorCtx = NULL;
@@ -198,7 +199,7 @@ static CmdSchemaElement *newSchemaElement(CmdSchemaElementType type) {
 static CmdSchemaNode *NewSchemaNode(CmdSchemaNodeType type, const char *name,
                                     CmdSchemaElement *element, CmdSchemaFlags flags,
                                     const char *help) {
-  CmdSchemaNode *ret = malloc(sizeof(*ret));
+  CmdSchemaNode *ret = rm_malloc(sizeof(*ret));
   *ret = (CmdSchemaNode){
       .val = element,
       .flags = flags,
@@ -872,7 +873,7 @@ int CmdParser_ParseCmd(CmdSchemaNode *schema, CmdArg **arg, CmdString *argv, int
 
 int CmdParser_ParseRedisModuleCmd(CmdSchemaNode *schema, CmdArg **cmd, RedisModuleString **argv,
                                   int argc, char **err, int strict) {
-  CmdString *args = calloc(argc, sizeof(CmdString));
+  CmdString *args = rm_calloc(argc, sizeof(CmdString));
   for (int i = 0; i < argc; i++) {
     size_t len;
     const char *arg = RedisModule_StringPtrLen(argv[i], &len);
@@ -889,7 +890,7 @@ CmdString *CmdParser_NewArgListV(size_t size, ...) {
   va_list ap;
 
   va_start(ap, size);
-  CmdString *ret = calloc(size, sizeof(CmdString));
+  CmdString *ret = rm_calloc(size, sizeof(CmdString));
   for (size_t i = 0; i < size; i++) {
     const char *arg = va_arg(ap, const char *);
     ret[i] = CMD_STRING((char *)arg);
@@ -901,7 +902,7 @@ CmdString *CmdParser_NewArgListV(size_t size, ...) {
 
 CmdString *CmdParser_NewArgListC(const char **argv, size_t argc) {
 
-  CmdString *ret = calloc(argc, sizeof(CmdString));
+  CmdString *ret = rm_calloc(argc, sizeof(CmdString));
   for (size_t i = 0; i < argc; i++) {
     ret[i] = CMD_STRING((char *)argv[i]);
   }

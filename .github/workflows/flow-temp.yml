@@ -12,18 +12,17 @@ on:
     branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  jobim:
-    uses: ./.github/workflows/flow-temp-2.yml
+  deploy-snapshot:
     strategy:
+      fail-fast: false
       matrix:
-        cmd: ["sleep 60", "exit 1"]
+        branch: ["meiravg_update_rmutil"]
+        include:
+          - branch: "meiravg_update_rmutil"
+            redis-ref: '6.2.14' # 2.6 doesn't support Redis 7
+    secrets: inherit
+    uses: ./.github/workflows/flow-build-artifacts.yml
     with:
-      cmd: ${{ matrix.cmd }}
-  pr-validation:
-    needs: [jobim]
-    runs-on: ubuntu-latest
-    if: ${{ !cancelled() }}
-    steps:
-      - run: echo "${{ toJson(needs.*.result) }}"
-      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
-        run: exit 1
+      reference: ${{ matrix.branch }}
+      redis-reference: ${{ matrix.redis-ref }}
+      platform: macos
