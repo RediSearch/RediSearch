@@ -245,6 +245,7 @@ def testProfileNegativeNumeric():
     env.assertEqual(max_val, range_last, message=f"{title}: The max value of the last child should equal the max val of the tree")
     env.cmd('flushall')
 
+
 @skip(cluster=True)
 def testProfileTag(env):
   conn = getConnectionByEnv(env)
