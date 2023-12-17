@@ -114,7 +114,12 @@ def test_param_errors(env):
 
     env.expect('FT.AGGREGATE', 'idx', '@pron:(jon) => [KNN $k @v $vec]', 'PARAMS', '2', 'ph').error().contains('Bad arguments for PARAMS: Expected an argument, but none provided')
     env.expect('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]', 'PARAMS', '1', 'ph').error().contains('Parameters must be specified in PARAM VALUE pairs')
-    env.expect('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]').error().contains('No such parameter `vec`')
+    if env.isCluster():
+        err = env.cmd('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]')[1]
+        env.assertEqual(type(err[0]), ResponseError)
+        env.assertContains('No such parameter `vec`', str(err[0]))
+    else:
+        env.expect('FT.AGGREGATE', 'idx', '@pron:(KNN) => [KNN $k @v $vec]').error().contains('No such parameter `vec`')
 
     # # Test Attribute names must begin with alphanumeric?
     # env.expect('FT.SEARCH', 'idx', '@g:[$3 $_4 $p_5 $_]', 'NOCONTENT',

@@ -101,8 +101,6 @@ typedef enum {
 #define RunInThread() (RSGlobalConfig.mt_mode == MT_MODE_FULL)
 #endif
 
-typedef void (*profiler_func)(RedisModule_Reply *reply, struct AREQ *req);
-
 typedef enum {
   /* Received EOF from iterator */
   QEXEC_S_ITERDONE = 0x02,
@@ -181,12 +179,6 @@ typedef struct AREQ {
   // FT.AGGREGATE execution.
   size_t maxSearchResults;
   size_t maxAggregateResults;
-
-  // Cursor id, if this is a cursor
-  uint64_t cursor_id;
-
-  // Profiling function
-  profiler_func profile;
 
 } AREQ;
 
