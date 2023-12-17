@@ -110,8 +110,7 @@ typedef struct {
 size_t Buffer_Truncate(Buffer *b, size_t newlen);
 
 // Ensure that at least extraLen new bytes can be added to the buffer.
-// Returns 0 if no realloc was performed. 
-// If realloc was performed, returns the number of bytes added
+// Returns 0 if no realloc was performed. 1 if realloc was performed.
 size_t Buffer_Grow(Buffer *b, size_t extraLen);
 
 static inline size_t Buffer_Reserve(Buffer *buf, size_t n) {
@@ -119,8 +118,7 @@ static inline size_t Buffer_Reserve(Buffer *buf, size_t n) {
   if (buf->offset + n <= buf->cap) {
     return 0;
   }
-  
-  return Buffer_Grow(buf, n);;
+  return Buffer_Grow(buf, n);
 }
 
 static inline size_t Buffer_Write(BufferWriter *bw, const void *data, size_t len) {
