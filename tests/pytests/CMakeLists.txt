@@ -21,6 +21,10 @@ foreach(n ${PY_TEST_FILES})
         COMMAND bash -c "${baseCommand} -t ${n}"
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
+    add_test(NAME "PY_${test_name}_CONCURRENT_WRITE_MODE"
+        COMMAND bash -c "MODARGS='CONCURRENT_WRITE_MODE;' ${baseCommand} -t ${n}"
+        WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
+
     add_test(NAME "PY_${test_name}_CRITERIA_TESTER"
         COMMAND bash -c "MODARGS='_MAX_RESULTS_TO_UNSORTED_MODE 1;' ${baseCommand} -t ${n}"
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
