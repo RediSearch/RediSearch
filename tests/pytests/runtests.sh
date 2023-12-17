@@ -152,7 +152,7 @@ setup_rltest() {
 		fi
 	fi
 
-	RLTEST_ARGS+=" --allow-unsafe"  # allow redis use debug and module command and change protected configs
+	RLTEST_ARGS+=" --enable-debug-command --enable-protected-configs"
 
 	LOG_LEVEL=${LOG_LEVEL:-debug}
 	RLTEST_ARGS+=" --log-level $LOG_LEVEL"

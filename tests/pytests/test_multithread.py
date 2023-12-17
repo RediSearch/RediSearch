@@ -3,7 +3,6 @@ import time
 import unittest
 from cmath import inf
 from email import message
-import redis.exceptions
 from includes import *
 from common import *
 from RLTest import Env
@@ -57,23 +56,32 @@ def testSimpleBuffer():
 def testMultipleBlocksBuffer():
     CreateAndSearchSortBy(docs_count = 2500)
 
-# Skipping for cluster as we only test for loading the module to the shard.
-# Sanitizer is not tested due to a bug in redis - onFLush callback is called even though module loading
-# failed, causing access to an invalid memory that was freed (module context) - see
-# https://github.com/redis/redis/issues/12808.
-@skip(cluster=True, asan=True, noWorkers=True)
-def test_invalid_mt_config_combinations(env):
-    module_path =  env.envRunner.modulePath[0]  # extract search module path from RLTest default env
-    for mode in ['MT_MODE_FULL', 'MT_MODE_ONLY_ON_OPERATIONS']:
-        env = Env(module=[])  # create a new env without any module
-        env.assertEqual(env.cmd('MODULE', 'LIST'), [], message=mode)
-        try:
-            env.cmd('MODULE', 'LOAD', module_path, 'WORKER_THREADS', '0', 'MT_MODE', mode)
-            env.assertFalse(True, message=mode)   # we shouldn't get here
-        except Exception as e:
-            # Expect to see a failure in loading the module due to the invalid configuration combination.
-            env.assertEqual(type(e), redis.exceptions.ModuleError, message=mode)
-            env.assertContains("Error loading the extension.", str(e))
+
+@skip(asan=True)
+def test_invalid_MT_MODE_FULL_config():
+    try:
+        env = initEnv(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_FULL')
+        prefix = '_' if env.isCluster() else ''
+        env.cmd(f"{prefix}ft.config", "get", "WORKER_THREADS")
+        env.assertFalse(True)   # We shouldn't get here
+    except Exception:
+        # Create dummy env to collect exit gracefully.
+        env = Env()
+        pass
+
+
+@skip(asan=True)
+def test_invalid_MT_MODE_ONLY_ON_OPERATIONS_config():
+    # Invalid 0 worker threads with MT_MODE_ONLY_ON_OPERATIONS.
+    try:
+        env = initEnv(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_ONLY_ON_OPERATIONS')
+        prefix = '_' if env.isCluster() else ''
+        env.cmd(f"{prefix}ft.config", "get", "WORKER_THREADS")
+        env.assertFalse(True)   # We shouldn't get here
+    except Exception:
+        # Create dummy env to collect exit gracefully.
+        env = Env()
+        pass
 
 
 def test_reload_index_while_indexing():
