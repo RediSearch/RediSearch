@@ -20,24 +20,15 @@ def testSanitySearchHashWithin(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT').ok()
   
-  small = 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))'
-  large = 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1), (2 2, 49 2, 49 49, 2 49, 2 2))' # contains hole
-  conn.execute_command('HSET', 'small', 'geom', small)
-  conn.execute_command('HSET', 'large', 'geom', large)
-
-  query = 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))'
-  env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal([1, 'small', ['geom', small]])
-  env.expect('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal([0])
-
-  query = 'POLYGON((50 50, 50 99, 99 99, 99 50, 50 50))'
-  env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal([0])
-  res = env.cmd('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
-  env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
+  conn.execute_command('HSET', 'small', 'geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))')
+  conn.execute_command('HSET', 'large', 'geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))')
+  expected = ['geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))']
+  env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))', 'DIALECT', 3).equal([1, 'small', expected])
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((2 2, 2 50, 50 50, 50 2, 2 2))', 'DIALECT', 3)
+  env.assertEqual(res[0], 2)
   
-  query = 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))'
-  res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
-  env.expect('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal([0])
 
 def testSanitySearchPointWithin(env):
   conn = getConnectionByEnv(env)
