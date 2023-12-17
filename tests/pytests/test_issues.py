@@ -802,16 +802,16 @@ def test_mod5252(env):
 
 
 @skip(cluster=True)
-def test_mod_6276(env): # Also MOD-5807
+def test_mod_6276(env):
   # Setting the gc parameters to ensure quick gc invocation
   env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
   env.expect('FT.CONFIG', 'SET', 'FORK_GC_RUN_INTERVAL', '1').ok()
   # Create an index and add a document + garbage
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
   env.expect('HSET', 'doc', 't', 'Hello').equal(1)
-  env.expect('HSET', 'doc', 't', 'Hello').equal(0)
-  # Hold the GIL, wait for the gc to run b
-  env.expect('FT.DEBUG', 'GC_WAIT_AND_DROP', 'idx').ok()
+  # Verify the GC is not running, drop the index, wait (blocking) for the GC to run.
+  # The GC should discover the index is dropped, free its resources and exit while unblocking us.
+  env.expect('FT.DEBUG', 'GC_DROP_AND_WAIT', 'idx').equal('DONE')
 
 def test_mod5791(env):
     con = getConnectionByEnv(env)
