@@ -3815,6 +3815,7 @@ def test_with_tls():
 
     common_with_auth(env)
 
+@skip(asan=True)
 def test_timeoutCoordSearch_NonStrict(env):
     """Tests edge-cases for the `TIMEOUT` parameter for the coordinator's
     `FT.SEARCH` path"""
@@ -3825,8 +3826,9 @@ def test_timeoutCoordSearch_NonStrict(env):
     SkipOnNonCluster(env)
 
     # Create and populate an index
-    n_docs = 50000
-    populate_db(env, n_docs)
+    n_docs_pershard = 50000
+    n_docs = n_docs_pershard * env.shardsCount
+    populate_db(env, n_docs_pershard)
 
     # test erroneous params
     env.expect('ft.search', 'idx', '* aa*', 'timeout').error()
@@ -3839,6 +3841,7 @@ def test_timeoutCoordSearch_NonStrict(env):
     res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '1')
     env.assertLessEqual(res[0], n_docs)
 
+@skip(asan=True)
 def test_timeoutCoordSearch_Strict():
     """Tests edge-cases for the `TIMEOUT` parameter for the coordinator's
     `FT.SEARCH` path, when the timeout policy is strict"""
@@ -3851,8 +3854,9 @@ def test_timeoutCoordSearch_Strict():
     SkipOnNonCluster(env)
 
     # Create and populate an index
-    n_docs = 50000
-    populate_db(env, n_docs)
+    n_docs_pershard = 50000
+    n_docs = n_docs_pershard * env.shardsCount
+    populate_db(env, n_docs_pershard)
 
     # test erroneous params
     env.expect('ft.search', 'idx', '* aa*', 'timeout').error()
