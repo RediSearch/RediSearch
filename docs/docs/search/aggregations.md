@@ -1,13 +1,14 @@
 ---
 title: "Aggregations"
 linkTitle: "Aggregations"
-weight: 1
-description: Groupings, projections, and aggregation functions
+weight: 3
+description: Details of FT.AGGREGATE, grouping, projections, and functions
 aliases:
   - /docs/stack/search/reference/aggregations/
   - /redisearch/reference/aggregations
-  - /docs/interact/search-and-query/search/aggregations/
 ---
+
+# Aggregations
 
 Aggregations are a way to process the results of a search query. Aggregation allows you to group, sort, and transform your result data, and to extract analytic insights from it. Much like aggregation queries in other databases and search engines, they can be used to create analytics reports, or perform [faceted search](https://en.wikipedia.org/wiki/Faceted_search) style queries.
 
