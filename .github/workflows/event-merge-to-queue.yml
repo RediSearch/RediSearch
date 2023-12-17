@@ -1,5 +1,4 @@
 name: Merge a pull request
-run-name: Validate ${{ github.ref_name }}
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
@@ -16,6 +15,37 @@ concurrency:
 # TODO: Use RedisJSON's `${{ vars.DEFAULT_REDISJSON_REF }}` branch when testing on nightly
 
 jobs:
+  print-configurations:
+    runs-on: ubuntu-latest
+    outputs:
+      test-configurations: ${{ steps.print-configurations.outputs.configurations }}
+      include-configurations: ${{ steps.print-configurations.outputs.includes }}
+    steps:
+      - name: Print Configurations
+        id: print-configurations
+        shell: python
+        run: |
+          import os
+          # All configurations (by default runs both standalone and coordinator)
+          configurations = [''] # Run all configurations serially
+          # TODO: use matrix to run configurations in parallel once we have enough runners
+          # configurations = [
+          #   'max_unsorted',
+          #   'union_iterator_heap',
+          #   'raw_docid',
+          #   'dialect_2',
+          #   'global_password',
+          #   'tls',
+          # ]
+          # Spacial configurations
+          includes = [
+          #   {'test-config': 'global_password', 'standalone': 'false'},
+          #   {'test-config': 'tls',             'standalone': 'false'},
+          ]
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+            print(f'configurations={configurations}', file=fh)
+            print(f'includes={includes}', file=fh)
+
   get-latest-redis-tag:
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
@@ -25,26 +55,46 @@ jobs:
     uses: ./.github/workflows/task-check-docs.yml
 
   test-linux:
-    needs: [docs-only, get-latest-redis-tag]
+    needs: [print-configurations, docs-only, get-latest-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
+    strategy:
+      matrix:
+        test-config: # configurations for both standalone and coordinator
+          ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
+        include: # spacial configurations
+          ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
+
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      test-config: CONFIG=${{ matrix.test-config }}
+      standalone:  ${{ matrix.standalone  != 'false' }} # Set the default value to `true` if standalone is absent
+      coordinator: ${{ matrix.coordinator != 'false' }} # Set the default value to `true` if coordinator is absent
 
   test-macos:
-    needs: [docs-only, get-latest-redis-tag]
+    needs: [print-configurations, docs-only, get-latest-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     strategy:
       fail-fast: false
       matrix:
-        mode: [standalone, coordinator]
+        dividor: [true, false]
+        # configurations for both standalone and coordinator
+        test-config: ${{ fromJson(needs.print-configurations.outputs.test-configurations) }}
+        # spacial configurations
+        include: ${{ fromJson(needs.print-configurations.outputs.include-configurations) }}
+
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      standalone:  ${{ matrix.mode == 'standalone'  }}
-      coordinator: ${{ matrix.mode == 'coordinator' }}
+      test-config: CONFIG=${{ matrix.test-config }}
+      # Set the default value to `true` if value is absent
+      # Using the dividor, only one of the two will be true, and we split the run into two jobs.
+      # If the configuration was ment to only one of the modes, we will get for example: (true, false), (false, false)
+      # and if both modes are false, the job will be skipped (see task-test.yml)
+      standalone:  ${{ matrix.standalone  != 'false' &&  matrix.dividor }}
+      coordinator: ${{ matrix.coordinator != 'false' && !matrix.dividor }}
 
   coverage:
     needs: docs-only
