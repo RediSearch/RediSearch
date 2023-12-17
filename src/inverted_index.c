@@ -26,9 +26,6 @@ uint64_t TotalIIBlocks = 0;
 #define INDEX_BLOCK_SIZE 100
 #define INDEX_BLOCK_SIZE_DOCID_ONLY 1000
 
-// Initial capacity (in bytes) of a new block
-#define INDEX_BLOCK_INITIAL_CAP 6
-
 // The last block of the index
 #define INDEX_LAST_BLOCK(idx) (idx->blocks[idx->size - 1])
 
@@ -40,7 +37,7 @@ static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *id
                                           RSIndexResult *record);
 
 /* Add a new block to the index with a given document id as the initial id */
-IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
+IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize) {
   TotalIIBlocks++;
   idx->size++;
   idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
@@ -48,18 +45,17 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
   memset(last, 0, sizeof(*last));  // for msan
   last->firstId = last->lastId = firstId;
   Buffer_Init(&INDEX_LAST_BLOCK(idx).buf, INDEX_BLOCK_INITIAL_CAP);
+  (*memsize) += sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
   return &INDEX_LAST_BLOCK(idx);
 }
 
-InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
+InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize) {
   int useFieldMask = flags & Index_StoreFieldFlags;
   int useNumEntries = flags & Index_StoreNumeric;
   RedisModule_Assert(!(useFieldMask && useNumEntries));
-  // Avoid some of the allocation if not needed
-  size_t size = (useFieldMask || useNumEntries) ? sizeof(InvertedIndex) :
-                                                  sizeof(InvertedIndex) - sizeof(t_fieldMask);
-
+  size_t size = sizeof_InvertedIndex(flags);
   InvertedIndex *idx = rm_malloc(size);
+  *memsize += size;
   idx->blocks = NULL;
   idx->size = 0;
   idx->lastId = 0;
@@ -72,7 +68,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
     idx->numEntries = 0;
   }
   if (initBlock) {
-    InvertedIndex_AddBlock(idx, 0);
+    InvertedIndex_AddBlock(idx, 0, memsize);
   }
   return idx;
 }
@@ -507,7 +503,7 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
 /* Write a forward-index entry to an index writer */
 size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
                                        RSIndexResult *entry) {
-
+  size_t sz = 0;
   int same_doc = 0;
   if (idx->lastId && idx->lastId == docId) {
     if (encoder != encodeNumeric) {
@@ -531,7 +527,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   // see if we need to grow the current block
   if (blk->numEntries >= blockSize && !same_doc) {
     // If same doc can span more than a single block - need to adjust IndexReader_SkipToBlock
-    blk = InvertedIndex_AddBlock(idx, docId);
+    blk = InvertedIndex_AddBlock(idx, docId, &sz);
   } else if (blk->numEntries == 0) {
     blk->firstId = blk->lastId = docId;
   }
@@ -546,13 +542,13 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   //
   // For numeric encoder the maximal delta is practically not a limit (see structs `EncodingHeader` and `NumEncodingCommon`)
   if (delta > UINT32_MAX && encoder != encodeNumeric) {
-    blk = InvertedIndex_AddBlock(idx, docId);
+    blk = InvertedIndex_AddBlock(idx, docId, &sz);
     delta = 0;
   }
 
   BufferWriter bw = NewBufferWriter(&blk->buf);
 
-  size_t ret = encoder(&bw, delta, entry);
+  sz += encoder(&bw, delta, entry);
 
   idx->lastId = docId;
   blk->lastId = docId;
@@ -564,7 +560,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
     ++idx->numEntries;
   }
 
-  return ret;
+  return sz;
 }
 
 /** Write a forward-index entry to the index */
@@ -1383,7 +1379,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     return -1;
   }
 
-  params->bytesBeforFix = blk->buf.offset;
+  params->bytesBeforFix = blk->buf.cap;
 
   int docExists;
   while (!BufferReader_AtEnd(&br)) {
@@ -1472,36 +1468,8 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     Buffer_ShrinkToSize(&blk->buf);
   }
 
-  params->bytesAfterFix = blk->buf.offset;
+  params->bytesAfterFix = blk->buf.cap;
 
   IndexResult_Free(res);
   return frags;
-}
-
-int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock,
-                         IndexRepairParams *params) {
-  size_t limit = params->limit ? params->limit : SIZE_MAX;
-  size_t blocksProcessed = 0;
-  for (; startBlock < idx->size && blocksProcessed < limit; ++startBlock, ++blocksProcessed) {
-    IndexBlock *blk = idx->blocks + startBlock;
-    if (blk->lastId - blk->firstId > UINT32_MAX) {
-      // Skip over blocks which have a wide variation. In the future we might
-      // want to split a block into two (or more) on high-delta boundaries.
-      continue;
-    }
-    int repaired = IndexBlock_Repair(&idx->blocks[startBlock], dt, idx->flags, params);
-    // We couldn't repair the block - return 0
-    if (repaired == -1) {
-      return 0;
-    } else if (repaired > 0) {
-      // Record the number of records removed for gc stats
-      params->docsCollected += repaired;
-      idx->numDocs -= repaired;
-
-      // Increase the GC marker so other queries can tell that we did something
-      ++idx->gcMarker;
-    }
-  }
-
-  return startBlock < idx->size ? startBlock : 0;
 }

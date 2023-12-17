@@ -8,12 +8,14 @@
 #include "rmalloc.h"
 #include <sys/param.h>
 
-void Buffer_Grow(Buffer *buf, size_t extraLen) {
+size_t Buffer_Grow(Buffer *buf, size_t extraLen) {
+  size_t originalCap = buf->cap;
   do {
     buf->cap += MIN(1 + buf->cap / 5, 1024 * 1024);
   } while (buf->offset + extraLen > buf->cap);
 
   buf->data = rm_realloc(buf->data, buf->cap);
+  return (buf->cap - originalCap);
 }
 
 /**

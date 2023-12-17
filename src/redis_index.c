@@ -22,7 +22,9 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver > INVERTED_INDEX_ENCVER) {
     return NULL;
   }
-  InvertedIndex *idx = NewInvertedIndex(RedisModule_LoadUnsigned(rdb), 0);
+
+  size_t sz = 0;
+  InvertedIndex *idx = NewInvertedIndex(RedisModule_LoadUnsigned(rdb), 0, &sz);
 
   // If the data was encoded with a version that did not include the store numeric / store freqs
   // options - we force adding StoreFreqs.
@@ -59,7 +61,8 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
   idx->size = actualSize;
   if (idx->size == 0) {
-    InvertedIndex_AddBlock(idx, 0);
+    size_t sz;
+    InvertedIndex_AddBlock(idx, 0, &sz);
   } else {
     idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
   }
@@ -101,7 +104,7 @@ void InvertedIndex_Digest(RedisModuleDigest *digest, void *value) {
 
 unsigned long InvertedIndex_MemUsage(const void *value) {
   const InvertedIndex *idx = value;
-  unsigned long ret = sizeof(InvertedIndex);
+  unsigned long ret = sizeof_InvertedIndex(idx->flags);
   for (size_t i = 0; i < idx->size; i++) {
     ret += sizeof(IndexBlock);
     ret += IndexBlock_DataLen(&idx->blocks[i]);
@@ -245,7 +248,9 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *
   }
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = InvertedIndex_Free;
-  kdv->p = NewInvertedIndex(ctx->spec->flags, 1);
+  size_t sz = 0;
+  kdv->p = NewInvertedIndex(ctx->spec->flags, 1, &sz);
+  ctx->spec->stats.invertedSize += sz;
   dictAdd(ctx->spec->keysDict, termKey, kdv);
   return kdv->p;
 }
@@ -274,8 +279,10 @@ InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, 
         if (outIsNew) {
           *outIsNew = true;
         }
-        idx = NewInvertedIndex(ctx->spec->flags, 1);
+        size_t size = 0;
+        idx = NewInvertedIndex(ctx->spec->flags, 1, &size);
         RedisModule_ModuleTypeSetValue(k, InvertedIndexType, idx);
+        ctx->spec->stats.invertedSize += size;
       }
     } else if (kType == REDISMODULE_KEYTYPE_MODULE &&
                RedisModule_ModuleTypeGetType(k) == InvertedIndexType) {

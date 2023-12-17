@@ -132,7 +132,9 @@ struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
   if (iv == TRIEMAP_NOTFOUND) {
     if (create) {
-      iv = NewInvertedIndex(Index_DocIdsOnly, 1);
+      // TO DO: use the size of the inverted index
+      size_t dummy_size = 0;
+      iv = NewInvertedIndex(Index_DocIdsOnly, 1, &dummy_size);
       TrieMap_Add(idx->values, (char *)value, len, iv, NULL);
     }
   }

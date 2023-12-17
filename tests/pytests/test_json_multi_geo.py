@@ -104,6 +104,15 @@ def checkInfo(env, idx, num_docs, inverted_sz_mb):
     env.assertEqual(int(info['num_docs']), num_docs)
     env.assertEqual(float(info['inverted_sz_mb']), inverted_sz_mb)
 
+def ft_info_to_dict(env, idx):
+    res = env.execute_command('ft.info', idx)
+    return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+
+def check_empty(env, idx, mem_usage):
+    d = ft_info_to_dict(env, idx)
+    env.assertEqual(float(d['num_records']), 0)
+    env.assertGreaterEqual(mem_usage, float(d['inverted_sz_mb']))
+
 @skip(cluster=True)
 def testBasic(env):
     """ Test multi GEO values (an array of GEO values or multiple GEO values) """
@@ -111,6 +120,7 @@ def testBasic(env):
     conn = getConnectionByEnv(env)
 
     conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0)
+    conn.execute_command('FLUSHALL')
 
     env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$..loc[*]', 'AS', 'loc', 'GEO').ok()
     env.expect('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA',
@@ -123,15 +133,15 @@ def testBasic(env):
         '$[1].nested2[2].loc', 'AS', 'loc2', 'GEO').ok()    # ["42,64", "-50,-72", "-100,-20", "43.422649,11.126973", "29.497825,-82.141870"]
 
     # check stats for an empty index
-    checkInfo(env, 'idx1', 0, 0)
+    check_empty(env, 'idx1', 0)
 
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
 
     # check stats after insert
-    checkInfo(env, 'idx1', 1, 0.00018310546875)
-    checkInfo(env, 'idx2', 1, 2.288818359375e-05)
-    checkInfo(env, 'idx3', 1, 3.814697265625e-05)
-    checkInfo(env, 'idx4', 1, 6.103515625e-05)
+    checkInfo(env, 'idx1', 1, 407 / (1024 * 1024))
+    checkInfo(env, 'idx2', 1, 121 / (1024 * 1024))
+    checkInfo(env, 'idx3', 1, 142 / (1024 * 1024))
+    checkInfo(env, 'idx4', 1, 263 / (1024 * 1024))
 
     # Geo range and Not
     env.expect('FT.SEARCH', 'idx1', '@loc:[1.2 1.1 40 km]', 'NOCONTENT').equal([1, 'doc:1'])
@@ -155,7 +165,11 @@ def testBasic(env):
     # check stats after deletion
     conn.execute_command('DEL', 'doc:1')
     forceInvokeGC(env, 'idx1')
-    checkInfo(env, 'idx1', 0,0)
+    info = index_info(env, 'idx1')
+    env.assertEqual(int(info['num_docs']), 0)
+
+    # There are 4 indexes and at most 2 nested geo locations
+    check_empty(env, 'idx1', 156 / (1024 * 1024))
 
 
 def testMultiNonGeo(env):

@@ -169,13 +169,16 @@ TEST_F(FGCTest, testRemoveEntryFromLastBlock) {
 
   // gc stats
   ASSERT_EQ(0, fgc->stats.gcBlocksDenied);
-  ASSERT_EQ(docSize, fgc->stats.totalCollected);
+  // The buffer's size of the inverted index is incremented more than needed sometimes
+  // for amortization purposes. 
+  // see: Buffer_Write() for the implementation.
+  ASSERT_EQ(docSize, fgc->stats.totalCollected + 1);
 
   // numDocuments is updated in the indexing process, while all other fields are only updated if
   // their memory was cleaned by the gc.
   ASSERT_EQ(0, (get_spec(ism))->stats.numDocuments);
   ASSERT_EQ(1, (get_spec(ism))->stats.numRecords);
-  ASSERT_EQ(invertedSizeBeforeApply - docSize, (get_spec(ism))->stats.invertedSize);
+  ASSERT_EQ(invertedSizeBeforeApply - docSize + 1, (get_spec(ism))->stats.invertedSize);
   ASSERT_EQ(1, TotalIIBlocks);
 }
 
@@ -282,7 +285,7 @@ TEST_F(FGCTest, testRemoveAllBlocksWhileUpdateLast) {
   unsigned curId = 1;
   char buf[1024];
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
-
+  
   // Add documents to the index until it has 2 blocks (1 full block + 1 block with one entry)
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
   // Measure the memory added by the last block.

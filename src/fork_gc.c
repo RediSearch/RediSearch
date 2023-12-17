@@ -47,9 +47,10 @@ typedef enum {
 } FGCError;
 
 // Assumes the spec is locked.
-static void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx, size_t recordsRemoved, size_t bytesCollected) {
+static void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
+            size_t recordsRemoved, size_t bytesCollected, size_t bytesAdded) {
   sctx->spec->stats.numRecords -= recordsRemoved;
-  sctx->spec->stats.invertedSize -= bytesCollected;
+  sctx->spec->stats.invertedSize += bytesAdded - bytesCollected;
   gc->stats.totalCollected += bytesCollected;
 }
 
@@ -137,6 +138,8 @@ typedef struct {
   uint32_t nblocksRepaired;
   // Number of bytes cleaned in inverted index
   uint64_t nbytesCollected;
+  // Number of bytes added to inverted index
+  uint64_t nbytesAdded;
   // Number of document records removed
   uint64_t ndocsCollected;
   // Number of numeric records removed
@@ -216,10 +219,13 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
       continue;
     }
 
+    uint64_t curr_bytesCollected = params->bytesBeforFix - params->bytesAfterFix;
+
     if (blk->numEntries == 0) {
       // this block should be removed
       MSG_DeletedBlock *delmsg = array_ensure_tail(&deleted, MSG_DeletedBlock);
       *delmsg = (MSG_DeletedBlock){.ptr = bufptr, .oldix = i};
+      curr_bytesCollected += sizeof(IndexBlock);
     } else {
       blocklist = array_append(blocklist, *blk);
       MSG_RepairedBlock *fixmsg = array_ensure_tail(&fixed, MSG_RepairedBlock);
@@ -228,7 +234,6 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
       fixmsg->blk = *blk; // TODO: consider sending the blocklist even if there weren't any deleted blocks instead of this redundant copy.
       ixmsg.nblocksRepaired++;
     }
-    uint64_t curr_bytesCollected = params->bytesBeforFix - params->bytesAfterFix;
     ixmsg.nbytesCollected += curr_bytesCollected;
     ixmsg.ndocsCollected += nrepaired;
     ixmsg.nentriesCollected += params->entriesCollected;
@@ -725,7 +730,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
     memmove(idx->blocks, idx->blocks + idxData->numDelBlocks, sizeof(*idx->blocks) * idx->size);
 
     if (idx->size == 0) {
-      InvertedIndex_AddBlock(idx, 0);
+      InvertedIndex_AddBlock(idx, 0, &info->nbytesAdded);
     }
   }
 
@@ -779,9 +784,10 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   }
 
   FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
-  FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected);
 
   if (idx->numDocs == 0) {
+    info.nbytesCollected += sizeof_InvertedIndex(idx->flags);
+
     // inverted index was cleaned entirely lets free it
     RedisModuleString *termKey = fmtRedisTermKey(sctx, term, len);
     size_t formatedTremLen;
@@ -797,6 +803,8 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
       deleteSuffixTrie(sctx->spec->suffix, term, len);
     }
   }
+
+  FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded);
 
 cleanup:
 
@@ -900,7 +908,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   FGC_applyInvertedIndex(gc, idxbufs, info, currNode->range->entries);
   currNode->range->entries->numEntries -= info->nentriesCollected;
   currNode->range->invertedIndexSize -= info->nbytesCollected;
-  FGC_updateStats(gc, sctx, info->nentriesCollected, info->nbytesCollected);
+  FGC_updateStats(gc, sctx, info->nentriesCollected, info->nbytesCollected, info->nbytesAdded);
 
   // TODO: fix for NUMERIC similar to TAG fix PR#2269
   // if (currNode->range->entries->numDocs == 0) {
@@ -991,6 +999,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
       rt->numRanges += rv.numRanges;
       rt->emptyLeaves = 0;
+      FGC_updateStats(gc, &sctx, 0, -rv.sz, 0);
     }
     RedisSearchCtx_UnlockSpec(&sctx);
     StrongRef_Release(spec_ref);
@@ -1062,16 +1071,18 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     }
 
     FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
-    FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected);
 
     // if tag value is empty, let's remove it.
     if (idx->numDocs == 0) {
+      info.nbytesCollected += sizeof_InvertedIndex(idx->flags);
       TrieMap_Delete(tagIdx->values, tagVal, tagValLen, InvertedIndex_Free);
 
       if (tagIdx->suffix) {
         deleteSuffixTrieMap(tagIdx->suffix, tagVal, tagValLen);
       }
     }
+
+    FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded);
 
   loop_cleanup:
     if (idxKey) {

@@ -116,7 +116,7 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
 Vector *NumericRangeNode_FindRange(NumericRangeNode *n, const NumericFilter *nf);
 
 /* Recursively free a node and its children */
-void NumericRangeNode_Free(NumericRangeNode *n);
+void NumericRangeNode_Free(NumericRangeNode *n, NRN_AddRv *rv);
 
 /* Recursively trim empty nodes from tree  */
 NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t);
