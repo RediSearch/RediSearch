@@ -57,11 +57,19 @@ jobs:
           sparse-checkout: |
             .install
             tests/pytests/requirements.*
+      - name: Install Python2.7
+        if: inputs.env == 'macos-12'
+        uses: actions/setup-python@v3
+        with:
+            python-version: '2.7'
       - name: Install Python
         if: inputs.env == 'macos-12'
         uses: actions/setup-python@v3
         with:
             python-version: '3.10'
+      - name: py version
+        if: inputs.env == 'macos-12'
+        run: python --version
       - name: Setup
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
@@ -69,7 +77,9 @@ jobs:
         uses: actions/checkout@v3
         with:
           submodules: recursive
-
+      - name: py version after build
+        if: inputs.env == 'macos-12'
+        run: python --version
       - name: Setup (readies)
         if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0' && inputs.env != 'macos-12'
         run: ./sbin/setup
