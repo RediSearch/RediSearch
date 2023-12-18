@@ -4,8 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#include <unistd.h>
-
 #include "debug_commads.h"
 #include "inverted_index.h"
 #include "index.h"
@@ -703,7 +701,7 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
 }
 
 // Wait for all GC jobs **THAT CURRENTLY IN THE QUEUE** to finish.
-// This command blocks the client and adds a job to the GC queue that waits will unblock it.
+// This command blocks the client and adds a job to the end of the GC queue, that will later unblock it.
 DEBUG_COMMAND(GCWaitForAllJobs) {
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, GCForceInvokeReply, NULL, NULL, 0);
   RedisModule_BlockedClientMeasureTimeStart(bc);
