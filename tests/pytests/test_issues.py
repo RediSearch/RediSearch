@@ -876,7 +876,13 @@ def mod5778_add_new_shard_to_cluster(env: Env):
         #   {'node_id': 'df328f12ac68e61df53b87458b769bf61a885470', ... , 'slots': [['5462', '10923']], ... },
         #  '127.0.0.1:6379': {'node_id': '088aad6d26e1913867283d74b1a86d47e7e651b8', ... }
         # }
-        return [v for k, v in shard_conn.cluster_nodes().items() if int(k.split(":")[1]) == port][0]
+        cluster_nodes = shard_conn.cluster_nodes()
+        try:
+            res = [v for k, v in cluster_nodes.items() if int(k.split(":")[1]) == port][0]
+            return res
+        except Exception as e:
+            env.debugPrint(f"Invalid cluster nodes response received: {cluster_nodes}")
+            raise e
 
     # Since this test tends to be flaky due to inconsistent response of "cluster node" command and the
     # time that it takes for the cluster to acknowledge the topology changes, we allow several attempts,
