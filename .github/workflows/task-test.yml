@@ -57,6 +57,11 @@ jobs:
           sparse-checkout: |
             .install
             tests/pytests/requirements.*
+      - name: Install Python
+        if: inputs.env == 'macos-12'
+        uses: actions/setup-python@v3
+        with:
+            python-version: '3.10'
       - name: Setup
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
@@ -66,7 +71,7 @@ jobs:
           submodules: recursive
 
       - name: Setup (readies)
-        if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0'
+        if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0' && inputs.env != 'macos-12'
         run: ./sbin/setup
 
       - name: Get Redis
