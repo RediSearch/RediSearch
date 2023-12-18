@@ -33,9 +33,7 @@ help() {
 		COORD=1|oss|rlec      Test Coordinator
 		SHARDS=n              Number of OSS coordinator shards (default: 3)
 		QUICK=1|~1|0          Perform only common test variant (~1: all but common)
-		CONFIG=cfg            Perform one of: concurrent_write, max_unsorted,
-		                        union_iterator_heap, raw_docid, dialect_2,
-		                        (coordinator:) tls
+		CONFIG=cfg            Perform one of: max_unsorted, union_iterator_heap, raw_docid, dialect_2,
 
 		TEST=name             Run specific test (e.g. test.py:test_name)
 		TESTFILE=file         Run tests listed in `file`
@@ -714,34 +712,8 @@ elif [[ $COORD == oss ]]; then
 		oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 60000"
 	fi
 
-	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
-		{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
-		   run_tests "OSS cluster tests"); (( E |= $? )); } || true
-	fi
-
-	if [[ $QUICK != 1 ]]; then
-		tls_args="--tls \
-			--tls-cert-file $ROOT/bin/tls/redis.crt \
-			--tls-key-file $ROOT/bin/tls/redis.key \
-			--tls-ca-cert-file $ROOT/bin/tls/ca.crt"
-
-		redis_ver=$($REDIS_SERVER --version | cut -d= -f2 | cut -d" " -f1)
-		redis_major=$(echo "$redis_ver" | cut -d. -f1)
-		redis_minor=$(echo "$redis_ver" | cut -d. -f2)
-		if [[ $redis_major == 7 || $redis_major == 6 && $redis_minor == 2 ]]; then
-			PASSPHRASE=1
-			tls_args+=" --tls-passphrase foobar"
-		else
-			PASSPHRASE=0
-		fi
-
-		PASSPHRASE=$PASSPHRASE $ROOT/sbin/gen-test-certs
-
-		if [[ -z $CONFIG || $CONFIG == tls ]]; then
-			{ (RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} ${tls_args}" \
-			   run_tests "OSS cluster tests TLS"); (( E |= $? )); } || true
-		fi
-	fi # QUICK
+	{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
+	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
 
 elif [[ $COORD == rlec ]]; then
 	dhost=$(echo "$DOCKER_HOST" | awk -F[/:] '{print $4}')

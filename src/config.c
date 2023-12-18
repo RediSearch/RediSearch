@@ -534,6 +534,10 @@ CONFIG_GETTER(getBGIndexSleepGap) {
   return sdscatprintf(ss, "%u", config->numBGIndexingIterationsBeforeSleep);
 }
 
+// _PRIORITIZE_INTERSECT_UNION_CHILDREN
+CONFIG_BOOLEAN_SETTER(set_PrioritizeIntersectUnionChildren, prioritizeIntersectUnionChildren)
+CONFIG_BOOLEAN_GETTER(get_PrioritizeIntersectUnionChildren, prioritizeIntersectUnionChildren, 0)
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -777,6 +781,16 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setBGIndexSleepGap,
          .getValue = getBGIndexSleepGap,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "_PRIORITIZE_INTERSECT_UNION_CHILDREN",
+         .helpText = "Intersection iterator orders the children iterators by their relative estimated"
+                     " number of results in ascending order, so that if we see first iterators with"
+                     " a lower count of results we will skip a larger number of results, which"
+                     " translates into faster iteration. If this flag is set, we use this"
+                     " optimization in a way where union iterators are being factorize by the number"
+                     " of their own children, so that we sort by the number of children times the "
+                     "overall estimated number of results instead.",
+         .setValue = set_PrioritizeIntersectUnionChildren,
+         .getValue = get_PrioritizeIntersectUnionChildren},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {

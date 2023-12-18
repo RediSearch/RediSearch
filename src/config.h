@@ -124,6 +124,9 @@ typedef struct {
   // before we call usleep(1) (sleep for 1 micro-second) and make sure that
   // we allow redis process other commands.
   unsigned int numBGIndexingIterationsBeforeSleep;
+  // If set, we use an optimization that sorts the children of an intersection iterator in a way
+  // where union iterators are being factorize by the number of their own children.
+  int prioritizeIntersectUnionChildren;
 } RSConfig;
 
 typedef enum {
@@ -219,7 +222,8 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
     .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1,\
     .vssMaxResize = 0, .multiTextOffsetDelta = 100, .used_dialects = 0,                           \
-    .numBGIndexingIterationsBeforeSleep = 100                                                     \
+    .numBGIndexingIterationsBeforeSleep = 100,                                                    \
+    .prioritizeIntersectUnionChildren = false \
   }
 
 #define REDIS_ARRAY_LIMIT 7
