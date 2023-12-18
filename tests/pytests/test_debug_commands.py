@@ -25,14 +25,15 @@ class TestDebugCommands(object):
 
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
-        help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_NUMIDXTREE', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'DUMP_GEOMIDX', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO',
-                     'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE', 'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY',
-                     'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC', 'GIT_SHA', 'TTL', 'VECSIM_INFO']
+        help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_NUMIDXTREE', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'DUMP_GEOMIDX',
+                     'DUMP_PREFIX_TRIE', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO', 'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE',
+                     'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY', 'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC',
+                     'GIT_SHA', 'TTL', 'VECSIM_INFO']
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
         for cmd in help_list:
-            if cmd == 'GIT_SHA':
-                # 'GIT_SHA' do not return err_msg
+            if cmd in ['GIT_SHA', 'DUMP_PREFIX_TRIE']:
+                # 'GIT_SHA' and 'DUMP_PREFIX_TRIE' do not return err_msg
                  continue
             self.env.expect('FT.DEBUG', cmd).raiseError().contains(err_msg)
 
