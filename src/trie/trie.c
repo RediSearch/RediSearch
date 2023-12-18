@@ -15,9 +15,6 @@
 #include "util/timeout.h"
 #include "wildcard/wildcard.h"
 
-int total_nodes = 0;
-int max_diff = 0;
-
 typedef struct {
   rune * buf;
   TrieRangeCallback *callback;
@@ -82,8 +79,6 @@ static void triePayload_Free(TriePayload *payload, TrieFreeCallback freecb) {
 
 TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *payload, size_t plen,
                         t_len numChildren, float score, int terminal, TrieSortMode sortMode) {
-  total_nodes++;
-//  printf("Total nodes num: %d\n", total_nodes);
   TrieNode *n = rm_calloc(1, __trieNode_Sizeof(numChildren, len - offset));
   n->len = len - offset;
   n->numChildren = numChildren;
@@ -177,13 +172,13 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) 
   TrieNode **children = __trieNode_children(ch);
   TrieNode **newChildren = __trieNode_children(merged);
   memcpy(newChildren, children, sizeof(TrieNode *) * merged->numChildren);
-  memcpy(__trieNode_childKey(merged, 0), __trieNode_childKey(ch, 0), merged->numChildren);
+  memcpy(__trieNode_childKey(merged, 0), __trieNode_childKey(ch, 0),
+         merged->numChildren * sizeof(rune));
   if (n->payload != NULL) {
     triePayload_Free(n->payload, freecb);
     n->payload = NULL;
   }
   rm_free(n);
-  total_nodes-=2;
   rm_free(ch);
 
   return merged;
@@ -497,12 +492,6 @@ void TrieNode_Free(TrieNode *n, TrieFreeCallback freecb) {
   if (n->payload != NULL) {
     triePayload_Free(n->payload, freecb);
     n->payload = NULL;
-  }
-  total_nodes--;
-//  printf("Total nodes num: %d\n", total_nodes);
-  if (total_nodes % 10000 && total_nodes > max_diff) {
-    max_diff = total_nodes;
-//    printf("Trie contains %d nodes\n", max_diff);
   }
   rm_free(n);
 }
