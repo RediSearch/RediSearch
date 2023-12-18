@@ -925,7 +925,7 @@ def mod5778_add_new_shard_to_cluster(env: Env):
                               'waiting for cluster slots to update')
             break  # test succeeded - we can finish
         except Exception as e:
-            if attempt == num_retries-1:  # last attempt failed - probably a real problem - through the exception
+            if attempt == num_retries-1:  # last attempt failed - probably a real problem - raise the exception
                 raise e
             env.debugPrint(f"Exception caught: {str(e)} - retrying")
 
