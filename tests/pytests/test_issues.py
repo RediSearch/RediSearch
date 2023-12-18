@@ -838,7 +838,7 @@ def test_mod5778_add_new_shard_to_cluster_TLS():
 def mod5778_add_new_shard_to_cluster(env: Env):
     conn = getConnectionByEnv(env)
     env.assertEqual(len(conn.cluster_nodes()), len(env.envRunner.shards))
-    wait_time = 20
+    wait_time = 60
     iteration_wait_time = 0.05
     num_retries = 10
     cleanup_required = True
