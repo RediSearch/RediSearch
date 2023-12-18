@@ -590,6 +590,8 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
 
   searchRequestCtx *req = rm_malloc(sizeof *req);
 
+  req->initClock = clock();
+
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
     return NULL;
@@ -685,6 +687,20 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
       searchRequestCtx_Free(req);
       return NULL;
     }
+  }
+
+  // Get timeout parameter, if set in the command
+  argIndex = RMUtil_ArgIndex("TIMEOUT", argv, argc);
+  if (argIndex > -1) {
+    argIndex++;
+    ArgsCursor ac;
+    ArgsCursor_InitRString(&ac, argv+argIndex, argc-argIndex);
+    if (parseTimeout(&req->timeout, &ac, status)) {
+      searchRequestCtx_Free(req);
+      return NULL;
+    }
+  } else {
+    req->timeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
   }
 
   return req;
@@ -1504,6 +1520,12 @@ static bool should_return_error(MRReply *reply) {
   return false;
 }
 
+static bool should_return_timeout_error(searchRequestCtx *req) {
+  return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
+         && req->timeout != 0
+         && ((double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC) > req->timeout;
+}
+
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   clock_t postProccessTime;
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
@@ -1575,6 +1597,12 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       mr_reply = !profile ? replies[i] : MRReply_ArrayElement(replies[i], 0);
     }
     rCtx.processReply(mr_reply, (struct searchReducerCtx *)&rCtx, ctx);
+
+    // If we timed out on strict timeout policy, return a timeout error
+    if (should_return_timeout_error(req)) {
+      RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+      goto cleanup;
+    }
   }
 
   if (rCtx.cachedResult) {

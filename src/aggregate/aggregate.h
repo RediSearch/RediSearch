@@ -332,6 +332,7 @@ int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status);
 
 
 int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status);
+int parseTimeout(long long *timeout, ArgsCursor *ac, QueryError *status);
 int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status);
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 
