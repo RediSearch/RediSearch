@@ -803,15 +803,18 @@ def test_mod5252(env):
 
 @skip(cluster=True)
 def test_mod_6276(env):
-  # Setting the gc parameters to ensure quick gc invocation
+  # Setting the gc threshold to 0 so the gc won't skip its periodic run
   env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
-  env.expect('FT.CONFIG', 'SET', 'FORK_GC_RUN_INTERVAL', '1').ok()
   # Create an index and add a document + garbage
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
   env.expect('HSET', 'doc', 't', 'Hello').equal(1)
-  # Verify the GC is not running, drop the index, wait (blocking) for the GC to run.
-  # The GC should discover the index is dropped, free its resources and exit while unblocking us.
-  env.expect('FT.DEBUG', 'GC_DROP_AND_WAIT', 'idx').equal('DONE')
+  # Actual Test
+  env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', 'idx').ok()   # Stop the gc from running uncontrollably
+  env.expect('MULTI').ok()                                 # Start an atomic transaction:
+  env.cmd('FT.DEBUG', 'GC_FORCEBGINVOKE', 'idx')           # 1. Force the gc to run
+  env.cmd('FT.DROPINDEX', 'idx')                           # 2. Drop the index while the gc is running
+  env.expect('EXEC').equal(['OK', 'OK'])                   # Execute the transaction
+  env.expect('FT.DEBUG', 'GC_WAIT_FOR_JOBS').equal('DONE') # Wait for the gc to finish
 
 def test_mod5791(env):
     con = getConnectionByEnv(env)
