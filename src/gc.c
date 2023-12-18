@@ -93,6 +93,7 @@ static void threadCallback(void* data) {
     gc->timerID = scheduleNext(task);
   } else {
     RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "GC %p: Not scheduling next collection", gc);
+    rm_free(task);
   }
   RedisModule_ThreadSafeContextUnlock(ctx);
 
