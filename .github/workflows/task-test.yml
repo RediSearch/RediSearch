@@ -57,11 +57,6 @@ jobs:
           sparse-checkout: |
             .install
             tests/pytests/requirements.*
-      - name: Install Python2.7
-        if: inputs.env == 'macos-12'
-        uses: actions/setup-python@v3
-        with:
-            python-version: '2.7'
       - name: Install Python
         if: inputs.env == 'macos-12'
         uses: actions/setup-python@v3
