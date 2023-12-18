@@ -449,7 +449,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // Upon `FT.PROFILE` commands, embed the response inside another map
     if (IsProfile(req) && !(req->reqflags & QEXEC_F_IS_CURSOR)) {
-      RedisModule_Reply_Map(reply);
+      RedisModule_Reply_Array(reply);
     }
 
     RedisModule_Reply_Array(reply);
@@ -506,7 +506,7 @@ done_2:
       RedisModule_Reply_ArrayEnd(reply);
     } else if (IsProfile(req)) {
       req->profile(reply, req, has_timedout);
-      RedisModule_Reply_MapEnd(reply);
+      RedisModule_Reply_ArrayEnd(reply);
     }
 
 done_2_err:
