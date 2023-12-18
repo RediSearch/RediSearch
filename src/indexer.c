@@ -231,6 +231,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
     bool isNew;
     InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &isNew, &idxKey);
     if (isNew) {
+//      printf("Inserting %s\n", entry->term);
       IndexSpec_AddTerm(spec, entry->term, entry->len);
     }
     if (invidx) {
