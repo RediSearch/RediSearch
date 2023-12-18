@@ -52,6 +52,7 @@ void GCContext_RenderStatsForInfo(GCContext* gc, RedisModuleInfoCtx* ctx);
 void GCContext_OnDelete(GCContext* gc);
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc);
 void GCContext_ForceBGInvoke(GCContext* gc);
+void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc);
 
 void GC_ThreadPoolStart();
 void GC_ThreadPoolDestroy();

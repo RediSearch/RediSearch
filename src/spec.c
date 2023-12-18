@@ -1673,6 +1673,7 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef global, IndexSpec *sp) {
     sp->gc = GCContext_CreateGC(global, RSGlobalConfig.gcConfigParams.gcPolicy);
     GCContext_Start(sp->gc);
     RedisModule_Log(ctx, "verbose", "Starting GC for index %s", sp->name);
+    RedisModule_Log(ctx, "debug", "Starting GC %p for index %s", sp->gc, sp->name);
   }
 }
 
