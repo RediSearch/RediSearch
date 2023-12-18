@@ -841,6 +841,7 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     wait_time = 20
     iteration_wait_time = 0.05
     num_retries = 10
+    cleanup_required = True
 
     # Create a new redis instance with redisearch loaded.
     # TODO: add appropriate APIs to RLTest to avoid this abstraction breaking.
@@ -881,6 +882,7 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     # time that it takes for the cluster to acknowledge the topology changes, we allow several attempts,
     for attempt in range(num_retries):
         try:
+            cleanup_required = True
             # Validate that the new shard has been recognized by the cluster and has no slots.
             wait_for_expected(lambda: len(conn.cluster_nodes()), len(env.envRunner.shards) + 1,
                               'waiting for cluster shards to update')
@@ -927,12 +929,14 @@ def mod5778_add_new_shard_to_cluster(env: Env):
         except Exception as e:
             if attempt == num_retries-1:  # last attempt failed - probably a real problem - raise the exception
                 raise e
+            cleanup_required = False  # no need to clean up - we are rerunning
             env.debugPrint(f"Exception caught: {str(e)} - retrying")
 
         finally:
             # cleanup
-            new_instance.kill()
-            os.remove('nodes.conf')
+            if cleanup_required:
+                new_instance.kill()
+                os.remove('nodes.conf')
 
 
 @skip(cluster=True)
