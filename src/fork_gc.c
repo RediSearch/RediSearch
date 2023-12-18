@@ -789,7 +789,11 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     if (sctx->spec->keysDict) {
       dictDelete(sctx->spec->keysDict, termKey);
     }
-    Trie_Delete(sctx->spec->terms, term, len);
+    int rc = Trie_Delete(sctx->spec->terms, term, len);
+    if (rc == 0) {
+      Trie_Delete(sctx->spec->terms, term, len);
+      printf("Deleting %s whose len is %zu FAILED\n", term, len);
+    }
     sctx->spec->stats.numTerms--;
     sctx->spec->stats.termsSize -= len;
     RedisModule_FreeString(sctx->redisCtx, termKey);
