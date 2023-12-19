@@ -73,18 +73,24 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
   return idx;
 }
 
-void indexBlock_Free(IndexBlock *blk) {
-  Buffer_Free(&blk->buf);
+size_t indexBlock_Free(IndexBlock *blk) {
+  return Buffer_Free(&blk->buf);
 }
 
-void InvertedIndex_Free(void *ctx) {
+size_t InvertedIndex_Free_Internal(void *ctx) {
   InvertedIndex *idx = ctx;
   TotalIIBlocks -= idx->size;
+  size_t released_bytes = 0;
   for (uint32_t i = 0; i < idx->size; i++) {
-    indexBlock_Free(&idx->blocks[i]);
+    released_bytes += indexBlock_Free(&idx->blocks[i]);
   }
   rm_free(idx->blocks);
   rm_free(idx);
+  return released_bytes + sizeof(IndexBlock) * idx->size + sizeof_InvertedIndex(idx->flags);
+}
+
+void InvertedIndex_Free(void *ctx) {
+  InvertedIndex_Free_Internal(ctx);
 }
 
 static void IR_SetAtEnd(IndexReader *r, int value) {

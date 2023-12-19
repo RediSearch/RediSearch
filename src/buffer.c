@@ -62,8 +62,12 @@ Buffer *Buffer_Wrap(char *data, size_t len) {
   return buf;
 }
 
-void Buffer_Free(Buffer *buf) {
+size_t Buffer_Free(Buffer *buf) {
+  size_t bytes_to_release = buf->cap;
+  buf->offset = 0;
+  buf->cap = 0;
   rm_free(buf->data);
+  return bytes_to_release;
 }
 
 /**

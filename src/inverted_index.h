@@ -99,11 +99,13 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *sz);
   * in/out *memsize must be not NULL, because the size (bytes) of the new block is added to it
 */
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize);
-void indexBlock_Free(IndexBlock *blk);
+size_t indexBlock_Free(IndexBlock *blk);
+size_t InvertedIndex_Free_Internal(void *idx);
 void InvertedIndex_Free(void *idx);
 
 #define IndexBlock_DataBuf(b) (b)->buf.data
 #define IndexBlock_DataLen(b) (b)->buf.offset
+#define IndexBlock_DataCap(b) (b)->buf.cap
 
 /**
  * Decode a single record from the buffer reader. This function is responsible for:
