@@ -791,8 +791,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     }
     int rc = Trie_Delete(sctx->spec->terms, term, len);
     if (rc == 0) {
-      Trie_Delete(sctx->spec->terms, term, len);
-      printf("Deleting %s whose len is %zu FAILED\n", term, len);
+      RedisModule_Log(sctx->redisCtx, "warning", "Deleting the term %s from trie failed", term);
     }
     sctx->spec->stats.numTerms--;
     sctx->spec->stats.termsSize -= len;
