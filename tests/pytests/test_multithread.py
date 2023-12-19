@@ -58,11 +58,13 @@ def testMultipleBlocksBuffer():
     CreateAndSearchSortBy(docs_count = 2500)
 
 # Skipping for cluster as we only test for loading the module to the shard.
-# Sanitizer is not tested due to a bug in redis - onFLush callback is called even though module loading
+# We test it only for redis versions > 7.2.3 due to a bug in redis - onFLush callback is called even though module loading
 # failed, causing access to an invalid memory that was freed (module context) - see
 # https://github.com/redis/redis/issues/12808.
-@skip(cluster=True, asan=True, noWorkers=True)
+@skip(cluster=True, noWorkers=True)
 def test_invalid_mt_config_combinations(env):
+    if server_version_less_than(env, "7.2.4"):
+        env.skip()
     module_path =  env.envRunner.modulePath[0]  # extract search module path from RLTest default env
     for mode in ['MT_MODE_FULL', 'MT_MODE_ONLY_ON_OPERATIONS']:
         env = Env(module=[])  # create a new env without any module
