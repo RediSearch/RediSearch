@@ -953,3 +953,30 @@ def test_mod5910(env):
     env.assertEqual(iterators_profile[1][1], 'INTERSECT')
     env.assertEqual(iterators_profile[1][7][1], 'NUMERIC')
     env.assertEqual(iterators_profile[1][8][1], 'UNION')
+
+
+@skip(cluster=True)
+def test_mod5880(env):
+    env.cmd("ft.config", "set", "FORK_GC_CLEAN_THRESHOLD", "0")
+    env.cmd("ft.create", "idx", "schema", "t", "TEXT")
+
+    env.cmd("HSET", "doc1", "t", "d")
+    env.cmd("HSET", "doc2", "t", "dd")
+    env.cmd("HSET", "doc3", "t", "ddd")
+    env.cmd("HSET", "doc4", "t", "dde")
+    env.expect("FT.DEBUG", "dump_terms", "idx").equal(['d', 'dd', 'ddd', 'dde'])
+
+    # The terms trie structure as this point looks like this: X -d> X -d> X -d> X, -e> X
+    # That is, there root node with a single child which is "d", which has another single child which is "d",
+    # that have two children which are "d" and "e".
+    # When we remove "d" from the try, we optimize and merge children that have a single child. Bug was in that
+    # merge operation that didn't copy properly the children keys array ("d" and "e" in our case), so that we only
+    # copied half of the children to the new merged node. Then, when deleting "dde", we couldn't find it in trie, and
+    # was left undeleted (inflating the memory as a consequence).
+    env.cmd("DEL", "doc1")
+    env.cmd("FT.DEBUG", "GC_FORCEINVOKE", "idx")
+
+    # Validate that we actually delete "dde" and that in doesn't exist in the trie.
+    env.cmd("DEL", "doc4")
+    env.cmd("FT.DEBUG", "GC_FORCEINVOKE", "idx")
+    env.expect("FT.DEBUG", "dump_terms", "idx").equal(['dd', 'ddd'])
