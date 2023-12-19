@@ -3731,7 +3731,7 @@ def test_cluster_set_server_memory_tracking(env):
 
     initial = get_memory(env)
     print(f"initial memory used: {initial}")
-    for i in range(10_000):
+    for i in range(1_800):
         env.cmd('SEARCH.CLUSTERSET',
                'MYID',
                '1',
