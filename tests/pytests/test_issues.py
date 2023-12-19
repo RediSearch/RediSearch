@@ -944,7 +944,7 @@ def test_mod5880(env):
     env.cmd("HSET", "doc4", "t", "dde")
     env.assertEqual(env.cmd("FT.DEBUG", "dump_terms", "idx"), ['d', 'dd', 'ddd', 'dde'])
 
-    # The terms trie structure as thi point looks like this: X -d> X -d> X -d> X, -e> X
+    # The terms trie structure as this point looks like this: X -d> X -d> X -d> X, -e> X
     # That is, there root node with a single child which is "d", which has another single child which is "d",
     # that have two children which are "d" and "e".
     # When we remove "d" from the try, we optimize and merge children that have a single child. Bug was in that
