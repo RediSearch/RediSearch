@@ -821,8 +821,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
     if (sctx->spec->keysDict) {
       dictDelete(sctx->spec->keysDict, termKey);
     }
-    int rc = Trie_Delete(sctx->spec->terms, term, len);
-    if (rc == 0) {
+    if (!Trie_Delete(sctx->spec->terms, term, len)) {
       RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting the term '%s' from"
                       " trie in index '%s' failed", term, sctx->spec->name);
     }

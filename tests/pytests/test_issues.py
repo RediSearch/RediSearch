@@ -942,7 +942,7 @@ def test_mod5880(env):
     env.cmd("HSET", "doc2", "t", "dd")
     env.cmd("HSET", "doc3", "t", "ddd")
     env.cmd("HSET", "doc4", "t", "dde")
-    env.assertEqual(env.cmd("FT.DEBUG", "dump_terms", "idx"), ['d', 'dd', 'ddd', 'dde'])
+    env.expect("FT.DEBUG", "dump_terms", "idx").equal(['d', 'dd', 'ddd', 'dde'])
 
     # The terms trie structure as this point looks like this: X -d> X -d> X -d> X, -e> X
     # That is, there root node with a single child which is "d", which has another single child which is "d",
@@ -957,4 +957,4 @@ def test_mod5880(env):
     # Validate that we actually delete "dde" and that in doesn't exist in the trie.
     env.cmd("DEL", "doc4")
     env.cmd("FT.DEBUG", "GC_FORCEINVOKE", "idx")
-    env.assertEqual(env.cmd("FT.DEBUG", "dump_terms", "idx"), ['dd', 'ddd'])
+    env.expect("FT.DEBUG", "dump_terms", "idx").equal(['dd', 'ddd'])
