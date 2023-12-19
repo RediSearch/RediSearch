@@ -791,7 +791,8 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     }
     int rc = Trie_Delete(sctx->spec->terms, term, len);
     if (rc == 0) {
-      RedisModule_Log(sctx->redisCtx, "warning", "Deleting the term %s from trie failed", term);
+      RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting the term '%s' from"
+                      " trie in index '%s' failed", term, sctx->spec->name);
     }
     sctx->spec->stats.numTerms--;
     sctx->spec->stats.termsSize -= len;
