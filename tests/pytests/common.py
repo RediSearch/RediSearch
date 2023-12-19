@@ -175,7 +175,7 @@ def module_version_less_than(env, ver):
     return not module_version_at_least(env, ver)
 
 server_ver = None
-def server_version_at_least(env, ver):
+def server_version_at_least(env: Env, ver):
     global server_ver
     if server_ver is None:
         v = env.execute_command('INFO')['redis_version']
@@ -184,8 +184,22 @@ def server_version_at_least(env, ver):
         ver = version.parse(ver)
     return server_ver >= ver
 
-def server_version_less_than(env, ver):
+def server_version_less_than(env: Env, ver):
     return not server_version_at_least(env, ver)
+
+def server_version_is_at_least(ver):
+    global server_ver
+    if server_ver is None:
+        import subprocess
+        # Expecting something like "Redis server v=7.2.3 sha=******** malloc=jemalloc-5.3.0 bits=64 build=***************"
+        v = subprocess.run([Defaults.binary, '--version'], stdout=subprocess.PIPE).stdout.decode().split()[2].split('=')[1]
+        server_ver = version.parse(v)
+    if not isinstance(ver, version.Version):
+        ver = version.parse(ver)
+    return server_ver >= ver
+
+def server_version_is_less_than(ver):
+    return not server_version_is_at_least(ver)
 
 def index_info(env, idx):
     res = env.cmd('FT.INFO', idx)
@@ -299,12 +313,12 @@ def unstable(f):
         return f(env, *args, **kwargs)
     return wrapper
 
-def skip(cluster=False, macos=False, asan=False, msan=False, noWorkers=False):
+def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None):
     def decorate(f):
         def wrapper():
-            if not (cluster or macos or asan or msan or noWorkers):
+            if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal):
                 raise SkipTest()
-            if cluster and COORD in ['oss', 'rlec', '1']:
+            if cluster == COORD:
                 raise SkipTest()
             if macos and OS == 'macos':
                 raise SkipTest()
@@ -313,6 +327,10 @@ def skip(cluster=False, macos=False, asan=False, msan=False, noWorkers=False):
             if msan and SANITIZER == 'memory':
                 raise SkipTest()
             if noWorkers and not MT_BUILD:
+                raise SkipTest()
+            if redis_less_than and server_version_is_less_than(redis_less_than):
+                raise SkipTest()
+            if redis_greater_equal and server_version_is_at_least(redis_greater_equal):
                 raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:
                 env = Env()
@@ -506,3 +524,33 @@ def populate_db(env, n=10000):
             pipeline.execute()
             pipeline = conn.pipeline(transaction=False)
     pipeline.execute()
+
+def get_TLS_args():
+    root = os.environ.get('ROOT', None)
+    if root is None:
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # go up 3 levels from common.py
+
+    cert_file       = os.path.join(root, 'bin', 'tls', 'redis.crt')
+    key_file        = os.path.join(root, 'bin', 'tls', 'redis.key')
+    ca_cert_file    = os.path.join(root, 'bin', 'tls', 'ca.crt')
+    passphrase_file = os.path.join(root, 'bin', 'tls', '.passphrase')
+
+    with_pass = server_version_is_at_least('6.2')
+
+    # If any of the files are missing, generate them
+    def exists(path):
+        return os.path.exists(path) and os.path.isfile(path)
+    if not exists(cert_file)    or \
+       not exists(key_file)     or \
+       not exists(ca_cert_file) or \
+       (with_pass and not exists(passphrase_file)):
+        import subprocess
+        subprocess.run([os.path.join(root, 'sbin', 'gen-test-certs'), str(1 if with_pass else 0)]).check_returncode()
+
+    def get_passphrase():
+        with open(passphrase_file, 'r') as f:
+            return f.read()
+
+    passphrase = get_passphrase() if with_pass else None
+
+    return cert_file, key_file, ca_cert_file, passphrase
