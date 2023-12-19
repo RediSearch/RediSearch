@@ -159,24 +159,25 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
       VecSimParams vec_params = fs->vectorOpts.vecSimParams;
-      VecSimAlgo algo = vec_params.algo;
+      VecSimAlgo field_algo = vec_params.algo;
+      AlgoParams algo_params = vec_params.algoParams;
 
-      if (algo == VecSimAlgo_TIERED) {
-        VecSimParams *backend_params = vec_params.algoParams.tieredParams.primaryIndexParams;
-        if (backend_params->algo == VecSimAlgo_HNSWLIB) {
-          REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(backend_params->algo));
-          HNSWParams hnsw_params = backend_params->algoParams.hnswParams;
+      if (field_algo == VecSimAlgo_TIERED) {
+        VecSimParams *primary_params = algo_params.tieredParams.primaryIndexParams;
+        if (primary_params->algo == VecSimAlgo_HNSWLIB) {
+          REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(primary_params->algo));
+          HNSWParams hnsw_params = primary_params->algoParams.hnswParams;
           REPLY_KVSTR("data_type", VecSimType_ToString(hnsw_params.type));
           REPLY_KVINT("dim", hnsw_params.dim);
           REPLY_KVSTR("distance_metric", VecSimMetric_ToString(hnsw_params.metric));
           REPLY_KVINT("M", hnsw_params.M);
           REPLY_KVINT("ef_construction", hnsw_params.efConstruction);
         }
-      } else if (algo == VecSimAlgo_BF) {
-        REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(algo));
-        REPLY_KVSTR("data_type", VecSimType_ToString(vec_params.algoParams.bfParams.type));
-        REPLY_KVINT("dim", vec_params.algoParams.bfParams.dim);
-        REPLY_KVSTR("distance_metric", VecSimMetric_ToString(vec_params.algoParams.bfParams.metric));
+      } else if (field_algo == VecSimAlgo_BF) {
+        REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(field_algo));
+        REPLY_KVSTR("data_type", VecSimType_ToString(algo_params.bfParams.type));
+        REPLY_KVINT("dim", algo_params.bfParams.dim);
+        REPLY_KVSTR("distance_metric", VecSimMetric_ToString(algo_params.bfParams.metric));
       }
     }
 
