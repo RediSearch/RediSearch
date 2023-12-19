@@ -583,6 +583,8 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
 
   searchRequestCtx *req = rm_malloc(sizeof *req);
 
+  req->initClock = clock();
+
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
     return NULL;
@@ -678,6 +680,20 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
       searchRequestCtx_Free(req);
       return NULL;
     }
+  }
+
+  // Get timeout parameter, if set in the command
+  argIndex = RMUtil_ArgIndex("TIMEOUT", argv, argc);
+  if (argIndex > -1) {
+    argIndex++;
+    ArgsCursor ac;
+    ArgsCursor_InitRString(&ac, argv+argIndex, argc-argIndex);
+    if (parseTimeout(&req->timeout, &ac, status)) {
+      searchRequestCtx_Free(req);
+      return NULL;
+    }
+  } else {
+    req->timeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
   }
 
   return req;
@@ -1401,7 +1417,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
  * This function is used to print profiles received from the shards.
  * It is used by both SEARCH and AGGREGATE.
  */
-void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, int isSearch) {
+void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
   for (int i = 0; i < count; ++i) {
     char *shard_i;
     rm_asprintf(&shard_i, "Shard #%d", i + 1);
@@ -1421,16 +1437,26 @@ void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **repl
   }
 }
 
-void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies) {
+void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
   for (int i = 0; i < count; ++i) {
     char *shard_i;
     rm_asprintf(&shard_i, "Shard #%d", i + 1);
     RedisModule_Reply_SimpleString(reply, shard_i);
     rm_free(shard_i);
 
-    MRReply *profile = MRReply_MapElement(replies[i], "profile");
+    MRReply *profile;
+    if (!isSearch) {
+      // On aggregate commands, take the results from the response (second component is the cursor-id)
+      MRReply *results = MRReply_ArrayElement(replies[i], 0);
+      profile = MRReply_MapElement(results, "profile");
+    } else {
+      profile = MRReply_MapElement(replies[i], "profile");
+    }
+
     if (profile) {
       MR_ReplyWithMRReply(reply, profile);
+    } else {
+      RedisModule_Reply_SimpleString(reply, "None");
     }
   }
 }
@@ -1451,9 +1477,9 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
     }
 
     if (has_map) {
-      PrintShardProfile_resp3(reply, count, replies);
+      PrintShardProfile_resp3(reply, count, replies, true);
 	} else {
-      PrintShardProfile_resp2(reply, count, replies, 1);
+      PrintShardProfile_resp2(reply, count, replies, true);
     }
 
     // print coordinator stats
@@ -1495,6 +1521,12 @@ static bool should_return_error(MRReply *reply) {
         return true;
   }
   return false;
+}
+
+static bool should_return_timeout_error(searchRequestCtx *req) {
+  return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
+         && req->timeout != 0
+         && ((double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC) > req->timeout;
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
@@ -1568,6 +1600,12 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       mr_reply = !profile ? replies[i] : MRReply_ArrayElement(replies[i], 0);
     }
     rCtx.processReply(mr_reply, (struct searchReducerCtx *)&rCtx, ctx);
+
+    // If we timed out on strict timeout policy, return a timeout error
+    if (should_return_timeout_error(req)) {
+      RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+      goto cleanup;
+    }
   }
 
   if (rCtx.cachedResult) {
