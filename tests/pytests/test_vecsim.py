@@ -334,8 +334,8 @@ def test_create():
         expected_FLAT = ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024]
 
         for _ in env.retry_with_rdb_reload():
-            info = [['identifier', 'v_HNSW', 'attribute', 'v_HNSW', 'type', 'VECTOR']]
-            assertInfoField(env, 'idx1', 'attributes', info)
+            info = ['identifier', 'v_HNSW', 'attribute', 'v_HNSW', 'type', 'VECTOR']
+            env.assertEqual(ft_info_to_dict(env, 'idx1')['attributes'][0][:len(info)], info)
             info_data_HNSW = conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx1", "v_HNSW")
             # replace memory values with a dummy value - irrelevant for the test
             info_data_HNSW[info_data_HNSW.index('MEMORY') + 1] = dummy_val

@@ -1,11 +1,6 @@
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, forceInvokeGC, skip, to_list
+from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, forceInvokeGC, skip, to_list, ft_info_to_dict
 from RLTest import Env
 from time import sleep
-
-
-def ft_info_to_dict(env, idx):
-  res = env.execute_command('ft.info', idx)
-  return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
 
 # The output for this test can be used for recreating documentation for `FT.INFO`
 @skip()
