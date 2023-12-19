@@ -1,4 +1,4 @@
-from common import getConnectionByEnv, ft_info_to_dict
+from common import getConnectionByEnv, index_info
 
 
 
@@ -29,11 +29,11 @@ def test_vector_index_failures(env):
   con.execute_command('hset', 'doc{1}', 'v', 'aaaa')
   con.execute_command('hset', 'doc{2}', 'v', 'aaaaaaaa')
 
-  info = ft_info_to_dict(env, 'idx')
+  info = index_info(env)
   env.assertEqual(info['num_docs'], 1)
 
   expected_error_dict = {
-                          indexing_failures_str: 1, 
+                          indexing_failures_str: 1,
                           last_indexing_error_str: 'Could not add vector with blob size 4 (expected size 8)',
                           last_indexing_error_key_str: 'doc{1}'
                         }
@@ -59,7 +59,7 @@ def test_numeric_index_failures(env):
   con.execute_command('hset', 'doc{1}', 'n', 'aaaa')
   con.execute_command('hset', 'doc{2}', 'n', '1')
 
-  info = ft_info_to_dict(env, 'idx')
+  info = index_info(env)
   env.assertEqual(info['num_docs'], 1)
 
   expected_error_dict = {
@@ -87,11 +87,11 @@ def test_mixed_index_failures(env):
   # On cluster, both documents should be set in different shards, so the coordinator should get the error from the
   # first document and the second document should be indexed successfully.
   # The index should contain only the valid numeric.
-  
+
   con.execute_command('hset', 'doc{1}', 'n', 'aaaa', 'v', 'aaaaaaaa')
   con.execute_command('hset', 'doc{2}', 'n', '1', 'v', 'aaaaaaaa')
 
-  info = ft_info_to_dict(env, 'idx')
+  info = index_info(env)
   env.assertEqual(info['num_docs'], 1)
 
   expected_error_dict = {
@@ -118,7 +118,7 @@ def test_mixed_index_failures(env):
   con.execute_command('hset', 'doc{1}', 'n', '1', 'v', 'aaaa')
   con.execute_command('hset', 'doc{2}', 'n', '1', 'v', 'aaaaaaaa')
 
-  info = ft_info_to_dict(env, 'idx')
+  info = index_info(env)
   env.assertEqual(info['num_docs'], 1)
 
   expected_error_dict = {
@@ -133,7 +133,7 @@ def test_mixed_index_failures(env):
   env.assertEqual(error_dict, expected_error_dict)
 
   error_dict = get_error_dict(info["Index Errors"])
-  env.assertEqual(error_dict, expected_error_dict)  
+  env.assertEqual(error_dict, expected_error_dict)
 
 
 def test_geo_index_failures(env):
@@ -149,7 +149,7 @@ def test_geo_index_failures(env):
     con.execute_command('hset', 'doc{1}', 'g', 'aaaa')
     con.execute_command('hset', 'doc{2}', 'g', '1,1')
 
-    info = ft_info_to_dict(env, 'idx')
+    info = index_info(env)
     env.assertEqual(info['num_docs'], 1)
 
     expected_error_dict = {
@@ -175,7 +175,7 @@ def test_geo_index_failures(env):
     # first document and the second document should be indexed successfully.
     # The index should contain only the valid geo.
 
-    
+
     con.execute_command('hset', 'doc{1}', 'g', '1000,1000')
     con.execute_command('hset', 'doc{2}', 'g', '1,1')
 
@@ -185,7 +185,7 @@ def test_geo_index_failures(env):
                             last_indexing_error_key_str: 'doc{1}'
                           }
 
-    info = ft_info_to_dict(env, 'idx')
+    info = index_info(env)
     env.assertEqual(info['num_docs'], 1)
 
     field_spec_dict = get_field_stats_dict(info)
@@ -204,11 +204,11 @@ def test_geo_index_failures(env):
 #     # Create a geoshape index.
 
 #     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT').ok()
-  
+
 #     con.execute_command('HSET', 'doc{1}', 'geom', 'POLIKON(()())')
 #     con.execute_command('HSET', 'doc{2}', 'geom', 'POLYGON((0 0, 1 1, 2 2, 0 0))')
 
-#     info = ft_info_to_dict(env, 'idx')
+#     info = index_info(env)
 #     env.assertEqual(info['num_docs'], '1')
 
 #     field_spec_dict = get_field_spec_dict(info)
@@ -231,7 +231,7 @@ def test_vector_indexing_with_json(env):
   # Insert a document with a valid vector as a JSON.
   con.execute_command('JSON.SET', 'doc{1}', '.', '{"v": [1.0, 2.0, 3.0]}')
 
-  info = ft_info_to_dict(env, 'idx')
+  info = index_info(env)
   env.assertEqual(info['num_docs'], 0)
 
   expected_error_dict = {
@@ -239,7 +239,7 @@ def test_vector_indexing_with_json(env):
                           last_indexing_error_str: 'NA',
                           last_indexing_error_key_str: 'NA'
                         }
-  
+
 
   field_spec_dict = get_field_stats_dict(info)
   # Important:
@@ -256,4 +256,3 @@ def test_vector_indexing_with_json(env):
   expected_error_dict[last_indexing_error_str] = 'Invalid vector length. Expected 2, got 3'
 
   env.assertEqual(error_dict, expected_error_dict)
-
