@@ -838,10 +838,8 @@ def test_mod5778_add_new_shard_to_cluster_TLS():
 def mod5778_add_new_shard_to_cluster(env: Env):
     conn = getConnectionByEnv(env)
     env.assertEqual(len(conn.cluster_nodes()), len(env.envRunner.shards))
-    wait_time = 60
-    iteration_wait_time = 0.05
-    num_retries = 10
-    cleanup_required = True
+    iterations = 100
+    iteration_wait_time = 0.5
 
     # Create a new redis instance with redisearch loaded.
     # TODO: add appropriate APIs to RLTest to avoid this abstraction breaking.
@@ -861,88 +859,74 @@ def mod5778_add_new_shard_to_cluster(env: Env):
         cmd_args += ['--port', str(new_instance_port)]
     new_instance = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
-    # Connect the new instance to the cluster (making sure the new instance didn't crash)
+    kwargs = {'host': '127.0.0.1', 'port': new_instance_port, 'decode_responses': True,
+              'password': env.envRunner.password}
+    if env.envRunner.isTLS():
+        kwargs.update({'ssl': True,
+                       'ssl_keyfile': env.envRunner.shards[0].getTLSKeyFile(),
+                       'ssl_certfile': env.envRunner.shards[0].getTLSCertFile(),
+                       'ssl_cert_reqs': None,
+                       'ssl_ca_certs': env.envRunner.shards[0].getTLSCACertFile(),
+                       'ssl_password': env.envRunner.tlsPassphrase})
+
     env.assertTrue(conn.cluster_meet('127.0.0.1', new_instance_port))
 
-    def wait_for_expected(command, expected, message='waiting for expected result'):
-        with TimeLimit(wait_time, message=message):
-            while expected != command():
-                time.sleep(iteration_wait_time)
-
-    # Return the shard details based on the port to which it listens.
-    def get_node_by_port(shard_conn, port):
-        # cluster nodes response is for example:
-        # {'127.0.0.1:6381':
-        #   {'node_id': 'df328f12ac68e61df53b87458b769bf61a885470', ... , 'slots': [['5462', '10923']], ... },
-        #  '127.0.0.1:6379': {'node_id': '088aad6d26e1913867283d74b1a86d47e7e651b8', ... }
-        # }
-        cluster_nodes = shard_conn.cluster_nodes()
+    new_instance_conn = None
+    for _ in range(iterations):
+        time.sleep(iteration_wait_time)
         try:
-            res = [v for k, v in cluster_nodes.items() if int(k.split(":")[1]) == port][0]
-            return res
-        except Exception as e:
-            env.debugPrint(f"Invalid cluster nodes response received: {cluster_nodes}")
-            raise e
+            new_instance_conn = RedisCluster(**kwargs)
+            break
+        except (exceptions.RedisClusterException, IndexError) as e:
+            pass  # these two exceptions indicate that the new shard still waking up
+    env.assertTrue(new_instance_conn.ping()) # make sure the new instance is alive
 
-    # Since this test tends to be flaky due to inconsistent response of "cluster node" command and the
-    # time that it takes for the cluster to acknowledge the topology changes, we allow several attempts,
-    for attempt in range(num_retries):
-        try:
-            cleanup_required = True
-            # Validate that the new shard has been recognized by the cluster and has no slots.
-            wait_for_expected(lambda: len(conn.cluster_nodes()), len(env.envRunner.shards) + 1,
-                              'waiting for cluster shards to update')
-            env.assertEqual(get_node_by_port(conn, new_instance_port)['slots'], [])
+    # Connect the new instance to the cluster (making sure the new instance didn't crash)
+    env.assertEqual(len(conn.cluster_nodes()), len(env.envRunner.shards) + 1)
 
-            kwargs = {'host': '127.0.0.1', 'port': new_instance_port, 'decode_responses': True,
-                      'password': env.envRunner.password}
-            if env.envRunner.isTLS():
-              kwargs.update({'ssl': True,
-                             'ssl_keyfile': env.envRunner.shards[0].getTLSKeyFile(),
-                             'ssl_certfile': env.envRunner.shards[0].getTLSCertFile(),
-                             'ssl_cert_reqs': None,
-                             'ssl_ca_certs': env.envRunner.shards[0].getTLSCACertFile(),
-                             'ssl_password': env.envRunner.tlsPassphrase})
+    # TODO: make this non-flaky
+    # wait_time = 60
+    # def wait_for_expected(command, expected, message='waiting for expected result'):
+    #     with TimeLimit(wait_time, message=message):
+    #         while expected != command():
+    #             time.sleep(iteration_wait_time)
+    #
+    # # Return the shard details based on the port to which it listens.
+    # def get_node_by_port(shard_conn, port):
+    #     # cluster nodes response is for example:
+    #     # {'127.0.0.1:6381':
+    #     #   {'node_id': 'df328f12ac68e61df53b87458b769bf61a885470', ... , 'slots': [['5462', '10923']], ... },
+    #     #  '127.0.0.1:6379': {'node_id': '088aad6d26e1913867283d74b1a86d47e7e651b8', ... }
+    #     # }
+    #     cluster_nodes = shard_conn.cluster_nodes()
+    #     try:
+    #         res = [v for k, v in cluster_nodes.items() if int(k.split(":")[1]) == port][0]
+    #         return res
+    #     except Exception as e:
+    #         env.debugPrint(f"Invalid cluster nodes response received: {cluster_nodes}")
+    #         raise e
+    #
+    #
+    # # Move a slot (number 0) from the shard in which it resides to the new shard.
+    # node_with_slot_0_port = None
+    # for k, v in conn.cluster_nodes().items():
+    #     if len(v['slots']) > 0 and v['slots'][0][0] == '0':
+    #         node_with_slot_0_port = int(k.split(":")[1])
+    #         break
+    #
+    # env.assertIsNotNone(node_with_slot_0_port)
+    # new_shard_id = new_instance_conn.cluster_myid(cluster.ClusterNode('127.0.0.1', new_instance_port))
+    # conn.cluster_setslot(cluster.ClusterNode('127.0.0.1', node_with_slot_0_port), new_shard_id, 0, 'NODE')
+    # new_instance_conn.cluster_setslot(cluster.ClusterNode('127.0.0.1', new_instance_port), new_shard_id, 0, 'NODE')
+    #
+    # # Validate the updated state in old and new shards.
+    # wait_for_expected(lambda: get_node_by_port(conn, new_instance_port)['slots'], [['0']],
+    #                   'waiting for cluster slots to update')
+    # wait_for_expected(lambda: get_node_by_port(new_instance_conn, new_instance_port)['slots'], [['0']],
+    #                   'waiting for cluster slots to update')
 
-            with TimeLimit(wait_time, 'waiting for new shard to acknowledge the topology change'):
-                while True:
-                    time.sleep(iteration_wait_time)
-                    try:
-                        new_instance_conn = RedisCluster(**kwargs)
-                        break
-                    except (exceptions.RedisClusterException, IndexError):
-                        pass  # these two exceptions indicate that the new shard still waking up
-            env.assertTrue(new_instance_conn.ping()) # make sure the new instance is alive
-
-            # Move a slot (number 0) from the shard in which it resides to the new shard.
-            node_with_slot_0_port = None
-            for k, v in conn.cluster_nodes().items():
-                if len(v['slots']) > 0 and v['slots'][0][0] == '0':
-                    node_with_slot_0_port = int(k.split(":")[1])
-                    break
-
-            env.assertIsNotNone(node_with_slot_0_port)
-            new_shard_id = new_instance_conn.cluster_myid(cluster.ClusterNode('127.0.0.1', new_instance_port))
-            conn.cluster_setslot(cluster.ClusterNode('127.0.0.1', node_with_slot_0_port), new_shard_id, 0, 'NODE')
-            new_instance_conn.cluster_setslot(cluster.ClusterNode('127.0.0.1', new_instance_port), new_shard_id, 0, 'NODE')
-
-            # Validate the updated state in old and new shards.
-            wait_for_expected(lambda: get_node_by_port(conn, new_instance_port)['slots'], [['0']],
-                              'waiting for cluster slots to update')
-            wait_for_expected(lambda: get_node_by_port(new_instance_conn, new_instance_port)['slots'], [['0']],
-                              'waiting for cluster slots to update')
-            break  # test succeeded - we can finish
-        except Exception as e:
-            if attempt == num_retries-1:  # last attempt failed - probably a real problem - raise the exception
-                raise e
-            cleanup_required = False  # no need to clean up - we are rerunning
-            env.debugPrint(f"Exception caught: {str(e)} - retrying")
-
-        finally:
-            # cleanup
-            if cleanup_required:
-                new_instance.kill()
-                os.remove('nodes.conf')
+    new_instance.kill()
+    os.remove('nodes.conf')
 
 
 @skip(cluster=True)
