@@ -52,15 +52,15 @@ def testInfo(env):
 
   #print info
 
-def test_vecsim_hnsw_info():
+def test_vecsim_info():
   env = Env(protocol=3)
   dim = 2
 
   for alg in ["HNSW", "FLAT"]:
     info_expected = {"identifier": "vec", "attribute": "vec", "type": "VECTOR", "algorithm": alg,
                      "dim": dim, "flags": []}
-    hnsw_params = {"M": 12, "ef_construction": 100} if alg == "HNSW" else {}
-    info_expected.update(hnsw_params)
+    additional_params = {"M": 12, "ef_construction": 100} if alg == "HNSW" else {}
+    info_expected.update(additional_params)
     # for each data type
     for type in ["FLOAT32", "FLOAT64"]:
       info_expected["data_type"] = type
@@ -69,12 +69,9 @@ def test_vecsim_hnsw_info():
         info_expected["distance_metric"] = metric
         # create index
         params = ["TYPE", type, "DIM", dim,
-                  "DISTANCE_METRIC", metric, *to_list(hnsw_params)]
+                  "DISTANCE_METRIC", metric, *to_list(additional_params)]
 
-        env.expect('FT.CREATE', "idx",
-                   'SCHEMA', "vec", 'VECTOR',
-                   alg, len(params),
-                   *params).ok()
+        env.expect('FT.CREATE', "idx", 'SCHEMA', "vec", 'VECTOR', alg, len(params), *params).ok()
 
         # check info
         info = env.executeCommand('ft.info', 'idx')
