@@ -84,9 +84,10 @@ size_t InvertedIndex_Free_Internal(void *ctx) {
   for (uint32_t i = 0; i < idx->size; i++) {
     released_bytes += indexBlock_Free(&idx->blocks[i]);
   }
+  released_bytes += (sizeof(IndexBlock) * idx->size) + sizeof_InvertedIndex(idx->flags);
   rm_free(idx->blocks);
   rm_free(idx);
-  return released_bytes + sizeof(IndexBlock) * idx->size + sizeof_InvertedIndex(idx->flags);
+  return released_bytes;
 }
 
 void InvertedIndex_Free(void *ctx) {
