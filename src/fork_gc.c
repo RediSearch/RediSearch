@@ -1128,8 +1128,10 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   // If the index was deleted, we don't want to reschedule the GC, so we return 0.
   // If the index is still valid, we MUST hold the strong reference to it until after the fork, to make sure
   // the child process has a valid reference to the index.
-  // If we would to try and revaildate the index after the fork, it might already be droped and the child
+  // If we were to try and revalidate the index after the fork, it might already be droped and the child
   // will exit before sending any data, and might left the parent waiting for data that will never arrive.
+  // Attempting to revalidate the index after the fork is also problematic because the parent and child are
+  // not synchronized, and the parent might see the index alive while the child sees it as deleted.
   StrongRef early_check = WeakRef_Promote(gc->index);
   if (!StrongRef_Get(early_check)) {
     // Index was deleted
