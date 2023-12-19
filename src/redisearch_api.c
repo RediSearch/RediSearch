@@ -355,7 +355,6 @@ int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char**
   }
 
   options |= DOCUMENT_ADD_NOSAVE;
-  aCtx->stateFlags |= ACTX_F_NOBLOCK;
   AddDocumentCtx_Submit(aCtx, &sctx, options);
   QueryError_ClearError(&status);
   rm_free(d);

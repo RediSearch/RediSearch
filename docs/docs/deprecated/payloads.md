@@ -7,16 +7,16 @@ aliases:
     - /docs/stack/search/reference/payloads/
 ---
 
-# Document Payloads
+# Document payloads
 
 
 {{% alert title="Warning" color="warning" %}}
 The payload feature is deprecated in 2.0
 {{% /alert %}}
     
-Usually, Redis Stack stores documents as hashes or JSON. But if you want to access some data for aggregation or scoring functions, we can store that data as an inline payload. This will allow us to evaluate the properties of a document for scoring purposes at a very low cost.
+Usually, Redis Stack stores documents as hashes or JSON. But if you want to access some data for aggregation or scoring functions, Redis can store that data as an inline payload. This will allow us to evaluate the properties of a document for scoring purposes at a very low cost.
 
-Since the scoring functions already have access to the DocumentMetaData, which contains document flags and score, We can add custom payloads that can be evaluated in run-time.
+Since the scoring functions already have access to the DocumentMetaData, which contains document flags and score, Redis can add custom payloads that can be evaluated in run-time.
 
 Payloads are NOT indexed and are not treated by the engine in any way. They are simply there for the purpose of evaluating them in query time, and optionally retrieving them. They can be JSON objects, strings, or preferably, if you are interested in fast evaluation, some sort of binary encoded data which is fast to decode.
 

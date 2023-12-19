@@ -177,7 +177,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   QueryError_ClearError(&aCtx->status);
   aCtx->totalTokens = 0;
   aCtx->docFlags = 0;
-  aCtx->client.bc = NULL;
+  aCtx->sctx = NULL;
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
   aCtx->indexer = sp->indexer;
@@ -195,7 +195,6 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
     aCtx->specId = sp->uniqueId;
   }
   RS_LOG_ASSERT(sp->indexer, "No indexer");
-  Indexer_Incref(aCtx->indexer);
 
   // Assign the document:
   aCtx->doc = doc;
@@ -230,7 +229,6 @@ static void doReplyFinish(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
   if (aCtx->donecb) {
     aCtx->donecb(aCtx, ctx, aCtx->donecbData);
   }
-  Indexer_Decref(aCtx->indexer);
   AddDocumentCtx_Free(aCtx);
 }
 
@@ -245,17 +243,8 @@ typedef struct DocumentAddCtx {
   RedisSearchCtx *sctx;
 } DocumentAddCtx;
 
-static void threadCallback(void *p) {
-  DocumentAddCtx *ctx = p;
-  Document_AddToIndexes(ctx->aCtx, ctx->sctx);
-}
-
 void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
-  if (aCtx->stateFlags & ACTX_F_NOBLOCK) {
-    doReplyFinish(aCtx, aCtx->client.sctx->redisCtx);
-  } else {
-    RedisModule_UnblockClient(aCtx->client.bc, aCtx);
-  }
+  doReplyFinish(aCtx, aCtx->sctx->redisCtx);
 }
 
 // How many bytes in a document to warrant it being tokenized in a separate thread
@@ -330,44 +319,8 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   // We actually modify (!) the strings in the document, so we always require
   // ownership
   Document_MakeStringsOwner(aCtx->doc);
-
-  if (AddDocumentCtx_IsBlockable(aCtx)) {
-    aCtx->client.bc = RedisModule_BlockClient(sctx->redisCtx, replyCallback, NULL, NULL, 0);
-  } else {
-    aCtx->client.sctx = sctx;
-  }
-
-  RS_LOG_ASSERT(aCtx->client.bc, "No blocked client");
-
-  bool concurrentSearch = false;
-  if (AddDocumentCtx_IsBlockable(aCtx)) {
-    size_t totalSize = 0;
-    for (size_t ii = 0; ii < aCtx->doc->numFields; ++ii) {
-      const DocumentField *ff = aCtx->doc->fields + ii;
-      if ((ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG))) {
-        // TODO: GEOMETRY - handle geometry fields?
-        size_t n;
-        if (ff->unionType == FLD_VAR_T_CSTR || ff->unionType == FLD_VAR_T_RMS) {
-          DocumentField_GetValueCStr(&aCtx->doc->fields[ii], &n);
-          totalSize += n;
-        } else if (ff->unionType == FLD_VAR_T_ARRAY) {
-          for (size_t jj = 0; jj < ff->arrayLen; ++jj) {
-            DocumentField_GetArrayValueCStr(&aCtx->doc->fields[ii], &n, jj);
-            totalSize += n;
-          }
-        }
-      }
-    }
-    concurrentSearch = (totalSize >= SELF_EXEC_THRESHOLD);
-  }
-
-  if (!concurrentSearch) {
-    Document_AddToIndexes(aCtx, sctx);
-  } else {
-    // Deprecated and broken - should pass `DocumentAddCtx` and not `RSAddDocumentCtx`
-    // also, we have to pass a weak ref to the spec, and handle it in the callback.
-    ConcurrentSearch_ThreadPoolRun(threadCallback, aCtx, CONCURRENT_POOL_INDEX);
-  }
+  aCtx->sctx = sctx;
+  Document_AddToIndexes(aCtx, sctx);
 }
 
 void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {

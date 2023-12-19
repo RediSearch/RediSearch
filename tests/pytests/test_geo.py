@@ -33,8 +33,8 @@ def testGeoLong(env):
   env.expect('FT.SEARCH', 'idx', '*').equal([1, 'geo', ['g', '1.2345678901234567890,4.5678901234567890']])
   env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 2 km]').equal([1, 'geo', ['g', '1.2345678901234567890,4.5678901234567890']])
 
+@skip(cluster=True)
 def testGeoDistanceSimple(env):
-  env.skipOnCluster()
   env.expect('ft.create', 'idx', 'schema', 'name', 'text', 'location', 'geo', 'hq', 'geo').ok()
   env.expect('HSET', 'geo1', 'location', '1.22,4.56', 'hq', '1.25,4.5').equal(2)
   env.expect('HSET', 'geo2', 'location', '1.24,4.56', 'hq', '1.25,4.5').equal(2)
@@ -57,7 +57,7 @@ def testGeoDistanceSimple(env):
   res = ['Iterators profile', ['Type', 'GEO', 'Term', '1.23,4.55 - 1.24,4.56', 'Counter', 4, 'Size', 4]]
 
   act_res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@location:[1.23 4.56 10 km]', 'nocontent')
-  env.assertEqual(act_res[1][3], res)
+  env.assertEqual(act_res[1][4], res)
 
   res = [4, ['distance', '5987.15'], ['distance', '6765.06'], ['distance', '7456.63'], ['distance', '8095.49']]
 
@@ -127,3 +127,41 @@ def testGeoDistanceFile(env):
               'APPLY', 'geodistance(@location,-0.15036,51.50566)', 'AS', 'distance',
               'GROUPBY', '1', '@distance',
               'SORTBY', 2, '@distance', 'ASC').equal(res)
+
+# causes server crash before MOD-5646 fix
+@skip(cluster=True)
+def testGeoOnReopen(env):
+  env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+  env.expect('FT.CONFIG', 'SET', 'FORK_GC_RUN_INTERVAL', 1000).ok()
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'location', 'GEO').ok()
+  conn = getConnectionByEnv(env)
+
+  n = 2000
+
+  def loadDocs(num = len(hotels), offset = 0):
+    for i in range(num):
+      (hotel_name, lat, long) = hotels[(i + offset) % len(hotels)]
+      conn.execute_command('HSET', i + offset, 'name', hotel_name, 'location', f'{long},{lat}')
+
+  loadDocs(n)
+  forceInvokeGC(env) # to ensure the timer is set
+  loadDocs(n // 2) # overwriting half of the docs
+
+  ids = set()
+  def checkResults(res):
+    for id in [int(r[1]) for r in res[1:]]:
+      env.assertNotContains(id, ids)
+      ids.add(id)
+
+  res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '@location:[-0.15036 51.50566 10000 km]',
+                                     'LOAD', 3, '@__key', 'AS', 'id',
+                                     'WITHCURSOR', 'COUNT', 100)
+  checkResults(res)
+
+  forceInvokeGC(env) # trigger the GC to clean all the overwritten docs
+
+  while cursor != 0:
+    res, cursor = conn.execute_command('FT.CURSOR', 'READ', 'idx', cursor)
+    checkResults(res)
+
+  env.assertEqual(len(ids), n)

@@ -1267,8 +1267,8 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
 
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
-    cleanPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM);
-    redisearch_thpool_init(cleanPool, LogCallback);
+    cleanPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM, LogCallback);
+    redisearch_thpool_init(cleanPool);
   }
 }
 
@@ -1456,9 +1456,13 @@ void Indexes_Free(dict *d) {
   SchemaPrefixes_Free(ScemaPrefixes_g);
   SchemaPrefixes_Create();
 
+  // Mark all Coordinator cursors as expired.
+  // We cannot free them from the main thread (as we are now) because they might attempt to
+  // delete their related cursors at the shards and wait for the response, and we will get
+  // into a deadlock with the shard we are in.
+  CursorList_Expire(&g_CursorsListCoord);
   // cursor list is iterating through the list as well and consuming a lot of CPU
   CursorList_Empty(&g_CursorsList);
-  CursorList_Empty(&g_CursorsListCoord);
 
   arrayof(StrongRef) specs = array_new(StrongRef, dictSize(d));
   dictIterator *iter = dictGetIterator(d);
@@ -2090,8 +2094,8 @@ end:
 
 static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM);
-    redisearch_thpool_init(reindexPool, LogCallback);
+    reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM, LogCallback);
+    redisearch_thpool_init(reindexPool);
   }
 #ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Register index %s for async scan", ((IndexSpec*)StrongRef_Get(spec_ref))->name);
@@ -2318,8 +2322,8 @@ void Indexes_UpgradeLegacyIndexes() {
 
 void Indexes_ScanAndReindex() {
   if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM);
-    redisearch_thpool_init(reindexPool, LogCallback);
+    reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM, LogCallback);
+    redisearch_thpool_init(reindexPool);
   }
 
   RedisModule_Log(NULL, "notice", "Scanning all indexes");
@@ -2714,6 +2718,12 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
 #endif
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
   }
+#ifdef MT_BUILD
+  else if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
+    // Clear pending jobs from job queue in case of short read.
+    workersThreadPool_waitAndTerminate(ctx);
+  }
+#endif
 }
 
 #ifdef MT_BUILD
@@ -2798,7 +2808,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   RedisSearchCtx_LockSpecWrite(&sctx);
 
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
-  aCtx->stateFlags |= ACTX_F_NOBLOCK | ACTX_F_NOFREEDOC;
+  aCtx->stateFlags |= ACTX_F_NOFREEDOC;
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
 
   Document_Free(&doc);
@@ -2868,6 +2878,9 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
     return;
   }
   Indexes_Free(specDict_g);
+#ifdef MT_BUILD
+  workersThreadPool_Drain(ctx, 0);
+#endif
   Dictionary_Clear();
   RSGlobalConfig.used_dialects = 0;
 }

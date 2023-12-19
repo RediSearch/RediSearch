@@ -18,11 +18,11 @@ def testMultiText(env):
     conn.execute_command('JSON.SET', 'doc:4', '$', json.dumps(json.loads(doc4_content)['category']))
 
     # Index multi flat values
-    env.execute_command('FT.CREATE', 'idx_category_flat', 'ON', 'JSON', 'SCHEMA', '$.[*]', 'AS', 'category', 'TEXT')
+    env.cmd('FT.CREATE', 'idx_category_flat', 'ON', 'JSON', 'SCHEMA', '$.[*]', 'AS', 'category', 'TEXT')
     # Index an array
-    env.execute_command('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$', 'AS', 'category', 'TEXT')
+    env.cmd('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$', 'AS', 'category', 'TEXT')
     # Index both multi flat values and an array
-    env.execute_command('FT.CREATE', 'idx_category_arr_author_flat', 'ON', 'JSON', 'SCHEMA',
+    env.cmd('FT.CREATE', 'idx_category_arr_author_flat', 'ON', 'JSON', 'SCHEMA',
         '$.[*]', 'AS', 'author', 'TEXT', # testing root path, so reuse the single top-level value
         '$', 'AS', 'category', 'TEXT')
 
@@ -42,14 +42,14 @@ def testMultiTextNested(env):
     conn.execute_command('JSON.SET', 'doc:4', '$', doc4_content)
 
     # Index multi flat values
-    env.execute_command('FT.CREATE', 'idx_category_flat', 'ON', 'JSON', 'SCHEMA', '$.category[*]', 'AS', 'category', 'TEXT')
-    env.execute_command('FT.CREATE', 'idx_author_flat', 'ON', 'JSON', 'SCHEMA', '$.books[*].authors[*]', 'AS', 'author', 'TEXT')
+    env.cmd('FT.CREATE', 'idx_category_flat', 'ON', 'JSON', 'SCHEMA', '$.category[*]', 'AS', 'category', 'TEXT')
+    env.cmd('FT.CREATE', 'idx_author_flat', 'ON', 'JSON', 'SCHEMA', '$.books[*].authors[*]', 'AS', 'author', 'TEXT')
     # Index an array
-    env.execute_command('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
+    env.cmd('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
     # Index an array of arrays
-    env.execute_command('FT.CREATE', 'idx_author_arr', 'ON', 'JSON', 'SCHEMA', '$.books[*].authors', 'AS', 'author', 'TEXT')
+    env.cmd('FT.CREATE', 'idx_author_arr', 'ON', 'JSON', 'SCHEMA', '$.books[*].authors', 'AS', 'author', 'TEXT')
     # Index both multi flat values and an array
-    env.execute_command('FT.CREATE', 'idx_category_arr_author_flat', 'ON', 'JSON', 'SCHEMA',
+    env.cmd('FT.CREATE', 'idx_category_arr_author_flat', 'ON', 'JSON', 'SCHEMA',
         '$.books[*].authors[*]', 'AS', 'author', 'TEXT',
         '$.category', 'AS', 'category', 'TEXT')
 
@@ -62,16 +62,16 @@ def testMultiTextNested(env):
     searchMultiTextCategory(env)
     searchMultiTextAuthor(env)
 
-    env.execute_command('FT.CREATE', 'idx_book', 'ON', 'JSON', 'SCHEMA',
+    env.cmd('FT.CREATE', 'idx_book', 'ON', 'JSON', 'SCHEMA',
         '$.category', 'AS', 'category', 'TEXT',
         '$.books[*].authors[*]', 'AS', 'author', 'TEXT',
         '$.books[*].name', 'AS', 'name', 'TEXT')
     waitForIndex(env, 'idx_book')
-    res = env.execute_command('FT.SEARCH', 'idx_book',
+    res = env.cmd('FT.SEARCH', 'idx_book',
         '(@name:(design*) -@category:(cloud)) | '
         '(@name:(Kubernetes*) @category:(cloud))',
         'NOCONTENT')
-    env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:3', 'doc:1']), message='idx_book')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:3', 'doc:1']), message='idx_book')
 
 def searchMultiTextCategory(env):
     """ helper function for searching multi-value attributes """
@@ -105,11 +105,11 @@ def searchMultiTextCategory(env):
             .expect_when(False, expect_undef_order)
 
         # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)
-        res = env.execute_command('FT.SEARCH', idx, '@category:(database)', 'NOCONTENT')
-        env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:1', 'doc:2']), message="A " + idx)
+        res = env.cmd('FT.SEARCH', idx, '@category:(database)', 'NOCONTENT')
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:1', 'doc:2']), message="A " + idx)
 
-        res = env.execute_command('FT.SEARCH', idx, '@category:(performance)', 'NOCONTENT')
-        env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:3']), message="B " + idx)
+        res = env.cmd('FT.SEARCH', idx, '@category:(performance)', 'NOCONTENT')
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:3']), message="B " + idx)
 
         env.expect('FT.SEARCH', idx, '@category:(high performance)', 'NOCONTENT').equal([1, 'doc:2'])
         env.expect('FT.SEARCH', idx, '@category:(cloud)', 'NOCONTENT').equal([1, 'doc:3'])
@@ -128,12 +128,12 @@ def searchMultiTextAuthor(env):
         env.expect('FT.SEARCH', idx, '@author:(Richard)', 'NOCONTENT').equal([1, 'doc:1'])
 
         # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)
-        res = env.execute_command('FT.SEARCH', idx, '@author:(Brendan)', 'NOCONTENT')
-        env.assertListEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:3']))
+        res = env.cmd('FT.SEARCH', idx, '@author:(Brendan)', 'NOCONTENT')
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:3']))
 
-        res = env.execute_command('FT.SEARCH', idx, '@author:(Redis)', 'NOCONTENT')
+        res = env.cmd('FT.SEARCH', idx, '@author:(Redis)', 'NOCONTENT')
         # Notice doc:4 is not in result (path `$.books[*].authors[*]` does not match a scalar string in `authors`)
-        env.assertListEqual(toSortedFlatList(res), toSortedFlatList([3, 'doc:1', 'doc:2', 'doc:3']))
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([3, 'doc:1', 'doc:2', 'doc:3']))
 
     # None-exact phrase using multi-value attributes which have no definite ordering cannot use slop or inorder
     env.expect('FT.SEARCH', 'idx_author_flat', '@author:(Redis Ltd.)=>{$slop:200}').error().contains("has undefined ordering")
@@ -172,7 +172,7 @@ def testUndefinedOrderingWithSlopAndInorder(env):
     """ Test that query attributes `slop` and `inorder` cannot be used when order is not well defined """
 
     # Index both multi flat values and an array
-    env.execute_command('FT.CREATE', 'idx_category_arr_author_flat', 'ON', 'JSON', 'SCHEMA',
+    env.cmd('FT.CREATE', 'idx_category_arr_author_flat', 'ON', 'JSON', 'SCHEMA',
         '$.books[*].authors', 'AS', 'author', 'TEXT',
         '$.category', 'AS', 'category', 'TEXT')
     waitForIndex(env, 'idx_category_arr_author_flat')
@@ -217,7 +217,7 @@ def testUndefinedOrderingWithSlopAndInorder(env):
 
 
     # NOOFFSETS - SLOP/INORDER are not considered - No need to fail on undefined ordering
-    env.execute_command('FT.CREATE', 'idx_category_arr_author_flat_2', 'ON', 'JSON',
+    env.cmd('FT.CREATE', 'idx_category_arr_author_flat_2', 'ON', 'JSON',
         'NOOFFSETS',
         'SCHEMA',
             '$.books[*].authors', 'AS', 'author', 'TEXT',
@@ -244,7 +244,7 @@ def testMultiNonText(env):
     for (i,v) in enumerate(non_text_dict.values()):
         doc = 'doc:{}:'.format(i+1)
         idx = 'idx{}'.format(i+1)
-        env.execute_command('FT.CREATE', idx, 'ON', 'JSON', 'PREFIX', '1', doc, 'SCHEMA', '$', 'AS', 'root', 'TEXT')
+        env.cmd('FT.CREATE', idx, 'ON', 'JSON', 'PREFIX', '1', doc, 'SCHEMA', '$', 'AS', 'root', 'TEXT')
         waitForIndex(env, idx)
         conn.execute_command('JSON.SET', doc, '$', json.dumps(v))
         res_failures = 0 if i+1 <= 5 else 1
@@ -268,7 +268,7 @@ def testMultiNonTextNested(env):
     # Create indices, e.g.,
     #   FT.CREATE idx1 ON JSON SCHEMA $.attr1 AS attr TEXT
     for (i,v) in enumerate(non_text_dict.values()):
-        env.execute_command('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'TEXT')
+        env.cmd('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'TEXT')
     conn.execute_command('JSON.SET', 'doc:1', '$', doc_non_text_content)
 
     # First 5 indices are OK (nulls are skipped)
@@ -295,13 +295,13 @@ def testMultiSortRoot(env):
 
     (gag_arr, text_cmd_args, tag_cmd_args) = sortMultiPrepare()
 
-    env.execute_command('FT.CREATE', 'idx1_multi_text', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'multi:', 'SCHEMA', '$', 'AS', 'gag', 'TEXT')
-    env.execute_command('FT.CREATE', 'idx2_multi_tag', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'multi:', 'SCHEMA', '$.[*]', 'AS', 'gag', 'TAG')
-    env.execute_command('FT.CREATE', 'idx3_multi_text_sort', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'multi:', 'SCHEMA', '$', 'AS', 'gag', 'TEXT', 'SORTABLE')
+    env.cmd('FT.CREATE', 'idx1_multi_text', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'multi:', 'SCHEMA', '$', 'AS', 'gag', 'TEXT')
+    env.cmd('FT.CREATE', 'idx2_multi_tag', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'multi:', 'SCHEMA', '$.[*]', 'AS', 'gag', 'TAG')
+    env.cmd('FT.CREATE', 'idx3_multi_text_sort', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'multi:', 'SCHEMA', '$', 'AS', 'gag', 'TEXT', 'SORTABLE')
 
-    env.execute_command('FT.CREATE', 'idx1_single_text', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'single:', 'SCHEMA', '$', 'AS', 'gag', 'TEXT')
-    env.execute_command('FT.CREATE', 'idx2_single_tag', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'single:', 'SCHEMA', '$', 'AS', 'gag', 'TAG')
-    env.execute_command('FT.CREATE', 'idx3_single_test_sort', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'single:', 'SCHEMA', '$', 'AS', 'gag', 'TEXT', 'SORTABLE')
+    env.cmd('FT.CREATE', 'idx1_single_text', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'single:', 'SCHEMA', '$', 'AS', 'gag', 'TEXT')
+    env.cmd('FT.CREATE', 'idx2_single_tag', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'single:', 'SCHEMA', '$', 'AS', 'gag', 'TAG')
+    env.cmd('FT.CREATE', 'idx3_single_test_sort', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'single:', 'SCHEMA', '$', 'AS', 'gag', 'TEXT', 'SORTABLE')
 
     # docs with array of strings
     for i, gag in enumerate(gag_arr):
@@ -323,13 +323,13 @@ def testMultiSortNested(env):
 
     (gag_arr, text_cmd_args, tag_cmd_args) = sortMultiPrepare()
 
-    env.execute_command('FT.CREATE', 'idx1_multi_text', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'multi:', 'SCHEMA', '$.chalkboard', 'AS', 'gag', 'TEXT')
-    env.execute_command('FT.CREATE', 'idx2_multi_tag', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'multi:', 'SCHEMA', '$.chalkboard[*]', 'AS', 'gag', 'TAG')
-    env.execute_command('FT.CREATE', 'idx3_multi_text_sort', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'multi:', 'SCHEMA', '$.chalkboard', 'AS', 'gag', 'TEXT', 'SORTABLE')
+    env.cmd('FT.CREATE', 'idx1_multi_text', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'multi:', 'SCHEMA', '$.chalkboard', 'AS', 'gag', 'TEXT')
+    env.cmd('FT.CREATE', 'idx2_multi_tag', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'multi:', 'SCHEMA', '$.chalkboard[*]', 'AS', 'gag', 'TAG')
+    env.cmd('FT.CREATE', 'idx3_multi_text_sort', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'multi:', 'SCHEMA', '$.chalkboard', 'AS', 'gag', 'TEXT', 'SORTABLE')
 
-    env.execute_command('FT.CREATE', 'idx1_single_text', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'single:', 'SCHEMA', '$.chalkboard', 'AS', 'gag', 'TEXT')
-    env.execute_command('FT.CREATE', 'idx2_single_tag', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'single:', 'SCHEMA', '$.chalkboard', 'AS', 'gag', 'TAG')
-    env.execute_command('FT.CREATE', 'idx3_single_test_sort', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'single:', 'SCHEMA', '$.chalkboard', 'AS', 'gag', 'TEXT', 'SORTABLE')
+    env.cmd('FT.CREATE', 'idx1_single_text', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'single:', 'SCHEMA', '$.chalkboard', 'AS', 'gag', 'TEXT')
+    env.cmd('FT.CREATE', 'idx2_single_tag', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'single:', 'SCHEMA', '$.chalkboard', 'AS', 'gag', 'TAG')
+    env.cmd('FT.CREATE', 'idx3_single_test_sort', 'ON', 'JSON', 'STOPWORDS', '0', 'PREFIX', '1', 'single:', 'SCHEMA', '$.chalkboard', 'AS', 'gag', 'TEXT', 'SORTABLE')
 
     # docs with array of strings
     for i, gag in enumerate(gag_arr):
@@ -383,16 +383,16 @@ def sortMulti(env, text_cmd_args, tag_cmd_args):
     # Check that order is the same
     for i, (text_arg,tag_arg) in enumerate(zip(text_cmd_args, tag_cmd_args)):
         # Multi TEXT with single TEXT
-        env.assertEqual(trim_in_list('multi:', env.execute_command('FT.SEARCH', 'idx1_multi_text', *text_arg)),
-                        trim_in_list('single:', env.execute_command('FT.SEARCH', 'idx1_single_text', *text_arg)),
+        env.assertEqual(trim_in_list('multi:', env.cmd('FT.SEARCH', 'idx1_multi_text', *text_arg)),
+                        trim_in_list('single:', env.cmd('FT.SEARCH', 'idx1_single_text', *text_arg)),
                         message = '{} with arg `{}`'.format('multi TEXT with single TEXT', text_arg))
         # Multi TAG with single TAG
-        env.assertEqual(trim_in_list('multi:', env.execute_command('FT.SEARCH', 'idx2_multi_tag', *tag_arg)),
-                        trim_in_list('single:', env.execute_command('FT.SEARCH', 'idx2_single_tag', *tag_arg)),
+        env.assertEqual(trim_in_list('multi:', env.cmd('FT.SEARCH', 'idx2_multi_tag', *tag_arg)),
+                        trim_in_list('single:', env.cmd('FT.SEARCH', 'idx2_single_tag', *tag_arg)),
                         message = '{} arg `{}`'.format('multi TAG with single TAG', tag_arg))
         # Multi TEXT with multi TAG
-        env.assertEqual(env.execute_command('FT.SEARCH', 'idx1_multi_text', *text_arg),
-                        env.execute_command('FT.SEARCH', 'idx2_multi_tag', *tag_arg),
+        env.assertEqual(env.cmd('FT.SEARCH', 'idx1_multi_text', *text_arg),
+                        env.cmd('FT.SEARCH', 'idx2_multi_tag', *tag_arg),
                         message = '{} text arg `{}` tag arg `{}`'.format('multi TEXT with multi TAG', text_arg, tag_arg))
 
     if not env.isCluster():
@@ -401,8 +401,8 @@ def sortMulti(env, text_cmd_args, tag_cmd_args):
         for i, text_arg in enumerate(text_cmd_args):
             text_arg.append('WITHSCORES')
             # Multi TEXT with single TEXT
-            env.assertEqual(trim_in_list('multi:', env.execute_command('FT.SEARCH', 'idx1_multi_text', *text_arg)),
-                            trim_in_list('single:', env.execute_command('FT.SEARCH', 'idx1_single_text', *text_arg)),
+            env.assertEqual(trim_in_list('multi:', env.cmd('FT.SEARCH', 'idx1_multi_text', *text_arg)),
+                            trim_in_list('single:', env.cmd('FT.SEARCH', 'idx1_single_text', *text_arg)),
                             message = '{} arg {}'.format('multi TEXT with single TEXT', text_arg))
 
 
@@ -419,14 +419,14 @@ def testMultiEmptyBlankOrNone(env):
         ["", None, ""]
     ]
 
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.val', 'AS', 'val', 'TEXT')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.val', 'AS', 'val', 'TEXT')
 
     for i, val in enumerate(values):
         conn.execute_command('JSON.SET', 'doc:{}'.format(i+1), '$', json.dumps({ "val": val}))
     conn.execute_command('JSON.SET', 'doc', '$', json.dumps({"val": ["haha"]}))
     env.expect('FT.SEARCH', 'idx', '@val:(haha)', 'NOCONTENT', 'SORTBY', 'val', 'ASC').equal([1, 'doc'])
 
-    env.assertEqual(env.execute_command('FT.SEARCH', 'idx', '*', 'NOCONTENT')[0], len(values) + 1)
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx', '*', 'NOCONTENT')[0], len(values) + 1)
 
 def getFtConfigCmd(env):
     if not env.isCluster():
@@ -442,7 +442,7 @@ def testconfigMultiTextOffsetDelta(env):
 
     conn = getConnectionByEnv(env)
     conn.execute_command('JSON.SET', 'doc:1', '$', doc1_content)
-    env.execute_command('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
+    env.cmd('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
     waitForIndex(env, 'idx_category_arr')
 
     env.expect(getFtConfigCmd(env), 'SET', 'MULTI_TEXT_SLOP', '101').error().contains("Not modifiable at runtime")
@@ -454,7 +454,7 @@ def testconfigMultiTextOffsetDelta(env):
     # ["mathematics and computer science", "logic", "programming", "database"]
     #   1                2        3      ,  103   ,  203         ,  303
 
-    res = env.execute_command(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
+    res = env.cmd(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
     env.assertEqual(res[0][1], '100')
     env.expect('FT.SEARCH', 'idx_category_arr', '@category:(mathematics database)', 'NOCONTENT').equal([1, 'doc:1'])
 
@@ -472,13 +472,13 @@ def testconfigMultiTextOffsetDeltaSlop101():
 
     # MULTI_TEXT_SLOP = 101
     conn = getConnectionByEnv(env)
-    res = env.execute_command(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
+    res = env.cmd(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
     env.assertEqual(res[0][1], '101')
     # Offsets:
     # ["mathematics and computer science", "logic", "programming", "database"]
     #   1                2        3      ,  104   ,  205         ,  306
     conn.execute_command('JSON.SET', 'doc:1', '$', doc1_content)
-    env.execute_command('FT.CREATE', 'idx_category_arr_2', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
+    env.cmd('FT.CREATE', 'idx_category_arr_2', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
     waitForIndex(env, 'idx_category_arr_2')
 
     cond = ConditionalExpected(env, has_json_api_v2)
@@ -502,13 +502,13 @@ def testconfigMultiTextOffsetDeltaSlop0():
 
     # MULTI_TEXT_SLOP = 0
     conn = getConnectionByEnv(env)
-    res = env.execute_command(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
+    res = env.cmd(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
     env.assertEqual(res[0][1], '0')
     # Offsets:
     # ["mathematics and computer science", "logic", "programming", "database"]
     #   1                2        3      ,  4   ,    5         ,    6
     conn.execute_command('JSON.SET', 'doc:1', '$', doc1_content)
-    env.execute_command('FT.CREATE', 'idx_category_arr_3', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
+    env.cmd('FT.CREATE', 'idx_category_arr_3', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
     waitForIndex(env, 'idx_category_arr_3')
 
     cond = ConditionalExpected(env, has_json_api_v2)

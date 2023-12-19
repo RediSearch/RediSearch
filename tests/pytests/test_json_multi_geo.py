@@ -40,7 +40,7 @@ doc1_content = [
                 "loc": ["11,11", "12,12"]
             }
         ]
-    
+
     },
     {
         "name": "top2",
@@ -97,20 +97,19 @@ doc_non_geo_content = r'''{
 def checkInfo(env, idx, num_docs, inverted_sz_mb):
     """ Helper function for testInfoAndGC """
     conn = getConnectionByEnv(env)
-    
+
     # Start empty
     env.assertEqual(True, True, message = 'check {}'.format(idx))
     info = index_info(env, idx)
     env.assertEqual(int(info['num_docs']), num_docs)
     env.assertEqual(float(info['inverted_sz_mb']), inverted_sz_mb)
 
-
+@skip(cluster=True)
 def testBasic(env):
     """ Test multi GEO values (an array of GEO values or multiple GEO values) """
-    env.skipOnCluster()
 
     conn = getConnectionByEnv(env)
- 
+
     conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0)
 
     env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$..loc[*]', 'AS', 'loc', 'GEO').ok()
@@ -138,7 +137,7 @@ def testBasic(env):
     env.expect('FT.SEARCH', 'idx1', '@loc:[1.2 1.1 40 km]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx1', '-@loc:[1.2 1.1 40 km]', 'NOCONTENT').equal([0])
 
-    
+
     env.expect('FT.SEARCH', 'idx1', '@loc:[0 0 +inf km]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx1', '-@loc:[0 0 +inf km]', 'NOCONTENT').equal([0])
 
@@ -166,9 +165,9 @@ def testMultiNonGeo(env):
     Fail on text with illegal coordinates, numeric, bool, object, arr of strings, arr with mixed types
     """
     conn = getConnectionByEnv(env)
-    
+
     non_geo_dict = json.loads(doc_non_geo_content)
-    
+
     # Create indices and a key per index, e.g.,
     #   FT.CREATE idx1 ON JSON PREFIX 1 doc:1: SCHEMA $ AS root GEO
     #   JSON.SET doc:1: $ '["1,1", ...]'
@@ -182,7 +181,7 @@ def testMultiNonGeo(env):
         conn.execute_command('JSON.SET', doc, '$', json.dumps(v))
         res_failures = 0 if i+1 <= 5 else 1
         env.assertEqual(int(index_info(env, idx)['hash_indexing_failures']), res_failures, message=str(i))
-    
+
     # Search good indices with content
     env.expect('FT.SEARCH', 'idx1', '@root:[29.72 34.96 1 km]', 'NOCONTENT').equal([1, 'doc:1:'])
     env.expect('FT.SEARCH', 'idx2', '@root:[29.72 34.96 1 km]', 'NOCONTENT').equal([1, 'doc:2:'])
@@ -198,27 +197,25 @@ def testMultiNonGeoNested(env):
     conn = getConnectionByEnv(env)
 
     non_geo_dict = json.loads(doc_non_geo_content)
-    
+
     # Create indices, e.g.,
     #   FT.CREATE idx1 ON JSON SCHEMA $.attr1 AS attr GEO
     for (i,v) in enumerate(non_geo_dict.values()):
         conn.execute_command('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'GEO')
     conn.execute_command('JSON.SET', 'doc:1', '$', doc_non_geo_content)
-    
+
     # First 5 indices are OK (nulls are skipped)
     for (i,v) in enumerate(non_geo_dict.values()):
         res_failures = 0 if i+1 <= 5 else 1
         env.assertEqual(int(index_info(env, 'idx{}'.format(i+1))['hash_indexing_failures']), res_failures)
-    
+
     # Search good indices with content
     env.expect('FT.SEARCH', 'idx1', '@attr:[29.72 34.96 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx2', '@attr:[29.72 34.96 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
 
-
+@skip(cluster=True)
 def testDebugDump(env):
     """ Test FT.DEBUG DUMP_INVIDX and NUMIDX_SUMMARY with multi GEO values """
-
-    env.skipOnCluster()
 
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx:top', 'ON', 'JSON', 'SCHEMA', '$[*]', 'AS', 'val', 'GEO').ok()
@@ -227,7 +224,8 @@ def testDebugDump(env):
 
     env.expect('FT.DEBUG', 'DUMP_NUMIDX' ,'idx:top', 'val').equal([[1, 2]])
     env.expect('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx:top', 'val').equal(['numRanges', 1, 'numEntries', 6,
-                                                                      'lastDocId', 2, 'revisionId', 0])
+                                                                      'lastDocId', 2, 'revisionId', 0,
+                                                                      'emptyLeaves', 0, 'RootMaxDepth', 0])
 
 def checkMultiGeoReturn(env, expected, default_dialect, is_sortable):
     """ Helper function for RETURN with multiple GEO values """
@@ -244,7 +242,7 @@ def checkMultiGeoReturn(env, expected, default_dialect, is_sortable):
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
 
     expr = '@val:[29.7 34.8 15 km]'
-    
+
     # Multi flat
     env.expect('FT.SEARCH', 'idx_flat', expr,
                'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', *dialect_param).equal(expected[0])
@@ -277,7 +275,7 @@ def checkMultiGeoReturn(env, expected, default_dialect, is_sortable):
     #  Schema attribute with path to an array was not supported (lead to indexing failure)
     if not default_dialect:
         env.assertEqual(res, [1, ['val', expected[2][2][1]]])
-    
+
 
     env.expect('FT.AGGREGATE', 'idx_arr',
                expr, 'LOAD', '1', '@val', *dialect_param).equal([1, ['val', expected[2][2][1]]])

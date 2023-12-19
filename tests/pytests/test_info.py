@@ -1,8 +1,8 @@
-from common import waitForIndex, forceInvokeGC, ft_info_to_dict
+from common import waitForIndex, forceInvokeGC, skip, index_info
 
 # The output for this test can be used for recreating documentation for `FT.INFO`
+@skip()
 def testInfo(env):
-  env.skip()
   count = 345678
   conn = env.getConnection()
   pl = conn.pipeline()
@@ -48,11 +48,11 @@ def testInfo(env):
 
 def test_numeric_info(env):
 
-  env.execute_command('ft.create', 'idx1', 'SCHEMA', 'n', 'numeric')
-  env.execute_command('ft.create', 'idx2', 'SCHEMA', 'n', 'numeric', 'SORTABLE')
-  env.execute_command('ft.create', 'idx3', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'UNF')
-  env.execute_command('ft.create', 'idx4', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'NOINDEX')
-  env.execute_command('ft.create', 'idx5', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'UNF', 'NOINDEX')
+  env.cmd('ft.create', 'idx1', 'SCHEMA', 'n', 'numeric')
+  env.cmd('ft.create', 'idx2', 'SCHEMA', 'n', 'numeric', 'SORTABLE')
+  env.cmd('ft.create', 'idx3', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'UNF')
+  env.cmd('ft.create', 'idx4', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'NOINDEX')
+  env.cmd('ft.create', 'idx5', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'UNF', 'NOINDEX')
 
   res1 = ft_info_to_dict(env, 'idx1')['attributes']
   res2 = ft_info_to_dict(env, 'idx2')['attributes']
@@ -69,4 +69,3 @@ def test_numeric_info(env):
   env.assertEqual(res3, exp2)  # Numeric field is sortable, and explicitly UNF
   env.assertEqual(res4, exp3)  # Numeric field is sortable, explicitly NOINDEX, and automatically UNF
   env.assertEqual(res5, exp3)  # Numeric field is sortable, explicitly NOINDEX, and explicitly UNF
-

@@ -9,25 +9,25 @@ aliases:
 
 # Scoring documents
 
-When searching, documents are scored based on their relevance to the query. The score is a floating point number between 0 and 1, where 1 is the highest score. The score is returned as part of the search results, and can be used to sort the results.
+When searching, documents are scored based on their relevance to the query. The score is a floating point number between 0.0 and 1.0, where 1.0 is the highest score. The score is returned as part of the search results and can be used to sort the results.
 
 Redis Stack comes with a few very basic scoring functions to evaluate document relevance. They are all based on document scores and term frequency. This is regardless of the ability to use [sortable fields](/docs/interact/search-and-query/advanced-concepts/sorting/). Scoring functions are specified by adding the `SCORER {scorer_name}` argument to a search query.
 
-If you prefer a custom scoring function, it is possible to add more functions using the [Extension API](/docs/interact/search-and-query/administration/extensions/).
+If you prefer a custom scoring function, it is possible to add more functions using the [extension API](/docs/interact/search-and-query/administration/extensions/).
 
-The following is a list of the pre-bundled scoring functions available in Redis Stack and a short explanation about how they work. Each function is mentioned by registered name, that can be passed as a `SCORER` argument in `FT.SEARCH`.
+The following is a list of the pre-bundled scoring functions available in Redis Stack and a short explanation about how they work. Each function is mentioned by registered name, which can be passed as a `SCORER` argument in `FT.SEARCH`.
 
 ## TFIDF (default)
 
-Basic [TF-IDF scoring](https://en.wikipedia.org/wiki/Tf%E2%80%93idf) with a few extra features thrown inside:
+Basic [TF-IDF scoring](https://en.wikipedia.org/wiki/Tf%E2%80%93idf) with a few extra features:
 
-1. For each term in each result, we calculate the TF-IDF score of that term to that document. Frequencies are weighted based on field weights that are pre-determined, and each term's frequency is **normalized by the highest term frequency in each document**.
+1. For each term in each result, the TF-IDF score of that term is calculated to that document. Frequencies are weighted based on field weights that are pre-determined, and each term's frequency is normalized by the highest term frequency in each document.
 
-2. We multiply the total TF-IDF for the query term by the a priory document score given on `FT.ADD`.
+2. The total TF-IDF for the query term is multiplied by the presumptive document score given on `FT.ADD`.
 
-3. We give a penalty to each result based on "slop" or cumulative distance between the search terms: exact matches will get no penalty, but matches where the search terms are distant see their score reduced significantly. For each 2-gram of consecutive terms, we find the minimal distance between them. The penalty is the square root of the sum of the distances, squared - `1/sqrt(d(t2-t1)^2 + d(t3-t2)^2 + ...)`.
+3. A penalty is assigned to each result based on "slop" or cumulative distance between the search terms. Exact matches will get no penalty, but matches where the search terms are distant will have their score reduced significantly. For each bigram of consecutive terms, the minimal distance between them is determined. The penalty is the square root of the sum of the distances squared; e.g., `1/sqrt(d(t2-t1)^2 + d(t3-t2)^2 + ...)`.
 
-So for N terms in document D, `T1...Tn`, the resulting score could be described with this python function:
+Given N terms in document D, `T1...Tn`, the resulting score could be described with this Python function:
 
 ```py
 def get_score(terms, doc):
@@ -62,9 +62,9 @@ def get_score(terms, doc):
 
 ## TFIDF.DOCNORM
 
-Identical to the default TFIDF scorer, with one important distinction:
+Identical to the default `TFIDF` scorer, with one important distinction:
 
-Term frequencies are normalized by the length of the document (expressed as the total number of terms). The length is weighted, so that if a document contains two terms, one in a field that has a weight 1 and one in a field with a weight of 5, the total frequency is 6, not 2.
+Term frequencies are normalized by the length of the document, expressed as the total number of terms. The length is weighted, so that if a document contains two terms, one in a field that has a weight 1 and one in a field with a weight of 5, the total frequency is 6, not 2.
 
 ```
 FT.SEARCH myIndex "foo" SCORER TFIDF.DOCNORM
@@ -72,9 +72,9 @@ FT.SEARCH myIndex "foo" SCORER TFIDF.DOCNORM
 
 ## BM25
 
-A variation on the basic TF-IDF scorer, see [this Wikipedia article for more info](https://en.wikipedia.org/wiki/Okapi_BM25).
+A variation on the basic `TFIDF` scorer, see [this Wikipedia article for more info](https://en.wikipedia.org/wiki/Okapi_BM25).
 
-We also multiply the relevance score for each document by the a priory document score and apply a penalty based on slop as in TFIDF.
+The relevance score for each document is multiplied by the presumptive document score and a penalty is applied based on slop as in `TFIDF`.
 
 ```
 FT.SEARCH myIndex "foo" SCORER BM25
@@ -82,9 +82,9 @@ FT.SEARCH myIndex "foo" SCORER BM25
 
 ## DISMAX
 
-A simple scorer that sums up the frequencies of the matched terms; in the case of union clauses, it will give the maximum value of those matches. No other penalties or factors are applied.
+A simple scorer that sums up the frequencies of matched terms. In the case of union clauses, it will give the maximum value of those matches. No other penalties or factors are applied.
 
-It is not a 1 to 1 implementation of [Solr's DISMAX algorithm](https://wiki.apache.org/solr/DisMax) but follows it in broad terms.
+It is not a one-to-one implementation of [Solr's DISMAX algorithm](https://wiki.apache.org/solr/DisMax), but it follows it in broad terms.
 
 ```
 FT.SEARCH myIndex "foo" SCORER DISMAX
@@ -92,7 +92,7 @@ FT.SEARCH myIndex "foo" SCORER DISMAX
 
 ## DOCSCORE
 
-A scoring function that just returns the a priory score of the document without applying any calculations to it. Since document scores can be updated, this can be useful if you'd like to use an external score and nothing further.
+A scoring function that just returns the presumptive score of the document without applying any calculations to it. Since document scores can be updated, this can be useful if you'd like to use an external score and nothing further.
 
 ```
 FT.SEARCH myIndex "foo" SCORER DOCSCORE
@@ -100,15 +100,15 @@ FT.SEARCH myIndex "foo" SCORER DOCSCORE
 
 ## HAMMING
 
-Scoring by the (inverse) Hamming Distance between the documents' payload and the query payload. Since we are interested in the **nearest** neighbors, we inverse the hamming distance (`1/(1+d)`) so that a distance of 0 gives a perfect score of 1 and is the highest rank.
+Scoring by the inverse Hamming distance between the document's payload and the query payload is performed. Since the nearest neighbors are of interest, the inverse Hamming distance (`1/(1+d)`) is used so that a distance of 0 gives a perfect score of 1 and is the highest rank.
 
-This works only if:
+This only works if:
 
 1. The document has a payload.
 2. The query has a payload.
-3. Both are **exactly the same length**.
+3. Both are exactly the same length.
 
-Payloads are binary-safe, and having payloads with a length that's a multiple of 64 bits yields slightly faster results.
+Payloads are binary-safe, and having payloads with a length that is a multiple of 64 bits yields slightly faster results.
 
 Example:
 

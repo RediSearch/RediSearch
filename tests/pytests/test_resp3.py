@@ -2,6 +2,9 @@ from common import *
 import operator
 from math import nan
 import json
+from redis import ResponseError
+from test_coordinator import test_error_propagation_from_shards
+from test_profile import TimedoutTest_resp3, TimedOutWarningtestCoord
 
 def order_dict(d):
     ''' Sorts a dictionary recursively by keys '''
@@ -14,10 +17,10 @@ def order_dict(d):
             result[k] = v
     return result
 
-def redis_version(con, is_cluster=False):
+def redis_version(con, isCluster=False):
     res = con.execute_command('INFO')
     ver = ""
-    if is_cluster:
+    if isCluster:
         try:
             ver = list(res.values())[0]['redis_version']
         except:
@@ -50,7 +53,7 @@ def test_search():
     waitForIndex(env, 'idx1')
 
     exp = {
-      'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING',
+      'attributes': [], 'warning': [], 'total_results': 2, 'format': 'STRING',
       'results': [
         {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
         {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
@@ -59,7 +62,7 @@ def test_search():
 
     # test withscores
     exp = {
-      'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING',
+      'attributes': [], 'warning': [], 'total_results': 2, 'format': 'STRING',
       'results': [
         { 'id': 'doc2',
           'score': [
@@ -97,7 +100,7 @@ def test_search():
 
     # test with sortby
     exp = {
-      'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING',
+      'attributes': [], 'warning': [], 'total_results': 2, 'format': 'STRING',
       'results': [
         { 'id': 'doc1',
           'score': 0.5,
@@ -119,14 +122,14 @@ def test_search():
                "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC", "FORMAT", "STRING").equal(exp)
 
     # test with limit 0 0
-    exp = {'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING', 'results': []}
+    exp = {'attributes': [], 'warning': [], 'total_results': 2, 'format': 'STRING', 'results': []}
     env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "WITHPAYLOADS",
                "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC", "LIMIT", 0, 0, "FORMAT", "STRING").equal(exp)
 
     # test without RETURN
     exp = {
       'attributes': [],
-      'error': [],
+      'warning': [],
       'total_results': 2,
       'format': 'STRING',
       'results': [
@@ -137,32 +140,34 @@ def test_search():
     env.expect('FT.search', 'idx1', "*").equal(exp)
 
 def test_search_timeout():
-    env = Env(protocol=3)
+    num_range = 1000
+    env = Env(protocol=3, moduleArgs=f'DEFAULT_DIALECT 2 MAXPREFIXEXPANSIONS {num_range} TIMEOUT 1 ON_TIMEOUT FAIL')
     if should_skip(env):
         env.skip()
-    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
 
-    with env.getClusterConnectionIfNeeded() as r:
-      r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
-      r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
-
-    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
-            "SCHEMA", "f1", "TEXT", "f2", "TEXT")
-    waitForIndex(env, 'idx1')
-
-    # test with timeout
-    num_range = 1000
-    env.cmd('ft.config', 'set', 'timeout', '1')
-    env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
     for i in range(num_range):
-        env.cmd('HSET', f'doc{i}', 't', f'aa{i}', 'geo', f"{i/10000},{i/1000}")
+        conn.execute_command('HSET', f'doc{i}', 't', f'aa{i}', 'geo', f"{i/10000},{i/1000}")
 
-    env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0'). \
-      contains('Timeout limit was reached')
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1).\
-      error().contains('Timeout limit was reached')
+    # TODO: Add these tests again once MOD-5965 is merged
+    # env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range)). \
+    #   contains('Timeout limit was reached')
+    # env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range), 'timeout', 1).\
+    #   contains('Timeout limit was reached')
+
+    # (coverage) Later failure than the above tests - in pipeline execution
+    # phase. For this, we need more documents in the index, such that we will
+    # fail for sure
+    num_range_2 = 25000 * env.shardsCount
+    p = conn.pipeline(transaction=False)
+    for i in range(num_range, num_range_2):
+      p.execute_command('HSET', f'doc{i}', 't', f'{i}', 'geo', f"{i/10000},{i/1000}")
+    p.execute()
+
+    env.expect(
+      'FT.SEARCH', 'myIdx', '*', 'LIMIT', '0', str(num_range_2), 'TIMEOUT', '1'
+    ).error().contains('Timeout limit was reached')
 
 @skip(cluster=True)
 def test_profile(env):
@@ -180,7 +185,7 @@ def test_profile(env):
 
     # test with profile
     exp = {
-      'attributes': [], 'error': [], 'total_results': 2, 'format': 'STRING',
+      'attributes': [], 'warning': [], 'total_results': 2, 'format': 'STRING',
       'results': [
         {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
         {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
@@ -189,6 +194,7 @@ def test_profile(env):
         'Total profile time': ANY,
         'Parsing time': ANY,
         'Pipeline creation time': ANY,
+        'Warning': 'None',
         'Iterators profile': [
           {'Type': 'WILDCARD', 'Time': ANY, 'Counter': 2}
         ],
@@ -220,7 +226,7 @@ def test_coord_profile():
     # test with profile
     exp = {
         'attributes': [],
-        'error': [],
+        'warning': [],
         'total_results': 2,
         'format': 'STRING',
         'results': [
@@ -228,19 +234,19 @@ def test_coord_profile():
           {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
         ],
         'shards':
-        {'Shard #1': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY,
+        {'Shard #1': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Warning': 'None',
                       'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY}],
                       'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},
                                                     {'Type': 'Scorer', 'Time': ANY, 'Counter': ANY},
                                                     {'Type': 'Sorter', 'Time': ANY, 'Counter': ANY},
                                                     {'Type': 'Loader', 'Time': ANY, 'Counter': ANY}]},
-        'Shard #2': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY,
+        'Shard #2': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Warning': 'None',
                      'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY}],
                      'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},
                                                    {'Type': 'Scorer', 'Time': ANY, 'Counter': ANY},
                                                    {'Type': 'Sorter', 'Time': ANY, 'Counter': ANY},
                                                    {'Type': 'Loader', 'Time': ANY, 'Counter': ANY}]},
-        'Shard #3': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY,
+        'Shard #3': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Warning': 'None',
                      'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY}],
                      'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},
                                                    {'Type': 'Scorer', 'Time': ANY, 'Counter': ANY},
@@ -261,7 +267,7 @@ def test_aggregate():
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
       r.execute_command('HSET', 'doc3', 'f5', '4')
 
-    env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
+    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     waitForIndex(env, 'idx1')
 
@@ -269,7 +275,7 @@ def test_aggregate():
     res['results'].sort(key=lambda x: "" if x['extra_attributes'].get('f2') == None else x['extra_attributes'].get('f2'))
     exp = {
       'attributes': [],
-      'error': [],
+      'warning': [],
       'total_results': ANY,
       'format': 'STRING',
       'results': [
@@ -280,10 +286,10 @@ def test_aggregate():
     }
     env.assertEqual(res, exp)
 
-    res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "FORMAT", "STRING")
+    res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "FORMAT", "STRING")
     exp = {
       'attributes': [],
-      'error': [],
+      'warning': [],
       'total_results': ANY,
       'format': 'STRING',
       'results': [
@@ -298,7 +304,7 @@ def test_aggregate():
     # test with sortby
     exp = {
       'attributes': [],
-      'error': [],
+      'warning': [],
       'total_results': ANY,
       'format': 'STRING',
       'results': [
@@ -307,7 +313,7 @@ def test_aggregate():
         {'extra_attributes': {}, 'values': []}
       ]
     }
-    res = env.execute_command('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "SORTBY", 2, "@f2", "DESC", "FORMAT", "STRING")
+    res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "SORTBY", 2, "@f2", "DESC", "FORMAT", "STRING")
     env.assertEqual(res, exp)
 
 def test_cursor():
@@ -326,7 +332,7 @@ def test_cursor():
 
     exp = {
       'attributes': [],
-      'error': [],
+      'warning': [],
       'total_results': 3,
       'format': 'STRING',
       'results': [
@@ -337,7 +343,7 @@ def test_cursor():
     env.assertEqual(res, exp)
 
     exp = {
-      'attributes': [], 'error': [], 'total_results': 0, 'format': 'STRING',
+      'attributes': [], 'warning': [], 'total_results': 0, 'format': 'STRING',
       'results': [
           {'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []}
         ]}
@@ -345,12 +351,12 @@ def test_cursor():
     env.assertEqual(res, exp)
 
     exp = {
-      'attributes': [], 'error': [], 'total_results': 0, 'format': 'STRING',
+      'attributes': [], 'warning': [], 'total_results': 0, 'format': 'STRING',
       'results': [{'extra_attributes': {}, 'values': []}]}
     res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
     env.assertEqual(res, exp)
 
-    exp = {'attributes': [], 'error': [], 'total_results': 0, 'format': 'STRING', 'results': []}
+    exp = {'attributes': [], 'warning': [], 'total_results': 0, 'format': 'STRING', 'results': []}
     res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx1', cursor)
     env.assertEqual(res, exp)
     env.assertEqual(cursor, 0)
@@ -359,7 +365,7 @@ def test_cursor():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     waitForIndex(env, 'idx2')
 
-    exp = {'attributes': [], 'error': [], 'total_results': 0, 'format': 'STRING', 'results': []}
+    exp = {'attributes': [], 'warning': [], 'total_results': 0, 'format': 'STRING', 'results': []}
     res, cursor = env.cmd('FT.aggregate', 'idx2', '*', 'LOAD', 3, 'f1', 'f2', 'f3',
                           'SORTBY', 2, '@f2', 'DESC', 'WITHCURSOR', 'COUNT', 1)
     env.assertEqual(res, exp)
@@ -386,7 +392,7 @@ def test_info():
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
       r.execute_command('HSET', 'doc3', 'f5', '4')
 
-    env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
+    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     waitForIndex(env, 'idx1')
 
@@ -458,23 +464,23 @@ def test_config():
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
       r.execute_command('HSET', 'doc3', 'f5', '4')
 
-    env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
+    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT")
-    env.execute_command('FT.create', 'idx2', "PREFIX", 1, "doc",
+    env.cmd('FT.create', 'idx2', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
 
     if env.isCluster():
         return
 
-    res = env.execute_command("FT.CONFIG", "SET", "TIMEOUT", 501)
+    res = env.cmd("FT.CONFIG", "SET", "TIMEOUT", 501)
 
-    res = env.execute_command("FT.CONFIG", "GET", "*")
+    res = env.cmd("FT.CONFIG", "GET", "*")
     env.assertEqual(res['TIMEOUT'], '501')
 
-    res = env.execute_command("FT.CONFIG", "GET", "TIMEOUT")
+    res = env.cmd("FT.CONFIG", "GET", "TIMEOUT")
     env.assertEqual(res, {'TIMEOUT': '501'})
 
-    res = env.execute_command("FT.CONFIG", "HELP", "TIMEOUT")
+    res = env.cmd("FT.CONFIG", "HELP", "TIMEOUT")
     env.assertEqual(res, {'TIMEOUT': {'Description': 'Query (search) timeout', 'Value': '501'}})
 
 def test_dictdump():
@@ -556,7 +562,7 @@ def test_tagvals():
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
 
-    env.execute_command('FT.create', 'idx1', "PREFIX", 1, "doc",
+    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TAG", "f2", "TAG", "f5", "TAG")
     waitForIndex(env, 'idx1')
 
@@ -621,7 +627,7 @@ def test_profile_crash_mod5323():
 
     res = env.cmd("FT.PROFILE", "idx", "SEARCH", "LIMITED", "QUERY", "%hell% hel*", "NOCONTENT")
     exp = {
-      'error': [],
+      'warning': [],
       'attributes': [],
       'profile': {
         'Iterators profile': [
@@ -646,6 +652,7 @@ def test_profile_crash_mod5323():
         ],
         'Parsing time': ANY,
         'Pipeline creation time': ANY,
+        'Warning': 'None',
         'Result processors profile': [
           { 'Counter': 3, 'Time': ANY, 'Type': 'Index' },
           { 'Counter': 3, 'Time': ANY, 'Type': 'Scorer' },
@@ -671,9 +678,9 @@ def test_profile_child_itrerators_array():
       r.execute_command('hset', '2', 't', 'world')
 
     # test UNION
-    res = env.execute_command('ft.profile', 'idx', 'search', 'query', 'hello|world', 'nocontent')
+    res = env.cmd('ft.profile', 'idx', 'search', 'query', 'hello|world', 'nocontent')
     exp = {
-      'error': [],
+      'warning': [],
       'attributes': [],
       'profile': {
         'Iterators profile': [
@@ -689,6 +696,7 @@ def test_profile_child_itrerators_array():
         ],
         'Parsing time': ANY,
         'Pipeline creation time': ANY,
+        'Warning': 'None',
         'Result processors profile': [
           {'Counter': 2, 'Time': ANY, 'Type': 'Index'},
           {'Counter': 2, 'Time': ANY, 'Type': 'Scorer'},
@@ -707,9 +715,9 @@ def test_profile_child_itrerators_array():
         env.assertEqual(res, exp)
 
     # test INTERSECT
-    res = env.execute_command('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
+    res = env.cmd('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
     exp = {
-      'error': [],
+      'warning': [],
       'attributes': [],
       'profile': {
         'Iterators profile': [
@@ -724,6 +732,7 @@ def test_profile_child_itrerators_array():
         ],
         'Parsing time': 0.0,
         'Pipeline creation time': 0.0,
+        'Warning': 'None',
         'Result processors profile': [
           { 'Counter': 0, 'Time': 0.0, 'Type': 'Index'},
           { 'Counter': 0, 'Time': 0.0, 'Type': 'Scorer'},
@@ -753,37 +762,26 @@ def testExpandErrorsResp3():
   env.cmd('ft.create', 'idx2', 'on', 'hash', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric')
   env.expect('FT.SEARCH', 'idx2', '*', 'FORMAT', 'EXPAND').error().contains('EXPAND format is only supported with JSON')
   
-  if not env.isCluster():
-    env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
-  else:
-    # TODO: Expect an error once MOD-5211 is done
-    env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').equal(
-       {'attributes': [], 'error': [], 'total_results': 0, 'format': 'EXPAND', 'results': []}
-    )
-
+  env.expect(
+    'FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND'
+  ).error().contains('EXPAND format is only supported with JSON')
 
 def testExpandErrorsResp2():
   env = Env(protocol=2)
   env.cmd('ft.create', 'idx', 'on', 'json', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric')
   env.expect('FT.SEARCH', 'idx', '*', 'FORMAT', 'EXPAND').error().contains('EXPAND format is only supported with RESP3')
   
-  if not env.isCluster():
-    env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').error()
-  else:
-    # TODO: Expect an error once MOD-5211 is done
-    env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').equal([0])
-
+  env.expect(
+    'FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND'
+  ).error().contains('EXPAND format is only supported with RESP3')
 
   # On HASH
   env.cmd('ft.create', 'idx2', 'on', 'hash', 'SCHEMA', 'num', 'numeric', 'str', 'text')
   env.expect('FT.SEARCH', 'idx2', '*', 'FORMAT', 'EXPAND').error().contains('EXPAND format is only supported with RESP3')
   
-  if not env.isCluster():
-    env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
-  else:
-    # TODO: Expect an error once MOD-5211 is done
-    env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').equal([0])
-
+  env.expect(
+    'FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND'
+  ).error().contains('EXPAND format is only supported with RESP3')
 
 def testExpandJson():
   ''' Test returning values for JSON in expanded format (raw RESP3 instead of stringified JSON) '''
@@ -834,7 +832,7 @@ def testExpandJson():
 
   exp_string = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'STRING',
     'results': [
@@ -844,7 +842,7 @@ def testExpandJson():
   }
   exp_expand = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'EXPAND',
     'results': [
@@ -886,7 +884,7 @@ def testExpandJson():
 
   exp_string = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'STRING',
     'results': [
@@ -897,7 +895,7 @@ def testExpandJson():
 
   exp_string_default_dialect = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'STRING',
     'results': [
@@ -908,7 +906,7 @@ def testExpandJson():
 
   exp_expand_default_dialect = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'EXPAND',
     'results': [
@@ -919,7 +917,7 @@ def testExpandJson():
 
   exp_expand = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'EXPAND',
     'results': [
@@ -986,7 +984,7 @@ def testExpandHash():
 
   exp_string = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'STRING',
     'results': [
@@ -1020,7 +1018,7 @@ def testExpandHash():
   #
   exp_string = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'STRING',
     'results': [
@@ -1069,7 +1067,7 @@ def testExpandJsonVector():
 
   exp_string = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': 2,
     'format': 'STRING',
     'results': [
@@ -1080,7 +1078,7 @@ def testExpandJsonVector():
 
   exp_expand = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': 2,
     'format': 'EXPAND',
     'results': [
@@ -1105,7 +1103,7 @@ def testExpandJsonVector():
 
   exp_string = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': 2,
     'format': 'STRING',
     'results': [
@@ -1116,7 +1114,7 @@ def testExpandJsonVector():
   
   exp_expand = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': 2,
     'format': 'EXPAND',
     'results': [
@@ -1141,7 +1139,7 @@ def testExpandJsonVector():
 
   exp_string = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': 2,
     'format': 'STRING',
     'results': [
@@ -1152,7 +1150,7 @@ def testExpandJsonVector():
   
   exp_expand = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': 2,
     'format': 'EXPAND',
     'results': [
@@ -1178,7 +1176,7 @@ def testExpandJsonVector():
   #
   exp_string = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': 2,
     'format': 'STRING',
     'results': [
@@ -1188,7 +1186,7 @@ def testExpandJsonVector():
   }
   exp_expand = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': 2,
     'format': 'EXPAND',
     'results': [
@@ -1214,7 +1212,7 @@ def testExpandJsonVector():
   #
   exp_string = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'STRING',
     'results': [
@@ -1225,7 +1223,7 @@ def testExpandJsonVector():
 
   exp_expand = {
     'attributes': [],
-    'error': [],
+    'warning': [],
     'total_results': ANY,
     'format': 'EXPAND',
     'results': [
@@ -1405,7 +1403,7 @@ def test_vecsim_1():
         r.execute_command("HSET", "docvecsimidx0z2", "vector_FLAT", np.array([2.0, 2.0], dtype=np.float32).tobytes())
         r.execute_command("HSET", "docvecsimidx0z3", "vector_FLAT", np.array([3.0, 3.0], dtype=np.float32).tobytes())
     exp3 = { 'attributes': [],
-             'error': [],
+             'warning': [],
              'total_results': 4,
              'format': 'STRING',
              'results': [
@@ -1428,8 +1426,57 @@ def test_vecsim_1():
              ]
            }
     exp2 = [3, 'docvecsimidx0z0', 'docvecsimidx0z1', 'docvecsimidx0z2', 'docvecsimidx0z3']
-    res = env.execute_command("FT.SEARCH", "vecsimidx0", "(*)=>[KNN 4 @vector_FLAT $BLOB]", "NOCONTENT", "SORTBY",
+    res = env.cmd("FT.SEARCH", "vecsimidx0", "(*)=>[KNN 4 @vector_FLAT $BLOB]", "NOCONTENT", "SORTBY",
                "__vector_FLAT_score", "ASC", "DIALECT", "2", "LIMIT", "0", "4",
                "params", "2", "BLOB", "\x00\x00\x00\x00\x00\x00\x00\x00")
     env.assertEqual(dict_diff(res, exp3 if env.protocol == 3 else exp2, show=True,
                     exclude_regex_paths=["\['sortkey'\]"]), {})
+
+def test_error_propagation_from_shards_resp3():
+    env = Env(protocol=3)
+    test_error_propagation_from_shards(env)
+
+@skip(cluster=True)
+def testTimedOutWarning_resp3():
+  env = Env(protocol=3)
+  TimedoutTest_resp3(env)
+
+def testTimedOutWarningCoord_resp3():
+   env = Env(protocol=3)
+   SkipOnNonCluster(env)
+   TimedOutWarningtestCoord(env)
+
+def test_error_with_partial_results():
+  """Test that we get 'warnings' with partial results on non-strict timeout
+  policy"""
+
+  env = Env(protocol=3)
+  conn = getConnectionByEnv(env)
+
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+  # Populate the index
+  num_docs = 25000 * env.shardsCount
+  for i in range(num_docs):
+      conn.execute_command('HSET', f'doc{i}', 't', str(i))
+
+  # `FT.AGGREGATE`
+  res = conn.execute_command(
+    'FT.AGGREGATE', 'idx', '*', 'TIMEOUT', '1'
+  )
+
+  # Assert that we got results
+  env.assertGreater(len(res['results']), 0)
+
+  # Assert that we got a warning
+  env.assertEqual(len(res['warning']), 1)
+  env.assertEqual(res['warning'][0], 'Timeout limit was reached')
+
+  # `FT.SEARCH`
+  res = conn.execute_command(
+    'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+  )
+
+  env.assertEqual(len(res['warning']), 1)
+  env.assertEqual(res['warning'][0], 'Timeout limit was reached')

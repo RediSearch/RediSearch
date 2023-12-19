@@ -1,0 +1,14 @@
+name: Weekly Flow
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  schedule:
+    - cron: "20 20 * * 0"
+
+jobs:
+  run-benchmarks:
+    uses: ./.github/workflows/benchmark-runner.yml
+    secrets: inherit
+    with:
+      extended: true

@@ -34,7 +34,7 @@ static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
   RedisModule_Reply_ArrayEnd(reply);
 }
 
-static int renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
+static void renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
   SchemaRule *rule = sp->rule;
 
   RedisModule_ReplyKV_Map(reply, "index_definition"); // index_definition
