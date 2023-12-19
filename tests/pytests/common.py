@@ -345,6 +345,8 @@ def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
 
+def to_list(input_dict: dict):
+    return [item for pair in input_dict.items() for item in pair]
 
 def get_redis_memory_in_mb(env):
     return float(env.cmd('info', 'memory')['used_memory'])/0x100000
