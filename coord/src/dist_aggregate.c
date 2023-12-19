@@ -620,37 +620,36 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, SearchCluster *sc,
   }
 }
 
-size_t PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, int isSearch);
-size_t PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies);
+void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch);
+void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch);
 
 void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout) {
   clock_t finishTime = clock();
 
-  RedisModule_Reply_Map(reply); // root
+  RedisModule_ReplyKV_Map(reply, "Shards"); // >Shards
 
-    // profileRP replace netRP as end PR
-    RPNet *rpnet = (RPNet *)req->qiter.rootProc;
+  // profileRP replace netRP as end PR
+  RPNet *rpnet = (RPNet *)req->qiter.rootProc;
 
-    // Print shards profile
-    if (reply->resp3) {
-      PrintShardProfile_resp3(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile);
-    } else {
-      PrintShardProfile_resp2(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile, 0);
-    }
+  // Print shards profile
+  if (reply->resp3) {
+    PrintShardProfile_resp3(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile, false);
+  } else {
+    PrintShardProfile_resp2(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile, false);
+  }
 
-    // Print coordinator profile
+  RedisModule_Reply_MapEnd(reply); // Shards
+  // Print coordinator profile
 
-    RedisModule_ReplyKV_Map(reply, "Coordinator"); // >coordinator
+  RedisModule_ReplyKV_Map(reply, "Coordinator"); // >coordinator
 
-      RedisModule_ReplyKV_Map(reply, "Result processors profile");
-      Profile_Print(reply, req, timedout);
-      RedisModule_Reply_MapEnd(reply);
+  RedisModule_ReplyKV_Map(reply, "Result processors profile");
+  Profile_Print(reply, req, timedout);
+  RedisModule_Reply_MapEnd(reply);
 
-      RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC);
+  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC);
 
-    RedisModule_Reply_MapEnd(reply); // >coordinator
-
-  RedisModule_Reply_MapEnd(reply); // root
+  RedisModule_Reply_MapEnd(reply); // >coordinator
 }
 
 static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
