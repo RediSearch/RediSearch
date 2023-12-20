@@ -518,30 +518,32 @@ void VecSimLogCallback(void *ctx, const char *level, const char *message) {
   RedisModule_Log(NULL, level, "vector index '%s' - %s", log_ctx->index_field_name, message);
 }
 
-VecSimIndex **VecSim_GetAllTieredIndexes(StrongRef spec_ref) {
-  IndexSpec *sp = StrongRef_Get(spec_ref);
-  FieldSpec **vector_fields = getFieldsByType(sp, INDEXFLD_T_VECTOR);
-  VecSimIndex **tieredIndexes = array_new(VecSimIndex *, array_len(vector_fields));
-  for (size_t i = 0; i < array_len(vector_fields); i++) {
-    if (vector_fields[i]->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED) {
-      RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, vector_fields[i], INDEXFLD_T_VECTOR);
-      // TODO: simplify OpenVectorIndex so that it won't go over the entire spec again?
-      VecSimIndex *tiered_index = OpenVectorIndex(sp, vecsim_name);
-      array_append(tieredIndexes, tiered_index);
+int VecSim_CallTieredIndexesGC(WeakRef spRef) {
+  // Get spec
+  StrongRef strong = WeakRef_Promote(spRef);
+  IndexSpec *sp = StrongRef_Get(strong);
+  if (!sp) {
+    // Index was deleted
+    return 0;
+  }
+  // Lock the spec for reading
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
+  RedisSearchCtx_LockSpecRead(&sctx);
+  // Iterate over the fields and call the GC for each tiered index
+  if (sp->flags & Index_HasVecSim) { // Early return if the spec doesn't have vector indexes
+    for (size_t ii = 0; ii < sp->numFields; ++ii) {
+      if (sp->fields[ii].types & INDEXFLD_T_VECTOR &&
+          sp->fields[ii].vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED) {
+        // Get the vector index
+        RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, sp->fields + ii, INDEXFLD_T_VECTOR);
+        VecSimIndex *vecsim = openVectorKeysDict(sp, vecsim_name, 0);
+        // Call the tiered index GC if the vector index is not empty
+        if (vecsim) VecSimTieredIndex_GC(vecsim);
+      }
     }
   }
-  array_free(vector_fields);
-  return tieredIndexes;
-}
-
-void VecSim_CallTieredIndexesGC(VecSimIndex **tieredIndexes, WeakRef spRef) {
-  StrongRef sp = WeakRef_Promote(spRef);
-  if (!StrongRef_Get(sp)) {
-    // Index was deleted
-    return;
-  }
-  for (size_t i = 0; i < array_len(tieredIndexes); i++) {
-    VecSimTieredIndex_GC(tieredIndexes[i]);
-  }
-  StrongRef_Release(sp);
+  // Cleanup and return success
+  RedisSearchCtx_UnlockSpec(&sctx);
+  StrongRef_Release(strong);
+  return 1;
 }
