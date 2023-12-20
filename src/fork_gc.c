@@ -521,21 +521,13 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
   FGC_sendTerminator(gc);
 }
 
-static void FGC_childScanIndexes(ForkGC *gc) {
-  StrongRef cur_run_ref = WeakRef_Promote(gc->index);
-  IndexSpec *spec = StrongRef_Get(cur_run_ref);
-  if (!spec) {
-    // write log here
-    return;
-  }
-
+static void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, spec);
 
   FGC_childCollectTerms(gc, &sctx);
   FGC_childCollectNumeric(gc, &sctx);
   FGC_childCollectTags(gc, &sctx);
 
-  StrongRef_Release(cur_run_ref);
 }
 
 typedef struct {
@@ -1133,14 +1125,24 @@ static int FGC_fork(ForkGC *gc, RedisModuleCtx *ctx) {
 static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   ForkGC *gc = privdata;
 
+  // This check must be done first, because some values (like `deletedDocsFromLastRun`) that are used for
+  // early termination might never change after index deletion and will cause periodicCb to always return 1,
+  // which will cause the GC to never stop rescheduling itself.
+  // If the index was deleted, we don't want to reschedule the GC, so we return 0.
+  // If the index is still valid, we MUST hold the strong reference to it until after the fork, to make sure
+  // the child process has a valid reference to the index.
+  // If we were to try and revalidate the index after the fork, it might already be droped and the child
+  // will exit before sending any data, and might left the parent waiting for data that will never arrive.
+  // Attempting to revalidate the index after the fork is also problematic because the parent and child are
+  // not synchronized, and the parent might see the index alive while the child sees it as deleted.
   StrongRef early_check = WeakRef_Promote(gc->index);
   if (!StrongRef_Get(early_check)) {
     // Index was deleted
     return 0;
   }
-  StrongRef_Release(early_check);
 
   if (gc->deletedDocsFromLastRun < RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold) {
+    StrongRef_Release(early_check);
     return 1;
   }
 
@@ -1160,6 +1162,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   int rc = pipe(gc->pipefd);  // create the pipe
   if (rc == -1) {
     RedisModule_Log(ctx, "warning", "Couldn't create pipe - got errno %d, aborting fork GC", errno);
+    StrongRef_Release(early_check);
     return 1;
   }
 
@@ -1173,6 +1176,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   if (cpid == -1) {
     RedisModule_Log(ctx, "warning", "fork failed - got errno %d, aborting fork GC", errno);
     gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRetryInterval;
+    StrongRef_Release(early_check);
 
     RedisModule_ThreadSafeContextUnlock(ctx);
 
@@ -1205,12 +1209,15 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
       if (getppid() != ppid_before_fork) exit(1);
     }
 #endif
-    FGC_childScanIndexes(gc);
+    // Pass the index to the child process
+    FGC_childScanIndexes(gc, StrongRef_Get(early_check));
     close(gc->pipefd[GC_WRITERFD]);
     sleep(RSGlobalConfig.gcConfigParams.forkGc.forkGcSleepBeforeExit);
     _exit(EXIT_SUCCESS);
   } else {
     // main process
+    // release the strong reference to the index for the main process (see comment above)
+    StrongRef_Release(early_check);
     close(gc->pipefd[GC_WRITERFD]);
     while (gc->pauseState == FGC_PAUSED_PARENT) {
       gc->execState = FGC_STATE_WAIT_APPLY;
@@ -1243,7 +1250,9 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
       }
     }
 #ifdef MT_BUILD
-    VecSim_CallTieredIndexesGC(gc->tieredIndexes, gc->index);
+    if (gcrv) {
+      gcrv = VecSim_CallTieredIndexesGC(gc->index);
+    }
 #endif
   }
   gc->execState = FGC_STATE_IDLE;
@@ -1298,7 +1307,6 @@ static void onTerminateCb(void *privdata) {
   ForkGC *gc = privdata;
   WeakRef_Release(gc->index);
   RedisModule_FreeThreadSafeContext(gc->ctx);
-  array_free(gc->tieredIndexes);
   rm_free(gc);
 }
 
@@ -1350,9 +1358,6 @@ ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
   forkGc->retryInterval.tv_nsec = 0;
 
   forkGc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes;
-#ifdef MT_BUILD
-  forkGc->tieredIndexes = VecSim_GetAllTieredIndexes(spec_ref);
-#endif
   forkGc->ctx = RedisModule_GetThreadSafeContext(NULL);
 
   callbacks->onTerm = onTerminateCb;
