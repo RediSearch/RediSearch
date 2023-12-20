@@ -13,6 +13,8 @@
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
+#include <unistd.h>
+#include <sys/wait.h>
 #include <climits>
 #include <cassert>
 #include <mutex>
@@ -728,6 +730,19 @@ static int RMCK_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent eve
   return REDISMODULE_OK;
 }
 
+/** Fork */
+static int RMCK_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
+  return fork();
+}
+
+static int RMCK_ExitFromChild(int retcode) {
+  _exit(retcode);
+}
+
+static int RMCK_KillForkChild(int child_pid) {
+  return waitpid(child_pid, NULL, 0);
+}
+
 /** Misc */
 RedisModuleCtx::~RedisModuleCtx() {
   if (automemory) {
@@ -838,6 +853,10 @@ static void registerApis() {
   REGISTER_API(RegisterCommandFilter);
 
   REGISTER_API(SetModuleOptions);
+
+  REGISTER_API(KillForkChild);
+  REGISTER_API(ExitFromChild);
+  REGISTER_API(Fork);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {
