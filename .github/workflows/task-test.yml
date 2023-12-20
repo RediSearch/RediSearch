@@ -70,6 +70,14 @@ jobs:
       - name: py version after build
         if: inputs.env == 'macos-12'
         run: python --version
+      - name: Install Python
+        if: inputs.env == 'macos-12'
+        uses: actions/setup-python@v3
+        with:
+            python-version: '3.10'
+      - name: py version after install
+        if: inputs.env == 'macos-12'
+        run: python --version
       - name: Setup (readies)
         if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0' && inputs.env != 'macos-12'
         run: ./sbin/setup
