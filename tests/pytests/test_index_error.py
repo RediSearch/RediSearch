@@ -236,8 +236,8 @@ def test_vector_indexing_with_json(env):
 
   expected_error_dict = {
                           indexing_failures_str: 0,
-                          last_indexing_error_str: 'NA',
-                          last_indexing_error_key_str: 'NA'
+                          last_indexing_error_str: 'N/A',
+                          last_indexing_error_key_str: 'N/A'
                         }
 
 

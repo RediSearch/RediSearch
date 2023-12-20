@@ -40,7 +40,7 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *info, IndexError error) {
 // Reply a Field spec info.
 void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply) {
     RedisModule_Reply_Map(reply);
-    
+
     REPLY_KVSTR("identifier", info->identifier);
     REPLY_KVSTR("attribute", info->attribute);
     // Set the error as a new object.

@@ -404,17 +404,17 @@ def test_info():
                        'identifier': 'f1',
                        'Index Errors': {
                                         'indexing failures': 0,
-                                        'last indexing error': 'NA',
-                                        'last indexing error key': 'NA'
-                                      }
+                                        'last indexing error': 'N/A',
+                                        'last indexing error key': 'N/A'
+                                       }
                       },
                       {'attribute': 'f2',
                        'identifier': 'f2',
                        'Index Errors': {
-                                        'indexing failures': 0, 
-                                        'last indexing error': 'NA',
-                                        'last indexing error key': 'NA'
-                                        }
+                                        'indexing failures': 0,
+                                        'last indexing error': 'N/A',
+                                        'last indexing error key': 'N/A'
+                                       }
                         }
                       ],
       'bytes_per_record_avg': ANY,
@@ -446,8 +446,8 @@ def test_info():
       'vector_index_sz_mb': 0.0,
       'Index Errors': {
           'indexing failures': 0,
-          'last indexing error': 'NA',
-          'last indexing error key': 'NA'
+          'last indexing error': 'N/A',
+          'last indexing error key': 'N/A'
           }
       }
     res = env.cmd('FT.info', 'idx1')
@@ -761,7 +761,7 @@ def testExpandErrorsResp3():
   # On HASH
   env.cmd('ft.create', 'idx2', 'on', 'hash', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric')
   env.expect('FT.SEARCH', 'idx2', '*', 'FORMAT', 'EXPAND').error().contains('EXPAND format is only supported with JSON')
-  
+
   env.expect(
     'FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND'
   ).error().contains('EXPAND format is only supported with JSON')
@@ -770,7 +770,7 @@ def testExpandErrorsResp2():
   env = Env(protocol=2)
   env.cmd('ft.create', 'idx', 'on', 'json', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric')
   env.expect('FT.SEARCH', 'idx', '*', 'FORMAT', 'EXPAND').error().contains('EXPAND format is only supported with RESP3')
-  
+
   env.expect(
     'FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND'
   ).error().contains('EXPAND format is only supported with RESP3')
@@ -778,7 +778,7 @@ def testExpandErrorsResp2():
   # On HASH
   env.cmd('ft.create', 'idx2', 'on', 'hash', 'SCHEMA', 'num', 'numeric', 'str', 'text')
   env.expect('FT.SEARCH', 'idx2', '*', 'FORMAT', 'EXPAND').error().contains('EXPAND format is only supported with RESP3')
-  
+
   env.expect(
     'FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND'
   ).error().contains('EXPAND format is only supported with RESP3')
@@ -948,7 +948,7 @@ def testExpandJson():
   # Test FT.AGGREAGTE
   del exp_expand['results'][0]['id']
   del exp_expand['results'][1]['id']
-  
+
   del exp_string_default_dialect['results'][0]['id']
   del exp_string_default_dialect['results'][1]['id']
 
@@ -1111,7 +1111,7 @@ def testExpandJsonVector():
       {'id': 'doc2', 'extra_attributes': {'__vec_score': '12.7095842361', "num": "2", '$': doc2_content_js}, 'values': []}
     ]
   }
-  
+
   exp_expand = {
     'attributes': [],
     'warning': [],
@@ -1124,7 +1124,7 @@ def testExpandJsonVector():
   }
 
   cmd = ['FT.SEARCH', 'idx', '*=>[KNN 2 @vec $B]', 'PARAMS', '2', 'B', '????????????', 'SORTBY', 'num', 'ASC']
-  
+
   res = env.cmd(*cmd, 'FORMAT', 'STRING')
   env.assertEqual(res, exp_string)
 
@@ -1147,7 +1147,7 @@ def testExpandJsonVector():
       {'id': 'doc2', 'sortkey': '#2', 'extra_attributes': {'__vec_score': '12.7095842361', "num": "2", '$': doc2_content_js}, 'values': []}
     ]
   }
-  
+
   exp_expand = {
     'attributes': [],
     'warning': [],
@@ -1160,7 +1160,7 @@ def testExpandJsonVector():
   }
 
   cmd = [*cmd, 'WITHSORTKEYS']
-  
+
   res = env.cmd(*cmd, 'FORMAT', 'STRING')
   env.assertEqual(res, exp_string)
 
@@ -1169,7 +1169,7 @@ def testExpandJsonVector():
   env.assertEqual(res, exp_string)
 
   res = env.cmd(*cmd, 'FORMAT', 'EXPAND')
-  env.assertEqual(res, exp_expand)  
+  env.assertEqual(res, exp_expand)
 
   #
   # Return specific field
@@ -1262,9 +1262,9 @@ def test_ft_info():
               'identifier': 't',
               'attribute': 't',
               'Index Errors': {
-                  'indexing failures': 0, 
-                  'last indexing error': 'NA', 
-                  'last indexing error key': 'NA'
+                  'indexing failures': 0,
+                  'last indexing error': 'N/A',
+                  'last indexing error key': 'N/A'
               }
             }
         ],
@@ -1319,9 +1319,9 @@ def test_ft_info():
         'total_inverted_index_blocks': 0.0,
         'vector_index_sz_mb': 0.0,
         'Index Errors': {
-              'indexing failures': 0, 
-              'last indexing error': 'NA', 
-              'last indexing error key': 'NA'
+              'indexing failures': 0,
+              'last indexing error': 'N/A',
+              'last indexing error key': 'N/A'
         }
       }
 
@@ -1339,9 +1339,9 @@ def test_ft_info():
               'identifier': 't',
               'attribute': 't',
               'Index Errors': {
-                  'indexing failures': 0, 
-                  'last indexing error': 'NA', 
-                  'last indexing error key': 'NA'
+                  'indexing failures': 0,
+                  'last indexing error': 'N/A',
+                  'last indexing error key': 'N/A'
               }
             }
         ],
@@ -1386,9 +1386,9 @@ def test_ft_info():
         'total_inverted_index_blocks': 0,
         'vector_index_sz_mb': 0.0,
         'Index Errors': {
-              'indexing failures': 0, 
-              'last indexing error': 'NA', 
-              'last indexing error key': 'NA'
+              'indexing failures': 0,
+              'last indexing error': 'N/A',
+              'last indexing error key': 'N/A'
         }
       }
 

@@ -1780,7 +1780,7 @@ static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_F
 
 static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver) {
 
-  
+
   f->indexError = IndexError_Init();
 
   // Fall back to legacy encoding if needed
@@ -2760,8 +2760,6 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
 #endif
   return REDISMODULE_OK;
 }
-
-// int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError *status);
 
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);

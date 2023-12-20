@@ -292,7 +292,7 @@ int MR_ReplyWithMRReply(RedisModule_Reply *reply, MRReply *rep) {
 
     case MR_REPLY_DOUBLE:
       return RedisModule_Reply_Double(reply, MRReply_Double(rep));
-  
+
     case MR_REPLY_ATTR:
     case MR_REPLY_PUSH:
     case MR_REPLY_BIGNUM:

@@ -15,7 +15,7 @@
 typedef struct {
     const char *identifier; // The identifier of the field spec.
     const char *attribute; // The attribute of the field spec.
-    IndexError error; // Indexing error of the field spec.   
+    IndexError error; // Indexing error of the field spec.
 } FieldSpecInfo;
 
 // Create stack allocated FieldSpecInfo.
@@ -34,7 +34,7 @@ void FieldSpecInfo_SetAttribute(FieldSpecInfo *info, const char *attribute);
 // Sets the index error of the field spec.
 void FieldSpecInfo_SetIndexError(FieldSpecInfo *, IndexError error);
 
-// IO and cluser traits
+// IO and cluster traits
 // Reply a Field spec info.
 void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply);
 
@@ -48,4 +48,3 @@ void FieldSpecInfo_OpPlusEquals(FieldSpecInfo *info, const FieldSpecInfo *other)
 // Deserializes a FieldSpecInfo from a MRReply.
 FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply);
 #endif
-

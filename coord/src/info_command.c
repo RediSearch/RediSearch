@@ -77,7 +77,7 @@ typedef struct {
     size_t total_l;
     double total_d;
     struct {
-      double avg;
+      double sum;
       double count;
     } avg;
     struct {
@@ -139,7 +139,7 @@ static void convertField(InfoValue *dst, MRReply *src, const InfoFieldSpec *spec
       dst->u.avg.count++;
       double d;
       MRReply_ToDouble(src, &d);
-      dst->u.avg.avg += d;
+      dst->u.avg.sum += d;
       break;
     }
     case InfoField_Max: {
@@ -287,7 +287,7 @@ static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue
       RedisModule_ReplyKV_Double(reply, key, source->u.total_d);
     } else if (type == InfoField_DoubleAverage) {
       if (source->u.avg.count) {
-        RedisModule_ReplyKV_Double(reply, key, source->u.avg.avg / source->u.avg.count);
+        RedisModule_ReplyKV_Double(reply, key, source->u.avg.sum / source->u.avg.count);
       } else {
         RedisModule_ReplyKV_Double(reply, key, 0);
       }
@@ -304,7 +304,7 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
   if (fields->indexName) {
     RedisModule_ReplyKV_StringBuffer(reply, "index_name", fields->indexName, fields->indexNameLen);
   }
-  
+
   if (fields->indexDef) {
     RedisModule_ReplyKV_MRReply(reply, "index_definition", fields->indexDef);
   }
@@ -339,7 +339,7 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
 
   replyKvArray(reply, fields, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);
 
-    
+
   // Global index error stats
   RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
   IndexError_Reply(&fields->indexError, reply);
