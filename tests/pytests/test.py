@@ -3905,3 +3905,25 @@ def test_timeoutCoordSearch_Strict():
     env.assertEqual(res[0], n_docs)
 
     env.expect('ft.search', 'idx', '*', 'TIMEOUT', '1').error().contains('Timeout limit was reached')
+
+@skip(cluster=True)
+def test_notIterTimeout(env):
+    """Tests that we fail fast from the NOT iterator in the edge case similar to
+    MOD-5512"""
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CONFIG', 'SET', 'ON_TIMEOUT', 'FAIL')
+
+    # Create an index
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'tag1', 'TAG', 'title', 'TEXT')
+
+    # Populate the index
+    num_docs = 70000
+    for i in range(num_docs):
+        env.cmd('HSET', f'doc:{i}', 'tag1', 'fantasy', 'title', f'title:{i}')
+
+    # Send a query that will skip all the docs, such that a lot of time will be
+    # spent in the NOT iterator loop (coverage).
+    env.expect(
+        'FT.AGGREGATE', 'idx', '-@tag1:{fantasy}', 'LOAD', '1', '@title', 'TIMEOUT', '1'
+    ).error().contains('Timeout limit was reached')
