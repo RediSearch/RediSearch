@@ -209,9 +209,9 @@ def test_geo_index_failures(env):
 #     con.execute_command('HSET', 'doc{2}', 'geom', 'POLYGON((0 0, 1 1, 2 2, 0 0))')
 
 #     info = index_info(env)
-#     env.assertEqual(info['num_docs'], '1')
+#     env.assertEqual(info['num_docs'], 2)
 
-#     field_spec_dict = get_field_spec_dict(info)
+#     field_spec_dict = get_field_stats_dict(info)
 
 #     env.assertEqual(field_spec_dict['indexing failures'], '1')
 #     env.assertEqual(field_spec_dict['last indexing error key'], 'doc{1}')
@@ -221,7 +221,7 @@ def test_geo_index_failures(env):
 #     env.assertEqual(info['last indexing error key'], 'doc{1}')
 #     env.assertEqual(info['last indexing error'], 'Invalid geoshape string')
 
-###################### JSON failues ######################
+###################### JSON failures ######################
 
 def test_vector_indexing_with_json(env):
   con = getConnectionByEnv(env)

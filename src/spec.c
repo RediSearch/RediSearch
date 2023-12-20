@@ -2790,10 +2790,8 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   }
 
   if (rv != REDISMODULE_OK) {
-    // TODO: Validate that this is the correct behavior since this can be done inside the indexing functions.
+    // we already unlocked the spec but we can increase this value atomically
     IndexError_AddError(&spec->stats.indexError, status.detail, doc.docKey);
-    // // we already unlocked the spec but we can increase this value atomically
-    // __atomic_add_fetch(&spec->stats.indexingFailures, 1, __ATOMIC_RELAXED);
 
     // if a document did not load properly, it is deleted
     // to prevent mismatch of index and hash
