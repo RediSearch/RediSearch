@@ -1513,14 +1513,11 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
 }
 
 static bool should_return_error(MRReply *reply) {
-  // TODO: Replace second condition with a var instead of hard-coded string
-  char *errStr = MRReply_String(reply, NULL);
-  if (!errStr
-      || strcmp(errStr, "Timeout limit was reached")
-      || RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
-        return true;
-  }
-  return false;
+  // TODO: Replace third condition with a var instead of hard-coded string
+  const char *errStr = MRReply_String(reply, NULL);
+  return (!errStr
+          || RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
+          || strcmp(errStr, "Timeout limit was reached"));
 }
 
 static bool should_return_timeout_error(searchRequestCtx *req) {

@@ -397,7 +397,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
     // If an error was returned, propagate it
     if(MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
-      char *strErr = MRReply_String(nc->current.root, NULL);
+      const char *strErr = MRReply_String(nc->current.root, NULL);
       if (!strErr
           || strcmp(strErr, "Timeout limit was reached")
           || nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
