@@ -1,4 +1,4 @@
-from common import waitForIndex, forceInvokeGC, skip, to_list, index_info
+from common import waitForIndex, forceInvokeGC, skip, to_list, index_info, Env
 
 # The output for this test can be used for recreating documentation for `FT.INFO`
 @skip()
