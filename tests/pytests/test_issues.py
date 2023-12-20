@@ -801,6 +801,22 @@ def test_mod5252(env):
   env.assertEqual(res, [1, ['key_name', 'doc']])
 
 
+@skip(cluster=True)
+def test_mod_6276(env):
+  # Setting the gc threshold to 0 so the gc won't skip its periodic run
+  env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+  # Create an index and add a document + garbage
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('HSET', 'doc', 't', 'Hello').equal(1)
+  # Actual Test
+  env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', 'idx').ok()   # Stop the gc from running uncontrollably
+  env.expect('FT.DEBUG', 'GC_WAIT_FOR_JOBS').equal('DONE') # Make sure there are no running gc jobs
+  env.expect('MULTI').ok()                                 # Start an atomic transaction:
+  env.cmd('FT.DEBUG', 'GC_FORCEBGINVOKE', 'idx')           # 1. Force the gc to run
+  env.cmd('FT.DROPINDEX', 'idx')                           # 2. Drop the index while the gc is running
+  env.expect('EXEC').equal(['OK', 'OK'])                   # Execute the transaction
+  env.expect('FT.DEBUG', 'GC_WAIT_FOR_JOBS').equal('DONE') # Wait for the gc to finish
+
 def test_mod5791(env):
     con = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DISTANCE_METRIC', 'L2',
