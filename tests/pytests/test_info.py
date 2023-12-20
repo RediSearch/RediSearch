@@ -1,11 +1,6 @@
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, forceInvokeGC, skip
+from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, forceInvokeGC, skip, to_list, ft_info_to_dict
 from RLTest import Env
 from time import sleep
-
-
-def ft_info_to_dict(env, idx):
-  res = env.execute_command('ft.info', idx)
-  return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
 
 # The output for this test can be used for recreating documentation for `FT.INFO`
 @skip()
@@ -52,6 +47,34 @@ def testInfo(env):
 
   #print info
 
+def test_vecsim_info():
+  env = Env(protocol=3)
+  dim = 2
+
+  for alg in ["HNSW", "FLAT"]:
+    info_expected = {"identifier": "vec", "attribute": "vec", "type": "VECTOR", "algorithm": alg,
+                     "dim": dim, "flags": []}
+    additional_params = {"M": 12, "ef_construction": 100} if alg == "HNSW" else {}
+    info_expected.update(additional_params)
+    # for each data type
+    for type in ["FLOAT32", "FLOAT64"]:
+      info_expected["data_type"] = type
+      # for each metric
+      for metric in ["L2", "IP", "COSINE"]:
+        info_expected["distance_metric"] = metric
+        # create index
+        params = ["TYPE", type, "DIM", dim,
+                  "DISTANCE_METRIC", metric, *to_list(additional_params)]
+
+        env.expect('FT.CREATE', "idx", 'SCHEMA', "vec", 'VECTOR', alg, len(params), *params).ok()
+
+        # check info
+        info = env.executeCommand('ft.info', 'idx')
+        env.assertEqual(info["attributes"][0], info_expected,
+                        message=f"info for ({alg, type, metric})")
+
+        # drop index
+        env.expect('FT.DROPINDEX', 'idx').ok()
 
 def test_numeric_info(env):
 

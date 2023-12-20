@@ -115,10 +115,14 @@ def toSortedFlatList(res):
         return py2sorted(finalList)
     return [res]
 
+def ft_info_to_dict(env, idx):
+  res = env.cmd('ft.info', idx)
+  return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+
+
 def assertInfoField(env, idx, field, expected, delta=None):
     if not env.isCluster():
-        res = env.cmd('ft.info', idx)
-        d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+        d = ft_info_to_dict(env, idx)
         if delta is None:
             env.assertEqual(d[field], expected)
         else:
@@ -346,6 +350,8 @@ def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
 
+def to_list(input_dict: dict):
+    return [item for pair in input_dict.items() for item in pair]
 
 def get_redis_memory_in_mb(env):
     return float(env.cmd('info', 'memory')['used_memory'])/0x100000
