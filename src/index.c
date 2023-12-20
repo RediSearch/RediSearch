@@ -1314,6 +1314,7 @@ static int NI_ReadSorted(void *ctx, RSIndexResult **hit) {
       return INDEXREAD_TIMEOUT;
     }
   }
+  nc->timeoutCtx.counter = 0;
 
 ok:
   // make sure we did not overflow
