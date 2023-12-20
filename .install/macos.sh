@@ -5,11 +5,10 @@ GNUBIN=$BREW_PREFIX/opt/make/libexec/gnubin
 LLVM=$BREW_PREFIX/opt/llvm@16/bin
 COREUTILS=$BREW_PREFIX/opt/coreutils/libexec/gnubin
 
-brew update
+#brew update
 brew install coreutils
 brew install make
 brew install llvm@16
-brew link --overwrite python@3
 
 echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.bashrc
 echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.zshrc
