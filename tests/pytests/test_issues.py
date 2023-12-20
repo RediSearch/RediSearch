@@ -869,6 +869,7 @@ def mod5778_add_new_shard_to_cluster(env: Env):
                        'ssl_ca_certs': env.envRunner.shards[0].getTLSCACertFile(),
                        'ssl_password': env.envRunner.tlsPassphrase})
 
+    # Connect the new instance to the cluster (making sure the new instance didn't crash)
     env.assertTrue(conn.cluster_meet('127.0.0.1', new_instance_port))
 
     new_instance_conn = None
@@ -881,8 +882,8 @@ def mod5778_add_new_shard_to_cluster(env: Env):
             pass  # these two exceptions indicate that the new shard still waking up
     env.assertTrue(new_instance_conn.ping()) # make sure the new instance is alive
 
-    # Connect the new instance to the cluster (making sure the new instance didn't crash)
     env.assertEqual(len(conn.cluster_nodes()), len(env.envRunner.shards) + 1)
+    env.assertEqual(len(new_instance_conn.cluster_nodes()), len(env.envRunner.shards) + 1)
 
     # TODO: make this non-flaky
     # wait_time = 60
@@ -926,7 +927,8 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     #                   'waiting for cluster slots to update')
 
     new_instance.kill()
-    os.remove('nodes.conf')
+    if os.path.exists('nodes.conf'):
+        os.remove('nodes.conf')
 
 
 @skip(cluster=True)
