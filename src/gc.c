@@ -68,7 +68,8 @@ static void threadCallback(void* data) {
 
   // if GC was invoke by debug command, we release the client
   // and terminate without rescheduling the task again.
-  if (task->debug) {
+  // Exception: if the index was freed, we need to free the task and the GC.
+  if (task->debug && ret) {
     if (bc) {
       RedisModule_UnblockClient(bc, NULL);
     }
@@ -77,23 +78,27 @@ static void threadCallback(void* data) {
   }
 
   if (!ret) {
-    rm_free (task);
+    // The index was freed. There is no need to reschedule the task.
+    // We need to free the task and the GC.
+    RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "GC %p: Self-Terminating. Index was freed.", gc);
+    gc->callbacks.onTerm(gc->gcCtx);
+    if (bc) RedisModule_UnblockClient(bc, NULL);
+    rm_free(task);
+    rm_free(gc);
     goto end;
   }
 
   RedisModule_ThreadSafeContextLock(ctx);
-  gc->timerID = scheduleNext(task);
+  if (gc->timerID) {
+    gc->timerID = scheduleNext(task);
+  } else {
+    RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "GC %p: Not scheduling next collection", gc);
+    rm_free(task);
+  }
   RedisModule_ThreadSafeContextUnlock(ctx);
 
 end:
   RedisModule_FreeThreadSafeContext(ctx);
-}
-
-static void destroyCallback(void* data) {
-  GCContext* gc = data;
-
-  gc->callbacks.onTerm(gc->gcCtx);
-  rm_free(gc);
 }
 
 static void timerCallback(RedisModuleCtx* ctx, void* data) {
@@ -117,29 +122,12 @@ void GCContext_Start(GCContext* gc) {
   }
 }
 
-void GCContext_Stop(GCContext* gc) {
-  if (RS_IsMock) {
-    // for fork gc debug
-    RedisModule_FreeThreadSafeContext(((ForkGC *)gc->gcCtx)->ctx);
-    array_free(((ForkGC *)gc->gcCtx)->tieredIndexes);
-    WeakRef_Release(((ForkGC *)gc->gcCtx)->index);
-    free(gc->gcCtx);
-    free(gc);
-    return;
-  }
-
-  GCTask *data = NULL;
-  if (RedisModule_StopTimer(RSDummyContext, gc->timerID, (void**)&data) == REDISMODULE_OK) {
-    // GC is not running, we can free it immediately
-    assert(data->gc == gc);
-    rm_free(data);  // release task memory
-
-    // free gc
-    destroyCallback(gc);
-  } else {
-    // GC is running, we add a task to the thread pool to free it
-    redisearch_thpool_add_work(gcThreadpool_g, destroyCallback, gc, THPOOL_PRIORITY_HIGH);
-  }
+void GCContext_StopMock(GCContext* gc) {
+  // for fork gc debug
+  RedisModule_FreeThreadSafeContext(((ForkGC *)gc->gcCtx)->ctx);
+  WeakRef_Release(((ForkGC *)gc->gcCtx)->index);
+  free(gc->gcCtx);
+  free(gc);
 }
 
 void GCContext_RenderStats(GCContext* gc, RedisModule_Reply* reply) {
@@ -169,6 +157,16 @@ void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
 
 void GCContext_ForceBGInvoke(GCContext* gc) {
   GCContext_CommonForceInvoke(gc, NULL);
+}
+
+static void GCContext_UnblockClient(void* data) {
+  RedisModuleBlockedClient *bc = data;
+  RedisModule_BlockedClientMeasureTimeEnd(bc);
+  RedisModule_UnblockClient(bc, NULL);
+}
+
+void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc) {
+  redisearch_thpool_add_work(gcThreadpool_g, GCContext_UnblockClient, bc, THPOOL_PRIORITY_HIGH);
 }
 
 void GC_ThreadPoolStart() {

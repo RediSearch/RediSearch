@@ -2273,10 +2273,9 @@ def test_score_name_case_sensitivity():
 
 
 @skip(cluster=True, noWorkers=True)
-def test_tiered_index_gc(env):
-    fork_gc_interval_sec = '10'
-    N = 1000
-    env = Env(moduleArgs=f'WORKER_THREADS 2 MT_MODE MT_MODE_FULL FORK_GC_RUN_INTERVAL {fork_gc_interval_sec}'
+def test_tiered_index_gc():
+    N = 100
+    env = Env(moduleArgs=f'WORKER_THREADS 2 MT_MODE MT_MODE_FULL FORK_GC_RUN_INTERVAL 1000000000000'
                          f' FORK_GC_CLEAN_THRESHOLD {N}')
     conn = getConnectionByEnv(env)
     dim = 16
@@ -2284,6 +2283,9 @@ def test_tiered_index_gc(env):
                          'v1', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
                          'v2', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT64', 'DIM', dim, 'DISTANCE_METRIC', 'COSINE',
                          't', 'TEXT')
+    # Create another vector index with `FT.ALTER` command. (relevant for the GC - related to MOD-6276)
+    conn.execute_command('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'v1', 'AS',
+                         'v3', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2')
 
     # Insert random vectors to an index with two vector fields.
     for i in range(N):
@@ -2292,14 +2294,14 @@ def test_tiered_index_gc(env):
                                    'v2', create_np_array_typed(np.random.random((1, dim)), 'FLOAT64').tobytes())
         env.assertEqual(res, 3)
 
+    def get_debug_info():
+        return {v: get_vecsim_debug_dict(env, 'idx', v) for v in ['v1', 'v2', 'v3']}
+
     # Wait until all vectors are indexed into HNSW.
-    while True:
-        debug_info_v1 = get_vecsim_debug_dict(env, 'idx', 'v1')
-        debug_info_v2 = get_vecsim_debug_dict(env, 'idx', 'v2')
-        if debug_info_v1['BACKGROUND_INDEXING'] or debug_info_v2['BACKGROUND_INDEXING']:
-            time.sleep(1)
-        else:
-            break
+    debug_info = get_debug_info()
+    while np.any([index['BACKGROUND_INDEXING'] for index in debug_info.values()]):
+        time.sleep(0.1)
+        debug_info = get_debug_info()
 
     # Delete all documents. Note that we have less than TIERED_HNSW_SWAP_JOBS_THRESHOLD docs (1024),
     # so we know that we won't execute swap jobs during the 'DEL' command execution.
@@ -2307,14 +2309,16 @@ def test_tiered_index_gc(env):
         res = conn.execute_command('DEL', i)
         env.assertEqual(res, 1)
 
-    debug_info_v1 = get_vecsim_debug_dict(env, 'idx', 'v1')
-    debug_info_v2 = get_vecsim_debug_dict(env, 'idx', 'v2')
-    env.assertEqual(to_dict(debug_info_v1['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
-    env.assertEqual(to_dict(debug_info_v2['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
+    debug_info = get_debug_info()
+    env.assertEqual(to_dict(debug_info['v1']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
+    env.assertEqual(to_dict(debug_info['v2']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
+    env.assertEqual(to_dict(debug_info['v3']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
 
     # Wait for GC to remove the deleted vectors.
-    time.sleep(2*int(fork_gc_interval_sec))
-    debug_info_v1 = get_vecsim_debug_dict(env, 'idx', 'v1')
-    debug_info_v2 = get_vecsim_debug_dict(env, 'idx', 'v2')
-    env.assertEqual(to_dict(debug_info_v1['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
-    env.assertEqual(to_dict(debug_info_v2['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+    time.sleep(2) # TODO: add a way to know when all swap jobs are ready (from vecsim or by analyzing the worker's jobs)
+    env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx').equal('DONE')
+
+    debug_info = get_debug_info()
+    env.assertEqual(to_dict(debug_info['v1']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+    env.assertEqual(to_dict(debug_info['v2']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+    env.assertEqual(to_dict(debug_info['v3']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)

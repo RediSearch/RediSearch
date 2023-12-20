@@ -28,11 +28,11 @@ class TestDebugCommands(object):
         help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_NUMIDXTREE', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'DUMP_GEOMIDX',
                      'DUMP_PREFIX_TRIE', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO', 'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE',
                      'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY', 'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC',
-                     'GIT_SHA', 'TTL', 'VECSIM_INFO']
+                     'GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_WAIT_FOR_JOBS', 'GIT_SHA', 'TTL', 'VECSIM_INFO']
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
         for cmd in help_list:
-            if cmd in ['GIT_SHA', 'DUMP_PREFIX_TRIE']:
+            if cmd in ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS']:
                 # 'GIT_SHA' and 'DUMP_PREFIX_TRIE' do not return err_msg
                  continue
             self.env.expect('FT.DEBUG', cmd).error().contains(err_msg)
@@ -185,3 +185,10 @@ class TestDebugCommands(object):
 
     def testDumpSuffixWrongArity(self):
         self.env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx1', 'no_suffix').error()
+
+    def testGCStopAndContinueSchedule(self):
+        self.env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx').error().contains('GC is already running periodically')
+        self.env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', 'idx').ok()
+        self.env.expect('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx').ok()
