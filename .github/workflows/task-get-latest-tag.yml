@@ -25,34 +25,36 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.latest.outputs.tag || steps.with-prefix.outputs.tag }}
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
     steps:
       - name: Get Latest Release Tag
         id: latest
         if: ${{ !inputs.prefix }}
         # Get the `tag_name` of the latest release (latest patch of latest minor of latest major)
         run: |
-          echo "tag=$(curl -sL \
-                           --retry ${{ env.RETRY_COUNT }} \
-                           --retry-max-time ${{ env.RETRY_MAX_TIME }} \
-                           -H "Accept: application/vnd.github+json" \
-                           -H "X-GitHub-Api-Version: 2022-11-28" \
-                           https://api.github.com/repos/${{ inputs.repo }}/releases/latest | \
-                      jq -r '.tag_name')" >> $GITHUB_OUTPUT
+          TAG=$(curl -sL \
+                      --retry ${{ env.RETRY_COUNT }} \
+                      --retry-max-time ${{ env.RETRY_MAX_TIME }} \
+                      -H "Accept: application/vnd.github+json" \
+                      -H "X-GitHub-Api-Version: 2022-11-28" \
+                      https://api.github.com/repos/${{ inputs.repo }}/releases | \
+                  jq -r '.[].tag_name' | \
+                  sort -V | tail -1) && \
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
       - name: Get Latest Release Tag with Prefix
         id: with-prefix
         if: ${{ inputs.prefix }}
         # Get the `tag_name` of the latest release with prefix:
         # Get 30 latest releases (by date), filter by prefix, sort by version, get the last one
         run: |
-          echo "tag=$(curl -sL \
-                           --retry ${{ env.RETRY_COUNT }} \
-                           --retry-max-time ${{ env.RETRY_MAX_TIME }} \
-                           -H "Accept: application/vnd.github+json" \
-                           -H "X-GitHub-Api-Version: 2022-11-28" \
-                           https://api.github.com/repos/${{ inputs.repo }}/releases | \
-                      jq -r '.[].tag_name | select(startswith("${{ inputs.prefix }}"))' | \
-                      sort -V | tail -1)" >> $GITHUB_OUTPUT
-
-      - name: Validate Tag
-        if: ${{ steps.latest.outputs.tag == 'null' || steps.with-prefix.outputs.tag == 'null' }}
-        run: exit 1 # Fail if no tag was found
+          TAG=$(curl -sL \
+                      --retry ${{ env.RETRY_COUNT }} \
+                      --retry-max-time ${{ env.RETRY_MAX_TIME }} \
+                      -H "Accept: application/vnd.github+json" \
+                      -H "X-GitHub-Api-Version: 2022-11-28" \
+                      https://api.github.com/repos/${{ inputs.repo }}/releases | \
+                  jq -r '.[].tag_name | select(startswith("${{ inputs.prefix }}"))' | \
+                  sort -V | tail -1) && \
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
