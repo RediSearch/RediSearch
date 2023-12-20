@@ -476,6 +476,9 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       goto done_2;
     }
 
+    // TODO: Add a timeout check with low granularity (every ~4000) - PATCH fix,
+    // since we don't have the timeout responsibility passing between the
+    // depleting result-processors yet (next major).
     while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
       nelem += serializeResult(req, reply, &r, &cv);
       SearchResult_Clear(&r);
@@ -595,6 +598,9 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
         goto done_3;
       }
 
+      // TODO: Add a timeout check with low granularity (every ~4000) - PATCH fix,
+      // since we don't have the timeout responsibility passing between the
+      // depleting result-processors yet (next major).
       while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
         serializeResult(req, reply, &r, &cv);
         // Serialize it as a search result
