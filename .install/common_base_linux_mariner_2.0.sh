@@ -8,19 +8,6 @@ $MODE tdnf install -q -y build-essential git wget ca-certificates tar unzip rsyn
 
 source install_cmake.sh $MODE
 
-pip install -q --upgrade setuptools
-pip install -q --upgrade pip
-# TODO: move to requirements.* to .install folder?
-pip install -q -r ../tests/pytests/requirements.txt
-pip install -q -r ../tests/pytests/requirements.linux.txt
-
-# These packages are needed to build the package
-# TODO: move to upload artifacts flow
-pip install -q -r build_package_requirments.txt
-
-# List installed packages
-pip list
-
 # Install aws-cli for uploading artifacts to s3
 curdir="$PWD"
 cd /tmp/

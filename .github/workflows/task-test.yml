@@ -40,7 +40,7 @@ jobs:
     if: ${{ inputs.standalone || inputs.coordinator }}
     defaults:
       run:
-        shell: bash -l -eo pipefail {0}
+        shell: bash -l -eo pipefail {0} && && eval $ACTIVATE_VENV
     steps:
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script
@@ -62,9 +62,12 @@ jobs:
         uses: actions/setup-python@v3
         with:
             python-version: '3.10'
-      - name: Setup
+      - name: Setup specific
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Setup common
+        working-directory: setup/.install
+        run: ./common_installations
       - name: Full checkout
         uses: actions/checkout@v3
         with:
