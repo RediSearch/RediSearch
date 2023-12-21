@@ -85,10 +85,7 @@ jobs:
       - name: Build Redis
         if: inputs.get-redis != 'skip getting redis'
         working-directory: redis
-        run: |
-          echo "$PWD/venv/bin/activate"
-          echo "pip: $(which pip)""
-          ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes
+        run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes
 
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
@@ -110,7 +107,10 @@ jobs:
 
       - name: Build Standalone
         if: ${{ inputs.standalone }}
-        run: make SAN=${{ inputs.san }}
+        run:  |
+          echo "ACTIVATE_PATH=$ACTIVATE_PATH"
+          echo "pip: $(which pip)"
+          make SAN=${{ inputs.san }}
       - name: Build Coordinator
         if: ${{ inputs.coordinator }}
         run: make COORD=1 SAN=${{ inputs.san }}
