@@ -1,5 +1,4 @@
 
-#include <boost/stacktrace.hpp>                    // boost::stacktrace
 #include <cstdint>                                 // std::uintptr_t
 #include <boost/unordered/unordered_flat_map.hpp>  // boost::unordered_flat_map
 #include <iostream>                                // std::cerr
@@ -7,8 +6,14 @@
 
 #ifdef REDIS_MODULE_TARGET /* Set this when compiling your code as a module */
 
+struct src_location {
+  const char *file;
+  const char *fn;
+  std::size_t line;
+};
+
 struct Manager {
-  boost::unordered_flat_map<std::uintptr_t, boost::stacktrace::stacktrace> collection;
+  boost::unordered_flat_map<std::uintptr_t, src_location> collection;
 
   Manager() = default;
   Manager(const Manager &) = delete;
@@ -17,23 +22,26 @@ struct Manager {
   Manager &operator=(Manager &&) = delete;
 
   ~Manager() {
-    for (auto const &[ptr, src] : collection) {
-      std::cerr << ptr << " not freed. allocated at:\n\t" << src << '\n';
+    for (auto const [ptr, src] : collection) {
+      RedisModule_Log(nullptr, "warning", "%p not freed. allocated at file: %s(%lu) `%s`", ptr,
+                      src.file, src.line, src.fn);
     }
   }
 
-  void insert(const void *ptr,
-              const boost::stacktrace::stacktrace src = boost::stacktrace::stacktrace{}) {
-    auto pi = reinterpret_cast<const std::uintptr_t>(ptr);
+  void insert(const void *ptr, const char *file, const char *fn, std::size_t line) {
+    const auto pi = reinterpret_cast<const std::uintptr_t>(ptr);
+    const auto src = src_location{file, fn, line};
     collection.insert_or_assign(pi, src);
   }
-  void remove(const void *ptr,
-              const boost::stacktrace::stacktrace src = boost::stacktrace::stacktrace{}) {
-    auto pi = reinterpret_cast<const std::uintptr_t>(ptr);
+  void remove(const void *ptr, const char *file, const char *fn, std::size_t line) {
+    const auto pi = reinterpret_cast<const std::uintptr_t>(ptr);
+    const auto src = src_location{file, fn, line};
     if (collection.contains(pi)) {
       collection.erase(pi);
     } else {
-      std::cerr << "attempting to free unallocated ptr: " << ptr << " at:\n\t" << src << '\n';
+      RedisModule_Log(nullptr, "warning",
+                      "attempting to free unallocated ptr: %p at file: %s(%lu) `%s`", ptr, src.file,
+                      src.line, src.fn);
     }
   }
 };
@@ -45,34 +53,35 @@ inline decltype(auto) manager() {
 
 extern "C" {
 
-void *rm_malloc(size_t n) {
+void *rm_malloc_impl(std::size_t n, const char *file, const char *fn, std::size_t line) {
   auto ptr = RedisModule_Alloc(n);
-  manager().insert(ptr);
+  manager().insert(ptr, file, fn, line);
   return ptr;
 }
-void *rm_calloc(size_t nelem, size_t elemsz) {
+void *rm_calloc_impl(std::size_t nelem, std::size_t elemsz, const char *file, const char *fn,
+                     std::size_t line) {
   auto ptr = RedisModule_Calloc(nelem, elemsz);
-  manager().insert(ptr);
+  manager().insert(ptr, file, fn, line);
   return ptr;
 }
 
-void *rm_realloc(void *p, size_t n) {
-  manager().remove(p);
+void *rm_realloc_impl(void *p, std::size_t n, const char *file, const char *fn, std::size_t line) {
+  manager().remove(p, file, fn, line);
   if (n == 0) {
     RedisModule_Free(p);
     return nullptr;
   }
   auto q = RedisModule_Realloc(p, n);
-  manager().insert(q);
+  manager().insert(q, file, fn, line);
   return q;
 }
-void rm_free(void *p) {
-  manager().remove(p);
+void rm_free_impl(void *p, const char *file, const char *fn, std::size_t line) {
+  manager().remove(p, file, fn, line);
   RedisModule_Free(p);
 }
-char *rm_strdup(const char *s) {
+char *rm_strdup_impl(const char *s, const char *file, const char *fn, std::size_t line) {
   auto str = RedisModule_Strdup(s);
-  manager().insert(str);
+  manager().insert(str, file, fn, line);
   return str;
 }
 
