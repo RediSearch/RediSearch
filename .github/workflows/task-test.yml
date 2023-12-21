@@ -67,7 +67,7 @@ jobs:
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
       - name: Setup common
         working-directory: setup/.install
-        run: ./common_installations
+        run: ./common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: Full checkout
         uses: actions/checkout@v3
         with:
