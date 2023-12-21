@@ -70,8 +70,7 @@ jobs:
         with:
           submodules: recursive
       - name: Setup common
-        working-directory: setup/.install
-        run: ./common_installations.sh ${{ steps.mode.outputs.mode }}
+        run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
 
       # - name: Setup (readies)
       #   if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0' && inputs.env != 'macos-12'
