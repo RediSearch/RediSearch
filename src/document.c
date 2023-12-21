@@ -855,7 +855,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       PreprocessorFunc pp = preprocessorMap[ii];
       if (pp(aCtx, sctx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
         IndexError_AddError(&aCtx->spec->stats.indexError, QueryError_GetError(&aCtx->status), doc->docKey);
-        IndexError_AddError(&aCtx->spec->fields[i].indexError, QueryError_GetError(&aCtx->status), doc->docKey);
+        IndexError_AddError(&aCtx->spec->fields[fs->index].indexError, QueryError_GetError(&aCtx->status), doc->docKey);
         ourRv = REDISMODULE_ERR;
         goto cleanup;
       }
