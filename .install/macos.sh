@@ -4,14 +4,15 @@ BREW_PREFIX=$(brew --prefix)
 GNUBIN=$BREW_PREFIX/opt/make/libexec/gnubin
 LLVM=$BREW_PREFIX/opt/llvm@16/bin
 COREUTILS=$BREW_PREFIX/opt/coreutils/libexec/gnubin
+PY_SCRIPTS=/Library/Frameworks/Python.framework/Versions/3.12/bin
 
 brew update
 brew install coreutils
 brew install make
 brew install llvm@16
 
-echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.bashrc
-echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.zshrc
+echo "export PATH=$PY_SCRIPTS:$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.bashrc
+echo "export PATH=$PY_SCRIPTS:$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.zshrc
 
 # Ensure python is linked to python3
 ln -s -f /usr/local/bin/python3 /usr/local/bin/python
