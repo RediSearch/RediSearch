@@ -108,6 +108,7 @@ jobs:
       - name: Build Standalone
         if: ${{ inputs.standalone }}
         run:  |
+          source $ACTIVATE_PATH
           echo "ACTIVATE_PATH=$ACTIVATE_PATH"
           echo "pip: $(which pip)"
           make SAN=${{ inputs.san }}
