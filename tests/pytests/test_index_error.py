@@ -217,6 +217,21 @@ def test_geo_index_failures(env):
 #     env.assertEqual(info['last indexing error key'], 'doc{1}')
 #     env.assertEqual(info['last indexing error'], 'Invalid geoshape string')
 
+def test_partial_doc_index_failures(env):
+  # Create an index with a text field as the first field and a numeric field as the second field.
+  env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text', 'n', 'numeric').ok()
+  # Create a document with no text field and an invalid numeric field.
+  env.expect('HSET', 'doc', 'n', 'banana').equal(1)
+
+  expected_text_stats = ['identifier', 't', 'attribute', 't', 'Index Errors',
+                         ['indexing failures', 0, 'last indexing error', 'N/A', 'last indexing error key', 'N/A']]
+  excepted_numeric_stats = ['identifier', 'n', 'attribute', 'n', 'Index Errors',
+                            ['indexing failures', 1, 'last indexing error', "Invalid numeric value: 'banana'", 'last indexing error key', 'doc']]
+  info = index_info(env)
+  env.assertEqual(info['num_docs'], 0)
+  env.assertEqual(info['field statistics'][0], expected_text_stats)
+  env.assertEqual(info['field statistics'][1], excepted_numeric_stats)
+
 ###################### JSON failures ######################
 
 def test_vector_indexing_with_json(env):
