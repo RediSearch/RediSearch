@@ -14,7 +14,7 @@ echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.bashrc
 echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.zshrc
 
 # Ensure python is linked to python3
-ln -s -f /usr/local/bin/python3 /usr/local/bin/
+ln -s -f /usr/local/bin/python3 /usr/local/bin/python
 echo "python version: $(python --version)"
 
 source ~/.bashrc
