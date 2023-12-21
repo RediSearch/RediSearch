@@ -322,7 +322,7 @@ size_t MRCluster_NumShards(MRCluster *cl) {
 
 void MRClusterNode_Free(MRClusterNode *n) {
   MREndpoint_Free(&n->endpoint);
-  rm_free((char *)n->id);
+  free((char *)n->id);
 }
 
 void _clusterConnectAllCB(uv_work_t *wrk) {

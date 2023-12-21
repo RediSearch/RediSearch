@@ -36,7 +36,7 @@ struct Manager {
   void remove(const void *ptr, const char *file, const char *fn, std::size_t line) {
     const auto pi = reinterpret_cast<const std::uintptr_t>(ptr);
     const auto src = src_location{file, fn, line};
-    if (collection.contains(pi)) {
+    if (pi && collection.contains(pi)) {
       collection.erase(pi);
     } else {
       RedisModule_Log(nullptr, "warning",
