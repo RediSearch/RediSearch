@@ -3909,7 +3909,10 @@ def test_timeoutCoordSearch_Strict():
 @skip(cluster=True)
 def test_notIterTimeout(env):
     """Tests that we fail fast from the NOT iterator in the edge case similar to
-    MOD-5512"""
+    MOD-5512
+    * Skipped on cluster since the it would only test error propagation from the
+    shard to the coordinator, which is tested elsewhere.
+    """
 
     if VALGRIND:
         env.skip()
