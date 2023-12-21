@@ -36,12 +36,14 @@ struct Manager {
   void remove(const void *ptr, const char *file, const char *fn, std::size_t line) {
     const auto pi = reinterpret_cast<const std::uintptr_t>(ptr);
     const auto src = src_location{file, fn, line};
-    if (pi && collection.contains(pi)) {
-      collection.erase(pi);
-    } else {
-      RedisModule_Log(nullptr, "warning",
-                      "attempting to free unallocated ptr: %p at file: %s(%lu) `%s`", ptr, src.file,
-                      src.line, src.fn);
+    if (pi != 0) {
+      if (collection.contains(pi)) {
+        collection.erase(pi);
+      } else {
+        RedisModule_Log(nullptr, "warning",
+                        "attempting to free unallocated ptr: %p at file: %s(%lu) `%s`", ptr,
+                        src.file, src.line, src.fn);
+      }
     }
   }
 };
