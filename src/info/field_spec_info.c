@@ -35,7 +35,7 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *info, IndexError error) {
     info->error = error;
 }
 
-// IO and cluser traits
+// IO and cluster traits
 
 // Reply a Field spec info.
 void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply) {
