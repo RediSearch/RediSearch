@@ -25,6 +25,10 @@ brew install openssl
 source install_cmake.sh
 
 # Update pip
+echo "pip from site packages before uninstall:$(ls /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages | grep pip)"
+
+pip uninstall pip
+
 pip install --upgrade pip
 echo "pip version: $(pip --version)"
 echo "pip from site packages :$(ls /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages | grep pip)"
