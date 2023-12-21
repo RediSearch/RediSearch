@@ -86,8 +86,8 @@ jobs:
         if: inputs.get-redis != 'skip getting redis'
         working-directory: redis
         run: |
-          echo "echo $PWD/venv/bin/activate" >> ~/.bashrc
-          echo "pip: $(which pip)" >> ~/.bashrc
+          echo "$PWD/venv/bin/activate"
+          echo "pip: $(which pip)""
           ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes
 
       - name: Set Artifact Names
