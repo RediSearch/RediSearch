@@ -34,8 +34,9 @@ class TimeLimit(object):
     return within the specified amount of time.
     """
 
-    def __init__(self, timeout):
+    def __init__(self, timeout, message='operation timeout exceeded'):
         self.timeout = timeout
+        self.message = message
 
     def __enter__(self):
         signal.signal(signal.SIGALRM, self.handler)
@@ -46,7 +47,7 @@ class TimeLimit(object):
         signal.signal(signal.SIGALRM, signal.SIG_DFL)
 
     def handler(self, signum, frame):
-        raise Exception('timeout')
+        raise Exception(f'Timeout: {self.message}')
 
 
 def getConnectionByEnv(env):
@@ -60,7 +61,7 @@ def getConnectionByEnv(env):
 def waitForIndex(env, idx):
     waitForRdbSaveToFinish(env)
     while True:
-        res = env.execute_command('ft.info', idx)
+        res = env.cmd('ft.info', idx)
         try:
             if int(res[res.index('indexing') + 1]) == 0:
                 break
@@ -80,7 +81,7 @@ def waitForNoCleanup(env, idx, max_wait=30):
     retry_wait = 0.1
     max_wait = max(max_wait, retry_wait)
     while max_wait >= 0:
-        res = env.execute_command('ft.info', idx)
+        res = env.cmd('ft.info', idx)
         if int(res[res.index('cleaning') + 1]) == 0:
             break
         time.sleep(retry_wait)
@@ -113,10 +114,14 @@ def toSortedFlatList(res):
         return py2sorted(finalList)
     return [res]
 
+def ft_info_to_dict(env, idx):
+  res = env.cmd('ft.info', idx)
+  return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+
+
 def assertInfoField(env, idx, field, expected, delta=None):
     if not env.isCluster():
-        res = env.cmd('ft.info', idx)
-        d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+        d = ft_info_to_dict(env, idx)
         if delta is None:
             env.assertEqual(d[field], expected)
         else:
@@ -163,7 +168,7 @@ module_ver = None
 def module_version_at_least(env, ver):
     global module_ver
     if module_ver is None:
-        v = env.execute_command('MODULE LIST')[0][3]
+        v = env.cmd('MODULE LIST')[0][3]
         module_ver = numver_to_version(v)
     if not isinstance(ver, version.Version):
         ver = version.parse(ver)
@@ -173,17 +178,31 @@ def module_version_less_than(env, ver):
     return not module_version_at_least(env, ver)
 
 server_ver = None
-def server_version_at_least(env, ver):
+def server_version_at_least(env: Env, ver):
     global server_ver
     if server_ver is None:
-        v = env.execute_command('INFO')['redis_version']
+        v = env.cmd('INFO')['redis_version']
         server_ver = version.parse(v)
     if not isinstance(ver, version.Version):
         ver = version.parse(ver)
     return server_ver >= ver
 
-def server_version_less_than(env, ver):
+def server_version_less_than(env: Env, ver):
     return not server_version_at_least(env, ver)
+
+def server_version_is_at_least(ver):
+    global server_ver
+    if server_ver is None:
+        import subprocess
+        # Expecting something like "Redis server v=7.2.3 sha=******** malloc=jemalloc-5.3.0 bits=64 build=***************"
+        v = subprocess.run([Defaults.binary, '--version'], stdout=subprocess.PIPE).stdout.decode().split()[2].split('=')[1]
+        server_ver = version.parse(v)
+    if not isinstance(ver, version.Version):
+        ver = version.parse(ver)
+    return server_ver >= ver
+
+def server_version_is_less_than(ver):
+    return not server_version_is_at_least(ver)
 
 def index_info(env, idx):
     res = env.cmd('FT.INFO', idx)
@@ -242,7 +261,7 @@ def waitForRdbSaveToFinish(env):
 
 
 def countKeys(env, pattern='*'):
-    if not env.is_cluster():
+    if not env.isCluster():
         return len(env.keys(pattern))
     keys = 0
     for shard in range(0, env.shardsCount):
@@ -251,7 +270,7 @@ def countKeys(env, pattern='*'):
     return keys
 
 def collectKeys(env, pattern='*'):
-    if not env.is_cluster():
+    if not env.isCluster():
         return sorted(env.keys(pattern))
     keys = []
     for shard in range(0, env.shardsCount):
@@ -267,7 +286,7 @@ def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(ftDebugCmdName(env), "VECSIM_INFO", index_name, vector_field))
 
 
-def forceInvokeGC(env, idx, timeout = None):
+def forceInvokeGC(env, idx = 'idx', timeout = None):
     waitForRdbSaveToFinish(env)
     if timeout is not None:
         if timeout == 0:
@@ -297,42 +316,30 @@ def unstable(f):
         return f(env, *args, **kwargs)
     return wrapper
 
-def skip(cluster=False, macos=False, asan=False, msan=False, noWorkers=False):
+def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None):
     def decorate(f):
-        if len(inspect.signature(f).parameters) == 0:
-            @wraps(f)
-            def wrapper(*args, **kwargs):
-                if not (cluster or macos or asan or msan or noWorkers):
-                    raise SkipTest()
-                if cluster and COORD != '0':
-                    raise SkipTest()
-                if macos and OS == 'macos':
-                    raise SkipTest()
-                if asan and SANITIZER == 'address':
-                    raise SkipTest()
-                if msan and SANITIZER == 'memory':
-                    raise SkipTest()
-                if noWorkers and not MT_BUILD:
-                    raise SkipTest()
-
-                return f(*args, **kwargs)
-        else:
-            @wraps(f)
-            def wrapper(x, *args, **kwargs):
-                env = x if isinstance(x, Env) else x.env
-                if not (cluster or macos or asan or msan or noWorkers):
-                    env.skip()
-                if cluster and env.isCluster():
-                    env.skip()
-                if macos and OS == 'macos':
-                    env.skip()
-                if asan and SANITIZER == 'address':
-                    env.skip()
-                if msan and SANITIZER == 'memory':
-                    env.skip()
-                if noWorkers and not MT_BUILD:
-                    env.skip()
-                return f(x, *args, **kwargs)
+        def wrapper():
+            if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal):
+                raise SkipTest()
+            if cluster == COORD:
+                raise SkipTest()
+            if macos and OS == 'macos':
+                raise SkipTest()
+            if asan and SANITIZER == 'address':
+                raise SkipTest()
+            if msan and SANITIZER == 'memory':
+                raise SkipTest()
+            if noWorkers and not MT_BUILD:
+                raise SkipTest()
+            if redis_less_than and server_version_is_less_than(redis_less_than):
+                raise SkipTest()
+            if redis_greater_equal and server_version_is_at_least(redis_greater_equal):
+                raise SkipTest()
+            if len(inspect.signature(f).parameters) > 0:
+                env = Env()
+                return f(env)
+            else:
+                return f()
         return wrapper
     return decorate
 
@@ -342,6 +349,8 @@ def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
 
+def to_list(input_dict: dict):
+    return [item for pair in input_dict.items() for item in pair]
 
 def get_redis_memory_in_mb(env):
     return float(env.cmd('info', 'memory')['used_memory'])/0x100000
@@ -500,3 +509,53 @@ def number_to_ordinal(n: int) -> str:
     else:
         suffix = ['th', 'st', 'nd', 'rd', 'th'][min(n % 10, 4)]
     return str(n) + suffix
+
+def populate_db(env, n=10000):
+    """Creates a simple index called `idx`, and populates the database with
+    `n * n_shards` matching documents.
+
+    Parameters:
+        n (int): Number of documents to create per shard
+    Returns:
+        None
+    """
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
+    num_docs = n * env.shardsCount
+    pipeline = conn.pipeline(transaction=False)
+    for i, t1 in enumerate(np.random.randint(1, 1024, num_docs)):
+        pipeline.hset(i, 't1', str(t1))
+        if i % 1000 == 0:
+            pipeline.execute()
+            pipeline = conn.pipeline(transaction=False)
+    pipeline.execute()
+
+def get_TLS_args():
+    root = os.environ.get('ROOT', None)
+    if root is None:
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # go up 3 levels from common.py
+
+    cert_file       = os.path.join(root, 'bin', 'tls', 'redis.crt')
+    key_file        = os.path.join(root, 'bin', 'tls', 'redis.key')
+    ca_cert_file    = os.path.join(root, 'bin', 'tls', 'ca.crt')
+    passphrase_file = os.path.join(root, 'bin', 'tls', '.passphrase')
+
+    with_pass = server_version_is_at_least('6.2')
+
+    # If any of the files are missing, generate them
+    def exists(path):
+        return os.path.exists(path) and os.path.isfile(path)
+    if not exists(cert_file)    or \
+       not exists(key_file)     or \
+       not exists(ca_cert_file) or \
+       (with_pass and not exists(passphrase_file)):
+        import subprocess
+        subprocess.run([os.path.join(root, 'sbin', 'gen-test-certs'), str(1 if with_pass else 0)]).check_returncode()
+
+    def get_passphrase():
+        with open(passphrase_file, 'r') as f:
+            return f.read()
+
+    passphrase = get_passphrase() if with_pass else None
+
+    return cert_file, key_file, ca_cert_file, passphrase

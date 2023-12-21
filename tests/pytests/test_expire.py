@@ -1,10 +1,8 @@
 from common import *
 
-
+@skip(cluster=True)
 def testExpireIndex(env):
     # temporary indexes
-    if env.isCluster():
-        env.skip()
     env.cmd('ft.create', 'idx', 'TEMPORARY', '4', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
     ttl = env.cmd('ft.debug', 'TTL', 'idx')
     env.assertTrue(ttl > 2)
@@ -89,6 +87,7 @@ def buildExpireDocsResults(isSortable, isJson):
     #         empty_with_scores_and_explain_last if not isSortable else partial_with_scores_and_explain,
     #         empty_with_scores_and_explain_last if not isSortable else partial_with_scores_and_explain_last]
 
+@skip(cluster=True)
 def testExpireDocs(env):
 
     for isJson in [False, True]:
@@ -96,7 +95,7 @@ def testExpireDocs(env):
         expireDocs(env, False, # Without SORTABLE - since the fields are not SORTABLE, we need to load the results from Redis Keyspace
                 expected_results, isJson)
 
-
+@skip(cluster=True)
 def testExpireDocsSortable(env):
     '''
     Same as test `testExpireDocs` only with SORTABLE
@@ -123,7 +122,6 @@ def expireDocs(env, isSortable, expected_results, isJson):
 
     When isSortable is True the index is created with `SORTABLE` arg
     '''
-    env.skipOnCluster()
     conn = env.getConnection()
 
     # i = 2 -> without sortby, i = 1 -> with sortby

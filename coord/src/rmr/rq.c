@@ -13,7 +13,8 @@
 
 struct queueItem {
   void *privdata;
-  void (*cb)(void *);
+  MRQueueCallback cb;
+  MRQueueCleanUpCallback free_cb;
   struct queueItem *next;
 };
 
@@ -27,12 +28,13 @@ typedef struct MRWorkQueue {
   uv_async_t async;
 } MRWorkQueue;
 
-void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
+void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata, MRQueueCleanUpCallback free_cb) {
   uv_mutex_lock(&q->lock);
   struct queueItem *item = rm_malloc(sizeof(*item));
   item->cb = cb;
   item->privdata = privdata;
   item->next = NULL;
+  item->free_cb = free_cb;
   // append the request to the tail of the list
   if (q->tail) {
     // make it the next of the current tail
@@ -99,20 +101,41 @@ MRWorkQueue *RQ_New(int maxPending) {
   q->pending = 0;
   q->maxPending = maxPending;
   uv_mutex_init(&q->lock);
-  // TODO: Add close cb
   uv_async_init(uv_default_loop(), &q->async, rqAsyncCb);
   q->async.data = q;
   return q;
 }
 
+// For testing purposes
+static void RQ_FreeInternal(uv_handle_t *handle) { rm_free(handle->data); }
 void RQ_Free(MRWorkQueue *q) {
-  struct queueItem *req = NULL;
-  while (NULL != (req = rqPop(q))) {
+  uv_mutex_lock(&q->lock);
+
+  size_t pending_req = 0;
+  struct queueItem *next, *req = q->head;
+  q->head = q->tail = NULL;
+  for (; req; req = next) {
+    next = req->next;
+    if (req->free_cb) {
+      req->free_cb(req->privdata);
+    } else {
+      ++pending_req;
+    }
     rm_free(req);
+    q->sz--;
   }
 
-  uv_close((uv_handle_t *)&q->async, NULL);
-  uv_mutex_destroy(&q->lock);
+  if (pending_req) {
+    RedisModule_Log(NULL, "warning",
+                    "RQ_Free(): Note there were %zu pending requests without a free_cb in the rmr "
+                    "queue during shutdown.",
+                    pending_req);
+  }
 
-  rm_free(q);
+  uv_mutex_unlock(&q->lock);
+  uv_mutex_destroy(&q->lock);
+  // From the libuv docs [https://docs.libuv.org/en/v1.x/handle.html#c.uv_close]:
+  // "close_cb will be called asynchronously after this call. This MUST be called on each handle before memory is released.
+  //  Moreover, the memory can only be released in close_cb or after it has returned."
+  uv_close((uv_handle_t *)&q->async, RQ_FreeInternal);
 }

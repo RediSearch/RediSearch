@@ -5,7 +5,7 @@ from RLTest import Env
 from common import *
 from includes import *
 from random import randrange
-
+from redis import ResponseError
 
 '''************* Helper methods for vecsim tests ************'''
 EPSILON = 1e-8
@@ -313,10 +313,9 @@ def test_update_with_bad_value():
     env.expect('FT.SEARCH', 'idx2', '*').equal(res)
     env.expect('FT.SEARCH', 'idx2', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', 'vec').equal(res)
 
-
+@skip(cluster=True)
 def test_create():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     # A value to use as a dummy value for memory fields in the info command (and any other irrelevant fields)
@@ -334,9 +333,9 @@ def test_create():
         expected_HNSW = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024 if MT_BUILD else 0, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'HNSW', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'EPSILON', '0.01', 'NUMBER_OF_MARKED_DELETED', 0], 'TIERED_HNSW_SWAP_JOBS_THRESHOLD', 1024]
         expected_FLAT = ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024]
 
-        for _ in env.retry_with_rdb_reload():
-            info = [['identifier', 'v_HNSW', 'attribute', 'v_HNSW', 'type', 'VECTOR']]
-            assertInfoField(env, 'idx1', 'attributes', info)
+        for _ in env.reloadingIterator():
+            info = ['identifier', 'v_HNSW', 'attribute', 'v_HNSW', 'type', 'VECTOR']
+            env.assertEqual(ft_info_to_dict(env, 'idx1')['attributes'][0][:len(info)], info)
             info_data_HNSW = conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx1", "v_HNSW")
             # replace memory values with a dummy value - irrelevant for the test
             info_data_HNSW[info_data_HNSW.index('MEMORY') + 1] = dummy_val
@@ -357,10 +356,9 @@ def test_create():
         conn.execute_command('FT.DROP', 'idx1')
         conn.execute_command('FT.DROP', 'idx2')
 
-
+@skip(cluster=True)
 def test_create_multiple_vector_fields():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    env.skipOnCluster()
     dim = 2
     conn = getConnectionByEnv(env)
     # Create index with 2 vector fields, where the first is a prefix of the second.
@@ -551,7 +549,7 @@ def test_with_fields():
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2', 't', 'TEXT')
     load_vectors_with_texts_into_redis(conn, 'v', dimension, qty)
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         query_data = np.float32(np.random.random((1, dimension)))
         res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN 100 @v $vec_param AS score]',
@@ -1053,7 +1051,7 @@ def test_single_entry():
     vector = np.random.rand(1, dimension).astype(np.float32)
     conn.execute_command('HSET', 0, 'v', vector.tobytes())
 
-    for _ in env.retry_with_rdb_reload():
+    for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]',
                 'SORTBY', '__v_score',
@@ -1093,7 +1091,7 @@ def test_hybrid_query_adhoc_bf_mode():
                         '20', ['__v_score', '819200', 't', 'other'],
                         '10', ['__v_score', '1036800', 't', 'other']]
 
-        for _ in env.retry_with_rdb_reload():
+        for _ in env.reloadingIterator():
             waitForIndex(env, 'idx')
             execute_hybrid_query(env, '(other)=>[KNN 10 @v $vec_param]', query_data, 't',
                                  hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res)
@@ -1501,10 +1499,9 @@ def test_redis_memory_limits():
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
-
+@skip(cluster=True)
 def test_default_block_size_and_initial_capacity():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     dim = 1024
@@ -1564,11 +1561,10 @@ def test_default_block_size_and_initial_capacity():
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
-
+@skip(cluster=True)
 def test_redisearch_memory_limit():
     # test block size with VSS_MAX_RESIZE_MB configure
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     used_memory = int(conn.execute_command('info', 'memory')['used_memory'])
@@ -1606,10 +1602,9 @@ def test_redisearch_memory_limit():
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
-
+@skip(cluster=True)
 def test_rdb_memory_limit():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     used_memory = int(conn.execute_command('info', 'memory')['used_memory'])
@@ -1646,14 +1641,12 @@ def test_rdb_memory_limit():
         # reset env (for clean RLTest run with env reuse)
         env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
-
+@skip(msan=True, asan=True)
 def test_timeout_reached():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
-    if SANITIZER:
-        env.skip()
     conn = getConnectionByEnv(env)
     nshards = env.shardsCount
-    timeout_expected = 0 if env.isCluster() else 'Timeout limit was reached'
+    timeout_expected = 'Timeout limit was reached'
 
     vecsim_algorithms_and_sizes = [('FLAT', 80000 * nshards), ('HNSW', 10000 * nshards)]
     hybrid_modes = ['BATCHES', 'ADHOC_BF']
@@ -1674,13 +1667,11 @@ def test_timeout_reached():
                                        'TIMEOUT', 0)
             env.assertEqual(res[0], n_vec)
             # run query with 1 millisecond timeout. should fail.
-            try: # TODO: rewrite when cluster behavior is consistent on timeout
-                res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                           'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
-                                           'TIMEOUT', 1)
-                env.assertEqual(res[0], timeout_expected)
-            except Exception as error:
-                env.assertContains('Timeout limit was reached', str(error))
+            env.expect(
+                'FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
+                'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 4, 'K', n_vec,
+                'vec_param', query_vec.tobytes(), 'TIMEOUT', 1
+            ).error().contains('Timeout limit was reached')
 
             # RANGE QUERY
             # run query with no timeout. should succeed.
@@ -1700,13 +1691,11 @@ def test_timeout_reached():
                                            'TIMEOUT', 0)
                 env.assertEqual(res[0], n_vec)
 
-                try: # TODO: rewrite when cluster behavior is consistent on timeout
-                    res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                               'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
-                                               'TIMEOUT', 1)
-                    env.assertEqual(res[0], timeout_expected)
-                except Exception as error:
-                    env.assertContains('Timeout limit was reached', str(error))
+                env.expect(
+                    'FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
+                    'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec,
+                    'vec_param', query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 1
+                ).error().contains('Timeout limit was reached')
 
             conn.flushall()
 
@@ -1777,7 +1766,7 @@ def test_index_multi_value_json():
             expected_res_range.append([score_field_name, '0'])
         expected_res_range.insert(0, int(len(expected_res_range)/2))
 
-        for _ in env.retry_with_rdb_reload():
+        for _ in env.reloadingIterator():
             waitForIndex(env, 'idx')
             info = index_info(env, 'idx')
             env.assertEqual(info['num_docs'], info_type(n))
@@ -2284,10 +2273,9 @@ def test_score_name_case_sensitivity():
 
 
 @skip(cluster=True, noWorkers=True)
-def test_tiered_index_gc(env):
-    fork_gc_interval_sec = '10'
-    N = 1000
-    env = Env(moduleArgs=f'WORKER_THREADS 2 MT_MODE MT_MODE_FULL FORK_GC_RUN_INTERVAL {fork_gc_interval_sec}'
+def test_tiered_index_gc():
+    N = 100
+    env = Env(moduleArgs=f'WORKER_THREADS 2 MT_MODE MT_MODE_FULL FORK_GC_RUN_INTERVAL 1000000000000'
                          f' FORK_GC_CLEAN_THRESHOLD {N}')
     conn = getConnectionByEnv(env)
     dim = 16
@@ -2295,6 +2283,9 @@ def test_tiered_index_gc(env):
                          'v1', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
                          'v2', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT64', 'DIM', dim, 'DISTANCE_METRIC', 'COSINE',
                          't', 'TEXT')
+    # Create another vector index with `FT.ALTER` command. (relevant for the GC - related to MOD-6276)
+    conn.execute_command('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'v1', 'AS',
+                         'v3', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2')
 
     # Insert random vectors to an index with two vector fields.
     for i in range(N):
@@ -2303,14 +2294,14 @@ def test_tiered_index_gc(env):
                                    'v2', create_np_array_typed(np.random.random((1, dim)), 'FLOAT64').tobytes())
         env.assertEqual(res, 3)
 
+    def get_debug_info():
+        return {v: get_vecsim_debug_dict(env, 'idx', v) for v in ['v1', 'v2', 'v3']}
+
     # Wait until all vectors are indexed into HNSW.
-    while True:
-        debug_info_v1 = get_vecsim_debug_dict(env, 'idx', 'v1')
-        debug_info_v2 = get_vecsim_debug_dict(env, 'idx', 'v2')
-        if debug_info_v1['BACKGROUND_INDEXING'] or debug_info_v2['BACKGROUND_INDEXING']:
-            time.sleep(1)
-        else:
-            break
+    debug_info = get_debug_info()
+    while np.any([index['BACKGROUND_INDEXING'] for index in debug_info.values()]):
+        time.sleep(0.1)
+        debug_info = get_debug_info()
 
     # Delete all documents. Note that we have less than TIERED_HNSW_SWAP_JOBS_THRESHOLD docs (1024),
     # so we know that we won't execute swap jobs during the 'DEL' command execution.
@@ -2318,14 +2309,16 @@ def test_tiered_index_gc(env):
         res = conn.execute_command('DEL', i)
         env.assertEqual(res, 1)
 
-    debug_info_v1 = get_vecsim_debug_dict(env, 'idx', 'v1')
-    debug_info_v2 = get_vecsim_debug_dict(env, 'idx', 'v2')
-    env.assertEqual(to_dict(debug_info_v1['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
-    env.assertEqual(to_dict(debug_info_v2['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
+    debug_info = get_debug_info()
+    env.assertEqual(to_dict(debug_info['v1']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
+    env.assertEqual(to_dict(debug_info['v2']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
+    env.assertEqual(to_dict(debug_info['v3']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
 
     # Wait for GC to remove the deleted vectors.
-    time.sleep(2*int(fork_gc_interval_sec))
-    debug_info_v1 = get_vecsim_debug_dict(env, 'idx', 'v1')
-    debug_info_v2 = get_vecsim_debug_dict(env, 'idx', 'v2')
-    env.assertEqual(to_dict(debug_info_v1['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
-    env.assertEqual(to_dict(debug_info_v2['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+    time.sleep(2) # TODO: add a way to know when all swap jobs are ready (from vecsim or by analyzing the worker's jobs)
+    env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx').equal('DONE')
+
+    debug_info = get_debug_info()
+    env.assertEqual(to_dict(debug_info['v1']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+    env.assertEqual(to_dict(debug_info['v2']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+    env.assertEqual(to_dict(debug_info['v3']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
