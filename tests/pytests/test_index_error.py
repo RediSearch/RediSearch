@@ -1,4 +1,4 @@
-from common import getConnectionByEnv, index_info
+from common import getConnectionByEnv, index_info, to_dict
 
 
 
@@ -10,11 +10,7 @@ last_indexing_error_str = 'last indexing error'
 index_errors_str = 'Index Errors'
 
 def get_field_stats_dict(info_command_output, index = 0):
-  field_spec_list = info_command_output['field statistics'][index]
-  return {field_spec_list[i]: field_spec_list[i + 1] for i in range(0, len(field_spec_list), 2)}
-
-def get_error_dict(error_dict_as_list):
-  return {error_dict_as_list[i]: error_dict_as_list[i + 1] for i in range(0, len(error_dict_as_list), 2)}
+  return to_dict(info_command_output['field statistics'][index])
 
 def test_vector_index_failures(env):
   con = getConnectionByEnv(env)
@@ -39,10 +35,10 @@ def test_vector_index_failures(env):
                         }
 
   field_spec_dict = get_field_stats_dict(info)
-  error_dict = get_error_dict(field_spec_dict["Index Errors"])
+  error_dict = to_dict(field_spec_dict["Index Errors"])
   env.assertEqual(error_dict, expected_error_dict)
 
-  error_dict = get_error_dict(info["Index Errors"])
+  error_dict = to_dict(info["Index Errors"])
   env.assertEqual(error_dict, expected_error_dict)
 
 
@@ -70,11 +66,11 @@ def test_numeric_index_failures(env):
 
 
   field_spec_dict = get_field_stats_dict(info)
-  error_dict = get_error_dict(field_spec_dict["Index Errors"])
+  error_dict = to_dict(field_spec_dict["Index Errors"])
 
   env.assertEqual(error_dict, expected_error_dict)
 
-  error_dict = get_error_dict(info["Index Errors"])
+  error_dict = to_dict(info["Index Errors"])
   env.assertEqual(error_dict, expected_error_dict)
 
 
@@ -101,10 +97,10 @@ def test_mixed_index_failures(env):
                         }
 
   field_spec_dict = get_field_stats_dict(info, 0)
-  error_dict = get_error_dict(field_spec_dict["Index Errors"])
+  error_dict = to_dict(field_spec_dict["Index Errors"])
   env.assertEqual(error_dict, expected_error_dict)
 
-  error_dict = get_error_dict(info["Index Errors"])
+  error_dict = to_dict(info["Index Errors"])
   env.assertEqual(error_dict, expected_error_dict)
 
   con.flushall()
@@ -128,11 +124,11 @@ def test_mixed_index_failures(env):
                         }
 
   field_spec_dict = get_field_stats_dict(info, 1)
-  error_dict = get_error_dict(field_spec_dict["Index Errors"])
+  error_dict = to_dict(field_spec_dict["Index Errors"])
 
   env.assertEqual(error_dict, expected_error_dict)
 
-  error_dict = get_error_dict(info["Index Errors"])
+  error_dict = to_dict(info["Index Errors"])
   env.assertEqual(error_dict, expected_error_dict)
 
 
@@ -159,11 +155,11 @@ def test_geo_index_failures(env):
                           }
 
     field_spec_dict = get_field_stats_dict(info)
-    error_dict = get_error_dict(field_spec_dict["Index Errors"])
+    error_dict = to_dict(field_spec_dict["Index Errors"])
 
     env.assertEqual(error_dict, expected_error_dict)
 
-    error_dict = get_error_dict(info["Index Errors"])
+    error_dict = to_dict(info["Index Errors"])
     env.assertEqual(error_dict, expected_error_dict)
 
     con.flushall()
@@ -189,11 +185,11 @@ def test_geo_index_failures(env):
     env.assertEqual(info['num_docs'], 1)
 
     field_spec_dict = get_field_stats_dict(info)
-    error_dict = get_error_dict(field_spec_dict["Index Errors"])
+    error_dict = to_dict(field_spec_dict["Index Errors"])
 
     env.assertEqual(error_dict, expected_error_dict)
 
-    error_dict = get_error_dict(info["Index Errors"])
+    error_dict = to_dict(info["Index Errors"])
     env.assertEqual(error_dict, expected_error_dict)
 
 
@@ -247,10 +243,10 @@ def test_vector_indexing_with_json(env):
   # Therefore, the JSON field failure statistics are not updated.
   # This test is to make sure that the JSON field failure statistics are updated in the future, when the code paths are merged
   # so it'll break once the good behavior is implemented.
-  error_dict = get_error_dict(field_spec_dict["Index Errors"])
+  error_dict = to_dict(field_spec_dict["Index Errors"])
   env.assertEqual(error_dict, expected_error_dict)
 
-  error_dict = get_error_dict(info["Index Errors"])
+  error_dict = to_dict(info["Index Errors"])
   expected_error_dict[indexing_failures_str] = 1
   expected_error_dict[last_indexing_error_key_str] = 'doc{1}'
   expected_error_dict[last_indexing_error_str] = 'Invalid vector length. Expected 2, got 3'
