@@ -175,7 +175,7 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err) {
     .root = NULL,
     .ok = 1,
   };
-  void *pParser = RSExprParser_ParseAlloc(rm_malloc);
+  void *pParser = RSExprParser_ParseAlloc(rm_malloc_wrap);
 
   
   int cs, act;
@@ -692,7 +692,7 @@ _again:
     RSExpr_Free(ctx.root);
     ctx.root = NULL;
   }
-  RSExprParser_ParseFree(pParser, rm_free);
+  RSExprParser_ParseFree(pParser, rm_free_wrap);
   if (err) {
     *err = ctx.errorMsg;
   }

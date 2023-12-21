@@ -2004,11 +2004,11 @@ static void getRedisVersion() {
  */
 void setHiredisAllocators(){
   hiredisAllocFuncs ha = {
-    .mallocFn = rm_malloc,
-    .callocFn = rm_calloc,
-    .reallocFn = rm_realloc,
-    .strdupFn = rm_strdup,
-    .freeFn = rm_free,
+    .mallocFn = rm_malloc_wrap,
+    .callocFn = rm_calloc_wrap,
+    .reallocFn = rm_realloc_wrap,
+    .strdupFn = rm_strdup_wrap,
+    .freeFn = rm_free_wrap,
   };
 
   hiredisSetAllocators(&ha);
@@ -2049,7 +2049,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   setHiredisAllocators();
-  uv_replace_allocator(rm_malloc, rm_realloc, rm_calloc, rm_free);
+  uv_replace_allocator(rm_malloc_wrap, rm_realloc_wrap, rm_calloc_wrap, rm_free_wrap);
 
   if (!RSDummyContext) {
     if (RedisModule_GetDetachedThreadSafeContext) {

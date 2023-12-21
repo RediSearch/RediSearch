@@ -625,9 +625,9 @@ void DocIdMap_Put(DocIdMap *m, const char *s, size_t n, t_docId docId) {
 }
 
 void DocIdMap_Free(DocIdMap *m) {
-  TrieMap_Free(m->tm, rm_free);
+  TrieMap_Free(m->tm, rm_free_wrap);
 }
 
 int DocIdMap_Delete(DocIdMap *m, const char *s, size_t n) {
-  return TrieMap_Delete(m->tm, (char *)s, n, rm_free);
+  return TrieMap_Delete(m->tm, (char *)s, n, rm_free_wrap);
 }
