@@ -59,7 +59,9 @@ jobs:
             tests/pytests/requirements.*
       - name: Setup
         working-directory: setup/.install
-        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
+          echo PATH=$PATH >> $GITHUB_ENV
       - name: Full checkout
         uses: actions/checkout@v3
         with:
