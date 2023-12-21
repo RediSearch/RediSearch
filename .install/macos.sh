@@ -24,7 +24,7 @@ brew install openssl
 source install_cmake.sh
 
 # Update pip
-pip3 install --upgrade --force pip
+python -m pip install --upgrade pip
 echo "pip version: $(pip --version)"
 
 pip install -q -r ../tests/pytests/requirements.txt
