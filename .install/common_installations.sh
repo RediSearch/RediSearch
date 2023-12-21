@@ -1,4 +1,5 @@
 #!/bin/bash
+MODE=$1 # whether to install using sudo or not
 
 # create virtual env
 python -m venv venv
