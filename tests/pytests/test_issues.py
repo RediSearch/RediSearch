@@ -800,13 +800,13 @@ def test_mod5791(env):
     env.assertEqual(res[:2], [1, 'doc1'])
 
 
-@skip(asan=True, cluster=False, redis_less_than="7")
+@skip()
 def test_mod5778_add_new_shard_to_cluster(env):
     # cluster shards command is not supported for redis < 7
     mod5778_add_new_shard_to_cluster(env)
 
 
-@skip(asan=True, cluster=False, redis_less_than="7")
+@skip()
 def test_mod5778_add_new_shard_to_cluster_TLS():
     # cluster shards command is not supported for redis < 7
     cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
