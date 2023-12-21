@@ -40,7 +40,7 @@ jobs:
     if: ${{ inputs.standalone || inputs.coordinator }}
     defaults:
       run:
-        shell: bash -l -eo pipefail {0} && && eval $ACTIVATE_VENV
+        shell: bash -l -eo pipefail {0}
     steps:
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script
@@ -65,20 +65,17 @@ jobs:
       - name: Setup specific
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
-      - name: Setup common
-        working-directory: setup/.install
-        run: ./common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: Full checkout
         uses: actions/checkout@v3
         with:
           submodules: recursive
+      - name: Setup common
+        working-directory: setup/.install
+        run: ./common_installations.sh ${{ steps.mode.outputs.mode }}
 
       # - name: Setup (readies)
       #   if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0' && inputs.env != 'macos-12'
       #   run: ./sbin/setup
-      - name: Setup (readies)
-        if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0' && inputs.env != 'macos-12'
-        run: ./sbin/setup
       - name: Get Redis
         if: inputs.get-redis != 'skip getting redis'
         uses: actions/checkout@v3
