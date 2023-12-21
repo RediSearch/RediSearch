@@ -27,3 +27,5 @@ pip install -q -r ./install/build_package_requirments.txt
 pip list
 
 echo "source $PWD/venv/bin/activate" >> ~/.bashrc
+echo "echo $PWD/venv/bin/activate" >> ~/.bashrc
+echo "pip: $(which pip)" >> ~/.bashrc
