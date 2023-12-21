@@ -27,7 +27,6 @@ source install_cmake.sh
 # create virtual env
 python -m venv venv
 source venv/bin/activate
-echo PATH=$PATH >> $GITHUB_ENV
 
 # Update pip
 

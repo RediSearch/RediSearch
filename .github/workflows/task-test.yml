@@ -61,7 +61,7 @@ jobs:
         working-directory: setup/.install
         run: |
           ./install_script.sh ${{ steps.mode.outputs.mode }}
-          echo ACTIVATE_VENV="source venv/bin/activate" >> $GITHUB_ENV
+          echo ACTIVATE_VENV="source $PWD/venv/bin/activate">> $GITHUB_ENV
       - name: Full checkout
         uses: actions/checkout@v3
         with:
