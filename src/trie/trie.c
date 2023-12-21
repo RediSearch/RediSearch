@@ -172,7 +172,8 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) 
   TrieNode **children = __trieNode_children(ch);
   TrieNode **newChildren = __trieNode_children(merged);
   memcpy(newChildren, children, sizeof(TrieNode *) * merged->numChildren);
-  memcpy(__trieNode_childKey(merged, 0), __trieNode_childKey(ch, 0), merged->numChildren);
+  memcpy(__trieNode_childKey(merged, 0), __trieNode_childKey(ch, 0),
+         merged->numChildren * sizeof(rune));
   if (n->payload != NULL) {
     triePayload_Free(n->payload, freecb);
     n->payload = NULL;
@@ -492,7 +493,6 @@ void TrieNode_Free(TrieNode *n, TrieFreeCallback freecb) {
     triePayload_Free(n->payload, freecb);
     n->payload = NULL;
   }
-
   rm_free(n);
 }
 
