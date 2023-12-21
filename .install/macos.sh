@@ -5,18 +5,22 @@ GNUBIN=$BREW_PREFIX/opt/make/libexec/gnubin
 LLVM=$BREW_PREFIX/opt/llvm@16/bin
 COREUTILS=$BREW_PREFIX/opt/coreutils/libexec/gnubin
 
-#brew update
+brew update
 brew install coreutils
 brew install make
 brew install llvm@16
 
 echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.bashrc
 echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.zshrc
+ln -s -f /usr/local/bin/python3 /usr/local/bin/
+echo "python version: $(python --version)"
 source ~/.bashrc
 source ~/.zshrc
 
 brew install openssl
 source install_cmake.sh
+pip3 install --upgrade --force pip
+echo "pip version: $(pip --version)"
 
 pip install -q -r ../tests/pytests/requirements.txt
 pip install -q -r ../tests/pytests/requirements.macos.txt
