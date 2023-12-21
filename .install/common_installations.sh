@@ -1,4 +1,5 @@
 #!/bin/bash
+OS_TYPE=$(uname -s)
 MODE=$1 # whether to install using sudo or not
 
 # create virtual env
@@ -25,4 +26,4 @@ pip install -q -r build_package_requirments.txt
 # List installed packages
 pip list
 
-echo ACTIVATE_VENV="source $PWD/venv/bin/activate">> $GITHUB_ENV
+echo "source $PWD/venv/bin/activate" >> ~/.bashrc
