@@ -12,13 +12,18 @@ brew install llvm@16
 
 echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.bashrc
 echo "export PATH=$COREUTILS:$LLVM:$GNUBIN:$PATH" >> ~/.zshrc
+
+# make sure python in linked to python3
 ln -s -f /usr/local/bin/python3 /usr/local/bin/
 echo "python version: $(python --version)"
+
 source ~/.bashrc
 source ~/.zshrc
 
 brew install openssl
 source install_cmake.sh
+
+# Update pip
 pip3 install --upgrade --force pip
 echo "pip version: $(pip --version)"
 
