@@ -1139,7 +1139,7 @@ TEST_F(LLApiTest, testInfo) {
   ASSERT_EQ(info.numTerms, 5);
   ASSERT_EQ(info.numRecords, 7);
   // TO DO: Fix this value after fixing the count of inverted size in TAG fields
-  ASSERT_EQ(info.invertedSize, 510);
+  ASSERT_EQ(info.invertedSize, 682);
   ASSERT_EQ(info.invertedCap, 0);
   ASSERT_EQ(info.skipIndexesSize, 0);
   ASSERT_EQ(info.scoreIndexesSize, 0);

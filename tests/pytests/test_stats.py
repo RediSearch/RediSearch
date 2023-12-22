@@ -191,7 +191,8 @@ def testIssue1497(env):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     env.assertEqual(d['inverted_sz_mb'], '0')
     env.assertEqual(d['num_records'], '0')
-    check_empty(env, 'idx')
+    #TODO: Fix the expected empty index memory
+    check_empty(env, 'idx', 0)
 
 @skip(cluster=True)
 def testMemoryAfterDrop_numeric(env):
@@ -226,6 +227,11 @@ def testMemoryAfterDrop_numeric(env):
         env.assertEqual(d['num_docs'], '0')
         forceInvokeGC(env, 'idx%d' % i)
 
+    # The memory occupied by a empty NUMERIC inverted index is 102 bytes,
+    # which is the sum of the following (See NewInvertedIndex()):
+    # sizeof_InvertedIndex(index->flags)   48
+    # sizeof(IndexBlock)	               48	
+	# INDEX_BLOCK_INITIAL_CAP               6	
     expected_inverted_sz_mb = 102 / (1024 * 1024)
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
@@ -263,6 +269,11 @@ def testMemoryAfterDrop_geo(env):
         env.assertEqual(d['num_docs'], '0')
         forceInvokeGC(env, 'idx%d' % i)
 
+    # The memory occupied by a empty NUMERIC inverted index is 102 bytes,
+    # which is the sum of the following (See NewInvertedIndex()):
+    # sizeof_InvertedIndex(index->flags)   48
+    # sizeof(IndexBlock)	               48	
+	# INDEX_BLOCK_INITIAL_CAP               6
     expected_inverted_sz_mb = 102 / (1024 * 1024)
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
@@ -333,7 +344,12 @@ def testMemoryAfterDrop_tag(env):
         env.assertEqual(d['num_docs'], '0')
         forceInvokeGC(env, 'idx%d' % i)
 
-    expected_inverted_sz_mb = 75 / (1024 * 1024)
+    # The memory occupied by a empty TAG inverted index is 102 bytes,
+    # which is the sum of the following (See NewInvertedIndex()):
+    # sizeof_InvertedIndex(index->flags)   32
+    # sizeof(IndexBlock)	               48	
+	# INDEX_BLOCK_INITIAL_CAP               6
+    expected_inverted_sz_mb = 86 / (1024 * 1024)
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
 

@@ -129,8 +129,9 @@ static InvertedIndex *getTagInvidx(RedisSearchCtx* sctx, const char *field,
   RedisModuleKey *keyp = NULL;
   RedisModuleString *fmtkey = IndexSpec_GetFormattedKeyByName(sctx->spec, "f1", INDEXFLD_T_TAG);
   auto tix = TagIndex_Open(sctx, fmtkey, 1, &keyp);
-  size_t dummy_size = 0;
-  auto iv = TagIndex_OpenIndex(tix, "hello", strlen("hello"), 1, &dummy_size);
+  size_t sz = 0;
+  auto iv = TagIndex_OpenIndex(tix, "hello", strlen("hello"), 1, &sz);
+  sctx->spec->stats.invertedSize += sz;
   return iv;
 }
 
@@ -170,16 +171,16 @@ TEST_F(FGCTest, testRemoveEntryFromLastBlock) {
 
   // gc stats
   ASSERT_EQ(0, fgc->stats.gcBlocksDenied);
-  // The buffer's size of the inverted index is incremented more than needed sometimes
-  // for amortization purposes. 
-  // see: Buffer_Write() for the implementation.
-  ASSERT_EQ(docSize, fgc->stats.totalCollected + 1);
+  // The buffer's initial capacity is INDEX_BLOCK_INITIAL_CAP, the function 
+  // IndexBlock_Repair() shrinks the buffer to the number of valid entries in 
+  // the block, collecting the remaining memory.
+  ASSERT_EQ(INDEX_BLOCK_INITIAL_CAP - 1, fgc->stats.totalCollected);
 
   // numDocuments is updated in the indexing process, while all other fields are only updated if
   // their memory was cleaned by the gc.
   ASSERT_EQ(0, (get_spec(ism))->stats.numDocuments);
   ASSERT_EQ(1, (get_spec(ism))->stats.numRecords);
-  ASSERT_EQ(invertedSizeBeforeApply - docSize + 1, (get_spec(ism))->stats.invertedSize);
+  ASSERT_EQ(invertedSizeBeforeApply - fgc->stats.totalCollected, (get_spec(ism))->stats.invertedSize);
   ASSERT_EQ(1, TotalIIBlocks);
 }
 
@@ -340,7 +341,7 @@ TEST_F(FGCTest, testRemoveAllBlocksWhileUpdateLast) {
   ASSERT_EQ(1, sctx.spec->stats.numDocuments);
   // But the last block deletion was skipped.
   ASSERT_EQ(2, sctx.spec->stats.numRecords);
-  ASSERT_EQ(lastBlockMemory, sctx.spec->stats.invertedSize);
+  ASSERT_EQ(lastBlockMemory + sizeof_InvertedIndex(iv->flags), sctx.spec->stats.invertedSize);
   ASSERT_EQ(1, TotalIIBlocks);
 }
 
