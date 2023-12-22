@@ -9,12 +9,12 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
   test-macos:
-    uses: ./.github/workflows/flow-macos.yml
+    uses: ./.github/workflows/flow-sanitizer.yml
     secrets: inherit
     with:
-      coordinator: true
-      test-config: QUICK=1
+      flow-config: '' # full sanitization
+
