@@ -39,9 +39,8 @@ jobs:
                       --retry-max-time ${{ env.RETRY_MAX_TIME }} \
                       -H "Accept: application/vnd.github+json" \
                       -H "X-GitHub-Api-Version: 2022-11-28" \
-                      https://api.github.com/repos/${{ inputs.repo }}/releases | \
-                  jq -r '.[].tag_name' | \
-                  sort -V | tail -1) && \
+                      https://api.github.com/repos/${{ inputs.repo }}/releases/latest | \
+                jq -r '.tag_name') && \
           echo "tag=$TAG" >> $GITHUB_OUTPUT
       - name: Get Latest Release Tag with Prefix
         id: with-prefix
@@ -55,6 +54,6 @@ jobs:
                       -H "Accept: application/vnd.github+json" \
                       -H "X-GitHub-Api-Version: 2022-11-28" \
                       https://api.github.com/repos/${{ inputs.repo }}/releases | \
-                  jq -r '.[].tag_name | select(startswith("${{ inputs.prefix }}"))' | \
-                  sort -V | tail -1) && \
+                jq -r '.[].tag_name | select(startswith("${{ inputs.prefix }}"))' | \
+                sort -V | tail -1) && \
           echo "tag=$TAG" >> $GITHUB_OUTPUT

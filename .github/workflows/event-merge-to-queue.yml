@@ -36,7 +36,6 @@ jobs:
     needs: [docs-only, get-latest-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     strategy:
-      fail-fast: false
       matrix:
         mode: [standalone, coordinator]
     uses: ./.github/workflows/flow-macos.yml

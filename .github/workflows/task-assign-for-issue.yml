@@ -8,6 +8,7 @@ on:
 
 jobs:
   Assign:
+    if: contains(github.event.issue.labels.*.name, 'bug')
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
