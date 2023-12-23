@@ -39,15 +39,13 @@ typedef struct InvertedIndex {
   t_docId lastId;
   uint32_t numDocs;
   uint32_t gcMarker;
-  // The following union must remain at the end as memory is not allocate for it
+  // The following union must remain at the end as memory is not allocated for it
   // if not required (see function `NewInvertedIndex`)
   union {
     t_fieldMask fieldMask;
     uint64_t numEntries;
   };
 } InvertedIndex;
-
-struct indexReadCtx;
 
 /**
  * This context is passed to the decoder callback, and can contain either
