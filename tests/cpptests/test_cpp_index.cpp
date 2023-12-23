@@ -361,7 +361,7 @@ TEST_F(IndexTest, testNot) {
   // printf("Reading!\n");
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
-  irs[1] = NewNotIterator(NewReadIterator(r2), w2->lastId, 1);
+  irs[1] = NewNotIterator(NewReadIterator(r2), w2->lastId, 1, {0});
 
   IndexIterator *ui = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
   RSIndexResult *h = NULL;
@@ -385,7 +385,7 @@ TEST_F(IndexTest, testPureNot) {
   IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
   printf("last id: %llu\n", (unsigned long long)w->lastId);
 
-  IndexIterator *ir = NewNotIterator(NewReadIterator(r1), w->lastId + 5, 1);
+  IndexIterator *ir = NewNotIterator(NewReadIterator(r1), w->lastId + 5, 1, {0});
 
   RSIndexResult *h = NULL;
   int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
