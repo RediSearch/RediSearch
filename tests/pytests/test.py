@@ -3905,3 +3905,36 @@ def test_timeoutCoordSearch_Strict():
     env.assertEqual(res[0], n_docs)
 
     env.expect('ft.search', 'idx', '*', 'TIMEOUT', '1').error().contains('Timeout limit was reached')
+
+@skip(cluster=True)
+def test_notIterTimeout(env):
+    """Tests that we fail fast from the NOT iterator in the edge case similar to
+    MOD-5512
+    * Skipped on cluster since the it would only test error propagation from the
+    shard to the coordinator, which is tested elsewhere.
+    """
+
+    if VALGRIND:
+        env.skip()
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CONFIG', 'SET', 'ON_TIMEOUT', 'FAIL')
+
+    # Create an index
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'tag1', 'TAG', 'title', 'TEXT', 'n', 'NUMERIC')
+
+    # Populate the index
+    num_docs = 15000
+    for i in range(int(num_docs / 2)):
+        env.cmd('HSET', f'doc:{i}', 'tag1', 'fantasy', 'title', f'title:{i}', 'n', i)
+
+    # Populate with other tag value in a separate loop so doc-ids will be incremental.
+    for i in range(int(num_docs / 2), num_docs):
+        env.cmd('HSET', f'doc:{i}', 'tag1', 'drama', 'title', f'title:{i}', 'n', i)
+
+    # Send a query that will skip all the docs with the first tag value (fantasy),
+    # such that the timeout will be checked in the NOT iterator loop (coverage).
+    env.expect(
+        'FT.AGGREGATE', 'idx', '-@tag1:{fantasy}', 'LOAD', '2', '@title', '@n',
+        'APPLY', '@n^2 / 2', 'AS', 'new_n', 'GROUPBY', '1', '@title', 'TIMEOUT', '1'
+    ).error().contains('Timeout limit was reached')
