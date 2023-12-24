@@ -53,10 +53,11 @@ OS=$($READIES/bin/platform --os)
 
 if [[ $OS == macos ]]; then
 	# as we don't build on macOS for every platform, we converge to a least common denominator
+	# On 2.6, these are the nicknames we expect:
 	if [[ $ARCH == x86_64 ]]; then
-		[[ $OSNICK == bigsur || $OSNICK == ventura ]] && OSNICK=catalina
+		OSNICK=catalina
 	else
-		[[ $OSNICK == ventura ]] && OSNICK=monterey
+		OSNICK=monterey
 	fi
 fi
 
@@ -122,13 +123,10 @@ s3_upload() {
 	local upload_dir="${S3_URL}/${prod_subdir}${MAYBE_SNAP}"
 	local file
 	if [[ $SNAPSHOT == 1 ]]; then
-		echo "uploading snapshot: $PLATFORM"
-		echo $(ls ${prefix}.*${PLATFORM}*.zip 2> /dev/null)
 		for file in `ls ${prefix}.*${PLATFORM}*.zip ${prefix}.*${PLATFORM}*.tgz 2> /dev/null`; do
 			s3_upload_file $file $upload_dir
 		done
 	else
-		echo "SHOULD NOT BE HERE"
 		for file in `ls ${prefix}.*.zip ${prefix}.*.tgz 2> /dev/null`; do
 			s3_upload_file $file $upload_dir
 		done
