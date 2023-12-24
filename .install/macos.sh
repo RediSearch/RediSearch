@@ -17,5 +17,3 @@ source ~/.zshrc
 
 brew install openssl
 source install_cmake.sh
-
-echo INSTALLER="brew" >> $GITHUB_ENV
