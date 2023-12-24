@@ -4,7 +4,7 @@ set -e
 
 $MODE dnf update -y
 $MODE dnf install -y gcc-toolset-10-gcc gcc-toolset-10-gcc-c++ make wget git openssl openssl-devel \
-    bzip2-devel libffi-devel zlib-devel tar
+    bzip2-devel libffi-devel zlib-devel tar xz which
 
 source /opt/rh/gcc-toolset-10/enable
 source install_cmake.sh $MODE
