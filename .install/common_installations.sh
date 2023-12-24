@@ -26,11 +26,5 @@ pip install -q -r .install/build_package_requirments.txt
 # List installed packages
 pip list
 
-echo "ACTIVATE_PATH=$PWD/venv/bin/activate" >> $GITHUB_ENV
-echo "source $ACTIVATE_PATH" >> ~/.bashrc
-echo "echo $ACTIVATE_PATH" >> ~/.bashrc
-echo "pip: $(which pip)" >> ~/.bashrc
-echo "ACTIVATE_PATH=$PWD/venv/bin/activate" >> $GITHUB_ENV
-echo "source $ACTIVATE_PATH" >> ~/.zshrc
-echo "echo $ACTIVATE_PATH" >> ~/.zshrc
-echo "pip: $(which pip)" >> ~/.zshrc
+#echo "ACTIVATE_PATH=$PWD/venv/bin/activate" >> $GITHUB_ENV
+echo PATH=$PATH >> $GITHUB_ENV
