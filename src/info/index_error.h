@@ -20,13 +20,13 @@ typedef struct IndexError {
 } IndexError;
 
 // Global constant to place an index error object in maps/dictionaries.
-extern const char* IndexError_ObjectName;
+extern char* const IndexError_ObjectName;
 
 // Initializes an IndexError. The error_count is set to 0 and the last_error is set to NA.
 IndexError IndexError_Init();
 
 // Adds an error message to the IndexError. The error_count is incremented and the last_error is set to the error_message.
-void IndexError_AddError(IndexError *error, const char *error_message, const RedisModuleString *key);
+void IndexError_AddError(IndexError *error, const char *error_message, RedisModuleString *key);
 
 // Returns the number of errors in the IndexError.
 size_t IndexError_ErrorCount(const IndexError *error);
@@ -40,7 +40,7 @@ const RedisModuleString *IndexError_LastErrorKey(const IndexError *error);
 // Clears an IndexError. If the last_error is not NA, it is freed.
 void IndexError_Clear(IndexError error);
 
-// IO and cluser traits
+// IO and cluster traits
 // Reply the index errors to the client.
 void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply);
 

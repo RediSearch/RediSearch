@@ -10,43 +10,56 @@
 
 extern RedisModuleCtx *RSDummyContext;
 
-const char* NA = "N/A";
-const char* IndexError_ObjectName = "Index Errors";
-const char* IndexingFailure_String = "indexing failures";
-const char* IndexingError_String = "last indexing error";
-const char* IndexingErrorKey_String = "last indexing error key";
+RedisModuleString* NA_rstr = NULL;
+char* const NA = "N/A";
+char* const IndexError_ObjectName = "Index Errors";
+char* const IndexingFailure_String = "indexing failures";
+char* const IndexingError_String = "last indexing error";
+char* const IndexingErrorKey_String = "last indexing error key";
+
+static void initDefaultKey() {
+    NA_rstr = RedisModule_CreateString(RSDummyContext, NA, strlen(NA));
+    RedisModule_TrimStringAllocation(NA_rstr);
+}
 
 IndexError IndexError_Init() {
+    if (!NA_rstr) initDefaultKey();
     IndexError error = {
-        .error_count = 0,           // Number of errors set to 0.
-        .last_error = (char*)NA,    // Last error message set to NA.
-        .key = RedisModule_CreateString(RSDummyContext, NA, strlen(NA)) // Key of the document that caused the error set to NA.
+        .error_count = 0,   // Number of errors set to 0.
+        .last_error = NA,   // Last error message set to NA.
+        .key = NA_rstr,     // Key of the document that caused the error set to NA.
     };
     return error;
 }
-void IndexError_AddError(IndexError *error, const char *error_message, const RedisModuleString *key) {
-    if(!error_message) {
-        RedisModule_Log(RSDummyContext, "error", "Index error occurred but no index error message was set.");
+void IndexError_AddError(IndexError *error, const char *error_message, RedisModuleString *key) {
+    if (!NA_rstr) initDefaultKey();
+    if (!error_message) {
+        RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING,
+                        "Index error occurred but no index error message was set.");
     }
-    if(error->last_error != NA) {
+    if (error->last_error != NA) {
         rm_free(error->last_error);
     }
-    if(error->key != NULL) {
+    if (error->key != NA_rstr) {
         RedisModule_FreeString(RSDummyContext, error->key);
     }
-    error->last_error = error_message ? rm_strdup(error_message) : (char*) NA; // Don't strdup NULL.
-    error->key = RedisModule_CreateStringFromString(RSDummyContext, key);
+    error->last_error = error_message ? rm_strdup(error_message) : NA; // Don't strdup NULL.
+    error->key = RedisModule_HoldString(RSDummyContext, key);
+    RedisModule_TrimStringAllocation(error->key);
     // Atomically increment the error_count by 1, since this might be called when spec is unlocked.
     __atomic_add_fetch(&error->error_count, 1, __ATOMIC_RELAXED);
 }
 
 void IndexError_Clear(IndexError error) {
-    if(error.last_error != NA) {
+    if (!NA_rstr) initDefaultKey();
+    if (error.last_error != NA && error.last_error != NULL) {
         rm_free(error.last_error);
+        error.last_error = NA;
     }
 
-    if(error.key != NULL) {
+    if (error.key != NA_rstr && error.key != NULL) {
         RedisModule_FreeString(RSDummyContext, error.key);
+        error.key = NA_rstr;
     }
 }
 
@@ -60,19 +73,16 @@ void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply) {
 
 // Returns the number of errors in the IndexError.
 size_t IndexError_ErrorCount(const IndexError *error) {
-    RedisModule_Assert(error);
     return error->error_count;
 }
 
 // Returns the last error message in the IndexError.
 const char *IndexError_LastError(const IndexError *error) {
-    RedisModule_Assert(error);
     return error->last_error;
 }
 
 // Returns the key of the document that caused the error.
 const RedisModuleString *IndexError_LastErrorKey(const IndexError *error) {
-    RedisModule_Assert(error);
     return error->key;
 }
 
@@ -80,16 +90,17 @@ const RedisModuleString *IndexError_LastErrorKey(const IndexError *error) {
 #ifdef RS_COORDINATOR
 
 void IndexError_OpPlusEquals(IndexError *error, const IndexError *other) {
-    if(other->last_error != NA) {
-        if(error->last_error != NA) {
+    if (!NA_rstr) initDefaultKey();
+    if (other->last_error != NA) {
+        if (error->last_error != NA) {
             rm_free(error->last_error);
         }
         error->last_error = rm_strdup(other->last_error);
-        if(other->key != NULL) {
-            if(error->key != NULL) {
+        if (other->key != NA_rstr) {
+            if (error->key != NA_rstr) {
                 RedisModule_FreeString(RSDummyContext, error->key);
             }
-            error->key = RedisModule_CreateStringFromString(RSDummyContext, other->key);
+            error->key = RedisModule_HoldString(RSDummyContext, other->key);
         }
     }
 
@@ -105,20 +116,17 @@ void IndexError_SetErrorCount(IndexError *error, size_t error_count) {
 
 // Set the last_error of the IndexError.
 void IndexError_SetLastError(IndexError *error, const char *last_error) {
-    if(error->last_error != NA) {
+    if (error->last_error != NA) {
         rm_free(error->last_error);
     }
-    if(last_error != NA) {
-        error->last_error = last_error ? rm_strdup(last_error) : (char*) NA; // Don't strdup NULL.
-    }
-    else {
-        error->last_error = (char*) NA;
-    }
+    // Don't strdup NULL.
+    error->last_error = (last_error != NULL && last_error != NA) ? rm_strdup(last_error) : NA;
 }
 
 // Set the key of the IndexError.
 void IndexError_SetKey(IndexError *error, RedisModuleString *key) {
-    if(error->key != NULL) {
+    if (!NA_rstr) initDefaultKey();
+    if(error->key != NA_rstr) {
         RedisModule_FreeString(RSDummyContext, error->key);
     }
     error->key = key;
@@ -150,14 +158,14 @@ IndexError IndexError_Deserialize(MRReply *reply) {
     RedisModule_Assert(MRReply_Type(key) == MR_REPLY_STRING || MRReply_Type(key) == MR_REPLY_STATUS);
     size_t key_len;
     const char *key_str = MRReply_String(key, &key_len);
-    if(strncmp(last_error_str, NA, error_len)) {
+    if (strncmp(last_error_str, NA, error_len)) {
         IndexError_SetLastError(&error, last_error_str);
         RedisModuleString *key_rstr = RedisModule_CreateString(RSDummyContext, key_str, key_len);
         IndexError_SetKey(&error, key_rstr);
     } else {
+        if (!NA_rstr) initDefaultKey();
         IndexError_SetLastError(&error, NA);
-        RedisModuleString *key = RedisModule_CreateString(RSDummyContext, NA, strlen(NA));
-        IndexError_SetKey(&error, key);
+        IndexError_SetKey(&error, NA_rstr);
     }
 
     return error;

@@ -164,15 +164,15 @@ void handleFieldStatistics(MRReply *src, InfoFields *fields) {
   if (!fields->fieldSpecInfo_arr) {
     // Lazy initialization
     fields->fieldSpecInfo_arr = array_new(FieldSpecInfo, len);
-    for(size_t i=0; i<len; i++) {
+    for (size_t i = 0; i < len; i++) {
       FieldSpecInfo fieldSpecInfo = FieldSpecInfo_Init();
       fields->fieldSpecInfo_arr = array_append(fields->fieldSpecInfo_arr, fieldSpecInfo);
     }
   }
 
-  for(size_t i = 0; i < len; i++) {
-    MRReply *serilizedFieldSpecInfo = MRReply_ArrayElement(src, i);
-    FieldSpecInfo fieldSpecInfo = FieldSpecInfo_Deserialize(serilizedFieldSpecInfo);
+  for (size_t i = 0; i < len; i++) {
+    MRReply *serializedFieldSpecInfo = MRReply_ArrayElement(src, i);
+    FieldSpecInfo fieldSpecInfo = FieldSpecInfo_Deserialize(serializedFieldSpecInfo);
     FieldSpecInfo_OpPlusEquals(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
     FieldSpecInfo_Clear(&fieldSpecInfo); // Free Resources
   }
@@ -180,7 +180,7 @@ void handleFieldStatistics(MRReply *src, InfoFields *fields) {
 
 static void handleIndexError(InfoFields *fields, MRReply *src) {
   // Check if indexError is initialized
-  if(!IndexError_LastError(&fields->indexError)) {
+  if (!IndexError_LastError(&fields->indexError)) {
     fields->indexError = IndexError_Init();
   }
   IndexError indexError = IndexError_Deserialize(src);
@@ -313,14 +313,6 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
     RedisModule_ReplyKV_MRReply(reply, "attributes", fields->indexSchema);
   }
 
-  if (fields->fieldSpecInfo_arr) {
-      RedisModule_ReplyKV_Array(reply, "field statistics"); //Field statistics
-      for (size_t i = 0; i < array_len(fields->fieldSpecInfo_arr); ++i) {
-        FieldSpecInfo_Reply(&fields->fieldSpecInfo_arr[i], reply);
-      }
-      RedisModule_Reply_ArrayEnd(reply); // >Field statistics
-  }
-
   if (fields->indexOptions) {
     RedisModule_ReplyKV_MRReply(reply, "index_options", fields->indexOptions);
   }
@@ -344,13 +336,21 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
   RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
   IndexError_Reply(&fields->indexError, reply);
 
+  if (fields->fieldSpecInfo_arr) {
+    RedisModule_ReplyKV_Array(reply, "field statistics"); //Field statistics
+    for (size_t i = 0; i < array_len(fields->fieldSpecInfo_arr); ++i) {
+      FieldSpecInfo_Reply(&fields->fieldSpecInfo_arr[i], reply);
+    }
+    RedisModule_Reply_ArrayEnd(reply); // >Field statistics
+  }
+
 
   RedisModule_Reply_MapEnd(reply);
 }
 
 int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   // Summarize all aggregate replies
-  InfoFields fields = {0};
+  InfoFields fields = { .indexError = IndexError_Init() };
   size_t numErrored = 0;
   MRReply *firstError = NULL;
   RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
