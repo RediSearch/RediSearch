@@ -26,10 +26,6 @@
 #include "suffix.h"
 #include "resp3.h"
 
-#ifdef __linux__
-#include <sys/prctl.h>
-#endif
-
 #define GC_WRITERFD 1
 #define GC_READERFD 0
 
@@ -124,11 +120,6 @@ FGC_recvBuffer(ForkGC *fgc, void **buf, size_t *len) {
   }
   return REDISMODULE_OK;
 }
-
-#define TRY_RECV_BUFFER(gc, buf, len)                   \
-  if (FGC_recvBuffer(gc, buf, len) != REDISMODULE_OK) { \
-    return REDISMODULE_ERR;                             \
-  }
 
 typedef struct {
   // Number of blocks prior to repair
@@ -1105,23 +1096,6 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
   return status;
 }
 
-/**
- * In future versions of Redis, Redis will have its own fork() call.
- * The following two functions wrap this functionality.
- */
-static int FGC_haveRedisFork() {
-  return RedisModule_Fork != NULL;
-}
-
-static int FGC_fork(ForkGC *gc, RedisModuleCtx *ctx) {
-  if (FGC_haveRedisFork()) {
-    int ret = RedisModule_Fork(NULL, NULL);
-    return ret;
-  } else {
-    return fork();
-  }
-}
-
 static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   ForkGC *gc = privdata;
 
@@ -1171,7 +1145,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 
   gc->execState = FGC_STATE_SCANNING;
 
-  cpid = FGC_fork(gc, ctx);  // duplicate the current process
+  cpid = RedisModule_Fork(NULL, NULL);  // duplicate the current process
 
   if (cpid == -1) {
     RedisModule_Log(ctx, "warning", "fork failed - got errno %d, aborting fork GC", errno);
@@ -1194,26 +1168,14 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 
 
   if (cpid == 0) {
-    setpriority(PRIO_PROCESS, getpid(), 19);
     // fork process
+    setpriority(PRIO_PROCESS, getpid(), 19);
     close(gc->pipefd[GC_READERFD]);
-#ifdef __linux__
-    if (!FGC_haveRedisFork()) {
-      // set the parrent death signal to SIGTERM
-      int r = prctl(PR_SET_PDEATHSIG, SIGKILL);
-      if (r == -1) {
-        exit(1);
-      }
-      // test in case the original parent exited just
-      // before the prctl() call
-      if (getppid() != ppid_before_fork) exit(1);
-    }
-#endif
     // Pass the index to the child process
     FGC_childScanIndexes(gc, StrongRef_Get(early_check));
     close(gc->pipefd[GC_WRITERFD]);
     sleep(RSGlobalConfig.gcConfigParams.forkGc.forkGcSleepBeforeExit);
-    _exit(EXIT_SUCCESS);
+    RedisModule_ExitFromChild(EXIT_SUCCESS);
   } else {
     // main process
     // release the strong reference to the index for the main process (see comment above)
@@ -1231,33 +1193,22 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
       gcrv = 0;
     }
     close(gc->pipefd[GC_READERFD]);
-    if (FGC_haveRedisFork()) {
-      // We need to acquire the GIL to use the fork api
-      RedisModule_ThreadSafeContextLock(ctx);
+    // KillForkChild must be called when holding the GIL
+    // otherwise it might cause a pipe leak and eventually run
+    // out of file descriptor
+    RedisModule_ThreadSafeContextLock(ctx);
+    RedisModule_KillForkChild(cpid);
+    RedisModule_ThreadSafeContextUnlock(ctx);
 
-      // KillForkChild must be called when holding the GIL
-      // otherwise it might cause a pipe leak and eventually run
-      // out of file descriptor
-      RedisModule_KillForkChild(cpid);
-
-      RedisModule_ThreadSafeContextUnlock(ctx);
-
-    } else {
-      pid_t id = wait4(cpid, NULL, 0, NULL);
-      if (id == -1) {
-        RedisModule_Log(ctx, "warning", "an error occurred when waiting for fork GC to terminate,"
-                        " pid:%d", cpid);
-      }
-    }
 #ifdef MT_BUILD
     if (gcrv) {
       gcrv = VecSim_CallTieredIndexesGC(gc->index);
     }
 #endif
   }
+
   gc->execState = FGC_STATE_IDLE;
   TimeSampler_End(&ts);
-
   long long msRun = TimeSampler_DurationMS(&ts);
 
   gc->stats.numCycles++;
