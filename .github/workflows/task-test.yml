@@ -63,11 +63,11 @@ jobs:
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
 
-      - name: Setup python
-        id: setup-python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
+      # - name: Setup python
+      #   id: setup-python
+      #   uses: actions/setup-python@v5
+      #   with:
+      #     python-version: "3.x"
       - run: echo "python version:" ${{ steps.setup-python.outputs.python-version }}
       - name: Full checkout
         uses: actions/checkout@v3
