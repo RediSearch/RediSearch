@@ -2,7 +2,9 @@
 set -e
 OS_TYPE=$(uname -s)
 MODE=$1 # whether to install using sudo or not
+#INSTALLER=$2 # instalation package manager
 
+echo "INSTALLER: $INSTALLER"
 $MODE $INSTALLER python3
 
 # create virtual env
