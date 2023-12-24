@@ -42,9 +42,14 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - name: Pre-steps Dependencies
-        if: inputs.pre-steps-script
-        run: ${{ inputs.pre-steps-script }}
+      # # Setup
+      # - name: Pre-steps Dependencies
+      #   if: inputs.pre-steps-script
+      #   run: ${{ inputs.pre-steps-script }}
+      - name: TRY
+        uses: ./.github/workflows/build-step.yml
+        with:
+          pre-steps-script: ${{ inputs.pre-steps-script }}
       - name: Get Installation Mode
         id: mode
         run: |
@@ -107,12 +112,15 @@ jobs:
 
       - name: Build Standalone
         if: ${{ inputs.standalone }}
-        run:  |
+        run: |
+          source $ACTIVATE_VENV
           echo "pip: $(which pip)"
           make SAN=${{ inputs.san }}
       - name: Build Coordinator
         if: ${{ inputs.coordinator }}
-        run: make COORD=1 SAN=${{ inputs.san }}
+        run: |
+          source $ACTIVATE_VENV
+          make COORD=1 SAN=${{ inputs.san }}
 
       - name: Unit tests (standalone)
         id: test1
