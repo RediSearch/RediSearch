@@ -26,5 +26,6 @@ pip install -q -r .install/build_package_requirments.txt
 # List installed packages
 pip list
 
-#echo "ACTIVATE_PATH=$PWD/venv/bin/activate" >> $GITHUB_ENV
+# activation of a virtualenv prepends …/venv/bin/ to $PATH
+# This way we make sure venv is activate in all subsequent steps
 echo PATH=$PATH >> $GITHUB_ENV
