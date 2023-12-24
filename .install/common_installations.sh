@@ -5,7 +5,7 @@ MODE=$1 # whether to install using sudo or not
 #INSTALLER=$2 # instalation package manager
 
 echo "INSTALLER: $INSTALLER"
-$MODE $INSTALLER python3
+$MODE $INSTALLER install python3
 
 # create virtual env
 python3 -m venv venv
