@@ -7,6 +7,7 @@
 #include "index_error.h"
 #include "rmalloc.h"
 #include "reply_macros.h"
+#include "util/timeout.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -46,7 +47,7 @@ void IndexError_AddError(IndexError *error, const char *error_message, RedisModu
     RedisModule_TrimStringAllocation(error->key);
     // Atomically increment the error_count by 1, since this might be called when spec is unlocked.
     __atomic_add_fetch(&error->error_count, 1, __ATOMIC_RELAXED);
-    error->last_error_time = time(NULL);
+    clock_gettime(CLOCK_MONOTONIC_RAW, &error->last_error_time);
 }
 
 void IndexError_Clear(IndexError error) {
@@ -67,7 +68,11 @@ void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool wi
     REPLY_KVSTR(IndexingError_String, IndexError_LastError(error));
     REPLY_KVRSTR(IndexingErrorKey_String, IndexError_LastErrorKey(error));
     if (with_timestamp) {
-        REPLY_KVINT(IndexingErrorTime_String, IndexError_LastErrorTime(error));
+        struct timespec ts = IndexError_LastErrorTime(error);
+        REPLY_KVARRAY(IndexingErrorTime_String);
+        RedisModule_Reply_LongLong(reply, ts.tv_sec);
+        RedisModule_Reply_LongLong(reply, ts.tv_nsec);
+        REPLY_ARRAY_END;
     }
     RedisModule_Reply_MapEnd(reply);
 }
@@ -88,7 +93,7 @@ const RedisModuleString *IndexError_LastErrorKey(const IndexError *error) {
 }
 
 // Returns the last error time in the IndexError.
-time_t IndexError_LastErrorTime(const IndexError *error) {
+struct timespec IndexError_LastErrorTime(const IndexError *error) {
     return error->last_error_time;
 }
 
@@ -97,7 +102,7 @@ time_t IndexError_LastErrorTime(const IndexError *error) {
 void IndexError_OpPlusEquals(IndexError *error, const IndexError *other) {
     if (!NA_rstr) initDefaultKey();
     // Condition is valid even if one or both errors are NA (`last_error_time` is 0).
-    if (error->last_error_time < other->last_error_time) {
+    if (!rs_timer_ge(&error->last_error_time, &other->last_error_time)) {
         // Prefer the other error.
         // copy/add error count later with atomic add.
         if (error->last_error != NA) rm_free(error->last_error);
@@ -131,7 +136,7 @@ void IndexError_SetKey(IndexError *error, RedisModuleString *key) {
     RedisModule_FreeString(RSDummyContext, error->key);
     error->key = key;
 }
-void IndexError_SetErrorTime(IndexError *error, time_t error_time) {
+void IndexError_SetErrorTime(IndexError *error, struct timespec error_time) {
     error->last_error_time = error_time;
 }
 
@@ -165,8 +170,10 @@ IndexError IndexError_Deserialize(MRReply *reply) {
 
     MRReply *last_error_time = MRReply_MapElement(reply, IndexingErrorTime_String);
     RedisModule_Assert(last_error_time);
-    RedisModule_Assert(MRReply_Type(last_error_time) == MR_REPLY_INTEGER);
-    IndexError_SetErrorTime(&error, MRReply_Integer(last_error_time));
+    RedisModule_Assert(MRReply_Type(last_error_time) == MR_REPLY_ARRAY && MRReply_Length(last_error_time) == 2);
+    struct timespec ts = {MRReply_Integer(MRReply_ArrayElement(last_error_time, 0)),
+                          MRReply_Integer(MRReply_ArrayElement(last_error_time, 1))};
+    IndexError_SetErrorTime(&error, ts);
 
     if (strncmp(last_error_str, NA, error_len)) {
         IndexError_SetLastError(&error, last_error_str);

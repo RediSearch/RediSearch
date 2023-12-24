@@ -20,7 +20,7 @@ typedef struct IndexError {
     size_t error_count;     // Number of errors.
     char *last_error;       // Last error message.
     RedisModuleString *key; // Key of the document that caused the error.
-    time_t last_error_time; // Time of the last error.
+    struct timespec last_error_time; // Time of the last error.
 } IndexError;
 
 // Global constant to place an index error object in maps/dictionaries.
@@ -42,7 +42,7 @@ const char *IndexError_LastError(const IndexError *error);
 const RedisModuleString *IndexError_LastErrorKey(const IndexError *error);
 
 // Returns the time of the last error.
-time_t IndexError_LastErrorTime(const IndexError *error);
+struct timespec IndexError_LastErrorTime(const IndexError *error);
 
 // Clears an IndexError. If the last_error is not NA, it is freed.
 void IndexError_Clear(IndexError error);
