@@ -335,7 +335,7 @@ def test_create():
 
         for _ in env.reloadingIterator():
             info = ['identifier', 'v_HNSW', 'attribute', 'v_HNSW', 'type', 'VECTOR']
-            env.assertEqual(ft_info_to_dict(env, 'idx1')['attributes'][0][:len(info)], info)
+            env.assertEqual(index_info(env, 'idx1')['attributes'][0][:len(info)], info)
             info_data_HNSW = conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx1", "v_HNSW")
             # replace memory values with a dummy value - irrelevant for the test
             info_data_HNSW[info_data_HNSW.index('MEMORY') + 1] = dummy_val
@@ -447,6 +447,41 @@ def test_create_errors():
         .error().contains('Bad arguments for vector similarity HNSW index epsilon')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', '16', 'EPSILON', '-1') \
         .error().contains('Bad arguments for vector similarity HNSW index epsilon')
+
+
+def test_index_errors():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
+                         'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2')
+    error_count = 0
+    def index_errors():
+        return to_dict(index_info(env)['Index Errors'])
+    def field_errors():
+        return to_dict(to_dict(to_dict(index_info(env)['field statistics'][0]))['Index Errors'])
+
+    # Check that the index errors are empty
+    env.assertEqual(index_errors()['indexing failures'], error_count)
+    env.assertEqual(index_errors()['last indexing error'], 'N/A')
+    env.assertEqual(index_errors()['last indexing error key'], 'N/A')
+    env.assertEqual(field_errors(), index_errors())
+
+    for i in range(0, 5, 2):
+        conn.execute_command('HSET', i, 'v', create_np_array_typed([0]).tobytes())
+        error_count += 1
+        cur_index_errors = index_errors()
+        env.assertEqual(cur_index_errors['indexing failures'], error_count)
+        env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 4 (expected size 8)')
+        env.assertEqual(cur_index_errors['last indexing error key'], str(i))
+        env.assertEqual(cur_index_errors, field_errors())
+
+        conn.execute_command('HSET', i + 1, 'v', create_np_array_typed([0, 0, 0]).tobytes())
+        error_count += 1
+        cur_index_errors = index_errors()
+        env.assertEqual(cur_index_errors['indexing failures'], error_count)
+        env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 12 (expected size 8)')
+        env.assertEqual(cur_index_errors['last indexing error key'], str(i + 1))
+        env.assertEqual(cur_index_errors, field_errors())
 
 
 def test_search_errors():

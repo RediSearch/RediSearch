@@ -114,14 +114,9 @@ def toSortedFlatList(res):
         return py2sorted(finalList)
     return [res]
 
-def ft_info_to_dict(env, idx):
-  res = env.cmd('ft.info', idx)
-  return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-
-
 def assertInfoField(env, idx, field, expected, delta=None):
     if not env.isCluster():
-        d = ft_info_to_dict(env, idx)
+        d = index_info(env, idx)
         if delta is None:
             env.assertEqual(d[field], expected)
         else:

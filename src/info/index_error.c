@@ -147,7 +147,6 @@ IndexError IndexError_Deserialize(MRReply *reply) {
     RedisModule_Assert(reply && (MRReply_Type(reply) == MR_REPLY_MAP || (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0)));
     // Make sure the reply is a map, regardless of the protocol.
     MRReply_ArrayToMap(reply);
-    // print_mr_reply(reply);
 
     MRReply *error_count = MRReply_MapElement(reply, IndexingFailure_String);
     RedisModule_Assert(error_count);
