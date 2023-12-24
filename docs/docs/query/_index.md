@@ -4,6 +4,8 @@ linkTitle: "Query"
 description: Understand how to query, search, and aggregate Redis data
 hideListLinks: True
 weight: 5
+aliases:
+  - /docs/interact/search-and-query/basic-constructs/query-constructs/
 ---
 
 Redis Stack distinguishes between the [FT.SEARCH](/commands/ft.search/) and [FT.AGGREGATE](/commands/ft.aggregate/) query commands. You should use [FT.SEARCH](/commands/ft.search/) if you want to perform selections and projections only. If you also need to apply mapping functions, group, or aggregate data, use the [FT.AGGREGATE](/commands/ft.aggregate/) command. 
