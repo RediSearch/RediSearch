@@ -503,7 +503,7 @@ static void yy_destructor(
     case 23: /* unix_addr */
 {
 #line 30 "grammar.y"
-  free((yypminor->yy1));
+  rm_free((yypminor->yy1));
 #line 499 "grammar.c"
 }
       break;
@@ -1014,7 +1014,7 @@ err:
       case 10: /* shardid ::= INTEGER */
 #line 149 "grammar.y"
 {
-	asprintf(&yylhsminor.yy1, "%lld", yymsp[0].minor.yy0.intval);
+	rm_asprintf(&yylhsminor.yy1, "%lld", yymsp[0].minor.yy0.intval);
 }
 #line 1011 "grammar.c"
   yymsp[0].minor.yy1 = yylhsminor.yy1;

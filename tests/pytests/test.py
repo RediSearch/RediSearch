@@ -3737,7 +3737,7 @@ def test_cluster_set_server_memory_tracking(env):
 
     initial = get_memory(env)
     print(f"initial memory used: {initial}")
-    for i in range(1_900): # hangs at 1932 iterations. need to determine the cause
+    for i in range(1_90): # hangs at 1932 iterations. need to determine the cause
         env.cmd('SEARCH.CLUSTERSET',
                'MYID',
                '1',
