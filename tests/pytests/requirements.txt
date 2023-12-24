@@ -3,3 +3,5 @@ gevent
 deepdiff
 conan
 RLTest >= 0.7.9
+numpy >= 1.21.6
+scipy >= 1.7.3
