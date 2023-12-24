@@ -6,7 +6,7 @@ export DEBIAN_FRONTEND=noninteractive
 $MODE yum update -y
 $MODE yum groupinstall -y "Development Tools"
 $MODE yum remove -y gcc # remove gcc 7
-$MODE yum install -y wget git openssl openssl-devel gcc10 gcc10-c++
+$MODE yum install -y wget git openssl openssl-devel gcc10 gcc10-c++ python3
 $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc10-gcc 60 --slave /usr/bin/g++ g++ /usr/bin/gcc10-g++
 # Install 'openss11' and make it the default so we will use it when linking.
 # Currently it is commented out and handled on 'sbin/setup'. This is because
@@ -19,5 +19,3 @@ $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc10-gcc 60 --sla
 #$MODE ln -s /usr/lib64/pkgconfig/libcrypto11.pc /usr/lib64/pkgconfig/libcrypto.pc
 #$MODE ln -s /usr/lib64/pkgconfig/openssl11.pc /usr/lib64/pkgconfig/openssl.pc
 source install_cmake.sh $MODE
-
-echo INSTALLER="yum" >> $GITHUB_ENV
