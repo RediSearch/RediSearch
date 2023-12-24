@@ -1,0 +1,12 @@
+name: "setup"
+description: "Prepare machine for the job"
+inputs:
+    pre-steps-script:
+        type: string
+        description: 'Script to run before any other steps (extremely basic dependency needs only)'
+runs:
+    using: "composite"
+    steps:
+        - name: Pre-steps Dependencies
+        if: inputs.pre-steps-script
+        run: ${{ inputs.pre-steps-script }}
