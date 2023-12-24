@@ -12,12 +12,12 @@ echo "pip version: $(pip --version)"
 echo "pip path: $(which pip)"
 
 pip install -q -r tests/pytests/requirements.txt
-if [[ $OS_TYPE = 'Darwin' ]]
-then
-    pip install -q -r tests/pytests/requirements.macos.txt
-else
-    pip install -q -r tests/pytests/requirements.linux.txt
-fi
+# if [[ $OS_TYPE = 'Darwin' ]]
+# then
+#     pip install -q -r tests/pytests/requirements.macos.txt
+# else
+#     pip install -q -r tests/pytests/requirements.linux.txt
+# fi
 
 # These packages are needed to build the package
 # TODO: move to upload artifacts flow
