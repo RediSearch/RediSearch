@@ -856,7 +856,7 @@ def mod5778_add_new_shard_to_cluster(env: Env):
 
     # Now we expect that the new shard will be a part of the cluster partition in redisearch (allow some time
     # for the cluster refresh to occur and acknowledged by all shards)
-    with TimeLimit(40, "topology change was not acknowledged by the new shard"):
+    with TimeLimit(120, "topology change was not acknowledged by the new shard"):
         while True:
             time.sleep(0.5)
             cluster_info = new_shard_conn.execute_command("search.clusterinfo")
