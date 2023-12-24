@@ -44,13 +44,12 @@ jobs:
     steps:
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script
-        run: |
-          ${{ inputs.pre-steps-script }}
-          echo "python --version: $(python --version)"
-          echo "python3 --version: $(python3 --version)"
+        run: ${{ inputs.pre-steps-script }}
       - name: Get Installation Mode
         id: mode
         run: |
+          echo "python --version: $(python --version)"
+          echo "python3 --version: $(python3 --version)"
           [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
       - name: Deps checkout
         uses: actions/checkout@v3
