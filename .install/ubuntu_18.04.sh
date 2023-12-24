@@ -14,7 +14,8 @@ $MODE apt-get install -yqq git wget make gcc-10 g++-10 openssl libssl-dev
 
 # Install Python 3.10
 $MODE add-apt-repository ppa:deadsnakes/ppa -y
-$MODE apt install python3.10 python3.10-venv -y
+$MODE apt-get update
+$MODE apt-get install python3.10 python3.10-venv -y
 # Set python3 to point to python3.10
 sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.6 1
 sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 2
