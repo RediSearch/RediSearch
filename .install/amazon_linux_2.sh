@@ -19,3 +19,5 @@ $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc10-gcc 60 --sla
 #$MODE ln -s /usr/lib64/pkgconfig/libcrypto11.pc /usr/lib64/pkgconfig/libcrypto.pc
 #$MODE ln -s /usr/lib64/pkgconfig/openssl11.pc /usr/lib64/pkgconfig/openssl.pc
 source install_cmake.sh $MODE
+
+echo INSTALLER="yum" >> $GITHUB_ENV
