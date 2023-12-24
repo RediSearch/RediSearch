@@ -108,7 +108,6 @@ jobs:
       - name: Build Standalone
         if: ${{ inputs.standalone }}
         run:  |
-          echo "$PATH" | grep  venv
           echo "pip: $(which pip)"
           make SAN=${{ inputs.san }}
       - name: Build Coordinator
