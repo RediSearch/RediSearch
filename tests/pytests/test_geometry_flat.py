@@ -119,10 +119,6 @@ def testWKTIngestError(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOSHAPE $.name as name TEXT').ok()
 
-  # IMPORTANT (TODO: workaround?)
-  # We cannot guarantee what will be the last error in cluster, because it depends on the order of replies from the shards
-  # and on what shard indexes what document. For now, we will just check that there is an error.
-
   def get_last_error():
     return to_dict(index_info(env)['Index Errors'])['last indexing error']
   # Wrong keyword
@@ -130,16 +126,13 @@ def testWKTIngestError(env):
   env.assertContains("Error indexing geoshape: Should start with 'POLYGON'", get_last_error())
   # Missing parenthesis
   conn.execute_command('JSON.SET', 'p2', '$', '{"geom": "POLYGON(1 1, 1 100, 100 100, 100 1, 1 1))", "name": "Patty"}')
-  if not env.isCluster():
-    env.assertContains("Error indexing geoshape: Expected '(' at '1'", get_last_error())
+  env.assertContains("Error indexing geoshape: Expected '(' at '1'", get_last_error())
   # Too few coordinates (not a polygon)
   conn.execute_command('JSON.SET', 'p6', '$', '{"geom": "POLYGON((1 1, 1 100, 1 1))", "name": "Milhouse"}')
-  if not env.isCluster():
-    env.assertContains("Error indexing geoshape: invalid geometry", get_last_error())
+  env.assertContains("Error indexing geoshape: invalid geometry", get_last_error())
   # Zero coordinates
   conn.execute_command('JSON.SET', 'p7', '$', '{"geom": "POLYGON(()())", "name": "Mr. Burns"}')
-  if not env.isCluster():
-    env.assertContains("Error indexing geoshape: attempting to create empty geometry", get_last_error())
+  env.assertContains("Error indexing geoshape: attempting to create empty geometry", get_last_error())
 
 
   # TODO: GEOMETRY - understand why the following WKTs do not fail?
