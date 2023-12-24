@@ -59,6 +59,12 @@ jobs:
           sparse-checkout: |
             .install
             tests/pytests/requirements.*
+      - name: Setup python
+        id: setup-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ">=3.10"
+      - run: echo "python version:" ${{ steps.setup-python.outputs.python-version }}
       - name: Setup specific
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
