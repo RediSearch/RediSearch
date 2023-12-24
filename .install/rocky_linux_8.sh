@@ -10,7 +10,7 @@ source install_cmake.sh $MODE
 
 # Install python3.10 (latest version suggested by the default package manager is python3.6)
 $MODE wget https://www.python.org/ftp/python/3.10.0/Python-3.10.0.tar.xz
-$MODE -xf Python-3.10.0.tar.xz
+$MODE tar -xf Python-3.10.0.tar.xz
 cd Python-3.10.0
 $MODE ./configure --enable-optimizations
 $MODE make -j 2
