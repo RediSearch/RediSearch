@@ -334,12 +334,12 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
 
   // Global index error stats
   RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-  IndexError_Reply(&fields->indexError, reply);
+  IndexError_Reply(&fields->indexError, reply, 0);
 
   if (fields->fieldSpecInfo_arr) {
     RedisModule_ReplyKV_Array(reply, "field statistics"); //Field statistics
     for (size_t i = 0; i < array_len(fields->fieldSpecInfo_arr); ++i) {
-      FieldSpecInfo_Reply(&fields->fieldSpecInfo_arr[i], reply);
+      FieldSpecInfo_Reply(&fields->fieldSpecInfo_arr[i], reply, 0);
     }
     RedisModule_Reply_ArrayEnd(reply); // >Field statistics
   }

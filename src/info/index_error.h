@@ -8,15 +8,19 @@
 #include <stddef.h>
 #include "redismodule.h"
 #include "reply.h"
+#include <time.h>
+
+#define WITH_INDEX_ERROR_TIME "_WITH_INDEX_ERROR_TIME"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef struct IndexError {
-    size_t error_count; // Number of errors.
-    char *last_error;   // Last error message.
-    RedisModuleString *key;          // Key of the document that caused the error.
+    size_t error_count;     // Number of errors.
+    char *last_error;       // Last error message.
+    RedisModuleString *key; // Key of the document that caused the error.
+    time_t last_error_time; // Time of the last error.
 } IndexError;
 
 // Global constant to place an index error object in maps/dictionaries.
@@ -37,12 +41,15 @@ const char *IndexError_LastError(const IndexError *error);
 // Returns the key of the document that caused the error.
 const RedisModuleString *IndexError_LastErrorKey(const IndexError *error);
 
+// Returns the time of the last error.
+time_t IndexError_LastErrorTime(const IndexError *error);
+
 // Clears an IndexError. If the last_error is not NA, it is freed.
 void IndexError_Clear(IndexError error);
 
 // IO and cluster traits
 // Reply the index errors to the client.
-void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply);
+void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_time);
 
 #ifdef RS_COORDINATOR
 #include "coord/src/rmr/reply.h"

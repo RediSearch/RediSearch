@@ -36,7 +36,7 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *, IndexError error);
 
 // IO and cluster traits
 // Reply a Field spec info.
-void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply);
+void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bool with_timestamp);
 
 #ifdef RS_COORDINATOR
 

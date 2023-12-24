@@ -38,14 +38,14 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *info, IndexError error) {
 // IO and cluster traits
 
 // Reply a Field spec info.
-void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply) {
+void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bool with_timestamp) {
     RedisModule_Reply_Map(reply);
 
     REPLY_KVSTR("identifier", info->identifier);
     REPLY_KVSTR("attribute", info->attribute);
     // Set the error as a new object.
     RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-    IndexError_Reply(&info->error, reply);
+    IndexError_Reply(&info->error, reply, with_timestamp);
 
     RedisModule_Reply_MapEnd(reply);
 }

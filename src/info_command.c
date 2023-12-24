@@ -270,14 +270,15 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_MAP_END;
 
   // Global index error stats
+  bool with_times = (argc > 2 && !strcmp(RedisModule_StringPtrLen(argv[2], NULL), WITH_INDEX_ERROR_TIME));
   RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-  IndexError_Reply(&sp->stats.indexError, reply);
+  IndexError_Reply(&sp->stats.indexError, reply, with_times);
 
   REPLY_KVARRAY("field statistics"); // Field statistics
   for (int i = 0; i < sp->numFields; i++) {
     const FieldSpec *fs = &sp->fields[i];
     FieldSpecInfo info = FieldSpec_GetInfo(fs);
-    FieldSpecInfo_Reply(&info, reply);
+    FieldSpecInfo_Reply(&info, reply, with_times);
   }
   REPLY_ARRAY_END; // >Field statistics
 

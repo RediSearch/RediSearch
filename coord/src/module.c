@@ -1924,6 +1924,7 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
   RS_AutoMemory(ctx);
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
+  MRCommand_Append(&cmd, WITH_INDEX_ERROR_TIME, strlen(WITH_INDEX_ERROR_TIME));
   MRCommand_SetProtocol(&cmd, ctx);
   MRCommand_SetPrefix(&cmd, "_FT");
 
