@@ -12,12 +12,21 @@ on:
   #  branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
+  get-latest-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
 
+  docs-only: # Check whether the PR is only modifying docs
+    uses: ./.github/workflows/task-check-docs.yml
 
-  test-ubuntu18:
+  test-linux:
+    needs: [docs-only, get-latest-redis-tag]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       platform: "ubuntu:bionic"
 
   # test-macos:
