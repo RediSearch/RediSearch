@@ -76,6 +76,9 @@ jobs:
       - name: Setup common
         run: |
           echo "python3 version: $(python3 --version)"
+          echo "which python3: $(which python3)"
+          echo "which python3.6: $(which python3.6)"
+          echo "which python3.7: $(which python3.7)"
           .install/common_installations.sh ${{ steps.mode.outputs.mode }}
 
       - name: Get Redis
