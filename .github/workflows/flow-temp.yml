@@ -12,6 +12,17 @@ on:
   #  branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  test-macos:
-    uses: ./.github/workflows/flow-macos.yml
+
+
+  test-ubuntu18:
+    uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
+    with:
+      platform: "ubuntu:bionic"
+
+  # test-macos:
+  #   uses: ./.github/workflows/flow-macos.yml
+  #   secrets: inherit
+  #   with:
+  #     coordinator: true
+  #     test-config: QUICK=1

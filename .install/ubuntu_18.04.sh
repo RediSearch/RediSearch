@@ -13,13 +13,13 @@ $MODE apt update
 $MODE apt-get install -yqq git wget make gcc-10 g++-10 openssl libssl-dev
 $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 60 --slave /usr/bin/g++ g++ /usr/bin/g++-10
 
-# Install Python 3.9
+# Install Python 3.7
 $MODE add-apt-repository ppa:deadsnakes/ppa -y
 $MODE apt-get update
-$MODE apt-get install python3.9 python3.9-venv -y
-# Set python3 to point to python3.9
+$MODE apt-get install python3.7 python3-venv -y
+# Set python3 to point to python3.7
 sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.6 1
-sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 2
-sudo update-alternatives  --set python /usr/bin/python3.9
+sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.7 2
+sudo update-alternatives --set python /usr/bin/python3.7
 
 source install_cmake.sh $MODE
