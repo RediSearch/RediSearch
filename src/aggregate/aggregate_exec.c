@@ -744,12 +744,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   goto cleanup;
 
 error:
-  // Enrich the error message that was caught to include the fact that the query ran
-  // in a background thread.
-  QueryError_SetErrorFmt(&detailed_status, QueryError_GetCode(&status),
-                          "The following error was caught upon running the query asynchronously: %s", QueryError_GetError(&status));
-  QueryError_ClearError(&status);
-  QueryError_ReplyAndClear(outctx, &detailed_status);
+  QueryError_ReplyAndClear(outctx, &status);
 
 cleanup:
   // No need to unlock spec as it was unlocked by `AREQ_Execute` or will be unlocked by `blockedClientReqCtx_destroy`
