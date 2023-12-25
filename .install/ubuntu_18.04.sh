@@ -17,7 +17,7 @@ $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 60 --slave 
 # Install Python 3.7
 $MODE add-apt-repository ppa:deadsnakes/ppa -y
 $MODE apt-get update
-$MODE apt-get install python3.7 -y
+$MODE apt-get install python3.7 python3-venv -y
 
 echo "which python3: $(which python3)"
 echo "which python3.6: $(which python3.6)"
@@ -28,7 +28,7 @@ $MODE update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.6 
 $MODE update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.7 2
 $MODE update-alternatives --set python3 /usr/bin/python3.7
 
-$MODE apt-get install python3.7-venv -y
+#$MODE apt-get install python3-venv -y
 
 
 source install_cmake.sh $MODE
