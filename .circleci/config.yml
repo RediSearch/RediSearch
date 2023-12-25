@@ -503,9 +503,9 @@ jobs:
           name: Set up workspace
           command: mkdir -p ~/workspace
       - build-steps
-#      - test-steps:
-#          test_params: <<parameters.test_params>>
-#          run_step: "search"
+      - test-steps:
+          test_params: <<parameters.test_params>>
+          run_step: "search"
       - run:
           name: Persist artifacts?
           command: |
@@ -537,9 +537,9 @@ jobs:
           name: Set up workspace
           command: mkdir -p ~/workspace
       - build-steps
-#      - test-steps:
-#          test_params: <<parameters.test_params>>
-#          run_step: "coordinator"
+      - test-steps:
+          test_params: <<parameters.test_params>>
+          run_step: "coordinator"
       - run:
           name: Persist artifacts?
           command: |
@@ -966,7 +966,6 @@ on-integ-branch-cron: &on-integ-branch-cron
   filters:
     branches:
       only:
-        - fix_m1_upload_artifacts_flow
         - master
         - /^\d+\.\d+.*$/
         - /^feature.*$/
@@ -1002,10 +1001,10 @@ on-integ-and-version-tags: &on-integ-and-version-tags
 
 workflows:
   version: 2
-#  default-flow:
-#    when:
-#      << pipeline.parameters.run_default_flow >>
-#    jobs:
+  default-flow:
+    when:
+      << pipeline.parameters.run_default_flow >>
+    jobs:
       # - build-linux-debian:
       #     <<: *not-on-integ-branch
       # - build-linux-arm-ubuntu:
@@ -1030,14 +1029,14 @@ workflows:
       # - build-macos-x64-coordinator:
       #     <<: *on-version-tags
       #     context: common
-      # - build-macos-m1-search:
-      #     context: common
-      #     <<: *on-version-tags
-      #     # Avoid persist conflict with build-macos-m1-coordinator
-      #     upload: "no"
-      # - build-macos-m1-coordinator:
-      #     context: common
-      #     <<: *on-version-tags
+       - build-macos-m1-search:
+           context: common
+           <<: *on-integ-branch
+           # Avoid persist conflict with build-macos-m1-coordinator
+           upload: "no"
+       - build-macos-m1-coordinator:
+           context: common
+           <<: *on-integ-branch
       # - coverage:
       #     <<: *always
       # - sanitize:
@@ -1228,10 +1227,10 @@ workflows:
   #             san-type: [address]
 
   nightly-twice-a-week:
-#    triggers:
-#      - schedule:
-#          cron: "20 17 * * 0,3"
-#          <<: *always
+    triggers:
+      - schedule:
+          cron: "20 17 * * 0,3"
+          <<: *on-integ-branch-cron
     jobs:
       # - build-macos-x64-search:
       #     context: common
@@ -1243,13 +1242,11 @@ workflows:
       #     # upload: "no"
       #     test_params: ""
       - build-macos-m1-search:
-          <<: *on-integ-branch-cron
           context: common
           # Avoid persist conflict with build-macos-m1-coordinator
           upload: "no"
           test_params: ""
       - build-macos-m1-coordinator:
-          <<: *on-integ-branch-cron
           context: common
           # upload: "no"
           test_params: ""
