@@ -28,4 +28,7 @@ $MODE update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.6 
 $MODE update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.7 2
 $MODE update-alternatives --set python3 /usr/bin/python3.7
 
+$MODE apt-get install python3-venv -y
+
+
 source install_cmake.sh $MODE
