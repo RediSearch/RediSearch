@@ -22,7 +22,7 @@ extern "C" {
 #define GC_THREAD_POOL_SIZE 1
 
 typedef struct GCCallbacks {
-  int (*periodicCallback)(RedisModuleCtx* ctx, void* gcCtx);
+  int  (*periodicCallback)(void* gcCtx);
   void (*renderStats)(RedisModule_Reply* reply, void* gc);
   void (*renderStatsForInfo)(RedisModuleInfoCtx* ctx, void* gc);
   void (*onDelete)(void* ctx);

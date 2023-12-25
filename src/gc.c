@@ -62,9 +62,8 @@ static void threadCallback(void* data) {
   GCTask* task = data;
   GCContext* gc = task->gc;
   RedisModuleBlockedClient* bc = task->bClient;
-  RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
 
-  int ret = gc->callbacks.periodicCallback(ctx, gc->gcCtx);
+  int ret = gc->callbacks.periodicCallback(gc->gcCtx);
 
   // if GC was invoke by debug command, we release the client
   // and terminate without rescheduling the task again.
@@ -74,10 +73,7 @@ static void threadCallback(void* data) {
       RedisModule_UnblockClient(bc, NULL);
     }
     rm_free(task);
-    goto end;
-  }
-
-  if (!ret) {
+  } else if (!ret) {
     // The index was freed. There is no need to reschedule the task.
     // We need to free the task and the GC.
     RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "GC %p: Self-Terminating. Index was freed.", gc);
@@ -85,20 +81,16 @@ static void threadCallback(void* data) {
     if (bc) RedisModule_UnblockClient(bc, NULL);
     rm_free(task);
     rm_free(gc);
-    goto end;
-  }
-
-  RedisModule_ThreadSafeContextLock(ctx);
-  if (gc->timerID) {
-    gc->timerID = scheduleNext(task);
   } else {
-    RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "GC %p: Not scheduling next collection", gc);
-    rm_free(task);
+    RedisModule_ThreadSafeContextLock(RSDummyContext);
+    if (gc->timerID) {
+      gc->timerID = scheduleNext(task);
+    } else {
+      RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "GC %p: Not scheduling next collection", gc);
+      rm_free(task);
+    }
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
   }
-  RedisModule_ThreadSafeContextUnlock(ctx);
-
-end:
-  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 static void timerCallback(RedisModuleCtx* ctx, void* data) {
