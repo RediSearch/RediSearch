@@ -7,6 +7,7 @@ $MODE apt update -qq
 $MODE apt upgrade -yqq
 $MODE apt dist-upgrade -yqq
 $MODE apt install -yqq software-properties-common
+
 $MODE add-apt-repository ppa:ubuntu-toolchain-r/test -y
 $MODE add-apt-repository ppa:git-core/ppa -y
 $MODE apt update
@@ -16,7 +17,7 @@ $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 60 --slave 
 # Install Python 3.7
 $MODE add-apt-repository ppa:deadsnakes/ppa -y
 $MODE apt-get update
-$MODE apt-get install python3.7 python3-venv -y
+$MODE apt-get install python3.7 python3.7-venv -y
 # Set python3 to point to python3.7
 $MODE update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.6 1
 $MODE update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.7 2
