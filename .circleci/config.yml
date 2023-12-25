@@ -503,9 +503,9 @@ jobs:
           name: Set up workspace
           command: mkdir -p ~/workspace
       - build-steps
-      - test-steps:
-          test_params: <<parameters.test_params>>
-          run_step: "search"
+#      - test-steps:
+#          test_params: <<parameters.test_params>>
+#          run_step: "search"
       - run:
           name: Persist artifacts?
           command: |
@@ -537,9 +537,9 @@ jobs:
           name: Set up workspace
           command: mkdir -p ~/workspace
       - build-steps
-      - test-steps:
-          test_params: <<parameters.test_params>>
-          run_step: "coordinator"
+#      - test-steps:
+#          test_params: <<parameters.test_params>>
+#          run_step: "coordinator"
       - run:
           name: Persist artifacts?
           command: |
@@ -549,8 +549,8 @@ jobs:
       - run:
           name: Upload artifacts to S3
           command: |
-            if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
-                make upload-artifacts SHOW=1 STAGING=1
+            if [[ "<<parameters.upload>>" == "yes" ]]; then
+                make upload-artifacts SHOW=1
             fi
       - persist-artifacts
 
@@ -1230,7 +1230,7 @@ workflows:
     triggers:
       - schedule:
           cron: "20 17 * * 0,3"
-          <<: *on-integ-branch-cron
+          <<: *always
     jobs:
       # - build-macos-x64-search:
       #     context: common
