@@ -319,18 +319,19 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
 }
 
 QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const char *predicate, size_t len, QueryToken *wkt) {
-
-  QueryNode *ret = NULL;
-
   enum QueryType query_type;
   if (!strncasecmp(predicate, "WITHIN", len)) {
     query_type = WITHIN;
   } else if (!strncasecmp(predicate, "CONTAINS", len)) {
     query_type = CONTAINS;
+  } else if (!strncasecmp(predicate, "DISJOINT", len)) {
+    query_type = DISJOINT;
+  } else if (!strncasecmp(predicate, "INTERSECTS", len)) {
+    query_type = INTERSECTS;
   } else {
     return NULL;
   }
-  ret = NewQueryNode(QN_GEOMETRY);
+  QueryNode *ret = NewQueryNode(QN_GEOMETRY);
   GeometryQuery *geomq = rm_calloc(1, sizeof(*geomq));
   geomq->format = GEOMETRY_FORMAT_WKT;
   geomq->query_type = query_type;

@@ -16,12 +16,14 @@ namespace GeoShape {
 
 namespace {
 template <typename cs, typename rect_type = RTree<cs>::rect_type>
-constexpr auto make_mbr = [](auto&& geom) -> rect_type {
+constexpr auto make_mbr = [](auto const& geom) -> rect_type {
   using point_type = typename RTree<cs>::point_type;
   if constexpr (std::is_same_v<point_type, std::decay_t<decltype(geom)>>) {
-    constexpr auto EPSILON = 1e-10;
-    auto p1 = point_type{bg::get<0>(geom) - EPSILON, bg::get<1>(geom) - EPSILON};
-    auto p2 = point_type{bg::get<0>(geom) + EPSILON, bg::get<1>(geom) + EPSILON};
+    constexpr auto INF = std::numeric_limits<long double>::infinity();
+    const auto x = bg::get<0>(geom);
+    const auto y = bg::get<1>(geom);
+    const auto p1 = point_type{std::nexttoward(x, -INF), std::nexttoward(y, -INF)};
+    const auto p2 = point_type{std::nexttoward(x, +INF), std::nexttoward(y, +INF)};
     return rect_type{p1, p2};
   } else {
     return bg::return_envelope<rect_type>(geom);
@@ -52,7 +54,7 @@ auto to_string(T const& t) -> string {
 }
 template <typename cs, typename geom_type = RTree<cs>::geom_type>
 auto geometry_to_string(geom_type const& geom) -> string {
-  return std::visit([](auto&& geom) -> string { return to_string(bg::wkt(geom)); }, geom);
+  return std::visit([](auto const& geom) -> string { return to_string(bg::wkt(geom)); }, geom);
 }
 template <typename cs, typename doc_type = RTree<cs>::doc_type>
 auto doc_to_string(doc_type const& doc) -> string {
@@ -72,7 +74,7 @@ auto from_wkt(std::string_view wkt) -> geom_type {
     throw std::runtime_error{"unknown geometry type"};
   }
   std::visit(
-      [](auto&& geom) -> void {
+      [](auto& geom) -> void {
         if (bg::is_empty(geom)) {
           throw std::runtime_error{"attempting to create empty geometry"};
         }
@@ -88,13 +90,13 @@ auto from_wkt(std::string_view wkt) -> geom_type {
 template <typename cs, typename query_results = RTree<cs>::query_results>
 auto generate_query_iterator(query_results&& results, std::size_t& alloc) -> IndexIterator* {
   auto geometry_query_iterator = new (alloc) QueryIterator{
-      results | std::views::transform([](auto&& doc) -> t_docId { return get_id<cs>(doc); }),
+      results | std::views::transform([](auto const& doc) -> t_docId { return get_id<cs>(doc); }),
       alloc};
   return geometry_query_iterator->base();
 }
 
 template <typename cs>
-constexpr auto geometry_reporter = [](auto&& geom) -> std::size_t {
+constexpr auto geometry_reporter = [](auto const& geom) -> std::size_t {
   using point_type = typename RTree<cs>::point_type;
   if constexpr (std::is_same_v<point_type, std::decay_t<decltype(geom)>>) {
     return 0ul;
@@ -102,22 +104,25 @@ constexpr auto geometry_reporter = [](auto&& geom) -> std::size_t {
     auto const& inners = geom.inners();
     auto outer_size = geom.outer().get_allocator().report();
     return std::accumulate(inners.begin(), inners.end(), outer_size,
-                           [](std::size_t acc, auto&& hole) -> std::size_t {
+                           [](std::size_t acc, auto const& hole) -> std::size_t {
                              return acc + hole.get_allocator().report();
                            });
   }
 };
 
 template <typename cs>
-constexpr auto filter_results = [](auto&& geom1, auto&& geom2) -> bool {
+constexpr auto within_filter = [](auto const& geom1, auto const& geom2) -> bool {
   using point_type = typename RTree<cs>::point_type;
   if constexpr (std::is_same_v<point_type, std::decay_t<decltype(geom2)>> &&
                 !std::is_same_v<point_type, std::decay_t<decltype(geom1)>>) {
     return false;
   } else {
-    return !bg::within(geom1, geom2);
+    return bg::within(geom1, geom2);
   }
 };
+template <typename cs>
+constexpr auto intersects_filter =
+    [](auto const& geom1, auto const& geom2) -> bool { return bg::intersects(geom1, geom2); };
 }  // anonymous namespace
 
 template <typename cs>
@@ -226,39 +231,36 @@ std::size_t RTree<cs>::report() const noexcept {
 
 template <typename cs>
 template <typename Predicate, typename Filter>
-auto RTree<cs>::apply_predicate(Predicate&& p, Filter&& f) const -> query_results {
-  auto results = query_results{rtree_.qbegin(std::forward<Predicate>(p)), rtree_.qend(),
-                               Allocator::TrackingAllocator<doc_type>{allocated_}};
-  std::erase_if(results, std::forward<Filter>(f));
-  return results;
-}
-
-template <typename cs>
-auto RTree<cs>::contains(doc_type const& query_doc, geom_type const& query_geom) const
+auto RTree<cs>::apply_predicate(Predicate const& predicate, Filter const& filter) const
     -> query_results {
-  return apply_predicate(bgi::contains(get_rect<cs>(query_doc)), [&](auto const& doc) -> bool {
-    auto geom = lookup(doc);
-    return geom.has_value() && std::visit(filter_results<cs>, query_geom, *geom);
-  });
+  return {rtree_.qbegin(predicate && bgi::satisfies([&](auto const& doc) -> bool {
+                          auto geom = lookup(doc);
+                          return geom && filter(*geom);
+                        })),
+          rtree_.qend(), Allocator::TrackingAllocator<doc_type>{allocated_}};
 }
 
 template <typename cs>
-auto RTree<cs>::within(doc_type const& query_doc, geom_type const& query_geom) const
+auto RTree<cs>::generate_predicate(QueryType query_type, geom_type const& query_geom) const
     -> query_results {
-  return apply_predicate(bgi::within(get_rect<cs>(query_doc)), [&](auto const& doc) -> bool {
-    auto geom = lookup(doc);
-    return geom.has_value() && std::visit(filter_results<cs>, *geom, query_geom);
-  });
-}
-
-template <typename cs>
-auto RTree<cs>::generate_predicate(doc_type const& query_doc, QueryType query_type,
-                                   geom_type const& query_geom) const -> query_results {
+  auto query_mbr = get_rect<cs>(make_doc<cs>(query_geom));
   switch (query_type) {
-    case QueryType::CONTAINS:
-      return contains(query_doc, query_geom);
+    case QueryType::CONTAINS:  // contains(g1, g2) == within(g2, g1)
+      return apply_predicate(bgi::contains(query_mbr), [&](auto const& geom) -> bool {
+        return std::visit(within_filter<cs>, query_geom, geom);
+      });
     case QueryType::WITHIN:
-      return within(query_doc, query_geom);
+      return apply_predicate(bgi::within(query_mbr), [&](auto const& geom) -> bool {
+        return std::visit(within_filter<cs>, geom, query_geom);
+      });
+    case QueryType::DISJOINT:  // disjoint(g1, g2) == !intersects(g1, g2)
+      return apply_predicate(bgi::disjoint(query_mbr), [&](auto const& geom) -> bool {
+        return std::visit(std::not_fn(intersects_filter<cs>), geom, query_geom);
+      });
+    case QueryType::INTERSECTS:
+      return apply_predicate(bgi::intersects(query_mbr), [&](auto const& geom) -> bool {
+        return std::visit(intersects_filter<cs>, geom, query_geom);
+      });
     default:
       throw std::runtime_error{"unknown query"};
   }
@@ -269,8 +271,7 @@ auto RTree<cs>::query(std::string_view wkt, QueryType query_type, RedisModuleStr
     -> IndexIterator* {
   try {
     auto query_geom = from_wkt<cs>(wkt);
-    return generate_query_iterator<cs>(
-        generate_predicate(make_doc<cs>(query_geom), query_type, query_geom), allocated_);
+    return generate_query_iterator<cs>(generate_predicate(query_type, query_geom), allocated_);
   } catch (const std::exception& e) {
     if (err_msg) {
       *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
