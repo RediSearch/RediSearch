@@ -1228,10 +1228,10 @@ workflows:
   #             san-type: [address]
 
   nightly-twice-a-week:
-    triggers:
-      - schedule:
-          cron: "20 17 * * 0,3"
-          <<: *on-integ-branch-cron
+#    triggers:
+#      - schedule:
+#          cron: "20 17 * * 0,3"
+#          <<: *always
     jobs:
       # - build-macos-x64-search:
       #     context: common
@@ -1243,11 +1243,13 @@ workflows:
       #     # upload: "no"
       #     test_params: ""
       - build-macos-m1-search:
+          <<: *on-integ-branch-cron
           context: common
           # Avoid persist conflict with build-macos-m1-coordinator
           upload: "no"
           test_params: ""
       - build-macos-m1-coordinator:
+          <<: *on-integ-branch-cron
           context: common
           # upload: "no"
           test_params: ""
