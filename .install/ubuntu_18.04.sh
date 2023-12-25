@@ -16,7 +16,6 @@ $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 60 --slave 
 
 # Install Python 3.7
 #$MODE add-apt-repository ppa:deadsnakes/ppa -y
-$MODE apt-get update
 $MODE apt-get install python3.7 python3.7-venv python3-venv python3-dev -y
 
 echo "which python3: $(which python3)"
@@ -24,8 +23,14 @@ echo "which python3.6: $(which python3.6)"
 echo "which python3.7: $(which python3.7)"
 
 # Set python3 to point to python3.7
-$MODE update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.7 2
-$MODE update-alternatives --set python3 /usr/bin/python3.7
+$MODE update-alternatives --install /usr/bin/python python /usr/bin/python3.7 2 --slave /usr/bin/python3 python3 /usr/bin/python3.7
+
+# $MODE update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.7 2
+# $MODE update-alternatives --set python3 /usr/bin/python3.7
+# $MODE update-alternatives --install /usr/bin/python python /usr/bin/python3.7 2
+# $MODE update-alternatives --set python /usr/bin/python3.7
+echo "after alter python: $(python --version)"
+echo "after alter python3: $(python3 --version)"
 
 #$MODE apt-get install python3-venv -y
 
