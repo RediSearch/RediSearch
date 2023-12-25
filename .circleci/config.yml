@@ -966,6 +966,7 @@ on-integ-branch-cron: &on-integ-branch-cron
   filters:
     branches:
       only:
+        - fix_m1_upload_artifacts_flow
         - master
         - /^\d+\.\d+.*$/
         - /^feature.*$/
@@ -1230,7 +1231,7 @@ workflows:
     triggers:
       - schedule:
           cron: "20 17 * * 0,3"
-          <<: *always
+          <<: *on-integ-branch-cron
     jobs:
       # - build-macos-x64-search:
       #     context: common
