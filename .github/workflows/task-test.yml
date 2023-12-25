@@ -68,13 +68,15 @@ jobs:
       #   uses: actions/setup-python@v5
       #   with:
       #     python-version: "3.x"
-      - run: echo "python version:" ${{ steps.setup-python.outputs.python-version }}
+      - run: "echo python version: $(python3 --version)"
       - name: Full checkout
         uses: actions/checkout@v3
         with:
           submodules: recursive
       - name: Setup common
-        run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
+        run: |
+          echo "python3 version: $(python3 --version)"
+          .install/common_installations.sh ${{ steps.mode.outputs.mode }}
 
       - name: Get Redis
         if: inputs.get-redis != 'skip getting redis'
