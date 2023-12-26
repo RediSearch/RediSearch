@@ -642,7 +642,7 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
     uc->it = it;
     uc->sp = ctx->spec;
     uc->fieldName = flt->fieldName;
-    ConcurrentSearch_AddKey(csx, NumericRangeIterator_OnReopen, uc, rm_free_wrap);
+    ConcurrentSearch_AddKey(csx, NumericRangeIterator_OnReopen, uc, rm_free);
   }
   return it;
 }

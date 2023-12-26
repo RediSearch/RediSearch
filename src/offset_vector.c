@@ -63,7 +63,7 @@ RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t)
   mempool_t *pool = pthread_getspecific(__offsetIters);
   if (!pool) {
     mempool_options options = {
-        .initialCap = 8, .alloc = newOffsetIterator, .free = rm_free_wrap};
+        .initialCap = 8, .alloc = newOffsetIterator, .free = rm_free};
     pool = mempool_new(&options);
     pthread_setspecific(__offsetIters, pool);
   }
