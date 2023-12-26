@@ -36,11 +36,10 @@ typedef struct GCContext {
   GCCallbacks callbacks;
 } GCContext;
 
-typedef struct GCTask {
+typedef struct GCDebugTask {
   GCContext* gc;
   RedisModuleBlockedClient* bClient;
-  int debug;
-} GCTask;
+} GCDebugTask;
 
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy);
 void GCContext_Start(GCContext* gc);

@@ -21,10 +21,9 @@
 
 static redisearch_threadpool gcThreadpool_g = NULL;
 
-static GCTask *GCTaskCreate(GCContext *gc, RedisModuleBlockedClient* bClient, int debug) {
-  GCTask *task = rm_malloc(sizeof(*task));
+static GCDebugTask *GCDebugTaskCreate(GCContext *gc, RedisModuleBlockedClient* bClient) {
+  GCDebugTask *task = rm_new(GCDebugTask);
   task->gc = gc;
-  task->debug = debug;
   task->bClient = bClient;
   return task;
 }
@@ -51,15 +50,39 @@ static long long getNextPeriod(GCContext* gc) {
   return ms;
 }
 
-static RedisModuleTimerID scheduleNext(GCTask *task) {
+static RedisModuleTimerID scheduleNext(GCContext *gc) {
   if (RS_IsMock) return 0;
 
-  long long period = getNextPeriod(task->gc);
-  return RedisModule_CreateTimer(RSDummyContext, period, timerCallback, task);
+  long long period = getNextPeriod(gc);
+  return RedisModule_CreateTimer(RSDummyContext, period, timerCallback, gc);
 }
 
-static void threadCallback(void* data) {
-  GCTask* task = data;
+static void taskCallback(void* data) {
+  GCContext* gc = data;
+
+  int ret = gc->callbacks.periodicCallback(gc->gcCtx);
+
+  if (ret) { // The common case
+    // The index was not freed. We need to reschedule the task.
+    RedisModule_ThreadSafeContextLock(RSDummyContext);
+    if (gc->timerID) {
+      gc->timerID = scheduleNext(gc);
+    } else {
+      // ... unless the GC was stopped by a debug command.
+      RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "GC %p: Not scheduling next collection", gc);
+    }
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+  } else {
+    // The index was freed. There is no need to reschedule the task.
+    // We need to free the task and the GC.
+    RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "GC %p: Self-Terminating. Index was freed.", gc);
+    gc->callbacks.onTerm(gc->gcCtx);
+    rm_free(gc);
+  }
+}
+
+static void debugTaskCallback(void* data) {
+  GCDebugTask *task = data;
   GCContext* gc = task->gc;
   RedisModuleBlockedClient* bc = task->bClient;
 
@@ -67,32 +90,8 @@ static void threadCallback(void* data) {
 
   // if GC was invoke by debug command, we release the client
   // and terminate without rescheduling the task again.
-  // Exception: if the index was freed, we need to free the task and the GC.
-  if (task->debug && ret) {
-    if (bc) {
-      RedisModule_UnblockClient(bc, NULL);
-    }
-    rm_free(task);
-  } else if (!ret) {
-    // The index was freed. There is no need to reschedule the task.
-    // We need to free the task and the GC.
-    RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "GC %p: Self-Terminating. Index was freed.", gc);
-    gc->callbacks.onTerm(gc->gcCtx);
-    if (bc) RedisModule_UnblockClient(bc, NULL);
-    rm_free(task);
-    rm_free(gc);
-  } else {
-    // The index was not freed. We need to reschedule the task.
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
-    if (gc->timerID) {
-      gc->timerID = scheduleNext(task);
-    } else {
-      // ... unless the GC was stopped by a debug command.
-      RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "GC %p: Not scheduling next collection", gc);
-      rm_free(task);
-    }
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-  }
+  if (bc) RedisModule_UnblockClient(bc, NULL);
+  rm_free(task);
 }
 
 static void timerCallback(RedisModuleCtx* ctx, void* data) {
@@ -100,19 +99,17 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
     // If slave traffic is not allow it means that there is a state machine running
     // we do not want to run any GC which might cause a FORK process to start for example).
     // Its better to just avoid it.
-    GCTask* task = data;
-    task->gc->timerID = scheduleNext(task);
+    GCContext* gc = data;
+    gc->timerID = scheduleNext(gc);
     return;
   }
-  redisearch_thpool_add_work(gcThreadpool_g, threadCallback, data, THPOOL_PRIORITY_HIGH);
+  redisearch_thpool_add_work(gcThreadpool_g, taskCallback, data, THPOOL_PRIORITY_HIGH);
 }
 
 void GCContext_Start(GCContext* gc) {
-  GCTask* task = GCTaskCreate(gc, NULL, 0);
-  gc->timerID = scheduleNext(task);
+  gc->timerID = scheduleNext(gc);
   if (gc->timerID == 0) {
     RedisModule_Log(RSDummyContext, "warning", "GC did not schedule next collection");
-    rm_free(task);
   }
 }
 
@@ -141,8 +138,8 @@ void GCContext_OnDelete(GCContext* gc) {
 }
 
 void GCContext_CommonForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
-  GCTask *task = GCTaskCreate(gc, bc, 1);
-  redisearch_thpool_add_work(gcThreadpool_g, threadCallback, task, THPOOL_PRIORITY_HIGH);
+  GCDebugTask *task = GCDebugTaskCreate(gc, bc);
+  redisearch_thpool_add_work(gcThreadpool_g, debugTaskCallback, task, THPOOL_PRIORITY_HIGH);
 }
 
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
