@@ -335,7 +335,7 @@ def test_create():
 
         for _ in env.retry_with_rdb_reload():
             info = ['identifier', 'v_HNSW', 'attribute', 'v_HNSW', 'type', 'VECTOR']
-            env.assertEqual(ft_info_to_dict(env, 'idx1')['attributes'][0][:len(info)], info)
+            env.assertEqual(index_info(env, 'idx1')['attributes'][0][:len(info)], info)
             info_data_HNSW = conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx1", "v_HNSW")
             # replace memory values with a dummy value - irrelevant for the test
             info_data_HNSW[info_data_HNSW.index('MEMORY') + 1] = dummy_val
@@ -447,6 +447,41 @@ def test_create_errors():
         .error().contains('Bad arguments for vector similarity HNSW index epsilon')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '12', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', '100', 'M', '16', 'EPSILON', '-1') \
         .error().contains('Bad arguments for vector similarity HNSW index epsilon')
+
+
+def test_index_errors():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
+                         'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2')
+    error_count = 0
+    def index_errors():
+        return to_dict(index_info(env)['Index Errors'])
+    def field_errors():
+        return to_dict(to_dict(to_dict(index_info(env)['field statistics'][0]))['Index Errors'])
+
+    # Check that the index errors are empty
+    env.assertEqual(index_errors()['indexing failures'], error_count)
+    env.assertEqual(index_errors()['last indexing error'], 'N/A')
+    env.assertEqual(index_errors()['last indexing error key'], 'N/A')
+    env.assertEqual(field_errors(), index_errors())
+
+    for i in range(0, 5, 2):
+        conn.execute_command('HSET', i, 'v', create_np_array_typed([0]).tobytes())
+        error_count += 1
+        cur_index_errors = index_errors()
+        env.assertEqual(cur_index_errors['indexing failures'], error_count)
+        env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 4 (expected size 8)')
+        env.assertEqual(cur_index_errors['last indexing error key'], str(i))
+        env.assertEqual(cur_index_errors, field_errors())
+
+        conn.execute_command('HSET', i + 1, 'v', create_np_array_typed([0, 0, 0]).tobytes())
+        error_count += 1
+        cur_index_errors = index_errors()
+        env.assertEqual(cur_index_errors['indexing failures'], error_count)
+        env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 12 (expected size 8)')
+        env.assertEqual(cur_index_errors['last indexing error key'], str(i + 1))
+        env.assertEqual(cur_index_errors, field_errors())
 
 
 def test_search_errors():
@@ -1119,8 +1154,8 @@ def test_wrong_vector_size():
         conn.execute_command('HSET', '5', 'v', vector[:dimension+1].tobytes())
 
         waitForIndex(env, 'idx')
-        assertInfoField(env, 'idx', 'num_docs', '2')
-        assertInfoField(env, 'idx', 'hash_indexing_failures', '4')
+        assertInfoField(env, 'idx', 'num_docs', 2)
+        assertInfoField(env, 'idx', 'hash_indexing_failures', 4)
         env.expect('FT.SEARCH', 'idx', '*=>[KNN 6 @v $q]', 'NOCONTENT', 'PARAMS', 2, 'q',
                    create_np_array_typed([1]*dimension, data_type).tobytes()).equal([2, '1', '4'])
 
@@ -1733,7 +1768,6 @@ def test_index_multi_value_json():
     dim = 4
     n = 100
     per_doc = 5
-    info_type = int if env.isCluster() else str
 
     for data_t in VECSIM_DATA_TYPES:
         conn.flushall()
@@ -1769,9 +1803,9 @@ def test_index_multi_value_json():
         for _ in env.retry_with_rdb_reload():
             waitForIndex(env, 'idx')
             info = index_info(env, 'idx')
-            env.assertEqual(info['num_docs'], info_type(n))
-            env.assertEqual(info['num_records'], info_type(n * per_doc * len(info['attributes'])))
-            env.assertEqual(info['hash_indexing_failures'], info_type(0))
+            env.assertEqual(info['num_docs'], n)
+            env.assertEqual(info['num_records'], n * per_doc * len(info['attributes']))
+            env.assertEqual(info['hash_indexing_failures'], 0)
 
             cmd_knn[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
             hnsw_res = conn.execute_command(*cmd_knn)[1:]
@@ -1793,7 +1827,6 @@ def test_index_multi_value_json():
 def test_bad_index_multi_value_json():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
-    info_type = int if env.isCluster() else str
     dim = 4
     per_doc = 5
 
@@ -1805,12 +1838,12 @@ def test_bad_index_multi_value_json():
     # By default, we assume that a static path leads to a single value, so we can't index an array of vectors as multi-value
     conn.json().set(46, '.', {'vecs': [[0.46] * dim] * per_doc})
     failures += 1
-    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], failures)
 
     # We also don't support an array of length 1 that wraps an array for single value
     conn.json().set(46, '.', {'vecs': [[0.46] * dim]})
     failures += 1
-    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], failures)
 
     conn.flushall()
     failures = 0
@@ -1820,30 +1853,30 @@ def test_bad_index_multi_value_json():
     # dynamic path returns a non array type
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), 'not a vector']})
     failures += 1
-    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], failures)
 
     # we should NOT fail if some of the vectors are NULLs
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), None, (np.ones(dim) * 2).tolist()]})
-    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
-    env.assertEqual(index_info(env, 'idx')['num_records'], info_type(2))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], failures)
+    env.assertEqual(index_info(env, 'idx')['num_records'], 2)
 
     # ...or if the path returns NULL
     conn.json().set(46, '.', {'vecs': None})
-    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], failures)
 
     # some of the vectors are not of the right dimension
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), np.ones(dim + 46).tolist()]})
     failures += 1
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), []]})
     failures += 1
-    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], failures)
 
     # some of the elements in some of vectors are not numerics
     vec = [42] * dim
     vec[-1] = 'not a number'
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), vec]})
     failures += 1
-    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], failures)
 
 
 def test_range_query_basic():

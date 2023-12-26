@@ -3151,7 +3151,7 @@ def testIssue1184(env):
         res = env.execute_command('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         env.assertEqual(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], '0')
+        env.assertEqual(d['num_records'], 0)
 
 
         value = '42'
@@ -3162,7 +3162,7 @@ def testIssue1184(env):
         res = env.execute_command('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         env.assertGreater(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], '1')
+        env.assertEqual(d['num_records'], 1)
 
         env.assertEqual(env.execute_command('FT.DEL idx doc0'), 1)
 
@@ -3171,7 +3171,7 @@ def testIssue1184(env):
         res = env.execute_command('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         env.assertEqual(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], '0')
+        env.assertEqual(d['num_records'], 0)
 
         env.cmd('FT.DROP idx')
         env.cmd('DEL doc0')

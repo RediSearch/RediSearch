@@ -188,7 +188,7 @@ def test_workers_priority_queue():
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
                'M', '64', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
     query_vec = load_vectors_to_redis(env, n_vectors, n_vectors-1, dim)
-    assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+    assertInfoField(env, 'idx', 'num_docs', n_vectors)
 
     # Expect that some vectors are still being indexed in the background after we are done loading.
     debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
@@ -233,7 +233,7 @@ def test_async_updates_sanity():
                'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', '64').ok()
     load_vectors_to_redis(env, n_vectors, 0, dim)
     waitForRdbSaveToFinish(env)
-    assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+    assertInfoField(env, 'idx', 'num_docs', n_vectors)
 
     # Wait until al vectors are indexed into HNSW.
     debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
@@ -243,7 +243,7 @@ def test_async_updates_sanity():
 
     # Overwrite vectors - trigger background delete and ingest jobs.
     query_vec = load_vectors_to_redis(env, n_vectors, 0, dim)
-    assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+    assertInfoField(env, 'idx', 'num_docs', n_vectors)
     debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
     marked_deleted_vectors = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
     # TODO: try making this not-flaky
