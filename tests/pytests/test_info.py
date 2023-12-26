@@ -1,6 +1,4 @@
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, forceInvokeGC, skip, to_list, ft_info_to_dict
-from RLTest import Env
-from time import sleep
+from common import waitForIndex, forceInvokeGC, skip, to_list, index_info, Env
 
 # The output for this test can be used for recreating documentation for `FT.INFO`
 @skip()
@@ -84,11 +82,11 @@ def test_numeric_info(env):
   env.execute_command('ft.create', 'idx4', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'NOINDEX')
   env.execute_command('ft.create', 'idx5', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'UNF', 'NOINDEX')
 
-  res1 = ft_info_to_dict(env, 'idx1')['attributes']
-  res2 = ft_info_to_dict(env, 'idx2')['attributes']
-  res3 = ft_info_to_dict(env, 'idx3')['attributes']
-  res4 = ft_info_to_dict(env, 'idx4')['attributes']
-  res5 = ft_info_to_dict(env, 'idx5')['attributes']
+  res1 = index_info(env, 'idx1')['attributes']
+  res2 = index_info(env, 'idx2')['attributes']
+  res3 = index_info(env, 'idx3')['attributes']
+  res4 = index_info(env, 'idx4')['attributes']
+  res5 = index_info(env, 'idx5')['attributes']
 
   exp1 = [['identifier', 'n', 'attribute', 'n', 'type', 'NUMERIC']]
   exp2 = [['identifier', 'n', 'attribute', 'n', 'type', 'NUMERIC', 'SORTABLE', 'UNF']]

@@ -178,7 +178,7 @@ RSValue *MRReply_ToValue(MRReply *r) {
     case MR_REPLY_STATUS:
     case MR_REPLY_STRING: {
       size_t l;
-      char *s = MRReply_String(r, &l);
+      const char *s = MRReply_String(r, &l);
       v = RS_NewCopiedString(s, l);
       // v = RS_StringValT(s, l, RSString_Volatile);
       break;
@@ -397,7 +397,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
     // If an error was returned, propagate it
     if(MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
-      char *strErr = MRReply_String(nc->current.root, NULL);
+      const char *strErr = MRReply_String(nc->current.root, NULL);
       if (!strErr
           || strcmp(strErr, "Timeout limit was reached")
           || nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
