@@ -13,6 +13,8 @@
 #include "geometry_index.h"
 #include "redismodule.h"
 
+#define CLOCKS_PER_MILLISEC (CLOCKS_PER_SEC / 1000)
+
 #define REPLY_KVNUM(k, v) RedisModule_ReplyKV_Double(reply, (k), (v))
 #define REPLY_KVINT(k, v) RedisModule_ReplyKV_LongLong(reply, (k), (v))
 #define REPLY_KVSTR(k, v) RedisModule_ReplyKV_SimpleString(reply, (k), (v))
@@ -242,7 +244,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM("offset_bits_per_record_avg",
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
   REPLY_KVNUM("hash_indexing_failures", sp->stats.indexingFailures);
-  REPLY_KVNUM("total_indexing_time", sp->stats.totalIndexTime / 1000.0);
+  REPLY_KVNUM("total_indexing_time", (float)(sp->stats.totalIndexTime / (float)CLOCKS_PER_MILLISEC));
   REPLY_KVNUM("indexing", !!global_spec_scanner || sp->scan_in_progress);
 
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;

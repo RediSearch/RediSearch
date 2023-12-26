@@ -62,7 +62,6 @@ include_directories(
     ${root})
 
 add_subdirectory(deps/rmutil)
-add_subdirectory(deps/rmutil/cxx)
 add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
@@ -102,7 +101,6 @@ add_library(rscore OBJECT ${SOURCES})
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
-    $<TARGET_OBJECTS:rmutil-cxx>
     $<TARGET_OBJECTS:friso>
     $<TARGET_OBJECTS:snowball>
     $<TARGET_OBJECTS:metaphone>)

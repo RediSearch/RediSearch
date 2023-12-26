@@ -125,7 +125,7 @@ typedef struct {
   size_t offsetVecRecords;
   size_t termsSize;
   size_t indexingFailures;
-  long double totalIndexTime; // usec
+  size_t totalIndexTime;
   size_t totalDocsLen;
 } IndexStats;
 
