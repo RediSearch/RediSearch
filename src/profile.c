@@ -175,7 +175,7 @@ void Profile_Print(RedisModule_Reply *reply, AREQ *req, bool timedout) {
     RedisModule_Reply_Array(reply);
     RedisModule_Reply_SimpleString(reply, "Pipeline creation time");
     if (profile_verbose)
-      RedisModule_Reply_Double(reply, (double)(req->parseTime / CLOCKS_PER_MILLISEC));
+      RedisModule_Reply_Double(reply, (double)(req->pipelineBuildTime / CLOCKS_PER_MILLISEC));
     RedisModule_Reply_ArrayEnd(reply);
 
     // Print whether a warning was raised throughout command execution
