@@ -243,7 +243,7 @@ def test_MOD1266(env):
   env.expect('FT.SEARCH', 'idx', '*', 'sortby', 'n2', 'DESC', 'RETURN', '1', 'n2') \
     .equal([2, 'doc3', ['n2', '3'], 'doc1', ['n2', '1']])
 
-  assertInfoField(env, 'idx', 'num_docs', 2)
+  assertInfoField(env, 'idx', 'num_docs', '2')
 
   # Test fetching failure. An object cannot be indexed
   env.execute_command('FT.CREATE', 'jsonidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
@@ -418,9 +418,9 @@ def test_update_num_terms(env):
   env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
   conn.execute_command('HSET', 'doc1', 't', 'foo')
   conn.execute_command('HSET', 'doc1', 't', 'bar')
-  assertInfoField(env, 'idx', 'num_terms', 2)
+  assertInfoField(env, 'idx', 'num_terms', '2')
   forceInvokeGC(env, 'idx')
-  assertInfoField(env, 'idx', 'num_terms', 1)
+  assertInfoField(env, 'idx', 'num_terms', '1')
 
 @skip(cluster=True)
 def testOverMaxResults():

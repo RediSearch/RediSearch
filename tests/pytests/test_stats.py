@@ -134,14 +134,14 @@ def testMemoryAfterDrop(env):
             pl.execute_command('HSET', '%ddoc%d' % (i, j), 't', '%dhello%d' % (i, j), 'tg', '%dworld%d' % (i, j), 'n', i, 'g', geo)
         pl.execute()
         d = index_info(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], doc_count)
+        env.assertEqual(d['num_docs'], str(doc_count))
 
     for i in range(idx_count):
         for j in range(doc_count):
             pl.execute_command('DEL', '%ddoc%d' % (i, j))
         pl.execute()
         d = index_info(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], 0)
+        env.assertEqual(d['num_docs'], '0')
         for _ in range(10):
             forceInvokeGC(env, 'idx%d' % i)
 
@@ -166,7 +166,7 @@ def testIssue1497(env):
     res = env.execute_command('ft.info', 'idx')
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     env.assertEqual(d['inverted_sz_mb'], '0')
-    env.assertEqual(d['num_records'], 0)
+    env.assertEqual(d['num_records'], '0')
     for i in range(count):
         geo = '1.23456,' + str(float(i) / divide_by)
         env.expect('HSET', 'doc%d' % i, 't', 'hello%d' % i, 'tg', 'world%d' % i, 'n', i * 1.01, 'g', geo)
@@ -187,7 +187,7 @@ def testIssue1497(env):
     res = env.execute_command('ft.info', 'idx')
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     env.assertEqual(d['inverted_sz_mb'], '0')
-    env.assertEqual(d['num_records'], 0)
+    env.assertEqual(d['num_records'], '0')
     check_empty(env, 'idx')
 
 def testDocTableInfo(env):

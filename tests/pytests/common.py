@@ -64,11 +64,11 @@ def waitForIndex(env, idx = 'idx'):
     while True:
         res = env.execute_command('ft.info', idx)
         try:
-            if res[res.index('indexing') + 1] == 0:
+            if int(res[res.index('indexing') + 1]) == 0:
                 break
         except:
             # RESP3
-            if res['indexing'] == 0:
+            if int(res['indexing']) == 0:
                 break
         time.sleep(0.1)
 

@@ -43,10 +43,10 @@ def testGeoDistanceSimple(env):
   env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 10 km]', 'nocontent').equal([4, 'geo1', 'geo2', 'geo3', 'geo4'])
 
   # documents with values out of range fail to index
-  assertInfoField(env, 'idx', 'hash_indexing_failures', 0)
+  assertInfoField(env, 'idx', 'hash_indexing_failures', '0')
   env.expect('HSET', 'geo5', 'location', '181,4.56', 'hq', '1.25,4.5').equal(2)
   env.expect('HSET', 'geo6', 'location', '1.23,86', 'hq', '1.25,4.5').equal(2)
-  assertInfoField(env, 'idx', 'hash_indexing_failures', 2)
+  assertInfoField(env, 'idx', 'hash_indexing_failures', '2')
 
   # querying for invalid value fails with a message
   env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 -10 km]').error().contains('Invalid GeoFilter radius')

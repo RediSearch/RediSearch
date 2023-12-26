@@ -998,7 +998,7 @@ def testVector_empty_array(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
                'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
     env.assertOk(conn.execute_command('JSON.SET', 'json1', '$', r'{"vec":[]}'))
-    assertInfoField(env, 'idx', 'hash_indexing_failures', 1)
+    assertInfoField(env, 'idx', 'hash_indexing_failures', '1')
 
 @no_msan
 def testVector_correct_eval(env):
@@ -1044,8 +1044,8 @@ def testVector_bad_values(env):
     env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[1,2,3,4]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[1,2,3,4,5,6]}'))
 
-    assertInfoField(env, 'idx', 'hash_indexing_failures', 5)
-    assertInfoField(env, 'idx', 'num_docs', 0)
+    assertInfoField(env, 'idx', 'hash_indexing_failures', '5')
+    assertInfoField(env, 'idx', 'num_docs', '0')
 
 @no_msan
 def testVector_delete(env):
