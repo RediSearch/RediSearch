@@ -41,6 +41,8 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
   if (fs->types & INDEXFLD_T_VECTOR) {
     VecSimParams_Cleanup(&fs->vectorOpts.vecSimParams);
   }
+
+  IndexError_Clear(fs->indexError);
 }
 
 void FieldSpec_SetSortable(FieldSpec* fs) {
@@ -61,4 +63,12 @@ const char *FieldSpec_GetTypeNames(int idx) {
     RS_LOG_ASSERT(0, "oops");
     break;
   }
+}
+
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
+  FieldSpecInfo info = {0};
+  FieldSpecInfo_SetIdentifier(&info, fs->path);
+  FieldSpecInfo_SetAttribute(&info, fs->name);
+  FieldSpecInfo_SetIndexError(&info, fs->indexError);
+  return info;
 }
