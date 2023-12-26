@@ -210,7 +210,7 @@ static const int query_en_main = 13;
 /* #line 267 "lexer.rl" */
 
 QueryNode *RSQuery_ParseRaw_v1(QueryParseCtx *q) {
-  void *pParser = RSQuery_ParseAlloc_v1(rm_malloc_wrap);
+  void *pParser = RSQuery_ParseAlloc_v1(rm_malloc);
 
   
   int cs, act;

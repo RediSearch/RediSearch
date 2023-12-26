@@ -229,7 +229,7 @@ static void freeConn(MRConn *conn) {
     if (uv_is_active(conn->timer)) {
       uv_timer_stop(conn->timer);
     }
-    uv_close(conn->timer, (uv_close_cb)rm_free_wrap);
+    uv_close(conn->timer, (uv_close_cb)rm_free);
   }
   rm_free(conn);
 }

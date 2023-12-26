@@ -1337,7 +1337,7 @@ MRClusterTopology *MR_ParseTopologyRequest(const char *c, size_t len, char **err
 
     YY_BUFFER_STATE buf = yy_scan_bytes(c, len);
 
-    void* pParser =  MRTopologyRequest_ParseAlloc (rm_malloc_wrap);
+    void* pParser =  MRTopologyRequest_ParseAlloc (rm_malloc);
     int t = 0;
 
     parseCtx ctx = {.topology = NULL, .ok = 1, .replication = 0, .my_id = NULL,
@@ -1350,7 +1350,7 @@ MRClusterTopology *MR_ParseTopologyRequest(const char *c, size_t len, char **err
         MRTopologyRequest_Parse(pParser, 0, tok, &ctx);
     //}
 
-    MRTopologyRequest_ParseFree(pParser, rm_free_wrap);
+    MRTopologyRequest_ParseFree(pParser, rm_free);
 
     if (err) {
         *err = ctx.errorMsg;
