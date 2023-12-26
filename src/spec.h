@@ -259,8 +259,8 @@ typedef struct IndexSpec {
   FieldSpec *fields;              // Fields in the index schema
   int numFields;                  // Number of fields
 
-  IndexStats stats;               // Statistics of memory used and quantities
   IndexFlags flags;               // Flags
+  IndexStats stats;               // Statistics of memory used and quantities
 
   Trie *terms;                    // Trie of all terms. Used for GC and fuzzy queries
   Trie *suffix;                   // Trie of suffix tokens of terms. Used for contains queries
