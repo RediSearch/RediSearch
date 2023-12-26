@@ -77,6 +77,7 @@ add_subdirectory(src/geometry)
 
 file(GLOB SOURCES
     "src/*.c"
+    "src/rmalloc.cpp"
     "src/aggregate/*.c"
     "src/aggregate/expr/*.c"
     "src/aggregate/functions/*.c"

@@ -260,7 +260,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   Initialize_RoleChangeNotifications(ctx);
 
   // Register rm_malloc memory functions as vector similarity memory functions.
-  VecSimMemoryFunctions vecsimMemoryFunctions = {.allocFunction = rm_malloc, .callocFunction = rm_calloc, .reallocFunction = rm_realloc, .freeFunction = rm_free};
+  VecSimMemoryFunctions vecsimMemoryFunctions = {.allocFunction = rm_malloc_wrap, .callocFunction = rm_calloc_wrap, .reallocFunction = rm_realloc_wrap, .freeFunction = rm_free_wrap};
   VecSim_SetMemoryFunctions(vecsimMemoryFunctions);
   VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
   VecSim_SetLogCallbackFunction(VecSimLogCallback);

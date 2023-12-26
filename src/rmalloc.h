@@ -14,24 +14,38 @@
 
 #ifdef REDIS_MODULE_TARGET /* Set this when compiling your code as a module */
 
-static inline void *rm_malloc(size_t n) {
-  return RedisModule_Alloc(n);
+#ifdef __cplusplus
+extern "C" {
+#endif  // __cplusplus
+void *rm_malloc_impl(size_t n, const char *file, const char *fn, size_t line);
+void *rm_calloc_impl(size_t nelem, size_t elemsz, const char *file, const char *fn, size_t line);
+void *rm_realloc_impl(void *p, size_t n, const char *file, const char *fn, size_t line);
+void rm_free_impl(void *p, const char *file, const char *fn, size_t line);
+char *rm_strdup_impl(const char *s, const char *file, const char *fn, size_t line);
+void rm_log_impl(void *p, const char *file, const char *fn, size_t line);
+
+#define rm_malloc(n) rm_malloc_impl((n), __FILE__, __PRETTY_FUNCTION__, __LINE__)
+#define rm_calloc(nelem, elemsz) \
+  rm_calloc_impl((nelem), (elemsz), __FILE__, __PRETTY_FUNCTION__, __LINE__)
+#define rm_realloc(p, n) rm_realloc_impl((p), (n), __FILE__, __PRETTY_FUNCTION__, __LINE__)
+#define rm_free(p) rm_free_impl((p), __FILE__, __PRETTY_FUNCTION__, __LINE__)
+#define rm_strdup(s) rm_strdup_impl((s), __FILE__, __PRETTY_FUNCTION__, __LINE__)
+#define rm_log(p) rm_log_impl((p), __FILE__, __PRETTY_FUNCTION__, __LINE__)
+
+static inline void *rm_malloc_wrap(size_t n) {
+  return rm_malloc(n);
 }
-static inline void *rm_calloc(size_t nelem, size_t elemsz) {
-  return RedisModule_Calloc(nelem, elemsz);
+static inline void *rm_calloc_wrap(size_t nelem, size_t elemsz) {
+  return rm_calloc(nelem, elemsz);
 }
-static inline void *rm_realloc(void *p, size_t n) {
-  if (n == 0) {
-    RedisModule_Free(p);
-    return NULL;
-  }
-  return RedisModule_Realloc(p, n);
+static inline void *rm_realloc_wrap(void *p, size_t n) {
+  return rm_realloc(p, n);
 }
-static inline void rm_free(void *p) {
-  RedisModule_Free(p);
+static inline void rm_free_wrap(void *p) {
+  return rm_free(p);
 }
-static inline char *rm_strdup(const char *s) {
-  return RedisModule_Strdup(s);
+static inline char *rm_strdup_wrap(const char *s) {
+  return rm_strdup(s);
 }
 
 static char *rm_strndup(const char *s, size_t n) {
@@ -68,6 +82,9 @@ static int rm_asprintf(char **__ptr, const char *__restrict __fmt, ...) {
 
   return res;
 }
+#ifdef __cplusplus
+}  // extern "C"
+#endif  // __cplusplus
 #endif
 #ifndef REDIS_MODULE_TARGET
 /* for non redis module targets */

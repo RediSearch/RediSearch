@@ -79,6 +79,7 @@ static TermData* TermData_RdbLoad(RedisModuleIO* rdb, int encver) {
       rm_asprintf(&groupId, "%ld", id);
     } else {
       groupId = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
+      rm_log(groupId);
     }
     TermData_AddId(t_data, groupId);
     rm_free(groupId);

@@ -247,7 +247,7 @@ static const int query_en_main = 21;
 /* #line 322 "lexer.rl" */
 
 QueryNode *RSQuery_ParseRaw_v2(QueryParseCtx *q) {
-  void *pParser = RSQuery_ParseAlloc_v2(rm_malloc);
+  void *pParser = RSQuery_ParseAlloc_v2(rm_malloc_wrap);
 
   
   int cs, act;
@@ -952,7 +952,7 @@ _again:
   if (QPCTX_ISOK(q)) {
     RSQuery_Parse_v2(pParser, 0, tok, q);
   }
-  RSQuery_ParseFree_v2(pParser, rm_free);
+  RSQuery_ParseFree_v2(pParser, rm_free_wrap);
   if (!QPCTX_ISOK(q) && q->root) {
     QueryNode_Free(q->root);
     q->root = NULL;
