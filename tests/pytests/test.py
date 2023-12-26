@@ -3718,7 +3718,6 @@ def test_cluster_set(env):
     verify_address('::1')
 
 
-# @skip(cluster=False)
 def test_cluster_set_server_memory_tracking(env):
     if not env.isCluster():
         # this test is only relevant on cluster
