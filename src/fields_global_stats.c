@@ -7,7 +7,7 @@
 #include "fields_global_stats.h"
 #include "config.h"
 
-// TODO: multithreaded: additions should be atomic
+// Assuming that the GIL is already acquired
 void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd) {
   if (fs->types & INDEXFLD_T_FULLTEXT) {  // text field
     RSGlobalConfig.fieldsStats.numTextFields += toAdd;
@@ -30,7 +30,7 @@ void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd) {
     }
   } else if (fs->types & INDEXFLD_T_GEOMETRY) {  // geometry field
     RSGlobalConfig.fieldsStats.numGeometryFields += toAdd;
-  } 
+  }
 
   if (fs->options & FieldSpec_Sortable) {
     if (fs->types & INDEXFLD_T_FULLTEXT) RSGlobalConfig.fieldsStats.numTextFieldsSortable += toAdd;
@@ -48,6 +48,7 @@ void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd) {
   }
 }
 
+// Assuming that the GIL is already acquired
 void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddSection(ctx, "fields_statistics");
 

@@ -5,7 +5,7 @@ import redis
 from hotels import hotels
 import random
 import time
-
+import unittest
 
 # this tests is not longer relevant
 # def testAdd(env):
@@ -2136,6 +2136,7 @@ def testTimeout(env):
 
     num_range = 1000
     env.cmd('ft.config', 'set', 'timeout', '1')
+    # TODO: Remove `TIMEOUT 1` arguments (see commands) once MOD-6286 is merged.
     env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
 
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
@@ -2149,17 +2150,15 @@ def testTimeout(env):
        .contains('Timeout limit was reached')
 
     # test `TIMEOUT` param in query
-    res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 10000)
+    res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'TIMEOUT', 10000)
     env.assertEqual(res[0], num_range)
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1)    \
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'TIMEOUT', '1')    \
         .error().contains('Timeout limit was reached')
 
-    # test erroneous params
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout').error()
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', -1).error()
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
+    env.expect('ft.aggregate', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'TIMEOUT').error()
+    env.expect('ft.aggregate', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'TIMEOUT', -1).error()
+    env.expect('ft.aggregate', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'TIMEOUT', 'STR').error()
 
-    # TODO: Modify this test, as now it will receive a timeout error, so the check is bad
     # check no time w/o sorter/grouper
     env.expect(
         'FT.AGGREGATE', 'myIdx', '*',
@@ -2168,7 +2167,8 @@ def testTimeout(env):
         'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance2',
         'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance3',
         'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance4',
-        'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance5'
+        'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance5',
+        'TIMEOUT', '1'
     ).error().contains('Timeout limit was reached')
 
     # test grouper
@@ -2177,7 +2177,8 @@ def testTimeout(env):
                'GROUPBY', 1, '@t',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
-               'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
+               'APPLY', 'contains(@t, "a1")', 'AS', 'contain3',
+               'TIMEOUT', '1') \
        .contains('Timeout limit was reached')
 
     # test sorter
@@ -2186,7 +2187,8 @@ def testTimeout(env):
                'SORTBY', 1, '@t',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
-               'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
+               'APPLY', 'contains(@t, "a1")', 'AS', 'contain3',
+               'TIMEOUT', '1') \
        .contains('Timeout limit was reached')
 
     # test cursor
@@ -3641,7 +3643,7 @@ def test_RED_86036(env):
     for i in range(1000):
         env.cmd('hset', 'doc%d' % i, 't', 'foo')
     res = env.cmd('FT.PROFILE', 'idx', 'search', 'query', '*', 'INKEYS', '2', 'doc0', 'doc999')
-    res = res[1][3][1][7] # get the list iterator profile
+    res = res[1][4][1][7] # get the list iterator profile
     env.assertEqual(res[1], 'ID-LIST')
     env.assertLess(res[5], 3)
 
@@ -3735,10 +3737,54 @@ def test_internal_commands(env):
         fail_eval_call(r, env, ['SEARCH.CLUSTERREFRESH'])
         fail_eval_call(r, env, ['SEARCH.CLUSTERINFO'])
 
-def test_with_password():
-    mypass = '42MySecretPassword$'
-    args = f'OSS_GLOBAL_PASSWORD {mypass}' if COORD in ['1', 'oss'] else None
-    env = Env(moduleArgs=args, password=mypass)
+def test_timeout_non_strict_policy(env):
+    """Tests that we get the wanted behavior for the non-strict timeout policy.
+    `ON_TIMEOUT RETURN` - return partial results.
+    """
+
+    conn = getConnectionByEnv(env)
+
+    # Create an index, and populate it
+    n = 25000
+    populate_db(env, n)
+
+    # Query the index with a small timeout, and verify that we get partial results
+    num_docs = n * env.shardsCount
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+        )
+    env.assertTrue(len(res) < num_docs * 2 + 1)
+
+    # Same for `FT.AGGREGATE`
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
+        )
+    env.assertTrue(len(res) < num_docs + 1)
+
+def test_timeout_strict_policy():
+    """Tests that we get the wanted behavior for the strict timeout policy.
+    `ON_TIMEOUT FAIL` - return an error upon experiencing a timeout, without the
+    partial results.
+    """
+
+    env = Env(moduleArgs='ON_TIMEOUT FAIL')
+
+    # Create an index, and populate it
+    n = 25000
+    populate_db(env, n)
+
+    # Query the index with a small timeout, and verify that we get an error
+    num_docs = n * env.shardsCount
+    env.expect(
+        'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+        ).error().contains('Timeout limit was reached')
+
+    # Same for `FT.AGGREGATE`
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
+        ).error().contains('Timeout limit was reached')
+
+def common_with_auth(env: Env):
     conn = getConnectionByEnv(env)
     n_docs = 100
 
@@ -3746,7 +3792,116 @@ def test_with_password():
     for i in range(n_docs):
         conn.execute_command('HSET', f'doc{i}', 'n', i)
 
+    if env.isCluster():
+        # Mimic periodic cluster refresh
+        env.expect('SEARCH.CLUSTERREFRESH').ok()
+
     expected_res = [n_docs]
     for i in range(10):
         expected_res.extend([f'doc{i}', ['n', str(i)]])
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'n').equal(expected_res)
+
+def test_with_password():
+    mypass = '42MySecretPassword$'
+    args = f'OSS_GLOBAL_PASSWORD {mypass}' if COORD else None
+    env = Env(moduleArgs=args, password=mypass)
+    common_with_auth(env)
+
+def test_with_tls():
+    cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
+    env = Env(useTLS=True,
+              tlsCertFile=cert_file,
+              tlsKeyFile=key_file,
+              tlsCaCertFile=ca_cert_file,
+              tlsPassphrase=passphrase)
+
+    common_with_auth(env)
+
+@skip(asan=True)
+def test_timeoutCoordSearch_NonStrict(env):
+    """Tests edge-cases for the `TIMEOUT` parameter for the coordinator's
+    `FT.SEARCH` path"""
+
+    if VALGRIND:
+        unittest.SkipTest()
+
+    SkipOnNonCluster(env)
+
+    # Create and populate an index
+    n_docs_pershard = 1100
+    n_docs = n_docs_pershard * env.shardsCount
+    populate_db(env, n_docs_pershard)
+
+    # test erroneous params
+    env.expect('ft.search', 'idx', '* aa*', 'timeout').error()
+    env.expect('ft.search', 'idx', '* aa*', 'timeout', -1).error()
+    env.expect('ft.search', 'idx', '* aa*', 'timeout', 'STR').error()
+
+    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '0')
+    env.assertEqual(res[0], n_docs)
+
+    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '1')
+    env.assertLessEqual(res[0], n_docs)
+
+@skip(asan=True)
+def test_timeoutCoordSearch_Strict():
+    """Tests edge-cases for the `TIMEOUT` parameter for the coordinator's
+    `FT.SEARCH` path, when the timeout policy is strict"""
+
+    if VALGRIND:
+        unittest.SkipTest()
+
+    env = Env(moduleArgs='ON_TIMEOUT FAIL')
+
+    SkipOnNonCluster(env)
+
+    # Create and populate an index
+    n_docs_pershard = 50000
+    n_docs = n_docs_pershard * env.shardsCount
+    populate_db(env, n_docs_pershard)
+
+    # test erroneous params
+    env.expect('ft.search', 'idx', '* aa*', 'timeout').error()
+    env.expect('ft.search', 'idx', '* aa*', 'timeout', -1).error()
+    env.expect('ft.search', 'idx', '* aa*', 'timeout', 'STR').error()
+
+    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '0')
+    env.assertEqual(res[0], n_docs)
+
+    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '100000')
+    env.assertEqual(res[0], n_docs)
+
+    env.expect('ft.search', 'idx', '*', 'TIMEOUT', '1').error().contains('Timeout limit was reached')
+
+@skip(cluster=True)
+def test_notIterTimeout(env):
+    """Tests that we fail fast from the NOT iterator in the edge case similar to
+    MOD-5512
+    * Skipped on cluster since the it would only test error propagation from the
+    shard to the coordinator, which is tested elsewhere.
+    """
+
+    if VALGRIND:
+        env.skip()
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CONFIG', 'SET', 'ON_TIMEOUT', 'FAIL')
+
+    # Create an index
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'tag1', 'TAG', 'title', 'TEXT', 'n', 'NUMERIC')
+
+    # Populate the index
+    num_docs = 15000
+    for i in range(int(num_docs / 2)):
+        env.cmd('HSET', f'doc:{i}', 'tag1', 'fantasy', 'title', f'title:{i}', 'n', i)
+
+    # Populate with other tag value in a separate loop so doc-ids will be incremental.
+    for i in range(int(num_docs / 2), num_docs):
+        env.cmd('HSET', f'doc:{i}', 'tag1', 'drama', 'title', f'title:{i}', 'n', i)
+
+    # Send a query that will skip all the docs with the first tag value (fantasy),
+    # such that the timeout will be checked in the NOT iterator loop (coverage).
+    env.expect(
+        'FT.AGGREGATE', 'idx', '-@tag1:{fantasy}', 'LOAD', '2', '@title', '@n',
+        'APPLY', '@n^2 / 2', 'AS', 'new_n', 'GROUPBY', '1', '@title', 'TIMEOUT', '1'
+    ).error().contains('Timeout limit was reached')

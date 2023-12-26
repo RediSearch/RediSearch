@@ -304,6 +304,20 @@ end:
   return REDISMODULE_OK;
 }
 
+// TODO: Elaborate prefixes dictionary information
+// FT.DEBUG DUMP_PREFIX_TRIE
+DEBUG_COMMAND(DumpPrefixTrie) {
+
+  TrieMap *prefixes_map = ScemaPrefixes_g;
+
+  START_POSTPONED_LEN_ARRAY(prefixesMapDump);
+  REPLY_WITH_LONG_LONG("prefixes_count", prefixes_map->cardinality, ARRAY_LEN_VAR(prefixesMapDump));
+  REPLY_WITH_LONG_LONG("prefixes_trie_nodes", prefixes_map->size, ARRAY_LEN_VAR(prefixesMapDump));
+  END_POSTPONED_LEN_ARRAY(prefixesMapDump);
+
+  return REDISMODULE_OK;
+}
+
 InvertedIndexStats InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *idx) {
   InvertedIndexStats indexStats = {.blocks_efficiency = InvertedIndexGetEfficiency(idx)};
   START_POSTPONED_LEN_ARRAY(invertedIndexDump);
@@ -649,6 +663,50 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   }
   GCContext_ForceBGInvoke(sp->gc);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
+  return REDISMODULE_OK;
+}
+
+DEBUG_COMMAND(GCStopFutureRuns) {
+  if (argc < 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+  GCTask *task;
+  if (RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, (void **)&task) == REDISMODULE_OK) {
+    rm_free(task);
+  }
+  // mark as stopped. This will prevent the GC from scheduling itself again if it was already running.
+  sp->gc->timerID = 0;
+  RedisModule_Log(ctx, "verbose", "Stopped GC %p periodic run for index %s", sp->gc, sp->name);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+DEBUG_COMMAND(GCContinueFutureRuns) {
+  if (argc < 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+  if (sp->gc->timerID) {
+    return RedisModule_ReplyWithError(ctx, "GC is already running periodically");
+  }
+  GCContext_Start(sp->gc);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+// Wait for all GC jobs **THAT CURRENTLY IN THE QUEUE** to finish.
+// This command blocks the client and adds a job to the end of the GC queue, that will later unblock it.
+DEBUG_COMMAND(GCWaitForAllJobs) {
+  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, GCForceInvokeReply, NULL, NULL, 0);
+  RedisModule_BlockedClientMeasureTimeStart(bc);
+  GCContext_WaitForAllOperations(bc);
   return REDISMODULE_OK;
 }
 
@@ -1009,6 +1067,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_TAGIDX", DumpTagIndex},
                                {"INFO_TAGIDX", InfoTagIndex},
                                {"DUMP_GEOMIDX", DumpGeometryIndex},
+                               {"DUMP_PREFIX_TRIE", DumpPrefixTrie},
                                {"IDTODOCID", IdToDocId},
                                {"DOCIDTOID", DocIdToId},
                                {"DOCINFO", DocInfo},
@@ -1020,6 +1079,9 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"GC_CLEAN_NUMERIC", GCCleanNumeric},
+                               {"GC_STOP_SCHEDULE", GCStopFutureRuns},
+                               {"GC_CONTINUE_SCHEDULE", GCContinueFutureRuns},
+                               {"GC_WAIT_FOR_JOBS", GCWaitForAllJobs},
                                {"GIT_SHA", GitSha},
                                {"TTL", ttl},
                                {"VECSIM_INFO", VecsimInfo},

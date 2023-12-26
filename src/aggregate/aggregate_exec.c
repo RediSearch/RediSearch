@@ -396,6 +396,12 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cu
 
   // Reset the total results length:
   req->qiter.totalResults = 0;
+
+  QueryError_ClearError(req->qiter.err);
+}
+
+static bool hasTimeoutError(QueryError *err) {
+  return QueryError_GetCode(err) == QUERY_ETIMEDOUT;
 }
 
 /**
@@ -415,7 +421,6 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (ShouldReplyWithError(rp, req)) {
       RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
-      QueryError_ClearError(req->qiter.err);
       cursor_done = true;
       goto done_2_err;
     } else if (ShouldReplyWithTimeoutError(rc, req)) {
@@ -444,7 +449,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // Upon `FT.PROFILE` commands, embed the response inside another map
     if (IsProfile(req) && !(req->reqflags & QEXEC_F_IS_CURSOR)) {
-      RedisModule_Reply_Map(reply);
+      RedisModule_Reply_Array(reply);
     }
 
     RedisModule_Reply_Array(reply);
@@ -483,11 +488,13 @@ done_2:
                    && !(rc == RS_RESULT_TIMEDOUT
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
+    bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
+
     if (req->reqflags & QEXEC_F_IS_CURSOR) {
       if (cursor_done) {
         RedisModule_Reply_LongLong(reply, 0);
         if (IsProfile(req)) {
-          req->profile(reply, req);
+          req->profile(reply, req, has_timedout);
         }
       } else {
         RedisModule_Reply_LongLong(reply, req->cursor_id);
@@ -498,8 +505,8 @@ done_2:
       }
       RedisModule_Reply_ArrayEnd(reply);
     } else if (IsProfile(req)) {
-      req->profile(reply, req);
-      RedisModule_Reply_MapEnd(reply);
+      req->profile(reply, req, has_timedout);
+      RedisModule_Reply_ArrayEnd(reply);
     }
 
 done_2_err:
@@ -526,7 +533,6 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     if (ShouldReplyWithError(rp, req)) {
       RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
-      QueryError_ClearError(req->qiter.err);
       cursor_done = true;
       goto done_3_err;
     } else if (ShouldReplyWithTimeoutError(rc, req)) {
@@ -548,18 +554,6 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     // <attributes>
     RedisModule_ReplyKV_Array(reply, "attributes");
     RedisModule_Reply_ArrayEnd(reply);
-
-    // TODO: Move this to after the results section, so that we can report the
-    // error even if we respond with results (`ON_TIMEOUT RETURN`).
-    // <error>
-    RedisModule_ReplyKV_Array(reply, "error"); // >errors
-    if (rc == RS_RESULT_TIMEDOUT) {
-      ReplyWithTimeoutError(reply);
-    } else if (rc == RS_RESULT_ERROR) {
-      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
-      QueryError_ClearError(req->qiter.err);
-    }
-    RedisModule_Reply_ArrayEnd(reply); // >errors
 
     // TODO: Move this to after the results section, so that we can report the
     // correct number of returned results.
@@ -611,13 +605,25 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 done_3:
     RedisModule_Reply_ArrayEnd(reply); // >results
 
+    // <error>
+    RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
+    if (rc == RS_RESULT_TIMEDOUT) {
+      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+    } else if (rc == RS_RESULT_ERROR) {
+      // Non-fatal error
+      RedisModule_Reply_SimpleString(reply, QueryError_GetError(req->qiter.err));
+    }
+    RedisModule_Reply_ArrayEnd(reply); // >warnings
+
     cursor_done = (rc != RS_RESULT_OK
                    && !(rc == RS_RESULT_TIMEDOUT
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
+    bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
+
     if (IsProfile(req)) {
       if (!(req->reqflags & QEXEC_F_IS_CURSOR) || cursor_done) {
-        req->profile(reply, req);
+        req->profile(reply, req, has_timedout);
       }
     }
 
@@ -738,12 +744,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   goto cleanup;
 
 error:
-  // Enrich the error message that was caught to include the fact that the query ran
-  // in a background thread.
-  QueryError_SetErrorFmt(&detailed_status, QueryError_GetCode(&status),
-                          "The following error was caught upon running the query asynchronously: %s", QueryError_GetError(&status));
-  QueryError_ClearError(&status);
-  QueryError_ReplyAndClear(outctx, &detailed_status);
+  QueryError_ReplyAndClear(outctx, &status);
 
 cleanup:
   // No need to unlock spec as it was unlocked by `AREQ_Execute` or will be unlocked by `blockedClientReqCtx_destroy`
