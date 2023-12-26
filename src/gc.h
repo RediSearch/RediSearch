@@ -37,7 +37,10 @@ typedef struct GCContext {
 } GCContext;
 
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy);
+// Start the GC periodic. Next run will be added to the job-queue after the interval
 void GCContext_Start(GCContext* gc);
+// Start the GC periodic. Next run will be added to the job-queue immediately
+void GCContext_StartNow(GCContext* gc);
 void GCContext_StopMock(GCContext* gc);
 void GCContext_RenderStats(GCContext* gc, RedisModule_Reply* ctx);
 #ifdef FTINFO_FOR_INFO_MODULES

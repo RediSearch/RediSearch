@@ -694,7 +694,7 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   if (sp->gc->timerID) {
     return RedisModule_ReplyWithError(ctx, "GC is already running periodically");
   }
-  GCContext_Start(sp->gc);
+  GCContext_StartNow(sp->gc);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 

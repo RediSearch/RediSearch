@@ -111,6 +111,12 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
   redisearch_thpool_add_work(gcThreadpool_g, taskCallback, data, THPOOL_PRIORITY_HIGH);
 }
 
+void GCContext_StartNow(GCContext* gc) {
+  RS_LOG_ASSERT_FMT(gc->timerID == 0, "GC %p: StartNow called while GC is already running", gc);
+  gc->timerID = 1; // Set to non-zero value to indicate the GC to reschedule itself.
+  redisearch_thpool_add_work(gcThreadpool_g, taskCallback, gc, THPOOL_PRIORITY_HIGH);
+}
+
 void GCContext_Start(GCContext* gc) {
   gc->timerID = scheduleNext(gc);
   if (gc->timerID == 0) {
