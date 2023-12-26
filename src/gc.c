@@ -82,10 +82,12 @@ static void threadCallback(void* data) {
     rm_free(task);
     rm_free(gc);
   } else {
+    // The index was not freed. We need to reschedule the task.
     RedisModule_ThreadSafeContextLock(RSDummyContext);
     if (gc->timerID) {
       gc->timerID = scheduleNext(task);
     } else {
+      // ... unless the GC was stopped by a debug command.
       RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "GC %p: Not scheduling next collection", gc);
       rm_free(task);
     }

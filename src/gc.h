@@ -32,7 +32,7 @@ typedef struct GCCallbacks {
 
 typedef struct GCContext {
   void* gcCtx;
-  RedisModuleTimerID timerID;
+  RedisModuleTimerID timerID; // Guarded by the GIL
   GCCallbacks callbacks;
 } GCContext;
 
