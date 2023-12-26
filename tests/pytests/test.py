@@ -5,7 +5,6 @@ import redis
 from hotels import hotels
 import random
 import time
-import subprocess
 
 
 # this tests is not longer relevant
