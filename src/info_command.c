@@ -205,13 +205,13 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_Reply_ArrayEnd(reply); // >attributes
 
 
-  REPLY_KVINT("num_docs", sp->stats.numDocuments);
-  REPLY_KVINT("max_doc_id", sp->docs.maxDocId);
-  REPLY_KVINT("num_terms", sp->stats.numTerms);
-  REPLY_KVINT("num_records", sp->stats.numRecords);
+  REPLY_KVNUM("num_docs", sp->stats.numDocuments);
+  REPLY_KVNUM("max_doc_id", sp->docs.maxDocId);
+  REPLY_KVNUM("num_terms", sp->stats.numTerms);
+  REPLY_KVNUM("num_records", sp->stats.numRecords);
   REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
   REPLY_KVNUM("vector_index_sz_mb", IndexSpec_VectorIndexSize(sp) / (float)0x100000);
-  REPLY_KVINT("total_inverted_index_blocks", TotalIIBlocks);
+  REPLY_KVNUM("total_inverted_index_blocks", TotalIIBlocks);
   // REPLY_KVNUM("inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
 
   // REPLY_KVNUM("inverted_cap_ovh", 0);
@@ -236,9 +236,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
   // TODO: remove this once "hash_indexing_failures" is deprecated
   // Legacy for not breaking changes
-  REPLY_KVINT("hash_indexing_failures", sp->stats.indexError.error_count);
+  REPLY_KVNUM("hash_indexing_failures", sp->stats.indexError.error_count);
   REPLY_KVNUM("total_indexing_time", sp->stats.totalIndexTime / 1000.0);
-  REPLY_KVINT("indexing", !!global_spec_scanner || sp->scan_in_progress);
+  REPLY_KVNUM("indexing", !!global_spec_scanner || sp->scan_in_progress);
 
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
   double percent_indexed = IndexesScanner_IndexedPercent(scanner, sp);
