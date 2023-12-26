@@ -186,6 +186,15 @@ void RMCK_RetainString(RedisModuleCtx *ctx, RedisModuleString *s) {
   s->incref();
 }
 
+RedisModuleString *RMCK_HoldString(RedisModuleCtx *ctx, RedisModuleString *s) {
+  RMCK_RetainString(ctx, s);
+  return s;
+}
+
+void RMCK_TrimStringAllocation(RedisModuleString *s) {
+  s->trim();
+}
+
 void RMCK_SetModuleOptions(RedisModuleCtx *ctx, int options) {
 }
 
@@ -817,6 +826,8 @@ static void registerApis() {
   REGISTER_API(CreateStringFromString);
   REGISTER_API(FreeString);
   REGISTER_API(RetainString);
+  REGISTER_API(HoldString);
+  REGISTER_API(TrimStringAllocation);
   REGISTER_API(StringPtrLen);
   REGISTER_API(StringToDouble);
   REGISTER_API(StringToLongLong);

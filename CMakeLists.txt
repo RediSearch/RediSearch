@@ -87,6 +87,7 @@ file(GLOB SOURCES
     "src/query_parser/v2/*.c"
     "src/util/*.c"
     "src/trie/*.c"
+    "src/info/*.c"
 
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"
@@ -111,7 +112,7 @@ set(FINAL_OBJECTS
 
 if (BUILD_COORDINATOR)
     if (BUILD_COORD_OSS)
-        add_library(redisearch-oss STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c)
+        add_library(redisearch-oss STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c coord/src/rmr/reply.c)
 
         target_compile_definitions(redisearch-oss PRIVATE
             RS_NO_ONLOAD
@@ -119,7 +120,7 @@ if (BUILD_COORDINATOR)
             RS_CLUSTER_OSS)
 
     elseif (BUILD_COORD_RLEC)
-        add_library(redisearch-enterprise STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c)
+        add_library(redisearch-enterprise STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c coord/src/rmr/reply.c)
 
         target_compile_definitions(redisearch-enterprise PRIVATE
             RS_NO_ONLOAD

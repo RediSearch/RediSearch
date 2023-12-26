@@ -262,7 +262,6 @@ void Document_Dump(const Document *doc) {
 // LCOV_EXCL_STOP
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
-int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx);
 
 static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   /**
@@ -271,21 +270,23 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
    * fields must be reindexed.
    */
   int rv = REDISMODULE_ERR;
-
+  QueryError status = {0};
   Document_Clear(aCtx->doc);
 
   // Path is not covered and is not relevant
 
   DocumentType ruleType = sctx->spec->rule->type;
   if (ruleType == DocumentType_Hash) {
-    rv = Document_LoadSchemaFieldHash(aCtx->doc, sctx);
+    rv = Document_LoadSchemaFieldHash(aCtx->doc, sctx, &status);
   } else if (ruleType == DocumentType_Json) {
-    rv = Document_LoadSchemaFieldJson(aCtx->doc, sctx);
+    rv = Document_LoadSchemaFieldJson(aCtx->doc, sctx, &status);
   }
   if (rv != REDISMODULE_OK) {
-    QueryError_SetError(&aCtx->status, QUERY_ENODOC, "Could not load existing document");
+    // Add error to the spec global stats
+    IndexError_AddError(&sctx->spec->stats.indexError, status.detail, aCtx->doc->docKey);
     aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
     AddDocumentCtx_Free(aCtx);
+    QueryError_ClearError(&status);
     return 1;
   }
 
@@ -475,7 +476,8 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
     case FLD_VAR_T_RMS:
       fdata->isMulti = 0;
       if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
-        QueryError_SetCode(status, QUERY_ENOTNUMERIC);
+        QueryError_SetErrorFmt(status, QUERY_ENOTNUMERIC, "Invalid numeric value: '%s'",
+                               RedisModule_StringPtrLen(field->text, NULL));
         return -1;
       }
       break;
@@ -530,7 +532,7 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
       fdata->str = str;
       fdata->strlen = len;
       fdata->format = GEOMETRY_FORMAT_WKT;
-      break;
+      return 0;
     }
     case FLD_VAR_T_CSTR:
       // From WKT string
@@ -538,7 +540,7 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
       fdata->str = field->strval;
       fdata->strlen = field->strlen;
       fdata->format = GEOMETRY_FORMAT_WKT;
-      break;
+      return 0;
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_NULL:
       return 0;
@@ -546,7 +548,7 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
       fdata->isMulti = 1;
       // TODO: GEOMETRY - parse geometries from string
       //fdata->arrGeometry = ...
-      break;
+      return 0;
     default:
       return -1;
   }
@@ -554,8 +556,6 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
   // TODO: GEOMETRY
   // If this is a sortable geomtry value - copy the value to the sorting vector
 
-
-  return 0;
 }
 
 FIELD_BULK_INDEXER(geometryIndexer) {
@@ -573,9 +573,8 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   RedisModuleString *errMsg;
   if (!fdata->isMulti) {
     if (!api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, &errMsg)) {
-      ++ctx->spec->stats.indexingFailures;
-      // QueryError_SetErrorFmt(status, QUERY_EBADVAL, "Error indexing geoshape: %s",
-      //                        RedisModule_StringPtrLen(errMsg, NULL));
+      QueryError_SetErrorFmt(status, QUERY_EBADVAL, "Error indexing geoshape: %s",
+                             RedisModule_StringPtrLen(errMsg, NULL));
       RedisModule_FreeString(NULL, errMsg);
       return -1;
     }
@@ -634,8 +633,10 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
     return 0; // Skipping indexing missing vector
   }
   if (fdata->vecLen != fs->vectorOpts.expBlobSize) {
-    // "Could not add vector with blob size %zu (expected size %zu)", len, fs->vectorOpts.expBlobSize
-    QueryError_SetCode(status, QUERY_EBADATTR);
+
+    QueryError_SetErrorFmt(status, QUERY_EBADATTR,
+                           "Could not add vector with blob size %zu (expected size %zu)", fdata->vecLen,
+                           fs->vectorOpts.expBlobSize);
     return -1;
   }
   aCtx->fwIdx->maxFreq++;
@@ -674,6 +675,8 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       fdata->isMulti = 0;
       geohash = calcGeoHash(field->lon, field->lat);
       if (geohash == INVALID_GEOHASH) {
+        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Invalid geo coordinates: %f, %f",
+                               field->lon, field->lat);
         return REDISMODULE_ERR;
       }
       fdata->numeric = geohash;
@@ -701,11 +704,13 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   fdata->isMulti = 0;
   if (str_count == 1) {
     str = DocumentField_GetValueCStr(field, &len);
-    if (parseGeo(str, len, &lon, &lat) != REDISMODULE_OK) {
+    if (parseGeo(str, len, &lon, &lat, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
     geohash = calcGeoHash(lon, lat);
     if (geohash == INVALID_GEOHASH) {
+      QueryError_SetErrorFmt(status, QUERY_EINVAL, "Invalid geo coordinates: %f, %f",
+                        lon, lat);
       return REDISMODULE_ERR;
     }
     fdata->numeric = geohash;
@@ -714,7 +719,15 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     arrayof(double) arr = array_new(double, str_count);
     for (size_t i = 0; i < str_count; ++i) {
       const char *cur_str = DocumentField_GetArrayValueCStr(field, &len, i);
-      if ((parseGeo(cur_str, len, &lon, &lat) != REDISMODULE_OK) || ((geohash = calcGeoHash(lon, lat)) == INVALID_GEOHASH)) {
+      if (parseGeo(cur_str, len, &lon, &lat, status) != REDISMODULE_OK) {
+        array_free(arr);
+        fdata->arrNumeric = NULL;
+        return REDISMODULE_ERR;
+      }
+      geohash = calcGeoHash(lon, lat);
+      if (geohash == INVALID_GEOHASH) {
+        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Invalid geo coordinates: %f, %f",
+                        lon, lat);
         array_free(arr);
         fdata->arrNumeric = NULL;
         return REDISMODULE_ERR;
@@ -841,7 +854,8 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
       PreprocessorFunc pp = preprocessorMap[ii];
       if (pp(aCtx, sctx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
-        ++aCtx->spec->stats.indexingFailures;
+        IndexError_AddError(&aCtx->spec->stats.indexError, QueryError_GetError(&aCtx->status), doc->docKey);
+        IndexError_AddError(&aCtx->spec->fields[fs->index].indexError, QueryError_GetError(&aCtx->status), doc->docKey);
         ourRv = REDISMODULE_ERR;
         goto cleanup;
       }
