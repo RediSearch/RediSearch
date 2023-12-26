@@ -58,16 +58,16 @@ def getConnectionByEnv(env):
         conn = env.getConnection()
     return conn
 
-def waitForIndex(env, idx):
+def waitForIndex(env, idx = 'idx'):
     waitForRdbSaveToFinish(env)
     while True:
         res = env.cmd('ft.info', idx)
         try:
-            if int(res[res.index('indexing') + 1]) == 0:
+            if res[res.index('indexing') + 1] == 0:
                 break
         except:
             # RESP3
-            if int(res['indexing']) == 0:
+            if res['indexing'] == 0:
                 break
         time.sleep(0.1)
 
@@ -114,14 +114,9 @@ def toSortedFlatList(res):
         return py2sorted(finalList)
     return [res]
 
-def ft_info_to_dict(env, idx):
-  res = env.cmd('ft.info', idx)
-  return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-
-
 def assertInfoField(env, idx, field, expected, delta=None):
     if not env.isCluster():
-        d = ft_info_to_dict(env, idx)
+        d = index_info(env, idx)
         if delta is None:
             env.assertEqual(d[field], expected)
         else:
@@ -204,7 +199,7 @@ def server_version_is_at_least(ver):
 def server_version_is_less_than(ver):
     return not server_version_is_at_least(ver)
 
-def index_info(env, idx):
+def index_info(env, idx='idx'):
     res = env.cmd('FT.INFO', idx)
     res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return res
