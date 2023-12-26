@@ -104,15 +104,15 @@ void IndexError_OpPlusEquals(IndexError *error, const IndexError *other) {
     // Condition is valid even if one or both errors are NA (`last_error_time` is 0).
     if (!rs_timer_ge(&error->last_error_time, &other->last_error_time)) {
         // Prefer the other error.
-        // copy/add error count later with atomic add.
+        // copy/add error count later.
         if (error->last_error != NA) rm_free(error->last_error);
         RedisModule_FreeString(RSDummyContext, error->key);
         error->last_error = rm_strdup(other->last_error);
         error->key = RedisModule_HoldString(RSDummyContext, other->key);
         error->last_error_time = other->last_error_time;
     }
-    // Atomically increment the error_count by other->error_count, since this might be called when spec is unlocked.
-    __atomic_add_fetch(&error->error_count, other->error_count, __ATOMIC_RELAXED);
+    // Currently `error` is not a shared object, so we don't need to use atomic add.
+    error->error_count += other->error_count;
 }
 
 // Setters
