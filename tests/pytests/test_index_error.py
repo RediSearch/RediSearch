@@ -27,7 +27,7 @@ def test_vector_index_failures(env):
 
   for _ in env.reloadingIterator():
     info = index_info(env)
-    env.assertEqual(info['num_docs'], '1')
+    env.assertEqual(int(info['num_docs']), 1)
 
     expected_error_dict = {
                             indexing_failures_str: 1,
@@ -58,7 +58,7 @@ def test_numeric_index_failures(env):
 
   for _ in env.reloadingIterator():
     info = index_info(env)
-    env.assertEqual(info['num_docs'], '1')
+    env.assertEqual(int(info['num_docs']), 1)
 
     expected_error_dict = {
                             indexing_failures_str: 1,
@@ -91,7 +91,7 @@ def test_mixed_index_failures(env):
 
   for _ in env.reloadingIterator():
     info = index_info(env)
-    env.assertEqual(info['num_docs'], '1')
+    env.assertEqual(int(info['num_docs']), 1)
 
     expected_error_dict = {
                             indexing_failures_str: 1,
@@ -119,7 +119,7 @@ def test_mixed_index_failures(env):
 
   for _ in env.reloadingIterator():
     info = index_info(env)
-    env.assertEqual(info['num_docs'], '1')
+    env.assertEqual(int(info['num_docs']), 1)
 
     expected_error_dict = {
                             indexing_failures_str: 1,
@@ -151,7 +151,7 @@ def test_geo_index_failures(env):
 
   for _ in env.reloadingIterator():
     info = index_info(env)
-    env.assertEqual(info['num_docs'], '1')
+    env.assertEqual(int(info['num_docs']), 1)
 
     expected_error_dict = {
                             indexing_failures_str: 1,
@@ -188,7 +188,7 @@ def test_geo_index_failures(env):
 
   for _ in env.reloadingIterator():
     info = index_info(env)
-    env.assertEqual(info['num_docs'], '1')
+    env.assertEqual(int(info['num_docs']), 1)
 
     field_spec_dict = get_field_stats_dict(info)
     error_dict = to_dict(field_spec_dict["Index Errors"])
@@ -212,7 +212,7 @@ def test_geo_index_failures(env):
 
 #   for _ in env.reloadingIterator():
 #     info = index_info(env)
-#     env.assertEqual(info['num_docs'], '2')
+#     env.assertEqual(int(info['num_docs']), 2)
 
 #     field_spec_dict = get_field_stats_dict(info)
 
@@ -236,7 +236,7 @@ def test_partial_doc_index_failures(env):
                             ['indexing failures', 1, 'last indexing error', "Invalid numeric value: 'banana'", 'last indexing error key', 'doc']]
   for _ in env.reloadingIterator():
     info = index_info(env)
-    env.assertEqual(info['num_docs'], '0')
+    env.assertEqual(int(info['num_docs']), 0)
     env.assertEqual(info['field statistics'][0], expected_text_stats)
     env.assertEqual(info['field statistics'][1], excepted_numeric_stats)
 
@@ -252,7 +252,7 @@ def test_vector_indexing_with_json(env):
 
   for _ in env.reloadingIterator():
     info = index_info(env)
-    env.assertEqual(info['num_docs'], '0')
+    env.assertEqual(int(info['num_docs']), 0)
 
     expected_error_dict = {
                             indexing_failures_str: 0,

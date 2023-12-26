@@ -111,7 +111,7 @@ def testWKTIngestError(env):
   conn.execute_command('JSON.SET', 'p5', '$', '{"geom": "POLYGON((1 1 1 100, 100 100, 100 1, 1 1))", "name": "Ned"}')
 
   # Indexing failures
-  env.assertEqual(index_info(env)['hash_indexing_failures'], '4')
+  env.assertEqual(int(index_info(env)['hash_indexing_failures']), 4)
 
 
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
