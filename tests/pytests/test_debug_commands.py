@@ -6,14 +6,14 @@ from common import waitForIndex
 class TestDebugCommands(object):
 
     def __init__(self):
-        self.env = Env(testName="testing debug commands")
+        self.env = Env(testName="testing debug commands", moduleArgs='MT_MODE MT_MODE_FULL WORKER_THREADS 2')
         self.env.skipOnCluster()
         self.env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
                         'name', 'TEXT', 'SORTABLE',
                         'age', 'NUMERIC', 'SORTABLE',
                         't', 'TAG', 'SORTABLE').ok()
         waitForIndex(self.env, 'idx')
-        self.env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'name', 'meir', 'age', '29', 't', 'test').ok()
+        self.env.expect('HSET', 'doc1', 'name', 'meir', 'age', '34', 't', 'test').equal(3)
         self.env.cmd('SET', 'foo', 'bar')
 
     def testDebugWrongArity(self):
@@ -28,7 +28,8 @@ class TestDebugCommands(object):
         help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_NUMIDXTREE', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'DUMP_GEOMIDX',
                      'DUMP_PREFIX_TRIE', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO', 'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE',
                      'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY', 'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC',
-                     'GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_WAIT_FOR_JOBS', 'GIT_SHA', 'TTL', 'VECSIM_INFO']
+                     'GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_WAIT_FOR_JOBS', 'GIT_SHA', 'TTL', 'VECSIM_INFO',
+                     'WORKER_THREADS_SWITCH']
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
         for cmd in help_list:
@@ -42,7 +43,7 @@ class TestDebugCommands(object):
         self.env.assertEqual(['internal_id', 1, 'flags', '(0xc):HasSortVector,HasOffsetVector,',
                               'score', '1', 'num_tokens', 1, 'max_freq', 1, 'refcount', 1, 'sortables',
                                [['index', 0, 'field', 'name AS name', 'value', 'meir'],
-                                ['index', 1, 'field', 'age AS age', 'value', '29'],
+                                ['index', 1, 'field', 'age AS age', 'value', '34'],
                                 ['index', 2, 'field', 't AS t', 'value', 'test']]], rv)
         self.env.expect('ft.debug', 'docinfo', 'idx').error()
         self.env.expect('ft.debug', 'docinfo', 'idx', 'doc2').error()
@@ -192,3 +193,17 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx').error().contains('GC is already running periodically')
         self.env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', 'idx').ok()
         self.env.expect('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+
+    def testStopAndResumeWorkersPool(self):
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS_SWITCH').error().contains("wrong number of arguments for"
+                                                                              " 'FT.DEBUG' command")
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS_SWITCH', 'invalid').error().contains(
+            "Invalid argument for 'WORKER_THREADS_SWITCH' subcommand")
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS_SWITCH', 'pause').ok()
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS_SWITCH', 'pause').error()\
+            .contains("Operation failed: workers thread pool doesn't exists or is not running")
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS_SWITCH', 'resume').ok()
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS_SWITCH', 'resume').error()\
+            .contains("Operation failed: workers thread pool doesn't exists or is already running")
+
+

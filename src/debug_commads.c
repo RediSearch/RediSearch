@@ -1047,9 +1047,15 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
   }
   const char* op = RedisModule_StringPtrLen(argv[0], NULL);
   if (!strcasecmp(op, "pause")) {
-    workersThreadPool_pause();
+    if (workersThreadPool_pause() != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: workers thread pool doesn't exists"
+                                      " or is not running");
+    }
   } else if (!strcasecmp(op, "resume")) {
-    workersThreadPool_resume();
+    if (workersThreadPool_resume() != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: workers thread pool doesn't exists"
+                                        " or is already running");
+    }
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'WORKER_THREADS_SWITCH' subcommand");
   }

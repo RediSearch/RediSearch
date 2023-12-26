@@ -344,6 +344,10 @@ size_t redisearch_thpool_num_threads_working(redisearch_thpool_t* thpool_p) {
   return res;
 }
 
+int redisearch_thpool_running(redisearch_thpool_t *thpool_p) {
+  return thpool_p->keepalive;
+}
+
 /* ============================ THREAD ============================== */
 
 /* Initialize a thread in the thread pool

@@ -130,13 +130,21 @@ void workersThreadPool_SetTerminationWhenEmpty() {
 /********************************************* for debugging **********************************/
 
 int workersThreadPool_pause() {
-  if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0) {return -1;}
+  if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0 ||
+      !redisearch_thpool_running(_workers_thpool)) {
+    return REDISMODULE_ERR;
+  }
   workersThreadPool_Terminate();
+  return REDISMODULE_OK;
 }
 
 int workersThreadPool_resume() {
-  if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0) {return -1;}
+  if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0 ||
+      redisearch_thpool_running(_workers_thpool)) {
+    return REDISMODULE_ERR;;
+  }
   workersThreadPool_InitPool();
+  return REDISMODULE_OK;
 }
 
 #endif // MT_BUILD
