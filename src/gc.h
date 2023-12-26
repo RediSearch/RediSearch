@@ -36,11 +36,6 @@ typedef struct GCContext {
   GCCallbacks callbacks;
 } GCContext;
 
-typedef struct GCDebugTask {
-  GCContext* gc;
-  RedisModuleBlockedClient* bClient;
-} GCDebugTask;
-
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy);
 void GCContext_Start(GCContext* gc);
 void GCContext_StopMock(GCContext* gc);

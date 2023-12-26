@@ -21,6 +21,11 @@
 
 static redisearch_threadpool gcThreadpool_g = NULL;
 
+typedef struct GCDebugTask {
+  GCContext* gc;
+  RedisModuleBlockedClient* bClient;
+} GCDebugTask;
+
 static GCDebugTask *GCDebugTaskCreate(GCContext *gc, RedisModuleBlockedClient* bClient) {
   GCDebugTask *task = rm_new(GCDebugTask);
   task->gc = gc;
