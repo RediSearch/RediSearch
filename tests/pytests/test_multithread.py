@@ -79,11 +79,10 @@ def test_invalid_mt_config_combinations(env):
 
 
 def test_reload_index_while_indexing():
-
     env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
     n_shards = env.shardsCount
-    n_vectors = 10000 * n_shards if not SANITIZER and not CODE_COVERAGE else 500 * n_shards
-    dim = 64
+    n_vectors = 100 * n_shards
+    dim = 4
     # Load random vectors into redis.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'M', '64',
                'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
@@ -93,39 +92,38 @@ def test_reload_index_while_indexing():
     for it in range(2):
         # At first iteration insert vectors 0,1,...,n_vectors-1, and the second insert ids
         # n_vectors, n_vector+1,...,2*n_vectors-1.
+        env.cmd('FT.DEBUG', 'WORKER_THREADS_SWITCH', 'PAUSE').ok()
         load_vectors_to_redis(env, n_vectors, 0, dim, ids_offset=it*n_vectors)
         waitForRdbSaveToFinish(env)
         for i in env.reloadingIterator():
-            # TODO: this is causing a crush occasionally in Cursors_RenderStats - need to fix this.
-            # assertInfoField(env, 'idx', 'num_docs', str(n_vectors*(it+1)))
-            debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
-            if not env.isCluster():
-                env.assertEqual(debug_info['INDEX_LABEL_COUNT'], n_vectors*(it+1))
+            assertInfoField(env, 'idx', 'num_docs', str(n_vectors*(it+1)))
+            # Resume the workers thread pool, let the background indexing start (in the first iteration it is paused)
+            if i==1:
+                env.cmd('FT.DEBUG', 'WORKER_THREADS_SWITCH', 'RESUME').ok()
             # At first, we expect to see background indexing, but after RDB load, we expect that all vectors
             # are indexed before RDB loading ends
-            # TODO: try making this not-flaky
-            if i == 2:
-                env.assertEqual(debug_info['BACKGROUND_INDEXING'], 0)
-            # env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1 if i == 1 else 0)
+            debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
+            env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1 if i == 1 else 0)
 
 
 def test_delete_index_while_indexing():
-    if CODE_COVERAGE:
-        raise unittest.SkipTest("Skipping since worker threads are not enabled")
-
     env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 10000 * n_shards if not SANITIZER and not CODE_COVERAGE else 500 * n_shards
-    dim = 64
+    n_vectors = 100 * n_shards
+    dim = 4
     # Load random vectors into redis.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'M', '64',
                'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    env.assertEqual(env.cmd('FT.DEBUG', 'WORKER_THREADS_SWITCH', 'PAUSE'), "OK")
     load_vectors_to_redis(env, n_vectors, 0, dim)
-    # Delete index while vectors are being indexed (to validate proper cleanup of background jobs in sanitizer).
+    assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+    env.assertEqual(env.cmd('FT.DEBUG', 'WORKER_THREADS_SWITCH', 'RESUME'), "OK")
+
     debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
-    # TODO: try making this not-flaky
-    # env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1)
+    env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1)
+
+    # Delete index while vectors are being indexed (to validate proper cleanup of background jobs in sanitizer).
     conn.execute_command('FT.DROPINDEX', 'idx')
 
 
