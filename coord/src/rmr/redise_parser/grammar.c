@@ -50,7 +50,7 @@ void yyerror(char *s);
 
 static void parseCtx_Free(parseCtx *ctx) {
     if (ctx->my_id) {
-        free(ctx->my_id);
+        rm_free(ctx->my_id);
     }
 }
 #line 48 "grammar.c"
