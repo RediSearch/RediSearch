@@ -29,7 +29,6 @@ def testGetConfigOptions(env):
     check_config('MAXEXPANSIONS')
     check_config('MAXPREFIXEXPANSIONS')
     check_config('TIMEOUT')
-    check_config('SEARCH_THREADS')
     if MT_BUILD:
         check_config('WORKER_THREADS')
         check_config('MT_MODE')
@@ -70,7 +69,6 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 1).equal('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'MAXEXPANSIONS', 1).equal('OK')
     env.expect('ft.config', 'set', 'TIMEOUT', 1).equal('OK')
-    env.expect('ft.config', 'set', 'SEARCH_THREADS', 1).equal('Not modifiable at runtime')
     if MT_BUILD:
         env.expect('ft.config', 'set', 'WORKER_THREADS', 1).equal('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'FRISOINI', 1).equal('Not modifiable at runtime')
@@ -108,7 +106,6 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
     env.assertContains(res_dict['TIMEOUT'][0], ['500', '0'])
-    env.assertEqual(res_dict['SEARCH_THREADS'][0], '20') # Used by coordinator only
     if MT_BUILD:
         env.assertEqual(res_dict['WORKER_THREADS'][0], '0')
         env.assertEqual(res_dict['MT_MODE'][0], 'MT_MODE_OFF')
@@ -153,7 +150,6 @@ def testInitConfig():
     test_arg_num('FORKGC_SLEEP_BEFORE_EXIT', 5)
     test_arg_num('MAXEXPANSIONS', 5)
     test_arg_num('MAXPREFIXEXPANSIONS', 5)
-    test_arg_num('SEARCH_THREADS', 3)
     if MT_BUILD:
         test_arg_num('WORKER_THREADS', 3)
         test_arg_num('TIERED_HNSW_BUFFER_LIMIT', 50000)
@@ -214,7 +210,6 @@ def testImmutable(env):
     env.expect('ft.config', 'set', 'EXTLOAD').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'NOGC').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'MAXDOCTABLESIZE').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'SEARCH_THREADS').error().contains('Not modifiable at runtime')
     if MT_BUILD:
         env.expect('ft.config', 'set', 'MT_MODE').error().contains('Not modifiable at runtime')
         env.expect('ft.config', 'set', 'WORKER_THREADS').error().contains('Not modifiable at runtime')
