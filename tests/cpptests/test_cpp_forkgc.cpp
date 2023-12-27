@@ -66,7 +66,7 @@ void *cbWrapper(void *args) {
     }
 
     // run ForkGC
-    gc->callbacks.periodicCallback(fgcArgs->ctx, fgcArgs->fgc);
+    gc->callbacks.periodicCallback(fgcArgs->fgc);
   }
   return NULL;
 }
@@ -611,7 +611,7 @@ TEST_F(FGCTestTag, testRemoveMiddleBlock) {
   ASSERT_NE(ss.end(), ss.find(numToDocStr(lastLastBlockId)));
 }
 
-TEST_F(FGCTest, testDeleteDuringGCCleanup) {
+TEST_F(FGCTestTag, testDeleteDuringGCCleanup) {
   // Setup.
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));

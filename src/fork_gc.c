@@ -1125,8 +1125,9 @@ static int FGC_fork(ForkGC *gc, RedisModuleCtx *ctx) {
   }
 }
 
-static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
+static int periodicCb(void *privdata) {
   ForkGC *gc = privdata;
+  RedisModuleCtx *ctx = gc->ctx;
 
   // This check must be done first, because some values (like `deletedDocsFromLastRun`) that are used for
   // early termination might never change after index deletion and will cause periodicCb to always return 1,
