@@ -24,8 +24,6 @@ static inline int isEof(const IdListIterator *it) {
   return !it->base.isValid;
 }
 
-static int cmp_docids(const void *p1, const void *p2);
-
 size_t IL_NumEstimated(void *ctx) {
   IdListIterator *it = ctx;
   return (size_t)it->size;

@@ -583,7 +583,6 @@ void trimUnionIterator(IndexIterator *iter, size_t offset, size_t limit, bool as
 typedef struct {
   IndexIterator base;
   IndexIterator **its;
-  IndexIterator *bestIt;
   t_docId *docIds;
   int *rcs;
   unsigned num;
@@ -609,11 +608,6 @@ void IntersectIterator_Free(IndexIterator *it) {
     if (ui->its[i] != NULL) {
       ui->its[i]->Free(ui->its[i]);
     }
-    // IndexResult_Free(&ui->currentHits[i]);
-  }
-
-  if (ui->bestIt) {
-    ui->bestIt->Free(ui->bestIt);
   }
 
   rm_free(ui->docIds);
@@ -690,7 +684,6 @@ static void II_SortChildren(IntersectIterator *ctx) {
       if (its) {
         rm_free(its);
       }
-      ctx->bestIt = NULL;
       ctx->nexpected = IITER_INVALID_NUM_ESTIMATED_RESULTS;
       return;
     }
@@ -698,13 +691,10 @@ static void II_SortChildren(IntersectIterator *ctx) {
     size_t amount = IITER_NUM_ESTIMATED(curit);
     if (amount < ctx->nexpected) {
       ctx->nexpected = amount;
-      ctx->bestIt = curit;
     }
 
     its[itsSize++] = curit;
   }
-
-  ctx->bestIt = NULL; // TODO: always set to NULL?
 
   rm_free(ctx->its);
   ctx->its = its;

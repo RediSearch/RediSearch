@@ -23,7 +23,6 @@
     RETURN_PARSE_ERROR(rc); \
   }
 
-
 #define CONFIG_SETTER(name) int name(RSConfig *config, ArgsCursor *ac, QueryError *status)
 #define CONFIG_GETTER(name) static sds name(const RSConfig *config)
 
@@ -36,17 +35,17 @@
     return sdsnew(cv ? "true" : "false");        \
   }
 
-#define CONFIG_BOOLEAN_SETTER(name, var)                        \
-  CONFIG_SETTER(name) {                                         \
-    const char *tf;                                             \
-    int acrc = AC_GetString(ac, &tf, NULL, 0);                  \
-    CHECK_RETURN_PARSE_ERROR(acrc);                             \
-    if (!strcmp(tf, "true") || !strcmp(tf, "TRUE")) {           \
-      config->var = 1;                                          \
-    } else if (!strcmp(tf, "false") || !strcmp(tf, "FALSE")) {  \
-      config->var = 0;                                          \
-    } else {                                                    \
-      acrc = AC_ERR_PARSE;                                      \
-    }                                                           \
-    RETURN_STATUS(acrc);                                        \
+#define CONFIG_BOOLEAN_SETTER(name, var)       \
+  CONFIG_SETTER(name) {                        \
+    const char *tf;                            \
+    int acrc = AC_GetString(ac, &tf, NULL, 0); \
+    CHECK_RETURN_PARSE_ERROR(acrc);            \
+    if (!strcasecmp(tf, "true")) {             \
+      config->var = 1;                         \
+    } else if (!strcasecmp(tf, "false")) {     \
+      config->var = 0;                         \
+    } else {                                   \
+      acrc = AC_ERR_PARSE;                     \
+    }                                          \
+    RETURN_STATUS(acrc);                       \
   }
