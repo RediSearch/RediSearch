@@ -107,7 +107,6 @@ typedef struct {
   size_t maxDocTableSize;
   size_t maxSearchResults;
   size_t maxAggregateResults;
-  size_t coordinatorPoolSize; // number of threads in the coordinator thread pool
 
 #ifdef MT_BUILD
   size_t numWorkerThreads;
@@ -217,7 +216,6 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 
 #define DEFAULT_DOC_TABLE_SIZE 1000000
 #define MAX_DOC_TABLE_SIZE 100000000
-#define COORDINATOR_POOL_DEFAULT_SIZE 20
 #define GC_SCANSIZE 100
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
@@ -251,7 +249,6 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .cursorReadSize = 1000,                                                                                           \
     .cursorMaxIdle = 300000,                                                                                          \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                                                        \
-    .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                                                             \
      MT_BUILD_CONFIG                                                                                                  \
     .gcConfigParams.gcScanSize = GC_SCANSIZE,                                                                         \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                                                              \
@@ -286,8 +283,6 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 static inline int isFeatureSupported(int feature) {
   return feature <= RSGlobalConfig.serverVersion;
 }
-
-#define CONFIG_SETTER(name) int name(RSConfig *config, ArgsCursor *ac, QueryError *status)
 
 #ifdef __cplusplus
 extern "C" {

@@ -22,12 +22,15 @@ typedef struct {
   const char* globalPass;
   size_t connPerShard;
   size_t cursorReplyThreshold;
+  size_t coordinatorPoolSize; // number of threads in the coordinator thread pool
 } SearchClusterConfig;
 
 extern SearchClusterConfig clusterConfig;
 
 #define CLUSTER_TYPE_OSS "redis_oss"
 #define CLUSTER_TYPE_RLABS "redislabs"
+
+#define COORDINATOR_POOL_DEFAULT_SIZE 20
 
 #define DEFAULT_CLUSTER_CONFIG                                                             \
   (SearchClusterConfig) {                                                                  \
@@ -37,6 +40,7 @@ extern SearchClusterConfig clusterConfig;
     .timeoutMS = 0,                                                                        \
     .globalPass = NULL,                                                                    \
     .cursorReplyThreshold = 1,                                                             \
+    .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                                  \
   }
 
 /* Detect the cluster type, by trying to see if we are running inside RLEC.

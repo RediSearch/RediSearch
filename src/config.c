@@ -19,49 +19,7 @@
 #include "util/dict.h"
 #include "resp3.h"
 
-#define RETURN_ERROR(s) return REDISMODULE_ERR;
-#define RETURN_PARSE_ERROR(rc)                                    \
-  QueryError_SetError(status, QUERY_EPARSEARGS, AC_Strerror(rc)); \
-  return REDISMODULE_ERR;
-
-#define CHECK_RETURN_PARSE_ERROR(rc) \
-  if (rc != AC_OK) {                 \
-    RETURN_PARSE_ERROR(rc);          \
-  }
-
-#define RETURN_STATUS(rc)   \
-  if (rc == AC_OK) {        \
-    return REDISMODULE_OK;  \
-  } else {                  \
-    RETURN_PARSE_ERROR(rc); \
-  }
-
-
-#define CONFIG_GETTER(name) static sds name(const RSConfig *config)
-
-#define CONFIG_BOOLEAN_GETTER(name, var, invert) \
-  CONFIG_GETTER(name) {                          \
-    int cv = config->var;                        \
-    if (invert) {                                \
-      cv = !cv;                                  \
-    }                                            \
-    return sdsnew(cv ? "true" : "false");        \
-  }
-
-#define CONFIG_BOOLEAN_SETTER(name, var)                        \
-  CONFIG_SETTER(name) {                                         \
-    const char *tf;                                             \
-    int acrc = AC_GetString(ac, &tf, NULL, 0);                  \
-    CHECK_RETURN_PARSE_ERROR(acrc);                             \
-    if (!strcmp(tf, "true") || !strcmp(tf, "TRUE")) {           \
-      config->var = 1;                                          \
-    } else if (!strcmp(tf, "false") || !strcmp(tf, "FALSE")) {  \
-      config->var = 0;                                          \
-    } else {                                                    \
-      acrc = AC_ERR_PARSE;                                      \
-    }                                                           \
-    RETURN_STATUS(acrc);                                        \
-  }
+#include "util/config_macros.h"
 
 // EXTLOAD
 CONFIG_SETTER(setExtLoad) {
@@ -191,17 +149,6 @@ CONFIG_SETTER(setTimeout) {
 CONFIG_GETTER(getTimeout) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->requestConfigParams.queryTimeoutMS);
-}
-
-// SEARCH_THREADS
-CONFIG_SETTER(setSearchThreads) {
-  int acrc = AC_GetSize(ac, &config->coordinatorPoolSize, AC_F_GE1);
-  RETURN_STATUS(acrc);
-}
-
-CONFIG_GETTER(getSearchThreads) {
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->coordinatorPoolSize);
 }
 
 #ifdef MT_BUILD
@@ -664,12 +611,6 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Query (search) timeout",
          .setValue = setTimeout,
          .getValue = getTimeout},
-        {.name = "SEARCH_THREADS",
-         .helpText = "Sets the number of search threads in the coordinator thread pool",
-         .setValue = setSearchThreads,
-         .getValue = getSearchThreads,
-         .flags = RSCONFIGVAR_F_IMMUTABLE,
-        },
 #ifdef MT_BUILD
         {.name = "WORKER_THREADS",
          .helpText = "Create at most this number of search threads",
