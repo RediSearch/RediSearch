@@ -76,7 +76,7 @@ void CmdArg_Print(CmdArg *n, int depth) {
   }
 }
 static inline CmdArg *NewCmdArg(CmdArgType t) {
-  CmdArg *ret = rm_malloc(sizeof(CmdArg));
+  CmdArg *ret = malloc(sizeof(CmdArg));
 
   ret->type = t;
   return ret;
@@ -84,7 +84,7 @@ static inline CmdArg *NewCmdArg(CmdArgType t) {
 
 static CmdArg *NewCmdString(const char *s, size_t len) {
   CmdArg *ret = NewCmdArg(CmdArg_String);
-  ret->s = (CmdString){.str = rm_strdup(s), .len = len};
+  ret->s = (CmdString){.str = strdup(s), .len = len};
   return ret;
 }
 
@@ -138,24 +138,24 @@ int CmdArg_GetFlag(CmdArg *parent, const char *flag) {
 void CmdArg_Free(CmdArg *arg) {
   switch (arg->type) {
     case CmdArg_String:
-      rm_free(arg->s.str);
+      free(arg->s.str);
       break;
     case CmdArg_Object:
       for (size_t i = 0; i < arg->obj.len; i++) {
         CmdArg_Free(arg->obj.entries[i].v);
       }
-      rm_free(arg->obj.entries);
+      free(arg->obj.entries);
       break;
     case CmdArg_Array:
       for (size_t i = 0; i < arg->a.len; i++) {
         CmdArg_Free(arg->a.args[i]);
       }
-      rm_free(arg->a.args);
+      free(arg->a.args);
       break;
     default:
       break;
   }
-  rm_free(arg);
+  free(arg);
 }
 
 static int CmdObj_Set(CmdObject *obj, const char *key, CmdArg *val, int unique) {
@@ -171,7 +171,7 @@ static int CmdObj_Set(CmdObject *obj, const char *key, CmdArg *val, int unique) 
 
   if (obj->len + 1 > obj->cap) {
     obj->cap += obj->cap ? obj->cap : 2;
-    obj->entries = rm_realloc(obj->entries, obj->cap * sizeof(CmdKeyValue));
+    obj->entries = realloc(obj->entries, obj->cap * sizeof(CmdKeyValue));
   }
   obj->entries[obj->len++] = (CmdKeyValue){.k = key, .v = val};
   return CMDPARSE_OK;
@@ -181,7 +181,7 @@ static int CmdArray_Append(CmdArray *arr, CmdArg *val) {
 
   if (arr->len == arr->cap) {
     arr->cap += arr->cap ? arr->cap : 2;
-    arr->args = rm_realloc(arr->args, arr->cap * sizeof(CmdArg *));
+    arr->args = realloc(arr->args, arr->cap * sizeof(CmdArg *));
   }
 
   arr->args[arr->len++] = val;
@@ -220,7 +220,7 @@ static int cmdSchema_addChild(CmdSchemaNode *parent, CmdSchemaNode *child) {
     return CMDPARSE_ERR;
   }
   parent->size++;
-  parent->edges = rm_realloc(parent->edges, parent->size * sizeof(CmdSchemaNode *));
+  parent->edges = realloc(parent->edges, parent->size * sizeof(CmdSchemaNode *));
   parent->edges[parent->size - 1] = child;
   return CMDPARSE_OK;
 }
@@ -330,7 +330,7 @@ CmdSchemaNode *CmdSchema_AddSubSchema(CmdSchemaNode *parent, const char *param, 
   CmdSchemaNode *ret = NewSchemaNode(CmdSchemaNode_Schema, param, NULL, flags, help);
 
   parent->size++;
-  parent->edges = rm_realloc(parent->edges, parent->size * sizeof(CmdSchemaNode *));
+  parent->edges = realloc(parent->edges, parent->size * sizeof(CmdSchemaNode *));
   parent->edges[parent->size - 1] = ret;
   return ret;
 }
@@ -460,10 +460,10 @@ void CmdSchemaNode_Free(CmdSchemaNode *n) {
     for (int i = 0; i < n->size; i++) {
       CmdSchemaNode_Free(n->edges[i]);
     }
-    rm_free(n->edges);
+    free(n->edges);
   }
-  rm_free(n->val);
-  rm_free(n);
+  free(n->val);
+  free(n);
 }
 typedef enum {
   CmdParser_New = 0x00,
@@ -568,12 +568,12 @@ int CmdArg_ParseInt(CmdArg *arg, int64_t *i) {
   }
 }
 
-#define CMDPARSE_CHECK_POS(pos, argc, err, msg)               \
-  {                                                           \
-    if (pos >= argc) {                                        \
-      *err = rm_strdup(msg ? msg : "Insufficient Arguments"); \
-      return CMDPARSE_ERR;                                    \
-    }                                                         \
+#define CMDPARSE_CHECK_POS(pos, argc, err, msg)            \
+  {                                                        \
+    if (pos >= argc) {                                     \
+      *err = strdup(msg ? msg : "Insufficient Arguments"); \
+      return CMDPARSE_ERR;                                 \
+    }                                                      \
   }
 
 static int parseArg(CmdSchemaArg *arg, CmdArg **current, CmdString *argv, int argc, int *pos,
@@ -881,7 +881,7 @@ int CmdParser_ParseRedisModuleCmd(CmdSchemaNode *schema, CmdArg **cmd, RedisModu
   }
 
   int rc = CmdParser_ParseCmd(schema, cmd, args, argc, err, strict);
-  rm_free(args);
+  free(args);
   return rc;
 }
 
