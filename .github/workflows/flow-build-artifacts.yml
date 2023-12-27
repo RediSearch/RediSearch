@@ -27,12 +27,6 @@ on:
           - aarch64
         description: 'Architecture to build on. Use "all" to build on all'
         default: all
-      reference:
-        type: string
-        description: 'Optional: Reference (branch, tag, SHA) to build against. Defaults to the base branch'
-      redis-reference:
-        type: string
-        description: 'Optional: Redis reference (branch, tag, SHA) to build against. Defaults to the latest release'
   workflow_call:
     inputs:
       platform:
@@ -41,32 +35,33 @@ on:
       architecture:
         type: string
         default: all
-      reference:
-        type: string
-      redis-reference:
-        type: string
 
 jobs:
   setup:
-    # Sets SHA and Validates the `reference` Input
+    # Sets SHA and Validates the reference Input (branch or tag)
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
-      redis-ref: ${{ inputs.redis-reference || steps.get-redis.outputs.tag }}
+      redis-ref: ${{ steps.get-redis.outputs.tag }}
     steps:
-      - name: Validate reference
-        uses: actions/checkout@v3
-        with:
-          # Use the input reference if provided, otherwise use the default behavior of the action
-          ref: ${{ inputs.reference }}
+      - uses: actions/checkout@v4
       - id: set-sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
       - id: get-redis
-        if: ${{ !inputs.redis-reference }}
         shell: bash -e pipefail {0}
         run: |
           TAG=$(curl -sL --retry 5 https://api.github.com/repos/redis/redis/releases/latest | jq -r '.tag_name') && \
           echo "tag=$TAG" >> $GITHUB_OUTPUT
+      - name: Validate Reference
+        shell: python
+        run: |
+          from re import fullmatch
+          ref = '${{ github.ref_name }}'
+          if bool(fullmatch('[0-9]+\.[0-9]+', ref)) or ref == 'master': # e.g. 2.8, 2.10, master
+            if '${{ inputs.architecture }}' != 'all' or '${{ inputs.platform }}' != 'all':
+              print("::error title=Invalid Request::"
+                    "You can only build all configurations for master or a release branch")
+              exit(1)
 
   decide-linux:
     if: ${{ inputs.platform != 'macos' }}
@@ -108,7 +103,6 @@ jobs:
     with:
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
-      ref: ${{ inputs.reference }}
       sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ needs.setup.outputs.redis-ref }}
 
@@ -126,7 +120,6 @@ jobs:
       build: true
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
-      ref: ${{ inputs.reference }}
       sha: ${{ needs.setup.outputs.sha }}
       get-redis: ${{ needs.setup.outputs.redis-ref }}
 
@@ -140,6 +133,5 @@ jobs:
     secrets: inherit
     with:
       env: ${{ matrix.OS }}
-      ref: ${{ inputs.reference }}
       sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ needs.setup.outputs.redis-ref }}
