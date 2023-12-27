@@ -812,8 +812,8 @@ def test_mod_6276(env):
   env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', 'idx').ok()   # Stop the gc from running uncontrollably
   env.expect('FT.DEBUG', 'GC_WAIT_FOR_JOBS').equal('DONE') # Make sure there are no running gc jobs
   env.expect('MULTI').ok()                                 # Start an atomic transaction:
-  env.cmd('FT.DEBUG', 'GC_FORCEBGINVOKE', 'idx')           # 1. Force the gc to run
-  env.cmd('FT.DROPINDEX', 'idx')                           # 2. Drop the index while the gc is running
+  env.cmd('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx')       # 1. Reschedule the gc - add a job to the queue
+  env.cmd('FT.DROPINDEX', 'idx')                           # 2. Drop the index while the gc is running/queued
   env.expect('EXEC').equal(['OK', 'OK'])                   # Execute the transaction
   env.expect('FT.DEBUG', 'GC_WAIT_FOR_JOBS').equal('DONE') # Wait for the gc to finish
 

@@ -57,7 +57,7 @@ void *cbWrapper(void *args) {
   }
 
   // run ForkGC
-  get_spec(fgcArgs->ism)->gc->callbacks.periodicCallback(fgcArgs->ctx, fgcArgs->fgc);
+  get_spec(fgcArgs->ism)->gc->callbacks.periodicCallback(fgcArgs->fgc);
   rm_free(args);
   return NULL;
 }
