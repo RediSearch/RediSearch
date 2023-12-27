@@ -8,21 +8,17 @@ from RLTest import Env
 
 ##########################################################################
 
-def ft_info_to_dict(env, idx):
-    res = env.cmd('ft.info', idx)
-    return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-
 def ft_debug_to_dict(env, idx, n):
     res = env.cmd('ft.debug', 'NUMIDX_SUMMARY', idx, n)
     return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
 
 def check_empty(env, idx, memory_consumption):
-    d = ft_info_to_dict(env, idx)
+    d = index_info(env, idx)
     env.assertEqual(float(d['num_records']), 0)
     env.assertEqual(memory_consumption, float(d['inverted_sz_mb']))
 
 def check_not_empty(env, idx):
-    d = ft_info_to_dict(env, idx)
+    d = index_info(env, idx)
     env.assertGreater(float(d['inverted_sz_mb']), 0)
     env.assertGreater(float(d['num_records']), 0)
 
@@ -136,15 +132,15 @@ def testMemoryAfterDrop(env):
         for j in range(doc_count):
             pl.execute_command('HSET', '%ddoc%d' % (i, j), 't', '%dhello%d' % (i, j), 'tg', '%dworld%d' % (i, j), 'n', i, 'g', geo)
         pl.execute()
-        d = ft_info_to_dict(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], str(doc_count))
+        d = index_info(env, 'idx%d' % i)
+        env.assertEqual(d['num_docs'], doc_count)
 
     for i in range(idx_count):
         for j in range(doc_count):
             pl.execute_command('DEL', '%ddoc%d' % (i, j))
         pl.execute()
-        d = ft_info_to_dict(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], '0')
+        d = index_info(env, 'idx%d' % i)
+        env.assertEqual(d['num_docs'], 0)
         for _ in range(10):
             forceInvokeGC(env, 'idx%d' % i)
 
@@ -175,7 +171,7 @@ def testIssue1497(env):
     res = env.cmd('ft.info', 'idx')
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     env.assertEqual(d['inverted_sz_mb'], '0')
-    env.assertEqual(d['num_records'], '0')
+    env.assertEqual(d['num_records'], 0)
     for i in range(count):
         geo = '1.23456,' + str(float(i) / divide_by)
         env.expect('HSET', 'doc%d' % i, 't', 'hello%d' % i, 'tg', 'world%d' % i, 'n', i * 1.01, 'g', geo)
@@ -192,7 +188,6 @@ def testIssue1497(env):
 
     forceInvokeGC(env, 'idx')
 
-    # TODO: Fix the expected empty index memory
     # The memory occupied by a empty TEXT and TAG inverted index is 
     # 54 bytes * doc_count, becase FGC_applyInvertedIndex() is calling 
     # InvertedIndex_AddBlock() for each delete doc.
@@ -223,15 +218,15 @@ def testMemoryAfterDrop_numeric(env):
         for j in range(doc_count):
             pl.execute_command('HSET', '%ddoc%d' % (i, j), 'n', i)
         pl.execute()
-        d = ft_info_to_dict(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], str(doc_count))
+        d = index_info(env, 'idx%d' % i)
+        env.assertEqual(d['num_docs'], doc_count)
 
     for i in range(idx_count):
         for j in range(doc_count):
             pl.execute_command('DEL', '%ddoc%d' % (i, j))
         pl.execute()
-        d = ft_info_to_dict(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], '0')
+        d = index_info(env, 'idx%d' % i)
+        env.assertEqual(d['num_docs'], 0)
         forceInvokeGC(env, 'idx%d' % i)
 
     # The memory occupied by a empty NUMERIC inverted index is 102 bytes,
@@ -265,15 +260,15 @@ def testMemoryAfterDrop_geo(env):
         for j in range(doc_count):
             pl.execute_command('HSET', '%ddoc%d' % (i, j), 'g', geo)
         pl.execute()
-        d = ft_info_to_dict(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], str(doc_count))
+        d = index_info(env, 'idx%d' % i)
+        env.assertEqual(d['num_docs'], doc_count)
 
     for i in range(idx_count):
         for j in range(doc_count):
             pl.execute_command('DEL', '%ddoc%d' % (i, j))
         pl.execute()
-        d = ft_info_to_dict(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], '0')
+        d = index_info(env, 'idx%d' % i)
+        env.assertEqual(d['num_docs'], 0)
         forceInvokeGC(env, 'idx%d' % i)
 
     # The memory occupied by a empty NUMERIC inverted index is 102 bytes,
@@ -305,15 +300,15 @@ def testMemoryAfterDrop_text(env):
         for j in range(doc_count):
             pl.execute_command('HSET', '%ddoc%d' % (i, j), 't', '%dhello%d' % (i, j))
         pl.execute()
-        d = ft_info_to_dict(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], str(doc_count))
+        d = index_info(env, 'idx%d' % i)
+        env.assertEqual(d['num_docs'], doc_count)
 
     for i in range(idx_count):
         for j in range(doc_count):
             pl.execute_command('DEL', '%ddoc%d' % (i, j))
         pl.execute()
-        d = ft_info_to_dict(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], '0')
+        d = index_info(env, 'idx%d' % i)
+        env.assertEqual(d['num_docs'], 0)
         forceInvokeGC(env, 'idx%d' % i)
 
     # The memory occupied by a empty TEXT inverted index is 54 bytes * doc_count,
@@ -346,15 +341,15 @@ def testMemoryAfterDrop_tag(env):
         for j in range(doc_count):
             pl.execute_command('HSET', '%ddoc%d' % (i, j), 'tg', '%dworld%d' % (i, j))
         pl.execute()
-        d = ft_info_to_dict(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], str(doc_count))
+        d = index_info(env, 'idx%d' % i)
+        env.assertEqual(d['num_docs'], doc_count)
 
     for i in range(idx_count):
         for j in range(doc_count):
             pl.execute_command('DEL', '%ddoc%d' % (i, j))
         pl.execute()
-        d = ft_info_to_dict(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], '0')
+        d = index_info(env, 'idx%d' % i)
+        env.assertEqual(d['num_docs'], 0)
         forceInvokeGC(env, 'idx%d' % i)
 
     # The memory occupied by a empty TAG inverted index is 54 bytes * doc_count,
@@ -371,7 +366,7 @@ def testDocTableInfo(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE')
 
-    d = ft_info_to_dict(env, 'idx')
+    d = index_info(env)
     env.assertEqual(int(d['num_docs']), 0)
     env.assertEqual(int(d['doc_table_size_mb']), 0)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
@@ -380,7 +375,7 @@ def testDocTableInfo(env):
     conn.execute_command('HSET', 'b', 'txt', 'world')
 
     # check
-    d = ft_info_to_dict(env, 'idx')
+    d = index_info(env)
     env.assertEqual(int(d['num_docs']), 2)
     doctable_size1 = float(d['doc_table_size_mb'])
     env.assertGreater(doctable_size1, 0)
@@ -389,7 +384,7 @@ def testDocTableInfo(env):
 
     # check size after an update with larger text
     conn.execute_command('HSET', 'a', 'txt', 'hello world')
-    d = ft_info_to_dict(env, 'idx')
+    d = index_info(env)
     env.assertEqual(int(d['num_docs']), 2)
     doctable_size2 = float(d['doc_table_size_mb'])
     env.assertEqual(doctable_size1, doctable_size2)
@@ -398,7 +393,7 @@ def testDocTableInfo(env):
 
     # check size after an update with identical text
     conn.execute_command('HSET', 'b', 'txt', 'world')
-    d = ft_info_to_dict(env, 'idx')
+    d = index_info(env)
     env.assertEqual(int(d['num_docs']), 2)
     doctable_size3 = float(d['doc_table_size_mb'])
     env.assertEqual(doctable_size2, doctable_size3)
@@ -408,7 +403,7 @@ def testDocTableInfo(env):
     # check 0 after deletion
     conn.execute_command('DEL', 'a')
     conn.execute_command('DEL', 'b')
-    d = ft_info_to_dict(env, 'idx')
+    d = index_info(env)
     env.assertEqual(int(d['num_docs']), 0)
     env.assertEqual(int(d['doc_table_size_mb']), 0)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
@@ -420,17 +415,17 @@ def testInfoIndexingTime(env):
     # Add indexing time with HSET
     env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE')
 
-    d = ft_info_to_dict(env, 'idx1')
+    d = index_info(env, 'idx1')
     env.assertEqual(int(d['total_indexing_time']), 0)
 
     conn.execute_command('HSET', 'a', 'txt', 'hello world')
 
-    d = ft_info_to_dict(env, 'idx1')
+    d = index_info(env, 'idx1')
     env.assertGreater(float(d['total_indexing_time']), 0)
 
     # Add indexing time with scanning of existing docs
     env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE')
     waitForIndex(env, 'idx2')
 
-    d = ft_info_to_dict(env, 'idx2')
+    d = index_info(env, 'idx2')
     env.assertGreater(float(d['total_indexing_time']), 0)

@@ -11,6 +11,8 @@
 #include "value.h"
 #include "VecSim/vec_sim.h"
 #include "geometry/geometry_types.h"
+#include "info/index_error.h"
+#include "info/field_spec_info.h"
 
 #ifdef __cplusplus
 #define RS_ENUM_BITWISE_HELPER(T)   \
@@ -118,6 +120,9 @@ typedef struct FieldSpec {
   // ID used to identify the field within the field mask
   t_fieldId ftId;
 
+  // The index error for this field
+  IndexError indexError;
+
   // TODO: More options here..
 } FieldSpec;
 
@@ -144,5 +149,7 @@ void FieldSpec_Cleanup(FieldSpec* fs);
 const char *FieldSpec_GetTypeNames(int idx);
 
 RSValueType fieldTypeToValueType(FieldType ft);
+
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
 
 #endif /* SRC_FIELD_SPEC_H_ */

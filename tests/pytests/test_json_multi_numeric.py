@@ -640,7 +640,7 @@ def checkUpdateNumRecords(env, is_json):
         conn.execute_command('HSET', 'doc:3', 'val1', 3, 'val2', 4, 'val3', 5)
 
     info = index_info(env, 'idx')
-    env.assertEqual(info['num_records'], '9')
+    env.assertEqual(info['num_records'], 9)
 
     # Update doc to have one value less
     if is_json:
@@ -650,13 +650,13 @@ def checkUpdateNumRecords(env, is_json):
 
     # INFO is not accurately updated before GC
     info = index_info(env, 'idx')
-    env.assertEqual(info['num_records'], '11')
+    env.assertEqual(info['num_records'], 11)
 
     forceInvokeGC(env, 'idx')
 
     # Info is accurately updated after GC
     info = index_info(env, 'idx')
-    env.assertEqual(info['num_records'], '8')
+    env.assertEqual(info['num_records'], 8)
 
     # Delete doc
     if is_json:
@@ -666,13 +666,13 @@ def checkUpdateNumRecords(env, is_json):
 
     # INFO is not accurately updated before GC
     info = index_info(env, 'idx')
-    env.assertEqual(info['num_records'], '8')
+    env.assertEqual(info['num_records'], 8)
 
     forceInvokeGC(env, 'idx')
 
     # Info is accurately updated after GC
     info = index_info(env, 'idx')
-    env.assertEqual(info['num_records'], '6')
+    env.assertEqual(info['num_records'], 6)
 
     if is_json:
         conn.execute_command('JSON.DEL', 'doc:2', '$')
@@ -683,13 +683,13 @@ def checkUpdateNumRecords(env, is_json):
 
     # Info is not accurately updated after GC
     info = index_info(env, 'idx')
-    env.assertEqual(info['num_records'], '6')
+    env.assertEqual(info['num_records'], 6)
 
     forceInvokeGC(env, 'idx')
 
     # Info is accurately updated after GC
     info = index_info(env, 'idx')
-    env.assertEqual(info['num_records'], '0')
+    env.assertEqual(info['num_records'], 0)
 
 @skip(cluster=True)
 def testUpdateNumRecordsJson(env):

@@ -1215,14 +1215,14 @@ TEST_F(LLApiTest, testInfoSize) {
   ASSERT_EQ(RediSearch_MemUsage(index), 414);
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(RSDummyContext, gc->gcCtx);
+  gc->callbacks.periodicCallback(gc->gcCtx);
   ASSERT_EQ(RediSearch_MemUsage(index), 359);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
   ASSERT_EQ(RediSearch_MemUsage(index), 260);
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(RSDummyContext, gc->gcCtx);
+  gc->callbacks.periodicCallback(gc->gcCtx);
   ASSERT_EQ(RediSearch_MemUsage(index), 212);
   // we have 20 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained.

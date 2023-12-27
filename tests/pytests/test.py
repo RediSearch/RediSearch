@@ -3119,7 +3119,7 @@ def testIssue1184(env):
         res = env.cmd('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         env.assertEqual(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], '0')
+        env.assertEqual(d['num_records'], 0)
 
 
         value = '42'
@@ -3130,7 +3130,7 @@ def testIssue1184(env):
         res = env.cmd('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         env.assertGreater(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], '1')
+        env.assertEqual(d['num_records'], 1)
 
         env.assertEqual(env.cmd('FT.DEL idx doc0'), 1)
 
@@ -3721,6 +3721,37 @@ def test_cluster_set(env):
             ).equal('OK')
     verify_address('::1')
 
+
+def test_cluster_set_server_memory_tracking(env):
+    if not env.isCluster():
+        # this test is only relevant on cluster
+        env.skip()
+
+    def get_memory(env):
+        res = env.cmd('INFO', "MEMORY")
+        return res['used_memory']
+
+    initial = get_memory(env)
+    for _ in range(1_000): # hangs at 1932 iterations. need to determine the cause
+        env.cmd('SEARCH.CLUSTERSET',
+               'MYID',
+               '1',
+               'RANGES',
+               '1',
+               'SHARD',
+               '1',
+               'SLOTRANGE',
+               '0',
+               '16383',
+               'ADDR',
+               'password@127.0.0.1:22000',
+               'MASTER'
+            )
+        mem = get_memory(env)
+        env.assertLessEqual(initial, mem)
+
+
+
 def test_internal_commands(env):
     ''' Test that internal cluster commands cannot run from a script '''
     if not env.isCluster():
@@ -3874,3 +3905,36 @@ def test_timeoutCoordSearch_Strict():
     env.assertEqual(res[0], n_docs)
 
     env.expect('ft.search', 'idx', '*', 'TIMEOUT', '1').error().contains('Timeout limit was reached')
+
+@skip(cluster=True)
+def test_notIterTimeout(env):
+    """Tests that we fail fast from the NOT iterator in the edge case similar to
+    MOD-5512
+    * Skipped on cluster since the it would only test error propagation from the
+    shard to the coordinator, which is tested elsewhere.
+    """
+
+    if VALGRIND:
+        env.skip()
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CONFIG', 'SET', 'ON_TIMEOUT', 'FAIL')
+
+    # Create an index
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'tag1', 'TAG', 'title', 'TEXT', 'n', 'NUMERIC')
+
+    # Populate the index
+    num_docs = 15000
+    for i in range(int(num_docs / 2)):
+        env.cmd('HSET', f'doc:{i}', 'tag1', 'fantasy', 'title', f'title:{i}', 'n', i)
+
+    # Populate with other tag value in a separate loop so doc-ids will be incremental.
+    for i in range(int(num_docs / 2), num_docs):
+        env.cmd('HSET', f'doc:{i}', 'tag1', 'drama', 'title', f'title:{i}', 'n', i)
+
+    # Send a query that will skip all the docs with the first tag value (fantasy),
+    # such that the timeout will be checked in the NOT iterator loop (coverage).
+    env.expect(
+        'FT.AGGREGATE', 'idx', '-@tag1:{fantasy}', 'LOAD', '2', '@title', '@n',
+        'APPLY', '@n^2 / 2', 'AS', 'new_n', 'GROUPBY', '1', '@title', 'TIMEOUT', '1'
+    ).error().contains('Timeout limit was reached')

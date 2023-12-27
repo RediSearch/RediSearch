@@ -80,8 +80,6 @@ void RSValue_Clear(RSValue *v) {
       // free strings by allocation strategy
       switch (v->strval.stype) {
         case RSString_Malloc:
-          rm_free(v->strval.str);
-          break;
         case RSString_RMAlloc:
           rm_free(v->strval.str);
           break;
