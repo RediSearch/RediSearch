@@ -1038,8 +1038,9 @@ DEBUG_COMMAND(VecsimInfo) {
   return REDISMODULE_OK;
 }
 
+#ifdef MT_BUILD
 /**
- * FT.DEBUG WORKER_THREADS_SWITCH [PAUSE / RESUME]
+ * FT.DEBUG WORKER_THREADS [PAUSE / RESUME / DRAIN / STATS]
  */
 DEBUG_COMMAND(WorkerThreadsSwitch) {
   if (argc != 1) {
@@ -1056,11 +1057,24 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
       return RedisModule_ReplyWithError(ctx, "Operation failed: workers thread pool doesn't exists"
                                         " or is already running");
     }
+    // todo: cover drain and stats with tests in debug_command
+  } else if (!strcasecmp(op, "drain")) {
+    workersThreadPool_Drain(RSDummyContext, 0);
+  } else if (!strcasecmp(op, "stats")) {
+    thpool_stats stats = workersThreadPool_getStats();
+    START_POSTPONED_LEN_ARRAY(num_stats_fields);
+    REPLY_WITH_LONG_LONG("totalJobsDone", stats.total_jobs_done, ARRAY_LEN_VAR(num_stats_fields));
+    REPLY_WITH_LONG_LONG("totalPendingJobs", stats.total_pending_jobs, ARRAY_LEN_VAR(num_stats_fields));
+    REPLY_WITH_LONG_LONG("highPriorityPendingJobs", stats.high_priority_pending_jobs, ARRAY_LEN_VAR(num_stats_fields));
+    REPLY_WITH_LONG_LONG("lowPriorityPendingJobs", stats.low_priority_pending_jobs, ARRAY_LEN_VAR(num_stats_fields));
+    END_POSTPONED_LEN_ARRAY(num_stats_fields);
+    return REDISMODULE_OK;
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'WORKER_THREADS_SWITCH' subcommand");
   }
   return RedisModule_ReplyWithCString(ctx, "OK");
 }
+#endif
 
 typedef struct DebugCommandType {
   char *name;
@@ -1091,7 +1105,9 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GIT_SHA", GitSha},
                                {"TTL", ttl},
                                {"VECSIM_INFO", VecsimInfo},
-                               {"WORKER_THREADS_SWITCH", WorkerThreadsSwitch},
+#ifdef MT_BUILD
+                               {"WORKER_THREADS", WorkerThreadsSwitch},
+#endif
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

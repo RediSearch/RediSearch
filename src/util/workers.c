@@ -141,10 +141,18 @@ int workersThreadPool_pause() {
 int workersThreadPool_resume() {
   if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0 ||
       redisearch_thpool_running(_workers_thpool)) {
-    return REDISMODULE_ERR;;
+    return REDISMODULE_ERR;
   }
   workersThreadPool_InitPool();
   return REDISMODULE_OK;
+}
+
+thpool_stats workersThreadPool_getStats() {
+  thpool_stats stats = {0};
+  if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0) {
+    return stats;
+  }
+  return redisearch_thpool_get_stats(_workers_thpool);
 }
 
 #endif // MT_BUILD

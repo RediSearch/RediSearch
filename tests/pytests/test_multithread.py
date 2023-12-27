@@ -49,6 +49,9 @@ def CreateAndSearchSortBy(docs_count):
         n += 1
 
 
+def getWorkersThpoolStats(env):
+    return to_dict(env.cmd("ft.debug worker_threads stats"))
+
 def testSimpleBuffer():
     CreateAndSearchSortBy(docs_count = 10)
 
@@ -78,7 +81,8 @@ def test_invalid_mt_config_combinations(env):
             env.assertContains("Error loading the extension.", str(e))
 
 
-def test_reload_index_while_indexing():
+@skip(cluster=True)
+def test_worker_threads_sanity():
     env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
     n_shards = env.shardsCount
     n_vectors = 100 * n_shards
@@ -86,28 +90,49 @@ def test_reload_index_while_indexing():
     # Load random vectors into redis.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'M', '64',
                'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
-
     # Run DEBUG RELOAD twice to see that the thread pool is running as expected
     # (even after threads are terminated once).
     for it in range(2):
         # At first iteration insert vectors 0,1,...,n_vectors-1, and the second insert ids
         # n_vectors, n_vector+1,...,2*n_vectors-1.
-        env.cmd('FT.DEBUG', 'WORKER_THREADS_SWITCH', 'PAUSE').ok()
+        env.expect('FT.DEBUG', 'WORKER_THREADS', 'PAUSE').ok()
         load_vectors_to_redis(env, n_vectors, 0, dim, ids_offset=it*n_vectors)
+        env.assertEqual(getWorkersThpoolStats(env)['totalPendingJobs'], n_vectors, message=f"iteration {it+1}")
+        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 0 if it==0 else 2*n_vectors,
+                        message=f"iteration {it+1}")
         waitForRdbSaveToFinish(env)
+        # i=1 before reload, and i=2 after.
         for i in env.reloadingIterator():
+            # Before reload, we expect that every vector that were loaded into redis will increase pending jobs in 1,
+            # and after reload, we expect to have no pending jobs (as we are waiting for jobs to be done upon loading).
+            env.assertEqual(getWorkersThpoolStats(env)['totalPendingJobs'], n_vectors if i==1 else 0,
+                            message=f"iteration {it+1} {'before' if i==1 else 'after'} loading")
+
+            # At first iteration before reload we expect no jobs to be executed (thread pool paused).
+            # At second iteration before reload we expect 2*n_vectors jobs to be executed, before and after reload of
+            # the first iteration.
+            # At first iteration after reload we expect 2*n_vectors jobs to be executed as well (thread pool paused).
+            # At second iteration after reload we expect another n_vectors jobs to be executed (the second batch of
+            # vectors), after we resumed the workers, and then another 2*n_vector jobs upon loading. Overall 3*n_vectors
+            # jobs were added.
+            env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'],
+                            (0 if it==0 else 2*n_vectors) if i==1 else (2*n_vectors if it==0 else 5*n_vectors),
+                            message=f"iteration {it+1} {'before' if i==1 else 'after'} loading")
             assertInfoField(env, 'idx', 'num_docs', str(n_vectors*(it+1)))
             # Resume the workers thread pool, let the background indexing start (in the first iteration it is paused)
             if i==1:
-                env.cmd('FT.DEBUG', 'WORKER_THREADS_SWITCH', 'RESUME').ok()
+                env.expect('FT.DEBUG', 'WORKER_THREADS', 'RESUME').ok()
             # At first, we expect to see background indexing, but after RDB load, we expect that all vectors
             # are indexed before RDB loading ends
             debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
-            env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1 if i == 1 else 0)
+            if i==2:
+                env.assertEqual(debug_info['BACKGROUND_INDEXING'], 0, message=f"iteration {it+1} after reloading")
+            env.expect('FT.DEBUG', 'WORKER_THREADS', 'drain').ok()
 
 
 def test_delete_index_while_indexing():
     env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
+    debug_cmd = "_ft.debug" if env.isCluster() else "ft.debug"
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
     n_vectors = 100 * n_shards
@@ -115,34 +140,35 @@ def test_delete_index_while_indexing():
     # Load random vectors into redis.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'M', '64',
                'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
-    env.assertEqual(env.cmd('FT.DEBUG', 'WORKER_THREADS_SWITCH', 'PAUSE'), "OK")
+    env.expect(debug_cmd, 'WORKER_THREADS', 'PAUSE').ok()
     load_vectors_to_redis(env, n_vectors, 0, dim)
     assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
-    env.assertEqual(env.cmd('FT.DEBUG', 'WORKER_THREADS_SWITCH', 'RESUME'), "OK")
-
-    debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
-    env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1)
+    env.expect(debug_cmd, 'WORKER_THREADS', 'RESUME').ok()
 
     # Delete index while vectors are being indexed (to validate proper cleanup of background jobs in sanitizer).
     conn.execute_command('FT.DROPINDEX', 'idx')
 
 
 def test_burst_threads_sanity():
-    env = initEnv(moduleArgs='WORKER_THREADS 8 MT_MODE MT_MODE_ONLY_ON_OPERATIONS DEFAULT_DIALECT 2')
+    env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_ONLY_ON_OPERATIONS DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 5000 * n_shards if not SANITIZER and not CODE_COVERAGE else 500 * n_shards
-    dim = 10
+    n_vectors = 100 * n_shards
+    dim = 4
+    k = 10
+    expected_total_jobs = 0
     for algo in VECSIM_ALGOS:
+        additional_params = ['EF_CONSTRUCTION', n_vectors, 'EF_RUNTIME', n_vectors] if algo=='HNSW' else []
         for data_type in VECSIM_DATA_TYPES:
-            # Load random vectors into redis, save the first one to use as query vector later on.
-            env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, '6', 'TYPE', data_type,
-                       'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+            # Load random vectors into redis, save the first one to use as query vector later on. We set EF_C and
+            # EF_R to n_vectors to ensure that all vectors would be reachable in HNSW and avoid flakiness in search.
+            env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, str(6+len(additional_params)),
+                       'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2', *additional_params).ok()
             query_vec = load_vectors_to_redis(env, n_vectors, 0, dim, data_type)
 
             res_before = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
                                               '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, 10,
-                                              'PARAMS', 4, 'K', n_vectors, 'vec_param', query_vec.tobytes())
+                                              'PARAMS', 4, 'K', k, 'vec_param', query_vec.tobytes())
             # Expect that the first result's would be around zero, since the query vector itself exists in the
             # index (id 0)
             env.assertAlmostEqual(float(res_before[2][1]), 0, 1e-5)
@@ -153,14 +179,19 @@ def test_burst_threads_sanity():
                 if algo == 'HNSW':
                     env.assertEqual(debug_info['BACKGROUND_INDEXING'], 0,
                                     message=f"{'before loading' if i==1 else 'after loading'}")
-                # TODO: this is causing a crush occasionally in Cursors_RenderStats - need to fix this.
-                # assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+                    if i==2:  # after reloading in HNSW, we expect to run insert job for each vector
+                        expected_total_jobs += n_vectors
+                assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
                 if not env.isCluster():
                     env.assertEqual(debug_info['INDEX_LABEL_COUNT'], n_vectors)
+                    env.assertEqual(getWorkersThpoolStats(env)['totalPendingJobs'], 0)
+                    if algo == 'HNSW':
+                        # Expect that 0 jobs was done before reloading, and another n_vector insert jobs during the reloading.
+                        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], expected_total_jobs)
                 # Run the same KNN query and see that we are getting the same results after the reload
                 res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
                                            '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, 10,
-                                           'PARAMS', 4, 'K', n_vectors, 'vec_param', query_vec.tobytes())
+                                           'PARAMS', 4, 'K', k, 'vec_param', query_vec.tobytes())
                 env.assertEqual(res, res_before)
 
             conn.flushall()

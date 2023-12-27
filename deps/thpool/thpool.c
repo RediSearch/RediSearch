@@ -86,6 +86,7 @@ typedef struct redisearch_thpool_t {
   pthread_cond_t threads_all_idle;  /* signal to thpool_wait     */
   priority_queue jobqueue;          /* job queue                 */
   LogFunc log;                      /* log callback              */
+  volatile unsigned long total_jobs_done;  /* statistics for observability, guarded by thcount_lock */
 } redisearch_thpool_t;
 
 /* ========================== PROTOTYPES ============================ */
@@ -131,6 +132,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t 
   thpool_p->num_threads_working = 0;
   thpool_p->keepalive = 0;
   thpool_p->terminate_when_empty = 0;
+  thpool_p->total_jobs_done = 0;
 
   /* Initialise the job queue */
   if (num_privileged_threads > num_threads) num_privileged_threads = num_threads;
@@ -348,6 +350,17 @@ int redisearch_thpool_running(redisearch_thpool_t *thpool_p) {
   return thpool_p->keepalive;
 }
 
+thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *thpool_p) {
+  pthread_mutex_lock(&thpool_p->thcount_lock);
+  thpool_stats res = {.total_jobs_done = thpool_p->total_jobs_done,
+                      .high_priority_pending_jobs = thpool_p->jobqueue.high_priority_jobqueue.len,
+                      .low_priority_pending_jobs = thpool_p->jobqueue.low_priority_jobqueue.len,
+                      .total_pending_jobs = thpool_p->jobqueue.high_priority_jobqueue.len+thpool_p->jobqueue.low_priority_jobqueue.len
+  };
+  pthread_mutex_unlock(&thpool_p->thcount_lock);
+  return res;
+}
+
 /* ============================ THREAD ============================== */
 
 /* Initialize a thread in the thread pool
@@ -421,6 +434,7 @@ static void* thread_do(struct thread* thread_p) {
 
       pthread_mutex_lock(&thpool_p->thcount_lock);
       thpool_p->num_threads_working--;
+      if (job_p) thpool_p->total_jobs_done++;
       if (thpool_p->num_threads_working == 0) {
 	      LOG_IF_EXISTS("debug", "All threads are idle")
 	      pthread_cond_signal(&thpool_p->threads_all_idle);
