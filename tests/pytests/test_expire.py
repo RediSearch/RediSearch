@@ -55,13 +55,13 @@ def add_explain_to_results(results):
     for offset, i in enumerate(range(2, len(results), 2)):
         results.insert(i+offset, res_score_and_explanation)
     return results
-                           
+
 def buildExpireDocsResults(isSortable, isJson):
     results = {}
     # When calling FT.SEARCH with SORTBY on json index, the sortby field is loaded into the result together with the json document
     results[both_docs_no_sortby] = [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']] if not isJson else [2, 'doc1', ['$', '{"t":"bar"}'], 'doc2', ['$', '{"t":"foo"}']]
     results[both_docs_sortby] = [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']] if not isJson else [2, 'doc1', ['t', 'bar','$', '{"t":"bar"}'], 'doc2', ['t', 'foo', '$', '{"t":"foo"}']]
- 
+
     results[doc1_is_empty] = [2, 'doc1', [], 'doc2', ['t', 'foo']] if not isJson else [2, 'doc1', [], 'doc2', ['$', '{"t":"foo"}']]
     results[doc1_is_empty_sortby] = [2, 'doc2', ['t', 'foo'], 'doc1', []] if not isJson else [2, 'doc2', ['t', 'foo', '$', '{"t":"foo"}'], 'doc1', []]
 
@@ -87,7 +87,8 @@ def buildExpireDocsResults(isSortable, isJson):
     #         empty_with_scores_and_explain_last if not isSortable else partial_with_scores_and_explain,
     #         empty_with_scores_and_explain_last if not isSortable else partial_with_scores_and_explain_last]
 
-@skip(cluster=True)
+# Refer to expireDocs for details on why this test is skipped for Redis versions below 7.2
+@skip(cluster=True, redis_less_than="7.2")
 def testExpireDocs(env):
 
     for isJson in [False, True]:
@@ -95,7 +96,8 @@ def testExpireDocs(env):
         expireDocs(env, False, # Without SORTABLE - since the fields are not SORTABLE, we need to load the results from Redis Keyspace
                 expected_results, isJson)
 
-@skip(cluster=True)
+# Refer to expireDocs for details on why this test is skipped for Redis versions below 7.2
+@skip(cluster=True, redis_less_than="7.2")
 def testExpireDocsSortable(env):
     '''
     Same as test `testExpireDocs` only with SORTABLE
@@ -111,6 +113,13 @@ def testExpireDocsSortable(env):
 
 
 #TODO: DvirDu: I think this test should be broken down to smaller tests, due to the complexity of the test and the number of cases it covers it is hard to debug
+# Skip this test for Redis versions below 7.2 due to a bug in PEXPIRE.
+# In older versions, a bug involving multiple time samplings during PEXPIRE execution
+# can cause keys to prematurely expire, triggering a "del" notification and eliminating them from the index,
+# thus missing from search results.
+# This impacts the test as the key should be included in the search results but return NULL upon access
+# (i.e lazy expiration).
+# The bug was resolved in Redis 7.2, ensuring the test's stability.
 def expireDocs(env, isSortable, expected_results, isJson):
     '''
     This test creates an index and two documents
@@ -174,7 +183,7 @@ def expireDocs(env, isSortable, expected_results, isJson):
         if isJson:
             conn.execute_command('JSON.SET', 'doc1', '$', '{"t":"bar"}')
             conn.execute_command('JSON.SET', 'doc2', '$', '{"t":"foo"}')
-        else: 
+        else:
             conn.execute_command('HSET', 'doc1', 't', 'bar')
             conn.execute_command('HSET', 'doc2', 't', 'foo')
 
