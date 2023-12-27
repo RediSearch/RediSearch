@@ -50,7 +50,7 @@ void yyerror(char *s);
 
 static void parseCtx_Free(parseCtx *ctx) {
     if (ctx->my_id) {
-        free(ctx->my_id);
+        rm_free(ctx->my_id);
     }
 }
 #line 48 "grammar.c"
@@ -503,7 +503,7 @@ static void yy_destructor(
     case 23: /* unix_addr */
 {
 #line 30 "grammar.y"
-  free((yypminor->yy1));
+  rm_free((yypminor->yy1));
 #line 499 "grammar.c"
 }
       break;
@@ -1006,7 +1006,7 @@ err:
       case 9: /* shardid ::= STRING */
 #line 145 "grammar.y"
 {
-	yylhsminor.yy1 = strdup(yymsp[0].minor.yy0.strval);
+	yylhsminor.yy1 = rm_strdup(yymsp[0].minor.yy0.strval);
 }
 #line 1003 "grammar.c"
   yymsp[0].minor.yy1 = yylhsminor.yy1;
@@ -1014,7 +1014,7 @@ err:
       case 10: /* shardid ::= INTEGER */
 #line 149 "grammar.y"
 {
-	asprintf(&yylhsminor.yy1, "%lld", yymsp[0].minor.yy0.intval);
+	rm_asprintf(&yylhsminor.yy1, "%lld", yymsp[0].minor.yy0.intval);
 }
 #line 1011 "grammar.c"
   yymsp[0].minor.yy1 = yylhsminor.yy1;
@@ -1046,7 +1046,7 @@ err:
       case 14: /* unix_addr ::= UNIXADDR STRING */
 #line 167 "grammar.y"
 {
-	yymsp[-1].minor.yy1 = strdup(yymsp[0].minor.yy0.strval);
+	yymsp[-1].minor.yy1 = rm_strdup(yymsp[0].minor.yy0.strval);
 }
 #line 1043 "grammar.c"
         break;
@@ -1337,7 +1337,7 @@ MRClusterTopology *MR_ParseTopologyRequest(const char *c, size_t len, char **err
 
     YY_BUFFER_STATE buf = yy_scan_bytes(c, len);
 
-    void* pParser =  MRTopologyRequest_ParseAlloc (malloc);
+    void* pParser =  MRTopologyRequest_ParseAlloc (rm_malloc);
     int t = 0;
 
     parseCtx ctx = {.topology = NULL, .ok = 1, .replication = 0, .my_id = NULL,
@@ -1350,7 +1350,7 @@ MRClusterTopology *MR_ParseTopologyRequest(const char *c, size_t len, char **err
         MRTopologyRequest_Parse(pParser, 0, tok, &ctx);
     //}
 
-    MRTopologyRequest_ParseFree(pParser, free);
+    MRTopologyRequest_ParseFree(pParser, rm_free);
 
     if (err) {
         *err = ctx.errorMsg;

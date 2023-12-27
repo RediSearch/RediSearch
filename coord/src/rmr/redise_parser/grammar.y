@@ -25,7 +25,7 @@ void yyerror(char *s);
 
 static void parseCtx_Free(parseCtx *ctx) {
 	if (ctx->my_id) {
-		free(ctx->my_id);
+		rm_free(ctx->my_id);
 	}
 }
 
@@ -37,7 +37,7 @@ static void parseCtx_Free(parseCtx *ctx) {
 }  
   
 %default_type { char * }
-%default_destructor {  free($$); }
+%default_destructor {  rm_free($$); }
 %extra_argument { parseCtx *ctx }
 %type shard { RLShard }
 %destructor shard {
@@ -153,11 +153,11 @@ shard(A) ::= SHARD shardid(B) SLOTRANGE INTEGER(C) INTEGER(D) endpoint(E) master
 
 
 shardid(A) ::= STRING(B). {
-	A = strdup(B.strval);
+	A = rm_strdup(B.strval);
 }
 
 shardid(A) ::= INTEGER(B). {
-	__ignore__(asprintf(&A, "%lld", B.intval));
+	__ignore__(rm_asprintf(&A, "%lld", B.intval));
 }
 
 endpoint(A) ::= tcp_addr(B). {
@@ -175,7 +175,7 @@ tcp_addr(A) ::= ADDR STRING(B) . {
 } 
 
 unix_addr(A) ::= UNIXADDR STRING(B). {
-	A = strdup(B.strval);
+	A = rm_strdup(B.strval);
 }
 
 master(A) ::= MASTER . {
@@ -194,7 +194,7 @@ MRClusterTopology *MR_ParseTopologyRequest(const char *c, size_t len, char **err
     
     YY_BUFFER_STATE buf = yy_scan_bytes(c, len);
 
-    void* pParser =  MRTopologyRequest_ParseAlloc (malloc);        
+    void* pParser =  MRTopologyRequest_ParseAlloc (rm_malloc);        
     int t = 0;
 
     parseCtx ctx = {.topology = NULL, .ok = 1, .replication = 0, .my_id = NULL,
@@ -207,7 +207,7 @@ MRClusterTopology *MR_ParseTopologyRequest(const char *c, size_t len, char **err
         MRTopologyRequest_Parse(pParser, 0, tok, &ctx);
     //}
     
-    MRTopologyRequest_ParseFree(pParser, free);
+    MRTopologyRequest_ParseFree(pParser, rm_free);
 
     if (err) {
         *err = ctx.errorMsg;

@@ -3719,6 +3719,37 @@ def test_cluster_set(env):
             ).equal('OK')
     verify_address('::1')
 
+
+def test_cluster_set_server_memory_tracking(env):
+    if not env.isCluster():
+        # this test is only relevant on cluster
+        env.skip()
+
+    def get_memory(env):
+        res = env.cmd('INFO', "MEMORY")
+        return res['used_memory']
+
+    initial = get_memory(env)
+    for _ in range(1_000): # hangs at 1932 iterations. need to determine the cause
+        env.cmd('SEARCH.CLUSTERSET',
+               'MYID',
+               '1',
+               'RANGES',
+               '1',
+               'SHARD',
+               '1',
+               'SLOTRANGE',
+               '0',
+               '16383',
+               'ADDR',
+               'password@127.0.0.1:22000',
+               'MASTER'
+            )
+        mem = get_memory(env)
+        env.assertLessEqual(initial, mem)
+
+
+
 def test_internal_commands(env):
     ''' Test that internal cluster commands cannot run from a script '''
     if not env.isCluster():
