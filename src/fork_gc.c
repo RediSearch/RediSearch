@@ -713,7 +713,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
     memmove(idx->blocks, idx->blocks + idxData->numDelBlocks, sizeof(*idx->blocks) * idx->size);
 
     if (idx->size == 0) {
-      InvertedIndex_AddBlock(idx, 0, &info->nbytesAdded);
+      InvertedIndex_AddBlock(idx, 0, (size_t)(&info->nbytesAdded));
     }
   }
 
