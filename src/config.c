@@ -77,27 +77,6 @@ CONFIG_GETTER(getExtLoad) {
   }
 }
 
-// SAFEMODE
-CONFIG_SETTER(setSafemode) {
-  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING, "SAFEMODE option is deprecated, and has no effect");
-  return REDISMODULE_OK;
-}
-
-// dummy getter for safemode. Always return "true"
-CONFIG_GETTER(getSafemode) {
-  return sdsnew("true");
-}
-
-CONFIG_SETTER(setConcurentWriteMode) {
-  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING, "CONCURRENT_WRITE_MODE option is deprecated, and has no effect");
-  return REDISMODULE_OK;
-}
-
-// dummy getter for CONCURRENT_WRITE_MODE. Always return "false"
-CONFIG_GETTER(getConcurentWriteMode) {
-  return sdsnew("false");
-}
-
 // NOGC
 CONFIG_SETTER(setNoGc) {
   config->gcConfigParams.enableGC = 0;
@@ -212,17 +191,6 @@ CONFIG_SETTER(setTimeout) {
 CONFIG_GETTER(getTimeout) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->requestConfigParams.queryTimeoutMS);
-}
-
-// INDEX_THREADS
-CONFIG_SETTER(setIndexThreads) {
-  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING, "INDEX_THREADS option is deprecated, and has no effect");
-  return REDISMODULE_OK;
-}
-
-CONFIG_GETTER(getIndexthreads) {
-  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING, "INDEX_THREADS option is deprecated, and has no effect");
-  return sdsnew("0");
 }
 
 // SEARCH_THREADS
@@ -359,11 +327,6 @@ CONFIG_SETTER(setForkGcRetryInterval) {
   RETURN_STATUS(acrc);
 }
 
-CONFIG_SETTER(setMaxResultsToUnsortedMode) {
-  int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.maxResultsToUnsortedMode, AC_F_GE1);
-  RETURN_STATUS(acrc);
-}
-
 CONFIG_SETTER(setMinUnionIteratorHeap) {
   int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.minUnionIterHeap, AC_F_GE1);
   RETURN_STATUS(acrc);
@@ -400,11 +363,6 @@ CONFIG_BOOLEAN_GETTER(getForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.for
 // _FORK_GC_CLEAN_NUMERIC_EMPTY_NODES
 CONFIG_BOOLEAN_SETTER(set_ForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes)
 CONFIG_BOOLEAN_GETTER(get_ForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes, 0)
-
-CONFIG_GETTER(getMaxResultsToUnsortedMode) {
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->iteratorsConfigParams.maxResultsToUnsortedMode);
-}
 
 CONFIG_GETTER(getMinUnionIteratorHeap) {
   sds ss = sdsempty();
@@ -667,16 +625,6 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setExtLoad,
          .getValue = getExtLoad,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
-        {.name = "SAFEMODE",
-         .helpText = "This option is deprecated and has no effect",
-         .setValue = setSafemode,
-         .getValue = getSafemode,
-         .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
-        {.name = "CONCURRENT_WRITE_MODE",
-         .helpText = "This option is deprecated and has no effect",
-         .setValue = setConcurentWriteMode,
-         .getValue = getConcurentWriteMode,
-         .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
         {.name = "NOGC",
          .helpText = "Disable garbage collection (for this process)",
          .setValue = setNoGc,
@@ -716,11 +664,6 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Query (search) timeout",
          .setValue = setTimeout,
          .getValue = getTimeout},
-        {.name = "INDEX_THREADS",
-         .helpText = "This option is deprecated and has no effect",
-         .setValue = setIndexThreads,
-         .getValue = getIndexthreads,
-         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "SEARCH_THREADS",
          .helpText = "Sets the number of search threads in the coordinator thread pool",
          .setValue = setSearchThreads,
@@ -803,13 +746,8 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "clean empty nodes from numeric tree",
          .setValue = set_ForkGCCleanNumericEmptyNodes,
          .getValue = get_ForkGCCleanNumericEmptyNodes},
-        {.name = "_MAX_RESULTS_TO_UNSORTED_MODE",
-         .helpText = "max results for union interator in which the interator will switch to "
-                     "unsorted mode, should be used for debug only.",
-         .setValue = setMaxResultsToUnsortedMode,
-         .getValue = getMaxResultsToUnsortedMode},
         {.name = "UNION_ITERATOR_HEAP",
-         .helpText = "minimum number of interators in a union from which the interator will"
+         .helpText = "minimum number of iterators in a union from which the interator will"
                      "switch to heap based implementation.",
          .setValue = setMinUnionIteratorHeap,
          .getValue = getMinUnionIteratorHeap},

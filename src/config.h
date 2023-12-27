@@ -70,7 +70,6 @@ typedef struct {
   long long maxPrefixExpansions;
   // The minimal number of characters we allow expansion for in a prefix search. Default: 2
   long long minTermPrefix;
-  long long maxResultsToUnsortedMode;
   long long minUnionIterHeap;
 } IteratorsConfig;
 
@@ -222,7 +221,6 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define GC_SCANSIZE 100
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
-#define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 #define NR_MAX_DEPTH_BALANCE 2
 #define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
@@ -260,7 +258,6 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                         \
     .gcConfigParams.forkGc.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,                                       \
     .gcConfigParams.forkGc.forkGcSleepBeforeExit = 0,                                                                 \
-    .iteratorsConfigParams.maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE,                           \
     .gcConfigParams.forkGc.forkGcRetryInterval = 5,                                                                   \
     .gcConfigParams.forkGc.forkGcCleanThreshold = 100,                                                                \
     .noMemPool = 0,                                                                                                   \
