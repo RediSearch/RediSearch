@@ -674,10 +674,8 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
-  GCTask *task;
-  if (RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, (void **)&task) == REDISMODULE_OK) {
-    rm_free(task);
-  }
+  // Make sure there is no pending timer
+  RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, NULL);
   // mark as stopped. This will prevent the GC from scheduling itself again if it was already running.
   sp->gc->timerID = 0;
   RedisModule_Log(ctx, "verbose", "Stopped GC %p periodic run for index %s", sp->gc, sp->name);
@@ -696,7 +694,7 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   if (sp->gc->timerID) {
     return RedisModule_ReplyWithError(ctx, "GC is already running periodically");
   }
-  GCContext_Start(sp->gc);
+  GCContext_StartNow(sp->gc);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
