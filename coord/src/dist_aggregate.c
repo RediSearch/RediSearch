@@ -396,7 +396,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     }
 
     // If an error was returned, propagate it
-    if(MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
+    if (nc->current.root && MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
       const char *strErr = MRReply_String(nc->current.root, NULL);
       if (!strErr
           || strcmp(strErr, "Timeout limit was reached")

@@ -2411,6 +2411,9 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
 
   sp->scan_in_progress = false;
 
+  // `indexError` must be initialized before attempting to free the spec
+  sp->stats.indexError = IndexError_Init();
+
   RefManager *oldSpec = dictFetchValue(specDict_g, sp->name);
   if (oldSpec) {
     // spec already exists lets just free this one
@@ -2427,8 +2430,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   } else {
     dictAdd(specDict_g, sp->name, spec_ref.rm);
   }
-
-  sp->stats.indexError = IndexError_Init();
 
   for (int i = 0; i < sp->numFields; i++) {
     FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
