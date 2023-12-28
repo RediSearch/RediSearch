@@ -20,8 +20,15 @@ RDBS = [
 
 def downloadFiles(rdbs = None):
     rdbs = RDBS if rdbs is None else rdbs
-    if not os.path.exists(REDISEARCH_CACHE_DIR):
+
+    # In parallel test runs, several tests may check for REDISEARCH_CACHE_DIR existence successfully,
+    # but upon creating the directory, only one test succeeds, and the others would throw an error and fail.
+    # The try block aims to create REDISEARCH_CACHE_DIR, while the except block handles the case when the directory already exists,
+    # and the test can continue.
+    try:
         os.makedirs(REDISEARCH_CACHE_DIR)
+    except FileExistsError:
+        pass
     for f in rdbs:
         path = os.path.join(REDISEARCH_CACHE_DIR, f)
         if not os.path.exists(path):
