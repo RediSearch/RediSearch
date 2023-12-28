@@ -189,35 +189,35 @@ def testNumericCursor(env):
     env.assertEqual(cursor, 0)
 
 
-def testIndexDropWhileIdle(env):
+def testIndexDropWhileIdle(env: Env):
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE idx SCHEMA t numeric').ok()
 
-    num_docs = 3
+    num_docs = 6
     for i in range(num_docs):
         conn.execute_command('HSET', f'doc{i}' ,'t', i)
 
-    count = 1
-    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', count)
+    count = 3
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', count)
 
     # Results length should equal the requested count + additional field for the number of results
-    # (which is meaningless is ft.aggregate)
-    env.assertEqual(len(res), count + 1)
+    # (which is meaningless with ft.aggregate)
+    env.assertEqual(res[1:], [[]] * count, message=f'res == {res}')
 
     # drop the index while the cursor is idle/ running in bg
-    conn.execute_command('ft.drop', 'idx')
+    env.expect('FT.DROPINDEX', 'idx').ok()
 
     # Try to read from the cursor
 
     if env.isCluster():
-        res, cursor = env.cmd(f'FT.CURSOR READ idx {str(cursor)}')
+        res, cursor = env.cmd(f'FT.CURSOR READ idx {cursor}')
 
         # Return the next results. count should equal the count at the first cursor's call.
-        env.assertEqual(len(res), count + 1)
+        env.assertEqual(res[1:], [[]] * count, message=f'res == {res}')
 
     else:
-        env.expect(f'FT.CURSOR READ idx {str(cursor)}').error().contains('The index was dropped while the cursor was idle')
+        env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('The index was dropped while the cursor was idle')
 
 @skip(noWorkers=True)
 def testIndexDropWhileIdleBG():
@@ -250,8 +250,8 @@ def testExceedCursorCapacityBG():
 # 1. Coordinator's cursor times out before the shard's cursor
 # 2. Some shard's cursor times out before the coordinator's cursor
 # 3. All shards' cursors time out before the coordinator's cursor
+@skip(cluster=False)
 def testCursorOnCoordinator(env):
-    SkipOnNonCluster(env)
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
     conn = getConnectionByEnv(env)
 
