@@ -1,9 +1,7 @@
 name: "search-ftsb-5500K-docs-union-iterators-q2"
 description: "
              "
-remote:
- - type: oss-standalone
- - setup: redisearch-m5
+
 metadata:
   component: "search"
 setups:
