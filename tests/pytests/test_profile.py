@@ -577,3 +577,59 @@ def TimedOutWarningtestCoord(env):
 def testTimedOutWarningCoord(env):
   SkipOnNonCluster(env)
   TimedOutWarningtestCoord(env)
+
+@skip(cluster=True)
+def testNonZeroTimers(env):
+  """Tests that the timers' values of the `FT.PROFILE` response are populated
+  with non-zero values."""
+
+  # Heavy test
+  if VALGRIND:
+    env.skip()
+
+  n_docs = 50000
+
+  query = "@text1:lala*"
+  search_command = "FT.PROFILE idx SEARCH QUERY".split(' ')
+  search_command += [query, 'LIMIT', '0', str(n_docs), 'DIALECT', '2']
+  aggregate_command = "FT.PROFILE idx AGGREGATE QUERY".split(' ')
+  aggregate_command += [query, 'LOAD', '1', 'text1', 'DIALECT', '2']
+
+  # Populate the db
+  populate_db(env, text=True, tag=True, numeric=True, n_per_shard=n_docs)
+
+  # Search
+  res = env.cmd(*search_command)
+
+  # Validate search response
+  # Query iterators
+  env.assertGreater(int(res[1][0][1]), 0)
+  iterators_profile = res[1][4]
+  union_qi = iterators_profile[1]
+  env.assertGreater(int(union_qi[5]), 0)
+  term_qi = union_qi[9]
+  env.assertGreater(int(term_qi[5]), 0)
+
+  # Result processors
+  rps_profile = res[1][5][1:]
+  for i in range(len(rps_profile)):
+    rp_profile = rps_profile[i]
+    env.assertGreater(int(rp_profile[3]), 0)
+
+  # Aggregate
+  res = env.cmd(*aggregate_command)
+
+  # Validate aggregate response
+  # Query iterators
+  env.assertGreater(int(res[1][0][1]), 0)
+  iterators_profile = res[1][4]
+  union_qi = iterators_profile[1]
+  env.assertGreater(int(union_qi[5]), 0)
+  term_qi = union_qi[9]
+  env.assertGreater(int(term_qi[5]), 0)
+
+  # Result processors
+  rps_profile = res[1][5][1:]
+  for i in range(len(rps_profile)):
+    rp_profile = rps_profile[i]
+    env.assertGreater(int(rp_profile[3]), 0)
