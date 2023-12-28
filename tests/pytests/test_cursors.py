@@ -246,12 +246,20 @@ def testExceedCursorCapacityBG():
     env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
     exceedCursorCapacity(env)
 
+@skip(noWorkers=True, cluster=False)
+def testCursorOnCoordinatorBG():
+    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    CursorOnCoordinator(env)
+
+@skip(cluster=False)
+def testCursorOnCoordinator(env):
+    CursorOnCoordinator(env)
+
 # TODO: improve the test and add a case of timeout:
 # 1. Coordinator's cursor times out before the shard's cursor
 # 2. Some shard's cursor times out before the coordinator's cursor
 # 3. All shards' cursors time out before the coordinator's cursor
-@skip(cluster=False)
-def testCursorOnCoordinator(env):
+def CursorOnCoordinator(env):
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
     conn = getConnectionByEnv(env)
 
@@ -342,11 +350,6 @@ def testCursorOnCoordinator(env):
             env.assertEqual(len(result_set), n_docs)
             for i in range(n_docs):
                 env.assertContains(i, result_set)
-
-@skip(noWorkers=True)
-def testCursorOnCoordinatorBG():
-    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
-    testCursorOnCoordinator(env)
 
 def testCursorDepletionNonStrictTimeoutPolicy(env):
     """Tests that the cursor id is returned in case the timeout policy is
