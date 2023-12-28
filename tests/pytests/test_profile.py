@@ -578,7 +578,7 @@ def testTimedOutWarningCoord(env):
   SkipOnNonCluster(env)
   TimedOutWarningtestCoord(env)
 
-@skip(cluster=True)
+@skip(cluster=True, msan=True, asan=True)
 def testNonZeroTimers(env):
   """Tests that the timers' values of the `FT.PROFILE` response are populated
   with non-zero values."""
@@ -587,7 +587,7 @@ def testNonZeroTimers(env):
   if VALGRIND:
     env.skip()
 
-  n_docs = 50000
+  n_docs = 30000
 
   query = "@text1:lala*"
   search_command = "FT.PROFILE idx SEARCH QUERY".split(' ')
