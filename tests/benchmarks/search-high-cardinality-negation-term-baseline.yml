@@ -5,9 +5,7 @@ description: "
              This means that when we filter a tag we get around 100K docs.
              This benchmark specifically focusing on getting the negation of a term and checking what's faster: 'negate a term or union all the other options'
              "
-remote:
- - type: oss-standalone
- - setup: redisearch-m5
+
 metadata:
   component: "search"
 setups:

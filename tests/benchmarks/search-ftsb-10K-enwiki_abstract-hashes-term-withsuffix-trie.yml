@@ -2,9 +2,7 @@ name: "search-ftsb-10K-enwiki_abstract-hashes-term-withsuffix-trie"
 description: "
              benchmarking the WITHSUFFIXTRIE effect on prefix and wildcard queries performance
              "
-remote:
- - type: oss-standalone
- - setup: redisearch-m5
+
 metadata:
   component: "search"
 setups:
