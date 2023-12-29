@@ -35,7 +35,14 @@ def testExpireIndex(env):
     except Exception as e:
         env.assertEqual(str(e), 'Unknown index name')
 
-@skip(cluster=True)
+# Skip this test for Redis versions below 7.2 due to a bug in PEXPIRE.
+# In older versions, a bug involving multiple time samplings during PEXPIRE execution
+# can cause keys to prematurely expire, triggering a "del" notification and eliminating them from the index,
+# thus missing from search results.
+# This impacts the test as the key should be included in the search results but return NULL upon access
+# (i.e lazy expiration).
+# The bug was resolved in Redis 7.2, ensuring the test's stability.
+@skip(cluster=True, redis_less_than="7.2")
 def testExpireDocs(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
