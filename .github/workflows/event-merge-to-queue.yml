@@ -65,6 +65,8 @@ jobs:
     # if: needs.docs-only.outputs.only-docs-changed == 'false'
     runs-on: ubuntu-latest
     steps:
+      - name: print run id
+        run: echo ${{  github.run_id }}
       - name: Fail
         run: |
           sleep 10
