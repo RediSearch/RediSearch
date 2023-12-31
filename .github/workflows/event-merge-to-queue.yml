@@ -61,8 +61,8 @@ jobs:
   #     flow-config: '' # full sanitization
 
   test-that-fails:
-    needs: docs-only
-    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    # needs: docs-only
+    # if: needs.docs-only.outputs.only-docs-changed == 'false'
     runs-on: ubuntu-latest
     steps:
       - name: Fail
