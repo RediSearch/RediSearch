@@ -66,20 +66,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fail
-      run: |
-      sleep 10
-      exit 1
+        run: |
+          sleep 10
+          exit 1
 
-    pr-validation:
-      needs: [test-that-fails]
-      runs-on: ubuntu-latest
-      if: ${{ !cancelled() }}
-      steps:
-        - name: rerun
-          if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
-          # uses: actions/checkout@v3
-          # with:
-          #   submodules: recursive
-          env:
-            GH_TOKEN: ${{ github.token }}
-            run: gh run rerun ${{ github.run_id }} --failed -R ${{ github.repository }}
+  pr-validation:
+    needs: [test-that-fails]
+    runs-on: ubuntu-latest
+    if: ${{ !cancelled() }}
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+      # uses: actions/checkout@v3
+      # with:
+      #   submodules: recursive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run rerun ${{ github.run_id }} --failed -R ${{ github.repository }}
