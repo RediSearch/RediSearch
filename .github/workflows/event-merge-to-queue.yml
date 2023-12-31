@@ -76,4 +76,6 @@ jobs:
     if: ${{ !cancelled() }}
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: gh run rerun ${{ github.run_id }} --failed
