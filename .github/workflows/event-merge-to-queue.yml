@@ -65,6 +65,10 @@ jobs:
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     runs-on: ubuntu-latest
     steps:
+      - name: Full checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
       - name: Fail
         run: |
           sleep 10
