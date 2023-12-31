@@ -2,6 +2,8 @@ from RLTest import Env
 from includes import *
 from common import skip
 
+not_modifiable = 'Not modifiable at runtime'
+
 @skip(cluster=True)
 def testConfig(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
@@ -62,26 +64,26 @@ Config options test. TODO : Fix 'Success (not an error)' parsing wrong error.
 def testSetConfigOptions(env):
 
     env.expect('ft.config', 'set', 'MINPREFIX', 'str').equal('Success (not an error)')  ## TODO incorrect code
-    env.expect('ft.config', 'set', 'EXTLOAD', 1).equal('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'NOGC', 1).equal('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'EXTLOAD', 1).equal(not_modifiable)
+    env.expect('ft.config', 'set', 'NOGC', 1).equal(not_modifiable)
     env.expect('ft.config', 'set', 'MINPREFIX', 1).equal('OK')
     env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 1).equal('OK')
-    env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 1).equal('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 1).equal(not_modifiable)
     env.expect('ft.config', 'set', 'MAXEXPANSIONS', 1).equal('OK')
     env.expect('ft.config', 'set', 'TIMEOUT', 1).equal('OK')
     if MT_BUILD:
-        env.expect('ft.config', 'set', 'WORKER_THREADS', 1).equal('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'FRISOINI', 1).equal('Not modifiable at runtime')
+        env.expect('ft.config', 'set', 'WORKER_THREADS', 1).equal(not_modifiable)
+    env.expect('ft.config', 'set', 'FRISOINI', 1).equal(not_modifiable)
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 1).equal('Success (not an error)')
     env.expect('ft.config', 'set', 'GCSCANSIZE', 1).equal('OK')
     env.expect('ft.config', 'set', 'MIN_PHONETIC_TERM_LEN', 1).equal('OK')
-    env.expect('ft.config', 'set', 'GC_POLICY', 1).equal('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'GC_POLICY', 1).equal(not_modifiable)
     env.expect('ft.config', 'set', 'FORK_GC_RUN_INTERVAL', 1).equal('OK')
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.expect('ft.config', 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
 
 def testSetConfigOptionsErrors(env):
-    env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 'str').equal('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 'str').equal(not_modifiable)
     env.expect('ft.config', 'set', 'MAXEXPANSIONS', 'str').equal('Success (not an error)')
     env.expect('ft.config', 'set', 'TIMEOUT', 'str').equal('Success (not an error)')
     env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Success (not an error)')
@@ -207,18 +209,56 @@ def testInitConfig():
 @skip(cluster=True)
 def testImmutable(env):
 
-    env.expect('ft.config', 'set', 'EXTLOAD').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'NOGC').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'MAXDOCTABLESIZE').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'EXTLOAD').error().contains(not_modifiable)
+    env.expect('ft.config', 'set', 'NOGC').error().contains(not_modifiable)
+    env.expect('ft.config', 'set', 'MAXDOCTABLESIZE').error().contains(not_modifiable)
     if MT_BUILD:
-        env.expect('ft.config', 'set', 'MT_MODE').error().contains('Not modifiable at runtime')
-        env.expect('ft.config', 'set', 'WORKER_THREADS').error().contains('Not modifiable at runtime')
-        env.expect('ft.config', 'set', 'TIERED_HNSW_BUFFER_LIMIT').error().contains('Not modifiable at runtime')
-        env.expect('ft.config', 'set', 'PRIVILEGED_THREADS_NUM').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'FRISOINI').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'GC_POLICY').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'NO_MEM_POOLS').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'PARTIAL_INDEXED_DOCS').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'UPGRADE_INDEX').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'RAW_DOCID_ENCODING').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'BG_INDEX_SLEEP_GAP').error().contains('Not modifiable at runtime')
+        env.expect('ft.config', 'set', 'MT_MODE').error().contains(not_modifiable)
+        env.expect('ft.config', 'set', 'WORKER_THREADS').error().contains(not_modifiable)
+        env.expect('ft.config', 'set', 'TIERED_HNSW_BUFFER_LIMIT').error().contains(not_modifiable)
+        env.expect('ft.config', 'set', 'PRIVILEGED_THREADS_NUM').error().contains(not_modifiable)
+    env.expect('ft.config', 'set', 'FRISOINI').error().contains(not_modifiable)
+    env.expect('ft.config', 'set', 'GC_POLICY').error().contains(not_modifiable)
+    env.expect('ft.config', 'set', 'NO_MEM_POOLS').error().contains(not_modifiable)
+    env.expect('ft.config', 'set', 'PARTIAL_INDEXED_DOCS').error().contains(not_modifiable)
+    env.expect('ft.config', 'set', 'UPGRADE_INDEX').error().contains(not_modifiable)
+    env.expect('ft.config', 'set', 'RAW_DOCID_ENCODING').error().contains(not_modifiable)
+    env.expect('ft.config', 'set', 'BG_INDEX_SLEEP_GAP').error().contains(not_modifiable)
+
+###############################################################################
+# TODO: rewrite following tests properly for all coordinator's config options #
+###############################################################################
+
+@skip(cluster=False)
+def testConfigCoord(env):
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
+    env.expect('_ft.config', 'help', 'idx').equal([])
+
+@skip(cluster=False)
+def testConfigErrorsCoord(env):
+    env.expect('_ft.config', 'set', 'SEARCH_THREADS', 'banana').error().contains(not_modifiable)
+    env.expect('_ft.config', 'set', 'SEARCH_THREADS', '-1').error().contains(not_modifiable)
+
+@skip(cluster=False)
+def testGetConfigOptionsCoord(env):
+    def check_config(conf):
+        env.expect('_ft.config', 'get', conf).noError().apply(lambda x: x[0][0]).equal(conf)
+
+    check_config('SEARCH_THREADS')
+
+@skip(cluster=COORD) # Change to `skip(cluster=False)`
+def testAllConfigCoord(env):
+    pass
+
+@skip(cluster=False)
+def testInitConfigCoord():
+    def test_arg_num(arg_name, arg_value):
+        env = Env(moduleArgs=f'{arg_name} {arg_value}', noDefaultModuleArgs=True)
+        env.expect('_ft.config', 'get', arg_name).equal([[arg_name, str(arg_value)]])
+        env.stop()
+
+    test_arg_num('SEARCH_THREADS', 3)
+
+@skip(cluster=False)
+def testImmutableCoord(env):
+    env.expect('_ft.config', 'set', 'SEARCH_THREADS').error().contains(not_modifiable)
