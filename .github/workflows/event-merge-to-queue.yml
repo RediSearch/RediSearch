@@ -81,4 +81,4 @@ jobs:
       #   submodules: recursive
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run rerun ${{ github.run_id }} --failed -R ${{ github.repository }} --debug
+        run: gh run rerun ${{ github.run_id }} -R ${{ github.repository }}
