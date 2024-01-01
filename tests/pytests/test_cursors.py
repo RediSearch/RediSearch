@@ -188,36 +188,53 @@ def testNumericCursor(env):
     env.assertEqual(res, [0])
     env.assertEqual(cursor, 0)
 
+@skip(cluster=False)
+def testCursorDifferentConnections(env: Env):
+    if env.shardsCount < 2:
+        raise SkipTest('This test requires at least 2 shards')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE idx SCHEMA n numeric').ok()
 
-def testIndexDropWhileIdle(env):
+    num_docs = 6
+    for i in range(num_docs):
+        conn.execute_command('HSET', i, 'n', i)
+
+    con2 = env.getConnection(2) # assume we have at least 2 shards
+    _, cursor = con2.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 3)
+    # env is connected to shard 1, con2 is connected to shard 2
+    env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('Cursor not found')
+
+def testIndexDropWhileIdle(env: Env):
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE idx SCHEMA t numeric').ok()
 
-    num_docs = 3
+    num_docs = 6
     for i in range(num_docs):
-        conn.execute_command('HSET', f'doc{i}' ,'t', i)
+        conn.execute_command('HSET', f'doc{i}', 't', i)
 
-    count = 1
-    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', count)
+    count = 3
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', count)
 
     # Results length should equal the requested count + additional field for the number of results
-    # (which is meaningless is ft.aggregate)
-    env.assertEqual(len(res), count + 1)
+    # (which is meaningless with ft.aggregate)
+    env.assertEqual(res[1:], [[]] * count, message=f'res == {res}')
 
-    # drop the index while the cursor is idle/ running in bg
-    conn.execute_command('ft.drop', 'idx')
+    # drop the index while the cursor is idle/running in bg
+    env.expect('FT.DROPINDEX', 'idx').ok()
 
     # Try to read from the cursor
 
     if env.isCluster():
-        res, cursor = env.cmd(f'FT.CURSOR READ idx {str(cursor)}')
+        res, cursor = env.cmd(f'FT.CURSOR READ idx {cursor}')
 
         # Return the next results. count should equal the count at the first cursor's call.
-        env.assertEqual(len(res), count + 1)
+        # HINT: If this check fails, we might have to make sure that the query was executed on
+        # all shards and that we didn't drop the index before the query was executed on all shards.
+        env.assertEqual(res[1:], [[]] * count, message=f'res == {res}')
 
     else:
-        env.expect(f'FT.CURSOR READ idx {str(cursor)}').error().contains('The index was dropped while the cursor was idle')
+        env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('The index was dropped while the cursor was idle')
 
 @skip(noWorkers=True)
 def testIndexDropWhileIdleBG():
@@ -246,12 +263,20 @@ def testExceedCursorCapacityBG():
     env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
     exceedCursorCapacity(env)
 
+@skip(noWorkers=True, cluster=False)
+def testCursorOnCoordinatorBG():
+    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    CursorOnCoordinator(env)
+
+@skip(cluster=False)
+def testCursorOnCoordinator(env):
+    CursorOnCoordinator(env)
+
 # TODO: improve the test and add a case of timeout:
 # 1. Coordinator's cursor times out before the shard's cursor
 # 2. Some shard's cursor times out before the coordinator's cursor
 # 3. All shards' cursors time out before the coordinator's cursor
-def testCursorOnCoordinator(env):
-    SkipOnNonCluster(env)
+def CursorOnCoordinator(env):
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
     conn = getConnectionByEnv(env)
 
@@ -342,11 +367,6 @@ def testCursorOnCoordinator(env):
             env.assertEqual(len(result_set), n_docs)
             for i in range(n_docs):
                 env.assertContains(i, result_set)
-
-@skip(noWorkers=True)
-def testCursorOnCoordinatorBG():
-    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
-    testCursorOnCoordinator(env)
 
 def testCursorDepletionNonStrictTimeoutPolicy(env):
     """Tests that the cursor id is returned in case the timeout policy is
