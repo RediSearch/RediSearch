@@ -229,6 +229,8 @@ def testIndexDropWhileIdle(env: Env):
         res, cursor = env.cmd(f'FT.CURSOR READ idx {cursor}')
 
         # Return the next results. count should equal the count at the first cursor's call.
+        # HINT: If this check fails, we might have to make sure that the query was executed on
+        # all shards and that we didn't drop the index before the query was executed on all shards.
         env.assertEqual(res[1:], [[]] * count, message=f'res == {res}')
 
     else:
