@@ -188,6 +188,21 @@ def testNumericCursor(env):
     env.assertEqual(res, [0])
     env.assertEqual(cursor, 0)
 
+@skip(cluster=False)
+def testCursorDifferentConnections(env: Env):
+    if env.shardsCount < 2:
+        raise SkipTest('This test requires at least 2 shards')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE idx SCHEMA n numeric').ok()
+
+    num_docs = 6
+    for i in range(num_docs):
+        conn.execute_command('HSET', i, 'n', i)
+
+    con2 = env.getConnection(2) # assume we have at least 2 shards
+    _, cursor = con2.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 3)
+    # env is connected to shard 1, con2 is connected to shard 2
+    env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('Cursor not found')
 
 def testIndexDropWhileIdle(env: Env):
     conn = getConnectionByEnv(env)
@@ -196,7 +211,7 @@ def testIndexDropWhileIdle(env: Env):
 
     num_docs = 6
     for i in range(num_docs):
-        conn.execute_command('HSET', f'doc{i}' ,'t', i)
+        conn.execute_command('HSET', f'doc{i}', 't', i)
 
     count = 3
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', count)
@@ -205,7 +220,7 @@ def testIndexDropWhileIdle(env: Env):
     # (which is meaningless with ft.aggregate)
     env.assertEqual(res[1:], [[]] * count, message=f'res == {res}')
 
-    # drop the index while the cursor is idle/ running in bg
+    # drop the index while the cursor is idle/running in bg
     env.expect('FT.DROPINDEX', 'idx').ok()
 
     # Try to read from the cursor
