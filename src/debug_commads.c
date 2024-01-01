@@ -1070,7 +1070,7 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
     END_POSTPONED_LEN_ARRAY(num_stats_fields);
     return REDISMODULE_OK;
   } else {
-    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'WORKER_THREADS_SWITCH' subcommand");
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'WORKER_THREADS' subcommand");
   }
   return RedisModule_ReplyWithCString(ctx, "OK");
 }

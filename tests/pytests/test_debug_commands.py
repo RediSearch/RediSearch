@@ -29,7 +29,7 @@ class TestDebugCommands(object):
                      'DUMP_PREFIX_TRIE', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO', 'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE',
                      'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY', 'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC',
                      'GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_WAIT_FOR_JOBS', 'GIT_SHA', 'TTL', 'VECSIM_INFO',
-                     'WORKER_THREADS_SWITCH']
+                     'WORKER_THREADS']
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
         for cmd in help_list:
@@ -195,15 +195,16 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx').ok()
 
     def testStopAndResumeWorkersPool(self):
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS_SWITCH').error().contains("wrong number of arguments for"
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS').error().contains("wrong number of arguments for"
                                                                               " 'FT.DEBUG' command")
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS_SWITCH', 'invalid').error().contains(
-            "Invalid argument for 'WORKER_THREADS_SWITCH' subcommand")
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS_SWITCH', 'pause').ok()
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS_SWITCH', 'pause').error()\
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'invalid').error().contains(
+            "Invalid argument for 'WORKER_THREADS' subcommand")
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'pause').ok()
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'pause').error()\
             .contains("Operation failed: workers thread pool doesn't exists or is not running")
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS_SWITCH', 'resume').ok()
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS_SWITCH', 'resume').error()\
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'resume').ok()
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'resume').error()\
             .contains("Operation failed: workers thread pool doesn't exists or is already running")
+        #TODO: add tests for WAIT and STATS sub-commands
 
 
