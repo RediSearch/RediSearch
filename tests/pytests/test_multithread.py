@@ -8,6 +8,7 @@ from includes import *
 from common import *
 from RLTest import Env
 
+debug_cmd = "_ft.debug" if COORD else "ft.debug"
 
 def initEnv(moduleArgs: str = 'WORKER_THREADS 1 MT_MODE MT_MODE_FULL'):
     if(moduleArgs == ''):
@@ -132,7 +133,6 @@ def test_worker_threads_sanity():
 
 def test_delete_index_while_indexing():
     env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
-    debug_cmd = "_ft.debug" if env.isCluster() else "ft.debug"
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
     n_vectors = 100 * n_shards
@@ -198,47 +198,47 @@ def test_burst_threads_sanity():
 
 
 def test_workers_priority_queue():
-    env = initEnv(moduleArgs='WORKER_THREADS 2 TIERED_HNSW_BUFFER_LIMIT 10000'
-                                                  ' MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
+    env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     n_shards = env.shardsCount
-    n_vectors = 10000 * n_shards if not SANITIZER and not CODE_COVERAGE else 500 * n_shards
-    dim = 64
+    n_vectors = 200 * n_shards
+    dim = 4
 
     # Load random vectors into redis, save the last one to use as query vector later on.
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32',
-               'M', '64', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim,
+               'DISTANCE_METRIC', 'L2').ok()
+    env.expect(debug_cmd, 'WORKER_THREADS', 'PAUSE').ok()
     query_vec = load_vectors_to_redis(env, n_vectors, n_vectors-1, dim)
     assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
 
     # Expect that some vectors are still being indexed in the background after we are done loading.
     debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
     vectors_left_to_index = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
-    # TODO: try making this not-flaky
-    # Validate that buffer limit config was set properly (so that more vectors than the
-    # default limit are waiting in the buffer).
-    # env.assertEqual(debug_info['BACKGROUND_INDEXING'], 1)
-    # env.assertGreater(vectors_left_to_index, 1024/n_shards)
+    env.assertEqual(vectors_left_to_index, n_vectors)
 
     # Run queries during indexing
+    iteration_count = 0
     while debug_info['BACKGROUND_INDEXING'] == 1:
-        start = time.time()
+        env.expect(debug_cmd, 'WORKER_THREADS', 'RESUME').ok()
+        iteration_count+=1
         res = conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN $K @vector $vec_param EF_RUNTIME {n_vectors}]',
                                    'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, 10,
                                    'PARAMS', 4, 'K', 10, 'vec_param', query_vec.tobytes())
-        query_time = time.time() - start
         # Expect that the first result's would be around zero, since the query vector itself exists in the
         # index (last id)
         env.assertAlmostEqual(float(res[2][1]), 0, 1e-5)
-        # Validate that queries get priority and are executed before indexing finishes.
-        if not SANITIZER and not CODE_COVERAGE:
-            env.assertLess(query_time, 1)
+        env.expect(debug_cmd, 'WORKER_THREADS', 'PAUSE').ok()
 
         # We expect that the number of vectors left to index will decrease from one iteration to another.
         debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
         vectors_left_to_index_new = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
         env.assertLessEqual(vectors_left_to_index_new, vectors_left_to_index)
         vectors_left_to_index = vectors_left_to_index_new
+        # Number of jobs done should be the number of vector indexed plus number of queries that ran.
+        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], n_vectors-vectors_left_to_index + iteration_count)
+    env.expect(debug_cmd, 'WORKER_THREADS', 'RESUME').ok()
+    #todo: DEADLOCK IN CLUSTER WHY?
+
 
 
 def test_async_updates_sanity():
