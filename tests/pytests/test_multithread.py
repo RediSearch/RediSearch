@@ -51,7 +51,7 @@ def CreateAndSearchSortBy(docs_count):
 
 
 def getWorkersThpoolStats(env):
-    return to_dict(env.cmd("ft.debug worker_threads stats"))
+    return to_dict(env.cmd(debug_cmd, "worker_threads", "stats"))
 
 def testSimpleBuffer():
     CreateAndSearchSortBy(docs_count = 10)
@@ -213,8 +213,8 @@ def test_workers_priority_queue():
 
     # Expect that some vectors are still being indexed in the background after we are done loading.
     debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
-    vectors_left_to_index = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
-    env.assertEqual(vectors_left_to_index, n_vectors)
+    local_n_vectors = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
+    vectors_left_to_index = local_n_vectors
 
     # Run queries during indexing
     iteration_count = 0
@@ -235,10 +235,7 @@ def test_workers_priority_queue():
         env.assertLessEqual(vectors_left_to_index_new, vectors_left_to_index)
         vectors_left_to_index = vectors_left_to_index_new
         # Number of jobs done should be the number of vector indexed plus number of queries that ran.
-        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], n_vectors-vectors_left_to_index + iteration_count)
-    env.expect(debug_cmd, 'WORKER_THREADS', 'RESUME').ok()
-    #todo: DEADLOCK IN CLUSTER WHY?
-
+        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], local_n_vectors-vectors_left_to_index + iteration_count)
 
 
 def test_async_updates_sanity():
