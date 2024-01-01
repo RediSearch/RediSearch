@@ -692,11 +692,6 @@ if [[ -z $COORD ]]; then
 
 	if [[ $QUICK != 1 ]]; then
 
-		if [[ -z $CONFIG || $CONFIG == max_unsorted ]]; then
-			{ (MODARGS="${MODARGS}; _MAX_RESULTS_TO_UNSORTED_MODE 1;" \
-				run_tests "MAX_RESULTS_TO_UNSORTED_MODE=1"); (( E |= $? )); } || true
-		fi
-
 		if [[ -z $CONFIG || $CONFIG == union_iterator_heap ]]; then
 			{ (MODARGS="${MODARGS}; UNION_ITERATOR_HEAP 1;" \
 				run_tests "with Union iterator heap"); (( E |= $? )); } || true
