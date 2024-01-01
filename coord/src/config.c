@@ -6,6 +6,7 @@
 
 
 #include "config.h"
+#include "util/config_macros.h"
 #include "rmr/endpoint.h"
 
 #include "rmutil/util.h"
@@ -17,10 +18,6 @@
 
 extern RedisModuleCtx *RSDummyContext;
 
-#define CONFIG_SETTER(name) \
-  static int name(RSConfig *config, ArgsCursor *ac, QueryError *status)
-
-#define CONFIG_GETTER(name) static sds name(const RSConfig *config)
 #define CONFIG_FROM_RSCONFIG(c) ((SearchClusterConfig *)(c)->chainedConfig)
 
 static SearchClusterConfig* getOrCreateRealConfig(RSConfig *config){
@@ -32,104 +29,81 @@ static SearchClusterConfig* getOrCreateRealConfig(RSConfig *config){
 
 // PARTITIONS
 CONFIG_SETTER(setNumPartitions) {
-  RedisModuleString *s;
-  int acrc = AC_GetRString(ac, &s, 0);
-  if (acrc != AC_OK) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, AC_Strerror(acrc));
-    return REDISMODULE_ERR;
-  }
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-  const char *sstr = RedisModule_StringPtrLen(s, NULL);
-  if (!strcasecmp(sstr, "AUTO")) {
+  const char *s;
+  int acrc = AC_GetString(ac, &s, NULL, AC_F_NOADVANCE);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (!strcasecmp(s, "AUTO")) {
     realConfig->numPartitions = 0;
+    AC_Advance(ac); // don't forget to advance!
   } else {
-    long long ll = 0;
-    if (RedisModule_StringToLongLong(s, &ll) != REDISMODULE_OK || ll < 0) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, NULL);
-      return REDISMODULE_ERR;
-    }
-    realConfig->numPartitions = ll;
+    // otherwise, we expect a number. Get it without `AC_F_NOADVANCE` flag
+    acrc = AC_GetSize(ac, &realConfig->numPartitions, AC_F_GE1);
   }
-  return REDISMODULE_OK;
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getNumPartitions) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%ld", realConfig->numPartitions);
+  return sdsfromlonglong(realConfig->numPartitions);
 }
 
 // TIMEOUT
-CONFIG_SETTER(setTimeout) {
-  long long ll;
-  int acrc = AC_GetLongLong(ac, &ll, 0);
-  if (acrc != AC_OK) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, AC_Strerror(acrc));
-    return REDISMODULE_ERR;
-  }
+CONFIG_SETTER(setClusterTimeout) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-  if (ll < 0) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, NULL);
-    return REDISMODULE_ERR;
-  }
-  if (ll > 0) {
-    realConfig->timeoutMS = ll;
-  }
-  return REDISMODULE_OK;
+  int acrc = AC_GetInt(ac, &realConfig->timeoutMS, AC_F_GE1);
+  RETURN_STATUS(acrc);
 }
 
-CONFIG_GETTER(getTimeout) {
+CONFIG_GETTER(getClusterTimeout) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%d", realConfig->timeoutMS);
+  return sdsfromlonglong(realConfig->timeoutMS);
 }
 
 CONFIG_SETTER(setGlobalPass) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   int acrc = AC_GetString(ac, &realConfig->globalPass, NULL, 0);
-  if (acrc != AC_OK) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, NULL);
-    return REDISMODULE_ERR;
-  }
-  return REDISMODULE_OK;
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getGlobalPass) {
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "Password: *******");
+  return sdsnew("Password: *******");
 }
 
 // CONN_PER_SHARD
 CONFIG_SETTER(setConnPerShard) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   int acrc = AC_GetSize(ac, &realConfig->connPerShard, AC_F_GE0);
-  if (acrc != AC_OK) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, AC_Strerror(acrc));
-    return REDISMODULE_ERR;
-  }
-  return REDISMODULE_OK;
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getConnPerShard) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%zu", realConfig->connPerShard);
+  return sdsfromlonglong(realConfig->connPerShard);
 }
 
 // CURSOR_REPLY_THRESHOLD
 CONFIG_SETTER(setCursorReplyThreshold) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   int acrc = AC_GetSize(ac, &realConfig->cursorReplyThreshold, AC_F_GE1);
-  if (acrc != AC_OK) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, AC_Strerror(acrc));
-    return REDISMODULE_ERR;
-  }
-  return REDISMODULE_OK;
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getCursorReplyThreshold) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
   return sdsfromlonglong(realConfig->cursorReplyThreshold);
+}
+
+// SEARCH_THREADS
+CONFIG_SETTER(setSearchThreads) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+  int acrc = AC_GetSize(ac, &realConfig->coordinatorPoolSize, AC_F_GE1);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getSearchThreads) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+  return sdsfromlonglong(realConfig->coordinatorPoolSize);
 }
 
 static RSConfigOptions clusterOptions_g = {
@@ -142,8 +116,8 @@ static RSConfigOptions clusterOptions_g = {
              .flags = RSCONFIGVAR_F_IMMUTABLE},
             {.name = "TIMEOUT",
              .helpText = "Cluster synchronization timeout",
-             .setValue = setTimeout,
-             .getValue = getTimeout},
+             .setValue = setClusterTimeout,
+             .getValue = getClusterTimeout},
             {.name = "OSS_GLOBAL_PASSWORD",
              .helpText = "Global oss cluster password that will be used to connect to other shards",
              .setValue = setGlobalPass,
@@ -157,6 +131,11 @@ static RSConfigOptions clusterOptions_g = {
              .helpText = "Maximum number of replies to accumulate before triggering `_FT.CURSOR READ` on the shards",
              .setValue = setCursorReplyThreshold,
              .getValue = getCursorReplyThreshold,},
+            {.name = "SEARCH_THREADS",
+             .helpText = "Sets the number of search threads in the coordinator thread pool",
+             .setValue = setSearchThreads,
+             .getValue = getSearchThreads,
+             .flags = RSCONFIGVAR_F_IMMUTABLE,},
             {.name = NULL}
             // fin
         }

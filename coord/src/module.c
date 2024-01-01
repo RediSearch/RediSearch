@@ -2517,7 +2517,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // Init the aggregation thread pool
-  DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(RSGlobalConfig.coordinatorPoolSize);
+  DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(clusterConfig.coordinatorPoolSize);
 
   Initialize_CoordKeyspaceNotifications(ctx);
 
