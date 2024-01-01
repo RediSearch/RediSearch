@@ -861,11 +861,7 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     # to the cluster. Also, we internally wait for the cluster to be ready and call "search.CLUSTERREFRESH"
     # and update the topology change in the new shard (this is where we had a crash in MOD-5778).
     env.addShardToClusterIfExists()
-    conns = env.getOSSMasterNodesConnectionList()
-    for con in conns:
-        print("client info is: ", con.execute_command("client list"))
     new_shard_conn = env.getConnection(shardId=initial_shards_count+1)
-    time.sleep(15)
     # Expect that the cluster will be aware of the new shard, but for redisearch coordinator, the new shard isn't
     # considered part of the partition yet as it does not contain any slots.
     env.assertEqual(int(new_shard_conn.execute_command("cluster info")['cluster_known_nodes']), initial_shards_count+1)
@@ -873,6 +869,8 @@ def mod5778_add_new_shard_to_cluster(env: Env):
 
     # Move one slot (0) to the new shard (according to https://redis.io/commands/cluster-setslot/)
     new_shard_id = new_shard_conn.execute_command('CLUSTER MYID')
+    env.assertEqual(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 IMPORTING {new_shard_id}"), "OK")
+    env.assertEqual(conn.execute_command(f"CLUSTER SETSLOT 0 MIGRATING {new_shard_id}"), "OK")
     env.assertEqual(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"), "OK")
     env.assertEqual(conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"), "OK")
 
@@ -884,7 +882,6 @@ def mod5778_add_new_shard_to_cluster(env: Env):
             cluster_info = new_shard_conn.execute_command("search.clusterinfo")
             if cluster_info[:2] == ['num_partitions', int(initial_shards_count+1)]:
                 break
-
     # search.clusterinfo response format is the following:
     # ['num_partitions', 4, 'cluster_type', 'redis_oss', 'hash_func', 'CRC16', 'num_slots', 16384, 'slots',
     # [0, 0, ['1f834c5c207bbe8d6dab0c6f050ff06292eb333c', '127.0.0.1', 6385, 'master self']],
@@ -898,7 +895,6 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     shards_with_slot_0 = [shard for shard in cluster_info[9:] if shard[0] == 0]
     env.assertEqual(len(shards_with_slot_0), 1, message=f"cluster info is {cluster_info}")
     env.assertEqual(shards_with_slot_0[0][2][0], new_shard_id, message=f"cluster info is {cluster_info}")
-    env.assertFalse(True)  # fail so we can collect log in CI
 
 
 @skip(cluster=True)
