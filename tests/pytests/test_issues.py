@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
 import subprocess
-import time
-
 from redis import Redis, RedisCluster, cluster, exceptions
 
 from common import *
