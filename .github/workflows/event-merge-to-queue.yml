@@ -60,7 +60,13 @@ jobs:
       flow-config: '' # full sanitization
 
   pr-validation:
-    needs: [test-linux, test-macos, coverage, sanitize]
+    needs:
+      - docs-only # if the setup jobs fail, the rest of the jobs will be skipped, and we will exit with a failure
+      - get-latest-redis-tag
+      - test-linux
+      - test-macos
+      - coverage
+      - sanitize
     runs-on: ubuntu-latest
     if: ${{ !cancelled() }}
     steps:
