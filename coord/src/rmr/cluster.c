@@ -12,7 +12,7 @@
 #include "rmutil/vector.h"
 
 #include <stdlib.h>
-
+extern volatile int order_for_debug;
 void _MRClsuter_UpdateNodes(MRCluster *cl) {
   if (cl->topo) {
 
@@ -46,6 +46,7 @@ void _MRClsuter_UpdateNodes(MRCluster *cl) {
         MRNodeMap_Add(cl->nodeMap, node);
 
         /* Remove the node id from the current nodes ids map*/
+        while(__atomic_load_n(&order_for_debug,__ATOMIC_RELAXED) ==2){}
         TrieMap_Delete(currentNodes, (char *)node->id, strlen(node->id), NULL);
 
         /* See if this is us - if so we need to update the cluster's host and current id */

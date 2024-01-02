@@ -127,7 +127,12 @@ err:
 static struct RMUtilTimer *updateTopoTimer;
 
 static int updateTopoCB(RedisModuleCtx *ctx, void *p) {
+    RedisModule_Log(NULL, "warning","updateTopoCB: waiting on GIL for the clean up to end, order of debug = %d\n", order_for_debug);
+
+
   RedisModule_ThreadSafeContextLock(ctx);
+    RedisModule_Log(NULL, "warning","updateTopoCB: locked GIL, order of debug = %d\n", order_for_debug);
+
   RS_AutoMemory(ctx);
 
   RedisModuleCallReply *r = RedisModule_Call(ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH", "");

@@ -9,7 +9,8 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <errno.h>
-
+#include <unistd.h>
+volatile int  order_for_debug =0 ;
 typedef struct RMUtilTimer {
   RMutilTimerFunc cb;
   RMUtilTimerTerminationFunc onTerm;
@@ -60,7 +61,7 @@ static void *rmutilTimer_Loop(void *ctx) {
       if (rctx) RedisModule_FreeThreadSafeContext(rctx);
       break;
     }
-
+    sleep(60);
     // If needed - free the thread safe context.
     // It's up to the user to decide whether automemory is active there
     if (rctx) RedisModule_FreeThreadSafeContext(rctx);
@@ -107,10 +108,16 @@ void RMUtilTimer_ForceInvoke(struct RMUtilTimer *t) {
 }
 
 int RMUtilTimer_Signal(struct RMUtilTimer *t) {
-  return pthread_cond_signal(&t->cond);
+  pthread_mutex_lock(&t->lock);
+  int ret = pthread_cond_signal(&t->cond);
+  pthread_mutex_unlock(&t->lock);
+  return ret;
 }
 
 int RMUtilTimer_Terminate(struct RMUtilTimer *t) {
+ // pthread_mutex_lock(&t->lock);
   t->isCanceled = true;
-  return RMUtilTimer_Signal(t);
+  int ret = pthread_cond_signal(&t->cond);
+ // pthread_mutex_unlock(&t->lock);
+  return ret;
 }

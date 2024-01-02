@@ -10,6 +10,7 @@
 #include <redismodule.h>
 #include <stdbool.h>
 
+extern volatile int order_for_debug;
 #ifdef __cplusplus
 extern "C" {
 #endif

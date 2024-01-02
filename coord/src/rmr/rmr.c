@@ -281,12 +281,19 @@ void MR_Init(MRCluster *cl, long long timeoutMS) {
   printf("Thread created\n");
 }
 void MR_Destroy() {
+  RedisModule_Log(NULL, "warning","MR_Destroy: start. order of debug = %d\n", order_for_debug);
+  __atomic_exchange_n (&order_for_debug, 1, __ATOMIC_RELAXED);
+
   if (rq_g) {
     RQ_Free(rq_g);
     rq_g = NULL;
   }
   if (cluster_g) {
     MRClust_Free(cluster_g);
+    RedisModule_Log(NULL, "warning","MR_Destroy: after MRClust_Free. let async call cb and wait. order of debug = %d\n", order_for_debug);
+    __atomic_exchange_n (&order_for_debug, 3, __ATOMIC_RELAXED);
+  while(__atomic_load_n(&order_for_debug,__ATOMIC_RELAXED) ==3){}
+
     cluster_g = NULL;
   }
 }
@@ -484,6 +491,8 @@ static void uvUpdateTopologyRequest(struct MRRequestCtx *mc) {
   if (cluster_g->myshard) {
     SetMyPartition((MRClusterTopology *)mc->ctx, cluster_g->myshard);
   }
+  RedisModule_Log(NULL, "warning","uvUpdateTopologyRequest: done MRCLuster_UpdateTopology. let free process continue and sleep. order of debug = %d\n", order_for_debug);
+  __atomic_exchange_n (&order_for_debug, 4, __ATOMIC_RELAXED);
   RQ_Done(rq_g);
   // fprintf(stderr, "topo update: conc requests: %d\n", concurrentRequests_g);
   rm_free(mc);
@@ -509,6 +518,8 @@ int MR_UpdateTopology(MRClusterTopology *newTopo) {
   rc->protocol = 0;
   /* This request is called periodically and might be still in the queue
   during a shut down event. see RQ_Push comment*/
+  RedisModule_Log(NULL, "warning","MR_UpdateTopology: pushing to the queue update, order of debug = %d", order_for_debug);
+
   RQ_Push(rq_g, requestCb, rc, freeUpdateTopologyRequest);
   return REDIS_OK;
 }

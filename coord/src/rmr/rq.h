@@ -12,6 +12,7 @@
 typedef void (*MRQueueCallback)(void *);
 typedef void (*MRQueueCleanUpCallback)(void *);
 
+extern volatile int order_for_debug;
 #ifndef RQ_C__
 typedef struct MRWorkQueue MRWorkQueue;
 
