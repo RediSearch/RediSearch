@@ -138,7 +138,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: Sanitizer Logs
-          path: tests/pytests/logs/*testBugFixes*.log.*
+          path: tests/pytests/logs/*.log.*
           if-no-files-found: ignore
 
       - name: Fail flow if tests failed
