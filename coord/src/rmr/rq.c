@@ -11,6 +11,8 @@
 #include "rq.h"
 #include "rmalloc.h"
 #include <unistd.h>
+#include <stdatomic.h>
+#include <stdbool.h>
 
 struct queueItem {
   void *privdata;
@@ -27,6 +29,7 @@ typedef struct MRWorkQueue {
   size_t sz;
   uv_mutex_t lock;
   uv_async_t async;
+  volatile atomic_bool isActive;
 } MRWorkQueue;
 
 void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata, MRQueueCleanUpCallback free_cb) {
@@ -78,9 +81,6 @@ static struct queueItem *rqPop(MRWorkQueue *q) {
 }
 
 void RQ_Done(MRWorkQueue *q) {
-  RedisModule_Log(NULL, "warning","RQ_Done: sleep to avoid segfault on q->. order of debug = %d\n", order_for_debug);
-
-  sleep(60);
   uv_mutex_lock(&q->lock);
   --q->pending;
   // fprintf(stderr, "Concurrent requests: %d/%d\n", q->pending, q->maxPending);
@@ -97,9 +97,10 @@ void rqAsyncCb(uv_async_t *async) {
   RedisModule_Log(NULL, "warning","rqAsyncCb: poped CB order of debug = %d\n", order_for_debug);
   __atomic_exchange_n (&order_for_debug, 2, __ATOMIC_RELAXED);
 
-  //while(__atomic_load_n(&order_for_debug,__ATOMIC_RELAXED) ==2){}
     req->cb(req->privdata);
     rm_free(req);
+  RedisModule_Log(NULL, "warning","rqAsyncCb: done callback order of debug = %d\n", order_for_debug);
+
   }
 }
 
@@ -114,11 +115,16 @@ MRWorkQueue *RQ_New(int maxPending) {
   uv_mutex_init(&q->lock);
   uv_async_init(uv_default_loop(), &q->async, rqAsyncCb);
   q->async.data = q;
+  q->isActive = true;
   return q;
 }
 
 // For testing purposes
-static void RQ_FreeInternal(uv_handle_t *handle) { rm_free(handle->data); }
+static void RQ_Deactivate(uv_handle_t *handle) {
+  MRWorkQueue *q = (MRWorkQueue *)handle->data;
+  q->isActive = false;
+}
+
 void RQ_Free(MRWorkQueue *q) {
   RedisModule_Log(NULL, "warning","RQ_Free: wait for rqAsync to pop, order of debug = %d", order_for_debug);
   while(__atomic_load_n(&order_for_debug,__ATOMIC_RELAXED) ==1){}
@@ -147,13 +153,19 @@ void RQ_Free(MRWorkQueue *q) {
                     pending_req);
   }
 
-uv_mutex_unlock(&q->lock);
-//  uv_mutex_destroy(&q->lock);
+  uv_mutex_unlock(&q->lock);
+  RedisModule_Log(NULL, "warning","RQ_FREE: call uv close, order of debug = %d", order_for_debug);
 
-  RedisModule_Log(NULL, "warning","RQ_FREE: order of debug = %d\n", order_for_debug);
   // From the libuv docs [https://docs.libuv.org/en/v1.x/handle.html#c.uv_close]:
   // "close_cb will be called asynchronously after this call. This MUST be called on each handle before memory is released.
   //  Moreover, the memory can only be released in close_cb or after it has returned."
-  uv_close((uv_handle_t *)&q->async, RQ_FreeInternal);
-  //wait_for_uv_close()
+  uv_close((uv_handle_t *)&q->async, RQ_Deactivate);
+
+  //wait_for_uv_close
+  while(q->isActive) {}
+  uv_mutex_destroy(&q->lock);
+  RedisModule_Log(NULL, "warning","RQ_FreeInternals: deactivating queue, order of debug = %d", order_for_debug);
+
+  rm_free(q);
+  RedisModule_Log(NULL, "warning","RQ_FREE: order of debug = %d\n", order_for_debug);
 }

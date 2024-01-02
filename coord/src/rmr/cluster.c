@@ -46,7 +46,8 @@ void _MRClsuter_UpdateNodes(MRCluster *cl) {
         MRNodeMap_Add(cl->nodeMap, node);
 
         /* Remove the node id from the current nodes ids map*/
-        while(__atomic_load_n(&order_for_debug,__ATOMIC_RELAXED) ==2){}
+      RedisModule_Log(NULL, "warning","_MRClsuter_UpdateNodes:access TrieMap_Delete. order of debug = %d\n", order_for_debug);
+
         TrieMap_Delete(currentNodes, (char *)node->id, strlen(node->id), NULL);
 
         /* See if this is us - if so we need to update the cluster's host and current id */

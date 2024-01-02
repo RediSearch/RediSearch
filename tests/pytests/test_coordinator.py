@@ -4,7 +4,7 @@ from time import sleep
 
 def testBugFixes(env):
     print('Testing bug fixes')
-    sleep(2)
+    sleep(1)
 def testInfo(env):
     SkipOnNonCluster(env)
     conn = getConnectionByEnv(env)

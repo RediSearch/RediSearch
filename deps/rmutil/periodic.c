@@ -61,7 +61,7 @@ static void *rmutilTimer_Loop(void *ctx) {
       if (rctx) RedisModule_FreeThreadSafeContext(rctx);
       break;
     }
-    sleep(60);
+
     // If needed - free the thread safe context.
     // It's up to the user to decide whether automemory is active there
     if (rctx) RedisModule_FreeThreadSafeContext(rctx);
@@ -115,9 +115,9 @@ int RMUtilTimer_Signal(struct RMUtilTimer *t) {
 }
 
 int RMUtilTimer_Terminate(struct RMUtilTimer *t) {
- // pthread_mutex_lock(&t->lock);
+  pthread_mutex_lock(&t->lock);
   t->isCanceled = true;
   int ret = pthread_cond_signal(&t->cond);
- // pthread_mutex_unlock(&t->lock);
+  pthread_mutex_unlock(&t->lock);
   return ret;
 }
