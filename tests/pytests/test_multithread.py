@@ -276,3 +276,20 @@ def test_async_updates_sanity():
         # After overwriting 1, there may be another one zombie.
         env.assertLessEqual(marked_deleted_vectors_new, marked_deleted_vectors + 1)
         marked_deleted_vectors = marked_deleted_vectors_new
+
+@skip(cluster=True)
+def test_multiple_loaders():
+    env = initEnv()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    n_docs = 10
+    limit = 5
+
+    conn = getConnectionByEnv(env)
+    for n in range(n_docs):
+        conn.execute_command('HSET', n, 'n', n)
+
+    cmd = ['FT.AGGREGATE', 'idx', '*']
+    cmd += ['LOAD', '*'] * limit # Add multiple loaders
+    cmd += ['LIMIT', '0', limit]
+
+    env.expect(*cmd).noError().apply(lambda x: x[1:]).equal([['n', '0'], ['n', '1'], ['n', '2'], ['n', '3'], ['n', '4']])
