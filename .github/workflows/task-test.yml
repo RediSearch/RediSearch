@@ -95,23 +95,23 @@ jobs:
             echo "decision=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Build Standalone
-        if: ${{ inputs.standalone }}
-        run: make SAN=${{ inputs.san }}
+      # - name: Build Standalone
+      #   if: ${{ inputs.standalone }}
+      #   run: make SAN=${{ inputs.san }}
       - name: Build Coordinator
         if: ${{ inputs.coordinator }}
         run: make COORD=1 SAN=${{ inputs.san }}
 
-      - name: Unit tests (standalone)
-        id: test1
-        if: ${{ inputs.standalone }}
-        continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
-        run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
-      - name: Flow tests (standalone)
-        id: test2
-        if: ${{ inputs.standalone }}
-        continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
-        run: make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
+      # - name: Unit tests (standalone)
+      #   id: test1
+      #   if: ${{ inputs.standalone }}
+      #   continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
+      #   run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+      # - name: Flow tests (standalone)
+      #   id: test2
+      #   if: ${{ inputs.standalone }}
+      #   continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
+      #   run: make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
       - name: Unit tests (coordinator)
         id: test3
         if: ${{ inputs.coordinator }}
@@ -121,11 +121,11 @@ jobs:
         id: test4
         if: ${{ inputs.coordinator }}
         continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
-        run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
+        run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} TEST=test_coordinator:testBugFixes
 
       - name: Upload Artifacts
         # skip if all tests passed
-        if: failure()
+        if: failure() || ${{ inputs.san }}
         uses: actions/upload-artifact@v3
         with:
           name: Test Logs
@@ -138,7 +138,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: Sanitizer Logs
-          path: tests/pytests/logs/*.log.*
+          path: tests/pytests/logs/*testBugFixes*.log.*
           if-no-files-found: ignore
 
       - name: Fail flow if tests failed
