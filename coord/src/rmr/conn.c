@@ -32,7 +32,7 @@ static int MRConn_SendAuth(MRConn *conn);
 #define RSCONN_REAUTH_TIMEOUT 1000
 
 #define CONN_LOG(conn, fmt, ...)                                                \
-		fprintf(stderr, "[%p %s:%d %s]" fmt "\n", conn, conn->ep.host, conn->ep.port, \
+  fprintf(stderr, "[%p %s:%d %s]" fmt "\n", conn, conn->ep.host, conn->ep.port, \
           MRConnState_Str((conn)->state), ##__VA_ARGS__)
 
 /** detaches from our redis context */
