@@ -474,10 +474,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     SSL *ssl = SSL_new(ssl_context);
     const redisContextFuncs *old_callbacks = c->c.funcs;
     if (redisInitiateSSL((redisContext *)(&c->c), ssl) != REDIS_OK) {
-      const char *err = "Unknown error";
-      if (c->c.err != 0) {
-        err = c->c.errstr;
-      }
+      const char *err = c->c.err ? c->c.errstr : "Unknown error";
 
       // This is a temporary fix to the bug describe on https://github.com/redis/hiredis/issues/1233.
       // In case of SSL initialization failure. We need to reset the callbacks value, as the `redisInitiateSSL`
