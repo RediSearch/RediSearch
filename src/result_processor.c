@@ -837,8 +837,9 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   SearchResult resToBuffer = {0};
   SearchResult *currBlock = NULL;
   // Get the next result and save it in the buffer
-  while (rp->parent->resultLimit-- && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
-
+  while (rp->parent->resultLimit && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
+    // Decrease the result limit after getting a result from the upstream
+    rp->parent->resultLimit--;
     // Buffer the result.
     currBlock = InsertResult(self, &resToBuffer, currBlock);
 
