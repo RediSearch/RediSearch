@@ -48,6 +48,8 @@ void workersThreadPool_SetTerminationWhenEmpty();
 
 /********************************************* for debugging **********************************/
 
+int workerThreadPool_running();
+
 int workersThreadPool_pause();
 
 int workersThreadPool_resume();

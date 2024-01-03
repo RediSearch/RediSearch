@@ -1059,6 +1059,9 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
     }
     // todo: cover drain and stats with tests in debug_command
   } else if (!strcasecmp(op, "drain")) {
+    if (!workerThreadPool_running()) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: workers thread pool is not running");
+    }
     workersThreadPool_Drain(RSDummyContext, 0);
   } else if (!strcasecmp(op, "stats")) {
     thpool_stats stats = workersThreadPool_getStats();

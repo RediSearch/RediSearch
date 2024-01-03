@@ -341,7 +341,7 @@ void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
 
 size_t redisearch_thpool_num_threads_working(redisearch_thpool_t* thpool_p) {
   pthread_mutex_lock(&thpool_p->thcount_lock);
-  int res = thpool_p->num_threads_working;
+  size_t res = thpool_p->num_threads_working;
   pthread_mutex_unlock(&thpool_p->thcount_lock);
   return res;
 }
