@@ -58,10 +58,12 @@ jobs:
                 sort -V | tail -1) && \
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
-      - name: TEST
-        run: |
-          echo "${{ steps.latest.outputs.tag }}"
-          echo "${{ steps.with-prefix.outputs.tag }}"
+      - name: TEST 1
+        if: ${{ steps.with-prefix.outputs.tag == '' }}
+        run: echo "TEST 1"
+      - name: TEST 2
+        if: ${{ steps.with-prefix.outputs.tag == null }}
+        run: echo "TEST 2"
 
       - name: Validate Tag
         if: ${{ steps.latest.outputs.tag == '' && steps.with-prefix.outputs.tag == '' }}
