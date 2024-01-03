@@ -121,7 +121,7 @@ jobs:
         id: test4
         if: ${{ inputs.coordinator }}
         continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
-        run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} TEST=test_coordinator:testBugFixes
+        run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
 
       - name: Upload Artifacts
         # skip if all tests passed
