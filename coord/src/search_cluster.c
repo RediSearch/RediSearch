@@ -419,10 +419,7 @@ void SearchCluster_EnsureSize(RedisModuleCtx *ctx, SearchCluster *c, MRClusterTo
   if (MRClusterTopology_IsValid(topo)) {
     RedisModule_Log(ctx, "debug", "Setting number of partitions to %ld", topo->numShards);
     c->size = topo->numShards;
-    if(c->shardsStartSlots){
-      rm_free(c->shardsStartSlots);
-    }
-    c->shardsStartSlots = rm_malloc(c->size * sizeof *c->shardsStartSlots);
+    c->shardsStartSlots = rm_realloc(c->shardsStartSlots, c->size * sizeof *c->shardsStartSlots);
     for(size_t i = 0 ; i < c->size ; ++i){
       c->shardsStartSlots[i] = topo->shards[i].startSlot;
     }
