@@ -59,10 +59,10 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
       - name: TEST 1
-        if: ${{ steps.with-prefix.outputs.tag == '' }}
+        if: ${{ !steps.with-prefix.outputs.tag }}
         run: echo "TEST 1"
       - name: TEST 2
-        if: ${{ steps.with-prefix.outputs.tag == null }}
+        if: ${{ !steps.with-prefix.outputs.tag || !steps.latest.outputs.tag }}
         run: echo "TEST 2"
 
       - name: Validate Tag
