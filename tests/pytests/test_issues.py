@@ -953,3 +953,36 @@ def test_mod5880(env):
     env.cmd("DEL", "doc4")
     env.cmd("FT.DEBUG", "GC_FORCEINVOKE", "idx")
     env.expect("FT.DEBUG", "dump_terms", "idx").equal(['dd', 'ddd'])
+
+@skip()
+def test_mod_4374(env):
+  conn = getConnectionByEnv(env)
+
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+
+  for i in range(10):
+    conn.execute_command('HSET', i, 't', 'val')
+
+  conn.execute_command('HSET', 10, 't', 'unique')
+
+  # the score of doc 10 is 6 without coordinator, and it is 4 with coordinator (3 shards)
+  print(conn.execute_command('FT.SEARCH', 'idx', 'val|unique', 'withscores', 'nocontent'))
+
+@skip()
+def test_mod_4375(env):
+  conn = getConnectionByEnv(env)
+
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')
+
+  for i in range(10):
+    if i%2==0:
+      conn.execute_command('HSET', i, 't', 'even', 'n', i)
+    else:
+      conn.execute_command('HSET', i, 't', 'odd', 'n', i)
+
+  # Expected results are: ['0', '2', '4', '1', '3', '5', '6', '8']
+  print(conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2'))
+
+  # After setting this configuration, we're getting: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+  conn.execute_command('FT.CONFIG', 'set', 'union_iterator_heap', '1')
+  print(conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2'))
