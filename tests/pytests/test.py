@@ -3733,8 +3733,7 @@ def test_cluster_set_server_memory_tracking(env):
         res = env.cmd('INFO', "MEMORY")
         return res['used_memory']
 
-    initial = get_memory(env)
-    for _ in range(1_000): # hangs at 1932 iterations. need to determine the cause
+    def cluster_set_ipv4():
         env.cmd('SEARCH.CLUSTERSET',
                'MYID',
                '1',
@@ -3749,6 +3748,11 @@ def test_cluster_set_server_memory_tracking(env):
                'password@127.0.0.1:22000',
                'MASTER'
             )
+    for _ in range(10):
+        cluster_set_ipv4()
+    initial = get_memory(env) - 1024 # to account for some variance in memory
+    for _ in range(1_000): # hangs at 1932 iterations. need to determine the cause
+        cluster_set_ipv4()
         mem = get_memory(env)
         env.assertLessEqual(initial, mem)
 
