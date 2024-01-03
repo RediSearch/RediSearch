@@ -87,21 +87,23 @@ void RQ_Done(MRWorkQueue *q) {
   uv_mutex_unlock(&q->lock);
 }
 
-void rqAsyncCb(uv_async_t *async) {
+static void rqAsyncCb(uv_async_t *async) {
   MRWorkQueue *q = async->data;
   struct queueItem *req;
   RedisModule_Log(NULL, "warning","rqAsyncCb: wait for MR_Destroy(). order of debug = %d\n", order_for_debug);
-  while(__atomic_load_n(&order_for_debug,__ATOMIC_RELAXED) ==0){}
+ // while(__atomic_load_n(&order_for_debug,__ATOMIC_RELAXED) ==0){}
 
   while (NULL != (req = rqPop(q))) {
   RedisModule_Log(NULL, "warning","rqAsyncCb: poped CB order of debug = %d\n", order_for_debug);
-  __atomic_exchange_n (&order_for_debug, 2, __ATOMIC_RELAXED);
+  //__atomic_exchange_n (&order_for_debug, 2, __ATOMIC_RELAXED);
 
     req->cb(req->privdata);
     rm_free(req);
   RedisModule_Log(NULL, "warning","rqAsyncCb: done callback order of debug = %d\n", order_for_debug);
 
   }
+  RedisModule_Log(NULL, "warning","rqAsyncCb: exit function bye order of debug = %d\n", order_for_debug);
+
 }
 
 MRWorkQueue *RQ_New(int maxPending) {
@@ -123,11 +125,11 @@ MRWorkQueue *RQ_New(int maxPending) {
 static void RQ_Deactivate(uv_handle_t *handle) {
   MRWorkQueue *q = (MRWorkQueue *)handle->data;
   q->isActive = false;
+  RedisModule_Log(NULL, "warning","RQ_Deactivate: deactivated queue, order of debug = %d", order_for_debug);
 }
 
 void RQ_Free(MRWorkQueue *q) {
-  RedisModule_Log(NULL, "warning","RQ_Free: wait for rqAsync to pop, order of debug = %d", order_for_debug);
-  while(__atomic_load_n(&order_for_debug,__ATOMIC_RELAXED) ==1){}
+  //while(__atomic_load_n(&order_for_debug,__ATOMIC_RELAXED) ==1){}
   RedisModule_Log(NULL, "warning","RQ_Free: start destroy UV, order of debug = %d", order_for_debug);
 
   uv_mutex_lock(&q->lock);

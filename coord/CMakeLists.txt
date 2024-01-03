@@ -43,7 +43,7 @@ add_compile_definitions(
 setup_cc_options()
 
 # Specific to coordinator
-add_compile_options("-fvisibility=hidden")
+#add_compile_options("-fvisibility=hidden")
 
 #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fvisibility=hidden")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden")
@@ -103,7 +103,7 @@ macro(MODULE_TARGET TYPE)
 
     set(_moduleName module-${MODULE_NAME_SUFFIX})
 
-    add_library(${_moduleName} SHARED 
+    add_library(${_moduleName} SHARED
 		${FINAL_OBJECTS}
 		src/build-info/info-${MODULE_NAME_SUFFIX}.c)
 

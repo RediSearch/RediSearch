@@ -282,7 +282,7 @@ void MR_Init(MRCluster *cl, long long timeoutMS) {
 }
 void MR_Destroy() {
   RedisModule_Log(NULL, "warning","MR_Destroy: start. order of debug = %d\n", order_for_debug);
-  __atomic_exchange_n (&order_for_debug, 1, __ATOMIC_RELAXED);
+ // __atomic_exchange_n (&order_for_debug, 1, __ATOMIC_RELAXED);
 
   if (rq_g) {
     RQ_Free(rq_g);
