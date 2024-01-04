@@ -13,10 +13,6 @@
 namespace RediSearch {
 namespace GeoShape {
 
-QueryIterator::~QueryIterator() noexcept {
-  IndexResult_Free(base_.current);
-}
-
 auto QueryIterator::base() noexcept -> IndexIterator * {
   return &base_;
 }
@@ -88,6 +84,7 @@ void QIter_Free(IndexIterator *self) {
   using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
   auto qi = static_cast<QueryIterator *>(self->ctx);
   auto alloc = alloc_type{qi->iter_.get_allocator()};
+  IndexResult_Free(self->current);
   std::allocator_traits<alloc_type>::destroy(alloc, qi);
   std::allocator_traits<alloc_type>::deallocate(alloc, qi, 1);
 }
