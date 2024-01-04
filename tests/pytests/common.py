@@ -227,6 +227,10 @@ def numeric_tree_summary(env, idx, numeric_field):
     tree_summary = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return tree_summary
 
+
+def getWorkersThpoolStats(conn):
+    return to_dict(conn.execute_command(debug_cmd(), "worker_threads", "stats"))
+
 def skipOnExistingEnv(env):
     if 'existing' in env.env:
         env.skip()
@@ -280,6 +284,9 @@ def collectKeys(env, pattern='*'):
 
 def debug_cmd():
     return '_ft.debug' if COORD else 'ft.debug'
+
+def config_cmd():
+    return '_ft.config' if COORD else 'ft.config'
 
 
 def get_vecsim_debug_dict(conn, index_name, vector_field):

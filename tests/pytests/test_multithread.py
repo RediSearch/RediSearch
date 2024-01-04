@@ -48,9 +48,6 @@ def CreateAndSearchSortBy(docs_count):
         n += 1
 
 
-def getWorkersThpoolStats(conn):
-    return to_dict(conn.execute_command(debug_cmd(), "worker_threads", "stats"))
-
 def testSimpleBuffer():
     CreateAndSearchSortBy(docs_count = 10)
 
@@ -273,7 +270,7 @@ def test_buffer_limit():
 
 def test_async_updates_sanity():
     env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2 TIERED_HNSW_BUFFER_LIMIT 10000')
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
     cluster_conn = getConnectionByEnv(env)
     conn = env.getConnection()
     n_shards = env.shardsCount
@@ -303,7 +300,7 @@ def test_async_updates_sanity():
         env.assertEqual(getWorkersThpoolStats(con)['totalPendingJobs'], 0)
         total_jobs_done += getWorkersThpoolStats(con)['totalJobsDone']
 
-    env.assertEqual(total_jobs_done, n_vectors + 1)  # job per vector + one job for the query.
+    env.assertEqual(total_jobs_done, n_vectors + n_shards)  # job per vector + one job for the query.
     debug_info = get_vecsim_debug_dict(conn, 'idx', 'vector')
     env.assertEqual(to_dict(debug_info['BACKEND_INDEX'])['INDEX_SIZE'], n_local_vectors_before_update)
 
@@ -357,4 +354,3 @@ def test_async_updates_sanity():
     env.assertEqual(to_dict(debug_info['BACKEND_INDEX'])['INDEX_SIZE'], n_local_vectors)
     env.assertEqual(to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE'], 0)
     env.assertEqual(to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
-    #TODO: FIX FOR CLUSTER

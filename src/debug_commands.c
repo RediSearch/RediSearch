@@ -4,7 +4,7 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#include "debug_commads.h"
+#include "debug_commands.h"
 #include "inverted_index.h"
 #include "index.h"
 #include "redis_index.h"
@@ -1037,7 +1037,7 @@ DEBUG_COMMAND(VecsimInfo) {
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
-
+#define MT_BUILD
 #ifdef MT_BUILD
 /**
  * FT.DEBUG WORKER_THREADS [PAUSE / RESUME / DRAIN / STATS]

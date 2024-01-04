@@ -1,6 +1,6 @@
 from RLTest import Env
 from includes import *
-from common import waitForIndex
+from common import waitForIndex, getWorkersThpoolStats, create_np_array_typed
 
 
 class TestDebugCommands(object):
@@ -11,7 +11,8 @@ class TestDebugCommands(object):
         self.env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
                         'name', 'TEXT', 'SORTABLE',
                         'age', 'NUMERIC', 'SORTABLE',
-                        't', 'TAG', 'SORTABLE').ok()
+                        't', 'TAG', 'SORTABLE',
+                        'v', 'VECTOR', 'HNSW', 6, 'DIM', 2, 'DISTANCE_METRIC', 'L2', 'TYPE', 'float32').ok()
         waitForIndex(self.env, 'idx')
         self.env.expect('HSET', 'doc1', 'name', 'meir', 'age', '34', 't', 'test').equal(3)
         self.env.cmd('SET', 'foo', 'bar')
@@ -150,11 +151,11 @@ class TestDebugCommands(object):
 
     def testInvertedIndexSummary(self):
         self.env.expect('FT.DEBUG', 'invidx_summary', 'idx', 'meir').equal(['numDocs', 1, 'numEntries', 1, 'lastId', 1, 'flags',
-                                                                            83, 'numberOfBlocks', 1, 'blocks',
+                                                                            32851, 'numberOfBlocks', 1, 'blocks',
                                                                             ['firstId', 1, 'lastId', 1, 'numEntries', 1]])
 
         self.env.expect('FT.DEBUG', 'INVIDX_SUMMARY', 'idx', 'meir').equal(['numDocs', 1, 'numEntries', 1, 'lastId', 1, 'flags',
-                                                                            83, 'numberOfBlocks', 1, 'blocks',
+                                                                            32851, 'numberOfBlocks', 1, 'blocks',
                                                                             ['firstId', 1, 'lastId', 1, 'numEntries', 1]])
 
     def testUnexistsInvertedIndexSummary(self):
@@ -205,6 +206,27 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'resume').ok()
         self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'resume').error()\
             .contains("Operation failed: workers thread pool doesn't exists or is already running")
-        #TODO: add tests for WAIT and STATS sub-commands
 
+        # test stats and drain
+        conn = self.env.getConnection()
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'pause').ok()
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'drain').error() \
+            .contains("Operation failed: workers thread pool is not running")
+        self.env.expect('HSET', 'doc1', 'name', 'meir', 'age', '34', 't', 'test',
+                        'v', create_np_array_typed([1, 2]).tobytes()).equal(1)
 
+        # Expect 1 pending ingest job.
+        stats = getWorkersThpoolStats(conn)
+        self.env.assertEqual(stats, {'totalJobsDone': 0,
+                                     'totalPendingJobs': 1,
+                                     'highPriorityPendingJobs': 0,
+                                     'lowPriorityPendingJobs': 1})
+
+        # After resuming, expect that the job is done.
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'resume').ok()
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'drain').ok()
+        stats = getWorkersThpoolStats(conn)
+        self.env.assertEqual(stats, {'totalJobsDone': 1,
+                                     'totalPendingJobs': 0,
+                                     'highPriorityPendingJobs': 0,
+                                     'lowPriorityPendingJobs': 0})
