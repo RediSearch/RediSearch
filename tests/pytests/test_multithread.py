@@ -239,9 +239,43 @@ def test_workers_priority_queue():
     env.expect(debug_cmd(), 'WORKER_THREADS', 'RESUME').ok()
 
 
+def test_buffer_limit():
+    buffer_limit = 100
+    env = initEnv(moduleArgs=f'WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2'
+                             f' TIERED_HNSW_BUFFER_LIMIT {buffer_limit}')
+    conn = env.getConnection()
+    n_shards = env.shardsCount
+    dim = 4
+    n_vectors = 2 * n_shards * buffer_limit
+
+    # Load random vectors into redis
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
+               'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    env.expect(debug_cmd(), 'WORKER_THREADS', 'PAUSE').ok()
+    load_vectors_to_redis(env, n_vectors, 0, dim)
+    assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+
+    # Verify that the frontend flat index is full up to the buffer limit, and the rest of the vectors were indexed
+    # directly into HNSW backend index.
+    debug_info = get_vecsim_debug_dict(conn, 'idx', 'vector')
+    n_local_vectors = debug_info['INDEX_LABEL_COUNT']
+    env.assertEqual(to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE'], buffer_limit)
+    env.assertEqual(to_dict(debug_info['BACKEND_INDEX'])['INDEX_SIZE'], n_local_vectors-buffer_limit)
+
+    env.expect(debug_cmd(), 'WORKER_THREADS', 'RESUME').ok()
+    env.expect(debug_cmd(), 'WORKER_THREADS', 'DRAIN').ok()
+
+    # After running all insert jobs, all vectors should move to the backend index.
+    debug_info = get_vecsim_debug_dict(conn, 'idx', 'vector')
+    env.assertEqual(to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE'], 0)
+    env.assertEqual(to_dict(debug_info['BACKEND_INDEX'])['INDEX_SIZE'], n_local_vectors)
+
+
 def test_async_updates_sanity():
-    env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
-    conn = getConnectionByEnv(env)
+    env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2 TIERED_HNSW_BUFFER_LIMIT 10000')
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    cluster_conn = getConnectionByEnv(env)
+    conn = env.getConnection()
     n_shards = env.shardsCount
     dim = 4
     block_size = 1024
@@ -250,10 +284,16 @@ def test_async_updates_sanity():
     # Load random vectors into redis
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
                'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
-    load_vectors_to_redis(env, n_vectors, 0, dim)
-    n_local_vectors = get_vecsim_debug_dict(conn, 'idx', 'vector')['INDEX_LABEL_COUNT']
-    waitForRdbSaveToFinish(env)
+    query_before_update = load_vectors_to_redis(env, n_vectors, n_vectors-1, dim)
+    n_local_vectors_before_update = get_vecsim_debug_dict(conn, 'idx', 'vector')['INDEX_LABEL_COUNT']
     assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+    res = cluster_conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN $K @vector $vec_param EF_RUNTIME {n_vectors}]',
+                                       'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score',
+                                       'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10, 'vec_param', query_before_update.tobytes())
+
+    # Expect that the first result's would be around zero, since the query vector itself exists in the
+    # index (id n_vectors-1)
+    env.assertAlmostEqual(float(res[2][1]), 0, 1e-5)
 
     # Wait until all vectors are indexed into HNSW.
     conns = env.getOSSMasterNodesConnectionList()
@@ -263,37 +303,58 @@ def test_async_updates_sanity():
         env.assertEqual(getWorkersThpoolStats(con)['totalPendingJobs'], 0)
         total_jobs_done += getWorkersThpoolStats(con)['totalJobsDone']
 
-    env.assertEqual(total_jobs_done, n_vectors)
+    env.assertEqual(total_jobs_done, n_vectors + 1)  # job per vector + one job for the query.
+    debug_info = get_vecsim_debug_dict(conn, 'idx', 'vector')
+    env.assertEqual(to_dict(debug_info['BACKEND_INDEX'])['INDEX_SIZE'], n_local_vectors_before_update)
 
-    # Overwrite vectors - trigger background delete and ingest jobs.
+    # Overwrite vectors. All vectors were ingested into the background index, so now we collect new vectors
+    # into the frontend index and prepare repair and ingest jobs. The overwritten vector were not removed from
+    # the backend index yet.
     env.expect(debug_cmd(), 'WORKER_THREADS', 'PAUSE').ok()
-    query_vec = load_vectors_to_redis(env, n_vectors, 0, dim)
+    query_vec = load_vectors_to_redis(env, n_vectors, 0, dim, ids_offset=0, seed=11) # new seed to generate new vectors
     assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
-    debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
-    n_local_marked_deleted_vectors = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
-    env.assertEqual(n_local_marked_deleted_vectors, n_local_vectors)
+    debug_info = get_vecsim_debug_dict(conn, 'idx', 'vector')
+    local_marked_deleted_vectors = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
+    env.assertEqual(local_marked_deleted_vectors, n_local_vectors_before_update)
 
-    n_local_vectors = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
+    # Get the updated numer of local vectors after the update, and validate that all of them are in the frontend
+    # index (hadn't been ingested already).
+    n_local_vectors = get_vecsim_debug_dict(conn, 'idx', 'vector')['INDEX_LABEL_COUNT']
+    env.assertEqual(to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE'], n_local_vectors)
+    env.assertEqual(to_dict(debug_info['BACKEND_INDEX'])['INDEX_SIZE'], n_local_vectors_before_update)
 
     # We dispose marked deleted vectors whenever we have at least <block_size> vectors that are ready
-    # (that is, no other node in HNSW is pointing to the deleted node)
-    while n_local_marked_deleted_vectors > block_size:
-        res = conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN $K @vector $vec_param EF_RUNTIME {n_local_vectors}]',
+    # (that is, no other node in HNSW is pointing to the deleted node).
+    while local_marked_deleted_vectors > block_size:
+        env.expect(debug_cmd(), 'WORKER_THREADS', 'RESUME').ok()
+        res = cluster_conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN $K @vector $vec_param EF_RUNTIME {n_local_vectors}]',
                                    'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score',
                                    'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10, 'vec_param', query_vec.tobytes())
-
         # Expect that the first result's would be around zero, since the query vector itself exists in the
         # index (id 0)
         env.assertAlmostEqual(float(res[2][1]), 0, 1e-5)
+        # Also validate that we don't find documents that are marked as deleted - the query vector was overwritten.
+        res = cluster_conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN $K @vector $vec_param EF_RUNTIME {n_vectors}]',
+                                           'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score',
+                                           'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10, 'vec_param', query_before_update.tobytes())
+        env.assertGreater(float(res[2][1]), float(0))
 
-        # Overwrite another vector to trigger swap jobs. Use a random vector (except for label 0
-        # which is the query vector that we expect to get), to ensure that we eventually remove a
-        # vector from the main shard (of which we get info when we call ft.debug) in cluster mode.
-        conn.execute_command("HSET", np.random.randint(1, n_vectors), 'vector',
-                             create_np_array_typed(np.random.rand(dim)).tobytes())
-        debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
-        marked_deleted_vectors_new = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
+        # Invoke GC, so we clean zombies for which all their repair jobs are done.
+        forceInvokeGC(env)
 
-        # After overwriting 1, there may be another one zombie.
-        env.assertLessEqual(marked_deleted_vectors_new, marked_deleted_vectors + 1)
-        marked_deleted_vectors = marked_deleted_vectors_new
+        # Number of zombies should decrease from one iteration to another.
+        env.expect(debug_cmd(), 'WORKER_THREADS', 'PAUSE').ok()
+        debug_info = get_vecsim_debug_dict(conn, 'idx', 'vector')
+        local_marked_deleted_vectors_new = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
+        env.assertLessEqual(local_marked_deleted_vectors_new, local_marked_deleted_vectors)
+        local_marked_deleted_vectors = local_marked_deleted_vectors_new
+
+    # Eventually, all updated vectors should be in the backend index, and all zombies should be removed.
+    env.expect(debug_cmd(), 'WORKER_THREADS', 'RESUME').ok()
+    env.expect(debug_cmd(), 'WORKER_THREADS', 'DRAIN').ok()
+    forceInvokeGC(env)
+    debug_info = get_vecsim_debug_dict(conn, 'idx', 'vector')
+    env.assertEqual(to_dict(debug_info['BACKEND_INDEX'])['INDEX_SIZE'], n_local_vectors)
+    env.assertEqual(to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE'], 0)
+    env.assertEqual(to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+    #TODO: FIX FOR CLUSTER

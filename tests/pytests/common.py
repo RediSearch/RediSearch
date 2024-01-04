@@ -464,9 +464,9 @@ class ConditionalExpected:
             func(self.env.expect(*self.query))
         return self
 
-def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32', ids_offset=0):
+def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32', ids_offset=0, seed=10):
     conn = getConnectionByEnv(env)
-    np.random.seed(10)
+    np.random.seed(seed)
     for i in range(n_vec):
         vector = create_np_array_typed(np.random.rand(vec_size), data_type)
         if i == query_vec_index:
