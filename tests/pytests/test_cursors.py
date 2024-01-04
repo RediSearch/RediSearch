@@ -209,11 +209,14 @@ def testIndexDropWhileIdle(env: Env):
 
     env.expect('FT.CREATE idx SCHEMA t numeric').ok()
 
-    num_docs = 6
-    for i in range(num_docs):
-        conn.execute_command('HSET', f'doc{i}', 't', i)
+    # Add documents to the index until we have more than one document on each shard
+    num_docs = 0
+    while not np.all([env.getConnection(i).execute_command('DBSIZE') > 1 for i in range(env.shardsCount)]):
+        conn.execute_command('HSET', num_docs, 't', num_docs)
+        num_docs += 1
+    env.debugPrint(f'Added {num_docs} documents')
 
-    count = 3
+    count = num_docs - 1 # make sure we will have at least one result from each shard
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', count)
 
     # Results length should equal the requested count + additional field for the number of results
@@ -224,15 +227,9 @@ def testIndexDropWhileIdle(env: Env):
     env.expect('FT.DROPINDEX', 'idx').ok()
 
     # Try to read from the cursor
-
     if env.isCluster():
-        res, cursor = env.cmd(f'FT.CURSOR READ idx {cursor}')
-
-        # Return the next results. count should equal the count at the first cursor's call.
-        # HINT: If this check fails, we might have to make sure that the query was executed on
-        # all shards and that we didn't drop the index before the query was executed on all shards.
-        env.assertEqual(res[1:], [[]] * count, message=f'res == {res}')
-
+        res, cursor = env.cmd(f'FT.CURSOR READ idx {cursor} COUNT 1') # read the last result
+        env.assertEqual(res[1:], [[]] , message=f'res == {res}')
     else:
         env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('The index was dropped while the cursor was idle')
 
