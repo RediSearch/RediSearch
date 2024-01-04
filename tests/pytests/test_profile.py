@@ -590,7 +590,7 @@ def testNonZeroTimers(env):
     env.skip()
 
   # Populate the db (with index and docs)
-  n_docs = 30000 if not env.isCluster() else 5000
+  n_docs = 60000 if not env.isCluster() else 5000
   populate_db(env, text=True, tag=True, numeric=True, n_per_shard=n_docs)
 
   query = "@text1:lala*"
