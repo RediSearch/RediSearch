@@ -85,7 +85,11 @@ int QIter_HasNext(void *ctx) {
   return static_cast<QueryIterator const *>(ctx)->has_next();
 }
 void QIter_Free(IndexIterator *self) {
-  delete static_cast<QueryIterator *>(self->ctx);
+  using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
+  auto qi = static_cast<QueryIterator *>(self->ctx);
+  auto alloc = alloc_type{qi->iter_.get_allocator()};
+  std::allocator_traits<alloc_type>::destroy(alloc, qi);
+  std::allocator_traits<alloc_type>::deallocate(alloc, qi, 1);
 }
 std::size_t QIter_Len(void *ctx) {
   return static_cast<QueryIterator const *>(ctx)->len();
@@ -115,16 +119,6 @@ IndexIterator QueryIterator::init_base(QueryIterator *ctx) {
       .Rewind = QIter_Rewind,
   };
   return ii;
-}
-void *QueryIterator::operator new(std::size_t, std::size_t& alloc) noexcept {
-  using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
-  return static_cast<void *>(alloc_type{alloc}.allocate(1));
-}
-void QueryIterator::operator delete(QueryIterator *ptr, std::destroying_delete_t) noexcept {
-  using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
-  auto alloc = alloc_type{ptr->iter_.get_allocator()};
-  ptr->~QueryIterator();
-  alloc.deallocate(ptr, 1);
 }
 }  // namespace GeoShape
 }  // namespace RediSearch

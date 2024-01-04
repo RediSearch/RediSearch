@@ -263,11 +263,14 @@ template <typename cs>
 auto RTree<cs>::query(std::string_view wkt, QueryType query_type, RedisModuleString** err_msg) const
     -> IndexIterator* {
   try {
+    using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
+    auto alloc = alloc_type{allocated_};
+    auto qi = std::allocator_traits<alloc_type>::allocate(alloc, 1);
     const auto query_geom = from_wkt<cs>(wkt);
     auto results = generate_predicate(query_type, query_geom);
-    auto geometry_query_iterator =
-        new (allocated_) QueryIterator{results | std::views::transform(get_id<cs>), allocated_};
-    return geometry_query_iterator->base();
+    std::allocator_traits<alloc_type>::construct(
+        alloc, qi, results | std::views::transform(get_id<cs>), allocated_);
+    return qi->base();
   } catch (const std::exception& e) {
     if (err_msg) {
       *err_msg = RedisModule_CreateString(nullptr, e.what(), std::strlen(e.what()));

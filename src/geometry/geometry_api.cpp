@@ -21,15 +21,6 @@ using rtree_ptr = std::unique_ptr<RTree<cs>, boost::alloc_deleter<RTree<cs>, All
 struct GeometryIndex {
   const GeometryApi *api;
   std::variant<std::monostate GEO_VARIANTS(X)> index;
-
-  void *operator new(std::size_t) noexcept {
-    using alloc_type = Allocator<GeometryIndex>;
-    return static_cast<void *>(alloc_type::allocate(1));
-  }
-  void operator delete(void *p) noexcept {
-    using alloc_type = Allocator<GeometryIndex>;
-    alloc_type::deallocate(static_cast<GeometryIndex *>(p), 1);
-  }
 };
 #undef X
 
@@ -38,61 +29,68 @@ auto GeometryApi_Get(const GeometryIndex *idx) -> const GeometryApi * {
 }
 
 namespace {
-#define X(variant)                                                                                 \
-  void Index_##variant##_Free(GeometryIndex *idx) {                                                \
-    delete idx;                                                                                    \
-  }                                                                                                \
-  int Index_##variant##_Insert(GeometryIndex *idx, GEOMETRY_FORMAT format, const char *str,        \
-                               std::size_t len, t_docId id, RedisModuleString **err_msg) {         \
-    switch (format) {                                                                              \
-      case GEOMETRY_FORMAT_WKT:                                                                    \
-        return !std::get<rtree_ptr<variant>>(idx->index)                                           \
-                    ->insertWKT(std::string_view{str, len}, id, err_msg);                          \
-      case GEOMETRY_FORMAT_GEOJSON:                                                                \
-      default:                                                                                     \
-        return 1;                                                                                  \
-    }                                                                                              \
-  }                                                                                                \
-  int Index_##variant##_Remove(GeometryIndex *idx, t_docId id) {                                   \
-    return std::get<rtree_ptr<variant>>(idx->index)->remove(id);                                   \
-  }                                                                                                \
-  auto Index_##variant##_Query(const GeometryIndex *idx, QueryType query_type,                     \
-                               GEOMETRY_FORMAT format, const char *str, std::size_t len,           \
-                               RedisModuleString **err_msg) -> IndexIterator * {                   \
-    switch (format) {                                                                              \
-      case GEOMETRY_FORMAT_WKT:                                                                    \
-        return std::get<rtree_ptr<variant>>(idx->index)                                            \
-            ->query(std::string_view{str, len}, query_type, err_msg);                              \
-      case GEOMETRY_FORMAT_GEOJSON:                                                                \
-      default:                                                                                     \
-        return nullptr;                                                                            \
-    }                                                                                              \
-  }                                                                                                \
-  void Index_##variant##_Dump(const GeometryIndex *idx, RedisModuleCtx *ctx) {                     \
-    std::get<rtree_ptr<variant>>(idx->index)->dump(ctx);                                           \
-  }                                                                                                \
-  std::size_t Index_##variant##_Report(const GeometryIndex *idx) {                                 \
-    return std::get<rtree_ptr<variant>>(idx->index)->report();                                     \
-  }                                                                                                \
-  constexpr GeometryApi GeometryApi_##variant = {                                                  \
-      .freeIndex = Index_##variant##_Free,                                                         \
-      .addGeomStr = Index_##variant##_Insert,                                                      \
-      .delGeom = Index_##variant##_Remove,                                                         \
-      .query = Index_##variant##_Query,                                                            \
-      .dump = Index_##variant##_Dump,                                                              \
-      .report = Index_##variant##_Report,                                                          \
-  };                                                                                               \
-  auto Index_##variant##_New() -> GeometryIndex * {                                                \
-    return new GeometryIndex{&GeometryApi_##variant,                                               \
-                             boost::allocate_unique<RTree<variant>>(Allocator<RTree<variant>>{})}; \
+#define X(variant)                                                                          \
+  void Index_##variant##_Free(GeometryIndex *idx) {                                         \
+    using alloc_type = Allocator<GeometryIndex>;                                            \
+    alloc_type alloc;                                                                       \
+    std::allocator_traits<alloc_type>::destroy(alloc, idx);                                 \
+    std::allocator_traits<alloc_type>::deallocate(alloc, idx, 1);                           \
+  }                                                                                         \
+  int Index_##variant##_Insert(GeometryIndex *idx, GEOMETRY_FORMAT format, const char *str, \
+                               std::size_t len, t_docId id, RedisModuleString **err_msg) {  \
+    switch (format) {                                                                       \
+      case GEOMETRY_FORMAT_WKT:                                                             \
+        return !std::get<rtree_ptr<variant>>(idx->index)                                    \
+                    ->insertWKT(std::string_view{str, len}, id, err_msg);                   \
+      case GEOMETRY_FORMAT_GEOJSON:                                                         \
+      default:                                                                              \
+        return 1;                                                                           \
+    }                                                                                       \
+  }                                                                                         \
+  int Index_##variant##_Remove(GeometryIndex *idx, t_docId id) {                            \
+    return std::get<rtree_ptr<variant>>(idx->index)->remove(id);                            \
+  }                                                                                         \
+  auto Index_##variant##_Query(const GeometryIndex *idx, QueryType query_type,              \
+                               GEOMETRY_FORMAT format, const char *str, std::size_t len,    \
+                               RedisModuleString **err_msg) -> IndexIterator * {            \
+    switch (format) {                                                                       \
+      case GEOMETRY_FORMAT_WKT:                                                             \
+        return std::get<rtree_ptr<variant>>(idx->index)                                     \
+            ->query(std::string_view{str, len}, query_type, err_msg);                       \
+      case GEOMETRY_FORMAT_GEOJSON:                                                         \
+      default:                                                                              \
+        return nullptr;                                                                     \
+    }                                                                                       \
+  }                                                                                         \
+  void Index_##variant##_Dump(const GeometryIndex *idx, RedisModuleCtx *ctx) {              \
+    std::get<rtree_ptr<variant>>(idx->index)->dump(ctx);                                    \
+  }                                                                                         \
+  std::size_t Index_##variant##_Report(const GeometryIndex *idx) {                          \
+    return std::get<rtree_ptr<variant>>(idx->index)->report();                              \
+  }                                                                                         \
+  constexpr GeometryApi GeometryApi_##variant = {                                           \
+      .freeIndex = Index_##variant##_Free,                                                  \
+      .addGeomStr = Index_##variant##_Insert,                                               \
+      .delGeom = Index_##variant##_Remove,                                                  \
+      .query = Index_##variant##_Query,                                                     \
+      .dump = Index_##variant##_Dump,                                                       \
+      .report = Index_##variant##_Report,                                                   \
+  };                                                                                        \
+  auto Index_##variant##_New() -> GeometryIndex * {                                         \
+    using alloc_type = Allocator<GeometryIndex>;                                            \
+    alloc_type alloc;                                                                       \
+    auto idx = std::allocator_traits<alloc_type>::allocate(alloc, 1);                       \
+    std::allocator_traits<alloc_type>::construct(                                           \
+        alloc, idx, &GeometryApi_##variant,                                                 \
+        boost::allocate_unique<RTree<variant>>(Allocator<RTree<variant>>{}));               \
+    return idx;                                                                             \
   }
 GEO_VARIANTS(X)
 #undef X
 }  // anonymous namespace
 
-#define X(variant) /*[GEOMETRY_COORDS_##variant] =*/ Index_##variant##_New,
+#define X(variant) Index_##variant##_New,
 auto GeometryIndexFactory(GEOMETRY_COORDS tag) -> GeometryIndex * {
-  // using GeometryConstructor_t = auto (*)() -> GeometryIndex *;
   static constexpr auto geometry_ctors = std::array{GEO_VARIANTS(X)};
   return geometry_ctors[tag]();
 }
