@@ -767,6 +767,8 @@ static void uvFreeClusterRequest(struct MRRequestCtx *mc) {
   MRCluster *cl = mc->ctx;
   MRClust_Free(cl);
   rm_free(mc);
+  RedisModule_Log(NULL, "warning","uvFreeClusterRequest: mc after free = %p", mc );
+
   RQ_Done(rq_g);
   /* closing uv is not threadsafe and cannot be called from outside of the event loop.
   RQ_Close_uv adds close event to the loop and retunrs immediatly. We need to wait in the main thread
