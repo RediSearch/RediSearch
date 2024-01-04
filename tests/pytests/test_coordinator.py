@@ -1,10 +1,6 @@
 from common import *
 from redis import ResponseError
-from time import sleep
 
-def testBugFixes(env):
-    print('Testing bug fixes')
-    sleep(1)
 def testInfo(env):
     SkipOnNonCluster(env)
     conn = getConnectionByEnv(env)

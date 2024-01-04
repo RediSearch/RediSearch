@@ -10,6 +10,7 @@
 #include <uv.h>
 #include <stdatomic.h>
 #include <stdbool.h>
+
 #include "rq.h"
 #include "rmalloc.h"
 
@@ -46,8 +47,6 @@ void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata, MRQueueCleanUpC
     q->tail = item;
   } else {  // no tail means no head - empty queue
     q->head = q->tail = item;
-    RedisModule_Log(NULL, "warning","RQ_Push: queue is empty = %d\n", order_for_debug);
-
   }
   q->sz++;
 
@@ -70,7 +69,6 @@ static struct queueItem *rqPop(MRWorkQueue *q) {
 
     return NULL;
   }
-  RedisModule_Log(NULL, "warning","rqPop: popping from queue, current queue size is %d and there are %d pending requests\n", q->sz, q->pending);
 
   struct queueItem *r = q->head;
   q->head = r->next;
@@ -93,16 +91,9 @@ static void rqAsyncCb(uv_async_t *async) {
   MRWorkQueue *q = async->data;
   struct queueItem *req;
   while (NULL != (req = rqPop(q))) {
-  RedisModule_Log(NULL, "warning","rqAsyncCb: poped CB order of debug = %d\n", order_for_debug);
-  //__atomic_exchange_n (&order_for_debug, 2, __ATOMIC_RELAXED);
-
     req->cb(req->privdata);
     rm_free(req);
-  RedisModule_Log(NULL, "warning","rqAsyncCb: done callback order of debug = %d\n", order_for_debug);
-
   }
-  RedisModule_Log(NULL, "warning","rqAsyncCb: exit function bye order of debug = %d\n", order_for_debug);
-
 }
 
 MRWorkQueue *RQ_New(int maxPending) {
@@ -146,26 +137,26 @@ void RQ_Empty(MRWorkQueue *q) {
   }
 
   uv_mutex_unlock(&q->lock);
-  RedisModule_Log(NULL, "warning","RQ_Empty: queue is empty");
-
 }
-volatile int active = 1;
+
 static void RQ_Deactivate(uv_handle_t *handle) {
-  RedisModule_Log(NULL, "warning","RQ_Deactivate: called");
+  RedisModule_Log(NULL, "debug", "RQ_Deactivate: called");
   MRWorkQueue *q = handle->data;
   q->isActive = false;
-
 }
-void RQ_Close_uv(MRWorkQueue *q) {
-  RedisModule_Log(NULL, "warning","RQ_Close_uv:close uv");
+
+void RQ_uvClose(MRWorkQueue *q) {
+  RedisModule_Assert(q->sz == 0);
   uv_close((uv_handle_t *)&q->async, RQ_Deactivate);
 }
 
-void RQ_Free(MRWorkQueue *q) {
-  while(q->isActive){
-    //TODO: NEVER wait indefently
+void RQ_Free(MRWorkQueue *q, bool wait_for_uv_close) {
+  if (wait_for_uv_close) {
+    RedisModule_Log(NULL, "debug", "RQ_FREE: waiting for uv closure");
+    while(q->isActive){}
+  } else {
+    RedisModule_Log(NULL, "warning", "RQ_FREE: are you sure you want to free RQ without waiting for uv closure?");
   }
   uv_mutex_destroy(&q->lock);
   rm_free(q);
-  RedisModule_Log(NULL, "warning","RQ_FREE: done");
 }

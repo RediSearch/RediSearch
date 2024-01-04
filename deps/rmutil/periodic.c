@@ -9,8 +9,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <errno.h>
-#include <unistd.h>
-volatile int  order_for_debug =0 ;
+
 typedef struct RMUtilTimer {
   RMutilTimerFunc cb;
   RMUtilTimerTerminationFunc onTerm;

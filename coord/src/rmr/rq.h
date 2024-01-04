@@ -12,15 +12,21 @@
 typedef void (*MRQueueCallback)(void *);
 typedef void (*MRQueueCleanUpCallback)(void *);
 
-extern volatile int order_for_debug;
 #ifndef RQ_C__
 typedef struct MRWorkQueue MRWorkQueue;
 
 MRWorkQueue *RQ_New(int maxPending);
 
 void RQ_Empty(MRWorkQueue *q);
-void RQ_Close_uv(MRWorkQueue *q);
-void RQ_Free(MRWorkQueue *q);
+
+/* This function is used to free the queue.
+wait_for_uv_close @param wait_for_uv_close is true, the function will wait for the uv event loop to close before returning.
+In this case, this function should be called outside the uv event loop.*/
+void RQ_Free(MRWorkQueue *q, bool wait_for_uv_close);
+
+/* This function is responsible for closing the uv event loop associated with @param q.
+It is not safe to call this function from outside the uv event loop */
+void RQ_uvClose(MRWorkQueue *q);
 
 void RQ_Done(MRWorkQueue *q);
 
