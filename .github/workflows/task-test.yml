@@ -126,14 +126,14 @@ jobs:
       - name: Upload Artifacts
         # skip if all tests passed
         if: failure()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Test Logs
           path: tests/**/logs/*.log
           if-no-files-found: ignore
       - name: Upload Sanitizer Artifacts
         if: ${{ inputs.san }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Sanitizer Logs
           path: tests/**/logs/*.log.*
