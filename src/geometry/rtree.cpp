@@ -166,51 +166,42 @@ bool RTree<cs>::remove(t_docId id) {
 
 template <typename cs>
 void RTree<cs>::dump(RedisModuleCtx* ctx) const {
-  std::size_t lenTop = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_ReplyWithArray(ctx, 8);
 
   RedisModule_ReplyWithStringBuffer(ctx, "type", std::strlen("type"));
   RedisModule_ReplyWithStringBuffer(ctx, "boost_rtree", std::strlen("boost_rtree"));
-  lenTop += 2;
 
   RedisModule_ReplyWithStringBuffer(ctx, "ptr", std::strlen("ptr"));
   auto addr = to_string(&rtree_);
   RedisModule_ReplyWithStringBuffer(ctx, addr.c_str(), addr.length());
-  lenTop += 2;
 
   RedisModule_ReplyWithStringBuffer(ctx, "num_docs", std::strlen("num_docs"));
   RedisModule_ReplyWithLongLong(ctx, static_cast<long long>(rtree_.size()));
-  lenTop += 2;
 
   RedisModule_ReplyWithStringBuffer(ctx, "docs", std::strlen("docs"));
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  lenTop += 2;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
+  RedisModule_ReplySetArrayLength(
+    ctx, std::transform_reduce(std::execution::unseq, rtree_.begin(), rtree_.end(), 0l, std::plus{},
+    [&](doc_type const& doc) {
+      RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
 
-  std::size_t lenDocs = 0;
-  std::ranges::for_each(rtree_, [&](doc_type const& doc) -> void {
-    lenDocs += 1;
-    std::size_t lenValues = 0;
-    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+      RedisModule_ReplyWithStringBuffer(ctx, "id", std::strlen("id"));
+      RedisModule_ReplyWithLongLong(ctx, get_id<cs>(doc));
 
-    RedisModule_ReplyWithStringBuffer(ctx, "id", std::strlen("id"));
-    RedisModule_ReplyWithLongLong(ctx, get_id<cs>(doc));
-    lenValues += 2;
-
-    lenValues += lookup(doc).map([ctx](geom_type const& geom) {
-      RedisModule_ReplyWithStringBuffer(ctx, "geoshape", std::strlen("geoshape"));
-      auto str = geometry_to_string<cs>(geom);
+      RedisModule_ReplyWithStringBuffer(ctx, "rect", std::strlen("rect"));
+      auto str = doc_to_string<cs>(doc);
       RedisModule_ReplyWithStringBuffer(ctx, str.c_str(), str.length());
-      return 2;
-    }).value_or(0);
-    RedisModule_ReplyWithStringBuffer(ctx, "rect", std::strlen("rect"));
-    auto str = doc_to_string<cs>(doc);
-    RedisModule_ReplyWithStringBuffer(ctx, str.c_str(), str.length());
-    lenValues += 2;
+      
+      RedisModule_ReplySetArrayLength(ctx, 4 + lookup(doc).map([ctx](geom_type const& geom) {
+        RedisModule_ReplyWithStringBuffer(ctx, "geoshape", std::strlen("geoshape"));
+        auto str = geometry_to_string<cs>(geom);
+        RedisModule_ReplyWithStringBuffer(ctx, str.c_str(), str.length());
+        return 2l;
+      }).value_or(0l));
 
-    RedisModule_ReplySetArrayLength(ctx, lenValues);
-  });
-  RedisModule_ReplySetArrayLength(ctx, lenDocs);
-  RedisModule_ReplySetArrayLength(ctx, lenTop);
+      return 1l;
+    })
+  );
 }
 
 template <typename cs>
