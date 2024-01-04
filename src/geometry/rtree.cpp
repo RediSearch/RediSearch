@@ -10,6 +10,8 @@
 #include <sstream>    // std::stringstream
 #include <algorithm>  // ranges::for_each, views::transform
 #include <exception>  // std::exception
+#include <execution>  // std::unseq
+#include <numeric>    // std::transform_reduce
 
 namespace RediSearch {
 namespace GeoShape {
@@ -85,14 +87,6 @@ auto from_wkt(std::string_view wkt) -> geom_type {
   return geom;
 }
 
-template <typename cs, typename query_results = RTree<cs>::query_results>
-auto generate_query_iterator(query_results&& results, std::size_t& alloc) -> IndexIterator* {
-  auto geometry_query_iterator = new (alloc) QueryIterator{
-      results | std::views::transform([](auto&& doc) -> t_docId { return get_id<cs>(doc); }),
-      alloc};
-  return geometry_query_iterator->base();
-}
-
 template <typename cs>
 constexpr auto geometry_reporter = [](auto&& geom) -> std::size_t {
   using point_type = typename RTree<cs>::point_type;
@@ -101,10 +95,9 @@ constexpr auto geometry_reporter = [](auto&& geom) -> std::size_t {
   } else {
     auto const& inners = geom.inners();
     auto outer_size = geom.outer().get_allocator().report();
-    return std::accumulate(inners.begin(), inners.end(), outer_size,
-                           [](std::size_t acc, auto&& hole) -> std::size_t {
-                             return acc + hole.get_allocator().report();
-                           });
+    return std::transform_reduce(
+        std::execution::unseq, std::begin(inners), std::end(inners), outer_size, std::plus{},
+        [](auto const& hole) -> std::size_t { return hole.get_allocator().report(); });
   }
 };
 
@@ -153,7 +146,7 @@ int RTree<cs>::insertWKT(std::string_view wkt, t_docId id, RedisModuleString** e
     return 0;
   } catch (const std::exception& e) {
     if (err_msg) {
-      *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
+      *err_msg = RedisModule_CreateString(nullptr, e.what(), std::strlen(e.what()));
     }
     return 1;
   }
@@ -175,20 +168,20 @@ void RTree<cs>::dump(RedisModuleCtx* ctx) const {
   std::size_t lenTop = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-  RedisModule_ReplyWithStringBuffer(ctx, "type", strlen("type"));
-  RedisModule_ReplyWithStringBuffer(ctx, "boost_rtree", strlen("boost_rtree"));
+  RedisModule_ReplyWithStringBuffer(ctx, "type", std::strlen("type"));
+  RedisModule_ReplyWithStringBuffer(ctx, "boost_rtree", std::strlen("boost_rtree"));
   lenTop += 2;
 
-  RedisModule_ReplyWithStringBuffer(ctx, "ptr", strlen("ptr"));
+  RedisModule_ReplyWithStringBuffer(ctx, "ptr", std::strlen("ptr"));
   auto addr = to_string(&rtree_);
   RedisModule_ReplyWithStringBuffer(ctx, addr.c_str(), addr.length());
   lenTop += 2;
 
-  RedisModule_ReplyWithStringBuffer(ctx, "num_docs", strlen("num_docs"));
+  RedisModule_ReplyWithStringBuffer(ctx, "num_docs", std::strlen("num_docs"));
   RedisModule_ReplyWithLongLong(ctx, static_cast<long long>(rtree_.size()));
   lenTop += 2;
 
-  RedisModule_ReplyWithStringBuffer(ctx, "docs", strlen("docs"));
+  RedisModule_ReplyWithStringBuffer(ctx, "docs", std::strlen("docs"));
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   lenTop += 2;
 
@@ -198,17 +191,17 @@ void RTree<cs>::dump(RedisModuleCtx* ctx) const {
     std::size_t lenValues = 0;
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-    RedisModule_ReplyWithStringBuffer(ctx, "id", strlen("id"));
+    RedisModule_ReplyWithStringBuffer(ctx, "id", std::strlen("id"));
     RedisModule_ReplyWithLongLong(ctx, get_id<cs>(doc));
     lenValues += 2;
 
     if (auto geom = lookup(doc); geom.has_value()) {
-      RedisModule_ReplyWithStringBuffer(ctx, "geoshape", strlen("geoshape"));
+      RedisModule_ReplyWithStringBuffer(ctx, "geoshape", std::strlen("geoshape"));
       auto str = geometry_to_string<cs>(*geom);
       RedisModule_ReplyWithStringBuffer(ctx, str.c_str(), str.length());
       lenValues += 2;
     }
-    RedisModule_ReplyWithStringBuffer(ctx, "rect", strlen("rect"));
+    RedisModule_ReplyWithStringBuffer(ctx, "rect", std::strlen("rect"));
     auto str = doc_to_string<cs>(doc);
     RedisModule_ReplyWithStringBuffer(ctx, str.c_str(), str.length());
     lenValues += 2;
@@ -268,26 +261,17 @@ template <typename cs>
 auto RTree<cs>::query(std::string_view wkt, QueryType query_type, RedisModuleString** err_msg) const
     -> IndexIterator* {
   try {
-    auto query_geom = from_wkt<cs>(wkt);
-    return generate_query_iterator<cs>(
-        generate_predicate(make_doc<cs>(query_geom), query_type, query_geom), allocated_);
+    const auto query_geom = from_wkt<cs>(wkt);
+    auto results = generate_predicate(query_type, query_geom);
+    auto geometry_query_iterator =
+        new (allocated_) QueryIterator{results | std::views::transform(get_id<cs>), allocated_};
+    return geometry_query_iterator->base();
   } catch (const std::exception& e) {
     if (err_msg) {
-      *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
+      *err_msg = RedisModule_CreateString(nullptr, e.what(), std::strlen(e.what()));
     }
     return nullptr;
   }
-}
-
-template <typename cs>
-void* RTree<cs>::operator new(std::size_t) noexcept {
-  using alloc_type = RediSearch::Allocator::Allocator<RTree<cs>>;
-  return static_cast<void*>(alloc_type::allocate(1));
-}
-template <typename cs>
-void RTree<cs>::operator delete(void* p) noexcept {
-  using alloc_type = RediSearch::Allocator::Allocator<RTree<cs>>;
-  alloc_type::deallocate(static_cast<RTree<cs>*>(p), 1);
 }
 
 #define X(variant) template class RTree<variant>;

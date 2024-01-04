@@ -9,8 +9,9 @@
 #include "../index_iterator.h"
 #include "allocator/tracking_allocator.hpp"
 
-#include <vector>  // std::vector
-#include <ranges>  // ranges::input_range, ranges::begin, ranges::end
+#include <vector>     // std::vector
+#include <ranges>     // ranges::input_range, ranges::begin, ranges::end
+#include <algorithm>  // ranges::sort
 
 namespace RediSearch {
 namespace GeoShape {
@@ -23,11 +24,13 @@ struct QueryIterator {
   std::size_t index_;
 
   explicit QueryIterator() = delete;
-  explicit QueryIterator(container_type &&docs);
   template <std::ranges::input_range R>  // the elements of the range must be convertible to t_docId
-    requires std::is_convertible_v<t_docId, std::decay_t<decltype(*std::declval<R>().begin())>>
+    requires std::convertible_to<std::ranges::range_reference_t<R>, t_docId>
   explicit QueryIterator(R &&range, std::size_t &alloc)
-      : QueryIterator(container_type{range.begin(), range.end(), alloc_type{alloc}}) {
+      : base_{init_base(this)},
+        iter_{std::ranges::begin(range), std::ranges::end(range), alloc_type{alloc}},
+        index_{0} {
+    std::ranges::sort(iter_);
   }
 
   /* rule of 5 */
@@ -47,7 +50,7 @@ struct QueryIterator {
   void abort() noexcept;
   void rewind() noexcept;
 
-  static IndexIterator init_base();
+  static IndexIterator init_base(QueryIterator *ctx);
 
   void *operator new(std::size_t, std::size_t &alloc) noexcept;
   void operator delete(QueryIterator *ptr, std::destroying_delete_t) noexcept;
