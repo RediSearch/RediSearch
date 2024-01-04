@@ -125,7 +125,7 @@ jobs:
 
       - name: Upload Artifacts
         # skip if all tests passed
-        if: failure()
+        if: failure() || cancelled() && ${{ inputs.san }}
         uses: actions/upload-artifact@v3
         with:
           name: Test Logs

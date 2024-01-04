@@ -763,9 +763,9 @@ static void uvFreeClusterCb(struct MRRequestCtx *mc) {
   MRClust_Free(cl);
   rm_free(mc);
 
-  RQ_Done(rq_g);
-
   RQ_uvClose(rq_g);
+
+  RQ_Done(rq_g);
   RedisModule_Log(NULL, "debug", "uvFreeClusterCb: done free request");
 }
 

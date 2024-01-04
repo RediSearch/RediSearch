@@ -149,14 +149,19 @@ void RQ_uvClose(MRWorkQueue *q) {
   RedisModule_Assert(q->sz == 0);
   uv_close((uv_handle_t *)&q->async, RQ_Deactivate);
 }
-
+#include <unistd.h>
 void RQ_Free(MRWorkQueue *q, bool wait_for_uv_close) {
+    int loops =0;
   if (wait_for_uv_close) {
     RedisModule_Log(NULL, "debug", "RQ_FREE: waiting for uv closure");
-    while(q->isActive){}
+    while(q->isActive && loops < 20){
+      ++loops;
+      sleep(1);
+    }
   } else {
     RedisModule_Log(NULL, "warning", "RQ_FREE: are you sure you want to free RQ without waiting for uv closure?");
   }
+  RedisModule_Assert(loops ==0);
   uv_mutex_destroy(&q->lock);
   rm_free(q);
 }
