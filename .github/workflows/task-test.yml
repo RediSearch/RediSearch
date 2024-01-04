@@ -126,14 +126,14 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Test Logs ${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.get-redis || 'unstable' }}
+          name: Test Logs of job ${{ github.job }} of run ${{ github.run_id }}, attempt ${{ github.run_attempt }}
           path: tests/**/logs/*.log
           if-no-files-found: ignore
       - name: Upload Sanitizer Artifacts
         if: ${{ inputs.san }}
         uses: actions/upload-artifact@v4
         with:
-          name: Sanitizer Logs ${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.get-redis || 'unstable' }}
+          name: Sanitizer Logs of job ${{ github.job }} of run ${{ github.run_id }}, attempt ${{ github.run_attempt }}
           path: tests/**/logs/*.log.*
           if-no-files-found: ignore
 
