@@ -2457,7 +2457,9 @@ void setHiredisAllocators(){
 
 
 static void Coordinator_CleanupModule(void) {
+  RedisModule_Log(NULL, "notice", "Coordinator_CleanupModule: stop periodic");
   StopRedisTopologyUpdater(); // stop the topology updater loop, so we won't send any more update requests
+  RedisModule_Log(NULL, "notice", "Coordinator_CleanupModule: start MR_Destroy");
   MR_Destroy(); // destroy MR cluster and queue
   GlobalSearchCluster_Release();
 }

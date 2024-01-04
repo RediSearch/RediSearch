@@ -280,17 +280,19 @@ void MR_Init(MRCluster *cl, long long timeoutMS) {
   }
   printf("Thread created\n");
 }
-void MR_Destroy() {
-  RedisModule_Log(NULL, "warning","MR_Destroy: start. order of debug = %d\n", order_for_debug);
- // __atomic_exchange_n (&order_for_debug, 1, __ATOMIC_RELAXED);
 
+static void MRClust_FreeRequest(MRCluster *cl);
+void MR_Destroy() {
   if (rq_g) {
-    RQ_Free(rq_g);
-    rq_g = NULL;
+    RedisModule_Log(NULL, "warning","MR_Destroy: empty queue");
+    RQ_Empty(rq_g);
   }
   if (cluster_g) {
-    MRClust_Free(cluster_g);
-    RedisModule_Log(NULL, "warning","MR_Destroy: after MRClust_Free. order of debug = %d\n", order_for_debug);
+    RedisModule_Log(NULL, "warning","MR_Destroy: invoke cluster cleanups and free q ");
+    MRClust_FreeRequest(cluster_g);
+    RedisModule_Log(NULL, "warning","MR_Destroy:returned from dleanups, calling RQ_FREE ");
+    RQ_Free(rq_g);
+    RedisModule_Log(NULL, "warning","MR_Destroy:done RQ_FREE, nullify cluster_g ");
 
     cluster_g = NULL;
   }
@@ -757,4 +759,30 @@ void MRIterator_Free(MRIterator *it) {
   MRChannel_Free(it->ctx.chan);
   rm_free(it->cbxs);
   rm_free(it);
+}
+
+static void uvFreeClusterRequest(struct MRRequestCtx *mc) {
+  RedisModule_Log(NULL, "warning","uvFreeClusterRequest: start free request");
+
+  MRCluster *cl = mc->ctx;
+  MRClust_Free(cl);
+  rm_free(mc);
+  RQ_Done(rq_g);
+  /* closing uv is not threadsafe and cannot be called from outside of the event loop.
+  RQ_Close_uv adds close event to the loop and retunrs immediatly. We need to wait in the main thread
+  for the loop to be closed in order to proceed to releasing the queue resources. */
+  RQ_Close_uv(rq_g);
+  RedisModule_Log(NULL, "warning","uvFreeClusterRequest: done free request");
+}
+
+static void MRClust_FreeRequest(MRCluster *cl) {
+  RedisModule_Log(NULL, "warning","MRClust_FreeRequest: create free cluster request");
+  struct MRRequestCtx *rc = rm_calloc(1, sizeof(*rc));
+
+  rc->ctx = cl;
+  rc->cb = uvFreeClusterRequest;
+  RedisModule_Log(NULL, "warning","MRClust_FreeRequest: pushing free cluster request");
+
+  RQ_Push(rq_g, requestCb, rc, NULL);
+  RedisModule_Log(NULL, "warning","MRClust_FreeRequest: return after push");
 }

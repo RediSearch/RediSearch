@@ -18,6 +18,8 @@ typedef struct MRWorkQueue MRWorkQueue;
 
 MRWorkQueue *RQ_New(int maxPending);
 
+void RQ_Empty(MRWorkQueue *q);
+void RQ_Close_uv(MRWorkQueue *q);
 void RQ_Free(MRWorkQueue *q);
 
 void RQ_Done(MRWorkQueue *q);
