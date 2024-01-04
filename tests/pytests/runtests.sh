@@ -165,7 +165,7 @@ setup_rltest() {
 	if [[ $RLTEST_DEBUG == 1 ]]; then
 		RLTEST_ARGS+=" --debug-print"
 	fi
-	if [[ -n $RLTEST_LOG && $RLTEST_LOG != 1 ]]; then
+	if [[ -n $RLTEST_LOG && $RLTEST_LOG != 1 && -z $RLTEST_PARALLEL_ARG ]]; then
 		RLTEST_ARGS+=" -s"
 	fi
 	if [[ $RLTEST_CONSOLE == 1 ]]; then
