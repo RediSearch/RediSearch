@@ -128,7 +128,6 @@ IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric 
   IndexIterator *ri = &mi->base;
   ri->ctx = mi;
   ri->type = METRIC_ITERATOR;
-  ri->mode = MODE_SORTED;
   ri->current = NewMetricResult();
   ri->ownKey = NULL;
 
@@ -148,7 +147,6 @@ IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric 
   ri->NumEstimated = ri->Len = MR_Len;
   ri->Abort = MR_Abort;
   ri->LastDocId = MR_LastDocId;
-  ri->GetCriteriaTester = NULL; // TODO:remove from all project
 
   return ri;
 }

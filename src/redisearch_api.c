@@ -781,11 +781,6 @@ int RediSearch_ExportCapi(RedisModuleCtx* ctx) {
 }
 
 void RediSearch_SetCriteriaTesterThreshold(size_t num) {
-  if (num == 0) {
-    RSGlobalConfig.iteratorsConfigParams.maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE;
-  } else {
-    RSGlobalConfig.iteratorsConfigParams.maxResultsToUnsortedMode = num;
-  }
 }
 
 int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len) {
