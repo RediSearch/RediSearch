@@ -8,16 +8,11 @@
 
 #include <utility>    // std::move
 #include <iterator>   // ranges::distance
-#include <algorithm>  // ranges::sort, ranges::lower_bound
+#include <algorithm>  // ranges::lower_bound
 
 namespace RediSearch {
 namespace GeoShape {
 
-QueryIterator::QueryIterator(container_type &&docs)
-    : base_{init_base()}, iter_{std::move(docs)}, index_{0} {
-  base_.ctx = this;
-  std::ranges::sort(iter_);
-}
 QueryIterator::~QueryIterator() noexcept {
   IndexResult_Free(base_.current);
 }
@@ -103,10 +98,10 @@ void QIter_Rewind(void *ctx) {
 }
 }  // anonymous namespace
 
-IndexIterator QueryIterator::init_base() {
+IndexIterator QueryIterator::init_base(QueryIterator *ctx) {
   auto ii = IndexIterator{
       .isValid = 1,
-      .ctx = nullptr,
+      .ctx = ctx,
       .current = NewVirtualResult(0),
       .mode = MODE_SORTED,
       .type = ID_LIST_ITERATOR,
