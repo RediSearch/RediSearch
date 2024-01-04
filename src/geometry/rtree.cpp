@@ -154,13 +154,14 @@ int RTree<cs>::insertWKT(std::string_view wkt, t_docId id, RedisModuleString** e
 
 template <typename cs>
 bool RTree<cs>::remove(t_docId id) {
-  if (auto geom = lookup(id); geom.has_value()) {
-    allocated_ -= std::visit(geometry_reporter<cs>, *geom);
-    rtree_.remove(make_doc<cs>(*geom, id));
-    docLookup_.erase(id);
-    return true;
-  }
-  return false;
+  return lookup(id)
+      .map([&](geom_type const& geom) {
+        allocated_ -= std::visit(geometry_reporter<cs>, geom);
+        rtree_.remove(make_doc<cs>(geom, id));
+        docLookup_.erase(id);
+        return true;
+      })
+      .value_or(false);
 }
 
 template <typename cs>
@@ -195,12 +196,12 @@ void RTree<cs>::dump(RedisModuleCtx* ctx) const {
     RedisModule_ReplyWithLongLong(ctx, get_id<cs>(doc));
     lenValues += 2;
 
-    if (auto geom = lookup(doc); geom.has_value()) {
+    lenValues += lookup(doc).map([ctx](geom_type const& geom) {
       RedisModule_ReplyWithStringBuffer(ctx, "geoshape", std::strlen("geoshape"));
-      auto str = geometry_to_string<cs>(*geom);
+      auto str = geometry_to_string<cs>(geom);
       RedisModule_ReplyWithStringBuffer(ctx, str.c_str(), str.length());
-      lenValues += 2;
-    }
+      return 2;
+    }).value_or(0);
     RedisModule_ReplyWithStringBuffer(ctx, "rect", std::strlen("rect"));
     auto str = doc_to_string<cs>(doc);
     RedisModule_ReplyWithStringBuffer(ctx, str.c_str(), str.length());
@@ -220,38 +221,25 @@ std::size_t RTree<cs>::report() const noexcept {
 template <typename cs>
 template <typename Predicate, typename Filter>
 auto RTree<cs>::apply_predicate(Predicate&& p, Filter&& f) const -> query_results {
-  auto results = query_results{rtree_.qbegin(std::forward<Predicate>(p)), rtree_.qend(),
-                               Allocator::TrackingAllocator<doc_type>{allocated_}};
-  std::erase_if(results, std::forward<Filter>(f));
-  return results;
-}
-
-template <typename cs>
-auto RTree<cs>::contains(doc_type const& query_doc, geom_type const& query_geom) const
-    -> query_results {
-  return apply_predicate(bgi::contains(get_rect<cs>(query_doc)), [&](auto const& doc) -> bool {
-    auto geom = lookup(doc);
-    return geom.has_value() && std::visit(filter_results<cs>, query_geom, *geom);
-  });
-}
-
-template <typename cs>
-auto RTree<cs>::within(doc_type const& query_doc, geom_type const& query_geom) const
-    -> query_results {
-  return apply_predicate(bgi::within(get_rect<cs>(query_doc)), [&](auto const& doc) -> bool {
-    auto geom = lookup(doc);
-    return geom.has_value() && std::visit(filter_results<cs>, *geom, query_geom);
-  });
+  return {rtree_.qbegin(predicate && bgi::satisfies([&](auto const& doc) -> bool {
+                          auto geom = lookup(doc);
+                          return geom && filter(*geom);
+                        })),
+          rtree_.qend(), Allocator::TrackingAllocator<doc_type>{allocated_}};
 }
 
 template <typename cs>
 auto RTree<cs>::generate_predicate(doc_type const& query_doc, QueryType query_type,
                                    geom_type const& query_geom) const -> query_results {
   switch (query_type) {
-    case QueryType::CONTAINS:
-      return contains(query_doc, query_geom);
+    case QueryType::CONTAINS:  // contains(g1, g2) == within(g2, g1)
+      return apply_predicate(bgi::contains(query_mbr), [&](auto const& geom) -> bool {
+        return std::visit(within_filter<cs>, query_geom, geom);
+      });
     case QueryType::WITHIN:
-      return within(query_doc, query_geom);
+      return apply_predicate(bgi::within(query_mbr), [&](auto const& geom) -> bool {
+        return std::visit(within_filter<cs>, geom, query_geom);
+      });
     default:
       throw std::runtime_error{"unknown query"};
   }
