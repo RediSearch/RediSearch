@@ -51,9 +51,6 @@ struct QueryIterator {
   void rewind() noexcept;
 
   static IndexIterator init_base(QueryIterator *ctx);
-
-  void *operator new(std::size_t, std::size_t &alloc) noexcept;
-  void operator delete(QueryIterator *ptr, std::destroying_delete_t) noexcept;
 };
 
 }  // namespace GeoShape

@@ -42,19 +42,23 @@ def testSanitySearchPointWithin(env):
   conn.execute_command('HSET', 'small', 'geom', small)
   conn.execute_command('HSET', 'large', 'geom', large)
   
+  query = 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))'
   expected = [2, 'point', ['geom', point], 'small', ['geom', small]]
-  env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'DIALECT', 3).equal(expected)
+  env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal(expected)
 
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9002 29.7002, 34.9002 29.7050, 34.9050 29.7050, 34.9050 29.7002, 34.9002 29.7002))', 'DIALECT', 3)
+  query = 'POLYGON((34.9002 29.7002, 34.9002 29.7050, 34.9050 29.7050, 34.9050 29.7002, 34.9002 29.7002))'
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3)
   env.assertEqual(res[0], 2)
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POINT(34.9050 29.7050)', 'DIALECT', 3)
+  query = 'POINT(34.9050 29.7050)'
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3)
   env.assertEqual(res[0], 2)
   
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3)
+  query = 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))'
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [3, 'large', 'point', 'small'])
 
   conn.execute_command('HSET', 'point', 'geom', 'POINT(34.9255, 29.7255)')
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
 def testSanitySearchJsonWithin(env):
