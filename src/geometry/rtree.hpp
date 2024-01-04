@@ -70,9 +70,6 @@ class RTree {
   void dump(RedisModuleCtx* ctx) const;
   [[nodiscard]] std::size_t report() const noexcept;
 
-  void* operator new(std::size_t) noexcept;
-  void operator delete(void* p) noexcept;
-
  private:
   [[nodiscard]] auto lookup(t_docId id) const -> boost::optional<geom_type const&>;
   [[nodiscard]] auto lookup(doc_type const& doc) const -> boost::optional<geom_type const&>;
