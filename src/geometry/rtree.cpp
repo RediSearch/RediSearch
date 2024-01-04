@@ -159,13 +159,14 @@ int RTree<cs>::insertWKT(std::string_view wkt, t_docId id, RedisModuleString** e
 
 template <typename cs>
 bool RTree<cs>::remove(t_docId id) {
-  if (auto geom = lookup(id); geom.has_value()) {
-    allocated_ -= std::visit(geometry_reporter<cs>, *geom);
-    rtree_.remove(make_doc<cs>(*geom, id));
-    docLookup_.erase(id);
-    return true;
-  }
-  return false;
+  return lookup(id)
+      .map([&](geom_type const& geom) {
+        allocated_ -= std::visit(geometry_reporter<cs>, geom);
+        rtree_.remove(make_doc<cs>(geom, id));
+        docLookup_.erase(id);
+        return true;
+      })
+      .value_or(false);
 }
 
 template <typename cs>
@@ -200,12 +201,12 @@ void RTree<cs>::dump(RedisModuleCtx* ctx) const {
     RedisModule_ReplyWithLongLong(ctx, get_id<cs>(doc));
     lenValues += 2;
 
-    if (auto geom = lookup(doc); geom.has_value()) {
+    lenValues += lookup(doc).map([ctx](geom_type const& geom) {
       RedisModule_ReplyWithStringBuffer(ctx, "geoshape", std::strlen("geoshape"));
-      auto str = geometry_to_string<cs>(*geom);
+      auto str = geometry_to_string<cs>(geom);
       RedisModule_ReplyWithStringBuffer(ctx, str.c_str(), str.length());
-      lenValues += 2;
-    }
+      return 2;
+    }).value_or(0);
     RedisModule_ReplyWithStringBuffer(ctx, "rect", std::strlen("rect"));
     auto str = doc_to_string<cs>(doc);
     RedisModule_ReplyWithStringBuffer(ctx, str.c_str(), str.length());
@@ -227,8 +228,7 @@ template <typename Predicate, typename Filter>
 auto RTree<cs>::apply_predicate(Predicate const& predicate, Filter const& filter) const
     -> query_results {
   return {rtree_.qbegin(predicate && bgi::satisfies([&](auto const& doc) -> bool {
-                          auto geom = lookup(doc);
-                          return geom && filter(*geom);
+                          return lookup(doc).map(filter).value_or(false);
                         })),
           rtree_.qend(), Allocator::TrackingAllocator<doc_type>{allocated_}};
 }
