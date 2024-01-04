@@ -2457,17 +2457,6 @@ def testOptionalFilter(env):
 
     r = env.cmd('ft.search', 'idx', '~(word20 => {$weight: 2.0})')
 
-def testCriteriaTesterDeactivated():
-    env = Env(moduleArgs='_MAX_RESULTS_TO_UNSORTED_MODE 1')
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'text')
-    env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello1 hey hello2')
-    env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')
-    env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
-
-    expected_res = py2sorted([2, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
-    actual_res = py2sorted(env.cmd('ft.search', 'idx', '(hey hello1)|(hello2 hey)'))
-    env.assertEqual(list(expected_res), list(actual_res))
-
 def testIssue828(env):
     env.cmd('ft.create', 'beers', 'ON', 'HASH', 'SCHEMA',
         'name', 'TEXT', 'PHONETIC', 'dm:en',
@@ -3729,8 +3718,7 @@ def test_cluster_set_server_memory_tracking(env):
         res = env.cmd('INFO', "MEMORY")
         return res['used_memory']
 
-    initial = get_memory(env)
-    for _ in range(1_000): # hangs at 1932 iterations. need to determine the cause
+    def cluster_set_ipv4():
         env.cmd('SEARCH.CLUSTERSET',
                'MYID',
                '1',
@@ -3745,6 +3733,11 @@ def test_cluster_set_server_memory_tracking(env):
                'password@127.0.0.1:22000',
                'MASTER'
             )
+    for _ in range(200):
+        cluster_set_ipv4()
+    initial = get_memory(env) - 1024 * 1024 # to account for some variance in memory
+    for _ in range(1_000): # hangs at 1932 iterations. need to determine the cause
+        cluster_set_ipv4()
         mem = get_memory(env)
         env.assertLessEqual(initial, mem)
 

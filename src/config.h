@@ -70,7 +70,6 @@ typedef struct {
   long long maxPrefixExpansions;
   // The minimal number of characters we allow expansion for in a prefix search. Default: 2
   long long minTermPrefix;
-  long long maxResultsToUnsortedMode;
   long long minUnionIterHeap;
 } IteratorsConfig;
 
@@ -108,7 +107,6 @@ typedef struct {
   size_t maxDocTableSize;
   size_t maxSearchResults;
   size_t maxAggregateResults;
-  size_t coordinatorPoolSize; // number of threads in the coordinator thread pool
 
 #ifdef MT_BUILD
   size_t numWorkerThreads;
@@ -218,11 +216,9 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 
 #define DEFAULT_DOC_TABLE_SIZE 1000000
 #define MAX_DOC_TABLE_SIZE 100000000
-#define COORDINATOR_POOL_DEFAULT_SIZE 20
 #define GC_SCANSIZE 100
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
-#define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 #define NR_MAX_DEPTH_BALANCE 2
 #define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
@@ -253,14 +249,12 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .cursorReadSize = 1000,                                                                                           \
     .cursorMaxIdle = 300000,                                                                                          \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                                                        \
-    .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                                                             \
      MT_BUILD_CONFIG                                                                                                  \
     .gcConfigParams.gcScanSize = GC_SCANSIZE,                                                                         \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                                                              \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                         \
     .gcConfigParams.forkGc.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,                                       \
     .gcConfigParams.forkGc.forkGcSleepBeforeExit = 0,                                                                 \
-    .iteratorsConfigParams.maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE,                           \
     .gcConfigParams.forkGc.forkGcRetryInterval = 5,                                                                   \
     .gcConfigParams.forkGc.forkGcCleanThreshold = 100,                                                                \
     .noMemPool = 0,                                                                                                   \
@@ -289,8 +283,6 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 static inline int isFeatureSupported(int feature) {
   return feature <= RSGlobalConfig.serverVersion;
 }
-
-#define CONFIG_SETTER(name) int name(RSConfig *config, ArgsCursor *ac, QueryError *status)
 
 #ifdef __cplusplus
 extern "C" {
