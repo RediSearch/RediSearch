@@ -2,4 +2,4 @@ packaging >= 20.8
 gevent
 deepdiff
 conan
-RLTest >= 0.7.3
+RLTest @ git+https://github.com/RedisLabsModules/RLTest@guyav-fork_as_process_method
