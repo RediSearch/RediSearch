@@ -1156,7 +1156,7 @@ void RediSearch_CleanupModule(void) {
   workersThreadPool_Destroy();
 #endif
   CursorList_Destroy(&g_CursorsList);
- // CursorList_Destroy(&g_CursorsListCoord);
+  CursorList_Destroy(&g_CursorsListCoord);
 
   if (legacySpecDict) {
     dictRelease(legacySpecDict);
