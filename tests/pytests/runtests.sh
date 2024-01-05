@@ -516,6 +516,8 @@ OS=$($READIES/bin/platform --os)
 ARCH=$($READIES/bin/platform --arch)
 OSNICK=$($READIES/bin/platform --osnick)
 
+[[ $OS == macos ]] && export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+
 #---------------------------------------------------------------------------------- Tests scope
 
 [[ $COORD == 1 ]] && COORD=oss
@@ -586,8 +588,6 @@ if [[ -n $PARALLEL && $PARALLEL != 0 ]]; then
 		parallel="$PARALLEL"
 	fi
 	RLTEST_PARALLEL_ARG="--parallelism $parallel"
-
-	[[ $OS == macos ]] && export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 fi
 
 #------------------------------------------------------------------------------- Test selection
