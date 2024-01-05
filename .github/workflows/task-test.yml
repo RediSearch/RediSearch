@@ -101,12 +101,14 @@ jobs:
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
       - name: Check if node20 is Supported
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for theses platforms
-        shell: python
         run: |
-          import os
-          unsupported = ['ubuntu:bionic', 'centos:7', 'amazonlinux:2']
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-            print('supported=' + str('${{ inputs.container }}' not in unsupported).lower(), file=f)
+          for platform in ubuntu:bionic centos:7 amazonlinux:2; do
+            if [[ "${{ inputs.container }}" == "$platform" ]]; then
+              echo "supported=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          done
+          echo "supported=true" >> $GITHUB_OUTPUT
 
       - name: Build Standalone
         if: ${{ inputs.standalone }}
