@@ -123,17 +123,22 @@ jobs:
         continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
         run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
 
+      - name: Set Artifact Names
+        id: artifact-names
+        run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
+          echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.get-redis || 'unstable' }}" | \
+                       sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Test Logs of job ${{ github.job }} of run ${{ github.run_id }}, attempt ${{ github.run_attempt }}
+          name: Test Logs ${{ steps.artifact-names.outputs.name }}
           path: tests/**/logs/*.log
           if-no-files-found: ignore
       - name: Upload Sanitizer Artifacts
         if: ${{ inputs.san }}
         uses: actions/upload-artifact@v4
         with:
-          name: Sanitizer Logs of job ${{ github.job }} of run ${{ github.run_id }}, attempt ${{ github.run_attempt }}
+          name: Sanitizer Logs ${{ steps.artifact-names.outputs.name }}
           path: tests/**/logs/*.log.*
           if-no-files-found: ignore
 
