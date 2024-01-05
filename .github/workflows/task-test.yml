@@ -159,14 +159,17 @@ jobs:
       # Here we only upload the artifacts if the tests had failed, since it is very slow
       - name: Upload Sanitizer Artifacts (node20 not supported)
         id: upload-sanitizer-artifacts-v3
-        if: ${{ inputs.san && steps.node20.outputs.supported == 'false' }}
+        if: ${{ steps.node20.outputs.supported == 'false' && inputs.san }}
         uses: actions/upload-artifact@v3
         with:
           name: Sanitizer Logs ${{ steps.artifact-names.outputs.name }}
           path: tests/**/logs/*.log.*
           if-no-files-found: ignore
       - name: Upload Artifacts (node20 not supported)
-        if: ${{ (failure() || steps.upload-sanitizer-artifacts-v3.outputs.artifact_id) && steps.node20.outputs.supported == 'false' }}
+        # Upload artifacts only if tests failed (including sanitizer failures)
+        if: >
+          steps.node20.outputs.supported == 'false' &&
+          (steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' || steps.test4.outcome == 'failure')
         uses: actions/upload-artifact@v3
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
