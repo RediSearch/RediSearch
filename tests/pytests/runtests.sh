@@ -577,9 +577,6 @@ STATFILE=${STATFILE:-$ROOT/bin/artifacts/tests/status}
 
 PARALLEL=${PARALLEL:-1}
 
-# due to Python "Can't pickle local object" problem in RLTest
-[[ $OS == macos ]] && PARALLEL=0
-
 [[ $EXT == 1 || $EXT == run || $BB == 1 || $GDB == 1 ]] && PARALLEL=0
 
 if [[ -n $PARALLEL && $PARALLEL != 0 ]]; then
@@ -589,6 +586,8 @@ if [[ -n $PARALLEL && $PARALLEL != 0 ]]; then
 		parallel="$PARALLEL"
 	fi
 	RLTEST_PARALLEL_ARG="--parallelism $parallel"
+
+	[[ $OS == macos ]] && export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 fi
 
 #------------------------------------------------------------------------------- Test selection
