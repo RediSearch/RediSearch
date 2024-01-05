@@ -79,7 +79,7 @@ namespace {
   auto Index_##variant##_New() -> GeometryIndex * {                                         \
     using alloc_type = Allocator<GeometryIndex>;                                            \
     alloc_type alloc;                                                                       \
-    auto idx = std::allocator_traits<alloc_type>::allocate(alloc, 1);                       \
+    const auto idx = std::allocator_traits<alloc_type>::allocate(alloc, 1);                 \
     std::allocator_traits<alloc_type>::construct(                                           \
         alloc, idx, &GeometryApi_##variant,                                                 \
         boost::allocate_unique<RTree<variant>>(Allocator<RTree<variant>>{}));               \
