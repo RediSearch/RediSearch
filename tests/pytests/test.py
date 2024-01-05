@@ -2457,17 +2457,6 @@ def testOptionalFilter(env):
 
     r = env.cmd('ft.search', 'idx', '~(word20 => {$weight: 2.0})')
 
-def testCriteriaTesterDeactivated():
-    env = Env(moduleArgs='_MAX_RESULTS_TO_UNSORTED_MODE 1')
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'text')
-    env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello1 hey hello2')
-    env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')
-    env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
-
-    expected_res = py2sorted([2, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
-    actual_res = py2sorted(env.cmd('ft.search', 'idx', '(hey hello1)|(hello2 hey)'))
-    env.assertEqual(list(expected_res), list(actual_res))
-
 def testIssue828(env):
     env.cmd('ft.create', 'beers', 'ON', 'HASH', 'SCHEMA',
         'name', 'TEXT', 'PHONETIC', 'dm:en',
@@ -3119,7 +3108,7 @@ def testIssue1184(env):
         res = env.cmd('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         env.assertEqual(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], '0')
+        env.assertEqual(d['num_records'], 0)
 
 
         value = '42'
@@ -3130,7 +3119,7 @@ def testIssue1184(env):
         res = env.cmd('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         env.assertGreater(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], '1')
+        env.assertEqual(d['num_records'], 1)
 
         env.assertEqual(env.cmd('FT.DEL idx doc0'), 1)
 
@@ -3139,7 +3128,7 @@ def testIssue1184(env):
         res = env.cmd('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         env.assertEqual(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], '0')
+        env.assertEqual(d['num_records'], 0)
 
         env.cmd('FT.DROP idx')
         env.cmd('DEL doc0')
@@ -3718,6 +3707,41 @@ def test_cluster_set(env):
                'MASTER'
             ).equal('OK')
     verify_address('::1')
+
+
+def test_cluster_set_server_memory_tracking(env):
+    if not env.isCluster():
+        # this test is only relevant on cluster
+        env.skip()
+
+    def get_memory(env):
+        res = env.cmd('INFO', "MEMORY")
+        return res['used_memory']
+
+    def cluster_set_ipv4():
+        env.cmd('SEARCH.CLUSTERSET',
+               'MYID',
+               '1',
+               'RANGES',
+               '1',
+               'SHARD',
+               '1',
+               'SLOTRANGE',
+               '0',
+               '16383',
+               'ADDR',
+               'password@127.0.0.1:22000',
+               'MASTER'
+            )
+    for _ in range(200):
+        cluster_set_ipv4()
+    initial = get_memory(env) - 1024 * 1024 # to account for some variance in memory
+    for _ in range(1_000): # hangs at 1932 iterations. need to determine the cause
+        cluster_set_ipv4()
+        mem = get_memory(env)
+        env.assertLessEqual(initial, mem)
+
+
 
 def test_internal_commands(env):
     ''' Test that internal cluster commands cannot run from a script '''

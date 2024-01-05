@@ -115,7 +115,7 @@ def test_worker_threads_sanity():
             env.assertEqual(getWorkersThpoolStats(conn)['totalJobsDone'],
                             (0 if it==0 else 2*n_vectors) if i==1 else (2*n_vectors if it==0 else 5*n_vectors),
                             message=f"iteration {it+1} {'before' if i==1 else 'after'} loading")
-            assertInfoField(env, 'idx', 'num_docs', str(n_vectors*(it+1)))
+            assertInfoField(env, 'idx', 'num_docs', n_vectors*(it+1))
             # Resume the workers thread pool, let the background indexing start (in the first iteration it is paused)
             if i==1:
                 env.expect('FT.DEBUG', 'WORKER_THREADS', 'RESUME').ok()
@@ -138,7 +138,7 @@ def test_delete_index_while_indexing():
                'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
     env.expect(debug_cmd(), 'WORKER_THREADS', 'PAUSE').ok()
     load_vectors_to_redis(env, n_vectors, 0, dim)
-    assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+    assertInfoField(env, 'idx', 'num_docs', n_vectors)
     env.expect(debug_cmd(), 'WORKER_THREADS', 'RESUME').ok()
 
     # Delete index while vectors are being indexed (to validate proper cleanup of background jobs in sanitizer).
@@ -179,7 +179,7 @@ def test_burst_threads_sanity():
                                     message=f"{'before loading' if i==1 else 'after loading'}")
                     if i==2:  # after reloading in HNSW, we expect to run insert job for each vector
                         expected_total_jobs += n_local_vectors
-                assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+                assertInfoField(env, 'idx', 'num_docs', n_vectors)
                 env.assertEqual(debug_info['INDEX_LABEL_COUNT'], n_local_vectors)
                 env.assertEqual(getWorkersThpoolStats(conn)['totalPendingJobs'], 0)
                 if algo == 'HNSW':
@@ -194,7 +194,6 @@ def test_burst_threads_sanity():
 
 
 def test_workers_priority_queue():
-    print("before init")
     env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
     conn = env.getConnection()
     n_shards = env.shardsCount
@@ -206,7 +205,7 @@ def test_workers_priority_queue():
                'DISTANCE_METRIC', 'L2').ok()
     env.expect(debug_cmd(), 'WORKER_THREADS', 'PAUSE').ok()
     query_vec = load_vectors_to_redis(env, n_vectors, n_vectors-1, dim)
-    assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+    assertInfoField(env, 'idx', 'num_docs', n_vectors)
 
     # Expect that some vectors are still being indexed in the background after we are done loading.
     debug_info = get_vecsim_debug_dict(conn, 'idx', 'vector')
@@ -225,7 +224,6 @@ def test_workers_priority_queue():
         # index (last id)
         env.assertAlmostEqual(float(res[2][1]), 0, 1e-5)
         env.expect(debug_cmd(), 'WORKER_THREADS', 'PAUSE').ok()
-        print("iteration ", iteration_count)
         # We expect that the number of vectors left to index will decrease from one iteration to another.
         debug_info = get_vecsim_debug_dict(conn, 'idx', 'vector')
         vectors_left_to_index_new = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
@@ -250,7 +248,7 @@ def test_buffer_limit():
                'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
     env.expect(debug_cmd(), 'WORKER_THREADS', 'PAUSE').ok()
     load_vectors_to_redis(env, n_vectors, 0, dim)
-    assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+    assertInfoField(env, 'idx', 'num_docs', n_vectors)
 
     # Verify that the frontend flat index is full up to the buffer limit, and the rest of the vectors were indexed
     # directly into HNSW backend index.
@@ -283,7 +281,7 @@ def test_async_updates_sanity():
                'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
     query_before_update = load_vectors_to_redis(env, n_vectors, n_vectors-1, dim)
     n_local_vectors_before_update = get_vecsim_debug_dict(conn, 'idx', 'vector')['INDEX_LABEL_COUNT']
-    assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+    assertInfoField(env, 'idx', 'num_docs', n_vectors)
     res = cluster_conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN $K @vector $vec_param EF_RUNTIME {n_vectors}]',
                                        'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score',
                                        'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10, 'vec_param', query_before_update.tobytes())
@@ -309,7 +307,7 @@ def test_async_updates_sanity():
     # the backend index yet.
     env.expect(debug_cmd(), 'WORKER_THREADS', 'PAUSE').ok()
     query_vec = load_vectors_to_redis(env, n_vectors, 0, dim, ids_offset=0, seed=11) # new seed to generate new vectors
-    assertInfoField(env, 'idx', 'num_docs', str(n_vectors))
+    assertInfoField(env, 'idx', 'num_docs', n_vectors)
     debug_info = get_vecsim_debug_dict(conn, 'idx', 'vector')
     local_marked_deleted_vectors = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
     env.assertEqual(local_marked_deleted_vectors, n_local_vectors_before_update)
@@ -354,3 +352,20 @@ def test_async_updates_sanity():
     env.assertEqual(to_dict(debug_info['BACKEND_INDEX'])['INDEX_SIZE'], n_local_vectors)
     env.assertEqual(to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE'], 0)
     env.assertEqual(to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+
+@skip(cluster=True)
+def test_multiple_loaders():
+    env = initEnv()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    n_docs = 10
+    limit = 5
+
+    conn = getConnectionByEnv(env)
+    for n in range(n_docs):
+        conn.execute_command('HSET', n, 'n', n)
+
+    cmd = ['FT.AGGREGATE', 'idx', '*']
+    cmd += ['LOAD', '*'] * limit # Add multiple loaders
+    cmd += ['LIMIT', '0', limit]
+
+    env.expect(*cmd).noError().apply(lambda x: x[1:]).equal([['n', '0'], ['n', '1'], ['n', '2'], ['n', '3'], ['n', '4']])

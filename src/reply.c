@@ -211,8 +211,8 @@ int RedisModule_Reply_Stringf(RedisModule_Reply *reply, const char *fmt, ...) {
   return REDISMODULE_OK;
 }
 
-int RedisModule_Reply_String(RedisModule_Reply *reply, RedisModuleString *val) {
-  RedisModule_ReplyWithString(reply->ctx, val);
+int RedisModule_Reply_String(RedisModule_Reply *reply, const RedisModuleString *val) {
+  RedisModule_ReplyWithString(reply->ctx, (RedisModuleString*)val);
 #ifdef REDISMODULE_REPLY_DEBUG
   size_t n;
   const char *p = RedisModule_StringPtrLen(val, &n);
@@ -385,10 +385,10 @@ int RedisModule_ReplyKV_StringBuffer(RedisModule_Reply *reply, const char *key, 
   return REDISMODULE_OK;
 }
 
-int RedisModule_ReplyKV_String(RedisModule_Reply *reply, const char *key, RedisModuleString *val) {
+int RedisModule_ReplyKV_String(RedisModule_Reply *reply, const char *key, const RedisModuleString *val) {
   RedisModule_ReplyWithSimpleString(reply->ctx, key);
   json_add(reply, false, "\"%s\"", key);
-  RedisModule_ReplyWithString(reply->ctx, val);
+  RedisModule_ReplyWithString(reply->ctx, (RedisModuleString*)val);
   _RedisModule_Reply_Next(reply);
 
 #ifdef REDISMODULE_REPLY_DEBUG

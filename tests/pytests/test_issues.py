@@ -243,7 +243,7 @@ def test_MOD1266(env):
   env.expect('FT.SEARCH', 'idx', '*', 'sortby', 'n2', 'DESC', 'RETURN', '1', 'n2') \
     .equal([2, 'doc3', ['n2', '3'], 'doc1', ['n2', '1']])
 
-  assertInfoField(env, 'idx', 'num_docs', '2')
+  assertInfoField(env, 'idx', 'num_docs', 2)
 
   # Test fetching failure. An object cannot be indexed
   env.cmd('FT.CREATE', 'jsonidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
@@ -418,9 +418,9 @@ def test_update_num_terms(env):
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
   conn.execute_command('HSET', 'doc1', 't', 'foo')
   conn.execute_command('HSET', 'doc1', 't', 'bar')
-  assertInfoField(env, 'idx', 'num_terms', '2')
+  assertInfoField(env, 'idx', 'num_terms', 2)
   forceInvokeGC(env, 'idx')
-  assertInfoField(env, 'idx', 'num_terms', '1')
+  assertInfoField(env, 'idx', 'num_terms', 1)
 
 @skip(cluster=True)
 def testOverMaxResults():
@@ -812,8 +812,8 @@ def test_mod_6276(env):
   env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', 'idx').ok()   # Stop the gc from running uncontrollably
   env.expect('FT.DEBUG', 'GC_WAIT_FOR_JOBS').equal('DONE') # Make sure there are no running gc jobs
   env.expect('MULTI').ok()                                 # Start an atomic transaction:
-  env.cmd('FT.DEBUG', 'GC_FORCEBGINVOKE', 'idx')           # 1. Force the gc to run
-  env.cmd('FT.DROPINDEX', 'idx')                           # 2. Drop the index while the gc is running
+  env.cmd('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx')       # 1. Reschedule the gc - add a job to the queue
+  env.cmd('FT.DROPINDEX', 'idx')                           # 2. Drop the index while the gc is running/queued
   env.expect('EXEC').equal(['OK', 'OK'])                   # Execute the transaction
   env.expect('FT.DEBUG', 'GC_WAIT_FOR_JOBS').equal('DONE') # Wait for the gc to finish
 
@@ -867,17 +867,20 @@ def mod5778_add_new_shard_to_cluster(env: Env):
 
     # Move one slot (0) to the new shard (according to https://redis.io/commands/cluster-setslot/)
     new_shard_id = new_shard_conn.execute_command('CLUSTER MYID')
+    source_shard_id = conn.execute_command('CLUSTER MYID')
+    env.assertEqual(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 IMPORTING {source_shard_id}"), "OK")
+    env.assertEqual(conn.execute_command(f"CLUSTER SETSLOT 0 MIGRATING {new_shard_id}"), "OK")
     env.assertEqual(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"), "OK")
     env.assertEqual(conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"), "OK")
 
     # Now we expect that the new shard will be a part of the cluster partition in redisearch (allow some time
     # for the cluster refresh to occur and acknowledged by all shards)
-    while True:
-        time.sleep(0.5)
-        cluster_info = new_shard_conn.execute_command("search.clusterinfo")
-        if cluster_info[:2] == ['num_partitions', int(initial_shards_count+1)]:
-            break
-
+    with TimeLimit(40, "fail to acknowledge topology"):
+        while True:
+            time.sleep(0.5)
+            cluster_info = new_shard_conn.execute_command("search.clusterinfo")
+            if cluster_info[:2] == ['num_partitions', int(initial_shards_count+1)]:
+                break
     # search.clusterinfo response format is the following:
     # ['num_partitions', 4, 'cluster_type', 'redis_oss', 'hash_func', 'CRC16', 'num_slots', 16384, 'slots',
     # [0, 0, ['1f834c5c207bbe8d6dab0c6f050ff06292eb333c', '127.0.0.1', 6385, 'master self']],

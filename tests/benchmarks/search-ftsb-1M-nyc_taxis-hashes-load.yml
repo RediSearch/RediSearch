@@ -10,9 +10,7 @@ description: "
                 2 TEXT sortable fields.
                 2 GEO sortable fields.
              "
-remote:
- - type: oss-standalone
- - setup: redisearch-m5
+
 metadata:
   component: "search"
 setups:

@@ -1,7 +1,5 @@
 name: "ftsb-10K-enwiki_abstract-hashes-term-suffix"
-remote:
- - type: oss-standalone
- - setup: redisearch-m5
+
 metadata:
   component: "search"
 setups:
